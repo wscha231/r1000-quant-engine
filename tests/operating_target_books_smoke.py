@@ -334,10 +334,47 @@ def test_operating_concentrated_book_rejects_more_than_registered_three_names() 
             operating_books.latest_price_close_date = original
 
 
+def test_approved_session_caps_later_prices_and_rejects_stale_selector() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        history = root / "reports" / "main_monthly_weights.csv"
+        latest = root / "portfolio_latest.csv"
+        write_csv(history, [{"rebalance_date": "2026-02-27", "ticker": "OLD", "weight": 1.0}])
+        write_csv(latest, [{"rebalance_date": "2026-05-11", "ticker": "NEW", "weight": 1.0}])
+        original = operating_books.latest_price_close_date
+        operating_books.latest_price_close_date = lambda price_cache, tickers: pd.Timestamp("2026-05-12")
+        try:
+            book, summary = build_book(
+                portfolio="main",
+                history_path=history,
+                latest_target_path=latest,
+                price_cache=root / "cache_prices",
+                max_signal_date="2026-05-11",
+            )
+            assert summary["approved_session_contract_failure"] is False
+            assert summary["observed_latest_price_close_date"] == "2026-05-12"
+            assert summary["latest_price_close_date"] == "2026-05-11"
+            assert pd.to_datetime(book["rebalance_date"]).max() == pd.Timestamp("2026-05-11")
+
+            write_csv(latest, [{"rebalance_date": "2026-05-08", "ticker": "STALE", "weight": 1.0}])
+            _, stale = build_book(
+                portfolio="main",
+                history_path=history,
+                latest_target_path=latest,
+                price_cache=root / "cache_prices",
+                max_signal_date="2026-05-11",
+            )
+            assert stale["approved_source_session_match"] is False
+            assert stale["approved_session_contract_failure"] is True
+        finally:
+            operating_books.latest_price_close_date = original
+
+
 if __name__ == "__main__":
     test_operating_books_append_latest_close_targets()
     test_operating_books_do_not_use_future_recommended_next_run_date()
     test_existing_latest_close_row_is_marked_evidence_end_eligible()
     test_unaccepted_comparison_cannot_select_concentrated_n1()
     test_operating_concentrated_book_rejects_more_than_registered_three_names()
+    test_approved_session_caps_later_prices_and_rejects_stale_selector()
     print("operating_target_books_smoke: ok")

@@ -846,6 +846,7 @@ jobs:
             --latest-run outputs \
             --price-cache cache_prices \
             --output-dir outputs/reports \
+            --max-signal-date "$LAST_NYSE_SESSION_DATE" \
             2>&1 | tee outputs/full_rebuild_logs/operating_target_books_pre_sidecar.log
 
           python tools/run_fullrun_latest_cross_section_preflight.py \

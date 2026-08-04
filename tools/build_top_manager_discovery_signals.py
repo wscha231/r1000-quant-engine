@@ -41,9 +41,20 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pandas_market_calendars as mcal
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def decision_close_utc_naive(value: pd.Timestamp) -> pd.Timestamp:
+    date = pd.Timestamp(value).normalize()
+    schedule = mcal.get_calendar("NYSE").schedule(start_date=date, end_date=date)
+    if len(schedule) != 1:
+        raise ValueError(f"candidate rebalance date is not an NYSE session: {date.date()}")
+    close = pd.Timestamp(schedule.iloc[0]["market_close"])
+    close = close.tz_convert("UTC") if close.tzinfo else close.tz_localize("UTC")
+    return close.tz_localize(None)
 
 
 def repo_path(value: str | Path) -> Path:
@@ -90,9 +101,8 @@ def aggregate_per_date(events: pd.DataFrame, dates: list[pd.Timestamp], lookback
     events["_is_top10"] = events["cohort_rank_bucket"].isin({"top3", "top7", "top10"})
     out_rows: list[dict[str, Any]] = []
     lookback = pd.Timedelta(days=int(lookback_days))
-    # End-of-day availability cutoff to match the enricher's convention.
     for d in dates:
-        as_of = pd.Timestamp(d).normalize() + pd.Timedelta(hours=23, minutes=59, seconds=59)
+        as_of = decision_close_utc_naive(pd.Timestamp(d))
         floor = as_of - lookback
         window = events[(events["available_from_ts"] > floor) & (events["available_from_ts"] <= as_of)]
         if window.empty:

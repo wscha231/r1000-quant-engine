@@ -170,6 +170,7 @@ def strict_source_failures(
     form4: pd.DataFrame,
     holdings_13f: pd.DataFrame,
     etf_holdings: pd.DataFrame,
+    top_manager_signals: pd.DataFrame,
 ) -> list[str]:
     failures: list[str] = []
     requirements = {
@@ -178,6 +179,11 @@ def strict_source_failures(
         "institutional_13f": (holdings_13f, {"available_from"}),
         "etf_holdings": (etf_holdings, {"holding_ticker", "available_from"}),
     }
+    if not top_manager_signals.empty:
+        requirements["top_manager"] = (
+            top_manager_signals,
+            {"rebalance_date", "ticker", "latest_top_manager_available_from"},
+        )
     for label, (frame, required) in requirements.items():
         if frame.empty:
             failures.append(f"{label}_empty")
@@ -228,6 +234,36 @@ def strict_source_failures(
             failures.append(
                 "candidate_feature_available_from_not_exact_close:"
                 f"{int(availability_mismatch.sum())}"
+            )
+    if not top_manager_signals.empty and {
+        "rebalance_date",
+        "latest_top_manager_available_from",
+    }.issubset(top_manager_signals.columns):
+        decisions = pd.to_datetime(top_manager_signals["rebalance_date"], errors="coerce")
+        available = pd.to_datetime(
+            top_manager_signals["latest_top_manager_available_from"],
+            errors="coerce",
+            utc=True,
+        )
+        closes = pd.Series(pd.NaT, index=top_manager_signals.index, dtype="datetime64[ns, UTC]")
+        for index, value in decisions.items():
+            if pd.isna(value):
+                continue
+            try:
+                closes.loc[index] = decision_close_utc(
+                    pd.Timestamp(value).date().isoformat()
+                )
+            except ValueError:
+                failures.append(
+                    f"top_manager_non_nyse_session:{pd.Timestamp(value).date().isoformat()}"
+                )
+        missing = decisions.isna() | available.isna() | closes.isna()
+        if missing.any():
+            failures.append(f"top_manager_availability_missing:{int(missing.sum())}")
+        after_close = (~missing) & available.gt(closes)
+        if after_close.any():
+            failures.append(
+                f"top_manager_available_after_decision_close:{int(after_close.sum())}"
             )
     return sorted(set(failures))
 
@@ -745,7 +781,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     etf_holdings = read_table(etf_holdings_path)
     top_manager_signals = read_table(top_manager_signals_path) if top_manager_signals_path.exists() else pd.DataFrame()
     strict_contract = bool(getattr(args, "strict_source_contract", False))
-    failures = strict_source_failures(candidates, form4, holdings_13f, etf_holdings)
+    failures = strict_source_failures(
+        candidates,
+        form4,
+        holdings_13f,
+        etf_holdings,
+        top_manager_signals,
+    )
     if strict_contract and failures:
         raise RuntimeError("SEC enriched strict source contract failed: " + ";".join(failures))
     input_frames = {

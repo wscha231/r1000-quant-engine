@@ -350,7 +350,7 @@ fi
 if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "official" ]; then
   refresh_replay_price_cache
   build_sec_enriched_candidate_book
-  python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
+  python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports --max-signal-date "${LAST_NYSE_SESSION_DATE:?resolved session date is required}" 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
   build_daily_market_snapshot
   # Crisis defense substrate (run 27445937281 diagnosis, 2026-06-13): without
   # these, vnext daily_crisis_state has long_crisis_score=0.0 and
@@ -566,7 +566,7 @@ python tools/run_concentrated_position_risk_replay.py --latest-run outputs --out
 python tools/run_alpha_sprint_backtest.py --latest-run outputs --output-dir outputs/alpha_sprint_backtest 2>&1 | tee outputs/full_rebuild_logs/alpha_sprint_backtest.log || true
 python tools/run_position_aware_risk_replay.py --holdings outputs/main_v2_backtest/monthly_holdings.csv --output-dir outputs/position_aware_risk_replay 2>&1 | tee outputs/full_rebuild_logs/position_aware_risk_replay.log || true
 build_sec_enriched_candidate_book
-python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
+python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports --max-signal-date "${LAST_NYSE_SESSION_DATE:?resolved session date is required}" 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
 build_daily_market_snapshot
 run_alphaops_vnext_production
 run_universe_health_audit

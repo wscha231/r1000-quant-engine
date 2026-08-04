@@ -1789,6 +1789,7 @@ def test_full_rebuild_binds_approved_session_and_preflight_artifacts() -> None:
     assert '--end-date "$LAST_NYSE_SESSION_DATE"' in rebuild_step
     assert rebuild_step.count('--end-date "$LAST_NYSE_SESSION_DATE"') == 4
     assert "--target-book-scope operating" in rebuild_step
+    assert '--max-signal-date "$LAST_NYSE_SESSION_DATE"' in rebuild_step
     assert "tools/run_fullrun_latest_cross_section_preflight.py" in rebuild_step
     assert '--valuation-date "$LAST_NYSE_SESSION_DATE"' in rebuild_step
     assert '--decision-time-utc "$DECISION_TIME_UTC"' in rebuild_step
@@ -1855,9 +1856,15 @@ def test_fullrun_publication_is_fail_closed_and_preserves_cost_evidence() -> Non
         "cost_sensitivity/main/report.md",
         "cost_sensitivity/concentrated/summary.json",
         "cost_sensitivity/concentrated/report.md",
-        "required=name in REQUIRED_COST_SENSITIVITY_FILES",
+        "required=name in REQUIRED_OFFICIAL_FILES",
+        "fullrun_source_manifest_verification.json",
+        "fullrun_runtime_source_manifest.json",
+        "fullrun_runtime_operating_source_manifest.json",
+        "fullrun_resolved_dependencies.json",
     ):
         assert token in gdrive_manifest, token
+    sidecar_source = (ROOT / "tools" / "run_full_rebuild_sidecars.py").read_text(encoding="utf-8")
+    assert sidecar_source.count('--max-signal-date "${LAST_NYSE_SESSION_DATE:') == 2
 
     approved = json.loads(
         read_tracked_text("manifests/fullrun/run287_canonical_a_20260731.json")

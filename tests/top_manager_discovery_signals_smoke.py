@@ -17,14 +17,15 @@ def _events() -> pd.DataFrame:
     # BBB: 1 top10 manager only.
     # CCC: a buy that is AFTER the rebalance date -> must be excluded (PIT).
     return pd.DataFrame({
-        "ticker": ["AAA", "AAA", "AAA", "BBB", "CCC"],
-        "manager_cik": ["1", "2", "3", "9", "5"],
-        "cohort_rank_bucket": ["top3", "top3", "top7", "top10", "top3"],
+        "ticker": ["AAA", "AAA", "AAA", "BBB", "CCC", "DDD"],
+        "manager_cik": ["1", "2", "3", "9", "5", "6"],
+        "cohort_rank_bucket": ["top3", "top3", "top7", "top10", "top3", "top3"],
         "available_from_ts": pd.to_datetime([
             "2023-01-10", "2023-02-15", "2023-03-01",  # AAA before 2023-06-01
             "2023-04-01",                                # BBB before
             "2023-09-01",                                # CCC AFTER -> excluded
-        ], utc=True),
+            "2023-06-01T22:00:00Z",                      # DDD after NYSE close -> excluded
+        ], utc=True, format="mixed"),
     })
 
 
@@ -42,6 +43,7 @@ def test_pit_window_and_counts() -> None:
     assert 0.0 < aaa["top7_discovery_score"] <= 1.0, aaa
     # CCC's only buy is after the rebalance date -> no PIT leak
     assert "CCC" not in by_ticker, "future-dated buy leaked into PIT window"
+    assert "DDD" not in by_ticker, "after-close buy leaked into same-session PIT window"
     print(f"PASS test_pit_window_and_counts  AAA top3={aaa['top3_manager_count']} top7={aaa['top7_manager_count']} score={aaa['top7_discovery_score']:.3f}")
 
 

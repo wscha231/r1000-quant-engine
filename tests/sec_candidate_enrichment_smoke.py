@@ -13,7 +13,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.run_sec_enriched_candidate_replay import run  # noqa: E402
+from tools.run_sec_enriched_candidate_replay import run, strict_source_failures  # noqa: E402
 
 
 def _candidate_rows() -> list[dict[str, object]]:
@@ -293,7 +293,26 @@ def test_strict_contract_rejects_missing_candidate_provenance() -> None:
         assert not (output / "candidate_replay_book_sec_enriched.csv").exists()
 
 
+def test_strict_contract_rejects_top_manager_after_close() -> None:
+    failures = strict_source_failures(
+        pd.DataFrame(_candidate_rows()),
+        pd.DataFrame(_form4_rows()),
+        pd.DataFrame(_thirteen_f_rows()),
+        pd.DataFrame(_etf_rows()),
+        pd.DataFrame(
+            [{
+                "rebalance_date": "2026-05-13",
+                "ticker": "AAPL",
+                "top_manager_discovery_score": 1.0,
+                "latest_top_manager_available_from": "2026-05-13T21:00:00Z",
+            }]
+        ),
+    )
+    assert "top_manager_available_after_decision_close:1" in failures
+
+
 if __name__ == "__main__":
     test_sec_candidate_enrichment_is_pit_and_research_only()
     test_strict_contract_rejects_missing_candidate_provenance()
+    test_strict_contract_rejects_top_manager_after_close()
     print("sec_candidate_enrichment_smoke: PASS")

@@ -113,7 +113,7 @@
   "tracked_inputs": {
     "fullrun_workflow": {
       "path": ".github/workflows/full_rebuild_manual.yml",
-      "sha256": "d6748736139a208295e6c810a37a8f11dfbee91a30409c494c37f159b16d6963"
+      "sha256": "0fd8aa070f835ba17d89db1fcb9a11642f3329b4bd0b1bbbafa6771304406ff0"
     },
     "requirements": {
       "path": "requirements_github.txt",
@@ -149,7 +149,7 @@
     },
     "sidecar_orchestrator": {
       "path": "tools/run_full_rebuild_sidecars.py",
-      "sha256": "a110e0775aa78a16b14f2bf57c2784fea5846f1b6b9955f68aa006b8cc774c63"
+      "sha256": "54ac5f39a6c195205dddd2df952f47846c4bd86ed6959a03bfe93367d3a735eb"
     },
     "data_freshness_contract": {
       "path": "tools/run_data_freshness_contract.py",
@@ -161,11 +161,15 @@
     },
     "gdrive_sync_manifest_builder": {
       "path": "tools/build_gdrive_sync_manifest.py",
-      "sha256": "1c4fee3f8d4562d32e0b8f1f647944e01b573589dfa40129647cd9a8c1ec166b"
+      "sha256": "aae085a4d38abf4b5418af120fb5faffff4728cde500466658fcde09bc228b8a"
     },
     "sec_enrichment": {
       "path": "tools/run_sec_enriched_candidate_replay.py",
-      "sha256": "c70c579b49269698ecb79f8cb8465e642927e5dc26f90c345751c2ad132a19c6"
+      "sha256": "1daee853e3eff8a37e1ce50f8228ae0eb0e8ae8265c8f637f49098982c9ee2c9"
+    },
+    "top_manager_discovery_builder": {
+      "path": "tools/build_top_manager_discovery_signals.py",
+      "sha256": "6b85e392d611b399c1c015a8f225377dca9dd607a8d5beec0dd25b274ada721a"
     },
     "policy_readiness": {
       "path": "tools/audit_data_readiness.py",
@@ -173,7 +177,7 @@
     },
     "operating_target_builder": {
       "path": "tools/build_operating_target_books.py",
-      "sha256": "cc6f0067d7f47475dda82f3c9c6ff9954b04a5207c8ac259a97845e4d03b9ab7"
+      "sha256": "7c442428855c9e7f250f7608785f53291e455bd8d2837f8ea5eeee264b337f50"
     },
     "replay_integrity": {
       "path": "tools/run_replay_integrity_preflight.py",

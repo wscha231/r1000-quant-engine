@@ -3833,6 +3833,15 @@ Expected contract:
 - Latest ranking eligibility must use the same effective gate and prerequisite
   overlays as historical construction; otherwise an override can be audited as
   valid yet removed before the current target is built.
+- A post-engine price refresh must not redate an older selector beyond the
+  approved session. Cap operating-book construction at the resolved session and
+  require the source target itself to come from that exact session.
+- PIT event aggregation ends at the scheduled exchange close, not civil-day
+  midnight. Validate derived top-manager availability again at enrichment time
+  so stale cached producers also fail closed.
+- Broker evidence and its runtime identities are one durable publication unit.
+  Drive modes that retain ledgers must require both runtime manifests, source
+  verification, and the resolved dependency inventory.
 - Candidate-gate Boolean and label form one contract: passing rows use only the
   registered pass labels, rejected rows use `rejected`, and unknown Boolean
   encodings fail closed before completeness is computed.

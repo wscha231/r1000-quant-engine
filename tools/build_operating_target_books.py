@@ -302,6 +302,7 @@ def build_book(
     history_path: Path,
     latest_target_path: Path,
     price_cache: Path,
+    max_signal_date: str | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     history = read_csv(history_path)
     latest = normalize_latest_target(read_csv(latest_target_path), portfolio)
@@ -341,7 +342,12 @@ def build_book(
     # Do not use recommended_next_run_date here. It is a future scheduling hint,
     # not an observable signal date. Operating books must be dated to a price
     # close or an already-known feature/rebalance/as-of date.
-    price_close = latest_price_close_date(price_cache, latest["ticker"].astype(str).tolist()) if not latest.empty else None
+    observed_price_close = latest_price_close_date(price_cache, latest["ticker"].astype(str).tolist()) if not latest.empty else None
+    approved_max_raw = pd.to_datetime(max_signal_date, errors="coerce") if max_signal_date else pd.NaT
+    approved_max = pd.Timestamp(approved_max_raw).normalize() if pd.notna(approved_max_raw) else None
+    price_close = observed_price_close
+    if approved_max is not None and price_close is not None and pd.Timestamp(price_close).normalize() > approved_max:
+        price_close = approved_max
     signal_date = price_close or latest_target_date
     appended = False
     append_reason = "latest target unavailable"
@@ -392,6 +398,22 @@ def build_book(
         combined["rebalance_date"] = pd.to_datetime(combined["rebalance_date"], errors="coerce").dt.date.astype(str)
         combined = combined.sort_values(["rebalance_date", "ticker"]).reset_index(drop=True)
     output_max = latest_date_from_columns(combined, ["rebalance_date"])
+    approved_source_session_match = bool(
+        approved_max is None
+        or (
+            latest_target_date is not None
+            and pd.Timestamp(latest_target_date).normalize() == approved_max
+        )
+    )
+    approved_output_session_ok = bool(
+        approved_max is None
+        or output_max is None
+        or pd.Timestamp(output_max).normalize() <= approved_max
+    )
+    approved_session_contract_failure = bool(
+        approved_max is not None
+        and (not approved_source_session_match or not approved_output_session_ok)
+    )
     operating_book_current = bool(
         not latest.empty
         and signal_date is not None
@@ -418,11 +440,16 @@ def build_book(
         "history_max_rebalance_date": date_text(history_max),
         "output_max_rebalance_date": date_text(output_max),
         "latest_target_source_date": date_text(latest_target_date),
+        "approved_max_signal_date": date_text(approved_max),
+        "observed_latest_price_close_date": date_text(observed_price_close),
         "latest_price_close_date": date_text(price_close),
         "operating_signal_date": date_text(signal_date),
         "latest_target_appended": bool(appended),
         "operating_book_current": bool(operating_book_current),
         "freshness_error": freshness_error,
+        "approved_source_session_match": approved_source_session_match,
+        "approved_output_session_ok": approved_output_session_ok,
+        "approved_session_contract_failure": approved_session_contract_failure,
         "append_reason": append_reason,
         "decision_frequency": "event_driven_latest_close",
         "same_close_selector_recomputed": False,
@@ -479,6 +506,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             history_path=history_path,
             latest_target_path=latest_target_path,
             price_cache=price_cache,
+            max_signal_date=getattr(args, "max_signal_date", None),
         )
         out_path = output_dir / str(summary["output_name"])
         book.to_csv(out_path, index=False)
@@ -488,12 +516,19 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     blocked_books = [
         row
         for row in summaries
-        if bool(getattr(args, "require_current_latest_target", False))
-        and not bool(row.get("operating_book_current"))
+        if bool(row.get("approved_session_contract_failure"))
+        or (
+            bool(getattr(args, "require_current_latest_target", False))
+            and not bool(row.get("operating_book_current"))
+        )
     ]
     payload = {
         "status": "blocked" if blocked_books else "completed",
-        "blocked_reason": "operating target book did not reach the latest target close" if blocked_books else "",
+        "blocked_reason": (
+            "operating target book violated the approved session or did not reach the latest target close"
+            if blocked_books
+            else ""
+        ),
         "blocked_books": blocked_books,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "latest_run": str(latest_run),
@@ -517,6 +552,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--latest-run", default=DEFAULT_LATEST_RUN)
     parser.add_argument("--price-cache", default="cache_prices")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument(
+        "--max-signal-date",
+        default=None,
+        help="Require latest target provenance from this approved session and never advance beyond it.",
+    )
     parser.add_argument(
         "--require-current-latest-target",
         action="store_true",
