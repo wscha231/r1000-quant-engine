@@ -263,7 +263,8 @@ run_universe_health_audit() {
     --output-dir outputs/universe_health \
     --min-r1000-base 400 \
     --universe-mode "$UNIVERSE_MODE" \
-    2>&1 | tee outputs/full_rebuild_logs/universe_health_audit.log || true
+    --strict \
+    2>&1 | tee outputs/full_rebuild_logs/universe_health_audit.log
 }
 
 write_alpha_plane_measurement_status() {

@@ -644,6 +644,12 @@ def test_sec_enrichment_is_strict_hash_bound_and_precedes_policy_replay() -> Non
     assert len(readiness_calls) == 2
     assert all("--require-policy-replay-ready" in line for line in readiness_calls)
     assert all("|| true" not in line for line in readiness_calls)
+    universe_body = sidecar_tool[
+        sidecar_tool.index("run_universe_health_audit()") :
+        sidecar_tool.index("write_alpha_plane_measurement_status()")
+    ]
+    assert "--strict" in universe_body
+    assert "|| true" not in universe_body
     freshness_body = sidecar_tool[
         sidecar_tool.index("run_data_freshness_contract()") :
         sidecar_tool.index("run_universe_health_audit()")
@@ -1742,14 +1748,15 @@ def test_full_rebuild_binds_approved_session_and_preflight_artifacts() -> None:
     assert "outputs/fullrun_source_manifest_preflight.json" in text
     assert "outputs/fullrun_source_manifest_verification.json" in text
     assert "outputs/fullrun_approved_source_manifest.json" in text
-    runtime_step = extract_yaml_literal_run(
-        text, "Bind restored runtime sources to approved identity"
-    )
+    runtime_step = rebuild_step
     assert "tools/build_fullrun_runtime_source_manifest.py" in runtime_step
     assert "--stage engine_pre_run" in runtime_step
-    assert text.index("Restore SEC evidence overlays from Google Drive") < text.index(
-        "Bind restored runtime sources to approved identity"
-    ) < text.index("Run FULL rebuild")
+    assert "--collector-only" in rebuild_step
+    assert "run_local.py --full --no-collector" in rebuild_step
+    assert rebuild_step.index("--collector-only") < rebuild_step.index(
+        "tools/build_fullrun_runtime_source_manifest.py"
+    ) < rebuild_step.index("run_local.py --full --no-collector")
+    assert "refusing an unapproved collector fallback" in rebuild_step
     run_full_block = text[
         text.index("- name: Run FULL rebuild") :
         text.index("- name: Auto-learning diagnostics (sidecar)")
@@ -1765,7 +1772,7 @@ def test_full_rebuild_binds_approved_session_and_preflight_artifacts() -> None:
         "Restore collector cache"
     )
     assert '--end-date "$LAST_NYSE_SESSION_DATE"' in rebuild_step
-    assert rebuild_step.count('--end-date "$LAST_NYSE_SESSION_DATE"') == 3
+    assert rebuild_step.count('--end-date "$LAST_NYSE_SESSION_DATE"') == 4
     assert "--target-book-scope operating" in rebuild_step
     assert "tools/run_fullrun_latest_cross_section_preflight.py" in rebuild_step
     assert '--valuation-date "$LAST_NYSE_SESSION_DATE"' in rebuild_step

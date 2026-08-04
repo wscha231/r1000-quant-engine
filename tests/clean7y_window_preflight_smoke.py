@@ -163,6 +163,16 @@ def main() -> int:
     )
     assert missing_label_status["pit_status"] == "fail_missing_candidate_gate_label"
 
+    blank_label_path = base / "blank_gate_label_candidate_book.csv"
+    blank_label_rows = gated_rows.copy()
+    blank_label_rows.loc[0, "portfolio_candidate_gate_label"] = "  "
+    blank_label_rows.to_csv(blank_label_path, index=False)
+    blank_label_status = first_decision_pit_status(
+        blank_label_path, "2019-05-31"
+    )
+    assert blank_label_status["pit_status"] == "fail_blank_candidate_gate_label"
+    assert blank_label_status["candidate_gate_blank_label_rows"] == 1
+
     fallback_path = base / "fallback_candidate_book.csv"
     fallback_rows = gated_rows.copy()
     fallback_rows.loc[0, "portfolio_candidate_gate_label"] = "audit_fallback_blocked"

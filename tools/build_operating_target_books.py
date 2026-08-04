@@ -246,27 +246,12 @@ def normalize_latest_target(frame: pd.DataFrame, portfolio: str) -> pd.DataFrame
 def concentrated_champion_metadata(history_path: Path, latest: pd.DataFrame) -> dict[str, str]:
     # The comparison CSV belongs to the same rebuild's experiment grid. It is
     # not an accepted champion pointer and must not choose N after observing
-    # the run outcome. Preserve explicit target metadata; otherwise use the
-    # registered legacy concentrated contract (N=3, score-power, monthly).
+    # the run outcome. The official broker path is registered to the static
+    # concentrated contract (N=3, score-power, monthly).
     metadata = {
-        "target_stock_names": clean_filter_value(
-            latest["target_stock_names"].dropna().iloc[0]
-            if "target_stock_names" in latest.columns
-            and latest["target_stock_names"].notna().any()
-            else "3"
-        ),
-        "weighting_mode": clean_filter_value(
-            latest["weighting_mode"].dropna().iloc[0]
-            if "weighting_mode" in latest.columns
-            and latest["weighting_mode"].notna().any()
-            else "score_power"
-        ),
-        "active_rebalance_interval_months": clean_filter_value(
-            latest["active_rebalance_interval_months"].dropna().iloc[0]
-            if "active_rebalance_interval_months" in latest.columns
-            and latest["active_rebalance_interval_months"].notna().any()
-            else 1
-        ),
+        "target_stock_names": "3",
+        "weighting_mode": "score_power",
+        "active_rebalance_interval_months": "1",
     }
     return {key: value for key, value in metadata.items() if value}
 
@@ -281,20 +266,20 @@ def fill_latest_concentrated_filter_metadata(
     if portfolio != "concentrated" or latest_rows.empty:
         return latest_rows
     out = latest_rows.copy()
+    selected_names = int(out["ticker"].map(clean_ticker).replace("", pd.NA).nunique())
+    if selected_names > 3:
+        raise ValueError(
+            "latest concentrated target exceeds registered N=3 contract: "
+            f"selected_names={selected_names}"
+        )
     metadata = concentrated_champion_metadata(history_path, latest)
     for col, value in metadata.items():
         if col not in out.columns:
             out[col] = value
             continue
         out[col] = out[col].astype("object")
-        blank = out[col].isna() | out[col].astype(str).str.strip().eq("")
-        out.loc[blank, col] = value
-    if "target_n" not in out.columns:
-        out["target_n"] = ""
-    out["target_n"] = out["target_n"].astype("object")
-    if "target_stock_names" in out.columns:
-        blank_target_n = out["target_n"].isna() | out["target_n"].astype(str).str.strip().eq("")
-        out.loc[blank_target_n, "target_n"] = out.loc[blank_target_n, "target_stock_names"].map(clean_filter_value)
+        out.loc[:, col] = value
+    out["target_n"] = "3"
     if "portfolio_mode" not in out.columns:
         out["portfolio_mode"] = "concentrated_alpha"
     else:

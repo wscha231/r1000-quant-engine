@@ -149,8 +149,8 @@ def test_operating_books_append_latest_close_targets() -> None:
         assert "sec_13f_smart_money_score" in main.columns
         assert float(main.loc[main["ticker"].eq("ON"), "smart_money_score"].iloc[-1]) == 0.25
         assert float(concentrated_latest.loc[concentrated_latest["ticker"].eq("WDC"), "sec_13f_smart_money_score"].iloc[-1]) == 0.6
-        assert set(concentrated_latest["target_stock_names"].map(clean_filter_value)) == {"4"}
-        assert set(concentrated_latest["target_n"].map(clean_filter_value)) == {"4"}
+        assert set(concentrated_latest["target_stock_names"].map(clean_filter_value)) == {"3"}
+        assert set(concentrated_latest["target_n"].map(clean_filter_value)) == {"3"}
         assert set(concentrated_latest["weighting_mode"].astype(str)) == {"score_power"}
         assert set(concentrated_latest["active_rebalance_interval_months"].map(clean_filter_value)) == {"1"}
         assert main["decision_frequency"].iloc[-1] == "event_driven_latest_close"
@@ -294,9 +294,50 @@ def test_unaccepted_comparison_cannot_select_concentrated_n1() -> None:
         }
 
 
+def test_operating_concentrated_book_rejects_more_than_registered_three_names() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        latest = root / "latest"
+        reports = latest / "reports"
+        write_csv(
+            reports / "concentrated_strategy_holdings.csv",
+            [{"rebalance_date": "2026-02-27", "ticker": "OLD", "weight": 1.0}],
+        )
+        write_csv(
+            latest / "concentrated_portfolio_latest.csv",
+            [
+                {
+                    "rebalance_date": "2026-05-11",
+                    "ticker": ticker,
+                    "weight": 0.25,
+                    "target_stock_names": 4,
+                    "weighting_mode": "score_power",
+                }
+                for ticker in ("AAA", "BBB", "CCC", "DDD")
+            ],
+        )
+        original = operating_books.latest_price_close_date
+        operating_books.latest_price_close_date = lambda price_cache, tickers: pd.Timestamp("2026-05-08")
+        try:
+            try:
+                build_book(
+                    portfolio="concentrated",
+                    history_path=reports / "concentrated_strategy_holdings.csv",
+                    latest_target_path=latest / "concentrated_portfolio_latest.csv",
+                    price_cache=root / "cache_prices",
+                )
+            except ValueError as exc:
+                assert "registered N=3 contract" in str(exc)
+            else:
+                raise AssertionError("N>3 latest concentrated target must fail closed")
+        finally:
+            operating_books.latest_price_close_date = original
+
+
 if __name__ == "__main__":
     test_operating_books_append_latest_close_targets()
     test_operating_books_do_not_use_future_recommended_next_run_date()
     test_existing_latest_close_row_is_marked_evidence_end_eligible()
     test_unaccepted_comparison_cannot_select_concentrated_n1()
+    test_operating_concentrated_book_rejects_more_than_registered_three_names()
     print("operating_target_books_smoke: ok")

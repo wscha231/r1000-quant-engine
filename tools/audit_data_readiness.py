@@ -817,7 +817,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
 
     if int(scored.get("row_count") or 0) < int(args.min_scored_rows):
         blockers.append(f"scored_latest.csv row count is below threshold: {scored.get('row_count')}")
-    if universe_health.get("exists") and universe_health.get("promotion_allowed") is False:
+    if universe_health.get("exists") and universe_health.get("promotion_allowed") is not True:
         r1000_count = universe_health.get("r1000_base_count")
         floor = universe_health.get("min_r1000_base")
         blockers.append(f"universe health gate failed: scored R1000 base {r1000_count} below floor {floor}")
@@ -871,6 +871,11 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         next_actions.append("Build operating target books from the SEC-enriched candidate replay so Form4/13F/ETF/smart-money evidence is present or explicitly neutralized.")
 
     policy_replay_blockers = list(blockers)
+    if not universe_health.get("exists"):
+        policy_replay_blockers.append("policy replay requires a completed universe health audit")
+        next_actions.append(
+            "Run tools/run_universe_health_audit.py successfully before official broker replay."
+        )
     if sec_evidence_store.get("strict_enrichment_contract_ready") and companyfacts_blocker in policy_replay_blockers:
         policy_replay_blockers.remove(companyfacts_blocker)
     if not sec_evidence_store.get("raw_required_available"):

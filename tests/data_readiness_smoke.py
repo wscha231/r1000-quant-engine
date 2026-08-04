@@ -35,6 +35,15 @@ def write_pit_evidence_store(root: Path) -> None:
     (sec / "institutional_13f_holdings.parquet").write_bytes(b"pit")
     (etf / "etf_holdings.parquet").write_bytes(b"pit")
     latest = root / "outputs"
+    write_json(
+        latest / "universe_health" / "universe_source_audit.json",
+        {
+            "status": "ready",
+            "promotion_allowed": True,
+            "r1000_base_count": 1000,
+            "min_r1000_base": 400,
+        },
+    )
     reports = latest / "reports"
     reports.mkdir(parents=True, exist_ok=True)
     candidate = reports / "candidate_replay_book.csv"
@@ -156,6 +165,11 @@ def test_data_readiness_detects_fresh_operating_books_and_snapshots() -> None:
         assert payload["ready_for_skip_collector_replay"] is True
         assert payload["ready_for_policy_replay"] is True
         assert payload["blockers"] == []
+
+        (latest / "universe_health" / "universe_source_audit.json").unlink()
+        missing_audit = build_payload(args)
+        assert missing_audit["ready_for_policy_replay"] is False
+        assert "policy replay requires a completed universe health audit" in missing_audit["policy_replay_blockers"]
 
 
 def test_data_readiness_reports_feature_source_coverage_and_pit_dates() -> None:

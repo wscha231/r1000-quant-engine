@@ -241,6 +241,16 @@ def first_decision_pit_status(candidate_book: Path, first_decision: str | None) 
         .str.strip()
         .str.lower()
     )
+    blank_label_mask = gate_labels.eq("")
+    status["candidate_gate_blank_label_rows"] = int(blank_label_mask.sum())
+    if blank_label_mask.any():
+        status["pit_status"] = "fail_blank_candidate_gate_label"
+        status["first_decision_post_gate_rows"] = 0
+        status["feature_completeness"] = {
+            "status": "blank_candidate_gate_label",
+            "blank_label_rows": int(blank_label_mask.sum()),
+        }
+        return status
     fallback_mask = gate_labels.str.startswith("audit_fallback")
     status["candidate_gate_fallback_rows"] = int(fallback_mask.sum())
     if fallback_mask.any():

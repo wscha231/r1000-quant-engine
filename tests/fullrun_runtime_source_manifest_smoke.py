@@ -81,6 +81,14 @@ def test_mutable_runtime_inputs_change_composite_identity_and_missing_blocks() -
             assert first["ready"] is True
             assert first["groups"]["prices"]["file_count"] == 1
 
+            # Runtime semantics must come from the same committed bytes whose
+            # digest was approved, never from a later worktree mutation.
+            manifest = root / "manifests" / "fullrun" / "approved.json"
+            manifest.write_text("{\"runtime_source_contract\": null}\n", encoding="utf-8")
+            committed = runtime.build(args)
+            assert committed["ready"] is True
+            assert committed["groups"]["prices"]["file_count"] == 1
+
             price = root / "cache_prices" / "AAA.csv"
             price.write_text("date,close\n2026-07-31,101\n", encoding="utf-8")
             second = runtime.build(args)

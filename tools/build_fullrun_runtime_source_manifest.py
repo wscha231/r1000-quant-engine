@@ -47,11 +47,14 @@ def git_head() -> str:
     ).strip()
 
 
-def git_blob_sha256(relative: str) -> str:
-    content = subprocess.check_output(
+def git_blob_bytes(relative: str) -> bytes:
+    return subprocess.check_output(
         ["git", "show", f"HEAD:{relative}"], cwd=REPO_ROOT
     )
-    return sha256_bytes(content)
+
+
+def git_blob_sha256(relative: str) -> str:
+    return sha256_bytes(git_blob_bytes(relative))
 
 
 def safe_relative(value: Any) -> str:
@@ -144,9 +147,10 @@ def bool_value(value: Any) -> bool:
 def build(args: argparse.Namespace) -> dict[str, Any]:
     failures: list[str] = []
     approved_relative = safe_relative(args.approved_manifest)
-    approved_path = REPO_ROOT / approved_relative
+    approved_bytes = b""
     try:
-        approved_hash = git_blob_sha256(approved_relative)
+        approved_bytes = git_blob_bytes(approved_relative)
+        approved_hash = sha256_bytes(approved_bytes)
     except Exception as exc:
         approved_hash = ""
         failures.append(f"approved_manifest_git_blob_invalid:{exc}")
@@ -158,7 +162,10 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     if actual_head != expected_head:
         failures.append("approved_commit_sha_mismatch")
     try:
-        manifest = json.loads(approved_path.read_text(encoding="utf-8"))
+        # Parse exactly the committed bytes whose digest was approved.  Reading
+        # the worktree path here would let a post-verification mutation change
+        # runtime group semantics while retaining the committed blob hash.
+        manifest = json.loads(approved_bytes.decode("utf-8"))
     except Exception as exc:
         manifest = {}
         failures.append(f"approved_manifest_json_invalid:{exc}")

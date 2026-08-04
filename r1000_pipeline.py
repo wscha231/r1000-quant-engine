@@ -15490,29 +15490,54 @@ def build_latest_concentrated_holdings(
     if d.empty:
         return pd.DataFrame(), {}
 
+    registered_target_n = 3
+    registered_weighting_mode = "score_power"
+    registered_interval_months = 1
+
+    def registered_contract_rows(frame: pd.DataFrame) -> pd.DataFrame:
+        if frame.empty:
+            return frame
+        out = frame.copy()
+        if "target_stock_names" not in out.columns:
+            return pd.DataFrame()
+        target_n_values = pd.to_numeric(out["target_stock_names"], errors="coerce")
+        weighting_values = (
+            out["weighting_mode"].fillna("").astype(str).str.strip().str.lower()
+            if "weighting_mode" in out.columns
+            else pd.Series("", index=out.index, dtype="object")
+        )
+        interval_values = (
+            pd.to_numeric(out["rebalance_interval_months"], errors="coerce")
+            if "rebalance_interval_months" in out.columns
+            else pd.Series(np.nan, index=out.index, dtype="float64")
+        )
+        return out.loc[
+            target_n_values.eq(registered_target_n)
+            & weighting_values.eq(registered_weighting_mode)
+            & interval_values.eq(registered_interval_months)
+        ].copy()
+
     compare_df = concentrated_compare.copy() if isinstance(concentrated_compare, pd.DataFrame) else pd.DataFrame()
     compare_source = "artifact"
-    compare_df = select_concentrated_champion_comparison(cfg_obj, compare_df)
+    compare_df = select_concentrated_champion_comparison(
+        cfg_obj, registered_contract_rows(compare_df)
+    )
     if compare_df.empty:
         compare_path = get_paths(cfg_obj)["reports"] / "concentrated_strategy_comparison.csv"
         if compare_path.exists():
             try:
-                compare_df = select_concentrated_champion_comparison(cfg_obj, pd.read_csv(compare_path))
+                compare_df = select_concentrated_champion_comparison(
+                    cfg_obj, registered_contract_rows(pd.read_csv(compare_path))
+                )
                 compare_source = str(compare_path)
             except Exception:
                 compare_df = pd.DataFrame()
-    # Phase 9 CE: latest-holdings picker clamp bumped 3 -> 30 so the
-    # winning N from the concentrated grid can drive the live recommendation
-    # regardless of size (was silently clipping N=5 winners back to 3).
-    min_names = int(max(1, min(30, getattr(cfg_obj, "concentrated_min_production_names", 3))))
-    fallback_candidates = [
-        int(x) for x in getattr(cfg_obj, "concentrated_top_n_candidates", [min_names])
-        if int(max(1, min(int(x), 30))) >= min_names
-    ]
-    fallback_n = int(fallback_candidates[0]) if fallback_candidates else int(min_names)
-    top_n = int(max(min_names, min(30, safe_float(compare_df["target_stock_names"].iloc[0], fallback_n)))) if not compare_df.empty and "target_stock_names" in compare_df.columns else int(max(min_names, min(30, fallback_n)))
-    weighting_mode = str(compare_df["weighting_mode"].iloc[0]) if not compare_df.empty and "weighting_mode" in compare_df.columns else str(getattr(cfg_obj, "concentrated_weighting_modes", ["conviction_curve"])[0])
-    interval = int(safe_float(compare_df["rebalance_interval_months"].iloc[0], 1.0)) if not compare_df.empty and "rebalance_interval_months" in compare_df.columns else 1
+    # Official broker evidence is registered to one static concentrated
+    # contract.  The same-run grid remains research output and must not choose
+    # a different N/mode/interval after observing the rebuild outcome.
+    top_n = registered_target_n
+    weighting_mode = registered_weighting_mode
+    interval = registered_interval_months
     best_metrics = compare_df.iloc[0].to_dict() if not compare_df.empty else {}
 
     selected = select_concentrated_portfolio_topk(cfg_obj, d, top_n=top_n)

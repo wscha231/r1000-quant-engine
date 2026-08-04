@@ -3795,6 +3795,27 @@ Expected contract:
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
 
+## 2026-08-04 - Immutable approval bytes and pre-computation data identity
+
+- Parse an approved manifest from the exact committed Git blob used for its
+  digest. A later worktree mutation must not be able to change runtime group
+  semantics under the unchanged approval hash.
+- When collection is allowed, split collection from computation: collect,
+  bind the resulting mutable inputs, then run the engine with collection
+  disabled. If `skip_collector=true` was approved and caches are absent, fail
+  instead of silently changing the approved execution mode.
+- Candidate-gate provenance labels are mandatory data. Blank labels block just
+  like synthesized audit fallbacks; column presence alone is insufficient.
+- A static broker contract must govern the latest selector itself. Do not label
+  an N=4/N=5 same-run grid winner as N=3, and do not let broker filtering fall
+  back to an older N=3 decision when the current row is incompatible.
+- Universe health is a required completed prerequisite for policy replay. Its
+  command must run strictly, and a missing audit artifact is a blocker rather
+  than an implicit pass.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
 ## 2026-08-03 - Portable fullrun approval and final pre-broker boundary
 
 - Approval digests for tracked files must use exact Git blob bytes. Hashing a

@@ -177,6 +177,72 @@ def test_latest_concentrated_uses_grid_champion() -> None:
     assert int(selected["target_stock_names"].iloc[0]) == 3
 
 
+def test_latest_concentrated_ignores_same_run_nonregistered_grid_winner() -> None:
+    cfg = EngineConfig(concentrated_min_entry_quality=0.0)
+    latest = pd.DataFrame(
+        [
+            {
+                "rebalance_date": "2026-05-06",
+                "ticker": ticker,
+                "Name": ticker,
+                "sector": "Technology",
+                "score": score,
+                "portfolio_sleeve_label": "future_winner",
+                "selection_confirmation_score": 1.0,
+                "price_above_ma50": 1,
+                "price_above_ma200": 1,
+                "trend_template_full": 1,
+                "entry_quality_score": 0.8,
+                "portfolio_hold_policy_exit_risk": 0.1,
+                "broken_momentum_penalty": 0.0,
+                "portfolio_risk_entry_block_score": 0.1,
+                "portfolio_monster_early_score": 0.7,
+                "breakout_setup_quality_score": 0.8,
+                "rs_acceleration_score": 0.2,
+                "future_winner_engine_score": 0.8,
+                "early_scout_engine_score": 0.6,
+                "relative_strength_composite": 0.7,
+            }
+            for ticker, score in [
+                ("AAA", 3.0),
+                ("BBB", 2.8),
+                ("CCC", 2.6),
+                ("DDD", 2.4),
+            ]
+        ]
+    )
+    compare = pd.DataFrame(
+        [
+            {
+                "portfolio_mode": "concentrated_alpha",
+                "target_stock_names": 4,
+                "weighting_mode": "score_power",
+                "rebalance_interval_months": 1,
+                "strategy_cagr": 0.90,
+                "sharpe": 3.0,
+                "max_dd": -0.10,
+                "comparison_objective": 1.0,
+            },
+            {
+                "portfolio_mode": "concentrated_alpha",
+                "target_stock_names": 3,
+                "weighting_mode": "score_power",
+                "rebalance_interval_months": 1,
+                "strategy_cagr": 0.51,
+                "sharpe": 1.6,
+                "max_dd": -0.20,
+                "comparison_objective": 0.55,
+            },
+        ]
+    )
+    selected, summary = build_latest_concentrated_holdings(
+        cfg, latest, concentrated_compare=compare
+    )
+    assert summary["target_stock_names"] == 3
+    assert summary["weighting_mode"] == "score_power"
+    assert len(selected) <= 3
+
+
 def test_latest_concentrated_reloads_written_grid_artifact() -> None:
     with TemporaryDirectory() as tmp:
         cfg = EngineConfig(base_dir=Path(tmp), concentrated_min_entry_quality=0.0)
@@ -244,6 +310,7 @@ def main() -> int:
     test_monster_early_override_allows_low_entry_quality()
     test_concentrated_champion_rejects_nan_n1_fallback()
     test_latest_concentrated_uses_grid_champion()
+    test_latest_concentrated_ignores_same_run_nonregistered_grid_winner()
     test_latest_concentrated_reloads_written_grid_artifact()
     print("concentrated policy smoke passed")
     return 0

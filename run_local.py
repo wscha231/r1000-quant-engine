@@ -261,6 +261,11 @@ def parse_args() -> argparse.Namespace:
                    help="FULL rebuild (rebuilds feature_store + retrains models). Default is QUICK_RESCORE.")
     p.add_argument("--no-collector", action="store_true",
                    help="Skip the data collection step (use existing cached prices + SEC + macro).")
+    p.add_argument(
+        "--collector-only",
+        action="store_true",
+        help="Run collection and exit before engine computation. Used to hash-bind fetched inputs before an approved fullrun.",
+    )
     p.add_argument("--verdict-only", action="store_true",
                    help="Skip the entire pipeline. Read existing outputs and print Cell E verdict.")
     p.add_argument("--end-date", default=None,
@@ -853,6 +858,9 @@ def main() -> int:
             pass
 
     args = parse_args()
+    if args.collector_only and args.no_collector:
+        print("ERROR: --collector-only and --no-collector are mutually exclusive", file=sys.stderr)
+        return 2
     base_dir = Path(args.base_dir)
     end_date = args.end_date or datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d")
     fast_mode = args.fast_mode.lower() == "true"
@@ -951,6 +959,10 @@ def main() -> int:
             return 1
     else:
         print(f"\n[{now_kst()}] >>> Step 1: Collector SKIPPED")
+
+    if args.collector_only:
+        print(f"\n[{now_kst()}] Collector-only boundary complete; engine computation not started.")
+        return 0
 
     # ---------- Step 2: pipeline ----------
     print(f"\n[{now_kst()}] >>> Step 2: Pipeline ({('FULL REBUILD' if args.full else 'QUICK_RESCORE')})")

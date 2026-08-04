@@ -651,42 +651,6 @@ jobs:
           PY
           cat "$MANIFEST"
 
-      - name: Bind restored runtime sources to approved identity
-        env:
-          SOURCE_MANIFEST_PATH: ${{ inputs.approved_source_manifest_path }}
-          SOURCE_MANIFEST_SHA256: ${{ inputs.approved_source_manifest_sha256 }}
-          APPROVED_COMMIT_SHA: ${{ inputs.approved_commit_sha }}
-          DECISION_TIME_UTC: ${{ inputs.decision_time_utc }}
-          REQUESTED_SKIP_COLLECTOR: ${{ inputs.skip_collector }}
-        run: |
-          set -euo pipefail
-          python tools/build_fullrun_runtime_source_manifest.py \
-            --approved-manifest "$SOURCE_MANIFEST_PATH" \
-            --expected-manifest-sha256 "$SOURCE_MANIFEST_SHA256" \
-            --expected-commit-sha "$APPROVED_COMMIT_SHA" \
-            --stage engine_pre_run \
-            --resolved-session-date "$LAST_NYSE_SESSION_DATE" \
-            --decision-time-utc "$DECISION_TIME_UTC" \
-            --skip-collector "$REQUESTED_SKIP_COLLECTOR" \
-            --workflow-identity "$GITHUB_WORKFLOW/$GITHUB_RUN_ID/$GITHUB_RUN_ATTEMPT" \
-            --output outputs/fullrun_runtime_source_manifest.json \
-            2>&1 | tee outputs/full_rebuild_logs/fullrun_runtime_source_manifest.log
-          python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          payload = json.loads(
-              Path("outputs/fullrun_runtime_source_manifest.json").read_text(encoding="utf-8")
-          )
-          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
-              handle.write(
-                  "FULLRUN_RUNTIME_SOURCE_IDENTITY_SHA256="
-                  + payload["runtime_source_identity_sha256"]
-                  + "\n"
-              )
-          PY
-
       - name: Validate backtest window contract
         run: |
           python - <<'PY'
@@ -719,6 +683,9 @@ jobs:
           BACKTEST_YEARS: ${{ inputs.backtest_years || '7' }}
           DECISION_TIME_UTC: ${{ inputs.decision_time_utc }}
           LEADER_RESCUE_MODE: ${{ inputs.leader_rescue_mode }}
+          SOURCE_MANIFEST_PATH: ${{ inputs.approved_source_manifest_path }}
+          SOURCE_MANIFEST_SHA256: ${{ inputs.approved_source_manifest_sha256 }}
+          APPROVED_COMMIT_SHA: ${{ inputs.approved_commit_sha }}
           PHASE_PHASE14_HYBRID_ALPHA_ENABLED: ${{ inputs.universe_mode == 'r1000+adr_phase14_off' && '0' || 'auto' }}
           PHASE_PHASE11_MULTIBAGGER_ENABLED: ${{ inputs.phase11_multibagger_enabled && '1' || '0' }}
           PHASE11_EPISODES_PATH: ${{ inputs.phase11_episodes_source == 'v2' && 'research/multibagger_episodes_v2.csv' || 'research/multibagger_episodes.csv' }}
@@ -764,10 +731,11 @@ jobs:
               SKIP_COLLECTOR="--no-collector"
               echo "[skip_collector] cache present, skipping data collection"
             else
-              echo "[skip_collector] WARN: requested but NO cache found in this runner."
-              echo "[skip_collector]       Running collector anyway (first cloud run; will populate cache for future runs)."
+              echo "::error::skip_collector=true was approved but no cache is present; refusing an unapproved collector fallback"
+              exit 2
             fi
           fi
+          EFFECTIVE_SKIP_COLLECTOR="$([ -n "$SKIP_COLLECTOR" ] && echo true || echo false)"
 
           # fast_mode: true = 5 backtests + 6m retrain (~2-3h total, fits in 6h GHA limit)
           # fast_mode: false = full walk-forward (~5-6h, may TIMEOUT on first cloud run)
@@ -808,7 +776,33 @@ jobs:
 
           # Use --base-dir to override Drive path with repo-local outputs/
           # --fast-mode passed as CLI flag (run_local.py:162 supports it natively)
-          python run_local.py --full --fast-mode "$FAST_MODE_FLAG" --backtest-years "$BACKTEST_YEARS" --end-date "$LAST_NYSE_SESSION_DATE" --leader-rescue-mode "$LEADER_RESCUE_MODE" $SKIP_COLLECTOR --base-dir "$(pwd)" 2>&1 | tee "$LOG"
+          if [ "$EFFECTIVE_SKIP_COLLECTOR" = "false" ]; then
+            python run_local.py --full --collector-only --fast-mode "$FAST_MODE_FLAG" --backtest-years "$BACKTEST_YEARS" --end-date "$LAST_NYSE_SESSION_DATE" --leader-rescue-mode "$LEADER_RESCUE_MODE" --base-dir "$(pwd)" 2>&1 | tee outputs/full_rebuild_logs/collector_only.log
+          fi
+
+          # Bind the actual engine inputs after any approved collection and
+          # immediately before computation. The engine always reuses precisely
+          # this hash-bound snapshot and cannot collect again.
+          python tools/build_fullrun_runtime_source_manifest.py \
+            --approved-manifest "$SOURCE_MANIFEST_PATH" \
+            --expected-manifest-sha256 "$SOURCE_MANIFEST_SHA256" \
+            --expected-commit-sha "$APPROVED_COMMIT_SHA" \
+            --stage engine_pre_run \
+            --resolved-session-date "$LAST_NYSE_SESSION_DATE" \
+            --decision-time-utc "$DECISION_TIME_UTC" \
+            --skip-collector "$EFFECTIVE_SKIP_COLLECTOR" \
+            --workflow-identity "$GITHUB_WORKFLOW/$GITHUB_RUN_ID/$GITHUB_RUN_ATTEMPT" \
+            --output outputs/fullrun_runtime_source_manifest.json \
+            2>&1 | tee outputs/full_rebuild_logs/fullrun_runtime_source_manifest.log
+          FULLRUN_RUNTIME_SOURCE_IDENTITY_SHA256="$(python -c 'import json; print(json.load(open("outputs/fullrun_runtime_source_manifest.json", encoding="utf-8"))["runtime_source_identity_sha256"])')"
+          export FULLRUN_RUNTIME_SOURCE_IDENTITY_SHA256
+          export FULLRUN_EFFECTIVE_SKIP_COLLECTOR="$EFFECTIVE_SKIP_COLLECTOR"
+          {
+            echo "FULLRUN_RUNTIME_SOURCE_IDENTITY_SHA256=$FULLRUN_RUNTIME_SOURCE_IDENTITY_SHA256"
+            echo "FULLRUN_EFFECTIVE_SKIP_COLLECTOR=$FULLRUN_EFFECTIVE_SKIP_COLLECTOR"
+          } >> "$GITHUB_ENV"
+
+          python run_local.py --full --no-collector --fast-mode "$FAST_MODE_FLAG" --backtest-years "$BACKTEST_YEARS" --end-date "$LAST_NYSE_SESSION_DATE" --leader-rescue-mode "$LEADER_RESCUE_MODE" --base-dir "$(pwd)" 2>&1 | tee "$LOG"
 
           python tools/build_operating_target_books.py \
             --latest-run outputs \
@@ -881,7 +875,7 @@ jobs:
           APPROVED_SOURCE_MANIFEST_PATH: ${{ inputs.approved_source_manifest_path }}
           APPROVED_SOURCE_MANIFEST_SHA256: ${{ inputs.approved_source_manifest_sha256 }}
           APPROVED_COMMIT_SHA: ${{ inputs.approved_commit_sha }}
-          REQUESTED_SKIP_COLLECTOR: ${{ inputs.skip_collector }}
+          REQUESTED_SKIP_COLLECTOR: ${{ env.FULLRUN_EFFECTIVE_SKIP_COLLECTOR }}
           FULLRUN_RUNTIME_BINDING_REQUIRED: "true"
 
       - name: Verdict (post-sidecar Cell E equivalent)
