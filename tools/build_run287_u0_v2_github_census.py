@@ -25,6 +25,7 @@ from typing import Any, Iterable
 
 REPOSITORY = "wscha231/r1000-quant-engine"
 SCHEMA_VERSION = "run287-u0-v2-github-census-v1"
+COLLECTION_CACHE_SCHEMA_VERSION = "run287-u0-v2-github-collection-cache-v1"
 SHA_RE = re.compile(r"[0-9a-f]{40}")
 EXPERIMENT_PATH_RE = re.compile(
     r"(^|/)(backtest|research|aggressive|auto_learning|experiments?)(/|$)|"
@@ -120,11 +121,17 @@ def collect_repository(repository: str) -> dict[str, Any]:
     return run_json(["gh", "api", f"repos/{repository}"])
 
 
-def collect_remote_branch_sha(branch: str) -> str:
+def collect_remote_branch_sha(repository: str, branch: str) -> str:
     """Read one remote ref without consuming the REST metadata quota."""
+    if repository != REPOSITORY:
+        raise ValueError("remote Git repository identity mismatch")
+    remote_url = f"https://github.com/{repository}.git"
     for attempt in range(3):
         completed = subprocess.run(
-            ["git", "ls-remote", "--exit-code", "origin", f"refs/heads/{branch}"],
+            [
+                "git", "ls-remote", "--exit-code", remote_url,
+                f"refs/heads/{branch}",
+            ],
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -181,9 +188,13 @@ def collect_pull_requests(repository: str) -> list[dict[str, Any]]:
         user = raw.get("user") if isinstance(raw.get("user"), dict) else {}
         number = int(raw.get("number") or 0)
         status = status_by_number.get(number, {})
+        captured_head = clean_sha(head.get("sha"))
+        status_head = clean_sha(status.get("headRefOid"))
+        status_head_matches = bool(status and status_head == captured_head)
+        pinned_status = status if status_head_matches else {}
         status_merge = (
-            status.get("mergeCommit")
-            if isinstance(status.get("mergeCommit"), dict)
+            pinned_status.get("mergeCommit")
+            if isinstance(pinned_status.get("mergeCommit"), dict)
             else {}
         )
         merge_sha = clean_sha(
@@ -193,15 +204,15 @@ def collect_pull_requests(repository: str) -> list[dict[str, Any]]:
             {
                 "number": number,
                 "title": raw.get("title"),
-                "state": status.get("state") or raw.get("state"),
-                "isDraft": bool(status.get("isDraft", raw.get("draft"))),
+                "state": pinned_status.get("state") or raw.get("state"),
+                "isDraft": bool(pinned_status.get("isDraft", raw.get("draft"))),
                 "headRefName": head.get("ref"),
                 "headRefOid": head.get("sha"),
                 "baseRefName": base.get("ref"),
                 "baseRefOid": base.get("sha"),
                 "mergeCommit": {"oid": merge_sha} if merge_sha else None,
-                "mergedAt": status.get("mergedAt") or raw.get("merged_at"),
-                "closedAt": status.get("closedAt") or raw.get("closed_at"),
+                "mergedAt": pinned_status.get("mergedAt") or raw.get("merged_at"),
+                "closedAt": pinned_status.get("closedAt") or raw.get("closed_at"),
                 "createdAt": raw.get("created_at"),
                 "updatedAt": raw.get("updated_at"),
                 "author": {"login": user.get("login")},
@@ -213,6 +224,13 @@ def collect_pull_requests(repository: str) -> list[dict[str, Any]]:
                 "changedFilesGraphql": None,
                 "changedPathsSource": "UNRESOLVED_BLOCKED",
                 "commitCount": raw.get("commits"),
+                "statusMetadataHeadOid": status_head,
+                "statusMetadataHeadMatches": status_head_matches,
+                "statusMetadataSource": (
+                    "GRAPHQL_STATUS_HEAD_PINNED"
+                    if status_head_matches
+                    else "REST_ONLY_STATUS_HEAD_DRIFT_BLOCKED"
+                ),
             }
         )
     return rows
@@ -316,15 +334,15 @@ def enrich_remote_changed_paths(
                     continue
                 graphql_count = int(graphql_detail.get("changedFiles") or 0)
             except (RuntimeError, TypeError, ValueError):
-                # A fully exhausted path list below the documented 3,000-file
-                # cap is still complete; retain the zero detail count as API
-                # provenance rather than inventing a count.
+                # A zero detail count conflicts with returned paths.  Without
+                # an independently pinned positive GraphQL count it remains
+                # incomplete; never synthesize the count from the path list.
                 graphql_count = 0
         declared_count = max(detail_count, graphql_count)
         cap_reached = len(paths) >= 3000
-        declared_mismatch = declared_count > 0 and declared_count != len(paths)
+        declared_mismatch = declared_count != len(paths)
         raw["files"] = [{"path": path} for path in paths]
-        raw["changedFiles"] = declared_count if declared_count > 0 else len(paths)
+        raw["changedFiles"] = declared_count
         raw["changedFilesGraphql"] = graphql_count
         raw["changedFilesDetail"] = detail_count
         raw["changedPathsComplete"] = not cap_reached and not declared_mismatch
@@ -454,6 +472,44 @@ def load_bound_ancestry_payload(payload: Any, audit_sha: str) -> dict[str, str]:
     }
 
 
+def load_bound_collection_payload(
+    payload: Any,
+    *,
+    audit_sha: str,
+    collection_kind: str,
+) -> list[dict[str, Any]]:
+    """Load a cached complete collection only with immutable audit evidence."""
+    if collection_kind not in {"branches", "pull_requests"}:
+        raise ValueError("unsupported cached collection kind")
+    if not isinstance(payload, dict):
+        raise ValueError("cached collection must be an evidence object")
+    if payload.get("schema_version") != COLLECTION_CACHE_SCHEMA_VERSION:
+        raise ValueError("cached collection schema mismatch")
+    if payload.get("repository") != REPOSITORY:
+        raise ValueError("cached collection repository mismatch")
+    if clean_sha(payload.get("audit_sha")) != clean_sha(audit_sha):
+        raise ValueError("cached collection audit SHA mismatch")
+    if payload.get("collection_kind") != collection_kind:
+        raise ValueError("cached collection kind mismatch")
+    if payload.get("pagination_complete") is not True:
+        raise ValueError("cached collection pagination is not complete")
+    records = payload.get("records")
+    if not isinstance(records, list) or not all(
+        isinstance(item, dict) for item in records
+    ):
+        raise ValueError("cached collection records are invalid")
+    declared_count = payload.get("record_count")
+    if (
+        not isinstance(declared_count, int)
+        or isinstance(declared_count, bool)
+        or declared_count != len(records)
+    ):
+        raise ValueError("cached collection record count mismatch")
+    if payload.get("records_sha256") != canonical_sha256(records):
+        raise ValueError("cached collection record hash mismatch")
+    return records
+
+
 def ancestry_status(
     sha: str,
     audit_sha: str,
@@ -546,6 +602,9 @@ def normalize_pr(
         )
     if not changed_paths_complete:
         blockers.append("changed_paths_truncated")
+    status_head_matches = raw.get("statusMetadataHeadMatches") is True
+    if not status_head_matches:
+        blockers.append("pr_status_identity_unverified")
     if ancestry_status(head_sha, audit_sha, ancestry_by_sha) == "UNVERIFIED_BLOCKED":
         blockers.append("head_ancestry_unverified")
     return {
@@ -560,6 +619,13 @@ def normalize_pr(
         "head_sha": head_sha,
         "base_branch": str(raw.get("baseRefName") or ""),
         "base_sha": clean_sha(raw.get("baseRefOid")),
+        "status_metadata_head_oid": clean_sha(
+            raw.get("statusMetadataHeadOid")
+        ),
+        "status_metadata_head_matches": status_head_matches,
+        "status_metadata_source": str(
+            raw.get("statusMetadataSource") or "UNRESOLVED_BLOCKED"
+        ),
         "merge_commit_sha": clean_sha(
             (raw.get("mergeCommit") or {}).get("oid")
             if isinstance(raw.get("mergeCommit"), dict)
@@ -639,15 +705,16 @@ def build_census(
         raise ValueError("repository payload missing pinned default branch commit")
     if default_sha != audit_sha:
         raise ValueError("remote default branch moved from the pinned audit SHA")
-    if "default_branch_commit_post_collection" in repository_payload:
-        post_collection_sha = clean_sha(
-            (
-                repository_payload.get("default_branch_commit_post_collection")
-                or {}
-            ).get("sha")
-        )
-        if post_collection_sha != audit_sha:
-            raise ValueError("remote default branch moved during GitHub collection")
+    post_collection_sha = clean_sha(
+        (
+            repository_payload.get("default_branch_commit_post_collection")
+            or {}
+        ).get("sha")
+    )
+    if not post_collection_sha:
+        raise ValueError("repository payload missing post-collection default pin")
+    if post_collection_sha != audit_sha:
+        raise ValueError("remote default branch moved during GitHub collection")
     master_rows = [
         item for item in branches
         if isinstance(item, dict) and str(item.get("name") or "") == "master"
@@ -768,6 +835,8 @@ def build_census(
         blockers.append("experiment_candidates_require_canonical_mapping")
     if any(not row["changed_paths_complete"] for row in pr_rows):
         blockers.append("one_or_more_pr_changed_path_lists_are_truncated")
+    if any(not row["status_metadata_head_matches"] for row in pr_rows):
+        blockers.append("one_or_more_pr_status_rows_are_not_head_pinned")
     if any(row["ancestry"] == "UNVERIFIED_BLOCKED" for row in branch_rows + pr_rows):
         blockers.append("one_or_more_git_ancestry_results_are_unverified")
     if branch_only_candidates:
@@ -794,6 +863,15 @@ def build_census(
             ),
             "cached_ancestry_identity": (
                 "cached statuses require an explicit matching audit SHA"
+            ),
+            "cached_collection_identity": (
+                "cached branch and PR lists require a complete paginated "
+                "collection envelope bound by repository, audit SHA, count, "
+                "and canonical record hash"
+            ),
+            "pull_request_status_identity": (
+                "GraphQL state and merge metadata are used only when its head "
+                "SHA equals the REST PR row head SHA"
             ),
             "branch_payload_sha256": canonical_sha256(branches),
             "pull_request_payload_sha256": canonical_sha256(pull_requests),
@@ -901,12 +979,20 @@ def main() -> int:
     if initial_default_sha != audit_sha:
         raise SystemExit("remote default branch does not equal the audit SHA")
     branches = (
-        read_json(args.branches_json)
+        load_bound_collection_payload(
+            read_json(args.branches_json),
+            audit_sha=audit_sha,
+            collection_kind="branches",
+        )
         if args.branches_json
         else collect_branches(args.repository)
     )
     pull_requests = (
-        read_json(args.pull_requests_json)
+        load_bound_collection_payload(
+            read_json(args.pull_requests_json),
+            audit_sha=audit_sha,
+            collection_kind="pull_requests",
+        )
         if args.pull_requests_json
         else collect_pull_requests(args.repository)
     )
@@ -917,7 +1003,7 @@ def main() -> int:
     )
     if live_collection:
         repository["default_branch_commit_post_collection"] = {
-            "sha": collect_remote_branch_sha("master")
+            "sha": collect_remote_branch_sha(args.repository, "master")
         }
         if clean_sha(
             (

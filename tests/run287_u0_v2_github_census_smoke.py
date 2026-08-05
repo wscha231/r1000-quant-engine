@@ -20,6 +20,7 @@ def fixtures() -> tuple[dict, list[dict], list[dict], dict[str, str]]:
         "full_name": MOD.REPOSITORY,
         "default_branch": "master",
         "default_branch_commit": {"sha": AUDIT_SHA},
+        "default_branch_commit_post_collection": {"sha": AUDIT_SHA},
     }
     branches = [
         {"name": "master", "commit": {"sha": AUDIT_SHA}, "protected": True},
@@ -92,6 +93,9 @@ def fixtures() -> tuple[dict, list[dict], list[dict], dict[str, str]]:
                 "changedPathsHeadAfter": pull["headRefOid"],
                 "changedPathsBaseBefore": pull["baseRefOid"],
                 "changedPathsBaseAfter": pull["baseRefOid"],
+                "statusMetadataHeadOid": pull["headRefOid"],
+                "statusMetadataHeadMatches": True,
+                "statusMetadataSource": "GRAPHQL_STATUS_HEAD_PINNED",
             }
         )
     ancestry = {
@@ -177,6 +181,22 @@ def test_repository_and_identity_are_pinned() -> None:
         assert "missing pinned default branch commit" in str(exc)
     else:
         raise AssertionError("unpinned cached repository metadata was accepted")
+
+    repository, branches, pulls, ancestry = fixtures()
+    repository.pop("default_branch_commit_post_collection")
+    try:
+        MOD.build_census(
+            repository_payload=repository,
+            branches=branches,
+            pull_requests=pulls,
+            audit_sha=AUDIT_SHA,
+            ancestry_by_sha=ancestry,
+            do_not_repeat_ids=set(),
+        )
+    except ValueError as exc:
+        assert "post-collection default pin" in str(exc)
+    else:
+        raise AssertionError("cached repository without a final pin was accepted")
 
 
 def test_candidate_csv_contains_only_experiment_like_prs() -> None:
@@ -342,6 +362,110 @@ def test_cached_changed_paths_require_head_and_base_pins() -> None:
     assert "changed_paths_truncated" in candidate["promotion_blockers"]
 
 
+def test_zero_count_conflict_and_status_head_race_fail_closed() -> None:
+    row = {
+        "number": 10,
+        "headRefOid": "b" * 40,
+        "baseRefOid": AUDIT_SHA,
+        "changedFiles": -1,
+        "files": [],
+    }
+    original_run_json = MOD.run_json
+
+    def zero_count_run_json(command: list[str]):
+        if command[-1].endswith("?per_page=100"):
+            return [[{"filename": "one.py"}]]
+        if len(command) > 1 and command[1:3] == ["pr", "view"]:
+            return {
+                "headRefOid": "b" * 40,
+                "baseRefOid": AUDIT_SHA,
+                "changedFiles": 0,
+            }
+        return {
+            "head": {"sha": "b" * 40},
+            "base": {"sha": AUDIT_SHA},
+            "changed_files": 0,
+        }
+
+    MOD.run_json = zero_count_run_json
+    try:
+        MOD.enrich_remote_changed_paths(MOD.REPOSITORY, [row])
+    finally:
+        MOD.run_json = original_run_json
+    assert row["changedFiles"] == 0
+    assert len(row["files"]) == 1
+    assert row["changedPathsComplete"] is False
+
+    rest_pull = {
+        "number": 12,
+        "title": "Safety change",
+        "state": "open",
+        "draft": False,
+        "head": {"ref": "codex/safety", "sha": "b" * 40},
+        "base": {"ref": "master", "sha": AUDIT_SHA},
+        "user": {"login": "wscha231"},
+        "labels": [],
+        "html_url": "https://example.invalid/12",
+        "body": "",
+    }
+
+    def status_race_run_json(command: list[str]):
+        if command[1:3] == ["api", "--paginate"]:
+            return [[rest_pull]]
+        return [
+            {
+                "number": 12,
+                "state": "MERGED",
+                "headRefOid": "c" * 40,
+                "mergedAt": "2026-08-01T00:00:00Z",
+                "mergeCommit": {"oid": "d" * 40},
+            }
+        ]
+
+    MOD.run_json = status_race_run_json
+    try:
+        collected = MOD.collect_pull_requests(MOD.REPOSITORY)
+    finally:
+        MOD.run_json = original_run_json
+    assert collected[0]["statusMetadataHeadMatches"] is False
+    assert collected[0]["state"] == "open"
+    assert collected[0]["mergedAt"] is None
+
+
+def test_cached_collections_require_complete_bound_envelopes() -> None:
+    _, branches, pulls, _ = fixtures()
+    envelope = {
+        "schema_version": MOD.COLLECTION_CACHE_SCHEMA_VERSION,
+        "repository": MOD.REPOSITORY,
+        "audit_sha": AUDIT_SHA,
+        "collection_kind": "branches",
+        "pagination_complete": True,
+        "record_count": len(branches),
+        "records_sha256": MOD.canonical_sha256(branches),
+        "records": branches,
+    }
+    assert MOD.load_bound_collection_payload(
+        envelope, audit_sha=AUDIT_SHA, collection_kind="branches"
+    ) == branches
+    envelope["record_count"] += 1
+    try:
+        MOD.load_bound_collection_payload(
+            envelope, audit_sha=AUDIT_SHA, collection_kind="branches"
+        )
+    except ValueError as exc:
+        assert "record count" in str(exc)
+    else:
+        raise AssertionError("partial cached collection was accepted")
+    try:
+        MOD.load_bound_collection_payload(
+            pulls, audit_sha=AUDIT_SHA, collection_kind="pull_requests"
+        )
+    except ValueError as exc:
+        assert "evidence object" in str(exc)
+    else:
+        raise AssertionError("bare cached PR list was accepted")
+
+
 def test_default_head_and_cached_ancestry_are_audit_bound() -> None:
     repository, branches, pulls, ancestry = fixtures()
     repository["default_branch_commit_post_collection"] = {"sha": "f" * 40}
@@ -466,6 +590,7 @@ def test_branch_only_and_duplicate_code_identities_are_blocked() -> None:
     pulls[1]["headRefOid"] = "b" * 40
     pulls[1]["changedPathsHeadBefore"] = "b" * 40
     pulls[1]["changedPathsHeadAfter"] = "b" * 40
+    pulls[1]["statusMetadataHeadOid"] = "b" * 40
     census = MOD.build_census(
         repository_payload=repository,
         branches=branches,
@@ -496,6 +621,8 @@ def main() -> int:
     test_remote_files_are_counted_and_bound_to_one_head()
     test_remote_file_cap_and_head_race_remain_blocked()
     test_cached_changed_paths_require_head_and_base_pins()
+    test_zero_count_conflict_and_status_head_race_fail_closed()
+    test_cached_collections_require_complete_bound_envelopes()
     test_default_head_and_cached_ancestry_are_audit_bound()
     test_advanced_and_path_named_branches_remain_candidates()
     test_duplicate_branch_only_heads_are_reported()
