@@ -51,12 +51,6 @@ def valid_u0() -> dict:
         },
         "branches": branches,
         "pull_requests": pull_requests,
-        "accepted_evidence": {
-            "schema_version": "run287-u0-accepted-evidence-v1",
-            "audit_default_branch_sha": audit_sha,
-            "branch_records_sha256": MOD.canonical_sha256(branches),
-            "pull_request_records_sha256": MOD.canonical_sha256(pull_requests),
-        },
         "summary": {
             "historical_experiment_census_complete": True,
             "historical_challenger_allowed": True,
@@ -68,21 +62,26 @@ def valid_u0() -> dict:
 def run_with_accepted_test_u0(args: Namespace) -> dict:
     census = MOD.read_json(Path(args.u0_census))
     audit_sha = str(census["audit_default_branch_sha"])
+    accepted_contract = accepted_test_contract(census)
     original_default = MOD.git_default_branch_sha
     original_ancestor = MOD.git_is_ancestor
+    original_validate = MOD.validate_contract
     MOD.git_default_branch_sha = lambda: audit_sha
     MOD.git_is_ancestor = lambda ancestor, descendant: (
         ancestor == audit_sha and descendant == MOD.git_head()
     )
+    MOD.validate_contract = lambda _raw: accepted_contract
     try:
         return MOD.run(args)
     finally:
         MOD.git_default_branch_sha = original_default
         MOD.git_is_ancestor = original_ancestor
+        MOD.validate_contract = original_validate
 
 
 def u0_gate_with_accepted_test_default(census: dict) -> list[str]:
     accepted_sha = str(valid_u0()["audit_default_branch_sha"])
+    accepted_contract = accepted_test_contract(census)
     original_default = MOD.git_default_branch_sha
     original_ancestor = MOD.git_is_ancestor
     MOD.git_default_branch_sha = lambda: accepted_sha
@@ -90,10 +89,21 @@ def u0_gate_with_accepted_test_default(census: dict) -> list[str]:
         ancestor == accepted_sha and descendant == MOD.git_head()
     )
     try:
-        return MOD.u0_gate(census, contract())
+        return MOD.u0_gate(census, accepted_contract)
     finally:
         MOD.git_default_branch_sha = original_default
         MOD.git_is_ancestor = original_ancestor
+
+
+def accepted_test_contract(census: dict) -> dict:
+    cfg = contract()
+    cfg["historical_gate"]["accepted_census_sha256"] = MOD.canonical_sha256(
+        census
+    )
+    cfg["historical_gate"]["accepted_source_contract_sha256"] = (
+        MOD.canonical_sha256(census["source_contract"])
+    )
+    return cfg
 
 
 def blocked_u0() -> dict:
@@ -250,14 +260,20 @@ def test_u0_gate_blocks_model_fit_and_all_mutations() -> None:
         assert summary["orders_generated"] is False
         assert summary["portfolio_or_ledger_mutated"] is False
 
+    assert "u0_census_accepted_evidence_not_registered" in MOD.u0_gate(
+        valid_u0(), contract()
+    )
+    accepted = valid_u0()
+    accepted_cfg = accepted_test_contract(accepted)
+    truncated = json.loads(json.dumps(accepted))
+    truncated["pull_requests"] = []
+    assert "u0_census_not_exact_accepted_artifact" in MOD.u0_gate(
+        truncated, accepted_cfg
+    )
     forged = valid_u0()
     forged_sha = "d" * 40
     forged["audit_default_branch_sha"] = forged_sha
     forged["branches"][0]["head_sha"] = forged_sha
-    forged["accepted_evidence"]["audit_default_branch_sha"] = forged_sha
-    forged["accepted_evidence"]["branch_records_sha256"] = MOD.canonical_sha256(
-        forged["branches"]
-    )
     assert "u0_census_audit_sha_not_current_default_branch" in (
         u0_gate_with_accepted_test_default(forged)
     )
@@ -332,6 +348,17 @@ def test_required_selection_features_must_be_usable() -> None:
     unusable["rs_benchmark_3m"] = "not-numeric"
     blockers = MOD.input_readiness(unusable, cfg)
     assert "selection_feature_unusable:63:rs_benchmark_3m" in blockers
+
+    latest_unusable = synthetic_frame(months=18)
+    latest = latest_unusable["feature_date"].max()
+    latest_unusable.loc[
+        latest_unusable["feature_date"].eq(latest), "rs_benchmark_3m"
+    ] = np.nan
+    latest_blockers = MOD.input_readiness(latest_unusable, cfg)
+    assert (
+        "latest_selection_feature_unusable:63:rs_benchmark_3m"
+        in latest_blockers
+    )
 
 
 def test_walk_forward_is_exactly_purged_and_learns_expected_return() -> None:
@@ -466,6 +493,25 @@ def test_benchmark_identity_and_forward_dates_are_fail_closed() -> None:
         assert "label end is not exact NYSE horizon:63" in str(exc)
     else:
         raise AssertionError("a non-63-session label horizon was accepted")
+
+    partial_required = synthetic_frame(months=18)
+    partial_required.loc[0, "r_3m_label_end_date"] = ""
+    try:
+        MOD.prepare_frame(partial_required, cfg)
+    except ValueError as exc:
+        assert "partial required label provenance:63" in str(exc)
+    else:
+        raise AssertionError("a partial required label row was accepted")
+
+    unparseable_required = synthetic_frame(months=18)
+    unparseable_required["r_6m"] = unparseable_required["r_6m"].astype(object)
+    unparseable_required.loc[0, "r_6m"] = "not-a-return"
+    try:
+        MOD.prepare_frame(unparseable_required, cfg)
+    except ValueError as exc:
+        assert "unparseable required label provenance:126" in str(exc)
+    else:
+        raise AssertionError("an unparseable required label row was accepted")
 
     null_ticker = synthetic_frame(months=18)
     null_ticker.loc[0, "ticker"] = None

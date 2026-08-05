@@ -32,7 +32,7 @@ BLOCKED_STATUS = "BLOCKED_EXPECTED_RETURN_CHALLENGER"
 TARGET_KINDS = ("absolute", "benchmark_excess", "sector_neutral")
 HORIZONS = (21, 63, 126)
 EXPECTED_CONTRACT_SHA256 = (
-    "c26897014068d01bd31c71f02358fc7944d507b6389f50e76c68047619aedfdc"
+    "8b5169de1c851dd70e4cc9e881dea7843130d32cf61f06aed413b24ae5f56d8b"
 )
 FORBIDDEN_FEATURE_RE = re.compile(
     r"(^|_)(future|forward|label|target|outcome)(_|$)|"
@@ -307,6 +307,20 @@ def u0_gate(census: Any, contract: Mapping[str, Any]) -> list[str]:
         blockers.append("u0_census_repository_mismatch")
     if census.get("audit_default_branch") != gate["default_branch"]:
         blockers.append("u0_census_default_branch_mismatch")
+    accepted_census_sha = str(gate.get("accepted_census_sha256") or "").lower()
+    accepted_source_sha = str(
+        gate.get("accepted_source_contract_sha256") or ""
+    ).lower()
+    if not (
+        SHA256_RE.fullmatch(accepted_census_sha)
+        and SHA256_RE.fullmatch(accepted_source_sha)
+    ):
+        blockers.append("u0_census_accepted_evidence_not_registered")
+    else:
+        if canonical_sha256(census) != accepted_census_sha:
+            blockers.append("u0_census_not_exact_accepted_artifact")
+        if canonical_sha256(census.get("source_contract")) != accepted_source_sha:
+            blockers.append("u0_census_source_not_exact_accepted_envelope")
     audit_sha = str(census.get("audit_default_branch_sha") or "").lower()
     current_sha = git_head().lower()
     accepted_default_sha = git_default_branch_sha()
@@ -348,20 +362,6 @@ def u0_gate(census: Any, contract: Mapping[str, Any]) -> list[str]:
         or master_rows[0].get("ancestry") != "IDENTICAL_TO_AUDIT_HEAD"
     ):
         blockers.append("u0_census_default_branch_record_mismatch")
-    accepted = census.get("accepted_evidence")
-    if not isinstance(accepted, dict):
-        accepted = {}
-        blockers.append("u0_census_accepted_evidence_missing")
-    if accepted.get("schema_version") != gate["accepted_evidence_schema_version"]:
-        blockers.append("u0_census_accepted_evidence_schema_mismatch")
-    if str(accepted.get("audit_default_branch_sha") or "").lower() != audit_sha:
-        blockers.append("u0_census_accepted_audit_sha_mismatch")
-    for key, records in (
-        ("branch_records_sha256", branches),
-        ("pull_request_records_sha256", pull_requests),
-    ):
-        if str(accepted.get(key) or "").lower() != canonical_sha256(records):
-            blockers.append(f"u0_census_accepted_hash_mismatch:{key}")
     summary = census.get("summary")
     if not isinstance(summary, dict):
         summary = {}
@@ -401,15 +401,33 @@ def input_readiness(frame: pd.DataFrame, contract: Mapping[str, Any]) -> list[st
         blockers.append("feature_store_missing_required_columns:" + ",".join(missing))
     if frame.empty:
         return ["feature_store_empty"]
+    feature_dates = (
+        pd.to_datetime(frame["feature_date"], errors="coerce")
+        if "feature_date" in frame.columns
+        else pd.Series(pd.NaT, index=frame.index, dtype="datetime64[ns]")
+    )
+    latest_mask = (
+        feature_dates.eq(feature_dates.max())
+        if feature_dates.notna().any()
+        else pd.Series(False, index=frame.index)
+    )
     for horizon in HORIZONS:
         spec = contract["horizons"][str(horizon)]
         if float(spec["score_weight"]) <= 0.0:
             continue
         for feature in contract["features"][str(horizon)]:
-            if feature in frame.columns and pd.to_numeric(
-                frame[feature], errors="coerce"
-            ).replace([np.inf, -np.inf], np.nan).notna().sum() == 0:
-                blockers.append(f"selection_feature_unusable:{horizon}:{feature}")
+            if feature in frame.columns:
+                numeric = pd.to_numeric(frame[feature], errors="coerce").replace(
+                    [np.inf, -np.inf], np.nan
+                )
+                if numeric.notna().sum() == 0:
+                    blockers.append(
+                        f"selection_feature_unusable:{horizon}:{feature}"
+                    )
+                elif latest_mask.any() and numeric.loc[latest_mask].notna().sum() == 0:
+                    blockers.append(
+                        f"latest_selection_feature_unusable:{horizon}:{feature}"
+                    )
         for key in (
             "stock_return",
             "benchmark_return",
@@ -517,6 +535,31 @@ def prepare_frame(frame: pd.DataFrame, contract: Mapping[str, Any]) -> pd.DataFr
         ).replace([np.inf, -np.inf], np.nan)
         stock_end = pd.to_datetime(out[spec["stock_label_end"]], errors="coerce").dt.normalize()
         benchmark_end = pd.to_datetime(out[spec["benchmark_label_end"]], errors="coerce").dt.normalize()
+        if float(spec["score_weight"]) > 0.0:
+            raw_columns = [
+                out[spec["stock_return"]],
+                out[spec["benchmark_return"]],
+                out[spec["stock_label_end"]],
+                out[spec["benchmark_label_end"]],
+            ]
+            raw_present = [
+                column.notna() & column.astype(str).str.strip().ne("")
+                for column in raw_columns
+            ]
+            parsed_present = [
+                stock.notna(),
+                benchmark.notna(),
+                stock_end.notna(),
+                benchmark_end.notna(),
+            ]
+            if any(
+                raw.ne(parsed).any()
+                for raw, parsed in zip(raw_present, parsed_present)
+            ):
+                raise ValueError(f"unparseable required label provenance:{horizon}")
+            present_count = sum(mask.astype(int) for mask in parsed_present)
+            if present_count.between(1, 3).any():
+                raise ValueError(f"partial required label provenance:{horizon}")
         if benchmark.groupby(out["feature_date"]).nunique(dropna=True).gt(1).any():
             raise ValueError(f"benchmark return is not unique by decision:{horizon}")
         if benchmark_end.groupby(out["feature_date"]).nunique(dropna=True).gt(1).any():

@@ -160,9 +160,10 @@
   },
   "historical_gate": {
     "u0_schema_version": "run287-u0-v2-github-census-v1",
-    "accepted_evidence_schema_version": "run287-u0-accepted-evidence-v1",
     "repository": "wscha231/r1000-quant-engine",
     "default_branch": "master",
+    "accepted_census_sha256": null,
+    "accepted_source_contract_sha256": null,
     "historical_experiment_census_complete_required": true,
     "historical_challenger_allowed_required": true,
     "promotion_blockers_must_be_empty": true
