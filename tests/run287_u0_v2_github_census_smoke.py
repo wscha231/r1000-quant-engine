@@ -433,6 +433,31 @@ def test_zero_count_conflict_and_status_head_race_fail_closed() -> None:
     assert collected[0]["state"] == "open"
     assert collected[0]["mergedAt"] is None
 
+    empty_head_pull = dict(rest_pull)
+    empty_head_pull["head"] = {"ref": "deleted-head", "sha": None}
+
+    def empty_status_run_json(command: list[str]):
+        if command[1:3] == ["api", "--paginate"]:
+            return [[empty_head_pull]]
+        return [
+            {
+                "number": 12,
+                "state": "MERGED",
+                "headRefOid": None,
+                "mergedAt": "2026-08-01T00:00:00Z",
+                "mergeCommit": {"oid": "d" * 40},
+            }
+        ]
+
+    MOD.run_json = empty_status_run_json
+    try:
+        collected = MOD.collect_pull_requests(MOD.REPOSITORY)
+    finally:
+        MOD.run_json = original_run_json
+    assert collected[0]["statusMetadataHeadMatches"] is False
+    assert collected[0]["state"] == "open"
+    assert collected[0]["mergedAt"] is None
+
 
 def test_cached_collections_require_complete_bound_envelopes() -> None:
     _, branches, pulls, _ = fixtures()
@@ -558,6 +583,22 @@ def test_cached_status_and_changed_count_provenance_are_recomputed() -> None:
     assert candidate["changed_paths_complete"] is False
     assert "changed_paths_truncated" in candidate["promotion_blockers"]
 
+    repository, branches, pulls, ancestry = fixtures()
+    pulls[0].pop("changedFilesDetail")
+    pulls[0].pop("changedPathsSource")
+    census = MOD.build_census(
+        repository_payload=repository,
+        branches=branches,
+        pull_requests=pulls,
+        audit_sha=AUDIT_SHA,
+        ancestry_by_sha=ancestry,
+        do_not_repeat_ids=set(),
+    )
+    candidate = census["pull_requests"][0]
+    assert candidate["github_detail_changed_file_count"] is None
+    assert candidate["changed_paths_source"] == "UNRESOLVED_BLOCKED"
+    assert candidate["changed_paths_complete"] is False
+
 
 def test_linked_strong_experiment_head_names_are_candidates() -> None:
     repository, branches, pulls, ancestry = fixtures()
@@ -586,6 +627,37 @@ def test_linked_strong_experiment_head_names_are_candidates() -> None:
     assert linked_branch["linked_pr_numbers"] == [11]
     assert linked_branch["experiment_candidate"] is False
     assert MOD.experiment_like_text("experiments/future-return")
+    for value in (
+        "research/foo", "aggressive/foo", "promotion/foo", "broker/foo",
+        "scor/foo",
+    ):
+        assert MOD.experiment_like_text(value)
+    with tempfile.TemporaryDirectory() as temporary:
+        path = Path(temporary) / "candidates.csv"
+        MOD.write_candidate_csv(path, census)
+        text = path.read_text(encoding="utf-8")
+        assert "experiment_evidence_branch_aliases" in text.splitlines()[0]
+        assert "promotion-test" in text
+
+
+def test_plural_experiment_title_is_candidate_without_path_evidence() -> None:
+    repository, branches, pulls, ancestry = fixtures()
+    pulls[1]["title"] = "Experiments with future returns"
+    pulls[1]["body"] = ""
+    pulls[1]["headRefName"] = "neutral-maintenance"
+    pulls[1]["files"] = [{"path": "README.md"}]
+    pulls[1]["changedFiles"] = 1
+    pulls[1]["changedFilesDetail"] = 1
+    pulls[1]["changedFilesGraphql"] = 1
+    census = MOD.build_census(
+        repository_payload=repository,
+        branches=branches,
+        pull_requests=pulls,
+        audit_sha=AUDIT_SHA,
+        ancestry_by_sha=ancestry,
+        do_not_repeat_ids=set(),
+    )
+    assert census["pull_requests"][1]["experiment_candidate"] is True
 
 
 def test_conflicting_local_and_cached_ancestry_fails_closed() -> None:
@@ -738,6 +810,7 @@ def main() -> int:
     test_default_head_and_cached_ancestry_are_audit_bound()
     test_cached_status_and_changed_count_provenance_are_recomputed()
     test_linked_strong_experiment_head_names_are_candidates()
+    test_plural_experiment_title_is_candidate_without_path_evidence()
     test_conflicting_local_and_cached_ancestry_fails_closed()
     test_advanced_and_path_named_branches_remain_candidates()
     test_duplicate_branch_only_heads_are_reported()

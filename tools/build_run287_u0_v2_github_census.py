@@ -36,15 +36,18 @@ EXPERIMENT_PATH_RE = re.compile(
 )
 KNOWN_REGISTRY_OUTSIDE_EXPERIMENT_PRS = frozenset({229, 230, 237})
 EXPERIMENT_TEXT_RE = re.compile(
-    r"\b(backtest|challenger|experiment|ablation|grid|sweep|alpha|"
+    r"\b(backtest|challenger|experiments?|ablation|grid|sweep|alpha|"
     r"relative strength|sector leadership|crisis|reserve|form 4|13f|"
     r"fundamental|earnings|ohlcv|expected return|cagr|mdd)\b",
     re.IGNORECASE,
 )
 BRANCH_EXPERIMENT_NAME_RE = re.compile(
-    r"(^|[-_./\\])(auto[-_./\\]?learning|promotion[-_./\\]?test|"
-    r"actual[-_./\\]?results|rolling[-_./\\]?review|selector|"
-    r"scor(?:e|ing)|replay|backtest|challenger|experiments?)([-_./\\]|$)",
+    r"(^|[-_./\\])(backtest|research|aggressive|auto[-_./\\]?learning|"
+    r"experiments?|challenger|replay|selector|scor(?:e|ing)?|target|"
+    r"promotion(?:[-_./\\]?test)?|relative[-_./\\]?strength|sector|"
+    r"crisis|reserve|form4|13f|fundamental|earnings|"
+    r"actual[-_./\\]?results|rolling[-_./\\]?review|ohlcv|"
+    r"execution[-_./\\]?cost|broker)([-_./\\]|$)",
     re.IGNORECASE,
 )
 CAPABILITY_RULES: dict[str, tuple[str, ...]] = {
@@ -190,7 +193,9 @@ def collect_pull_requests(repository: str) -> list[dict[str, Any]]:
         status = status_by_number.get(number, {})
         captured_head = clean_sha(head.get("sha"))
         status_head = clean_sha(status.get("headRefOid"))
-        status_head_matches = bool(status and status_head == captured_head)
+        status_head_matches = bool(
+            status and status_head and captured_head and status_head == captured_head
+        )
         pinned_status = status if status_head_matches else {}
         status_merge = (
             pinned_status.get("mergeCommit")
@@ -682,8 +687,11 @@ def normalize_pr(
             and not isinstance(raw.get("changedFilesGraphql"), bool)
             else None
         ),
-        "github_detail_changed_file_count": int(
-            raw.get("changedFilesDetail") or 0
+        "github_detail_changed_file_count": (
+            int(raw["changedFilesDetail"])
+            if isinstance(raw.get("changedFilesDetail"), int)
+            and not isinstance(raw.get("changedFilesDetail"), bool)
+            else None
         ),
         "changed_paths": paths,
         "changed_paths_complete": changed_paths_complete,
@@ -691,7 +699,7 @@ def normalize_pr(
             raw.get("changedPathsApiCapReached")
         ),
         "changed_paths_source": str(
-            raw.get("changedPathsSource") or "GITHUB_GRAPHQL"
+            raw.get("changedPathsSource") or "UNRESOLVED_BLOCKED"
         ),
         "changed_paths_head_before": clean_sha(
             raw.get("changedPathsHeadBefore")
@@ -984,6 +992,7 @@ def write_candidate_csv(path: Path, census: dict[str, Any]) -> None:
         "record_type", "record_id", "number", "name", "state", "head_branch",
         "head_sha", "ancestry", "title",
         "experiment_identity_status", "capability_family_candidates",
+        "experiment_evidence_branch_aliases",
         "matched_do_not_repeat_ids", "promotion_blockers", "url",
     ]
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -993,8 +1002,8 @@ def write_candidate_csv(path: Path, census: dict[str, Any]) -> None:
         for row in census["experiment_candidates"]:
             item = {field: row.get(field, "") for field in fields}
             for field in (
-                "capability_family_candidates", "matched_do_not_repeat_ids",
-                "promotion_blockers",
+                "capability_family_candidates", "experiment_evidence_branch_aliases",
+                "matched_do_not_repeat_ids", "promotion_blockers",
             ):
                 item[field] = "|".join(item[field])
             writer.writerow(item)
