@@ -306,6 +306,31 @@ def test_pr_ref_and_blob_bindings_are_verified() -> None:
     )
 
 
+def test_pr_artifact_binding_rejects_tree_objects() -> None:
+    inventory = read(INVENTORY_PATH)
+    target = entry(inventory, "static_actual_profitability")
+    pr_evidence = next(
+        evidence
+        for evidence in target["evidence"]
+        if evidence["kind"] == "github_pr" and evidence["artifacts"]
+    )
+    pr_ref = f"{MOD.PR_REF_PREFIX}/{pr_evidence['pr_number']}"
+    tree_oid = MOD.git_output(ROOT, "rev-parse", f"{pr_ref}:docs")
+    tree_size = MOD.git_output(ROOT, "cat-file", "-s", str(tree_oid))
+    assert tree_oid and tree_size
+    pr_evidence["artifacts"][0] = {
+        "path": "docs",
+        "git_blob_oid": tree_oid,
+        "bytes": int(tree_size),
+    }
+    result = audit(inventory)
+    assert result["valid"] is False
+    assert any(
+        error.endswith(":git_object_type_not_blob")
+        for error in result["errors"]
+    )
+
+
 def test_every_orphaned_pr_names_a_verified_blob() -> None:
     inventory = read(INVENTORY_PATH)
     target = entry(inventory, "broad_gross_floor")
@@ -359,6 +384,56 @@ def test_required_pr_refspecs_are_exact_and_unique() -> None:
     assert MOD.required_base_refspec(inventory) == (
         "+f29ac1f93a61076a08bedca83a4df5539926aab1:"
         "refs/run287-u0/base"
+    )
+
+    inventory["base_commit"] = "f" * 40
+    try:
+        MOD.required_base_refspec(inventory)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("mutable audit base was accepted")
+    result = audit(inventory)
+    assert result["valid"] is False
+    assert "base_commit_invalid" in result["errors"]
+
+
+def test_registry_ids_and_attempt_lower_bounds_are_immutable() -> None:
+    inventory = read(INVENTORY_PATH)
+    target = entry(inventory, "static_actual_profitability")
+    target["published_attempt_count_lower_bound"] = 1
+    result = audit(inventory)
+    assert result["valid"] is False
+    assert (
+        "static_actual_profitability:attempt_count_lower_bound_mismatch"
+        in result["errors"]
+    )
+
+    registry = read(REGISTRY_PATH)
+    registry["entries"].pop()
+    result = MOD.audit_inventory(
+        contract=read(CONTRACT_PATH),
+        registry=registry,
+        inventory=read(INVENTORY_PATH),
+        repository_root=ROOT,
+        registry_path=REGISTRY_PATH,
+        inventory_path=INVENTORY_PATH,
+    )
+    assert result["valid"] is False
+    assert "canonical_registry_entry_ids_mismatch" in result["errors"]
+
+
+def test_evaluation_class_requires_exact_v1_status_pair() -> None:
+    inventory = read(INVENTORY_PATH)
+    target = entry(inventory, "main_growth_downside_beta_neutral")
+    target["exact_trial_manifest_status"] = "NOT_APPLICABLE"
+    target["after_cost_daily_return_series_status"] = "NOT_APPLICABLE"
+    result = audit(inventory)
+    assert result["valid"] is False
+    assert (
+        "main_growth_downside_beta_neutral:"
+        "evaluation_class_status_disposition_mismatch"
+        in result["errors"]
     )
 
 
@@ -472,9 +547,12 @@ def main() -> int:
     test_contract_rules_are_exact_and_fail_closed()
     test_hash_bindings_are_newline_canonical()
     test_pr_ref_and_blob_bindings_are_verified()
+    test_pr_artifact_binding_rejects_tree_objects()
     test_every_orphaned_pr_names_a_verified_blob()
     test_pr_ancestry_label_is_verified_against_audit_base()
     test_required_pr_refspecs_are_exact_and_unique()
+    test_registry_ids_and_attempt_lower_bounds_are_immutable()
+    test_evaluation_class_requires_exact_v1_status_pair()
     test_overlap_deduplication_cannot_be_claimed_in_v1()
     test_tracked_evidence_is_hash_bound()
     test_missing_artifact_is_checked_against_committed_tree()

@@ -39,8 +39,70 @@ REGISTRY_SCHEMA = "run287-do-not-repeat-registry-v1"
 AUDIT_STATUS = "VALID_INVENTORY_PROMOTION_BLOCKED"
 PR_REF_PREFIX = "refs/run287-u0/pr"
 BASE_REF = "refs/run287-u0/base"
+REQUIRED_BASE_COMMIT = "f29ac1f93a61076a08bedca83a4df5539926aab1"
 KNOWN_OUT_OF_REGISTRY_PR_NUMBERS = {229, 230, 237}
 REQUIRED_SOURCE_REGISTRY_PATH = "docs/run287_do_not_repeat_registry.json"
+REQUIRED_ATTEMPT_COUNT_LOWER_BOUNDS = {
+    "monthly_dd_vix_floor": 2,
+    "broad_gross_floor": 5,
+    "stop_or_exit_delay": 4,
+    "rank_rs_revenue_replacement": 1,
+    "aggregate_cluster_cap": 0,
+    "static_actual_profitability": 10,
+    "ownership_13f_form4": 4,
+    "w4_sec_percentile_tilt": 2,
+    "consensus_no_signal": 1,
+    "technical_macro_risk_financial_proxy": 10,
+    "weak_source_fusion": 4,
+    "direct_growth_tilt": 2,
+    "composite_account_aware_execution": 0,
+    "main_growth_downside_beta_neutral": 1,
+    "sec_market_confirmed_fundamental_event": 1,
+    "sec_filing_quality_event": 1,
+    "sec_management_guidance_keyword_scout": 1,
+    "partial_resize_two_signal_confirmation": 1,
+    "leadership_persistence_v2_strict": 1,
+    "canonical_sector_relative_strength_materialization": 1,
+    "hierarchical_sector_leadership_portfolio_reconstruction": 1,
+}
+REQUIRED_REGISTRY_ENTRY_IDS = set(REQUIRED_ATTEMPT_COUNT_LOWER_BOUNDS)
+REQUIRED_STATUS_DISPOSITION_BY_EVALUATION_CLASS = {
+    "PORTFOLIO_RETURN": (
+        "MISSING",
+        "MISSING",
+        "BLOCK_MISSING_EXACT_RETURN_SERIES",
+    ),
+    "MIXED_SOURCE_AND_PORTFOLIO": (
+        "MISSING",
+        "MISSING",
+        "BLOCK_MISSING_EXACT_RETURN_SERIES",
+    ),
+    "NO_OP_PORTFOLIO": (
+        "MISSING",
+        "MISSING",
+        "BLOCK_MISSING_EXACT_RETURN_SERIES",
+    ),
+    "UNVERIFIED_LEGACY": (
+        "MISSING",
+        "MISSING",
+        "BLOCK_UNVERIFIED_EVIDENCE",
+    ),
+    "SOURCE_RETURN_SCREEN": (
+        "NOT_APPLICABLE",
+        "NOT_APPLICABLE",
+        "BLOCK_SELECTION_MULTIPLICITY_UNMODELED",
+    ),
+    "NO_SIGNAL": (
+        "NOT_APPLICABLE",
+        "NOT_APPLICABLE",
+        "BLOCK_SELECTION_MULTIPLICITY_UNMODELED",
+    ),
+    "INVALID_OR_INCOMPLETE": (
+        "NOT_APPLICABLE",
+        "NOT_APPLICABLE",
+        "BLOCK_INVALID_EVIDENCE",
+    ),
+}
 REQUIRED_CONTRACT_ENUMS = {
     "evaluation_classes": {
         "PORTFOLIO_RETURN",
@@ -178,8 +240,10 @@ def required_pr_refspecs(inventory: dict[str, Any]) -> list[str]:
 
 def required_base_refspec(inventory: dict[str, Any]) -> str:
     base_commit = str(inventory.get("base_commit") or "").lower()
-    if not HEX_40.fullmatch(base_commit):
-        raise ValueError("inventory base_commit must be a 40-character SHA")
+    if base_commit != REQUIRED_BASE_COMMIT:
+        raise ValueError(
+            "inventory base_commit must equal the immutable U0 v1 audit base"
+        )
     return f"+{base_commit}:{BASE_REF}"
 
 
@@ -417,6 +481,14 @@ def validate_github_pr_evidence(
                 artifact.get("git_blob_oid")
             ).lower():
                 errors.append(f"{artifact_prefix}:git_blob_oid_mismatch")
+            observed_type = git_output(
+                repository_root,
+                "cat-file",
+                "-t",
+                str(artifact.get("git_blob_oid") or ""),
+            )
+            if observed_type != "blob":
+                errors.append(f"{artifact_prefix}:git_object_type_not_blob")
         size = artifact.get("bytes")
         if isinstance(size, bool) or not isinstance(size, int) or size <= 0:
             errors.append(f"{artifact_prefix}:bytes_invalid")
@@ -514,7 +586,7 @@ def audit_inventory(
     if contract.get("rules") != REQUIRED_RULES:
         errors.append("contract_rules_invalid")
     base_commit = str(inventory.get("base_commit") or "").lower()
-    if not HEX_40.fullmatch(base_commit):
+    if base_commit != REQUIRED_BASE_COMMIT:
         errors.append("base_commit_invalid")
     else:
         observed_base = git_output(
@@ -665,6 +737,10 @@ def audit_inventory(
         errors.append("registry_entry_id_missing")
     if len(registry_ids) != len(set(registry_ids)):
         errors.append("registry_entry_ids_not_unique")
+    if set(registry_ids) != REQUIRED_REGISTRY_ENTRY_IDS or len(
+        registry_ids
+    ) != len(REQUIRED_REGISTRY_ENTRY_IDS):
+        errors.append("canonical_registry_entry_ids_mismatch")
     if isinstance(source, dict) and source.get("entry_count") != len(
         registry_ids
     ):
@@ -767,6 +843,19 @@ def audit_inventory(
             errors.append(f"{entry_id}:daily_return_series_status_invalid")
         if disposition not in dispositions:
             errors.append(f"{entry_id}:multiplicity_disposition_invalid")
+        expected_status_disposition = (
+            REQUIRED_STATUS_DISPOSITION_BY_EVALUATION_CLASS.get(
+                evaluation_class
+            )
+        )
+        if expected_status_disposition != (
+            manifest_status,
+            return_status,
+            disposition,
+        ):
+            errors.append(
+                f"{entry_id}:evaluation_class_status_disposition_mismatch"
+            )
         class_counts[evaluation_class] += 1
         evidence_state_counts[evidence_state] += 1
 
@@ -778,6 +867,8 @@ def audit_inventory(
             or lower_bound < 0
         ):
             errors.append(f"{entry_id}:attempt_count_lower_bound_invalid")
+        elif lower_bound != REQUIRED_ATTEMPT_COUNT_LOWER_BOUNDS.get(entry_id):
+            errors.append(f"{entry_id}:attempt_count_lower_bound_mismatch")
         if not isinstance(exact_count_known, bool):
             errors.append(f"{entry_id}:exact_attempt_count_known_invalid")
         if not isinstance(entry.get("selection_informed"), bool):
