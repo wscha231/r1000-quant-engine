@@ -115,6 +115,16 @@ def test_contract_is_fixed_and_leakage_features_are_rejected() -> None:
     else:
         raise AssertionError("a future-return feature entered the whitelist")
 
+    wrong_cadence = json.loads(json.dumps(cfg))
+    wrong_cadence["horizons"]["63"]["score_weight"] = 0.60
+    wrong_cadence["horizons"]["126"]["score_weight"] = 0.40
+    try:
+        MOD.validate_contract(wrong_cadence)
+    except ValueError as exc:
+        assert "fixed horizon score weight mismatch" in str(exc)
+    else:
+        raise AssertionError("an unapproved 63D/126D cadence was accepted")
+
 
 def test_u0_gate_blocks_model_fit_and_all_mutations() -> None:
     with tempfile.TemporaryDirectory() as tmp:
@@ -249,6 +259,98 @@ def test_benchmark_identity_and_forward_dates_are_fail_closed() -> None:
     else:
         raise AssertionError("same-day forward label was accepted")
 
+    null_ticker = synthetic_frame(months=18)
+    null_ticker.loc[0, "ticker"] = None
+    try:
+        MOD.prepare_frame(null_ticker, cfg)
+    except ValueError as exc:
+        assert "null ticker" in str(exc)
+    else:
+        raise AssertionError("a null ticker identity was accepted")
+
+    blank_sector = synthetic_frame(months=18)
+    blank_sector.loc[0, "sector"] = "  "
+    try:
+        MOD.prepare_frame(blank_sector, cfg)
+    except ValueError as exc:
+        assert "empty sector" in str(exc)
+    else:
+        raise AssertionError("a blank sector identity was accepted")
+
+
+def test_21d_timing_unavailability_does_not_block_monthly_selection() -> None:
+    cfg = contract()
+    raw = synthetic_frame()
+    raw["r_1m"] = 0.05
+    prepared = MOD.prepare_frame(raw, cfg)
+    predictions, audit, latest_models = MOD.walk_forward_predictions(prepared, cfg)
+    assert not predictions.empty
+    unavailable = audit[
+        audit["status"].eq("UNAVAILABLE_TIMING_ONLY_INSUFFICIENT_TRAINING")
+        & audit["horizon"].eq(21)
+    ]
+    assert not unavailable.empty
+    assert predictions["expected_alpha_21d"].isna().all()
+    assert predictions["entry_timing_score"].isna().all()
+    assert predictions["expected_alpha_63d"].notna().all()
+    assert predictions["expected_alpha_126d"].notna().all()
+    assert latest_models["horizons"]["21"]["status"].startswith("UNAVAILABLE_TIMING_ONLY")
+
+
+def test_semantic_failure_and_stale_latest_are_auditable_blocks() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        census = root / "census.json"
+        census.write_text(json.dumps(valid_u0()), encoding="utf-8")
+
+        duplicate = pd.concat(
+            [synthetic_frame(months=18), synthetic_frame(months=18).iloc[[0]]],
+            ignore_index=True,
+        )
+        duplicate_store = root / "duplicate.parquet"
+        duplicate.to_parquet(duplicate_store)
+        duplicate_output = root / "duplicate_out"
+        duplicate_summary = MOD.run(
+            Namespace(
+                contract=str(CONTRACT_PATH),
+                u0_census=str(census),
+                feature_store=str(duplicate_store),
+                output_dir=str(duplicate_output),
+            )
+        )
+        assert duplicate_summary["status"] == MOD.BLOCKED_STATUS
+        assert "feature_store_semantic_validation_failed" in "|".join(
+            duplicate_summary["blockers"]
+        )
+        assert (duplicate_output / "summary.json").is_file()
+        assert (duplicate_output / "source_manifest.json").is_file()
+
+        valid_store = root / "valid.parquet"
+        synthetic_frame(months=48).to_parquet(valid_store)
+        stale_output = root / "stale_out"
+        original = MOD.walk_forward_predictions
+
+        def stale_predictions(prepared, cfg):
+            predictions, audit, models = original(prepared, cfg)
+            latest = predictions["feature_date"].max()
+            return predictions[predictions["feature_date"].lt(latest)], audit, models
+
+        MOD.walk_forward_predictions = stale_predictions
+        try:
+            stale_summary = MOD.run(
+                Namespace(
+                    contract=str(CONTRACT_PATH),
+                    u0_census=str(census),
+                    feature_store=str(valid_store),
+                    output_dir=str(stale_output),
+                )
+            )
+        finally:
+            MOD.walk_forward_predictions = original
+        assert stale_summary["status"] == MOD.BLOCKED_STATUS
+        assert "latest_input_decision_not_scored" in "|".join(stale_summary["blockers"])
+        assert pd.read_csv(stale_output / "latest_expected_return_proposal.csv").empty
+
 
 def test_allowed_synthetic_run_writes_only_research_outputs() -> None:
     with tempfile.TemporaryDirectory() as tmp:
@@ -298,6 +400,8 @@ def main() -> int:
     test_missing_exact_label_provenance_blocks_even_with_u0_allowed()
     test_walk_forward_is_exactly_purged_and_learns_expected_return()
     test_benchmark_identity_and_forward_dates_are_fail_closed()
+    test_21d_timing_unavailability_does_not_block_monthly_selection()
+    test_semantic_failure_and_stale_latest_are_auditable_blocks()
     test_allowed_synthetic_run_writes_only_research_outputs()
     test_source_contains_no_broker_or_promotion_execution()
     print("run287_expected_return_challenger_smoke: PASS")

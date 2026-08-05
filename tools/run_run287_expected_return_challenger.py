@@ -183,8 +183,14 @@ def validate_contract(contract: Any) -> dict[str, Any]:
         score_weight += float(spec.get("score_weight") or 0.0)
     if abs(score_weight - 1.0) > 1e-12:
         raise ValueError("horizon score weights must sum to one")
-    if float(horizons["21"].get("score_weight") or 0.0) != 0.0:
-        raise ValueError("21-session horizon must remain timing-only")
+    fixed_score_weights = {"21": 0.0, "63": 0.65, "126": 0.35}
+    for horizon, expected_weight in fixed_score_weights.items():
+        actual_weight = float(horizons[horizon].get("score_weight") or 0.0)
+        if not math.isclose(actual_weight, expected_weight, rel_tol=0.0, abs_tol=1e-12):
+            raise ValueError(
+                f"fixed horizon score weight mismatch:{horizon}:"
+                f"expected={expected_weight}:actual={actual_weight}"
+            )
     model = contract.get("model") or {}
     if (
         model.get("parameter_tuning_allowed") is not False
@@ -287,9 +293,16 @@ def prepare_frame(frame: pd.DataFrame, contract: Mapping[str, Any]) -> pd.DataFr
         raise ValueError("invalid feature or rebalance date")
     if not out["feature_date"].eq(out["rebalance_date"]).all():
         raise ValueError("feature_date and rebalance_date identity mismatch")
+    if out["ticker"].isna().any():
+        raise ValueError("null ticker in feature store")
+    if out["sector"].isna().any():
+        raise ValueError("null sector in feature store")
     out["ticker"] = out["ticker"].astype(str).str.strip().str.upper().str.replace(".", "-", regex=False)
+    out["sector"] = out["sector"].astype(str).str.strip()
     if out["ticker"].eq("").any():
         raise ValueError("empty ticker in feature store")
+    if out["sector"].eq("").any():
+        raise ValueError("empty sector in feature store")
     if out.duplicated(["feature_date", "ticker"]).any():
         raise ValueError("duplicate feature_date/ticker rows")
 
@@ -527,9 +540,12 @@ def walk_forward_predictions(
                 )
             continue
         date_output = test[["feature_date", "rebalance_date", "ticker", "sector"]].copy()
-        all_horizons_ready = True
+        selection_horizons_ready = True
         decision_models: dict[str, Any] = {}
         for horizon in HORIZONS:
+            selection_required = float(
+                contract["horizons"][str(horizon)]["score_weight"]
+            ) > 0.0
             feature_columns = [
                 f"xrank__{name}" for name in contract["features"][str(horizon)]
             ]
@@ -545,6 +561,7 @@ def walk_forward_predictions(
             recent = eligible[eligible["feature_date"].ge(recent_start)].copy()
             models: dict[str, Any] = {}
             target_results: dict[str, tuple[np.ndarray, np.ndarray, dict[str, Any]]] = {}
+            horizon_ready = True
             for target_kind in TARGET_KINDS:
                 target_column = f"y_{target_kind}_{horizon}d"
                 fitted = fit_regression_pair(
@@ -556,12 +573,12 @@ def walk_forward_predictions(
                     contract,
                 )
                 if fitted is None:
-                    all_horizons_ready = False
+                    horizon_ready = False
                     break
                 target_results[target_kind] = fitted
                 models[target_kind] = fitted[2]
             classifier = None
-            if all_horizons_ready:
+            if horizon_ready:
                 classifier = fit_classifier_pair(
                     eligible,
                     recent,
@@ -571,13 +588,17 @@ def walk_forward_predictions(
                     contract,
                 )
                 if classifier is None:
-                    all_horizons_ready = False
-            if not all_horizons_ready or classifier is None:
+                    horizon_ready = False
+            if not horizon_ready or classifier is None:
                 audit_rows.append(
                     {
                         "decision_date": decision,
                         "horizon": horizon,
-                        "status": "BLOCKED_INSUFFICIENT_TRAINING",
+                        "status": (
+                            "BLOCKED_INSUFFICIENT_TRAINING"
+                            if selection_required
+                            else "UNAVAILABLE_TIMING_ONLY_INSUFFICIENT_TRAINING"
+                        ),
                         "embargo_cutoff": cutoff,
                         "training_rows": len(eligible),
                         "training_dates": int(eligible["feature_date"].nunique()),
@@ -586,7 +607,38 @@ def walk_forward_predictions(
                         "max_label_available_at": eligible[available_col].max() if not eligible.empty else None,
                     }
                 )
-                break
+                if selection_required:
+                    selection_horizons_ready = False
+                    break
+                for column in (
+                    "expected_absolute",
+                    "expected_benchmark_excess",
+                    "expected_sector_neutral",
+                    "expected_alpha",
+                    "downside_probability",
+                    "model_disagreement",
+                ):
+                    date_output[f"{column}_{horizon}d"] = np.nan
+                date_output[f"feature_coverage_{horizon}d"] = test[
+                    f"feature_coverage_{horizon}d"
+                ].to_numpy()
+                for target_kind in TARGET_KINDS:
+                    date_output[f"realized_{target_kind}_{horizon}d"] = test[
+                        f"y_{target_kind}_{horizon}d"
+                    ].to_numpy()
+                date_output[f"realized_downside_{horizon}d"] = test[
+                    f"y_downside_{horizon}d"
+                ].to_numpy()
+                date_output[f"label_available_at_{horizon}d"] = test[
+                    available_col
+                ].to_numpy()
+                decision_models[str(horizon)] = {
+                    "status": "UNAVAILABLE_TIMING_ONLY_INSUFFICIENT_TRAINING",
+                    "features": [
+                        name.removeprefix("xrank__") for name in feature_columns
+                    ],
+                }
+                continue
             benchmark_mix = float(
                 contract["target_contract"]["benchmark_sector_mix"]["benchmark_excess"]
             )
@@ -635,22 +687,27 @@ def walk_forward_predictions(
                     "feature_set_sha256": canonical_sha256(models["features"]),
                 }
             )
-        if not all_horizons_ready:
+        if not selection_horizons_ready:
             continue
+        selection_horizons = [
+            horizon
+            for horizon in HORIZONS
+            if float(contract["horizons"][str(horizon)]["score_weight"]) > 0.0
+        ]
         horizon_alpha = sum(
             float(contract["horizons"][str(horizon)]["score_weight"])
             * date_output[f"expected_alpha_{horizon}d"]
-            for horizon in HORIZONS
+            for horizon in selection_horizons
         )
         downside = sum(
             float(contract["horizons"][str(horizon)]["score_weight"])
             * date_output[f"downside_probability_{horizon}d"]
-            for horizon in HORIZONS
+            for horizon in selection_horizons
         )
         disagreement = sum(
             float(contract["horizons"][str(horizon)]["score_weight"])
             * date_output[f"model_disagreement_{horizon}d"]
-            for horizon in HORIZONS
+            for horizon in selection_horizons
         )
         date_output["expected_alpha_gross"] = horizon_alpha
         date_output["weighted_downside_probability"] = downside
@@ -923,12 +980,36 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             inputs=inputs,
         )
 
-    prepared = prepare_frame(frame, contract)
+    try:
+        prepared = prepare_frame(frame, contract)
+    except Exception as exc:
+        detail = re.sub(r"[^A-Za-z0-9_.:,=-]+", "_", str(exc)).strip("_")
+        return blocked_artifacts(
+            output_dir,
+            blockers=[
+                f"feature_store_semantic_validation_failed:{type(exc).__name__}:"
+                f"{detail[:240]}"
+            ],
+            contract=contract,
+            inputs=inputs,
+        )
     predictions, audit, latest_models = walk_forward_predictions(prepared, contract)
     if predictions.empty:
         return blocked_artifacts(
             output_dir,
             blockers=["no_pit_purged_walk_forward_predictions"],
+            contract=contract,
+            inputs=inputs,
+        )
+    latest_input_date = pd.Timestamp(prepared["feature_date"].max()).normalize()
+    latest_scored_date = pd.Timestamp(predictions["feature_date"].max()).normalize()
+    if latest_scored_date != latest_input_date:
+        return blocked_artifacts(
+            output_dir,
+            blockers=[
+                "latest_input_decision_not_scored:"
+                f"input={latest_input_date.date()}:scored={latest_scored_date.date()}"
+            ],
             contract=contract,
             inputs=inputs,
         )
