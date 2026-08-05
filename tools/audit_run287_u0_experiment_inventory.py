@@ -40,6 +40,57 @@ AUDIT_STATUS = "VALID_INVENTORY_PROMOTION_BLOCKED"
 PR_REF_PREFIX = "refs/run287-u0/pr"
 BASE_REF = "refs/run287-u0/base"
 KNOWN_OUT_OF_REGISTRY_PR_NUMBERS = {229, 230, 237}
+REQUIRED_SOURCE_REGISTRY_PATH = "docs/run287_do_not_repeat_registry.json"
+REQUIRED_CONTRACT_ENUMS = {
+    "evaluation_classes": {
+        "PORTFOLIO_RETURN",
+        "SOURCE_RETURN_SCREEN",
+        "MIXED_SOURCE_AND_PORTFOLIO",
+        "NO_SIGNAL",
+        "NO_OP_PORTFOLIO",
+        "INVALID_OR_INCOMPLETE",
+        "UNVERIFIED_LEGACY",
+    },
+    "evidence_states": {
+        "SUMMARY_ONLY",
+        "ORPHANED_SUMMARY_RECOVERABLE",
+        "SOURCE_SCREEN_ONLY",
+        "NO_SIGNAL",
+        "NO_OP",
+        "INVALID_RUN",
+        "UNVERIFIED_ASSERTION",
+    },
+    "trial_manifest_states": {"MISSING", "NOT_APPLICABLE"},
+    "daily_return_series_states": {"MISSING", "NOT_APPLICABLE"},
+    "multiplicity_dispositions": {
+        "BLOCK_MISSING_EXACT_RETURN_SERIES",
+        "BLOCK_SELECTION_MULTIPLICITY_UNMODELED",
+        "BLOCK_INVALID_EVIDENCE",
+        "BLOCK_UNVERIFIED_EVIDENCE",
+    },
+    "github_pr_ancestry_states": {
+        "CURRENT_MASTER",
+        "ORPHANED_FROM_CURRENT_MASTER",
+    },
+}
+REQUIRED_OVERLAP_GROUP_MEMBERS = {
+    "growth_confirmation_shared_trials": {
+        "weak_source_fusion",
+        "direct_growth_tilt",
+    },
+    "financial_proxy_shared_trials": {
+        "static_actual_profitability",
+        "technical_macro_risk_financial_proxy",
+    },
+    "ownership_w4_shared_trials": {
+        "ownership_13f_form4",
+        "w4_sec_percentile_tilt",
+    },
+    "sec_filing_quality_shared_screen": {
+        "sec_market_confirmed_fundamental_event",
+        "sec_filing_quality_event",
+    },
+}
 
 HEX_40 = re.compile(r"[0-9a-f]{40}")
 HEX_64 = re.compile(r"[0-9a-f]{64}")
@@ -218,6 +269,14 @@ def repository_path(root: Path, value: Any) -> Path | None:
     return resolved
 
 
+def repository_relative_path(root: Path, path: Path) -> str | None:
+    try:
+        relative = path.resolve().relative_to(root.resolve())
+    except ValueError:
+        return None
+    return PurePosixPath(*relative.parts).as_posix()
+
+
 def validate_tracked_file_evidence(
     evidence: dict[str, Any],
     *,
@@ -319,6 +378,11 @@ def validate_github_pr_evidence(
     if not isinstance(artifacts, list):
         errors.append(f"{prefix}:github_pr_artifacts_invalid")
         return
+    if (
+        evidence.get("ancestry") == "ORPHANED_FROM_CURRENT_MASTER"
+        and not artifacts
+    ):
+        errors.append(f"{prefix}:orphaned_github_pr_artifact_required")
     seen_paths: set[str] = set()
     for artifact_index, artifact in enumerate(artifacts):
         artifact_prefix = f"{prefix}:artifact[{artifact_index}]"
@@ -417,11 +481,12 @@ def validate_missing_evidence(
     if set(evidence) != {"kind", "path", "reason"}:
         errors.append(f"{prefix}:missing_local_artifact_fields_invalid")
         return
-    path = repository_path(repository_root, evidence.get("path"))
+    path_text = str(evidence.get("path") or "")
+    path = repository_path(repository_root, path_text)
     if path is None:
         errors.append(f"{prefix}:missing_local_artifact_path_invalid")
-    elif path.exists():
-        errors.append(f"{prefix}:missing_local_artifact_now_exists")
+    elif committed_blob_bytes(repository_root, path_text) is not None:
+        errors.append(f"{prefix}:missing_local_artifact_committed_blob_exists")
     if not str(evidence.get("reason") or "").strip():
         errors.append(f"{prefix}:missing_local_artifact_reason_missing")
 
@@ -460,23 +525,20 @@ def audit_inventory(
         elif observed_base.lower() != base_commit:
             errors.append("base_ref_commit_mismatch")
 
-    classes = set(contract.get("evaluation_classes") or [])
-    evidence_states = set(contract.get("evidence_states") or [])
-    manifest_states = set(contract.get("trial_manifest_states") or [])
-    return_states = set(contract.get("daily_return_series_states") or [])
-    dispositions = set(contract.get("multiplicity_dispositions") or [])
-    allowed_ancestry = set(contract.get("github_pr_ancestry_states") or [])
-    if not all(
-        (
-            classes,
-            evidence_states,
-            manifest_states,
-            return_states,
-            dispositions,
-            allowed_ancestry,
-        )
-    ):
-        errors.append("contract_enumerations_incomplete")
+    for name, required in REQUIRED_CONTRACT_ENUMS.items():
+        observed = contract.get(name)
+        if (
+            not isinstance(observed, list)
+            or len(observed) != len(required)
+            or set(observed) != required
+        ):
+            errors.append(f"contract_enumeration_invalid:{name}")
+    classes = set(REQUIRED_CONTRACT_ENUMS["evaluation_classes"])
+    evidence_states = set(REQUIRED_CONTRACT_ENUMS["evidence_states"])
+    manifest_states = set(REQUIRED_CONTRACT_ENUMS["trial_manifest_states"])
+    return_states = set(REQUIRED_CONTRACT_ENUMS["daily_return_series_states"])
+    dispositions = set(REQUIRED_CONTRACT_ENUMS["multiplicity_dispositions"])
+    allowed_ancestry = set(REQUIRED_CONTRACT_ENUMS["github_pr_ancestry_states"])
 
     coverage = inventory.get("coverage")
     coverage_scope = ""
@@ -551,9 +613,24 @@ def audit_inventory(
         errors.append("known_out_of_registry_pr_numbers_mismatch")
 
     source = inventory.get("source_registry")
-    source_registry_blob = committed_blob_bytes(
-        repository_root, "docs/run287_do_not_repeat_registry.json"
+    registry_relative = repository_relative_path(repository_root, registry_path)
+    if contract.get("source_registry_path") != REQUIRED_SOURCE_REGISTRY_PATH:
+        errors.append("contract_source_registry_path_invalid")
+    if registry_relative != REQUIRED_SOURCE_REGISTRY_PATH:
+        errors.append("parsed_registry_path_invalid")
+    source_registry_blob = (
+        committed_blob_bytes(repository_root, registry_relative)
+        if registry_relative == REQUIRED_SOURCE_REGISTRY_PATH
+        else None
     )
+    if source_registry_blob is not None:
+        try:
+            committed_registry = json.loads(source_registry_blob.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            errors.append("source_registry_committed_blob_invalid")
+        else:
+            if registry != committed_registry:
+                errors.append("parsed_registry_content_mismatch")
     if not isinstance(source, dict) or set(source) != {
         "path",
         "schema_version",
@@ -563,7 +640,7 @@ def audit_inventory(
     }:
         errors.append("source_registry_binding_invalid")
     else:
-        if source.get("path") != "docs/run287_do_not_repeat_registry.json":
+        if source.get("path") != REQUIRED_SOURCE_REGISTRY_PATH:
             errors.append("source_registry_path_invalid")
         if source.get("schema_version") != REGISTRY_SCHEMA:
             errors.append("source_registry_schema_invalid")
@@ -648,6 +725,8 @@ def audit_inventory(
             continue
         group_members[group_id] = set(members)
         unresolved_group_ids.add(group_id)
+    if group_members != REQUIRED_OVERLAP_GROUP_MEMBERS:
+        errors.append("known_overlap_groups_mismatch")
 
     class_counts: Counter[str] = Counter()
     evidence_state_counts: Counter[str] = Counter()
@@ -657,6 +736,12 @@ def audit_inventory(
         if not isinstance(entry, dict):
             continue
         entry_id = str(entry.get("registry_entry_id") or f"index-{index}")
+        raw_disposition = str(
+            entry.get("multiplicity_disposition")
+            or "INVALID_OR_MISSING_DISPOSITION"
+        )
+        blocked_ids.append(entry_id)
+        promotion_blockers.append(f"{entry_id}:{raw_disposition}")
         keys = set(entry)
         if not REQUIRED_ENTRY_FIELDS.issubset(keys) or not keys.issubset(
             REQUIRED_ENTRY_FIELDS | OPTIONAL_ENTRY_FIELDS
@@ -773,8 +858,6 @@ def audit_inventory(
 
         if not disposition.startswith("BLOCK_"):
             errors.append(f"{entry_id}:v1_disposition_must_block")
-        blocked_ids.append(entry_id)
-        promotion_blockers.append(f"{entry_id}:{disposition}")
 
     for group_id in sorted(unresolved_group_ids):
         promotion_blockers.append(

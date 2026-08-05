@@ -232,7 +232,13 @@
           "url": "https://github.com/wscha231/r1000-quant-engine/pull/174",
           "head_commit": "591b5dc0fd009ea4cf577985ea4cd6d4062555c4",
           "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
-          "artifacts": []
+          "artifacts": [
+            {
+              "path": "tools/run_alphaops_vnext_policy_replay.py",
+              "git_blob_oid": "c8fc96a313f7d16d0cb8ac2c087367bb1a980ead",
+              "bytes": 173660
+            }
+          ]
         }
       ],
       "published_results": {
@@ -315,7 +321,13 @@
           "url": "https://github.com/wscha231/r1000-quant-engine/pull/172",
           "head_commit": "13f372e620f4126258c9359734bf9c0105efeb3c",
           "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
-          "artifacts": []
+          "artifacts": [
+            {
+              "path": "tools/run_concentrated_cap_replacement_audit.py",
+              "git_blob_oid": "daa5baf3ed44f0ae17e4ee69d262d32cab545331",
+              "bytes": 12716
+            }
+          ]
         }
       ],
       "finding": "PR 172 scanned multiple PIT-visible rule slices using forward returns as audit labels; it was not a valid portfolio return trial but it informed later research selection.",
@@ -753,8 +765,8 @@
         {
           "kind": "tracked_file",
           "path": "CHANGELOG.md",
-          "sha256": "783c58e2c5689f33c00a72a189179ec68d6f43dac5d8036a4da1d4bf84098d24",
-          "bytes": 1384483
+          "sha256": "ab7a08a518cd1257790bdcc7ec837446a00fb19717450f82ba815b735a9a34c3",
+          "bytes": 1398460
         }
       ],
       "finding": "The tracked changelog proves implementation and says a later replay was still required; no immutable rejection result was found even though the registry marks the family rejected.",
@@ -839,7 +851,13 @@
           "url": "https://github.com/wscha231/r1000-quant-engine/pull/278",
           "head_commit": "e643e4539fe1ffbc20da82a01a2ae3074b3f93d2",
           "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
-          "artifacts": []
+          "artifacts": [
+            {
+              "path": "docs/CODEX_RUN287_SEC_FILING_QUALITY_SOURCE_SCREEN_CLOSURE_20260714.md",
+              "git_blob_oid": "3762d8fae40fc9657bcf0543f98e5dea3fd2dfc7",
+              "bytes": 3243
+            }
+          ]
         },
         {
           "kind": "missing_local_artifact",
@@ -901,7 +919,13 @@
           "url": "https://github.com/wscha231/r1000-quant-engine/pull/267",
           "head_commit": "6dfb7b9d2c6d040cc5f30d030184cb6cdbc7a67f",
           "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
-          "artifacts": []
+          "artifacts": [
+            {
+              "path": "docs/CODEX_RUN287_PARTIAL_RESIZE_CONFIRMATION_RESULT_20260713.md",
+              "git_blob_oid": "b1edbe74283819372d300639918ba0749ae0588e",
+              "bytes": 4350
+            }
+          ]
         },
         {
           "kind": "missing_local_artifact",
@@ -976,7 +1000,13 @@
           "url": "https://github.com/wscha231/r1000-quant-engine/pull/311",
           "head_commit": "ced4baf6218aee18ecdbc4080505ee305d275a12",
           "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
-          "artifacts": []
+          "artifacts": [
+            {
+              "path": "tools/evaluate_run287_sector_rs_materialization.py",
+              "git_blob_oid": "15e473a6660ca2bf59e3718f8ca1785e79af7fe0",
+              "bytes": 11035
+            }
+          ]
         },
         {
           "kind": "missing_local_artifact",
@@ -1016,7 +1046,13 @@
           "url": "https://github.com/wscha231/r1000-quant-engine/pull/336",
           "head_commit": "97f9bf5753dfc3ec44c552d64da4d10b5b63b9f5",
           "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
-          "artifacts": []
+          "artifacts": [
+            {
+              "path": "tools/run_market_leader_challenger.py",
+              "git_blob_oid": "eb408d42289670983768638cfbac380f685d10ec",
+              "bytes": 44590
+            }
+          ]
         }
       ],
       "published_results": {

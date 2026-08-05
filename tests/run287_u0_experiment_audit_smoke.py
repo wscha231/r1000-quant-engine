@@ -114,6 +114,14 @@ def test_overlap_must_be_acknowledged_to_prevent_double_counting() -> None:
         in result["errors"]
     )
 
+    inventory = read(INVENTORY_PATH)
+    inventory["overlap_groups"] = []
+    for item in inventory["entries"]:
+        item["overlap_group_ids"] = []
+    result = audit(inventory)
+    assert result["valid"] is False
+    assert "known_overlap_groups_mismatch" in result["errors"]
+
 
 def test_canonical_registry_cannot_be_claimed_as_full_history() -> None:
     inventory = read(INVENTORY_PATH)
@@ -193,6 +201,27 @@ def test_summary_cannot_be_relabelled_as_ready_return_evidence() -> None:
         in result["blocked_registry_entry_ids"]
     )
 
+    contract = read(CONTRACT_PATH)
+    contract["trial_manifest_states"].append("READY")
+    contract["daily_return_series_states"].append("READY")
+    result = MOD.audit_inventory(
+        contract=contract,
+        registry=read(REGISTRY_PATH),
+        inventory=read(INVENTORY_PATH),
+        repository_root=ROOT,
+        registry_path=REGISTRY_PATH,
+        inventory_path=INVENTORY_PATH,
+    )
+    assert result["valid"] is False
+    assert (
+        "contract_enumeration_invalid:trial_manifest_states"
+        in result["errors"]
+    )
+    assert (
+        "contract_enumeration_invalid:daily_return_series_states"
+        in result["errors"]
+    )
+
 
 def test_v1_rejects_recovery_manifests_and_selection_labels() -> None:
     inventory = read(INVENTORY_PATH)
@@ -212,7 +241,9 @@ def test_v1_rejects_recovery_manifests_and_selection_labels() -> None:
         "ownership_13f_form4:multiplicity_disposition_invalid"
         in result["errors"]
     )
+    assert "main_growth_downside_beta_neutral" in result["blocked_registry_entry_ids"]
     assert "ownership_13f_form4" in result["blocked_registry_entry_ids"]
+    assert result["promotion_blocked_entry_count"] == 21
 
 
 def test_contract_rules_are_exact_and_fail_closed() -> None:
@@ -271,6 +302,25 @@ def test_pr_ref_and_blob_bindings_are_verified() -> None:
     assert result["valid"] is False
     assert any(
         error.endswith(":git_blob_oid_mismatch")
+        for error in result["errors"]
+    )
+
+
+def test_every_orphaned_pr_names_a_verified_blob() -> None:
+    inventory = read(INVENTORY_PATH)
+    target = entry(inventory, "broad_gross_floor")
+    pr_evidence = next(
+        evidence
+        for evidence in target["evidence"]
+        if evidence["kind"] == "github_pr"
+    )
+    assert pr_evidence["ancestry"] == "ORPHANED_FROM_CURRENT_MASTER"
+    assert pr_evidence["artifacts"]
+    pr_evidence["artifacts"] = []
+    result = audit(inventory)
+    assert result["valid"] is False
+    assert any(
+        error.endswith(":orphaned_github_pr_artifact_required")
         for error in result["errors"]
     )
 
@@ -339,6 +389,55 @@ def test_tracked_evidence_is_hash_bound() -> None:
     )
 
 
+def test_missing_artifact_is_checked_against_committed_tree() -> None:
+    inventory = read(INVENTORY_PATH)
+    missing_path = "_tmp_tests/p5_hold_exit_actual_v2_20260720/summary.json"
+    original = MOD.committed_blob_bytes
+
+    def fake_committed_blob_bytes(root: Path, path: str) -> bytes | None:
+        if path == missing_path:
+            return b"recovered\n"
+        return original(root, path)
+
+    MOD.committed_blob_bytes = fake_committed_blob_bytes
+    try:
+        result = audit(inventory)
+    finally:
+        MOD.committed_blob_bytes = original
+    assert result["valid"] is False
+    assert any(
+        error.endswith(":missing_local_artifact_committed_blob_exists")
+        for error in result["errors"]
+    )
+
+
+def test_registry_payload_and_path_match_the_committed_blob() -> None:
+    inventory = read(INVENTORY_PATH)
+    registry = read(REGISTRY_PATH)
+    registry["entries"][0]["status"] = "INVENTED"
+    result = MOD.audit_inventory(
+        contract=read(CONTRACT_PATH),
+        registry=registry,
+        inventory=inventory,
+        repository_root=ROOT,
+        registry_path=REGISTRY_PATH,
+        inventory_path=INVENTORY_PATH,
+    )
+    assert result["valid"] is False
+    assert "parsed_registry_content_mismatch" in result["errors"]
+
+    result = MOD.audit_inventory(
+        contract=read(CONTRACT_PATH),
+        registry=read(REGISTRY_PATH),
+        inventory=inventory,
+        repository_root=ROOT,
+        registry_path=ROOT / "docs" / "alternate_registry.json",
+        inventory_path=INVENTORY_PATH,
+    )
+    assert result["valid"] is False
+    assert "parsed_registry_path_invalid" in result["errors"]
+
+
 def test_cli_reports_blocked_state_without_treating_it_as_test_failure() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         output = Path(temporary) / "audit.json"
@@ -373,10 +472,13 @@ def main() -> int:
     test_contract_rules_are_exact_and_fail_closed()
     test_hash_bindings_are_newline_canonical()
     test_pr_ref_and_blob_bindings_are_verified()
+    test_every_orphaned_pr_names_a_verified_blob()
     test_pr_ancestry_label_is_verified_against_audit_base()
     test_required_pr_refspecs_are_exact_and_unique()
     test_overlap_deduplication_cannot_be_claimed_in_v1()
     test_tracked_evidence_is_hash_bound()
+    test_missing_artifact_is_checked_against_committed_tree()
+    test_registry_payload_and_path_match_the_committed_blob()
     test_cli_reports_blocked_state_without_treating_it_as_test_failure()
     print("run287_u0_experiment_audit_smoke: PASS")
     return 0
