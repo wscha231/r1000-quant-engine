@@ -59,29 +59,45 @@ def valid_u0() -> dict:
     }
 
 
+def accepted_u0_evidence(census: dict) -> dict:
+    return {
+        "schema_version": "run287-u0-accepted-evidence-v1",
+        "repository": MOD.REPOSITORY,
+        "workflow_identity": "run287-u0-v2-acceptance",
+        "audit_default_branch_sha": census["audit_default_branch_sha"],
+        "census_sha256": MOD.canonical_sha256(census),
+        "source_contract_sha256": MOD.canonical_sha256(
+            census["source_contract"]
+        ),
+        "historical_experiment_census_complete": True,
+        "historical_challenger_allowed": True,
+        "promotion_blockers": [],
+    }
+
+
 def run_with_accepted_test_u0(args: Namespace) -> dict:
     census = MOD.read_json(Path(args.u0_census))
     audit_sha = str(census["audit_default_branch_sha"])
-    accepted_contract = accepted_test_contract(census)
+    evidence_path = Path(args.u0_census).with_name("accepted_evidence.json")
+    evidence_path.write_text(
+        json.dumps(accepted_u0_evidence(census)), encoding="utf-8"
+    )
+    args.u0_accepted_evidence = str(evidence_path)
     original_default = MOD.git_default_branch_sha
     original_ancestor = MOD.git_is_ancestor
-    original_validate = MOD.validate_contract
     MOD.git_default_branch_sha = lambda: audit_sha
     MOD.git_is_ancestor = lambda ancestor, descendant: (
         ancestor == audit_sha and descendant == MOD.git_head()
     )
-    MOD.validate_contract = lambda _raw: accepted_contract
     try:
         return MOD.run(args)
     finally:
         MOD.git_default_branch_sha = original_default
         MOD.git_is_ancestor = original_ancestor
-        MOD.validate_contract = original_validate
 
 
 def u0_gate_with_accepted_test_default(census: dict) -> list[str]:
     accepted_sha = str(valid_u0()["audit_default_branch_sha"])
-    accepted_contract = accepted_test_contract(census)
     original_default = MOD.git_default_branch_sha
     original_ancestor = MOD.git_is_ancestor
     MOD.git_default_branch_sha = lambda: accepted_sha
@@ -89,22 +105,10 @@ def u0_gate_with_accepted_test_default(census: dict) -> list[str]:
         ancestor == accepted_sha and descendant == MOD.git_head()
     )
     try:
-        return MOD.u0_gate(census, accepted_contract)
+        return MOD.u0_gate(census, accepted_u0_evidence(census), contract())
     finally:
         MOD.git_default_branch_sha = original_default
         MOD.git_is_ancestor = original_ancestor
-
-
-def accepted_test_contract(census: dict) -> dict:
-    cfg = contract()
-    cfg["historical_gate"]["accepted_census_sha256"] = MOD.canonical_sha256(
-        census
-    )
-    cfg["historical_gate"]["accepted_source_contract_sha256"] = (
-        MOD.canonical_sha256(census["source_contract"])
-    )
-    return cfg
-
 
 def blocked_u0() -> dict:
     return {
@@ -160,8 +164,8 @@ def synthetic_frame(months: int = 96, tickers: int = 25) -> pd.DataFrame:
                 stock = benchmark + latent * 0.18 * (horizon / 63.0) + noise
                 row[f"r_{label}"] = stock
                 row[f"bench_r_{label}"] = benchmark
-                row[f"r_{label}_label_end_date"] = future[horizon - 1]
-                row[f"bench_r_{label}_label_end_date"] = future[horizon - 1]
+                row[f"r_{label}_label_end_date"] = future[horizon]
+                row[f"bench_r_{label}_label_end_date"] = future[horizon]
             rows.append(row)
     return pd.DataFrame(rows)
 
@@ -232,8 +236,26 @@ def test_u0_gate_blocks_model_fit_and_all_mutations() -> None:
         root = Path(tmp)
         feature_store = root / "features.parquet"
         synthetic_frame(months=18).to_parquet(feature_store)
+        census_payload = blocked_u0()
         census = root / "census.json"
-        census.write_text(json.dumps(blocked_u0()), encoding="utf-8")
+        census.write_text(json.dumps(census_payload), encoding="utf-8")
+        evidence = root / "accepted_evidence.json"
+        evidence.write_text(
+            json.dumps(
+                {
+                    "schema_version": "run287-u0-accepted-evidence-v1",
+                    "repository": MOD.REPOSITORY,
+                    "workflow_identity": "run287-u0-v2-acceptance",
+                    "audit_default_branch_sha": "",
+                    "census_sha256": MOD.canonical_sha256(census_payload),
+                    "source_contract_sha256": MOD.canonical_sha256(None),
+                    "historical_experiment_census_complete": False,
+                    "historical_challenger_allowed": False,
+                    "promotion_blockers": ["unmapped_trials"],
+                }
+            ),
+            encoding="utf-8",
+        )
         output = root / "out"
         original = MOD.walk_forward_predictions
 
@@ -246,6 +268,7 @@ def test_u0_gate_blocks_model_fit_and_all_mutations() -> None:
                 Namespace(
                     contract=str(CONTRACT_PATH),
                     u0_census=str(census),
+                    u0_accepted_evidence=str(evidence),
                     feature_store=str(feature_store),
                     output_dir=str(output),
                 )
@@ -260,15 +283,15 @@ def test_u0_gate_blocks_model_fit_and_all_mutations() -> None:
         assert summary["orders_generated"] is False
         assert summary["portfolio_or_ledger_mutated"] is False
 
-    assert "u0_census_accepted_evidence_not_registered" in MOD.u0_gate(
-        valid_u0(), contract()
+    assert "u0_accepted_evidence_not_an_object" in MOD.u0_gate(
+        valid_u0(), None, contract()
     )
     accepted = valid_u0()
-    accepted_cfg = accepted_test_contract(accepted)
+    accepted_evidence = accepted_u0_evidence(accepted)
     truncated = json.loads(json.dumps(accepted))
     truncated["pull_requests"] = []
     assert "u0_census_not_exact_accepted_artifact" in MOD.u0_gate(
-        truncated, accepted_cfg
+        truncated, accepted_evidence, contract()
     )
     forged = valid_u0()
     forged_sha = "d" * 40
@@ -356,8 +379,18 @@ def test_required_selection_features_must_be_usable() -> None:
     ] = np.nan
     latest_blockers = MOD.input_readiness(latest_unusable, cfg)
     assert (
-        "latest_selection_feature_unusable:63:rs_benchmark_3m"
+        "selection_feature_unusable_on_decision_date:63:rs_benchmark_3m"
         in latest_blockers
+    )
+
+    historical_gap = synthetic_frame(months=18)
+    middle = sorted(historical_gap["feature_date"].unique())[5]
+    historical_gap.loc[
+        historical_gap["feature_date"].eq(middle), "rs_benchmark_3m"
+    ] = np.nan
+    assert (
+        "selection_feature_unusable_on_decision_date:63:rs_benchmark_3m"
+        in MOD.input_readiness(historical_gap, cfg)
     )
 
 
@@ -691,6 +724,36 @@ def test_source_contains_no_broker_or_promotion_execution() -> None:
     assert "automatic_promotion_allowed\": True" not in source
 
 
+def test_feature_store_builder_materializes_spy_provenance() -> None:
+    from r1000_config import EngineConfig
+    import r1000_pipeline as pipeline
+
+    cfg = EngineConfig()
+    cfg.benchmark_history_source = "yfinance"
+    cfg.benchmark_ticker = "SPY"
+    decision = pd.Timestamp("2022-01-31")
+    sessions = MOD.NYSE.valid_days(
+        start_date=decision - pd.Timedelta(days=10),
+        end_date=decision + pd.Timedelta(days=1200),
+    ).tz_localize(None).normalize()
+    close = pd.Series(
+        np.linspace(100.0, 200.0, len(sessions)), index=sessions
+    )
+    original = pipeline.load_benchmark_price_series
+    pipeline.load_benchmark_price_series = lambda _cfg, _paths: close
+    try:
+        frame = pipeline.attach_benchmark_forward_returns(
+            cfg, {}, pd.DataFrame({"rebalance_date": [decision]})
+        )
+    finally:
+        pipeline.load_benchmark_price_series = original
+    assert frame.loc[0, "benchmark_identity"] == "SPY"
+    assert frame.loc[0, "benchmark_source"] == "YF:SPY"
+    assert pd.Timestamp(frame.loc[0, "bench_r_3m_label_end_date"]) == (
+        sessions[sessions > decision][cfg.target_3m_days]
+    )
+
+
 def main() -> int:
     test_contract_is_fixed_and_leakage_features_are_rejected()
     test_u0_gate_blocks_model_fit_and_all_mutations()
@@ -705,6 +768,7 @@ def main() -> int:
     test_unreadable_u0_census_writes_blocked_packet()
     test_allowed_synthetic_run_writes_only_research_outputs()
     test_source_contains_no_broker_or_promotion_execution()
+    test_feature_store_builder_materializes_spy_provenance()
     print("run287_expected_return_challenger_smoke: PASS")
     return 0
 

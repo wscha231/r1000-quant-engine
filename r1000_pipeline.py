@@ -4659,6 +4659,14 @@ def merge_benchmark_relative_features(cfg: EngineConfig, paths: dict[str, Path],
 
 def attach_benchmark_forward_returns(cfg: EngineConfig, paths: dict[str, Path], monthly: pd.DataFrame) -> pd.DataFrame:
     d = monthly.copy()
+    benchmark_source = benchmark_history_source_label(cfg)
+    benchmark_identity = (
+        (cfg.benchmark_ticker or "^GSPC").strip().upper()
+        if benchmark_source.upper().startswith("YF:")
+        else "SP500"
+    )
+    d["benchmark_identity"] = benchmark_identity
+    d["benchmark_source"] = benchmark_source
     benchmark_horizons = {
         "1m": int(cfg.target_1m_days),
         "3m": int(cfg.target_3m_days),
@@ -8514,6 +8522,8 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
                 "bench_r_12m_label_end_date",
                 "bench_r_24m_label_end_date",
                 "bench_r_36m_label_end_date",
+                "benchmark_identity",
+                "benchmark_source",
                 "r_12m",
                 "r_24m",
                 "r_36m",

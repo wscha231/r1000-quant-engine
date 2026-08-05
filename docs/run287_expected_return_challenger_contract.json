@@ -1,6 +1,6 @@
 {
   "schema_version": "run287-expected-return-challenger-contract-v1",
-  "contract_version": "2026-08-05.1",
+  "contract_version": "2026-08-05.2",
   "family_id": "future_expected_excess_return_multihorizon_v1",
   "objective": {
     "primary": "expected_63_nyse_session_benchmark_excess_return",
@@ -110,7 +110,8 @@
       "benchmark_excess": 0.7,
       "sector_neutral": 0.3
     },
-    "cross_section_maturity": "all_complete_rows_for_one_decision_date_share_the_latest_exact_label_end"
+    "cross_section_maturity": "all_complete_rows_for_one_decision_date_share_the_latest_exact_label_end",
+    "label_return_convention": "next_nyse_session_entry_to_horizon_sessions_later"
   },
   "model": {
     "feature_transform": "decision_date_cross_sectional_percentile_rank_missing_to_neutral_0_5",
@@ -160,10 +161,10 @@
   },
   "historical_gate": {
     "u0_schema_version": "run287-u0-v2-github-census-v1",
+    "accepted_evidence_schema_version": "run287-u0-accepted-evidence-v1",
+    "accepted_evidence_workflow_identity": "run287-u0-v2-acceptance",
     "repository": "wscha231/r1000-quant-engine",
     "default_branch": "master",
-    "accepted_census_sha256": null,
-    "accepted_source_contract_sha256": null,
     "historical_experiment_census_complete_required": true,
     "historical_challenger_allowed_required": true,
     "promotion_blockers_must_be_empty": true

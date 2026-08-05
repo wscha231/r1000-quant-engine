@@ -32,7 +32,7 @@ BLOCKED_STATUS = "BLOCKED_EXPECTED_RETURN_CHALLENGER"
 TARGET_KINDS = ("absolute", "benchmark_excess", "sector_neutral")
 HORIZONS = (21, 63, 126)
 EXPECTED_CONTRACT_SHA256 = (
-    "8b5169de1c851dd70e4cc9e881dea7843130d32cf61f06aed413b24ae5f56d8b"
+    "386f5dbc6b84e9a307ff6af188a2373a7cb788e05b9e8876b56bf15eae042d74"
 )
 FORBIDDEN_FEATURE_RE = re.compile(
     r"(^|_)(future|forward|label|target|outcome)(_|$)|"
@@ -296,7 +296,11 @@ def validate_contract(contract: Any) -> dict[str, Any]:
     return contract
 
 
-def u0_gate(census: Any, contract: Mapping[str, Any]) -> list[str]:
+def u0_gate(
+    census: Any,
+    accepted_evidence: Any,
+    contract: Mapping[str, Any],
+) -> list[str]:
     blockers: list[str] = []
     gate = contract["historical_gate"]
     if not isinstance(census, dict):
@@ -307,21 +311,32 @@ def u0_gate(census: Any, contract: Mapping[str, Any]) -> list[str]:
         blockers.append("u0_census_repository_mismatch")
     if census.get("audit_default_branch") != gate["default_branch"]:
         blockers.append("u0_census_default_branch_mismatch")
-    accepted_census_sha = str(gate.get("accepted_census_sha256") or "").lower()
-    accepted_source_sha = str(
-        gate.get("accepted_source_contract_sha256") or ""
-    ).lower()
-    if not (
-        SHA256_RE.fullmatch(accepted_census_sha)
-        and SHA256_RE.fullmatch(accepted_source_sha)
+    if not isinstance(accepted_evidence, dict):
+        accepted_evidence = {}
+        blockers.append("u0_accepted_evidence_not_an_object")
+    if (
+        accepted_evidence.get("schema_version")
+        != gate["accepted_evidence_schema_version"]
     ):
-        blockers.append("u0_census_accepted_evidence_not_registered")
-    else:
-        if canonical_sha256(census) != accepted_census_sha:
-            blockers.append("u0_census_not_exact_accepted_artifact")
-        if canonical_sha256(census.get("source_contract")) != accepted_source_sha:
-            blockers.append("u0_census_source_not_exact_accepted_envelope")
+        blockers.append("u0_accepted_evidence_schema_mismatch")
+    if accepted_evidence.get("repository") != gate["repository"]:
+        blockers.append("u0_accepted_evidence_repository_mismatch")
+    if (
+        accepted_evidence.get("workflow_identity")
+        != gate["accepted_evidence_workflow_identity"]
+    ):
+        blockers.append("u0_accepted_evidence_workflow_mismatch")
+    if str(accepted_evidence.get("census_sha256") or "").lower() != (
+        canonical_sha256(census)
+    ):
+        blockers.append("u0_census_not_exact_accepted_artifact")
+    if str(accepted_evidence.get("source_contract_sha256") or "").lower() != (
+        canonical_sha256(census.get("source_contract"))
+    ):
+        blockers.append("u0_census_source_not_exact_accepted_envelope")
     audit_sha = str(census.get("audit_default_branch_sha") or "").lower()
+    if str(accepted_evidence.get("audit_default_branch_sha") or "").lower() != audit_sha:
+        blockers.append("u0_accepted_evidence_audit_sha_mismatch")
     current_sha = git_head().lower()
     accepted_default_sha = git_default_branch_sha()
     if not FULL_SHA_RE.fullmatch(audit_sha):
@@ -373,6 +388,12 @@ def u0_gate(census: Any, contract: Mapping[str, Any]) -> list[str]:
     promotion_blockers = census.get("promotion_blockers")
     if not isinstance(promotion_blockers, list) or promotion_blockers:
         blockers.append("u0_promotion_blockers_not_empty")
+    if (
+        accepted_evidence.get("historical_experiment_census_complete") is not True
+        or accepted_evidence.get("historical_challenger_allowed") is not True
+        or accepted_evidence.get("promotion_blockers") != []
+    ):
+        blockers.append("u0_accepted_evidence_not_approved")
     return sorted(set(blockers))
 
 
@@ -406,11 +427,6 @@ def input_readiness(frame: pd.DataFrame, contract: Mapping[str, Any]) -> list[st
         if "feature_date" in frame.columns
         else pd.Series(pd.NaT, index=frame.index, dtype="datetime64[ns]")
     )
-    latest_mask = (
-        feature_dates.eq(feature_dates.max())
-        if feature_dates.notna().any()
-        else pd.Series(False, index=frame.index)
-    )
     for horizon in HORIZONS:
         spec = contract["horizons"][str(horizon)]
         if float(spec["score_weight"]) <= 0.0:
@@ -424,9 +440,16 @@ def input_readiness(frame: pd.DataFrame, contract: Mapping[str, Any]) -> list[st
                     blockers.append(
                         f"selection_feature_unusable:{horizon}:{feature}"
                     )
-                elif latest_mask.any() and numeric.loc[latest_mask].notna().sum() == 0:
+                elif (
+                    numeric.notna()
+                    .groupby(feature_dates)
+                    .sum()
+                    .eq(0)
+                    .any()
+                ):
                     blockers.append(
-                        f"latest_selection_feature_unusable:{horizon}:{feature}"
+                        f"selection_feature_unusable_on_decision_date:"
+                        f"{horizon}:{feature}"
                     )
         for key in (
             "stock_return",
@@ -462,8 +485,10 @@ def expected_nyse_label_ends(
     mapping: dict[pd.Timestamp, pd.Timestamp] = {}
     for decision in valid_dates:
         future = sessions[sessions > decision]
-        if len(future) >= horizon:
-            mapping[pd.Timestamp(decision)] = pd.Timestamp(future[horizon - 1])
+        if len(future) > horizon:
+            # Canonical labels enter on the first session after the decision
+            # and measure `horizon` price intervals, ending at future[horizon].
+            mapping[pd.Timestamp(decision)] = pd.Timestamp(future[horizon])
     return dates.map(mapping)
 
 
@@ -1267,21 +1292,38 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     contract_path = repo_path(args.contract)
     census_path = repo_path(args.u0_census)
+    accepted_evidence_path = repo_path(
+        getattr(args, "u0_accepted_evidence", "")
+    )
     feature_store_path = repo_path(args.feature_store)
     contract = validate_contract(read_json(contract_path))
     inputs = {
         "contract": fingerprint(contract_path),
         "u0_census": fingerprint(census_path),
+        "u0_accepted_evidence": fingerprint(accepted_evidence_path),
         "feature_store": fingerprint(feature_store_path),
     }
     blockers: list[str] = []
+    census: Any = None
+    accepted_evidence: Any = None
     if not census_path.is_file():
         blockers.append("u0_census_missing")
     else:
         try:
-            blockers.extend(u0_gate(read_json(census_path), contract))
+            census = read_json(census_path)
         except Exception as exc:
             blockers.append(f"u0_census_unreadable:{type(exc).__name__}")
+    if not accepted_evidence_path.is_file():
+        blockers.append("u0_accepted_evidence_missing")
+    else:
+        try:
+            accepted_evidence = read_json(accepted_evidence_path)
+        except Exception as exc:
+            blockers.append(
+                f"u0_accepted_evidence_unreadable:{type(exc).__name__}"
+            )
+    if census is not None and accepted_evidence is not None:
+        blockers.extend(u0_gate(census, accepted_evidence, contract))
     frame = pd.DataFrame()
     if not feature_store_path.is_file():
         blockers.append("feature_store_missing")
@@ -1397,6 +1439,7 @@ def parse_args() -> argparse.Namespace:
         default="docs/run287_expected_return_challenger_contract.json",
     )
     parser.add_argument("--u0-census", required=True)
+    parser.add_argument("--u0-accepted-evidence", required=True)
     parser.add_argument("--feature-store", required=True)
     parser.add_argument("--output-dir", required=True)
     return parser.parse_args()
