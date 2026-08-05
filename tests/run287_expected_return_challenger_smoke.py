@@ -27,7 +27,7 @@ def contract() -> dict:
 
 
 def valid_u0() -> dict:
-    audit_sha = MOD.git_default_branch_sha()
+    audit_sha = MOD.git_head()
     branches = [
         {
             "name": "master",
@@ -63,6 +63,37 @@ def valid_u0() -> dict:
         },
         "promotion_blockers": [],
     }
+
+
+def run_with_accepted_test_u0(args: Namespace) -> dict:
+    census = MOD.read_json(Path(args.u0_census))
+    audit_sha = str(census["audit_default_branch_sha"])
+    original_default = MOD.git_default_branch_sha
+    original_ancestor = MOD.git_is_ancestor
+    MOD.git_default_branch_sha = lambda: audit_sha
+    MOD.git_is_ancestor = lambda ancestor, descendant: (
+        ancestor == audit_sha and descendant == MOD.git_head()
+    )
+    try:
+        return MOD.run(args)
+    finally:
+        MOD.git_default_branch_sha = original_default
+        MOD.git_is_ancestor = original_ancestor
+
+
+def u0_gate_with_accepted_test_default(census: dict) -> list[str]:
+    accepted_sha = str(valid_u0()["audit_default_branch_sha"])
+    original_default = MOD.git_default_branch_sha
+    original_ancestor = MOD.git_is_ancestor
+    MOD.git_default_branch_sha = lambda: accepted_sha
+    MOD.git_is_ancestor = lambda ancestor, descendant: (
+        ancestor == accepted_sha and descendant == MOD.git_head()
+    )
+    try:
+        return MOD.u0_gate(census, contract())
+    finally:
+        MOD.git_default_branch_sha = original_default
+        MOD.git_is_ancestor = original_ancestor
 
 
 def blocked_u0() -> dict:
@@ -227,8 +258,8 @@ def test_u0_gate_blocks_model_fit_and_all_mutations() -> None:
     forged["accepted_evidence"]["branch_records_sha256"] = MOD.canonical_sha256(
         forged["branches"]
     )
-    assert "u0_census_audit_sha_not_current_default_branch" in MOD.u0_gate(
-        forged, contract()
+    assert "u0_census_audit_sha_not_current_default_branch" in (
+        u0_gate_with_accepted_test_default(forged)
     )
 
 
@@ -242,7 +273,7 @@ def test_missing_exact_label_provenance_blocks_even_with_u0_allowed() -> None:
         frame.to_parquet(feature_store)
         census = root / "census.json"
         census.write_text(json.dumps(valid_u0()), encoding="utf-8")
-        summary = MOD.run(
+        summary = run_with_accepted_test_u0(
             Namespace(
                 contract=str(CONTRACT_PATH),
                 u0_census=str(census),
@@ -487,7 +518,7 @@ def test_semantic_failure_and_stale_latest_are_auditable_blocks() -> None:
         duplicate_store = root / "duplicate.parquet"
         duplicate.to_parquet(duplicate_store)
         duplicate_output = root / "duplicate_out"
-        duplicate_summary = MOD.run(
+        duplicate_summary = run_with_accepted_test_u0(
             Namespace(
                 contract=str(CONTRACT_PATH),
                 u0_census=str(census),
@@ -514,7 +545,7 @@ def test_semantic_failure_and_stale_latest_are_auditable_blocks() -> None:
 
         MOD.walk_forward_predictions = stale_predictions
         try:
-            stale_summary = MOD.run(
+            stale_summary = run_with_accepted_test_u0(
                 Namespace(
                     contract=str(CONTRACT_PATH),
                     u0_census=str(census),
@@ -580,7 +611,7 @@ def test_allowed_synthetic_run_writes_only_research_outputs() -> None:
         census = root / "census.json"
         census.write_text(json.dumps(valid_u0()), encoding="utf-8")
         output = root / "out"
-        summary = MOD.run(
+        summary = run_with_accepted_test_u0(
             Namespace(
                 contract=str(CONTRACT_PATH),
                 u0_census=str(census),
