@@ -80,78 +80,13 @@ jobs:
           retention-days: 30
 
       - name: Require complete U0 and create acceptance envelope
-        env:
-          U0_ROOT: ${{ runner.temp }}/run287-u0
         run: |
           set -euo pipefail
-          python - <<'PY'
-          import hashlib
-          import json
-          import os
-          import re
-          from pathlib import Path
-
-          root = Path(os.environ["U0_ROOT"])
-          census_path = root / "github_census.json"
-          census = json.loads(census_path.read_text(encoding="utf-8"))
-          summary = census.get("summary") or {}
-          blockers = census.get("promotion_blockers")
-          audit_sha = str(census.get("audit_default_branch_sha") or "").lower()
-          failures = []
-          if census.get("schema_version") != "run287-u0-v2-github-census-v1":
-              failures.append("schema")
-          if census.get("repository") != os.environ["GITHUB_REPOSITORY"]:
-              failures.append("repository")
-          if census.get("audit_default_branch") != "master":
-              failures.append("default_branch")
-          if audit_sha != os.environ["GITHUB_SHA"].lower():
-              failures.append("audit_sha")
-          if re.fullmatch(r"[0-9a-f]{40}", audit_sha) is None:
-              failures.append("audit_sha_format")
-          if summary.get("historical_experiment_census_complete") is not True:
-              failures.append("census_incomplete")
-          if summary.get("historical_challenger_allowed") is not True:
-              failures.append("challenger_not_allowed")
-          if blockers != []:
-              failures.append("promotion_blockers")
-          if failures:
-              raise SystemExit(
-                  "U0 acceptance blocked: " + ",".join(sorted(set(failures)))
-              )
-
-          def canonical_sha256(value):
-              raw = json.dumps(
-                  value,
-                  sort_keys=True,
-                  separators=(",", ":"),
-                  ensure_ascii=False,
-              ).encode("utf-8")
-              return hashlib.sha256(raw).hexdigest()
-
-          evidence = {
-              "schema_version": "run287-u0-accepted-evidence-v1",
-              "repository": os.environ["GITHUB_REPOSITORY"],
-              "workflow_identity": "run287-u0-v2-acceptance",
-              "audit_default_branch_sha": audit_sha,
-              "census_sha256": canonical_sha256(census),
-              "source_contract_sha256": canonical_sha256(
-                  census.get("source_contract")
-              ),
-              "historical_experiment_census_complete": True,
-              "historical_challenger_allowed": True,
-              "promotion_blockers": [],
-          }
-          (root / "u0_accepted_evidence.json").write_text(
-              json.dumps(
-                  evidence,
-                  indent=2,
-                  sort_keys=True,
-                  ensure_ascii=False,
-              )
-              + "\n",
-              encoding="utf-8",
-          )
-          PY
+          python tools/build_run287_u0_v3_acceptance.py \
+            --source-census "$RUNNER_TEMP/run287-u0/github_census.json" \
+            --recovery-census "$RUNNER_TEMP/run287-u0/github_recovery_census.json" \
+            --expected-audit-sha "$GITHUB_SHA" \
+            --output "$RUNNER_TEMP/run287-u0/u0_accepted_evidence.json"
 
       - name: Reverify master head before publication
         env:
@@ -166,6 +101,7 @@ jobs:
           name: run287-u0-accepted-evidence
           path: |
             ${{ runner.temp }}/run287-u0/github_census.json
+            ${{ runner.temp }}/run287-u0/github_recovery_census.json
             ${{ runner.temp }}/run287-u0/u0_accepted_evidence.json
           if-no-files-found: error
           retention-days: 90

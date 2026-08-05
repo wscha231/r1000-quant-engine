@@ -129,6 +129,7 @@ def test_exact_head_aliases_are_deduplicated_and_counted_conservatively() -> Non
     assert summary["historical_challenger_preregistration_ready"] is True
     assert summary["historical_challenger_allowed"] is False
     assert recovered["census_completion_blockers"] == []
+    assert recovered["audit_default_branch"] == "master"
     assert recovered["acceptance_migration_blockers"]
 
     rows = {row["record_id"]: row for row in recovered["recovered_candidates"]}

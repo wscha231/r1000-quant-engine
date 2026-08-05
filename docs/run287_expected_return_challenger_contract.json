@@ -160,17 +160,28 @@
     "stale_feature_store_fallback_allowed": false
   },
   "historical_gate": {
-    "u0_schema_version": "run287-u0-v2-github-census-v1",
-    "accepted_evidence_schema_version": "run287-u0-accepted-evidence-v1",
-    "accepted_evidence_workflow_identity": "run287-u0-v2-acceptance",
+    "u0_schema_version": "run287-u0-v3-recovery-census-v1",
+    "accepted_evidence_schema_version": "run287-u0-v3-accepted-evidence-v1",
+    "accepted_evidence_workflow_identity": "run287-u0-v3-acceptance",
     "accepted_artifact_name": "run287-u0-accepted-evidence",
     "accepted_workflow_path": ".github/workflows/run287_u0_acceptance.yml",
-    "accepted_artifact_census_file": "github_census.json",
+    "accepted_artifact_source_census_file": "github_census.json",
+    "accepted_artifact_census_file": "github_recovery_census.json",
     "accepted_artifact_evidence_file": "u0_accepted_evidence.json",
+    "accepted_u0_recovery_contract_sha256": "98bd9a5e08bcfa5bc028759936bf9c3b431259481f6248b48b06ef08f3d54503",
+    "accepted_u0_acceptance_contract_sha256": "af2c7ca2669f61f7d3da8a44b5ddb3046988da4a8dfc55f099cb468632d92815",
     "repository": "wscha231/r1000-quant-engine",
     "default_branch": "master",
     "historical_experiment_census_complete_required": true,
-    "historical_challenger_allowed_required": true,
+    "historical_challenger_preregistration_ready_required": true,
+    "historical_challenger_research_fit_allowed_required": true,
+    "historical_broker_backtest_allowed": false,
+    "legacy_result_promotion_allowed": false,
+    "minimum_conservative_historical_trial_count_lower_bound": 1,
+    "required_recovery_migration_blockers": [
+      "expected_return_runner_not_yet_bound_to_u0_v3_multiplicity",
+      "u0_v3_not_yet_bound_to_canonical_acceptance_workflow"
+    ],
     "promotion_blockers_must_be_empty": true
   },
   "backtest_contract": {

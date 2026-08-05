@@ -518,6 +518,7 @@ def build_recovery_census(
     return {
         "schema_version": OUTPUT_SCHEMA,
         "repository": census["repository"],
+        "audit_default_branch": "master",
         "audit_default_branch_sha": census["audit_default_branch_sha"],
         "source_census_sha256": canonical_sha256(census),
         "source_inventory_sha256": canonical_sha256(inventory),

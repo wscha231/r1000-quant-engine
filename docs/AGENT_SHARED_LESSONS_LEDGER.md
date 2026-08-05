@@ -3817,6 +3817,26 @@ Expected contract:
 - Fullrun executed: false. Historical challenger executed: false. Target,
   order, ledger, production, live trading, and champion state mutated: false.
 
+## 2026-08-05 - U0-v3 acceptance and expected-return multiplicity boundary
+
+- Canonical U0 acceptance must independently recompute the recovery census
+  from the exact source census, registry inventory, and fixed recovery
+  contract. Merely copying a diagnostic summary into an approval envelope is
+  insufficient.
+- The conservative historical trial-count lower bound is dynamic. Bind the
+  exact accepted value into the expected-return input manifest, summary, and
+  metrics; never hard-code the latest observed count.
+- Acceptance can authorize a preregistered historical model fit without
+  authorizing a broker-ledger backtest. Keep broker simulation, target/order/
+  ledger mutation, live/production use, automatic promotion, and fullrun as
+  independent false flags.
+- The expected-return runner must require the exact source census, recovery
+  census, and acceptance evidence from one successful current-master workflow
+  artifact, and reject missing, duplicated, hash-mismatched, stale, or
+  authority-broadened inputs.
+- Fullrun executed: false. Historical broker backtest executed: false. Target,
+  order, ledger, production, live trading, and champion state mutated: false.
+
 ## 2026-08-05 - Daily freshness and exact-packet phase boundary
 
 - A pre-selection freshness gate must not require artifacts that are produced

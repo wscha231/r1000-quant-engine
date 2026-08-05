@@ -1,0 +1,23 @@
+{
+  "schema_version": "run287-u0-v3-acceptance-contract-v1",
+  "repository": "wscha231/r1000-quant-engine",
+  "default_branch": "master",
+  "source_census_schema_version": "run287-u0-v2-github-census-v1",
+  "recovery_census_schema_version": "run287-u0-v3-recovery-census-v1",
+  "accepted_evidence_schema_version": "run287-u0-v3-accepted-evidence-v1",
+  "workflow_identity": "run287-u0-v3-acceptance",
+  "required_recovery_migration_blockers": [
+    "expected_return_runner_not_yet_bound_to_u0_v3_multiplicity",
+    "u0_v3_not_yet_bound_to_canonical_acceptance_workflow"
+  ],
+  "minimum_conservative_historical_trial_count_lower_bound": 1,
+  "authorization_scope": {
+    "historical_challenger_research_fit_allowed": true,
+    "historical_broker_backtest_allowed": false,
+    "legacy_result_promotion_allowed": false,
+    "target_order_ledger_mutation_allowed": false,
+    "production_or_live_trading_allowed": false,
+    "automatic_promotion_allowed": false,
+    "fullrun_allowed": false
+  }
+}
