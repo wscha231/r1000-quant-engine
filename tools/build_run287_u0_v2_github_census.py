@@ -42,9 +42,9 @@ EXPERIMENT_TEXT_RE = re.compile(
     re.IGNORECASE,
 )
 BRANCH_EXPERIMENT_NAME_RE = re.compile(
-    r"auto[-_./\\]?learning|promotion[-_./\\]?test|"
-    r"actual[-_./\\]?results|rolling[-_./\\]?review|"
-    r"selector|scor(?:e|ing)|replay",
+    r"(^|[-_./\\])(auto[-_./\\]?learning|promotion[-_./\\]?test|"
+    r"actual[-_./\\]?results|rolling[-_./\\]?review|selector|"
+    r"scor(?:e|ing)|replay|backtest|challenger|experiment)([-_./\\]|$)",
     re.IGNORECASE,
 )
 CAPABILITY_RULES: dict[str, tuple[str, ...]] = {
@@ -411,12 +411,10 @@ def experiment_like_text(value: Any) -> bool:
     """Classify branch/PR names across Git and path separator conventions."""
     text = str(value or "")
     normalized_text = re.sub(r"[-_./\\]+", " ", text)
-    normalized_path = text.replace("\\", "/").replace("-", "_")
     return bool(
         "run287" in text.lower()
         or BRANCH_EXPERIMENT_NAME_RE.search(text)
         or EXPERIMENT_TEXT_RE.search(normalized_text)
-        or EXPERIMENT_PATH_RE.search(normalized_path)
     )
 
 
@@ -429,6 +427,17 @@ def changed_path_evidence(raw: dict[str, Any], paths: list[str]) -> tuple[int, b
         and declared >= 0
     )
     changed_files = int(declared) if count_valid else -1
+    detail = raw.get("changedFilesDetail")
+    graphql = raw.get("changedFilesGraphql")
+    detail_valid = (
+        isinstance(detail, int) and not isinstance(detail, bool) and detail >= 0
+    )
+    graphql_valid = (
+        isinstance(graphql, int)
+        and not isinstance(graphql, bool)
+        and graphql >= 0
+    )
+    provenance_count = max(int(detail), int(graphql)) if detail_valid and graphql_valid else -1
     head_sha = clean_sha(raw.get("headRefOid"))
     base_sha = clean_sha(raw.get("baseRefOid"))
     pinned = bool(
@@ -445,6 +454,8 @@ def changed_path_evidence(raw: dict[str, Any], paths: list[str]) -> tuple[int, b
     complete = bool(
         count_valid
         and pinned
+        and provenance_count >= 0
+        and changed_files == provenance_count
         and changed_files == len(paths)
         and len(paths) < 3000
         and raw.get("changedPathsApiCapReached") is not True
@@ -510,6 +521,19 @@ def load_bound_collection_payload(
     return records
 
 
+def merge_ancestry_evidence(
+    local: dict[str, str], cached: dict[str, str]
+) -> dict[str, str]:
+    conflicts = sorted(
+        sha for sha in set(local) & set(cached) if local[sha] != cached[sha]
+    )
+    if conflicts:
+        raise ValueError(
+            "local and cached ancestry conflict:" + ",".join(conflicts)
+        )
+    return {**local, **cached}
+
+
 def ancestry_status(
     sha: str,
     audit_sha: str,
@@ -565,7 +589,7 @@ def normalize_pr(
     families = capability_families(text, paths)
     experiment_like = bool(
         number in KNOWN_REGISTRY_OUTSIDE_EXPERIMENT_PRS
-        or "run287" in head_name.lower()
+        or experiment_like_text(head_name)
         or EXPERIMENT_TEXT_RE.search(text)
         or any(EXPERIMENT_PATH_RE.search(path) for path in paths)
     )
@@ -602,7 +626,12 @@ def normalize_pr(
         )
     if not changed_paths_complete:
         blockers.append("changed_paths_truncated")
-    status_head_matches = raw.get("statusMetadataHeadMatches") is True
+    status_head_oid = clean_sha(raw.get("statusMetadataHeadOid"))
+    status_head_matches = bool(
+        raw.get("statusMetadataHeadMatches") is True
+        and status_head_oid == head_sha
+        and raw.get("statusMetadataSource") == "GRAPHQL_STATUS_HEAD_PINNED"
+    )
     if not status_head_matches:
         blockers.append("pr_status_identity_unverified")
     if ancestry_status(head_sha, audit_sha, ancestry_by_sha) == "UNVERIFIED_BLOCKED":
@@ -619,9 +648,7 @@ def normalize_pr(
         "head_sha": head_sha,
         "base_branch": str(raw.get("baseRefName") or ""),
         "base_sha": clean_sha(raw.get("baseRefOid")),
-        "status_metadata_head_oid": clean_sha(
-            raw.get("statusMetadataHeadOid")
-        ),
+        "status_metadata_head_oid": status_head_oid,
         "status_metadata_head_matches": status_head_matches,
         "status_metadata_source": str(
             raw.get("statusMetadataSource") or "UNRESOLVED_BLOCKED"
@@ -1012,11 +1039,12 @@ def main() -> int:
             ).get("sha")
         ) != audit_sha:
             raise SystemExit("remote default branch moved during GitHub collection")
-    ancestry = (
+    cached_ancestry = (
         load_bound_ancestry_payload(read_json(args.ancestry_json), audit_sha)
         if args.ancestry_json
         else {}
     )
+    ancestry = cached_ancestry
     if args.collect_local_ancestry:
         branch_shas = [
             clean_sha((item.get("commit") or {}).get("sha"))
@@ -1028,13 +1056,11 @@ def main() -> int:
             for item in pull_requests
             if isinstance(item, dict)
         ]
-        ancestry = {
-            **collect_local_ancestry(
-                audit_sha=audit_sha,
-                shas=[*branch_shas, *pr_shas],
-            ),
-            **ancestry,
-        }
+        local_ancestry = collect_local_ancestry(
+            audit_sha=audit_sha,
+            shas=[*branch_shas, *pr_shas],
+        )
+        ancestry = merge_ancestry_evidence(local_ancestry, cached_ancestry)
     registry = read_json(args.do_not_repeat)
     registry_ids = {
         str(item.get("id") or "")

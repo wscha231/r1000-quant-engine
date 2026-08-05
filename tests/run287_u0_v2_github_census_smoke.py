@@ -93,6 +93,8 @@ def fixtures() -> tuple[dict, list[dict], list[dict], dict[str, str]]:
                 "changedPathsHeadAfter": pull["headRefOid"],
                 "changedPathsBaseBefore": pull["baseRefOid"],
                 "changedPathsBaseAfter": pull["baseRefOid"],
+                "changedFilesDetail": pull["changedFiles"],
+                "changedFilesGraphql": 0,
                 "statusMetadataHeadOid": pull["headRefOid"],
                 "statusMetadataHeadMatches": True,
                 "statusMetadataSource": "GRAPHQL_STATUS_HEAD_PINNED",
@@ -511,6 +513,77 @@ def test_default_head_and_cached_ancestry_are_audit_bound() -> None:
     assert bound == ancestry
 
 
+def test_cached_status_and_changed_count_provenance_are_recomputed() -> None:
+    repository, branches, pulls, ancestry = fixtures()
+    pulls[0]["statusMetadataHeadOid"] = "c" * 40
+    census = MOD.build_census(
+        repository_payload=repository,
+        branches=branches,
+        pull_requests=pulls,
+        audit_sha=AUDIT_SHA,
+        ancestry_by_sha=ancestry,
+        do_not_repeat_ids=set(),
+    )
+    candidate = census["pull_requests"][0]
+    assert candidate["status_metadata_head_matches"] is False
+    assert "pr_status_identity_unverified" in candidate["promotion_blockers"]
+
+    repository, branches, pulls, ancestry = fixtures()
+    pulls[0]["changedFilesDetail"] = 0
+    pulls[0]["changedFilesGraphql"] = 0
+    census = MOD.build_census(
+        repository_payload=repository,
+        branches=branches,
+        pull_requests=pulls,
+        audit_sha=AUDIT_SHA,
+        ancestry_by_sha=ancestry,
+        do_not_repeat_ids=set(),
+    )
+    candidate = census["pull_requests"][0]
+    assert candidate["changed_paths_complete"] is False
+    assert "changed_paths_truncated" in candidate["promotion_blockers"]
+
+
+def test_linked_strong_experiment_head_names_are_candidates() -> None:
+    repository, branches, pulls, ancestry = fixtures()
+    branches[1] = {
+        "name": "promotion-test",
+        "commit": {"sha": "c" * 40},
+        "protected": False,
+    }
+    pulls[1]["title"] = "Maintenance"
+    pulls[1]["body"] = ""
+    pulls[1]["headRefName"] = "promotion-test"
+    census = MOD.build_census(
+        repository_payload=repository,
+        branches=branches,
+        pull_requests=pulls,
+        audit_sha=AUDIT_SHA,
+        ancestry_by_sha=ancestry,
+        do_not_repeat_ids=set(),
+    )
+    linked_pr = census["pull_requests"][1]
+    assert linked_pr["experiment_candidate"] is True
+    linked_branch = next(
+        row for row in census["branches"] if row["name"] == "promotion-test"
+    )
+    assert linked_branch["linked_pr_numbers"] == [11]
+    assert linked_branch["experiment_candidate"] is False
+
+
+def test_conflicting_local_and_cached_ancestry_fails_closed() -> None:
+    sha = "b" * 40
+    try:
+        MOD.merge_ancestry_evidence(
+            {sha: "ANCESTOR_OF_AUDIT_HEAD"},
+            {sha: "ORPHANED_FROM_AUDIT_HEAD"},
+        )
+    except ValueError as exc:
+        assert "ancestry conflict" in str(exc)
+    else:
+        raise AssertionError("conflicting ancestry evidence was accepted")
+
+
 def test_advanced_and_path_named_branches_remain_candidates() -> None:
     repository, branches, pulls, ancestry = fixtures()
     branches[1]["commit"]["sha"] = "e" * 40
@@ -624,6 +697,9 @@ def main() -> int:
     test_zero_count_conflict_and_status_head_race_fail_closed()
     test_cached_collections_require_complete_bound_envelopes()
     test_default_head_and_cached_ancestry_are_audit_bound()
+    test_cached_status_and_changed_count_provenance_are_recomputed()
+    test_linked_strong_experiment_head_names_are_candidates()
+    test_conflicting_local_and_cached_ancestry_fails_closed()
     test_advanced_and_path_named_branches_remain_candidates()
     test_duplicate_branch_only_heads_are_reported()
     test_branch_only_and_duplicate_code_identities_are_blocked()
