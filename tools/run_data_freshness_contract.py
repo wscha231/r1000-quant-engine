@@ -987,6 +987,10 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
 
     selection_allowed = not blockers
     promotion_blockers = list(blockers)
+    if readiness_gate == READINESS_GATE_EXACT_PACKET_PRESELECTION:
+        promotion_blockers.append(
+            "exact_packet_preselection is a selection-only gate and is never promotion-ready"
+        )
     if not coverage.get("exists"):
         promotion_blockers.append("evidence coverage manifest is missing")
     for layer in (coverage.get("layers") or []):

@@ -377,10 +377,16 @@ def test_daily_preselection_defers_only_attempt_specific_policy_checks(tmp: Path
         )
     )
     assert preselection["selection_allowed"] is True, preselection["blockers"]
+    assert preselection["promotion_allowed"] is False
+    assert any(
+        "selection-only gate" in item
+        for item in preselection["promotion_blockers"]
+    )
     assert preselection["readiness_gate"] == "exact_packet_preselection"
     assert preselection["readiness"]["policy_replay_validation_deferred"] is True
     assert preselection["readiness"]["policy_replay_blockers"] == summary["policy_replay_blockers"]
     assert preselection["data_snapshot_manifest"]["readiness_gate"] == "exact_packet_preselection"
+    assert preselection["data_snapshot_manifest"]["source_context"] == "daily_operating_refresh"
     assert any("attempt-specific exact-packet" in item for item in preselection["warnings"])
 
     wrong_context = dfc.build_payload(

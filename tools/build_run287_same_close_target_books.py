@@ -233,6 +233,8 @@ def validate_freshness_gate(
 
     if snapshot.get("schema_version") != FRESHNESS_SNAPSHOT_SCHEMA_VERSION:
         failures.append("freshness_snapshot_schema")
+    if snapshot.get("source_context") != "daily_operating_refresh":
+        failures.append("freshness_snapshot_source_context")
     if snapshot.get("readiness_gate") != "exact_packet_preselection":
         failures.append("freshness_snapshot_readiness_gate")
     for field, expected in expected_identity.items():
