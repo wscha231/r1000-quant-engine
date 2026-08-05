@@ -1,0 +1,41 @@
+{
+  "schema_version": "run287-u0-v3-recovery-contract-v1",
+  "source_census_schema_version": "run287-u0-v2-github-census-v1",
+  "source_inventory_schema_version": "run287-u0-experiment-inventory-v1",
+  "output_schema_version": "run287-u0-v3-recovery-census-v1",
+  "canonical_trial_identity": {
+    "key": "experiment_candidate_head_sha",
+    "duplicate_policy": "ONE_TRIAL_PER_EXACT_CODE_HEAD",
+    "alias_multiplicity_weight": 0,
+    "primary_multiplicity_weight": 1
+  },
+  "unrecovered_candidate_policy": {
+    "evidence_state": "UNVERIFIED_ASSERTION",
+    "evaluation_class": "UNVERIFIED_LEGACY",
+    "exact_trial_manifest_status": "MISSING",
+    "after_cost_daily_return_series_status": "MISSING",
+    "pit_status": "UNVERIFIED",
+    "parameter_hash_status": "MISSING",
+    "data_hash_status": "MISSING",
+    "target_book_hash_status": "MISSING",
+    "cash_cost_contract_status": "MISSING",
+    "promotion_use_allowed": false,
+    "performance_claim_allowed": false,
+    "do_not_repeat_exact_head": true
+  },
+  "multiplicity_policy": {
+    "count_each_distinct_candidate_code_head": true,
+    "also_count_all_canonical_registry_published_attempt_lower_bounds": true,
+    "overcount_when_overlap_is_unresolved": true,
+    "zero_return_imputation_allowed": false,
+    "summary_metric_to_daily_return_conversion_allowed": false
+  },
+  "safety": {
+    "metadata_only": true,
+    "fullrun_allowed": false,
+    "target_order_ledger_mutation_allowed": false,
+    "production_or_live_trading_allowed": false,
+    "automatic_promotion_allowed": false,
+    "acceptance_gate_migration_allowed_by_this_contract": false
+  }
+}

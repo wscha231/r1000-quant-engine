@@ -3795,6 +3795,28 @@ Expected contract:
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
 
+## 2026-08-05 - U0-v3 conservative legacy-trial recovery boundary
+
+- A metadata collector that hard-codes every candidate as unmapped is a useful
+  fail-closed U0 input, but it can never by itself complete the census or open
+  a preregistered challenger.
+- Separate experiment identity from performance eligibility. Canonicalize one
+  legacy trial per exact code-head SHA, deduplicate aliases, and leave missing
+  PIT, parameter/data, target-book, cash/cost, and daily-return evidence
+  explicitly missing.
+- Unknown historical candidates remain in the multiple-testing population.
+  Conservatively add distinct candidate code heads and published-attempt lower
+  bounds when overlap is unresolved; never impute a zero return or derive a
+  daily series from summary CAGR/MDD.
+- Registry and capability evidence must be unioned across every alias sharing
+  a code head. Otherwise the chosen primary alias can silently lose the
+  stronger do-not-repeat or blocking evidence attached to its duplicate.
+- Classification completeness is not backtest permission. Publish U0-v3 first,
+  then separately bind acceptance and the challenger statistical contract to
+  its conservative trial count.
+- Fullrun executed: false. Historical challenger executed: false. Target,
+  order, ledger, production, live trading, and champion state mutated: false.
+
 ## 2026-08-05 - Daily freshness and exact-packet phase boundary
 
 - A pre-selection freshness gate must not require artifacts that are produced
