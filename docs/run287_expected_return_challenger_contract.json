@@ -145,9 +145,12 @@
       "feature_date",
       "rebalance_date",
       "ticker",
-      "sector"
+      "sector",
+      "benchmark_identity",
+      "benchmark_source"
     ],
     "canonical_benchmark": "SPY",
+    "canonical_benchmark_source": "YF:SPY",
     "form_13f_role": "confirmation_only_excluded_from_model",
     "form_4_role": "confirmation_only_excluded_from_model",
     "macro_role": "risk_cash_router_only_excluded_from_stock_alpha_model",

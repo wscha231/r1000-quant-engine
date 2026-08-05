@@ -31,7 +31,7 @@ BLOCKED_STATUS = "BLOCKED_EXPECTED_RETURN_CHALLENGER"
 TARGET_KINDS = ("absolute", "benchmark_excess", "sector_neutral")
 HORIZONS = (21, 63, 126)
 EXPECTED_CONTRACT_SHA256 = (
-    "258b08e90f40909c08d2d9149c285bd2b08e9ca9ac2402c0b1626f258bd9de25"
+    "3c7e2cffe20674c9e4fcd616f4b3764e0fad6487acf6129717b5c17e93dd73f7"
 )
 FORBIDDEN_FEATURE_RE = re.compile(
     r"(^|_)(future|forward|label|target|outcome)(_|$)|"
@@ -39,6 +39,9 @@ FORBIDDEN_FEATURE_RE = re.compile(
     re.IGNORECASE,
 )
 NYSE = mcal.get_calendar("NYSE")
+FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+REPOSITORY = "wscha231/r1000-quant-engine"
 
 
 def repo_path(value: str | Path) -> Path:
@@ -102,6 +105,21 @@ def git_head() -> str:
         ).strip()
     except Exception:
         return ""
+
+
+def git_is_ancestor(ancestor: str, descendant: str) -> bool:
+    if not FULL_SHA_RE.fullmatch(ancestor) or not FULL_SHA_RE.fullmatch(descendant):
+        return False
+    try:
+        result = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", ancestor, descendant],
+            cwd=REPO_ROOT,
+            timeout=10,
+            check=False,
+        )
+    except Exception:
+        return False
+    return result.returncode == 0
 
 
 def finite(value: Any) -> float | None:
@@ -249,6 +267,30 @@ def u0_gate(census: Any, contract: Mapping[str, Any]) -> list[str]:
         return ["u0_census_not_an_object"]
     if census.get("schema_version") != gate["u0_schema_version"]:
         blockers.append("u0_census_schema_mismatch")
+    if census.get("repository") != REPOSITORY:
+        blockers.append("u0_census_repository_mismatch")
+    if census.get("audit_default_branch") != "master":
+        blockers.append("u0_census_default_branch_mismatch")
+    audit_sha = str(census.get("audit_default_branch_sha") or "").lower()
+    current_sha = git_head().lower()
+    if not FULL_SHA_RE.fullmatch(audit_sha):
+        blockers.append("u0_census_audit_sha_invalid")
+    elif not git_is_ancestor(audit_sha, current_sha):
+        blockers.append("u0_census_audit_sha_not_ancestor_of_runner")
+    source = census.get("source_contract")
+    if not isinstance(source, dict):
+        source = {}
+        blockers.append("u0_census_source_contract_missing")
+    for key in ("branch_payload_sha256", "pull_request_payload_sha256"):
+        if not SHA256_RE.fullmatch(str(source.get(key) or "").lower()):
+            blockers.append(f"u0_census_source_hash_invalid:{key}")
+    if (
+        source.get("metadata_only") is not True
+        or source.get("fullrun_executed") is not False
+        or source.get("production_or_live_mutated") is not False
+        or source.get("champion_changed") is not False
+    ):
+        blockers.append("u0_census_source_safety_mismatch")
     summary = census.get("summary")
     if not isinstance(summary, dict):
         summary = {}
@@ -332,6 +374,18 @@ def prepare_frame(frame: pd.DataFrame, contract: Mapping[str, Any]) -> pd.DataFr
         raise ValueError("empty ticker in feature store")
     if out["sector"].eq("").any():
         raise ValueError("empty sector in feature store")
+    benchmark_identity = out["benchmark_identity"].astype(str).str.strip().str.upper()
+    benchmark_source = out["benchmark_source"].astype(str).str.strip().str.upper()
+    expected_benchmark = str(contract["data_policy"]["canonical_benchmark"]).upper()
+    expected_source = str(
+        contract["data_policy"]["canonical_benchmark_source"]
+    ).upper()
+    if not benchmark_identity.eq(expected_benchmark).all():
+        raise ValueError("benchmark identity provenance mismatch")
+    if not benchmark_source.eq(expected_source).all():
+        raise ValueError("benchmark source provenance mismatch")
+    out["benchmark_identity"] = benchmark_identity
+    out["benchmark_source"] = benchmark_source
     if out.duplicated(["feature_date", "ticker"]).any():
         raise ValueError("duplicate feature_date/ticker rows")
 
@@ -366,6 +420,16 @@ def prepare_frame(frame: pd.DataFrame, contract: Mapping[str, Any]) -> pd.DataFr
         if benchmark_end.groupby(out["feature_date"]).nunique(dropna=True).gt(1).any():
             raise ValueError(f"benchmark label end is not unique by decision:{horizon}")
         complete = stock.notna() & benchmark.notna() & stock_end.notna() & benchmark_end.notna()
+        if stock_end.loc[complete].ne(benchmark_end.loc[complete]).any():
+            raise ValueError(f"stock/benchmark label end mismatch:{horizon}")
+        if (
+            stock_end.where(complete)
+            .groupby(out["feature_date"])
+            .nunique(dropna=True)
+            .gt(1)
+            .any()
+        ):
+            raise ValueError(f"mixed cross-sectional label end dates:{horizon}")
         if (
             (stock_end.where(complete) <= out["feature_date"]).fillna(False).any()
             or (benchmark_end.where(complete) <= out["feature_date"]).fillna(False).any()
@@ -577,11 +641,17 @@ def walk_forward_predictions(
             continue
         date_output = test[["feature_date", "rebalance_date", "ticker", "sector"]].copy()
         selection_horizons_ready = True
+        selection_candidate_eligible = pd.Series(True, index=test.index, dtype=bool)
         decision_models: dict[str, Any] = {}
         for horizon in HORIZONS:
             selection_required = float(
                 contract["horizons"][str(horizon)]["score_weight"]
             ) > 0.0
+            scoring_sector_eligible = test.groupby("sector")["ticker"].transform(
+                "size"
+            ).ge(int(contract["target_contract"]["minimum_sector_cross_section"]))
+            if selection_required:
+                selection_candidate_eligible &= scoring_sector_eligible
             feature_columns = [
                 f"xrank__{name}" for name in contract["features"][str(horizon)]
             ]
@@ -641,6 +711,8 @@ def walk_forward_predictions(
                         "recent_training_rows": len(recent),
                         "max_training_feature_date": eligible["feature_date"].max() if not eligible.empty else None,
                         "max_label_available_at": eligible[available_col].max() if not eligible.empty else None,
+                        "scoring_sector_eligible_rows": int(scoring_sector_eligible.sum()),
+                        "scoring_sector_ineligible_rows": int((~scoring_sector_eligible).sum()),
                     }
                 )
                 if selection_required:
@@ -721,9 +793,22 @@ def walk_forward_predictions(
                     "label_strictly_before_decision": bool(eligible[available_col].max() < decision),
                     "training_feature_on_or_before_embargo": bool(eligible["feature_date"].max() <= cutoff),
                     "feature_set_sha256": canonical_sha256(models["features"]),
+                    "scoring_sector_eligible_rows": int(scoring_sector_eligible.sum()),
+                    "scoring_sector_ineligible_rows": int((~scoring_sector_eligible).sum()),
                 }
             )
         if not selection_horizons_ready:
+            continue
+        date_output = date_output.loc[selection_candidate_eligible].copy()
+        if date_output.empty:
+            audit_rows.append(
+                {
+                    "decision_date": decision,
+                    "horizon": "selection",
+                    "status": "BLOCKED_NO_SECTOR_NEUTRAL_ELIGIBLE_CANDIDATES",
+                    "training_rows": 0,
+                }
+            )
             continue
         selection_horizons = [
             horizon

@@ -29,6 +29,17 @@ def contract() -> dict:
 def valid_u0() -> dict:
     return {
         "schema_version": "run287-u0-v2-github-census-v1",
+        "repository": MOD.REPOSITORY,
+        "audit_default_branch": "master",
+        "audit_default_branch_sha": MOD.git_head(),
+        "source_contract": {
+            "branch_payload_sha256": "a" * 64,
+            "pull_request_payload_sha256": "b" * 64,
+            "metadata_only": True,
+            "fullrun_executed": False,
+            "production_or_live_mutated": False,
+            "champion_changed": False,
+        },
         "summary": {
             "historical_experiment_census_complete": True,
             "historical_challenger_allowed": True,
@@ -72,6 +83,8 @@ def synthetic_frame(months: int = 96, tickers: int = 25) -> pd.DataFrame:
                 "rebalance_date": date,
                 "ticker": f"T{ticker_index:03d}",
                 "sector": f"S{ticker_index % 5}",
+                "benchmark_identity": "SPY",
+                "benchmark_source": "YF:SPY",
             }
             for feature_index, feature in enumerate(all_features):
                 row[feature] = (
@@ -311,13 +324,54 @@ def test_benchmark_identity_and_forward_dates_are_fail_closed() -> None:
         raise AssertionError("inconsistent benchmark return was accepted")
 
     nonforward = synthetic_frame(months=18)
-    nonforward.loc[0, "r_1m_label_end_date"] = nonforward.loc[0, "feature_date"]
+    first_decision = nonforward["feature_date"].eq(nonforward.loc[0, "feature_date"])
+    nonforward.loc[first_decision, "r_1m_label_end_date"] = nonforward.loc[
+        first_decision, "feature_date"
+    ]
+    nonforward.loc[first_decision, "bench_r_1m_label_end_date"] = nonforward.loc[
+        first_decision, "feature_date"
+    ]
     try:
         MOD.prepare_frame(nonforward, cfg)
     except ValueError as exc:
         assert "forward label does not end after decision" in str(exc)
     else:
         raise AssertionError("same-day forward label was accepted")
+
+    wrong_benchmark = synthetic_frame(months=18)
+    wrong_benchmark["benchmark_identity"] = "^GSPC"
+    try:
+        MOD.prepare_frame(wrong_benchmark, cfg)
+    except ValueError as exc:
+        assert "benchmark identity provenance mismatch" in str(exc)
+    else:
+        raise AssertionError("a non-SPY benchmark was accepted")
+
+    mismatched_end = synthetic_frame(months=18)
+    mismatched_end.loc[0, "r_3m_label_end_date"] = (
+        pd.Timestamp(mismatched_end.loc[0, "r_3m_label_end_date"])
+        + pd.Timedelta(days=1)
+    )
+    try:
+        MOD.prepare_frame(mismatched_end, cfg)
+    except ValueError as exc:
+        assert "stock/benchmark label end mismatch" in str(exc)
+    else:
+        raise AssertionError("mismatched stock/benchmark label ends were accepted")
+
+    mixed_end = synthetic_frame(months=18)
+    shifted = pd.Timestamp(mixed_end.loc[0, "r_6m_label_end_date"]) + pd.Timedelta(days=1)
+    mixed_end.loc[0, "r_6m_label_end_date"] = shifted
+    mixed_end.loc[0, "bench_r_6m_label_end_date"] = shifted
+    try:
+        MOD.prepare_frame(mixed_end, cfg)
+    except ValueError as exc:
+        assert (
+            "mixed cross-sectional label end dates" in str(exc)
+            or "benchmark label end is not unique" in str(exc)
+        )
+    else:
+        raise AssertionError("mixed cross-sectional label ends were accepted")
 
     null_ticker = synthetic_frame(months=18)
     null_ticker.loc[0, "ticker"] = None
@@ -412,6 +466,27 @@ def test_semantic_failure_and_stale_latest_are_auditable_blocks() -> None:
         assert pd.read_csv(stale_output / "latest_expected_return_proposal.csv").empty
 
 
+def test_undersized_latest_sectors_are_not_scored() -> None:
+    cfg = contract()
+    raw = synthetic_frame()
+    latest = raw["feature_date"].max()
+    latest_index = raw.index[raw["feature_date"].eq(latest)]
+    raw.loc[latest_index[:4], "sector"] = "TINY"
+    prepared = MOD.prepare_frame(raw, cfg)
+    predictions, audit, _ = MOD.walk_forward_predictions(prepared, cfg)
+    latest_predictions = predictions[predictions["feature_date"].eq(latest)]
+    assert not latest_predictions.empty
+    assert "TINY" not in set(latest_predictions["sector"])
+    source_latest = raw[raw["feature_date"].eq(latest)]
+    sector_sizes = source_latest.groupby("sector")["ticker"].size()
+    assert latest_predictions["sector"].map(sector_sizes).ge(5).all()
+    latest_audit = audit[
+        audit["decision_date"].eq(latest)
+        & audit["horizon"].isin([63, 126])
+    ]
+    assert latest_audit["scoring_sector_ineligible_rows"].gt(0).all()
+
+
 def test_unreadable_u0_census_writes_blocked_packet() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -485,6 +560,7 @@ def main() -> int:
     test_benchmark_identity_and_forward_dates_are_fail_closed()
     test_21d_timing_unavailability_does_not_block_monthly_selection()
     test_semantic_failure_and_stale_latest_are_auditable_blocks()
+    test_undersized_latest_sectors_are_not_scored()
     test_unreadable_u0_census_writes_blocked_packet()
     test_allowed_synthetic_run_writes_only_research_outputs()
     test_source_contains_no_broker_or_promotion_execution()
