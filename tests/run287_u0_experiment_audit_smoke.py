@@ -29,6 +29,61 @@ def read(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def ensure_evidence_refs() -> None:
+    """Make the advertised local validator independent of workflow setup."""
+    inventory = read(INVENTORY_PATH)
+    expected_refs = {
+        MOD.BASE_REF: MOD.REQUIRED_BASE_COMMIT,
+    }
+    for item in inventory["coverage"]["known_out_of_registry_backlog"]:
+        evidence = item["evidence"]
+        expected_refs[
+            f"{MOD.PR_REF_PREFIX}/{evidence['pr_number']}"
+        ] = evidence["head_commit"]
+    for item in inventory["entries"]:
+        for evidence in item["evidence"]:
+            if evidence.get("kind") == "github_pr":
+                expected_refs[
+                    f"{MOD.PR_REF_PREFIX}/{evidence['pr_number']}"
+                ] = evidence["head_commit"]
+
+    missing = []
+    for ref, expected in expected_refs.items():
+        observed = MOD.git_output(ROOT, "rev-parse", f"{ref}^{{commit}}")
+        if observed is None or observed.lower() != expected.lower():
+            missing.append(ref)
+    if not missing:
+        return
+
+    subprocess.run(
+        [
+            "git",
+            "fetch",
+            "--no-tags",
+            "--depth=500",
+            "origin",
+            MOD.required_base_refspec(inventory),
+        ],
+        cwd=ROOT,
+        check=True,
+    )
+    subprocess.run(
+        [
+            "git",
+            "fetch",
+            "--no-tags",
+            "--depth=1",
+            "origin",
+            *MOD.required_pr_refspecs(inventory),
+        ],
+        cwd=ROOT,
+        check=True,
+    )
+    MOD.git_output.cache_clear()
+    MOD.git_is_ancestor.cache_clear()
+    MOD.committed_blob_bytes.cache_clear()
+
+
 def audit(inventory: dict[str, Any]) -> dict[str, Any]:
     return MOD.audit_inventory(
         contract=read(CONTRACT_PATH),
@@ -82,6 +137,40 @@ def test_current_inventory_is_valid_but_blocks_promotion() -> None:
     } == {229, 230, 237}
     assert result["overlap_group_count"] == 4
     assert result["errors"] == []
+
+
+def test_entire_inventory_and_registry_blobs_are_immutable() -> None:
+    assert MOD.canonical_json_sha256(read(CONTRACT_PATH)) == (
+        MOD.REQUIRED_CONTRACT_CANONICAL_SHA256
+    )
+    inventory_blob = MOD.committed_blob_bytes(
+        ROOT, MOD.REQUIRED_INVENTORY_PATH
+    )
+    registry_blob = MOD.committed_blob_bytes(
+        ROOT, MOD.REQUIRED_SOURCE_REGISTRY_PATH
+    )
+    assert inventory_blob is not None and registry_blob is not None
+    assert MOD.hashlib.sha256(inventory_blob).hexdigest() == (
+        MOD.REQUIRED_INVENTORY_BLOB_SHA256
+    )
+    assert MOD.hashlib.sha256(registry_blob).hexdigest() == (
+        MOD.REQUIRED_REGISTRY_BLOB_SHA256
+    )
+
+    inventory = read(INVENTORY_PATH)
+    target = entry(inventory, "broad_gross_floor")
+    target["evaluation_class"] = "SOURCE_RETURN_SCREEN"
+    target["evidence_state"] = "SUMMARY_ONLY"
+    target["exact_trial_manifest_status"] = "NOT_APPLICABLE"
+    target["after_cost_daily_return_series_status"] = "NOT_APPLICABLE"
+    target["multiplicity_disposition"] = (
+        "BLOCK_SELECTION_MULTIPLICITY_UNMODELED"
+    )
+    target["exact_attempt_count_known"] = True
+    target["selection_informed"] = False
+    result = audit(inventory)
+    assert result["valid"] is False
+    assert "parsed_inventory_content_mismatch" in result["errors"]
 
 
 def test_registry_coverage_is_exact_and_fail_closed() -> None:
@@ -331,6 +420,18 @@ def test_pr_artifact_binding_rejects_tree_objects() -> None:
     )
 
 
+def test_canonical_pr_evidence_set_cannot_be_replaced() -> None:
+    inventory = read(INVENTORY_PATH)
+    target = entry(inventory, "broad_gross_floor")
+    replacement = entry(inventory, "static_actual_profitability")
+    target["evidence"] = json.loads(json.dumps(replacement["evidence"]))
+    result = audit(inventory)
+    assert result["valid"] is False
+    assert "parsed_inventory_content_mismatch" in result["errors"]
+    assert "canonical_pr_evidence_numbers_mismatch" in result["errors"]
+    assert 174 in MOD.required_pr_numbers(inventory)
+
+
 def test_every_orphaned_pr_names_a_verified_blob() -> None:
     inventory = read(INVENTORY_PATH)
     target = entry(inventory, "broad_gross_floor")
@@ -464,6 +565,31 @@ def test_tracked_evidence_is_hash_bound() -> None:
     )
 
 
+def test_tracked_evidence_rejects_tree_objects() -> None:
+    inventory = read(INVENTORY_PATH)
+    target = entry(inventory, "monthly_dd_vix_floor")
+    tracked = next(
+        evidence
+        for evidence in target["evidence"]
+        if evidence["kind"] == "tracked_file"
+    )
+    tree_listing = MOD.committed_blob_bytes(ROOT, "docs")
+    assert tree_listing is not None
+    tracked.update(
+        {
+            "path": "docs",
+            "sha256": MOD.hashlib.sha256(tree_listing).hexdigest(),
+            "bytes": len(tree_listing),
+        }
+    )
+    result = audit(inventory)
+    assert result["valid"] is False
+    assert any(
+        error.endswith(":tracked_file_object_type_not_blob")
+        for error in result["errors"]
+    )
+
+
 def test_missing_artifact_is_checked_against_committed_tree() -> None:
     inventory = read(INVENTORY_PATH)
     missing_path = "_tmp_tests/p5_hold_exit_actual_v2_20260720/summary.json"
@@ -536,7 +662,9 @@ def test_cli_reports_blocked_state_without_treating_it_as_test_failure() -> None
 
 
 def main() -> int:
+    ensure_evidence_refs()
     test_current_inventory_is_valid_but_blocks_promotion()
+    test_entire_inventory_and_registry_blobs_are_immutable()
     test_registry_coverage_is_exact_and_fail_closed()
     test_registry_hash_drift_is_rejected()
     test_overlap_must_be_acknowledged_to_prevent_double_counting()
@@ -548,6 +676,7 @@ def main() -> int:
     test_hash_bindings_are_newline_canonical()
     test_pr_ref_and_blob_bindings_are_verified()
     test_pr_artifact_binding_rejects_tree_objects()
+    test_canonical_pr_evidence_set_cannot_be_replaced()
     test_every_orphaned_pr_names_a_verified_blob()
     test_pr_ancestry_label_is_verified_against_audit_base()
     test_required_pr_refspecs_are_exact_and_unique()
@@ -555,6 +684,7 @@ def main() -> int:
     test_evaluation_class_requires_exact_v1_status_pair()
     test_overlap_deduplication_cannot_be_claimed_in_v1()
     test_tracked_evidence_is_hash_bound()
+    test_tracked_evidence_rejects_tree_objects()
     test_missing_artifact_is_checked_against_committed_tree()
     test_registry_payload_and_path_match_the_committed_blob()
     test_cli_reports_blocked_state_without_treating_it_as_test_failure()

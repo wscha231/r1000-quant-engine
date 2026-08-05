@@ -42,6 +42,40 @@ BASE_REF = "refs/run287-u0/base"
 REQUIRED_BASE_COMMIT = "f29ac1f93a61076a08bedca83a4df5539926aab1"
 KNOWN_OUT_OF_REGISTRY_PR_NUMBERS = {229, 230, 237}
 REQUIRED_SOURCE_REGISTRY_PATH = "docs/run287_do_not_repeat_registry.json"
+REQUIRED_INVENTORY_PATH = "docs/run287_u0_experiment_inventory.json"
+REQUIRED_INVENTORY_BLOB_SHA256 = (
+    "d4bee837310961b65d13e03d3833ceba38db378d766086f98a1cd1bfbe6d9679"
+)
+REQUIRED_CONTRACT_CANONICAL_SHA256 = (
+    "4495fb6fd47e2df750e6b5d653dc97be0528881ff1c292842289cf00057ee355"
+)
+REQUIRED_REGISTRY_BLOB_SHA256 = (
+    "a292059a3ed9de1fd1150a827be66173f3e0da0f43062b3484b831d26daef925"
+)
+REQUIRED_PR_NUMBERS = {
+    157,
+    159,
+    172,
+    174,
+    226,
+    227,
+    228,
+    229,
+    230,
+    231,
+    232,
+    233,
+    234,
+    237,
+    238,
+    239,
+    240,
+    267,
+    278,
+    310,
+    311,
+    336,
+}
 REQUIRED_ATTEMPT_COUNT_LOWER_BOUNDS = {
     "monthly_dd_vix_floor": 2,
     "broad_gross_floor": 5,
@@ -198,7 +232,14 @@ def read_json(path: Path) -> dict[str, Any]:
     return payload
 
 
-def required_pr_numbers(inventory: dict[str, Any]) -> list[int]:
+def canonical_json_sha256(payload: dict[str, Any]) -> str:
+    encoded = json.dumps(
+        payload, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def observed_pr_numbers(inventory: dict[str, Any]) -> list[int]:
     numbers: set[int] = set()
     coverage = inventory.get("coverage")
     if isinstance(coverage, dict):
@@ -229,6 +270,11 @@ def required_pr_numbers(inventory: dict[str, Any]) -> list[int]:
             ):
                 numbers.add(number)
     return sorted(numbers)
+
+
+def required_pr_numbers(inventory: dict[str, Any]) -> list[int]:
+    del inventory
+    return sorted(REQUIRED_PR_NUMBERS)
 
 
 def required_pr_refspecs(inventory: dict[str, Any]) -> list[str]:
@@ -358,6 +404,15 @@ def validate_tracked_file_evidence(
         errors.append(f"{prefix}:tracked_file_path_invalid")
         return
     path_text = str(evidence.get("path") or "")
+    object_oid = git_output(repository_root, "rev-parse", f"HEAD:{path_text}")
+    object_type = (
+        git_output(repository_root, "cat-file", "-t", object_oid)
+        if object_oid is not None
+        else None
+    )
+    if object_type != "blob":
+        errors.append(f"{prefix}:tracked_file_object_type_not_blob")
+        return
     blob = committed_blob_bytes(repository_root, path_text)
     if blob is None:
         errors.append(f"{prefix}:tracked_file_blob_missing")
@@ -577,6 +632,8 @@ def audit_inventory(
 
     if contract.get("schema_version") != CONTRACT_SCHEMA:
         errors.append("contract_schema_invalid")
+    if canonical_json_sha256(contract) != REQUIRED_CONTRACT_CANONICAL_SHA256:
+        errors.append("contract_canonical_content_mismatch")
     if contract.get("inventory_schema_version") != INVENTORY_SCHEMA:
         errors.append("contract_inventory_schema_invalid")
     if inventory.get("schema_version") != INVENTORY_SCHEMA:
@@ -585,6 +642,32 @@ def audit_inventory(
         errors.append("registry_schema_invalid")
     if contract.get("rules") != REQUIRED_RULES:
         errors.append("contract_rules_invalid")
+    inventory_relative = repository_relative_path(
+        repository_root, inventory_path
+    )
+    if inventory_relative != REQUIRED_INVENTORY_PATH:
+        errors.append("parsed_inventory_path_invalid")
+    inventory_blob = (
+        committed_blob_bytes(repository_root, inventory_relative)
+        if inventory_relative == REQUIRED_INVENTORY_PATH
+        else None
+    )
+    if inventory_blob is None:
+        errors.append("inventory_committed_blob_missing")
+    else:
+        if hashlib.sha256(inventory_blob).hexdigest() != (
+            REQUIRED_INVENTORY_BLOB_SHA256
+        ):
+            errors.append("inventory_committed_blob_sha256_mismatch")
+        try:
+            committed_inventory = json.loads(inventory_blob.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            errors.append("inventory_committed_blob_invalid")
+        else:
+            if inventory != committed_inventory:
+                errors.append("parsed_inventory_content_mismatch")
+    if set(observed_pr_numbers(inventory)) != REQUIRED_PR_NUMBERS:
+        errors.append("canonical_pr_evidence_numbers_mismatch")
     base_commit = str(inventory.get("base_commit") or "").lower()
     if base_commit != REQUIRED_BASE_COMMIT:
         errors.append("base_commit_invalid")
@@ -696,6 +779,10 @@ def audit_inventory(
         else None
     )
     if source_registry_blob is not None:
+        if hashlib.sha256(source_registry_blob).hexdigest() != (
+            REQUIRED_REGISTRY_BLOB_SHA256
+        ):
+            errors.append("source_registry_committed_blob_sha256_mismatch")
         try:
             committed_registry = json.loads(source_registry_blob.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
