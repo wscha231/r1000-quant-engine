@@ -15,7 +15,9 @@ import hashlib
 import json
 import re
 import subprocess
+import time
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -28,9 +30,10 @@ EXPERIMENT_PATH_RE = re.compile(
     r"(^|/)(backtest|research|aggressive|auto_learning|experiments?)(/|$)|"
     r"(challenger|replay|selector|scor|target|promotion|experiment|"
     r"relative_strength|sector|crisis|reserve|form4|13f|fundamental|"
-    r"earnings|ohlcv|execution_cost|broker)",
+    r"earnings|actual_results|rolling_review|ohlcv|execution_cost|broker)",
     re.IGNORECASE,
 )
+KNOWN_REGISTRY_OUTSIDE_EXPERIMENT_PRS = frozenset({229, 230, 237})
 EXPERIMENT_TEXT_RE = re.compile(
     r"\b(backtest|challenger|experiment|ablation|grid|sweep|alpha|"
     r"relative strength|sector leadership|crisis|reserve|form 4|13f|"
@@ -90,16 +93,21 @@ def write_json(path: Path, value: Any) -> None:
 
 
 def run_json(command: list[str]) -> Any:
-    completed = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        check=False,
-    )
-    if completed.returncode != 0:
-        raise RuntimeError("GitHub metadata command failed")
-    return json.loads(completed.stdout)
+    # GitHub metadata reads are safe to retry.  Keep the bound explicit and do
+    # not apply this helper to any mutation or ledger operation.
+    for attempt in range(3):
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+        if completed.returncode == 0:
+            return json.loads(completed.stdout)
+        if attempt < 2:
+            time.sleep(0.25 * (attempt + 1))
+    raise RuntimeError("GitHub metadata command failed after two retries")
 
 
 def collect_repository(repository: str) -> dict[str, Any]:
@@ -177,6 +185,7 @@ def collect_pull_requests(repository: str) -> list[dict[str, Any]]:
                 "body": raw.get("body") or "",
                 "files": [],
                 "changedFiles": -1,
+                "changedFilesGraphql": None,
                 "changedPathsSource": "UNRESOLVED_BLOCKED",
                 "commitCount": raw.get("commits"),
             }
@@ -184,57 +193,61 @@ def collect_pull_requests(repository: str) -> list[dict[str, Any]]:
     return rows
 
 
-def enrich_local_changed_paths(
-    pull_requests: list[dict[str, Any]],
-) -> None:
-    """Resolve complete PR paths from locally fetched head/base Git objects.
-
-    ``base...head`` uses the merge base and therefore remains stable when the
-    default branch advances after a PR is opened.  A missing object or failed
-    diff remains explicitly unresolved instead of being treated as zero files.
-    """
-    for raw in pull_requests:
-        base_sha = clean_sha(raw.get("baseRefOid"))
-        head_sha = clean_sha(raw.get("headRefOid"))
-        if not base_sha or not head_sha:
-            continue
-        completed = subprocess.run(
-            [
-                "git", "diff", "--name-only", "--no-renames",
-                f"{base_sha}...{head_sha}", "--",
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            check=False,
-        )
-        if completed.returncode != 0:
-            continue
-        paths = sorted({line for line in completed.stdout.splitlines() if line})
-        raw["files"] = [{"path": path} for path in paths]
-        raw["changedFiles"] = len(paths)
-        raw["changedPathsSource"] = "LOCAL_PINNED_THREE_DOT_DIFF"
-
-
 def enrich_remote_changed_paths(
     repository: str,
     pull_requests: list[dict[str, Any]],
 ) -> None:
-    """Resolve only local-diff misses through the paginated PR-files API."""
+    """Resolve PR paths from the API while pinning both sides to one head.
+
+    GitHub caps the PR-files endpoint at 3,000 files.  The PR detail endpoint's
+    ``changed_files`` count is therefore retained as the authoritative count;
+    equality with the fetched unique paths is required downstream.  Open PRs
+    can advance while the census runs, so detail is read both before and after
+    pagination and any head drift remains unresolved.
+    """
+    if len(pull_requests) > 1:
+        # Eight workers keep the audit practical without approaching GitHub's
+        # core REST concurrency/rate limits.  Each worker owns exactly one row;
+        # final artifacts are sorted later, so scheduling cannot affect bytes.
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            list(
+                executor.map(
+                    lambda row: enrich_remote_changed_paths(repository, [row]),
+                    pull_requests,
+                )
+            )
+        return
     for raw in pull_requests:
-        if int(raw.get("changedFiles") or 0) >= 0:
-            continue
         number = int(raw.get("number") or 0)
         if number <= 0:
             continue
+        captured_head = clean_sha(raw.get("headRefOid"))
         try:
+            detail_before = run_json(
+                ["gh", "api", f"repos/{repository}/pulls/{number}"]
+            )
+            before_head = clean_sha(
+                ((detail_before.get("head") or {}).get("sha"))
+            )
+            detail_count = int(detail_before.get("changed_files"))
+            if before_head != captured_head or detail_count < 0:
+                continue
             pages = run_json(
                 [
                     "gh", "api", "--paginate", "--slurp",
                     f"repos/{repository}/pulls/{number}/files?per_page=100",
                 ]
             )
-        except RuntimeError:
+            detail_after = run_json(
+                ["gh", "api", f"repos/{repository}/pulls/{number}"]
+            )
+            after_head = clean_sha(
+                ((detail_after.get("head") or {}).get("sha"))
+            )
+            after_count = int(detail_after.get("changed_files"))
+        except (RuntimeError, TypeError, ValueError):
+            continue
+        if after_head != captured_head or after_count != detail_count:
             continue
         paths = sorted(
             {
@@ -244,9 +257,35 @@ def enrich_remote_changed_paths(
                 if isinstance(item, dict) and str(item.get("filename") or "")
             }
         )
+        graphql_count = 0
+        if detail_count == 0 and paths:
+            try:
+                graphql_detail = run_json(
+                    [
+                        "gh", "pr", "view", str(number), "--repo", repository,
+                        "--json", "changedFiles,headRefOid",
+                    ]
+                )
+                if clean_sha(graphql_detail.get("headRefOid")) != captured_head:
+                    continue
+                graphql_count = int(graphql_detail.get("changedFiles") or 0)
+            except (RuntimeError, TypeError, ValueError):
+                # A fully exhausted path list below the documented 3,000-file
+                # cap is still complete; retain the zero detail count as API
+                # provenance rather than inventing a count.
+                graphql_count = 0
+        declared_count = max(detail_count, graphql_count)
+        cap_reached = len(paths) >= 3000
+        declared_mismatch = declared_count > 0 and declared_count != len(paths)
         raw["files"] = [{"path": path} for path in paths]
-        raw["changedFiles"] = len(paths)
-        raw["changedPathsSource"] = "GITHUB_PAGINATED_PR_FILES_API"
+        raw["changedFiles"] = declared_count if declared_count > 0 else len(paths)
+        raw["changedFilesGraphql"] = graphql_count
+        raw["changedFilesDetail"] = detail_count
+        raw["changedPathsComplete"] = not cap_reached and not declared_mismatch
+        raw["changedPathsApiCapReached"] = cap_reached
+        raw["changedPathsSource"] = "GITHUB_HEAD_PINNED_PR_FILES_API"
+        raw["changedPathsHeadBefore"] = before_head
+        raw["changedPathsHeadAfter"] = after_head
 
 
 def collect_local_ancestry(
@@ -326,11 +365,16 @@ def normalize_branch(
     sha = clean_sha(commit.get("sha"))
     return {
         "record_id": f"github-branch:{name}",
+        "record_type": "BRANCH",
         "name": name,
         "head_sha": sha,
         "protected": bool(raw.get("protected")),
         "run287_named": "run287" in name.lower(),
         "ancestry": ancestry_status(sha, audit_sha, ancestry_by_sha),
+        "linked_pr_numbers": [],
+        "experiment_candidate": False,
+        "experiment_identity_status": "NOT_EXPERIMENT",
+        "promotion_blockers": [],
     }
 
 
@@ -348,11 +392,17 @@ def normalize_pr(
     head_sha = clean_sha(raw.get("headRefOid"))
     paths = path_list(raw.get("files"))
     changed_files = int(raw.get("changedFiles") or 0)
-    changed_paths_complete = changed_files >= 0 and changed_files == len(paths)
+    explicit_complete = raw.get("changedPathsComplete")
+    changed_paths_complete = (
+        bool(explicit_complete)
+        if isinstance(explicit_complete, bool)
+        else changed_files >= 0 and changed_files == len(paths)
+    )
     text = " ".join((title, body, head_name))
     families = capability_families(text, paths)
     experiment_like = bool(
-        "run287" in head_name.lower()
+        number in KNOWN_REGISTRY_OUTSIDE_EXPERIMENT_PRS
+        or "run287" in head_name.lower()
         or EXPERIMENT_TEXT_RE.search(text)
         or any(EXPERIMENT_PATH_RE.search(path) for path in paths)
     )
@@ -393,6 +443,7 @@ def normalize_pr(
         blockers.append("head_ancestry_unverified")
     return {
         "record_id": f"github-pr:{number}",
+        "record_type": "PULL_REQUEST",
         "number": number,
         "url": str(raw.get("url") or ""),
         "title": title,
@@ -401,6 +452,7 @@ def normalize_pr(
         "head_branch": head_name,
         "head_sha": head_sha,
         "base_branch": str(raw.get("baseRefName") or ""),
+        "base_sha": clean_sha(raw.get("baseRefOid")),
         "merge_commit_sha": clean_sha(
             (raw.get("mergeCommit") or {}).get("oid")
             if isinstance(raw.get("mergeCommit"), dict)
@@ -414,10 +466,25 @@ def normalize_pr(
         "author_login": str((raw.get("author") or {}).get("login") or ""),
         "labels": labels,
         "changed_file_count": changed_files,
+        "github_graphql_changed_file_count": int(
+            raw.get("changedFilesGraphql") or 0
+        ),
+        "github_detail_changed_file_count": int(
+            raw.get("changedFilesDetail") or 0
+        ),
         "changed_paths": paths,
         "changed_paths_complete": changed_paths_complete,
+        "changed_paths_api_cap_reached": bool(
+            raw.get("changedPathsApiCapReached")
+        ),
         "changed_paths_source": str(
             raw.get("changedPathsSource") or "GITHUB_GRAPHQL"
+        ),
+        "changed_paths_head_before": clean_sha(
+            raw.get("changedPathsHeadBefore")
+        ),
+        "changed_paths_head_after": clean_sha(
+            raw.get("changedPathsHeadAfter")
         ),
         "changed_paths_sha256": canonical_sha256(paths),
         "commit_oids": commit_oids,
@@ -455,7 +522,9 @@ def build_census(
     default_sha = clean_sha(
         ((repository_payload.get("default_branch_commit") or {}).get("sha"))
     )
-    if default_sha and default_sha != audit_sha:
+    if not default_sha:
+        raise ValueError("repository payload missing pinned default branch commit")
+    if default_sha != audit_sha:
         raise ValueError("remote default branch moved from the pinned audit SHA")
 
     branch_rows = [
@@ -473,13 +542,65 @@ def build_census(
         )
         for item in pull_requests
     ]
+    pr_numbers_by_branch: dict[str, list[int]] = {}
+    pr_numbers_by_head: dict[str, list[int]] = {}
+    for row in pr_rows:
+        pr_numbers_by_branch.setdefault(row["head_branch"], []).append(row["number"])
+        if row["head_sha"]:
+            pr_numbers_by_head.setdefault(row["head_sha"], []).append(row["number"])
+    for row in branch_rows:
+        linked = sorted(
+            set(pr_numbers_by_branch.get(row["name"], []))
+            | set(pr_numbers_by_head.get(row["head_sha"], []))
+        )
+        row["linked_pr_numbers"] = linked
+        branch_only_candidate = not linked and bool(
+            row["run287_named"] or EXPERIMENT_TEXT_RE.search(row["name"])
+        )
+        if branch_only_candidate:
+            row["experiment_candidate"] = True
+            row["experiment_identity_status"] = "UNMAPPED_BLOCKED"
+            row["capability_family_candidates"] = capability_families(
+                row["name"], []
+            )
+            row["promotion_blockers"] = [
+                "branch_changed_paths_unrecovered",
+                "canonical_experiment_id_missing",
+                "exact_parameter_and_data_hash_unverified",
+                "synchronized_daily_after_cost_return_column_unverified",
+                "target_book_and_cash_cost_contract_unverified",
+            ]
+        else:
+            row["capability_family_candidates"] = []
+
     branch_ids = [row["record_id"] for row in branch_rows]
     pr_ids = [row["record_id"] for row in pr_rows]
     if len(branch_ids) != len(set(branch_ids)):
         raise ValueError("duplicate branch identity")
     if len(pr_ids) != len(set(pr_ids)):
         raise ValueError("duplicate PR identity")
-    candidates = [row for row in pr_rows if row["experiment_candidate"]]
+    duplicate_head_groups = [
+        {"head_sha": sha, "pr_numbers": sorted(numbers)}
+        for sha, numbers in sorted(pr_numbers_by_head.items())
+        if len(numbers) > 1
+    ]
+    for group in duplicate_head_groups:
+        members = set(group["pr_numbers"])
+        for row in pr_rows:
+            if row["number"] in members:
+                row["duplicate_head_pr_numbers"] = group["pr_numbers"]
+                row["promotion_blockers"] = sorted(
+                    set(row["promotion_blockers"])
+                    | {"duplicate_pr_head_sha_requires_canonical_deduplication"}
+                )
+    for row in pr_rows:
+        row.setdefault("duplicate_head_pr_numbers", [])
+
+    pr_candidates = [row for row in pr_rows if row["experiment_candidate"]]
+    branch_only_candidates = [
+        row for row in branch_rows if row["experiment_candidate"]
+    ]
+    candidates = [*pr_candidates, *branch_only_candidates]
     unresolved = [
         row for row in candidates if row["experiment_identity_status"] != "MAPPED"
     ]
@@ -493,6 +614,11 @@ def build_census(
         blockers.append("one_or_more_pr_changed_path_lists_are_truncated")
     if any(row["ancestry"] == "UNVERIFIED_BLOCKED" for row in branch_rows + pr_rows):
         blockers.append("one_or_more_git_ancestry_results_are_unverified")
+    if branch_only_candidates:
+        blockers.append("branch_only_experiment_candidates_require_recovery")
+    if duplicate_head_groups:
+        blockers.append("duplicate_pr_head_sha_groups_require_canonical_deduplication")
+    blockers.append("parameter_and_data_hash_duplicate_groups_not_yet_recovered")
     blockers.append("historical_return_series_and_trial_deduplication_not_recovered")
     return {
         "schema_version": SCHEMA_VERSION,
@@ -503,7 +629,7 @@ def build_census(
         "source_contract": {
             "branch_api": "GET /repos/{owner}/{repo}/branches",
             "pull_request_api": "GET /repos/{owner}/{repo}/pulls?state=all",
-            "changed_paths": "local pinned base...head Git diff",
+            "changed_paths": "GitHub PR files API pinned by before/after head SHA",
             "branch_payload_sha256": canonical_sha256(branches),
             "pull_request_payload_sha256": canonical_sha256(pull_requests),
             "metadata_only": True,
@@ -520,11 +646,23 @@ def build_census(
             "branch_ancestry_counts": dict(sorted(branch_ancestry.items())),
             "pull_request_head_ancestry_counts": dict(sorted(pr_ancestry.items())),
             "experiment_candidate_count": len(candidates),
+            "pull_request_experiment_candidate_count": len(pr_candidates),
+            "branch_only_experiment_candidate_count": len(branch_only_candidates),
             "unmapped_experiment_candidate_count": len(unresolved),
             "historical_experiment_census_complete": False,
             "historical_challenger_allowed": False,
         },
         "promotion_blockers": sorted(set(blockers)),
+        "duplicate_code_identity": {
+            "key": "pull_request_head_sha",
+            "group_count": len(duplicate_head_groups),
+            "groups": duplicate_head_groups,
+            "parameter_data_hash_groups_recovered": False,
+        },
+        "experiment_candidates": sorted(
+            candidates,
+            key=lambda row: (row["record_type"], row["record_id"]),
+        ),
         "branches": sorted(branch_rows, key=lambda row: row["name"]),
         "pull_requests": sorted(pr_rows, key=lambda row: row["number"]),
     }
@@ -532,7 +670,8 @@ def build_census(
 
 def write_candidate_csv(path: Path, census: dict[str, Any]) -> None:
     fields = [
-        "number", "state", "head_branch", "head_sha", "ancestry", "title",
+        "record_type", "record_id", "number", "name", "state", "head_branch",
+        "head_sha", "ancestry", "title",
         "experiment_identity_status", "capability_family_candidates",
         "matched_do_not_repeat_ids", "promotion_blockers", "url",
     ]
@@ -540,9 +679,7 @@ def write_candidate_csv(path: Path, census: dict[str, Any]) -> None:
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
-        for row in census["pull_requests"]:
-            if not row["experiment_candidate"]:
-                continue
+        for row in census["experiment_candidates"]:
             item = {field: row.get(field, "") for field in fields}
             for field in (
                 "capability_family_candidates", "matched_do_not_repeat_ids",
@@ -600,10 +737,10 @@ def main() -> int:
         if args.pull_requests_json
         else collect_pull_requests(args.repository)
     )
+    if not args.pull_requests_json:
+        enrich_remote_changed_paths(args.repository, pull_requests)
     ancestry = read_json(args.ancestry_json) if args.ancestry_json else {}
     if args.collect_local_ancestry:
-        enrich_local_changed_paths(pull_requests)
-        enrich_remote_changed_paths(args.repository, pull_requests)
         branch_shas = [
             clean_sha((item.get("commit") or {}).get("sha"))
             for item in branches

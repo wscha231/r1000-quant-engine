@@ -39,6 +39,7 @@ def fixtures() -> tuple[dict, list[dict], list[dict], dict[str, str]]:
             "headRefName": "codex/run287-expected-return",
             "headRefOid": "b" * 40,
             "baseRefName": "master",
+            "baseRefOid": AUDIT_SHA,
             "mergeCommit": None,
             "mergedAt": None,
             "closedAt": None,
@@ -65,6 +66,7 @@ def fixtures() -> tuple[dict, list[dict], list[dict], dict[str, str]]:
             "headRefName": "docs-typo",
             "headRefOid": "c" * 40,
             "baseRefName": "master",
+            "baseRefOid": AUDIT_SHA,
             "mergeCommit": {"oid": "d" * 40},
             "mergedAt": "2026-08-02T00:00:00Z",
             "closedAt": "2026-08-02T00:00:00Z",
@@ -106,6 +108,7 @@ def test_census_is_complete_metadata_but_blocks_research_claims() -> None:
     assert summary["historical_challenger_allowed"] is False
     candidate = census["pull_requests"][0]
     assert candidate["experiment_identity_status"] == "UNMAPPED_BLOCKED"
+    assert candidate["base_sha"] == AUDIT_SHA
     assert "EXPECTED_RETURN_AND_SCORING" in candidate["capability_family_candidates"]
     assert "canonical_experiment_id_missing" in candidate["promotion_blockers"]
     assert census["pull_requests"][1]["experiment_candidate"] is False
@@ -147,6 +150,22 @@ def test_repository_and_identity_are_pinned() -> None:
     else:
         raise AssertionError("wrong repository was accepted")
 
+    repository, branches, pulls, ancestry = fixtures()
+    repository.pop("default_branch_commit")
+    try:
+        MOD.build_census(
+            repository_payload=repository,
+            branches=branches,
+            pull_requests=pulls,
+            audit_sha=AUDIT_SHA,
+            ancestry_by_sha=ancestry,
+            do_not_repeat_ids=set(),
+        )
+    except ValueError as exc:
+        assert "missing pinned default branch commit" in str(exc)
+    else:
+        raise AssertionError("unpinned cached repository metadata was accepted")
+
 
 def test_candidate_csv_contains_only_experiment_like_prs() -> None:
     repository, branches, pulls, ancestry = fixtures()
@@ -166,36 +185,120 @@ def test_candidate_csv_contains_only_experiment_like_prs() -> None:
         assert "docs-typo" not in text
 
 
-def test_remote_file_fallback_only_fills_unresolved_rows() -> None:
-    unresolved = {
+def test_remote_files_are_counted_and_bound_to_one_head() -> None:
+    row = {
         "number": 10,
+        "headRefOid": "b" * 40,
         "changedFiles": -1,
         "files": [],
         "changedPathsSource": "UNRESOLVED_BLOCKED",
     }
-    resolved = {
-        "number": 11,
-        "changedFiles": 1,
-        "files": [{"path": "README.md"}],
-        "changedPathsSource": "LOCAL_PINNED_THREE_DOT_DIFF",
-    }
     original_run_json = MOD.run_json
     calls: list[list[str]] = []
 
-    def fake_run_json(command: list[str]) -> list[list[dict[str, str]]]:
+    def fake_run_json(command: list[str]):
         calls.append(command)
-        return [[{"filename": "tests/a.py"}, {"filename": "tools/a.py"}]]
+        if command[-1].endswith("?per_page=100"):
+            return [[{"filename": "tests/a.py"}, {"filename": "tools/a.py"}]]
+        return {"head": {"sha": "b" * 40}, "changed_files": 2}
 
     MOD.run_json = fake_run_json
     try:
-        MOD.enrich_remote_changed_paths(MOD.REPOSITORY, [unresolved, resolved])
+        MOD.enrich_remote_changed_paths(MOD.REPOSITORY, [row])
     finally:
         MOD.run_json = original_run_json
-    assert len(calls) == 1
-    assert "/pulls/10/files?per_page=100" in calls[0][-1]
-    assert unresolved["changedFiles"] == 2
-    assert unresolved["changedPathsSource"] == "GITHUB_PAGINATED_PR_FILES_API"
-    assert resolved["files"] == [{"path": "README.md"}]
+    assert len(calls) == 3
+    assert "/pulls/10/files?per_page=100" in calls[1][-1]
+    assert row["changedFiles"] == 2
+    assert row["changedPathsSource"] == "GITHUB_HEAD_PINNED_PR_FILES_API"
+    assert row["changedPathsHeadBefore"] == "b" * 40
+    assert row["changedPathsHeadAfter"] == "b" * 40
+
+
+def test_remote_file_cap_and_head_race_remain_blocked() -> None:
+    original_run_json = MOD.run_json
+    capped = {
+        "number": 10,
+        "headRefOid": "b" * 40,
+        "changedFiles": -1,
+        "files": [],
+    }
+    calls = 0
+
+    def capped_run_json(command: list[str]):
+        nonlocal calls
+        calls += 1
+        if command[-1].endswith("?per_page=100"):
+            return [[{"filename": f"file-{idx}"} for idx in range(3000)]]
+        return {"head": {"sha": "b" * 40}, "changed_files": 3001}
+
+    MOD.run_json = capped_run_json
+    try:
+        MOD.enrich_remote_changed_paths(MOD.REPOSITORY, [capped])
+    finally:
+        MOD.run_json = original_run_json
+    assert calls == 3
+    assert capped["changedFiles"] == 3001
+    assert len(capped["files"]) == 3000
+    assert capped["changedPathsComplete"] is False
+    assert capped["changedPathsApiCapReached"] is True
+
+    racing = {
+        "number": 10,
+        "headRefOid": "b" * 40,
+        "changedFiles": -1,
+        "files": [],
+    }
+    detail_calls = 0
+
+    def racing_run_json(command: list[str]):
+        nonlocal detail_calls
+        if command[-1].endswith("?per_page=100"):
+            return [[{"filename": "one.py"}]]
+        detail_calls += 1
+        sha = "b" * 40 if detail_calls == 1 else "c" * 40
+        return {"head": {"sha": sha}, "changed_files": 1}
+
+    MOD.run_json = racing_run_json
+    try:
+        MOD.enrich_remote_changed_paths(MOD.REPOSITORY, [racing])
+    finally:
+        MOD.run_json = original_run_json
+    assert racing["changedFiles"] == -1
+    assert racing["files"] == []
+
+
+def test_branch_only_and_duplicate_code_identities_are_blocked() -> None:
+    repository, branches, pulls, ancestry = fixtures()
+    branches.append(
+        {
+            "name": "codex/run287-orphan-experiment",
+            "commit": {"sha": "e" * 40},
+            "protected": False,
+        }
+    )
+    ancestry["e" * 40] = "ORPHANED_FROM_AUDIT_HEAD"
+    pulls[1]["headRefOid"] = "b" * 40
+    census = MOD.build_census(
+        repository_payload=repository,
+        branches=branches,
+        pull_requests=pulls,
+        audit_sha=AUDIT_SHA,
+        ancestry_by_sha=ancestry,
+        do_not_repeat_ids=set(),
+    )
+    branch = next(
+        row for row in census["branches"]
+        if row["name"] == "codex/run287-orphan-experiment"
+    )
+    assert branch["experiment_candidate"] is True
+    assert "branch_changed_paths_unrecovered" in branch["promotion_blockers"]
+    assert census["summary"]["branch_only_experiment_candidate_count"] == 1
+    assert census["duplicate_code_identity"]["group_count"] == 1
+    assert census["duplicate_code_identity"]["groups"][0]["pr_numbers"] == [10, 11]
+    assert "duplicate_pr_head_sha_requires_canonical_deduplication" in (
+        census["pull_requests"][0]["promotion_blockers"]
+    )
 
 
 def main() -> int:
@@ -203,7 +306,9 @@ def main() -> int:
     test_truncated_paths_and_unverified_ancestry_fail_closed()
     test_repository_and_identity_are_pinned()
     test_candidate_csv_contains_only_experiment_like_prs()
-    test_remote_file_fallback_only_fills_unresolved_rows()
+    test_remote_files_are_counted_and_bound_to_one_head()
+    test_remote_file_cap_and_head_race_remain_blocked()
+    test_branch_only_and_duplicate_code_identities_are_blocked()
     print("run287_u0_v2_github_census_smoke: PASS")
     return 0
 
