@@ -20,12 +20,15 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 
 REPOSITORY = "wscha231/r1000-quant-engine"
 SCHEMA_VERSION = "run287-u0-v2-github-census-v1"
-COLLECTION_CACHE_SCHEMA_VERSION = "run287-u0-v2-github-collection-cache-v2"
+COLLECTION_CACHE_SCHEMA_VERSION = "run287-u0-v2-github-collection-cache-v3"
+COLLECTION_IDENTITY_SNAPSHOT_SOURCE = (
+    "GITHUB_NAMESPACE_AND_MUTABLE_EVIDENCE_PINNED_V1"
+)
 SHA_RE = re.compile(r"[0-9a-f]{40}")
 EXPERIMENT_PATH_RE = re.compile(
     r"(^|/)(backtest|research|aggressive|auto_learning|experiments?)(/|$)|"
@@ -580,23 +583,46 @@ def normalized_evidence_identity(value: Any) -> str:
 
 
 def matched_registry_ids_for_evidence(
-    do_not_repeat_ids: set[str], evidence_values: Iterable[Any]
+    do_not_repeat_ids: set[str] | Mapping[str, tuple[str, ...]],
+    evidence_values: Iterable[Any],
 ) -> list[str]:
     normalized_evidence = [
         normalized_evidence_identity(value) for value in evidence_values
     ]
-    return sorted(
-        item
-        for item in do_not_repeat_ids
-        if normalized_evidence_identity(item)
-        and any(
-            normalized_evidence_identity(item) in evidence
-            for evidence in normalized_evidence
-        )
+    descriptors = (
+        do_not_repeat_ids
+        if isinstance(do_not_repeat_ids, Mapping)
+        else {item: () for item in do_not_repeat_ids}
     )
+    matched: list[str] = []
+    for identifier, fields in descriptors.items():
+        normalized_identifier = normalized_evidence_identity(identifier)
+        id_match = bool(
+            normalized_identifier
+            and any(
+                normalized_identifier in evidence
+                for evidence in normalized_evidence
+            )
+        )
+        normalized_fields = [
+            normalized_evidence_identity(value) for value in fields
+        ]
+        descriptor_match = bool(
+            normalized_fields
+            and all(normalized_fields)
+            and all(
+                any(field in evidence for evidence in normalized_evidence)
+                for field in normalized_fields
+            )
+        )
+        if id_match or descriptor_match:
+            matched.append(identifier)
+    return sorted(matched)
 
 
-def validated_do_not_repeat_ids(registry: Any) -> set[str]:
+def validated_do_not_repeat_entries(
+    registry: Any,
+) -> dict[str, tuple[str, ...]]:
     if not isinstance(registry, dict):
         raise ValueError("do-not-repeat registry must be an object")
     if registry.get("schema_version") != "run287-do-not-repeat-registry-v1":
@@ -607,7 +633,7 @@ def validated_do_not_repeat_ids(registry: Any) -> set[str]:
     entries = registry.get("entries")
     if not isinstance(entries, list) or not entries:
         raise ValueError("do-not-repeat registry entries must be a non-empty list")
-    identifiers: list[str] = []
+    descriptors: dict[str, tuple[str, ...]] = {}
     for index, item in enumerate(entries):
         if not isinstance(item, dict):
             raise ValueError(
@@ -631,7 +657,12 @@ def validated_do_not_repeat_ids(registry: Any) -> set[str]:
             raise ValueError(
                 f"do-not-repeat registry entry {identifier} is not blocked"
             )
-        identifiers.append(identifier)
+        if identifier in descriptors:
+            raise ValueError("do-not-repeat registry contains duplicate ids")
+        descriptors[identifier] = tuple(
+            str(item[field]).strip() for field in match_fields
+        )
+    identifiers = list(descriptors)
     if len(identifiers) != len(set(identifiers)):
         raise ValueError("do-not-repeat registry contains duplicate ids")
     normalized_identifiers = [
@@ -641,7 +672,11 @@ def validated_do_not_repeat_ids(registry: Any) -> set[str]:
         raise ValueError(
             "do-not-repeat registry contains normalized duplicate ids"
         )
-    return set(identifiers)
+    return descriptors
+
+
+def validated_do_not_repeat_ids(registry: Any) -> set[str]:
+    return set(validated_do_not_repeat_entries(registry))
 
 
 def changed_path_evidence(raw: dict[str, Any], paths: list[str]) -> tuple[int, bool]:
@@ -703,15 +738,67 @@ def load_bound_ancestry_payload(payload: Any, audit_sha: str) -> dict[str, str]:
     statuses = payload.get("statuses")
     if not isinstance(statuses, dict):
         raise ValueError("cached ancestry statuses are missing")
-    return {
-        clean_sha(sha): str(status)
-        for sha, status in statuses.items()
-        if clean_sha(sha)
-        and status in {
-            "ANCESTOR_OF_AUDIT_HEAD",
-            "ORPHANED_FROM_AUDIT_HEAD",
-        }
+    allowed = {
+        "ANCESTOR_OF_AUDIT_HEAD",
+        "ORPHANED_FROM_AUDIT_HEAD",
     }
+    normalized: dict[str, str] = {}
+    for raw_sha, status in statuses.items():
+        sha = clean_sha(raw_sha)
+        if not sha or status not in allowed:
+            raise ValueError("cached ancestry status is invalid")
+        if sha in normalized:
+            raise ValueError("cached ancestry contains normalized duplicate SHAs")
+        normalized[sha] = str(status)
+    return normalized
+
+
+def cached_collection_identity(
+    records: list[dict[str, Any]], collection_kind: str
+) -> list[dict[str, Any]]:
+    """Derive the namespace identity that a v3 cache must pin twice."""
+    if collection_kind == "branches":
+        identity: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for record in records:
+            name = str(record.get("name") or "")
+            commit = (
+                record.get("commit")
+                if isinstance(record.get("commit"), dict)
+                else {}
+            )
+            sha = clean_sha(commit.get("sha"))
+            if not name or not sha or name in seen:
+                raise ValueError("cached branch collection has invalid identities")
+            seen.add(name)
+            identity.append({"name": name, "head_sha": sha})
+        return sorted(identity, key=lambda item: item["name"])
+
+    identity = []
+    seen_numbers: set[int] = set()
+    for record in records:
+        number = record.get("number")
+        if (
+            not isinstance(number, int)
+            or isinstance(number, bool)
+            or number <= 0
+            or number in seen_numbers
+        ):
+            raise ValueError("cached PR collection has invalid PR number")
+        head_sha = clean_sha(record.get("headRefOid"))
+        if not head_sha:
+            raise ValueError("cached PR collection has invalid head SHA")
+        seen_numbers.add(number)
+        identity.append(
+            {
+                "number": number,
+                "head_sha": head_sha,
+                "title": str(record.get("title") or ""),
+                "body": str(record.get("body") or ""),
+                "head_ref_name": str(record.get("headRefName") or ""),
+            }
+        )
+    return sorted(identity, key=lambda item: item["number"])
 
 
 def load_bound_collection_payload(
@@ -749,6 +836,16 @@ def load_bound_collection_payload(
         raise ValueError("cached collection record count mismatch")
     if payload.get("records_sha256") != canonical_sha256(records):
         raise ValueError("cached collection record hash mismatch")
+    identity = cached_collection_identity(records, collection_kind)
+    identity_hash = canonical_sha256(identity)
+    if (
+        payload.get("identity_snapshot_source")
+        != COLLECTION_IDENTITY_SNAPSHOT_SOURCE
+        or payload.get("identity_snapshot_record_count") != len(identity)
+        or payload.get("identity_snapshot_before_sha256") != identity_hash
+        or payload.get("identity_snapshot_after_sha256") != identity_hash
+    ):
+        raise ValueError("cached collection identity snapshots are missing or stale")
     if collection_kind == "pull_requests" and any(
         "renamedFromPaths" not in item
         or not isinstance(item.get("renamedFromPaths"), list)
@@ -844,7 +941,7 @@ def normalize_pr(
     *,
     audit_sha: str,
     ancestry_by_sha: dict[str, str],
-    do_not_repeat_ids: set[str],
+    do_not_repeat_ids: set[str] | Mapping[str, tuple[str, ...]],
 ) -> dict[str, Any]:
     number = int(raw.get("number") or 0)
     title = str(raw.get("title") or "")
@@ -1031,7 +1128,7 @@ def build_census(
     pull_requests: list[dict[str, Any]],
     audit_sha: str,
     ancestry_by_sha: dict[str, str],
-    do_not_repeat_ids: set[str],
+    do_not_repeat_ids: set[str] | Mapping[str, tuple[str, ...]],
 ) -> dict[str, Any]:
     audit_sha = clean_sha(audit_sha)
     if not audit_sha:
@@ -1425,14 +1522,14 @@ def main() -> int:
         )
         ancestry = merge_ancestry_evidence(local_ancestry, cached_ancestry)
     registry = read_json(args.do_not_repeat)
-    registry_ids = validated_do_not_repeat_ids(registry)
+    registry_entries = validated_do_not_repeat_entries(registry)
     census = build_census(
         repository_payload=repository,
         branches=branches,
         pull_requests=pull_requests,
         audit_sha=audit_sha,
         ancestry_by_sha=ancestry,
-        do_not_repeat_ids=registry_ids,
+        do_not_repeat_ids=registry_entries,
     )
     args.output_dir.mkdir(parents=True, exist_ok=True)
     write_json(args.output_dir / "github_census.json", census)

@@ -110,6 +110,27 @@ def fixtures() -> tuple[dict, list[dict], list[dict], dict[str, str]]:
     return repository, branches, pulls, ancestry
 
 
+def collection_envelope(
+    collection_kind: str, records: list[dict]
+) -> dict[str, object]:
+    identity = MOD.cached_collection_identity(records, collection_kind)
+    identity_hash = MOD.canonical_sha256(identity)
+    return {
+        "schema_version": MOD.COLLECTION_CACHE_SCHEMA_VERSION,
+        "repository": MOD.REPOSITORY,
+        "audit_sha": AUDIT_SHA,
+        "collection_kind": collection_kind,
+        "pagination_complete": True,
+        "record_count": len(records),
+        "records_sha256": MOD.canonical_sha256(records),
+        "identity_snapshot_source": MOD.COLLECTION_IDENTITY_SNAPSHOT_SOURCE,
+        "identity_snapshot_record_count": len(identity),
+        "identity_snapshot_before_sha256": identity_hash,
+        "identity_snapshot_after_sha256": identity_hash,
+        "records": records,
+    }
+
+
 def test_census_is_complete_metadata_but_blocks_research_claims() -> None:
     repository, branches, pulls, ancestry = fixtures()
     census = MOD.build_census(
@@ -556,16 +577,7 @@ def test_zero_count_conflict_and_status_head_race_fail_closed() -> None:
 
 def test_cached_collections_require_complete_bound_envelopes() -> None:
     _, branches, pulls, _ = fixtures()
-    envelope = {
-        "schema_version": MOD.COLLECTION_CACHE_SCHEMA_VERSION,
-        "repository": MOD.REPOSITORY,
-        "audit_sha": AUDIT_SHA,
-        "collection_kind": "branches",
-        "pagination_complete": True,
-        "record_count": len(branches),
-        "records_sha256": MOD.canonical_sha256(branches),
-        "records": branches,
-    }
+    envelope = collection_envelope("branches", branches)
     assert MOD.load_bound_collection_payload(
         envelope, audit_sha=AUDIT_SHA, collection_kind="branches"
     ) == branches
@@ -578,6 +590,19 @@ def test_cached_collections_require_complete_bound_envelopes() -> None:
         assert "record count" in str(exc)
     else:
         raise AssertionError("partial cached collection was accepted")
+    _, fresh_branches, _, _ = fixtures()
+    stale_snapshot = collection_envelope("branches", fresh_branches)
+    stale_snapshot.pop("identity_snapshot_before_sha256")
+    try:
+        MOD.load_bound_collection_payload(
+            stale_snapshot,
+            audit_sha=AUDIT_SHA,
+            collection_kind="branches",
+        )
+    except ValueError as exc:
+        assert "identity snapshots" in str(exc)
+    else:
+        raise AssertionError("pre-snapshot cached collection was accepted")
     try:
         MOD.load_bound_collection_payload(
             pulls, audit_sha=AUDIT_SHA, collection_kind="pull_requests"
@@ -587,16 +612,7 @@ def test_cached_collections_require_complete_bound_envelopes() -> None:
     else:
         raise AssertionError("bare cached PR list was accepted")
 
-    pr_envelope = {
-        "schema_version": MOD.COLLECTION_CACHE_SCHEMA_VERSION,
-        "repository": MOD.REPOSITORY,
-        "audit_sha": AUDIT_SHA,
-        "collection_kind": "pull_requests",
-        "pagination_complete": True,
-        "record_count": len(pulls),
-        "records_sha256": MOD.canonical_sha256(pulls),
-        "records": pulls,
-    }
+    pr_envelope = collection_envelope("pull_requests", pulls)
     pulls[0].pop("renamedFromPaths")
     pr_envelope["records_sha256"] = MOD.canonical_sha256(pulls)
     try:
@@ -610,16 +626,7 @@ def test_cached_collections_require_complete_bound_envelopes() -> None:
 
     _, _, pulls, _ = fixtures()
     pulls[0]["renamedFromPaths"] = [{"not_path": "experiments/foo.py"}]
-    pr_envelope = {
-        "schema_version": MOD.COLLECTION_CACHE_SCHEMA_VERSION,
-        "repository": MOD.REPOSITORY,
-        "audit_sha": AUDIT_SHA,
-        "collection_kind": "pull_requests",
-        "pagination_complete": True,
-        "record_count": len(pulls),
-        "records_sha256": MOD.canonical_sha256(pulls),
-        "records": pulls,
-    }
+    pr_envelope = collection_envelope("pull_requests", pulls)
     try:
         MOD.load_bound_collection_payload(
             pr_envelope, audit_sha=AUDIT_SHA, collection_kind="pull_requests"
@@ -630,17 +637,9 @@ def test_cached_collections_require_complete_bound_envelopes() -> None:
         raise AssertionError("malformed cached rename path was accepted")
 
     _, _, pulls, _ = fixtures()
+    pr_envelope = collection_envelope("pull_requests", pulls)
     pulls[0]["number"] = 0
-    pr_envelope = {
-        "schema_version": MOD.COLLECTION_CACHE_SCHEMA_VERSION,
-        "repository": MOD.REPOSITORY,
-        "audit_sha": AUDIT_SHA,
-        "collection_kind": "pull_requests",
-        "pagination_complete": True,
-        "record_count": len(pulls),
-        "records_sha256": MOD.canonical_sha256(pulls),
-        "records": pulls,
-    }
+    pr_envelope["records_sha256"] = MOD.canonical_sha256(pulls)
     try:
         MOD.load_bound_collection_payload(
             pr_envelope, audit_sha=AUDIT_SHA, collection_kind="pull_requests"
@@ -787,6 +786,11 @@ def test_do_not_repeat_registry_is_strictly_validated() -> None:
         "entries": [valid_entry],
     }
     assert MOD.validated_do_not_repeat_ids(valid) == {"known_failed_lane"}
+    validated = MOD.validated_do_not_repeat_entries(valid)
+    assert MOD.matched_registry_ids_for_evidence(
+        validated,
+        ["signal mechanism", "book", "window"],
+    ) == ["known_failed_lane"]
     invalid_payloads = [
         {},
         {**valid, "schema_version": "wrong"},
@@ -857,6 +861,21 @@ def test_default_head_and_cached_ancestry_are_audit_bound() -> None:
         {"audit_sha": AUDIT_SHA, "statuses": ancestry}, AUDIT_SHA
     )
     assert bound == ancestry
+    try:
+        MOD.load_bound_ancestry_payload(
+            {
+                "audit_sha": AUDIT_SHA,
+                "statuses": {
+                    "B" * 40: "ANCESTOR_OF_AUDIT_HEAD",
+                    "b" * 40: "ORPHANED_FROM_AUDIT_HEAD",
+                },
+            },
+            AUDIT_SHA,
+        )
+    except ValueError as exc:
+        assert "normalized duplicate SHAs" in str(exc)
+    else:
+        raise AssertionError("normalized duplicate ancestry SHAs were accepted")
 
 
 def test_cached_status_and_changed_count_provenance_are_recomputed() -> None:
