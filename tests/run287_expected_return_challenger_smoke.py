@@ -146,6 +146,15 @@ def test_contract_is_fixed_and_leakage_features_are_rejected() -> None:
     else:
         raise AssertionError("an unapproved alpha target mix was accepted")
 
+    unregistered_hyperparameter = json.loads(json.dumps(cfg))
+    unregistered_hyperparameter["model"]["ridge_alpha"] = 9.0
+    try:
+        MOD.validate_contract(unregistered_hyperparameter)
+    except ValueError as exc:
+        assert "contract hash mismatch" in str(exc)
+    else:
+        raise AssertionError("an unregistered contract mutation was accepted")
+
 
 def test_u0_gate_blocks_model_fit_and_all_mutations() -> None:
     with tempfile.TemporaryDirectory() as tmp:

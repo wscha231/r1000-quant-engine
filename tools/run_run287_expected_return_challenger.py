@@ -30,6 +30,9 @@ READY_STATUS = "READY_EXPECTED_RETURN_FORWARD_REVIEW_ONLY"
 BLOCKED_STATUS = "BLOCKED_EXPECTED_RETURN_CHALLENGER"
 TARGET_KINDS = ("absolute", "benchmark_excess", "sector_neutral")
 HORIZONS = (21, 63, 126)
+EXPECTED_CONTRACT_SHA256 = (
+    "258b08e90f40909c08d2d9149c285bd2b08e9ca9ac2402c0b1626f258bd9de25"
+)
 FORBIDDEN_FEATURE_RE = re.compile(
     r"(^|_)(future|forward|label|target|outcome)(_|$)|"
     r"^r_(1m|3m|6m|12m|24m|36m)$|^bench_(r|ret)_",
@@ -230,6 +233,12 @@ def validate_contract(contract: Any) -> dict[str, Any]:
         )
     ):
         raise ValueError("expected-return safety contract mismatch")
+    actual_contract_sha256 = canonical_sha256(contract)
+    if actual_contract_sha256 != EXPECTED_CONTRACT_SHA256:
+        raise ValueError(
+            "expected-return contract hash mismatch:"
+            f"expected={EXPECTED_CONTRACT_SHA256}:actual={actual_contract_sha256}"
+        )
     return contract
 
 
