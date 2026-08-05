@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import math
 import os
 import re
 import subprocess
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -32,7 +34,7 @@ BLOCKED_STATUS = "BLOCKED_EXPECTED_RETURN_CHALLENGER"
 TARGET_KINDS = ("absolute", "benchmark_excess", "sector_neutral")
 HORIZONS = (21, 63, 126)
 EXPECTED_CONTRACT_SHA256 = (
-    "386f5dbc6b84e9a307ff6af188a2373a7cb788e05b9e8876b56bf15eae042d74"
+    "11ee7da346b73282847cd8906fceadddf7b34d536bd31759144da2d5eb914c79"
 )
 FORBIDDEN_FEATURE_RE = re.compile(
     r"(^|_)(future|forward|label|target|outcome)(_|$)|"
@@ -156,6 +158,95 @@ def git_default_branch_sha() -> str:
         if FULL_SHA_RE.fullmatch(sha):
             return sha
     return ""
+
+
+def load_canonical_u0_artifact(
+    artifact_id: int,
+    contract: Mapping[str, Any],
+) -> dict[str, Any]:
+    if type(artifact_id) is not int or artifact_id <= 0:
+        raise ValueError("invalid U0 accepted artifact id")
+    gate = contract["historical_gate"]
+    artifact_raw = subprocess.check_output(
+        [
+            "gh",
+            "api",
+            f"repos/{REPOSITORY}/actions/artifacts/{artifact_id}",
+        ],
+        cwd=REPO_ROOT,
+        timeout=30,
+    )
+    artifact = json.loads(
+        artifact_raw.decode("utf-8"),
+        object_pairs_hook=reject_duplicate_json_keys,
+    )
+    workflow_run = artifact.get("workflow_run") or {}
+    run_id = workflow_run.get("id")
+    if type(run_id) is not int or run_id <= 0:
+        raise ValueError("U0 artifact lacks workflow run identity")
+    if (
+        artifact.get("name") != gate["accepted_artifact_name"]
+        or artifact.get("expired") is not False
+    ):
+        raise ValueError("U0 artifact identity is not accepted")
+    run_raw = subprocess.check_output(
+        ["gh", "api", f"repos/{REPOSITORY}/actions/runs/{run_id}"],
+        cwd=REPO_ROOT,
+        timeout=30,
+    )
+    run = json.loads(
+        run_raw.decode("utf-8"),
+        object_pairs_hook=reject_duplicate_json_keys,
+    )
+    if (
+        run.get("id") != run_id
+        or run.get("path") != gate["accepted_workflow_path"]
+        or run.get("event") != "workflow_dispatch"
+        or run.get("head_branch") != gate["default_branch"]
+        or run.get("status") != "completed"
+        or run.get("conclusion") != "success"
+    ):
+        raise ValueError("U0 artifact workflow run is not canonical")
+    zip_bytes = subprocess.check_output(
+        [
+            "gh",
+            "api",
+            f"repos/{REPOSITORY}/actions/artifacts/{artifact_id}/zip",
+        ],
+        cwd=REPO_ROOT,
+        timeout=60,
+    )
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
+        names = archive.namelist()
+        census_name = gate["accepted_artifact_census_file"]
+        evidence_name = gate["accepted_artifact_evidence_file"]
+        if names.count(census_name) != 1 or names.count(evidence_name) != 1:
+            raise ValueError("U0 artifact canonical files are missing or duplicated")
+        census = json.loads(
+            archive.read(census_name).decode("utf-8"),
+            object_pairs_hook=reject_duplicate_json_keys,
+        )
+        evidence = json.loads(
+            archive.read(evidence_name).decode("utf-8"),
+            object_pairs_hook=reject_duplicate_json_keys,
+        )
+    audit_sha = str(census.get("audit_default_branch_sha") or "").lower()
+    if (
+        str(run.get("head_sha") or "").lower() != audit_sha
+        or str(workflow_run.get("head_sha") or "").lower() != audit_sha
+        or workflow_run.get("head_branch") != gate["default_branch"]
+    ):
+        raise ValueError("U0 artifact is not bound to its audited master head")
+    return {
+        "verified": True,
+        "artifact_id": artifact_id,
+        "workflow_run_id": run_id,
+        "workflow_path": run["path"],
+        "head_sha": audit_sha,
+        "artifact_digest": artifact.get("digest"),
+        "census": census,
+        "accepted_evidence": evidence,
+    }
 
 
 def finite(value: Any) -> float | None:
@@ -299,6 +390,7 @@ def validate_contract(contract: Any) -> dict[str, Any]:
 def u0_gate(
     census: Any,
     accepted_evidence: Any,
+    canonical_artifact: Any,
     contract: Mapping[str, Any],
 ) -> list[str]:
     blockers: list[str] = []
@@ -311,6 +403,19 @@ def u0_gate(
         blockers.append("u0_census_repository_mismatch")
     if census.get("audit_default_branch") != gate["default_branch"]:
         blockers.append("u0_census_default_branch_mismatch")
+    if not isinstance(canonical_artifact, dict) or (
+        canonical_artifact.get("verified") is not True
+    ):
+        canonical_artifact = {}
+        blockers.append("u0_canonical_artifact_not_verified")
+    if canonical_sha256(census) != canonical_sha256(
+        canonical_artifact.get("census")
+    ):
+        blockers.append("u0_census_not_exact_canonical_artifact")
+    if canonical_sha256(accepted_evidence) != canonical_sha256(
+        canonical_artifact.get("accepted_evidence")
+    ):
+        blockers.append("u0_evidence_not_exact_canonical_artifact")
     if not isinstance(accepted_evidence, dict):
         accepted_evidence = {}
         blockers.append("u0_accepted_evidence_not_an_object")
@@ -1306,6 +1411,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     blockers: list[str] = []
     census: Any = None
     accepted_evidence: Any = None
+    canonical_artifact: Any = None
     if not census_path.is_file():
         blockers.append("u0_census_missing")
     else:
@@ -1322,8 +1428,32 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             blockers.append(
                 f"u0_accepted_evidence_unreadable:{type(exc).__name__}"
             )
+    artifact_id = getattr(args, "u0_accepted_artifact_id", None)
+    if type(artifact_id) is not int or artifact_id <= 0:
+        blockers.append("u0_accepted_artifact_id_missing_or_invalid")
+    else:
+        try:
+            canonical_artifact = load_canonical_u0_artifact(
+                artifact_id, contract
+            )
+            inputs["u0_canonical_artifact"] = {
+                key: canonical_artifact.get(key)
+                for key in (
+                    "artifact_id",
+                    "workflow_run_id",
+                    "workflow_path",
+                    "head_sha",
+                    "artifact_digest",
+                )
+            }
+        except Exception as exc:
+            blockers.append(
+                f"u0_canonical_artifact_unverified:{type(exc).__name__}"
+            )
     if census is not None and accepted_evidence is not None:
-        blockers.extend(u0_gate(census, accepted_evidence, contract))
+        blockers.extend(
+            u0_gate(census, accepted_evidence, canonical_artifact, contract)
+        )
     frame = pd.DataFrame()
     if not feature_store_path.is_file():
         blockers.append("feature_store_missing")
@@ -1440,6 +1570,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--u0-census", required=True)
     parser.add_argument("--u0-accepted-evidence", required=True)
+    parser.add_argument("--u0-accepted-artifact-id", required=True, type=int)
     parser.add_argument("--feature-store", required=True)
     parser.add_argument("--output-dir", required=True)
     return parser.parse_args()

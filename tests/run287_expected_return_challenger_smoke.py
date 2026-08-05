@@ -2,9 +2,11 @@
 """Smoke tests for the PIT-purged Run287 expected-return challenger."""
 from __future__ import annotations
 
+import io
 import json
 import sys
 import tempfile
+import zipfile
 from argparse import Namespace
 from pathlib import Path
 
@@ -75,6 +77,19 @@ def accepted_u0_evidence(census: dict) -> dict:
     }
 
 
+def canonical_u0_artifact(census: dict, evidence: dict) -> dict:
+    return {
+        "verified": True,
+        "artifact_id": 287,
+        "workflow_run_id": 2870805,
+        "workflow_path": ".github/workflows/run287_u0_acceptance.yml",
+        "head_sha": census["audit_default_branch_sha"],
+        "artifact_digest": "sha256:" + "a" * 64,
+        "census": json.loads(json.dumps(census)),
+        "accepted_evidence": json.loads(json.dumps(evidence)),
+    }
+
+
 def run_with_accepted_test_u0(args: Namespace) -> dict:
     census = MOD.read_json(Path(args.u0_census))
     audit_sha = str(census["audit_default_branch_sha"])
@@ -83,17 +98,26 @@ def run_with_accepted_test_u0(args: Namespace) -> dict:
         json.dumps(accepted_u0_evidence(census)), encoding="utf-8"
     )
     args.u0_accepted_evidence = str(evidence_path)
+    evidence = accepted_u0_evidence(census)
     original_default = MOD.git_default_branch_sha
     original_ancestor = MOD.git_is_ancestor
+    original_loader = MOD.load_canonical_u0_artifact
     MOD.git_default_branch_sha = lambda: audit_sha
     MOD.git_is_ancestor = lambda ancestor, descendant: (
         ancestor == audit_sha and descendant == MOD.git_head()
     )
+    MOD.load_canonical_u0_artifact = lambda artifact_id, _contract: (
+        canonical_u0_artifact(census, evidence)
+        if artifact_id == 287
+        else (_ for _ in ()).throw(ValueError("unexpected artifact id"))
+    )
+    args.u0_accepted_artifact_id = 287
     try:
         return MOD.run(args)
     finally:
         MOD.git_default_branch_sha = original_default
         MOD.git_is_ancestor = original_ancestor
+        MOD.load_canonical_u0_artifact = original_loader
 
 
 def u0_gate_with_accepted_test_default(census: dict) -> list[str]:
@@ -105,10 +129,17 @@ def u0_gate_with_accepted_test_default(census: dict) -> list[str]:
         ancestor == accepted_sha and descendant == MOD.git_head()
     )
     try:
-        return MOD.u0_gate(census, accepted_u0_evidence(census), contract())
+        evidence = accepted_u0_evidence(census)
+        return MOD.u0_gate(
+            census,
+            evidence,
+            canonical_u0_artifact(census, evidence),
+            contract(),
+        )
     finally:
         MOD.git_default_branch_sha = original_default
         MOD.git_is_ancestor = original_ancestor
+
 
 def blocked_u0() -> dict:
     return {
@@ -284,15 +315,19 @@ def test_u0_gate_blocks_model_fit_and_all_mutations() -> None:
         assert summary["portfolio_or_ledger_mutated"] is False
 
     assert "u0_accepted_evidence_not_an_object" in MOD.u0_gate(
-        valid_u0(), None, contract()
+        valid_u0(), None, None, contract()
     )
     accepted = valid_u0()
     accepted_evidence = accepted_u0_evidence(accepted)
+    canonical = canonical_u0_artifact(accepted, accepted_evidence)
     truncated = json.loads(json.dumps(accepted))
     truncated["pull_requests"] = []
-    assert "u0_census_not_exact_accepted_artifact" in MOD.u0_gate(
-        truncated, accepted_evidence, contract()
+    forged_evidence = accepted_u0_evidence(truncated)
+    forged_blockers = MOD.u0_gate(
+        truncated, forged_evidence, canonical, contract()
     )
+    assert "u0_census_not_exact_canonical_artifact" in forged_blockers
+    assert "u0_evidence_not_exact_canonical_artifact" in forged_blockers
     forged = valid_u0()
     forged_sha = "d" * 40
     forged["audit_default_branch_sha"] = forged_sha
@@ -300,6 +335,63 @@ def test_u0_gate_blocks_model_fit_and_all_mutations() -> None:
     assert "u0_census_audit_sha_not_current_default_branch" in (
         u0_gate_with_accepted_test_default(forged)
     )
+
+
+def test_u0_canonical_artifact_is_verified_from_github() -> None:
+    census = valid_u0()
+    evidence = accepted_u0_evidence(census)
+    archive_buffer = io.BytesIO()
+    with zipfile.ZipFile(archive_buffer, "w") as archive:
+        archive.writestr("github_census.json", json.dumps(census))
+        archive.writestr("u0_accepted_evidence.json", json.dumps(evidence))
+    artifact_id = 287
+    run_id = 2870805
+    audit_sha = census["audit_default_branch_sha"]
+    artifact = {
+        "id": artifact_id,
+        "name": "run287-u0-accepted-evidence",
+        "expired": False,
+        "digest": "sha256:" + "a" * 64,
+        "workflow_run": {
+            "id": run_id,
+            "head_sha": audit_sha,
+            "head_branch": "master",
+        },
+    }
+    run = {
+        "id": run_id,
+        "path": ".github/workflows/run287_u0_acceptance.yml",
+        "event": "workflow_dispatch",
+        "head_branch": "master",
+        "head_sha": audit_sha,
+        "status": "completed",
+        "conclusion": "success",
+    }
+    original = MOD.subprocess.check_output
+
+    def fake_check_output(command, **_kwargs):
+        endpoint = command[-1]
+        if endpoint.endswith(f"/artifacts/{artifact_id}"):
+            return json.dumps(artifact).encode("utf-8")
+        if endpoint.endswith(f"/runs/{run_id}"):
+            return json.dumps(run).encode("utf-8")
+        if endpoint.endswith(f"/artifacts/{artifact_id}/zip"):
+            return archive_buffer.getvalue()
+        raise AssertionError(f"unexpected GitHub API endpoint:{endpoint}")
+
+    MOD.subprocess.check_output = fake_check_output
+    try:
+        canonical = MOD.load_canonical_u0_artifact(artifact_id, contract())
+    finally:
+        MOD.subprocess.check_output = original
+    assert canonical["verified"] is True
+    assert canonical["workflow_run_id"] == run_id
+    assert MOD.canonical_sha256(canonical["census"]) == MOD.canonical_sha256(
+        census
+    )
+    assert MOD.canonical_sha256(
+        canonical["accepted_evidence"]
+    ) == MOD.canonical_sha256(evidence)
 
 
 def test_missing_exact_label_provenance_blocks_even_with_u0_allowed() -> None:
@@ -757,6 +849,7 @@ def test_feature_store_builder_materializes_spy_provenance() -> None:
 def main() -> int:
     test_contract_is_fixed_and_leakage_features_are_rejected()
     test_u0_gate_blocks_model_fit_and_all_mutations()
+    test_u0_canonical_artifact_is_verified_from_github()
     test_missing_exact_label_provenance_blocks_even_with_u0_allowed()
     test_zero_weight_21d_labels_are_optional_for_monthly_selection()
     test_required_selection_features_must_be_usable()
