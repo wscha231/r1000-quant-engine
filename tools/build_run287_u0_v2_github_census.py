@@ -35,7 +35,8 @@ EXPERIMENT_PATH_RE = re.compile(
 )
 KNOWN_REGISTRY_OUTSIDE_EXPERIMENT_PRS = frozenset({229, 230, 237})
 EXPERIMENT_TEXT_RE = re.compile(
-    r"\b(backtest|challenger|experiment|ablation|grid|sweep|alpha|"
+    r"\b(backtest|challenger|experiment|ablation|grid|sweep|alpha|learning|"
+    r"promotion|selector|scoring|replay|"
     r"relative strength|sector leadership|crisis|reserve|form 4|13f|"
     r"fundamental|earnings|ohlcv|expected return|cagr|mdd)\b",
     re.IGNORECASE,
@@ -112,6 +113,25 @@ def run_json(command: list[str]) -> Any:
 
 def collect_repository(repository: str) -> dict[str, Any]:
     return run_json(["gh", "api", f"repos/{repository}"])
+
+
+def collect_remote_branch_sha(branch: str) -> str:
+    """Read one remote ref without consuming the REST metadata quota."""
+    for attempt in range(3):
+        completed = subprocess.run(
+            ["git", "ls-remote", "--exit-code", "origin", f"refs/heads/{branch}"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+        if completed.returncode == 0:
+            sha = clean_sha(completed.stdout.split()[0] if completed.stdout.split() else "")
+            if sha:
+                return sha
+        if attempt < 2:
+            time.sleep(0.25 * (attempt + 1))
+    raise RuntimeError("remote Git branch lookup failed after two retries")
 
 
 def collect_branches(repository: str) -> list[dict[str, Any]]:
@@ -197,13 +217,13 @@ def enrich_remote_changed_paths(
     repository: str,
     pull_requests: list[dict[str, Any]],
 ) -> None:
-    """Resolve PR paths from the API while pinning both sides to one head.
+    """Resolve PR paths from the API while pinning both sides to one PR.
 
     GitHub caps the PR-files endpoint at 3,000 files.  The PR detail endpoint's
     ``changed_files`` count is therefore retained as the authoritative count;
     equality with the fetched unique paths is required downstream.  Open PRs
-    can advance while the census runs, so detail is read both before and after
-    pagination and any head drift remains unresolved.
+    can advance or be retargeted while the census runs, so detail is read both
+    before and after pagination and any head or base drift remains unresolved.
     """
     if len(pull_requests) > 1:
         # Eight workers keep the audit practical without approaching GitHub's
@@ -222,6 +242,9 @@ def enrich_remote_changed_paths(
         if number <= 0:
             continue
         captured_head = clean_sha(raw.get("headRefOid"))
+        captured_base = clean_sha(raw.get("baseRefOid"))
+        if not captured_head or not captured_base:
+            continue
         try:
             detail_before = run_json(
                 ["gh", "api", f"repos/{repository}/pulls/{number}"]
@@ -229,8 +252,15 @@ def enrich_remote_changed_paths(
             before_head = clean_sha(
                 ((detail_before.get("head") or {}).get("sha"))
             )
+            before_base = clean_sha(
+                ((detail_before.get("base") or {}).get("sha"))
+            )
             detail_count = int(detail_before.get("changed_files"))
-            if before_head != captured_head or detail_count < 0:
+            if (
+                before_head != captured_head
+                or before_base != captured_base
+                or detail_count < 0
+            ):
                 continue
             pages = run_json(
                 [
@@ -244,10 +274,17 @@ def enrich_remote_changed_paths(
             after_head = clean_sha(
                 ((detail_after.get("head") or {}).get("sha"))
             )
+            after_base = clean_sha(
+                ((detail_after.get("base") or {}).get("sha"))
+            )
             after_count = int(detail_after.get("changed_files"))
         except (RuntimeError, TypeError, ValueError):
             continue
-        if after_head != captured_head or after_count != detail_count:
+        if (
+            after_head != captured_head
+            or after_base != captured_base
+            or after_count != detail_count
+        ):
             continue
         paths = sorted(
             {
@@ -263,10 +300,14 @@ def enrich_remote_changed_paths(
                 graphql_detail = run_json(
                     [
                         "gh", "pr", "view", str(number), "--repo", repository,
-                        "--json", "changedFiles,headRefOid",
+                        "--json", "changedFiles,headRefOid,baseRefOid",
                     ]
                 )
-                if clean_sha(graphql_detail.get("headRefOid")) != captured_head:
+                if (
+                    clean_sha(graphql_detail.get("headRefOid")) != captured_head
+                    or clean_sha(graphql_detail.get("baseRefOid"))
+                    != captured_base
+                ):
                     continue
                 graphql_count = int(graphql_detail.get("changedFiles") or 0)
             except (RuntimeError, TypeError, ValueError):
@@ -283,9 +324,11 @@ def enrich_remote_changed_paths(
         raw["changedFilesDetail"] = detail_count
         raw["changedPathsComplete"] = not cap_reached and not declared_mismatch
         raw["changedPathsApiCapReached"] = cap_reached
-        raw["changedPathsSource"] = "GITHUB_HEAD_PINNED_PR_FILES_API"
+        raw["changedPathsSource"] = "GITHUB_HEAD_AND_BASE_PINNED_PR_FILES_API"
         raw["changedPathsHeadBefore"] = before_head
         raw["changedPathsHeadAfter"] = after_head
+        raw["changedPathsBaseBefore"] = before_base
+        raw["changedPathsBaseAfter"] = after_base
 
 
 def collect_local_ancestry(
@@ -341,6 +384,70 @@ def capability_families(text: str, paths: Iterable[str]) -> list[str]:
     )
 
 
+def experiment_like_text(value: Any) -> bool:
+    """Classify branch/PR names across Git and path separator conventions."""
+    text = str(value or "")
+    normalized_text = re.sub(r"[-_./\\]+", " ", text)
+    normalized_path = text.replace("\\", "/").replace("-", "_")
+    return bool(
+        "run287" in text.lower()
+        or EXPERIMENT_TEXT_RE.search(normalized_text)
+        or EXPERIMENT_PATH_RE.search(normalized_path)
+    )
+
+
+def changed_path_evidence(raw: dict[str, Any], paths: list[str]) -> tuple[int, bool]:
+    """Return a declared count and completeness only for pinned path evidence."""
+    declared = raw.get("changedFiles")
+    count_valid = (
+        isinstance(declared, int)
+        and not isinstance(declared, bool)
+        and declared >= 0
+    )
+    changed_files = int(declared) if count_valid else -1
+    head_sha = clean_sha(raw.get("headRefOid"))
+    base_sha = clean_sha(raw.get("baseRefOid"))
+    pinned = bool(
+        raw.get("changedPathsComplete") is True
+        and raw.get("changedPathsSource")
+        == "GITHUB_HEAD_AND_BASE_PINNED_PR_FILES_API"
+        and clean_sha(raw.get("changedPathsHeadBefore")) == head_sha
+        and clean_sha(raw.get("changedPathsHeadAfter")) == head_sha
+        and clean_sha(raw.get("changedPathsBaseBefore")) == base_sha
+        and clean_sha(raw.get("changedPathsBaseAfter")) == base_sha
+        and head_sha
+        and base_sha
+    )
+    complete = bool(
+        count_valid
+        and pinned
+        and changed_files == len(paths)
+        and len(paths) < 3000
+        and raw.get("changedPathsApiCapReached") is not True
+    )
+    return changed_files, complete
+
+
+def load_bound_ancestry_payload(payload: Any, audit_sha: str) -> dict[str, str]:
+    """Accept cached ancestry only when its audit-commit identity is explicit."""
+    if not isinstance(payload, dict):
+        raise ValueError("ancestry payload must be an object")
+    if clean_sha(payload.get("audit_sha")) != clean_sha(audit_sha):
+        raise ValueError("cached ancestry audit SHA mismatch")
+    statuses = payload.get("statuses")
+    if not isinstance(statuses, dict):
+        raise ValueError("cached ancestry statuses are missing")
+    return {
+        clean_sha(sha): str(status)
+        for sha, status in statuses.items()
+        if clean_sha(sha)
+        and status in {
+            "ANCESTOR_OF_AUDIT_HEAD",
+            "ORPHANED_FROM_AUDIT_HEAD",
+        }
+    }
+
+
 def ancestry_status(
     sha: str,
     audit_sha: str,
@@ -391,19 +498,12 @@ def normalize_pr(
     head_name = str(raw.get("headRefName") or "")
     head_sha = clean_sha(raw.get("headRefOid"))
     paths = path_list(raw.get("files"))
-    changed_files = int(raw.get("changedFiles") or 0)
-    explicit_complete = raw.get("changedPathsComplete")
-    changed_paths_complete = (
-        bool(explicit_complete)
-        if isinstance(explicit_complete, bool)
-        else changed_files >= 0 and changed_files == len(paths)
-    )
+    changed_files, changed_paths_complete = changed_path_evidence(raw, paths)
     text = " ".join((title, body, head_name))
     families = capability_families(text, paths)
     experiment_like = bool(
         number in KNOWN_REGISTRY_OUTSIDE_EXPERIMENT_PRS
-        or "run287" in head_name.lower()
-        or EXPERIMENT_TEXT_RE.search(text)
+        or experiment_like_text(text)
         or any(EXPERIMENT_PATH_RE.search(path) for path in paths)
     )
     matched_registry_ids = sorted(
@@ -486,6 +586,12 @@ def normalize_pr(
         "changed_paths_head_after": clean_sha(
             raw.get("changedPathsHeadAfter")
         ),
+        "changed_paths_base_before": clean_sha(
+            raw.get("changedPathsBaseBefore")
+        ),
+        "changed_paths_base_after": clean_sha(
+            raw.get("changedPathsBaseAfter")
+        ),
         "changed_paths_sha256": canonical_sha256(paths),
         "commit_oids": commit_oids,
         "commit_oids_sha256": canonical_sha256(commit_oids),
@@ -526,6 +632,27 @@ def build_census(
         raise ValueError("repository payload missing pinned default branch commit")
     if default_sha != audit_sha:
         raise ValueError("remote default branch moved from the pinned audit SHA")
+    if "default_branch_commit_post_collection" in repository_payload:
+        post_collection_sha = clean_sha(
+            (
+                repository_payload.get("default_branch_commit_post_collection")
+                or {}
+            ).get("sha")
+        )
+        if post_collection_sha != audit_sha:
+            raise ValueError("remote default branch moved during GitHub collection")
+    master_rows = [
+        item for item in branches
+        if isinstance(item, dict) and str(item.get("name") or "") == "master"
+    ]
+    master_branch_sha = clean_sha(
+        ((master_rows[0].get("commit") or {}).get("sha"))
+        if len(master_rows) == 1
+        and isinstance(master_rows[0].get("commit"), dict)
+        else ""
+    )
+    if len(master_rows) != 1 or master_branch_sha != audit_sha:
+        raise ValueError("branch census is not bound to the pinned audit SHA")
 
     branch_rows = [
         normalize_branch(
@@ -549,13 +676,16 @@ def build_census(
         if row["head_sha"]:
             pr_numbers_by_head.setdefault(row["head_sha"], []).append(row["number"])
     for row in branch_rows:
-        linked = sorted(
-            set(pr_numbers_by_branch.get(row["name"], []))
-            | set(pr_numbers_by_head.get(row["head_sha"], []))
+        linked = sorted(set(pr_numbers_by_head.get(row["head_sha"], [])))
+        name_only_mismatches = sorted(
+            number
+            for number in pr_numbers_by_branch.get(row["name"], [])
+            if number not in linked
         )
         row["linked_pr_numbers"] = linked
+        row["name_only_mismatched_pr_numbers"] = name_only_mismatches
         branch_only_candidate = not linked and bool(
-            row["run287_named"] or EXPERIMENT_TEXT_RE.search(row["name"])
+            experiment_like_text(row["name"])
         )
         if branch_only_candidate:
             row["experiment_candidate"] = True
@@ -579,28 +709,47 @@ def build_census(
         raise ValueError("duplicate branch identity")
     if len(pr_ids) != len(set(pr_ids)):
         raise ValueError("duplicate PR identity")
-    duplicate_head_groups = [
-        {"head_sha": sha, "pr_numbers": sorted(numbers)}
-        for sha, numbers in sorted(pr_numbers_by_head.items())
-        if len(numbers) > 1
-    ]
-    for group in duplicate_head_groups:
-        members = set(group["pr_numbers"])
-        for row in pr_rows:
-            if row["number"] in members:
-                row["duplicate_head_pr_numbers"] = group["pr_numbers"]
-                row["promotion_blockers"] = sorted(
-                    set(row["promotion_blockers"])
-                    | {"duplicate_pr_head_sha_requires_canonical_deduplication"}
-                )
-    for row in pr_rows:
-        row.setdefault("duplicate_head_pr_numbers", [])
-
     pr_candidates = [row for row in pr_rows if row["experiment_candidate"]]
     branch_only_candidates = [
         row for row in branch_rows if row["experiment_candidate"]
     ]
     candidates = [*pr_candidates, *branch_only_candidates]
+    candidate_records_by_head: dict[str, list[dict[str, Any]]] = {}
+    for row in candidates:
+        if row["head_sha"]:
+            candidate_records_by_head.setdefault(row["head_sha"], []).append(row)
+    duplicate_head_groups = []
+    for sha, rows in sorted(candidate_records_by_head.items()):
+        if len(rows) <= 1:
+            continue
+        duplicate_head_groups.append(
+            {
+                "head_sha": sha,
+                "record_ids": sorted(row["record_id"] for row in rows),
+                "pr_numbers": sorted(
+                    row["number"] for row in rows
+                    if row["record_type"] == "PULL_REQUEST"
+                ),
+                "branch_names": sorted(
+                    row["name"] for row in rows
+                    if row["record_type"] == "BRANCH"
+                ),
+            }
+        )
+    for group in duplicate_head_groups:
+        members = set(group["record_ids"])
+        for row in candidates:
+            if row["record_id"] in members:
+                row["duplicate_head_record_ids"] = group["record_ids"]
+                row["duplicate_head_pr_numbers"] = group["pr_numbers"]
+                row["promotion_blockers"] = sorted(
+                    set(row["promotion_blockers"])
+                    | {"duplicate_code_head_sha_requires_canonical_deduplication"}
+                )
+    for row in branch_rows + pr_rows:
+        row.setdefault("duplicate_head_record_ids", [])
+        row.setdefault("duplicate_head_pr_numbers", [])
+
     unresolved = [
         row for row in candidates if row["experiment_identity_status"] != "MAPPED"
     ]
@@ -617,7 +766,7 @@ def build_census(
     if branch_only_candidates:
         blockers.append("branch_only_experiment_candidates_require_recovery")
     if duplicate_head_groups:
-        blockers.append("duplicate_pr_head_sha_groups_require_canonical_deduplication")
+        blockers.append("duplicate_code_head_sha_groups_require_canonical_deduplication")
     blockers.append("parameter_and_data_hash_duplicate_groups_not_yet_recovered")
     blockers.append("historical_return_series_and_trial_deduplication_not_recovered")
     return {
@@ -629,7 +778,16 @@ def build_census(
         "source_contract": {
             "branch_api": "GET /repos/{owner}/{repo}/branches",
             "pull_request_api": "GET /repos/{owner}/{repo}/pulls?state=all",
-            "changed_paths": "GitHub PR files API pinned by before/after head SHA",
+            "changed_paths": (
+                "GitHub PR files API pinned by before/after head and base SHA"
+            ),
+            "default_branch_identity": (
+                "initial default head, master branch census row, and live "
+                "post-collection default head must equal the audit SHA"
+            ),
+            "cached_ancestry_identity": (
+                "cached statuses require an explicit matching audit SHA"
+            ),
             "branch_payload_sha256": canonical_sha256(branches),
             "pull_request_payload_sha256": canonical_sha256(pull_requests),
             "metadata_only": True,
@@ -654,7 +812,7 @@ def build_census(
         },
         "promotion_blockers": sorted(set(blockers)),
         "duplicate_code_identity": {
-            "key": "pull_request_head_sha",
+            "key": "experiment_candidate_head_sha",
             "group_count": len(duplicate_head_groups),
             "groups": duplicate_head_groups,
             "parameter_data_hash_groups_recovered": False,
@@ -718,6 +876,9 @@ def main() -> int:
     args = parse_args()
     if args.repository != REPOSITORY:
         raise SystemExit("repository identity mismatch")
+    audit_sha = clean_sha(args.audit_sha)
+    if not audit_sha:
+        raise SystemExit("audit SHA must be an exact 40-character commit")
     repository = (
         read_json(args.repository_json)
         if args.repository_json
@@ -727,6 +888,11 @@ def main() -> int:
         repository["default_branch_commit"] = run_json(
             ["gh", "api", f"repos/{args.repository}/branches/master"]
         ).get("commit", {})
+    initial_default_sha = clean_sha(
+        ((repository.get("default_branch_commit") or {}).get("sha"))
+    )
+    if initial_default_sha != audit_sha:
+        raise SystemExit("remote default branch does not equal the audit SHA")
     branches = (
         read_json(args.branches_json)
         if args.branches_json
@@ -739,7 +905,25 @@ def main() -> int:
     )
     if not args.pull_requests_json:
         enrich_remote_changed_paths(args.repository, pull_requests)
-    ancestry = read_json(args.ancestry_json) if args.ancestry_json else {}
+    live_collection = not (
+        args.repository_json and args.branches_json and args.pull_requests_json
+    )
+    if live_collection:
+        repository["default_branch_commit_post_collection"] = {
+            "sha": collect_remote_branch_sha("master")
+        }
+        if clean_sha(
+            (
+                repository.get("default_branch_commit_post_collection")
+                or {}
+            ).get("sha")
+        ) != audit_sha:
+            raise SystemExit("remote default branch moved during GitHub collection")
+    ancestry = (
+        load_bound_ancestry_payload(read_json(args.ancestry_json), audit_sha)
+        if args.ancestry_json
+        else {}
+    )
     if args.collect_local_ancestry:
         branch_shas = [
             clean_sha((item.get("commit") or {}).get("sha"))
@@ -753,7 +937,7 @@ def main() -> int:
         ]
         ancestry = {
             **collect_local_ancestry(
-                audit_sha=args.audit_sha,
+                audit_sha=audit_sha,
                 shas=[*branch_shas, *pr_shas],
             ),
             **ancestry,
@@ -768,7 +952,7 @@ def main() -> int:
         repository_payload=repository,
         branches=branches,
         pull_requests=pull_requests,
-        audit_sha=args.audit_sha,
+        audit_sha=audit_sha,
         ancestry_by_sha=ancestry,
         do_not_repeat_ids=registry_ids,
     )

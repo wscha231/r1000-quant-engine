@@ -82,6 +82,18 @@ def fixtures() -> tuple[dict, list[dict], list[dict], dict[str, str]]:
             "commits": [{"oid": "c" * 40}],
         },
     ]
+    for pull in pulls:
+        pull.update(
+            {
+                "changedPathsComplete": True,
+                "changedPathsApiCapReached": False,
+                "changedPathsSource": "GITHUB_HEAD_AND_BASE_PINNED_PR_FILES_API",
+                "changedPathsHeadBefore": pull["headRefOid"],
+                "changedPathsHeadAfter": pull["headRefOid"],
+                "changedPathsBaseBefore": pull["baseRefOid"],
+                "changedPathsBaseAfter": pull["baseRefOid"],
+            }
+        )
     ancestry = {
         "b" * 40: "ORPHANED_FROM_AUDIT_HEAD",
         "c" * 40: "ORPHANED_FROM_AUDIT_HEAD",
@@ -189,6 +201,7 @@ def test_remote_files_are_counted_and_bound_to_one_head() -> None:
     row = {
         "number": 10,
         "headRefOid": "b" * 40,
+        "baseRefOid": AUDIT_SHA,
         "changedFiles": -1,
         "files": [],
         "changedPathsSource": "UNRESOLVED_BLOCKED",
@@ -200,7 +213,11 @@ def test_remote_files_are_counted_and_bound_to_one_head() -> None:
         calls.append(command)
         if command[-1].endswith("?per_page=100"):
             return [[{"filename": "tests/a.py"}, {"filename": "tools/a.py"}]]
-        return {"head": {"sha": "b" * 40}, "changed_files": 2}
+        return {
+            "head": {"sha": "b" * 40},
+            "base": {"sha": AUDIT_SHA},
+            "changed_files": 2,
+        }
 
     MOD.run_json = fake_run_json
     try:
@@ -210,9 +227,11 @@ def test_remote_files_are_counted_and_bound_to_one_head() -> None:
     assert len(calls) == 3
     assert "/pulls/10/files?per_page=100" in calls[1][-1]
     assert row["changedFiles"] == 2
-    assert row["changedPathsSource"] == "GITHUB_HEAD_PINNED_PR_FILES_API"
+    assert row["changedPathsSource"] == "GITHUB_HEAD_AND_BASE_PINNED_PR_FILES_API"
     assert row["changedPathsHeadBefore"] == "b" * 40
     assert row["changedPathsHeadAfter"] == "b" * 40
+    assert row["changedPathsBaseBefore"] == AUDIT_SHA
+    assert row["changedPathsBaseAfter"] == AUDIT_SHA
 
 
 def test_remote_file_cap_and_head_race_remain_blocked() -> None:
@@ -220,6 +239,7 @@ def test_remote_file_cap_and_head_race_remain_blocked() -> None:
     capped = {
         "number": 10,
         "headRefOid": "b" * 40,
+        "baseRefOid": AUDIT_SHA,
         "changedFiles": -1,
         "files": [],
     }
@@ -230,7 +250,11 @@ def test_remote_file_cap_and_head_race_remain_blocked() -> None:
         calls += 1
         if command[-1].endswith("?per_page=100"):
             return [[{"filename": f"file-{idx}"} for idx in range(3000)]]
-        return {"head": {"sha": "b" * 40}, "changed_files": 3001}
+        return {
+            "head": {"sha": "b" * 40},
+            "base": {"sha": AUDIT_SHA},
+            "changed_files": 3001,
+        }
 
     MOD.run_json = capped_run_json
     try:
@@ -246,6 +270,7 @@ def test_remote_file_cap_and_head_race_remain_blocked() -> None:
     racing = {
         "number": 10,
         "headRefOid": "b" * 40,
+        "baseRefOid": AUDIT_SHA,
         "changedFiles": -1,
         "files": [],
     }
@@ -257,7 +282,11 @@ def test_remote_file_cap_and_head_race_remain_blocked() -> None:
             return [[{"filename": "one.py"}]]
         detail_calls += 1
         sha = "b" * 40 if detail_calls == 1 else "c" * 40
-        return {"head": {"sha": sha}, "changed_files": 1}
+        return {
+            "head": {"sha": sha},
+            "base": {"sha": AUDIT_SHA},
+            "changed_files": 1,
+        }
 
     MOD.run_json = racing_run_json
     try:
@@ -266,6 +295,161 @@ def test_remote_file_cap_and_head_race_remain_blocked() -> None:
         MOD.run_json = original_run_json
     assert racing["changedFiles"] == -1
     assert racing["files"] == []
+
+    base_racing = {
+        "number": 10,
+        "headRefOid": "b" * 40,
+        "baseRefOid": AUDIT_SHA,
+        "changedFiles": -1,
+        "files": [],
+    }
+    detail_calls = 0
+
+    def base_racing_run_json(command: list[str]):
+        nonlocal detail_calls
+        if command[-1].endswith("?per_page=100"):
+            return [[{"filename": "one.py"}]]
+        detail_calls += 1
+        base_sha = AUDIT_SHA if detail_calls == 1 else "d" * 40
+        return {
+            "head": {"sha": "b" * 40},
+            "base": {"sha": base_sha},
+            "changed_files": 1,
+        }
+
+    MOD.run_json = base_racing_run_json
+    try:
+        MOD.enrich_remote_changed_paths(MOD.REPOSITORY, [base_racing])
+    finally:
+        MOD.run_json = original_run_json
+    assert base_racing["changedFiles"] == -1
+    assert base_racing["files"] == []
+
+
+def test_cached_changed_paths_require_head_and_base_pins() -> None:
+    repository, branches, pulls, ancestry = fixtures()
+    pulls[0].pop("changedPathsBaseAfter")
+    census = MOD.build_census(
+        repository_payload=repository,
+        branches=branches,
+        pull_requests=pulls,
+        audit_sha=AUDIT_SHA,
+        ancestry_by_sha=ancestry,
+        do_not_repeat_ids=set(),
+    )
+    candidate = census["pull_requests"][0]
+    assert candidate["changed_paths_complete"] is False
+    assert "changed_paths_truncated" in candidate["promotion_blockers"]
+
+
+def test_default_head_and_cached_ancestry_are_audit_bound() -> None:
+    repository, branches, pulls, ancestry = fixtures()
+    repository["default_branch_commit_post_collection"] = {"sha": "f" * 40}
+    try:
+        MOD.build_census(
+            repository_payload=repository,
+            branches=branches,
+            pull_requests=pulls,
+            audit_sha=AUDIT_SHA,
+            ancestry_by_sha=ancestry,
+            do_not_repeat_ids=set(),
+        )
+    except ValueError as exc:
+        assert "moved during GitHub collection" in str(exc)
+    else:
+        raise AssertionError("post-collection default-head drift was accepted")
+
+    repository, branches, pulls, ancestry = fixtures()
+    branches[0]["commit"]["sha"] = "f" * 40
+    try:
+        MOD.build_census(
+            repository_payload=repository,
+            branches=branches,
+            pull_requests=pulls,
+            audit_sha=AUDIT_SHA,
+            ancestry_by_sha=ancestry,
+            do_not_repeat_ids=set(),
+        )
+    except ValueError as exc:
+        assert "branch census" in str(exc)
+    else:
+        raise AssertionError("mixed-audit branch census was accepted")
+
+    try:
+        MOD.load_bound_ancestry_payload(ancestry, AUDIT_SHA)
+    except ValueError as exc:
+        assert "audit SHA" in str(exc)
+    else:
+        raise AssertionError("bare cached ancestry was accepted")
+    bound = MOD.load_bound_ancestry_payload(
+        {"audit_sha": AUDIT_SHA, "statuses": ancestry}, AUDIT_SHA
+    )
+    assert bound == ancestry
+
+
+def test_advanced_and_path_named_branches_remain_candidates() -> None:
+    repository, branches, pulls, ancestry = fixtures()
+    branches[1]["commit"]["sha"] = "e" * 40
+    ancestry["e" * 40] = "ORPHANED_FROM_AUDIT_HEAD"
+    branches.append(
+        {
+            "name": "actual-results-rolling-window",
+            "commit": {"sha": "f" * 40},
+            "protected": False,
+        }
+    )
+    ancestry["f" * 40] = "ORPHANED_FROM_AUDIT_HEAD"
+    census = MOD.build_census(
+        repository_payload=repository,
+        branches=branches,
+        pull_requests=pulls,
+        audit_sha=AUDIT_SHA,
+        ancestry_by_sha=ancestry,
+        do_not_repeat_ids=set(),
+    )
+    advanced = next(
+        row for row in census["branches"]
+        if row["name"] == "codex/run287-expected-return"
+    )
+    assert advanced["linked_pr_numbers"] == []
+    assert advanced["name_only_mismatched_pr_numbers"] == [10]
+    assert advanced["experiment_candidate"] is True
+    path_named = next(
+        row for row in census["branches"]
+        if row["name"] == "actual-results-rolling-window"
+    )
+    assert path_named["experiment_candidate"] is True
+
+
+def test_duplicate_branch_only_heads_are_reported() -> None:
+    repository, branches, pulls, ancestry = fixtures()
+    for name in ("auto-learning-one", "promotion-test-two"):
+        branches.append(
+            {"name": name, "commit": {"sha": "e" * 40}, "protected": False}
+        )
+    ancestry["e" * 40] = "ORPHANED_FROM_AUDIT_HEAD"
+    census = MOD.build_census(
+        repository_payload=repository,
+        branches=branches,
+        pull_requests=pulls,
+        audit_sha=AUDIT_SHA,
+        ancestry_by_sha=ancestry,
+        do_not_repeat_ids=set(),
+    )
+    group = next(
+        item for item in census["duplicate_code_identity"]["groups"]
+        if item["head_sha"] == "e" * 40
+    )
+    assert group["branch_names"] == ["auto-learning-one", "promotion-test-two"]
+    assert group["pr_numbers"] == []
+    for record_id in group["record_ids"]:
+        row = next(
+            item for item in census["experiment_candidates"]
+            if item["record_id"] == record_id
+        )
+        assert "duplicate_code_head_sha_requires_canonical_deduplication" in (
+            row["promotion_blockers"]
+        )
 
 
 def test_branch_only_and_duplicate_code_identities_are_blocked() -> None:
@@ -278,7 +462,10 @@ def test_branch_only_and_duplicate_code_identities_are_blocked() -> None:
         }
     )
     ancestry["e" * 40] = "ORPHANED_FROM_AUDIT_HEAD"
+    pulls[1]["title"] = "Backtest duplicate identity"
     pulls[1]["headRefOid"] = "b" * 40
+    pulls[1]["changedPathsHeadBefore"] = "b" * 40
+    pulls[1]["changedPathsHeadAfter"] = "b" * 40
     census = MOD.build_census(
         repository_payload=repository,
         branches=branches,
@@ -296,7 +483,7 @@ def test_branch_only_and_duplicate_code_identities_are_blocked() -> None:
     assert census["summary"]["branch_only_experiment_candidate_count"] == 1
     assert census["duplicate_code_identity"]["group_count"] == 1
     assert census["duplicate_code_identity"]["groups"][0]["pr_numbers"] == [10, 11]
-    assert "duplicate_pr_head_sha_requires_canonical_deduplication" in (
+    assert "duplicate_code_head_sha_requires_canonical_deduplication" in (
         census["pull_requests"][0]["promotion_blockers"]
     )
 
@@ -308,6 +495,10 @@ def main() -> int:
     test_candidate_csv_contains_only_experiment_like_prs()
     test_remote_files_are_counted_and_bound_to_one_head()
     test_remote_file_cap_and_head_race_remain_blocked()
+    test_cached_changed_paths_require_head_and_base_pins()
+    test_default_head_and_cached_ancestry_are_audit_bound()
+    test_advanced_and_path_named_branches_remain_candidates()
+    test_duplicate_branch_only_heads_are_reported()
     test_branch_only_and_duplicate_code_identities_are_blocked()
     print("run287_u0_v2_github_census_smoke: PASS")
     return 0
