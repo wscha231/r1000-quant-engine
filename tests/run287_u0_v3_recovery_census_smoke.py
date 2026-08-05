@@ -54,14 +54,34 @@ def source_census() -> dict:
     return {
         "schema_version": MOD.SOURCE_SCHEMA,
         "repository": MOD.REPOSITORY,
+        "audit_default_branch": "master",
         "audit_default_branch_sha": "f" * 40,
         "source_contract": {
+            "branch_payload_sha256": "c" * 64,
+            "pull_request_payload_sha256": "d" * 64,
             "metadata_only": True,
             "fullrun_executed": False,
             "production_or_live_mutated": False,
             "champion_changed": False,
         },
-        "summary": {"experiment_candidate_count": len(candidates)},
+        "summary": {
+            "branch_count": 0,
+            "pull_request_count": len(candidates),
+            "experiment_candidate_count": len(candidates),
+            "unmapped_experiment_candidate_count": len(candidates),
+            "historical_experiment_census_complete": False,
+            "historical_challenger_allowed": False,
+        },
+        "promotion_blockers": [
+            "experiment_candidates_require_canonical_mapping",
+            "historical_return_series_and_trial_deduplication_not_recovered",
+            "parameter_and_data_hash_duplicate_groups_not_yet_recovered",
+        ],
+        "branches": [],
+        "pull_requests": [
+            {"record_id": row["record_id"], "head_sha": row["head_sha"]}
+            for row in candidates
+        ],
         "experiment_candidates": candidates,
     }
 
@@ -172,7 +192,15 @@ def test_branch_only_candidates_remain_changed_path_blocked() -> None:
             "promotion_blockers": ["branch_changed_paths_unrecovered"],
         }
     )
+    census["branches"].append(
+        {
+            "record_id": "github-branch:legacy-replay",
+            "head_sha": "c" * 40,
+        }
+    )
+    census["summary"]["branch_count"] += 1
     census["summary"]["experiment_candidate_count"] += 1
+    census["summary"]["unmapped_experiment_candidate_count"] += 1
     recovered = MOD.build_recovery_census(census, inventory(), contract())
     row = next(
         item

@@ -176,6 +176,8 @@ def validate_source_census(census: Any) -> dict[str, Any]:
         raise ValueError("source census schema mismatch")
     if census.get("repository") != REPOSITORY:
         raise ValueError("source census repository mismatch")
+    if census.get("audit_default_branch") != "master":
+        raise ValueError("source census default branch mismatch")
     audit_sha = str(census.get("audit_default_branch_sha") or "").lower()
     if SHA_RE.fullmatch(audit_sha) is None:
         raise ValueError("source census audit SHA is invalid")
@@ -190,9 +192,19 @@ def validate_source_census(census: Any) -> dict[str, Any]:
     ):
         if source_contract.get(field) is not expected:
             raise ValueError(f"unsafe source census contract: {field}")
+    for field in ("branch_payload_sha256", "pull_request_payload_sha256"):
+        if re.fullmatch(r"[0-9a-f]{64}", str(source_contract.get(field) or "")) is None:
+            raise ValueError(f"source census contract hash is invalid: {field}")
     summary = census.get("summary")
     candidates = census.get("experiment_candidates")
-    if not isinstance(summary, dict) or not isinstance(candidates, list):
+    branches = census.get("branches")
+    pull_requests = census.get("pull_requests")
+    if (
+        not isinstance(summary, dict)
+        or not isinstance(candidates, list)
+        or not isinstance(branches, list)
+        or not isinstance(pull_requests, list)
+    ):
         raise ValueError("source census summary or candidates are missing")
     blockers = census.get("promotion_blockers") or []
     if not isinstance(blockers, list) or any(
@@ -201,6 +213,38 @@ def validate_source_census(census: Any) -> dict[str, Any]:
         raise ValueError("source census blockers are malformed")
     if summary.get("experiment_candidate_count") != len(candidates):
         raise ValueError("source census candidate count mismatch")
+    if summary.get("branch_count") != len(branches):
+        raise ValueError("source census branch count mismatch")
+    if summary.get("pull_request_count") != len(pull_requests):
+        raise ValueError("source census pull request count mismatch")
+    if summary.get("unmapped_experiment_candidate_count") != len(candidates):
+        raise ValueError("source census unmapped candidate count mismatch")
+    if (
+        summary.get("historical_experiment_census_complete") is not False
+        or summary.get("historical_challenger_allowed") is not False
+    ):
+        raise ValueError("source census is not the expected blocked v2 state")
+    required_source_blockers = {
+        "experiment_candidates_require_canonical_mapping",
+        "historical_return_series_and_trial_deduplication_not_recovered",
+        "parameter_and_data_hash_duplicate_groups_not_yet_recovered",
+    }
+    if not required_source_blockers.issubset(set(blockers)):
+        raise ValueError("source census is missing required v2 blockers")
+    inventory_rows = [*branches, *pull_requests]
+    inventory_identity: dict[str, str] = {}
+    for row in inventory_rows:
+        if not isinstance(row, dict):
+            raise ValueError("source census GitHub inventory row is malformed")
+        record_id = str(row.get("record_id") or "")
+        head_sha = str(row.get("head_sha") or "").lower()
+        if (
+            not record_id
+            or record_id in inventory_identity
+            or SHA_RE.fullmatch(head_sha) is None
+        ):
+            raise ValueError("source census GitHub inventory identity is invalid")
+        inventory_identity[record_id] = head_sha
     record_ids: list[str] = []
     for row in candidates:
         if not isinstance(row, dict):
@@ -209,6 +253,8 @@ def validate_source_census(census: Any) -> dict[str, Any]:
         head_sha = str(row.get("head_sha") or "").lower()
         if not record_id or SHA_RE.fullmatch(head_sha) is None:
             raise ValueError("source census candidate identity is invalid")
+        if inventory_identity.get(record_id) != head_sha:
+            raise ValueError("source census candidate is detached from inventory")
         for field in (
             "matched_do_not_repeat_ids",
             "capability_family_candidates",
@@ -312,6 +358,10 @@ def classification_for(
         "canonical_trial_id": canonical_trial_id(head_sha),
         "canonical_primary_record_id": primary_record_id,
         "canonical_group_record_ids": group_record_ids,
+        "canonical_group_changed_paths_incomplete": (
+            group_changed_paths_incomplete
+        ),
+        "canonical_group_ancestry_unverified": group_ancestry_unverified,
         "is_canonical_primary": is_primary,
         "multiplicity_weight": 1 if is_primary else 0,
         "capability_family_candidates": group_capability_families,
@@ -472,7 +522,7 @@ def build_recovery_census(
             ),
             "unverified_ancestry_canonical_trial_count": sum(
                 row["is_canonical_primary"]
-                and row["ancestry"] == "UNVERIFIED_BLOCKED"
+                and row["canonical_group_ancestry_unverified"]
                 for row in recovered
             ),
             "unverified_assertion_candidate_count": sum(
