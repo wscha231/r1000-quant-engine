@@ -90,8 +90,20 @@ def canonical_sha256(value: Any) -> str:
     return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
 
 
+def reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, nested in pairs:
+        if key in value:
+            raise ValueError(f"duplicate JSON key: {key}")
+        value[key] = nested
+    return value
+
+
 def read_json(path: Path) -> Any:
-    return json.loads(path.read_text(encoding="utf-8"))
+    return json.loads(
+        path.read_text(encoding="utf-8"),
+        object_pairs_hook=reject_duplicate_json_keys,
+    )
 
 
 def write_json(path: Path, value: Any) -> None:
@@ -464,6 +476,47 @@ def matched_registry_ids_for_evidence(
     )
 
 
+def validated_do_not_repeat_ids(registry: Any) -> set[str]:
+    if not isinstance(registry, dict):
+        raise ValueError("do-not-repeat registry must be an object")
+    if registry.get("schema_version") != "run287-do-not-repeat-registry-v1":
+        raise ValueError("do-not-repeat registry schema mismatch")
+    match_fields = registry.get("match_fields")
+    if match_fields != ["signal", "mechanism", "book", "window"]:
+        raise ValueError("do-not-repeat registry match_fields mismatch")
+    entries = registry.get("entries")
+    if not isinstance(entries, list) or not entries:
+        raise ValueError("do-not-repeat registry entries must be a non-empty list")
+    identifiers: list[str] = []
+    for index, item in enumerate(entries):
+        if not isinstance(item, dict):
+            raise ValueError(
+                f"do-not-repeat registry entry {index} must be an object"
+            )
+        identifier = str(item.get("id") or "").strip()
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_]*", identifier):
+            raise ValueError(
+                f"do-not-repeat registry entry {index} has invalid id"
+            )
+        for field in match_fields:
+            if not str(item.get(field) or "").strip():
+                raise ValueError(
+                    f"do-not-repeat registry entry {identifier} missing {field}"
+                )
+        if not str(item.get("status") or "").strip():
+            raise ValueError(
+                f"do-not-repeat registry entry {identifier} missing status"
+            )
+        if item.get("blocked_reuse") is not True:
+            raise ValueError(
+                f"do-not-repeat registry entry {identifier} is not blocked"
+            )
+        identifiers.append(identifier)
+    if len(identifiers) != len(set(identifiers)):
+        raise ValueError("do-not-repeat registry contains duplicate ids")
+    return set(identifiers)
+
+
 def changed_path_evidence(raw: dict[str, Any], paths: list[str]) -> tuple[int, bool]:
     """Return a declared count and completeness only for pinned path evidence."""
     declared = raw.get("changedFiles")
@@ -662,11 +715,32 @@ def normalize_pr(
             for path in all_evidence_paths
         )
     )
-    commit_oids = [
-        clean_sha(item.get("oid"))
-        for item in raw.get("commits") or []
-        if isinstance(item, dict) and clean_sha(item.get("oid"))
-    ]
+    raw_commits = raw.get("commits")
+    declared_commit_count = raw.get("commitCount")
+    commit_count = (
+        int(declared_commit_count)
+        if isinstance(declared_commit_count, int)
+        and not isinstance(declared_commit_count, bool)
+        and declared_commit_count >= 0
+        else len(raw_commits)
+        if isinstance(raw_commits, list)
+        else None
+    )
+    observed_commit_oids = (
+        [clean_sha(item.get("oid")) for item in raw_commits]
+        if isinstance(raw_commits, list)
+        and all(isinstance(item, dict) for item in raw_commits)
+        else []
+    )
+    commit_oids_complete = bool(
+        isinstance(raw_commits, list)
+        and commit_count is not None
+        and len(raw_commits) == commit_count
+        and all(observed_commit_oids)
+    ) or bool(
+        isinstance(raw_commits, list) and commit_count == 0 and not raw_commits
+    )
+    commit_oids = observed_commit_oids if commit_oids_complete else None
     labels = sorted(
         str(item.get("name") or "")
         for item in raw.get("labels") or []
@@ -702,6 +776,8 @@ def normalize_pr(
     )
     if not status_head_matches:
         blockers.append("pr_status_identity_unverified")
+    if experiment_like and not commit_oids_complete:
+        blockers.append("commit_oids_unresolved")
     if ancestry_status(head_sha, audit_sha, ancestry_by_sha) == "UNVERIFIED_BLOCKED":
         blockers.append("head_ancestry_unverified")
     return {
@@ -770,8 +846,11 @@ def normalize_pr(
         "changed_paths_sha256": canonical_sha256(paths),
         "renamed_from_paths_sha256": canonical_sha256(renamed_from_paths),
         "commit_oids": commit_oids,
-        "commit_oids_sha256": canonical_sha256(commit_oids),
-        "commit_count": int(raw.get("commitCount") or len(commit_oids)),
+        "commit_oids_sha256": (
+            canonical_sha256(commit_oids) if commit_oids_complete else None
+        ),
+        "commit_oids_complete": commit_oids_complete,
+        "commit_count": commit_count,
         "review_count": len(reviews) if reviews is not None else None,
         "check_count": len(checks) if checks is not None else None,
         "body_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
@@ -1177,11 +1256,7 @@ def main() -> int:
         )
         ancestry = merge_ancestry_evidence(local_ancestry, cached_ancestry)
     registry = read_json(args.do_not_repeat)
-    registry_ids = {
-        str(item.get("id") or "")
-        for item in registry.get("entries") or []
-        if isinstance(item, dict) and str(item.get("id") or "")
-    }
+    registry_ids = validated_do_not_repeat_ids(registry)
     census = build_census(
         repository_payload=repository,
         branches=branches,

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import tempfile
 from pathlib import Path
 
@@ -522,6 +523,86 @@ def test_cached_collections_require_complete_bound_envelopes() -> None:
         raise AssertionError("cached PR collection without rename provenance passed")
 
 
+def test_cached_json_rejects_duplicate_provenance_keys() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "conflicted.json"
+        path.write_text(
+            '{"audit_sha":"'
+            + AUDIT_SHA
+            + '","audit_sha":"'
+            + ("b" * 40)
+            + '"}',
+            encoding="utf-8",
+        )
+        try:
+            MOD.read_json(path)
+        except ValueError as exc:
+            assert "duplicate JSON key" in str(exc)
+        else:
+            raise AssertionError("duplicate cached provenance key was accepted")
+
+
+def test_uncollected_commit_oids_remain_unresolved() -> None:
+    repository, branches, pulls, ancestry = fixtures()
+    pulls[0].pop("commits")
+    pulls[0]["commitCount"] = 1
+    census = MOD.build_census(
+        repository_payload=repository,
+        branches=branches,
+        pull_requests=pulls,
+        audit_sha=AUDIT_SHA,
+        ancestry_by_sha=ancestry,
+        do_not_repeat_ids=set(),
+    )
+    candidate = census["pull_requests"][0]
+    assert candidate["commit_count"] == 1
+    assert candidate["commit_oids"] is None
+    assert candidate["commit_oids_sha256"] is None
+    assert candidate["commit_oids_complete"] is False
+    assert "commit_oids_unresolved" in candidate["promotion_blockers"]
+
+    observed = census["pull_requests"][1]
+    assert observed["commit_oids_complete"] is True
+    assert observed["commit_oids"] == ["c" * 40]
+    assert observed["commit_oids_sha256"] == MOD.canonical_sha256(["c" * 40])
+
+
+def test_do_not_repeat_registry_is_strictly_validated() -> None:
+    valid_entry = {
+        "id": "known_failed_lane",
+        "signal": "signal",
+        "mechanism": "mechanism",
+        "book": "book",
+        "window": "window",
+        "status": "REJECTED",
+        "blocked_reuse": True,
+    }
+    valid = {
+        "schema_version": "run287-do-not-repeat-registry-v1",
+        "match_fields": ["signal", "mechanism", "book", "window"],
+        "entries": [valid_entry],
+    }
+    assert MOD.validated_do_not_repeat_ids(valid) == {"known_failed_lane"}
+    invalid_payloads = [
+        {},
+        {**valid, "schema_version": "wrong"},
+        {**valid, "entries": None},
+        {**valid, "entries": [{**valid_entry, "signal": ""}]},
+        {**valid, "entries": [valid_entry, dict(valid_entry)]},
+        {**valid, "entries": [{**valid_entry, "blocked_reuse": False}]},
+    ]
+    for payload in invalid_payloads:
+        try:
+            MOD.validated_do_not_repeat_ids(payload)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(
+                "malformed do-not-repeat registry was accepted: "
+                + json.dumps(payload, sort_keys=True)
+            )
+
+
 def test_default_head_and_cached_ancestry_are_audit_bound() -> None:
     repository, branches, pulls, ancestry = fixtures()
     repository["default_branch_commit_post_collection"] = {"sha": "f" * 40}
@@ -984,6 +1065,9 @@ def main() -> int:
     test_cached_changed_paths_require_head_and_base_pins()
     test_zero_count_conflict_and_status_head_race_fail_closed()
     test_cached_collections_require_complete_bound_envelopes()
+    test_cached_json_rejects_duplicate_provenance_keys()
+    test_uncollected_commit_oids_remain_unresolved()
+    test_do_not_repeat_registry_is_strictly_validated()
     test_default_head_and_cached_ancestry_are_audit_bound()
     test_cached_status_and_changed_count_provenance_are_recomputed()
     test_linked_strong_experiment_head_names_are_candidates()
