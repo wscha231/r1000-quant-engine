@@ -855,6 +855,14 @@ def test_canonical_u0_workflow_is_research_only() -> None:
     assert "historical_experiment_census_complete" in source
     assert "historical_challenger_allowed" in source
     assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" in source
+    diagnostic = "name: run287-u0-census-diagnostic"
+    accepted = "name: run287-u0-accepted-evidence"
+    gate = "- name: Require complete U0 and create acceptance envelope"
+    assert diagnostic in source
+    assert "github_census_summary.json" in source
+    assert "experiment_candidates.csv" in source
+    assert source.index(diagnostic) < source.index(gate) < source.index(accepted)
+    assert source.count(accepted) == 1
     forbidden = (
         "run_broker_ledger_replay",
         "main_target.csv",
