@@ -429,6 +429,9 @@ def test_zero_count_conflict_and_status_head_race_fail_closed() -> None:
                 "number": 12,
                 "state": "MERGED",
                 "headRefOid": "c" * 40,
+                "title": "Safety change",
+                "body": "",
+                "headRefName": "codex/safety",
                 "mergedAt": "2026-08-01T00:00:00Z",
                 "mergeCommit": {"oid": "d" * 40},
             }
@@ -456,6 +459,9 @@ def test_zero_count_conflict_and_status_head_race_fail_closed() -> None:
                 "number": 12,
                 "state": "MERGED",
                 "headRefOid": None,
+                "title": "Safety change",
+                "body": "",
+                "headRefName": "deleted-head",
                 "mergedAt": "2026-08-01T00:00:00Z",
                 "mergeCommit": {"oid": "d" * 40},
             }
@@ -482,12 +488,23 @@ def test_zero_count_conflict_and_status_head_race_fail_closed() -> None:
                 "number": 12,
                 "state": "OPEN",
                 "headRefOid": "b" * 40,
+                "title": "Safety change",
+                "body": "",
+                "headRefName": "codex/safety",
                 "mergedAt": None,
                 "mergeCommit": None,
             }
         ]
         if snapshot_calls == 2:
-            rows.append({"number": 13, "headRefOid": "e" * 40})
+            rows.append(
+                {
+                    "number": 13,
+                    "headRefOid": "e" * 40,
+                    "title": "New PR",
+                    "body": "",
+                    "headRefName": "codex/new",
+                }
+            )
         return rows
 
     MOD.run_json = namespace_race_run_json
@@ -498,6 +515,41 @@ def test_zero_count_conflict_and_status_head_race_fail_closed() -> None:
             assert "namespace moved" in str(exc)
         else:
             raise AssertionError("PR pagination namespace drift was accepted")
+    finally:
+        MOD.run_json = original_run_json
+
+    mutable_calls = 0
+
+    def mutable_evidence_race_run_json(command: list[str]):
+        nonlocal mutable_calls
+        if command[1:3] == ["api", "--paginate"]:
+            return [[rest_pull]]
+        mutable_calls += 1
+        return [
+            {
+                "number": 12,
+                "state": "OPEN",
+                "headRefOid": "b" * 40,
+                "title": (
+                    "Safety change"
+                    if mutable_calls == 1
+                    else "Expected return experiment"
+                ),
+                "body": "",
+                "headRefName": "codex/safety",
+                "mergedAt": None,
+                "mergeCommit": None,
+            }
+        ]
+
+    MOD.run_json = mutable_evidence_race_run_json
+    try:
+        try:
+            MOD.collect_pull_requests(MOD.REPOSITORY)
+        except RuntimeError as exc:
+            assert "namespace moved" in str(exc)
+        else:
+            raise AssertionError("mutable PR experiment evidence drift was accepted")
     finally:
         MOD.run_json = original_run_json
 
@@ -577,6 +629,56 @@ def test_cached_collections_require_complete_bound_envelopes() -> None:
     else:
         raise AssertionError("malformed cached rename path was accepted")
 
+    _, _, pulls, _ = fixtures()
+    pulls[0]["number"] = 0
+    pr_envelope = {
+        "schema_version": MOD.COLLECTION_CACHE_SCHEMA_VERSION,
+        "repository": MOD.REPOSITORY,
+        "audit_sha": AUDIT_SHA,
+        "collection_kind": "pull_requests",
+        "pagination_complete": True,
+        "record_count": len(pulls),
+        "records_sha256": MOD.canonical_sha256(pulls),
+        "records": pulls,
+    }
+    try:
+        MOD.load_bound_collection_payload(
+            pr_envelope, audit_sha=AUDIT_SHA, collection_kind="pull_requests"
+        )
+    except ValueError as exc:
+        assert "invalid PR number" in str(exc)
+    else:
+        raise AssertionError("cached PR number zero was accepted")
+
+
+def test_live_branch_pagination_is_identity_pinned() -> None:
+    rows = [
+        {"name": "master", "commit": {"sha": AUDIT_SHA}, "protected": True},
+        {
+            "name": "codex/research",
+            "commit": {"sha": "b" * 40},
+            "protected": False,
+        },
+    ]
+    snapshots = [
+        {"master": AUDIT_SHA, "codex/research": "b" * 40},
+        {"master": AUDIT_SHA, "codex/research": "c" * 40},
+    ]
+    original_snapshot = MOD.collect_remote_branch_identity
+    original_run_json = MOD.run_json
+    MOD.collect_remote_branch_identity = lambda repository: snapshots.pop(0)
+    MOD.run_json = lambda command: [rows]
+    try:
+        try:
+            MOD.collect_branches(MOD.REPOSITORY)
+        except RuntimeError as exc:
+            assert "branch namespace moved" in str(exc)
+        else:
+            raise AssertionError("branch pagination head drift was accepted")
+    finally:
+        MOD.collect_remote_branch_identity = original_snapshot
+        MOD.run_json = original_run_json
+
 
 def test_cached_json_rejects_duplicate_provenance_keys() -> None:
     with tempfile.TemporaryDirectory() as tmp:
@@ -635,6 +737,22 @@ def test_uncollected_commit_oids_remain_unresolved() -> None:
     assert wrong_head["commit_oids_complete"] is False
     assert wrong_head["commit_oids"] is None
     assert "commit_oids_unresolved" in wrong_head["promotion_blockers"]
+
+    repository, branches, pulls, ancestry = fixtures()
+    pulls[0]["commitCount"] = 0
+    pulls[0]["commits"] = []
+    census = MOD.build_census(
+        repository_payload=repository,
+        branches=branches,
+        pull_requests=pulls,
+        audit_sha=AUDIT_SHA,
+        ancestry_by_sha=ancestry,
+        do_not_repeat_ids=set(),
+    )
+    zero_count = census["pull_requests"][0]
+    assert zero_count["commit_oids_complete"] is False
+    assert zero_count["commit_oids"] is None
+    assert "commit_oids_unresolved" in zero_count["promotion_blockers"]
 
     repository, branches, pulls, ancestry = fixtures()
     pulls[0].pop("commitCount")
@@ -1186,6 +1304,7 @@ def main() -> int:
     test_cached_changed_paths_require_head_and_base_pins()
     test_zero_count_conflict_and_status_head_race_fail_closed()
     test_cached_collections_require_complete_bound_envelopes()
+    test_live_branch_pagination_is_identity_pinned()
     test_cached_json_rejects_duplicate_provenance_keys()
     test_uncollected_commit_oids_remain_unresolved()
     test_do_not_repeat_registry_is_strictly_validated()

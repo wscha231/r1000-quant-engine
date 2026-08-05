@@ -161,20 +161,76 @@ def collect_remote_branch_sha(repository: str, branch: str) -> str:
     raise RuntimeError("remote Git branch lookup failed after two retries")
 
 
+def collect_remote_branch_identity(repository: str) -> dict[str, str]:
+    if repository != REPOSITORY:
+        raise ValueError("remote Git repository identity mismatch")
+    remote_url = f"https://github.com/{repository}.git"
+    for attempt in range(3):
+        completed = subprocess.run(
+            ["git", "ls-remote", "--heads", remote_url],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+        if completed.returncode == 0:
+            identity: dict[str, str] = {}
+            valid = True
+            for line in completed.stdout.splitlines():
+                fields = line.split(maxsplit=1)
+                if len(fields) != 2 or not fields[1].startswith("refs/heads/"):
+                    valid = False
+                    break
+                sha = clean_sha(fields[0])
+                name = fields[1][len("refs/heads/"):]
+                if not sha or not name or name in identity:
+                    valid = False
+                    break
+                identity[name] = sha
+            if valid:
+                return identity
+        if attempt < 2:
+            time.sleep(0.25 * (attempt + 1))
+    raise RuntimeError("remote Git branch snapshot failed after two retries")
+
+
+def rest_branch_identity(pages: Any) -> dict[str, str]:
+    if not isinstance(pages, list) or not all(
+        isinstance(page, list) for page in pages
+    ):
+        raise RuntimeError("REST branch pagination payload is invalid")
+    identity: dict[str, str] = {}
+    for item in (row for page in pages for row in page):
+        if not isinstance(item, dict):
+            raise RuntimeError("REST branch pagination row is invalid")
+        name = str(item.get("name") or "")
+        commit = item.get("commit") if isinstance(item.get("commit"), dict) else {}
+        sha = clean_sha(commit.get("sha"))
+        if not name or not sha or name in identity:
+            raise RuntimeError("REST branch pagination has invalid identities")
+        identity[name] = sha
+    return identity
+
+
 def collect_branches(repository: str) -> list[dict[str, Any]]:
+    identity_before = collect_remote_branch_identity(repository)
     pages = run_json(
         [
             "gh", "api", "--paginate", "--slurp",
             f"repos/{repository}/branches?per_page=100",
         ]
     )
+    identity_after = collect_remote_branch_identity(repository)
+    identity_rest = rest_branch_identity(pages)
+    if identity_before != identity_rest or identity_after != identity_rest:
+        raise RuntimeError("branch namespace moved during paginated collection")
     return [item for page in pages for item in page]
 
 
-def graphql_pr_identity(rows: Any) -> dict[int, str]:
+def graphql_pr_identity(rows: Any) -> dict[int, tuple[str, str, str, str]]:
     if not isinstance(rows, list) or len(rows) >= 1000:
         raise RuntimeError("PR identity snapshot is invalid or limit-capped")
-    identity: dict[int, str] = {}
+    identity: dict[int, tuple[str, str, str, str]] = {}
     for item in rows:
         if not isinstance(item, dict):
             raise RuntimeError("PR identity snapshot row is invalid")
@@ -186,16 +242,21 @@ def graphql_pr_identity(rows: Any) -> dict[int, str]:
             or number in identity
         ):
             raise RuntimeError("PR identity snapshot contains invalid identities")
-        identity[number] = clean_sha(item.get("headRefOid"))
+        identity[number] = (
+            clean_sha(item.get("headRefOid")),
+            str(item.get("title") or ""),
+            str(item.get("body") or ""),
+            str(item.get("headRefName") or ""),
+        )
     return identity
 
 
-def rest_pr_identity(pages: Any) -> dict[int, str]:
+def rest_pr_identity(pages: Any) -> dict[int, tuple[str, str, str, str]]:
     if not isinstance(pages, list) or not all(
         isinstance(page, list) for page in pages
     ):
         raise RuntimeError("REST PR pagination payload is invalid")
-    identity: dict[int, str] = {}
+    identity: dict[int, tuple[str, str, str, str]] = {}
     for item in (row for page in pages for row in page):
         if not isinstance(item, dict):
             raise RuntimeError("REST PR pagination row is invalid")
@@ -208,7 +269,12 @@ def rest_pr_identity(pages: Any) -> dict[int, str]:
         ):
             raise RuntimeError("REST PR pagination contains invalid identities")
         head = item.get("head") if isinstance(item.get("head"), dict) else {}
-        identity[number] = clean_sha(head.get("sha"))
+        identity[number] = (
+            clean_sha(head.get("sha")),
+            str(item.get("title") or ""),
+            str(item.get("body") or ""),
+            str(head.get("ref") or ""),
+        )
     return identity
 
 
@@ -222,7 +288,8 @@ def collect_pull_requests(repository: str) -> list[dict[str, Any]]:
     identity_before_rows = run_json(
         [
             "gh", "pr", "list", "--repo", repository, "--state", "all",
-            "--limit", "1000", "--json", "number,headRefOid",
+            "--limit", "1000", "--json",
+            "number,headRefOid,title,body,headRefName",
         ]
     )
     identity_before = graphql_pr_identity(identity_before_rows)
@@ -236,7 +303,8 @@ def collect_pull_requests(repository: str) -> list[dict[str, Any]]:
         [
             "gh", "pr", "list", "--repo", repository, "--state", "all",
             "--limit", "1000", "--json",
-            "number,state,isDraft,mergeCommit,mergedAt,closedAt,headRefOid",
+            "number,state,isDraft,mergeCommit,mergedAt,closedAt,headRefOid,"
+            "title,body,headRefName",
         ]
     )
     identity_after = graphql_pr_identity(status_rows)
@@ -689,6 +757,13 @@ def load_bound_collection_payload(
         raise ValueError("cached PR collection lacks rename provenance")
     if collection_kind == "pull_requests":
         for record in records:
+            number = record.get("number")
+            if (
+                not isinstance(number, int)
+                or isinstance(number, bool)
+                or number <= 0
+            ):
+                raise ValueError("cached PR collection has invalid PR number")
             for field in ("files", "renamedFromPaths"):
                 items = record.get(field)
                 if not isinstance(items, list):
@@ -820,8 +895,6 @@ def normalize_pr(
         and len(observed_commit_oids) == len(set(observed_commit_oids))
         and all(observed_commit_oids)
         and head_sha in observed_commit_oids
-    ) or bool(
-        isinstance(raw_commits, list) and commit_count == 0 and not raw_commits
     )
     commit_oids = observed_commit_oids if commit_oids_complete else None
     labels = sorted(
