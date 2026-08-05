@@ -44,7 +44,7 @@ EXPERIMENT_TEXT_RE = re.compile(
 BRANCH_EXPERIMENT_NAME_RE = re.compile(
     r"(^|[-_./\\])(auto[-_./\\]?learning|promotion[-_./\\]?test|"
     r"actual[-_./\\]?results|rolling[-_./\\]?review|selector|"
-    r"scor(?:e|ing)|replay|backtest|challenger|experiment)([-_./\\]|$)",
+    r"scor(?:e|ing)|replay|backtest|challenger|experiments?)([-_./\\]|$)",
     re.IGNORECASE,
 )
 CAPABILITY_RULES: dict[str, tuple[str, ...]] = {
@@ -317,7 +317,7 @@ def enrich_remote_changed_paths(
                 if isinstance(item, dict) and str(item.get("filename") or "")
             }
         )
-        graphql_count = 0
+        graphql_count: int | None = None
         if detail_count == 0 and paths:
             try:
                 graphql_detail = run_json(
@@ -337,8 +337,11 @@ def enrich_remote_changed_paths(
                 # A zero detail count conflicts with returned paths.  Without
                 # an independently pinned positive GraphQL count it remains
                 # incomplete; never synthesize the count from the path list.
-                graphql_count = 0
-        declared_count = max(detail_count, graphql_count)
+                graphql_count = None
+        # The REST detail count is authoritative.  A GraphQL read is retained
+        # only as contradiction evidence; it must never repair a conflicting
+        # zero count by replacing it with the fetched path length.
+        declared_count = detail_count
         cap_reached = len(paths) >= 3000
         declared_mismatch = declared_count != len(paths)
         raw["files"] = [{"path": path} for path in paths]
@@ -432,12 +435,18 @@ def changed_path_evidence(raw: dict[str, Any], paths: list[str]) -> tuple[int, b
     detail_valid = (
         isinstance(detail, int) and not isinstance(detail, bool) and detail >= 0
     )
-    graphql_valid = (
+    graphql_absent = graphql is None
+    graphql_valid = graphql_absent or (
         isinstance(graphql, int)
         and not isinstance(graphql, bool)
         and graphql >= 0
     )
-    provenance_count = max(int(detail), int(graphql)) if detail_valid and graphql_valid else -1
+    provenance_consistent = bool(
+        detail_valid
+        and graphql_valid
+        and changed_files == int(detail)
+        and (graphql_absent or changed_files == int(graphql))
+    )
     head_sha = clean_sha(raw.get("headRefOid"))
     base_sha = clean_sha(raw.get("baseRefOid"))
     pinned = bool(
@@ -454,8 +463,7 @@ def changed_path_evidence(raw: dict[str, Any], paths: list[str]) -> tuple[int, b
     complete = bool(
         count_valid
         and pinned
-        and provenance_count >= 0
-        and changed_files == provenance_count
+        and provenance_consistent
         and changed_files == len(paths)
         and len(paths) < 3000
         and raw.get("changedPathsApiCapReached") is not True
@@ -629,6 +637,8 @@ def normalize_pr(
     status_head_oid = clean_sha(raw.get("statusMetadataHeadOid"))
     status_head_matches = bool(
         raw.get("statusMetadataHeadMatches") is True
+        and bool(head_sha)
+        and bool(status_head_oid)
         and status_head_oid == head_sha
         and raw.get("statusMetadataSource") == "GRAPHQL_STATUS_HEAD_PINNED"
     )
@@ -666,8 +676,11 @@ def normalize_pr(
         "author_login": str((raw.get("author") or {}).get("login") or ""),
         "labels": labels,
         "changed_file_count": changed_files,
-        "github_graphql_changed_file_count": int(
-            raw.get("changedFilesGraphql") or 0
+        "github_graphql_changed_file_count": (
+            int(raw["changedFilesGraphql"])
+            if isinstance(raw.get("changedFilesGraphql"), int)
+            and not isinstance(raw.get("changedFilesGraphql"), bool)
+            else None
         ),
         "github_detail_changed_file_count": int(
             raw.get("changedFilesDetail") or 0
@@ -776,6 +789,7 @@ def build_census(
         pr_numbers_by_branch.setdefault(row["head_branch"], []).append(row["number"])
         if row["head_sha"]:
             pr_numbers_by_head.setdefault(row["head_sha"], []).append(row["number"])
+    pr_rows_by_number = {row["number"]: row for row in pr_rows}
     for row in branch_rows:
         linked = sorted(set(pr_numbers_by_head.get(row["head_sha"], [])))
         name_only_mismatches = sorted(
@@ -785,8 +799,31 @@ def build_census(
         )
         row["linked_pr_numbers"] = linked
         row["name_only_mismatched_pr_numbers"] = name_only_mismatches
+        branch_name_candidate = bool(experiment_like_text(row["name"]))
+        if linked and branch_name_candidate:
+            for number in linked:
+                linked_pr = pr_rows_by_number[number]
+                aliases = set(linked_pr.get("experiment_evidence_branch_aliases") or [])
+                aliases.add(row["name"])
+                linked_pr["experiment_evidence_branch_aliases"] = sorted(aliases)
+                if not linked_pr["experiment_candidate"]:
+                    linked_pr["experiment_candidate"] = True
+                    linked_pr["experiment_identity_status"] = "UNMAPPED_BLOCKED"
+                    linked_pr["capability_family_candidates"] = sorted(
+                        set(linked_pr["capability_family_candidates"])
+                        | set(capability_families(row["name"], []))
+                    )
+                    linked_pr["promotion_blockers"] = sorted(
+                        set(linked_pr["promotion_blockers"])
+                        | {
+                            "canonical_experiment_id_missing",
+                            "exact_parameter_and_data_hash_unverified",
+                            "synchronized_daily_after_cost_return_column_unverified",
+                            "target_book_and_cash_cost_contract_unverified",
+                        }
+                    )
         branch_only_candidate = not linked and bool(
-            experiment_like_text(row["name"])
+            branch_name_candidate
         )
         if branch_only_candidate:
             row["experiment_candidate"] = True
@@ -801,8 +838,12 @@ def build_census(
                 "synchronized_daily_after_cost_return_column_unverified",
                 "target_book_and_cash_cost_contract_unverified",
             ]
+            if row["ancestry"] == "UNVERIFIED_BLOCKED":
+                row["promotion_blockers"].append("head_ancestry_unverified")
         else:
             row["capability_family_candidates"] = []
+    for row in pr_rows:
+        row.setdefault("experiment_evidence_branch_aliases", [])
 
     branch_ids = [row["record_id"] for row in branch_rows]
     pr_ids = [row["record_id"] for row in pr_rows]

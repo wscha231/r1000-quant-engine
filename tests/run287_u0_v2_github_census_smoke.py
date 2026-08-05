@@ -94,7 +94,7 @@ def fixtures() -> tuple[dict, list[dict], list[dict], dict[str, str]]:
                 "changedPathsBaseBefore": pull["baseRefOid"],
                 "changedPathsBaseAfter": pull["baseRefOid"],
                 "changedFilesDetail": pull["changedFiles"],
-                "changedFilesGraphql": 0,
+                "changedFilesGraphql": pull["changedFiles"],
                 "statusMetadataHeadOid": pull["headRefOid"],
                 "statusMetadataHeadMatches": True,
                 "statusMetadataSource": "GRAPHQL_STATUS_HEAD_PINNED",
@@ -529,8 +529,23 @@ def test_cached_status_and_changed_count_provenance_are_recomputed() -> None:
     assert "pr_status_identity_unverified" in candidate["promotion_blockers"]
 
     repository, branches, pulls, ancestry = fixtures()
+    pulls[0]["headRefOid"] = ""
+    pulls[0]["statusMetadataHeadOid"] = ""
+    census = MOD.build_census(
+        repository_payload=repository,
+        branches=branches,
+        pull_requests=pulls,
+        audit_sha=AUDIT_SHA,
+        ancestry_by_sha=ancestry,
+        do_not_repeat_ids=set(),
+    )
+    candidate = census["pull_requests"][0]
+    assert candidate["status_metadata_head_matches"] is False
+    assert "pr_status_identity_unverified" in candidate["promotion_blockers"]
+
+    repository, branches, pulls, ancestry = fixtures()
     pulls[0]["changedFilesDetail"] = 0
-    pulls[0]["changedFilesGraphql"] = 0
+    pulls[0]["changedFilesGraphql"] = 2
     census = MOD.build_census(
         repository_payload=repository,
         branches=branches,
@@ -553,7 +568,7 @@ def test_linked_strong_experiment_head_names_are_candidates() -> None:
     }
     pulls[1]["title"] = "Maintenance"
     pulls[1]["body"] = ""
-    pulls[1]["headRefName"] = "promotion-test"
+    pulls[1]["headRefName"] = "maintenance-alias"
     census = MOD.build_census(
         repository_payload=repository,
         branches=branches,
@@ -564,11 +579,13 @@ def test_linked_strong_experiment_head_names_are_candidates() -> None:
     )
     linked_pr = census["pull_requests"][1]
     assert linked_pr["experiment_candidate"] is True
+    assert linked_pr["experiment_evidence_branch_aliases"] == ["promotion-test"]
     linked_branch = next(
         row for row in census["branches"] if row["name"] == "promotion-test"
     )
     assert linked_branch["linked_pr_numbers"] == [11]
     assert linked_branch["experiment_candidate"] is False
+    assert MOD.experiment_like_text("experiments/future-return")
 
 
 def test_conflicting_local_and_cached_ancestry_fails_closed() -> None:
@@ -684,6 +701,28 @@ def test_branch_only_and_duplicate_code_identities_are_blocked() -> None:
     assert "duplicate_code_head_sha_requires_canonical_deduplication" in (
         census["pull_requests"][0]["promotion_blockers"]
     )
+
+    repository, branches, pulls, ancestry = fixtures()
+    branches.append(
+        {
+            "name": "codex/run287-unverified-experiment",
+            "commit": {"sha": "e" * 40},
+            "protected": False,
+        }
+    )
+    census = MOD.build_census(
+        repository_payload=repository,
+        branches=branches,
+        pull_requests=pulls,
+        audit_sha=AUDIT_SHA,
+        ancestry_by_sha=ancestry,
+        do_not_repeat_ids=set(),
+    )
+    unverified = next(
+        row for row in census["branches"]
+        if row["name"] == "codex/run287-unverified-experiment"
+    )
+    assert "head_ancestry_unverified" in unverified["promotion_blockers"]
 
 
 def main() -> int:
