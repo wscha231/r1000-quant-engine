@@ -42,7 +42,11 @@ BASE_REF = "refs/run287-u0/base"
 REQUIRED_BASE_COMMIT = "f29ac1f93a61076a08bedca83a4df5539926aab1"
 KNOWN_OUT_OF_REGISTRY_PR_NUMBERS = {229, 230, 237}
 REQUIRED_SOURCE_REGISTRY_PATH = "docs/run287_do_not_repeat_registry.json"
+REQUIRED_CONTRACT_PATH = "docs/run287_u0_experiment_audit_contract.json"
 REQUIRED_INVENTORY_PATH = "docs/run287_u0_experiment_inventory.json"
+REQUIRED_CONTRACT_BLOB_SHA256 = (
+    "48b4fb35722ebbc4364129f75f0e841fd073acf731567880defe9fe4f7a48cd4"
+)
 REQUIRED_INVENTORY_BLOB_SHA256 = (
     "d4bee837310961b65d13e03d3833ceba38db378d766086f98a1cd1bfbe6d9679"
 )
@@ -225,11 +229,31 @@ REQUIRED_RULES = {
 }
 
 
-def read_json(path: Path) -> dict[str, Any]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise ValueError(f"{path}: top-level JSON must be an object")
+def reject_duplicate_json_keys(
+    pairs: list[tuple[str, Any]],
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in payload:
+            raise ValueError(f"duplicate JSON key: {key}")
+        payload[key] = value
     return payload
+
+
+def parse_json_object(text: str, *, source: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(
+            text, object_pairs_hook=reject_duplicate_json_keys
+        )
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise ValueError(f"{source}: invalid JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"{source}: top-level JSON must be an object")
+    return payload
+
+
+def read_json(path: Path) -> dict[str, Any]:
+    return parse_json_object(path.read_text(encoding="utf-8"), source=str(path))
 
 
 def canonical_json_sha256(payload: dict[str, Any]) -> str:
@@ -626,10 +650,36 @@ def audit_inventory(
     repository_root: Path,
     registry_path: Path,
     inventory_path: Path,
+    contract_path: Path = DEFAULT_CONTRACT,
 ) -> dict[str, Any]:
     errors: list[str] = []
     promotion_blockers: list[str] = []
 
+    contract_relative = repository_relative_path(repository_root, contract_path)
+    if contract_relative != REQUIRED_CONTRACT_PATH:
+        errors.append("parsed_contract_path_invalid")
+    contract_blob = (
+        committed_blob_bytes(repository_root, contract_relative)
+        if contract_relative == REQUIRED_CONTRACT_PATH
+        else None
+    )
+    if contract_blob is None:
+        errors.append("contract_committed_blob_missing")
+    else:
+        if hashlib.sha256(contract_blob).hexdigest() != (
+            REQUIRED_CONTRACT_BLOB_SHA256
+        ):
+            errors.append("contract_committed_blob_sha256_mismatch")
+        try:
+            committed_contract = parse_json_object(
+                contract_blob.decode("utf-8"),
+                source=f"HEAD:{REQUIRED_CONTRACT_PATH}",
+            )
+        except (UnicodeDecodeError, ValueError):
+            errors.append("contract_committed_blob_invalid")
+        else:
+            if contract != committed_contract:
+                errors.append("parsed_contract_content_mismatch")
     if contract.get("schema_version") != CONTRACT_SCHEMA:
         errors.append("contract_schema_invalid")
     if canonical_json_sha256(contract) != REQUIRED_CONTRACT_CANONICAL_SHA256:
@@ -1147,6 +1197,7 @@ def main() -> int:
         repository_root=args.repository_root.resolve(),
         registry_path=args.registry.resolve(),
         inventory_path=args.inventory.resolve(),
+        contract_path=args.contract.resolve(),
     )
     text = json.dumps(result, indent=2, sort_keys=True) + "\n"
     if args.output:

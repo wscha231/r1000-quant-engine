@@ -23,10 +23,26 @@ SPEC.loader.exec_module(MOD)
 CONTRACT_PATH = ROOT / "docs" / "run287_u0_experiment_audit_contract.json"
 REGISTRY_PATH = ROOT / "docs" / "run287_do_not_repeat_registry.json"
 INVENTORY_PATH = ROOT / "docs" / "run287_u0_experiment_inventory.json"
+CANONICAL_REMOTE_URL = "https://github.com/wscha231/r1000-quant-engine.git"
 
 
 def read(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def resolve_evidence_remote(repository_root: Path) -> str:
+    remote_result = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        cwd=repository_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return (
+        remote_result.stdout.strip()
+        if remote_result.returncode == 0 and remote_result.stdout.strip()
+        else CANONICAL_REMOTE_URL
+    )
 
 
 def ensure_evidence_refs() -> None:
@@ -55,13 +71,15 @@ def ensure_evidence_refs() -> None:
     if not missing:
         return
 
+    evidence_remote = resolve_evidence_remote(ROOT)
+
     subprocess.run(
         [
             "git",
             "fetch",
             "--no-tags",
             "--depth=500",
-            "origin",
+            evidence_remote,
             MOD.required_base_refspec(inventory),
         ],
         cwd=ROOT,
@@ -73,7 +91,7 @@ def ensure_evidence_refs() -> None:
             "fetch",
             "--no-tags",
             "--depth=1",
-            "origin",
+            evidence_remote,
             *MOD.required_pr_refspecs(inventory),
         ],
         cwd=ROOT,
@@ -140,6 +158,9 @@ def test_current_inventory_is_valid_but_blocks_promotion() -> None:
 
 
 def test_entire_inventory_and_registry_blobs_are_immutable() -> None:
+    contract_blob = MOD.committed_blob_bytes(
+        ROOT, MOD.REQUIRED_CONTRACT_PATH
+    )
     assert MOD.canonical_json_sha256(read(CONTRACT_PATH)) == (
         MOD.REQUIRED_CONTRACT_CANONICAL_SHA256
     )
@@ -149,7 +170,11 @@ def test_entire_inventory_and_registry_blobs_are_immutable() -> None:
     registry_blob = MOD.committed_blob_bytes(
         ROOT, MOD.REQUIRED_SOURCE_REGISTRY_PATH
     )
+    assert contract_blob is not None
     assert inventory_blob is not None and registry_blob is not None
+    assert MOD.hashlib.sha256(contract_blob).hexdigest() == (
+        MOD.REQUIRED_CONTRACT_BLOB_SHA256
+    )
     assert MOD.hashlib.sha256(inventory_blob).hexdigest() == (
         MOD.REQUIRED_INVENTORY_BLOB_SHA256
     )
@@ -171,6 +196,31 @@ def test_entire_inventory_and_registry_blobs_are_immutable() -> None:
     result = audit(inventory)
     assert result["valid"] is False
     assert "parsed_inventory_content_mismatch" in result["errors"]
+
+
+def test_duplicate_contract_keys_are_rejected_before_hashing() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        duplicate = Path(temporary) / "contract.json"
+        duplicate.write_text(
+            '{"rules":{"fullrun_allowed_by_this_contract":true,'
+            '"fullrun_allowed_by_this_contract":false}}',
+            encoding="utf-8",
+        )
+        try:
+            MOD.read_json(duplicate)
+        except ValueError as exc:
+            assert "duplicate JSON key" in str(exc)
+        else:
+            raise AssertionError("duplicate contract key was accepted")
+
+
+def test_evidence_remote_falls_back_without_origin() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        subprocess.run(
+            ["git", "init", "--quiet"], cwd=root, check=True
+        )
+        assert resolve_evidence_remote(root) == CANONICAL_REMOTE_URL
 
 
 def test_registry_coverage_is_exact_and_fail_closed() -> None:
@@ -665,6 +715,8 @@ def main() -> int:
     ensure_evidence_refs()
     test_current_inventory_is_valid_but_blocks_promotion()
     test_entire_inventory_and_registry_blobs_are_immutable()
+    test_duplicate_contract_keys_are_rejected_before_hashing()
+    test_evidence_remote_falls_back_without_origin()
     test_registry_coverage_is_exact_and_fail_closed()
     test_registry_hash_drift_is_rejected()
     test_overlap_must_be_acknowledged_to_prevent_double_counting()
