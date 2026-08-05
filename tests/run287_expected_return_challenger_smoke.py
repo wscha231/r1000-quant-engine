@@ -68,7 +68,7 @@ def run_with_accepted_test_u0(args: Namespace) -> dict:
     original_validate = MOD.validate_contract
     MOD.git_default_branch_sha = lambda: audit_sha
     MOD.git_is_ancestor = lambda ancestor, descendant: (
-        ancestor == audit_sha and descendant in {audit_sha, MOD.git_head()}
+        ancestor == audit_sha and descendant == MOD.git_head()
     )
     MOD.validate_contract = lambda _raw: accepted_contract
     try:
@@ -86,7 +86,7 @@ def u0_gate_with_accepted_test_default(census: dict) -> list[str]:
     original_ancestor = MOD.git_is_ancestor
     MOD.git_default_branch_sha = lambda: accepted_sha
     MOD.git_is_ancestor = lambda ancestor, descendant: (
-        ancestor == accepted_sha and descendant in {accepted_sha, MOD.git_head()}
+        ancestor == accepted_sha and descendant == MOD.git_head()
     )
     try:
         return MOD.u0_gate(census, accepted_contract)
@@ -274,7 +274,7 @@ def test_u0_gate_blocks_model_fit_and_all_mutations() -> None:
     forged_sha = "d" * 40
     forged["audit_default_branch_sha"] = forged_sha
     forged["branches"][0]["head_sha"] = forged_sha
-    assert "u0_census_audit_sha_not_ancestor_of_current_default_branch" in (
+    assert "u0_census_audit_sha_not_current_default_branch" in (
         u0_gate_with_accepted_test_default(forged)
     )
 

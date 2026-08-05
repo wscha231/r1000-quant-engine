@@ -327,12 +327,8 @@ def u0_gate(census: Any, contract: Mapping[str, Any]) -> list[str]:
     if not FULL_SHA_RE.fullmatch(audit_sha):
         blockers.append("u0_census_audit_sha_invalid")
     else:
-        if not FULL_SHA_RE.fullmatch(accepted_default_sha) or not git_is_ancestor(
-            audit_sha, accepted_default_sha
-        ):
-            blockers.append(
-                "u0_census_audit_sha_not_ancestor_of_current_default_branch"
-            )
+        if audit_sha != accepted_default_sha:
+            blockers.append("u0_census_audit_sha_not_current_default_branch")
         if not git_is_ancestor(audit_sha, current_sha):
             blockers.append("u0_census_audit_sha_not_ancestor_of_runner")
     source = census.get("source_contract")
