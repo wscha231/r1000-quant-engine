@@ -1,0 +1,1073 @@
+{
+  "schema_version": "run287-u0-experiment-inventory-v1",
+  "audit_date": "2026-07-27",
+  "base_commit": "f29ac1f93a61076a08bedca83a4df5539926aab1",
+  "audit_status": "VALID_INVENTORY_PROMOTION_BLOCKED",
+  "promotion_ready": false,
+  "performance_claim_allowed": false,
+  "fullrun_authorized": false,
+  "champion_change_authorized": false,
+  "source_registry": {
+    "path": "docs/run287_do_not_repeat_registry.json",
+    "schema_version": "run287-do-not-repeat-registry-v1",
+    "sha256": "a292059a3ed9de1fd1150a827be66173f3e0da0f43062b3484b831d26daef925",
+    "bytes": 10348,
+    "entry_count": 21
+  },
+  "coverage": {
+    "scope": "CANONICAL_DO_NOT_REPEAT_REGISTRY_ONLY",
+    "historical_experiment_census_complete": false,
+    "known_out_of_registry_backlog": [
+      {
+        "reason": "The actual-results rolling-window review contains additional evaluated windows not represented as an exact canonical registry trial manifest.",
+        "evidence": {
+          "kind": "github_pr",
+          "pr_number": 229,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/229",
+          "head_commit": "5d1bf647099d588f14664c3e8052057fbbe17fe7",
+          "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
+          "artifacts": [
+            {
+              "path": "outputs/run287_actual_results_rolling_review/summary.json",
+              "git_blob_oid": "45b67380004fa436a80181b97f6605a48c4242ca",
+              "bytes": 133284
+            },
+            {
+              "path": "outputs/run287_actual_results_rolling_review/window_metrics.csv",
+              "git_blob_oid": "406edc5af5402bdca5833753f033353199740e10",
+              "bytes": 42991
+            }
+          ]
+        }
+      },
+      {
+        "reason": "The concentrated actual-results rolling review evaluated two tilt levels that are not enumerated in the canonical registry.",
+        "evidence": {
+          "kind": "github_pr",
+          "pr_number": 230,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/230",
+          "head_commit": "1d82572fa7eee11391637bab0f28d9f6a9022f52",
+          "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
+          "artifacts": [
+            {
+              "path": "outputs/run287_concentrated_actual_results_rolling_review_tilt05/summary.json",
+              "git_blob_oid": "84e8df06bc6e35349105c0bedb5fc6f7860988cf",
+              "bytes": 133917
+            },
+            {
+              "path": "outputs/run287_concentrated_actual_results_rolling_review_tilt05/window_metrics.csv",
+              "git_blob_oid": "370fa114b141db3c3c10cd755d4e745afbbf113c",
+              "bytes": 43417
+            },
+            {
+              "path": "outputs/run287_concentrated_actual_results_rolling_review_tilt10/summary.json",
+              "git_blob_oid": "91e6c49c4c73ee99753ac41bc3c1f2e6b7db6d5f",
+              "bytes": 133826
+            },
+            {
+              "path": "outputs/run287_concentrated_actual_results_rolling_review_tilt10/window_metrics.csv",
+              "git_blob_oid": "1e5ed27f5d85c6ec664ac6db81606876d60c76c8",
+              "bytes": 43337
+            }
+          ]
+        }
+      },
+      {
+        "reason": "The concentrated alpha source packet influenced later source selection but is not represented as a source-selection attempt in the canonical registry.",
+        "evidence": {
+          "kind": "github_pr",
+          "pr_number": 237,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/237",
+          "head_commit": "3cd35d89a8d1faba773bcea5b8a4b86e7cbe7998",
+          "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
+          "artifacts": [
+            {
+              "path": "outputs/run287_conc_alpha_source_packet/source_screen_signal_stats.csv",
+              "git_blob_oid": "2c646d017c2d2a4e56bb5b471d1cd5c753f755b9",
+              "bytes": 1733
+            },
+            {
+              "path": "outputs/run287_conc_alpha_source_packet/summary.json",
+              "git_blob_oid": "3d245bce5d654a70a9c1d30c37adb61333fdc856",
+              "bytes": 3730
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "overlap_groups": [
+    {
+      "id": "growth_confirmation_shared_trials",
+      "deduplication_status": "UNRESOLVED",
+      "canonical_trial_ids": [],
+      "member_registry_entry_ids": [
+        "weak_source_fusion",
+        "direct_growth_tilt"
+      ],
+      "reason": "Both registry concepts cite the same growth-confirmation fixed-book tilt evidence from PRs 233 and 234; those returns must be represented once, not duplicated."
+    },
+    {
+      "id": "financial_proxy_shared_trials",
+      "deduplication_status": "UNRESOLVED",
+      "canonical_trial_ids": [],
+      "member_registry_entry_ids": [
+        "static_actual_profitability",
+        "technical_macro_risk_financial_proxy"
+      ],
+      "reason": "The broader proxy family reuses profitability and actual-results arms also summarized by the static fundamental entry."
+    },
+    {
+      "id": "ownership_w4_shared_trials",
+      "deduplication_status": "UNRESOLVED",
+      "canonical_trial_ids": [],
+      "member_registry_entry_ids": [
+        "ownership_13f_form4",
+        "w4_sec_percentile_tilt"
+      ],
+      "reason": "The W4 SEC score is derived from the same Form 4 and 13F source screen later used by the fixed-book W4 tilt."
+    },
+    {
+      "id": "sec_filing_quality_shared_screen",
+      "deduplication_status": "UNRESOLVED",
+      "canonical_trial_ids": [],
+      "member_registry_entry_ids": [
+        "sec_market_confirmed_fundamental_event",
+        "sec_filing_quality_event"
+      ],
+      "reason": "The generic market-confirmed SEC event and the later exact-accepted-time filing-quality closure describe the same source-screen lineage."
+    }
+  ],
+  "summary": {
+    "registry_entry_count": 21,
+    "classified_entry_count": 21,
+    "promotion_blocked_entry_count": 21,
+    "orphaned_pr_evidence_count": 21,
+    "known_out_of_registry_backlog_count": 3,
+    "evaluation_class_counts": {
+      "INVALID_OR_INCOMPLETE": 1,
+      "MIXED_SOURCE_AND_PORTFOLIO": 2,
+      "NO_OP_PORTFOLIO": 1,
+      "NO_SIGNAL": 1,
+      "PORTFOLIO_RETURN": 11,
+      "SOURCE_RETURN_SCREEN": 3,
+      "UNVERIFIED_LEGACY": 2
+    },
+    "evidence_state_counts": {
+      "INVALID_RUN": 1,
+      "NO_OP": 1,
+      "NO_SIGNAL": 1,
+      "ORPHANED_SUMMARY_RECOVERABLE": 8,
+      "SOURCE_SCREEN_ONLY": 2,
+      "SUMMARY_ONLY": 6,
+      "UNVERIFIED_ASSERTION": 2
+    }
+  },
+  "entries": [
+    {
+      "registry_entry_id": "monthly_dd_vix_floor",
+      "evaluation_class": "PORTFOLIO_RETURN",
+      "selection_informed": true,
+      "published_attempt_count_lower_bound": 2,
+      "exact_attempt_count_known": false,
+      "evidence_state": "SUMMARY_ONLY",
+      "exact_trial_manifest_status": "MISSING",
+      "after_cost_daily_return_series_status": "MISSING",
+      "multiplicity_disposition": "BLOCK_MISSING_EXACT_RETURN_SERIES",
+      "overlap_group_ids": [],
+      "evidence": [
+        {
+          "kind": "tracked_file",
+          "path": "docs/FAMILY_A_VERDICT_20260621.md",
+          "sha256": "dec8b2744a8156281457a9fa1db7371a97bea06cf29d622c1c1d3a02121efae9",
+          "bytes": 3385
+        },
+        {
+          "kind": "github_actions_run",
+          "run_id": 27887125658,
+          "url": "https://github.com/wscha231/r1000-quant-engine/actions/runs/27887125658",
+          "commit_sha": "70538b9259024627843e19e78b4536c390a16f51",
+          "artifact_status": "MISSING_OR_EXPIRED"
+        },
+        {
+          "kind": "github_actions_run",
+          "run_id": 27887129839,
+          "url": "https://github.com/wscha231/r1000-quant-engine/actions/runs/27887129839",
+          "commit_sha": "70538b9259024627843e19e78b4536c390a16f51",
+          "artifact_status": "MISSING_OR_EXPIRED"
+        }
+      ],
+      "published_results": {
+        "baseline_main_cagr_mdd": [
+          0.3473,
+          -0.2605
+        ],
+        "a1_main_cagr_mdd": [
+          0.3428,
+          -0.2718
+        ],
+        "a2_main_cagr_mdd": [
+          0.3427,
+          -0.2718
+        ]
+      },
+      "finding": "Two completed action runs reject stronger monthly drawdown and VIX cash floors, but their exact parameter manifests and daily after-cost returns are not preserved in the current tree.",
+      "recovery_action": "Recover both run artifacts or reproduce their exact Git-anchored inputs and return columns without changing parameters or window."
+    },
+    {
+      "registry_entry_id": "broad_gross_floor",
+      "evaluation_class": "PORTFOLIO_RETURN",
+      "selection_informed": true,
+      "published_attempt_count_lower_bound": 5,
+      "exact_attempt_count_known": false,
+      "evidence_state": "ORPHANED_SUMMARY_RECOVERABLE",
+      "exact_trial_manifest_status": "MISSING",
+      "after_cost_daily_return_series_status": "MISSING",
+      "multiplicity_disposition": "BLOCK_MISSING_EXACT_RETURN_SERIES",
+      "overlap_group_ids": [],
+      "evidence": [
+        {
+          "kind": "github_pr",
+          "pr_number": 174,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/174",
+          "head_commit": "591b5dc0fd009ea4cf577985ea4cd6d4062555c4",
+          "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
+          "artifacts": [
+            {
+              "path": "tools/run_alphaops_vnext_policy_replay.py",
+              "git_blob_oid": "c8fc96a313f7d16d0cb8ac2c087367bb1a980ead",
+              "bytes": 173660
+            }
+          ]
+        }
+      ],
+      "published_results": {
+        "concentrated_floor_grid": [
+          0.0,
+          0.7,
+          0.8,
+          0.85,
+          0.9
+        ],
+        "verdict": "forcing broad exposure worsened both CAGR and MDD"
+      },
+      "finding": "The corrected gross-floor screen published five floor levels, but only PR text survived the later history split and no exact daily return surface is on current master.",
+      "recovery_action": "Recover the PR 174 replay bundle and preserve all five arms, including the control, as one immutable trial family."
+    },
+    {
+      "registry_entry_id": "stop_or_exit_delay",
+      "evaluation_class": "PORTFOLIO_RETURN",
+      "selection_informed": true,
+      "published_attempt_count_lower_bound": 4,
+      "exact_attempt_count_known": false,
+      "evidence_state": "SUMMARY_ONLY",
+      "exact_trial_manifest_status": "MISSING",
+      "after_cost_daily_return_series_status": "MISSING",
+      "multiplicity_disposition": "BLOCK_MISSING_EXACT_RETURN_SERIES",
+      "overlap_group_ids": [],
+      "evidence": [
+        {
+          "kind": "github_pr",
+          "pr_number": 157,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/157",
+          "head_commit": "a0b9c6a8d893ff188530720e6d86007d711b0a2e",
+          "ancestry": "CURRENT_MASTER",
+          "artifacts": []
+        },
+        {
+          "kind": "github_pr",
+          "pr_number": 159,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/159",
+          "head_commit": "e416ee4e0b24503435b54d6d7a646e8f0f10bb6d",
+          "ancestry": "CURRENT_MASTER",
+          "artifacts": []
+        }
+      ],
+      "published_results": {
+        "wide_trailing_grid": [
+          -0.25,
+          -0.3,
+          -0.35,
+          -0.45
+        ],
+        "main_best_ranked_cagr_mdd": [
+          0.3485,
+          -0.2501
+        ],
+        "concentrated_best_ranked_cagr_mdd": [
+          0.4842,
+          -0.2582
+        ],
+        "verdict": "no_gate_passing_config"
+      },
+      "finding": "Several stop grids and follow-up reviews exist, but the registry aggregates them into one label and the complete tested surface is not normalized into exact return columns.",
+      "recovery_action": "Inventory every distinct hard/trailing/activation combination and recover synchronized broker-ledger returns before counting this family."
+    },
+    {
+      "registry_entry_id": "rank_rs_revenue_replacement",
+      "evaluation_class": "SOURCE_RETURN_SCREEN",
+      "selection_informed": true,
+      "published_attempt_count_lower_bound": 1,
+      "exact_attempt_count_known": false,
+      "evidence_state": "ORPHANED_SUMMARY_RECOVERABLE",
+      "exact_trial_manifest_status": "NOT_APPLICABLE",
+      "after_cost_daily_return_series_status": "NOT_APPLICABLE",
+      "multiplicity_disposition": "BLOCK_SELECTION_MULTIPLICITY_UNMODELED",
+      "overlap_group_ids": [],
+      "evidence": [
+        {
+          "kind": "github_pr",
+          "pr_number": 172,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/172",
+          "head_commit": "13f372e620f4126258c9359734bf9c0105efeb3c",
+          "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
+          "artifacts": [
+            {
+              "path": "tools/run_concentrated_cap_replacement_audit.py",
+              "git_blob_oid": "daa5baf3ed44f0ae17e4ee69d262d32cab545331",
+              "bytes": 12716
+            }
+          ]
+        }
+      ],
+      "finding": "PR 172 scanned multiple PIT-visible rule slices using forward returns as audit labels; it was not a valid portfolio return trial but it informed later research selection.",
+      "recovery_action": "Recover the complete rule scan and count it in the source-screen selection multiplicity penalty without treating labels as tradable returns."
+    },
+    {
+      "registry_entry_id": "aggregate_cluster_cap",
+      "evaluation_class": "UNVERIFIED_LEGACY",
+      "selection_informed": true,
+      "published_attempt_count_lower_bound": 0,
+      "exact_attempt_count_known": false,
+      "evidence_state": "UNVERIFIED_ASSERTION",
+      "exact_trial_manifest_status": "MISSING",
+      "after_cost_daily_return_series_status": "MISSING",
+      "multiplicity_disposition": "BLOCK_UNVERIFIED_EVIDENCE",
+      "overlap_group_ids": [],
+      "evidence": [
+        {
+          "kind": "tracked_file",
+          "path": "docs/CODEX_DIRECTIVE_CAGR_MDD_ROADMAP.md",
+          "sha256": "c14437d3f9514d76d04027c6cee998b098c3e00d246f88f165ce0a6599f79f51",
+          "bytes": 14850
+        }
+      ],
+      "finding": "The canonical registry calls this family rejected, but its cited roadmap is a plan rather than an immutable result and no exact evaluated arm was located.",
+      "recovery_action": "Locate an original run or reclassify the registry statement as an unevaluated do-not-repeat design constraint through a reviewed migration."
+    },
+    {
+      "registry_entry_id": "static_actual_profitability",
+      "evaluation_class": "PORTFOLIO_RETURN",
+      "selection_informed": true,
+      "published_attempt_count_lower_bound": 10,
+      "exact_attempt_count_known": false,
+      "evidence_state": "ORPHANED_SUMMARY_RECOVERABLE",
+      "exact_trial_manifest_status": "MISSING",
+      "after_cost_daily_return_series_status": "MISSING",
+      "multiplicity_disposition": "BLOCK_MISSING_EXACT_RETURN_SERIES",
+      "overlap_group_ids": [
+        "financial_proxy_shared_trials"
+      ],
+      "evidence": [
+        {
+          "kind": "github_pr",
+          "pr_number": 227,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/227",
+          "head_commit": "03d78ab694bd0f3d8a404bab1886721eb59e6da8",
+          "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
+          "artifacts": [
+            {
+              "path": "outputs/run287_profitability_broker_ab/summary.json",
+              "git_blob_oid": "d1c7386256bab9c6b22cf8366b5f2d0c877265b5",
+              "bytes": 2607
+            }
+          ]
+        },
+        {
+          "kind": "github_pr",
+          "pr_number": 228,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/228",
+          "head_commit": "de2bd3b0b57cfbbb81afdcee9585ce6e7d94b350",
+          "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
+          "artifacts": [
+            {
+              "path": "outputs/run287_actual_results_broker_ab/summary.json",
+              "git_blob_oid": "74e4525817f6729a6d0f1e684f578a303f1d01f9",
+              "bytes": 3049
+            }
+          ]
+        },
+        {
+          "kind": "github_pr",
+          "pr_number": 239,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/239",
+          "head_commit": "1427abd3db1f5d5239eea8b419a3d0bf7ac2f7be",
+          "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
+          "artifacts": [
+            {
+              "path": "outputs/run287_financial_proxy_onepass_ab/summary.json",
+              "git_blob_oid": "c00cf919c77217b1b5a405bc7c1d27e73652c85b",
+              "bytes": 2978
+            },
+            {
+              "path": "outputs/run287_financial_proxy_onepass_ab/arm_metrics.csv",
+              "git_blob_oid": "86060e2931828678909c6ac4e0a0de761f1f80f5",
+              "bytes": 2094
+            }
+          ]
+        }
+      ],
+      "finding": "Profitability and actual-results arms were evaluated repeatedly across books, strengths, windows, and cash modes; aggregate summaries survive on orphaned PR commits but daily return series do not.",
+      "recovery_action": "Recover every unique arm from PRs 227, 228, 229, 230, and 239, deduplicate exact repeats, and bind parameter hashes plus return columns."
+    },
+    {
+      "registry_entry_id": "ownership_13f_form4",
+      "evaluation_class": "MIXED_SOURCE_AND_PORTFOLIO",
+      "selection_informed": true,
+      "published_attempt_count_lower_bound": 4,
+      "exact_attempt_count_known": false,
+      "evidence_state": "ORPHANED_SUMMARY_RECOVERABLE",
+      "exact_trial_manifest_status": "MISSING",
+      "after_cost_daily_return_series_status": "MISSING",
+      "multiplicity_disposition": "BLOCK_MISSING_EXACT_RETURN_SERIES",
+      "overlap_group_ids": [
+        "ownership_w4_shared_trials"
+      ],
+      "evidence": [
+        {
+          "kind": "github_pr",
+          "pr_number": 231,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/231",
+          "head_commit": "8efd0c9182eb02a8b1008e1a731d6712c6bf17c0",
+          "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
+          "artifacts": [
+            {
+              "path": "outputs/run287_w4_form4_13f_source_screen/summary.json",
+              "git_blob_oid": "583fd83464bebbe2dd76d9691eef64f3188204bd",
+              "bytes": 5217
+            }
+          ]
+        },
+        {
+          "kind": "github_pr",
+          "pr_number": 238,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/238",
+          "head_commit": "7ace7e6e2dff3d127d9db62d86009e38c22d97a1",
+          "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
+          "artifacts": [
+            {
+              "path": "outputs/run287_13f_fixedbook_ab/summary.json",
+              "git_blob_oid": "d3166f3a223af5aae3ca2d5d1d6522f97756a7cb",
+              "bytes": 13184
+            },
+            {
+              "path": "outputs/run287_13f_fixedbook_ab/arm_metrics.csv",
+              "git_blob_oid": "deba0cbf77542c310e2978c1ec6b80bb76cf71b3",
+              "bytes": 3345
+            }
+          ]
+        }
+      ],
+      "published_results": {
+        "pure_13f_concentrated_candidate_cagr_mdd": [
+          0.4821,
+          -0.2296
+        ],
+        "verdict": "reject_oos2_worse"
+      },
+      "finding": "Form 4, 13F, and combined source screens led to a pure 13F fixed-book arm; source and portfolio attempts are currently conflated under one registry entry.",
+      "recovery_action": "Separate source-screen trials from the fixed-book 13F arm, then recover the exact after-cost return column for the portfolio trial."
+    },
+    {
+      "registry_entry_id": "w4_sec_percentile_tilt",
+      "evaluation_class": "PORTFOLIO_RETURN",
+      "selection_informed": true,
+      "published_attempt_count_lower_bound": 2,
+      "exact_attempt_count_known": false,
+      "evidence_state": "ORPHANED_SUMMARY_RECOVERABLE",
+      "exact_trial_manifest_status": "MISSING",
+      "after_cost_daily_return_series_status": "MISSING",
+      "multiplicity_disposition": "BLOCK_MISSING_EXACT_RETURN_SERIES",
+      "overlap_group_ids": [
+        "ownership_w4_shared_trials"
+      ],
+      "evidence": [
+        {
+          "kind": "github_pr",
+          "pr_number": 234,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/234",
+          "head_commit": "acc321a1e97fa638dc251ed5c921d5cc59d37620",
+          "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
+          "artifacts": [
+            {
+              "path": "outputs/run287_best_path_search/summary.json",
+              "git_blob_oid": "1813088f8f2f187758a8a07d32b7267dfedcebc0",
+              "bytes": 22492
+            },
+            {
+              "path": "outputs/run287_best_path_source_broker_ab/arm_metrics.csv",
+              "git_blob_oid": "a2ddba95b962344988f4af649accb893e019d449",
+              "bytes": 16173
+            }
+          ]
+        }
+      ],
+      "published_results": {
+        "best_concentrated_cagr_mdd": [
+          0.4956,
+          -0.2226
+        ],
+        "verdict": "full-window near miss, OOS CAGR worse"
+      },
+      "finding": "The best nominal W4 SEC tilt nearly reached the CAGR target but failed OOS; exact tested strengths and return series must be recovered from the orphaned search package.",
+      "recovery_action": "Recover the complete W4 arm table and daily return columns, preserving losing arms as well as the nominal winner."
+    },
+    {
+      "registry_entry_id": "consensus_no_signal",
+      "evaluation_class": "NO_SIGNAL",
+      "selection_informed": true,
+      "published_attempt_count_lower_bound": 1,
+      "exact_attempt_count_known": false,
+      "evidence_state": "NO_SIGNAL",
+      "exact_trial_manifest_status": "NOT_APPLICABLE",
+      "after_cost_daily_return_series_status": "NOT_APPLICABLE",
+      "multiplicity_disposition": "BLOCK_SELECTION_MULTIPLICITY_UNMODELED",
+      "overlap_group_ids": [],
+      "evidence": [
+        {
+          "kind": "github_pr",
+          "pr_number": 240,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/240",
+          "head_commit": "303f96abbe9e12124fe7c45f77edcd933a8e922c",
+          "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
+          "artifacts": [
+            {
+              "path": "outputs/run287_conc_next_alpha_search/summary.json",
+              "git_blob_oid": "e3cd0f20c6a218fd89ea6daa679ba4da068d73e5",
+              "bytes": 8283
+            },
+            {
+              "path": "outputs/run287_conc_next_alpha_search/arm_metrics.csv",
+              "git_blob_oid": "e71c4625b7d93d15441b18a250b3814786ce4d3e",
+              "bytes": 2647
+            }
+          ]
+        }
+      ],
+      "finding": "The consensus path was blocked because no usable signal existed, but the attempt still informed which research path was tried next.",
+      "recovery_action": "Count the attempted source family in the selection multiplicity penalty; do not invent a zero-return portfolio column."
+    },
+    {
+      "registry_entry_id": "technical_macro_risk_financial_proxy",
+      "evaluation_class": "MIXED_SOURCE_AND_PORTFOLIO",
+      "selection_informed": true,
+      "published_attempt_count_lower_bound": 10,
+      "exact_attempt_count_known": false,
+      "evidence_state": "ORPHANED_SUMMARY_RECOVERABLE",
+      "exact_trial_manifest_status": "MISSING",
+      "after_cost_daily_return_series_status": "MISSING",
+      "multiplicity_disposition": "BLOCK_MISSING_EXACT_RETURN_SERIES",
+      "overlap_group_ids": [
+        "financial_proxy_shared_trials"
+      ],
+      "evidence": [
+        {
+          "kind": "github_pr",
+          "pr_number": 226,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/226",
+          "head_commit": "25a0e395ca769b2ecc62f8e74b3cdf8586e51866",
+          "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
+          "artifacts": [
+            {
+              "path": "outputs/run287_financial_proxy_screen/summary.json",
+              "git_blob_oid": "5e2a40d6712bd38b923bf8275d06ad6a0de4db15",
+              "bytes": 6623
+            }
+          ]
+        },
+        {
+          "kind": "github_pr",
+          "pr_number": 232,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/232",
+          "head_commit": "477cd39070c3133a622addb17dd0cddde6543915",
+          "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
+          "artifacts": [
+            {
+              "path": "outputs/run287_multisource_fusion_screen/summary.json",
+              "git_blob_oid": "08edf6d8e658e8957702f4ba4d823142656541bf",
+              "bytes": 9055
+            }
+          ]
+        },
+        {
+          "kind": "github_pr",
+          "pr_number": 234,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/234",
+          "head_commit": "acc321a1e97fa638dc251ed5c921d5cc59d37620",
+          "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
+          "artifacts": [
+            {
+              "path": "outputs/run287_best_path_search/summary.json",
+              "git_blob_oid": "1813088f8f2f187758a8a07d32b7267dfedcebc0",
+              "bytes": 22492
+            },
+            {
+              "path": "outputs/run287_best_path_source_broker_ab/arm_metrics.csv",
+              "git_blob_oid": "a2ddba95b962344988f4af649accb893e019d449",
+              "bytes": 16173
+            }
+          ]
+        },
+        {
+          "kind": "github_pr",
+          "pr_number": 239,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/239",
+          "head_commit": "1427abd3db1f5d5239eea8b419a3d0bf7ac2f7be",
+          "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
+          "artifacts": [
+            {
+              "path": "outputs/run287_financial_proxy_onepass_ab/summary.json",
+              "git_blob_oid": "c00cf919c77217b1b5a405bc7c1d27e73652c85b",
+              "bytes": 2978
+            },
+            {
+              "path": "outputs/run287_financial_proxy_onepass_ab/arm_metrics.csv",
+              "git_blob_oid": "86060e2931828678909c6ac4e0a0de761f1f80f5",
+              "bytes": 2094
+            }
+          ]
+        }
+      ],
+      "finding": "This registry entry combines several source screens and fixed-book proxy arms, including trials already represented by the static fundamental entry.",
+      "recovery_action": "Split source and portfolio trials, deduplicate the shared financial arms, and preserve every tested technical, macro, risk, and financial return column."
+    },
+    {
+      "registry_entry_id": "weak_source_fusion",
+      "evaluation_class": "PORTFOLIO_RETURN",
+      "selection_informed": true,
+      "published_attempt_count_lower_bound": 4,
+      "exact_attempt_count_known": false,
+      "evidence_state": "ORPHANED_SUMMARY_RECOVERABLE",
+      "exact_trial_manifest_status": "MISSING",
+      "after_cost_daily_return_series_status": "MISSING",
+      "multiplicity_disposition": "BLOCK_MISSING_EXACT_RETURN_SERIES",
+      "overlap_group_ids": [
+        "growth_confirmation_shared_trials"
+      ],
+      "evidence": [
+        {
+          "kind": "github_pr",
+          "pr_number": 232,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/232",
+          "head_commit": "477cd39070c3133a622addb17dd0cddde6543915",
+          "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
+          "artifacts": [
+            {
+              "path": "outputs/run287_multisource_fusion_screen/summary.json",
+              "git_blob_oid": "08edf6d8e658e8957702f4ba4d823142656541bf",
+              "bytes": 9055
+            }
+          ]
+        },
+        {
+          "kind": "github_pr",
+          "pr_number": 233,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/233",
+          "head_commit": "d4b4fbf9895e89af0a95a4fe6bfdd74a5b0969ca",
+          "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
+          "artifacts": [
+            {
+              "path": "outputs/run287_multisource_fusion_broker_ab/summary.json",
+              "git_blob_oid": "9d0fc65b4124d950b8400508f333253c7d8c1d27",
+              "bytes": 38373
+            },
+            {
+              "path": "outputs/run287_multisource_fusion_broker_ab/arm_metrics.csv",
+              "git_blob_oid": "d19867688e008ea622f049ce80d95265fdff5d6b",
+              "bytes": 7068
+            }
+          ]
+        }
+      ],
+      "finding": "Growth-confirmation fusion was tested at multiple strengths in both books and failed the combined CAGR/MDD or OOS gates.",
+      "recovery_action": "Recover the four published book-by-strength arms and avoid duplicating them under the direct-growth registry label."
+    },
+    {
+      "registry_entry_id": "direct_growth_tilt",
+      "evaluation_class": "PORTFOLIO_RETURN",
+      "selection_informed": true,
+      "published_attempt_count_lower_bound": 2,
+      "exact_attempt_count_known": false,
+      "evidence_state": "ORPHANED_SUMMARY_RECOVERABLE",
+      "exact_trial_manifest_status": "MISSING",
+      "after_cost_daily_return_series_status": "MISSING",
+      "multiplicity_disposition": "BLOCK_MISSING_EXACT_RETURN_SERIES",
+      "overlap_group_ids": [
+        "growth_confirmation_shared_trials"
+      ],
+      "evidence": [
+        {
+          "kind": "github_pr",
+          "pr_number": 233,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/233",
+          "head_commit": "d4b4fbf9895e89af0a95a4fe6bfdd74a5b0969ca",
+          "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
+          "artifacts": [
+            {
+              "path": "outputs/run287_multisource_fusion_broker_ab/summary.json",
+              "git_blob_oid": "9d0fc65b4124d950b8400508f333253c7d8c1d27",
+              "bytes": 38373
+            },
+            {
+              "path": "outputs/run287_multisource_fusion_broker_ab/arm_metrics.csv",
+              "git_blob_oid": "d19867688e008ea622f049ce80d95265fdff5d6b",
+              "bytes": 7068
+            }
+          ]
+        },
+        {
+          "kind": "github_pr",
+          "pr_number": 234,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/234",
+          "head_commit": "acc321a1e97fa638dc251ed5c921d5cc59d37620",
+          "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
+          "artifacts": [
+            {
+              "path": "outputs/run287_best_path_search/summary.json",
+              "git_blob_oid": "1813088f8f2f187758a8a07d32b7267dfedcebc0",
+              "bytes": 22492
+            }
+          ]
+        }
+      ],
+      "published_results": {
+        "main_growth_tilt10_cagr_mdd": [
+          0.3579,
+          -0.2593
+        ],
+        "verdict": "CAGR improved but MDD worsened"
+      },
+      "finding": "The direct Main growth tilt is not a distinct historical return trial from the corresponding growth-confirmation fusion arm.",
+      "recovery_action": "Map this concept to the shared trial IDs from PRs 233 and 234 rather than counting the same return columns twice."
+    },
+    {
+      "registry_entry_id": "composite_account_aware_execution",
+      "evaluation_class": "UNVERIFIED_LEGACY",
+      "selection_informed": true,
+      "published_attempt_count_lower_bound": 0,
+      "exact_attempt_count_known": false,
+      "evidence_state": "UNVERIFIED_ASSERTION",
+      "exact_trial_manifest_status": "MISSING",
+      "after_cost_daily_return_series_status": "MISSING",
+      "multiplicity_disposition": "BLOCK_UNVERIFIED_EVIDENCE",
+      "overlap_group_ids": [],
+      "evidence": [
+        {
+          "kind": "tracked_file",
+          "path": "CHANGELOG.md",
+          "sha256": "ab7a08a518cd1257790bdcc7ec837446a00fb19717450f82ba815b735a9a34c3",
+          "bytes": 1398460
+        }
+      ],
+      "finding": "The tracked changelog proves implementation and says a later replay was still required; no immutable rejection result was found even though the registry marks the family rejected.",
+      "recovery_action": "Locate the actual account-aware replay result or migrate this entry to unevaluated design debt without fabricating performance evidence."
+    },
+    {
+      "registry_entry_id": "main_growth_downside_beta_neutral",
+      "evaluation_class": "PORTFOLIO_RETURN",
+      "selection_informed": true,
+      "published_attempt_count_lower_bound": 1,
+      "exact_attempt_count_known": false,
+      "evidence_state": "SUMMARY_ONLY",
+      "exact_trial_manifest_status": "MISSING",
+      "after_cost_daily_return_series_status": "MISSING",
+      "multiplicity_disposition": "BLOCK_MISSING_EXACT_RETURN_SERIES",
+      "overlap_group_ids": [],
+      "evidence": [
+        {
+          "kind": "tracked_file",
+          "path": "docs/RUN287_FORWARD_DURABILITY_AND_IMPROVEMENT_PLAN_20260713.md",
+          "sha256": "26b5c3f3c85c71940fcae7eeb83b16848d1a47ed53ee6b7f38ce6ad841965550",
+          "bytes": 6512
+        }
+      ],
+      "published_results": {
+        "main_cagr_mdd": [
+          0.350843,
+          -0.252237
+        ],
+        "verdict": "rejected MDD gate by 0.2237 percentage points"
+      },
+      "finding": "A near-miss headline is preserved, but no exact parameter set, source hash, daily returns, or original result artifact is referenced.",
+      "recovery_action": "Recover the original arm and losing comparisons; do not threshold-tune the published endpoint."
+    },
+    {
+      "registry_entry_id": "sec_market_confirmed_fundamental_event",
+      "evaluation_class": "SOURCE_RETURN_SCREEN",
+      "selection_informed": true,
+      "published_attempt_count_lower_bound": 1,
+      "exact_attempt_count_known": false,
+      "evidence_state": "SOURCE_SCREEN_ONLY",
+      "exact_trial_manifest_status": "NOT_APPLICABLE",
+      "after_cost_daily_return_series_status": "NOT_APPLICABLE",
+      "multiplicity_disposition": "BLOCK_SELECTION_MULTIPLICITY_UNMODELED",
+      "overlap_group_ids": [
+        "sec_filing_quality_shared_screen"
+      ],
+      "evidence": [
+        {
+          "kind": "tracked_file",
+          "path": "docs/RUN287_FORWARD_DURABILITY_AND_IMPROVEMENT_PLAN_20260713.md",
+          "sha256": "26b5c3f3c85c71940fcae7eeb83b16848d1a47ed53ee6b7f38ce6ad841965550",
+          "bytes": 6512
+        }
+      ],
+      "finding": "This source screen failed OOS/OOS2 bootstrap lower bounds and never opened a portfolio arm; it overlaps the later exact filing-quality closure.",
+      "recovery_action": "Represent the source screen once in the selection multiplicity ledger and keep portfolio return statistics not applicable."
+    },
+    {
+      "registry_entry_id": "sec_filing_quality_event",
+      "evaluation_class": "SOURCE_RETURN_SCREEN",
+      "selection_informed": true,
+      "published_attempt_count_lower_bound": 1,
+      "exact_attempt_count_known": false,
+      "evidence_state": "SOURCE_SCREEN_ONLY",
+      "exact_trial_manifest_status": "NOT_APPLICABLE",
+      "after_cost_daily_return_series_status": "NOT_APPLICABLE",
+      "multiplicity_disposition": "BLOCK_SELECTION_MULTIPLICITY_UNMODELED",
+      "overlap_group_ids": [
+        "sec_filing_quality_shared_screen"
+      ],
+      "evidence": [
+        {
+          "kind": "tracked_file",
+          "path": "docs/CODEX_RUN287_SEC_FILING_QUALITY_SOURCE_SCREEN_CLOSURE_20260714.md",
+          "sha256": "cf0fd2474edcc05c0c75b60fa80a1730123815292303358123f1173f4ee14269",
+          "bytes": 3243
+        },
+        {
+          "kind": "github_pr",
+          "pr_number": 278,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/278",
+          "head_commit": "e643e4539fe1ffbc20da82a01a2ae3074b3f93d2",
+          "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
+          "artifacts": [
+            {
+              "path": "docs/CODEX_RUN287_SEC_FILING_QUALITY_SOURCE_SCREEN_CLOSURE_20260714.md",
+              "git_blob_oid": "3762d8fae40fc9657bcf0543f98e5dea3fd2dfc7",
+              "bytes": 3243
+            }
+          ]
+        },
+        {
+          "kind": "missing_local_artifact",
+          "path": "outputs/sec_filing_quality_event/source_screen_summary.json",
+          "reason": "The canonical registry references this frozen summary, but it is absent from the current working tree and Git ancestry."
+        }
+      ],
+      "finding": "The exact-accepted-time source screen is well documented and powered, but its referenced frozen result is missing locally and it shares lineage with the older generic SEC event entry.",
+      "recovery_action": "Recover the frozen source summary by its documented hashes and count the shared screen only once in source-selection multiplicity."
+    },
+    {
+      "registry_entry_id": "sec_management_guidance_keyword_scout",
+      "evaluation_class": "INVALID_OR_INCOMPLETE",
+      "selection_informed": true,
+      "published_attempt_count_lower_bound": 1,
+      "exact_attempt_count_known": false,
+      "evidence_state": "INVALID_RUN",
+      "exact_trial_manifest_status": "NOT_APPLICABLE",
+      "after_cost_daily_return_series_status": "NOT_APPLICABLE",
+      "multiplicity_disposition": "BLOCK_INVALID_EVIDENCE",
+      "overlap_group_ids": [],
+      "evidence": [
+        {
+          "kind": "tracked_file",
+          "path": "docs/CODEX_RUN287_SEC_GUIDANCE_GOLDSET_REVIEW_GATE_RESULT_20260714.md",
+          "sha256": "339d34f042b3a1ce9f4263c0582841ea8355595f14073fe0cbee0f4ebe067310",
+          "bytes": 4461
+        },
+        {
+          "kind": "missing_local_artifact",
+          "path": "outputs/run287_sec_guidance_goldset_review_gate_20260714/summary.json",
+          "reason": "The registry points to a local result that is not present or tracked on current master."
+        }
+      ],
+      "finding": "The email-free keyword scout closed at the source precision/recall gate before any portfolio-return evaluation.",
+      "recovery_action": "Preserve it as an invalid source attempt in the selection ledger; never convert the absent portfolio trial into zero returns."
+    },
+    {
+      "registry_entry_id": "partial_resize_two_signal_confirmation",
+      "evaluation_class": "PORTFOLIO_RETURN",
+      "selection_informed": true,
+      "published_attempt_count_lower_bound": 1,
+      "exact_attempt_count_known": false,
+      "evidence_state": "SUMMARY_ONLY",
+      "exact_trial_manifest_status": "MISSING",
+      "after_cost_daily_return_series_status": "MISSING",
+      "multiplicity_disposition": "BLOCK_MISSING_EXACT_RETURN_SERIES",
+      "overlap_group_ids": [],
+      "evidence": [
+        {
+          "kind": "tracked_file",
+          "path": "docs/CODEX_RUN287_PARTIAL_RESIZE_CONFIRMATION_RESULT_20260713.md",
+          "sha256": "255db76caccfbaeae241b030492c35e3b34fd9dbfbd7c798512beeb918851d37",
+          "bytes": 4350
+        },
+        {
+          "kind": "github_pr",
+          "pr_number": 267,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/267",
+          "head_commit": "6dfb7b9d2c6d040cc5f30d030184cb6cdbc7a67f",
+          "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
+          "artifacts": [
+            {
+              "path": "docs/CODEX_RUN287_PARTIAL_RESIZE_CONFIRMATION_RESULT_20260713.md",
+              "git_blob_oid": "b1edbe74283819372d300639918ba0749ae0588e",
+              "bytes": 4350
+            }
+          ]
+        },
+        {
+          "kind": "missing_local_artifact",
+          "path": "outputs/run287_partial_resize_two_signal_20260713/summary.json",
+          "reason": "The result document and registry reference this summary, but it is absent from the current tree."
+        }
+      ],
+      "published_results": {
+        "main_candidate_cagr": 0.315886,
+        "concentrated_candidate_cagr": 0.382025,
+        "verdict": "REJECT_OOS_CAGR_WORSE"
+      },
+      "finding": "The single mechanism fired and reduced fees, but lost much more target-weight alpha; only aggregate metrics remain in current ancestry.",
+      "recovery_action": "Recover both book return series and bind them to one policy trial without counting each reporting window as a new parameter."
+    },
+    {
+      "registry_entry_id": "leadership_persistence_v2_strict",
+      "evaluation_class": "NO_OP_PORTFOLIO",
+      "selection_informed": true,
+      "published_attempt_count_lower_bound": 1,
+      "exact_attempt_count_known": false,
+      "evidence_state": "NO_OP",
+      "exact_trial_manifest_status": "MISSING",
+      "after_cost_daily_return_series_status": "MISSING",
+      "multiplicity_disposition": "BLOCK_MISSING_EXACT_RETURN_SERIES",
+      "overlap_group_ids": [],
+      "evidence": [
+        {
+          "kind": "tracked_file",
+          "path": "docs/CODEX_RUN287_P5_HOLD_EXIT_REPLACEMENT_RESULT_20260720.md",
+          "sha256": "a5a3509d60b2225a2da8cd7f24dd72fab8f3900cb1341a55a95fde3b3dcc3778",
+          "bytes": 4873
+        },
+        {
+          "kind": "github_pr",
+          "pr_number": 310,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/310",
+          "head_commit": "ca6dea36b81a620ecc2c0f4fd28ed9414bc920cb",
+          "ancestry": "CURRENT_MASTER",
+          "artifacts": []
+        },
+        {
+          "kind": "missing_local_artifact",
+          "path": "_tmp_tests/p5_hold_exit_actual_v2_20260720/summary.json",
+          "reason": "The result document cites a temporary local summary that was not committed."
+        }
+      ],
+      "finding": "The preregistered arm retained zero incumbents because historical sector RS was absent; it still counts as an attempted causal family rather than positive performance evidence.",
+      "recovery_action": "Bind the exact no-op parameter manifest and champion-equal return column, then keep it in multiplicity without retuning."
+    },
+    {
+      "registry_entry_id": "canonical_sector_relative_strength_materialization",
+      "evaluation_class": "PORTFOLIO_RETURN",
+      "selection_informed": true,
+      "published_attempt_count_lower_bound": 1,
+      "exact_attempt_count_known": false,
+      "evidence_state": "SUMMARY_ONLY",
+      "exact_trial_manifest_status": "MISSING",
+      "after_cost_daily_return_series_status": "MISSING",
+      "multiplicity_disposition": "BLOCK_MISSING_EXACT_RETURN_SERIES",
+      "overlap_group_ids": [],
+      "evidence": [
+        {
+          "kind": "tracked_file",
+          "path": "docs/CODEX_RUN287_P6_CANDIDATE_GATE_STABILITY_RESULT_20260720.md",
+          "sha256": "38d89035c9080c2345c3725ea4c94fc75249ebb2ef82bd16b1ceb43c870c0770",
+          "bytes": 6526
+        },
+        {
+          "kind": "github_pr",
+          "pr_number": 311,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/311",
+          "head_commit": "ced4baf6218aee18ecdbc4080505ee305d275a12",
+          "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
+          "artifacts": [
+            {
+              "path": "tools/evaluate_run287_sector_rs_materialization.py",
+              "git_blob_oid": "15e473a6660ca2bf59e3718f8ca1785e79af7fe0",
+              "bytes": 11035
+            }
+          ]
+        },
+        {
+          "kind": "missing_local_artifact",
+          "path": "_tmp_tests/p6_sector_rs_broker_ab_20260720/summary.json",
+          "reason": "The documented local broker A/B summary was never committed."
+        }
+      ],
+      "published_results": {
+        "main_delta_cagr_mdd_pp": [
+          -0.67,
+          -1.2
+        ],
+        "concentrated_delta_cagr_mdd_pp": [
+          -1.74,
+          -1.99
+        ],
+        "verdict": "REJECT_OOS_AND_COST"
+      },
+      "finding": "The repair changed many monthly decisions and failed Full/OOS/OOS2 and cost gates, but its daily return columns are absent.",
+      "recovery_action": "Recover the exact repaired artifact, both target-book hashes, and both after-cost return series before inclusion in historical multiplicity."
+    },
+    {
+      "registry_entry_id": "hierarchical_sector_leadership_portfolio_reconstruction",
+      "evaluation_class": "PORTFOLIO_RETURN",
+      "selection_informed": true,
+      "published_attempt_count_lower_bound": 1,
+      "exact_attempt_count_known": false,
+      "evidence_state": "SUMMARY_ONLY",
+      "exact_trial_manifest_status": "MISSING",
+      "after_cost_daily_return_series_status": "MISSING",
+      "multiplicity_disposition": "BLOCK_MISSING_EXACT_RETURN_SERIES",
+      "overlap_group_ids": [],
+      "evidence": [
+        {
+          "kind": "github_pr",
+          "pr_number": 336,
+          "url": "https://github.com/wscha231/r1000-quant-engine/pull/336",
+          "head_commit": "97f9bf5753dfc3ec44c552d64da4d10b5b63b9f5",
+          "ancestry": "ORPHANED_FROM_CURRENT_MASTER",
+          "artifacts": [
+            {
+              "path": "tools/run_market_leader_challenger.py",
+              "git_blob_oid": "eb408d42289670983768638cfbac380f685d10ec",
+              "bytes": 44590
+            }
+          ]
+        }
+      ],
+      "published_results": {
+        "main_cagr_mdd": [
+          0.2382,
+          -0.3623
+        ],
+        "concentrated_cagr_mdd": [
+          0.1684,
+          -0.4669
+        ],
+        "verdict": "REJECT_CAGR_AND_MDD"
+      },
+      "finding": "The report-only leadership tape remains useful, but applying the prior reconstruction produced severe CAGR and MDD deterioration.",
+      "recovery_action": "Preserve the exact rejected reconstruction as one historical family; any future leadership work must use new semantics such as independent confirmation or veto, not the same portfolio rebuild."
+    }
+  ]
+}
