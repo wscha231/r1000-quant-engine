@@ -818,7 +818,7 @@ def test_sidecar_pins_cash_carry_off_even_when_environment_enables_it() -> None:
             assert "_cash_carry" not in str(nested["metric_mode"])
 
 
-def test_concentrated_manifest_uses_replay_filtered_champion_tickers() -> None:
+def test_concentrated_manifest_uses_registered_replay_filter_tickers() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         cache = root / "cache"
@@ -826,7 +826,7 @@ def test_concentrated_manifest_uses_replay_filtered_champion_tickers() -> None:
         output = root / "execution"
         cache.mkdir()
         reports.mkdir()
-        for index, ticker in enumerate(("AAA", "BBB", "CCC", "DDD")):
+        for index, ticker in enumerate(("AAA", "BBB", "CCC", "DDD", "EEE", "FFF", "GGG")):
             _write_ohlcv(
                 cache,
                 ticker,
@@ -844,15 +844,16 @@ def test_concentrated_manifest_uses_replay_filtered_champion_tickers() -> None:
             }
             for ticker in ("AAA", "BBB", "CCC", "DDD")
         ]
-        rows.append(
+        rows.extend(
             {
                 "rebalance_date": "2024-01-02",
-                "ticker": "MISSING",
-                "weight": 1.0,
+                "ticker": ticker,
+                "weight": 1.0 / 3.0,
                 "target_stock_names": 3,
                 "weighting_mode": "score_power",
                 "active_rebalance_interval_months": 1,
             }
+            for ticker in ("EEE", "FFF", "GGG")
         )
         pd.DataFrame(rows).to_csv(targets, index=False)
         pd.DataFrame(
@@ -890,18 +891,22 @@ def test_concentrated_manifest_uses_replay_filtered_champion_tickers() -> None:
         manifest = json.loads(
             (output / "source_manifest.json").read_text(encoding="utf-8")
         )
-        assert manifest["target_ticker_count"] == 4
-        assert manifest["raw_target_ticker_count"] == 5
+        assert manifest["target_ticker_count"] == 3
+        assert manifest["raw_target_ticker_count"] == 7
         assert manifest["replay_filtered_target_tickers"] == [
+            "EEE",
+            "FFF",
+            "GGG",
+        ]
+        assert manifest["excluded_raw_target_tickers"] == [
             "AAA",
             "BBB",
             "CCC",
             "DDD",
         ]
-        assert manifest["excluded_raw_target_tickers"] == ["MISSING"]
-        assert "MISSING" not in {
+        assert {"AAA", "BBB", "CCC", "DDD"}.isdisjoint({
             row["ticker"] for row in manifest["price_sources"]
-        }
+        })
 
 
 def test_blocked_replay_report_never_fabricates_zero_performance() -> None:
@@ -1215,7 +1220,7 @@ def main() -> int:
     test_unrelated_implausible_paper_rows_do_not_block_replay()
     test_modeled_total_cost_reaching_100_percent_fails_preflight()
     test_sidecar_pins_cash_carry_off_even_when_environment_enables_it()
-    test_concentrated_manifest_uses_replay_filtered_champion_tickers()
+    test_concentrated_manifest_uses_registered_replay_filter_tickers()
     test_blocked_replay_report_never_fabricates_zero_performance()
     test_missing_target_price_source_blocks_manifest_even_without_trade()
     test_stale_but_loadable_price_history_blocks_target_fill_coverage()

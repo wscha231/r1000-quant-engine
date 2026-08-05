@@ -11,7 +11,11 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.run_broker_ledger_replay import DISABLE_CONCENTRATED_CHAMPION_FILTERS, replay  # noqa: E402
+from tools.run_broker_ledger_replay import (  # noqa: E402
+    DISABLE_CONCENTRATED_CHAMPION_FILTERS,
+    filter_concentrated_champion,
+    replay,
+)
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
 
@@ -239,7 +243,7 @@ def test_broker_replay_does_not_backdate_sparse_history_fill() -> None:
         assert not (out / "equity_curve.csv").exists()
 
 
-def test_concentrated_replay_uses_comparison_champion_filter() -> None:
+def test_concentrated_replay_ignores_unaccepted_in_run_comparison() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         cache = root / "cache_prices"
@@ -284,9 +288,11 @@ def test_concentrated_replay_uses_comparison_champion_filter() -> None:
         )
 
         assert metrics["status"] == "completed"
-        assert metrics["target_book_filter"]["target_stock_names"] == "4"
+        assert metrics["target_book_filter"]["target_stock_names"] == "3"
+        assert metrics["target_book_filter_source"] == "registered_static_contract"
+        assert "unaccepted in-run comparison ignored" in metrics["target_book_filter_warning"]
         positions = pd.read_csv(out / "positions_latest.csv")
-        assert set(positions["ticker"]) == {"DDD", "EEE", "FFF", "GGG"}
+        assert set(positions["ticker"]) == {"AAA", "BBB", "CCC"}
 
 
 def test_concentrated_filter_disable_preserves_n5_target_book() -> None:
@@ -327,6 +333,38 @@ def test_concentrated_filter_disable_preserves_n5_target_book() -> None:
         assert metrics.get("target_book_filter") in ({}, None)
         positions = pd.read_csv(out / "positions_latest.csv")
         assert len(positions) == 5
+
+
+def test_registered_concentrated_filter_fails_on_missing_column_or_unmatched_value() -> None:
+    missing_column = pd.DataFrame(
+        [{"rebalance_date": "2026-01-02", "ticker": "AAA", "weight": 1.0}]
+    )
+    try:
+        filter_concentrated_champion(missing_column, "concentrated")
+    except ValueError as exc:
+        assert "filter column is missing" in str(exc)
+    else:
+        raise AssertionError("missing registered filter column must fail closed")
+
+    n5 = pd.DataFrame(
+        [
+            {
+                "rebalance_date": "2026-01-02",
+                "ticker": ticker,
+                "weight": 0.2,
+                "target_stock_names": 5,
+                "weighting_mode": "score_power",
+                "active_rebalance_interval_months": 1,
+            }
+            for ticker in ["AAA", "BBB", "CCC", "DDD", "EEE"]
+        ]
+    )
+    try:
+        filter_concentrated_champion(n5, "concentrated")
+    except ValueError as exc:
+        assert "target_stock_names=3" in str(exc)
+    else:
+        raise AssertionError("N=5 must not masquerade as the registered N=3 champion")
 
 
 def test_alphaops_vnext_concentrated_book_auto_disables_legacy_filter() -> None:
@@ -391,8 +429,9 @@ def main() -> int:
     test_explicitly_disabled_partial_resize_mode_preserves_control_parity()
     test_broker_replay_blocks_contaminated_weight_book()
     test_broker_replay_does_not_backdate_sparse_history_fill()
-    test_concentrated_replay_uses_comparison_champion_filter()
+    test_concentrated_replay_ignores_unaccepted_in_run_comparison()
     test_concentrated_filter_disable_preserves_n5_target_book()
+    test_registered_concentrated_filter_fails_on_missing_column_or_unmatched_value()
     test_alphaops_vnext_concentrated_book_auto_disables_legacy_filter()
     print("broker_ledger_replay_smoke: PASS")
     return 0

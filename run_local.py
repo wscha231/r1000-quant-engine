@@ -261,6 +261,16 @@ def parse_args() -> argparse.Namespace:
                    help="FULL rebuild (rebuilds feature_store + retrains models). Default is QUICK_RESCORE.")
     p.add_argument("--no-collector", action="store_true",
                    help="Skip the data collection step (use existing cached prices + SEC + macro).")
+    p.add_argument(
+        "--collector-only",
+        action="store_true",
+        help="Run collection and exit before engine computation. Used to hash-bind fetched inputs before an approved fullrun.",
+    )
+    p.add_argument(
+        "--bound-inputs-only",
+        action="store_true",
+        help="Block all outbound network access during engine computation after runtime inputs have been hash-bound.",
+    )
     p.add_argument("--verdict-only", action="store_true",
                    help="Skip the entire pipeline. Read existing outputs and print Cell E verdict.")
     p.add_argument("--end-date", default=None,
@@ -302,6 +312,21 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--phase9-c3", choices=["auto", "0", "1"], default="auto",
                    help="Phase 9 C3 EPS turn-positive + still-loss-improving branches (default: auto = on per cfg).")
     return p.parse_args()
+
+
+def install_bound_input_network_guard() -> None:
+    """Fail closed if post-binding engine code attempts any outbound fetch."""
+    import socket
+
+    def blocked(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError(
+            "outbound network access blocked after fullrun runtime inputs were hash-bound"
+        )
+
+    socket.create_connection = blocked  # type: ignore[assignment]
+    socket.socket.connect = blocked  # type: ignore[assignment]
+    socket.socket.connect_ex = blocked  # type: ignore[assignment]
+    os.environ["RUN287_BOUND_INPUTS_ONLY"] = "1"
 
 
 # ------------------------------------------------------------------
@@ -853,6 +878,12 @@ def main() -> int:
             pass
 
     args = parse_args()
+    if args.collector_only and args.no_collector:
+        print("ERROR: --collector-only and --no-collector are mutually exclusive", file=sys.stderr)
+        return 2
+    if args.bound_inputs_only and not args.no_collector:
+        print("ERROR: --bound-inputs-only requires --no-collector", file=sys.stderr)
+        return 2
     base_dir = Path(args.base_dir)
     end_date = args.end_date or datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d")
     fast_mode = args.fast_mode.lower() == "true"
@@ -922,8 +953,12 @@ def main() -> int:
     sys.path.insert(0, str(REPO_ROOT))
     os.chdir(base_dir)
 
+    if args.bound_inputs_only:
+        install_bound_input_network_guard()
+
     # Import after env vars are set and sys.path is ready
     from r1000_data_collector import (  # noqa: E402
+        apply_bound_input_no_refresh_overrides,
         collector_lean_full_run_cfg,
         pipeline_quick_rescore_cfg,
         run_data_collection,
@@ -952,6 +987,10 @@ def main() -> int:
     else:
         print(f"\n[{now_kst()}] >>> Step 1: Collector SKIPPED")
 
+    if args.collector_only:
+        print(f"\n[{now_kst()}] Collector-only boundary complete; engine computation not started.")
+        return 0
+
     # ---------- Step 2: pipeline ----------
     print(f"\n[{now_kst()}] >>> Step 2: Pipeline ({('FULL REBUILD' if args.full else 'QUICK_RESCORE')})")
     t0 = time.perf_counter()
@@ -966,9 +1005,17 @@ def main() -> int:
         pipeline_cfg["resume_partial_walkforward"] = False
         pipeline_cfg["reuse_phase4_models_for_latest_recommendations"] = False
         pipeline_cfg["force_full_fund_panel_rebuild"] = False
-        # Warm industry metadata cache on first FULL run
-        pipeline_cfg["industry_metadata_max_new_per_run"] = 1200
+        # A bound-input run may consume cached industry metadata but cannot
+        # refresh it after the approved runtime identity was captured.
+        pipeline_cfg["industry_metadata_max_new_per_run"] = (
+            0 if args.bound_inputs_only else 1200
+        )
         pipeline_cfg["industry_metadata_refresh_days"] = 60
+    if args.bound_inputs_only:
+        # Apply this after every full-run override. COMMON_CFG_OVERRIDES and
+        # the full preset normally permit bounded refresh work, but once the
+        # approved runtime identity is captured every path must reuse cache.
+        apply_bound_input_no_refresh_overrides(pipeline_cfg)
     if args.ab_quick:
         # 2026-04-22: disable 7 comparison grids for fast-iter A/B runs.
         # Main backtest only. Set ab_quick_mode flag so apply_fast_mode honors

@@ -99,13 +99,23 @@ def test_decision_cadence_outputs_mid_month_reentry_review() -> None:
         assert summary["mid_month_reentry_allowed"] is True
         assert summary["mid_month_reentry_requires_full_universe_rerank"] is False
         assert "mid_month_reentry_ready" in summary["event_triggers_active"]
+        abcd = summary["abcd_cadence_challenger"]
+        assert abcd["contract_ready"] is True
+        assert abcd["accepted_champion"] == "A"
+        assert abcd["recommended_operating_candidate"] == "D"
+        assert abcd["historical_backtest_executed"] is False
+        assert set(abcd["arms"]) == {"A", "B", "C", "D"}
+        assert abcd["arms"]["D"]["routine_rebalance"] == "last_nyse_session_of_month"
+        assert abcd["arms"]["D"]["turnover_controls"]["weekly_full_universe_rerank"] is False
         assert (out / "daily_holdings_review.csv").exists()
         assert (out / "weekly_watchlist_refresh.csv").exists()
         assert (out / "monthly_event_rerank_plan.json").exists()
+        assert (out / "abcd_cadence_preregistration.json").exists()
         weekly = pd.read_csv(out / "weekly_watchlist_refresh.csv")
         assert "ADD_CANDIDATE_REVIEW" in set(weekly["weekly_review_action"].astype(str))
         report = (out / "decision_cadence_report.md").read_text(encoding="utf-8")
         assert "re-entry does not wait for month-end" in report
+        assert "Preregistered A/B/C/D comparison" in report
 
 
 if __name__ == "__main__":

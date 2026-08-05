@@ -28,6 +28,17 @@ from tools.run_weekly_evaluation import load_price_series, px_cache_name  # noqa
 DEFAULT_LATEST_RUN = "cloud_results/full_rebuild/latest_global_alpha_universe"
 DEFAULT_OUTPUT_DIR = "outputs/replay_integrity"
 BENCHMARK_TICKERS = ("SPY", "QQQ")
+REGISTERED_CONCENTRATED_FILTER = {
+    "target_stock_names": "3",
+    "weighting_mode": "score_power",
+    "active_rebalance_interval_months": "1",
+}
+ACCEPTED_CONCENTRATED_FILTER_SOURCES = {
+    "alphaops_vnext_policy_target_book",
+    "disabled_explicit",
+    "explicit",
+    "registered_static_contract",
+}
 
 
 def repo_path(value: str | Path) -> Path:
@@ -88,6 +99,17 @@ def safe_float(value: Any, default: float | None = None) -> float | None:
         return out if math.isfinite(out) else default
     except (TypeError, ValueError):
         return default
+
+
+def normalized_filter_value(value: Any) -> str:
+    text = str(value if value is not None else "").strip()
+    try:
+        number = float(text)
+    except (TypeError, ValueError):
+        return text
+    if math.isfinite(number) and abs(number - round(number)) < 1e-9:
+        return str(int(round(number)))
+    return text
 
 
 def date_text(value: Any) -> str:
@@ -336,6 +358,13 @@ def build_report(
     expected = expected_latest_market_close(asof_date)
     freshness_lag = business_day_lag(price_latest, expected)
     target_filter_source = str(metrics.get("target_book_filter_source") or "")
+    target_filter = metrics.get("target_book_filter")
+    target_filter = target_filter if isinstance(target_filter, dict) else {}
+    registered_filter_observed = {
+        key: normalized_filter_value(target_filter.get(key))
+        for key in REGISTERED_CONCENTRATED_FILTER
+    }
+    registered_filter_valid: bool | None = None
     metric_mode = str(metrics.get("metric_mode") or baseline.get("official_metric_mode") or "")
     requested_n = target_stats.get("requested_target_n")
     actual_median = actual_stats.get("actual_median_position_count")
@@ -347,8 +376,19 @@ def build_report(
         blockers.append("candidate_replay_book_missing")
     if metric_mode and metric_mode != "broker_ledger_next_close":
         blockers.append("metric_mode_not_broker_ledger_next_close")
-    if portfolio_kind == "concentrated" and target_filter_source == "default_static":
-        blockers.append("default_static_concentrated_filter")
+    if portfolio_kind == "concentrated":
+        if target_filter_source == "default_static":
+            blockers.append("default_static_concentrated_filter")
+        elif target_filter_source == "registered_static_contract":
+            registered_filter_valid = (
+                registered_filter_observed == REGISTERED_CONCENTRATED_FILTER
+            )
+            if not registered_filter_valid:
+                blockers.append("registered_concentrated_contract_mismatch")
+        elif not target_filter_source:
+            blockers.append("concentrated_filter_source_missing")
+        elif target_filter_source not in ACCEPTED_CONCENTRATED_FILTER_SOURCES:
+            blockers.append("unaccepted_concentrated_filter_source")
     if freshness_lag > 2:
         blockers.append("stale_price_gt_2_us_business_days")
     coverage = safe_float(price_stats.get("price_cache_coverage"), None)
@@ -406,6 +446,9 @@ def build_report(
         "date_range_start": pd.Timestamp(dates.min()).date().isoformat() if not dates.empty else "",
         "date_range_end": pd.Timestamp(dates.max()).date().isoformat() if not dates.empty else "",
         "target_book_filter_source": target_filter_source,
+        "registered_concentrated_filter_expected": REGISTERED_CONCENTRATED_FILTER,
+        "registered_concentrated_filter_observed": registered_filter_observed,
+        "registered_concentrated_filter_valid": registered_filter_valid,
         "concentrated_filter_disabled": target_filter_source == "disabled_explicit",
         "metric_mode": metric_mode,
         "portfolio_kind": portfolio_kind,

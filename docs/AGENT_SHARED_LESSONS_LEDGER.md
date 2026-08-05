@@ -3167,6 +3167,29 @@ Expected contract:
 - Fullrun executed: false. Durable daily catch-up executed: false. Production
   enabled: false. Live trading enabled: false.
 
+## 2026-08-03 - Fullrun session, producer order, and champion authority
+
+- A latest-close fullrun must start from one explicit approved UTC decision
+  timestamp, resolve one completed NYSE session, and pass that same date to the
+  selector, clean-window preflights, broker evidence, and published artifact.
+  A default date in any one stage creates a mixed-period result.
+- A gate cannot require an output before its producer runs. Give every
+  producer boundary an explicit artifact scope, validate the available scope
+  there, and validate expanded scopes only after their producers complete.
+- Close-derived features become available at the actual scheduled exchange
+  close, including half days, not at calendar-day midnight. Preserve later
+  filing or membership timestamps so future-data defects remain visible.
+- A comparison table generated inside a run is research output, not a champion
+  pointer. It cannot select N, weighting, or cadence for that same run. Use an
+  accepted immutable pointer or an explicitly registered static contract and
+  validate its exact values downstream.
+- Adding parseable provenance fields is not equivalent to completing the
+  bitemporal PIT layer. Missing SEC-enriched evidence and a restored-target-only
+  latest selector remain blockers; they must not be waived by a successful
+  structural smoke test.
+- Fullrun executed: false. Production enabled: false. Live trading enabled:
+  false. Automatic promotion enabled: false.
+
 ## 2026-07-31 - exact-close shock/rebound pattern memory
 
 - A violent one-day rebound after a drawdown is an observation, not proof that
@@ -3745,3 +3768,155 @@ Expected contract:
   any restored run-local target bytes before emitting its replay-only marker.
 - Fullrun executed: false. Durable daily catch-up executed: false. Production
   enabled: false. Live trading enabled: false.
+
+## 2026-08-03 - Fullrun source identity and cadence-challenger boundary
+
+- A syntactically valid SHA input is not source approval. The workflow must
+  resolve the approved hash to a safe, regular, Git-tracked manifest and verify
+  its exact dispatch scope, tracked-input hashes, Git head, and resolved market
+  session before expensive or stateful work.
+- An enriched artifact cannot certify its own prerequisites. Policy replay must
+  require each raw PIT store independently, rehash every recorded source, bind
+  the candidate and output bytes, and reject a stale artifact after any source
+  changes.
+- Calendar end-of-day is not market availability. Form4, 13F, ETF, candidate,
+  and price evidence must be filtered at the actual scheduled NYSE close,
+  including half days; after-close evidence belongs to a later decision.
+- Latest-close reporting needs a computation-boundary proof, not a date label.
+  Verify the complete scored cross-section, latest candidate slice, both target
+  proposals, and exact-close price coverage against the single approved
+  session, then publish their hashes.
+- A/B/C/D is one multiple-testing family, not four opportunities to pick a lucky
+  result. Keep A as the accepted monthly reference; decompose weekly cadence and
+  20-session timing in B/C; let D combine only bounded behavior. In D, weekly
+  leadership may update the watchlist or fill an already valid vacancy, but it
+  must not churn a healthy holding before the normal monthly rebalance.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
+## 2026-08-04 - Immutable approval bytes and pre-computation data identity
+
+- Parse an approved manifest from the exact committed Git blob used for its
+  digest. A later worktree mutation must not be able to change runtime group
+  semantics under the unchanged approval hash.
+- When collection is allowed, split collection from computation: collect,
+  bind the resulting mutable inputs, then run the engine with collection
+  disabled. If `skip_collector=true` was approved and caches are absent, fail
+  instead of silently changing the approved execution mode.
+- Candidate-gate provenance labels are mandatory data. Blank labels block just
+  like synthesized audit fallbacks; column presence alone is insufficient.
+- A static broker contract must govern the latest selector itself. Do not label
+  an N=4/N=5 same-run grid winner as N=3, and do not let broker filtering fall
+  back to an older N=3 decision when the current row is incompatible.
+- Universe health is a required completed prerequisite for policy replay. Its
+  command must run strictly, and a missing audit artifact is a blocker rather
+  than an implicit pass.
+- Values written through `GITHUB_ENV` are runner-process environment on later
+  steps; do not re-declare them through an unavailable expression context and
+  accidentally replace them with an empty string.
+- `--no-collector` alone does not prove a network-free engine. A hash-bound run
+  must install an outbound-network guard and set refresh budgets to zero so a
+  pipeline-side cache repair cannot occur after identity capture.
+- A Python socket monkeypatch does not stop native curl-cffi/libcurl clients.
+  Put the entire post-binding engine process in an outbound-isolated network
+  namespace and retain the Python guard only as defense in depth.
+- Ranged requirement declarations are not a resolved runtime identity. Capture
+  the installed Python/package versions before binding mutable inputs and retain
+  that file in every official artifact profile.
+- Candidate replay validation must annotate the exact effective construction
+  gate, including registered overrides. Re-running only a base gate can erase a
+  legitimately selected override and audit the wrong population.
+- No-refresh budgets must include indirect Yahoo repair lanes such as market-cap
+  proxies, even when their call sites pass hard-coded per-call limits. Cap those
+  limits with a shared runtime budget and force it to zero after binding.
+- Latest ranking eligibility must use the same effective gate and prerequisite
+  overlays as historical construction; otherwise an override can be audited as
+  valid yet removed before the current target is built.
+- A post-engine price refresh must not redate an older selector beyond the
+  approved session. Cap operating-book construction at the resolved session and
+  require the source target itself to come from that exact session.
+- PIT event aggregation ends at the scheduled exchange close, not civil-day
+  midnight. Validate derived top-manager availability again at enrichment time
+  so stale cached producers also fail closed.
+- Broker evidence and its runtime identities are one durable publication unit.
+  Drive modes that retain ledgers must require both runtime manifests, source
+  verification, and the resolved dependency inventory.
+- Candidate-gate Boolean and label form one contract: passing rows use only the
+  registered pass labels, rejected rows use `rejected`, and unknown Boolean
+  encodings fail closed before completeness is computed.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
+## 2026-08-03 - Portable fullrun approval and final pre-broker boundary
+
+- Approval digests for tracked files must use exact Git blob bytes. Hashing a
+  translated checkout makes the same commit acquire different identities on
+  Windows CRLF and Linux LF runners. Record the worktree digest separately and
+  use `git diff` semantics to reject real modifications.
+- Code identity does not bind restored data. After every cache/Drive restore and
+  required refresh, publish a deterministic manifest of the actual mutable
+  files, sizes, and SHA-256 values tied to the approved commit, market session,
+  decision time, and workflow run. Capture a second identity when a later stage
+  refreshes prices or replaces target books.
+- Readiness and freshness gates belong after the final mutation-capable target
+  hook. A gate that runs before the selected policy replaces operating books
+  certifies the wrong inputs. A failed strict prerequisite must prevent the
+  sidecar and broker replay rather than merely leave diagnostic artifacts.
+- Registered predicates are conjunctive contracts, not best-effort hints. A
+  missing filter column or absent expected value must block; otherwise an N=5
+  book can be reported under an N=3 champion label.
+- Selecting a sidecar profile in an approval manifest also selects its evidence
+  obligations. If 25/50/100 bps are required, that exact profile must execute
+  both portfolios at all three levels and fail if any replay is incomplete.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
+## 2026-08-03 - Fullrun publication, proposal, and completeness boundary
+
+- A passing-progress Tier-1 run can still be cancelled by an undersized job
+  timeout because checkout and setup consume the same budget as tests. Keep the
+  complete validation set and size the bounded timeout from observed runtime.
+- Mutation-safe sidecars are insufficient when cloud, Drive, or commit-based
+  publication still uses unconditional execution. Canonical mutation and every
+  publication surface must require the full validated path to succeed.
+- Target readiness is more than a matching session label. Validate normalized
+  unique tickers, scored eligibility, PIT availability, and exact-close coverage
+  for every proposed equity position before broker replay.
+- Required 25/50/100 bps cost evidence must be generated and retained on every
+  canonical artifact surface; a report that is omitted during packaging is not
+  durable evidence.
+- Runtime/source identities must accompany broker evidence on every durable
+  surface, including the committed minimal cloud-results bundle as well as
+  Actions and Drive artifacts. An allowlist fix on only one publisher leaves
+  the remaining canonical copy unverifiable.
+- A 98% candidate contract applies to complete rows over the registered field
+  set. Invalid tickers, non-positive prices, and invalid PIT timestamps remain
+  zero-tolerance integrity failures even when aggregate coverage exceeds 98%.
+- Runtime identity must bind every restored cache that can influence the engine,
+  including optional caches when they are present, rather than only the required
+  minimum input groups.
+- Tier-1 structural tests must respect the workflow's sparse-checkout contract.
+  When an approved tracked file is intentionally outside the checkout cone, read
+  the exact `HEAD:<path>` Git blob instead of assuming a worktree file exists.
+- An orderable target proposal must retain decision-session provenance at its
+  producer boundary. A downstream validator must reject missing provenance, not
+  synthesize fields that make an otherwise unverifiable proposal appear valid.
+- Completeness ratios use the post-gate candidate population and the columns
+  actually exported by that contract. Complete rejected rows cannot dilute
+  missing score or momentum among admitted candidates.
+- Exact-close coverage means a finite, strictly positive close on the approved
+  date. Likewise, a missing ranking-eligibility column is a schema failure, not
+  permission to treat the whole scored universe as eligible.
+- A failed candidate-gate computation must never synthesize passing rows. Mark
+  every row blocked, retain an explicit fallback label, and make downstream
+  preflight reject that label even if a Boolean field was later altered.
+- Contracted decision artifacts require `rebalance_date` explicitly; a generic
+  feature or as-of date is not a substitute for the orderable session identity.
+  Exact-close evidence also requires one unambiguous session row because replay
+  row selection can diverge when duplicate dates remain in a cache.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.

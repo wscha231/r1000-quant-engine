@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any
@@ -25,7 +26,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from r1000_pipeline import _estimated_next_close_fill_date, month_end_trading_days, monthly_test_dates
+from r1000_pipeline import (
+    _estimated_next_close_fill_date,
+    decision_session_close_utc,
+    month_end_trading_days,
+    monthly_test_dates,
+)
 
 
 DATE_COLUMNS = (
@@ -36,24 +42,56 @@ DATE_COLUMNS = (
     "membership_available_from",
     "universe_available_from",
     "accepted",
+    "fund_accepted",
     "fund_effective_accepted",
+    "fund_latest_accepted_overall",
+)
+PIT_REQUIRED_COLUMNS = (
+    "valuation_price_cutoff_date",
+    "feature_available_from",
 )
 
 FEATURE_COMPLETENESS_COLUMNS = (
+    "ticker",
+    "px",
+    "score",
     "mom_1m",
     "mom_3m",
     "mom_6m",
+    "mom_12m",
     "relative_strength_composite",
-    "price_above_ma200",
-    "rsi14",
+    "valuation_price_cutoff_date",
+    "feature_available_from",
 )
+FEATURE_NUMERIC_COLUMNS = {
+    "px",
+    "score",
+    "mom_1m",
+    "mom_3m",
+    "mom_6m",
+    "mom_12m",
+    "relative_strength_composite",
+}
+FEATURE_DATETIME_COLUMNS = {
+    "valuation_price_cutoff_date",
+    "feature_available_from",
+}
+FEATURE_HARD_INTEGRITY_COLUMNS = {
+    "ticker",
+    "px",
+    "valuation_price_cutoff_date",
+    "feature_available_from",
+}
+INVALID_TICKERS = {"", "N/A", "NA", "NAN", "NONE", "NULL", "UNKNOWN"}
 FEATURE_NONZERO_COLUMNS = (
+    "score",
     "mom_1m",
     "mom_3m",
     "mom_6m",
+    "mom_12m",
     "relative_strength_composite",
-    "rsi14",
 )
+MIN_FEATURE_COMPLETENESS_RATIO = 0.98
 MIN_BROKER_LEDGER_TRADING_DAYS = int(252 * 7)
 DEFAULT_CACHE_START_FLOOR = "2019-05-09"
 
@@ -134,6 +172,8 @@ def first_decision_pit_status(candidate_book: Path, first_decision: str | None) 
         "first_decision_date": first_decision,
         "checked": False,
         "available_from_columns": [],
+        "required_columns": list(PIT_REQUIRED_COLUMNS),
+        "missing_required_columns": [],
         "future_available_from_rows": None,
         "pit_status": "missing_candidate_book",
     }
@@ -141,7 +181,19 @@ def first_decision_pit_status(candidate_book: Path, first_decision: str | None) 
         return status
     try:
         header = pd.read_csv(candidate_book, nrows=0)
-        usecols = [c for c in ["rebalance_date", "ticker", *DATE_COLUMNS, *FEATURE_COMPLETENESS_COLUMNS] if c in header.columns]
+        usecols = [
+            c
+            for c in [
+                "rebalance_date",
+                "ticker",
+                "portfolio_candidate_minimum_pass",
+                "portfolio_candidate_gate_label",
+                "valuation_price_cutoff_date",
+                *DATE_COLUMNS,
+                *FEATURE_COMPLETENESS_COLUMNS,
+            ]
+            if c in header.columns
+        ]
         df = pd.read_csv(candidate_book, usecols=usecols)
     except Exception as exc:
         status["pit_status"] = "read_error"
@@ -160,20 +212,152 @@ def first_decision_pit_status(candidate_book: Path, first_decision: str | None) 
     if first_rows.empty:
         status["pit_status"] = "missing_first_decision_rows"
         return status
-    if not available_cols:
-        status["pit_status"] = "review_required_no_available_from_columns"
+    missing_required = [c for c in PIT_REQUIRED_COLUMNS if c not in first_rows.columns]
+    status["missing_required_columns"] = missing_required
+    if missing_required:
+        status["pit_status"] = "fail_missing_required_pit_columns"
         status["future_available_from_rows"] = None
         return status
+    if "portfolio_candidate_minimum_pass" not in first_rows.columns:
+        status["pit_status"] = "fail_missing_candidate_gate_column"
+        status["first_decision_post_gate_rows"] = 0
+        status["feature_completeness"] = {
+            "status": "missing_candidate_gate_column",
+            "required_gate_column": "portfolio_candidate_minimum_pass",
+        }
+        return status
+    if "portfolio_candidate_gate_label" not in first_rows.columns:
+        status["pit_status"] = "fail_missing_candidate_gate_label"
+        status["first_decision_post_gate_rows"] = 0
+        status["feature_completeness"] = {
+            "status": "missing_candidate_gate_label",
+            "required_gate_column": "portfolio_candidate_gate_label",
+        }
+        return status
+    gate_labels = (
+        first_rows["portfolio_candidate_gate_label"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .str.lower()
+    )
+    blank_label_mask = gate_labels.eq("")
+    status["candidate_gate_blank_label_rows"] = int(blank_label_mask.sum())
+    if blank_label_mask.any():
+        status["pit_status"] = "fail_blank_candidate_gate_label"
+        status["first_decision_post_gate_rows"] = 0
+        status["feature_completeness"] = {
+            "status": "blank_candidate_gate_label",
+            "blank_label_rows": int(blank_label_mask.sum()),
+        }
+        return status
+    fallback_mask = gate_labels.str.startswith("audit_fallback")
+    status["candidate_gate_fallback_rows"] = int(fallback_mask.sum())
+    if fallback_mask.any():
+        status["pit_status"] = "fail_candidate_gate_fallback"
+        status["first_decision_post_gate_rows"] = 0
+        status["feature_completeness"] = {
+            "status": "candidate_gate_fallback",
+            "fallback_rows": int(fallback_mask.sum()),
+        }
+        return status
+    raw_gate = first_rows["portfolio_candidate_minimum_pass"]
+    if raw_gate.dtype == bool:
+        gate_mask = raw_gate.fillna(False)
+        invalid_gate_value_mask = pd.Series(False, index=first_rows.index)
+    else:
+        normalized_gate = raw_gate.fillna("").astype(str).str.strip().str.lower()
+        true_values = {"1", "true", "yes"}
+        false_values = {"0", "false", "no"}
+        gate_mask = normalized_gate.isin(true_values)
+        invalid_gate_value_mask = ~normalized_gate.isin(true_values | false_values)
+    status["candidate_gate_invalid_boolean_rows"] = int(invalid_gate_value_mask.sum())
+    if invalid_gate_value_mask.any():
+        status["pit_status"] = "fail_invalid_candidate_gate_boolean"
+        status["first_decision_post_gate_rows"] = 0
+        status["feature_completeness"] = {
+            "status": "invalid_candidate_gate_boolean",
+            "invalid_boolean_rows": int(invalid_gate_value_mask.sum()),
+        }
+        return status
+    allowed_pass_labels = {
+        "core_strict",
+        "future_relaxed",
+        "early_relaxed",
+        "adr_global_alpha_fallback",
+        "monster_early_override",
+    }
+    inconsistent_pass_mask = gate_mask & ~gate_labels.isin(allowed_pass_labels)
+    inconsistent_reject_mask = ~gate_mask & gate_labels.ne("rejected")
+    inconsistent_label_mask = inconsistent_pass_mask | inconsistent_reject_mask
+    status["candidate_gate_inconsistent_label_rows"] = int(
+        inconsistent_label_mask.sum()
+    )
+    if inconsistent_label_mask.any():
+        status["pit_status"] = "fail_inconsistent_candidate_gate_label"
+        status["first_decision_post_gate_rows"] = 0
+        status["feature_completeness"] = {
+            "status": "inconsistent_candidate_gate_label",
+            "inconsistent_label_rows": int(inconsistent_label_mask.sum()),
+            "allowed_pass_labels": sorted(allowed_pass_labels),
+            "required_reject_label": "rejected",
+        }
+        return status
+    post_gate_rows = first_rows.loc[gate_mask].copy()
+    status["first_decision_post_gate_rows"] = int(len(post_gate_rows))
+    if post_gate_rows.empty:
+        status["pit_status"] = "fail_missing_post_gate_candidate_rows"
+        status["feature_completeness"] = {
+            "status": "missing_post_gate_candidate_rows",
+            "required_gate_column": "portfolio_candidate_minimum_pass",
+        }
+        return status
+    first_utc = first_dt.tz_localize("UTC")
+    decision_close = decision_session_close_utc(
+        pd.Series([first_dt], index=["first_decision"])
+    ).iloc[0]
+    valuation_dates = pd.to_datetime(
+        first_rows["valuation_price_cutoff_date"], errors="coerce", utc=True
+    )
+    valuation_invalid = valuation_dates.isna() | ~valuation_dates.dt.normalize().eq(first_utc)
+    feature_available = pd.to_datetime(
+        first_rows["feature_available_from"], errors="coerce", utc=True
+    )
+    feature_missing = feature_available.isna()
+    feature_close_mismatch = feature_available.notna() & (
+        pd.isna(decision_close) | ~feature_available.eq(decision_close)
+    )
+    feature_future = feature_available.notna() & (
+        pd.isna(decision_close) | feature_available.gt(decision_close)
+    )
     future_mask = pd.Series(False, index=first_rows.index)
     for col in available_cols:
-        values = pd.to_datetime(first_rows[col], errors="coerce")
-        future_mask = future_mask | (values > first_dt)
-    future_rows = first_rows[future_mask]
+        values = pd.to_datetime(first_rows[col], errors="coerce", utc=True)
+        future_mask = future_mask | (
+            values.notna()
+            & (pd.isna(decision_close) | values.gt(decision_close))
+        )
+    invalid_mask = (
+        future_mask
+        | valuation_invalid
+        | feature_missing
+        | feature_close_mismatch
+    )
+    future_rows = first_rows[invalid_mask]
     status["future_available_from_rows"] = int(len(future_rows))
-    status["pit_status"] = "pass" if future_rows.empty else "fail_future_available_from"
+    status["valuation_cutoff_invalid_rows"] = int(valuation_invalid.sum())
+    status["feature_available_from_missing_rows"] = int(feature_missing.sum())
+    status["feature_available_from_close_mismatch_rows"] = int(
+        feature_close_mismatch.sum()
+    )
+    status["feature_available_from_after_close_rows"] = int(feature_future.sum())
+    status["decision_market_close_utc"] = (
+        "" if pd.isna(decision_close) else pd.Timestamp(decision_close).isoformat()
+    )
+    status["pit_status"] = "pass" if future_rows.empty else "fail_pit_provenance"
     if not future_rows.empty and "ticker" in future_rows.columns:
         status["future_available_from_sample"] = future_rows["ticker"].astype(str).head(20).tolist()
-    completeness = feature_completeness_status(first_rows)
+    completeness = feature_completeness_status(post_gate_rows)
     status["feature_completeness"] = completeness
     if status["pit_status"] == "pass" and completeness["status"] != "pass":
         status["pit_status"] = "fail_feature_completeness"
@@ -186,35 +370,84 @@ def feature_completeness_status(first_rows: pd.DataFrame) -> dict[str, Any]:
         "required_columns": list(FEATURE_COMPLETENESS_COLUMNS),
         "missing_columns": [],
         "column_stats": {},
-        "min_non_placeholder_ratio": 0.80,
+        "minimum_complete_row_ratio": MIN_FEATURE_COMPLETENESS_RATIO,
+        "coverage_denominator_count": int(len(first_rows)),
+        "complete_row_count": 0,
+        "coverage_ratio": 0.0,
+        "hard_integrity_invalid_by_column": {},
     }
     if first_rows.empty:
         status["status"] = "missing_first_decision_rows"
         return status
     blockers: list[str] = []
+    valid_masks: dict[str, pd.Series] = {}
     for col in FEATURE_COMPLETENESS_COLUMNS:
         if col not in first_rows.columns:
             status["missing_columns"].append(col)
             blockers.append(f"missing:{col}")
+            valid_masks[col] = pd.Series(False, index=first_rows.index)
             continue
-        values = pd.to_numeric(first_rows[col], errors="coerce")
-        non_null = values.notna()
-        non_placeholder = non_null & ~values.isin([-999.0, -9999.0])
-        non_zero = non_placeholder & values.ne(0.0)
-        non_placeholder_ratio = float(non_placeholder.mean()) if len(values) else 0.0
+        raw = first_rows[col]
+        if col == "ticker":
+            normalized = raw.fillna("").astype(str).str.upper().str.strip()
+            valid = ~normalized.isin(INVALID_TICKERS)
+            non_zero = valid
+        elif col in FEATURE_NUMERIC_COLUMNS:
+            values = pd.to_numeric(raw, errors="coerce")
+            finite = values.map(lambda value: bool(pd.notna(value) and math.isfinite(float(value))))
+            valid = finite & ~values.isin([-999.0, -9999.0])
+            if col == "px":
+                valid = valid & values.gt(0.0)
+            non_zero = valid & values.ne(0.0)
+        elif col in FEATURE_DATETIME_COLUMNS:
+            values = pd.to_datetime(raw, errors="coerce", utc=True)
+            valid = values.notna()
+            non_zero = valid
+        else:
+            valid = raw.notna()
+            non_zero = valid
+        valid_masks[col] = valid
+        complete_ratio = float(valid.mean()) if len(valid) else 0.0
         stat = {
-            "non_null_ratio": float(non_null.mean()) if len(values) else 0.0,
-            "non_placeholder_ratio": non_placeholder_ratio,
-            "non_zero_ratio": float(non_zero.mean()) if len(values) else 0.0,
+            "valid_count": int(valid.sum()),
+            "invalid_count": int((~valid).sum()),
+            "complete_ratio": complete_ratio,
+            "non_zero_ratio": float(non_zero.mean()) if len(valid) else 0.0,
         }
         status["column_stats"][col] = stat
-        if non_placeholder_ratio < status["min_non_placeholder_ratio"]:
-            blockers.append(f"low_non_placeholder:{col}")
         if col in FEATURE_NONZERO_COLUMNS and float(non_zero.sum()) <= 0.0:
             blockers.append(f"all_zero_or_placeholder:{col}")
+
+    complete_mask = pd.Series(True, index=first_rows.index)
+    for col in FEATURE_COMPLETENESS_COLUMNS:
+        complete_mask &= valid_masks[col]
+    complete_count = int(complete_mask.sum())
+    coverage_ratio = float(complete_count / len(first_rows))
+    status["complete_row_count"] = complete_count
+    status["coverage_ratio"] = coverage_ratio
+    if coverage_ratio < MIN_FEATURE_COMPLETENESS_RATIO:
+        blockers.append(
+            f"complete_row_coverage:{coverage_ratio:.6f}<{MIN_FEATURE_COMPLETENESS_RATIO:.6f}"
+        )
+
+    hard_invalid = {
+        col: int((~valid_masks[col]).sum())
+        for col in FEATURE_HARD_INTEGRITY_COLUMNS
+        if col in valid_masks and int((~valid_masks[col]).sum()) > 0
+    }
+    status["hard_integrity_invalid_by_column"] = hard_invalid
+    for col, count in hard_invalid.items():
+        blockers.append(f"hard_integrity_invalid:{col}:{count}")
+
+    if "ticker" in first_rows.columns:
+        normalized = first_rows["ticker"].fillna("").astype(str).str.upper().str.strip()
+        duplicate_count = int(normalized.duplicated().sum())
+        status["duplicate_ticker_count"] = duplicate_count
+        if duplicate_count:
+            blockers.append(f"duplicate_tickers:{duplicate_count}")
     if blockers:
         status["status"] = "fail"
-        status["blockers"] = blockers
+        status["blockers"] = sorted(set(blockers))
     return status
 
 
@@ -224,12 +457,21 @@ def main() -> int:
     parser.add_argument("--output-dir", default="outputs/clean7y_window_preflight")
     parser.add_argument("--feature-start-date", default="2016-01-01")
     parser.add_argument("--evaluation-start-date", default="2019-06-03")
-    parser.add_argument("--end-date", default="2026-06-23")
+    parser.add_argument("--end-date", required=True)
     parser.add_argument("--expected-first-decision", default="2019-05-31")
     parser.add_argument("--cache-start-floor", default=DEFAULT_CACHE_START_FLOOR)
     parser.add_argument("--min-calendar-trading-days", type=int, default=MIN_BROKER_LEDGER_TRADING_DAYS)
     parser.add_argument("--not-before", default=None, help="Earliest allowed actual first decision; defaults to expected first decision.")
     parser.add_argument("--must-be-before", default="2019-06-28")
+    parser.add_argument(
+        "--target-book-scope",
+        choices=("operating", "all"),
+        default="operating",
+        help=(
+            "Validate run_local operating books before sidecars, or include "
+            "AlphaOps official books after their producer has run."
+        ),
+    )
     parser.add_argument(
         "--source-only",
         action="store_true",
@@ -290,12 +532,15 @@ def main() -> int:
         pit_status = first_decision_pit_status(files["candidate_replay_book"], first_candidate)
         actual_candidate_pass = bool(first_candidate and not_before <= pd.Timestamp(first_candidate) < must_before)
         target_pass = True
-        for name in (
+        target_names = [
             "operating_main_target_book",
             "operating_concentrated_target_book",
-            "official_main_target_book",
-            "official_concentrated_target_book",
-        ):
+        ]
+        if args.target_book_scope == "all":
+            target_names.extend(
+                ["official_main_target_book", "official_concentrated_target_book"]
+            )
+        for name in target_names:
             first = file_status[name].get("first_rebalance_date")
             ok = bool(first and not_before <= pd.Timestamp(first) < must_before)
             target_checks[name] = ok
@@ -327,10 +572,11 @@ def main() -> int:
         blockers.append("projected_calendar_trading_days_below_7y")
 
     payload = {
-        "schema_version": "clean7y-window-preflight-v2",
+        "schema_version": "clean7y-window-preflight-v3",
         "production_promotion_allowed": False,
         "purpose": "research_7y_window_preflight",
         "mode": "source_only" if args.source_only else "post_book",
+        "target_book_scope": args.target_book_scope,
         "post_book_validation_required": bool(args.source_only),
         "feature_start_date": args.feature_start_date,
         "evaluation_start_date": args.evaluation_start_date,
@@ -381,6 +627,7 @@ def main() -> int:
         f"- monthly_test_dates first: `{payload['monthly_test_dates_first']}`",
         f"- candidate first: `{first_candidate}`",
         f"- post_book_validation_required: `{payload['post_book_validation_required']}`",
+        f"- target_book_scope: `{payload['target_book_scope']}`",
         f"- production_promotion_allowed: `{payload['production_promotion_allowed']}`",
         "",
         "## Blockers",

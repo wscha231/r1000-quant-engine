@@ -13,16 +13,18 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.run_sec_enriched_candidate_replay import run  # noqa: E402
+from tools.run_sec_enriched_candidate_replay import run, strict_source_failures  # noqa: E402
 
 
 def _candidate_rows() -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
-    for dt in ["2026-05-12", "2026-05-13", "2026-05-16"]:
+    for dt in ["2026-05-12", "2026-05-13", "2026-05-15"]:
         rows.extend(
             [
                 {
                     "rebalance_date": dt,
+                    "valuation_price_cutoff_date": dt,
+                    "feature_available_from": f"{dt}T20:00:00Z",
                     "ticker": "AAPL",
                     "Name": "Apple Inc.",
                     "score_total": 1.23,
@@ -35,6 +37,8 @@ def _candidate_rows() -> list[dict[str, object]]:
                 },
                 {
                     "rebalance_date": dt,
+                    "valuation_price_cutoff_date": dt,
+                    "feature_available_from": f"{dt}T20:00:00Z",
                     "ticker": "MSFT",
                     "Name": "Microsoft Corporation",
                     "score_total": 2.34,
@@ -76,7 +80,32 @@ def _form4_rows() -> list[dict[str, object]]:
             "security_title": "Common Stock",
             "accession_number": "0000320193-26-000001",
             "filing_url": "https://www.sec.gov/example.xml",
-        }
+        },
+        {
+            "issuer_ticker": "MSFT",
+            "issuer_cik10": "0000789019",
+            "reporting_owner_cik": "0002222222",
+            "reporting_owner_name": "Example CFO",
+            "officer_title": "Chief Financial Officer",
+            "is_director": False,
+            "is_officer": True,
+            "is_ten_percent_owner": False,
+            "transaction_date": "2026-05-12",
+            "filing_date": "2026-05-13",
+            "accepted_at": "2026-05-13T21:00:00+00:00",
+            "available_from": "2026-05-13T21:00:00+00:00",
+            "transaction_code": "P",
+            "transaction_shares": 500.0,
+            "transaction_price": 200.0,
+            "transaction_value": 100000.0,
+            "ownership_nature": "",
+            "direct_or_indirect": "D",
+            "shares_owned_after": 2500.0,
+            "is_derivative": False,
+            "security_title": "Common Stock",
+            "accession_number": "0000789019-26-000001",
+            "filing_url": "https://www.sec.gov/example-msft.xml",
+        },
     ]
 
 
@@ -180,21 +209,24 @@ def test_sec_candidate_enrichment_is_pit_and_research_only() -> None:
                 output_dir=str(out),
                 lookback_days=90,
                 institutional_lookback_days=210,
+                strict_source_contract=True,
             )
         )
 
         assert payload["research_only"] is True
         assert payload["production_activation_allowed"] is False
         assert payload["score_total_changed"] is False
-        assert payload["rows_with_sec_evidence"] == 2
+        assert payload["rows_with_sec_evidence"] == 3
         assert payload["rows_with_13f_evidence"] == 3
         assert payload["rows_with_etf_evidence"] == 2
-        assert payload["rows_with_smart_money_evidence"] == 3
+        assert payload["rows_with_smart_money_evidence"] == 4
+        assert payload["source_contract_status"] == "STRICT_PIT_SOURCE_CONTRACT_READY"
         enriched = pd.read_csv(out / "candidate_replay_book_sec_enriched.csv")
         aapl_before = enriched[(enriched["ticker"] == "AAPL") & (enriched["rebalance_date"] == "2026-05-12")].iloc[0]
         aapl_after = enriched[(enriched["ticker"] == "AAPL") & (enriched["rebalance_date"] == "2026-05-13")].iloc[0]
-        aapl_after_13f = enriched[(enriched["ticker"] == "AAPL") & (enriched["rebalance_date"] == "2026-05-16")].iloc[0]
+        aapl_after_13f = enriched[(enriched["ticker"] == "AAPL") & (enriched["rebalance_date"] == "2026-05-15")].iloc[0]
         msft_after = enriched[(enriched["ticker"] == "MSFT") & (enriched["rebalance_date"] == "2026-05-13")].iloc[0]
+        msft_next_session = enriched[(enriched["ticker"] == "MSFT") & (enriched["rebalance_date"] == "2026-05-15")].iloc[0]
         assert float(aapl_before["early_evidence_score"]) == 0.0
         assert float(aapl_after["early_evidence_score"]) > 0.0
         assert float(aapl_after["evidence_confidence_score"]) > 0.0
@@ -209,14 +241,78 @@ def test_sec_candidate_enrichment_is_pit_and_research_only() -> None:
         assert "leader_onset_sec_v3_score" in enriched.columns
         assert "smart_money_shadow_score" in enriched.columns
         assert float(msft_after["early_evidence_score"]) == 0.0
+        assert float(msft_next_session["early_evidence_score"]) > 0.0
         assert list(enriched["score_total"]) == [1.23, 2.34, 1.23, 2.34, 1.23, 2.34]
         assert "leader_onset_sec_v2_score" in enriched.columns
         assert "period_forward_return" in enriched.columns
         summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
         assert summary["columns_added"]
+        source_manifest = json.loads(
+            (out / "source_manifest.json").read_text(encoding="utf-8")
+        )
+        assert source_manifest["strict_source_contract"] is True
+        assert source_manifest["availability_policy"] == (
+            "actual_scheduled_nyse_close_including_half_days"
+        )
+        assert summary["candidate_book_sha256"] == source_manifest["sources"]["candidate_book"]["sha256"]
+        assert summary["output_csv_sha256"] == source_manifest["output"]["sha256"]
         assert (out / "report.md").exists()
+
+
+def test_strict_contract_rejects_missing_candidate_provenance() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        candidate = root / "candidate.csv"
+        form4 = root / "form4.parquet"
+        holdings_13f = root / "13f.parquet"
+        etf_holdings = root / "etf.parquet"
+        output = root / "output"
+        pd.DataFrame(
+            [{"rebalance_date": "2026-05-13", "ticker": "AAPL"}]
+        ).to_csv(candidate, index=False)
+        pd.DataFrame(_form4_rows()).to_parquet(form4, index=False)
+        pd.DataFrame(_thirteen_f_rows()).to_parquet(holdings_13f, index=False)
+        pd.DataFrame(_etf_rows()).to_parquet(etf_holdings, index=False)
+        try:
+            run(
+                argparse.Namespace(
+                    candidate_book=str(candidate),
+                    form4=str(form4),
+                    institutional_13f=str(holdings_13f),
+                    etf_holdings=str(etf_holdings),
+                    output_dir=str(output),
+                    lookback_days=90,
+                    institutional_lookback_days=210,
+                    strict_source_contract=True,
+                )
+            )
+        except RuntimeError as exc:
+            assert "candidate_missing_columns" in str(exc)
+        else:
+            raise AssertionError("strict SEC source contract unexpectedly passed")
+        assert not (output / "candidate_replay_book_sec_enriched.csv").exists()
+
+
+def test_strict_contract_rejects_top_manager_after_close() -> None:
+    failures = strict_source_failures(
+        pd.DataFrame(_candidate_rows()),
+        pd.DataFrame(_form4_rows()),
+        pd.DataFrame(_thirteen_f_rows()),
+        pd.DataFrame(_etf_rows()),
+        pd.DataFrame(
+            [{
+                "rebalance_date": "2026-05-13",
+                "ticker": "AAPL",
+                "top_manager_discovery_score": 1.0,
+                "latest_top_manager_available_from": "2026-05-13T21:00:00Z",
+            }]
+        ),
+    )
+    assert "top_manager_available_after_decision_close:1" in failures
 
 
 if __name__ == "__main__":
     test_sec_candidate_enrichment_is_pit_and_research_only()
+    test_strict_contract_rejects_missing_candidate_provenance()
+    test_strict_contract_rejects_top_manager_after_close()
     print("sec_candidate_enrichment_smoke: PASS")

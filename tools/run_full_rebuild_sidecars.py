@@ -80,24 +80,107 @@ ensure_top_manager_discovery_signals() {
 build_sec_enriched_candidate_book() {
   SIDECAR_CANDIDATE_BOOK="outputs/reports/candidate_replay_book.csv"
   local enriched="outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv"
-  if [ -s "$enriched" ]; then
-    SIDECAR_CANDIDATE_BOOK="$enriched"
-    echo "[sec-enrich] using existing enriched candidate book: $SIDECAR_CANDIDATE_BOOK"
-    return 0
-  fi
-  echo "[sec-enrich] building PIT-safe evidence-enriched candidate replay book"
   if [ ! -s "$SIDECAR_CANDIDATE_BOOK" ]; then
-    echo "[sec-enrich] missing base candidate replay book; sidecars will use default resolver"
+    echo "[sec-enrich] BLOCKED: base candidate replay book is missing"
+    return 2
+  fi
+  echo "[sec-enrich] rebuilding PIT-safe evidence-enriched candidate replay book"
+  mkdir -p outputs/sec_enriched_candidate_replay outputs/full_rebuild_logs
+  rm -f \
+    "$enriched" \
+    outputs/sec_enriched_candidate_replay/source_manifest.json \
+    outputs/sec_enriched_candidate_replay/summary.json \
+    outputs/sec_enriched_candidate_replay/report.md
+  ensure_top_manager_discovery_signals "$SIDECAR_CANDIDATE_BOOK"
+  python tools/run_sec_enriched_candidate_replay.py \
+    --candidate-book "$SIDECAR_CANDIDATE_BOOK" \
+    --output-dir outputs/sec_enriched_candidate_replay \
+    --strict-source-contract \
+    2>&1 | tee outputs/full_rebuild_logs/sec_enriched_candidate_replay.log
+  python - "$SIDECAR_CANDIDATE_BOOK" "$enriched" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+candidate = Path(sys.argv[1])
+enriched = Path(sys.argv[2])
+summary_path = Path("outputs/sec_enriched_candidate_replay/summary.json")
+manifest_path = Path("outputs/sec_enriched_candidate_replay/source_manifest.json")
+if not all(path.is_file() and path.stat().st_size > 0 for path in (candidate, enriched, summary_path, manifest_path)):
+    raise SystemExit("SEC enriched contract artifacts are missing")
+summary = json.loads(summary_path.read_text(encoding="utf-8"))
+manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+if (
+    summary.get("source_contract_status") != "STRICT_PIT_SOURCE_CONTRACT_READY"
+    or manifest.get("status") != "STRICT_PIT_SOURCE_CONTRACT_READY"
+    or manifest.get("strict_source_contract") is not True
+    or manifest.get("contract_failures")
+    or summary.get("candidate_book_sha256") != sha256(candidate)
+    or summary.get("output_csv_sha256") != sha256(enriched)
+    or summary.get("source_manifest_sha256") != sha256(manifest_path)
+):
+    raise SystemExit("SEC enriched strict source contract verification failed")
+PY
+  SIDECAR_CANDIDATE_BOOK="$enriched"
+  echo "[sec-enrich] verified enriched candidate book: $SIDECAR_CANDIDATE_BOOK"
+}
+
+run_required_cost_sensitivity_sidecars() {
+  local main_book="outputs/reports/operating_main_target_book.csv"
+  local concentrated_book="outputs/reports/operating_concentrated_target_book.csv"
+  if [ ! -s "$main_book" ] || [ ! -s "$concentrated_book" ]; then
+    echo "[cost-sensitivity] required operating target book is missing" >&2
+    return 2
+  fi
+  rm -rf outputs/cost_sensitivity/main outputs/cost_sensitivity/concentrated
+  python tools/run_cost_sensitivity_sidecar.py --target-book "$main_book" --price-cache cache_prices --portfolio-kind main --output-dir outputs/cost_sensitivity/main --cost-bps-list 25 50 100 --baseline-cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/cost_sensitivity_main.log
+  python tools/run_cost_sensitivity_sidecar.py --target-book "$concentrated_book" --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/cost_sensitivity/concentrated --cost-bps-list 25 50 100 --baseline-cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/cost_sensitivity_concentrated.log
+  python - <<'PY'
+import json
+from pathlib import Path
+
+required = {25.0, 50.0, 100.0}
+for portfolio in ("main", "concentrated"):
+    path = Path("outputs/cost_sensitivity") / portfolio / "summary.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    completed = {
+        float(row["cost_bps"])
+        for row in payload.get("levels", [])
+        if row.get("status") == "completed"
+    }
+    if not required.issubset(completed):
+        raise SystemExit(
+            f"[cost-sensitivity] {portfolio} missing completed required levels: "
+            f"{sorted(required - completed)}"
+        )
+print("[cost-sensitivity] required 25/50/100 bps levels completed for both portfolios")
+PY
+}
+
+capture_operating_runtime_source_manifest() {
+  if [ "${FULLRUN_RUNTIME_BINDING_REQUIRED:-false}" != "true" ]; then
+    echo "[runtime-source] approved fullrun binding not requested; research sidecar capture skipped"
     return 0
   fi
-  ensure_top_manager_discovery_signals "$SIDECAR_CANDIDATE_BOOK"
-  python tools/run_sec_enriched_candidate_replay.py --candidate-book "$SIDECAR_CANDIDATE_BOOK" --output-dir outputs/sec_enriched_candidate_replay 2>&1 | tee outputs/full_rebuild_logs/sec_enriched_candidate_replay.log || true
-  if [ -s "$enriched" ]; then
-    SIDECAR_CANDIDATE_BOOK="$enriched"
-    echo "[sec-enrich] using enriched candidate book: $SIDECAR_CANDIDATE_BOOK"
-  else
-    echo "[sec-enrich] enriched candidate book unavailable; using base candidate book"
-  fi
+  python tools/build_fullrun_runtime_source_manifest.py \
+    --approved-manifest "${APPROVED_SOURCE_MANIFEST_PATH:?approved source manifest path is required}" \
+    --expected-manifest-sha256 "${APPROVED_SOURCE_MANIFEST_SHA256:?approved source manifest sha256 is required}" \
+    --expected-commit-sha "${APPROVED_COMMIT_SHA:?approved commit sha is required}" \
+    --stage operating_pre_broker \
+    --resolved-session-date "${LAST_NYSE_SESSION_DATE:?resolved session date is required}" \
+    --decision-time-utc "$DECISION_TIME_UTC" \
+    --skip-collector "${REQUESTED_SKIP_COLLECTOR:?requested skip_collector is required}" \
+    --workflow-identity "${GITHUB_WORKFLOW:-local}/${GITHUB_RUN_ID:-local}/${GITHUB_RUN_ATTEMPT:-1}" \
+    --output outputs/fullrun_runtime_operating_source_manifest.json \
+    2>&1 | tee outputs/full_rebuild_logs/fullrun_runtime_operating_source_manifest.log
 }
 
 refresh_replay_price_cache() {
@@ -120,7 +203,6 @@ refresh_replay_price_cache() {
 run_alphaops_vnext_production() {
   if [ "$PORTFOLIO_POLICY" = "alphaops_vnext_production" ]; then
     echo "[alphaops-vnext] replacing operating target books before broker replay"
-    build_sec_enriched_candidate_book
     python tools/run_alphaops_vnext_policy_replay.py --latest-run outputs --candidate-book "$SIDECAR_CANDIDATE_BOOK" --price-cache cache_prices --output-dir outputs/alphaops_vnext --portfolio-kind both --main-target-n 15 --concentrated-target-n 5 --production-output-mode replace_operating --skip-broker-replay --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log
   fi
 }
@@ -168,8 +250,8 @@ run_data_freshness_contract() {
     --source-branch "${GITHUB_REF_NAME:-}" \
     --source-artifact-name "${ARTIFACT_PROFILE}_${SIDECAR_PROFILE}_${GITHUB_RUN_ID:-local}" \
     --source-context full_rebuild_sidecar \
-    --freshness-contract-non-fatal \
-    2>&1 | tee outputs/full_rebuild_logs/data_freshness_contract.log || true
+    --strict-selection \
+    2>&1 | tee outputs/full_rebuild_logs/data_freshness_contract.log
 }
 
 run_universe_health_audit() {
@@ -181,7 +263,8 @@ run_universe_health_audit() {
     --output-dir outputs/universe_health \
     --min-r1000-base 400 \
     --universe-mode "$UNIVERSE_MODE" \
-    2>&1 | tee outputs/full_rebuild_logs/universe_health_audit.log || true
+    --strict \
+    2>&1 | tee outputs/full_rebuild_logs/universe_health_audit.log
 }
 
 write_alpha_plane_measurement_status() {
@@ -266,7 +349,8 @@ if [ "$SIDECAR_PROFILE" = "phase_g_only" ]; then
 fi
 if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "official" ]; then
   refresh_replay_price_cache
-  python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
+  build_sec_enriched_candidate_book
+  python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports --max-signal-date "${LAST_NYSE_SESSION_DATE:?resolved session date is required}" 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
   build_daily_market_snapshot
   # Crisis defense substrate (run 27445937281 diagnosis, 2026-06-13): without
   # these, vnext daily_crisis_state has long_crisis_score=0.0 and
@@ -282,11 +366,13 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
   build_long_crisis_inputs
   run_alphaops_vnext_production
   run_universe_health_audit
-  python tools/audit_data_readiness.py --latest-run outputs --price-cache cache_prices --output-dir outputs/data_readiness 2>&1 | tee outputs/full_rebuild_logs/data_readiness_pre_broker.log || true
-  run_data_freshness_contract
   run_sidecar_promotion_hook
+  capture_operating_runtime_source_manifest
+  python tools/audit_data_readiness.py --latest-run outputs --price-cache cache_prices --output-dir outputs/data_readiness --require-policy-replay-ready 2>&1 | tee outputs/full_rebuild_logs/data_readiness_pre_broker.log
+  run_data_freshness_contract
   python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_main.log
   python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_concentrated.log
+  run_required_cost_sensitivity_sidecars
   run_execution_cost_capacity_sidecars
   if [ -s outputs/reports/main_monthly_weights.csv ]; then
     python tools/run_broker_ledger_replay.py --target-book outputs/reports/main_monthly_weights.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/legacy_monthly_broker_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/legacy_monthly_broker_replay_main.log || true
@@ -446,7 +532,6 @@ if [ "$SIDECAR_PROFILE" = "operating_minimal" ] || [ "$SIDECAR_PROFILE" = "offic
     python tools/run_position_cleanup_review.py --latest-run outputs --output-dir outputs/operator_review 2>&1 | tee outputs/full_rebuild_logs/position_cleanup_review.log || true
     BASELINE_RUN_ID="${GITHUB_RUN_ID:-local}"
     python tools/create_healthy_baseline_lock.py --latest-run outputs --output-dir outputs/baseline_lock --run-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/baseline_lock.log || true
-    build_sec_enriched_candidate_book
     python tools/run_market_leader_challenger.py --latest-run outputs --candidate-book "$SIDECAR_CANDIDATE_BOOK" --price-cache cache_prices --output-dir outputs/market_leader_challenger --baseline-lock "outputs/baseline_lock/healthy_baseline_${BASELINE_RUN_ID}.json" --allow-missing-baseline-lock 2>&1 | tee outputs/full_rebuild_logs/market_leader_challenger.log || true
     python tools/run_superperformance_trader_replay.py --latest-run outputs --candidate-book "$SIDECAR_CANDIDATE_BOOK" --price-cache cache_prices --output-dir outputs/superperformance_trader_replay --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/superperformance_trader_replay.log || true
     if [ ! -s outputs/crisis_signals/daily_features.parquet ]; then
@@ -480,19 +565,22 @@ python tools/run_concentrated_policy_replay.py --latest-run outputs --output-dir
 python tools/run_concentrated_position_risk_replay.py --latest-run outputs --output-dir outputs/concentrated_position_risk_replay 2>&1 | tee outputs/full_rebuild_logs/concentrated_position_risk_replay.log || true
 python tools/run_alpha_sprint_backtest.py --latest-run outputs --output-dir outputs/alpha_sprint_backtest 2>&1 | tee outputs/full_rebuild_logs/alpha_sprint_backtest.log || true
 python tools/run_position_aware_risk_replay.py --holdings outputs/main_v2_backtest/monthly_holdings.csv --output-dir outputs/position_aware_risk_replay 2>&1 | tee outputs/full_rebuild_logs/position_aware_risk_replay.log || true
-python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
+build_sec_enriched_candidate_book
+python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports --max-signal-date "${LAST_NYSE_SESSION_DATE:?resolved session date is required}" 2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
 build_daily_market_snapshot
 run_alphaops_vnext_production
 run_universe_health_audit
-python tools/audit_data_readiness.py --latest-run outputs --price-cache cache_prices --output-dir outputs/data_readiness 2>&1 | tee outputs/full_rebuild_logs/data_readiness_pre_broker.log || true
-run_data_freshness_contract
 run_sidecar_promotion_hook
+capture_operating_runtime_source_manifest
+python tools/audit_data_readiness.py --latest-run outputs --price-cache cache_prices --output-dir outputs/data_readiness --require-policy-replay-ready 2>&1 | tee outputs/full_rebuild_logs/data_readiness_pre_broker.log
+run_data_freshness_contract
 python tools/archive_target_snapshots.py --latest-run outputs --price-cache cache_prices --output-dir outputs/target_snapshots 2>&1 | tee outputs/full_rebuild_logs/target_snapshot_archive.log
 python tools/run_position_risk_weekly_validation.py --holdings outputs/reports/main_monthly_weights.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_main.log || true
 python tools/run_position_risk_weekly_validation.py --holdings outputs/main_v2_backtest/monthly_holdings.csv --period-map outputs/reports/regime_by_month.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/position_risk_weekly_validation/main_v2 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_main_v2.log || true
 python tools/run_position_risk_weekly_validation.py --holdings outputs/reports/concentrated_strategy_holdings.csv --period-map outputs/reports/concentrated_strategy_monthly.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/position_risk_weekly_validation/concentrated 2>&1 | tee outputs/full_rebuild_logs/position_risk_weekly_validation_concentrated.log || true
 python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/broker_replay/main --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_main.log
 python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_concentrated.log
+run_required_cost_sensitivity_sidecars
 python tools/run_subdaily_exit_grid_sweep.py --latest-run outputs --price-cache cache_prices --output-dir outputs/subdaily_exit_grid_wide_trailing --portfolio-kind both --hard-stop-grid=disabled --trailing-stop-grid=-0.25,-0.30,-0.35,-0.45 --trailing-activation 0.30 --relative-trim-threshold -99 --relative-exit-threshold -99 2>&1 | tee outputs/full_rebuild_logs/subdaily_exit_grid_wide_trailing.log || true
 python tools/run_broker_position_risk_grid_sweep.py --latest-run outputs --price-cache cache_prices --output-dir outputs/broker_position_risk_grid_wide_trailing --portfolio-kind both --hard-stop-grid=disabled --trailing-stop-grid=-0.25,-0.30,-0.35,-0.45 --trailing-activation 0.30 --relative-trim-threshold -99 --relative-exit-threshold -99 2>&1 | tee outputs/full_rebuild_logs/broker_position_risk_grid_wide_trailing.log || true
 python tools/run_mdd_cash_overlay_research.py --latest-run outputs --output-dir outputs/mdd_cash_overlay_research --cost-bps 25 --confirm-days 2 --release-step 0.10 --change-band 0.03 2>&1 | tee outputs/full_rebuild_logs/mdd_cash_overlay_research.log || true
@@ -509,12 +597,6 @@ if [ -s outputs/reports/weekly_leader_main_target_book.csv ]; then
 fi
 if [ -s outputs/reports/weekly_leader_concentrated_target_book.csv ]; then
   python tools/run_broker_ledger_replay.py --target-book outputs/reports/weekly_leader_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/weekly_leader_broker_replay/concentrated --fill-mode next_close --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/weekly_leader_broker_replay_concentrated.log || true
-fi
-if [ -s outputs/reports/operating_main_target_book.csv ]; then
-  python tools/run_cost_sensitivity_sidecar.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/cost_sensitivity/main --cost-bps-list 25 50 75 100 --baseline-cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/cost_sensitivity_main.log || true
-fi
-if [ -s outputs/reports/operating_concentrated_target_book.csv ]; then
-  python tools/run_cost_sensitivity_sidecar.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/cost_sensitivity/concentrated --cost-bps-list 25 50 75 100 --baseline-cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/cost_sensitivity_concentrated.log || true
 fi
 run_execution_cost_capacity_sidecars
 if [ -s outputs/reports/operating_main_target_book.csv ]; then
@@ -611,7 +693,6 @@ python tools/run_theme_leadership_tape.py --scored outputs/scored_latest.csv --p
 python tools/run_theme_concentration_challenger.py --latest-run outputs --output-dir outputs/theme_concentration_challenger --top-n 3 --single-name-cap 0.50 --cost-bps 50 2>&1 | tee outputs/full_rebuild_logs/theme_concentration_challenger.log || true
 BASELINE_RUN_ID="${GITHUB_RUN_ID:-local}"
 python tools/create_healthy_baseline_lock.py --latest-run outputs --output-dir outputs/baseline_lock --run-id "$BASELINE_RUN_ID" 2>&1 | tee outputs/full_rebuild_logs/baseline_lock.log || true
-build_sec_enriched_candidate_book
 python tools/run_market_leader_challenger.py --latest-run outputs --candidate-book "$SIDECAR_CANDIDATE_BOOK" --price-cache cache_prices --output-dir outputs/market_leader_challenger --baseline-lock "outputs/baseline_lock/healthy_baseline_${BASELINE_RUN_ID}.json" --allow-missing-baseline-lock 2>&1 | tee outputs/full_rebuild_logs/market_leader_challenger.log || true
 python tools/run_superperformance_trader_replay.py --latest-run outputs --candidate-book "$SIDECAR_CANDIDATE_BOOK" --price-cache cache_prices --output-dir outputs/superperformance_trader_replay --cost-bps 25 --max-fill-lag-days 7 2>&1 | tee outputs/full_rebuild_logs/superperformance_trader_replay.log || true
 if [ ! -s outputs/crisis_signals/daily_features.parquet ]; then

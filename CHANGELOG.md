@@ -3,6 +3,141 @@
 This file is the primary handoff document for coding agents resuming work on this repo.
 All entries must be written in English. Entries must be predictable and machine-scannable.
 
+## 2026-08-03
+
+### P1 review hardening - portable source identity and post-mutation gates
+
+- scope:
+  - Close all eight exact-head review findings on PR #350 without dispatching a
+    fullrun or changing any accepted/paper/live portfolio state.
+  - Make tracked approval hashes portable across Windows CRLF and Linux LF
+    checkouts by using exact Git blob bytes as the canonical hash basis.
+  - Bind restored mutable price, SEC, macro, fundamentals, companyfacts, and
+    reused engine inputs after restore/refresh and bind the final price/SEC/book
+    inputs again after the target override hook.
+  - Require producer-before-gate ordering, explicit decision time, successful
+    prerequisites, post-hook readiness/freshness, registered Concentrated N=3,
+    and completed 25/50/100 bps evidence before the canonical sidecar exits.
+- files:
+  - `tools/verify_fullrun_source_manifest.py` ->hashes Git blobs, separately
+    audits worktree bytes, and blocks semantic tracked-file modifications.
+  - `tools/build_fullrun_runtime_source_manifest.py` and
+    `manifests/fullrun/run287_canonical_a_20260731.json` ->declare, hash, and
+    publish stage-specific mutable runtime source identities.
+  - `.github/workflows/full_rebuild_manual.yml` ->threads the decision time into
+    the engine step, captures restored inputs before expensive computation,
+    builds operating books before their gate, and prevents the mutation-capable
+    sidecar from running after an upstream failure.
+  - `tools/run_full_rebuild_sidecars.py` ->runs the approved override before the
+    final runtime/readiness/freshness gates and makes both portfolios' required
+    25/50/100 bps sweeps fail-loud in operating-minimal and research profiles.
+  - `tools/run_broker_ledger_replay.py` ->rejects missing or unmatched
+    registered Concentrated filters instead of silently replaying another N.
+- safety:
+  - No fullrun, production/live action, accepted paper mutation, automatic
+    promotion, or new worktree was executed or enabled.
+- validation:
+  - Git-blob/CRLF source identity, mutable runtime identity, blank decision
+    time, Concentrated filter, workflow ordering/publication, broker replay,
+    and latest-cross-section focused smoke tests ->PASS.
+  - Full Tier-1 validation first pass ->211/214; all three failures were stale
+    research fixtures that omitted the newly mandatory N=3 metadata or expected
+    an unmatched N=3 predicate to pass. After adding explicit contract metadata
+    and converting the latter to a fail-closed assertion, the three focused
+    tests ->PASS.
+  - Linux CI next reached 213/214; the sole failure was the CRLF portability
+    fixture itself lacking an explicit Git `text` attribute, so Linux correctly
+    treated the forced CRLF worktree as a semantic change. The fixture now
+    declares text normalization before exercising checkout-EOL portability.
+
+### P1/D0 - Bind fullrun sources, strict SEC policy replay, and preregister A/B/C/D cadence
+
+- scope:
+  - Make SEC candidate enrichment PIT-close-aware, rebuilt in-run, and bound to
+    raw source, candidate, output, and manifest SHA-256 identities.
+  - Block the primary broker replay unless all Form4/13F/ETF stores and the
+    strict enrichment lineage are present and the operating books consume the
+    SEC feature group.
+  - Turn the manual source-manifest hash into a tracked-file, dispatch-scope,
+    Git-head, resolved-session, and tracked-input contract.
+  - Fail the rebuild when its current scored cross-section, candidate book,
+    target proposals, or eligible ticker closes do not match the approved NYSE
+    session.
+  - Preregister A/B/C/D as one research family: monthly reference, weekly
+    leadership cadence, 20-session warning/event timing, and a bounded hybrid.
+- files:
+  - `tools/run_sec_enriched_candidate_replay.py`,
+    `tools/audit_data_readiness.py`, and
+    `tools/run_full_rebuild_sidecars.py` ->remove stale fallback, enforce actual
+    NYSE-close availability, verify lineage hashes, and fail before broker
+    replay when the policy-replay contract is incomplete.
+  - `tools/verify_fullrun_source_manifest.py` and
+    `.github/workflows/full_rebuild_manual.yml` ->verify a safe tracked manifest
+    before expensive setup and bind it again after session resolution.
+  - `tools/run_fullrun_latest_cross_section_preflight.py` ->requires exact
+    approved-session scored/candidate/proposal rows and 100% exact-close price
+    coverage for eligible names.
+  - `manifests/fullrun/run287_canonical_a_20260731.json` ->freezes the proposed
+    seven-year canonical-A dispatch scope and hashes of critical tracked code
+    inputs for a later separately approved run.
+  - `docs/run287_abcd_cadence_challenger_contract.json` and
+    `tools/run_decision_cadence_review.py` ->publish stable A/B/C/D definitions
+    while keeping A accepted and every other arm research-only.
+- safety:
+  - No fullrun, broker backtest, paper-state mutation, production/live action,
+    or automatic promotion was executed.
+  - The D hybrid does not permit routine weekly sale of a healthy holding;
+    routine replacement remains monthly.
+- validation:
+  - SEC enrichment, data readiness, source-manifest, latest-cross-section,
+    operating-target, decision-cadence, and workflow-artifact focused smoke
+    tests ->PASS.
+  - Full Tier-1 PR validation first pass ->211/213; the two failures were stale
+    test fixtures (four-versus-five approval fields and a Saturday candidate
+    date). After correcting only those fixtures, `tests/smoke_test.py` ->129/129
+    PASS and `tests/sec_evidence_learning_pipeline_smoke.py` ->PASS.
+  - JSON contract parsing, Python compile, and `git diff --check` ->PASS.
+
+### P0 - Repair the approved seven-year fullrun contract without executing it
+
+- scope:
+  - Bind a manually approved fullrun to one validated decision timestamp and
+    one latest completed NYSE session instead of a fixed historical end date.
+  - Restore the correct producer/gate order, minimum candidate PIT provenance,
+    and registered legacy Concentrated N=3 contract.
+  - Record unresolved SEC-enriched, fresh same-close selector, canonical
+    rebaseline, and cadence-challenger work as blockers rather than claiming a
+    performance improvement.
+- files:
+  - `.github/workflows/full_rebuild_manual.yml` ->resolves one approved market
+    session, threads it through the engine and clean-window gates, and uploads
+    the gate evidence in minimal and official artifacts.
+  - `r1000_pipeline.py` and `tools/run_clean7y_window_preflight.py` ->export and
+    validate valuation cutoff and feature availability at the actual scheduled
+    NYSE close, including half days.
+  - `tools/run_broker_ledger_replay.py`,
+    `tools/build_operating_target_books.py`, and
+    `tools/run_replay_integrity_preflight.py` ->prevent same-run comparison
+    output from selecting Concentrated N and verify the registered N=3,
+    score-power, monthly contract.
+  - `docs/run287_fullrun_contract_repair_registry.json` ->separates repaired
+    defects from remaining causal blockers and freezes do-not-repeat keys.
+  - focused smoke tests ->cover the session anchor, pre-sidecar book scope,
+    first-decision PIT proof, champion-source integrity, and artifact paths.
+- safety:
+  - Fullrun, production, live trading, automatic promotion, target mutation,
+    and new-worktree creation were not performed.
+  - This change does not assert improved CAGR, MDD, Sharpe, holdings, or cash.
+- validation:
+  - Python compile checks ->PASS.
+  - broker-ledger, operating-target, execution-cost/capacity,
+    replay-integrity, market-close gate, clean-seven-year preflight, and
+    workflow-artifact focused tests ->PASS.
+  - full Tier-1 sweep ->209/210 test files passed; the sole failure was an
+    incorrect new assertion about the location of `decision_time_utc` inside
+    the existing four-field approval-count slice. After correcting that test,
+    `tests/smoke_test.py` ->129/129 PASS.
+
 ## 2026-07-29
 
 ### 19:25 KST - Add exact-close OHLCV location timing forward challenger

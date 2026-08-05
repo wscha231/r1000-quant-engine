@@ -1,0 +1,129 @@
+{
+  "schema_version": "run287-fullrun-contract-repair-registry-v1",
+  "as_of_date": "2026-08-03",
+  "scope": "P0_P1_D0_CONTRACT_REPAIR_NO_FULLRUN",
+  "source_incident": {
+    "repository": "wscha231/r1000-quant-engine",
+    "source_head_sha": "3209137c0c86e303b3c9dfffc4305c1f05e4b9fa",
+    "github_actions_run_id": 30682637459,
+    "github_actions_job_id": 91322535774,
+    "conclusion": "failure",
+    "verified_starting_capital_usd": 100000.0,
+    "verified_base_cost_bps": 25.0,
+    "verified_fill_contract": "broker_ledger_next_close_integer_shares",
+    "latest_accepted_close": "2026-07-31"
+  },
+  "repaired_defects": [
+    {
+      "id": "P0-FULLRUN-SESSION-ANCHOR",
+      "status": "IMPLEMENTED_TESTED_NO_FULLRUN",
+      "symptom": "The clean seven-year workflow could reuse a fixed end date instead of the approved latest completed NYSE session.",
+      "repair": "Validate an explicit decision timestamp, resolve the completed NYSE session once, and pass that same session to the engine and both clean-window gates.",
+      "do_not_repeat_key": "FULLRUN_FIXED_END_DATE"
+    },
+    {
+      "id": "P0-PRODUCER-GATE-ORDER",
+      "status": "IMPLEMENTED_TESTED_NO_FULLRUN",
+      "symptom": "The post-book preflight required AlphaOps official books before the sidecar that produces them.",
+      "repair": "Give the gate an explicit target-book scope and validate only run_local operating books at the pre-sidecar boundary.",
+      "do_not_repeat_key": "PRE_SIDECAR_REQUIRES_POST_SIDECAR_BOOKS"
+    },
+    {
+      "id": "P0-CANDIDATE-PIT-PROVENANCE",
+      "status": "IMPLEMENTED_TESTED_NO_FULLRUN",
+      "symptom": "Candidate replay rows omitted valuation_price_cutoff_date and feature_available_from.",
+      "repair": "Export both fields, anchor close-derived availability to the actual scheduled NYSE close including half days, retain later source timestamps, and fail closed on missing or mismatched first-decision provenance.",
+      "do_not_repeat_key": "MIDNIGHT_OR_MISSING_CLOSE_AVAILABILITY"
+    },
+    {
+      "id": "P0-CONCENTRATED-CHAMPION-POINTER",
+      "status": "IMPLEMENTED_TESTED_NO_FULLRUN",
+      "symptom": "The concentrated broker replay selected the first row of the same run comparison grid, producing an outcome-dependent N=1 configuration.",
+      "repair": "Ignore the unaccepted in-run comparison, retain explicit accepted metadata when present, otherwise use and integrity-check the registered legacy N=3 score-power monthly contract.",
+      "do_not_repeat_key": "SAME_RUN_GRID_SELECTS_CHAMPION"
+    },
+    {
+      "id": "P0-EVIDENCE-PUBLICATION",
+      "status": "IMPLEMENTED_TESTED_NO_FULLRUN",
+      "symptom": "Session and clean-window preflight evidence was not guaranteed in both minimal and official broker-ledger artifacts.",
+      "repair": "Publish the session gate, source preflight, post-book preflight, and their logs in both artifact profiles.",
+      "do_not_repeat_key": "FULLRUN_GATE_EVIDENCE_NOT_PUBLISHED"
+    },
+    {
+      "id": "P1-SEC-PIT-HASH-CONTRACT",
+      "status": "IMPLEMENTED_TESTED_NO_FULLRUN",
+      "symptom": "A missing, zero-filled, after-close, or stale SEC-enriched candidate file could be reused and treated as policy-replay evidence.",
+      "repair": "Require non-empty Form4, 13F, and ETF PIT sources; actual scheduled NYSE-close candidate provenance; atomic output; and a source/output SHA-256 manifest rebuilt in the current run.",
+      "do_not_repeat_key": "SEC_ENRICHMENT_EXISTENCE_OR_STALE_FALLBACK"
+    },
+    {
+      "id": "P1-POLICY-REPLAY-READINESS",
+      "status": "IMPLEMENTED_TESTED_NO_FULLRUN",
+      "symptom": "Any one SEC artifact, including the enriched output itself, could self-certify data readiness before broker replay.",
+      "repair": "Require all raw stores plus a strict hash-bound enrichment contract and SEC columns in operating books before the primary broker replay starts.",
+      "do_not_repeat_key": "ENRICHED_OUTPUT_SELF_CERTIFIES_POLICY_REPLAY"
+    },
+    {
+      "id": "P1-APPROVED-SOURCE-AND-LATEST-CROSS-SECTION",
+      "status": "IMPLEMENTED_TESTED_NO_FULLRUN",
+      "symptom": "The approved source-manifest hash was format-checked only and the rebuild did not fail-loud on a stale latest selection cross-section.",
+      "repair": "Bind a safe tracked manifest path, exact dispatch scope, Git head, resolved session, and tracked-input hashes before expensive work; after calculation require exact-session scored/candidate/proposal rows and 100% eligible exact-close coverage.",
+      "do_not_repeat_key": "UNBOUND_SOURCE_HASH_OR_STALE_FULLRUN_CROSS_SECTION"
+    },
+    {
+      "id": "D0-ABCD-CADENCE-PREREGISTRATION",
+      "status": "IMPLEMENTED_REVIEW_ONLY_NOT_BACKTESTED",
+      "symptom": "Monthly, weekly, 20-session timing, and hybrid ideas could otherwise be mixed without a stable causal definition.",
+      "repair": "Freeze A/B/C/D as one multiple-testing family with identical capital, fills, costs, PIT inputs, cash allocator, and no automatic promotion; D keeps routine replacement monthly and uses weekly signals only for monitoring or an allowed vacancy.",
+      "do_not_repeat_key": "UNREGISTERED_CADENCE_ARMS_OR_WEEKLY_HEALTHY_LEADER_CHURN"
+    },
+    {
+      "id": "P1-PORTABLE-GIT-BLOB-APPROVAL-HASH",
+      "status": "IMPLEMENTED_TESTED_NO_FULLRUN",
+      "symptom": "The approved manifest and tracked inputs were hashed from a Windows CRLF worktree, so an exact Linux checkout of the same commit failed verification.",
+      "repair": "Use exact committed Git blob bytes for every approval digest, audit worktree bytes separately, and reject semantic worktree changes.",
+      "do_not_repeat_key": "APPROVAL_HASH_USES_TRANSLATED_WORKTREE_BYTES"
+    },
+    {
+      "id": "P1-MUTABLE-RUNTIME-SOURCE-IDENTITY",
+      "status": "IMPLEMENTED_TESTED_NO_FULLRUN",
+      "symptom": "Prefix-restored caches and refreshed external data could change while the run continued to claim only the same code-manifest identity.",
+      "repair": "Capture stage-specific file hashes after restore/refresh and again after final target mutation, bind them to the approved Git manifest, session, decision time, and workflow identity, and publish both manifests.",
+      "do_not_repeat_key": "FULLRUN_CODE_IDENTITY_WITHOUT_RUNTIME_DATA_IDENTITY"
+    },
+    {
+      "id": "P1-POST-MUTATION-PRE-BROKER-GATES",
+      "status": "IMPLEMENTED_TESTED_NO_FULLRUN",
+      "symptom": "A target override could run after readiness/freshness checks, and the sidecar could run after a failed strict upstream preflight.",
+      "repair": "Require upstream success, run every target mutation before runtime/readiness/freshness validation, and allow broker replay only after those final fail-loud gates.",
+      "do_not_repeat_key": "BROKER_AFTER_STALE_GATE_OR_FAILED_PREREQUISITE"
+    },
+    {
+      "id": "P1-REGISTERED-N-AND-COST-COVERAGE",
+      "status": "IMPLEMENTED_TESTED_NO_FULLRUN",
+      "symptom": "An unmatched Concentrated N=3 predicate could be silently skipped and operating-minimal could omit the registered 25/50/100 bps evaluation.",
+      "repair": "Fail on every missing/unmatched registered filter and require completed Main and Concentrated 25/50/100 bps sweeps in every canonical sidecar profile.",
+      "do_not_repeat_key": "SILENT_CHAMPION_FILTER_OR_MISSING_COST_ARM"
+    }
+  ],
+  "remaining_blockers": [
+    {
+      "id": "P2-CANONICAL-A-REBASELINE",
+      "status": "APPROVAL_MANIFEST_PREPARED_NOT_EXECUTED",
+      "reason": "A 2026-07-31 run-specific tracked source manifest is prepared. The canonical Main/Concentrated A strategy, exact seven-year window, USD 100,000 ledger, and 25/50/100 bps evaluation still require the exact separate FULLRUN_APPROVED authorization."
+    },
+    {
+      "id": "P3-CADENCE-AND-LEADERSHIP-CHALLENGERS",
+      "status": "PREREGISTERED_NOT_BACKTESTED",
+      "reason": "A/B/C/D definitions are frozen, but historical comparison remains blocked until canonical A is rebaselined and the complete experiment census authorizes one cadence/leadership family."
+    }
+  ],
+  "prohibited_actions": {
+    "fullrun_executed_by_this_change": false,
+    "production_enabled": false,
+    "live_trading_enabled": false,
+    "automatic_promotion_enabled": false,
+    "new_worktree_created": false
+  },
+  "promotion_interpretation": "Passing P0 tests authorizes neither a fullrun nor any portfolio mutation. It only makes a later explicitly approved fullrun fail closed on the repaired contracts."
+}

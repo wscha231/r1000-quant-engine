@@ -8,8 +8,19 @@ from pathlib import Path
 
 import pandas as pd
 
-
 REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+
+from r1000_config import EngineConfig  # noqa: E402
+from r1000_pipeline import (  # noqa: E402
+    annotate_effective_portfolio_candidate_gate,
+    apply_latest_ranking_eligibility,
+    attach_decision_time_provenance,
+)
+from tools.run_clean7y_window_preflight import (  # noqa: E402
+    feature_completeness_status,
+    first_decision_pit_status,
+)
 
 
 def write_book(path: Path, dates: list[str]) -> None:
@@ -22,10 +33,17 @@ def write_book(path: Path, dates: list[str]) -> None:
                 "ticker": "AAA",
                 "weight": 1.0,
                 "available_from": dt,
+                "feature_available_from": f"{dt}T20:00:00Z",
+                "valuation_price_cutoff_date": dt,
                 "membership_available_from": dt,
+                "portfolio_candidate_minimum_pass": True,
+                "portfolio_candidate_gate_label": "core_strict",
+                "px": 100.0,
+                "score": 1.5,
                 "mom_1m": 0.05,
                 "mom_3m": 0.10,
                 "mom_6m": 0.20,
+                "mom_12m": 0.30,
                 "relative_strength_composite": 1.25,
                 "price_above_ma200": 1.0,
                 "rsi14": 62.0,
@@ -44,6 +62,106 @@ def write_manifest(root: Path, start: str = "2019-05-09") -> None:
 
 
 def main() -> int:
+    effective_override = annotate_effective_portfolio_candidate_gate(
+        pd.DataFrame(
+            [{
+                "ticker": "OVERRIDE",
+                "portfolio_sleeve_label": "core_compounder",
+                "portfolio_monster_early_score": 0.99,
+                "portfolio_risk_entry_block_score": 0.0,
+            }]
+        ),
+        EngineConfig(),
+    )
+    assert bool(effective_override.loc[0, "portfolio_candidate_minimum_pass"])
+    assert effective_override.loc[0, "portfolio_candidate_gate_label"] == "monster_early_override"
+    latest_override = apply_latest_ranking_eligibility(
+        pd.DataFrame(
+            [{
+                "ticker": "LATEST_OVERRIDE",
+                "portfolio_sleeve_label": "core_compounder",
+                "portfolio_future_winner_engine_score": 1.0,
+                "price_above_ma50": 1.0,
+                "price_above_ma200": 1.0,
+                "trend_template_full": 1.0,
+                "breakout_fresh_20d": 1.0,
+                "relative_strength_composite": 5.0,
+                "industry_group_strength_score": 3.0,
+                "selection_confirmation_score": 1.0,
+                "near_52w_high_pct": 0.0,
+                "risk_penalty": 0.0,
+                "broken_momentum_penalty": 0.0,
+                "entry_quality_score": 1.0,
+                "breakout_setup_quality_score": 1.25,
+                "rs_acceleration_score": 1.0,
+            }]
+        ),
+        EngineConfig(),
+        context="clean7y smoke latest effective gate",
+    )
+    assert bool(latest_override.loc[0, "ranking_eligible"])
+    assert latest_override.loc[0, "portfolio_candidate_gate_label"] == "monster_early_override"
+
+    coverage_rows = pd.concat(
+        [
+            pd.DataFrame(
+                {
+                    "ticker": [f"T{index:03d}"],
+                    "px": [100.0],
+                    "score": [1.0],
+                    "mom_1m": [0.01],
+                    "mom_3m": [0.03],
+                    "mom_6m": [0.06],
+                    "mom_12m": [0.12],
+                    "relative_strength_composite": [1.1],
+                    "valuation_price_cutoff_date": ["2019-05-31"],
+                    "feature_available_from": ["2019-05-31T20:00:00Z"],
+                }
+            )
+            for index in range(100)
+        ],
+        ignore_index=True,
+    )
+    exactly_98 = coverage_rows.copy()
+    exactly_98.loc[:1, "mom_12m"] = float("nan")
+    exactly_98_status = feature_completeness_status(exactly_98)
+    assert exactly_98_status["status"] == "pass", exactly_98_status
+    assert exactly_98_status["coverage_ratio"] == 0.98
+
+    below_98 = coverage_rows.copy()
+    below_98.loc[:2, "score"] = float("nan")
+    below_98_status = feature_completeness_status(below_98)
+    assert below_98_status["status"] == "fail"
+    assert below_98_status["coverage_ratio"] == 0.97
+
+    invalid_price = coverage_rows.copy()
+    invalid_price.loc[0, "px"] = 0.0
+    invalid_price_status = feature_completeness_status(invalid_price)
+    assert invalid_price_status["status"] == "fail"
+    assert invalid_price_status["hard_integrity_invalid_by_column"]["px"] == 1
+
+    provenance = attach_decision_time_provenance(
+        pd.DataFrame(
+            [
+                {
+                    "rebalance_date": "2019-05-31",
+                    "accepted": "2019-05-30T18:00:00Z",
+                },
+                {
+                    "rebalance_date": "2019-05-31",
+                    "accepted": "2019-06-01T01:00:00Z",
+                },
+            ]
+        )
+    )
+    assert provenance.loc[0, "valuation_price_cutoff_date"] == "2019-05-31"
+    assert provenance.loc[0, "feature_available_from"] == "2019-05-31T20:00:00Z"
+    assert provenance.loc[1, "feature_available_from"] == "2019-06-01T01:00:00Z"
+    half_day = attach_decision_time_provenance(
+        pd.DataFrame([{"rebalance_date": "2019-11-29"}])
+    )
+    assert half_day.loc[0, "feature_available_from"] == "2019-11-29T18:00:00Z"
+
     base = REPO / "_tmp_tests" / "clean7y_window_preflight"
     if base.exists():
         for p in sorted(base.rglob("*"), reverse=True):
@@ -51,6 +169,88 @@ def main() -> int:
                 p.unlink()
             elif p.is_dir():
                 p.rmdir()
+
+    # Completeness is measured only across admitted candidates.  Ninety
+    # complete rejected rows must not dilute one incomplete row among ten
+    # post-gate candidates.
+    gated_rows = coverage_rows.copy()
+    gated_rows["rebalance_date"] = "2019-05-31"
+    gated_rows["portfolio_candidate_minimum_pass"] = False
+    gated_rows["portfolio_candidate_gate_label"] = "rejected"
+    gated_rows.loc[:9, "portfolio_candidate_minimum_pass"] = True
+    gated_rows.loc[:9, "portfolio_candidate_gate_label"] = "core_strict"
+    gated_rows.loc[1, "portfolio_candidate_gate_label"] = "monster_early_override"
+    gated_rows.loc[0, "score"] = float("nan")
+    gated_path = base / "gated_candidate_book.csv"
+    gated_path.parent.mkdir(parents=True, exist_ok=True)
+    gated_rows.to_csv(gated_path, index=False)
+    gated_status = first_decision_pit_status(gated_path, "2019-05-31")
+    assert gated_status["first_decision_rows"] == 100
+    assert gated_status["first_decision_post_gate_rows"] == 10
+    assert gated_status["feature_completeness"]["coverage_denominator_count"] == 10
+    assert gated_status["feature_completeness"]["coverage_ratio"] == 0.9
+    assert gated_status["pit_status"] == "fail_feature_completeness"
+
+    missing_gate_path = base / "missing_gate_candidate_book.csv"
+    gated_rows.drop(columns=["portfolio_candidate_minimum_pass"]).to_csv(
+        missing_gate_path, index=False
+    )
+    missing_gate_status = first_decision_pit_status(
+        missing_gate_path, "2019-05-31"
+    )
+    assert missing_gate_status["pit_status"] == "fail_missing_candidate_gate_column"
+
+    missing_label_path = base / "missing_gate_label_candidate_book.csv"
+    gated_rows.drop(columns=["portfolio_candidate_gate_label"]).to_csv(
+        missing_label_path, index=False
+    )
+    missing_label_status = first_decision_pit_status(
+        missing_label_path, "2019-05-31"
+    )
+    assert missing_label_status["pit_status"] == "fail_missing_candidate_gate_label"
+
+    blank_label_path = base / "blank_gate_label_candidate_book.csv"
+    blank_label_rows = gated_rows.copy()
+    blank_label_rows.loc[0, "portfolio_candidate_gate_label"] = "  "
+    blank_label_rows.to_csv(blank_label_path, index=False)
+    blank_label_status = first_decision_pit_status(
+        blank_label_path, "2019-05-31"
+    )
+    assert blank_label_status["pit_status"] == "fail_blank_candidate_gate_label"
+    assert blank_label_status["candidate_gate_blank_label_rows"] == 1
+
+    fallback_path = base / "fallback_candidate_book.csv"
+    fallback_rows = gated_rows.copy()
+    fallback_rows.loc[0, "portfolio_candidate_gate_label"] = "audit_fallback_blocked"
+    fallback_rows.to_csv(fallback_path, index=False)
+    fallback_status = first_decision_pit_status(fallback_path, "2019-05-31")
+    assert fallback_status["pit_status"] == "fail_candidate_gate_fallback"
+    assert fallback_status["candidate_gate_fallback_rows"] == 1
+
+    inconsistent_path = base / "inconsistent_gate_label_candidate_book.csv"
+    inconsistent_rows = gated_rows.copy()
+    inconsistent_rows.loc[0, "portfolio_candidate_gate_label"] = "rejected"
+    inconsistent_rows.to_csv(inconsistent_path, index=False)
+    inconsistent_status = first_decision_pit_status(
+        inconsistent_path, "2019-05-31"
+    )
+    assert (
+        inconsistent_status["pit_status"]
+        == "fail_inconsistent_candidate_gate_label"
+    )
+    assert inconsistent_status["candidate_gate_inconsistent_label_rows"] == 1
+
+    pipeline_source = (REPO / "r1000_pipeline.py").read_text(encoding="utf-8")
+    fallback_block = pipeline_source[
+        pipeline_source.index(
+            "[candidate_replay_book] WARN candidate gate annotation skipped"
+        ) : pipeline_source.index("for col in replay_cols:")
+    ]
+    assert 'replay_source["portfolio_candidate_minimum_pass"] = False' in fallback_block
+    assert '"audit_fallback_blocked"' in fallback_block
+    assert "annotate_effective_portfolio_candidate_gate(replay_source.copy(), cfg)" in pipeline_source
+    signal_source = (REPO / "r1000_signals.py").read_text(encoding="utf-8")
+    assert "from r1000_pipeline import annotate_effective_portfolio_candidate_gate" in signal_source
     latest = base / "latest"
     for rel in (
         "reports/candidate_replay_book.csv",
@@ -67,6 +267,8 @@ def main() -> int:
         [
             sys.executable,
             str(REPO / "tools" / "run_clean7y_window_preflight.py"),
+            "--end-date",
+            "2026-07-31",
             "--latest-run",
             str(latest),
             "--output-dir",
@@ -85,8 +287,56 @@ def main() -> int:
     assert status["cache_manifest"]["start_pass"] is True
     assert status["projected_calendar_trading_days"]["pass"] is True
     assert status["target_books_first_pass"] is True
+    assert status["target_book_scope"] == "operating"
     assert status["mode"] == "post_book"
     assert status["post_book_validation_required"] is False
+
+    # Official AlphaOps books are produced by the later sidecar. Their absence
+    # must not fail the pre-sidecar operating-book gate, while the explicit
+    # all-book scope remains fail closed.
+    for rel in (
+        "alphaops_vnext/official_main_target_book.csv",
+        "alphaops_vnext/official_concentrated_target_book.csv",
+    ):
+        (latest / rel).unlink()
+    operating_only_out = base / "operating_only_out"
+    subprocess.run(
+        [
+            sys.executable,
+            str(REPO / "tools" / "run_clean7y_window_preflight.py"),
+            "--end-date",
+            "2026-07-31",
+            "--latest-run",
+            str(latest),
+            "--output-dir",
+            str(operating_only_out),
+            "--target-book-scope",
+            "operating",
+            "--strict",
+        ],
+        cwd=REPO,
+        check=True,
+    )
+    all_books_out = base / "all_books_out"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(REPO / "tools" / "run_clean7y_window_preflight.py"),
+            "--end-date",
+            "2026-07-31",
+            "--latest-run",
+            str(latest),
+            "--output-dir",
+            str(all_books_out),
+            "--target-book-scope",
+            "all",
+            "--strict",
+        ],
+        cwd=REPO,
+    )
+    assert proc.returncode == 1
+    all_books_status = json.loads((all_books_out / "status.json").read_text(encoding="utf-8"))
+    assert "target_books_not_in_expected_clean7y_decision_window" in all_books_status["blockers"]
 
     source_only = base / "source_only"
     source_only_out = base / "source_only_out"
@@ -95,6 +345,8 @@ def main() -> int:
         [
             sys.executable,
             str(REPO / "tools" / "run_clean7y_window_preflight.py"),
+            "--end-date",
+            "2026-07-31",
             "--latest-run",
             str(source_only),
             "--output-dir",
@@ -127,6 +379,8 @@ def main() -> int:
             [
                 sys.executable,
                 str(REPO / "tools" / "run_clean7y_window_preflight.py"),
+                "--end-date",
+                "2026-07-31",
                 "--latest-run",
                 str(source_only_missing_cache),
                 "--output-dir",
@@ -152,6 +406,8 @@ def main() -> int:
             [
                 sys.executable,
                 str(REPO / "tools" / "run_clean7y_window_preflight.py"),
+                "--end-date",
+                "2026-07-31",
                 "--latest-run",
                 str(source_only_missing_cache_strict),
                 "--output-dir",
@@ -185,6 +441,8 @@ def main() -> int:
         [
             sys.executable,
             str(REPO / "tools" / "run_clean7y_window_preflight.py"),
+            "--end-date",
+            "2026-07-31",
             "--latest-run",
             str(stale),
             "--output-dir",
@@ -213,6 +471,8 @@ def main() -> int:
         [
             sys.executable,
             str(REPO / "tools" / "run_clean7y_window_preflight.py"),
+            "--end-date",
+            "2026-07-31",
             "--latest-run",
             str(too_early),
             "--output-dir",
@@ -242,6 +502,8 @@ def main() -> int:
         [
             sys.executable,
             str(REPO / "tools" / "run_clean7y_window_preflight.py"),
+            "--end-date",
+            "2026-07-31",
             "--latest-run",
             str(short_calendar),
             "--output-dir",
@@ -277,6 +539,8 @@ def main() -> int:
         [
             sys.executable,
             str(REPO / "tools" / "run_clean7y_window_preflight.py"),
+            "--end-date",
+            "2026-07-31",
             "--latest-run",
             str(missing_features),
             "--output-dir",
@@ -288,6 +552,45 @@ def main() -> int:
     assert proc.returncode == 1
     missing_features_status = json.loads((missing_features_out / "status.json").read_text(encoding="utf-8"))
     assert "first_decision_pit_check_failed" in missing_features_status["blockers"]
+
+    missing_provenance = base / "missing_provenance"
+    for rel in (
+        "reports/candidate_replay_book.csv",
+        "reports/operating_main_target_book.csv",
+        "reports/operating_concentrated_target_book.csv",
+    ):
+        write_book(missing_provenance / rel, ["2019-05-31", "2019-06-28"])
+    candidate = pd.read_csv(missing_provenance / "reports" / "candidate_replay_book.csv")
+    candidate = candidate.drop(
+        columns=["feature_available_from", "valuation_price_cutoff_date"]
+    )
+    candidate.to_csv(
+        missing_provenance / "reports" / "candidate_replay_book.csv", index=False
+    )
+    write_manifest(missing_provenance)
+    missing_provenance_out = base / "missing_provenance_out"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(REPO / "tools" / "run_clean7y_window_preflight.py"),
+            "--end-date",
+            "2026-07-31",
+            "--latest-run",
+            str(missing_provenance),
+            "--output-dir",
+            str(missing_provenance_out),
+            "--strict",
+        ],
+        cwd=REPO,
+    )
+    assert proc.returncode == 1
+    missing_provenance_status = json.loads(
+        (missing_provenance_out / "status.json").read_text(encoding="utf-8")
+    )
+    assert missing_provenance_status["first_decision_pit"]["pit_status"] == (
+        "fail_missing_required_pit_columns"
+    )
+    assert "first_decision_pit_check_failed" in missing_provenance_status["blockers"]
 
     print("clean7y_window_preflight_smoke: PASS")
     return 0

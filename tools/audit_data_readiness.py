@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import math
 import sys
@@ -38,6 +39,8 @@ DATE_COLUMNS = [
 
 
 CASH_TICKERS = {"CASH", "USD", "BIL", "SHV", "SGOV"}
+SEC_ENRICHED_SOURCE_MANIFEST_SCHEMA = "run287-sec-enriched-source-manifest-v1"
+SEC_STRICT_SOURCE_CONTRACT = "STRICT_PIT_SOURCE_CONTRACT_READY"
 
 
 FEATURE_SOURCE_GROUPS = {
@@ -164,6 +167,25 @@ def file_stats(path: Path) -> dict[str, Any]:
         "size_bytes": int(stat.st_size),
         "modified_utc": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
     }
+
+
+def file_sha256(path: Path) -> str:
+    if not path.is_file():
+        return ""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def nonempty_file(path: Path) -> bool:
+    return path.is_file() and path.stat().st_size > 0
+
+
+def manifest_source_path(value: Any) -> Path:
+    path = Path(str(value or ""))
+    return path if path.is_absolute() else REPO_ROOT / path
 
 
 def count_csv_rows(path: Path) -> int:
@@ -491,21 +513,99 @@ def sec_evidence_store_summary(latest_run: Path) -> dict[str, Any]:
             latest_run / "data_pit" / "etf_holdings" / "etf_holdings.parquet",
             REPO_ROOT / "data_pit" / "etf_holdings" / "etf_holdings.parquet",
         ],
-        "sec_enriched_candidate": [
-            latest_run / "sec_enriched_candidate_replay" / "candidate_replay_book_sec_enriched.csv",
-            root / "outputs" / "sec_enriched_candidate_replay" / "candidate_replay_book_sec_enriched.csv",
-            REPO_ROOT / "outputs" / "sec_enriched_candidate_replay" / "candidate_replay_book_sec_enriched.csv",
-        ],
     }
     entries: dict[str, Any] = {}
     for name, candidates in files.items():
+        selected = next((path for path in candidates if nonempty_file(path)), None)
         entries[name] = {
             "candidates": [file_stats(path) for path in candidates],
-            "any_available": any(path.exists() for path in candidates),
+            "any_available": selected is not None,
+            "selected_path": str(selected) if selected is not None else "",
+            "selected_sha256": file_sha256(selected) if selected is not None else "",
         }
+
+    sidecar_dir = latest_run / "sec_enriched_candidate_replay"
+    summary_path = sidecar_dir / "summary.json"
+    manifest_path = sidecar_dir / "source_manifest.json"
+    output_path = sidecar_dir / "candidate_replay_book_sec_enriched.csv"
+    candidate_path = latest_run / "reports" / "candidate_replay_book.csv"
+    summary = read_json(summary_path)
+    manifest = read_json(manifest_path)
+    contract_failures: list[str] = []
+
+    required_files = {
+        "candidate_book": candidate_path,
+        "enriched_output": output_path,
+        "summary": summary_path,
+        "source_manifest": manifest_path,
+    }
+    for label, path in required_files.items():
+        if not nonempty_file(path):
+            contract_failures.append(f"missing_or_empty:{label}")
+
+    if summary.get("status") != "ok":
+        contract_failures.append("summary_status_not_ok")
+    if summary.get("source_contract_status") != SEC_STRICT_SOURCE_CONTRACT:
+        contract_failures.append("summary_strict_source_contract_not_ready")
+    if manifest.get("schema_version") != SEC_ENRICHED_SOURCE_MANIFEST_SCHEMA:
+        contract_failures.append("source_manifest_schema_mismatch")
+    if manifest.get("status") != SEC_STRICT_SOURCE_CONTRACT:
+        contract_failures.append("source_manifest_strict_status_not_ready")
+    if manifest.get("strict_source_contract") is not True:
+        contract_failures.append("source_manifest_not_strict")
+    if manifest.get("contract_failures"):
+        contract_failures.append("source_manifest_records_contract_failures")
+
+    actual_hashes = {
+        label: file_sha256(path)
+        for label, path in required_files.items()
+    }
+    expected_hashes = {
+        "candidate_book": str(summary.get("candidate_book_sha256") or ""),
+        "enriched_output": str(summary.get("output_csv_sha256") or ""),
+        "source_manifest": str(summary.get("source_manifest_sha256") or ""),
+    }
+    for label, expected in expected_hashes.items():
+        if not expected or expected != actual_hashes[label]:
+            contract_failures.append(f"summary_hash_mismatch:{label}")
+
+    manifest_output = manifest.get("output") if isinstance(manifest.get("output"), dict) else {}
+    if str(manifest_output.get("sha256") or "") != actual_hashes["enriched_output"]:
+        contract_failures.append("source_manifest_output_hash_mismatch")
+    sources = manifest.get("sources") if isinstance(manifest.get("sources"), dict) else {}
+    required_source_labels = [
+        "candidate_book",
+        "form4_transactions",
+        "institutional_13f_holdings",
+        "etf_holdings",
+    ]
+    for label in required_source_labels:
+        source = sources.get(label) if isinstance(sources.get(label), dict) else {}
+        source_path = manifest_source_path(source.get("path"))
+        recorded_hash = str(source.get("sha256") or "")
+        if not nonempty_file(source_path):
+            contract_failures.append(f"source_manifest_missing_source:{label}")
+        elif not recorded_hash or file_sha256(source_path) != recorded_hash:
+            contract_failures.append(f"source_manifest_source_hash_mismatch:{label}")
+    candidate_source = sources.get("candidate_book") if isinstance(sources.get("candidate_book"), dict) else {}
+    if str(candidate_source.get("sha256") or "") != actual_hashes["candidate_book"]:
+        contract_failures.append("source_manifest_candidate_hash_mismatch")
+
+    raw_required_available = all(entries[label]["any_available"] for label in files)
+    strict_contract_ready = raw_required_available and not contract_failures
     return {
         "files": entries,
         "any_available": any(item["any_available"] for item in entries.values()),
+        "raw_required_available": bool(raw_required_available),
+        "strict_enrichment_contract_ready": bool(strict_contract_ready),
+        "strict_enrichment_contract_failures": sorted(set(contract_failures)),
+        "enrichment": {
+            "summary": file_stats(summary_path),
+            "source_manifest": file_stats(manifest_path),
+            "output": file_stats(output_path),
+            "candidate_book": file_stats(candidate_path),
+            "actual_sha256": actual_hashes,
+        },
     }
 
 
@@ -717,7 +817,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
 
     if int(scored.get("row_count") or 0) < int(args.min_scored_rows):
         blockers.append(f"scored_latest.csv row count is below threshold: {scored.get('row_count')}")
-    if universe_health.get("exists") and universe_health.get("promotion_allowed") is False:
+    if universe_health.get("exists") and universe_health.get("promotion_allowed") is not True:
         r1000_count = universe_health.get("r1000_base_count")
         floor = universe_health.get("min_r1000_base")
         blockers.append(f"universe health gate failed: scored R1000 base {r1000_count} below floor {floor}")
@@ -771,12 +871,28 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         next_actions.append("Build operating target books from the SEC-enriched candidate replay so Form4/13F/ETF/smart-money evidence is present or explicitly neutralized.")
 
     policy_replay_blockers = list(blockers)
-    if sec_evidence_store.get("any_available") and companyfacts_blocker in policy_replay_blockers:
+    if not universe_health.get("exists"):
+        policy_replay_blockers.append("policy replay requires a completed universe health audit")
+        next_actions.append(
+            "Run tools/run_universe_health_audit.py successfully before official broker replay."
+        )
+    if sec_evidence_store.get("strict_enrichment_contract_ready") and companyfacts_blocker in policy_replay_blockers:
         policy_replay_blockers.remove(companyfacts_blocker)
-    if sec_evidence_store.get("any_available") and missing_sec_smart_money:
+    if not sec_evidence_store.get("raw_required_available"):
+        policy_replay_blockers.append(
+            "policy replay requires non-empty Form4, 13F, and ETF PIT source stores"
+        )
+    if not sec_evidence_store.get("strict_enrichment_contract_ready"):
+        failures = ",".join(sec_evidence_store.get("strict_enrichment_contract_failures") or [])
+        policy_replay_blockers.append(
+            "SEC enriched candidate source/hash contract is not ready"
+            + (f": {failures}" if failures else "")
+        )
+    if sec_evidence_store.get("strict_enrichment_contract_ready") and missing_sec_smart_money:
         policy_replay_blockers.append(
             "SEC evidence store exists but operating target books are missing sec_smart_money feature columns"
         )
+    policy_replay_blockers = list(dict.fromkeys(policy_replay_blockers))
     ready_for_fullrun = not blockers
     ready_for_policy_replay = not policy_replay_blockers and price_file_count >= int(args.min_price_files)
     status = "ready" if ready_for_fullrun and not warnings else ("blocked" if blockers else "warn")
@@ -961,6 +1077,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-price-files", type=int, default=500)
     parser.add_argument("--min-scored-rows", type=int, default=500)
     parser.add_argument("--strict", action="store_true", help="Exit nonzero when blockers are present.")
+    parser.add_argument(
+        "--require-policy-replay-ready",
+        action="store_true",
+        help="Exit nonzero unless the hash-bound PIT policy-replay contract is ready.",
+    )
     return parser.parse_args()
 
 
@@ -974,6 +1095,8 @@ def main() -> int:
     print(json.dumps(payload, indent=2, sort_keys=True, default=json_default))
     if args.strict and payload.get("blockers"):
         return 2
+    if args.require_policy_replay_ready and not payload.get("ready_for_policy_replay"):
+        return 3
     return 0
 
 

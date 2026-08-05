@@ -11,6 +11,7 @@ cadence explicit:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import sys
@@ -31,6 +32,7 @@ from tools.run287_crisis_policy import adapt_crisis_state, canonical_state  # no
 
 CASH_TICKERS = {"CASH", "__CASH__"}
 PORTFOLIOS = ("main", "concentrated")
+ABCD_CONTRACT_PATH = REPO_ROOT / "docs" / "run287_abcd_cadence_challenger_contract.json"
 VALUATION_COLUMNS = [
     "forward_pe_final",
     "pe_ttm",
@@ -80,6 +82,10 @@ def read_json(path: Path) -> dict[str, Any]:
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+
+
+def file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else ""
 
 
 def safe_float(value: Any, default: float = 0.0) -> float:
@@ -430,6 +436,11 @@ def monthly_event_plan(daily: pd.DataFrame, weekly: pd.DataFrame, crisis: dict[s
         event_triggers.append("weekly_watchlist_has_multiple_add_candidates")
     if crisis_state.startswith("REENTRY_STAGE_"):
         event_triggers.append("mid_month_reentry_ready")
+    cadence_contract = read_json(ABCD_CONTRACT_PATH)
+    contract_ready = (
+        cadence_contract.get("schema_version") == "run287-abcd-cadence-challenger-contract-v1"
+        and cadence_contract.get("status") == "PREREGISTERED_RESEARCH_ONLY_NOT_EXECUTED"
+    )
     return {
         "schema_version": "alphaops-decision-cadence-plan-v1",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -475,6 +486,19 @@ def monthly_event_plan(daily: pd.DataFrame, weekly: pd.DataFrame, crisis: dict[s
         "reentry_stage": crisis.get("reentry_stage", ""),
         "reentry_trigger": crisis.get("reentry_trigger", ""),
         "latest_run": str(latest_run),
+        "abcd_cadence_challenger": {
+            "contract_ready": bool(contract_ready),
+            "contract_path": str(ABCD_CONTRACT_PATH),
+            "contract_sha256": file_sha256(ABCD_CONTRACT_PATH),
+            "family_id": cadence_contract.get("family_id", ""),
+            "status": cadence_contract.get("status", "BLOCKED_MISSING_CONTRACT"),
+            "recommended_operating_candidate": "D",
+            "accepted_champion": "A",
+            "historical_backtest_executed": False,
+            "automatic_promotion_allowed": False,
+            "arms": cadence_contract.get("arms", {}),
+            "execution_gate": cadence_contract.get("execution_gate", {}),
+        },
     }
 
 
@@ -496,6 +520,14 @@ def render_report(summary: dict[str, Any]) -> str:
         "- Daily: crisis/reentry plus current holdings breakdown/no-add review.",
         "- Weekly: holdings/watchlist RS, technicals, and valuation snapshot refresh.",
         "- Monthly/Event: full universe re-ranking and target book rebuild review.",
+        "",
+        "## Preregistered A/B/C/D comparison",
+        "",
+        "- A: accepted monthly champion reference.",
+        "- B: weekly leadership-cadence decomposition with turnover controls.",
+        "- C: 20-session warning/event-timing decomposition; no healthy rank-only sale.",
+        "- D: bounded hybrid: daily warning, weekly watch/vacancy confirmation, monthly routine replacement.",
+        "- D is a research candidate only; this review does not run a historical backtest or promote it.",
         "",
         "## Re-entry",
         "",
@@ -528,6 +560,7 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
     weekly.to_csv(output_dir / "weekly_watchlist_refresh.csv", index=False)
     write_json(output_dir / "monthly_event_rerank_plan.json", summary)
     write_json(output_dir / "decision_cadence_summary.json", summary)
+    write_json(output_dir / "abcd_cadence_preregistration.json", summary["abcd_cadence_challenger"])
     (output_dir / "decision_cadence_report.md").write_text(render_report(summary), encoding="utf-8")
     return summary
 

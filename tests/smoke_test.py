@@ -984,6 +984,44 @@ def test_adr_mktcap_proxy_cache_dates_are_normalized() -> None:
     assert is_datetime64_any_dtype(out["updated_at"]), out["updated_at"].dtype
 
 
+@_test("logic.mktcap_proxy_bound_budget_zero")
+def test_mktcap_proxy_bound_budget_zero() -> None:
+    """A bound engine must reuse even stale proxy cache without mutation."""
+    if _args.quick:
+        return
+    import tempfile
+
+    import pandas as pd
+
+    from r1000_config import EngineConfig
+    import r1000_pipeline as pipe
+
+    with tempfile.TemporaryDirectory() as tmp:
+        cache_dir = Path(tmp)
+        paths = {"cache_misc": cache_dir}
+        cache_path = cache_dir / "yf_mktcap_proxy.parquet"
+        pd.DataFrame(
+            {
+                "ticker": ["TSM"],
+                "mktcap_proxy": [2.0e12],
+                "updated_at": ["2020-01-01T00:00:00"],
+            }
+        ).to_parquet(cache_path, index=False)
+        before = cache_path.read_bytes()
+        cfg = EngineConfig()
+        cfg.mktcap_proxy_max_new_per_run = 0
+        original = pipe.fetch_mktcap_proxy
+        pipe.fetch_mktcap_proxy = lambda ticker: (_ for _ in ()).throw(
+            AssertionError(f"unexpected bound-input fetch: {ticker}")
+        )
+        try:
+            out = pipe.ensure_mktcap_proxy(cfg, paths, ["TSM", "ASML"], max_new=1200)
+        finally:
+            pipe.fetch_mktcap_proxy = original
+        assert set(out["ticker"].astype(str)) == {"TSM"}
+        assert cache_path.read_bytes() == before
+
+
 @_test("logic.adr_valuation_uses_adr_equivalent_shares")
 def test_adr_valuation_uses_adr_equivalent_shares() -> None:
     """ADR EPS/share math should use mktcap/ADR price, not ordinary local shares."""
@@ -2605,7 +2643,11 @@ def test_full_rebuild_workflow() -> None:
             f"full rebuild automatic trigger must stay removed: {forbidden_trigger}"
         )
     approval_inputs = trigger_block.split("universe_mode:", 1)[0]
-    assert approval_inputs.count("required: true") == 4, "all four approval inputs must be required"
+    assert approval_inputs.count("required: true") == 5, "all five pre-universe approval inputs must be required"
+    decision_input = trigger_block.split("decision_time_utc:", 1)[1].split(
+        "backtest_years:", 1
+    )[0]
+    assert "required: true" in decision_input, "decision_time_utc must be required"
     assert wf.index("Validate explicit fullrun approval") < wf.index("Free disk space on runner"), (
         "fullrun approval must be checked before any material runner work"
     )
@@ -2615,8 +2657,15 @@ def test_full_rebuild_workflow() -> None:
         "FULLRUN_APPROVED",
         "approved_commit_sha",
         "approved_source_manifest_sha256",
+        "approved_source_manifest_path",
         "expected_cost_minutes",
+        "INPUT_DECISION_TIME_UTC",
+        "decision_time_utc cannot be in the future",
         "Validate explicit fullrun approval",
+        "Resolve approved fullrun market session",
+        "run_daily_market_session_gate.py",
+        '--end-date "$LAST_NYSE_SESSION_DATE"',
+        "--target-book-scope operating",
         "approved_commit_sha does not match the dispatched GITHUB_SHA",
         "production portfolio policy is outside the approved research scope",
         "github.event_name == 'workflow_dispatch'",

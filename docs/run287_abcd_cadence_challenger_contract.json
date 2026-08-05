@@ -1,0 +1,119 @@
+{
+  "schema_version": "run287-abcd-cadence-challenger-contract-v1",
+  "status": "PREREGISTERED_RESEARCH_ONLY_NOT_EXECUTED",
+  "family_id": "run287-cadence-leadership-v1",
+  "causal_family": "decision_cadence_and_leadership_response",
+  "purpose": "Compare monthly, weekly leadership, short-horizon risk/timing, and a bounded hybrid without changing the accepted champion.",
+  "common_invariants": {
+    "starting_capital_usd": 100000,
+    "fill_semantics": "next_nyse_close_integer_shares",
+    "cost_scenarios_bps": [25, 50, 100],
+    "same_pit_candidate_and_price_inputs": true,
+    "same_cash_reserve_allocator": true,
+    "same_portfolio_size_and_weighting_as_canonical_a": true,
+    "future_labels_in_ranking": false,
+    "automatic_promotion_allowed": false,
+    "production_activation_allowed": false,
+    "live_trading_enabled": false
+  },
+  "arms": {
+    "A": {
+      "role": "canonical_champion_reference",
+      "routine_rebalance": "last_nyse_session_of_month",
+      "daily_scope": [
+        "lifecycle_hard_exit",
+        "crisis_defense",
+        "staged_reentry"
+      ],
+      "weekly_scope": "review_only_no_routine_target_mutation",
+      "new_leader_policy": "monthly_rank_only"
+    },
+    "B": {
+      "role": "weekly_leadership_cadence_decomposition",
+      "routine_rebalance": "weekly_last_nyse_session",
+      "candidate_requirements": [
+        "two_distinct_accepted_session_confirmation",
+        "positive_3m_and_6m_benchmark_relative_strength",
+        "sector_or_subsector_leadership_confirmation",
+        "liquidity_and_cost_gate",
+        "latest_pit_fundamental_and_ownership_confirmation"
+      ],
+      "turnover_controls": {
+        "maximum_routine_replacements_per_portfolio_per_week": 1,
+        "prior_weight_and_no_trade_band_required": true,
+        "healthy_leader_rank_only_exit_allowed": false
+      }
+    },
+    "C": {
+      "role": "short_horizon_warning_and_event_timing_decomposition",
+      "routine_rebalance": "last_nyse_session_of_month",
+      "short_horizon_inputs": [
+        "20_session_return_and_relative_strength",
+        "20_session_volume_and_dollar_volume_change",
+        "atr_and_realized_volatility",
+        "distance_to_20d_and_63d_high_low",
+        "vix_and_index_regime",
+        "price_volume_rebound_or_breakdown"
+      ],
+      "allowed_intramonth_actions": [
+        "warning_or_no_add",
+        "hard_exit_or_crisis_risk_reduction",
+        "staged_reentry",
+        "fill_a_vacancy_created_by_an_allowed_exit"
+      ],
+      "rank_only_healthy_holding_replacement": false
+    },
+    "D": {
+      "role": "bounded_hybrid_candidate",
+      "routine_rebalance": "last_nyse_session_of_month",
+      "daily_scope": "C_short_horizon_warning_crisis_and_entry_timing",
+      "weekly_scope": "B_sector_subsector_leadership_watch_and_vacancy_candidate_confirmation",
+      "monthly_replacement_score": [
+        "3m_and_6m_relative_strength_primary",
+        "12m_persistence_context",
+        "fundamental_growth_and_quality",
+        "earnings_confirmation",
+        "form4_13f_etf_confirmation_only",
+        "liquidity_capacity_and_expected_cost"
+      ],
+      "healthy_holding_policy": "no_routine_intramonth_sale_without_lifecycle_hard_exit_crisis_or_confirmed_breakdown",
+      "emerging_leader_policy": "two_distinct_accepted_sessions_then_watchlist_or_vacancy_fill; otherwise wait_for_monthly_rebalance",
+      "turnover_controls": {
+        "prior_weight_and_no_trade_band_required": true,
+        "one_routine_causal_mutation_family": true,
+        "weekly_full_universe_rerank": false
+      }
+    }
+  },
+  "evaluation": {
+    "primary_metrics": [
+      "ending_equity_usd",
+      "cagr",
+      "mdd",
+      "sharpe",
+      "turnover",
+      "trade_count",
+      "cash_drag",
+      "estimated_execution_cost",
+      "leadership_capture_latency",
+      "false_reentry_rate"
+    ],
+    "required_splits": [
+      "Full",
+      "OOS",
+      "OOS2",
+      "purged_walk_forward",
+      "regime_leave_one_out"
+    ],
+    "multiple_testing_population": "all four arms plus every prior trial in the canonical experiment ledger",
+    "promotion_candidate_limit": 1,
+    "no_passing_candidate_policy": "retain_A"
+  },
+  "execution_gate": {
+    "canonical_A_rebaseline_required": true,
+    "fullrun_latest_cross_section_preflight_required": true,
+    "strict_sec_enrichment_contract_required": true,
+    "complete_experiment_census_required_before_historical_challenger": true,
+    "separate_fullrun_approval_required": true
+  }
+}

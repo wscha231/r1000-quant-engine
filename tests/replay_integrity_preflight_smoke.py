@@ -103,6 +103,86 @@ def test_preflight_accepts_historical_disabled_filter() -> None:
         assert "NO_BASELINE_LOCK" in payload["blockers"]
 
 
+def test_preflight_validates_registered_concentrated_contract() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        latest = root / "latest" / "reports"
+        latest.mkdir(parents=True)
+        pd.DataFrame(
+            {
+                "rebalance_date": ["2026-01-31", "2026-02-28"],
+                "ticker": ["A", "A"],
+            }
+        ).to_csv(latest / "candidate_replay_book.csv", index=False)
+        broker = root / "broker"
+        broker.mkdir()
+        metrics_path = broker / "metrics.json"
+
+        base_metrics = {
+            "status": "completed",
+            "metric_mode": "broker_ledger_next_close",
+            "target_book_filter_source": "registered_static_contract",
+            "end_date": "2026-05-26",
+        }
+        metrics_path.write_text(
+            json.dumps(
+                {
+                    **base_metrics,
+                    "target_book_filter": {
+                        "target_stock_names": 3,
+                        "weighting_mode": "score_power",
+                        "active_rebalance_interval_months": 1,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        accepted = build_report(
+            latest_run=root / "latest",
+            output_dir=root / "accepted",
+            baseline_lock=None,
+            candidate_book_arg=None,
+            target_book=None,
+            broker_output_dir=broker,
+            metrics_json=metrics_path,
+            price_cache=None,
+            portfolio_kind="concentrated",
+            artifact_id="registered-valid",
+            asof_date="2026-05-27",
+        )
+        assert accepted["registered_concentrated_filter_valid"] is True
+        assert "registered_concentrated_contract_mismatch" not in accepted["blockers"]
+
+        metrics_path.write_text(
+            json.dumps(
+                {
+                    **base_metrics,
+                    "target_book_filter": {
+                        "target_stock_names": 1,
+                        "weighting_mode": "conviction_curve",
+                        "active_rebalance_interval_months": 3,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        rejected = build_report(
+            latest_run=root / "latest",
+            output_dir=root / "rejected",
+            baseline_lock=None,
+            candidate_book_arg=None,
+            target_book=None,
+            broker_output_dir=broker,
+            metrics_json=metrics_path,
+            price_cache=None,
+            portfolio_kind="concentrated",
+            artifact_id="registered-invalid",
+            asof_date="2026-05-27",
+        )
+        assert rejected["registered_concentrated_filter_valid"] is False
+        assert "registered_concentrated_contract_mismatch" in rejected["blockers"]
+
+
 def test_preflight_blocks_incomplete_price_cache() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -192,6 +272,7 @@ def test_preflight_uses_readable_benchmark_prices_and_long_crisis_inputs() -> No
 def main() -> int:
     test_preflight_blocks_latest_only_and_default_static_filter()
     test_preflight_accepts_historical_disabled_filter()
+    test_preflight_validates_registered_concentrated_contract()
     test_preflight_blocks_incomplete_price_cache()
     test_preflight_uses_readable_benchmark_prices_and_long_crisis_inputs()
     print("replay_integrity_preflight_smoke: PASS")

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sys
 import tempfile
 from argparse import Namespace
@@ -21,6 +22,10 @@ def write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def write_pit_evidence_store(root: Path) -> None:
     sec = root / "data_pit" / "sec"
     etf = root / "data_pit" / "etf_holdings"
@@ -29,6 +34,73 @@ def write_pit_evidence_store(root: Path) -> None:
     (sec / "form4_transactions.parquet").write_bytes(b"pit")
     (sec / "institutional_13f_holdings.parquet").write_bytes(b"pit")
     (etf / "etf_holdings.parquet").write_bytes(b"pit")
+    latest = root / "outputs"
+    write_json(
+        latest / "universe_health" / "universe_source_audit.json",
+        {
+            "status": "ready",
+            "promotion_allowed": True,
+            "r1000_base_count": 1000,
+            "min_r1000_base": 400,
+        },
+    )
+    reports = latest / "reports"
+    reports.mkdir(parents=True, exist_ok=True)
+    candidate = reports / "candidate_replay_book.csv"
+    pd.DataFrame(
+        {
+            "rebalance_date": ["2026-05-11"],
+            "ticker": ["AAA"],
+            "valuation_price_cutoff_date": ["2026-05-11"],
+            "feature_available_from": ["2026-05-11T20:00:00Z"],
+        }
+    ).to_csv(candidate, index=False)
+    sidecar = latest / "sec_enriched_candidate_replay"
+    sidecar.mkdir(parents=True, exist_ok=True)
+    enriched = sidecar / "candidate_replay_book_sec_enriched.csv"
+    pd.DataFrame(
+        {
+            "rebalance_date": ["2026-05-11"],
+            "ticker": ["AAA"],
+            "smart_money_shadow_score": [0.0],
+        }
+    ).to_csv(enriched, index=False)
+    source_manifest = sidecar / "source_manifest.json"
+    write_json(
+        source_manifest,
+        {
+            "schema_version": "run287-sec-enriched-source-manifest-v1",
+            "status": "STRICT_PIT_SOURCE_CONTRACT_READY",
+            "strict_source_contract": True,
+            "contract_failures": [],
+            "sources": {
+                "candidate_book": {"path": str(candidate), "sha256": sha256(candidate)},
+                "form4_transactions": {
+                    "path": str(sec / "form4_transactions.parquet"),
+                    "sha256": sha256(sec / "form4_transactions.parquet"),
+                },
+                "institutional_13f_holdings": {
+                    "path": str(sec / "institutional_13f_holdings.parquet"),
+                    "sha256": sha256(sec / "institutional_13f_holdings.parquet"),
+                },
+                "etf_holdings": {
+                    "path": str(etf / "etf_holdings.parquet"),
+                    "sha256": sha256(etf / "etf_holdings.parquet"),
+                },
+            },
+            "output": {"path": str(enriched), "sha256": sha256(enriched)},
+        },
+    )
+    write_json(
+        sidecar / "summary.json",
+        {
+            "status": "ok",
+            "source_contract_status": "STRICT_PIT_SOURCE_CONTRACT_READY",
+            "candidate_book_sha256": sha256(candidate),
+            "output_csv_sha256": sha256(enriched),
+            "source_manifest_sha256": sha256(source_manifest),
+        },
+    )
 
 
 def test_data_readiness_detects_fresh_operating_books_and_snapshots() -> None:
@@ -93,6 +165,11 @@ def test_data_readiness_detects_fresh_operating_books_and_snapshots() -> None:
         assert payload["ready_for_skip_collector_replay"] is True
         assert payload["ready_for_policy_replay"] is True
         assert payload["blockers"] == []
+
+        (latest / "universe_health" / "universe_source_audit.json").unlink()
+        missing_audit = build_payload(args)
+        assert missing_audit["ready_for_policy_replay"] is False
+        assert "policy replay requires a completed universe health audit" in missing_audit["policy_replay_blockers"]
 
 
 def test_data_readiness_reports_feature_source_coverage_and_pit_dates() -> None:
@@ -436,6 +513,14 @@ def test_data_readiness_allows_policy_replay_with_pit_stores_without_companyfact
         assert payload["ready_for_policy_replay"] is True
         assert payload["policy_replay_blockers"] == []
         assert any("companyfacts" in item for item in payload["blockers"])
+
+        (pit / "sec" / "form4_transactions.parquet").write_bytes(b"changed-after-enrichment")
+        stale_payload = build_payload(args)
+        assert stale_payload["ready_for_policy_replay"] is False
+        assert any(
+            "source_manifest_source_hash_mismatch:form4_transactions" in item
+            for item in stale_payload["policy_replay_blockers"]
+        )
 
 
 def test_data_readiness_reports_stale_operating_book() -> None:

@@ -861,6 +861,33 @@ def annotate_portfolio_candidate_gate(
     return d
 
 
+def annotate_effective_portfolio_candidate_gate(
+    df: pd.DataFrame,
+    cfg: EngineConfig,
+) -> pd.DataFrame:
+    """Annotate the exact gate used by portfolio construction and PIT audits."""
+    d = annotate_portfolio_candidate_gate(df, cfg)
+    if d.empty:
+        return d
+    gate_keep = d["portfolio_candidate_minimum_pass"].fillna(False).astype(bool)
+    if bool(getattr(cfg, "portfolio_defensive_rotation_enabled", True)) and "portfolio_monster_early_score" in d.columns:
+        monster_score = pd.to_numeric(d["portfolio_monster_early_score"], errors="coerce").fillna(0.0)
+        risk_score = pd.to_numeric(
+            d.get("portfolio_risk_entry_block_score", pd.Series(0.0, index=d.index)),
+            errors="coerce",
+        ).fillna(0.0)
+        monster_keep = (
+            monster_score >= float(getattr(cfg, "portfolio_monster_early_min_score", 0.58))
+        ) & (
+            risk_score < float(getattr(cfg, "concentrated_risk_candidate_block_threshold", 0.55))
+        )
+        override = monster_keep & (~gate_keep)
+        if bool(override.any()):
+            d.loc[override, "portfolio_candidate_gate_label"] = "monster_early_override"
+            d.loc[override, "portfolio_candidate_minimum_pass"] = True
+    return d
+
+
 # Stage 4b-ii (2026-04-20): apply_portfolio_candidate_gate_filter -> r1000_signals.py.
 
 
@@ -877,7 +904,9 @@ def apply_latest_ranking_eligibility(
         return d
     if "portfolio_sleeve_label" not in d.columns:
         d = compute_portfolio_sleeve_columns(d, cfg)
-    d = annotate_portfolio_candidate_gate(d, cfg)
+    if bool(getattr(cfg, "portfolio_defensive_rotation_enabled", True)):
+        d = compute_defensive_monster_rotation_overlay(d, cfg)
+    d = annotate_effective_portfolio_candidate_gate(d, cfg)
     d["ranking_eligible"] = d["portfolio_candidate_minimum_pass"].fillna(False).astype(bool)
     # Phase 9 C2 (2026-04-17): when thesis-gate is active, names labeled
     # "unassigned" (no clear archetype thesis) MUST be excluded from
@@ -5733,7 +5762,11 @@ def ensure_mktcap_proxy(cfg: EngineConfig, paths: dict[str, Path], tickers: list
     recent_cut = pd.Timestamp.utcnow().tz_localize(None) - pd.Timedelta(days=14)
     fresh = cache[cache["updated_at"] >= recent_cut] if not cache.empty else pd.DataFrame()
     have = set(fresh["ticker"].tolist()) if not fresh.empty else set()
-    need = [t for t in tickers if t not in have][:max_new]
+    configured_budget = int(getattr(cfg, "mktcap_proxy_max_new_per_run", 1200))
+    if os.environ.get("RUN287_BOUND_INPUTS_ONLY", "").strip() == "1":
+        configured_budget = 0
+    effective_budget = max(0, min(int(max_new), configured_budget))
+    need = [t for t in tickers if t not in have][:effective_budget]
     if need:
         rows = []
         for i, t in enumerate(need, start=1):
@@ -9558,6 +9591,75 @@ def monthly_test_dates(df: pd.DataFrame, evaluation_start_date: Any = None) -> l
                     on_or_after = pd.concat([pd.Series([last_prior]), on_or_after], ignore_index=True)
             months = on_or_after
     return [pd.Timestamp(x) for x in months]
+
+
+DECISION_AVAILABILITY_SOURCE_COLUMNS = (
+    "available_from",
+    "membership_available_from",
+    "universe_available_from",
+    "accepted",
+    "fund_accepted",
+    "fund_effective_accepted",
+    "fund_latest_accepted_overall",
+)
+
+
+def decision_session_close_utc(values: pd.Series) -> pd.Series:
+    """Resolve each decision date to its scheduled NYSE close in UTC.
+
+    Non-session dates remain missing when the exchange calendar is available.
+    The dependency-free fallback is deliberately conservative (23:59:59 UTC),
+    so it cannot make a same-day close appear available before it existed.
+    """
+    dates = pd.to_datetime(values, errors="coerce", utc=True)
+    result = pd.Series(pd.NaT, index=values.index, dtype="datetime64[ns, UTC]")
+    valid = dates.dropna()
+    if valid.empty:
+        return result
+    if mcal is None:
+        return dates.dt.normalize() + pd.Timedelta(hours=23, minutes=59, seconds=59)
+    schedule = mcal.get_calendar("NYSE").schedule(
+        start_date=valid.min().date(),
+        end_date=valid.max().date(),
+    )
+    close_by_date = {
+        pd.Timestamp(index).date().isoformat(): pd.Timestamp(close).tz_convert("UTC")
+        for index, close in schedule["market_close"].items()
+    }
+    keys = dates.dt.strftime("%Y-%m-%d")
+    return pd.to_datetime(keys.map(close_by_date), errors="coerce", utc=True)
+
+
+def attach_decision_time_provenance(frame: pd.DataFrame) -> pd.DataFrame:
+    """Materialize valuation cutoff and latest consumed input availability.
+
+    The technical close is a consumed input and therefore establishes the
+    minimum availability time. Filing and membership timestamps may move the
+    row later; they are never clipped, so a future-input defect remains visible
+    to downstream PIT validation.
+    """
+    out = frame.copy()
+    valuation = pd.to_datetime(
+        out.get("rebalance_date", pd.Series(pd.NaT, index=out.index)),
+        errors="coerce",
+        utc=True,
+    )
+    latest_available = decision_session_close_utc(
+        out.get("rebalance_date", pd.Series(pd.NaT, index=out.index))
+    )
+    for column in DECISION_AVAILABILITY_SOURCE_COLUMNS:
+        if column not in out.columns:
+            continue
+        values = pd.to_datetime(out[column], errors="coerce", utc=True)
+        latest_available = pd.concat(
+            [latest_available.rename("current"), values.rename("candidate")],
+            axis=1,
+        ).max(axis=1)
+    out["valuation_price_cutoff_date"] = valuation.dt.strftime("%Y-%m-%d")
+    out["feature_available_from"] = latest_available.dt.strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    return out
 
 
 def month_group_ids(dates: pd.Series) -> np.ndarray:
@@ -15421,29 +15523,54 @@ def build_latest_concentrated_holdings(
     if d.empty:
         return pd.DataFrame(), {}
 
+    registered_target_n = 3
+    registered_weighting_mode = "score_power"
+    registered_interval_months = 1
+
+    def registered_contract_rows(frame: pd.DataFrame) -> pd.DataFrame:
+        if frame.empty:
+            return frame
+        out = frame.copy()
+        if "target_stock_names" not in out.columns:
+            return pd.DataFrame()
+        target_n_values = pd.to_numeric(out["target_stock_names"], errors="coerce")
+        weighting_values = (
+            out["weighting_mode"].fillna("").astype(str).str.strip().str.lower()
+            if "weighting_mode" in out.columns
+            else pd.Series("", index=out.index, dtype="object")
+        )
+        interval_values = (
+            pd.to_numeric(out["rebalance_interval_months"], errors="coerce")
+            if "rebalance_interval_months" in out.columns
+            else pd.Series(np.nan, index=out.index, dtype="float64")
+        )
+        return out.loc[
+            target_n_values.eq(registered_target_n)
+            & weighting_values.eq(registered_weighting_mode)
+            & interval_values.eq(registered_interval_months)
+        ].copy()
+
     compare_df = concentrated_compare.copy() if isinstance(concentrated_compare, pd.DataFrame) else pd.DataFrame()
     compare_source = "artifact"
-    compare_df = select_concentrated_champion_comparison(cfg_obj, compare_df)
+    compare_df = select_concentrated_champion_comparison(
+        cfg_obj, registered_contract_rows(compare_df)
+    )
     if compare_df.empty:
         compare_path = get_paths(cfg_obj)["reports"] / "concentrated_strategy_comparison.csv"
         if compare_path.exists():
             try:
-                compare_df = select_concentrated_champion_comparison(cfg_obj, pd.read_csv(compare_path))
+                compare_df = select_concentrated_champion_comparison(
+                    cfg_obj, registered_contract_rows(pd.read_csv(compare_path))
+                )
                 compare_source = str(compare_path)
             except Exception:
                 compare_df = pd.DataFrame()
-    # Phase 9 CE: latest-holdings picker clamp bumped 3 -> 30 so the
-    # winning N from the concentrated grid can drive the live recommendation
-    # regardless of size (was silently clipping N=5 winners back to 3).
-    min_names = int(max(1, min(30, getattr(cfg_obj, "concentrated_min_production_names", 3))))
-    fallback_candidates = [
-        int(x) for x in getattr(cfg_obj, "concentrated_top_n_candidates", [min_names])
-        if int(max(1, min(int(x), 30))) >= min_names
-    ]
-    fallback_n = int(fallback_candidates[0]) if fallback_candidates else int(min_names)
-    top_n = int(max(min_names, min(30, safe_float(compare_df["target_stock_names"].iloc[0], fallback_n)))) if not compare_df.empty and "target_stock_names" in compare_df.columns else int(max(min_names, min(30, fallback_n)))
-    weighting_mode = str(compare_df["weighting_mode"].iloc[0]) if not compare_df.empty and "weighting_mode" in compare_df.columns else str(getattr(cfg_obj, "concentrated_weighting_modes", ["conviction_curve"])[0])
-    interval = int(safe_float(compare_df["rebalance_interval_months"].iloc[0], 1.0)) if not compare_df.empty and "rebalance_interval_months" in compare_df.columns else 1
+    # Official broker evidence is registered to one static concentrated
+    # contract.  The same-run grid remains research output and must not choose
+    # a different N/mode/interval after observing the rebuild outcome.
+    top_n = registered_target_n
+    weighting_mode = registered_weighting_mode
+    interval = registered_interval_months
     best_metrics = compare_df.iloc[0].to_dict() if not compare_df.empty else {}
 
     selected = select_concentrated_portfolio_topk(cfg_obj, d, top_n=top_n)
@@ -16970,6 +17097,9 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         cols = [
             "rank",
             "ticker",
+            "rebalance_date",
+            "valuation_price_cutoff_date",
+            "feature_available_from",
             "Name",
             "sector",
             "weight",
@@ -17346,6 +17476,14 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     portfolio_latest = _annotate_output_frame(portfolio_latest, research_only_output=False)
     research_only_top30 = _annotate_output_frame(research_only_top30, research_only_output=True)
     research_only_portfolio = _annotate_output_frame(research_only_portfolio, research_only_output=True)
+    # Fullrun target proposals are orderable outputs, so bind their valuation
+    # session and latest consumed-input availability before the operational
+    # allowlist is applied.  The strict latest-cross-section preflight verifies
+    # these producer-supplied fields; it never invents provenance downstream.
+    portfolio_latest = attach_decision_time_provenance(portfolio_latest)
+    research_only_portfolio = attach_decision_time_provenance(
+        research_only_portfolio
+    )
     top30_operational = _build_operational_view(top30, include_selected=True)
     portfolio_operational = _build_operational_view(portfolio_latest, include_selected=False)
     research_top30_operational = _build_operational_view(research_only_top30, include_selected=True)
@@ -17594,6 +17732,11 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
 
         replay_cols = [
             "rebalance_date",
+            "valuation_price_cutoff_date",
+            "feature_available_from",
+            "accepted",
+            "fund_accepted",
+            "fund_effective_accepted",
             "ticker",
             "Name",
             "sector",
@@ -17737,6 +17880,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         if replay_source.empty:
             pd.DataFrame(columns=replay_cols + ["period_forward_return"]).to_csv(candidate_replay_book_path, index=False)
         else:
+            replay_source = attach_decision_time_provenance(replay_source)
             try:
                 if "rebalance_date" in replay_source.columns:
                     replay_source = pd.concat(
@@ -17775,13 +17919,11 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
                     replay_source["source_universe"] = source_values
             try:
                 replay_source = add_core_fundamental_minimum_flags(replay_source.copy(), cfg)
-                replay_source = annotate_portfolio_candidate_gate(replay_source.copy(), cfg)
+                replay_source = annotate_effective_portfolio_candidate_gate(replay_source.copy(), cfg)
             except Exception as exc:
                 print(f"[candidate_replay_book] WARN candidate gate annotation skipped: {exc}")
-                if "portfolio_candidate_minimum_pass" not in replay_source.columns:
-                    replay_source["portfolio_candidate_minimum_pass"] = True
-                if "portfolio_candidate_gate_label" not in replay_source.columns:
-                    replay_source["portfolio_candidate_gate_label"] = "audit_fallback"
+                replay_source["portfolio_candidate_minimum_pass"] = False
+                replay_source["portfolio_candidate_gate_label"] = "audit_fallback_blocked"
             for col in replay_cols:
                 if col not in replay_source.columns:
                     replay_source[col] = np.nan
@@ -17809,6 +17951,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     # from scored_latest.csv export to keep the file scannable. Audit on the
     # SHIPPED 2026-04-28 file showed 97 / 638 cols all-NaN and 22% empty cells.
     # Full unpruned data remains in outputs/feature_store_*.parquet.
+    scored_latest = attach_decision_time_provenance(scored_latest)
     _prune_export_columns(scored_latest).to_csv(scored_path, index=False)
     if bool(cfg.export_extended_outputs):
         full_rank.to_csv(full_rank_path, index=False)

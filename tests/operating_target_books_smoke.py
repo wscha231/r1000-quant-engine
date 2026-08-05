@@ -18,6 +18,7 @@ from tools.build_operating_target_books import (  # noqa: E402
     build,
     build_book,
     clean_filter_value,
+    concentrated_champion_metadata,
 )
 
 
@@ -148,8 +149,8 @@ def test_operating_books_append_latest_close_targets() -> None:
         assert "sec_13f_smart_money_score" in main.columns
         assert float(main.loc[main["ticker"].eq("ON"), "smart_money_score"].iloc[-1]) == 0.25
         assert float(concentrated_latest.loc[concentrated_latest["ticker"].eq("WDC"), "sec_13f_smart_money_score"].iloc[-1]) == 0.6
-        assert set(concentrated_latest["target_stock_names"].map(clean_filter_value)) == {"4"}
-        assert set(concentrated_latest["target_n"].map(clean_filter_value)) == {"4"}
+        assert set(concentrated_latest["target_stock_names"].map(clean_filter_value)) == {"3"}
+        assert set(concentrated_latest["target_n"].map(clean_filter_value)) == {"3"}
         assert set(concentrated_latest["weighting_mode"].astype(str)) == {"score_power"}
         assert set(concentrated_latest["active_rebalance_interval_months"].map(clean_filter_value)) == {"1"}
         assert main["decision_frequency"].iloc[-1] == "event_driven_latest_close"
@@ -264,8 +265,116 @@ def test_existing_latest_close_row_is_marked_evidence_end_eligible() -> None:
         }
 
 
+def test_unaccepted_comparison_cannot_select_concentrated_n1() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        reports = root / "reports"
+        write_csv(
+            reports / "concentrated_strategy_comparison.csv",
+            [
+                {
+                    "portfolio_mode": "concentrated_alpha",
+                    "target_stock_names": 1,
+                    "weighting_mode": "conviction_curve",
+                    "rebalance_interval_months": 3,
+                    "strategy_cagr": 0.99,
+                    "sharpe": 3.0,
+                    "max_dd": -0.10,
+                }
+            ],
+        )
+        metadata = concentrated_champion_metadata(
+            reports / "concentrated_strategy_holdings.csv",
+            pd.DataFrame([{"ticker": "AAA", "weight": 1.0}]),
+        )
+        assert metadata == {
+            "target_stock_names": "3",
+            "weighting_mode": "score_power",
+            "active_rebalance_interval_months": "1",
+        }
+
+
+def test_operating_concentrated_book_rejects_more_than_registered_three_names() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        latest = root / "latest"
+        reports = latest / "reports"
+        write_csv(
+            reports / "concentrated_strategy_holdings.csv",
+            [{"rebalance_date": "2026-02-27", "ticker": "OLD", "weight": 1.0}],
+        )
+        write_csv(
+            latest / "concentrated_portfolio_latest.csv",
+            [
+                {
+                    "rebalance_date": "2026-05-11",
+                    "ticker": ticker,
+                    "weight": 0.25,
+                    "target_stock_names": 4,
+                    "weighting_mode": "score_power",
+                }
+                for ticker in ("AAA", "BBB", "CCC", "DDD")
+            ],
+        )
+        original = operating_books.latest_price_close_date
+        operating_books.latest_price_close_date = lambda price_cache, tickers: pd.Timestamp("2026-05-08")
+        try:
+            try:
+                build_book(
+                    portfolio="concentrated",
+                    history_path=reports / "concentrated_strategy_holdings.csv",
+                    latest_target_path=latest / "concentrated_portfolio_latest.csv",
+                    price_cache=root / "cache_prices",
+                )
+            except ValueError as exc:
+                assert "registered N=3 contract" in str(exc)
+            else:
+                raise AssertionError("N>3 latest concentrated target must fail closed")
+        finally:
+            operating_books.latest_price_close_date = original
+
+
+def test_approved_session_caps_later_prices_and_rejects_stale_selector() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        history = root / "reports" / "main_monthly_weights.csv"
+        latest = root / "portfolio_latest.csv"
+        write_csv(history, [{"rebalance_date": "2026-02-27", "ticker": "OLD", "weight": 1.0}])
+        write_csv(latest, [{"rebalance_date": "2026-05-11", "ticker": "NEW", "weight": 1.0}])
+        original = operating_books.latest_price_close_date
+        operating_books.latest_price_close_date = lambda price_cache, tickers: pd.Timestamp("2026-05-12")
+        try:
+            book, summary = build_book(
+                portfolio="main",
+                history_path=history,
+                latest_target_path=latest,
+                price_cache=root / "cache_prices",
+                max_signal_date="2026-05-11",
+            )
+            assert summary["approved_session_contract_failure"] is False
+            assert summary["observed_latest_price_close_date"] == "2026-05-12"
+            assert summary["latest_price_close_date"] == "2026-05-11"
+            assert pd.to_datetime(book["rebalance_date"]).max() == pd.Timestamp("2026-05-11")
+
+            write_csv(latest, [{"rebalance_date": "2026-05-08", "ticker": "STALE", "weight": 1.0}])
+            _, stale = build_book(
+                portfolio="main",
+                history_path=history,
+                latest_target_path=latest,
+                price_cache=root / "cache_prices",
+                max_signal_date="2026-05-11",
+            )
+            assert stale["approved_source_session_match"] is False
+            assert stale["approved_session_contract_failure"] is True
+        finally:
+            operating_books.latest_price_close_date = original
+
+
 if __name__ == "__main__":
     test_operating_books_append_latest_close_targets()
     test_operating_books_do_not_use_future_recommended_next_run_date()
     test_existing_latest_close_row_is_marked_evidence_end_eligible()
+    test_unaccepted_comparison_cannot_select_concentrated_n1()
+    test_operating_concentrated_book_rejects_more_than_registered_three_names()
+    test_approved_session_caps_later_prices_and_rejects_stale_selector()
     print("operating_target_books_smoke: ok")

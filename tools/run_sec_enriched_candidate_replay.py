@@ -8,14 +8,18 @@ book can be passed to alpha-selector / broker-ledger challenger tools.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
+import os
 import re
 import sys
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import pandas_market_calendars as mcal
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -34,6 +38,8 @@ DEFAULT_13F = "data_pit/sec/institutional_13f_holdings.parquet"
 DEFAULT_ETF_HOLDINGS = "data_pit/etf_holdings/etf_holdings.parquet"
 DEFAULT_TOP_MANAGER_SIGNALS = "data_pit/sec/top_manager_discovery_signals.parquet"
 DEFAULT_OUTPUT_DIR = "outputs/sec_enriched_candidate_replay"
+SOURCE_MANIFEST_SCHEMA = "run287-sec-enriched-source-manifest-v1"
+STRICT_SOURCE_CONTRACT = "STRICT_PIT_SOURCE_CONTRACT_READY"
 
 # Walk-forward Top-7 manager discovery signals (built by
 # tools/build_top_manager_discovery_signals.py). These feed the
@@ -113,6 +119,153 @@ def read_table(path: Path) -> pd.DataFrame:
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+
+
+def file_sha256(path: Path) -> str:
+    if not path.is_file():
+        return ""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def source_fingerprint(path: Path, frame: pd.DataFrame) -> dict[str, Any]:
+    availability = (
+        pd.to_datetime(frame["available_from"], errors="coerce", utc=True)
+        if "available_from" in frame.columns
+        else pd.Series(pd.NaT, index=frame.index, dtype="datetime64[ns, UTC]")
+    )
+    return {
+        "path": str(path),
+        "exists": path.is_file(),
+        "bytes": int(path.stat().st_size) if path.is_file() else 0,
+        "sha256": file_sha256(path),
+        "row_count": int(len(frame)),
+        "columns": sorted(str(column) for column in frame.columns),
+        "available_from_nonmissing_count": int(availability.notna().sum()),
+        "available_from_missing_count": int(availability.isna().sum()),
+        "available_from_min": (
+            availability.min().isoformat() if availability.notna().any() else ""
+        ),
+        "available_from_max": (
+            availability.max().isoformat() if availability.notna().any() else ""
+        ),
+    }
+
+
+@lru_cache(maxsize=1024)
+def decision_close_utc(rebalance_date: str) -> pd.Timestamp:
+    date = pd.Timestamp(rebalance_date).normalize()
+    schedule = mcal.get_calendar("NYSE").schedule(start_date=date, end_date=date)
+    if len(schedule) != 1 or "market_close" not in schedule.columns:
+        raise ValueError(f"candidate rebalance date is not an NYSE session: {date.date()}")
+    close = pd.Timestamp(schedule.iloc[0]["market_close"])
+    return close.tz_convert("UTC") if close.tzinfo else close.tz_localize("UTC")
+
+
+def strict_source_failures(
+    candidates: pd.DataFrame,
+    form4: pd.DataFrame,
+    holdings_13f: pd.DataFrame,
+    etf_holdings: pd.DataFrame,
+    top_manager_signals: pd.DataFrame,
+) -> list[str]:
+    failures: list[str] = []
+    requirements = {
+        "candidate": (candidates, {"rebalance_date", "ticker", "valuation_price_cutoff_date", "feature_available_from"}),
+        "form4": (form4, {"issuer_ticker", "available_from"}),
+        "institutional_13f": (holdings_13f, {"available_from"}),
+        "etf_holdings": (etf_holdings, {"holding_ticker", "available_from"}),
+    }
+    if not top_manager_signals.empty:
+        requirements["top_manager"] = (
+            top_manager_signals,
+            {"rebalance_date", "ticker", "latest_top_manager_available_from"},
+        )
+    for label, (frame, required) in requirements.items():
+        if frame.empty:
+            failures.append(f"{label}_empty")
+        missing = sorted(required - set(frame.columns))
+        if missing:
+            failures.append(f"{label}_missing_columns:{','.join(missing)}")
+    if not holdings_13f.empty and not ({"ticker_mapped", "issuer_name"} & set(holdings_13f.columns)):
+        failures.append("institutional_13f_missing_ticker_or_issuer_identity")
+    for label, frame in (
+        ("form4", form4),
+        ("institutional_13f", holdings_13f),
+        ("etf_holdings", etf_holdings),
+    ):
+        if frame.empty or "available_from" not in frame.columns:
+            continue
+        available = pd.to_datetime(frame["available_from"], errors="coerce", utc=True)
+        if available.isna().any():
+            failures.append(f"{label}_available_from_missing:{int(available.isna().sum())}")
+    if not candidates.empty and {
+        "rebalance_date",
+        "valuation_price_cutoff_date",
+        "feature_available_from",
+    }.issubset(candidates.columns):
+        decisions = pd.to_datetime(candidates["rebalance_date"], errors="coerce")
+        cutoffs = pd.to_datetime(
+            candidates["valuation_price_cutoff_date"], errors="coerce"
+        )
+        if decisions.isna().any():
+            failures.append(f"candidate_rebalance_date_missing:{int(decisions.isna().sum())}")
+        mismatch = decisions.dt.normalize().ne(cutoffs.dt.normalize()) | cutoffs.isna()
+        if mismatch.any():
+            failures.append(f"candidate_valuation_cutoff_mismatch:{int(mismatch.sum())}")
+        closes = pd.Series(pd.NaT, index=candidates.index, dtype="datetime64[ns, UTC]")
+        for index, value in decisions.items():
+            if pd.isna(value):
+                continue
+            try:
+                closes.loc[index] = decision_close_utc(pd.Timestamp(value).date().isoformat())
+            except ValueError:
+                failures.append(
+                    f"candidate_non_nyse_session:{pd.Timestamp(value).date().isoformat()}"
+                )
+        feature_available = pd.to_datetime(
+            candidates["feature_available_from"], errors="coerce", utc=True
+        )
+        availability_mismatch = feature_available.isna() | closes.isna() | feature_available.ne(closes)
+        if availability_mismatch.any():
+            failures.append(
+                "candidate_feature_available_from_not_exact_close:"
+                f"{int(availability_mismatch.sum())}"
+            )
+    if not top_manager_signals.empty and {
+        "rebalance_date",
+        "latest_top_manager_available_from",
+    }.issubset(top_manager_signals.columns):
+        decisions = pd.to_datetime(top_manager_signals["rebalance_date"], errors="coerce")
+        available = pd.to_datetime(
+            top_manager_signals["latest_top_manager_available_from"],
+            errors="coerce",
+            utc=True,
+        )
+        closes = pd.Series(pd.NaT, index=top_manager_signals.index, dtype="datetime64[ns, UTC]")
+        for index, value in decisions.items():
+            if pd.isna(value):
+                continue
+            try:
+                closes.loc[index] = decision_close_utc(
+                    pd.Timestamp(value).date().isoformat()
+                )
+            except ValueError:
+                failures.append(
+                    f"top_manager_non_nyse_session:{pd.Timestamp(value).date().isoformat()}"
+                )
+        missing = decisions.isna() | available.isna() | closes.isna()
+        if missing.any():
+            failures.append(f"top_manager_availability_missing:{int(missing.sum())}")
+        after_close = (~missing) & available.gt(closes)
+        if after_close.any():
+            failures.append(
+                f"top_manager_available_after_decision_close:{int(after_close.sum())}"
+            )
+    return sorted(set(failures))
 
 
 def numeric(frame: pd.DataFrame, col: str, default: float = 0.0) -> pd.Series:
@@ -216,13 +369,10 @@ def map_13f_tickers_from_candidates(holdings_13f: pd.DataFrame, candidates: pd.D
 
 
 def as_of_timestamp(rebalance_date: pd.Timestamp) -> str:
-    """Use end-of-calendar-day availability for monthly replay rows.
-
-    This is conservative enough for date-level candidate books while still
-    requiring `available_from` to be on or before the candidate date.
-    """
-    ts = pd.Timestamp(rebalance_date).normalize() + pd.Timedelta(hours=23, minutes=59, seconds=59)
-    return ts.tz_localize("UTC").isoformat()
+    """Use the actual scheduled NYSE close, including half-day sessions."""
+    return decision_close_utc(
+        pd.Timestamp(rebalance_date).date().isoformat()
+    ).isoformat()
 
 
 def build_form4_features_by_date(
@@ -274,7 +424,7 @@ def _etf_snapshot_asof(holdings: pd.DataFrame, dt: pd.Timestamp) -> tuple[pd.Dat
         return pd.DataFrame(), pd.DataFrame()
     d = holdings.copy()
     d["_available_ts"] = _etf_available_series(d)
-    as_of = pd.Timestamp(dt).normalize() + pd.Timedelta(hours=23, minutes=59, seconds=59)
+    as_of = decision_close_utc(pd.Timestamp(dt).date().isoformat()).tz_convert(None)
     eligible = d[d["_available_ts"].notna() & (d["_available_ts"] <= as_of)].copy()
     if eligible.empty:
         return pd.DataFrame(), pd.DataFrame()
@@ -529,6 +679,10 @@ def summary_payload(
     institutional_13f_path: Path,
     etf_holdings_path: Path,
     output_path: Path,
+    *,
+    source_manifest_path: Path,
+    source_manifest_sha256: str,
+    source_contract_status: str,
 ) -> dict[str, Any]:
     rows = int(len(enriched))
     with_evidence = int((numeric(enriched, "evidence_confidence_score", 0.0) > 0).sum()) if rows else 0
@@ -545,6 +699,11 @@ def summary_payload(
     )
     return {
         "status": "ok",
+        "source_contract_status": source_contract_status,
+        "source_manifest": str(source_manifest_path),
+        "source_manifest_sha256": source_manifest_sha256,
+        "candidate_book_sha256": file_sha256(candidate_path),
+        "output_csv_sha256": file_sha256(output_path),
         "research_only": True,
         "production_activation_allowed": False,
         "score_total_changed": False,
@@ -621,6 +780,27 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     holdings_13f = read_table(institutional_13f_path)
     etf_holdings = read_table(etf_holdings_path)
     top_manager_signals = read_table(top_manager_signals_path) if top_manager_signals_path.exists() else pd.DataFrame()
+    strict_contract = bool(getattr(args, "strict_source_contract", False))
+    failures = strict_source_failures(
+        candidates,
+        form4,
+        holdings_13f,
+        etf_holdings,
+        top_manager_signals,
+    )
+    if strict_contract and failures:
+        raise RuntimeError("SEC enriched strict source contract failed: " + ";".join(failures))
+    input_frames = {
+        "candidate_book": (candidate_path, candidates),
+        "form4_transactions": (form4_path, form4),
+        "institutional_13f_holdings": (institutional_13f_path, holdings_13f),
+        "etf_holdings": (etf_holdings_path, etf_holdings),
+        "top_manager_signals": (top_manager_signals_path, top_manager_signals),
+    }
+    fingerprints_before = {
+        label: source_fingerprint(path, frame)
+        for label, (path, frame) in input_frames.items()
+    }
     enriched = enrich_candidate_book(
         candidates,
         form4,
@@ -631,13 +811,65 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         institutional_lookback_days=int(args.institutional_lookback_days),
     )
     output_path = output_dir / "candidate_replay_book_sec_enriched.csv"
+    source_manifest_path = output_dir / "source_manifest.json"
     enriched_out = enriched.copy()
     if "rebalance_date" in enriched_out.columns:
         enriched_out["rebalance_date"] = pd.to_datetime(enriched_out["rebalance_date"], errors="coerce").dt.strftime("%Y-%m-%d")
-    enriched_out.to_csv(output_path, index=False)
-    summary = summary_payload(enriched_out, candidate_path, form4_path, institutional_13f_path, etf_holdings_path, output_path)
-    write_json(output_dir / "summary.json", summary)
-    (output_dir / "report.md").write_text(render_report(summary, enriched), encoding="utf-8")
+    temporary_output = output_dir / f".{output_path.name}.{os.getpid()}.tmp"
+    enriched_out.to_csv(temporary_output, index=False)
+    os.replace(temporary_output, output_path)
+    changed_inputs = []
+    for label, (path, _frame) in input_frames.items():
+        if file_sha256(path) != str(fingerprints_before[label].get("sha256") or ""):
+            changed_inputs.append(label)
+    if changed_inputs:
+        output_path.unlink(missing_ok=True)
+        raise RuntimeError(
+            "SEC enriched inputs changed during build: " + ",".join(changed_inputs)
+        )
+    source_manifest = {
+        "schema_version": SOURCE_MANIFEST_SCHEMA,
+        "status": STRICT_SOURCE_CONTRACT if strict_contract else "SOURCE_CONTRACT_RECORDED",
+        "strict_source_contract": strict_contract,
+        "contract_failures": failures,
+        "availability_policy": "actual_scheduled_nyse_close_including_half_days",
+        "candidate_pit_required_columns": [
+            "rebalance_date",
+            "ticker",
+            "valuation_price_cutoff_date",
+            "feature_available_from",
+        ],
+        "sources": fingerprints_before,
+        "output": {
+            "path": str(output_path),
+            "bytes": int(output_path.stat().st_size),
+            "sha256": file_sha256(output_path),
+            "row_count": int(len(enriched_out)),
+        },
+        "research_only": True,
+        "production_activation_allowed": False,
+    }
+    temporary_manifest = output_dir / f".{source_manifest_path.name}.{os.getpid()}.tmp"
+    write_json(temporary_manifest, source_manifest)
+    os.replace(temporary_manifest, source_manifest_path)
+    source_contract_status = str(source_manifest["status"])
+    summary = summary_payload(
+        enriched_out,
+        candidate_path,
+        form4_path,
+        institutional_13f_path,
+        etf_holdings_path,
+        output_path,
+        source_manifest_path=source_manifest_path,
+        source_manifest_sha256=file_sha256(source_manifest_path),
+        source_contract_status=source_contract_status,
+    )
+    temporary_summary = output_dir / f".summary.json.{os.getpid()}.tmp"
+    write_json(temporary_summary, summary)
+    os.replace(temporary_summary, output_dir / "summary.json")
+    temporary_report = output_dir / f".report.md.{os.getpid()}.tmp"
+    temporary_report.write_text(render_report(summary, enriched), encoding="utf-8")
+    os.replace(temporary_report, output_dir / "report.md")
     return summary
 
 
@@ -651,6 +883,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--lookback-days", type=int, default=90)
     parser.add_argument("--institutional-lookback-days", type=int, default=210)
+    parser.add_argument(
+        "--strict-source-contract",
+        action="store_true",
+        help=(
+            "Require non-empty PIT candidate/Form4/13F/ETF inputs, exact NYSE "
+            "close provenance, and complete available_from timestamps."
+        ),
+    )
     return parser.parse_args()
 
 
