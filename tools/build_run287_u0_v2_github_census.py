@@ -322,6 +322,15 @@ def enrich_remote_changed_paths(
                 if isinstance(item, dict) and str(item.get("filename") or "")
             }
         )
+        renamed_from_paths = sorted(
+            {
+                str(item.get("previous_filename") or "")
+                for page in pages
+                for item in page
+                if isinstance(item, dict)
+                and str(item.get("previous_filename") or "")
+            }
+        )
         graphql_count: int | None = None
         if detail_count == 0 and paths:
             try:
@@ -350,6 +359,9 @@ def enrich_remote_changed_paths(
         cap_reached = len(paths) >= 3000
         declared_mismatch = declared_count != len(paths)
         raw["files"] = [{"path": path} for path in paths]
+        raw["renamedFromPaths"] = [
+            {"path": path} for path in renamed_from_paths
+        ]
         raw["changedFiles"] = declared_count
         raw["changedFilesGraphql"] = graphql_count
         raw["changedFilesDetail"] = detail_count
@@ -424,6 +436,10 @@ def experiment_like_text(value: Any) -> bool:
         or BRANCH_EXPERIMENT_NAME_RE.search(text)
         or EXPERIMENT_TEXT_RE.search(normalized_text)
     )
+
+
+def normalized_evidence_identity(value: Any) -> str:
+    return re.sub(r"[-_./\\\s]+", "_", str(value or "").lower()).strip("_")
 
 
 def changed_path_evidence(raw: dict[str, Any], paths: list[str]) -> tuple[int, bool]:
@@ -597,17 +613,33 @@ def normalize_pr(
     head_name = str(raw.get("headRefName") or "")
     head_sha = clean_sha(raw.get("headRefOid"))
     paths = path_list(raw.get("files"))
+    renamed_from_paths = path_list(raw.get("renamedFromPaths"))
     changed_files, changed_paths_complete = changed_path_evidence(raw, paths)
     text = " ".join((title, body, head_name))
-    families = capability_families(text, paths)
+    normalized_text = re.sub(r"[-_./\\]+", " ", text)
+    all_evidence_paths = [*paths, *renamed_from_paths]
+    families = capability_families(text, all_evidence_paths)
     experiment_like = bool(
         number in KNOWN_REGISTRY_OUTSIDE_EXPERIMENT_PRS
         or experiment_like_text(head_name)
-        or EXPERIMENT_TEXT_RE.search(text)
-        or any(EXPERIMENT_PATH_RE.search(path) for path in paths)
+        or EXPERIMENT_TEXT_RE.search(normalized_text)
+        or any(
+            EXPERIMENT_PATH_RE.search(path) or experiment_like_text(path)
+            for path in all_evidence_paths
+        )
     )
+    normalized_evidence = [
+        normalized_evidence_identity(value)
+        for value in (title, body, head_name, *all_evidence_paths)
+    ]
     matched_registry_ids = sorted(
-        item for item in do_not_repeat_ids if item in text or item in " ".join(paths)
+        item
+        for item in do_not_repeat_ids
+        if normalized_evidence_identity(item)
+        and any(
+            normalized_evidence_identity(item) in evidence
+            for evidence in normalized_evidence
+        )
     )
     commit_oids = [
         clean_sha(item.get("oid"))
@@ -619,11 +651,11 @@ def normalize_pr(
         for item in raw.get("labels") or []
         if isinstance(item, dict) and str(item.get("name") or "")
     )
-    reviews = raw.get("reviews") if isinstance(raw.get("reviews"), list) else []
+    reviews = raw.get("reviews") if isinstance(raw.get("reviews"), list) else None
     checks = (
         raw.get("statusCheckRollup")
         if isinstance(raw.get("statusCheckRollup"), list)
-        else []
+        else None
     )
     merged = bool(raw.get("mergedAt"))
     state = "MERGED" if merged else str(raw.get("state") or "UNKNOWN").upper()
@@ -694,6 +726,7 @@ def normalize_pr(
             else None
         ),
         "changed_paths": paths,
+        "renamed_from_paths": renamed_from_paths,
         "changed_paths_complete": changed_paths_complete,
         "changed_paths_api_cap_reached": bool(
             raw.get("changedPathsApiCapReached")
@@ -714,11 +747,12 @@ def normalize_pr(
             raw.get("changedPathsBaseAfter")
         ),
         "changed_paths_sha256": canonical_sha256(paths),
+        "renamed_from_paths_sha256": canonical_sha256(renamed_from_paths),
         "commit_oids": commit_oids,
         "commit_oids_sha256": canonical_sha256(commit_oids),
         "commit_count": int(raw.get("commitCount") or len(commit_oids)),
-        "review_count": len(reviews),
-        "check_count": len(checks),
+        "review_count": len(reviews) if reviews is not None else None,
+        "check_count": len(checks) if checks is not None else None,
         "body_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
         "experiment_candidate": experiment_like,
         "capability_family_candidates": families,

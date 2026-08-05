@@ -234,7 +234,13 @@ def test_remote_files_are_counted_and_bound_to_one_head() -> None:
     def fake_run_json(command: list[str]):
         calls.append(command)
         if command[-1].endswith("?per_page=100"):
-            return [[{"filename": "tests/a.py"}, {"filename": "tools/a.py"}]]
+            return [[
+                {
+                    "filename": "docs/a.py",
+                    "previous_filename": "experiments/a.py",
+                },
+                {"filename": "tools/a.py"},
+            ]]
         return {
             "head": {"sha": "b" * 40},
             "base": {"sha": AUDIT_SHA},
@@ -254,6 +260,7 @@ def test_remote_files_are_counted_and_bound_to_one_head() -> None:
     assert row["changedPathsHeadAfter"] == "b" * 40
     assert row["changedPathsBaseBefore"] == AUDIT_SHA
     assert row["changedPathsBaseAfter"] == AUDIT_SHA
+    assert row["renamedFromPaths"] == [{"path": "experiments/a.py"}]
 
 
 def test_remote_file_cap_and_head_race_remain_blocked() -> None:
@@ -599,6 +606,21 @@ def test_cached_status_and_changed_count_provenance_are_recomputed() -> None:
     assert candidate["changed_paths_source"] == "UNRESOLVED_BLOCKED"
     assert candidate["changed_paths_complete"] is False
 
+    repository, branches, pulls, ancestry = fixtures()
+    pulls[0].pop("reviews")
+    pulls[0].pop("statusCheckRollup")
+    census = MOD.build_census(
+        repository_payload=repository,
+        branches=branches,
+        pull_requests=pulls,
+        audit_sha=AUDIT_SHA,
+        ancestry_by_sha=ancestry,
+        do_not_repeat_ids=set(),
+    )
+    candidate = census["pull_requests"][0]
+    assert candidate["review_count"] is None
+    assert candidate["check_count"] is None
+
 
 def test_linked_strong_experiment_head_names_are_candidates() -> None:
     repository, branches, pulls, ancestry = fixtures()
@@ -640,9 +662,9 @@ def test_linked_strong_experiment_head_names_are_candidates() -> None:
         assert "promotion-test" in text
 
 
-def test_plural_experiment_title_is_candidate_without_path_evidence() -> None:
+def test_normalized_title_path_rename_and_registry_evidence_are_candidates() -> None:
     repository, branches, pulls, ancestry = fixtures()
-    pulls[1]["title"] = "Experiments with future returns"
+    pulls[1]["title"] = "Expected-return model"
     pulls[1]["body"] = ""
     pulls[1]["headRefName"] = "neutral-maintenance"
     pulls[1]["files"] = [{"path": "README.md"}]
@@ -658,6 +680,58 @@ def test_plural_experiment_title_is_candidate_without_path_evidence() -> None:
         do_not_repeat_ids=set(),
     )
     assert census["pull_requests"][1]["experiment_candidate"] is True
+
+    repository, branches, pulls, ancestry = fixtures()
+    pulls[1]["title"] = "Maintenance"
+    pulls[1]["body"] = ""
+    pulls[1]["headRefName"] = "neutral-maintenance"
+    pulls[1]["files"] = [{"path": "docs/foo.py"}]
+    pulls[1]["renamedFromPaths"] = [{"path": "experiments/foo.py"}]
+    pulls[1]["changedFiles"] = 1
+    pulls[1]["changedFilesDetail"] = 1
+    pulls[1]["changedFilesGraphql"] = 1
+    census = MOD.build_census(
+        repository_payload=repository,
+        branches=branches,
+        pull_requests=pulls,
+        audit_sha=AUDIT_SHA,
+        ancestry_by_sha=ancestry,
+        do_not_repeat_ids=set(),
+    )
+    renamed = census["pull_requests"][1]
+    assert renamed["experiment_candidate"] is True
+    assert renamed["changed_file_count"] == 1
+    assert renamed["renamed_from_paths"] == ["experiments/foo.py"]
+
+    repository, branches, pulls, ancestry = fixtures()
+    pulls[1]["title"] = "Maintenance"
+    pulls[1]["body"] = ""
+    pulls[1]["headRefName"] = "neutral-maintenance"
+    pulls[1]["files"] = [{"path": "execution-cost/foo.py"}]
+    census = MOD.build_census(
+        repository_payload=repository,
+        branches=branches,
+        pull_requests=pulls,
+        audit_sha=AUDIT_SHA,
+        ancestry_by_sha=ancestry,
+        do_not_repeat_ids=set(),
+    )
+    assert census["pull_requests"][1]["experiment_candidate"] is True
+
+    repository, branches, pulls, ancestry = fixtures()
+    pulls[0]["title"] = "rank-rs-revenue-replacement"
+    census = MOD.build_census(
+        repository_payload=repository,
+        branches=branches,
+        pull_requests=pulls,
+        audit_sha=AUDIT_SHA,
+        ancestry_by_sha=ancestry,
+        do_not_repeat_ids={"rank_rs_revenue_replacement"},
+    )
+    assert census["pull_requests"][0]["matched_do_not_repeat_ids"] == [
+        "rank_rs_revenue_replacement"
+    ]
+    assert MOD.EXPERIMENT_TEXT_RE.search("Experiments")
 
 
 def test_conflicting_local_and_cached_ancestry_fails_closed() -> None:
@@ -810,7 +884,7 @@ def main() -> int:
     test_default_head_and_cached_ancestry_are_audit_bound()
     test_cached_status_and_changed_count_provenance_are_recomputed()
     test_linked_strong_experiment_head_names_are_candidates()
-    test_plural_experiment_title_is_candidate_without_path_evidence()
+    test_normalized_title_path_rename_and_registry_evidence_are_candidates()
     test_conflicting_local_and_cached_ancestry_fails_closed()
     test_advanced_and_path_named_branches_remain_candidates()
     test_duplicate_branch_only_heads_are_reported()
