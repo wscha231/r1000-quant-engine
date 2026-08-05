@@ -171,6 +171,47 @@ def collect_branches(repository: str) -> list[dict[str, Any]]:
     return [item for page in pages for item in page]
 
 
+def graphql_pr_identity(rows: Any) -> dict[int, str]:
+    if not isinstance(rows, list) or len(rows) >= 1000:
+        raise RuntimeError("PR identity snapshot is invalid or limit-capped")
+    identity: dict[int, str] = {}
+    for item in rows:
+        if not isinstance(item, dict):
+            raise RuntimeError("PR identity snapshot row is invalid")
+        number = item.get("number")
+        if (
+            not isinstance(number, int)
+            or isinstance(number, bool)
+            or number <= 0
+            or number in identity
+        ):
+            raise RuntimeError("PR identity snapshot contains invalid identities")
+        identity[number] = clean_sha(item.get("headRefOid"))
+    return identity
+
+
+def rest_pr_identity(pages: Any) -> dict[int, str]:
+    if not isinstance(pages, list) or not all(
+        isinstance(page, list) for page in pages
+    ):
+        raise RuntimeError("REST PR pagination payload is invalid")
+    identity: dict[int, str] = {}
+    for item in (row for page in pages for row in page):
+        if not isinstance(item, dict):
+            raise RuntimeError("REST PR pagination row is invalid")
+        number = item.get("number")
+        if (
+            not isinstance(number, int)
+            or isinstance(number, bool)
+            or number <= 0
+            or number in identity
+        ):
+            raise RuntimeError("REST PR pagination contains invalid identities")
+        head = item.get("head") if isinstance(item.get("head"), dict) else {}
+        identity[number] = clean_sha(head.get("sha"))
+    return identity
+
+
 def collect_pull_requests(repository: str) -> list[dict[str, Any]]:
     # A single ``gh pr list --limit 1000`` query with nested files, commits,
     # reviews, and checks exceeds GitHub's 500k potential-node GraphQL cap for
@@ -178,6 +219,13 @@ def collect_pull_requests(repository: str) -> list[dict[str, Any]]:
     # paginated REST collection and resolve changed paths from the pinned Git
     # objects below.  Review/check state is deliberately outside this census;
     # it belongs to the per-PR merge gate, not experiment identity.
+    identity_before_rows = run_json(
+        [
+            "gh", "pr", "list", "--repo", repository, "--state", "all",
+            "--limit", "1000", "--json", "number,headRefOid",
+        ]
+    )
+    identity_before = graphql_pr_identity(identity_before_rows)
     pages = run_json(
         [
             "gh", "api", "--paginate", "--slurp",
@@ -191,6 +239,10 @@ def collect_pull_requests(repository: str) -> list[dict[str, Any]]:
             "number,state,isDraft,mergeCommit,mergedAt,closedAt,headRefOid",
         ]
     )
+    identity_after = graphql_pr_identity(status_rows)
+    identity_rest = rest_pr_identity(pages)
+    if identity_before != identity_rest or identity_after != identity_rest:
+        raise RuntimeError("PR namespace moved during paginated collection")
     status_by_number = {
         int(item.get("number") or 0): item
         for item in status_rows
@@ -635,6 +687,30 @@ def load_bound_collection_payload(
         for item in records
     ):
         raise ValueError("cached PR collection lacks rename provenance")
+    if collection_kind == "pull_requests":
+        for record in records:
+            for field in ("files", "renamedFromPaths"):
+                items = record.get(field)
+                if not isinstance(items, list):
+                    raise ValueError(
+                        f"cached PR collection has invalid {field} provenance"
+                    )
+                paths = [
+                    item.get("path")
+                    for item in items
+                    if isinstance(item, dict)
+                ]
+                if (
+                    len(paths) != len(items)
+                    or any(
+                        not isinstance(path, str) or not path.strip()
+                        for path in paths
+                    )
+                    or len(paths) != len(set(paths))
+                ):
+                    raise ValueError(
+                        f"cached PR collection has malformed {field} provenance"
+                    )
     return records
 
 
@@ -741,7 +817,9 @@ def normalize_pr(
         isinstance(raw_commits, list)
         and commit_count is not None
         and len(raw_commits) == commit_count
+        and len(observed_commit_oids) == len(set(observed_commit_oids))
         and all(observed_commit_oids)
+        and head_sha in observed_commit_oids
     ) or bool(
         isinstance(raw_commits, list) and commit_count == 0 and not raw_commits
     )
@@ -771,6 +849,10 @@ def normalize_pr(
         )
     if not changed_paths_complete:
         blockers.append("changed_paths_truncated")
+    if reviews is None:
+        blockers.append("pr_review_metadata_unresolved")
+    if checks is None:
+        blockers.append("pr_check_metadata_unresolved")
     status_head_oid = clean_sha(raw.get("statusMetadataHeadOid"))
     status_head_matches = bool(
         raw.get("statusMetadataHeadMatches") is True
@@ -1067,6 +1149,10 @@ def build_census(
         blockers.append("one_or_more_pr_changed_path_lists_are_truncated")
     if any(not row["status_metadata_head_matches"] for row in pr_rows):
         blockers.append("one_or_more_pr_status_rows_are_not_head_pinned")
+    if any(row["review_count"] is None for row in pr_rows):
+        blockers.append("one_or_more_pr_review_metadata_sets_are_unresolved")
+    if any(row["check_count"] is None for row in pr_rows):
+        blockers.append("one_or_more_pr_check_metadata_sets_are_unresolved")
     if any(row["ancestry"] == "UNVERIFIED_BLOCKED" for row in branch_rows + pr_rows):
         blockers.append("one_or_more_git_ancestry_results_are_unverified")
     if branch_only_candidates:

@@ -436,12 +436,14 @@ def test_zero_count_conflict_and_status_head_race_fail_closed() -> None:
 
     MOD.run_json = status_race_run_json
     try:
-        collected = MOD.collect_pull_requests(MOD.REPOSITORY)
+        try:
+            MOD.collect_pull_requests(MOD.REPOSITORY)
+        except RuntimeError as exc:
+            assert "namespace moved" in str(exc)
+        else:
+            raise AssertionError("REST/GraphQL PR identity drift was accepted")
     finally:
         MOD.run_json = original_run_json
-    assert collected[0]["statusMetadataHeadMatches"] is False
-    assert collected[0]["state"] == "open"
-    assert collected[0]["mergedAt"] is None
 
     empty_head_pull = dict(rest_pull)
     empty_head_pull["head"] = {"ref": "deleted-head", "sha": None}
@@ -467,6 +469,37 @@ def test_zero_count_conflict_and_status_head_race_fail_closed() -> None:
     assert collected[0]["statusMetadataHeadMatches"] is False
     assert collected[0]["state"] == "open"
     assert collected[0]["mergedAt"] is None
+
+    snapshot_calls = 0
+
+    def namespace_race_run_json(command: list[str]):
+        nonlocal snapshot_calls
+        if command[1:3] == ["api", "--paginate"]:
+            return [[rest_pull]]
+        snapshot_calls += 1
+        rows = [
+            {
+                "number": 12,
+                "state": "OPEN",
+                "headRefOid": "b" * 40,
+                "mergedAt": None,
+                "mergeCommit": None,
+            }
+        ]
+        if snapshot_calls == 2:
+            rows.append({"number": 13, "headRefOid": "e" * 40})
+        return rows
+
+    MOD.run_json = namespace_race_run_json
+    try:
+        try:
+            MOD.collect_pull_requests(MOD.REPOSITORY)
+        except RuntimeError as exc:
+            assert "namespace moved" in str(exc)
+        else:
+            raise AssertionError("PR pagination namespace drift was accepted")
+    finally:
+        MOD.run_json = original_run_json
 
 
 def test_cached_collections_require_complete_bound_envelopes() -> None:
@@ -523,6 +556,27 @@ def test_cached_collections_require_complete_bound_envelopes() -> None:
     else:
         raise AssertionError("cached PR collection without rename provenance passed")
 
+    _, _, pulls, _ = fixtures()
+    pulls[0]["renamedFromPaths"] = [{"not_path": "experiments/foo.py"}]
+    pr_envelope = {
+        "schema_version": MOD.COLLECTION_CACHE_SCHEMA_VERSION,
+        "repository": MOD.REPOSITORY,
+        "audit_sha": AUDIT_SHA,
+        "collection_kind": "pull_requests",
+        "pagination_complete": True,
+        "record_count": len(pulls),
+        "records_sha256": MOD.canonical_sha256(pulls),
+        "records": pulls,
+    }
+    try:
+        MOD.load_bound_collection_payload(
+            pr_envelope, audit_sha=AUDIT_SHA, collection_kind="pull_requests"
+        )
+    except ValueError as exc:
+        assert "malformed renamedFromPaths" in str(exc)
+    else:
+        raise AssertionError("malformed cached rename path was accepted")
+
 
 def test_cached_json_rejects_duplicate_provenance_keys() -> None:
     with tempfile.TemporaryDirectory() as tmp:
@@ -566,6 +620,21 @@ def test_uncollected_commit_oids_remain_unresolved() -> None:
     assert observed["commit_oids_complete"] is True
     assert observed["commit_oids"] == ["c" * 40]
     assert observed["commit_oids_sha256"] == MOD.canonical_sha256(["c" * 40])
+
+    repository, branches, pulls, ancestry = fixtures()
+    pulls[0]["commits"] = [{"oid": "e" * 40}]
+    census = MOD.build_census(
+        repository_payload=repository,
+        branches=branches,
+        pull_requests=pulls,
+        audit_sha=AUDIT_SHA,
+        ancestry_by_sha=ancestry,
+        do_not_repeat_ids=set(),
+    )
+    wrong_head = census["pull_requests"][0]
+    assert wrong_head["commit_oids_complete"] is False
+    assert wrong_head["commit_oids"] is None
+    assert "commit_oids_unresolved" in wrong_head["promotion_blockers"]
 
     repository, branches, pulls, ancestry = fixtures()
     pulls[0].pop("commitCount")
@@ -747,6 +816,14 @@ def test_cached_status_and_changed_count_provenance_are_recomputed() -> None:
     candidate = census["pull_requests"][0]
     assert candidate["review_count"] is None
     assert candidate["check_count"] is None
+    assert "pr_review_metadata_unresolved" in candidate["promotion_blockers"]
+    assert "pr_check_metadata_unresolved" in candidate["promotion_blockers"]
+    assert "one_or_more_pr_review_metadata_sets_are_unresolved" in (
+        census["promotion_blockers"]
+    )
+    assert "one_or_more_pr_check_metadata_sets_are_unresolved" in (
+        census["promotion_blockers"]
+    )
 
 
 def test_linked_strong_experiment_head_names_are_candidates() -> None:
