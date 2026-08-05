@@ -35,10 +35,15 @@ EXPERIMENT_PATH_RE = re.compile(
 )
 KNOWN_REGISTRY_OUTSIDE_EXPERIMENT_PRS = frozenset({229, 230, 237})
 EXPERIMENT_TEXT_RE = re.compile(
-    r"\b(backtest|challenger|experiment|ablation|grid|sweep|alpha|learning|"
-    r"promotion|selector|scoring|replay|"
+    r"\b(backtest|challenger|experiment|ablation|grid|sweep|alpha|"
     r"relative strength|sector leadership|crisis|reserve|form 4|13f|"
     r"fundamental|earnings|ohlcv|expected return|cagr|mdd)\b",
+    re.IGNORECASE,
+)
+BRANCH_EXPERIMENT_NAME_RE = re.compile(
+    r"auto[-_./\\]?learning|promotion[-_./\\]?test|"
+    r"actual[-_./\\]?results|rolling[-_./\\]?review|"
+    r"selector|scor(?:e|ing)|replay",
     re.IGNORECASE,
 )
 CAPABILITY_RULES: dict[str, tuple[str, ...]] = {
@@ -391,6 +396,7 @@ def experiment_like_text(value: Any) -> bool:
     normalized_path = text.replace("\\", "/").replace("-", "_")
     return bool(
         "run287" in text.lower()
+        or BRANCH_EXPERIMENT_NAME_RE.search(text)
         or EXPERIMENT_TEXT_RE.search(normalized_text)
         or EXPERIMENT_PATH_RE.search(normalized_path)
     )
@@ -503,7 +509,8 @@ def normalize_pr(
     families = capability_families(text, paths)
     experiment_like = bool(
         number in KNOWN_REGISTRY_OUTSIDE_EXPERIMENT_PRS
-        or experiment_like_text(text)
+        or "run287" in head_name.lower()
+        or EXPERIMENT_TEXT_RE.search(text)
         or any(EXPERIMENT_PATH_RE.search(path) for path in paths)
     )
     matched_registry_ids = sorted(
