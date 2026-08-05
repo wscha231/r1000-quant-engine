@@ -27,11 +27,20 @@ def contract() -> dict:
 
 
 def valid_u0() -> dict:
+    audit_sha = MOD.git_default_branch_sha()
+    branches = [
+        {
+            "name": "master",
+            "head_sha": audit_sha,
+            "ancestry": "IDENTICAL_TO_AUDIT_HEAD",
+        }
+    ]
+    pull_requests = [{"number": 1, "head_sha": "c" * 40}]
     return {
         "schema_version": "run287-u0-v2-github-census-v1",
         "repository": MOD.REPOSITORY,
         "audit_default_branch": "master",
-        "audit_default_branch_sha": MOD.git_head(),
+        "audit_default_branch_sha": audit_sha,
         "source_contract": {
             "branch_payload_sha256": "a" * 64,
             "pull_request_payload_sha256": "b" * 64,
@@ -39,6 +48,14 @@ def valid_u0() -> dict:
             "fullrun_executed": False,
             "production_or_live_mutated": False,
             "champion_changed": False,
+        },
+        "branches": branches,
+        "pull_requests": pull_requests,
+        "accepted_evidence": {
+            "schema_version": "run287-u0-accepted-evidence-v1",
+            "audit_default_branch_sha": audit_sha,
+            "branch_records_sha256": MOD.canonical_sha256(branches),
+            "pull_request_records_sha256": MOD.canonical_sha256(pull_requests),
         },
         "summary": {
             "historical_experiment_census_complete": True,
@@ -202,6 +219,18 @@ def test_u0_gate_blocks_model_fit_and_all_mutations() -> None:
         assert summary["orders_generated"] is False
         assert summary["portfolio_or_ledger_mutated"] is False
 
+    forged = valid_u0()
+    forged_sha = "d" * 40
+    forged["audit_default_branch_sha"] = forged_sha
+    forged["branches"][0]["head_sha"] = forged_sha
+    forged["accepted_evidence"]["audit_default_branch_sha"] = forged_sha
+    forged["accepted_evidence"]["branch_records_sha256"] = MOD.canonical_sha256(
+        forged["branches"]
+    )
+    assert "u0_census_audit_sha_not_current_default_branch" in MOD.u0_gate(
+        forged, contract()
+    )
+
 
 def test_missing_exact_label_provenance_blocks_even_with_u0_allowed() -> None:
     with tempfile.TemporaryDirectory() as tmp:
@@ -254,6 +283,24 @@ def test_zero_weight_21d_labels_are_optional_for_monthly_selection() -> None:
     for column in optional_columns:
         all_null[column] = pd.NaT if column.endswith("_date") else np.nan
     assert not MOD.input_readiness(all_null, cfg)
+
+    missing_timing_feature = synthetic_frame(months=48).drop(columns=["atr14_pct"])
+    assert not MOD.input_readiness(missing_timing_feature, cfg)
+    prepared_timing = MOD.prepare_frame(missing_timing_feature, cfg)
+    timing_predictions, timing_audit, _ = MOD.walk_forward_predictions(
+        prepared_timing, cfg
+    )
+    assert not timing_predictions.empty
+    assert timing_predictions["entry_timing_score"].isna().all()
+    assert timing_audit["status"].eq("UNAVAILABLE_TIMING_ONLY_MISSING_FEATURES").any()
+
+
+def test_required_selection_features_must_be_usable() -> None:
+    cfg = contract()
+    unusable = synthetic_frame(months=18)
+    unusable["rs_benchmark_3m"] = "not-numeric"
+    blockers = MOD.input_readiness(unusable, cfg)
+    assert "selection_feature_unusable:63:rs_benchmark_3m" in blockers
 
 
 def test_walk_forward_is_exactly_purged_and_learns_expected_return() -> None:
@@ -334,7 +381,7 @@ def test_benchmark_identity_and_forward_dates_are_fail_closed() -> None:
     try:
         MOD.prepare_frame(nonforward, cfg)
     except ValueError as exc:
-        assert "forward label does not end after decision" in str(exc)
+        assert "label end is not exact NYSE horizon:21" in str(exc)
     else:
         raise AssertionError("same-day forward label was accepted")
 
@@ -372,6 +419,22 @@ def test_benchmark_identity_and_forward_dates_are_fail_closed() -> None:
         )
     else:
         raise AssertionError("mixed cross-sectional label ends were accepted")
+
+    wrong_horizon = synthetic_frame(months=18)
+    first_date = pd.Timestamp(wrong_horizon.loc[0, "feature_date"])
+    next_session = MOD.NYSE.valid_days(
+        start_date=first_date + pd.Timedelta(days=1),
+        end_date=first_date + pd.Timedelta(days=10),
+    ).tz_localize(None).normalize()[0]
+    first_rows = wrong_horizon["feature_date"].eq(first_date)
+    wrong_horizon.loc[first_rows, "r_3m_label_end_date"] = next_session
+    wrong_horizon.loc[first_rows, "bench_r_3m_label_end_date"] = next_session
+    try:
+        MOD.prepare_frame(wrong_horizon, cfg)
+    except ValueError as exc:
+        assert "label end is not exact NYSE horizon:63" in str(exc)
+    else:
+        raise AssertionError("a non-63-session label horizon was accepted")
 
     null_ticker = synthetic_frame(months=18)
     null_ticker.loc[0, "ticker"] = None
@@ -556,6 +619,7 @@ def main() -> int:
     test_u0_gate_blocks_model_fit_and_all_mutations()
     test_missing_exact_label_provenance_blocks_even_with_u0_allowed()
     test_zero_weight_21d_labels_are_optional_for_monthly_selection()
+    test_required_selection_features_must_be_usable()
     test_walk_forward_is_exactly_purged_and_learns_expected_return()
     test_benchmark_identity_and_forward_dates_are_fail_closed()
     test_21d_timing_unavailability_does_not_block_monthly_selection()

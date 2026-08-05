@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import re
 import subprocess
 from datetime import datetime, timezone
@@ -31,7 +32,7 @@ BLOCKED_STATUS = "BLOCKED_EXPECTED_RETURN_CHALLENGER"
 TARGET_KINDS = ("absolute", "benchmark_excess", "sector_neutral")
 HORIZONS = (21, 63, 126)
 EXPECTED_CONTRACT_SHA256 = (
-    "3c7e2cffe20674c9e4fcd616f4b3764e0fad6487acf6129717b5c17e93dd73f7"
+    "c26897014068d01bd31c71f02358fc7944d507b6389f50e76c68047619aedfdc"
 )
 FORBIDDEN_FEATURE_RE = re.compile(
     r"(^|_)(future|forward|label|target|outcome)(_|$)|"
@@ -116,10 +117,45 @@ def git_is_ancestor(ancestor: str, descendant: str) -> bool:
             cwd=REPO_ROOT,
             timeout=10,
             check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
     except Exception:
         return False
     return result.returncode == 0
+
+
+def git_default_branch_sha() -> str:
+    event_path = Path(str(os.environ.get("GITHUB_EVENT_PATH") or ""))
+    if event_path.is_file():
+        try:
+            event = read_json(event_path)
+            repository = ((event.get("repository") or {}).get("full_name"))
+            pull_request = event.get("pull_request") or {}
+            base = pull_request.get("base") or {}
+            sha = str(base.get("sha") or "").lower()
+            if (
+                repository == REPOSITORY
+                and base.get("ref") == "master"
+                and FULL_SHA_RE.fullmatch(sha)
+            ):
+                return sha
+        except Exception:
+            pass
+    for ref in ("refs/remotes/origin/master", "refs/heads/master"):
+        try:
+            sha = subprocess.check_output(
+                ["git", "rev-parse", "--verify", ref],
+                cwd=REPO_ROOT,
+                text=True,
+                timeout=10,
+                stderr=subprocess.DEVNULL,
+            ).strip().lower()
+        except Exception:
+            continue
+        if FULL_SHA_RE.fullmatch(sha):
+            return sha
+    return ""
 
 
 def finite(value: Any) -> float | None:
@@ -267,16 +303,20 @@ def u0_gate(census: Any, contract: Mapping[str, Any]) -> list[str]:
         return ["u0_census_not_an_object"]
     if census.get("schema_version") != gate["u0_schema_version"]:
         blockers.append("u0_census_schema_mismatch")
-    if census.get("repository") != REPOSITORY:
+    if census.get("repository") != gate["repository"]:
         blockers.append("u0_census_repository_mismatch")
-    if census.get("audit_default_branch") != "master":
+    if census.get("audit_default_branch") != gate["default_branch"]:
         blockers.append("u0_census_default_branch_mismatch")
     audit_sha = str(census.get("audit_default_branch_sha") or "").lower()
     current_sha = git_head().lower()
+    accepted_default_sha = git_default_branch_sha()
     if not FULL_SHA_RE.fullmatch(audit_sha):
         blockers.append("u0_census_audit_sha_invalid")
-    elif not git_is_ancestor(audit_sha, current_sha):
-        blockers.append("u0_census_audit_sha_not_ancestor_of_runner")
+    else:
+        if audit_sha != accepted_default_sha:
+            blockers.append("u0_census_audit_sha_not_current_default_branch")
+        if not git_is_ancestor(audit_sha, current_sha):
+            blockers.append("u0_census_audit_sha_not_ancestor_of_runner")
     source = census.get("source_contract")
     if not isinstance(source, dict):
         source = {}
@@ -291,6 +331,37 @@ def u0_gate(census: Any, contract: Mapping[str, Any]) -> list[str]:
         or source.get("champion_changed") is not False
     ):
         blockers.append("u0_census_source_safety_mismatch")
+    branches = census.get("branches")
+    pull_requests = census.get("pull_requests")
+    if not isinstance(branches, list) or not isinstance(pull_requests, list):
+        blockers.append("u0_census_normalized_records_missing")
+        branches = []
+        pull_requests = []
+    master_rows = [
+        row
+        for row in branches
+        if isinstance(row, dict) and row.get("name") == gate["default_branch"]
+    ]
+    if (
+        len(master_rows) != 1
+        or str(master_rows[0].get("head_sha") or "").lower() != audit_sha
+        or master_rows[0].get("ancestry") != "IDENTICAL_TO_AUDIT_HEAD"
+    ):
+        blockers.append("u0_census_default_branch_record_mismatch")
+    accepted = census.get("accepted_evidence")
+    if not isinstance(accepted, dict):
+        accepted = {}
+        blockers.append("u0_census_accepted_evidence_missing")
+    if accepted.get("schema_version") != gate["accepted_evidence_schema_version"]:
+        blockers.append("u0_census_accepted_evidence_schema_mismatch")
+    if str(accepted.get("audit_default_branch_sha") or "").lower() != audit_sha:
+        blockers.append("u0_census_accepted_audit_sha_mismatch")
+    for key, records in (
+        ("branch_records_sha256", branches),
+        ("pull_request_records_sha256", pull_requests),
+    ):
+        if str(accepted.get(key) or "").lower() != canonical_sha256(records):
+            blockers.append(f"u0_census_accepted_hash_mismatch:{key}")
     summary = census.get("summary")
     if not isinstance(summary, dict):
         summary = {}
@@ -309,8 +380,8 @@ def required_columns(contract: Mapping[str, Any]) -> list[str]:
     required = set(contract["data_policy"]["required_identity_columns"])
     for horizon in HORIZONS:
         spec = contract["horizons"][str(horizon)]
-        required.update(contract["features"][str(horizon)])
         if float(spec["score_weight"]) > 0.0:
+            required.update(contract["features"][str(horizon)])
             required.update(
                 spec[key]
                 for key in (
@@ -334,6 +405,11 @@ def input_readiness(frame: pd.DataFrame, contract: Mapping[str, Any]) -> list[st
         spec = contract["horizons"][str(horizon)]
         if float(spec["score_weight"]) <= 0.0:
             continue
+        for feature in contract["features"][str(horizon)]:
+            if feature in frame.columns and pd.to_numeric(
+                frame[feature], errors="coerce"
+            ).replace([np.inf, -np.inf], np.nan).notna().sum() == 0:
+                blockers.append(f"selection_feature_unusable:{horizon}:{feature}")
         for key in (
             "stock_return",
             "benchmark_return",
@@ -351,6 +427,26 @@ def _rank_group(values: pd.Series) -> pd.Series:
     if numeric.notna().sum() < 2 or numeric.nunique(dropna=True) < 2:
         return pd.Series(0.5, index=values.index, dtype=float)
     return numeric.rank(pct=True, method="average").fillna(0.5).clip(0.0, 1.0)
+
+
+def expected_nyse_label_ends(
+    feature_dates: pd.Series, horizon: int
+) -> pd.Series:
+    dates = pd.to_datetime(feature_dates, errors="coerce").dt.normalize()
+    out = pd.Series(pd.NaT, index=feature_dates.index, dtype="datetime64[ns]")
+    valid_dates = dates.dropna().drop_duplicates().sort_values()
+    if valid_dates.empty:
+        return out
+    sessions = NYSE.valid_days(
+        start_date=valid_dates.min() - pd.Timedelta(days=7),
+        end_date=valid_dates.max() + pd.Timedelta(days=max(60, horizon * 3)),
+    ).tz_localize(None).normalize()
+    mapping: dict[pd.Timestamp, pd.Timestamp] = {}
+    for decision in valid_dates:
+        future = sessions[sessions > decision]
+        if len(future) >= horizon:
+            mapping[pd.Timestamp(decision)] = pd.Timestamp(future[horizon - 1])
+    return dates.map(mapping)
 
 
 def prepare_frame(frame: pd.DataFrame, contract: Mapping[str, Any]) -> pd.DataFrame:
@@ -390,11 +486,17 @@ def prepare_frame(frame: pd.DataFrame, contract: Mapping[str, Any]) -> pd.DataFr
         raise ValueError("duplicate feature_date/ticker rows")
 
     all_features = sorted(
-        {
-            name
+        name
+        for name in {
+            feature
             for horizon in HORIZONS
-            for name in contract["features"][str(horizon)]
+            for feature in contract["features"][str(horizon)]
         }
+        if name in out.columns
+        and pd.to_numeric(out[name], errors="coerce")
+        .replace([np.inf, -np.inf], np.nan)
+        .notna()
+        .any()
     )
     for name in all_features:
         out[f"xrank__{name}"] = out.groupby("feature_date", group_keys=False)[name].transform(_rank_group)
@@ -430,11 +532,9 @@ def prepare_frame(frame: pd.DataFrame, contract: Mapping[str, Any]) -> pd.DataFr
             .any()
         ):
             raise ValueError(f"mixed cross-sectional label end dates:{horizon}")
-        if (
-            (stock_end.where(complete) <= out["feature_date"]).fillna(False).any()
-            or (benchmark_end.where(complete) <= out["feature_date"]).fillna(False).any()
-        ):
-            raise ValueError(f"forward label does not end after decision:{horizon}")
+        expected_end = expected_nyse_label_ends(out["feature_date"], horizon)
+        if stock_end.loc[complete].ne(expected_end.loc[complete]).any():
+            raise ValueError(f"label end is not exact NYSE horizon:{horizon}")
         row_available = pd.concat([stock_end, benchmark_end], axis=1).max(axis=1).where(complete)
         # All cross-sectional targets for one decision mature together.
         available = row_available.groupby(out["feature_date"]).transform("max").where(complete)
@@ -454,7 +554,12 @@ def prepare_frame(frame: pd.DataFrame, contract: Mapping[str, Any]) -> pd.DataFr
         out[f"y_sector_neutral_{horizon}d"] = sector_neutral
         out[f"y_downside_{horizon}d"] = absolute.le(0.0).where(complete)
         feature_names = contract["features"][str(horizon)]
-        out[f"feature_coverage_{horizon}d"] = out[feature_names].notna().mean(axis=1)
+        available_features = [name for name in feature_names if name in out.columns]
+        out[f"feature_coverage_{horizon}d"] = (
+            out[available_features].notna().mean(axis=1)
+            if len(available_features) == len(feature_names)
+            else 0.0
+        )
     return out.sort_values(["feature_date", "ticker"]).reset_index(drop=True)
 
 
@@ -656,6 +761,54 @@ def walk_forward_predictions(
                 f"xrank__{name}" for name in contract["features"][str(horizon)]
             ]
             available_col = f"label_available_at_{horizon}d"
+            missing_feature_columns = [
+                column for column in feature_columns if column not in prepared.columns
+            ]
+            if missing_feature_columns:
+                if selection_required:
+                    raise RuntimeError(
+                        "required selection rank features missing:"
+                        + ",".join(missing_feature_columns)
+                    )
+                audit_rows.append(
+                    {
+                        "decision_date": decision,
+                        "horizon": horizon,
+                        "status": "UNAVAILABLE_TIMING_ONLY_MISSING_FEATURES",
+                        "embargo_cutoff": cutoff,
+                        "training_rows": 0,
+                        "missing_feature_columns": missing_feature_columns,
+                        "scoring_sector_eligible_rows": int(scoring_sector_eligible.sum()),
+                        "scoring_sector_ineligible_rows": int((~scoring_sector_eligible).sum()),
+                    }
+                )
+                for column in (
+                    "expected_absolute",
+                    "expected_benchmark_excess",
+                    "expected_sector_neutral",
+                    "expected_alpha",
+                    "downside_probability",
+                    "model_disagreement",
+                ):
+                    date_output[f"{column}_{horizon}d"] = np.nan
+                date_output[f"feature_coverage_{horizon}d"] = test[
+                    f"feature_coverage_{horizon}d"
+                ].to_numpy()
+                for target_kind in TARGET_KINDS:
+                    date_output[f"realized_{target_kind}_{horizon}d"] = test[
+                        f"y_{target_kind}_{horizon}d"
+                    ].to_numpy()
+                date_output[f"realized_downside_{horizon}d"] = test[
+                    f"y_downside_{horizon}d"
+                ].to_numpy()
+                date_output[f"label_available_at_{horizon}d"] = test[
+                    available_col
+                ].to_numpy()
+                decision_models[str(horizon)] = {
+                    "status": "UNAVAILABLE_TIMING_ONLY_MISSING_FEATURES",
+                    "missing_feature_columns": missing_feature_columns,
+                }
+                continue
             eligible = prepared[
                 prepared["feature_date"].le(cutoff)
                 & prepared[available_col].notna()
