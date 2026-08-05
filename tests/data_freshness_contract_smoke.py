@@ -127,6 +127,7 @@ def args(tmp: Path, latest: Path, price: Path, **overrides):
         "source_branch": "test",
         "source_artifact_name": "artifact",
         "source_context": "unit_test",
+        "readiness_gate": "policy_replay",
         "freshness_contract_non_fatal": False,
         "max_prices_stale_days": 3,
         "max_macro_stale_days": 3,
@@ -350,6 +351,58 @@ def test_pre_refresh_core_coverage_can_be_diagnostic(tmp: Path) -> None:
     print("PASS test_pre_refresh_core_coverage_can_be_diagnostic")
 
 
+def test_daily_preselection_defers_only_attempt_specific_policy_checks(tmp: Path) -> None:
+    latest, price = base_fixture(tmp)
+    summary_path = latest / "data_readiness" / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["ready_for_policy_replay"] = False
+    summary["policy_replay_blockers"] = [
+        "policy replay requires a completed universe health audit",
+        "SEC enriched candidate source/hash contract is not ready",
+    ]
+    write_json(summary_path, summary)
+
+    strict_replay = dfc.build_payload(args(tmp, latest, price))
+    assert strict_replay["selection_allowed"] is False
+    assert "data_readiness.ready_for_policy_replay is false" in strict_replay["blockers"]
+
+    preselection = dfc.build_payload(
+        args(
+            tmp,
+            latest,
+            price,
+            source_context="daily_operating_refresh",
+            readiness_gate="exact_packet_preselection",
+            minimum_core_candidate_coverage=0.0,
+        )
+    )
+    assert preselection["selection_allowed"] is True, preselection["blockers"]
+    assert preselection["promotion_allowed"] is False
+    assert any(
+        "selection-only gate" in item
+        for item in preselection["promotion_blockers"]
+    )
+    assert preselection["readiness_gate"] == "exact_packet_preselection"
+    assert preselection["readiness"]["policy_replay_validation_deferred"] is True
+    assert preselection["readiness"]["policy_replay_blockers"] == summary["policy_replay_blockers"]
+    assert preselection["data_snapshot_manifest"]["readiness_gate"] == "exact_packet_preselection"
+    assert preselection["data_snapshot_manifest"]["source_context"] == "daily_operating_refresh"
+    assert any("attempt-specific exact-packet" in item for item in preselection["warnings"])
+
+    wrong_context = dfc.build_payload(
+        args(
+            tmp,
+            latest,
+            price,
+            readiness_gate="exact_packet_preselection",
+            minimum_core_candidate_coverage=0.0,
+        )
+    )
+    assert wrong_context["selection_allowed"] is False
+    assert any("requires source_context" in item for item in wrong_context["blockers"])
+    print("PASS test_daily_preselection_defers_only_attempt_specific_policy_checks")
+
+
 def test_main_removes_stale_ready_marker_before_parse_failure(tmp: Path) -> None:
     latest, price = base_fixture(tmp)
     output = tmp / "contract"
@@ -428,6 +481,7 @@ def main() -> int:
         test_core_candidate_coverage_floor_is_fail_closed,
         test_core_candidate_identity_and_temporal_contract,
         test_pre_refresh_core_coverage_can_be_diagnostic,
+        test_daily_preselection_defers_only_attempt_specific_policy_checks,
         test_main_removes_stale_ready_marker_before_parse_failure,
         test_strict_main_returns_nonzero_for_blocked_selection,
         test_mutation_snapshot_stream_hashes_files_above_diagnostic_limit,

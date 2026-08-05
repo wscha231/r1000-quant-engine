@@ -313,6 +313,8 @@ def fixture(root: Path) -> argparse.Namespace:
         freshness_snapshot,
         {
             "schema_version": gate.FRESHNESS_SNAPSHOT_SCHEMA_VERSION,
+            "source_context": "daily_operating_refresh",
+            "readiness_gate": "exact_packet_preselection",
             **identity,
             "core_candidate_coverage": diagnostic_coverage,
             "files": [
@@ -333,6 +335,7 @@ def fixture(root: Path) -> argparse.Namespace:
             "selection_allowed": True,
             "blockers": [],
             "source_context": "daily_operating_refresh",
+            "readiness_gate": "exact_packet_preselection",
             "freshness_contract_non_fatal": False,
             **identity,
             "core_candidate_coverage": diagnostic_coverage,
@@ -568,6 +571,34 @@ def test_blocked_or_mismatched_freshness_writes_no_target() -> None:
         blocked = gate.build(args)
         assert blocked["status"] == gate.BLOCKED_STATUS
         assert "freshness_source_00_fingerprint" in blocked["contract_failures"]
+        assert not list(Path(args.output_dir).glob("same_close_*_target_book.csv"))
+
+    with tempfile.TemporaryDirectory(
+        prefix="same_close_freshness_phase_", dir=scratch
+    ) as temp:
+        root = Path(temp)
+        args = fixture(root)
+        status_path = root / "freshness_status.json"
+        status = json.loads(status_path.read_text(encoding="utf-8"))
+        status["readiness_gate"] = "policy_replay"
+        write_json(status_path, status)
+        blocked = gate.build(args)
+        assert blocked["status"] == gate.BLOCKED_STATUS
+        assert "freshness_readiness_gate" in blocked["contract_failures"]
+        assert not list(Path(args.output_dir).glob("same_close_*_target_book.csv"))
+
+    with tempfile.TemporaryDirectory(
+        prefix="same_close_freshness_snapshot_context_", dir=scratch
+    ) as temp:
+        root = Path(temp)
+        args = fixture(root)
+        snapshot_path = root / "freshness_snapshot.json"
+        snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        snapshot["source_context"] = "full_rebuild_sidecar"
+        write_json(snapshot_path, snapshot)
+        blocked = gate.build(args)
+        assert blocked["status"] == gate.BLOCKED_STATUS
+        assert "freshness_snapshot_source_context" in blocked["contract_failures"]
         assert not list(Path(args.output_dir).glob("same_close_*_target_book.csv"))
 
 
