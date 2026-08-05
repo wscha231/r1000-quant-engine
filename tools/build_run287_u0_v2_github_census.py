@@ -230,10 +230,12 @@ def collect_branches(repository: str) -> list[dict[str, Any]]:
     return [item for page in pages for item in page]
 
 
-def graphql_pr_identity(rows: Any) -> dict[int, tuple[str, str, str, str]]:
+def graphql_pr_identity(
+    rows: Any,
+) -> dict[int, tuple[str, str, str, str, str, str]]:
     if not isinstance(rows, list) or len(rows) >= 1000:
         raise RuntimeError("PR identity snapshot is invalid or limit-capped")
-    identity: dict[int, tuple[str, str, str, str]] = {}
+    identity: dict[int, tuple[str, str, str, str, str, str]] = {}
     for item in rows:
         if not isinstance(item, dict):
             raise RuntimeError("PR identity snapshot row is invalid")
@@ -245,21 +247,34 @@ def graphql_pr_identity(rows: Any) -> dict[int, tuple[str, str, str, str]]:
             or number in identity
         ):
             raise RuntimeError("PR identity snapshot contains invalid identities")
+        if any(
+            field not in item or not isinstance(item.get(field), str)
+            for field in ("title", "body", "headRefName", "baseRefName")
+        ):
+            raise RuntimeError("PR identity snapshot lacks explicit evidence fields")
+        base_sha = clean_sha(item.get("baseRefOid"))
+        base_name = str(item.get("baseRefName") or "")
+        if not base_sha or not base_name:
+            raise RuntimeError("PR identity snapshot has invalid base identity")
         identity[number] = (
             clean_sha(item.get("headRefOid")),
             str(item.get("title") or ""),
             str(item.get("body") or ""),
             str(item.get("headRefName") or ""),
+            base_sha,
+            base_name,
         )
     return identity
 
 
-def rest_pr_identity(pages: Any) -> dict[int, tuple[str, str, str, str]]:
+def rest_pr_identity(
+    pages: Any,
+) -> dict[int, tuple[str, str, str, str, str, str]]:
     if not isinstance(pages, list) or not all(
         isinstance(page, list) for page in pages
     ):
         raise RuntimeError("REST PR pagination payload is invalid")
-    identity: dict[int, tuple[str, str, str, str]] = {}
+    identity: dict[int, tuple[str, str, str, str, str, str]] = {}
     for item in (row for page in pages for row in page):
         if not isinstance(item, dict):
             raise RuntimeError("REST PR pagination row is invalid")
@@ -272,11 +287,18 @@ def rest_pr_identity(pages: Any) -> dict[int, tuple[str, str, str, str]]:
         ):
             raise RuntimeError("REST PR pagination contains invalid identities")
         head = item.get("head") if isinstance(item.get("head"), dict) else {}
+        base = item.get("base") if isinstance(item.get("base"), dict) else {}
+        base_sha = clean_sha(base.get("sha"))
+        base_name = str(base.get("ref") or "")
+        if not base_sha or not base_name:
+            raise RuntimeError("REST PR pagination has invalid base identity")
         identity[number] = (
             clean_sha(head.get("sha")),
             str(item.get("title") or ""),
             str(item.get("body") or ""),
             str(head.get("ref") or ""),
+            base_sha,
+            base_name,
         )
     return identity
 
@@ -292,7 +314,7 @@ def collect_pull_requests(repository: str) -> list[dict[str, Any]]:
         [
             "gh", "pr", "list", "--repo", repository, "--state", "all",
             "--limit", "1000", "--json",
-            "number,headRefOid,title,body,headRefName",
+            "number,headRefOid,title,body,headRefName,baseRefOid,baseRefName",
         ]
     )
     identity_before = graphql_pr_identity(identity_before_rows)
@@ -307,7 +329,7 @@ def collect_pull_requests(repository: str) -> list[dict[str, Any]]:
             "gh", "pr", "list", "--repo", repository, "--state", "all",
             "--limit", "1000", "--json",
             "number,state,isDraft,mergeCommit,mergedAt,closedAt,headRefOid,"
-            "title,body,headRefName",
+            "title,body,headRefName,baseRefOid,baseRefName",
         ]
     )
     identity_after = graphql_pr_identity(status_rows)
@@ -672,6 +694,20 @@ def validated_do_not_repeat_entries(
         raise ValueError(
             "do-not-repeat registry contains normalized duplicate ids"
         )
+    normalized_descriptor_tuples = [
+        tuple(normalized_evidence_identity(value) for value in values)
+        for values in descriptors.values()
+    ]
+    if any(not all(values) for values in normalized_descriptor_tuples):
+        raise ValueError(
+            "do-not-repeat registry contains invalid normalized descriptors"
+        )
+    if len(normalized_descriptor_tuples) != len(
+        set(normalized_descriptor_tuples)
+    ):
+        raise ValueError(
+            "do-not-repeat registry contains duplicate normalized descriptors"
+        )
     return descriptors
 
 
@@ -788,6 +824,21 @@ def cached_collection_identity(
         head_sha = clean_sha(record.get("headRefOid"))
         if not head_sha:
             raise ValueError("cached PR collection has invalid head SHA")
+        required_text = ("title", "body", "headRefName", "baseRefName")
+        if any(
+            field not in record or not isinstance(record.get(field), str)
+            for field in required_text
+        ):
+            raise ValueError(
+                "cached PR collection lacks explicit mutable/base identity fields"
+            )
+        if not record["title"].strip() or not record["headRefName"].strip():
+            raise ValueError(
+                "cached PR collection has invalid mutable identity fields"
+            )
+        base_sha = clean_sha(record.get("baseRefOid"))
+        if not base_sha or not record["baseRefName"].strip():
+            raise ValueError("cached PR collection has invalid base identity")
         seen_numbers.add(number)
         identity.append(
             {
@@ -796,6 +847,8 @@ def cached_collection_identity(
                 "title": str(record.get("title") or ""),
                 "body": str(record.get("body") or ""),
                 "head_ref_name": str(record.get("headRefName") or ""),
+                "base_sha": base_sha,
+                "base_ref_name": str(record.get("baseRefName") or ""),
             }
         )
     return sorted(identity, key=lambda item: item["number"])
@@ -1135,8 +1188,11 @@ def build_census(
         raise ValueError("audit SHA must be an exact 40-character commit")
     if repository_payload.get("full_name") != REPOSITORY:
         raise ValueError("repository identity mismatch")
-    if repository_payload.get("default_branch") != "master":
+    default_branch = str(repository_payload.get("default_branch") or "")
+    if default_branch != "master":
         raise ValueError("default branch identity mismatch")
+    if repository_payload.get("default_branch_post_collection") != default_branch:
+        raise ValueError("default branch identity moved during GitHub collection")
     default_sha = clean_sha(
         ((repository_payload.get("default_branch_commit") or {}).get("sha"))
     )
@@ -1156,7 +1212,8 @@ def build_census(
         raise ValueError("remote default branch moved during GitHub collection")
     master_rows = [
         item for item in branches
-        if isinstance(item, dict) and str(item.get("name") or "") == "master"
+        if isinstance(item, dict)
+        and str(item.get("name") or "") == default_branch
     ]
     master_branch_sha = clean_sha(
         ((master_rows[0].get("commit") or {}).get("sha"))
@@ -1344,16 +1401,18 @@ def build_census(
                 "GitHub PR files API pinned by before/after head and base SHA"
             ),
             "default_branch_identity": (
-                "initial default head, master branch census row, and live "
-                "post-collection default head must equal the audit SHA"
+                "initial and post-collection repository default-branch names "
+                "must match; both heads and the matching branch census row "
+                "must equal the audit SHA"
             ),
             "cached_ancestry_identity": (
                 "cached statuses require an explicit matching audit SHA"
             ),
             "cached_collection_identity": (
                 "cached branch and PR lists require a complete paginated "
-                "collection envelope bound by repository, audit SHA, count, "
-                "and canonical record hash"
+                "v3 collection envelope bound by repository, audit SHA, count, "
+                "canonical record hash, and matching before/after namespace "
+                "plus mutable PR/base identity snapshots"
             ),
             "pull_request_status_identity": (
                 "GraphQL state and merge metadata are used only when its head "
@@ -1457,9 +1516,12 @@ def main() -> int:
         else collect_repository(args.repository)
     )
     if not args.repository_json:
-        repository["default_branch_commit"] = run_json(
-            ["gh", "api", f"repos/{args.repository}/branches/master"]
-        ).get("commit", {})
+        default_branch = str(repository.get("default_branch") or "")
+        if not default_branch:
+            raise SystemExit("repository default branch is missing")
+        repository["default_branch_commit"] = {
+            "sha": collect_remote_branch_sha(args.repository, default_branch)
+        }
     initial_default_sha = clean_sha(
         ((repository.get("default_branch_commit") or {}).get("sha"))
     )
@@ -1489,8 +1551,17 @@ def main() -> int:
         args.repository_json and args.branches_json and args.pull_requests_json
     )
     if live_collection:
+        repository_after = collect_repository(args.repository)
+        default_branch_after = str(
+            repository_after.get("default_branch") or ""
+        )
+        repository["default_branch_post_collection"] = default_branch_after
+        if default_branch_after != str(repository.get("default_branch") or ""):
+            raise SystemExit("remote default branch changed during GitHub collection")
         repository["default_branch_commit_post_collection"] = {
-            "sha": collect_remote_branch_sha(args.repository, "master")
+            "sha": collect_remote_branch_sha(
+                args.repository, default_branch_after
+            )
         }
         if clean_sha(
             (

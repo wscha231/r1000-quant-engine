@@ -20,6 +20,7 @@ def fixtures() -> tuple[dict, list[dict], list[dict], dict[str, str]]:
     repository = {
         "full_name": MOD.REPOSITORY,
         "default_branch": "master",
+        "default_branch_post_collection": "master",
         "default_branch_commit": {"sha": AUDIT_SHA},
         "default_branch_commit_post_collection": {"sha": AUDIT_SHA},
     }
@@ -453,6 +454,8 @@ def test_zero_count_conflict_and_status_head_race_fail_closed() -> None:
                 "title": "Safety change",
                 "body": "",
                 "headRefName": "codex/safety",
+                "baseRefOid": AUDIT_SHA,
+                "baseRefName": "master",
                 "mergedAt": "2026-08-01T00:00:00Z",
                 "mergeCommit": {"oid": "d" * 40},
             }
@@ -483,6 +486,8 @@ def test_zero_count_conflict_and_status_head_race_fail_closed() -> None:
                 "title": "Safety change",
                 "body": "",
                 "headRefName": "deleted-head",
+                "baseRefOid": AUDIT_SHA,
+                "baseRefName": "master",
                 "mergedAt": "2026-08-01T00:00:00Z",
                 "mergeCommit": {"oid": "d" * 40},
             }
@@ -512,6 +517,8 @@ def test_zero_count_conflict_and_status_head_race_fail_closed() -> None:
                 "title": "Safety change",
                 "body": "",
                 "headRefName": "codex/safety",
+                "baseRefOid": AUDIT_SHA,
+                "baseRefName": "master",
                 "mergedAt": None,
                 "mergeCommit": None,
             }
@@ -524,6 +531,8 @@ def test_zero_count_conflict_and_status_head_race_fail_closed() -> None:
                     "title": "New PR",
                     "body": "",
                     "headRefName": "codex/new",
+                    "baseRefOid": AUDIT_SHA,
+                    "baseRefName": "master",
                 }
             )
         return rows
@@ -558,6 +567,8 @@ def test_zero_count_conflict_and_status_head_race_fail_closed() -> None:
                 ),
                 "body": "",
                 "headRefName": "codex/safety",
+                "baseRefOid": AUDIT_SHA,
+                "baseRefName": "master",
                 "mergedAt": None,
                 "mergeCommit": None,
             }
@@ -571,6 +582,39 @@ def test_zero_count_conflict_and_status_head_race_fail_closed() -> None:
             assert "namespace moved" in str(exc)
         else:
             raise AssertionError("mutable PR experiment evidence drift was accepted")
+    finally:
+        MOD.run_json = original_run_json
+
+    base_calls = 0
+
+    def base_identity_race_run_json(command: list[str]):
+        nonlocal base_calls
+        if command[1:3] == ["api", "--paginate"]:
+            return [[rest_pull]]
+        base_calls += 1
+        return [
+            {
+                "number": 12,
+                "state": "OPEN",
+                "headRefOid": "b" * 40,
+                "title": "Safety change",
+                "body": "",
+                "headRefName": "codex/safety",
+                "baseRefOid": AUDIT_SHA if base_calls == 1 else "e" * 40,
+                "baseRefName": "master" if base_calls == 1 else "release",
+                "mergedAt": None,
+                "mergeCommit": None,
+            }
+        ]
+
+    MOD.run_json = base_identity_race_run_json
+    try:
+        try:
+            MOD.collect_pull_requests(MOD.REPOSITORY)
+        except RuntimeError as exc:
+            assert "namespace moved" in str(exc)
+        else:
+            raise AssertionError("PR base identity drift was accepted")
     finally:
         MOD.run_json = original_run_json
 
@@ -611,6 +655,21 @@ def test_cached_collections_require_complete_bound_envelopes() -> None:
         assert "evidence object" in str(exc)
     else:
         raise AssertionError("bare cached PR list was accepted")
+
+    _, _, explicit_pulls, _ = fixtures()
+    missing_mutable = collection_envelope("pull_requests", explicit_pulls)
+    explicit_pulls[0].pop("title")
+    missing_mutable["records_sha256"] = MOD.canonical_sha256(explicit_pulls)
+    try:
+        MOD.load_bound_collection_payload(
+            missing_mutable,
+            audit_sha=AUDIT_SHA,
+            collection_kind="pull_requests",
+        )
+    except ValueError as exc:
+        assert "mutable/base identity fields" in str(exc)
+    else:
+        raise AssertionError("cached PR without mutable evidence was accepted")
 
     pr_envelope = collection_envelope("pull_requests", pulls)
     pulls[0].pop("renamedFromPaths")
@@ -804,6 +863,13 @@ def test_do_not_repeat_registry_is_strictly_validated() -> None:
                 {**valid_entry, "id": "known__failed_lane"},
             ],
         },
+        {
+            **valid,
+            "entries": [
+                valid_entry,
+                {**valid_entry, "id": "same_descriptors_other_id"},
+            ],
+        },
         {**valid, "entries": [{**valid_entry, "blocked_reuse": False}]},
     ]
     for payload in invalid_payloads:
@@ -819,6 +885,22 @@ def test_do_not_repeat_registry_is_strictly_validated() -> None:
 
 
 def test_default_head_and_cached_ancestry_are_audit_bound() -> None:
+    repository, branches, pulls, ancestry = fixtures()
+    repository["default_branch_post_collection"] = "release"
+    try:
+        MOD.build_census(
+            repository_payload=repository,
+            branches=branches,
+            pull_requests=pulls,
+            audit_sha=AUDIT_SHA,
+            ancestry_by_sha=ancestry,
+            do_not_repeat_ids=set(),
+        )
+    except ValueError as exc:
+        assert "identity moved" in str(exc)
+    else:
+        raise AssertionError("post-collection default branch rename was accepted")
+
     repository, branches, pulls, ancestry = fixtures()
     repository["default_branch_commit_post_collection"] = {"sha": "f" * 40}
     try:
