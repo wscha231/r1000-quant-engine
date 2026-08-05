@@ -846,6 +846,25 @@ def test_feature_store_builder_materializes_spy_provenance() -> None:
     )
 
 
+def test_canonical_u0_workflow_is_research_only() -> None:
+    path = ROOT / ".github" / "workflows" / "run287_u0_acceptance.yml"
+    source = path.read_text(encoding="utf-8")
+    assert "workflow_dispatch:" in source
+    assert "refs/heads/master" in source
+    assert "run287-u0-accepted-evidence" in source
+    assert "historical_experiment_census_complete" in source
+    assert "historical_challenger_allowed" in source
+    assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" in source
+    forbidden = (
+        "run_broker_ledger_replay",
+        "main_target.csv",
+        "concentrated_target.csv",
+        "git push",
+        "production_or_live_trading_enabled: true",
+    )
+    assert not any(token in source for token in forbidden)
+
+
 def main() -> int:
     test_contract_is_fixed_and_leakage_features_are_rejected()
     test_u0_gate_blocks_model_fit_and_all_mutations()
@@ -862,6 +881,7 @@ def main() -> int:
     test_allowed_synthetic_run_writes_only_research_outputs()
     test_source_contains_no_broker_or_promotion_execution()
     test_feature_store_builder_materializes_spy_provenance()
+    test_canonical_u0_workflow_is_research_only()
     print("run287_expected_return_challenger_smoke: PASS")
     return 0
 
