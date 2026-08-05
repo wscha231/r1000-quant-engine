@@ -25,7 +25,7 @@ from typing import Any, Iterable
 
 REPOSITORY = "wscha231/r1000-quant-engine"
 SCHEMA_VERSION = "run287-u0-v2-github-census-v1"
-COLLECTION_CACHE_SCHEMA_VERSION = "run287-u0-v2-github-collection-cache-v1"
+COLLECTION_CACHE_SCHEMA_VERSION = "run287-u0-v2-github-collection-cache-v2"
 SHA_RE = re.compile(r"[0-9a-f]{40}")
 EXPERIMENT_PATH_RE = re.compile(
     r"(^|/)(backtest|research|aggressive|auto_learning|experiments?)(/|$)|"
@@ -419,11 +419,14 @@ def path_list(raw: Any) -> list[str]:
 
 
 def capability_families(text: str, paths: Iterable[str]) -> list[str]:
-    haystack = " ".join([text, *paths]).lower()
+    haystack = re.sub(r"[-_./\\]+", " ", " ".join([text, *paths]).lower())
     return sorted(
         family
         for family, needles in CAPABILITY_RULES.items()
-        if any(needle in haystack for needle in needles)
+        if any(
+            re.sub(r"[-_./\\]+", " ", needle.lower()) in haystack
+            for needle in needles
+        )
     )
 
 
@@ -431,15 +434,34 @@ def experiment_like_text(value: Any) -> bool:
     """Classify branch/PR names across Git and path separator conventions."""
     text = str(value or "")
     normalized_text = re.sub(r"[-_./\\]+", " ", text)
+    normalized_name = re.sub(r"[-_./\\\s]+", "_", text)
     return bool(
         "run287" in text.lower()
         or BRANCH_EXPERIMENT_NAME_RE.search(text)
+        or BRANCH_EXPERIMENT_NAME_RE.search(normalized_name)
         or EXPERIMENT_TEXT_RE.search(normalized_text)
     )
 
 
 def normalized_evidence_identity(value: Any) -> str:
     return re.sub(r"[-_./\\\s]+", "_", str(value or "").lower()).strip("_")
+
+
+def matched_registry_ids_for_evidence(
+    do_not_repeat_ids: set[str], evidence_values: Iterable[Any]
+) -> list[str]:
+    normalized_evidence = [
+        normalized_evidence_identity(value) for value in evidence_values
+    ]
+    return sorted(
+        item
+        for item in do_not_repeat_ids
+        if normalized_evidence_identity(item)
+        and any(
+            normalized_evidence_identity(item) in evidence
+            for evidence in normalized_evidence
+        )
+    )
 
 
 def changed_path_evidence(raw: dict[str, Any], paths: list[str]) -> tuple[int, bool]:
@@ -547,6 +569,12 @@ def load_bound_collection_payload(
         raise ValueError("cached collection record count mismatch")
     if payload.get("records_sha256") != canonical_sha256(records):
         raise ValueError("cached collection record hash mismatch")
+    if collection_kind == "pull_requests" and any(
+        "renamedFromPaths" not in item
+        or not isinstance(item.get("renamedFromPaths"), list)
+        for item in records
+    ):
+        raise ValueError("cached PR collection lacks rename provenance")
     return records
 
 
@@ -618,27 +646,20 @@ def normalize_pr(
     text = " ".join((title, body, head_name))
     normalized_text = re.sub(r"[-_./\\]+", " ", text)
     all_evidence_paths = [*paths, *renamed_from_paths]
-    families = capability_families(text, all_evidence_paths)
+    families = capability_families(normalized_text, all_evidence_paths)
+    matched_registry_ids = matched_registry_ids_for_evidence(
+        do_not_repeat_ids,
+        (title, body, head_name, *all_evidence_paths),
+    )
     experiment_like = bool(
         number in KNOWN_REGISTRY_OUTSIDE_EXPERIMENT_PRS
+        or matched_registry_ids
         or experiment_like_text(head_name)
+        or experiment_like_text(text)
         or EXPERIMENT_TEXT_RE.search(normalized_text)
         or any(
             EXPERIMENT_PATH_RE.search(path) or experiment_like_text(path)
             for path in all_evidence_paths
-        )
-    )
-    normalized_evidence = [
-        normalized_evidence_identity(value)
-        for value in (title, body, head_name, *all_evidence_paths)
-    ]
-    matched_registry_ids = sorted(
-        item
-        for item in do_not_repeat_ids
-        if normalized_evidence_identity(item)
-        and any(
-            normalized_evidence_identity(item) in evidence
-            for evidence in normalized_evidence
         )
     )
     commit_oids = [
@@ -848,6 +869,14 @@ def build_census(
                 aliases = set(linked_pr.get("experiment_evidence_branch_aliases") or [])
                 aliases.add(row["name"])
                 linked_pr["experiment_evidence_branch_aliases"] = sorted(aliases)
+                linked_pr["matched_do_not_repeat_ids"] = sorted(
+                    set(linked_pr["matched_do_not_repeat_ids"])
+                    | set(
+                        matched_registry_ids_for_evidence(
+                            do_not_repeat_ids, [row["name"]]
+                        )
+                    )
+                )
                 if not linked_pr["experiment_candidate"]:
                     linked_pr["experiment_candidate"] = True
                     linked_pr["experiment_identity_status"] = "UNMAPPED_BLOCKED"

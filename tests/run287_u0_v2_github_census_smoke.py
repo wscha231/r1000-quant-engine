@@ -95,6 +95,7 @@ def fixtures() -> tuple[dict, list[dict], list[dict], dict[str, str]]:
                 "changedPathsBaseAfter": pull["baseRefOid"],
                 "changedFilesDetail": pull["changedFiles"],
                 "changedFilesGraphql": pull["changedFiles"],
+                "renamedFromPaths": [],
                 "statusMetadataHeadOid": pull["headRefOid"],
                 "statusMetadataHeadMatches": True,
                 "statusMetadataSource": "GRAPHQL_STATUS_HEAD_PINNED",
@@ -499,6 +500,27 @@ def test_cached_collections_require_complete_bound_envelopes() -> None:
     else:
         raise AssertionError("bare cached PR list was accepted")
 
+    pr_envelope = {
+        "schema_version": MOD.COLLECTION_CACHE_SCHEMA_VERSION,
+        "repository": MOD.REPOSITORY,
+        "audit_sha": AUDIT_SHA,
+        "collection_kind": "pull_requests",
+        "pagination_complete": True,
+        "record_count": len(pulls),
+        "records_sha256": MOD.canonical_sha256(pulls),
+        "records": pulls,
+    }
+    pulls[0].pop("renamedFromPaths")
+    pr_envelope["records_sha256"] = MOD.canonical_sha256(pulls)
+    try:
+        MOD.load_bound_collection_payload(
+            pr_envelope, audit_sha=AUDIT_SHA, collection_kind="pull_requests"
+        )
+    except ValueError as exc:
+        assert "rename provenance" in str(exc)
+    else:
+        raise AssertionError("cached PR collection without rename provenance passed")
+
 
 def test_default_head_and_cached_ancestry_are_audit_bound() -> None:
     repository, branches, pulls, ancestry = fixtures()
@@ -624,8 +646,9 @@ def test_cached_status_and_changed_count_provenance_are_recomputed() -> None:
 
 def test_linked_strong_experiment_head_names_are_candidates() -> None:
     repository, branches, pulls, ancestry = fixtures()
+    alias = "promotion-test-rank-rs-revenue-replacement"
     branches[1] = {
-        "name": "promotion-test",
+        "name": alias,
         "commit": {"sha": "c" * 40},
         "protected": False,
     }
@@ -638,13 +661,16 @@ def test_linked_strong_experiment_head_names_are_candidates() -> None:
         pull_requests=pulls,
         audit_sha=AUDIT_SHA,
         ancestry_by_sha=ancestry,
-        do_not_repeat_ids=set(),
+        do_not_repeat_ids={"rank_rs_revenue_replacement"},
     )
     linked_pr = census["pull_requests"][1]
     assert linked_pr["experiment_candidate"] is True
-    assert linked_pr["experiment_evidence_branch_aliases"] == ["promotion-test"]
+    assert linked_pr["experiment_evidence_branch_aliases"] == [alias]
+    assert linked_pr["matched_do_not_repeat_ids"] == [
+        "rank_rs_revenue_replacement"
+    ]
     linked_branch = next(
-        row for row in census["branches"] if row["name"] == "promotion-test"
+        row for row in census["branches"] if row["name"] == alias
     )
     assert linked_branch["linked_pr_numbers"] == [11]
     assert linked_branch["experiment_candidate"] is False
@@ -659,7 +685,7 @@ def test_linked_strong_experiment_head_names_are_candidates() -> None:
         MOD.write_candidate_csv(path, census)
         text = path.read_text(encoding="utf-8")
         assert "experiment_evidence_branch_aliases" in text.splitlines()[0]
-        assert "promotion-test" in text
+        assert alias in text
 
 
 def test_normalized_title_path_rename_and_registry_evidence_are_candidates() -> None:
@@ -680,6 +706,28 @@ def test_normalized_title_path_rename_and_registry_evidence_are_candidates() -> 
         do_not_repeat_ids=set(),
     )
     assert census["pull_requests"][1]["experiment_candidate"] is True
+    assert "EXPECTED_RETURN_AND_SCORING" in (
+        census["pull_requests"][1]["capability_family_candidates"]
+    )
+
+    repository, branches, pulls, ancestry = fixtures()
+    pulls[1]["title"] = "Execution-cost model"
+    pulls[1]["body"] = ""
+    pulls[1]["headRefName"] = "neutral-maintenance"
+    pulls[1]["files"] = [{"path": "README.md"}]
+    census = MOD.build_census(
+        repository_payload=repository,
+        branches=branches,
+        pull_requests=pulls,
+        audit_sha=AUDIT_SHA,
+        ancestry_by_sha=ancestry,
+        do_not_repeat_ids=set(),
+    )
+    execution_title = census["pull_requests"][1]
+    assert execution_title["experiment_candidate"] is True
+    assert "EXECUTION_COST_AND_LEDGER" in (
+        execution_title["capability_family_candidates"]
+    )
 
     repository, branches, pulls, ancestry = fixtures()
     pulls[1]["title"] = "Maintenance"
@@ -719,7 +767,10 @@ def test_normalized_title_path_rename_and_registry_evidence_are_candidates() -> 
     assert census["pull_requests"][1]["experiment_candidate"] is True
 
     repository, branches, pulls, ancestry = fixtures()
-    pulls[0]["title"] = "rank-rs-revenue-replacement"
+    pulls[1]["title"] = "rank-rs-revenue-replacement"
+    pulls[1]["body"] = ""
+    pulls[1]["headRefName"] = "neutral-maintenance"
+    pulls[1]["files"] = [{"path": "README.md"}]
     census = MOD.build_census(
         repository_payload=repository,
         branches=branches,
@@ -728,7 +779,8 @@ def test_normalized_title_path_rename_and_registry_evidence_are_candidates() -> 
         ancestry_by_sha=ancestry,
         do_not_repeat_ids={"rank_rs_revenue_replacement"},
     )
-    assert census["pull_requests"][0]["matched_do_not_repeat_ids"] == [
+    assert census["pull_requests"][1]["experiment_candidate"] is True
+    assert census["pull_requests"][1]["matched_do_not_repeat_ids"] == [
         "rank_rs_revenue_replacement"
     ]
     assert MOD.EXPERIMENT_TEXT_RE.search("Experiments")
