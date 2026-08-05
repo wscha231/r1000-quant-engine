@@ -125,6 +125,27 @@ def test_contract_is_fixed_and_leakage_features_are_rejected() -> None:
     else:
         raise AssertionError("an unapproved 63D/126D cadence was accepted")
 
+    weak_embargo = json.loads(json.dumps(cfg))
+    weak_embargo["purge_and_windows"]["embargo_nyse_sessions"] = 1
+    try:
+        MOD.validate_contract(weak_embargo)
+    except ValueError as exc:
+        assert "embargo must equal 126" in str(exc)
+    else:
+        raise AssertionError("a weakened embargo was accepted")
+
+    wrong_alpha_mix = json.loads(json.dumps(cfg))
+    wrong_alpha_mix["target_contract"]["benchmark_sector_mix"] = {
+        "benchmark_excess": 0.0,
+        "sector_neutral": 1.0,
+    }
+    try:
+        MOD.validate_contract(wrong_alpha_mix)
+    except ValueError as exc:
+        assert "fixed alpha target mix mismatch" in str(exc)
+    else:
+        raise AssertionError("an unapproved alpha target mix was accepted")
+
 
 def test_u0_gate_blocks_model_fit_and_all_mutations() -> None:
     with tempfile.TemporaryDirectory() as tmp:
@@ -181,6 +202,36 @@ def test_missing_exact_label_provenance_blocks_even_with_u0_allowed() -> None:
         joined = "|".join(summary["blockers"])
         assert "feature_store_missing_required_columns:r_6m_label_end_date" in joined
         assert summary["historical_model_fit_executed"] is False
+
+
+def test_zero_weight_21d_labels_are_optional_for_monthly_selection() -> None:
+    cfg = contract()
+    optional_columns = [
+        cfg["horizons"]["21"][key]
+        for key in (
+            "stock_return",
+            "benchmark_return",
+            "stock_label_end",
+            "benchmark_label_end",
+        )
+    ]
+    missing = synthetic_frame(months=48).drop(columns=optional_columns)
+    assert not MOD.input_readiness(missing, cfg)
+    prepared = MOD.prepare_frame(missing, cfg)
+    predictions, audit, _ = MOD.walk_forward_predictions(prepared, cfg)
+    assert not predictions.empty
+    assert predictions["expected_alpha_21d"].isna().all()
+    assert predictions["expected_alpha_63d"].notna().all()
+    assert (
+        audit.loc[audit["horizon"].eq(21), "status"]
+        .eq("UNAVAILABLE_TIMING_ONLY_INSUFFICIENT_TRAINING")
+        .any()
+    )
+
+    all_null = synthetic_frame(months=18)
+    for column in optional_columns:
+        all_null[column] = pd.NaT if column.endswith("_date") else np.nan
+    assert not MOD.input_readiness(all_null, cfg)
 
 
 def test_walk_forward_is_exactly_purged_and_learns_expected_return() -> None:
@@ -352,6 +403,28 @@ def test_semantic_failure_and_stale_latest_are_auditable_blocks() -> None:
         assert pd.read_csv(stale_output / "latest_expected_return_proposal.csv").empty
 
 
+def test_unreadable_u0_census_writes_blocked_packet() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        feature_store = root / "features.parquet"
+        synthetic_frame(months=18).to_parquet(feature_store)
+        census = root / "census.json"
+        census.write_text('{"duplicate": 1, "duplicate": 2}', encoding="utf-8")
+        output = root / "out"
+        summary = MOD.run(
+            Namespace(
+                contract=str(CONTRACT_PATH),
+                u0_census=str(census),
+                feature_store=str(feature_store),
+                output_dir=str(output),
+            )
+        )
+        assert summary["status"] == MOD.BLOCKED_STATUS
+        assert "u0_census_unreadable:ValueError" in summary["blockers"]
+        assert (output / "summary.json").is_file()
+        assert (output / "source_manifest.json").is_file()
+
+
 def test_allowed_synthetic_run_writes_only_research_outputs() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -398,10 +471,12 @@ def main() -> int:
     test_contract_is_fixed_and_leakage_features_are_rejected()
     test_u0_gate_blocks_model_fit_and_all_mutations()
     test_missing_exact_label_provenance_blocks_even_with_u0_allowed()
+    test_zero_weight_21d_labels_are_optional_for_monthly_selection()
     test_walk_forward_is_exactly_purged_and_learns_expected_return()
     test_benchmark_identity_and_forward_dates_are_fail_closed()
     test_21d_timing_unavailability_does_not_block_monthly_selection()
     test_semantic_failure_and_stale_latest_are_auditable_blocks()
+    test_unreadable_u0_census_writes_blocked_packet()
     test_allowed_synthetic_run_writes_only_research_outputs()
     test_source_contains_no_broker_or_promotion_execution()
     print("run287_expected_return_challenger_smoke: PASS")

@@ -191,6 +191,23 @@ def validate_contract(contract: Any) -> dict[str, Any]:
                 f"fixed horizon score weight mismatch:{horizon}:"
                 f"expected={expected_weight}:actual={actual_weight}"
             )
+    purge_and_windows = contract.get("purge_and_windows") or {}
+    embargo_sessions = purge_and_windows.get("embargo_nyse_sessions")
+    if type(embargo_sessions) is not int or embargo_sessions != 126:
+        raise ValueError("fixed NYSE-session embargo must equal 126")
+    alpha_mix = (contract.get("target_contract") or {}).get(
+        "benchmark_sector_mix"
+    ) or {}
+    for key, expected_weight in {
+        "benchmark_excess": 0.7,
+        "sector_neutral": 0.3,
+    }.items():
+        actual_weight = float(alpha_mix.get(key) or 0.0)
+        if not math.isclose(actual_weight, expected_weight, rel_tol=0.0, abs_tol=1e-12):
+            raise ValueError(
+                f"fixed alpha target mix mismatch:{key}:"
+                f"expected={expected_weight}:actual={actual_weight}"
+            )
     model = contract.get("model") or {}
     if (
         model.get("parameter_tuning_allowed") is not False
@@ -242,15 +259,16 @@ def required_columns(contract: Mapping[str, Any]) -> list[str]:
     for horizon in HORIZONS:
         spec = contract["horizons"][str(horizon)]
         required.update(contract["features"][str(horizon)])
-        required.update(
-            spec[key]
-            for key in (
-                "stock_return",
-                "benchmark_return",
-                "stock_label_end",
-                "benchmark_label_end",
+        if float(spec["score_weight"]) > 0.0:
+            required.update(
+                spec[key]
+                for key in (
+                    "stock_return",
+                    "benchmark_return",
+                    "stock_label_end",
+                    "benchmark_label_end",
+                )
             )
-        )
     return sorted(required)
 
 
@@ -263,6 +281,8 @@ def input_readiness(frame: pd.DataFrame, contract: Mapping[str, Any]) -> list[st
         return ["feature_store_empty"]
     for horizon in HORIZONS:
         spec = contract["horizons"][str(horizon)]
+        if float(spec["score_weight"]) <= 0.0:
+            continue
         for key in (
             "stock_return",
             "benchmark_return",
@@ -317,6 +337,13 @@ def prepare_frame(frame: pd.DataFrame, contract: Mapping[str, Any]) -> pd.DataFr
         out[f"xrank__{name}"] = out.groupby("feature_date", group_keys=False)[name].transform(_rank_group)
     for horizon in HORIZONS:
         spec = contract["horizons"][str(horizon)]
+        if float(spec["score_weight"]) <= 0.0:
+            for key in ("stock_return", "benchmark_return"):
+                if spec[key] not in out.columns:
+                    out[spec[key]] = np.nan
+            for key in ("stock_label_end", "benchmark_label_end"):
+                if spec[key] not in out.columns:
+                    out[spec[key]] = pd.NaT
         stock = pd.to_numeric(out[spec["stock_return"]], errors="coerce").replace(
             [np.inf, -np.inf], np.nan
         )
@@ -961,7 +988,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     if not census_path.is_file():
         blockers.append("u0_census_missing")
     else:
-        blockers.extend(u0_gate(read_json(census_path), contract))
+        try:
+            blockers.extend(u0_gate(read_json(census_path), contract))
+        except Exception as exc:
+            blockers.append(f"u0_census_unreadable:{type(exc).__name__}")
     frame = pd.DataFrame()
     if not feature_store_path.is_file():
         blockers.append("feature_store_missing")
