@@ -1388,6 +1388,8 @@ def build_census(
         blockers.append("duplicate_code_head_sha_groups_require_canonical_deduplication")
     blockers.append("parameter_and_data_hash_duplicate_groups_not_yet_recovered")
     blockers.append("historical_return_series_and_trial_deduplication_not_recovered")
+    normalized_branches = sorted(branch_rows, key=lambda row: row["name"])
+    normalized_pull_requests = sorted(pr_rows, key=lambda row: row["number"])
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -1420,6 +1422,12 @@ def build_census(
             ),
             "branch_payload_sha256": canonical_sha256(branches),
             "pull_request_payload_sha256": canonical_sha256(pull_requests),
+            "normalized_branch_rows_sha256": canonical_sha256(
+                normalized_branches
+            ),
+            "normalized_pull_request_rows_sha256": canonical_sha256(
+                normalized_pull_requests
+            ),
             "metadata_only": True,
             "fullrun_executed": False,
             "production_or_live_mutated": False,
@@ -1451,8 +1459,8 @@ def build_census(
             candidates,
             key=lambda row: (row["record_type"], row["record_id"]),
         ),
-        "branches": sorted(branch_rows, key=lambda row: row["name"]),
-        "pull_requests": sorted(pr_rows, key=lambda row: row["number"]),
+        "branches": normalized_branches,
+        "pull_requests": normalized_pull_requests,
     }
 
 
