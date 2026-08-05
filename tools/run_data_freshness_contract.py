@@ -422,7 +422,19 @@ def operating_book_status(latest_run: Path, require_current: bool) -> tuple[dict
     }, blockers, warnings
 
 
-def readiness_status(latest_run: Path) -> tuple[dict[str, Any], list[str], list[str]]:
+READINESS_GATE_POLICY_REPLAY = "policy_replay"
+READINESS_GATE_EXACT_PACKET_PRESELECTION = "exact_packet_preselection"
+READINESS_GATE_CHOICES = {
+    READINESS_GATE_POLICY_REPLAY,
+    READINESS_GATE_EXACT_PACKET_PRESELECTION,
+}
+
+
+def readiness_status(
+    latest_run: Path,
+    *,
+    readiness_gate: str = READINESS_GATE_POLICY_REPLAY,
+) -> tuple[dict[str, Any], list[str], list[str]]:
     path = latest_run / "data_readiness" / "summary.json"
     payload = read_json(path)
     blockers: list[str] = []
@@ -432,8 +444,24 @@ def readiness_status(latest_run: Path) -> tuple[dict[str, Any], list[str], list[
         return {"path": str(path), "exists": False}, blockers, warnings
     blockers.extend(str(item) for item in (payload.get("blockers") or []) if str(item).strip())
     warnings.extend(str(item) for item in (payload.get("warnings") or []) if str(item).strip())
-    if not bool(payload.get("ready_for_policy_replay")):
-        blockers.append("data_readiness.ready_for_policy_replay is false")
+    policy_replay_blockers = [
+        str(item)
+        for item in (payload.get("policy_replay_blockers") or [])
+        if str(item).strip()
+    ]
+    if readiness_gate == READINESS_GATE_POLICY_REPLAY:
+        if not bool(payload.get("ready_for_policy_replay")):
+            blockers.append("data_readiness.ready_for_policy_replay is false")
+    elif readiness_gate == READINESS_GATE_EXACT_PACKET_PRESELECTION:
+        if not bool(payload.get("ready_for_fullrun")):
+            blockers.append("data_readiness.ready_for_fullrun is false")
+        if not bool(payload.get("ready_for_policy_replay")):
+            warnings.append(
+                "policy replay readiness is deferred to the attempt-specific "
+                "exact-packet universe, PIT, and source/hash gates"
+            )
+    else:
+        blockers.append(f"unsupported readiness gate: {readiness_gate}")
     future_rows = int(
         ((payload.get("feature_source_coverage") or {}).get("overall") or {}).get("pit_future_available_from_rows")
         or 0
@@ -446,6 +474,12 @@ def readiness_status(latest_run: Path) -> tuple[dict[str, Any], list[str], list[
         "status": payload.get("status"),
         "ready_for_fullrun": bool(payload.get("ready_for_fullrun")),
         "ready_for_policy_replay": bool(payload.get("ready_for_policy_replay")),
+        "readiness_gate": readiness_gate,
+        "policy_replay_blockers": policy_replay_blockers,
+        "policy_replay_validation_deferred": bool(
+            readiness_gate == READINESS_GATE_EXACT_PACKET_PRESELECTION
+            and not bool(payload.get("ready_for_policy_replay"))
+        ),
         "latest_target_date": payload.get("latest_target_date"),
         "latest_observable_close_date": payload.get("latest_observable_close_date"),
         "effective_latest_target_date": payload.get("effective_latest_target_date"),
@@ -812,6 +846,10 @@ def build_snapshot_manifest(
         "source_branch": str(args.source_branch or os.environ.get("GITHUB_REF_NAME") or ""),
         "source_artifact_name": str(args.source_artifact_name or ""),
         "source_context": str(getattr(args, "source_context", "") or ""),
+        "readiness_gate": str(
+            getattr(args, "readiness_gate", READINESS_GATE_POLICY_REPLAY)
+            or READINESS_GATE_POLICY_REPLAY
+        ),
         "freshness_contract_non_fatal": bool(getattr(args, "freshness_contract_non_fatal", False)),
         "latest_run": str(latest_run),
         "price_cache": str(price_cache),
@@ -905,9 +943,25 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
             else:
                 warnings.append(msg)
 
-    readiness, r_blockers, r_warnings = readiness_status(latest_run)
+    readiness_gate = str(
+        getattr(args, "readiness_gate", READINESS_GATE_POLICY_REPLAY)
+        or READINESS_GATE_POLICY_REPLAY
+    )
+    source_context = str(getattr(args, "source_context", "") or "")
+    readiness, r_blockers, r_warnings = readiness_status(
+        latest_run,
+        readiness_gate=readiness_gate,
+    )
     blockers.extend(r_blockers)
     warnings.extend(r_warnings)
+    if (
+        readiness_gate == READINESS_GATE_EXACT_PACKET_PRESELECTION
+        and source_context != "daily_operating_refresh"
+    ):
+        blockers.append(
+            "exact_packet_preselection readiness gate requires "
+            "source_context=daily_operating_refresh"
+        )
 
     operating, o_blockers, o_warnings = operating_book_status(
         latest_run,
@@ -960,7 +1014,8 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         "recommendation_status": "READY_FOR_OPERATING_SELECTION" if selection_allowed else "DO_NOT_USE_REVIEW_REQUIRED",
         "promotion_allowed": bool(promotion_allowed),
         "production_mutation_allowed": False,
-        "source_context": str(getattr(args, "source_context", "") or ""),
+        "source_context": source_context,
+        "readiness_gate": readiness_gate,
         "freshness_contract_non_fatal": bool(getattr(args, "freshness_contract_non_fatal", False)),
         "source_run_id": str(args.source_run_id or os.environ.get("GITHUB_RUN_ID") or "local"),
         "source_commit_sha": str(args.source_commit_sha or os.environ.get("GITHUB_SHA") or ""),
@@ -1004,6 +1059,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--source-branch", default="")
     parser.add_argument("--source-artifact-name", default="")
     parser.add_argument("--source-context", default="")
+    parser.add_argument(
+        "--readiness-gate",
+        choices=sorted(READINESS_GATE_CHOICES),
+        default=READINESS_GATE_POLICY_REPLAY,
+        help=(
+            "policy_replay requires the restored replay contract; "
+            "exact_packet_preselection permits only the daily workflow to "
+            "defer universe and enriched-source validation to its bounded, "
+            "attempt-specific same-close producer"
+        ),
+    )
     parser.add_argument("--freshness-contract-non-fatal", action="store_true")
     parser.add_argument("--max-prices-stale-days", type=int, default=3)
     parser.add_argument("--max-macro-stale-days", type=int, default=3)

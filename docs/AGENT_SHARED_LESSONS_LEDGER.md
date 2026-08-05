@@ -3795,6 +3795,22 @@ Expected contract:
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
 
+## 2026-08-05 - Daily freshness and exact-packet phase boundary
+
+- A pre-selection freshness gate must not require artifacts that are produced
+  only by the later attempt-specific same-close chain. Doing so creates a
+  circular dependency that blocks every current-session recomputation even
+  when price and macro watermarks are exact.
+- Deferral is not a bypass. The daily pre-selection status and snapshot must
+  carry an explicit `exact_packet_preselection` marker, and the target builder
+  must reject any other marker before it validates the current universe, PIT
+  timestamps, source hashes, 98% candidate coverage, and risk intersection.
+- Restored targets and their SEC enrichment remain diagnostic inputs. They may
+  establish continuity and price coverage but cannot certify a current target,
+  generate an order, or set `same_close_selector_recomputed=true`.
+- Fullrun executed: false. Production enabled: false. Live trading enabled:
+  false. Automatic promotion enabled: false.
+
 ## 2026-08-04 - Immutable approval bytes and pre-computation data identity
 
 - Parse an approved manifest from the exact committed Git blob used for its

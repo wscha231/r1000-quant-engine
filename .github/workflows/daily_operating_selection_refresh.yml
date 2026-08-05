@@ -1954,6 +1954,7 @@ jobs:
             --source-branch "${GITHUB_REF_NAME}" \
             --source-artifact-name "daily-operating-selection-refresh-${GITHUB_RUN_ID}" \
             --source-context daily_operating_refresh \
+            --readiness-gate exact_packet_preselection \
             2>&1 | tee outputs/full_rebuild_logs/data_freshness_contract.log
           python - <<'PY'
           import json
@@ -1969,6 +1970,7 @@ jobs:
               or status.get("selection_allowed") is not True
               or status.get("blockers")
               or status.get("source_context") != "daily_operating_refresh"
+              or status.get("readiness_gate") != "exact_packet_preselection"
               or status.get("freshness_contract_non_fatal") is not False
               or status.get("asof_date") != os.environ.get("LAST_NYSE_SESSION_DATE", "")
               or core_coverage.get("required_for_target_mutation") is not False

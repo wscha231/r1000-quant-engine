@@ -1322,6 +1322,8 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "daily target mutation is always fail-closed",
         '--asof-date "$LAST_NYSE_SESSION_DATE"',
         "--strict-selection",
+        "--readiness-gate exact_packet_preselection",
+        'status.get("readiness_gate") != "exact_packet_preselection"',
         'core_coverage.get("required_for_target_mutation") is not False',
         "--freshness-status outputs/data_freshness_contract/status.json",
         "--freshness-snapshot-manifest outputs/data_freshness_contract/data_snapshot_manifest.json",

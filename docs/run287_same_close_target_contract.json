@@ -25,6 +25,8 @@
   "prediction_head_gate": "every head must be finite, nonzero, and nonconstant",
   "freshness_and_candidate_coverage": {
     "pre_refresh_freshness": "strict source/session gate; restored scored_latest coverage is diagnostic only",
+    "pre_refresh_readiness_gate": "exact_packet_preselection",
+    "deferred_policy_replay_checks": "universe health and enriched candidate source/hash readiness must be revalidated by the attempt-specific exact-packet chain before target materialization",
     "authoritative_source": "attempt-specific run287-scored-latest-refresh-v4 output",
     "minimum_complete_ratio": 0.98,
     "hard_pit_violation_tolerance": 0,
