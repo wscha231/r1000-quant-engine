@@ -193,7 +193,12 @@ def validate_source_census(census: Any) -> dict[str, Any]:
         if source_contract.get(field) is not expected:
             raise ValueError(f"unsafe source census contract: {field}")
     for field in ("branch_payload_sha256", "pull_request_payload_sha256"):
-        if re.fullmatch(r"[0-9a-f]{64}", str(source_contract.get(field) or "")) is None:
+        if (
+            re.fullmatch(
+                r"[0-9a-f]{64}", str(source_contract.get(field) or "")
+            )
+            is None
+        ):
             raise ValueError(f"source census contract hash is invalid: {field}")
     summary = census.get("summary")
     candidates = census.get("experiment_candidates")
@@ -206,6 +211,14 @@ def validate_source_census(census: Any) -> dict[str, Any]:
         or not isinstance(pull_requests, list)
     ):
         raise ValueError("source census summary or candidates are missing")
+    if source_contract.get("normalized_branch_rows_sha256") != canonical_sha256(
+        branches
+    ):
+        raise ValueError("source census normalized branch hash mismatch")
+    if source_contract.get(
+        "normalized_pull_request_rows_sha256"
+    ) != canonical_sha256(pull_requests):
+        raise ValueError("source census normalized pull-request hash mismatch")
     blockers = census.get("promotion_blockers") or []
     if not isinstance(blockers, list) or any(
         not isinstance(item, str) or not item for item in blockers
@@ -255,6 +268,13 @@ def validate_source_census(census: Any) -> dict[str, Any]:
             raise ValueError("source census candidate identity is invalid")
         if inventory_identity.get(record_id) != head_sha:
             raise ValueError("source census candidate is detached from inventory")
+        inventory_row = next(
+            item
+            for item in inventory_rows
+            if item["record_id"] == record_id
+        )
+        if row != inventory_row:
+            raise ValueError("source census candidate diverges from inventory")
         for field in (
             "matched_do_not_repeat_ids",
             "capability_family_candidates",

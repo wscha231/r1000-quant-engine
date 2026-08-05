@@ -149,6 +149,12 @@ def test_census_is_complete_metadata_but_blocks_research_claims() -> None:
     assert summary["unmapped_experiment_candidate_count"] == 1
     assert summary["historical_experiment_census_complete"] is False
     assert summary["historical_challenger_allowed"] is False
+    assert census["source_contract"][
+        "normalized_branch_rows_sha256"
+    ] == MOD.canonical_sha256(census["branches"])
+    assert census["source_contract"][
+        "normalized_pull_request_rows_sha256"
+    ] == MOD.canonical_sha256(census["pull_requests"])
     candidate = census["pull_requests"][0]
     assert candidate["experiment_identity_status"] == "UNMAPPED_BLOCKED"
     assert candidate["base_sha"] == AUDIT_SHA

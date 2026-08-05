@@ -51,7 +51,7 @@ def source_census() -> dict:
         candidate("github-pr:11", "a" * 40),
         candidate("github-pr:12", "b" * 40, ancestry="UNVERIFIED_BLOCKED"),
     ]
-    return {
+    payload = {
         "schema_version": MOD.SOURCE_SCHEMA,
         "repository": MOD.REPOSITORY,
         "audit_default_branch": "master",
@@ -79,11 +79,22 @@ def source_census() -> dict:
         ],
         "branches": [],
         "pull_requests": [
-            {"record_id": row["record_id"], "head_sha": row["head_sha"]}
+            json.loads(json.dumps(row))
             for row in candidates
         ],
         "experiment_candidates": candidates,
     }
+    rehash_normalized_inventory(payload)
+    return payload
+
+
+def rehash_normalized_inventory(payload: dict) -> None:
+    payload["source_contract"]["normalized_branch_rows_sha256"] = (
+        MOD.canonical_sha256(payload["branches"])
+    )
+    payload["source_contract"]["normalized_pull_request_rows_sha256"] = (
+        MOD.canonical_sha256(payload["pull_requests"])
+    )
 
 
 def inventory() -> dict:
@@ -159,12 +170,35 @@ def test_source_and_contract_tampering_fail_closed() -> None:
     bad_link["experiment_candidates"][0]["matched_do_not_repeat_ids"] = [
         "missing_registry_entry"
     ]
+    bad_link["pull_requests"][0]["matched_do_not_repeat_ids"] = [
+        "missing_registry_entry"
+    ]
+    rehash_normalized_inventory(bad_link)
     try:
         MOD.build_recovery_census(bad_link, inventory(), contract())
     except ValueError as exc:
         assert "registry linkage" in str(exc)
     else:
         raise AssertionError("unknown registry linkage was accepted")
+
+    divergent = source_census()
+    divergent["pull_requests"][0]["ancestry"] = "UNVERIFIED_BLOCKED"
+    rehash_normalized_inventory(divergent)
+    try:
+        MOD.build_recovery_census(divergent, inventory(), contract())
+    except ValueError as exc:
+        assert "diverges from inventory" in str(exc)
+    else:
+        raise AssertionError("divergent candidate and inventory were accepted")
+
+    stale_hash = source_census()
+    stale_hash["pull_requests"][0]["head_sha"] = "e" * 40
+    try:
+        MOD.build_recovery_census(stale_hash, inventory(), contract())
+    except ValueError as exc:
+        assert "normalized pull-request hash mismatch" in str(exc)
+    else:
+        raise AssertionError("stale normalized inventory hash was accepted")
 
     changed = json.loads(json.dumps(contract()))
     changed["multiplicity_policy"][
@@ -193,14 +227,12 @@ def test_branch_only_candidates_remain_changed_path_blocked() -> None:
         }
     )
     census["branches"].append(
-        {
-            "record_id": "github-branch:legacy-replay",
-            "head_sha": "c" * 40,
-        }
+        json.loads(json.dumps(census["experiment_candidates"][-1]))
     )
     census["summary"]["branch_count"] += 1
     census["summary"]["experiment_candidate_count"] += 1
     census["summary"]["unmapped_experiment_candidate_count"] += 1
+    rehash_normalized_inventory(census)
     recovered = MOD.build_recovery_census(census, inventory(), contract())
     row = next(
         item
@@ -267,6 +299,7 @@ def test_workflow_publishes_recovery_only_as_diagnostic() -> None:
     assert "recovered_experiment_candidates.csv" in source
     assert source.index(classify) < source.index(diagnostic)
     assert source.index(diagnostic) < source.index(acceptance) < source.index(accepted)
+    assert "if: always()" in source[source.index(classify):source.index(acceptance)]
     assert "acceptance_gate_migration_allowed_by_this_contract: true" not in source
 
 
