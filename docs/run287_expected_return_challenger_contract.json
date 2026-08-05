@@ -1,0 +1,188 @@
+{
+  "schema_version": "run287-expected-return-challenger-contract-v1",
+  "contract_version": "2026-08-05.1",
+  "family_id": "future_expected_excess_return_multihorizon_v1",
+  "objective": {
+    "primary": "expected_63_nyse_session_benchmark_excess_return",
+    "timing_warning": "expected_21_nyse_session_benchmark_excess_return",
+    "persistence": "expected_126_nyse_session_benchmark_excess_return",
+    "portfolio_validation": "broker_ledger_next_close_after_costs"
+  },
+  "horizons": {
+    "21": {
+      "stock_return": "r_1m",
+      "benchmark_return": "bench_r_1m",
+      "stock_label_end": "r_1m_label_end_date",
+      "benchmark_label_end": "bench_r_1m_label_end_date",
+      "score_weight": 0.15
+    },
+    "63": {
+      "stock_return": "r_3m",
+      "benchmark_return": "bench_r_3m",
+      "stock_label_end": "r_3m_label_end_date",
+      "benchmark_label_end": "bench_r_3m_label_end_date",
+      "score_weight": 0.55
+    },
+    "126": {
+      "stock_return": "r_6m",
+      "benchmark_return": "bench_r_6m",
+      "stock_label_end": "r_6m_label_end_date",
+      "benchmark_label_end": "bench_r_6m_label_end_date",
+      "score_weight": 0.3
+    }
+  },
+  "features": {
+    "21": [
+      "mom_1m",
+      "mom_3m",
+      "rs_industry_1m",
+      "rs_industry_group_1m",
+      "breakout_volume_z",
+      "volume_dryup_20d",
+      "atr14_pct",
+      "vol_252d",
+      "dd_1y",
+      "dollar_vol_20d",
+      "dist_ma200",
+      "near_52w_high_pct"
+    ],
+    "63": [
+      "mom_3m",
+      "mom_6m",
+      "rs_benchmark_3m",
+      "rs_benchmark_6m",
+      "rs_sector_6m",
+      "rs_industry_3m",
+      "rs_industry_6m",
+      "rs_industry_group_3m",
+      "rs_industry_group_6m",
+      "industry_group_strength_score",
+      "oneil_leadership_score",
+      "industry_rotation_signal",
+      "breakout_volume_z",
+      "dollar_vol_20d",
+      "sector_adjusted_quality_score",
+      "sales_growth_yoy",
+      "op_income_growth_yoy",
+      "eps_growth_yoy",
+      "fcf_growth_yoy",
+      "margin_stability_8q",
+      "quality_trend_score",
+      "growth_blueprint_score",
+      "moat_quality_blueprint_score"
+    ],
+    "126": [
+      "mom_6m",
+      "mom_12m",
+      "rs_benchmark_6m",
+      "rs_benchmark_12m",
+      "rs_sector_6m",
+      "rs_industry_6m",
+      "rs_industry_12m",
+      "rs_industry_group_6m",
+      "rs_industry_group_12m",
+      "industry_group_strength_score",
+      "oneil_leadership_score",
+      "industry_rotation_signal",
+      "dollar_vol_20d",
+      "sector_adjusted_quality_score",
+      "sales_growth_yoy",
+      "op_income_growth_yoy",
+      "eps_growth_yoy",
+      "fcf_growth_yoy",
+      "margin_stability_8q",
+      "quality_trend_score",
+      "growth_blueprint_score",
+      "moat_quality_blueprint_score"
+    ]
+  },
+  "target_contract": {
+    "absolute_return": true,
+    "benchmark_excess_return": true,
+    "sector_neutral_return": true,
+    "downside_probability": true,
+    "downside_definition": "stock_forward_return_le_zero",
+    "minimum_sector_cross_section": 5,
+    "benchmark_sector_mix": {
+      "benchmark_excess": 0.7,
+      "sector_neutral": 0.3
+    },
+    "cross_section_maturity": "all_complete_rows_for_one_decision_date_share_the_latest_exact_label_end"
+  },
+  "model": {
+    "feature_transform": "decision_date_cross_sectional_percentile_rank_missing_to_neutral_0_5",
+    "regression": "sklearn_ridge",
+    "ridge_alpha": 10.0,
+    "classification": "sklearn_logistic_regression_balanced",
+    "logistic_c": 0.1,
+    "long_history_weight": 0.7,
+    "recent_history_weight": 0.3,
+    "recent_history_months": 36,
+    "minimum_training_rows": 200,
+    "minimum_training_decision_dates": 4,
+    "random_seed": 2870805,
+    "parameter_tuning_allowed": false
+  },
+  "purge_and_windows": {
+    "label_must_be_available_strictly_before_decision": true,
+    "embargo_nyse_sessions": 126,
+    "full_start": "2019-01-01",
+    "oos2_start": "2023-01-01",
+    "oos2_end": "2024-06-30",
+    "oos_start": "2024-07-01"
+  },
+  "score": {
+    "downside_probability_penalty": 0.05,
+    "long_recent_disagreement_penalty": 0.5,
+    "execution_and_turnover_cost_application": "deferred_to_exact_prior_weight_target_builder_and_broker_ledger",
+    "gross_expected_alpha_must_not_be_reported_as_after_cost_portfolio_performance": true
+  },
+  "data_policy": {
+    "required_identity_columns": [
+      "feature_date",
+      "rebalance_date",
+      "ticker",
+      "sector"
+    ],
+    "canonical_benchmark": "SPY",
+    "form_13f_role": "confirmation_only_excluded_from_model",
+    "form_4_role": "confirmation_only_excluded_from_model",
+    "macro_role": "risk_cash_router_only_excluded_from_stock_alpha_model",
+    "future_or_label_columns_as_features_allowed": false,
+    "dynamic_feature_fallback_allowed": false,
+    "stale_feature_store_fallback_allowed": false
+  },
+  "historical_gate": {
+    "u0_schema_version": "run287-u0-v2-github-census-v1",
+    "historical_experiment_census_complete_required": true,
+    "historical_challenger_allowed_required": true,
+    "promotion_blockers_must_be_empty": true
+  },
+  "backtest_contract": {
+    "starting_capital_usd": 100000.0,
+    "fill_timing": "next_close",
+    "integer_shares": true,
+    "cost_bps_scenarios": [25, 50, 100],
+    "fullrun_requires_separate_user_approval": true
+  },
+  "outputs": [
+    "source_manifest.json",
+    "training_audit.csv",
+    "expected_return_predictions.csv",
+    "expected_return_metrics.json",
+    "latest_expected_return_proposal.csv",
+    "model_coefficients.json",
+    "summary.json",
+    "report.md"
+  ],
+  "safety": {
+    "research_only": true,
+    "automatic_promotion_allowed": false,
+    "champion_change_allowed": false,
+    "portfolio_mutation_allowed": false,
+    "target_books_written": false,
+    "orders_generated": false,
+    "operating_ledger_mutated": false,
+    "production_or_live_trading_enabled": false
+  }
+}
