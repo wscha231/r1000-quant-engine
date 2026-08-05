@@ -14,21 +14,24 @@
       "benchmark_return": "bench_r_1m",
       "stock_label_end": "r_1m_label_end_date",
       "benchmark_label_end": "bench_r_1m_label_end_date",
-      "score_weight": 0.15
+      "score_weight": 0.0,
+      "portfolio_role": "warning_and_entry_timing_only"
     },
     "63": {
       "stock_return": "r_3m",
       "benchmark_return": "bench_r_3m",
       "stock_label_end": "r_3m_label_end_date",
       "benchmark_label_end": "bench_r_3m_label_end_date",
-      "score_weight": 0.55
+      "score_weight": 0.65,
+      "portfolio_role": "primary_monthly_selection"
     },
     "126": {
       "stock_return": "r_6m",
       "benchmark_return": "bench_r_6m",
       "stock_label_end": "r_6m_label_end_date",
       "benchmark_label_end": "bench_r_6m_label_end_date",
-      "score_weight": 0.3
+      "score_weight": 0.35,
+      "portfolio_role": "monthly_selection_persistence"
     }
   },
   "features": {

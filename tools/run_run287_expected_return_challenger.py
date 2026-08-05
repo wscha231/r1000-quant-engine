@@ -183,6 +183,8 @@ def validate_contract(contract: Any) -> dict[str, Any]:
         score_weight += float(spec.get("score_weight") or 0.0)
     if abs(score_weight - 1.0) > 1e-12:
         raise ValueError("horizon score weights must sum to one")
+    if float(horizons["21"].get("score_weight") or 0.0) != 0.0:
+        raise ValueError("21-session horizon must remain timing-only")
     model = contract.get("model") or {}
     if (
         model.get("parameter_tuning_allowed") is not False
@@ -653,6 +655,13 @@ def walk_forward_predictions(
         date_output["expected_alpha_gross"] = horizon_alpha
         date_output["weighted_downside_probability"] = downside
         date_output["weighted_model_disagreement"] = disagreement
+        date_output["entry_timing_score"] = (
+            date_output["expected_alpha_21d"]
+            - float(contract["score"]["downside_probability_penalty"])
+            * date_output["downside_probability_21d"]
+            - float(contract["score"]["long_recent_disagreement_penalty"])
+            * date_output["model_disagreement_21d"]
+        )
         date_output["expected_return_score"] = (
             horizon_alpha
             - float(contract["score"]["downside_probability_penalty"]) * downside

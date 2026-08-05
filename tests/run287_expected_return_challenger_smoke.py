@@ -102,6 +102,9 @@ def test_contract_is_fixed_and_leakage_features_are_rejected() -> None:
         for horizon in MOD.HORIZONS
         for feature in cfg["features"][str(horizon)]
     ]
+    assert cfg["horizons"]["21"]["score_weight"] == 0.0
+    assert cfg["horizons"]["63"]["score_weight"] == 0.65
+    assert cfg["horizons"]["126"]["score_weight"] == 0.35
     assert not any(MOD.FORBIDDEN_FEATURE_RE.search(feature) for feature in features)
     tampered = json.loads(json.dumps(cfg))
     tampered["features"]["63"].append("future_return_leak")
@@ -221,6 +224,7 @@ def test_walk_forward_is_exactly_purged_and_learns_expected_return() -> None:
     assert not any(column.startswith("realized_") for column in proposal.columns)
     assert not any(column.startswith("label_available_at_") for column in proposal.columns)
     assert proposal["research_only"].eq(True).all()
+    assert "entry_timing_score" in proposal.columns
 
 
 def test_benchmark_identity_and_forward_dates_are_fail_closed() -> None:
