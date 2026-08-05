@@ -687,6 +687,30 @@ def test_linked_strong_experiment_head_names_are_candidates() -> None:
         assert "experiment_evidence_branch_aliases" in text.splitlines()[0]
         assert alias in text
 
+    repository, branches, pulls, ancestry = fixtures()
+    branches[1] = {
+        "name": "relative-strength-alias",
+        "commit": {"sha": "c" * 40},
+        "protected": False,
+    }
+    pulls[1]["title"] = "Backtest"
+    pulls[1]["body"] = ""
+    pulls[1]["headRefName"] = "neutral-maintenance"
+    pulls[1]["files"] = [{"path": "README.md"}]
+    census = MOD.build_census(
+        repository_payload=repository,
+        branches=branches,
+        pull_requests=pulls,
+        audit_sha=AUDIT_SHA,
+        ancestry_by_sha=ancestry,
+        do_not_repeat_ids=set(),
+    )
+    existing_candidate = census["pull_requests"][1]
+    assert existing_candidate["experiment_candidate"] is True
+    assert "RELATIVE_STRENGTH_AND_LEADERSHIP" in (
+        existing_candidate["capability_family_candidates"]
+    )
+
 
 def test_normalized_title_path_rename_and_registry_evidence_are_candidates() -> None:
     repository, branches, pulls, ancestry = fixtures()
@@ -921,6 +945,33 @@ def test_branch_only_and_duplicate_code_identities_are_blocked() -> None:
         if row["name"] == "codex/run287-unverified-experiment"
     )
     assert "head_ancestry_unverified" in unverified["promotion_blockers"]
+
+    repository, branches, pulls, ancestry = fixtures()
+    registry_branch_sha = "1" * 40
+    branches.append(
+        {
+            "name": "rank-rs-revenue-replacement",
+            "commit": {"sha": registry_branch_sha},
+            "protected": False,
+        }
+    )
+    ancestry[registry_branch_sha] = "ORPHANED_FROM_AUDIT_HEAD"
+    census = MOD.build_census(
+        repository_payload=repository,
+        branches=branches,
+        pull_requests=pulls,
+        audit_sha=AUDIT_SHA,
+        ancestry_by_sha=ancestry,
+        do_not_repeat_ids={"rank_rs_revenue_replacement"},
+    )
+    registry_branch = next(
+        row for row in census["branches"]
+        if row["name"] == "rank-rs-revenue-replacement"
+    )
+    assert registry_branch["experiment_candidate"] is True
+    assert registry_branch["matched_do_not_repeat_ids"] == [
+        "rank_rs_revenue_replacement"
+    ]
 
 
 def main() -> int:

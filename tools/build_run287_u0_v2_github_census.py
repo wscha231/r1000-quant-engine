@@ -862,7 +862,13 @@ def build_census(
         )
         row["linked_pr_numbers"] = linked
         row["name_only_mismatched_pr_numbers"] = name_only_mismatches
-        branch_name_candidate = bool(experiment_like_text(row["name"]))
+        branch_registry_ids = matched_registry_ids_for_evidence(
+            do_not_repeat_ids, [row["name"]]
+        )
+        row["matched_do_not_repeat_ids"] = branch_registry_ids
+        branch_name_candidate = bool(
+            experiment_like_text(row["name"]) or branch_registry_ids
+        )
         if linked and branch_name_candidate:
             for number in linked:
                 linked_pr = pr_rows_by_number[number]
@@ -871,19 +877,15 @@ def build_census(
                 linked_pr["experiment_evidence_branch_aliases"] = sorted(aliases)
                 linked_pr["matched_do_not_repeat_ids"] = sorted(
                     set(linked_pr["matched_do_not_repeat_ids"])
-                    | set(
-                        matched_registry_ids_for_evidence(
-                            do_not_repeat_ids, [row["name"]]
-                        )
-                    )
+                    | set(branch_registry_ids)
+                )
+                linked_pr["capability_family_candidates"] = sorted(
+                    set(linked_pr["capability_family_candidates"])
+                    | set(capability_families(row["name"], []))
                 )
                 if not linked_pr["experiment_candidate"]:
                     linked_pr["experiment_candidate"] = True
                     linked_pr["experiment_identity_status"] = "UNMAPPED_BLOCKED"
-                    linked_pr["capability_family_candidates"] = sorted(
-                        set(linked_pr["capability_family_candidates"])
-                        | set(capability_families(row["name"], []))
-                    )
                     linked_pr["promotion_blockers"] = sorted(
                         set(linked_pr["promotion_blockers"])
                         | {
