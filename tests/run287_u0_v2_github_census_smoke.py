@@ -85,6 +85,7 @@ def fixtures() -> tuple[dict, list[dict], list[dict], dict[str, str]]:
         },
     ]
     for pull in pulls:
+        pull["commitCount"] = len(pull["commits"])
         pull.update(
             {
                 "changedPathsComplete": True,
@@ -566,6 +567,22 @@ def test_uncollected_commit_oids_remain_unresolved() -> None:
     assert observed["commit_oids"] == ["c" * 40]
     assert observed["commit_oids_sha256"] == MOD.canonical_sha256(["c" * 40])
 
+    repository, branches, pulls, ancestry = fixtures()
+    pulls[0].pop("commitCount")
+    census = MOD.build_census(
+        repository_payload=repository,
+        branches=branches,
+        pull_requests=pulls,
+        audit_sha=AUDIT_SHA,
+        ancestry_by_sha=ancestry,
+        do_not_repeat_ids=set(),
+    )
+    missing_count = census["pull_requests"][0]
+    assert missing_count["commit_count"] is None
+    assert missing_count["commit_oids"] is None
+    assert missing_count["commit_oids_complete"] is False
+    assert "commit_oids_unresolved" in missing_count["promotion_blockers"]
+
 
 def test_do_not_repeat_registry_is_strictly_validated() -> None:
     valid_entry = {
@@ -589,6 +606,13 @@ def test_do_not_repeat_registry_is_strictly_validated() -> None:
         {**valid, "entries": None},
         {**valid, "entries": [{**valid_entry, "signal": ""}]},
         {**valid, "entries": [valid_entry, dict(valid_entry)]},
+        {
+            **valid,
+            "entries": [
+                valid_entry,
+                {**valid_entry, "id": "known__failed_lane"},
+            ],
+        },
         {**valid, "entries": [{**valid_entry, "blocked_reuse": False}]},
     ]
     for payload in invalid_payloads:
@@ -791,6 +815,26 @@ def test_linked_strong_experiment_head_names_are_candidates() -> None:
     assert "RELATIVE_STRENGTH_AND_LEADERSHIP" in (
         existing_candidate["capability_family_candidates"]
     )
+
+    repository, branches, pulls, ancestry = fixtures()
+    branches[1] = {
+        "name": "relative-strength-alias",
+        "commit": {"sha": "c" * 40},
+        "protected": False,
+    }
+    pulls[1]["commits"] = None
+    census = MOD.build_census(
+        repository_payload=repository,
+        branches=branches,
+        pull_requests=pulls,
+        audit_sha=AUDIT_SHA,
+        ancestry_by_sha=ancestry,
+        do_not_repeat_ids=set(),
+    )
+    alias_promoted = census["pull_requests"][1]
+    assert alias_promoted["experiment_candidate"] is True
+    assert alias_promoted["commit_oids_complete"] is False
+    assert "commit_oids_unresolved" in alias_promoted["promotion_blockers"]
 
 
 def test_normalized_title_path_rename_and_registry_evidence_are_candidates() -> None:

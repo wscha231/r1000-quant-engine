@@ -514,6 +514,13 @@ def validated_do_not_repeat_ids(registry: Any) -> set[str]:
         identifiers.append(identifier)
     if len(identifiers) != len(set(identifiers)):
         raise ValueError("do-not-repeat registry contains duplicate ids")
+    normalized_identifiers = [
+        normalized_evidence_identity(identifier) for identifier in identifiers
+    ]
+    if len(normalized_identifiers) != len(set(normalized_identifiers)):
+        raise ValueError(
+            "do-not-repeat registry contains normalized duplicate ids"
+        )
     return set(identifiers)
 
 
@@ -722,8 +729,6 @@ def normalize_pr(
         if isinstance(declared_commit_count, int)
         and not isinstance(declared_commit_count, bool)
         and declared_commit_count >= 0
-        else len(raw_commits)
-        if isinstance(raw_commits, list)
         else None
     )
     observed_commit_oids = (
@@ -962,6 +967,11 @@ def build_census(
                     set(linked_pr["capability_family_candidates"])
                     | set(capability_families(row["name"], []))
                 )
+                if linked_pr.get("commit_oids_complete") is not True:
+                    linked_pr["promotion_blockers"] = sorted(
+                        set(linked_pr["promotion_blockers"])
+                        | {"commit_oids_unresolved"}
+                    )
                 if not linked_pr["experiment_candidate"]:
                     linked_pr["experiment_candidate"] = True
                     linked_pr["experiment_identity_status"] = "UNMAPPED_BLOCKED"
