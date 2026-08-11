@@ -1,6 +1,6 @@
 {
   "schema_version": "run287-expected-return-challenger-contract-v1",
-  "contract_version": "2026-08-05.2",
+  "contract_version": "2026-08-11.1",
   "family_id": "future_expected_excess_return_multihorizon_v1",
   "objective": {
     "primary": "expected_63_nyse_session_benchmark_excess_return",
@@ -168,8 +168,10 @@
     "accepted_artifact_source_census_file": "github_census.json",
     "accepted_artifact_census_file": "github_recovery_census.json",
     "accepted_artifact_evidence_file": "u0_accepted_evidence.json",
+    "source_inventory_path": "docs/run287_u0_experiment_inventory.json",
+    "live_repository_namespace_match_required": true,
     "accepted_u0_recovery_contract_sha256": "98bd9a5e08bcfa5bc028759936bf9c3b431259481f6248b48b06ef08f3d54503",
-    "accepted_u0_acceptance_contract_sha256": "af2c7ca2669f61f7d3da8a44b5ddb3046988da4a8dfc55f099cb468632d92815",
+    "accepted_u0_acceptance_contract_sha256": "cd91b2c8e1d65b02d57251b92390c5f5e96f73d949070c92c4c3a7c9a0d15b63",
     "repository": "wscha231/r1000-quant-engine",
     "default_branch": "master",
     "historical_experiment_census_complete_required": true,

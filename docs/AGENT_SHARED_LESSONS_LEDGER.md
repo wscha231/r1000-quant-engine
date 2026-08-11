@@ -3795,6 +3795,23 @@ Expected contract:
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
 
+## 2026-08-11 - U0 acceptance freshness and candidate-discovery boundary
+
+- A default-branch SHA is not a complete GitHub census identity. Branches and
+  pull requests can appear or move while `master` remains unchanged, so a
+  historical-fit gate must bind the observed repository namespace and compare
+  it with a fresh live namespace before fitting.
+- A recovery layer cannot declare a census complete when upstream changed-path
+  discovery was truncated. Omitted paths can hide an experiment candidate, so
+  the upstream discovery blocker must survive recovery and block acceptance.
+- An accepted multiplicity floor is valid only for the registry at acceptance.
+  Read the registry from the exact running Git commit, compare its canonical
+  content with accepted evidence, and also require the exact Git blob bytes to
+  remain unchanged from the audited acceptance commit.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
 ## 2026-08-05 - U0-v3 conservative legacy-trial recovery boundary
 
 - A metadata collector that hard-codes every candidate as unmapped is a useful

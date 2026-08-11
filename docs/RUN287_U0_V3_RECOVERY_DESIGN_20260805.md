@@ -52,12 +52,21 @@ These figures are official diagnostic evidence, not performance evidence. The
 trial floor is dynamic: later exact code heads increase it, so no downstream
 gate may hard-code 403.
 
+The 13 incomplete changed-path records are also candidate-discovery failures,
+not merely row-level promotion blockers. Until a fresh census resolves every
+PR path list, recovery remains incomplete and canonical acceptance must fail
+closed because an omitted path could hide another experiment candidate.
+
 ## Remaining gates
 
 The recovery census deliberately leaves `historical_challenger_allowed=false`.
 Canonical acceptance may authorize only the narrower, preregistered research
-fit after independently recomputing this census. It still may not authorize a
-broker backtest. Remaining work must:
+fit after independently recomputing this census. Accepted evidence binds the
+source observation time and exact branch/PR namespace. The expected-return
+runner rechecks that namespace against live GitHub and compares the registry
+from its exact running Git commit with the accepted inventory; a new branch,
+PR, PR-head/base change, or registry change requires a new acceptance. It still
+may not authorize a broker backtest. Remaining work must:
 
 1. merge the U0-v3 acceptance and expected-return multiplicity binding;
 2. publish and inspect canonical accepted evidence on the new master head;

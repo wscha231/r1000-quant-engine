@@ -55,6 +55,10 @@ def test_acceptance_binds_recomputed_recovery_and_trial_floor() -> None:
     assert evidence["workflow_identity"] == MOD.WORKFLOW_IDENTITY
     assert evidence["audit_default_branch"] == "master"
     assert evidence["audit_default_branch_sha"] == "f" * 40
+    assert evidence["source_observed_at_utc"] == source["generated_at_utc"]
+    assert evidence["repository_namespace_sha256"] == V3.canonical_sha256(
+        V3.repository_namespace_payload(source)
+    )
     assert evidence["source_census_sha256"] == V3.canonical_sha256(source)
     assert evidence["recovery_census_sha256"] == V3.canonical_sha256(
         recovery
@@ -102,6 +106,31 @@ def test_tampered_recovery_and_broadened_scope_fail_closed() -> None:
         assert "authorization scope changed" in str(exc)
     else:
         raise AssertionError("broadened U0 authorization was accepted")
+
+
+def test_incomplete_candidate_discovery_cannot_be_accepted() -> None:
+    source, _, inventory, recovery_contract, acceptance_contract = inputs()
+    source["pull_requests"][0]["changed_paths_complete"] = False
+    source["experiment_candidates"][0]["changed_paths_complete"] = False
+    source["promotion_blockers"].append(
+        "one_or_more_pr_changed_path_lists_are_truncated"
+    )
+    FIX.rehash_normalized_inventory(source)
+    recovery = V3.build_recovery_census(source, inventory, recovery_contract)
+    try:
+        MOD.build_acceptance(
+            source,
+            recovery,
+            inventory,
+            recovery_contract,
+            acceptance_contract,
+            "f" * 40,
+        )
+    except ValueError as exc:
+        assert "source_candidate_discovery_incomplete" in str(exc)
+        assert "historical_experiment_census_incomplete" in str(exc)
+    else:
+        raise AssertionError("incomplete source candidate discovery was accepted")
 
 
 def test_cli_and_workflow_publish_canonical_v3_evidence_only() -> None:
@@ -162,6 +191,7 @@ def test_cli_and_workflow_publish_canonical_v3_evidence_only() -> None:
 def main() -> int:
     test_acceptance_binds_recomputed_recovery_and_trial_floor()
     test_tampered_recovery_and_broadened_scope_fail_closed()
+    test_incomplete_candidate_discovery_cannot_be_accepted()
     test_cli_and_workflow_publish_canonical_v3_evidence_only()
     print("run287_u0_v3_acceptance_smoke: PASS")
     return 0

@@ -16,6 +16,7 @@ import hashlib
 import json
 import re
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,9 @@ CONTRACT_SCHEMA = "run287-u0-v3-recovery-contract-v1"
 OUTPUT_SCHEMA = "run287-u0-v3-recovery-census-v1"
 REPOSITORY = "wscha231/r1000-quant-engine"
 SHA_RE = re.compile(r"[0-9a-f]{40}")
+SOURCE_CANDIDATE_DISCOVERY_BLOCKERS = frozenset(
+    {"one_or_more_pr_changed_path_lists_are_truncated"}
+)
 
 
 def reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -60,6 +64,70 @@ def write_json(path: Path, value: Any) -> None:
         json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
+
+
+def source_observed_at_utc(census: dict[str, Any]) -> str:
+    value = str(census.get("generated_at_utc") or "")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("source census observation time is invalid") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("source census observation time lacks a timezone")
+    parsed.astimezone(timezone.utc)
+    return value
+
+
+def repository_namespace_payload(census: dict[str, Any]) -> dict[str, Any]:
+    branches = census.get("branches")
+    pull_requests = census.get("pull_requests")
+    if not isinstance(branches, list) or not isinstance(pull_requests, list):
+        raise ValueError("source census repository namespace is missing")
+    branch_rows: list[dict[str, Any]] = []
+    branch_names: set[str] = set()
+    for row in branches:
+        if not isinstance(row, dict):
+            raise ValueError("source census branch namespace row is malformed")
+        name = str(row.get("name") or "")
+        head_sha = str(row.get("head_sha") or "").lower()
+        if not name or name in branch_names or SHA_RE.fullmatch(head_sha) is None:
+            raise ValueError("source census branch namespace identity is invalid")
+        branch_names.add(name)
+        branch_rows.append({"name": name, "head_sha": head_sha})
+    pr_rows: list[dict[str, Any]] = []
+    pr_numbers: set[int] = set()
+    for row in pull_requests:
+        if not isinstance(row, dict):
+            raise ValueError("source census pull-request namespace row is malformed")
+        number = row.get("number")
+        head_sha = str(row.get("head_sha") or "").lower()
+        base_sha = str(row.get("base_sha") or "").lower()
+        head_branch = str(row.get("head_branch") or "")
+        updated_at = str(row.get("updated_at") or "")
+        if (
+            type(number) is not int
+            or number <= 0
+            or number in pr_numbers
+            or SHA_RE.fullmatch(head_sha) is None
+            or SHA_RE.fullmatch(base_sha) is None
+            or not head_branch
+            or not updated_at
+        ):
+            raise ValueError("source census pull-request namespace identity is invalid")
+        pr_numbers.add(number)
+        pr_rows.append(
+            {
+                "number": number,
+                "head_branch": head_branch,
+                "head_sha": head_sha,
+                "base_sha": base_sha,
+                "updated_at": updated_at,
+            }
+        )
+    return {
+        "branches": sorted(branch_rows, key=lambda row: row["name"]),
+        "pull_requests": sorted(pr_rows, key=lambda row: row["number"]),
+    }
 
 
 def require_exact_keys(value: dict[str, Any], expected: set[str], label: str) -> None:
@@ -232,6 +300,8 @@ def validate_source_census(census: Any) -> dict[str, Any]:
         raise ValueError("source census pull request count mismatch")
     if summary.get("unmapped_experiment_candidate_count") != len(candidates):
         raise ValueError("source census unmapped candidate count mismatch")
+    source_observed_at_utc(census)
+    repository_namespace_payload(census)
     if (
         summary.get("historical_experiment_census_complete") is not False
         or summary.get("historical_challenger_allowed") is not False
@@ -489,7 +559,10 @@ def build_recovery_census(
         raise ValueError("canonical trial deduplication invariant failed")
     classified_ids = {row["record_id"] for row in recovered}
     source_ids = {str(row["record_id"]) for row in candidates}
-    completion_blockers: list[str] = []
+    completion_blockers = sorted(
+        SOURCE_CANDIDATE_DISCOVERY_BLOCKERS
+        & set(census.get("promotion_blockers") or [])
+    )
     if classified_ids != source_ids:
         completion_blockers.append("candidate_mapping_incomplete")
     if any(row["performance_claim_allowed"] for row in recovered):
@@ -520,6 +593,10 @@ def build_recovery_census(
         "repository": census["repository"],
         "audit_default_branch": "master",
         "audit_default_branch_sha": census["audit_default_branch_sha"],
+        "source_observed_at_utc": source_observed_at_utc(census),
+        "repository_namespace_sha256": canonical_sha256(
+            repository_namespace_payload(census)
+        ),
         "source_census_sha256": canonical_sha256(census),
         "source_inventory_sha256": canonical_sha256(inventory),
         "recovery_contract_sha256": canonical_sha256(contract),

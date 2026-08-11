@@ -38,6 +38,9 @@ def candidate(
         "state": "MERGED",
         "url": f"https://github.com/wscha231/r1000-quant-engine/pull/{number}",
         "head_sha": head_sha,
+        "base_sha": "f" * 40,
+        "head_branch": f"legacy-{number}",
+        "updated_at": "2026-08-10T00:00:00Z",
         "ancestry": ancestry,
         "changed_paths_complete": True,
         "capability_family_candidates": ["EXPECTED_RETURN_AND_SCORING"],
@@ -56,6 +59,7 @@ def source_census() -> dict:
         "repository": MOD.REPOSITORY,
         "audit_default_branch": "master",
         "audit_default_branch_sha": "f" * 40,
+        "generated_at_utc": "2026-08-11T00:00:00+00:00",
         "source_contract": {
             "branch_payload_sha256": "c" * 64,
             "pull_request_payload_sha256": "d" * 64,
@@ -130,6 +134,12 @@ def test_exact_head_aliases_are_deduplicated_and_counted_conservatively() -> Non
     assert summary["historical_challenger_allowed"] is False
     assert recovered["census_completion_blockers"] == []
     assert recovered["audit_default_branch"] == "master"
+    assert recovered["source_observed_at_utc"] == (
+        "2026-08-11T00:00:00+00:00"
+    )
+    assert recovered["repository_namespace_sha256"] == MOD.canonical_sha256(
+        MOD.repository_namespace_payload(source_census())
+    )
     assert recovered["acceptance_migration_blockers"]
 
     rows = {row["record_id"]: row for row in recovered["recovered_candidates"]}
@@ -246,6 +256,22 @@ def test_branch_only_candidates_remain_changed_path_blocked() -> None:
     assert row["multiplicity_weight"] == 1
 
 
+def test_incomplete_pr_path_discovery_blocks_recovery_completion() -> None:
+    census = source_census()
+    census["pull_requests"][0]["changed_paths_complete"] = False
+    census["experiment_candidates"][0]["changed_paths_complete"] = False
+    census["promotion_blockers"].append(
+        "one_or_more_pr_changed_path_lists_are_truncated"
+    )
+    rehash_normalized_inventory(census)
+    recovered = MOD.build_recovery_census(census, inventory(), contract())
+    assert recovered["summary"]["historical_experiment_census_complete"] is False
+    assert recovered["summary"]["historical_challenger_preregistration_ready"] is False
+    assert recovered["census_completion_blockers"] == [
+        "one_or_more_pr_changed_path_lists_are_truncated"
+    ]
+
+
 def test_cli_writes_only_research_metadata() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -308,6 +334,7 @@ def main() -> int:
     test_exact_head_aliases_are_deduplicated_and_counted_conservatively()
     test_source_and_contract_tampering_fail_closed()
     test_branch_only_candidates_remain_changed_path_blocked()
+    test_incomplete_pr_path_discovery_blocks_recovery_completion()
     test_cli_writes_only_research_metadata()
     test_workflow_publishes_recovery_only_as_diagnostic()
     print("run287_u0_v3_recovery_census_smoke: PASS")

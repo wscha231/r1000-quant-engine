@@ -39,8 +39,14 @@ def valid_u0() -> dict:
         "repository": MOD.REPOSITORY,
         "audit_default_branch": "master",
         "audit_default_branch_sha": audit_sha,
+        "source_observed_at_utc": source["generated_at_utc"],
+        "repository_namespace_sha256": MOD.canonical_sha256(
+            MOD.source_repository_namespace(source)
+        ),
         "source_census_sha256": MOD.canonical_sha256(source),
-        "source_inventory_sha256": "e" * 64,
+        "source_inventory_sha256": MOD.git_json_blob_canonical_sha256(
+            audit_sha, "docs/run287_u0_experiment_inventory.json"
+        ),
         "recovery_contract_sha256": gate[
             "accepted_u0_recovery_contract_sha256"
         ],
@@ -75,7 +81,15 @@ def valid_source_u0(audit_sha: str | None = None) -> dict:
             "ancestry": "IDENTICAL_TO_AUDIT_HEAD",
         }
     ]
-    pull_requests = [{"number": 1, "head_sha": "c" * 40}]
+    pull_requests = [
+        {
+            "number": 1,
+            "head_branch": "legacy-1",
+            "head_sha": "c" * 40,
+            "base_sha": audit_sha,
+            "updated_at": "2026-08-10T00:00:00Z",
+        }
+    ]
     source_contract = {
         "branch_payload_sha256": "a" * 64,
         "pull_request_payload_sha256": "b" * 64,
@@ -95,6 +109,7 @@ def valid_source_u0(audit_sha: str | None = None) -> dict:
         "repository": MOD.REPOSITORY,
         "audit_default_branch": "master",
         "audit_default_branch_sha": audit_sha,
+        "generated_at_utc": "2026-08-11T00:00:00+00:00",
         "source_contract": source_contract,
         "branches": branches,
         "pull_requests": pull_requests,
@@ -118,6 +133,10 @@ def accepted_u0_evidence(census: dict) -> dict:
         "workflow_identity": "run287-u0-v3-acceptance",
         "audit_default_branch": "master",
         "audit_default_branch_sha": census["audit_default_branch_sha"],
+        "source_observed_at_utc": source["generated_at_utc"],
+        "repository_namespace_sha256": MOD.canonical_sha256(
+            MOD.source_repository_namespace(source)
+        ),
         "source_census_sha256": MOD.canonical_sha256(source),
         "recovery_census_sha256": MOD.canonical_sha256(census),
         "source_inventory_sha256": census["source_inventory_sha256"],
@@ -142,6 +161,10 @@ def accepted_u0_evidence(census: dict) -> dict:
 
 
 def canonical_u0_artifact(census: dict, evidence: dict) -> dict:
+    source = valid_source_u0(census["audit_default_branch_sha"])
+    namespace_sha256 = MOD.canonical_sha256(
+        MOD.source_repository_namespace(source)
+    )
     return {
         "verified": True,
         "artifact_id": 287,
@@ -149,7 +172,10 @@ def canonical_u0_artifact(census: dict, evidence: dict) -> dict:
         "workflow_path": ".github/workflows/run287_u0_acceptance.yml",
         "head_sha": census["audit_default_branch_sha"],
         "artifact_digest": "sha256:" + "a" * 64,
-        "source_census": valid_source_u0(census["audit_default_branch_sha"]),
+        "source_observed_at_utc": source["generated_at_utc"],
+        "repository_namespace_sha256": namespace_sha256,
+        "live_repository_namespace_sha256": namespace_sha256,
+        "source_census": source,
         "census": json.loads(json.dumps(census)),
         "accepted_evidence": json.loads(json.dumps(evidence)),
     }
@@ -413,6 +439,19 @@ def test_u0_gate_blocks_model_fit_and_all_mutations() -> None:
         contract(),
     )
 
+    original_blob_hash = MOD.git_json_blob_canonical_sha256
+    MOD.git_json_blob_canonical_sha256 = lambda _sha, _path: "0" * 64
+    try:
+        inventory_blockers = MOD.u0_gate(
+            accepted,
+            accepted_evidence,
+            canonical,
+            contract(),
+        )
+    finally:
+        MOD.git_json_blob_canonical_sha256 = original_blob_hash
+    assert "u0_source_inventory_not_current_runner_git_blob" in inventory_blockers
+
     wrong_source = json.loads(json.dumps(accepted))
     wrong_source["source_census_sha256"] = "0" * 64
     wrong_source_evidence = accepted_u0_evidence(wrong_source)
@@ -468,6 +507,18 @@ def test_u0_canonical_artifact_is_verified_from_github() -> None:
         "status": "completed",
         "conclusion": "success",
     }
+    live_branches = [
+        {"name": "master", "commit": {"sha": audit_sha}}
+    ]
+    live_pull_requests = [
+        {
+            "number": 1,
+            "head": {"ref": "legacy-1", "sha": "c" * 40},
+            "base": {"sha": audit_sha},
+            "updated_at": "2026-08-10T00:00:00Z",
+        }
+    ]
+    namespace_stale = False
     original = MOD.subprocess.check_output
 
     def fake_check_output(command, **_kwargs):
@@ -478,6 +529,15 @@ def test_u0_canonical_artifact_is_verified_from_github() -> None:
             return json.dumps(run).encode("utf-8")
         if endpoint.endswith(f"/artifacts/{artifact_id}/zip"):
             return archive_buffer.getvalue()
+        if endpoint.endswith("/branches?per_page=100"):
+            rows = list(live_branches)
+            if namespace_stale:
+                rows.append(
+                    {"name": "new-experiment", "commit": {"sha": "d" * 40}}
+                )
+            return json.dumps([rows]).encode("utf-8")
+        if endpoint.endswith("/pulls?state=all&per_page=100"):
+            return json.dumps([live_pull_requests]).encode("utf-8")
         raise AssertionError(f"unexpected GitHub API endpoint:{endpoint}")
 
     MOD.subprocess.check_output = fake_check_output
@@ -496,6 +556,24 @@ def test_u0_canonical_artifact_is_verified_from_github() -> None:
     assert MOD.canonical_sha256(
         canonical["accepted_evidence"]
     ) == MOD.canonical_sha256(evidence)
+    assert canonical["source_observed_at_utc"] == (
+        valid_source_u0(audit_sha)["generated_at_utc"]
+    )
+    assert canonical["live_repository_namespace_sha256"] == canonical[
+        "repository_namespace_sha256"
+    ]
+
+    namespace_stale = True
+    MOD.subprocess.check_output = fake_check_output
+    try:
+        MOD.load_canonical_u0_artifact(artifact_id, contract())
+    except ValueError as exc:
+        assert "stale for the live repository namespace" in str(exc)
+    else:
+        raise AssertionError("stale U0 repository namespace was accepted")
+    finally:
+        MOD.subprocess.check_output = original
+    namespace_stale = False
 
     duplicate_archive = io.BytesIO()
     with warnings.catch_warnings():

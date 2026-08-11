@@ -42,6 +42,7 @@ def validate_contract(contract: Any) -> dict[str, Any]:
             "recovery_census_schema_version",
             "accepted_evidence_schema_version",
             "workflow_identity",
+            "source_candidate_discovery_blockers",
             "required_recovery_migration_blockers",
             "minimum_conservative_historical_trial_count_lower_bound",
             "authorization_scope",
@@ -62,6 +63,10 @@ def validate_contract(contract: Any) -> dict[str, Any]:
         raise ValueError("U0-v3 accepted evidence schema mismatch")
     if contract.get("workflow_identity") != WORKFLOW_IDENTITY:
         raise ValueError("U0-v3 acceptance workflow identity mismatch")
+    if contract.get("source_candidate_discovery_blockers") != sorted(
+        V3.SOURCE_CANDIDATE_DISCOVERY_BLOCKERS
+    ):
+        raise ValueError("U0-v3 source candidate-discovery blocker policy changed")
     required_migration = sorted(
         [
             "expected_return_runner_not_yet_bound_to_u0_v3_multiplicity",
@@ -181,6 +186,23 @@ def build_acceptance(
     if not isinstance(summary, dict):
         raise ValueError("U0-v3 recovery summary missing")
     failures = validate_recovered_rows(recovery)
+    source_discovery_blockers = sorted(
+        set(source.get("promotion_blockers") or [])
+        & set(acceptance_contract["source_candidate_discovery_blockers"])
+    )
+    if source_discovery_blockers:
+        failures.append(
+            "source_candidate_discovery_incomplete:"
+            + "|".join(source_discovery_blockers)
+        )
+    source_observed_at = V3.source_observed_at_utc(source)
+    repository_namespace_sha256 = V3.canonical_sha256(
+        V3.repository_namespace_payload(source)
+    )
+    if recovery.get("source_observed_at_utc") != source_observed_at:
+        failures.append("recovery_source_observation_mismatch")
+    if recovery.get("repository_namespace_sha256") != repository_namespace_sha256:
+        failures.append("recovery_repository_namespace_mismatch")
     if summary.get("historical_experiment_census_complete") is not True:
         failures.append("historical_experiment_census_incomplete")
     if summary.get("historical_challenger_preregistration_ready") is not True:
@@ -219,6 +241,8 @@ def build_acceptance(
         "workflow_identity": acceptance_contract["workflow_identity"],
         "audit_default_branch": acceptance_contract["default_branch"],
         "audit_default_branch_sha": expected_audit_sha,
+        "source_observed_at_utc": source_observed_at,
+        "repository_namespace_sha256": repository_namespace_sha256,
         "source_census_sha256": V3.canonical_sha256(source),
         "recovery_census_sha256": V3.canonical_sha256(recovery),
         "source_inventory_sha256": V3.canonical_sha256(inventory),
