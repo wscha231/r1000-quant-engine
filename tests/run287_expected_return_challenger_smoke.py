@@ -6,6 +6,7 @@ import io
 import json
 import sys
 import tempfile
+import warnings
 import zipfile
 from argparse import Namespace
 from pathlib import Path
@@ -30,6 +31,49 @@ def contract() -> dict:
 
 def valid_u0() -> dict:
     audit_sha = MOD.git_head()
+    source = valid_source_u0(audit_sha)
+    gate = contract()["historical_gate"]
+    trial_floor = 5
+    return {
+        "schema_version": "run287-u0-v3-recovery-census-v1",
+        "repository": MOD.REPOSITORY,
+        "audit_default_branch": "master",
+        "audit_default_branch_sha": audit_sha,
+        "source_observed_at_utc": source["generated_at_utc"],
+        "repository_namespace_sha256": MOD.canonical_sha256(
+            MOD.source_repository_namespace(source)
+        ),
+        "source_census_sha256": MOD.canonical_sha256(source),
+        "source_inventory_sha256": MOD.git_json_blob_canonical_sha256(
+            audit_sha, "docs/run287_u0_experiment_inventory.json"
+        ),
+        "recovery_contract_sha256": gate[
+            "accepted_u0_recovery_contract_sha256"
+        ],
+        "safety": {
+            "metadata_only": True,
+            "fullrun_allowed": False,
+            "target_order_ledger_mutation_allowed": False,
+            "production_or_live_trading_allowed": False,
+            "automatic_promotion_allowed": False,
+            "acceptance_gate_migration_allowed_by_this_contract": False,
+        },
+        "summary": {
+            "historical_experiment_census_complete": True,
+            "historical_challenger_preregistration_ready": True,
+            "historical_challenger_allowed": False,
+            "conservative_historical_trial_count_lower_bound": trial_floor,
+        },
+        "census_completion_blockers": [],
+        "acceptance_migration_blockers": gate[
+            "required_recovery_migration_blockers"
+        ],
+        "recovered_candidates": [],
+    }
+
+
+def valid_source_u0(audit_sha: str | None = None) -> dict:
+    audit_sha = audit_sha or MOD.git_head()
     branches = [
         {
             "name": "master",
@@ -37,20 +81,36 @@ def valid_u0() -> dict:
             "ancestry": "IDENTICAL_TO_AUDIT_HEAD",
         }
     ]
-    pull_requests = [{"number": 1, "head_sha": "c" * 40}]
+    pull_requests = [
+        {
+            "number": 1,
+            "head_branch": "legacy-1",
+            "head_sha": "c" * 40,
+            "base_sha": audit_sha,
+            "updated_at": "2026-08-10T00:00:00Z",
+        }
+    ]
+    source_contract = {
+        "branch_payload_sha256": "a" * 64,
+        "pull_request_payload_sha256": "b" * 64,
+        "metadata_only": True,
+        "fullrun_executed": False,
+        "production_or_live_mutated": False,
+        "champion_changed": False,
+    }
+    source_contract["normalized_branch_rows_sha256"] = MOD.canonical_sha256(
+        branches
+    )
+    source_contract["normalized_pull_request_rows_sha256"] = (
+        MOD.canonical_sha256(pull_requests)
+    )
     return {
         "schema_version": "run287-u0-v2-github-census-v1",
         "repository": MOD.REPOSITORY,
         "audit_default_branch": "master",
         "audit_default_branch_sha": audit_sha,
-        "source_contract": {
-            "branch_payload_sha256": "a" * 64,
-            "pull_request_payload_sha256": "b" * 64,
-            "metadata_only": True,
-            "fullrun_executed": False,
-            "production_or_live_mutated": False,
-            "champion_changed": False,
-        },
+        "generated_at_utc": "2026-08-11T00:00:00+00:00",
+        "source_contract": source_contract,
         "branches": branches,
         "pull_requests": pull_requests,
         "summary": {
@@ -62,22 +122,49 @@ def valid_u0() -> dict:
 
 
 def accepted_u0_evidence(census: dict) -> dict:
+    gate = contract()["historical_gate"]
+    source = valid_source_u0(census["audit_default_branch_sha"])
+    trial_floor = census["summary"][
+        "conservative_historical_trial_count_lower_bound"
+    ]
     return {
-        "schema_version": "run287-u0-accepted-evidence-v1",
+        "schema_version": "run287-u0-v3-accepted-evidence-v1",
         "repository": MOD.REPOSITORY,
-        "workflow_identity": "run287-u0-v2-acceptance",
+        "workflow_identity": "run287-u0-v3-acceptance",
+        "audit_default_branch": "master",
         "audit_default_branch_sha": census["audit_default_branch_sha"],
-        "census_sha256": MOD.canonical_sha256(census),
-        "source_contract_sha256": MOD.canonical_sha256(
-            census["source_contract"]
+        "source_observed_at_utc": source["generated_at_utc"],
+        "repository_namespace_sha256": MOD.canonical_sha256(
+            MOD.source_repository_namespace(source)
         ),
+        "source_census_sha256": MOD.canonical_sha256(source),
+        "recovery_census_sha256": MOD.canonical_sha256(census),
+        "source_inventory_sha256": census["source_inventory_sha256"],
+        "recovery_contract_sha256": gate[
+            "accepted_u0_recovery_contract_sha256"
+        ],
+        "acceptance_contract_sha256": gate[
+            "accepted_u0_acceptance_contract_sha256"
+        ],
+        "conservative_historical_trial_count_lower_bound": trial_floor,
         "historical_experiment_census_complete": True,
-        "historical_challenger_allowed": True,
+        "historical_challenger_preregistration_ready": True,
+        "historical_challenger_research_fit_allowed": True,
+        "historical_broker_backtest_allowed": False,
+        "legacy_result_promotion_allowed": False,
         "promotion_blockers": [],
+        "target_order_ledger_mutation_allowed": False,
+        "production_or_live_trading_allowed": False,
+        "automatic_promotion_allowed": False,
+        "fullrun_allowed": False,
     }
 
 
 def canonical_u0_artifact(census: dict, evidence: dict) -> dict:
+    source = valid_source_u0(census["audit_default_branch_sha"])
+    namespace_sha256 = MOD.canonical_sha256(
+        MOD.source_repository_namespace(source)
+    )
     return {
         "verified": True,
         "artifact_id": 287,
@@ -85,6 +172,10 @@ def canonical_u0_artifact(census: dict, evidence: dict) -> dict:
         "workflow_path": ".github/workflows/run287_u0_acceptance.yml",
         "head_sha": census["audit_default_branch_sha"],
         "artifact_digest": "sha256:" + "a" * 64,
+        "source_observed_at_utc": source["generated_at_utc"],
+        "repository_namespace_sha256": namespace_sha256,
+        "live_repository_namespace_sha256": namespace_sha256,
+        "source_census": source,
         "census": json.loads(json.dumps(census)),
         "accepted_evidence": json.loads(json.dumps(evidence)),
     }
@@ -143,12 +234,13 @@ def u0_gate_with_accepted_test_default(census: dict) -> list[str]:
 
 def blocked_u0() -> dict:
     return {
-        "schema_version": "run287-u0-v2-github-census-v1",
+        "schema_version": "run287-u0-v3-recovery-census-v1",
         "summary": {
             "historical_experiment_census_complete": False,
+            "historical_challenger_preregistration_ready": False,
             "historical_challenger_allowed": False,
         },
-        "promotion_blockers": ["unmapped_trials"],
+        "census_completion_blockers": ["unmapped_trials"],
     }
 
 
@@ -274,14 +366,15 @@ def test_u0_gate_blocks_model_fit_and_all_mutations() -> None:
         evidence.write_text(
             json.dumps(
                 {
-                    "schema_version": "run287-u0-accepted-evidence-v1",
+                    "schema_version": "run287-u0-v3-accepted-evidence-v1",
                     "repository": MOD.REPOSITORY,
-                    "workflow_identity": "run287-u0-v2-acceptance",
+                    "workflow_identity": "run287-u0-v3-acceptance",
                     "audit_default_branch_sha": "",
-                    "census_sha256": MOD.canonical_sha256(census_payload),
-                    "source_contract_sha256": MOD.canonical_sha256(None),
+                    "recovery_census_sha256": MOD.canonical_sha256(
+                        census_payload
+                    ),
                     "historical_experiment_census_complete": False,
-                    "historical_challenger_allowed": False,
+                    "historical_challenger_research_fit_allowed": False,
                     "promotion_blockers": ["unmapped_trials"],
                 }
             ),
@@ -307,7 +400,10 @@ def test_u0_gate_blocks_model_fit_and_all_mutations() -> None:
         finally:
             MOD.walk_forward_predictions = original
         assert summary["status"] == MOD.BLOCKED_STATUS
-        assert "u0_historical_challenger_not_allowed" in summary["blockers"]
+        assert (
+            "u0_historical_challenger_preregistration_not_ready"
+            in summary["blockers"]
+        )
         assert summary["historical_model_fit_executed"] is False
         assert summary["historical_backtest_executed"] is False
         assert summary["target_books_written"] is False
@@ -321,17 +417,57 @@ def test_u0_gate_blocks_model_fit_and_all_mutations() -> None:
     accepted_evidence = accepted_u0_evidence(accepted)
     canonical = canonical_u0_artifact(accepted, accepted_evidence)
     truncated = json.loads(json.dumps(accepted))
-    truncated["pull_requests"] = []
+    truncated["summary"][
+        "conservative_historical_trial_count_lower_bound"
+    ] = 6
     forged_evidence = accepted_u0_evidence(truncated)
     forged_blockers = MOD.u0_gate(
         truncated, forged_evidence, canonical, contract()
     )
     assert "u0_census_not_exact_canonical_artifact" in forged_blockers
     assert "u0_evidence_not_exact_canonical_artifact" in forged_blockers
+
+    broadened_evidence = json.loads(json.dumps(accepted_evidence))
+    broadened_evidence["historical_broker_backtest_allowed"] = True
+    broadened_canonical = canonical_u0_artifact(
+        accepted, broadened_evidence
+    )
+    assert "u0_accepted_evidence_not_approved" in MOD.u0_gate(
+        accepted,
+        broadened_evidence,
+        broadened_canonical,
+        contract(),
+    )
+
+    original_blob_hash = MOD.git_json_blob_canonical_sha256
+    MOD.git_json_blob_canonical_sha256 = lambda _sha, _path: "0" * 64
+    try:
+        inventory_blockers = MOD.u0_gate(
+            accepted,
+            accepted_evidence,
+            canonical,
+            contract(),
+        )
+    finally:
+        MOD.git_json_blob_canonical_sha256 = original_blob_hash
+    assert "u0_source_inventory_not_current_runner_git_blob" in inventory_blockers
+
+    wrong_source = json.loads(json.dumps(accepted))
+    wrong_source["source_census_sha256"] = "0" * 64
+    wrong_source_evidence = accepted_u0_evidence(wrong_source)
+    wrong_source_canonical = canonical_u0_artifact(
+        wrong_source, wrong_source_evidence
+    )
+    assert "u0_recovery_source_census_hash_mismatch" in MOD.u0_gate(
+        wrong_source,
+        wrong_source_evidence,
+        wrong_source_canonical,
+        contract(),
+    )
+
     forged = valid_u0()
     forged_sha = "d" * 40
     forged["audit_default_branch_sha"] = forged_sha
-    forged["branches"][0]["head_sha"] = forged_sha
     assert "u0_census_audit_sha_not_current_default_branch" in (
         u0_gate_with_accepted_test_default(forged)
     )
@@ -342,7 +478,11 @@ def test_u0_canonical_artifact_is_verified_from_github() -> None:
     evidence = accepted_u0_evidence(census)
     archive_buffer = io.BytesIO()
     with zipfile.ZipFile(archive_buffer, "w") as archive:
-        archive.writestr("github_census.json", json.dumps(census))
+        archive.writestr(
+            "github_census.json",
+            json.dumps(valid_source_u0(census["audit_default_branch_sha"])),
+        )
+        archive.writestr("github_recovery_census.json", json.dumps(census))
         archive.writestr("u0_accepted_evidence.json", json.dumps(evidence))
     artifact_id = 287
     run_id = 2870805
@@ -367,6 +507,18 @@ def test_u0_canonical_artifact_is_verified_from_github() -> None:
         "status": "completed",
         "conclusion": "success",
     }
+    live_branches = [
+        {"name": "master", "commit": {"sha": audit_sha}}
+    ]
+    live_pull_requests = [
+        {
+            "number": 1,
+            "head": {"ref": "legacy-1", "sha": "c" * 40},
+            "base": {"sha": audit_sha},
+            "updated_at": "2026-08-10T00:00:00Z",
+        }
+    ]
+    namespace_stale = False
     original = MOD.subprocess.check_output
 
     def fake_check_output(command, **_kwargs):
@@ -377,6 +529,15 @@ def test_u0_canonical_artifact_is_verified_from_github() -> None:
             return json.dumps(run).encode("utf-8")
         if endpoint.endswith(f"/artifacts/{artifact_id}/zip"):
             return archive_buffer.getvalue()
+        if endpoint.endswith("/branches?per_page=100"):
+            rows = list(live_branches)
+            if namespace_stale:
+                rows.append(
+                    {"name": "new-experiment", "commit": {"sha": "d" * 40}}
+                )
+            return json.dumps([rows]).encode("utf-8")
+        if endpoint.endswith("/pulls?state=all&per_page=100"):
+            return json.dumps([live_pull_requests]).encode("utf-8")
         raise AssertionError(f"unexpected GitHub API endpoint:{endpoint}")
 
     MOD.subprocess.check_output = fake_check_output
@@ -390,8 +551,53 @@ def test_u0_canonical_artifact_is_verified_from_github() -> None:
         census
     )
     assert MOD.canonical_sha256(
+        canonical["source_census"]
+    ) == MOD.canonical_sha256(valid_source_u0(audit_sha))
+    assert MOD.canonical_sha256(
         canonical["accepted_evidence"]
     ) == MOD.canonical_sha256(evidence)
+    assert canonical["source_observed_at_utc"] == (
+        valid_source_u0(audit_sha)["generated_at_utc"]
+    )
+    assert canonical["live_repository_namespace_sha256"] == canonical[
+        "repository_namespace_sha256"
+    ]
+
+    namespace_stale = True
+    MOD.subprocess.check_output = fake_check_output
+    try:
+        MOD.load_canonical_u0_artifact(artifact_id, contract())
+    except ValueError as exc:
+        assert "stale for the live repository namespace" in str(exc)
+    else:
+        raise AssertionError("stale U0 repository namespace was accepted")
+    finally:
+        MOD.subprocess.check_output = original
+    namespace_stale = False
+
+    duplicate_archive = io.BytesIO()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        with zipfile.ZipFile(duplicate_archive, "w") as archive:
+            archive.writestr(
+                "github_census.json",
+                json.dumps(
+                    valid_source_u0(census["audit_default_branch_sha"])
+                ),
+            )
+            archive.writestr("github_census.json", json.dumps({}))
+            archive.writestr("github_recovery_census.json", json.dumps(census))
+            archive.writestr("u0_accepted_evidence.json", json.dumps(evidence))
+    archive_buffer = duplicate_archive
+    MOD.subprocess.check_output = fake_check_output
+    try:
+        MOD.load_canonical_u0_artifact(artifact_id, contract())
+    except ValueError as exc:
+        assert "missing or duplicated" in str(exc)
+    else:
+        raise AssertionError("non-canonical U0 artifact layout was accepted")
+    finally:
+        MOD.subprocess.check_output = original
 
 
 def test_missing_exact_label_provenance_blocks_even_with_u0_allowed() -> None:
@@ -792,6 +998,9 @@ def test_allowed_synthetic_run_writes_only_research_outputs() -> None:
         )
         assert summary["status"] == MOD.READY_STATUS
         assert summary["historical_model_fit_executed"] is True
+        assert summary[
+            "conservative_historical_trial_count_lower_bound"
+        ] == 5
         assert summary["historical_backtest_executed"] is False
         assert summary["target_books_written"] is False
         assert summary["orders_generated"] is False
@@ -801,7 +1010,18 @@ def test_allowed_synthetic_run_writes_only_research_outputs() -> None:
             (output / "source_manifest.json").read_text(encoding="utf-8")
         )
         assert manifest["historical_fit_executed"] is True
+        assert manifest[
+            "conservative_historical_trial_count_lower_bound"
+        ] == 5
         assert manifest["historical_backtest_executed"] is False
+        metrics = json.loads(
+            (output / "expected_return_metrics.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert metrics["multiple_testing_context"][
+            "conservative_historical_trial_count_lower_bound"
+        ] == 5
         proposal = pd.read_csv(output / "latest_expected_return_proposal.csv")
         assert not any(column.startswith("realized_") for column in proposal.columns)
         assert "target_weight" not in proposal.columns
@@ -852,8 +1072,9 @@ def test_canonical_u0_workflow_is_research_only() -> None:
     assert "workflow_dispatch:" in source
     assert "refs/heads/master" in source
     assert "run287-u0-accepted-evidence" in source
-    assert "historical_experiment_census_complete" in source
-    assert "historical_challenger_allowed" in source
+    assert "build_run287_u0_v3_acceptance.py" in source
+    assert "github_recovery_census.json" in source
+    assert "run287-u0-v2-acceptance" not in source
     assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" in source
     diagnostic = "name: run287-u0-census-diagnostic"
     accepted = "name: run287-u0-accepted-evidence"

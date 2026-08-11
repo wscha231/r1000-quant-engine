@@ -33,37 +33,47 @@ all records sharing the same exact code head inherit the union of registry and
 capability-family links. This prevents an alias from losing stronger blocking
 evidence attached to another PR with identical code.
 
-## Current diagnostic observation
+## Official recovery observation
 
 The input was the `run287-u0-census-diagnostic` artifact from research-only
-Actions run `31014230254`, bound to master SHA
-`f31a9bb1a9af0d0ca465a8358e7840b51c5c1a84`.
+Actions run `31018404151`, bound to master SHA
+`f28321d011d0705cf8fdd43f1f98647f85557d42`.
 
-- source candidates: 350
-- exact code-head trials: 349
+- source candidates: 351
+- exact code-head trials: 350
 - duplicate aliases: 1
 - canonical registry published-attempt lower bound: 53
-- conservative historical trial-count lower bound: 402
-- unverified assertions: 344
+- conservative historical trial-count lower bound: 403
+- unverified assertions: 345
 - unverified-ancestry canonical trials: 72
-- truncated changed-path sets: 8
-- branch-only candidates without recovered changed paths: 5
+- incomplete changed-path evidence: 13
 
-These figures were produced locally by applying the proposed deterministic
-U0-v3 transformer to the official U0-v2 artifact. They are diagnostic until a
-merged master workflow publishes the corresponding U0-v3 files.
+These figures are official diagnostic evidence, not performance evidence. The
+trial floor is dynamic: later exact code heads increase it, so no downstream
+gate may hard-code 403.
+
+The 13 incomplete changed-path records are also candidate-discovery failures,
+not merely row-level promotion blockers. Until a fresh census resolves every
+PR path list, recovery remains incomplete and canonical acceptance must fail
+closed because an omitted path could hide another experiment candidate.
 
 ## Remaining gates
 
-This change deliberately leaves `historical_challenger_allowed=false`.
-Separate reviewed work must:
+The recovery census deliberately leaves `historical_challenger_allowed=false`.
+Canonical acceptance may authorize only the narrower, preregistered research
+fit after independently recomputing this census. Accepted evidence binds the
+source observation time and exact branch/PR namespace. The expected-return
+runner rechecks that namespace against live GitHub and compares the registry
+from its exact running Git commit with the accepted inventory; a new branch,
+PR, PR-head/base change, or registry change requires a new acceptance. It still
+may not authorize a broker backtest. Remaining work must:
 
-1. publish and inspect the U0-v3 artifact on current master;
-2. bind canonical acceptance to the U0-v3 schema and conservative trial count;
-3. bind the expected-return runner and later statistical tests to that count;
-4. regenerate the feature store with exact future-label end dates and explicit
+1. merge the U0-v3 acceptance and expected-return multiplicity binding;
+2. publish and inspect canonical accepted evidence on the new master head;
+3. regenerate the feature store with exact future-label end dates and explicit
    `SPY` / `YF:SPY` provenance;
-5. only then run the bounded $100,000 next-close broker-ledger backtest.
+4. only then request approval for the bounded $100,000 next-close
+   broker-ledger backtest.
 
 No fullrun, target/order/ledger mutation, live trading, champion change, or
 automatic promotion is authorized here.

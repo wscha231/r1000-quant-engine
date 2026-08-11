@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Train a PIT-purged, proposal-only Run287 expected-return challenger.
 
-The real historical path is fail-closed behind the U0-v2 experiment census.
+The real historical path is fail-closed behind canonical U0-v3 acceptance.
 This program never writes target books, creates orders, changes cash, mutates an
 operating ledger, promotes a challenger, or runs a full rebuild.
 """
@@ -34,7 +34,7 @@ BLOCKED_STATUS = "BLOCKED_EXPECTED_RETURN_CHALLENGER"
 TARGET_KINDS = ("absolute", "benchmark_excess", "sector_neutral")
 HORIZONS = (21, 63, 126)
 EXPECTED_CONTRACT_SHA256 = (
-    "11ee7da346b73282847cd8906fceadddf7b34d536bd31759144da2d5eb914c79"
+    "ef61acafc2c42b86d75d85becea816a4bca8e05fbbc392e77fa92b075c728b63"
 )
 FORBIDDEN_FEATURE_RE = re.compile(
     r"(^|_)(future|forward|label|target|outcome)(_|$)|"
@@ -108,6 +108,137 @@ def git_head() -> str:
         ).strip()
     except Exception:
         return ""
+
+
+def git_blob_bytes(commit_sha: str, path: str) -> bytes:
+    commit_sha = str(commit_sha or "").lower()
+    if not FULL_SHA_RE.fullmatch(commit_sha):
+        raise ValueError("Git JSON blob commit identity is invalid")
+    if not path or path.startswith(("/", "\\")) or ".." in Path(path).parts:
+        raise ValueError("Git JSON blob path is invalid")
+    return subprocess.check_output(
+        ["git", "show", f"{commit_sha}:{path}"],
+        cwd=REPO_ROOT,
+        timeout=30,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def git_blob_sha256(commit_sha: str, path: str) -> str:
+    return hashlib.sha256(git_blob_bytes(commit_sha, path)).hexdigest()
+
+
+def git_json_blob_canonical_sha256(commit_sha: str, path: str) -> str:
+    raw = git_blob_bytes(commit_sha, path)
+    value = json.loads(
+        raw.decode("utf-8"), object_pairs_hook=reject_duplicate_json_keys
+    )
+    return canonical_sha256(value)
+
+
+def repository_namespace_payload(
+    branches: Any,
+    pull_requests: Any,
+    *,
+    live_api_shape: bool,
+) -> dict[str, Any]:
+    if not isinstance(branches, list) or not isinstance(pull_requests, list):
+        raise ValueError("repository namespace collections are missing")
+    branch_rows: list[dict[str, Any]] = []
+    branch_names: set[str] = set()
+    for row in branches:
+        if not isinstance(row, dict):
+            raise ValueError("repository branch namespace row is malformed")
+        name = str(row.get("name") or "")
+        head_sha = str(
+            ((row.get("commit") or {}).get("sha"))
+            if live_api_shape and isinstance(row.get("commit"), dict)
+            else row.get("head_sha") or ""
+        ).lower()
+        if not name or name in branch_names or not FULL_SHA_RE.fullmatch(head_sha):
+            raise ValueError("repository branch namespace identity is invalid")
+        branch_names.add(name)
+        branch_rows.append({"name": name, "head_sha": head_sha})
+    pr_rows: list[dict[str, Any]] = []
+    pr_numbers: set[int] = set()
+    for row in pull_requests:
+        if not isinstance(row, dict):
+            raise ValueError("repository pull-request namespace row is malformed")
+        number = row.get("number")
+        if live_api_shape:
+            head = row.get("head") if isinstance(row.get("head"), dict) else {}
+            base = row.get("base") if isinstance(row.get("base"), dict) else {}
+            head_branch = str(head.get("ref") or "")
+            head_sha = str(head.get("sha") or "").lower()
+            base_sha = str(base.get("sha") or "").lower()
+            updated_at = str(row.get("updated_at") or "")
+        else:
+            head_branch = str(row.get("head_branch") or "")
+            head_sha = str(row.get("head_sha") or "").lower()
+            base_sha = str(row.get("base_sha") or "").lower()
+            updated_at = str(row.get("updated_at") or "")
+        if (
+            type(number) is not int
+            or number <= 0
+            or number in pr_numbers
+            or not FULL_SHA_RE.fullmatch(head_sha)
+            or not FULL_SHA_RE.fullmatch(base_sha)
+            or not head_branch
+            or not updated_at
+        ):
+            raise ValueError("repository pull-request namespace identity is invalid")
+        pr_numbers.add(number)
+        pr_rows.append(
+            {
+                "number": number,
+                "head_branch": head_branch,
+                "head_sha": head_sha,
+                "base_sha": base_sha,
+                "updated_at": updated_at,
+            }
+        )
+    return {
+        "branches": sorted(branch_rows, key=lambda row: row["name"]),
+        "pull_requests": sorted(pr_rows, key=lambda row: row["number"]),
+    }
+
+
+def source_repository_namespace(source_census: Mapping[str, Any]) -> dict[str, Any]:
+    return repository_namespace_payload(
+        source_census.get("branches"),
+        source_census.get("pull_requests"),
+        live_api_shape=False,
+    )
+
+
+def gh_paginated_collection(endpoint: str) -> list[dict[str, Any]]:
+    raw = subprocess.check_output(
+        ["gh", "api", "--paginate", "--slurp", endpoint],
+        cwd=REPO_ROOT,
+        timeout=60,
+    )
+    payload = json.loads(
+        raw.decode("utf-8"), object_pairs_hook=reject_duplicate_json_keys
+    )
+    if not isinstance(payload, list):
+        raise ValueError("GitHub namespace response is not a list")
+    pages = payload if all(isinstance(item, list) for item in payload) else [payload]
+    rows = [item for page in pages for item in page]
+    if any(not isinstance(item, dict) for item in rows):
+        raise ValueError("GitHub namespace response contains a malformed row")
+    return rows
+
+
+def load_live_repository_namespace() -> dict[str, Any]:
+    branches = gh_paginated_collection(
+        f"repos/{REPOSITORY}/branches?per_page=100"
+    )
+    pull_requests = gh_paginated_collection(
+        f"repos/{REPOSITORY}/pulls?state=all&per_page=100"
+    )
+    return repository_namespace_payload(
+        branches, pull_requests, live_api_shape=True
+    )
 
 
 def git_is_ancestor(ancestor: str, descendant: str) -> bool:
@@ -218,10 +349,19 @@ def load_canonical_u0_artifact(
     )
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
         names = archive.namelist()
+        source_census_name = gate["accepted_artifact_source_census_file"]
         census_name = gate["accepted_artifact_census_file"]
         evidence_name = gate["accepted_artifact_evidence_file"]
-        if names.count(census_name) != 1 or names.count(evidence_name) != 1:
+        if (
+            names.count(source_census_name) != 1
+            or names.count(census_name) != 1
+            or names.count(evidence_name) != 1
+        ):
             raise ValueError("U0 artifact canonical files are missing or duplicated")
+        source_census = json.loads(
+            archive.read(source_census_name).decode("utf-8"),
+            object_pairs_hook=reject_duplicate_json_keys,
+        )
         census = json.loads(
             archive.read(census_name).decode("utf-8"),
             object_pairs_hook=reject_duplicate_json_keys,
@@ -237,6 +377,27 @@ def load_canonical_u0_artifact(
         or workflow_run.get("head_branch") != gate["default_branch"]
     ):
         raise ValueError("U0 artifact is not bound to its audited master head")
+    source_observed_at = str(source_census.get("generated_at_utc") or "")
+    try:
+        observed_at = datetime.fromisoformat(
+            source_observed_at.replace("Z", "+00:00")
+        )
+    except ValueError as exc:
+        raise ValueError("U0 source census observation time is invalid") from exc
+    if observed_at.tzinfo is None or observed_at.utcoffset() is None:
+        raise ValueError("U0 source census observation time lacks a timezone")
+    expected_namespace_sha256 = canonical_sha256(
+        source_repository_namespace(source_census)
+    )
+    if (
+        evidence.get("source_observed_at_utc") != source_observed_at
+        or evidence.get("repository_namespace_sha256")
+        != expected_namespace_sha256
+    ):
+        raise ValueError("U0 acceptance does not attest its source observation")
+    live_namespace_sha256 = canonical_sha256(load_live_repository_namespace())
+    if live_namespace_sha256 != expected_namespace_sha256:
+        raise ValueError("U0 source census is stale for the live repository namespace")
     return {
         "verified": True,
         "artifact_id": artifact_id,
@@ -244,6 +405,10 @@ def load_canonical_u0_artifact(
         "workflow_path": run["path"],
         "head_sha": audit_sha,
         "artifact_digest": artifact.get("digest"),
+        "source_observed_at_utc": source_observed_at,
+        "repository_namespace_sha256": expected_namespace_sha256,
+        "live_repository_namespace_sha256": live_namespace_sha256,
+        "source_census": source_census,
         "census": census,
         "accepted_evidence": evidence,
     }
@@ -378,6 +543,13 @@ def validate_contract(contract: Any) -> dict[str, Any]:
         )
     ):
         raise ValueError("expected-return safety contract mismatch")
+    historical_gate = contract.get("historical_gate") or {}
+    if (
+        historical_gate.get("source_inventory_path")
+        != "docs/run287_u0_experiment_inventory.json"
+        or historical_gate.get("live_repository_namespace_match_required") is not True
+    ):
+        raise ValueError("expected-return U0 freshness contract mismatch")
     actual_contract_sha256 = canonical_sha256(contract)
     if actual_contract_sha256 != EXPECTED_CONTRACT_SHA256:
         raise ValueError(
@@ -416,9 +588,47 @@ def u0_gate(
         canonical_artifact.get("accepted_evidence")
     ):
         blockers.append("u0_evidence_not_exact_canonical_artifact")
+    canonical_source = canonical_artifact.get("source_census")
+    if not isinstance(canonical_source, dict):
+        canonical_source = {}
+        blockers.append("u0_canonical_source_census_missing")
     if not isinstance(accepted_evidence, dict):
         accepted_evidence = {}
         blockers.append("u0_accepted_evidence_not_an_object")
+    source_observed_at = str(canonical_source.get("generated_at_utc") or "")
+    try:
+        parsed_observed_at = datetime.fromisoformat(
+            source_observed_at.replace("Z", "+00:00")
+        )
+        if parsed_observed_at.tzinfo is None or parsed_observed_at.utcoffset() is None:
+            raise ValueError("timezone missing")
+    except ValueError:
+        blockers.append("u0_source_census_observation_time_invalid")
+    try:
+        repository_namespace_sha256 = canonical_sha256(
+            source_repository_namespace(canonical_source)
+        )
+    except Exception:
+        repository_namespace_sha256 = ""
+        blockers.append("u0_source_census_repository_namespace_invalid")
+    if accepted_evidence.get("source_observed_at_utc") != source_observed_at:
+        blockers.append("u0_source_observation_not_exact_accepted_artifact")
+    if accepted_evidence.get("repository_namespace_sha256") != (
+        repository_namespace_sha256
+    ):
+        blockers.append("u0_repository_namespace_not_exact_accepted_artifact")
+    if census.get("source_observed_at_utc") != source_observed_at:
+        blockers.append("u0_recovery_source_observation_mismatch")
+    if census.get("repository_namespace_sha256") != repository_namespace_sha256:
+        blockers.append("u0_recovery_repository_namespace_mismatch")
+    if (
+        canonical_artifact.get("source_observed_at_utc") != source_observed_at
+        or canonical_artifact.get("repository_namespace_sha256")
+        != repository_namespace_sha256
+        or canonical_artifact.get("live_repository_namespace_sha256")
+        != repository_namespace_sha256
+    ):
+        blockers.append("u0_live_repository_namespace_not_current")
     if (
         accepted_evidence.get("schema_version")
         != gate["accepted_evidence_schema_version"]
@@ -426,24 +636,78 @@ def u0_gate(
         blockers.append("u0_accepted_evidence_schema_mismatch")
     if accepted_evidence.get("repository") != gate["repository"]:
         blockers.append("u0_accepted_evidence_repository_mismatch")
+    if accepted_evidence.get("audit_default_branch") != gate["default_branch"]:
+        blockers.append("u0_accepted_evidence_default_branch_mismatch")
     if (
         accepted_evidence.get("workflow_identity")
         != gate["accepted_evidence_workflow_identity"]
     ):
         blockers.append("u0_accepted_evidence_workflow_mismatch")
-    if str(accepted_evidence.get("census_sha256") or "").lower() != (
+    if str(accepted_evidence.get("recovery_census_sha256") or "").lower() != (
         canonical_sha256(census)
     ):
         blockers.append("u0_census_not_exact_accepted_artifact")
-    if str(accepted_evidence.get("source_contract_sha256") or "").lower() != (
-        canonical_sha256(census.get("source_contract"))
+    source_sha256 = canonical_sha256(canonical_source)
+    if str(accepted_evidence.get("source_census_sha256") or "").lower() != (
+        source_sha256
     ):
-        blockers.append("u0_census_source_not_exact_accepted_envelope")
+        blockers.append("u0_source_census_not_exact_accepted_artifact")
+    if str(census.get("source_census_sha256") or "").lower() != source_sha256:
+        blockers.append("u0_recovery_source_census_hash_mismatch")
+    for evidence_key, gate_key in (
+        ("recovery_contract_sha256", "accepted_u0_recovery_contract_sha256"),
+        ("acceptance_contract_sha256", "accepted_u0_acceptance_contract_sha256"),
+    ):
+        if str(accepted_evidence.get(evidence_key) or "").lower() != str(
+            gate.get(gate_key) or ""
+        ).lower():
+            blockers.append(f"u0_{evidence_key}_mismatch")
+    if str(census.get("recovery_contract_sha256") or "").lower() != str(
+        gate.get("accepted_u0_recovery_contract_sha256") or ""
+    ).lower():
+        blockers.append("u0_recovery_contract_hash_mismatch")
+    if str(census.get("source_inventory_sha256") or "").lower() != str(
+        accepted_evidence.get("source_inventory_sha256") or ""
+    ).lower():
+        blockers.append("u0_source_inventory_hash_mismatch")
+    for key, value in (
+        ("source_inventory_sha256", census.get("source_inventory_sha256")),
+        ("source_census_sha256", census.get("source_census_sha256")),
+        ("recovery_contract_sha256", census.get("recovery_contract_sha256")),
+    ):
+        if not SHA256_RE.fullmatch(str(value or "").lower()):
+            blockers.append(f"u0_recovery_hash_invalid:{key}")
     audit_sha = str(census.get("audit_default_branch_sha") or "").lower()
     if str(accepted_evidence.get("audit_default_branch_sha") or "").lower() != audit_sha:
         blockers.append("u0_accepted_evidence_audit_sha_mismatch")
     current_sha = git_head().lower()
     accepted_default_sha = git_default_branch_sha()
+    try:
+        current_inventory_sha256 = git_json_blob_canonical_sha256(
+            current_sha, gate["source_inventory_path"]
+        )
+        accepted_inventory_git_blob_sha256 = git_blob_sha256(
+            audit_sha, gate["source_inventory_path"]
+        )
+        current_inventory_git_blob_sha256 = git_blob_sha256(
+            current_sha, gate["source_inventory_path"]
+        )
+    except Exception:
+        current_inventory_sha256 = ""
+        accepted_inventory_git_blob_sha256 = ""
+        current_inventory_git_blob_sha256 = ""
+        blockers.append("u0_current_runner_inventory_git_blob_unreadable")
+    accepted_inventory_sha256 = str(
+        accepted_evidence.get("source_inventory_sha256") or ""
+    ).lower()
+    if (
+        current_inventory_sha256 != accepted_inventory_sha256
+        or str(census.get("source_inventory_sha256") or "").lower()
+        != current_inventory_sha256
+    ):
+        blockers.append("u0_source_inventory_not_current_runner_git_blob")
+    if current_inventory_git_blob_sha256 != accepted_inventory_git_blob_sha256:
+        blockers.append("u0_source_inventory_git_blob_changed_since_acceptance")
     if not FULL_SHA_RE.fullmatch(audit_sha):
         blockers.append("u0_census_audit_sha_invalid")
     else:
@@ -451,26 +715,43 @@ def u0_gate(
             blockers.append("u0_census_audit_sha_not_current_default_branch")
         if not git_is_ancestor(audit_sha, current_sha):
             blockers.append("u0_census_audit_sha_not_ancestor_of_runner")
-    source = census.get("source_contract")
+    if str(canonical_source.get("audit_default_branch_sha") or "").lower() != (
+        audit_sha
+    ):
+        blockers.append("u0_source_census_audit_sha_mismatch")
+    if canonical_source.get("schema_version") != "run287-u0-v2-github-census-v1":
+        blockers.append("u0_source_census_schema_mismatch")
+    source = canonical_source.get("source_contract")
     if not isinstance(source, dict):
         source = {}
-        blockers.append("u0_census_source_contract_missing")
-    for key in ("branch_payload_sha256", "pull_request_payload_sha256"):
+        blockers.append("u0_source_census_contract_missing")
+    for key in (
+        "branch_payload_sha256",
+        "pull_request_payload_sha256",
+        "normalized_branch_rows_sha256",
+        "normalized_pull_request_rows_sha256",
+    ):
         if not SHA256_RE.fullmatch(str(source.get(key) or "").lower()):
-            blockers.append(f"u0_census_source_hash_invalid:{key}")
+            blockers.append(f"u0_source_census_hash_invalid:{key}")
     if (
         source.get("metadata_only") is not True
         or source.get("fullrun_executed") is not False
         or source.get("production_or_live_mutated") is not False
         or source.get("champion_changed") is not False
     ):
-        blockers.append("u0_census_source_safety_mismatch")
-    branches = census.get("branches")
-    pull_requests = census.get("pull_requests")
+        blockers.append("u0_source_census_safety_mismatch")
+    branches = canonical_source.get("branches")
+    pull_requests = canonical_source.get("pull_requests")
     if not isinstance(branches, list) or not isinstance(pull_requests, list):
-        blockers.append("u0_census_normalized_records_missing")
+        blockers.append("u0_source_census_normalized_records_missing")
         branches = []
         pull_requests = []
+    if canonical_sha256(branches) != source.get("normalized_branch_rows_sha256"):
+        blockers.append("u0_source_census_normalized_branch_hash_mismatch")
+    if canonical_sha256(pull_requests) != source.get(
+        "normalized_pull_request_rows_sha256"
+    ):
+        blockers.append("u0_source_census_normalized_pr_hash_mismatch")
     master_rows = [
         row
         for row in branches
@@ -481,22 +762,62 @@ def u0_gate(
         or str(master_rows[0].get("head_sha") or "").lower() != audit_sha
         or master_rows[0].get("ancestry") != "IDENTICAL_TO_AUDIT_HEAD"
     ):
-        blockers.append("u0_census_default_branch_record_mismatch")
+        blockers.append("u0_source_census_default_branch_record_mismatch")
+    recovery_safety = census.get("safety")
+    required_recovery_safety = {
+        "metadata_only": True,
+        "fullrun_allowed": False,
+        "target_order_ledger_mutation_allowed": False,
+        "production_or_live_trading_allowed": False,
+        "automatic_promotion_allowed": False,
+        "acceptance_gate_migration_allowed_by_this_contract": False,
+    }
+    if recovery_safety != required_recovery_safety:
+        blockers.append("u0_recovery_safety_mismatch")
     summary = census.get("summary")
     if not isinstance(summary, dict):
         summary = {}
         blockers.append("u0_census_summary_missing")
     if summary.get("historical_experiment_census_complete") is not True:
         blockers.append("u0_historical_experiment_census_incomplete")
-    if summary.get("historical_challenger_allowed") is not True:
-        blockers.append("u0_historical_challenger_not_allowed")
-    promotion_blockers = census.get("promotion_blockers")
-    if not isinstance(promotion_blockers, list) or promotion_blockers:
-        blockers.append("u0_promotion_blockers_not_empty")
+    if summary.get("historical_challenger_preregistration_ready") is not True:
+        blockers.append("u0_historical_challenger_preregistration_not_ready")
+    if summary.get("historical_challenger_allowed") is not False:
+        blockers.append("u0_recovery_prematurely_authorized_challenger")
+    if census.get("census_completion_blockers") != []:
+        blockers.append("u0_census_completion_blockers_not_empty")
+    if sorted(census.get("acceptance_migration_blockers") or []) != sorted(
+        gate["required_recovery_migration_blockers"]
+    ):
+        blockers.append("u0_recovery_migration_blockers_mismatch")
+    trial_floor = summary.get("conservative_historical_trial_count_lower_bound")
+    if (
+        type(trial_floor) is not int
+        or trial_floor
+        < gate["minimum_conservative_historical_trial_count_lower_bound"]
+        or accepted_evidence.get(
+            "conservative_historical_trial_count_lower_bound"
+        )
+        != trial_floor
+    ):
+        blockers.append("u0_conservative_historical_trial_floor_invalid")
     if (
         accepted_evidence.get("historical_experiment_census_complete") is not True
-        or accepted_evidence.get("historical_challenger_allowed") is not True
+        or accepted_evidence.get(
+            "historical_challenger_preregistration_ready"
+        )
+        is not True
+        or accepted_evidence.get(
+            "historical_challenger_research_fit_allowed"
+        )
+        is not True
+        or accepted_evidence.get("historical_broker_backtest_allowed") is not False
+        or accepted_evidence.get("legacy_result_promotion_allowed") is not False
         or accepted_evidence.get("promotion_blockers") != []
+        or accepted_evidence.get("target_order_ledger_mutation_allowed") is not False
+        or accepted_evidence.get("production_or_live_trading_allowed") is not False
+        or accepted_evidence.get("automatic_promotion_allowed") is not False
+        or accepted_evidence.get("fullrun_allowed") is not False
     ):
         blockers.append("u0_accepted_evidence_not_approved")
     return sorted(set(blockers))
@@ -1454,6 +1775,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         blockers.extend(
             u0_gate(census, accepted_evidence, canonical_artifact, contract)
         )
+    trial_floor = (
+        (census.get("summary") or {}).get(
+            "conservative_historical_trial_count_lower_bound"
+        )
+        if isinstance(census, dict)
+        else None
+    )
+    inputs["u0_conservative_historical_trial_count_lower_bound"] = trial_floor
     frame = pd.DataFrame()
     if not feature_store_path.is_file():
         blockers.append("feature_store_missing")
@@ -1506,6 +1835,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             inputs=inputs,
         )
     metrics = evaluate_predictions(predictions, contract)
+    metrics["multiple_testing_context"] = {
+        "conservative_historical_trial_count_lower_bound": trial_floor,
+        "source": "canonical_u0_v3_accepted_evidence",
+        "used_for_model_or_parameter_tuning": False,
+        "required_for_later_dsr_pbo_spa_gate": True,
+    }
     proposal = public_latest_proposal(predictions)
     predictions.to_csv(output_dir / "expected_return_predictions.csv", index=False)
     audit.to_csv(output_dir / "training_audit.csv", index=False)
@@ -1520,6 +1855,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "prediction_rows": len(predictions),
         "prediction_dates": int(predictions["feature_date"].nunique()),
         "latest_candidate_count": len(proposal),
+        "conservative_historical_trial_count_lower_bound": trial_floor,
         "historical_model_fit_executed": True,
         "historical_backtest_executed": False,
         "broker_ledger_metrics_available": False,
@@ -1555,6 +1891,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "inputs": inputs,
             "outputs": output_fingerprints,
             "status": READY_STATUS,
+            "conservative_historical_trial_count_lower_bound": trial_floor,
             "historical_fit_executed": True,
             "historical_backtest_executed": False,
         },
