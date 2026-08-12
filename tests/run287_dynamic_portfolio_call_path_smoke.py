@@ -146,6 +146,19 @@ def test_required_transaction_boundary_cannot_be_removed() -> None:
         for item in result["failures"]
     )
 
+    redirected = deepcopy(workflows)
+    redirected[daily] = redirected[daily].replace(
+        "--suppress-new-orders \\",
+        "> --suppress-new-orders \\",
+        1,
+    )
+    result = MOD.audit_texts(contract, redirected, accepted)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "required_executable_command_mismatch" in item
+        for item in result["failures"]
+    )
+
 
 def test_no_writer_role_and_duplicate_accepted_writer_fail_closed() -> None:
     contract, workflows, accepted = source_inputs()
@@ -193,6 +206,45 @@ def test_no_writer_role_and_duplicate_accepted_writer_fail_closed() -> None:
         for item in result["failures"]
     )
 
+    command_writer = deepcopy(workflows)
+    command_writer[daily] += (
+        "\n  python -c \"from tools.build_run287_same_close_target_books "
+        "import main; main()\"\n"
+    )
+    result = MOD.audit_texts(contract, command_writer, accepted)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "entrypoint_invocation_count_mismatch:"
+        "tools/build_run287_same_close_target_books.py" in item
+        for item in result["failures"]
+    )
+
+    moved_boundary = deepcopy(workflows)
+    moved_boundary[daily] = moved_boundary[daily].replace(
+        "            --suppress-new-orders \\\n",
+        "",
+        1,
+    )
+    second_profile = (
+        "              --max-fill-lag-days 7 \\\n"
+        "              2>&1 | tee outputs/full_rebuild_logs/"
+        "daily_simulated_fill_ledger.log"
+    )
+    moved_boundary[daily] = moved_boundary[daily].replace(
+        second_profile,
+        "              --max-fill-lag-days 7 \\\n"
+        "              --suppress-new-orders \\\n"
+        "              2>&1 | tee outputs/full_rebuild_logs/"
+        "daily_simulated_fill_ledger.log",
+        1,
+    )
+    result = MOD.audit_texts(contract, moved_boundary, accepted)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "exclusive_invocation_profile_mismatch" in item
+        for item in result["failures"]
+    )
+
 
 def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> None:
     contract, workflows, accepted = source_inputs()
@@ -222,6 +274,35 @@ def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> No
     assert any(
         "authority_sensitive_workflow_role_missing:"
         ".github/workflows/new_command_string.yml" in item
+        for item in result["failures"]
+    )
+
+    stdin_wrapper = deepcopy(workflows)
+    stdin_wrapper[".github/workflows/new_stdin.yml"] = (
+        "jobs:\n  run:\n    steps:\n      - run: |\n"
+        "          python3.12 -u - <<'PY'\n"
+        "          from tools.build_new_target_writer import main\n"
+        "          main()\n"
+        "          PY\n"
+    )
+    result = MOD.audit_texts(contract, stdin_wrapper, command_sources)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "authority_sensitive_workflow_role_missing:"
+        ".github/workflows/new_stdin.yml" in item
+        for item in result["failures"]
+    )
+
+    shell_wrapper = deepcopy(workflows)
+    shell_wrapper[".github/workflows/new_shell_wrapper.yml"] = (
+        "jobs:\n  run:\n    steps:\n      - run: >-\n"
+        "          bash -c 'python tools/build_new_target_writer.py'\n"
+    )
+    result = MOD.audit_texts(contract, shell_wrapper, command_sources)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "authority_sensitive_workflow_role_missing:"
+        ".github/workflows/new_shell_wrapper.yml" in item
         for item in result["failures"]
     )
 
@@ -275,6 +356,20 @@ def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> No
         for item in result["failures"]
     )
 
+    no_writer_helper = deepcopy(workflows)
+    observer = ".github/workflows/daily_crisis_monitor.yml"
+    no_writer_helper[observer] += "\n  python tools/harmless.py\n"
+    result = MOD.audit_texts(
+        contract,
+        no_writer_helper,
+        neutral_helper_sources,
+    )
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "no_writer_reachable_authority_mismatch:" + observer in item
+        for item in result["failures"]
+    )
+
     missing_import = deepcopy(accepted)
     missing_import.pop("tools/run287_crisis_policy.py")
     known = set(accepted)
@@ -304,6 +399,51 @@ def test_untracked_workflow_is_not_repository_authority() -> None:
         subprocess.run(["git", "add", ".github/workflows/tracked.yml"], cwd=root, check=True)
         paths = MOD.tracked_workflow_paths(root)
         assert paths == [".github/workflows/tracked.yml"]
+
+
+def test_execution_defaults_are_bound_to_named_inputs() -> None:
+    contract, workflows, accepted = source_inputs()
+    after_close = deepcopy(workflows)
+    path = ".github/workflows/after_close_daily.yml"
+    after_close[path] = after_close[path].replace(
+        "      allow_legacy_execute:\n"
+        "        description: 'acknowledge old Alpaca paper executor bypasses account-ledger safety audit'\n"
+        "        type: boolean\n"
+        "        default: false",
+        "      allow_legacy_execute:\n"
+        "        description: 'acknowledge old Alpaca paper executor bypasses account-ledger safety audit'\n"
+        "        type: boolean\n"
+        "        default: true",
+        1,
+    )
+    result = MOD.audit_texts(contract, after_close, accepted)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "workflow_input_default_mismatch:"
+        ".github/workflows/after_close_daily.yml:allow_legacy_execute" in item
+        for item in result["failures"]
+    )
+
+    layer4 = deepcopy(workflows)
+    path = ".github/workflows/layer4_monthly_swap.yml"
+    layer4[path] = layer4[path].replace(
+        "      execute:\n"
+        "        description: 'execute LIVE paper swaps (default: dry-run only)'\n"
+        "        type: boolean\n"
+        "        default: false",
+        "      execute:\n"
+        "        description: 'execute LIVE paper swaps (default: dry-run only)'\n"
+        "        type: boolean\n"
+        "        default: true",
+        1,
+    )
+    result = MOD.audit_texts(contract, layer4, accepted)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "workflow_input_default_mismatch:"
+        ".github/workflows/layer4_monthly_swap.yml:execute" in item
+        for item in result["failures"]
+    )
 
 
 def test_dirty_input_is_not_attributed_to_head_and_defaults_follow_repo_root() -> None:
@@ -342,6 +482,7 @@ def main() -> int:
     test_no_writer_role_and_duplicate_accepted_writer_fail_closed()
     test_global_workflow_and_transitive_authority_allowlists_fail_closed()
     test_untracked_workflow_is_not_repository_authority()
+    test_execution_defaults_are_bound_to_named_inputs()
     test_dirty_input_is_not_attributed_to_head_and_defaults_follow_repo_root()
     print("run287 dynamic portfolio call-path smoke: PASS")
     return 0

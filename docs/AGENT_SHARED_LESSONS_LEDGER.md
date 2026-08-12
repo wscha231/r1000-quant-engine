@@ -3813,7 +3813,8 @@ Expected contract:
   or a legacy risk-sensing import fails the focused validation. Shell control
   boundaries cannot lend flags from a later command, `python -m` entrypoints
   are normalized with direct script calls, inline shell comments cannot lend
-  flags, and `python -c` local imports are inspected. Every tracked workflow's
+  flags, redirection operands are removed from argv, and `python -c`, optioned
+  stdin, and shell-wrapped Python are inspected. Every tracked workflow's
   authority-sensitive entrypoints must exactly match its declared role.
 - Failure or caveat: Filename-pattern checks alone do not detect a newly named
   target writer. Raw token checks can also be satisfied by comments, direct-file
@@ -3825,8 +3826,12 @@ Expected contract:
   including neutrally named helpers seed transitive traversal, and a deleted
   tracked dependency remains an input and fails closed. The accepted workflow's
   complete local-entrypoint set and the two expected durable-ledger invocations
-  are exact. Parsed imports and stable workflow invocations are cached so these
-  guards remain inside the Tier-1 fast-test budget. Untracked workflows are
+  are exact; the two ledger profiles must cover distinct invocations exactly
+  once. Named manual-execution inputs are parsed and required to default false,
+  no-writer workflows traverse neutral helpers, and all 40 tracked workflow
+  source hashes are pinned so unrecognized wrappers or new paths fail closed.
+  Parsed imports and stable workflow invocations are cached so these guards
+  remain inside the Tier-1 fast-test budget. Untracked workflows are
   excluded so user-owned local files
   cannot silently become authority. Dirty audited inputs are never attributed
   to the unchanged HEAD SHA.

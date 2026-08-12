@@ -2,6 +2,48 @@
   "schema_version": "run287-dynamic-portfolio-call-path-contract-v1",
   "status": "RESEARCH_ONLY_STATIC_AUTHORITY_CONTRACT",
   "default_branch": "master",
+  "tracked_workflow_sha256": {
+    ".github/workflows/adr_candidate_monthly.yml": "20fa527582dc97e4601c747bbb111aec6e4e42aa558122875fc74cd3208f8400",
+    ".github/workflows/after_close_daily.yml": "591a089164bc278464f425be93dc445fefb7e390bbba12e96286ccadfdf17f27",
+    ".github/workflows/agent_board_manual.yml": "97771d4a8dc6e8c39413a2541300995daea938d37414b2ff19b87103e17c7fe3",
+    ".github/workflows/aggressive_lab_manual.yml": "f6f1e01134c122a4e0bcafa38c7576c62a205251e1839e0551976e5b220be25b",
+    ".github/workflows/alphaops_replay_sidecars_manual.yml": "2cd67240bb071e1b2c5283dbd4f066c96a703d85a26279be8940a7f013ce335d",
+    ".github/workflows/daily_autolearning_scan.yml": "510899a95c78d19d536845fdad59b9acea99db75b10e0febbf3f6ef4e4bbb92d",
+    ".github/workflows/daily_crisis_monitor.yml": "cedd763cac61d05ccc4aeca260ecf80e38ae28e108b4cd302e95bf4612cb9b60",
+    ".github/workflows/daily_operating_selection_refresh.yml": "3b59b5172ccf5ef9dc147e8be70e339a728179751187dc4a6e0b83bce24455df",
+    ".github/workflows/data_readiness_preflight.yml": "93645475a0bbb68f17cea630753e0391ff1b45b47fca4afa912a38a763b79412",
+    ".github/workflows/earnings_estimates_daily.yml": "51f951f1d651f2b04afd81cea9d4fdede46ff4965e5c818b30a03d91c2792cbb",
+    ".github/workflows/etf_holdings_monthly_refresh.yml": "6bdc92fc797937522197287a002056210c8c77ac89fd0e050fb9a43428b715a0",
+    ".github/workflows/free_data_daily_update.yml": "3bade090b34c18d42fc5e5fc117f8cf8d8fc8f4525e0540ad502d5d6dacccb85",
+    ".github/workflows/free_data_lake_bootstrap.yml": "61a5f0a8b5997ad62e8e1533b239207c5d8009310901e926484894e0f58a0962",
+    ".github/workflows/free_historical_data_backfill.yml": "19ea0c170a51b40ea83c40ac4a0d78ee76d9617694aaa3191d6cde244ad3c248",
+    ".github/workflows/full_rebuild_manual.yml": "1da9230fef0cc29b282a57277abd9c51b24ada41dd83238573fe19796980bada",
+    ".github/workflows/gate_ablation_study_manual.yml": "f6ec7fda2bd9480edb969f473716eca7485cc1f8dd2adeb84afd1553410efc69",
+    ".github/workflows/gdrive_smoke_test.yml": "6cc7d8f4697a71455ec7bf95bf9b85127079f8622311a2687d7de1281b61e1b3",
+    ".github/workflows/layer4_monthly_swap.yml": "f0bb4b277c76bcc8a307b711040eff2b3eb9453f766a0745a68d4af1a8626ea0",
+    ".github/workflows/live_extension_daily.yml": "6ffdcdb641d7881a685853427d7347151967fce8a52733d0c021f48ab8edfa4c",
+    ".github/workflows/monthly_research.yml": "e282f1b94e9c283850f6d87dea80bf45afa1beca5e55524f3fb0a4d8df5845da",
+    ".github/workflows/overlay_combination_search_manual.yml": "da476adf62dc62ca3f9894372dd2cb0210a9c63ea413b007755a82ff0a70d303",
+    ".github/workflows/pages_deploy.yml": "e1c8dd42793140dcec168e0ea82725b09f6fbace755d4f7fc6797657a39a6d0e",
+    ".github/workflows/phase_ab_quick_rescore_manual.yml": "d055147da2af5c5ced353bb7662fc443f74554daa8fb003a79d5681557ed322c",
+    ".github/workflows/phase_g_crisis_evidence_liquidity_replay.yml": "b669f6b8551e4e1654826c8d80a9c68e6d784ecbcdd2e6be554bc40d0fd6834a",
+    ".github/workflows/portfolio_system_guard.yml": "9c491f491c34be9bc134320410dee08ee901afd8122aa8eea25d79ac6b73a0f7",
+    ".github/workflows/post_disclosure_alpha_pipeline.yml": "3e2cbd34b22efd5eb77ceebec06a1a8ffb991874ce1a2f13f8a699c4065667e0",
+    ".github/workflows/pr_validation.yml": "39792556f79b49ad22407dfbddc9debf2578d2eb9fff5e7ee82aa0b19ab19f67",
+    ".github/workflows/quarterly_auto_learning.yml": "56941dab051ab9701d58e2415690234003e1d345cd4bfff784ae69033011f23b",
+    ".github/workflows/review_complete_gate.yml": "58494e4941c3bc2084229df5ae239d28889e9385a07989a215813e442e9ced23",
+    ".github/workflows/run287_sector_leadership_research.yml": "635c87510a8f606d449c55acd9c6b12b719ece1ef54b5f367a91fa8a0055789d",
+    ".github/workflows/run287_u0_acceptance.yml": "8dd05117ba6a0395b4dfca7852b0d086ecc54e7b447e505696a97ef95f449c37",
+    ".github/workflows/sec_13f_manager_reselection.yml": "b640f6794243b7fb1f078e5f54d2a30c4374d1fbfa8b078d3c2c8121f959e8bf",
+    ".github/workflows/sec_13f_quarterly_refresh.yml": "c413056415d316a088d74fc7a17187fcbd5949409e45fd56657753dc7b20abb5",
+    ".github/workflows/sec_evidence_learning_manual.yml": "3c8f7567263ae28bebca0593004df498a0bc7f21e0facd4a96b705b8b1f27b46",
+    ".github/workflows/sec_form4_daily_refresh.yml": "01c18f237a1c751572141da0bc93a8b76bbeb92ddea80102f235fcca55a1917f",
+    ".github/workflows/sidecar_only_verify.yml": "7815df511e2d4bb61c1be9c541c2a47c7062d31d1a817457e85e838b39422ef3",
+    ".github/workflows/smart_money_top30_refresh.yml": "07cca9b73e0884102180e2f7bc510429eee4f8f124ca0d86080e0c855bcf7e0e",
+    ".github/workflows/subdaily_exit_grid_sweep_manual.yml": "ef62f1ef81fe72e897a80be3bd3589476aefb50be753046cd883020eb25625ac",
+    ".github/workflows/unified_monthly.yml": "74d49cdb604183af6a02aa9dfce90a69d42daf115af55293735bac643dd10a94",
+    ".github/workflows/weekly_data_refresh.yml": "26b4f562d6a331ac7cb40acf0f1d37b9cb2595b2c5a3f785ff064f5debd8aa5a"
+  },
   "accepted_daily_workflow": ".github/workflows/daily_operating_selection_refresh.yml",
   "writer_authority": {
     "accepted_current_target_writer": "tools/build_run287_same_close_target_books.py",
@@ -51,6 +93,13 @@
     ".github/workflows/portfolio_system_guard.yml": "read_only_guard_not_operating_authority",
     ".github/workflows/post_disclosure_alpha_pipeline.yml": "research_event_builder_not_operating_authority",
     ".github/workflows/quarterly_auto_learning.yml": "research_learning_proposal_not_operating_authority"
+  },
+  "no_writer_reachable_authority_sensitive_modules": {
+    ".github/workflows/daily_crisis_monitor.yml": [
+      "tools/reserve_asset_policy.py"
+    ],
+    ".github/workflows/unified_monthly.yml": [],
+    ".github/workflows/weekly_data_refresh.yml": []
   },
   "entrypoint_bindings": [
     {
@@ -301,6 +350,33 @@
     "evaluate_layer1_individual(",
     "evaluate_all("
   ],
+  "required_workflow_input_defaults": [
+    {
+      "workflow": ".github/workflows/after_close_daily.yml",
+      "input": "execute",
+      "expected": "false"
+    },
+    {
+      "workflow": ".github/workflows/after_close_daily.yml",
+      "input": "override_regime_halt",
+      "expected": "false"
+    },
+    {
+      "workflow": ".github/workflows/after_close_daily.yml",
+      "input": "allow_legacy_execute",
+      "expected": "false"
+    },
+    {
+      "workflow": ".github/workflows/layer4_monthly_swap.yml",
+      "input": "execute",
+      "expected": "false"
+    },
+    {
+      "workflow": ".github/workflows/layer4_monthly_swap.yml",
+      "input": "no_throttle",
+      "expected": "false"
+    }
+  ],
   "required_workflow_tokens": {
     ".github/workflows/daily_operating_selection_refresh.yml": [
       "--suppress-new-orders",
@@ -327,6 +403,7 @@
         "--suppress-new-orders",
         "--cost-bps 25"
       ],
+      "exclusive_profile_group": "daily_durable_ledger",
       "exact_match_count": 1
     },
     {
@@ -336,6 +413,7 @@
         "--target-handoff-manifest",
         "--cost-bps 25"
       ],
+      "exclusive_profile_group": "daily_durable_ledger",
       "exact_match_count": 1
     },
     {
