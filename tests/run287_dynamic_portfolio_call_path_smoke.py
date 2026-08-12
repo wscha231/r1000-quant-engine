@@ -31,6 +31,7 @@ def source_inputs() -> tuple[dict, dict[str, str], dict[str, str]]:
     accepted = {
         **MOD.tracked_python_texts(ROOT),
         **MOD.tracked_shell_texts(ROOT),
+        **MOD.workflow_texts(ROOT, MOD.tracked_local_action_paths(ROOT)),
         **workflows,
     }
     return contract, workflows, accepted
@@ -837,6 +838,116 @@ def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> No
     )
 
 
+def test_indirect_execution_and_destination_bypasses_fail_closed() -> None:
+    contract, workflows, accepted = source_inputs()
+    observer = ".github/workflows/daily_crisis_monitor.yml"
+
+    assert MOD.shell_uses_indirect_assignment(
+        'name="AFTER_CLOSE_LAYER4_ARGS"\nbuiltin read "$name"'
+    )
+    assert dict(
+        MOD.python_main_call_counts(
+            "from tools import build_run287_same_close_target_books as protected\n"
+            "invoke = protected.main\n"
+            "invoke()\n",
+            "tools/helper.py",
+        )
+    )["tools/build_run287_same_close_target_books.py"] == 1
+
+    inherited = (
+        "defaults:\n  run:\n    shell: python\n"
+        "jobs:\n  audit:\n    steps:\n      - run: |\n          print('x')\n"
+    )
+    assert MOD.workflow_python_shell_sources(inherited)[0]["source"].strip() == "print('x')"
+    job_inherited = (
+        "jobs:\n  audit:\n    defaults:\n      run:\n        shell: python\n"
+        "    steps:\n      - run: |\n          print('y')\n"
+    )
+    assert MOD.workflow_python_shell_sources(job_inherited)[0]["source"].strip() == "print('y')"
+
+    assert MOD.python_entrypoints("env -S 'python tools/harmless.py'") == {
+        "tools/harmless.py"
+    }
+    assert MOD.python_entrypoints(
+        'SCRIPT=tools/harmless.py\npython "$SCRIPT"'
+    ) == {"tools/harmless.py"}
+    assert "tools/helper.py" in MOD.local_import_candidates(
+        'import importlib\nimportlib.import_module(".helper", package="tools")\n',
+        "tools/launcher.py",
+    )
+
+    first_unresolved = MOD.authority_write_sinks(
+        'from pathlib import Path\ndef emit(dest="a"):\n    Path(dest).write_text("x")\n',
+        ("target",),
+    )
+    second_unresolved = MOD.authority_write_sinks(
+        'from pathlib import Path\ndef emit(dest="b"):\n    Path(dest).write_text("x")\n',
+        ("target",),
+    )
+    assert first_unresolved != second_unresolved
+    assert "binding=" in first_unresolved[0]
+    assert any(
+        ":rename:target" in finding
+        for finding in MOD.authority_write_sinks(
+            'import os\nos.rename(source, "outputs/main_target.csv")\n',
+            ("target",),
+        )
+    )
+    assert any(
+        "unclassified-authority-operand:rm:outputs/main_target.csv:target"
+        in finding
+        for finding in MOD.shell_authority_write_sinks(
+            'DEST=outputs/main_target.csv\nrm "$DEST"', ("target",)
+        )
+    )
+    assert any(
+        "tools/harmless.py" in finding
+        for finding in MOD.python_process_launches(
+            'import os\nos.execv("python", ["python", "tools/harmless.py"])\n'
+        )
+    )
+    here_sources = MOD.embedded_python_sources(
+        "python - <<< 'from tools.build_new_target_writer import main; main()'"
+    )
+    assert any(source["kind"] == "here-string" for source in here_sources)
+    assert dict(MOD.python_main_call_counts(here_sources[0]["source"]))[
+        "tools/build_new_target_writer.py"
+    ] == 1
+
+    shell_sources = {
+        "tools/authority_helper": "python tools/build_new_target_writer.py\n"
+    }
+    shell_root = MOD.local_shell_script_paths(
+        "bash tools/authority_helper", set(shell_sources)
+    )
+    assert MOD.reachable_shell_paths(shell_root, shell_sources) == {
+        "tools/authority_helper"
+    }
+    assert MOD.local_process_shell_paths(
+        'import subprocess\nsubprocess.run(["bash", "tools/authority_helper"])\n',
+        set(shell_sources),
+    ) == {"tools/authority_helper"}
+
+    local_path = ".github/workflows/local_action_probe.yml"
+    local_workflow = (
+        "jobs:\n  audit:\n    steps:\n      - uses: ./tools/authority-action\n"
+    )
+    local_action_sources = {"tools/authority-action/action.yml": (
+        "runs:\n  using: composite\n  steps:\n"
+        "    - shell: bash\n"
+        "      run: python tools/build_new_target_writer.py\n"
+    )}
+    assert MOD.reachable_local_yaml_paths(
+        local_path, local_workflow, local_action_sources
+    ) == {"tools/authority-action/action.yml"}
+    action_run_text = MOD.workflow_run_text(
+        local_action_sources["tools/authority-action/action.yml"]
+    )
+    assert "tools/build_new_target_writer.py" in MOD.python_entrypoints(
+        action_run_text
+    )
+
+
 def test_untracked_workflow_is_not_repository_authority() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -1070,7 +1181,7 @@ def test_run_audit_binds_no_writer_traversal_sources_to_head() -> None:
             ),
             observer_workflow: (
                 "jobs:\n  run:\n    steps:\n"
-                "      - run: python tools/neutral.py\n"
+                "      - uses: ./tools/neutral-action\n"
             ),
         }
         for path, text in workflow_texts.items():
@@ -1081,6 +1192,14 @@ def test_run_audit_binds_no_writer_traversal_sources_to_head() -> None:
         )
         (root / "tools" / "run_daily_simulated_fill_ledger.py").write_text(
             "def main():\n    return None\n", encoding="utf-8"
+        )
+        action = root / "tools" / "neutral-action" / "action.yml"
+        action.parent.mkdir()
+        action.write_text(
+            "runs:\n  using: composite\n  steps:\n"
+            "    - shell: bash\n"
+            "      run: python tools/neutral.py\n",
+            encoding="utf-8",
         )
         neutral = root / "tools" / "neutral.py"
         neutral.write_text("VALUE = 1\n", encoding="utf-8")
@@ -1156,6 +1275,10 @@ def test_run_audit_binds_no_writer_traversal_sources_to_head() -> None:
         clean = MOD.run_audit(root, contract, contract_path=contract_path)
         assert clean["source_identity_status"] == "CLEAN_HEAD_BOUND", clean["failures"]
         assert "tools/neutral.py" in clean["audit_input_paths"]
+        assert "tools/neutral-action/action.yml" in clean["audit_input_paths"]
+        assert clean["workflow_yaml_reachable_files"][observer_workflow] == [
+            "tools/neutral-action/action.yml"
+        ]
         assert clean["audit_runtime_head_bound"] is False
         assert "audit_runtime_outside_selected_repository" in clean["failures"]
 
@@ -1185,6 +1308,7 @@ def main() -> int:
     test_required_transaction_boundary_cannot_be_removed()
     test_no_writer_role_and_duplicate_accepted_writer_fail_closed()
     test_global_workflow_and_transitive_authority_allowlists_fail_closed()
+    test_indirect_execution_and_destination_bypasses_fail_closed()
     test_untracked_workflow_is_not_repository_authority()
     test_execution_defaults_are_bound_to_named_inputs()
     test_dirty_input_is_not_attributed_to_head_and_defaults_follow_repo_root()

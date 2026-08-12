@@ -4149,3 +4149,42 @@ Expected contract:
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
+
+## 2026-08-12 - Wrapper, local-action, and dynamic-destination closure
+
+- Shell-wrapper analysis must unwrap `builtin` as well as `command`; otherwise
+  `builtin read`, `builtin mapfile`, or another indirect assignment primitive
+  can alter a reviewed safety flag without detection.
+- Protected Python entrypoints remain protected after callable aliasing. Follow
+  assignments such as `invoke = protected.main` and count the later call.
+- A GitHub Actions run step inherits `defaults.run.shell` from the job and then
+  the workflow. Use the effective shell, not only a step-local `shell` field.
+- A shell interpreter can execute a tracked extensionless file. Build the shell
+  inventory from tracked decodable scripts and resolve the interpreter operand,
+  rather than relying on a `.sh` suffix.
+- Python and shell reachability are one fixed-point graph. A reachable Python
+  process may launch a tracked shell helper, which may launch more Python.
+- An unresolved write destination needs a binding fingerprint containing the
+  destination expression and its source context; the generic word
+  `UNRESOLVED_DESTINATION` cannot distinguish a changed default or binding.
+- `os.rename` and `os.replace` write their second argument. Resolve exact
+  filesystem APIs before applying generic attribute-method rules.
+- Unclassified shell commands still require variable expansion for sensitive
+  operands. `DEST=...; rm "$DEST"` is an authority mutation even when `rm` has
+  no dedicated command classifier.
+- GNU `env -S`/`--split-string` contains another command line. Recursively parse
+  its literal split string so Python entrypoints cannot hide inside one token.
+- Resolve literal relative dynamic imports with their explicit package or the
+  source module package before local-module reachability is evaluated.
+- Repository-local composite actions and reusable workflows are transitive
+  executable sources. Bind their exact YAML bytes, run blocks, launched scripts,
+  and reachable Python to the caller workflow's authority fingerprint.
+- Simple shell variables can name a Python entrypoint. Resolve an exact
+  `$SCRIPT`/`${SCRIPT}` operand before deciding the invoked file.
+- Process inventory includes `os.exec*`, `os.spawn*`, and `posix_spawn*`, with
+  each API's actual argv position rather than a universal first-argument rule.
+- Literal Python here-strings are executable embedded source just like `-c` and
+  heredocs; parse their imports, protected calls, processes, and writes.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
