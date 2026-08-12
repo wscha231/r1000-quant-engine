@@ -3821,6 +3821,13 @@ Expected contract:
   a neutral helper in a newly tracked, undeclared workflow must fail closed.
 - An exact-head audit may pass only when its own runtime is inside, tracked by,
   and clean in the selected repository.
+- Exact source hashes are a backstop, not semantic authority. Bind every tracked
+  workflow to a reviewed fingerprint of transitive authority modules, Python
+  write sinks, and shell write/copy/redirection sinks; apply it to accepted,
+  read-only, research, and explicit no-writer roles alike.
+- Bind the full occurrence set of execution and handoff variables. Valid operand
+  spellings are insufficient when an intervening shell reassignment can redirect
+  the accepted ledger to a different manifest or target set.
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.

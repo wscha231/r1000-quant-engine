@@ -186,6 +186,9 @@ def module_entrypoint(module: str) -> str:
 
 def normalize_script_entrypoint(value: str) -> str:
     normalized = str(value).replace("\\", "/")
+    root_prefix = ROOT.as_posix().rstrip("/") + "/"
+    if normalized.casefold().startswith(root_prefix.casefold()):
+        normalized = normalized[len(root_prefix):]
     while normalized.startswith("./"):
         normalized = normalized[2:]
     return normalized
@@ -219,7 +222,7 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
                         break
             executable = token.rsplit("/", 1)[-1]
             if (
-                token.startswith("./")
+                "/" in token.replace("\\", "/")
                 and token.endswith(".py")
                 and (index == 0 or tokens[index - 1] in boundaries)
             ):
@@ -330,7 +333,9 @@ def inline_python_blocks(text: str) -> tuple[dict[str, Any], ...]:
     lines = text.splitlines()
     blocks: list[dict[str, Any]] = []
     index = 0
-    heredoc = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+    heredoc = re.compile(
+        r"<<-?\s*(?:['\"]|\\)?([A-Za-z_][A-Za-z0-9_]*)(?:['\"])?"
+    )
     while index < len(lines):
         start = index
         command_parts: list[str] = []
@@ -339,7 +344,7 @@ def inline_python_blocks(text: str) -> tuple[dict[str, Any], ...]:
             command_parts.append(lines[index].strip())
             match = heredoc.search(lines[index])
             if match:
-                delimiter = match.group(2)
+                delimiter = match.group(1)
                 break
             if not lines[index].rstrip().endswith("\\"):
                 break
@@ -373,7 +378,28 @@ def _module_candidates(module: str) -> tuple[str, str]:
     return f"{base}.py", f"{base}/__init__.py"
 
 
-def literal_dynamic_import_module(node: ast.AST) -> str:
+def dynamic_import_callables(tree: ast.AST) -> set[str]:
+    callables = {"importlib.import_module", "__import__", "builtins.__import__"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                local = alias.asname or alias.name
+                if alias.name == "importlib":
+                    callables.add(f"{local}.import_module")
+                elif alias.name == "builtins":
+                    callables.add(f"{local}.__import__")
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if node.module == "importlib" and alias.name == "import_module":
+                    callables.add(alias.asname or alias.name)
+                elif node.module == "builtins" and alias.name == "__import__":
+                    callables.add(alias.asname or alias.name)
+    return callables
+
+
+def literal_dynamic_import_module(
+    node: ast.AST, callables: set[str] | None = None
+) -> str:
     """Resolve common dynamic imports only when their module is a literal."""
     if not isinstance(node, ast.Call) or not node.args:
         return ""
@@ -381,7 +407,7 @@ def literal_dynamic_import_module(node: ast.AST) -> str:
     if not isinstance(first, ast.Constant) or not isinstance(first.value, str):
         return ""
     func = dotted_expression_name(node.func)
-    if func in {"importlib.import_module", "__import__"}:
+    if func in (callables or {"importlib.import_module", "__import__", "builtins.__import__"}):
         return first.value
     return ""
 
@@ -394,6 +420,7 @@ def local_import_candidates(source: str, source_path: str) -> tuple[str, ...]:
     except SyntaxError:
         return ()
     result: set[str] = set()
+    dynamic_callables = dynamic_import_callables(tree)
     source_parts = Path(source_path).with_suffix("").parts[:-1]
     for node in ast.walk(tree):
         candidates: list[str] = []
@@ -417,7 +444,7 @@ def local_import_candidates(source: str, source_path: str) -> tuple[str, ...]:
                 if alias.name != "*"
             )
         elif isinstance(node, ast.Call):
-            dynamic_module = literal_dynamic_import_module(node)
+            dynamic_module = literal_dynamic_import_module(node, dynamic_callables)
             if dynamic_module:
                 candidates.append(dynamic_module)
         for module in candidates:
@@ -448,6 +475,7 @@ def python_main_call_counts(source: str) -> tuple[tuple[str, int], ...]:
         return ()
     names: dict[str, str] = {}
     modules: dict[str, str] = {}
+    dynamic_callables = dynamic_import_callables(tree)
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module:
             module_path = module_entrypoint(node.module)
@@ -473,7 +501,9 @@ def python_main_call_counts(source: str) -> tuple[tuple[str, int], ...]:
         elif isinstance(node.func, ast.Attribute) and node.func.attr == "main":
             target = modules.get(dotted_expression_name(node.func.value), "")
             if not target:
-                dynamic_module = literal_dynamic_import_module(node.func.value)
+                dynamic_module = literal_dynamic_import_module(
+                    node.func.value, dynamic_callables
+                )
                 if dynamic_module:
                     target = module_entrypoint(dynamic_module)
         if target:
@@ -606,8 +636,13 @@ def shell_boolean_flag_guard_matches(
     variable: str,
     input_name: str,
     enabled_value: str,
+    allowed_occurrence_lines: list[str] | None = None,
 ) -> bool:
     """Validate a fail-closed empty default and one named-input assignment."""
+    if allowed_occurrence_lines is not None:
+        observed_lines = shell_variable_occurrence_lines(text, variable)
+        if observed_lines != sorted(str(value) for value in allowed_occurrence_lines):
+            return False
     assignment = re.compile(
         rf"^\s*(?:(?:export|readonly)\s+|declare(?:\s+-[A-Za-z]+)?\s+)?"
         rf"{re.escape(variable)}=(?:\"([^\"]*)\"|'([^']*)'|([^\s#]+))\s*$",
@@ -626,6 +661,14 @@ def shell_boolean_flag_guard_matches(
     return block.search(text) is not None
 
 
+def shell_variable_occurrence_lines(text: str, variable: str) -> list[str]:
+    return sorted(
+        raw.strip()
+        for raw in text.splitlines()
+        if re.search(rf"\b{re.escape(variable)}\b", raw)
+    )
+
+
 @lru_cache(maxsize=4096)
 def authority_write_sinks(
     source: str, sensitive_terms: tuple[str, ...]
@@ -640,20 +683,43 @@ def authority_write_sinks(
         "rename", "replace",
     }
     findings: set[str] = set()
+    open_aliases = {"open", "io.open", "builtins.open"}
+    for imported in ast.walk(tree):
+        if isinstance(imported, ast.Import):
+            for alias in imported.names:
+                local = alias.asname or alias.name
+                if alias.name in {"io", "builtins"}:
+                    open_aliases.add(f"{local}.open")
+        elif isinstance(imported, ast.ImportFrom) and imported.module in {"io", "builtins"}:
+            for alias in imported.names:
+                if alias.name == "open":
+                    open_aliases.add(alias.asname or alias.name)
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
-        if isinstance(node.func, ast.Name) and node.func.id == "open":
-            literal_path = (
-                node.args[0].value
-                if node.args
-                and isinstance(node.args[0], ast.Constant)
-                and isinstance(node.args[0].value, str)
-                else ""
+        func_name = dotted_expression_name(node.func)
+        path_method_open = (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr == "open"
+            and isinstance(node.func.value, ast.Call)
+        )
+        if func_name in open_aliases or path_method_open:
+            path_args = node.func.value.args if path_method_open else node.args
+            literal_path = next(
+                (
+                    str(value.value)
+                    for value in path_args
+                    if isinstance(value, ast.Constant)
+                    and isinstance(value.value, str)
+                ),
+                "",
             )
             mode = "r"
-            if len(node.args) > 1 and isinstance(node.args[1], ast.Constant):
-                mode = str(node.args[1].value)
+            mode_position = 0 if path_method_open else 1
+            if len(node.args) > mode_position and isinstance(
+                node.args[mode_position], ast.Constant
+            ):
+                mode = str(node.args[mode_position].value)
             for keyword in node.keywords:
                 if keyword.arg == "mode" and isinstance(keyword.value, ast.Constant):
                     mode = str(keyword.value.value)
@@ -686,6 +752,80 @@ def authority_write_sinks(
         if sensitive:
             findings.add(f"line={getattr(node, 'lineno', 0)}:{method}:{','.join(sensitive)}")
     return tuple(sorted(findings))
+
+
+@lru_cache(maxsize=4096)
+def shell_authority_write_sinks(
+    text: str, sensitive_terms: tuple[str, ...]
+) -> tuple[str, ...]:
+    """Inventory literal authority-sensitive destinations written by shell."""
+    findings: set[str] = set()
+    redirections = {">", ">>", ">|", "&>", "&>>"}
+    copy_commands = {"cp", "mv", "install", "tee", "touch", "truncate"}
+
+    def sensitive(value: str) -> tuple[str, ...]:
+        normalized = value.casefold()
+        return tuple(term for term in sensitive_terms if term in normalized)
+
+    for line, command in shell_logical_commands(text):
+        try:
+            tokens = shell_tokens(command)
+        except ValueError:
+            continue
+        for index, token in enumerate(tokens[:-1]):
+            if token in redirections:
+                destination = tokens[index + 1]
+                terms = sensitive(destination)
+                if terms:
+                    findings.add(
+                        f"line={line}:redirect:{destination}:{','.join(terms)}"
+                    )
+        executable_index = next(
+            (
+                index
+                for index, token in enumerate(tokens)
+                if token.rsplit("/", 1)[-1] in copy_commands
+            ),
+            None,
+        )
+        if executable_index is not None:
+            executable = tokens[executable_index].rsplit("/", 1)[-1]
+            operands = [
+                token
+                for token in tokens[executable_index + 1:]
+                if token not in redirections and not token.startswith("-")
+            ]
+            destinations = operands if executable in {"tee", "touch", "truncate"} else operands[-1:]
+            for destination in destinations:
+                terms = sensitive(destination)
+                if terms:
+                    findings.add(
+                        f"line={line}:{executable}:{destination}:{','.join(terms)}"
+                    )
+        for token in tokens:
+            if token.startswith("of="):
+                destination = token[3:]
+                terms = sensitive(destination)
+                if terms:
+                    findings.add(
+                        f"line={line}:dd:{destination}:{','.join(terms)}"
+                    )
+    return tuple(sorted(findings))
+
+
+def authority_fingerprint(
+    *,
+    reachable_sensitive: list[str],
+    python_write_sinks: list[str],
+    shell_write_sinks: list[str],
+) -> str:
+    return canonical_sha256(
+        {
+            "reachable_sensitive": sorted(reachable_sensitive),
+            "python_write_sinks": sorted(python_write_sinks),
+            "shell_write_sinks": sorted(shell_write_sinks),
+        }
+    )
 
 
 def workflow_local_references(
@@ -727,6 +867,29 @@ def workflow_dispatch_input_default(text: str, input_name: str) -> str | None:
     return str(value).casefold()
 
 
+@lru_cache(maxsize=512)
+def workflow_run_text(text: str) -> str:
+    """Return only executable GitHub Actions `run` blocks, fail-open to raw fixtures."""
+    try:
+        payload = yaml.load(text, Loader=yaml.BaseLoader)
+        jobs = payload.get("jobs") if isinstance(payload, dict) else None
+        if not isinstance(jobs, dict):
+            return text
+        blocks: list[str] = []
+        for job in jobs.values():
+            if not isinstance(job, dict):
+                continue
+            steps = job.get("steps")
+            if not isinstance(steps, list):
+                continue
+            for step in steps:
+                if isinstance(step, dict) and isinstance(step.get("run"), str):
+                    blocks.append(str(step["run"]))
+        return "\n".join(blocks)
+    except (TypeError, yaml.YAMLError):
+        return text
+
+
 def audit_texts(
     contract: Mapping[str, Any],
     workflows: Mapping[str, str],
@@ -735,6 +898,9 @@ def audit_texts(
 ) -> dict[str, Any]:
     validate_contract(contract)
     known_paths = set(accepted_files) if known_python_paths is None else set(known_python_paths)
+    executable_workflows = {
+        path: workflow_run_text(text) for path, text in workflows.items()
+    }
     failures: list[str] = []
     records: list[dict[str, Any]] = []
     expected_workflow_hashes = contract.get("tracked_workflow_sha256") or {}
@@ -786,7 +952,7 @@ def audit_texts(
             accepted_roles += 1
         observed: list[str] = []
         invocation_count = 0
-        for path, text in sorted(workflows.items()):
+        for path, text in sorted(executable_workflows.items()):
             lines = executable_invocations(text, entrypoint)
             embedded_lines: list[int] = []
             for source in embedded_python_sources(text):
@@ -846,14 +1012,34 @@ def audit_texts(
         input_name = str(requirement.get("input") or "")
         enabled_value = str(requirement.get("enabled_value") or "")
         if not shell_boolean_flag_guard_matches(
-            workflows.get(path, ""),
+            executable_workflows.get(path, ""),
             variable=variable,
             input_name=input_name,
             enabled_value=enabled_value,
+            allowed_occurrence_lines=[
+                str(value)
+                for value in requirement.get("allowed_occurrence_lines") or []
+            ],
         ):
             failures.append(
                 f"workflow_shell_flag_derivation_mismatch:{path}:{variable}:"
                 f"input={input_name}:enabled={enabled_value}"
+            )
+
+    for requirement in contract.get("required_shell_variable_occurrences") or []:
+        path = str(requirement.get("workflow") or "")
+        variable = str(requirement.get("variable") or "")
+        expected_lines = sorted(
+            str(value) for value in requirement.get("allowed_occurrence_lines") or []
+        )
+        observed_lines = shell_variable_occurrence_lines(
+            executable_workflows.get(path, ""), variable
+        )
+        if observed_lines != expected_lines:
+            failures.append(
+                f"workflow_shell_variable_occurrence_mismatch:{path}:{variable}:"
+                f"expected={canonical_sha256(expected_lines)}:"
+                f"observed={canonical_sha256(observed_lines)}"
             )
 
     profile_coverage: dict[tuple[str, str, str], dict[int, int]] = {}
@@ -863,7 +1049,7 @@ def audit_texts(
         entrypoint = str(requirement.get("entrypoint") or "")
         command_rows = [
             row
-            for row in python_invocations(workflows.get(path, ""))
+            for row in python_invocations(executable_workflows.get(path, ""))
             if row["entrypoint"] == entrypoint
         ]
         matches = [
@@ -907,7 +1093,7 @@ def audit_texts(
             failures.append(f"accepted_path_file_missing:{path}")
 
     accepted_workflow = str(contract.get("accepted_daily_workflow") or "")
-    inline_blocks = inline_python_blocks(workflows.get(accepted_workflow, ""))
+    inline_blocks = inline_python_blocks(executable_workflows.get(accepted_workflow, ""))
     inline_local_paths: set[str] = set()
     for block in inline_blocks:
         source = str(block["source"])
@@ -933,7 +1119,7 @@ def audit_texts(
 
     observed_sensitive = sorted(
         entrypoint
-        for entrypoint in python_entrypoints(workflows.get(accepted_workflow, ""))
+        for entrypoint in python_entrypoints(executable_workflows.get(accepted_workflow, ""))
         if authority_sensitive(entrypoint, contract)
     )
     expected_sensitive = sorted(
@@ -948,7 +1134,7 @@ def audit_texts(
 
     observed_local_entrypoints = sorted(
         entrypoint
-        for entrypoint in python_entrypoints(workflows.get(accepted_workflow, ""))
+        for entrypoint in python_entrypoints(executable_workflows.get(accepted_workflow, ""))
         if entrypoint in known_paths
     )
     expected_local_entrypoints = sorted(
@@ -968,10 +1154,18 @@ def audit_texts(
     expected_no_writer_write_sinks = (
         contract.get("no_writer_authority_write_sinks") or {}
     )
+    expected_authority_fingerprints = (
+        contract.get("workflow_authority_fingerprints") or {}
+    )
+    if sorted(expected_authority_fingerprints) != sorted(workflows):
+        failures.append("workflow_authority_fingerprint_set_mismatch")
     observed_by_workflow: dict[str, list[str]] = {}
     observed_no_writer_reachable: dict[str, list[str]] = {}
     workflow_python_reachable: dict[str, list[str]] = {}
     no_writer_authority_write_sinks: dict[str, list[str]] = {}
+    workflow_python_authority_write_sinks: dict[str, list[str]] = {}
+    workflow_shell_authority_write_sinks: dict[str, list[str]] = {}
+    observed_authority_fingerprints: dict[str, str] = {}
     local_references_by_workflow: dict[str, set[str]] = {}
     sensitive_terms = tuple(
         sorted(
@@ -982,7 +1176,7 @@ def audit_texts(
             }
         )
     )
-    for path, text in sorted(workflows.items()):
+    for path, text in sorted(executable_workflows.items()):
         references = workflow_local_references(path, text, accepted_files, known_paths)
         local_references_by_workflow[path] = references
         sensitive = sorted(
@@ -999,6 +1193,33 @@ def audit_texts(
             for reference in workflow_reachable
             if authority_sensitive(reference, contract)
         )
+        python_write_findings = sorted(
+            f"{source_path}:{finding}"
+            for source_path in workflow_reachable
+            if source_path in accepted_files
+            for finding in authority_write_sinks(
+                accepted_files[source_path], sensitive_terms
+            )
+        )
+        shell_write_findings = list(
+            shell_authority_write_sinks(text, sensitive_terms)
+        )
+        if python_write_findings:
+            workflow_python_authority_write_sinks[path] = python_write_findings
+        if shell_write_findings:
+            workflow_shell_authority_write_sinks[path] = shell_write_findings
+        fingerprint = authority_fingerprint(
+            reachable_sensitive=reachable_sensitive,
+            python_write_sinks=python_write_findings,
+            shell_write_sinks=shell_write_findings,
+        )
+        observed_authority_fingerprints[path] = fingerprint
+        expected_fingerprint = str(expected_authority_fingerprints.get(path) or "")
+        if fingerprint != expected_fingerprint:
+            failures.append(
+                f"workflow_authority_fingerprint_mismatch:{path}:"
+                f"expected={expected_fingerprint}:observed={fingerprint}"
+            )
         if reachable_sensitive and path not in roles:
             failures.append(f"reachable_authority_workflow_role_missing:{path}")
         if sensitive:
@@ -1023,14 +1244,7 @@ def audit_texts(
                     f"expected={','.join(expected_reachable)}:"
                     f"observed={','.join(reachable_sensitive)}"
                 )
-            write_findings = sorted(
-                f"{source_path}:{finding}"
-                for source_path in workflow_reachable
-                if source_path in accepted_files
-                for finding in authority_write_sinks(
-                    accepted_files[source_path], sensitive_terms
-                )
-            )
+            write_findings = python_write_findings
             if write_findings:
                 no_writer_authority_write_sinks[path] = write_findings
             expected_write_findings = sorted(
@@ -1107,6 +1321,13 @@ def audit_texts(
         "accepted_workflow_authority_sensitive_entrypoints": observed_sensitive,
         "accepted_workflow_local_entrypoints": observed_local_entrypoints,
         "workflow_authority_sensitive_entrypoints": observed_by_workflow,
+        "workflow_authority_fingerprints": observed_authority_fingerprints,
+        "workflow_python_authority_write_sinks": (
+            workflow_python_authority_write_sinks
+        ),
+        "workflow_shell_authority_write_sinks": (
+            workflow_shell_authority_write_sinks
+        ),
         "workflow_python_reachable_files": workflow_python_reachable,
         "no_writer_reachable_authority_sensitive_modules": (
             observed_no_writer_reachable
@@ -1171,6 +1392,27 @@ def git_source_identity(root: Path, paths: list[str]) -> dict[str, Any]:
     }
 
 
+def git_path_tracked_at_head(root: Path, path: str) -> bool:
+    normalized = str(path).replace("\\", "/")
+    try:
+        subprocess.check_output(
+            ["git", "ls-files", "--error-unmatch", "--", normalized],
+            cwd=root,
+            timeout=30,
+            stderr=subprocess.DEVNULL,
+        )
+        subprocess.check_call(
+            ["git", "cat-file", "-e", f"HEAD:{normalized}"],
+            cwd=root,
+            timeout=30,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return True
+
+
 def run_audit(
     root: Path,
     contract: Mapping[str, Any],
@@ -1209,6 +1451,10 @@ def run_audit(
         result["failures"].append("audit_runtime_outside_selected_repository")
     else:
         result["audit_runtime_head_bound"] = True
+        runtime_relative = tool_path.relative_to(root).as_posix()
+        if not git_path_tracked_at_head(root, runtime_relative):
+            result["audit_runtime_head_bound"] = False
+            result["failures"].append("audit_runtime_not_tracked_at_head")
     if contract_path is not None:
         try:
             relevant.append(contract_path.resolve().relative_to(root).as_posix())
