@@ -3842,6 +3842,9 @@ Expected contract:
 - The accepted writer and durable ledger roles, workflows, and exact invocation
   counts are immutable contract schema, not optional fields that a later edit
   may remove to weaken enforcement.
+- The complete authority-graph regression now exceeds the former 20-minute
+  GitHub job budget. Preserve the regression and give Tier-1 a 40-minute hard
+  ceiling; a timeout cancellation is not evidence of a passing check.
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
