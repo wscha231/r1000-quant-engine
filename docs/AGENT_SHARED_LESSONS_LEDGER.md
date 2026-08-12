@@ -3859,6 +3859,22 @@ Expected contract:
   files. Preserve repository escapes as unresolved external paths.
 - Any static-analysis traversal budget exhaustion is a blocking finding, never
   permission to certify a partial execution graph.
+- Literal false shell blocks (`if false`, `while false`) are not execution
+  authority. Exclude their bodies; if an alternate branch cannot be proven,
+  emit a blocking control-flow finding instead of guessing.
+- `os.rename` and `os.replace` mutate both source and destination locations,
+  just as `shutil.move` does.
+- GitHub expressions containing a constant-false conjunction are disabled even
+  when the expression also names dynamic event fields.
+- Heredoc bodies are data, not shell commands. Distinguish `<<` from the Bash
+  here-string operator `<<<` at both possible match offsets.
+- Process-launch wrappers such as `xargs` create a new command position; unwrap
+  reviewed options before discovering their executable.
+- When a source contains a process sink fed through helper arguments, bind all
+  finite local Python-path literals in that source so dispatch allowlists
+  become explicit reachability edges.
+- Thread and multiprocessing callback targets are executions when passed as a
+  definite `target`; direct-call-only accounting is incomplete.
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.

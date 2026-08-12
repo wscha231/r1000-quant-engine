@@ -1392,6 +1392,66 @@ def test_shell_and_loader_authority_edges_fail_closed() -> None:
     )
 
 
+def test_static_control_and_indirect_launch_edges_are_bound() -> None:
+    protected = "tools/build_run287_same_close_target_books.py"
+    false_if = (
+        "if false; then\n"
+        "  python tools/build_run287_same_close_target_books.py\n"
+        "fi\n"
+    )
+    false_while = (
+        "while false; do\n"
+        "  python tools/build_run287_same_close_target_books.py\n"
+        "done\n"
+    )
+    assert protected not in MOD.python_entrypoints(false_if)
+    assert protected not in MOD.python_entrypoints(false_while)
+    assert protected not in MOD.python_entrypoints(
+        "if false; then python tools/build_run287_same_close_target_books.py; fi\n"
+    )
+    assert MOD.statically_disabled_workflow_condition(
+        "${{ false && github.event_name == 'push' }}"
+    )
+    heredoc = (
+        "cat <<'EOF'\n"
+        "python tools/build_run287_same_close_target_books.py --required\n"
+        "EOF\n"
+    )
+    assert protected not in MOD.python_entrypoints(heredoc)
+    assert protected in MOD.python_entrypoints(
+        "read value <<< 'data'\n"
+        "python tools/build_run287_same_close_target_books.py\n"
+    )
+    assert protected in MOD.python_entrypoints(
+        "printf '' | xargs python tools/build_run287_same_close_target_books.py\n"
+    )
+
+    assert any(
+        ":rename:target" in finding
+        for finding in MOD.authority_write_sinks(
+            'import os\nos.rename('
+            '"outputs/operating_main_target_book.csv", "tmp/archive.csv")\n',
+            ("target",),
+        )
+    )
+    finite_process = (
+        "import subprocess\n"
+        "ALLOWED_TOOLS = {'tools/helper.py', 'tools/other.py'}\n"
+        "def run_stage(command):\n    subprocess.run(list(command))\n"
+        "run_stage(['python', selected_tool])\n"
+    )
+    assert set(MOD.local_process_candidates(finite_process)) >= {
+        "tools/helper.py",
+        "tools/other.py",
+    }
+    threaded = (
+        "import threading\n"
+        "from tools import build_run287_same_close_target_books as writer\n"
+        "threading.Thread(target=writer.main).start()\n"
+    )
+    assert dict(MOD.python_main_call_counts(threaded))[protected] == 1
+
+
 def test_untracked_workflow_is_not_repository_authority() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -1815,6 +1875,7 @@ def main() -> int:
     test_reviewed_execution_edges_are_inventory_bound()
     test_latest_review_execution_context_edges_are_bound()
     test_shell_and_loader_authority_edges_fail_closed()
+    test_static_control_and_indirect_launch_edges_are_bound()
     test_untracked_workflow_is_not_repository_authority()
     test_execution_defaults_are_bound_to_named_inputs()
     test_dirty_input_is_not_attributed_to_head_and_defaults_follow_repo_root()

@@ -28,9 +28,10 @@ PASS_STATUS = "PASS_CALL_PATH_CONTRACT"
 BLOCKED_STATUS = "BLOCKED_CALL_PATH_CONTRACT"
 STDIN_ENTRYPOINTS = {"-", "/dev/stdin", "/dev/fd/0", "/proc/self/fd/0"}
 HEREDOC_WORD = re.compile(
-    r"<<-?\s*(?:'([^']+)'|\"([^\"]+)\"|\\([^\s;&|<>]+)|([^\s;&|<>]+))"
+    r"(?<!<)<<-?(?!<)\s*(?:'([^']+)'|\"([^\"]+)\"|\\([^\s;&|<>]+)|([^\s;&|<>]+))"
 )
 SHELL_EXPANSION_BUDGET_SENTINEL = "__RUN287_SHELL_EXPANSION_BUDGET_EXCEEDED__"
+SHELL_UNRESOLVED_CONTROL_SENTINEL = "__RUN287_UNRESOLVED_SHELL_CONTROL__"
 
 
 def heredoc_delimiter(match: re.Match[str]) -> str:
@@ -363,6 +364,35 @@ def _raw_shell_logical_commands(text: str) -> list[tuple[int, str]]:
 def shell_logical_commands(text: str) -> list[tuple[int, str]]:
     """Return commands that execute, expanding definite local shell calls."""
     raw = _raw_shell_logical_commands(text)
+    reachable_raw: list[tuple[int, str]] = []
+    skipped_closers: list[str] = []
+    for line, command in raw:
+        stripped = command.strip()
+        false_if = bool(re.match(r"^if\s+(?:false|!\s*true)\s*;?\s*then\b", stripped))
+        false_loop = bool(
+            re.match(r"^(?:while|until)\s+false\s*;?\s*do\b", stripped)
+        )
+        if skipped_closers:
+            if re.match(r"^(?:if\b.*\bthen|while\b.*\bdo|until\b.*\bdo)", stripped):
+                skipped_closers.append("fi" if stripped.startswith("if") else "done")
+            if stripped in {"else", "elif"} and len(skipped_closers) == 1:
+                reachable_raw.append((0, SHELL_UNRESOLVED_CONTROL_SENTINEL))
+            if stripped in {"fi", "done"} and stripped == skipped_closers[-1]:
+                skipped_closers.pop()
+            continue
+        if false_if or false_loop:
+            closer = "fi" if false_if else "done"
+            inline = re.match(
+                rf"^.*;\s*{closer}(?:\s*;\s*(.*))?$", stripped
+            )
+            if inline:
+                if inline.group(1):
+                    reachable_raw.append((line, inline.group(1)))
+                continue
+            skipped_closers.append("fi" if false_if else "done")
+            continue
+        reachable_raw.append((line, command))
+    raw = reachable_raw
     functions: dict[str, list[tuple[int, str]]] = {}
     top_level: list[tuple[int, str]] = []
     index = 0
@@ -641,12 +671,29 @@ def shell_command_position(tokens: list[str], index: int) -> bool:
                     continue
                 break
             continue
+        if executable == "xargs":
+            cursor += 1
+            while cursor < index:
+                value = tokens[cursor]
+                if value in {
+                    "-a", "--arg-file", "-E", "--eof", "-I", "--replace",
+                    "-L", "--max-lines", "-n", "--max-args", "-P",
+                    "--max-procs", "-s", "--max-chars",
+                }:
+                    cursor += 2
+                    continue
+                if value.startswith("-"):
+                    cursor += 1
+                    continue
+                break
+            continue
         return False
     return cursor == index
 
 
 @lru_cache(maxsize=512)
 def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
+    text = executable_shell_text(text)
     result: list[dict[str, Any]] = []
     literal_names: dict[str, str] = {}
     dynamic_names: set[str] = set()
@@ -1456,11 +1503,13 @@ def _local_process_candidates_direct(source: str) -> tuple[str, ...]:
     assignments = python_assignment_values(tree)
     callables = process_callable_names(tree)
     candidates: set[str] = set()
+    has_process_call = False
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         if not recognized_process_call(node, callables):
             continue
+        has_process_call = True
         argv_expressions = process_argv_expressions(node)
         if not argv_expressions:
             continue
@@ -1482,6 +1531,20 @@ def _local_process_candidates_direct(source: str) -> tuple[str, ...]:
                 for cwd in cwd_values
             }
         candidates.update(call_candidates)
+
+    if has_process_call:
+        # A helper can pass finite caller-built argv into the eventual process
+        # sink. Conservatively bind every local-looking Python literal in that
+        # source so allowlists/dispatch tables cannot escape reachability.
+        for literal in ast.walk(tree):
+            if not (
+                isinstance(literal, ast.Constant)
+                and isinstance(literal.value, str)
+            ):
+                continue
+            normalized = normalize_script_entrypoint(str(literal.value))
+            if normalized.endswith(".py"):
+                candidates.add(normalized)
 
     return tuple(sorted(candidates))
 
@@ -1823,6 +1886,14 @@ def python_main_call_counts(
         if target:
             add_protected(scope, target)
         call_name = dotted_expression_name(node.func)
+        if call_name.rsplit(".", 1)[-1] in {"Thread", "Process"}:
+            callback = next(
+                (keyword.value for keyword in node.keywords if keyword.arg == "target"),
+                node.args[1] if len(node.args) > 1 else None,
+            )
+            callback_target = main_target(callback) if callback is not None else ""
+            if callback_target:
+                add_protected(scope, callback_target)
         if call_name in runpy_callables and node.args:
             values = [
                 str(bound.value)
@@ -2196,8 +2267,9 @@ def _authority_write_sinks_direct(
         f"os.{name}" for name in ("remove", "unlink", "rmdir", "removedirs")
     }
     link_functions = {
-        f"os.{name}" for name in ("link", "symlink", "rename", "replace")
+        f"os.{name}" for name in ("link", "symlink")
     }
+    rename_functions = {"os.rename", "os.replace"}
     os_open_functions = {"os.open"}
     truncate_functions = {"os.truncate"}
     delete_functions.add("shutil.rmtree")
@@ -2258,8 +2330,10 @@ def _authority_write_sinks_direct(
                         for name in ("remove", "unlink", "rmdir", "removedirs")
                     )
                     link_functions.update(
-                        f"{local}.{name}"
-                        for name in ("link", "symlink", "rename", "replace")
+                        f"{local}.{name}" for name in ("link", "symlink")
+                    )
+                    rename_functions.update(
+                        f"{local}.{name}" for name in ("rename", "replace")
                     )
                     os_open_functions.add(f"{local}.open")
                     truncate_functions.add(f"{local}.truncate")
@@ -2282,9 +2356,13 @@ def _authority_write_sinks_direct(
                 }:
                     delete_functions.add(alias.asname or alias.name)
                 elif imported.module == "os" and alias.name in {
-                    "link", "symlink", "rename", "replace"
+                    "link", "symlink"
                 }:
                     link_functions.add(alias.asname or alias.name)
+                elif imported.module == "os" and alias.name in {
+                    "rename", "replace"
+                }:
+                    rename_functions.add(alias.asname or alias.name)
                 elif imported.module == "os" and alias.name == "open":
                     os_open_functions.add(alias.asname or alias.name)
                 elif imported.module == "os" and alias.name == "truncate":
@@ -2295,6 +2373,7 @@ def _authority_write_sinks_direct(
         move_functions,
         delete_functions,
         link_functions,
+        rename_functions,
         os_open_functions,
         truncate_functions,
     )
@@ -2457,6 +2536,14 @@ def _authority_write_sinks_direct(
             destination_node = node.args[1] if len(node.args) > 1 else None
             destinations.update(literal_path_values(destination_node, literal_names))
             unresolved = not destinations
+        elif func_name in rename_functions:
+            source_node = node.args[0] if node.args else None
+            destination_node = node.args[1] if len(node.args) > 1 else None
+            source_paths = literal_path_values(source_node, literal_names)
+            destination_paths = literal_path_values(destination_node, literal_names)
+            destinations.update(source_paths)
+            destinations.update(destination_paths)
+            unresolved = not source_paths or not destination_paths
         elif isinstance(node.func, ast.Attribute) and method in (
             path_unique_methods | generic_output_methods | path_move_methods
         ):
@@ -2736,7 +2823,15 @@ def workflow_dispatch_input_default(text: str, input_name: str) -> str | None:
 @lru_cache(maxsize=512)
 def statically_disabled_workflow_condition(value: Any) -> bool:
     normalized = re.sub(r"\s+", "", str(value or "")).casefold()
-    return normalized in {"false", "0", "no", "off", "${{false}}"}
+    if normalized in {"false", "0", "no", "off", "${{false}}"}:
+        return True
+    expression = normalized
+    if expression.startswith("${{") and expression.endswith("}}"):
+        expression = expression[3:-2]
+    return bool(
+        re.match(r"^(?:false&&|!true(?:&&|\|\||$))", expression)
+        or re.search(r"(?:^|&&)false(?:&&|$)", expression)
+    )
 
 
 def resolve_local_action_path_expressions(source: str, source_path: str) -> str:
@@ -3380,6 +3475,15 @@ def audit_texts(
         if any(
             command == SHELL_EXPANSION_BUDGET_SENTINEL
             for _line, command in shell_logical_commands(shell_sources[shell_path])
+        )
+    )
+    failures.extend(
+        f"unresolved_shell_control:{path}:{yaml_path}"
+        for path, records_for_workflow in workflow_run_record_map.items()
+        for yaml_path, _shell, source, _workdir in records_for_workflow
+        if any(
+            command == SHELL_UNRESOLVED_CONTROL_SENTINEL
+            for _line, command in shell_logical_commands(source)
         )
     )
     records: list[dict[str, Any]] = []
