@@ -1406,11 +1406,29 @@ def test_static_control_and_indirect_launch_edges_are_bound() -> None:
     )
     assert protected not in MOD.python_entrypoints(false_if)
     assert protected not in MOD.python_entrypoints(false_while)
+    assert protected in MOD.python_entrypoints(
+        "until false; do\n"
+        "  python tools/build_run287_same_close_target_books.py\n"
+        "  break\n"
+        "done\n"
+    )
+    assert protected not in MOD.python_entrypoints(
+        "until true; do\n"
+        "  python tools/build_run287_same_close_target_books.py\n"
+        "done\n"
+    )
     assert protected not in MOD.python_entrypoints(
         "if false; then python tools/build_run287_same_close_target_books.py; fi\n"
     )
+    assert protected in MOD.python_entrypoints(
+        "if false; then :; else "
+        "python tools/build_run287_same_close_target_books.py; fi\n"
+    )
     assert MOD.statically_disabled_workflow_condition(
         "${{ false && github.event_name == 'push' }}"
+    )
+    assert MOD.statically_disabled_workflow_condition(
+        "${{ ((false)) && github.event_name == 'push' }}"
     )
     heredoc = (
         "cat <<'EOF'\n"
@@ -1425,12 +1443,34 @@ def test_static_control_and_indirect_launch_edges_are_bound() -> None:
     assert protected in MOD.python_entrypoints(
         "printf '' | xargs python tools/build_run287_same_close_target_books.py\n"
     )
+    assert any(
+        command == MOD.SHELL_UNRESOLVED_CONTROL_SENTINEL
+        for _line, command in MOD.shell_logical_commands(
+            "printf '' | xargs -r python "
+            "tools/build_run287_same_close_target_books.py\n"
+        )
+    )
 
     assert any(
         ":rename:target" in finding
         for finding in MOD.authority_write_sinks(
             'import os\nos.rename('
             '"outputs/operating_main_target_book.csv", "tmp/archive.csv")\n',
+            ("target",),
+        )
+    )
+    assert any(
+        ":target" in finding
+        for finding in MOD.authority_write_sinks(
+            'from os import renames as move_tree\nmove_tree('
+            '"outputs/operating_main_target_book.csv", "tmp/archive.csv")\n',
+            ("target",),
+        )
+    )
+    assert any(
+        ":mv:outputs/operating_main_target_book.csv:target" in finding
+        for finding in MOD.shell_authority_write_sinks(
+            "mv outputs/operating_main_target_book.csv tmp/archive.csv\n",
             ("target",),
         )
     )
@@ -1450,6 +1490,55 @@ def test_static_control_and_indirect_launch_edges_are_bound() -> None:
         "threading.Thread(target=writer.main).start()\n"
     )
     assert dict(MOD.python_main_call_counts(threaded))[protected] == 1
+    inert_thread = (
+        "import threading\n"
+        "from tools import build_run287_same_close_target_books as writer\n"
+        "threading.Thread(target=writer.main)\n"
+    )
+    assert protected not in dict(MOD.python_main_call_counts(inert_thread))
+    assigned_thread = (
+        "import threading\n"
+        "from tools import build_run287_same_close_target_books as writer\n"
+        "worker = threading.Thread(target=writer.main)\n"
+        "worker.start()\n"
+    )
+    assert dict(MOD.python_main_call_counts(assigned_thread))[protected] == 1
+    pty_launch = (
+        "from pty import spawn as launch\n"
+        "launch(['python', 'tools/helper.py'])\n"
+    )
+    assert "tools/helper.py" in MOD.local_process_candidates(pty_launch)
+
+    bash_env_workflow = (
+        "env:\n  BASH_ENV: tools/startup.sh\n"
+        "jobs:\n  audit:\n    steps:\n      - run: echo ready\n"
+    )
+    bash_records = MOD.workflow_run_records(bash_env_workflow)
+    assert bash_records and "source tools/startup.sh" in bash_records[0][1]
+    assert "tools/startup.sh" in MOD.shell_script_candidates(bash_records[0][1])
+
+    matrix_workflow = (
+        "jobs:\n  audit:\n    strategy:\n      matrix:\n        py: ['3.11', '3.12']\n"
+        "    steps:\n      - run: python tools/helper.py\n"
+    )
+    assert any(
+        MOD.SHELL_UNRESOLVED_CONTROL_SENTINEL in source
+        for _shell, source, _workdir in MOD.workflow_run_records(matrix_workflow)
+    )
+
+    local_action = "runs:\n  using: composite\n  steps:\n    - run: echo ready\n"
+    duplicate_uses = (
+        "jobs:\n  audit:\n    steps:\n"
+        "      - uses: ./tools/writer-action\n"
+        "      - uses: ./tools/writer-action\n"
+    )
+    counts, cycle = MOD.reachable_local_yaml_execution_counts(
+        ".github/workflows/audit.yml",
+        duplicate_uses,
+        {"tools/writer-action/action.yml": local_action},
+    )
+    assert cycle is False
+    assert counts == {"tools/writer-action/action.yml": 2}
 
 
 def test_untracked_workflow_is_not_repository_authority() -> None:

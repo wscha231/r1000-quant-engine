@@ -370,7 +370,11 @@ def shell_logical_commands(text: str) -> list[tuple[int, str]]:
         stripped = command.strip()
         false_if = bool(re.match(r"^if\s+(?:false|!\s*true)\s*;?\s*then\b", stripped))
         false_loop = bool(
-            re.match(r"^(?:while|until)\s+false\s*;?\s*do\b", stripped)
+            re.match(
+                r"^(?:while\s+(?:false|!\s*true)|until\s+(?:true|!\s*false))"
+                r"\s*;?\s*do\b",
+                stripped,
+            )
         )
         if skipped_closers:
             if re.match(r"^(?:if\b.*\bthen|while\b.*\bdo|until\b.*\bdo)", stripped):
@@ -382,6 +386,19 @@ def shell_logical_commands(text: str) -> list[tuple[int, str]]:
             continue
         if false_if or false_loop:
             closer = "fi" if false_if else "done"
+            if false_if and re.search(r";\s*(?:else|elif)\b", stripped):
+                alternate = re.match(
+                    r"^if\s+(?:false|!\s*true)\s*;?\s*then\b.*?;\s*else\s+"
+                    r"(.*?);\s*fi(?:\s*;\s*(.*))?$",
+                    stripped,
+                )
+                if alternate:
+                    reachable_raw.append((line, alternate.group(1)))
+                    if alternate.group(2):
+                        reachable_raw.append((line, alternate.group(2)))
+                else:
+                    reachable_raw.append((0, SHELL_UNRESOLVED_CONTROL_SENTINEL))
+                continue
             inline = re.match(
                 rf"^.*;\s*{closer}(?:\s*;\s*(.*))?$", stripped
             )
@@ -443,6 +460,22 @@ def shell_logical_commands(text: str) -> list[tuple[int, str]]:
                 tokens = shell_tokens(command)
             except ValueError:
                 continue
+            for token_index, token in enumerate(tokens):
+                if token.rsplit("/", 1)[-1] != "xargs":
+                    continue
+                command_end = next(
+                    (
+                        cursor
+                        for cursor in range(token_index + 1, len(tokens))
+                        if tokens[cursor] in SHELL_COMMAND_BOUNDARIES
+                    ),
+                    len(tokens),
+                )
+                if any(
+                    value in {"-r", "--no-run-if-empty"}
+                    for value in tokens[token_index + 1:command_end]
+                ):
+                    result.append((line, SHELL_UNRESOLVED_CONTROL_SENTINEL))
             for token_index, token in enumerate(tokens):
                 name = token.rsplit("/", 1)[-1]
                 if (
@@ -1357,9 +1390,11 @@ def process_callable_names(tree: ast.AST) -> set[str]:
         "getstatusoutput",
     }
     asyncio_names = {"create_subprocess_exec", "create_subprocess_shell"}
+    pty_names = {"spawn"}
     callables = {f"subprocess.{name}" for name in subprocess_names}
     callables.update(f"os.{name}" for name in os_names)
     callables.update(f"asyncio.{name}" for name in asyncio_names)
+    callables.update(f"pty.{name}" for name in pty_names)
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -1370,14 +1405,18 @@ def process_callable_names(tree: ast.AST) -> set[str]:
                     callables.update(f"{local}.{name}" for name in os_names)
                 elif alias.name == "asyncio":
                     callables.update(f"{local}.{name}" for name in asyncio_names)
+                elif alias.name == "pty":
+                    callables.update(f"{local}.{name}" for name in pty_names)
         elif isinstance(node, ast.ImportFrom) and node.module in {
-            "subprocess", "os", "asyncio",
+            "subprocess", "os", "asyncio", "pty",
         }:
             allowed = (
                 subprocess_names
                 if node.module == "subprocess"
                 else asyncio_names
                 if node.module == "asyncio"
+                else pty_names
+                if node.module == "pty"
                 else os_names
             )
             for alias in node.names:
@@ -1504,6 +1543,7 @@ def _local_process_candidates_direct(source: str) -> tuple[str, ...]:
     callables = process_callable_names(tree)
     candidates: set[str] = set()
     has_process_call = False
+
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -1878,6 +1918,20 @@ def python_main_call_counts(
         bucket = protected_by_scope.setdefault(scope, {})
         bucket[target] = bucket.get(target, 0) + count
 
+    assignments = python_assignment_values(tree)
+
+    def thread_callback(expression: ast.AST) -> str:
+        if not isinstance(expression, ast.Call):
+            return ""
+        call_name = dotted_expression_name(expression.func)
+        if call_name.rsplit(".", 1)[-1] not in {"Thread", "Process"}:
+            return ""
+        callback = next(
+            (keyword.value for keyword in expression.keywords if keyword.arg == "target"),
+            expression.args[1] if len(expression.args) > 1 else None,
+        )
+        return main_target(callback) if callback is not None else ""
+
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -1886,13 +1940,17 @@ def python_main_call_counts(
         if target:
             add_protected(scope, target)
         call_name = dotted_expression_name(node.func)
-        if call_name.rsplit(".", 1)[-1] in {"Thread", "Process"}:
-            callback = next(
-                (keyword.value for keyword in node.keywords if keyword.arg == "target"),
-                node.args[1] if len(node.args) > 1 else None,
-            )
-            callback_target = main_target(callback) if callback is not None else ""
-            if callback_target:
+        if (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr in {"start", "run"}
+        ):
+            launch_values = bound_expression_nodes(node.func.value, assignments)
+            launched_callbacks = {
+                callback
+                for value in launch_values
+                if (callback := thread_callback(value))
+            }
+            for callback_target in sorted(launched_callbacks):
                 add_protected(scope, callback_target)
         if call_name in runpy_callables and node.args:
             values = [
@@ -2269,7 +2327,7 @@ def _authority_write_sinks_direct(
     link_functions = {
         f"os.{name}" for name in ("link", "symlink")
     }
-    rename_functions = {"os.rename", "os.replace"}
+    rename_functions = {"os.rename", "os.replace", "os.renames"}
     os_open_functions = {"os.open"}
     truncate_functions = {"os.truncate"}
     delete_functions.add("shutil.rmtree")
@@ -2333,7 +2391,7 @@ def _authority_write_sinks_direct(
                         f"{local}.{name}" for name in ("link", "symlink")
                     )
                     rename_functions.update(
-                        f"{local}.{name}" for name in ("rename", "replace")
+                        f"{local}.{name}" for name in ("rename", "replace", "renames")
                     )
                     os_open_functions.add(f"{local}.open")
                     truncate_functions.add(f"{local}.truncate")
@@ -2360,7 +2418,7 @@ def _authority_write_sinks_direct(
                 }:
                     link_functions.add(alias.asname or alias.name)
                 elif imported.module == "os" and alias.name in {
-                    "rename", "replace"
+                    "rename", "replace", "renames"
                 }:
                     rename_functions.add(alias.asname or alias.name)
                 elif imported.module == "os" and alias.name == "open":
@@ -2695,7 +2753,17 @@ def shell_authority_write_sinks(
                 for token in tokens[executable_index + 1:]
                 if token not in redirections and not token.startswith("-")
             ]
-            destinations = operands if executable in {"tee", "touch", "truncate"} else operands[-1:]
+            source_removing_rsync = executable == "rsync" and any(
+                value == "--remove-source-files"
+                or value.startswith("--remove-source-files=")
+                for value in tokens[executable_index + 1:]
+            )
+            destinations = (
+                operands
+                if executable in {"tee", "touch", "truncate", "mv"}
+                or source_removing_rsync
+                else operands[-1:]
+            )
             for destination in destinations:
                 record_destination(line, executable, destination)
         sed_index = next(
@@ -2828,6 +2896,10 @@ def statically_disabled_workflow_condition(value: Any) -> bool:
     expression = normalized
     if expression.startswith("${{") and expression.endswith("}}"):
         expression = expression[3:-2]
+    prior = None
+    while expression != prior:
+        prior = expression
+        expression = re.sub(r"\((false|true)\)", r"\1", expression)
     return bool(
         re.match(r"^(?:false&&|!true(?:&&|\|\||$))", expression)
         or re.search(r"(?:^|&&)false(?:&&|$)", expression)
@@ -2891,11 +2963,57 @@ def workflow_pythonpath_values(text: str) -> tuple[str, ...]:
     return tuple(sorted(values))
 
 
+@lru_cache(maxsize=512)
+def workflow_bash_env_values(text: str) -> tuple[str, ...]:
+    """Collect effective candidate BASH_ENV values on active YAML paths."""
+    try:
+        payload = yaml.load(text, Loader=yaml.BaseLoader)
+    except yaml.YAMLError:
+        return ()
+    values: set[str] = set()
+
+    def visit(container: Any, inherited: str = "") -> None:
+        if not isinstance(container, dict) or statically_disabled_workflow_condition(
+            container.get("if")
+        ):
+            return
+        environment = container.get("env")
+        current = inherited
+        if isinstance(environment, dict) and "BASH_ENV" in environment:
+            current = str(environment["BASH_ENV"])
+        if current:
+            values.add(current)
+        steps = container.get("steps")
+        if isinstance(steps, list):
+            for step in steps:
+                visit(step, current)
+
+    if not isinstance(payload, dict):
+        return ()
+    root_env = payload.get("env")
+    root_value = (
+        str(root_env["BASH_ENV"])
+        if isinstance(root_env, dict) and "BASH_ENV" in root_env
+        else ""
+    )
+    if root_value:
+        values.add(root_value)
+    jobs = payload.get("jobs")
+    if isinstance(jobs, dict):
+        for job in jobs.values():
+            visit(job, root_value)
+    runs = payload.get("runs")
+    if isinstance(runs, dict):
+        visit(runs, root_value)
+    return tuple(sorted(values))
+
+
 @lru_cache(maxsize=1024)
 def workflow_run_records(
     text: str,
     source_path: str = "",
     inherited_pythonpaths: tuple[str, ...] = (),
+    inherited_bash_envs: tuple[str, ...] = (),
 ) -> tuple[tuple[str, str, str], ...]:
     """Return effective ``(shell, source, working_directory)`` run records."""
     try:
@@ -2910,15 +3028,22 @@ def workflow_run_records(
             else {}
         )
 
-        def with_effective_pythonpath(
+        def with_effective_environment(
             source: str, *environments: Mapping[str, str]
         ) -> str:
             effective = dict(workflow_env)
             for environment in environments:
                 effective.update(environment)
-            if "PYTHONPATH" not in effective:
-                return source
-            return f"PYTHONPATH={shlex.quote(effective['PYTHONPATH'])}\n{source}"
+            prefixes: list[str] = []
+            if "PYTHONPATH" in effective:
+                prefixes.append(f"PYTHONPATH={shlex.quote(effective['PYTHONPATH'])}")
+            if "BASH_ENV" in effective:
+                bash_env = str(effective["BASH_ENV"])
+                if re.search(r"[$`]", bash_env):
+                    prefixes.append(SHELL_UNRESOLVED_CONTROL_SENTINEL)
+                else:
+                    prefixes.append(f"source {shlex.quote(bash_env)}")
+            return "\n".join([*prefixes, source])
         workflow_default = str(
             (((payload.get("defaults") or {}).get("run") or {}).get("shell") or "")
             if isinstance(payload.get("defaults"), dict)
@@ -2935,6 +3060,8 @@ def workflow_run_records(
                     continue
                 if statically_disabled_workflow_condition(job.get("if")):
                     continue
+                if isinstance(job.get("strategy"), dict) and "matrix" in job["strategy"]:
+                    blocks.append(("", SHELL_UNRESOLVED_CONTROL_SENTINEL, ""))
                 job_default = workflow_default
                 job_workdir = workflow_workdir
                 job_env = (
@@ -2973,7 +3100,7 @@ def workflow_run_records(
                             (
                                 str(step.get("shell") or job_default),
                                 resolve_local_action_path_expressions(
-                                    with_effective_pythonpath(
+                                    with_effective_environment(
                                         str(step["run"]), job_env, step_env
                                     ),
                                     source_path,
@@ -3003,7 +3130,7 @@ def workflow_run_records(
                             (
                                 str(step.get("shell") or ""),
                                 resolve_local_action_path_expressions(
-                                    with_effective_pythonpath(
+                                    with_effective_environment(
                                         str(step["run"]), step_env
                                     ),
                                     source_path,
@@ -3026,6 +3153,23 @@ def workflow_run_records(
                         workdir,
                     )
                     for value in inherited_pythonpaths
+                )
+            blocks = expanded
+        if inherited_bash_envs:
+            expanded = []
+            for shell, source, workdir in blocks:
+                if re.search(r"(?m)^source\s+", source):
+                    expanded.append((shell, source, workdir))
+                    continue
+                expanded.extend(
+                    (
+                        shell,
+                        f"source {shlex.quote(value)}\n{source}"
+                        if not re.search(r"[$`]", value)
+                        else f"{SHELL_UNRESOLVED_CONTROL_SENTINEL}\n{source}",
+                        workdir,
+                    )
+                    for value in inherited_bash_envs
                 )
             blocks = expanded
         return tuple(blocks)
@@ -3153,7 +3297,7 @@ def shell_script_candidates(text: str) -> set[str]:
     return candidates
 
 
-def local_uses_paths(text: str, known_paths: set[str]) -> set[str]:
+def local_uses_path_occurrences(text: str, known_paths: set[str]) -> list[str]:
     """Resolve repository-local composite actions and reusable workflows."""
     try:
         payload = yaml.load(text, Loader=yaml.BaseLoader)
@@ -3180,7 +3324,7 @@ def local_uses_paths(text: str, known_paths: set[str]) -> set[str]:
         active_uses(payload["runs"])
     else:
         active_uses(payload)
-    result: set[str] = set()
+    result: list[str] = []
     for value in values:
         if not value.startswith("./"):
             continue
@@ -3190,26 +3334,46 @@ def local_uses_paths(text: str, known_paths: set[str]) -> set[str]:
             candidates.extend(
                 [f"{candidate.rstrip('/')}/action.yml", f"{candidate.rstrip('/')}/action.yaml"]
             )
-        result.update(path for path in candidates if path in known_paths)
+        result.extend(path for path in candidates if path in known_paths)
     return result
+
+
+def local_uses_paths(text: str, known_paths: set[str]) -> set[str]:
+    return set(local_uses_path_occurrences(text, known_paths))
+
+
+def reachable_local_yaml_execution_counts(
+    root_path: str, root_text: str, sources: Mapping[str, str]
+) -> tuple[dict[str, int], bool]:
+    """Return local uses execution multiplicity and whether a cycle exists."""
+    known = set(sources)
+    counts: dict[str, int] = {}
+    cycle = False
+
+    def visit(text: str, multiplier: int, stack: tuple[str, ...]) -> None:
+        nonlocal cycle
+        for child in local_uses_path_occurrences(text, known):
+            if child in stack:
+                cycle = True
+                continue
+            counts[child] = counts.get(child, 0) + multiplier
+            if counts[child] > 10000:
+                cycle = True
+                continue
+            visit(sources[child], multiplier, (*stack, child))
+
+    visit(root_text, 1, (root_path,))
+    counts.pop(root_path, None)
+    return counts, cycle
 
 
 def reachable_local_yaml_paths(
     root_path: str, root_text: str, sources: Mapping[str, str]
 ) -> set[str]:
-    known = set(sources)
-    seen: set[str] = set()
-    stack = sorted(local_uses_paths(root_text, known))
-    while stack:
-        path = stack.pop()
-        if path in seen:
-            continue
-        seen.add(path)
-        for child in sorted(local_uses_paths(sources[path], known)):
-            if child not in seen:
-                stack.append(child)
-    seen.discard(root_path)
-    return seen
+    counts, _cycle = reachable_local_yaml_execution_counts(
+        root_path, root_text, sources
+    )
+    return set(counts)
 
 
 def local_shell_script_paths(
@@ -3280,7 +3444,10 @@ def audit_texts(
     ] = {}
     unsupported_declared_shells: list[tuple[str, str, str]] = []
     for path, text in sorted(workflows.items()):
-        yaml_reachable = reachable_local_yaml_paths(path, text, yaml_sources)
+        yaml_execution_counts, yaml_cycle = reachable_local_yaml_execution_counts(
+            path, text, yaml_sources
+        )
+        yaml_reachable = set(yaml_execution_counts)
         workflow_yaml_reachable[path] = sorted(yaml_reachable)
         action_implementations = {
             implementation
@@ -3293,8 +3460,10 @@ def audit_texts(
         sources = [(path, text)] + [
             (yaml_path, yaml_sources[yaml_path])
             for yaml_path in sorted(yaml_reachable)
+            for _occurrence in range(yaml_execution_counts[yaml_path])
         ]
         caller_pythonpaths = workflow_pythonpath_values(text)
+        caller_bash_envs = workflow_bash_env_values(text)
         workflow_yaml_texts[path] = sources
         run_records = [
             (yaml_path, shell, source, workdir)
@@ -3303,8 +3472,11 @@ def audit_texts(
                 yaml_text,
                 yaml_path,
                 caller_pythonpaths if yaml_path != path else (),
+                caller_bash_envs if yaml_path != path else (),
             )
         ]
+        if yaml_cycle:
+            run_records.append((path, "", SHELL_UNRESOLVED_CONTROL_SENTINEL, ""))
         workflow_run_record_map[path] = run_records
         unsupported_declared_shells.extend(
             (path, yaml_path, shell)

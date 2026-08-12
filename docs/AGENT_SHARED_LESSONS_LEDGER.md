@@ -3795,6 +3795,34 @@ Expected contract:
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
 
+## 2026-08-12 - Control-flow, startup-hook, and execution-multiplicity closure
+
+- Literal shell loop reachability depends on the operator: `while false` and
+  `until true` are inert, while `until false` executes its body. A literal-false
+  one-line `if` may still execute its `else` branch.
+- `xargs -r`/`--no-run-if-empty` makes command execution input-dependent. Static
+  authority certification must model the input or fail closed instead of
+  crediting an invocation that may never occur.
+- A `Thread` or `Process` target is not executed merely because its constructor
+  exists. Count the callback only through a definite `.start()` or `.run()`
+  launch, including a constructor stored in a local variable.
+- Workflow constant folding includes redundant parentheses around boolean
+  literals; `${{ ((false)) && ... }}` is statically disabled.
+- Source-removing filesystem operations mutate both sides. Inventory shell
+  `mv`, `rsync --remove-source-files`, and Python `os.renames` sources and
+  destinations, including imported aliases.
+- Noninteractive Bash executes a repository-local `BASH_ENV` hook before a run
+  block. Propagate workflow/job/step environment values into composite actions,
+  traverse literal hooks, and fail closed on unresolved hook values.
+- Execution multiplicity is part of authority. A matrix job or repeated local
+  `uses` edge cannot be deduplicated to one audited command; preserve finite
+  caller-edge multiplicity or fail closed.
+- `pty.spawn` is a standard-library process sink and must contribute its argv
+  targets to transitive reachability and exact-head identity.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
 ## 2026-08-12 - Complete execution-edge and review-pagination closure
 
 - GitHub review-thread inspection must paginate to `hasNextPage=false`; the
