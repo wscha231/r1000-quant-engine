@@ -871,6 +871,15 @@ def test_indirect_execution_and_destination_bypasses_fail_closed() -> None:
     assert MOD.python_entrypoints(
         'SCRIPT=tools/harmless.py\npython "$SCRIPT"'
     ) == {"tools/harmless.py"}
+    assert MOD.python_entrypoints(
+        'CMD="python tools/harmless.py"\nbash -c "$CMD"'
+    ) == {"tools/harmless.py"}
+    assert any(
+        "dynamic-shell-c:UNRESOLVED_COMMAND" in finding
+        for finding in MOD.shell_authority_write_sinks(
+            'bash -c "$DYNAMIC_CMD"', ("target",)
+        )
+    )
     assert "tools/helper.py" in MOD.local_import_candidates(
         'import importlib\nimportlib.import_module(".helper", package="tools")\n',
         "tools/launcher.py",
@@ -906,6 +915,12 @@ def test_indirect_execution_and_destination_bypasses_fail_closed() -> None:
             'import os\nos.execv("python", ["python", "tools/harmless.py"])\n'
         )
     )
+    assert "tools/harmless.py" in MOD.local_process_candidates(
+        'import subprocess\nsubprocess.getoutput("python tools/harmless.py")\n'
+    )
+    assert MOD.python_process_launches(
+        'import subprocess\nsubprocess.getstatusoutput("python tools/harmless.py")\n'
+    )
     here_sources = MOD.embedded_python_sources(
         "python - <<< 'from tools.build_new_target_writer import main; main()'"
     )
@@ -913,6 +928,36 @@ def test_indirect_execution_and_destination_bypasses_fail_closed() -> None:
     assert dict(MOD.python_main_call_counts(here_sources[0]["source"]))[
         "tools/build_new_target_writer.py"
     ] == 1
+    dashed_heredoc = MOD.inline_python_blocks(
+        "python - <<'PY-CODE'\n"
+        "from tools.build_new_target_writer import main\n"
+        "main()\nPY-CODE\n"
+    )
+    assert dict(MOD.python_main_call_counts(dashed_heredoc[0]["source"]))[
+        "tools/build_new_target_writer.py"
+    ] == 1
+    assert dict(
+        MOD.python_main_call_counts(
+            "from tools import build_run287_same_close_target_books as protected\n"
+            'getattr(protected, "main")()\n'
+        )
+    )["tools/build_run287_same_close_target_books.py"] == 1
+    assert any(
+        ":open:target" in finding
+        for finding in MOD.authority_write_sinks(
+            'writer = open\nwriter("outputs/main_target.csv", "w")\n',
+            ("target",),
+        )
+    )
+    assert "tools/harmless.py" in MOD.local_import_candidates(
+        'import runpy\nrunpy.run_path("tools/harmless.py")\n',
+        "tools/launcher.py",
+    )
+    assert "tools/harmless.py" in MOD.local_import_candidates(
+        'from runpy import run_module as execute\n'
+        'execute("tools.harmless", run_name="__main__")\n',
+        "tools/launcher.py",
+    )
 
     shell_sources = {
         "tools/authority_helper": "python tools/build_new_target_writer.py\n"
@@ -927,6 +972,16 @@ def test_indirect_execution_and_destination_bypasses_fail_closed() -> None:
         'import subprocess\nsubprocess.run(["bash", "tools/authority_helper"])\n',
         set(shell_sources),
     ) == {"tools/authority_helper"}
+    assert MOD.local_shell_script_paths(
+        "bash helper.bash", {"tools/helper.bash"}, "tools"
+    ) == {"tools/helper.bash"}
+    workdir_records = MOD.workflow_run_records(
+        "defaults:\n  run:\n    working-directory: tools\n"
+        "jobs:\n  audit:\n    steps:\n      - run: python harmless.py\n"
+    )
+    assert MOD.resolved_workflow_python_invocations(
+        [("workflow.yml", *workdir_records[0])]
+    )[0]["entrypoint"] == "tools/harmless.py"
 
     local_path = ".github/workflows/local_action_probe.yml"
     local_workflow = (
@@ -946,6 +1001,23 @@ def test_indirect_execution_and_destination_bypasses_fail_closed() -> None:
     assert "tools/build_new_target_writer.py" in MOD.python_entrypoints(
         action_run_text
     )
+    node_action = (
+        "runs:\n  using: node20\n  pre: setup.js\n"
+        "  main: index.js\n  post: cleanup.js\n"
+    )
+    assert MOD.local_action_implementation_paths(
+        "tools/node-action/action.yml",
+        node_action,
+        {
+            "tools/node-action/setup.js",
+            "tools/node-action/index.js",
+            "tools/node-action/cleanup.js",
+        },
+    ) == {
+        "tools/node-action/setup.js",
+        "tools/node-action/index.js",
+        "tools/node-action/cleanup.js",
+    }
 
 
 def test_untracked_workflow_is_not_repository_authority() -> None:
@@ -955,12 +1027,25 @@ def test_untracked_workflow_is_not_repository_authority() -> None:
         workflows.mkdir(parents=True)
         tracked = workflows / "tracked.yml"
         untracked = workflows / "untracked.yml"
-        tracked.write_text("name: tracked\n", encoding="utf-8")
+        tracked.write_text(
+            "name: tracked\njobs:\n  x:\n    steps:\n"
+            "      - run: bash tools/helper.bash\n",
+            encoding="utf-8",
+        )
         untracked.write_text("name: untracked\n", encoding="utf-8")
+        (root / "tools").mkdir()
+        (root / "tools" / "helper.bash").write_text(
+            "python tools/harmless.py\n", encoding="utf-8"
+        )
         subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-        subprocess.run(["git", "add", ".github/workflows/tracked.yml"], cwd=root, check=True)
+        subprocess.run(
+            ["git", "add", ".github/workflows/tracked.yml", "tools/helper.bash"],
+            cwd=root,
+            check=True,
+        )
         paths = MOD.tracked_workflow_paths(root)
         assert paths == [".github/workflows/tracked.yml"]
+        assert MOD.tracked_shell_paths(root) == ["tools/helper.bash"]
 
 
 def test_execution_defaults_are_bound_to_named_inputs() -> None:
@@ -1182,6 +1267,7 @@ def test_run_audit_binds_no_writer_traversal_sources_to_head() -> None:
             observer_workflow: (
                 "jobs:\n  run:\n    steps:\n"
                 "      - uses: ./tools/neutral-action\n"
+                "      - uses: ./tools/node-action\n"
             ),
         }
         for path, text in workflow_texts.items():
@@ -1201,6 +1287,14 @@ def test_run_audit_binds_no_writer_traversal_sources_to_head() -> None:
             "      run: python tools/neutral.py\n",
             encoding="utf-8",
         )
+        node_action = root / "tools" / "node-action" / "action.yml"
+        node_action.parent.mkdir()
+        node_action.write_text(
+            "runs:\n  using: node20\n  main: index.js\n",
+            encoding="utf-8",
+        )
+        node_implementation = node_action.parent / "index.js"
+        node_implementation.write_text("console.log('read only');\n", encoding="utf-8")
         neutral = root / "tools" / "neutral.py"
         neutral.write_text("VALUE = 1\n", encoding="utf-8")
         contract = {
@@ -1277,8 +1371,13 @@ def test_run_audit_binds_no_writer_traversal_sources_to_head() -> None:
         assert "tools/neutral.py" in clean["audit_input_paths"]
         assert "tools/neutral-action/action.yml" in clean["audit_input_paths"]
         assert clean["workflow_yaml_reachable_files"][observer_workflow] == [
-            "tools/neutral-action/action.yml"
+            "tools/neutral-action/action.yml",
+            "tools/node-action/action.yml",
         ]
+        assert clean["workflow_action_implementation_files"][observer_workflow] == [
+            "tools/node-action/index.js"
+        ]
+        assert "tools/node-action/index.js" in clean["audit_input_paths"]
         assert clean["audit_runtime_head_bound"] is False
         assert "audit_runtime_outside_selected_repository" in clean["failures"]
 

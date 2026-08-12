@@ -3795,6 +3795,36 @@ Expected contract:
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
 
+## 2026-08-12 - Interpreter, workdir, and implementation-edge closure
+
+- A shell interpreter can execute any tracked decodable operand, including
+  `.bash` or `.txt`; inventory the interpreter operand rather than filtering it
+  by a `.sh` suffix. Direct executable discovery must still avoid treating
+  ordinary data-file arguments as programs.
+- Resolve exact shell variables before recursively parsing `bash -c` or
+  equivalent command strings. An unresolved dynamic command remains a
+  fail-closed authority fingerprint.
+- Python process-launch coverage includes `subprocess.getoutput` and
+  `subprocess.getstatusoutput`, including imported aliases.
+- Protected entrypoint cardinality includes constant `getattr(module,
+  "main")()` calls; alternate attribute syntax does not change authority.
+- Filesystem write callables remain writes after aliasing, such as
+  `writer = open`. Propagate callable aliases to a fixed point before classifying
+  destinations.
+- Workflow-relative Python and shell paths resolve from the effective
+  workflow, job, or step `working-directory`, with step precedence.
+- Local JavaScript and Docker actions bind `runs.main`, `runs.pre`,
+  `runs.post`, and local `runs.image` implementation bytes to their calling
+  workflow, not only the action manifest.
+- Valid shell heredoc delimiters are arbitrary quoted or unquoted shell words,
+  not identifier-only tokens; source extraction and inert-body masking must use
+  the same grammar.
+- `runpy.run_path` and `runpy.run_module` are executable import edges and must
+  participate in local Python reachability.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
 ## 2026-08-12 - Call-path authority parsers must validate semantics
 
 - Shell safety profiles must remove all Bash redirection forms, including
