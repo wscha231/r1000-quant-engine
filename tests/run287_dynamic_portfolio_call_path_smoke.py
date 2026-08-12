@@ -1312,6 +1312,86 @@ def test_latest_review_execution_context_edges_are_bound() -> None:
     }
 
 
+def test_shell_and_loader_authority_edges_fail_closed() -> None:
+    protected = "tools/build_run287_same_close_target_books.py"
+    one_line = (
+        "never() { python tools/build_run287_same_close_target_books.py; }; true\n"
+    )
+    assert protected not in MOD.python_entrypoints(one_line)
+    function_form = (
+        "function never { python tools/build_run287_same_close_target_books.py; }; true\n"
+    )
+    assert protected not in MOD.python_entrypoints(function_form)
+    assert len(
+        MOD.executable_invocations(
+            one_line.replace("; }; true", "; }; never"), protected
+        )
+    ) == 1
+    assert protected not in MOD.python_entrypoints(
+        "false && python tools/build_run287_same_close_target_books.py || true\n"
+    )
+
+    action = (
+        "runs:\n  using: composite\n  steps:\n"
+        "    - shell: bash\n      run: python worker.py\n"
+    )
+    inherited = MOD.workflow_run_records(
+        action,
+        "tools/action/action.yml",
+        ("tools/hooks",),
+    )
+    assert MOD.python_entrypoints(inherited[0][1]) >= {
+        "tools/hooks/sitecustomize.py",
+        "tools/hooks/usercustomize.py",
+    }
+
+    expanded = (
+        "CMD='python tools/build_run287_same_close_target_books.py'\n$CMD\n"
+    )
+    assert protected in MOD.python_entrypoints(expanded)
+    pipeline = MOD.python_invocations("base64 -d payload.txt | python -\n")
+    assert pipeline and pipeline[0]["unresolved_stdin_pipeline"] is True
+
+    loader = (
+        "import importlib.util\n"
+        "spec = importlib.util.spec_from_file_location("
+        "'helper', 'tools/helper.py')\n"
+        "module = importlib.util.module_from_spec(spec)\n"
+        "spec.loader.exec_module(module)\n"
+    )
+    assert "tools/helper.py" in MOD.local_import_candidates(
+        loader, "tools/launcher.py"
+    )
+
+    node_action = "runs:\n  using: node20\n  main: index.js\n"
+    node_paths = {
+        "tools/node-action/action.yml",
+        "tools/node-action/index.js",
+        "tools/node-action/helper.js",
+        "tools/other.js",
+    }
+    assert MOD.local_action_implementation_paths(
+        "tools/node-action/action.yml", node_action, node_paths
+    ) == {
+        "tools/node-action/action.yml",
+        "tools/node-action/index.js",
+        "tools/node-action/helper.js",
+    }
+
+    definition_time = (
+        "from tools import build_run287_same_close_target_books as protected\n"
+        "def helper(value=protected.main()):\n    pass\n"
+    )
+    assert dict(MOD.python_main_call_counts(definition_time))[protected] == 1
+    assert MOD.normalize_script_entrypoint("tools/../jobs/helper.py") == (
+        "jobs/helper.py"
+    )
+    budgeted = "\n".join("true" for _ in range(10001))
+    assert MOD.shell_logical_commands(budgeted)[-1][1] == (
+        MOD.SHELL_EXPANSION_BUDGET_SENTINEL
+    )
+
+
 def test_untracked_workflow_is_not_repository_authority() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -1698,6 +1778,7 @@ def test_run_audit_binds_no_writer_traversal_sources_to_head() -> None:
             "tools/node-action/action.yml",
         ]
         assert clean["workflow_action_implementation_files"][observer_workflow] == [
+            "tools/node-action/action.yml",
             "tools/node-action/index.js"
         ]
         assert "tools/node-action/index.js" in clean["audit_input_paths"]
@@ -1733,6 +1814,7 @@ def main() -> int:
     test_indirect_execution_and_destination_bypasses_fail_closed()
     test_reviewed_execution_edges_are_inventory_bound()
     test_latest_review_execution_context_edges_are_bound()
+    test_shell_and_loader_authority_edges_fail_closed()
     test_untracked_workflow_is_not_repository_authority()
     test_execution_defaults_are_bound_to_named_inputs()
     test_dirty_input_is_not_attributed_to_head_and_defaults_follow_repo_root()

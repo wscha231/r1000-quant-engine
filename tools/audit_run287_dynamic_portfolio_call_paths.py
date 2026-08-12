@@ -8,6 +8,7 @@ import ast
 import hashlib
 import json
 import os
+import posixpath
 import re
 import shlex
 import subprocess
@@ -29,6 +30,7 @@ STDIN_ENTRYPOINTS = {"-", "/dev/stdin", "/dev/fd/0", "/proc/self/fd/0"}
 HEREDOC_WORD = re.compile(
     r"<<-?\s*(?:'([^']+)'|\"([^\"]+)\"|\\([^\s;&|<>]+)|([^\s;&|<>]+))"
 )
+SHELL_EXPANSION_BUDGET_SENTINEL = "__RUN287_SHELL_EXPANSION_BUDGET_EXCEEDED__"
 
 
 def heredoc_delimiter(match: re.Match[str]) -> str:
@@ -327,9 +329,10 @@ def local_action_implementation_paths(
     image = str(runs.get("image") or "")
     if using == "docker" and image and not image.startswith("docker://"):
         candidates.add(Path(action_dir, image).as_posix())
-        # GitHub builds a local Docker action from the action directory. Bind
-        # the complete tracked context so Dockerfile COPY/ADD sources cannot
-        # change outside the reviewed implementation inventory.
+    if using == "docker" or using.startswith("node"):
+        # Bind the complete tracked local context. Dockerfile COPY/ADD sources
+        # and transitive Node require/import helpers otherwise escape the
+        # declared main/pre/post implementation list.
         context_prefix = action_dir.as_posix().rstrip("/") + "/"
         candidates.update(
             path for path in known_paths if path.startswith(context_prefix)
@@ -363,12 +366,26 @@ def shell_logical_commands(text: str) -> list[tuple[int, str]]:
     functions: dict[str, list[tuple[int, str]]] = {}
     top_level: list[tuple[int, str]] = []
     index = 0
+    name_pattern = r"[A-Za-z_][A-Za-z0-9_]*"
     definition = re.compile(
-        r"^(?:function\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*\{\s*$"
+        rf"^(?:function\s+({name_pattern})|({name_pattern})\s*\(\s*\))\s*\{{\s*$"
+    )
+    one_line_definition = re.compile(
+        rf"^(?:function\s+({name_pattern})|({name_pattern})\s*\(\s*\))"
+        rf"\s*\{{\s*(.*?)\s*;\s*\}}\s*(?:;\s*(.*))?$"
     )
     while index < len(raw):
         line, command = raw[index]
-        match = definition.match(command.strip())
+        stripped = command.strip()
+        one_line = one_line_definition.match(stripped)
+        if one_line:
+            name = one_line.group(1) or one_line.group(2)
+            functions[name] = [(line, one_line.group(3))]
+            if one_line.group(4):
+                top_level.append((line, one_line.group(4)))
+            index += 1
+            continue
+        match = definition.match(stripped)
         if not match:
             top_level.append((line, command))
             index += 1
@@ -380,7 +397,7 @@ def shell_logical_commands(text: str) -> list[tuple[int, str]]:
             index += 1
         if index < len(raw):
             index += 1
-        functions[match.group(1)] = body
+        functions[match.group(1) or match.group(2)] = body
 
     result: list[tuple[int, str]] = []
     expansion_budget = 10000
@@ -406,6 +423,8 @@ def shell_logical_commands(text: str) -> list[tuple[int, str]]:
                     expand(functions[name], (*stack, name))
 
     expand(top_level)
+    if expansion_budget <= 0:
+        result.append((0, SHELL_EXPANSION_BUDGET_SENTINEL))
     return result
 
 
@@ -434,13 +453,56 @@ def strip_shell_comment(command: str) -> str:
     return command
 
 
-def shell_tokens(command: str) -> list[str]:
+def _raw_shell_tokens(command: str) -> list[str]:
     lexer = shlex.shlex(
         strip_shell_comment(command), posix=True, punctuation_chars=";&|<>(){}"
     )
     lexer.commenters = ""
     lexer.whitespace_split = True
     return list(lexer)
+
+
+def shell_tokens(command: str) -> list[str]:
+    """Tokenize and prune branches unreachable after literal true/false."""
+    tokens = _raw_shell_tokens(command)
+    segments: list[tuple[list[str], str]] = []
+    current: list[str] = []
+    for token in tokens:
+        if token in {"&&", "||", ";"}:
+            segments.append((current, token))
+            current = []
+        else:
+            current.append(token)
+    segments.append((current, ""))
+    result: list[str] = []
+    prior_status: bool | None = None
+    prior_operator = ""
+    for segment, following_operator in segments:
+        executes = not (
+            (prior_operator == "&&" and prior_status is False)
+            or (prior_operator == "||" and prior_status is True)
+        )
+        if executes and segment:
+            if result and prior_operator:
+                result.append(prior_operator)
+            result.extend(segment)
+            executable = next(
+                (
+                    value.rsplit("/", 1)[-1]
+                    for value in segment
+                    if not SHELL_ASSIGNMENT_WORD.fullmatch(value)
+                    and value not in {"!", "if", "then", "elif", "else", "do"}
+                ),
+                "",
+            )
+            if executable in {"true", ":"}:
+                prior_status = True
+            elif executable == "false":
+                prior_status = False
+            else:
+                prior_status = None
+        prior_operator = following_operator
+    return result
 
 
 def module_entrypoint(module: str) -> str:
@@ -460,6 +522,10 @@ def normalize_script_entrypoint(value: str) -> str:
         normalized = normalized[len(root_prefix):]
     while normalized.startswith("./"):
         normalized = normalized[2:]
+    if normalized and not normalized.startswith("${{"):
+        normalized = posixpath.normpath(normalized)
+        if normalized == ".":
+            normalized = ""
     return normalized
 
 
@@ -641,7 +707,19 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
                             copied["wrapped_by"] = shell_name
                             result.append(copied)
                         break
-            executable = resolved_token(token).rsplit("/", 1)[-1]
+            resolved_command_token = resolved_token(token)
+            if (
+                shell_command_position(tokens, index)
+                and resolved_command_token != token
+                and re.search(r"\s", resolved_command_token)
+            ):
+                for row in python_invocations(resolved_command_token):
+                    copied = dict(row)
+                    copied["line"] = line
+                    copied["wrapped_by"] = "expanded-command-variable"
+                    result.append(copied)
+                continue
+            executable = resolved_command_token.rsplit("/", 1)[-1]
             if executable == "env" and shell_command_position(tokens, index):
                 cursor = index + 1
                 while cursor < len(tokens):
@@ -784,6 +862,9 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
                     "unresolved_entrypoint": unresolved_entrypoint,
                     "unresolved_pythonpath": bool(
                         "PYTHONPATH" in dynamic_names and not ignores_environment
+                    ),
+                    "unresolved_stdin_pipeline": bool(
+                        entrypoint in STDIN_ENTRYPOINTS and "|" in tokens[:index]
                     ),
                 }
             )
@@ -1064,6 +1145,7 @@ def _local_import_candidates_direct(source: str, source_path: str) -> tuple[str,
     except SyntaxError:
         return ()
     result: set[str] = set()
+    assignments = python_assignment_values(tree)
     dynamic_callables = dynamic_import_callables(tree)
     run_path_callables = {"runpy.run_path"}
     run_module_callables = {"runpy.run_module"}
@@ -1130,6 +1212,15 @@ def _local_import_candidates_direct(source: str, source_path: str) -> tuple[str,
                 value = node.args[0]
                 if isinstance(value, ast.Constant) and isinstance(value.value, str):
                     result.add(normalize_script_entrypoint(value.value))
+            if (
+                call_name.rsplit(".", 1)[-1] == "spec_from_file_location"
+                and len(node.args) >= 2
+            ):
+                for bound in bound_expression_nodes(node.args[1], assignments):
+                    if isinstance(bound, ast.Constant) and isinstance(
+                        bound.value, str
+                    ):
+                        result.add(normalize_script_entrypoint(bound.value))
         for module in candidates:
             result.update(_module_candidates(module))
     return tuple(sorted(result))
@@ -1681,11 +1772,36 @@ def python_main_call_counts(
         for parent in ast.walk(tree)
         for child in ast.iter_child_nodes(parent)
     }
+    definition_time_owner: dict[ast.AST, ast.AST] = {}
+    for definition_node in ast.walk(tree):
+        if not isinstance(definition_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        expressions: list[ast.AST] = list(definition_node.decorator_list)
+        expressions.extend(definition_node.args.defaults)
+        expressions.extend(
+            value for value in definition_node.args.kw_defaults if value is not None
+        )
+        if definition_node.returns is not None:
+            expressions.append(definition_node.returns)
+        for argument in (
+            list(definition_node.args.posonlyargs)
+            + list(definition_node.args.args)
+            + list(definition_node.args.kwonlyargs)
+        ):
+            if argument.annotation is not None:
+                expressions.append(argument.annotation)
+        for expression in expressions:
+            for descendant in ast.walk(expression):
+                definition_time_owner[descendant] = definition_node
 
     def owner_scope(node: ast.AST) -> str:
+        definition_owner = definition_time_owner.get(node)
         current = parents.get(node)
         while current is not None:
             if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if current is definition_owner:
+                    current = parents.get(current)
+                    continue
                 return current.name
             current = parents.get(current)
         return "<module>"
@@ -2635,9 +2751,56 @@ def resolve_local_action_path_expressions(source: str, source_path: str) -> str:
     )
 
 
+@lru_cache(maxsize=512)
+def workflow_pythonpath_values(text: str) -> tuple[str, ...]:
+    """Collect effective candidate PYTHONPATH values on active YAML paths."""
+    try:
+        payload = yaml.load(text, Loader=yaml.BaseLoader)
+    except yaml.YAMLError:
+        return ()
+    values: set[str] = set()
+
+    def visit(container: Any, inherited: str = "") -> None:
+        if not isinstance(container, dict) or statically_disabled_workflow_condition(
+            container.get("if")
+        ):
+            return
+        environment = container.get("env")
+        current = inherited
+        if isinstance(environment, dict) and "PYTHONPATH" in environment:
+            current = str(environment["PYTHONPATH"])
+        if current:
+            values.add(current)
+        steps = container.get("steps")
+        if isinstance(steps, list):
+            for step in steps:
+                visit(step, current)
+
+    if not isinstance(payload, dict):
+        return ()
+    root_env = payload.get("env")
+    root_value = (
+        str(root_env["PYTHONPATH"])
+        if isinstance(root_env, dict) and "PYTHONPATH" in root_env
+        else ""
+    )
+    if root_value:
+        values.add(root_value)
+    jobs = payload.get("jobs")
+    if isinstance(jobs, dict):
+        for job in jobs.values():
+            visit(job, root_value)
+    runs = payload.get("runs")
+    if isinstance(runs, dict):
+        visit(runs, root_value)
+    return tuple(sorted(values))
+
+
 @lru_cache(maxsize=1024)
 def workflow_run_records(
-    text: str, source_path: str = ""
+    text: str,
+    source_path: str = "",
+    inherited_pythonpaths: tuple[str, ...] = (),
 ) -> tuple[tuple[str, str, str], ...]:
     """Return effective ``(shell, source, working_directory)`` run records."""
     try:
@@ -2755,6 +2918,21 @@ def workflow_run_records(
                         )
         if not blocks and not isinstance(jobs, dict) and not isinstance(payload.get("runs"), dict):
             return (("", text, ""),)
+        if inherited_pythonpaths:
+            expanded: list[tuple[str, str, str]] = []
+            for shell, source, workdir in blocks:
+                if re.search(r"(?m)^PYTHONPATH=", source):
+                    expanded.append((shell, source, workdir))
+                    continue
+                expanded.extend(
+                    (
+                        shell,
+                        f"PYTHONPATH={shlex.quote(value)}\n{source}",
+                        workdir,
+                    )
+                    for value in inherited_pythonpaths
+                )
+            blocks = expanded
         return tuple(blocks)
     except (TypeError, yaml.YAMLError):
         return (("", text, ""),)
@@ -3021,11 +3199,16 @@ def audit_texts(
             (yaml_path, yaml_sources[yaml_path])
             for yaml_path in sorted(yaml_reachable)
         ]
+        caller_pythonpaths = workflow_pythonpath_values(text)
         workflow_yaml_texts[path] = sources
         run_records = [
             (yaml_path, shell, source, workdir)
             for yaml_path, yaml_text in sources
-            for shell, source, workdir in workflow_run_records(yaml_text, yaml_path)
+            for shell, source, workdir in workflow_run_records(
+                yaml_text,
+                yaml_path,
+                caller_pythonpaths if yaml_path != path else (),
+            )
         ]
         workflow_run_record_map[path] = run_records
         unsupported_declared_shells.extend(
@@ -3168,11 +3351,36 @@ def audit_texts(
         if bool(row.get("unresolved_pythonpath"))
     )
     failures.extend(
+        f"unresolved_python_stdin_pipeline:{path}:{row.get('yaml_path', path)}:"
+        f"line={row.get('line', 0)}"
+        for path, rows in workflow_direct_invocations.items()
+        for row in rows
+        if bool(row.get("unresolved_stdin_pipeline"))
+    )
+    failures.extend(
         f"unverified_direct_python_executable:{path}:{row.get('yaml_path', path)}:"
         f"line={row.get('line', 0)}:{row.get('entrypoint', '')}"
         for path, rows in workflow_direct_invocations.items()
         for row in rows
         if bool(row.get("direct_executable"))
+    )
+    failures.extend(
+        f"shell_expansion_budget_exceeded:{path}:{yaml_path}"
+        for path, records_for_workflow in workflow_run_record_map.items()
+        for yaml_path, _shell, source, _workdir in records_for_workflow
+        if any(
+            command == SHELL_EXPANSION_BUDGET_SENTINEL
+            for _line, command in shell_logical_commands(source)
+        )
+    )
+    failures.extend(
+        f"shell_expansion_budget_exceeded:{path}:{shell_path}"
+        for path, reachable_shells in workflow_shell_reachable.items()
+        for shell_path in reachable_shells
+        if any(
+            command == SHELL_EXPANSION_BUDGET_SENTINEL
+            for _line, command in shell_logical_commands(shell_sources[shell_path])
+        )
     )
     records: list[dict[str, Any]] = []
     expected_workflow_hashes = contract.get("tracked_workflow_sha256") or {}

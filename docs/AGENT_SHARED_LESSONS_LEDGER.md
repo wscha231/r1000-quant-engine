@@ -3838,6 +3838,27 @@ Expected contract:
   not equivalent to a copy for write-sink inventory.
 - A local Docker action's authority includes its complete tracked local build
   context, not only `action.yml` and the Dockerfile named by `runs.image`.
+- Shell function syntax includes one-line definitions and `function name {}`
+  as well as multiline `name() {}`. None of their bodies is executable until
+  a definite call is reached.
+- Literal `false && ...` and `true || ...` branches are statically unreachable
+  and cannot satisfy protected invocation or required-command contracts.
+- Caller workflow/job/step environments propagate into local composite
+  actions. A local action is not a fresh process environment boundary.
+- A definite unquoted command variable can word-split into an interpreter
+  launch; retokenize its literal value or fail closed.
+- Python stdin fed by a nonliteral pipeline is executable but unauditable.
+  Reject it unless the producer payload is statically available and parsed.
+- `importlib.util.spec_from_file_location` plus loader execution creates a
+  file-based Python execution edge even though no module-name import exists.
+- Local Node actions bind their full tracked action directory so transitive
+  `require`/`import` helpers cannot escape source identity.
+- Function defaults, annotations, and decorators execute at definition time;
+  protected calls in those expressions belong to the enclosing scope.
+- Canonicalize safe local `.` and `..` path components before matching tracked
+  files. Preserve repository escapes as unresolved external paths.
+- Any static-analysis traversal budget exhaustion is a blocking finding, never
+  permission to certify a partial execution graph.
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
