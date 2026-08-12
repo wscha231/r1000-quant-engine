@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -702,6 +703,18 @@ def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> No
         "workflow_authority_fingerprint_mismatch:" + observer in item
         for item in result["failures"]
     )
+
+    process_source = (
+        "import subprocess\n"
+        'command = ["python", "tools/build_new_target_writer.py"]\n'
+        "subprocess.run(command)\n"
+    )
+    process_findings = MOD.python_process_launches(process_source)
+    expected_expression_hash = hashlib.sha256(
+        '["python", "tools/build_new_target_writer.py"]'.encode("utf-8")
+    ).hexdigest()[:16]
+    assert len(process_findings) == 1
+    assert f"argv={expected_expression_hash}:" in process_findings[0]
 
     missing_import = deepcopy(accepted)
     missing_import.pop("tools/run287_crisis_policy.py")

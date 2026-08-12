@@ -653,8 +653,17 @@ def python_process_launches(source: str) -> tuple[str, ...]:
         expression = node.args[0]
         if isinstance(expression, ast.Name):
             expression = assignments.get(expression.id, expression)
+        # ``ast.dump`` is not a stable serialization contract across Python
+        # minor versions.  PR validation runs on 3.12 while developer hosts
+        # may be newer, so bind the exact source expression instead.  Parsed
+        # nodes have end-position metadata; the full source is a fail-closed
+        # fallback for synthetic or otherwise unlocatable nodes.
+        expression_source = ast.get_source_segment(source, expression) or source
+        expression_source = expression_source.replace("\r\n", "\n").replace(
+            "\r", "\n"
+        )
         expression_hash = hashlib.sha256(
-            ast.dump(expression, include_attributes=False).encode("utf-8")
+            expression_source.strip().encode("utf-8")
         ).hexdigest()[:16]
         candidates = sorted(
             {

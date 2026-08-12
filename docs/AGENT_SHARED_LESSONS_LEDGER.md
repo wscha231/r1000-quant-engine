@@ -3847,6 +3847,10 @@ Expected contract:
   indirect assignment primitives such as `eval`, `printf -v`, and namerefs.
 - Exact-head evidence requires the selected authority contract itself, not only
   the audit runtime, to be tracked at the audited Git head.
+- Do not hash `ast.dump()` output into a cross-runtime authority contract.
+  Python minor versions can serialize the same expression differently; bind
+  the normalized source segment so Windows development and Linux CI produce
+  the same process-launch fingerprint without weakening change detection.
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
