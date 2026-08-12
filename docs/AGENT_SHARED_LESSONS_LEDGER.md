@@ -4109,3 +4109,43 @@ Expected contract:
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
+
+## 2026-08-12 - Transitive workflow authority and exact-source identity
+
+- A reviewed shell Boolean guard is valid only when it is executable at the
+  top level. Reject indirect assignment primitives (`read`, `mapfile`,
+  `readarray`, `getopts`, `eval`, `printf -v`, namerefs) and do not accept a
+  matching guard nested under an inert conditional.
+- Static path resolution must preserve every assignment that can reach a write
+  site. A later harmless reassignment must not hide an earlier sensitive
+  destination from the authority fingerprint.
+- Process-launch inspection must treat positional argv and keyword `args=` as
+  the same sink and fingerprint unresolved dynamic argv fail-closed.
+- Shell mutation destinations can be carried through simple variables. Resolve
+  every known value and fingerprint an unresolved variable destination instead
+  of scanning only the literal command token.
+- Dynamic-import aliases include assignment expressions and equal-length tuple
+  or list destructuring; an alias spelling change must not bypass local import
+  reachability.
+- Python authority writes include filesystem copy, move, delete, rename, and
+  link operations as well as direct text/dataframe writes. Scope generic method
+  names carefully so domain-object `copy` or string `replace` is not mistaken
+  for a filesystem mutation.
+- Entrypoint cardinality is transitive. Count protected `.main()` calls inside
+  every Python source reachable from a workflow, not only direct workflow
+  command lines and inline heredocs.
+- `git status` can be suppressed with index flags. Bind audit inputs by
+  comparing each filter-normalized worktree object to its exact `HEAD:<path>`
+  blob, while retaining raw SHA-256 values as separate provenance.
+- Shell execution discovery must unwrap `time`, `exec -a`, environment and
+  command wrappers before deciding which tracked script is authoritative.
+- A GitHub Actions step with `shell: python` is executable Python source even
+  when it contains no `python ...` command token; include it in import, call,
+  process, and write-sink analysis.
+- Tracked repository shell scripts form a transitive call graph just like
+  Python modules. Traverse invoked scripts, bind them to source identity, and
+  include both their writes and their Python launches in the workflow
+  fingerprint.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.

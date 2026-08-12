@@ -28,7 +28,11 @@ def source_inputs() -> tuple[dict, dict[str, str], dict[str, str]]:
     contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
     tracked = MOD.tracked_workflow_paths(ROOT)
     workflows = MOD.workflow_texts(ROOT, tracked)
-    accepted = {**MOD.tracked_python_texts(ROOT), **workflows}
+    accepted = {
+        **MOD.tracked_python_texts(ROOT),
+        **MOD.tracked_shell_texts(ROOT),
+        **workflows,
+    }
     return contract, workflows, accepted
 
 
@@ -572,6 +576,8 @@ def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> No
         '\nimport importlib as il\nil.import_module("tools.build_new_target_writer").main()\n',
         '\nimport builtins as bi\nbi.__import__("tools.build_new_target_writer").main()\n',
         '\nimport importlib\nload = importlib.import_module\nload("tools.build_new_target_writer").main()\n',
+        '\nimport importlib\n(load := importlib.import_module)("tools.build_new_target_writer").main()\n',
+        '\nimport importlib\nload, unused = (importlib.import_module, None)\nload("tools.build_new_target_writer").main()\n',
     ):
         aliased_dynamic_sources = deepcopy(neutral_helper_sources)
         aliased_dynamic_sources["tools/run_daily_crisis_monitor.py"] += source
@@ -589,6 +595,7 @@ def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> No
         "rsync source.csv outputs/reports/operating_main_target_book.csv",
         "sed -i 's/a/b/' outputs/reports/operating_main_target_book.csv",
         "ln -sf source.csv outputs/reports/operating_main_target_book.csv",
+        "DEST=outputs/reports/operating_main_target_book.csv; rsync source.csv \"$DEST\"",
     ):
         shell_writer = deepcopy(workflows)
         shell_writer[observer] += f"\n  {shell_write}\n"
@@ -596,6 +603,60 @@ def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> No
         assert result["status"] == MOD.BLOCKED_STATUS
         assert any(
             "workflow_authority_fingerprint_mismatch:" + observer in item
+            for item in result["failures"]
+        )
+
+    shell_helper_workflow = deepcopy(workflows)
+    shell_helper_workflow[observer] += "\n  bash tools/authority_helper.sh\n"
+    shell_helper_sources = deepcopy(accepted)
+    shell_helper_sources["tools/authority_helper.sh"] = (
+        "#!/usr/bin/env bash\n"
+        "python tools/build_new_target_writer.py\n"
+    )
+    shell_helper_sources["tools/build_new_target_writer.py"] = (
+        "def main():\n    return None\n"
+    )
+    result = MOD.audit_texts(
+        contract, shell_helper_workflow, shell_helper_sources
+    )
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert "tools/authority_helper.sh" in result[
+        "workflow_shell_reachable_files"
+    ][observer]
+    assert any(
+        "workflow_authority_fingerprint_mismatch:" + observer in item
+        for item in result["failures"]
+    )
+
+    python_shell_workflow = deepcopy(workflows)
+    read_only = ".github/workflows/new_python_shell.yml"
+    python_shell_workflow[read_only] = (
+        "jobs:\n  run:\n    steps:\n"
+        "      - shell: python\n"
+        "        run: |\n"
+        "          import importlib\n"
+        "          importlib.import_module(\"tools.build_new_target_writer\").main()\n"
+    )
+    result = MOD.audit_texts(
+        contract, python_shell_workflow, shell_helper_sources
+    )
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "workflow_authority_fingerprint_mismatch:" + read_only in item
+        for item in result["failures"]
+    )
+
+    for wrapper in ("time", "exec -a harmless"):
+        wrapped_writer = deepcopy(workflows)
+        daily = contract["accepted_daily_workflow"]
+        wrapped_writer[daily] += (
+            f"\n  {wrapper} tools/build_run287_same_close_target_books.py\n"
+        )
+        result = MOD.audit_texts(contract, wrapped_writer, accepted)
+        assert result["status"] == MOD.BLOCKED_STATUS
+        assert any(
+            "entrypoint_invocation_count_mismatch:"
+            "tools/build_run287_same_close_target_books.py" in item
             for item in result["failures"]
         )
 
@@ -644,6 +705,11 @@ def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> No
         '\nfrom pathlib import Path\npath = Path("outputs/reports/operating_main_target_book.csv")\npath.open("w").write("x")\n',
         '\ndestination = "outputs/reports/operating_main_target_book.csv"\nopen(destination, "w").write("x")\n',
         '\nfrom pathlib import Path\npath = Path("outputs/reports/operating_main_target_book.csv")\npath.write_text("x")\n',
+        '\nimport shutil\nshutil.copyfile("source.csv", "outputs/reports/operating_main_target_book.csv")\n',
+        '\nfrom shutil import copytree\ncopytree("source", "outputs/reports/operating_main_target_book")\n',
+        '\nimport shutil\nshutil.rmtree("outputs/reports/operating_main_target_book")\n',
+        '\nfrom pathlib import Path\nPath("outputs/reports/operating_main_target_book.csv").unlink()\n',
+        '\nfrom pathlib import Path\np = Path("outputs/reports/operating_main_target_book.csv")\np = Path("outputs/harmless.txt")\np.unlink()\n',
     ):
         qualified_open_sources = deepcopy(accepted)
         qualified_open_sources["tools/run_daily_crisis_monitor.py"] += source
@@ -690,6 +756,45 @@ def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> No
     assert result["status"] == MOD.BLOCKED_STATUS
     assert any(
         "workflow_authority_fingerprint_mismatch:" + observer in item
+        for item in result["failures"]
+    )
+
+    keyword_subprocess_sources = deepcopy(accepted)
+    keyword_subprocess_sources["tools/run_daily_crisis_monitor.py"] += (
+        "\nimport subprocess\n"
+        'subprocess.run(args=["python", "tools/build_new_target_writer.py"])\n'
+    )
+    result = MOD.audit_texts(contract, workflows, keyword_subprocess_sources)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "workflow_authority_fingerprint_mismatch:" + observer in item
+        for item in result["failures"]
+    )
+
+    reassigned_process_sources = deepcopy(accepted)
+    reassigned_process_sources["tools/run_daily_crisis_monitor.py"] += (
+        "\nimport subprocess\n"
+        'command = ["python", "tools/build_new_target_writer.py"]\n'
+        'command = ["python", "tools/harmless.py"]\n'
+        "subprocess.run(command)\n"
+    )
+    result = MOD.audit_texts(contract, workflows, reassigned_process_sources)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "workflow_authority_fingerprint_mismatch:" + observer in item
+        for item in result["failures"]
+    )
+
+    transitive_protected_call = deepcopy(accepted)
+    transitive_protected_call["tools/run_daily_crisis_monitor.py"] += (
+        "\nfrom tools import build_run287_same_close_target_books as protected\n"
+        "protected.main()\n"
+    )
+    result = MOD.audit_texts(contract, workflows, transitive_protected_call)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "entrypoint_invocation_count_mismatch:"
+        "tools/build_run287_same_close_target_books.py" in item
         for item in result["failures"]
     )
 
@@ -850,6 +955,36 @@ def test_execution_defaults_are_bound_to_named_inputs() -> None:
         for item in result["failures"]
     )
 
+    read_layer4 = deepcopy(workflows)
+    read_layer4[path] = read_layer4[path].replace(
+        '          THROTTLE_FLAG=""',
+        '          read EXECUTE_FLAG\n          THROTTLE_FLAG=""',
+        1,
+    )
+    result = MOD.audit_texts(contract, read_layer4, accepted)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "workflow_shell_flag_derivation_mismatch:"
+        ".github/workflows/layer4_monthly_swap.yml:EXECUTE_FLAG" in item
+        for item in result["failures"]
+    )
+
+    inert_layer4 = deepcopy(workflows)
+    inert_layer4[path] = inert_layer4[path].replace(
+        guarded,
+        "          if false; then\n"
+        + "\n".join(f"  {line}" for line in guarded.splitlines())
+        + "\n          fi",
+        1,
+    )
+    result = MOD.audit_texts(contract, inert_layer4, accepted)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "workflow_shell_flag_derivation_mismatch:"
+        ".github/workflows/layer4_monthly_swap.yml:EXECUTE_FLAG" in item
+        for item in result["failures"]
+    )
+
     eager_after_close = deepcopy(workflows)
     path = ".github/workflows/after_close_daily.yml"
     eager_after_close[path] = eager_after_close[path].replace(
@@ -894,6 +1029,23 @@ def test_dirty_input_is_not_attributed_to_head_and_defaults_follow_repo_root() -
         assert dirty["source_identity_status"] == "DIRTY_INPUTS_NOT_HEAD_BOUND"
         assert dirty["source_commit_sha"] == ""
         assert dirty["dirty_input_records"]
+
+        tracked.write_text("clean\n", encoding="utf-8")
+        subprocess.run(
+            ["git", "update-index", "--assume-unchanged", "tracked.txt"],
+            cwd=root,
+            check=True,
+        )
+        tracked.write_text("hidden dirty\n", encoding="utf-8")
+        hidden_dirty = MOD.git_source_identity(root, ["tracked.txt"])
+        assert hidden_dirty["source_identity_status"] == "DIRTY_INPUTS_NOT_HEAD_BOUND"
+        assert hidden_dirty["source_commit_sha"] == ""
+        assert "HEAD_BYTE_MISMATCH:tracked.txt" in hidden_dirty["dirty_input_records"]
+        subprocess.run(
+            ["git", "update-index", "--no-assume-unchanged", "tracked.txt"],
+            cwd=root,
+            check=True,
+        )
 
         assert MOD.resolve_repo_path(root, MOD.DEFAULT_CONTRACT) == (
             root / "docs/run287_dynamic_portfolio_call_path_contract.json"

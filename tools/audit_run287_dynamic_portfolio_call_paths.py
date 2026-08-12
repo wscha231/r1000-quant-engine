@@ -126,6 +126,32 @@ def tracked_python_texts(root: Path) -> dict[str, str]:
     }
 
 
+def tracked_shell_paths(root: Path) -> list[str]:
+    try:
+        raw = subprocess.check_output(
+            ["git", "ls-files", "--", "*.sh"],
+            cwd=root,
+            timeout=30,
+            stderr=subprocess.DEVNULL,
+        ).decode("utf-8")
+        paths = [
+            line.strip().replace("\\", "/")
+            for line in raw.splitlines()
+            if line.strip()
+        ]
+    except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
+        paths = [path.relative_to(root).as_posix() for path in root.rglob("*.sh")]
+    return sorted(set(paths))
+
+
+def tracked_shell_texts(root: Path) -> dict[str, str]:
+    return {
+        path: (root / path).read_text(encoding="utf-8")
+        for path in tracked_shell_paths(root)
+        if (root / path).is_file()
+    }
+
+
 def shell_logical_commands(text: str) -> list[tuple[int, str]]:
     commands: list[tuple[int, str]] = []
     parts: list[str] = []
@@ -212,10 +238,29 @@ def shell_command_position(tokens: list[str], index: int) -> bool:
         if SHELL_ASSIGNMENT_WORD.fullmatch(token):
             cursor += 1
             continue
-        if executable in {"command", "exec", "nohup"}:
+        if executable == "exec":
             cursor += 1
-            while cursor < index and tokens[cursor].startswith("-"):
-                cursor += 1
+            while cursor < index:
+                value = tokens[cursor]
+                if value == "-a":
+                    cursor += 2
+                    continue
+                if value.startswith("-"):
+                    cursor += 1
+                    continue
+                break
+            continue
+        if executable in {"command", "nohup", "time"}:
+            cursor += 1
+            while cursor < index:
+                value = tokens[cursor]
+                if executable == "time" and value in {"-f", "--format", "-o", "--output"}:
+                    cursor += 2
+                    continue
+                if value.startswith("-"):
+                    cursor += 1
+                    continue
+                break
             continue
         if executable == "env":
             cursor += 1
@@ -440,18 +485,30 @@ def dynamic_import_callables(tree: ast.AST) -> set[str]:
     while changed:
         changed = False
         for node in ast.walk(tree):
-            targets: list[ast.AST] = []
-            value: ast.AST | None = None
+            pairs: list[tuple[ast.AST, ast.AST]] = []
             if isinstance(node, ast.Assign):
-                targets = list(node.targets)
-                value = node.value
-            elif isinstance(node, ast.AnnAssign):
-                targets = [node.target]
-                value = node.value
-            if value is None or dotted_expression_name(value) not in callables:
-                continue
-            for target in targets:
-                if isinstance(target, ast.Name) and target.id not in callables:
+                pairs.extend((target, node.value) for target in node.targets)
+            elif isinstance(node, ast.AnnAssign) and node.value is not None:
+                pairs.append((node.target, node.value))
+            elif isinstance(node, ast.NamedExpr):
+                pairs.append((node.target, node.value))
+            expanded: list[tuple[ast.AST, ast.AST]] = []
+            while pairs:
+                target, value = pairs.pop()
+                if (
+                    isinstance(target, (ast.Tuple, ast.List))
+                    and isinstance(value, (ast.Tuple, ast.List))
+                    and len(target.elts) == len(value.elts)
+                ):
+                    pairs.extend(zip(target.elts, value.elts))
+                else:
+                    expanded.append((target, value))
+            for target, value in expanded:
+                if (
+                    isinstance(target, ast.Name)
+                    and dotted_expression_name(value) in callables
+                    and target.id not in callables
+                ):
                     callables.add(target.id)
                     changed = True
     return callables
@@ -532,6 +589,15 @@ PROCESS_CALL_BASENAMES = {
 }
 
 
+def process_argv_expression(node: ast.Call) -> ast.AST | None:
+    if node.args:
+        return node.args[0]
+    return next(
+        (keyword.value for keyword in node.keywords if keyword.arg == "args"),
+        None,
+    )
+
+
 @lru_cache(maxsize=4096)
 def local_process_candidates(source: str) -> tuple[str, ...]:
     """Return literal Python entrypoints passed through process-launch calls."""
@@ -554,13 +620,15 @@ def local_process_candidates(source: str) -> tuple[str, ...]:
 
     expressions: list[ast.AST] = []
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or not node.args:
+        if not isinstance(node, ast.Call):
             continue
         name = dotted_expression_name(node.func).casefold()
         basename = name.rsplit(".", 1)[-1]
         if basename not in PROCESS_CALL_BASENAMES:
             continue
-        first = node.args[0]
+        first = process_argv_expression(node)
+        if first is None:
+            continue
         if isinstance(first, ast.Name) and first.id in assignments:
             expressions.extend(assignments[first.id])
         else:
@@ -628,21 +696,21 @@ def python_process_launches(source: str) -> tuple[str, ...]:
                 }:
                     callables.add(alias.asname or alias.name)
     normalized_callables = {value.casefold() for value in callables}
-    assignments: dict[str, ast.AST] = {}
+    assignments: dict[str, list[ast.AST]] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign):
             for target in node.targets:
                 if isinstance(target, ast.Name):
-                    assignments[target.id] = node.value
+                    assignments.setdefault(target.id, []).append(node.value)
         elif (
             isinstance(node, ast.AnnAssign)
             and isinstance(node.target, ast.Name)
             and node.value is not None
         ):
-            assignments[node.target.id] = node.value
+            assignments.setdefault(node.target.id, []).append(node.value)
     findings: set[str] = set()
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or not node.args:
+        if not isinstance(node, ast.Call):
             continue
         name = dotted_expression_name(node.func)
         if (
@@ -650,35 +718,41 @@ def python_process_launches(source: str) -> tuple[str, ...]:
             and name.rsplit(".", 1)[-1].casefold() not in wrappers
         ):
             continue
-        expression = node.args[0]
-        if isinstance(expression, ast.Name):
-            expression = assignments.get(expression.id, expression)
+        first = process_argv_expression(node)
+        if first is None:
+            continue
+        expressions = (
+            assignments.get(first.id, [first])
+            if isinstance(first, ast.Name)
+            else [first]
+        )
         # ``ast.dump`` is not a stable serialization contract across Python
         # minor versions.  PR validation runs on 3.12 while developer hosts
         # may be newer, so bind the exact source expression instead.  Parsed
         # nodes have end-position metadata; the full source is a fail-closed
         # fallback for synthetic or otherwise unlocatable nodes.
-        expression_source = ast.get_source_segment(source, expression) or source
-        expression_source = expression_source.replace("\r\n", "\n").replace(
-            "\r", "\n"
-        )
-        expression_hash = hashlib.sha256(
-            expression_source.strip().encode("utf-8")
-        ).hexdigest()[:16]
-        candidates = sorted(
-            {
-                normalize_script_entrypoint(str(value.value))
-                for value in ast.walk(expression)
-                if isinstance(value, ast.Constant)
-                and isinstance(value.value, str)
-                and str(value.value).endswith(".py")
-            }
-        )
-        detail = ",".join(candidates) if candidates else "UNRESOLVED_LOCAL_PROCESS"
-        findings.add(
-            f"line={getattr(node, 'lineno', 0)}:{name or '<call>'}:"
-            f"argv={expression_hash}:{detail}"
-        )
+        for expression in expressions:
+            expression_source = ast.get_source_segment(source, expression) or source
+            expression_source = expression_source.replace("\r\n", "\n").replace(
+                "\r", "\n"
+            )
+            expression_hash = hashlib.sha256(
+                expression_source.strip().encode("utf-8")
+            ).hexdigest()[:16]
+            candidates = sorted(
+                {
+                    normalize_script_entrypoint(str(value.value))
+                    for value in ast.walk(expression)
+                    if isinstance(value, ast.Constant)
+                    and isinstance(value.value, str)
+                    and str(value.value).endswith(".py")
+                }
+            )
+            detail = ",".join(candidates) if candidates else "UNRESOLVED_LOCAL_PROCESS"
+            findings.add(
+                f"line={getattr(node, 'lineno', 0)}:{name or '<call>'}:"
+                f"argv={expression_hash}:{detail}"
+            )
     return tuple(sorted(findings))
 
 
@@ -729,6 +803,8 @@ def python_main_call_counts(source: str) -> tuple[tuple[str, int], ...]:
 
 def dotted_expression_name(node: ast.AST) -> str:
     """Return a dotted Name/Attribute expression, or an empty string."""
+    if isinstance(node, ast.NamedExpr):
+        return dotted_expression_name(node.target)
     if isinstance(node, ast.Name):
         return node.id
     if isinstance(node, ast.Attribute):
@@ -737,7 +813,9 @@ def dotted_expression_name(node: ast.AST) -> str:
     return ""
 
 
-def embedded_python_sources(text: str) -> list[dict[str, Any]]:
+def embedded_python_sources(
+    text: str, *, workflow_text: str | None = None
+) -> list[dict[str, Any]]:
     sources = [
         {
             "line": int(row["line"]),
@@ -755,6 +833,8 @@ def embedded_python_sources(text: str) -> list[dict[str, Any]]:
         }
         for block in inline_python_blocks(text)
     )
+    if workflow_text is not None:
+        sources.extend(workflow_python_shell_sources(workflow_text))
     return sources
 
 
@@ -871,11 +951,14 @@ def shell_boolean_flag_guard_matches(
     values = [next(value for value in match.groups() if value is not None) for match in assignment.finditer(text)]
     if values != ["", enabled_value]:
         return False
+    # The guard itself must be top-level.  Allowing arbitrary indentation lets
+    # an inert wrapper such as ``if false; then`` make the reviewed text appear
+    # present without ever deriving the flag at runtime.
     block = re.compile(
-        rf"^\s*{re.escape(variable)}=\"\"\s*$\n"
-        rf"\s*if \[ \"\$\{{\{{ github\.event\.inputs\.{re.escape(input_name)} \}}\}}\" = \"true\" \]; then\s*$\n"
-        rf"\s*{re.escape(variable)}=\"{re.escape(enabled_value)}\"\s*$\n"
-        rf"\s*fi\s*$",
+        rf"^{re.escape(variable)}=\"\"\s*$\n"
+        rf"^if \[ \"\$\{{\{{ github\.event\.inputs\.{re.escape(input_name)} \}}\}}\" = \"true\" \]; then\s*$\n"
+        rf"^  {re.escape(variable)}=\"{re.escape(enabled_value)}\"\s*$\n"
+        rf"^fi\s*$",
         re.MULTILINE,
     )
     return block.search(text) is not None
@@ -922,7 +1005,7 @@ def shell_uses_indirect_assignment(text: str) -> bool:
             executable = token.rsplit("/", 1)[-1]
             if not shell_command_position(tokens, index):
                 continue
-            if executable == "eval":
+            if executable in {"eval", "read", "mapfile", "readarray", "getopts"}:
                 return True
             if executable == "printf" and "-v" in tokens[index + 1:]:
                 return True
@@ -934,25 +1017,38 @@ def shell_uses_indirect_assignment(text: str) -> bool:
     return False
 
 
-def literal_path_value(node: ast.AST | None, names: Mapping[str, str]) -> str | None:
+def literal_path_values(
+    node: ast.AST | None, names: Mapping[str, set[str]]
+) -> set[str]:
     if node is None:
-        return None
+        return set()
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
-        return str(node.value)
+        return {str(node.value)}
     if isinstance(node, ast.Name):
-        return names.get(node.id)
+        return set(names.get(node.id, set()))
     if isinstance(node, ast.Call):
         func = dotted_expression_name(node.func).rsplit(".", 1)[-1]
         if func in {"Path", "PurePath", "PurePosixPath", "PureWindowsPath"}:
-            values = [literal_path_value(arg, names) for arg in node.args]
-            if values and all(value is not None for value in values):
-                return "/".join(str(value).rstrip("/\\") for value in values)
+            parts = [literal_path_values(arg, names) for arg in node.args]
+            if parts and all(part for part in parts):
+                combined = {""}
+                for choices in parts:
+                    combined = {
+                        f"{left.rstrip('/\\')}/{right.lstrip('/\\')}"
+                        if left else right
+                        for left in combined
+                        for right in choices
+                    }
+                return combined
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
-        left = literal_path_value(node.left, names)
-        right = literal_path_value(node.right, names)
-        if left is not None and right is not None:
-            return f"{left.rstrip('/\\')}/{right.lstrip('/\\')}"
-    return None
+        left = literal_path_values(node.left, names)
+        right = literal_path_values(node.right, names)
+        return {
+            f"{a.rstrip('/\\')}/{b.lstrip('/\\')}"
+            for a in left
+            for b in right
+        }
+    return set()
 
 
 @lru_cache(maxsize=4096)
@@ -964,27 +1060,46 @@ def authority_write_sinks(
         tree = ast.parse(source)
     except SyntaxError:
         return ()
-    write_methods = {
-        "write_text", "write_bytes", "to_csv", "to_json", "to_parquet",
-        "rename", "replace",
+    path_unique_methods = {
+        "write_text", "write_bytes", "unlink", "rmdir", "touch", "link_to",
+        "symlink_to", "hardlink_to",
     }
+    generic_output_methods = {"to_csv", "to_json", "to_parquet"}
+    path_move_methods = {"rename", "replace"}
+    copy_functions = {
+        f"shutil.{name}"
+        for name in ("copy", "copy2", "copyfile", "copytree", "move")
+    }
+    delete_functions = {
+        f"os.{name}" for name in ("remove", "unlink", "rmdir", "removedirs")
+    }
+    link_functions = {
+        f"os.{name}" for name in ("link", "symlink", "rename", "replace")
+    }
+    delete_functions.add("shutil.rmtree")
     findings: set[str] = set()
-    literal_names: dict[str, str] = {}
-    for node in ast.walk(tree):
-        targets: list[ast.AST] = []
-        value: ast.AST | None = None
-        if isinstance(node, ast.Assign):
-            targets = list(node.targets)
-            value = node.value
-        elif isinstance(node, ast.AnnAssign):
-            targets = [node.target]
-            value = node.value
-        resolved = literal_path_value(value, literal_names)
-        if resolved is None:
-            continue
-        for target in targets:
-            if isinstance(target, ast.Name):
-                literal_names[target.id] = resolved
+    literal_names: dict[str, set[str]] = {}
+    changed = True
+    while changed:
+        changed = False
+        for node in ast.walk(tree):
+            targets: list[ast.AST] = []
+            value: ast.AST | None = None
+            if isinstance(node, ast.Assign):
+                targets = list(node.targets)
+                value = node.value
+            elif isinstance(node, ast.AnnAssign):
+                targets = [node.target]
+                value = node.value
+            resolved = literal_path_values(value, literal_names)
+            if not resolved:
+                continue
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    existing = literal_names.setdefault(target.id, set())
+                    before = len(existing)
+                    existing.update(resolved)
+                    changed |= len(existing) != before
     open_aliases = {"open", "io.open", "builtins.open"}
     for imported in ast.walk(tree):
         if isinstance(imported, ast.Import):
@@ -992,10 +1107,43 @@ def authority_write_sinks(
                 local = alias.asname or alias.name
                 if alias.name in {"io", "builtins"}:
                     open_aliases.add(f"{local}.open")
-        elif isinstance(imported, ast.ImportFrom) and imported.module in {"io", "builtins"}:
+                elif alias.name == "shutil":
+                    copy_functions.update(
+                        f"{local}.{name}"
+                        for name in (
+                            "copy", "copy2", "copyfile", "copytree", "move"
+                        )
+                    )
+                    delete_functions.add(f"{local}.rmtree")
+                elif alias.name == "os":
+                    delete_functions.update(
+                        f"{local}.{name}"
+                        for name in ("remove", "unlink", "rmdir", "removedirs")
+                    )
+                    link_functions.update(
+                        f"{local}.{name}"
+                        for name in ("link", "symlink", "rename", "replace")
+                    )
+        elif isinstance(imported, ast.ImportFrom) and imported.module in {
+            "io", "builtins", "shutil", "os"
+        }:
             for alias in imported.names:
                 if alias.name == "open":
                     open_aliases.add(alias.asname or alias.name)
+                elif imported.module == "shutil" and alias.name in {
+                    "copy", "copy2", "copyfile", "copytree", "move"
+                }:
+                    copy_functions.add(alias.asname or alias.name)
+                elif imported.module == "shutil" and alias.name == "rmtree":
+                    delete_functions.add(alias.asname or alias.name)
+                elif imported.module == "os" and alias.name in {
+                    "remove", "unlink", "rmdir", "removedirs"
+                }:
+                    delete_functions.add(alias.asname or alias.name)
+                elif imported.module == "os" and alias.name in {
+                    "link", "symlink", "rename", "replace"
+                }:
+                    link_functions.add(alias.asname or alias.name)
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -1006,10 +1154,10 @@ def authority_write_sinks(
             and func_name not in open_aliases
         )
         if func_name in open_aliases or path_method_open:
-            literal_path = (
-                literal_path_value(node.func.value, literal_names)
+            literal_paths = (
+                literal_path_values(node.func.value, literal_names)
                 if path_method_open
-                else literal_path_value(node.args[0] if node.args else None, literal_names)
+                else literal_path_values(node.args[0] if node.args else None, literal_names)
             )
             mode = "r"
             mode_position = 0 if path_method_open else 1
@@ -1021,45 +1169,76 @@ def authority_write_sinks(
                 if keyword.arg == "mode" and isinstance(keyword.value, ast.Constant):
                     mode = str(keyword.value.value)
             sensitive = sorted(
-                term for term in sensitive_terms if term in (literal_path or "").casefold()
+                {
+                    term
+                    for literal_path in literal_paths
+                    for term in sensitive_terms
+                    if term in literal_path.casefold()
+                }
             )
-            if any(marker in mode for marker in "wax+") and (sensitive or literal_path is None):
+            if any(marker in mode for marker in "wax+") and (sensitive or not literal_paths):
                 findings.add(
                     f"line={getattr(node, 'lineno', 0)}:open:"
                     f"{','.join(sensitive) if sensitive else 'UNRESOLVED_DESTINATION'}"
                 )
             continue
-        if not isinstance(node.func, ast.Attribute):
-            continue
-        method = node.func.attr
-        if method not in write_methods:
-            continue
-        destinations: list[str | None] = []
-        if method in {"write_text", "write_bytes"}:
-            destinations.append(literal_path_value(node.func.value, literal_names))
-        elif method in {"to_csv", "to_json", "to_parquet"}:
-            destinations.append(
-                literal_path_value(node.args[0] if node.args else None, literal_names)
+        func_name = dotted_expression_name(node.func)
+        method = (
+            node.func.attr
+            if isinstance(node.func, ast.Attribute)
+            else func_name.rsplit(".", 1)[-1]
+        )
+        destinations: set[str] = set()
+        unresolved = False
+        if isinstance(node.func, ast.Attribute) and method in (
+            path_unique_methods | generic_output_methods | path_move_methods
+        ):
+            if method in path_unique_methods:
+                destinations.update(literal_path_values(node.func.value, literal_names))
+                unresolved = not destinations
+            elif method in generic_output_methods:
+                destinations.update(
+                    literal_path_values(node.args[0] if node.args else None, literal_names)
+                )
+                unresolved = not destinations
+            else:
+                receiver = literal_path_values(node.func.value, literal_names)
+                destination = literal_path_values(
+                    node.args[0] if node.args else None, literal_names
+                )
+                if not receiver and not destination:
+                    continue
+                destinations.update(receiver)
+                destinations.update(destination)
+                unresolved = not destination
+        elif func_name in copy_functions:
+            destinations.update(
+                literal_path_values(node.args[1] if len(node.args) > 1 else None, literal_names)
             )
+            unresolved = not destinations
+        elif func_name in delete_functions:
+            destinations.update(
+                literal_path_values(node.args[0] if node.args else None, literal_names)
+            )
+            unresolved = not destinations
+        elif func_name in link_functions:
+            destinations.update(
+                literal_path_values(node.args[1] if len(node.args) > 1 else None, literal_names)
+            )
+            unresolved = not destinations
         else:
-            destinations.append(literal_path_value(node.func.value, literal_names))
-            destinations.append(
-                literal_path_value(node.args[0] if node.args else None, literal_names)
-            )
+            continue
         sensitive = sorted(
             {
                 term
                 for literal in destinations
-                if literal is not None
                 for term in sensitive_terms
                 if term in literal.casefold()
             }
         )
         if sensitive:
             findings.add(f"line={getattr(node, 'lineno', 0)}:{method}:{','.join(sensitive)}")
-        elif method not in {"rename", "replace"} and any(
-            destination is None for destination in destinations
-        ):
+        elif unresolved:
             findings.add(
                 f"line={getattr(node, 'lineno', 0)}:{method}:UNRESOLVED_DESTINATION"
             )
@@ -1072,6 +1251,7 @@ def shell_authority_write_sinks(
 ) -> tuple[str, ...]:
     """Inventory literal authority-sensitive destinations written by shell."""
     findings: set[str] = set()
+    literal_names: dict[str, set[str]] = {}
     redirections = {">", ">>", ">|", "&>", "&>>"}
     copy_commands = {
         "cp", "mv", "install", "tee", "touch", "truncate", "rsync", "ln",
@@ -1081,19 +1261,54 @@ def shell_authority_write_sinks(
         normalized = value.casefold()
         return tuple(term for term in sensitive_terms if term in normalized)
 
+    def resolved_values(value: str) -> set[str]:
+        variables = re.findall(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))", value)
+        if not variables:
+            return {value}
+        values = {value}
+        for braced, plain in variables:
+            name = braced or plain
+            choices = literal_names.get(name, set())
+            if not choices:
+                return set()
+            next_values: set[str] = set()
+            for current in values:
+                for choice in choices:
+                    next_values.add(
+                        current.replace(f"${{{name}}}", choice).replace(f"${name}", choice)
+                    )
+            values = next_values
+        return values
+
+    def record_destination(line: int, kind: str, destination: str) -> None:
+        values = resolved_values(destination)
+        if not values:
+            findings.add(f"line={line}:{kind}:UNRESOLVED_DESTINATION")
+            return
+        for value in sorted(values):
+            terms = sensitive(value)
+            if terms:
+                findings.add(f"line={line}:{kind}:{value}:{','.join(terms)}")
+
     for line, command in shell_logical_commands(text):
         try:
             tokens = shell_tokens(command)
         except ValueError:
             continue
+        for token in tokens:
+            if token in SHELL_COMMAND_BOUNDARIES:
+                continue
+            assignment = SHELL_ASSIGNMENT_WORD.fullmatch(token)
+            if not assignment:
+                continue
+            name, value = token.split("=", 1)
+            resolved = resolved_values(value)
+            if resolved:
+                literal_names.setdefault(name, set()).update(resolved)
         for index, token in enumerate(tokens[:-1]):
             if token in redirections:
                 destination = tokens[index + 1]
-                terms = sensitive(destination)
-                if terms:
-                    findings.add(
-                        f"line={line}:redirect:{destination}:{','.join(terms)}"
-                    )
+                record_destination(line, "redirect", destination)
         executable_index = next(
             (
                 index
@@ -1111,11 +1326,7 @@ def shell_authority_write_sinks(
             ]
             destinations = operands if executable in {"tee", "touch", "truncate"} else operands[-1:]
             for destination in destinations:
-                terms = sensitive(destination)
-                if terms:
-                    findings.add(
-                        f"line={line}:{executable}:{destination}:{','.join(terms)}"
-                    )
+                record_destination(line, executable, destination)
         sed_index = next(
             (
                 index
@@ -1129,11 +1340,8 @@ def shell_authority_write_sinks(
             for value in tokens[sed_index + 1:]
         ):
             for destination in tokens[sed_index + 1:]:
-                terms = sensitive(destination)
-                if terms:
-                    findings.add(
-                        f"line={line}:sed-in-place:{destination}:{','.join(terms)}"
-                    )
+                if not destination.startswith("-"):
+                    record_destination(line, "sed-in-place", destination)
         recognized = redirections | copy_commands | {"sed", "dd"}
         for index, token in enumerate(tokens):
             if not shell_command_position(tokens, index):
@@ -1152,11 +1360,7 @@ def shell_authority_write_sinks(
         for token in tokens:
             if token.startswith("of="):
                 destination = token[3:]
-                terms = sensitive(destination)
-                if terms:
-                    findings.add(
-                        f"line={line}:dd:{destination}:{','.join(terms)}"
-                    )
+                record_destination(line, "dd", destination)
     return tuple(sorted(findings))
 
 
@@ -1166,6 +1370,7 @@ def authority_fingerprint(
     python_write_sinks: list[str],
     python_process_launches: list[str],
     shell_write_sinks: list[str],
+    reachable_shell_scripts: list[str] | None = None,
 ) -> str:
     return canonical_sha256(
         {
@@ -1173,6 +1378,7 @@ def authority_fingerprint(
             "python_write_sinks": sorted(python_write_sinks),
             "python_process_launches": sorted(python_process_launches),
             "shell_write_sinks": sorted(shell_write_sinks),
+            "reachable_shell_scripts": sorted(reachable_shell_scripts or []),
         }
     )
 
@@ -1217,14 +1423,14 @@ def workflow_dispatch_input_default(text: str, input_name: str) -> str | None:
 
 
 @lru_cache(maxsize=512)
-def workflow_run_text(text: str) -> str:
-    """Return only executable GitHub Actions `run` blocks, fail-open to raw fixtures."""
+def workflow_run_blocks(text: str) -> tuple[tuple[str, str], ...]:
+    """Return ``(shell, source)`` for executable GitHub Actions run steps."""
     try:
         payload = yaml.load(text, Loader=yaml.BaseLoader)
         jobs = payload.get("jobs") if isinstance(payload, dict) else None
         if not isinstance(jobs, dict):
-            return text
-        blocks: list[str] = []
+            return (("", text),)
+        blocks: list[tuple[str, str]] = []
         for job in jobs.values():
             if not isinstance(job, dict):
                 continue
@@ -1233,10 +1439,109 @@ def workflow_run_text(text: str) -> str:
                 continue
             for step in steps:
                 if isinstance(step, dict) and isinstance(step.get("run"), str):
-                    blocks.append(str(step["run"]))
-        return "\n".join(blocks)
+                    blocks.append(
+                        (str(step.get("shell") or ""), str(step["run"]))
+                    )
+        return tuple(blocks)
     except (TypeError, yaml.YAMLError):
-        return text
+        return (("", text),)
+
+
+def python_declared_shell(value: str) -> bool:
+    shell = str(value or "").strip().replace("\\", "/").casefold()
+    executable = shell.split()[0].rsplit("/", 1)[-1] if shell else ""
+    return bool(re.fullmatch(r"python(?:3(?:\.\d+)?)?", executable))
+
+
+@lru_cache(maxsize=512)
+def workflow_run_text(text: str) -> str:
+    """Return non-Python run blocks for shell parsing and flag validation."""
+    return "\n".join(
+        source
+        for shell, source in workflow_run_blocks(text)
+        if not python_declared_shell(shell)
+    )
+
+
+@lru_cache(maxsize=512)
+def workflow_python_shell_sources(text: str) -> tuple[dict[str, Any], ...]:
+    return tuple(
+        {"line": index, "kind": "declared-python-shell", "source": source}
+        for index, (shell, source) in enumerate(workflow_run_blocks(text), start=1)
+        if python_declared_shell(shell)
+    )
+
+
+def shell_script_candidates(text: str) -> set[str]:
+    candidates: set[str] = set()
+    shells = {"bash", "sh", "dash", "zsh", "ksh"}
+    for _line, command in shell_logical_commands(text):
+        try:
+            tokens = shell_tokens(command)
+        except ValueError:
+            continue
+        for index, token in enumerate(tokens):
+            if not shell_command_position(tokens, index):
+                continue
+            executable = token.rsplit("/", 1)[-1]
+            if SHELL_ASSIGNMENT_WORD.fullmatch(token) or executable in {
+                "exec", "command", "nohup", "time", "env"
+            }:
+                continue
+            candidate = ""
+            if token.replace("\\", "/").endswith(".sh"):
+                candidate = normalize_script_entrypoint(token)
+            elif executable in shells:
+                cursor = index + 1
+                while cursor < len(tokens):
+                    value = tokens[cursor]
+                    if value == "-c" or (
+                        value.startswith("-") and "c" in value[1:]
+                    ):
+                        break
+                    if value.startswith("-"):
+                        cursor += 1
+                        continue
+                    if value.replace("\\", "/").endswith(".sh"):
+                        candidate = normalize_script_entrypoint(value)
+                    break
+            if candidate:
+                candidates.add(candidate)
+                break
+            if executable in shells:
+                break
+    return candidates
+
+
+def local_shell_script_paths(text: str, known_paths: set[str]) -> set[str]:
+    result: set[str] = set()
+    for candidate in shell_script_candidates(text):
+        if candidate in known_paths:
+            result.add(candidate)
+            continue
+        matches = sorted(
+            path for path in known_paths if Path(path).name == Path(candidate).name
+        )
+        if len(matches) == 1:
+            result.add(matches[0])
+    return result
+
+
+def reachable_shell_paths(
+    roots: set[str], sources: Mapping[str, str]
+) -> set[str]:
+    known = set(sources)
+    seen: set[str] = set()
+    stack = sorted(root for root in roots if root in known)
+    while stack:
+        path = stack.pop()
+        if path in seen:
+            continue
+        seen.add(path)
+        for child in sorted(local_shell_script_paths(sources[path], known)):
+            if child not in seen:
+                stack.append(child)
+    return seen
 
 
 def audit_texts(
@@ -1246,10 +1551,60 @@ def audit_texts(
     known_python_paths: set[str] | None = None,
 ) -> dict[str, Any]:
     validate_contract(contract)
-    known_paths = set(accepted_files) if known_python_paths is None else set(known_python_paths)
+    known_paths = (
+        {path for path in accepted_files if path.endswith(".py")}
+        if known_python_paths is None
+        else set(known_python_paths)
+    )
+    shell_sources = {
+        path: source
+        for path, source in accepted_files.items()
+        if path.endswith(".sh")
+    }
+    known_shell_paths = set(shell_sources)
     executable_workflows = {
         path: workflow_run_text(text) for path, text in workflows.items()
     }
+    workflow_shell_reachable: dict[str, list[str]] = {}
+    workflow_embedded: dict[str, list[dict[str, Any]]] = {}
+    workflow_references: dict[str, set[str]] = {}
+    workflow_reachable_python: dict[str, set[str]] = {}
+    for path, text in sorted(executable_workflows.items()):
+        shell_reachable = reachable_shell_paths(
+            local_shell_script_paths(text, known_shell_paths), shell_sources
+        )
+        workflow_shell_reachable[path] = sorted(shell_reachable)
+        embedded = embedded_python_sources(
+            text, workflow_text=workflows.get(path, "")
+        )
+        references = workflow_local_references(
+            path, text, accepted_files, known_paths
+        )
+        for shell_path in sorted(shell_reachable):
+            shell_source = shell_sources[shell_path]
+            references.update(
+                workflow_local_references(
+                    shell_path, shell_source, accepted_files, known_paths
+                )
+            )
+            embedded.extend(embedded_python_sources(shell_source))
+        for source in embedded:
+            virtual_path = f"{path}::embedded:{source['kind']}:{source['line']}"
+            python_source = str(source["source"])
+            references.update(
+                local_import_paths(
+                    python_source, virtual_path, accepted_files, known_paths
+                )
+            )
+            references.update(local_process_paths(python_source, known_paths))
+        workflow_embedded[path] = embedded
+        workflow_references[path] = references
+        reachable, _parents = reachable_python_paths(
+            {reference for reference in references if reference in known_paths},
+            accepted_files,
+            known_paths,
+        )
+        workflow_reachable_python[path] = reachable
     failures: list[str] = []
     records: list[dict[str, Any]] = []
     expected_workflow_hashes = contract.get("tracked_workflow_sha256") or {}
@@ -1303,23 +1658,48 @@ def audit_texts(
         invocation_count = 0
         for path, text in sorted(executable_workflows.items()):
             lines = executable_invocations(text, entrypoint)
+            shell_lines: list[str] = []
+            for shell_path in workflow_shell_reachable.get(path, []):
+                shell_lines.extend(
+                    f"{shell_path}:{line}"
+                    for line in executable_invocations(
+                        shell_sources[shell_path], entrypoint
+                    )
+                )
             embedded_lines: list[int] = []
-            for source in embedded_python_sources(text):
+            for source in workflow_embedded.get(path, []):
                 call_counts = dict(python_main_call_counts(str(source["source"])))
                 embedded_lines.extend(
                     [int(source["line"])] * int(call_counts.get(entrypoint, 0))
                 )
-            if not lines and not embedded_lines:
+            transitive_main_calls: list[str] = []
+            for source_path in sorted(workflow_reachable_python.get(path, set())):
+                if source_path not in accepted_files:
+                    continue
+                call_count = dict(
+                    python_main_call_counts(accepted_files[source_path])
+                ).get(entrypoint, 0)
+                transitive_main_calls.extend(
+                    [source_path] * int(call_count)
+                )
+            if not lines and not shell_lines and not embedded_lines and not transitive_main_calls:
                 continue
             observed.append(path)
-            invocation_count += len(lines) + len(embedded_lines)
+            invocation_count += (
+                len(lines)
+                + len(shell_lines)
+                + len(embedded_lines)
+                + len(transitive_main_calls)
+            )
             records.append(
                 {
                     "entrypoint": entrypoint,
                     "role": role,
                     "workflow": path,
                     "line_numbers": lines,
+                    "shell_script_invocations": shell_lines,
                     "embedded_main_call_lines": embedded_lines,
+                    "transitive_python_main_calls": transitive_main_calls,
                 }
             )
         if observed != allowed:
@@ -1531,16 +1911,12 @@ def audit_texts(
         )
     )
     for path, text in sorted(executable_workflows.items()):
-        references = workflow_local_references(path, text, accepted_files, known_paths)
+        references = workflow_references.get(path, set())
         local_references_by_workflow[path] = references
         sensitive = sorted(
             reference for reference in references if authority_sensitive(reference, contract)
         )
-        workflow_reachable, _workflow_parents = reachable_python_paths(
-            {reference for reference in references if reference in known_paths},
-            accepted_files,
-            known_paths,
-        )
+        workflow_reachable = workflow_reachable_python.get(path, set())
         workflow_python_reachable[path] = sorted(workflow_reachable)
         reachable_sensitive = sorted(
             reference
@@ -1558,7 +1934,7 @@ def audit_texts(
         python_write_findings.extend(
             sorted(
                 f"{path}::embedded:{source['kind']}:{source['line']}:{finding}"
-                for source in embedded_python_sources(text)
+            for source in workflow_embedded.get(path, [])
                 for finding in authority_write_sinks(
                     str(source["source"]), sensitive_terms
                 )
@@ -1576,14 +1952,23 @@ def audit_texts(
         python_process_findings.extend(
             sorted(
                 f"{path}::embedded:{source['kind']}:{source['line']}:{finding}"
-                for source in embedded_python_sources(text)
+            for source in workflow_embedded.get(path, [])
                 for finding in python_process_launches(str(source["source"]))
             )
         )
         python_process_findings = sorted(set(python_process_findings))
-        shell_write_findings = list(
-            shell_authority_write_sinks(text, sensitive_terms)
+        shell_write_findings = [
+            f"{path}:{finding}"
+            for finding in shell_authority_write_sinks(text, sensitive_terms)
+        ]
+        shell_write_findings.extend(
+            f"{shell_path}:{finding}"
+            for shell_path in workflow_shell_reachable.get(path, [])
+            for finding in shell_authority_write_sinks(
+                shell_sources[shell_path], sensitive_terms
+            )
         )
+        shell_write_findings = sorted(set(shell_write_findings))
         if python_write_findings:
             workflow_python_authority_write_sinks[path] = python_write_findings
         if python_process_findings:
@@ -1595,6 +1980,7 @@ def audit_texts(
             python_write_sinks=python_write_findings,
             python_process_launches=python_process_findings,
             shell_write_sinks=shell_write_findings,
+            reachable_shell_scripts=workflow_shell_reachable.get(path, []),
         )
         observed_authority_fingerprints[path] = fingerprint
         expected_fingerprint = str(expected_authority_fingerprints.get(path) or "")
@@ -1627,7 +2013,9 @@ def audit_texts(
                     f"expected={','.join(expected_reachable)}:"
                     f"observed={','.join(reachable_sensitive)}"
                 )
-            write_findings = python_write_findings
+            write_findings = sorted(
+                set(python_write_findings) | set(shell_write_findings)
+            )
             if write_findings:
                 no_writer_authority_write_sinks[path] = write_findings
             expected_write_findings = sorted(
@@ -1713,6 +2101,7 @@ def audit_texts(
             workflow_shell_authority_write_sinks
         ),
         "workflow_python_reachable_files": workflow_python_reachable,
+        "workflow_shell_reachable_files": workflow_shell_reachable,
         "no_writer_reachable_authority_sensitive_modules": (
             observed_no_writer_reachable
         ),
@@ -1742,6 +2131,9 @@ def git_source_identity(root: Path, paths: list[str]) -> dict[str, Any]:
             input_hashes[path] = hashlib.sha256(candidate.read_bytes()).hexdigest()
         else:
             input_hashes[path] = "MISSING"
+    head_input_hashes: dict[str, str] = {}
+    canonical_worktree_blob_ids: dict[str, str] = {}
+    canonical_head_blob_ids: dict[str, str] = {}
     try:
         head = subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=root, timeout=30
@@ -1759,6 +2151,40 @@ def git_source_identity(root: Path, paths: list[str]) -> dict[str, Any]:
             timeout=30,
         ).decode("utf-8")
         dirty = sorted(line for line in status.splitlines() if line.strip())
+        for path in normalized:
+            try:
+                head_bytes = subprocess.check_output(
+                    ["git", "show", f"HEAD:{path}"],
+                    cwd=root,
+                    timeout=30,
+                    stderr=subprocess.DEVNULL,
+                )
+                head_hash = hashlib.sha256(head_bytes).hexdigest()
+                head_blob_id = subprocess.check_output(
+                    ["git", "rev-parse", f"HEAD:{path}"],
+                    cwd=root,
+                    timeout=30,
+                    stderr=subprocess.DEVNULL,
+                ).decode("ascii").strip()
+                worktree_blob_id = subprocess.check_output(
+                    ["git", "hash-object", "--path", path, "--", path],
+                    cwd=root,
+                    timeout=30,
+                    stderr=subprocess.DEVNULL,
+                ).decode("ascii").strip()
+            except (OSError, subprocess.SubprocessError):
+                head_hash = "MISSING_AT_HEAD"
+                head_blob_id = "MISSING_AT_HEAD"
+                worktree_blob_id = "MISSING_IN_WORKTREE"
+            head_input_hashes[path] = head_hash
+            canonical_head_blob_ids[path] = head_blob_id
+            canonical_worktree_blob_ids[path] = worktree_blob_id
+            # Compare Git's canonical worktree bytes to the exact HEAD blob.
+            # This catches assume-unchanged/skip-worktree bypasses while still
+            # respecting declared checkout filters such as CRLF normalization.
+            if worktree_blob_id != head_blob_id:
+                dirty.append(f"HEAD_BYTE_MISMATCH:{path}")
+        dirty = sorted(set(dirty))
         identity_status = "CLEAN_HEAD_BOUND" if not dirty else "DIRTY_INPUTS_NOT_HEAD_BOUND"
     except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
         head = ""
@@ -1773,6 +2199,10 @@ def git_source_identity(root: Path, paths: list[str]) -> dict[str, Any]:
         "audit_input_paths": normalized,
         "audit_input_tree_sha256": canonical_sha256(input_hashes),
         "audit_input_hashes": input_hashes,
+        "head_audit_input_tree_sha256": canonical_sha256(head_input_hashes),
+        "head_audit_input_hashes": head_input_hashes,
+        "canonical_worktree_blob_ids": canonical_worktree_blob_ids,
+        "canonical_head_blob_ids": canonical_head_blob_ids,
     }
 
 
@@ -1811,7 +2241,8 @@ def run_audit(
         for path in sorted(python_paths)
         if (root / path).is_file()
     }
-    accepted_files = {**python_sources, **workflows}
+    shell_sources = tracked_shell_texts(root)
+    accepted_files = {**python_sources, **shell_sources, **workflows}
     result = audit_texts(
         contract,
         workflows,
@@ -1822,6 +2253,10 @@ def run_audit(
     relevant.extend(result.get("accepted_python_reachable_files") or [])
     for reachable_files in (
         result.get("workflow_python_reachable_files") or {}
+    ).values():
+        relevant.extend(str(path) for path in reachable_files)
+    for reachable_files in (
+        result.get("workflow_shell_reachable_files") or {}
     ).values():
         relevant.extend(str(path) for path in reachable_files)
     relevant.extend(str(path) for path in contract.get("accepted_path_files") or [])
