@@ -1225,6 +1225,93 @@ def test_reviewed_execution_edges_are_inventory_bound() -> None:
     )
 
 
+def test_latest_review_execution_context_edges_are_bound() -> None:
+    protected = "tools/build_run287_same_close_target_books.py"
+    uncalled = (
+        "never() {\n"
+        "  python tools/build_run287_same_close_target_books.py\n"
+        "}\n"
+    )
+    assert protected not in MOD.python_entrypoints(uncalled)
+    called_twice = uncalled + "never\nnever\n"
+    assert len(MOD.executable_invocations(called_twice, protected)) == 2
+
+    disabled_action_workflow = (
+        "jobs:\n  audit:\n    steps:\n"
+        "      - if: false\n        uses: ./tools/disabled-action\n"
+        "      - uses: ./tools/enabled-action\n"
+    )
+    known_actions = {
+        "tools/disabled-action/action.yml",
+        "tools/enabled-action/action.yml",
+    }
+    assert MOD.local_uses_paths(disabled_action_workflow, known_actions) == {
+        "tools/enabled-action/action.yml"
+    }
+
+    workflow_env = (
+        "env:\n  PYTHONPATH: tools/hooks\n"
+        "jobs:\n  audit:\n    steps:\n"
+        "      - run: python tools/harmless.py\n"
+    )
+    env_records = MOD.workflow_run_records(workflow_env, "workflow.yml")
+    assert MOD.python_entrypoints(env_records[0][1]) >= {
+        "tools/hooks/sitecustomize.py",
+        "tools/hooks/usercustomize.py",
+    }
+    job_step_env = (
+        "env:\n  PYTHONPATH: ignored\n"
+        "jobs:\n  audit:\n    env:\n      PYTHONPATH: job\n"
+        "    steps:\n      - env:\n          PYTHONPATH: step\n"
+        "        run: python tools/harmless.py\n"
+    )
+    assert MOD.python_entrypoints(
+        MOD.workflow_run_records(job_step_env, "workflow.yml")[0][1]
+    ) >= {"step/sitecustomize.py", "step/usercustomize.py"}
+
+    contract, workflows, accepted = source_inputs()
+    direct = deepcopy(workflows)
+    daily = contract["accepted_daily_workflow"]
+    direct[daily] = direct[daily].replace(
+        "python tools/build_run287_same_close_target_books.py",
+        "tools/build_run287_same_close_target_books.py",
+        1,
+    )
+    result = MOD.audit_texts(contract, direct, accepted)
+    assert any(
+        "unverified_direct_python_executable:" + daily in failure
+        for failure in result["failures"]
+    )
+
+    assert any(
+        ":move:target" in finding
+        for finding in MOD.authority_write_sinks(
+            'import shutil\nshutil.move('
+            '"outputs/operating_main_target_book.csv", "tmp/archive.csv")\n',
+            ("target",),
+        )
+    )
+
+    docker_action = (
+        "runs:\n  using: docker\n  image: Dockerfile\n"
+    )
+    docker_paths = {
+        "tools/docker-action/action.yml",
+        "tools/docker-action/Dockerfile",
+        "tools/docker-action/entrypoint.sh",
+        "tools/docker-action/assets/config.json",
+        "tools/unrelated.txt",
+    }
+    assert MOD.local_action_implementation_paths(
+        "tools/docker-action/action.yml", docker_action, docker_paths
+    ) == {
+        "tools/docker-action/action.yml",
+        "tools/docker-action/Dockerfile",
+        "tools/docker-action/entrypoint.sh",
+        "tools/docker-action/assets/config.json",
+    }
+
+
 def test_untracked_workflow_is_not_repository_authority() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -1645,6 +1732,7 @@ def main() -> int:
     test_global_workflow_and_transitive_authority_allowlists_fail_closed()
     test_indirect_execution_and_destination_bypasses_fail_closed()
     test_reviewed_execution_edges_are_inventory_bound()
+    test_latest_review_execution_context_edges_are_bound()
     test_untracked_workflow_is_not_repository_authority()
     test_execution_defaults_are_bound_to_named_inputs()
     test_dirty_input_is_not_attributed_to_head_and_defaults_follow_repo_root()

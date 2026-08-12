@@ -3823,6 +3823,21 @@ Expected contract:
 - Exact hashes of every reachable Python authority source belong in the
   workflow fingerprint so a semantic helper edit cannot retain an obsolete
   approval merely because its extracted sink names stayed constant.
+- Shell function definitions are inert until called. Exclude uncalled bodies
+  and expand definite calls (including repeated and nested calls) before
+  accepting protected cardinality or required command profiles.
+- Statically disabled `uses:` steps do not contribute local-action authority,
+  just as statically disabled `run:` steps do not execute.
+- Effective workflow, job, and step `PYTHONPATH` values use normal precedence
+  and can select repository-local Python startup hooks; preserve that
+  environment in run records.
+- A path-shaped `.py` shell command is not proof of execution. Without verified
+  Git executable mode and a usable shebang, fail closed rather than crediting
+  the protected invocation.
+- `shutil.move` mutates both source and destination authority locations. It is
+  not equivalent to a copy for write-sink inventory.
+- A local Docker action's authority includes its complete tracked local build
+  context, not only `action.yml` and the Dockerfile named by `runs.image`.
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.

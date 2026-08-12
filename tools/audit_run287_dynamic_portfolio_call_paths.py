@@ -327,10 +327,17 @@ def local_action_implementation_paths(
     image = str(runs.get("image") or "")
     if using == "docker" and image and not image.startswith("docker://"):
         candidates.add(Path(action_dir, image).as_posix())
+        # GitHub builds a local Docker action from the action directory. Bind
+        # the complete tracked context so Dockerfile COPY/ADD sources cannot
+        # change outside the reviewed implementation inventory.
+        context_prefix = action_dir.as_posix().rstrip("/") + "/"
+        candidates.update(
+            path for path in known_paths if path.startswith(context_prefix)
+        )
     return {candidate for candidate in candidates if candidate in known_paths}
 
 
-def shell_logical_commands(text: str) -> list[tuple[int, str]]:
+def _raw_shell_logical_commands(text: str) -> list[tuple[int, str]]:
     commands: list[tuple[int, str]] = []
     parts: list[str] = []
     start_line = 0
@@ -348,6 +355,58 @@ def shell_logical_commands(text: str) -> list[tuple[int, str]]:
     if parts:
         commands.append((start_line, " ".join(part for part in parts if part)))
     return commands
+
+
+def shell_logical_commands(text: str) -> list[tuple[int, str]]:
+    """Return commands that execute, expanding definite local shell calls."""
+    raw = _raw_shell_logical_commands(text)
+    functions: dict[str, list[tuple[int, str]]] = {}
+    top_level: list[tuple[int, str]] = []
+    index = 0
+    definition = re.compile(
+        r"^(?:function\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*\{\s*$"
+    )
+    while index < len(raw):
+        line, command = raw[index]
+        match = definition.match(command.strip())
+        if not match:
+            top_level.append((line, command))
+            index += 1
+            continue
+        body: list[tuple[int, str]] = []
+        index += 1
+        while index < len(raw) and raw[index][1].strip() not in {"}", "};"}:
+            body.append(raw[index])
+            index += 1
+        if index < len(raw):
+            index += 1
+        functions[match.group(1)] = body
+
+    result: list[tuple[int, str]] = []
+    expansion_budget = 10000
+
+    def expand(commands: list[tuple[int, str]], stack: tuple[str, ...] = ()) -> None:
+        nonlocal expansion_budget
+        for line, command in commands:
+            if expansion_budget <= 0:
+                return
+            expansion_budget -= 1
+            result.append((line, command))
+            try:
+                tokens = shell_tokens(command)
+            except ValueError:
+                continue
+            for token_index, token in enumerate(tokens):
+                name = token.rsplit("/", 1)[-1]
+                if (
+                    name in functions
+                    and name not in stack
+                    and shell_command_position(tokens, token_index)
+                ):
+                    expand(functions[name], (*stack, name))
+
+    expand(top_level)
+    return result
 
 
 def strip_shell_comment(command: str) -> str:
@@ -2014,8 +2073,9 @@ def _authority_write_sinks_direct(
     path_move_methods = {"rename", "replace"}
     copy_functions = {
         f"shutil.{name}"
-        for name in ("copy", "copy2", "copyfile", "copytree", "move")
+        for name in ("copy", "copy2", "copyfile", "copytree")
     }
+    move_functions = {"shutil.move"}
     delete_functions = {
         f"os.{name}" for name in ("remove", "unlink", "rmdir", "removedirs")
     }
@@ -2071,9 +2131,10 @@ def _authority_write_sinks_direct(
                     copy_functions.update(
                         f"{local}.{name}"
                         for name in (
-                            "copy", "copy2", "copyfile", "copytree", "move"
+                            "copy", "copy2", "copyfile", "copytree"
                         )
                     )
+                    move_functions.add(f"{local}.move")
                     delete_functions.add(f"{local}.rmtree")
                 elif alias.name == "os":
                     delete_functions.update(
@@ -2093,9 +2154,11 @@ def _authority_write_sinks_direct(
                 if alias.name == "open":
                     open_aliases.add(alias.asname or alias.name)
                 elif imported.module == "shutil" and alias.name in {
-                    "copy", "copy2", "copyfile", "copytree", "move"
+                    "copy", "copy2", "copyfile", "copytree"
                 }:
                     copy_functions.add(alias.asname or alias.name)
+                elif imported.module == "shutil" and alias.name == "move":
+                    move_functions.add(alias.asname or alias.name)
                 elif imported.module == "shutil" and alias.name == "rmtree":
                     delete_functions.add(alias.asname or alias.name)
                 elif imported.module == "os" and alias.name in {
@@ -2113,6 +2176,7 @@ def _authority_write_sinks_direct(
     callable_groups = (
         open_aliases,
         copy_functions,
+        move_functions,
         delete_functions,
         link_functions,
         os_open_functions,
@@ -2261,6 +2325,14 @@ def _authority_write_sinks_direct(
             destination_node = node.args[1] if len(node.args) > 1 else None
             destinations.update(literal_path_values(destination_node, literal_names))
             unresolved = not destinations
+        elif func_name in move_functions:
+            source_node = node.args[0] if node.args else None
+            destination_node = node.args[1] if len(node.args) > 1 else None
+            destinations.update(literal_path_values(source_node, literal_names))
+            destinations.update(literal_path_values(destination_node, literal_names))
+            unresolved = not literal_path_values(source_node, literal_names) or not literal_path_values(
+                destination_node, literal_names
+            )
         elif func_name in delete_functions:
             destination_node = node.args[0] if node.args else None
             destinations.update(literal_path_values(destination_node, literal_names))
@@ -2574,6 +2646,21 @@ def workflow_run_records(
             return (("", text, ""),)
         jobs = payload.get("jobs")
         blocks: list[tuple[str, str]] = []
+        workflow_env = (
+            {str(key): str(value) for key, value in payload.get("env", {}).items()}
+            if isinstance(payload.get("env"), dict)
+            else {}
+        )
+
+        def with_effective_pythonpath(
+            source: str, *environments: Mapping[str, str]
+        ) -> str:
+            effective = dict(workflow_env)
+            for environment in environments:
+                effective.update(environment)
+            if "PYTHONPATH" not in effective:
+                return source
+            return f"PYTHONPATH={shlex.quote(effective['PYTHONPATH'])}\n{source}"
         workflow_default = str(
             (((payload.get("defaults") or {}).get("run") or {}).get("shell") or "")
             if isinstance(payload.get("defaults"), dict)
@@ -2592,6 +2679,11 @@ def workflow_run_records(
                     continue
                 job_default = workflow_default
                 job_workdir = workflow_workdir
+                job_env = (
+                    {str(key): str(value) for key, value in job.get("env", {}).items()}
+                    if isinstance(job.get("env"), dict)
+                    else {}
+                )
                 defaults = job.get("defaults")
                 if isinstance(defaults, dict):
                     run_defaults = defaults.get("run")
@@ -2611,11 +2703,22 @@ def workflow_run_records(
                         and isinstance(step.get("run"), str)
                         and not statically_disabled_workflow_condition(step.get("if"))
                     ):
+                        step_env = (
+                            {
+                                str(key): str(value)
+                                for key, value in step.get("env", {}).items()
+                            }
+                            if isinstance(step.get("env"), dict)
+                            else {}
+                        )
                         blocks.append(
                             (
                                 str(step.get("shell") or job_default),
                                 resolve_local_action_path_expressions(
-                                    str(step["run"]), source_path
+                                    with_effective_pythonpath(
+                                        str(step["run"]), job_env, step_env
+                                    ),
+                                    source_path,
                                 ),
                                 str(step.get("working-directory") or job_workdir),
                             )
@@ -2630,11 +2733,22 @@ def workflow_run_records(
                         and isinstance(step.get("run"), str)
                         and not statically_disabled_workflow_condition(step.get("if"))
                     ):
+                        step_env = (
+                            {
+                                str(key): str(value)
+                                for key, value in step.get("env", {}).items()
+                            }
+                            if isinstance(step.get("env"), dict)
+                            else {}
+                        )
                         blocks.append(
                             (
                                 str(step.get("shell") or ""),
                                 resolve_local_action_path_expressions(
-                                    str(step["run"]), source_path
+                                    with_effective_pythonpath(
+                                        str(step["run"]), step_env
+                                    ),
+                                    source_path,
                                 ),
                                 str(step.get("working-directory") or ""),
                             )
@@ -2774,18 +2888,25 @@ def local_uses_paths(text: str, known_paths: set[str]) -> set[str]:
         return set()
     values: list[str] = []
 
-    def visit(value: Any) -> None:
-        if isinstance(value, dict):
-            for key, child in value.items():
-                if key == "uses" and isinstance(child, str):
-                    values.append(child)
-                else:
-                    visit(child)
-        elif isinstance(value, list):
-            for child in value:
-                visit(child)
+    def active_uses(container: Any) -> None:
+        if not isinstance(container, dict):
+            return
+        if statically_disabled_workflow_condition(container.get("if")):
+            return
+        if isinstance(container.get("uses"), str):
+            values.append(str(container["uses"]))
+        steps = container.get("steps")
+        if isinstance(steps, list):
+            for step in steps:
+                active_uses(step)
 
-    visit(payload)
+    if isinstance(payload, dict) and isinstance(payload.get("jobs"), dict):
+        for job in payload["jobs"].values():
+            active_uses(job)
+    elif isinstance(payload, dict) and isinstance(payload.get("runs"), dict):
+        active_uses(payload["runs"])
+    else:
+        active_uses(payload)
     result: set[str] = set()
     for value in values:
         if not value.startswith("./"):
@@ -3045,6 +3166,13 @@ def audit_texts(
         for path, rows in workflow_direct_invocations.items()
         for row in rows
         if bool(row.get("unresolved_pythonpath"))
+    )
+    failures.extend(
+        f"unverified_direct_python_executable:{path}:{row.get('yaml_path', path)}:"
+        f"line={row.get('line', 0)}:{row.get('entrypoint', '')}"
+        for path, rows in workflow_direct_invocations.items()
+        for row in rows
+        if bool(row.get("direct_executable"))
     )
     records: list[dict[str, Any]] = []
     expected_workflow_hashes = contract.get("tracked_workflow_sha256") or {}

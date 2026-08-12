@@ -137,7 +137,7 @@
     ".github/workflows/alphaops_replay_sidecars_manual.yml": "d94d767d4820cabf8861d4671833d7e2e864c685dd2f1a7abfe4903e2230da5b",
     ".github/workflows/daily_autolearning_scan.yml": "7f0f18ecf48a749149f3525f419f239c296e4a9243fe4739487bfbf08818c247",
     ".github/workflows/daily_crisis_monitor.yml": "8866db6cd1f834849cd675b0cae70d6058727737c13306ecd6b163c97ff64e55",
-    ".github/workflows/daily_operating_selection_refresh.yml": "042b23a0f625e203cf9ca091a12e06f2b8d1580c8859d8f6de19fecc3f3404b4",
+    ".github/workflows/daily_operating_selection_refresh.yml": "135ca830c46abff8009a0307d3ed17847f45b08a0820cc3637f10bede673b9db",
     ".github/workflows/data_readiness_preflight.yml": "5b8957734afb840e83ec506abddf4be62c796e5a409ad00f5b8ac8d71348dc8f",
     ".github/workflows/earnings_estimates_daily.yml": "b2d2e7fd3927445275a49895efa3462aef3384c45c12a7a30923eb1212f8d706",
     ".github/workflows/etf_holdings_monthly_refresh.yml": "1c95725a66bac83a292c387e07f5d2aebe67460bba161ad23308539fc1e3214e",
