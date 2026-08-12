@@ -3811,6 +3811,16 @@ Expected contract:
 - A false workflow input default is not sufficient execution safety. The shell
   variable must start empty and acquire its executable flag only inside the
   matching named-input true branch.
+- Guard every assignment form, including `export`, and bind integrity options
+  to their exact producer variables so a nominally nonempty token cannot expand
+  to an empty value at execution.
+- Python authority discovery must include direct executable scripts, common
+  stdin device paths, and literal dynamic imports. No-writer sink analysis must
+  include write-mode `open`, not only convenience writer methods.
+- Give every tracked workflow one explicit non-authorizing or authorizing role;
+  a neutral helper in a newly tracked, undeclared workflow must fail closed.
+- An exact-head audit may pass only when its own runtime is inside, tracked by,
+  and clean in the selected repository.
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.

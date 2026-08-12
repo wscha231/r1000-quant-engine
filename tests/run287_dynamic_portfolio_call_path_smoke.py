@@ -212,6 +212,24 @@ def test_required_transaction_boundary_cannot_be_removed() -> None:
         for item in result["failures"]
     )
 
+    expanded_empty_handoff = deepcopy(workflows)
+    expanded_empty_handoff[daily] += '\n  EMPTY_HANDOFF=""\n'
+    for value in (
+        "$SAME_CLOSE_DIR/status.json",
+        "$TARGET_HANDOFF_SHA",
+        "$MAIN_TARGET_SHA",
+        "$CONCENTRATED_TARGET_SHA",
+    ):
+        expanded_empty_handoff[daily] = expanded_empty_handoff[daily].replace(
+            f'"{value}"', '"$EMPTY_HANDOFF"', 1
+        )
+    result = MOD.audit_texts(contract, expanded_empty_handoff, accepted)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "required_executable_command_mismatch" in item
+        for item in result["failures"]
+    )
+
 
 def test_no_writer_role_and_duplicate_accepted_writer_fail_closed() -> None:
     contract, workflows, accepted = source_inputs()
@@ -278,6 +296,18 @@ def test_no_writer_role_and_duplicate_accepted_writer_fail_closed() -> None:
         'tools.build_run287_same_close_target_books.main()"\n'
     )
     result = MOD.audit_texts(contract, dotted_command_writer, accepted)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "entrypoint_invocation_count_mismatch:"
+        "tools/build_run287_same_close_target_books.py" in item
+        for item in result["failures"]
+    )
+
+    direct_writer = deepcopy(workflows)
+    direct_writer[daily] += (
+        "\n  ./tools/build_run287_same_close_target_books.py\n"
+    )
+    result = MOD.audit_texts(contract, direct_writer, accepted)
     assert result["status"] == MOD.BLOCKED_STATUS
     assert any(
         "entrypoint_invocation_count_mismatch:"
@@ -359,6 +389,24 @@ def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> No
         for item in result["failures"]
     )
 
+    dev_stdin_wrapper = deepcopy(workflows)
+    dev_stdin_wrapper[".github/workflows/new_dev_stdin.yml"] = (
+        "jobs:\n  run:\n    steps:\n      - run: |\n"
+        "          python /dev/stdin <<'PY'\n"
+        "          from tools.build_new_target_writer import main\n"
+        "          main()\n"
+        "          PY\n"
+    )
+    result = MOD.audit_texts(contract, dev_stdin_wrapper, command_sources)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "authority_sensitive_workflow_role_missing:"
+        ".github/workflows/new_dev_stdin.yml" in item
+        or "reachable_authority_workflow_role_missing:"
+        ".github/workflows/new_dev_stdin.yml" in item
+        for item in result["failures"]
+    )
+
     shell_wrapper = deepcopy(workflows)
     shell_wrapper[".github/workflows/new_shell_wrapper.yml"] = (
         "jobs:\n  run:\n    steps:\n      - run: >-\n"
@@ -436,12 +484,53 @@ def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> No
         for item in result["failures"]
     )
 
+    undeclared_neutral_helper = deepcopy(workflows)
+    undeclared_neutral_helper[".github/workflows/new_neutral_helper.yml"] = (
+        "jobs:\n  run:\n    steps:\n"
+        "      - run: python tools/harmless.py\n"
+    )
+    result = MOD.audit_texts(
+        contract,
+        undeclared_neutral_helper,
+        neutral_helper_sources,
+    )
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "reachable_authority_workflow_role_missing:"
+        ".github/workflows/new_neutral_helper.yml" in item
+        for item in result["failures"]
+    )
+
+    dynamic_import_sources = deepcopy(accepted)
+    dynamic_import_sources["tools/run_daily_crisis_monitor.py"] += (
+        '\nimport importlib\n'
+        'importlib.import_module("tools.build_run287_same_close_target_books").main()\n'
+    )
+    result = MOD.audit_texts(contract, workflows, dynamic_import_sources)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "no_writer_reachable_authority_mismatch:" + observer in item
+        for item in result["failures"]
+    )
+
     direct_write_sources = deepcopy(accepted)
     direct_write_sources["tools/run_daily_crisis_monitor.py"] += (
         '\nfrom pathlib import Path\n'
         'Path("outputs/reports/operating_main_target_book.csv").write_text("x")\n'
     )
     result = MOD.audit_texts(contract, workflows, direct_write_sources)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "no_writer_authority_write_sink:" + observer in item
+        for item in result["failures"]
+    )
+
+    open_write_sources = deepcopy(accepted)
+    open_write_sources["tools/run_daily_crisis_monitor.py"] += (
+        '\nwith open("outputs/reports/operating_main_target_book.csv", "w") as handle:\n'
+        '    handle.write("x")\n'
+    )
+    result = MOD.audit_texts(contract, workflows, open_write_sources)
     assert result["status"] == MOD.BLOCKED_STATUS
     assert any(
         "no_writer_authority_write_sink:" + observer in item
@@ -531,6 +620,21 @@ def test_execution_defaults_are_bound_to_named_inputs() -> None:
         1,
     )
     result = MOD.audit_texts(contract, eager_layer4, accepted)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "workflow_shell_flag_derivation_mismatch:"
+        ".github/workflows/layer4_monthly_swap.yml:EXECUTE_FLAG" in item
+        for item in result["failures"]
+    )
+
+    exported_layer4 = deepcopy(workflows)
+    exported_layer4[path] = exported_layer4[path].replace(
+        '          THROTTLE_FLAG=""',
+        '          export EXECUTE_FLAG="--execute --confirm"\n'
+        '          THROTTLE_FLAG=""',
+        1,
+    )
+    result = MOD.audit_texts(contract, exported_layer4, accepted)
     assert result["status"] == MOD.BLOCKED_STATUS
     assert any(
         "workflow_shell_flag_derivation_mismatch:"
@@ -683,6 +787,8 @@ def test_run_audit_binds_no_writer_traversal_sources_to_head() -> None:
         clean = MOD.run_audit(root, contract, contract_path=contract_path)
         assert clean["source_identity_status"] == "CLEAN_HEAD_BOUND", clean["failures"]
         assert "tools/neutral.py" in clean["audit_input_paths"]
+        assert clean["audit_runtime_head_bound"] is False
+        assert "audit_runtime_outside_selected_repository" in clean["failures"]
 
         neutral.write_text("VALUE = 2\n", encoding="utf-8")
         dirty = MOD.run_audit(root, contract, contract_path=contract_path)

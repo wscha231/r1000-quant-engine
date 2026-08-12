@@ -24,6 +24,7 @@ DEFAULT_OUTPUT = "outputs/run287_dynamic_portfolio_call_path_audit.json"
 SCHEMA_VERSION = "run287-dynamic-portfolio-call-path-contract-v1"
 PASS_STATUS = "PASS_CALL_PATH_CONTRACT"
 BLOCKED_STATUS = "BLOCKED_CALL_PATH_CONTRACT"
+STDIN_ENTRYPOINTS = {"-", "/dev/stdin", "/dev/fd/0", "/proc/self/fd/0"}
 
 
 def canonical_sha256(value: Any) -> str:
@@ -217,6 +218,35 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
                             result.append(copied)
                         break
             executable = token.rsplit("/", 1)[-1]
+            if (
+                token.startswith("./")
+                and token.endswith(".py")
+                and (index == 0 or tokens[index - 1] in boundaries)
+            ):
+                end = index + 1
+                while end < len(tokens) and tokens[end] not in boundaries:
+                    end += 1
+                raw_argv = tokens[index:end]
+                argv: list[str] = []
+                cursor = 0
+                while cursor < len(raw_argv):
+                    value = raw_argv[cursor]
+                    if value in redirections:
+                        cursor += 2
+                        continue
+                    argv.append(value)
+                    cursor += 1
+                result.append(
+                    {
+                        "line": line,
+                        "entrypoint": normalize_script_entrypoint(token),
+                        "argv": argv,
+                        "command": command,
+                        "command_source": "",
+                        "direct_executable": True,
+                    }
+                )
+                continue
             if not re.fullmatch(r"python(?:3(?:\.\d+)?)?", executable):
                 continue
             end = index + 1
@@ -291,7 +321,7 @@ def python_entrypoints(text: str) -> set[str]:
     return {
         str(row["entrypoint"])
         for row in python_invocations(text)
-        if row["entrypoint"] not in {"", "-", "-c"}
+        if row["entrypoint"] not in {"", "-c", *STDIN_ENTRYPOINTS}
     }
 
 
@@ -316,7 +346,8 @@ def inline_python_blocks(text: str) -> tuple[dict[str, Any], ...]:
             index += 1
         command = " ".join(command_parts)
         is_python_stdin = any(
-            row["entrypoint"] == "-" for row in python_invocations(command)
+            row["entrypoint"] in STDIN_ENTRYPOINTS
+            for row in python_invocations(command)
         )
         if delimiter and is_python_stdin:
             body_start = index + 1
@@ -340,6 +371,19 @@ def inline_python_blocks(text: str) -> tuple[dict[str, Any], ...]:
 def _module_candidates(module: str) -> tuple[str, str]:
     base = module.replace(".", "/")
     return f"{base}.py", f"{base}/__init__.py"
+
+
+def literal_dynamic_import_module(node: ast.AST) -> str:
+    """Resolve common dynamic imports only when their module is a literal."""
+    if not isinstance(node, ast.Call) or not node.args:
+        return ""
+    first = node.args[0]
+    if not isinstance(first, ast.Constant) or not isinstance(first.value, str):
+        return ""
+    func = dotted_expression_name(node.func)
+    if func in {"importlib.import_module", "__import__"}:
+        return first.value
+    return ""
 
 
 @lru_cache(maxsize=4096)
@@ -372,6 +416,10 @@ def local_import_candidates(source: str, source_path: str) -> tuple[str, ...]:
                 for alias in node.names
                 if alias.name != "*"
             )
+        elif isinstance(node, ast.Call):
+            dynamic_module = literal_dynamic_import_module(node)
+            if dynamic_module:
+                candidates.append(dynamic_module)
         for module in candidates:
             result.update(_module_candidates(module))
     return tuple(sorted(result))
@@ -424,6 +472,10 @@ def python_main_call_counts(source: str) -> tuple[tuple[str, int], ...]:
             target = names.get(node.func.id, "")
         elif isinstance(node.func, ast.Attribute) and node.func.attr == "main":
             target = modules.get(dotted_expression_name(node.func.value), "")
+            if not target:
+                dynamic_module = literal_dynamic_import_module(node.func.value)
+                if dynamic_module:
+                    target = module_entrypoint(dynamic_module)
         if target:
             counts[target] = counts.get(target, 0) + 1
     return tuple(sorted(counts.items()))
@@ -557,7 +609,8 @@ def shell_boolean_flag_guard_matches(
 ) -> bool:
     """Validate a fail-closed empty default and one named-input assignment."""
     assignment = re.compile(
-        rf"^\s*{re.escape(variable)}=(?:\"([^\"]*)\"|'([^']*)'|([^\s#]+))\s*$",
+        rf"^\s*(?:(?:export|readonly)\s+|declare(?:\s+-[A-Za-z]+)?\s+)?"
+        rf"{re.escape(variable)}=(?:\"([^\"]*)\"|'([^']*)'|([^\s#]+))\s*$",
         re.MULTILINE,
     )
     values = [next(value for value in match.groups() if value is not None) for match in assignment.finditer(text)]
@@ -588,7 +641,31 @@ def authority_write_sinks(
     }
     findings: set[str] = set()
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+        if not isinstance(node, ast.Call):
+            continue
+        if isinstance(node.func, ast.Name) and node.func.id == "open":
+            literal_path = (
+                node.args[0].value
+                if node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+                else ""
+            )
+            mode = "r"
+            if len(node.args) > 1 and isinstance(node.args[1], ast.Constant):
+                mode = str(node.args[1].value)
+            for keyword in node.keywords:
+                if keyword.arg == "mode" and isinstance(keyword.value, ast.Constant):
+                    mode = str(keyword.value.value)
+            sensitive = sorted(
+                term for term in sensitive_terms if term in literal_path.casefold()
+            )
+            if sensitive and any(marker in mode for marker in "wax+"):
+                findings.add(
+                    f"line={getattr(node, 'lineno', 0)}:open:{','.join(sensitive)}"
+                )
+            continue
+        if not isinstance(node.func, ast.Attribute):
             continue
         method = node.func.attr
         if method not in write_methods:
@@ -678,6 +755,12 @@ def audit_texts(
                 f"expected={expected_hash}:observed={observed_hash}"
             )
     roles = contract.get("workflow_roles") or {}
+    if sorted(roles) != sorted(workflows):
+        failures.append(
+            "workflow_role_set_mismatch:"
+            f"expected={','.join(sorted(workflows))}:"
+            f"observed={','.join(sorted(roles))}"
+        )
     for path in sorted(roles):
         if path not in workflows:
             failures.append(f"declared_workflow_missing:{path}")
@@ -916,6 +999,8 @@ def audit_texts(
             for reference in workflow_reachable
             if authority_sensitive(reference, contract)
         )
+        if reachable_sensitive and path not in roles:
+            failures.append(f"reachable_authority_workflow_role_missing:{path}")
         if sensitive:
             observed_by_workflow[path] = sensitive
             if path not in roles:
@@ -1121,6 +1206,7 @@ def run_audit(
         relevant.append(tool_path.relative_to(root).as_posix())
     except ValueError:
         result["audit_runtime_head_bound"] = False
+        result["failures"].append("audit_runtime_outside_selected_repository")
     else:
         result["audit_runtime_head_bound"] = True
     if contract_path is not None:
