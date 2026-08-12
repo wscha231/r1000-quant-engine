@@ -4248,6 +4248,9 @@ Expected contract:
   equality. Historical CRLF blobs can differ under today's clean filter without
   being modified, while any raw and canonical mismatch still blocks hidden
   worktree changes.
+- Protected-call accounting must resolve static relative `ImportFrom` modules
+  against the source file package, just as reachability resolves them. A short
+  unresolved module name can otherwise hide an extra protected `main()` call.
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.

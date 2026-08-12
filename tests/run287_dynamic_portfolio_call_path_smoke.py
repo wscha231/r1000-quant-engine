@@ -862,6 +862,13 @@ def test_indirect_execution_and_destination_bypasses_fail_closed() -> None:
             "tools/helper.py",
         )
     )["tools/build_run287_same_close_target_books.py"] == 1
+    assert dict(
+        MOD.python_main_call_counts(
+            "from .build_run287_same_close_target_books import main\n"
+            "main()\n",
+            "tools/helper.py",
+        )
+    )["tools/build_run287_same_close_target_books.py"] == 1
 
     inherited = (
         "defaults:\n  run:\n    shell: python\n"

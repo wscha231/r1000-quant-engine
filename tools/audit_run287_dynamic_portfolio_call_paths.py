@@ -838,6 +838,24 @@ def literal_dynamic_import_module(
     return ""
 
 
+def resolved_import_from_module(node: ast.ImportFrom, source_path: str = "") -> str:
+    """Resolve an ``ImportFrom`` module against its containing package."""
+    concrete_path = source_path.split("::", 1)[0]
+    source_parts = (
+        list(Path(concrete_path).with_suffix("").parts[:-1])
+        if concrete_path
+        else []
+    )
+    if node.level:
+        keep = max(0, len(source_parts) - node.level + 1)
+        parts = source_parts[:keep]
+    else:
+        parts = []
+    if node.module:
+        parts.extend(node.module.split("."))
+    return ".".join(parts)
+
+
 @lru_cache(maxsize=4096)
 def local_import_candidates(source: str, source_path: str) -> tuple[str, ...]:
     """Parse import candidates once; callers filter them against a repository."""
@@ -883,21 +901,12 @@ def local_import_candidates(source: str, source_path: str) -> tuple[str, ...]:
                 if dotted in run_module_callables and target.id not in run_module_callables:
                     run_module_callables.add(target.id)
                     changed = True
-    source_parts = Path(source_path).with_suffix("").parts[:-1]
     for node in ast.walk(tree):
         candidates: list[str] = []
         if isinstance(node, ast.Import):
             candidates.extend(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
-            base_parts = list(source_parts)
-            if node.level:
-                keep = max(0, len(base_parts) - node.level + 1)
-                base_parts = base_parts[:keep]
-            else:
-                base_parts = []
-            if node.module:
-                base_parts.extend(node.module.split("."))
-            base = ".".join(base_parts)
+            base = resolved_import_from_module(node, source_path)
             if base:
                 candidates.append(base)
             candidates.extend(
@@ -1293,11 +1302,12 @@ def python_main_call_counts(
     dynamic_callables = dynamic_import_callables(tree)
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module:
-            module_path = module_entrypoint(node.module)
+            resolved_module = resolved_import_from_module(node, source_path)
+            module_path = module_entrypoint(resolved_module)
             for alias in node.names:
                 if alias.name == "main":
                     names[alias.asname or alias.name] = module_path
-                elif node.module == "tools":
+                elif resolved_module == "tools":
                     modules[alias.asname or alias.name] = module_entrypoint(
                         f"tools.{alias.name}"
                     )
