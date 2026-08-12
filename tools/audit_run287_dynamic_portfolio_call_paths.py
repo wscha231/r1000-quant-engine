@@ -194,10 +194,52 @@ def normalize_script_entrypoint(value: str) -> str:
     return normalized
 
 
+SHELL_COMMAND_BOUNDARIES = {";", "&&", "||", "|", "&"}
+SHELL_ASSIGNMENT_WORD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$", re.DOTALL)
+
+
+def shell_command_position(tokens: list[str], index: int) -> bool:
+    """Return whether *index* is the executable after assignments/wrappers."""
+    start = 0
+    for cursor in range(index - 1, -1, -1):
+        if tokens[cursor] in SHELL_COMMAND_BOUNDARIES:
+            start = cursor + 1
+            break
+    cursor = start
+    while cursor < index:
+        token = tokens[cursor]
+        executable = token.rsplit("/", 1)[-1]
+        if SHELL_ASSIGNMENT_WORD.fullmatch(token):
+            cursor += 1
+            continue
+        if executable in {"command", "exec", "nohup"}:
+            cursor += 1
+            while cursor < index and tokens[cursor].startswith("-"):
+                cursor += 1
+            continue
+        if executable == "env":
+            cursor += 1
+            while cursor < index:
+                value = tokens[cursor]
+                if SHELL_ASSIGNMENT_WORD.fullmatch(value):
+                    cursor += 1
+                    continue
+                if value in {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"}:
+                    cursor += 2
+                    continue
+                if value.startswith("-"):
+                    cursor += 1
+                    continue
+                break
+            continue
+        return False
+    return cursor == index
+
+
 @lru_cache(maxsize=512)
 def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
     result: list[dict[str, Any]] = []
-    boundaries = {";", "&&", "||", "|", "&"}
+    boundaries = SHELL_COMMAND_BOUNDARIES
     redirections = {
         "<", ">", "<<", ">>", "<<<", "<>", ">&", "<&", ">|",
         "&>", "&>>",
@@ -224,7 +266,7 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
             if (
                 "/" in token.replace("\\", "/")
                 and token.endswith(".py")
-                and (index == 0 or tokens[index - 1] in boundaries)
+                and shell_command_position(tokens, index)
             ):
                 end = index + 1
                 while end < len(tokens) and tokens[end] not in boundaries:
@@ -394,6 +436,24 @@ def dynamic_import_callables(tree: ast.AST) -> set[str]:
                     callables.add(alias.asname or alias.name)
                 elif node.module == "builtins" and alias.name == "__import__":
                     callables.add(alias.asname or alias.name)
+    changed = True
+    while changed:
+        changed = False
+        for node in ast.walk(tree):
+            targets: list[ast.AST] = []
+            value: ast.AST | None = None
+            if isinstance(node, ast.Assign):
+                targets = list(node.targets)
+                value = node.value
+            elif isinstance(node, ast.AnnAssign):
+                targets = [node.target]
+                value = node.value
+            if value is None or dotted_expression_name(value) not in callables:
+                continue
+            for target in targets:
+                if isinstance(target, ast.Name) and target.id not in callables:
+                    callables.add(target.id)
+                    changed = True
     return callables
 
 
@@ -464,6 +524,153 @@ def local_import_paths(
         for candidate in local_import_candidates(source, source_path)
         if candidate in known
     }
+
+
+PROCESS_CALL_BASENAMES = {
+    "run", "_run", "popen", "call", "check_call", "check_output",
+    "run_command", "execute", "exec_command",
+}
+
+
+@lru_cache(maxsize=4096)
+def local_process_candidates(source: str) -> tuple[str, ...]:
+    """Return literal Python entrypoints passed through process-launch calls."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return ()
+    assignments: dict[str, list[ast.AST]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    assignments.setdefault(target.id, []).append(node.value)
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.value is not None
+        ):
+            assignments.setdefault(node.target.id, []).append(node.value)
+
+    expressions: list[ast.AST] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not node.args:
+            continue
+        name = dotted_expression_name(node.func).casefold()
+        basename = name.rsplit(".", 1)[-1]
+        if basename not in PROCESS_CALL_BASENAMES:
+            continue
+        first = node.args[0]
+        if isinstance(first, ast.Name) and first.id in assignments:
+            expressions.extend(assignments[first.id])
+        else:
+            expressions.append(first)
+
+    candidates: set[str] = set()
+    for expression in expressions:
+        strings = [
+            str(node.value)
+            for node in ast.walk(expression)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        ]
+        for index, value in enumerate(strings):
+            normalized = normalize_script_entrypoint(value)
+            if normalized.endswith(".py"):
+                candidates.add(normalized)
+            if value == "-m" and index + 1 < len(strings):
+                candidates.add(module_entrypoint(strings[index + 1]))
+    return tuple(sorted(candidates))
+
+
+def local_process_paths(source: str, known_paths: set[str]) -> set[str]:
+    result: set[str] = set()
+    for candidate in local_process_candidates(source):
+        if candidate in known_paths:
+            result.add(candidate)
+            continue
+        matches = sorted(
+            path for path in known_paths if Path(path).name == Path(candidate).name
+        )
+        if len(matches) == 1:
+            result.add(matches[0])
+    return result
+
+
+@lru_cache(maxsize=4096)
+def python_process_launches(source: str) -> tuple[str, ...]:
+    """Fingerprint process launches, including unresolved dynamic argv."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return ()
+    callables = {
+        "subprocess.run", "subprocess.popen", "subprocess.call",
+        "subprocess.check_call", "subprocess.check_output", "os.system",
+        "os.popen",
+    }
+    wrappers = {"_run", "run_command", "execute", "exec_command"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                local = alias.asname or alias.name
+                if alias.name == "subprocess":
+                    callables.update(
+                        f"{local}.{name}"
+                        for name in ("run", "Popen", "call", "check_call", "check_output")
+                    )
+                elif alias.name == "os":
+                    callables.update(f"{local}.{name}" for name in ("system", "popen"))
+        elif isinstance(node, ast.ImportFrom) and node.module in {"subprocess", "os"}:
+            for alias in node.names:
+                if alias.name in {
+                    "run", "Popen", "call", "check_call", "check_output",
+                    "system", "popen",
+                }:
+                    callables.add(alias.asname or alias.name)
+    normalized_callables = {value.casefold() for value in callables}
+    assignments: dict[str, ast.AST] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    assignments[target.id] = node.value
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.value is not None
+        ):
+            assignments[node.target.id] = node.value
+    findings: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not node.args:
+            continue
+        name = dotted_expression_name(node.func)
+        if (
+            name.casefold() not in normalized_callables
+            and name.rsplit(".", 1)[-1].casefold() not in wrappers
+        ):
+            continue
+        expression = node.args[0]
+        if isinstance(expression, ast.Name):
+            expression = assignments.get(expression.id, expression)
+        expression_hash = hashlib.sha256(
+            ast.dump(expression, include_attributes=False).encode("utf-8")
+        ).hexdigest()[:16]
+        candidates = sorted(
+            {
+                normalize_script_entrypoint(str(value.value))
+                for value in ast.walk(expression)
+                if isinstance(value, ast.Constant)
+                and isinstance(value.value, str)
+                and str(value.value).endswith(".py")
+            }
+        )
+        detail = ",".join(candidates) if candidates else "UNRESOLVED_LOCAL_PROCESS"
+        findings.add(
+            f"line={getattr(node, 'lineno', 0)}:{name or '<call>'}:"
+            f"argv={expression_hash}:{detail}"
+        )
+    return tuple(sorted(findings))
 
 
 @lru_cache(maxsize=2048)
@@ -560,6 +767,7 @@ def reachable_python_paths(
             continue
         for imported in sorted(
             local_import_paths(sources[path], path, sources, known)
+            | local_process_paths(sources[path], known)
         ):
             if imported not in seen:
                 parents.setdefault(imported, path)
@@ -639,6 +847,9 @@ def shell_boolean_flag_guard_matches(
     allowed_occurrence_lines: list[str] | None = None,
 ) -> bool:
     """Validate a fail-closed empty default and one named-input assignment."""
+    text = executable_shell_text(text)
+    if shell_uses_indirect_assignment(text):
+        return False
     if allowed_occurrence_lines is not None:
         observed_lines = shell_variable_occurrence_lines(text, variable)
         if observed_lines != sorted(str(value) for value in allowed_occurrence_lines):
@@ -669,6 +880,72 @@ def shell_variable_occurrence_lines(text: str, variable: str) -> list[str]:
     )
 
 
+def executable_shell_text(text: str) -> str:
+    """Blank heredoc bodies so inert text cannot satisfy shell contracts."""
+    lines = text.splitlines()
+    result = list(lines)
+    heredoc = re.compile(r"<<-?\s*(?:['\"]|\\)?([A-Za-z_][A-Za-z0-9_]*)(?:['\"])?")
+    index = 0
+    while index < len(lines):
+        match = heredoc.search(lines[index])
+        if not match:
+            index += 1
+            continue
+        delimiter = match.group(1)
+        index += 1
+        while index < len(lines) and lines[index].strip() != delimiter:
+            result[index] = ""
+            index += 1
+        if index < len(lines):
+            result[index] = ""
+            index += 1
+    return "\n".join(result)
+
+
+def shell_uses_indirect_assignment(text: str) -> bool:
+    """Reject shell primitives that can assign guarded names indirectly."""
+    for _line, command in shell_logical_commands(text):
+        try:
+            tokens = shell_tokens(command)
+        except ValueError:
+            continue
+        for index, token in enumerate(tokens):
+            executable = token.rsplit("/", 1)[-1]
+            if not shell_command_position(tokens, index):
+                continue
+            if executable == "eval":
+                return True
+            if executable == "printf" and "-v" in tokens[index + 1:]:
+                return True
+            if executable in {"declare", "typeset"} and any(
+                value == "-n" or (value.startswith("-") and "n" in value[1:])
+                for value in tokens[index + 1:]
+            ):
+                return True
+    return False
+
+
+def literal_path_value(node: ast.AST | None, names: Mapping[str, str]) -> str | None:
+    if node is None:
+        return None
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return str(node.value)
+    if isinstance(node, ast.Name):
+        return names.get(node.id)
+    if isinstance(node, ast.Call):
+        func = dotted_expression_name(node.func).rsplit(".", 1)[-1]
+        if func in {"Path", "PurePath", "PurePosixPath", "PureWindowsPath"}:
+            values = [literal_path_value(arg, names) for arg in node.args]
+            if values and all(value is not None for value in values):
+                return "/".join(str(value).rstrip("/\\") for value in values)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+        left = literal_path_value(node.left, names)
+        right = literal_path_value(node.right, names)
+        if left is not None and right is not None:
+            return f"{left.rstrip('/\\')}/{right.lstrip('/\\')}"
+    return None
+
+
 @lru_cache(maxsize=4096)
 def authority_write_sinks(
     source: str, sensitive_terms: tuple[str, ...]
@@ -683,6 +960,22 @@ def authority_write_sinks(
         "rename", "replace",
     }
     findings: set[str] = set()
+    literal_names: dict[str, str] = {}
+    for node in ast.walk(tree):
+        targets: list[ast.AST] = []
+        value: ast.AST | None = None
+        if isinstance(node, ast.Assign):
+            targets = list(node.targets)
+            value = node.value
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+            value = node.value
+        resolved = literal_path_value(value, literal_names)
+        if resolved is None:
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name):
+                literal_names[target.id] = resolved
     open_aliases = {"open", "io.open", "builtins.open"}
     for imported in ast.walk(tree):
         if isinstance(imported, ast.Import):
@@ -701,18 +994,13 @@ def authority_write_sinks(
         path_method_open = (
             isinstance(node.func, ast.Attribute)
             and node.func.attr == "open"
-            and isinstance(node.func.value, ast.Call)
+            and func_name not in open_aliases
         )
         if func_name in open_aliases or path_method_open:
-            path_args = node.func.value.args if path_method_open else node.args
-            literal_path = next(
-                (
-                    str(value.value)
-                    for value in path_args
-                    if isinstance(value, ast.Constant)
-                    and isinstance(value.value, str)
-                ),
-                "",
+            literal_path = (
+                literal_path_value(node.func.value, literal_names)
+                if path_method_open
+                else literal_path_value(node.args[0] if node.args else None, literal_names)
             )
             mode = "r"
             mode_position = 0 if path_method_open else 1
@@ -724,11 +1012,12 @@ def authority_write_sinks(
                 if keyword.arg == "mode" and isinstance(keyword.value, ast.Constant):
                     mode = str(keyword.value.value)
             sensitive = sorted(
-                term for term in sensitive_terms if term in literal_path.casefold()
+                term for term in sensitive_terms if term in (literal_path or "").casefold()
             )
-            if sensitive and any(marker in mode for marker in "wax+"):
+            if any(marker in mode for marker in "wax+") and (sensitive or literal_path is None):
                 findings.add(
-                    f"line={getattr(node, 'lineno', 0)}:open:{','.join(sensitive)}"
+                    f"line={getattr(node, 'lineno', 0)}:open:"
+                    f"{','.join(sensitive) if sensitive else 'UNRESOLVED_DESTINATION'}"
                 )
             continue
         if not isinstance(node.func, ast.Attribute):
@@ -736,21 +1025,35 @@ def authority_write_sinks(
         method = node.func.attr
         if method not in write_methods:
             continue
-        literals = [
-            value.value
-            for value in ast.walk(node)
-            if isinstance(value, ast.Constant) and isinstance(value.value, str)
-        ]
+        destinations: list[str | None] = []
+        if method in {"write_text", "write_bytes"}:
+            destinations.append(literal_path_value(node.func.value, literal_names))
+        elif method in {"to_csv", "to_json", "to_parquet"}:
+            destinations.append(
+                literal_path_value(node.args[0] if node.args else None, literal_names)
+            )
+        else:
+            destinations.append(literal_path_value(node.func.value, literal_names))
+            destinations.append(
+                literal_path_value(node.args[0] if node.args else None, literal_names)
+            )
         sensitive = sorted(
             {
                 term
-                for literal in literals
+                for literal in destinations
+                if literal is not None
                 for term in sensitive_terms
                 if term in literal.casefold()
             }
         )
         if sensitive:
             findings.add(f"line={getattr(node, 'lineno', 0)}:{method}:{','.join(sensitive)}")
+        elif method not in {"rename", "replace"} and any(
+            destination is None for destination in destinations
+        ):
+            findings.add(
+                f"line={getattr(node, 'lineno', 0)}:{method}:UNRESOLVED_DESTINATION"
+            )
     return tuple(sorted(findings))
 
 
@@ -761,7 +1064,9 @@ def shell_authority_write_sinks(
     """Inventory literal authority-sensitive destinations written by shell."""
     findings: set[str] = set()
     redirections = {">", ">>", ">|", "&>", "&>>"}
-    copy_commands = {"cp", "mv", "install", "tee", "touch", "truncate"}
+    copy_commands = {
+        "cp", "mv", "install", "tee", "touch", "truncate", "rsync", "ln",
+    }
 
     def sensitive(value: str) -> tuple[str, ...]:
         normalized = value.casefold()
@@ -802,6 +1107,39 @@ def shell_authority_write_sinks(
                     findings.add(
                         f"line={line}:{executable}:{destination}:{','.join(terms)}"
                     )
+        sed_index = next(
+            (
+                index
+                for index, token in enumerate(tokens)
+                if token.rsplit("/", 1)[-1] == "sed" and shell_command_position(tokens, index)
+            ),
+            None,
+        )
+        if sed_index is not None and any(
+            value == "-i" or value.startswith("--in-place")
+            for value in tokens[sed_index + 1:]
+        ):
+            for destination in tokens[sed_index + 1:]:
+                terms = sensitive(destination)
+                if terms:
+                    findings.add(
+                        f"line={line}:sed-in-place:{destination}:{','.join(terms)}"
+                    )
+        recognized = redirections | copy_commands | {"sed", "dd"}
+        for index, token in enumerate(tokens):
+            if not shell_command_position(tokens, index):
+                continue
+            executable = token.rsplit("/", 1)[-1]
+            if executable in recognized:
+                break
+            for operand in tokens[index + 1:]:
+                terms = sensitive(operand)
+                if terms:
+                    findings.add(
+                        f"line={line}:unclassified-authority-operand:"
+                        f"{executable}:{operand}:{','.join(terms)}"
+                    )
+            break
         for token in tokens:
             if token.startswith("of="):
                 destination = token[3:]
@@ -817,12 +1155,14 @@ def authority_fingerprint(
     *,
     reachable_sensitive: list[str],
     python_write_sinks: list[str],
+    python_process_launches: list[str],
     shell_write_sinks: list[str],
 ) -> str:
     return canonical_sha256(
         {
             "reachable_sensitive": sorted(reachable_sensitive),
             "python_write_sinks": sorted(python_write_sinks),
+            "python_process_launches": sorted(python_process_launches),
             "shell_write_sinks": sorted(shell_write_sinks),
         }
     )
@@ -1164,6 +1504,7 @@ def audit_texts(
     workflow_python_reachable: dict[str, list[str]] = {}
     no_writer_authority_write_sinks: dict[str, list[str]] = {}
     workflow_python_authority_write_sinks: dict[str, list[str]] = {}
+    workflow_python_process_launches: dict[str, list[str]] = {}
     workflow_shell_authority_write_sinks: dict[str, list[str]] = {}
     observed_authority_fingerprints: dict[str, str] = {}
     local_references_by_workflow: dict[str, set[str]] = {}
@@ -1171,7 +1512,11 @@ def audit_texts(
         sorted(
             {
                 str(term).casefold()
-                for term in contract.get("authority_sensitive_name_terms") or []
+                for term in (
+                    contract.get("authority_write_destination_terms")
+                    or contract.get("authority_sensitive_name_terms")
+                    or []
+                )
                 if str(term)
             }
         )
@@ -1201,16 +1546,45 @@ def audit_texts(
                 accepted_files[source_path], sensitive_terms
             )
         )
+        python_write_findings.extend(
+            sorted(
+                f"{path}::embedded:{source['kind']}:{source['line']}:{finding}"
+                for source in embedded_python_sources(text)
+                for finding in authority_write_sinks(
+                    str(source["source"]), sensitive_terms
+                )
+            )
+        )
+        python_write_findings = sorted(set(python_write_findings))
+        python_process_findings = sorted(
+            {
+                f"{source_path}:{finding}"
+                for source_path in workflow_reachable
+                if source_path in accepted_files
+                for finding in python_process_launches(accepted_files[source_path])
+            }
+        )
+        python_process_findings.extend(
+            sorted(
+                f"{path}::embedded:{source['kind']}:{source['line']}:{finding}"
+                for source in embedded_python_sources(text)
+                for finding in python_process_launches(str(source["source"]))
+            )
+        )
+        python_process_findings = sorted(set(python_process_findings))
         shell_write_findings = list(
             shell_authority_write_sinks(text, sensitive_terms)
         )
         if python_write_findings:
             workflow_python_authority_write_sinks[path] = python_write_findings
+        if python_process_findings:
+            workflow_python_process_launches[path] = python_process_findings
         if shell_write_findings:
             workflow_shell_authority_write_sinks[path] = shell_write_findings
         fingerprint = authority_fingerprint(
             reachable_sensitive=reachable_sensitive,
             python_write_sinks=python_write_findings,
+            python_process_launches=python_process_findings,
             shell_write_sinks=shell_write_findings,
         )
         observed_authority_fingerprints[path] = fingerprint
@@ -1325,6 +1699,7 @@ def audit_texts(
         "workflow_python_authority_write_sinks": (
             workflow_python_authority_write_sinks
         ),
+        "workflow_python_process_launches": workflow_python_process_launches,
         "workflow_shell_authority_write_sinks": (
             workflow_shell_authority_write_sinks
         ),
@@ -1457,9 +1832,17 @@ def run_audit(
             result["failures"].append("audit_runtime_not_tracked_at_head")
     if contract_path is not None:
         try:
-            relevant.append(contract_path.resolve().relative_to(root).as_posix())
+            contract_relative = contract_path.resolve().relative_to(root).as_posix()
+            relevant.append(contract_relative)
         except ValueError:
+            result["contract_head_bound"] = False
             result["failures"].append("contract_outside_selected_repository")
+        else:
+            result["contract_head_bound"] = git_path_tracked_at_head(
+                root, contract_relative
+            )
+            if not result["contract_head_bound"]:
+                result["failures"].append("contract_not_tracked_at_head")
     identity = git_source_identity(root, relevant)
     result.update(identity)
     if not identity["source_commit_clean"]:

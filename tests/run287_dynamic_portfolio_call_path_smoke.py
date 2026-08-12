@@ -570,6 +570,7 @@ def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> No
         '\nfrom importlib import import_module\nimport_module("tools.build_new_target_writer").main()\n',
         '\nimport importlib as il\nil.import_module("tools.build_new_target_writer").main()\n',
         '\nimport builtins as bi\nbi.__import__("tools.build_new_target_writer").main()\n',
+        '\nimport importlib\nload = importlib.import_module\nload("tools.build_new_target_writer").main()\n',
     ):
         aliased_dynamic_sources = deepcopy(neutral_helper_sources)
         aliased_dynamic_sources["tools/run_daily_crisis_monitor.py"] += source
@@ -584,6 +585,9 @@ def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> No
         "printf x > outputs/reports/operating_main_target_book.csv",
         "cp source.csv outputs/reports/operating_main_target_book.csv",
         "printf x | tee outputs/reports/operating_main_target_book.csv",
+        "rsync source.csv outputs/reports/operating_main_target_book.csv",
+        "sed -i 's/a/b/' outputs/reports/operating_main_target_book.csv",
+        "ln -sf source.csv outputs/reports/operating_main_target_book.csv",
     ):
         shell_writer = deepcopy(workflows)
         shell_writer[observer] += f"\n  {shell_write}\n"
@@ -636,6 +640,9 @@ def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> No
         '\nimport io\nio.open("outputs/reports/operating_main_target_book.csv", "w").write("x")\n',
         '\nimport builtins\nbuiltins.open("outputs/reports/operating_main_target_book.csv", "w").write("x")\n',
         '\nfrom io import open as io_open\nio_open("outputs/reports/operating_main_target_book.csv", "w").write("x")\n',
+        '\nfrom pathlib import Path\npath = Path("outputs/reports/operating_main_target_book.csv")\npath.open("w").write("x")\n',
+        '\ndestination = "outputs/reports/operating_main_target_book.csv"\nopen(destination, "w").write("x")\n',
+        '\nfrom pathlib import Path\npath = Path("outputs/reports/operating_main_target_book.csv")\npath.write_text("x")\n',
     ):
         qualified_open_sources = deepcopy(accepted)
         qualified_open_sources["tools/run_daily_crisis_monitor.py"] += source
@@ -645,6 +652,56 @@ def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> No
             "workflow_authority_fingerprint_mismatch:" + observer in item
             for item in result["failures"]
         )
+
+    for prefix in ("MODE=x ", "env MODE=x "):
+        assigned_direct_writer = deepcopy(workflows)
+        daily = contract["accepted_daily_workflow"]
+        assigned_direct_writer[daily] += (
+            f"\n  {prefix}tools/build_run287_same_close_target_books.py\n"
+        )
+        result = MOD.audit_texts(contract, assigned_direct_writer, accepted)
+        assert result["status"] == MOD.BLOCKED_STATUS
+        assert any(
+            "entrypoint_invocation_count_mismatch:"
+            "tools/build_run287_same_close_target_books.py" in item
+            for item in result["failures"]
+        )
+
+    inline_python_write = deepcopy(workflows)
+    inline_python_write[observer] += (
+        "\n  python -c 'from pathlib import Path; "
+        'Path("outputs/reports/operating_main_target_book.csv").write_text("x")\'\n'
+    )
+    result = MOD.audit_texts(contract, inline_python_write, accepted)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "workflow_authority_fingerprint_mismatch:" + observer in item
+        for item in result["failures"]
+    )
+
+    subprocess_writer_sources = deepcopy(neutral_helper_sources)
+    subprocess_writer_sources["tools/run_daily_crisis_monitor.py"] += (
+        "\nimport subprocess, sys\nfrom pathlib import Path\n"
+        'subprocess.run([sys.executable, str(Path("tools") / '
+        '"build_new_target_writer.py")])\n'
+    )
+    result = MOD.audit_texts(contract, workflows, subprocess_writer_sources)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "workflow_authority_fingerprint_mismatch:" + observer in item
+        for item in result["failures"]
+    )
+
+    unresolved_process_sources = deepcopy(accepted)
+    unresolved_process_sources["tools/run_daily_crisis_monitor.py"] += (
+        "\nimport subprocess\nsubprocess.run(dynamic_command)\n"
+    )
+    result = MOD.audit_texts(contract, workflows, unresolved_process_sources)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "workflow_authority_fingerprint_mismatch:" + observer in item
+        for item in result["failures"]
+    )
 
     missing_import = deepcopy(accepted)
     missing_import.pop("tools/run287_crisis_policy.py")
@@ -754,6 +811,31 @@ def test_execution_defaults_are_bound_to_named_inputs() -> None:
             ".github/workflows/layer4_monthly_swap.yml:EXECUTE_FLAG" in item
             for item in result["failures"]
         )
+
+    indirect_layer4 = deepcopy(workflows)
+    path = ".github/workflows/layer4_monthly_swap.yml"
+    guarded = (
+        '          EXECUTE_FLAG=""\n'
+        '          if [ "${{ github.event.inputs.execute }}" = "true" ]; then\n'
+        '            EXECUTE_FLAG="--execute --confirm"\n'
+        "          fi"
+    )
+    indirect_layer4[path] = indirect_layer4[path].replace(
+        guarded,
+        "          cat <<'SAFE'\n"
+        + guarded
+        + "\n          SAFE\n"
+        '          flag_name="EXECUTE_FLAG"\n'
+        '          printf -v "$flag_name" "%s" "--execute --confirm"',
+        1,
+    )
+    result = MOD.audit_texts(contract, indirect_layer4, accepted)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "workflow_shell_flag_derivation_mismatch:"
+        ".github/workflows/layer4_monthly_swap.yml:EXECUTE_FLAG" in item
+        for item in result["failures"]
+    )
 
     eager_after_close = deepcopy(workflows)
     path = ".github/workflows/after_close_daily.yml"
@@ -911,6 +993,18 @@ def test_run_audit_binds_no_writer_traversal_sources_to_head() -> None:
         assert "tools/neutral.py" in clean["audit_input_paths"]
         assert clean["audit_runtime_head_bound"] is False
         assert "audit_runtime_outside_selected_repository" in clean["failures"]
+
+        ignored_contract = root / "outputs" / "contract.json"
+        ignored_contract.parent.mkdir()
+        ignored_contract.write_text(json.dumps(contract), encoding="utf-8")
+        (root / ".git" / "info" / "exclude").write_text(
+            "outputs/\n", encoding="utf-8"
+        )
+        untracked_contract = MOD.run_audit(
+            root, contract, contract_path=ignored_contract
+        )
+        assert untracked_contract["contract_head_bound"] is False
+        assert "contract_not_tracked_at_head" in untracked_contract["failures"]
 
         neutral.write_text("VALUE = 2\n", encoding="utf-8")
         dirty = MOD.run_audit(root, contract, contract_path=contract_path)

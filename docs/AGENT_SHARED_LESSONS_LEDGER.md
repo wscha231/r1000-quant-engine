@@ -3828,6 +3828,25 @@ Expected contract:
 - Bind the full occurrence set of execution and handoff variables. Valid operand
   spellings are insufficient when an intervening shell reassignment can redirect
   the accepted ledger to a different manifest or target set.
+- Treat leading environment assignments and `env`/`command` wrappers as part of
+  executable discovery; a protected direct script remains authoritative in
+  those command positions.
+- Propagate simple aliases of dynamic-import callables, and traverse literal
+  repository Python entrypoints launched through subprocess wrappers. Include
+  unresolved process argv in each workflow fingerprint so later indirection
+  cannot silently introduce a writer.
+- Embedded `python -c` and stdin bodies contribute write sinks as well as
+  imports. Resolve simple literal and `Path` assignments before classifying
+  writes, and retain unresolved definite write destinations in the exact
+  workflow fingerprint.
+- Shell mutation inventory must cover redirection, copy/link/sync tools,
+  in-place editing, and any unclassified command with an authority-sensitive
+  operand. An exact workflow source hash alone is not a semantic write guard.
+- Raw occurrence lines inside a quoted no-op heredoc are not executable proof.
+  Validate guarded assignments after removing heredoc bodies and reject
+  indirect assignment primitives such as `eval`, `printf -v`, and namerefs.
+- Exact-head evidence requires the selected authority contract itself, not only
+  the audit runtime, to be tracked at the audited Git head.
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
