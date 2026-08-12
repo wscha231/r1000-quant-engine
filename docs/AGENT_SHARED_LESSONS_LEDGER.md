@@ -3795,6 +3795,39 @@ Expected contract:
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
 
+## 2026-08-12 - Dynamic portfolio call-path authority must be explicit
+
+- Agent: Codex GPT-5.6
+- Branch/PR/run:
+  `codex/run287-dynamic-portfolio-call-path-contract-20260812`; no workflow or
+  fullrun dispatched.
+- Context: Several daily, weekly, research, and legacy workflows can construct
+  target-like artifacts, while only one accepted daily path may authorize the
+  current target and one ledger consumer may apply it.
+- Attempt: Added a machine-readable workflow/entrypoint contract and a tracked
+  workflow audit that checks writer roles, exact accepted-path commands,
+  mandatory safety flags, and prohibited standalone legacy EXIT imports.
+- Result: The accepted daily path has exactly one current target writer; a
+  second known or previously unknown target writer, a missing suppression flag,
+  or a legacy risk-sensing import fails the focused validation.
+- Failure or caveat: Filename-pattern checks alone do not detect a newly named
+  target writer. The accepted workflow therefore uses an exact allowlist of
+  authority-sensitive executable entrypoints. Untracked workflows are excluded
+  so user-owned local files cannot silently become authority.
+- Reusable lesson: Determine portfolio authority from the tracked workflow call
+  graph plus explicit role contracts, not from filenames or artifact labels.
+- Next action: Merge this behavior-neutral guard before introducing the first
+  dynamic cash/reserve challenger and its broker-ledger CAGR/MDD comparison.
+- Do-not-repeat: Do not connect `r1000_risk_sensing.py` Layer-1 EXIT decisions,
+  legacy paper executors, or a second target writer to the accepted daily path.
+- Evidence files:
+  `docs/run287_dynamic_portfolio_call_path_contract.json`,
+  `tools/audit_run287_dynamic_portfolio_call_paths.py`, and
+  `tests/run287_dynamic_portfolio_call_path_smoke.py`.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
 ## 2026-08-11 - U0 acceptance freshness and candidate-discovery boundary
 
 - A default-branch SHA is not a complete GitHub census identity. Branches and

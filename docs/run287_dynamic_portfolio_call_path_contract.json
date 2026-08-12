@@ -1,0 +1,149 @@
+{
+  "schema_version": "run287-dynamic-portfolio-call-path-contract-v1",
+  "status": "RESEARCH_ONLY_STATIC_AUTHORITY_CONTRACT",
+  "default_branch": "master",
+  "accepted_daily_workflow": ".github/workflows/daily_operating_selection_refresh.yml",
+  "writer_authority": {
+    "accepted_current_target_writer": "tools/build_run287_same_close_target_books.py",
+    "preliminary_target_writer": "tools/build_operating_target_books.py",
+    "durable_paper_ledger_consumer": "tools/run_daily_simulated_fill_ledger.py",
+    "crisis_state_observer": "tools/run_daily_crisis_monitor.py",
+    "accepted_target_status": "READY_SAME_CLOSE_PAPER_TARGETS",
+    "fill_semantics": "next_nyse_close_review_only"
+  },
+  "workflow_roles": {
+    ".github/workflows/daily_operating_selection_refresh.yml": "accepted_daily_target_and_durable_review_only_paper_ledger",
+    ".github/workflows/daily_crisis_monitor.yml": "state_observer_no_target_writer",
+    ".github/workflows/weekly_data_refresh.yml": "data_refresh_no_target_writer",
+    ".github/workflows/unified_monthly.yml": "legacy_score_bridge_no_target_writer",
+    ".github/workflows/after_close_daily.yml": "legacy_report_and_manual_paper_executor_not_authoritative",
+    ".github/workflows/layer4_monthly_swap.yml": "legacy_proposal_and_manual_paper_executor_not_authoritative",
+    ".github/workflows/full_rebuild_manual.yml": "manual_full_rebuild_preliminary_target_writer",
+    ".github/workflows/alphaops_replay_sidecars_manual.yml": "manual_research_target_writers",
+    ".github/workflows/phase_g_crisis_evidence_liquidity_replay.yml": "manual_research_crisis_shadow_writer"
+  },
+  "entrypoint_bindings": [
+    {
+      "entrypoint": "tools/build_run287_same_close_target_books.py",
+      "role": "accepted_current_target_writer",
+      "allowed_workflows": [
+        ".github/workflows/daily_operating_selection_refresh.yml"
+      ]
+    },
+    {
+      "entrypoint": "tools/build_operating_target_books.py",
+      "role": "preliminary_or_manual_target_writer",
+      "allowed_workflows": [
+        ".github/workflows/alphaops_replay_sidecars_manual.yml",
+        ".github/workflows/daily_operating_selection_refresh.yml",
+        ".github/workflows/full_rebuild_manual.yml",
+        ".github/workflows/phase_g_crisis_evidence_liquidity_replay.yml"
+      ]
+    },
+    {
+      "entrypoint": "tools/build_event_target_books.py",
+      "role": "manual_research_target_writer",
+      "allowed_workflows": [
+        ".github/workflows/alphaops_replay_sidecars_manual.yml"
+      ]
+    },
+    {
+      "entrypoint": "tools/build_weekly_leader_target_books.py",
+      "role": "manual_research_target_writer",
+      "allowed_workflows": [
+        ".github/workflows/alphaops_replay_sidecars_manual.yml"
+      ]
+    },
+    {
+      "entrypoint": "tools/build_crisis_governed_target_books.py",
+      "role": "manual_research_crisis_shadow_writer",
+      "allowed_workflows": [
+        ".github/workflows/phase_g_crisis_evidence_liquidity_replay.yml"
+      ]
+    },
+    {
+      "entrypoint": "tools/run_alphaops_vnext_policy_replay.py",
+      "role": "manual_research_reconstruction_writer",
+      "allowed_workflows": [
+        ".github/workflows/alphaops_replay_sidecars_manual.yml"
+      ]
+    },
+    {
+      "entrypoint": "tools/run_daily_simulated_fill_ledger.py",
+      "role": "durable_review_only_paper_ledger_consumer",
+      "allowed_workflows": [
+        ".github/workflows/daily_operating_selection_refresh.yml"
+      ]
+    },
+    {
+      "entrypoint": "tools/run_daily_crisis_monitor.py",
+      "role": "state_observer_no_target_writer",
+      "allowed_workflows": [
+        ".github/workflows/daily_crisis_monitor.yml"
+      ]
+    },
+    {
+      "entrypoint": "r1000_paper_executor.py",
+      "role": "legacy_manual_paper_executor_not_authoritative",
+      "allowed_workflows": [
+        ".github/workflows/after_close_daily.yml"
+      ]
+    },
+    {
+      "entrypoint": "r1000_layer4_swap.py",
+      "role": "legacy_proposal_or_manual_paper_executor_not_authoritative",
+      "allowed_workflows": [
+        ".github/workflows/after_close_daily.yml",
+        ".github/workflows/layer4_monthly_swap.yml"
+      ]
+    }
+  ],
+  "accepted_path_files": [
+    ".github/workflows/daily_operating_selection_refresh.yml",
+    "tools/build_operating_target_books.py",
+    "tools/build_run287_same_close_target_books.py",
+    "tools/run_daily_simulated_fill_ledger.py"
+  ],
+  "accepted_workflow_authority_sensitive_entrypoints": [
+    "tools/archive_run287_decision_observation.py",
+    "tools/build_operating_target_books.py",
+    "tools/build_run287_catchup_target_evidence.py",
+    "tools/build_run287_same_close_target_books.py",
+    "tools/run287_paper_ledger_integrity.py",
+    "tools/run_daily_simulated_fill_ledger.py"
+  ],
+  "forbidden_accepted_path_tokens": [
+    "from r1000_risk_sensing import",
+    "import r1000_risk_sensing",
+    "evaluate_layer1_individual(",
+    "evaluate_all("
+  ],
+  "required_workflow_tokens": {
+    ".github/workflows/daily_operating_selection_refresh.yml": [
+      "--suppress-new-orders",
+      "READY_SAME_CLOSE_PAPER_TARGETS",
+      "--target-handoff-manifest",
+      "--cost-bps 25"
+    ],
+    ".github/workflows/after_close_daily.yml": [
+      "allow_legacy_execute",
+      "default: false",
+      "--allow-legacy-execute"
+    ],
+    ".github/workflows/layer4_monthly_swap.yml": [
+      "workflow_dispatch",
+      "default: false",
+      "--execute --confirm"
+    ]
+  },
+  "safety": {
+    "changes_investment_behavior": false,
+    "target_mutation_authorized": false,
+    "paper_execution_authorized": false,
+    "fullrun_authorized": false,
+    "production_activation_allowed": false,
+    "live_trading_enabled": false,
+    "automatic_promotion_allowed": false,
+    "untracked_workflows_are_authority": false
+  }
+}
