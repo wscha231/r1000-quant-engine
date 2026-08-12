@@ -7,6 +7,7 @@ import argparse
 import ast
 import hashlib
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -111,18 +112,71 @@ def workflow_texts(root: Path, paths: list[str]) -> dict[str, str]:
     }
 
 
+@lru_cache(maxsize=16)
 def tracked_python_paths(root: Path) -> list[str]:
-    try:
-        raw = subprocess.check_output(
-            ["git", "ls-files", "--", "*.py"],
-            cwd=root,
-            timeout=30,
-            stderr=subprocess.DEVNULL,
-        ).decode("utf-8")
-        paths = [line.strip().replace("\\", "/") for line in raw.splitlines() if line.strip()]
-    except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
-        paths = [path.relative_to(root).as_posix() for path in root.rglob("*.py")]
-    return sorted(set(paths))
+    """Discover tracked Python sources, including arbitrary interpreter operands."""
+    tracked = set(tracked_file_paths(root))
+    paths = {path for path in tracked if path.endswith(".py")}
+    seed_paths = {
+        path
+        for path in tracked
+        if path.endswith((".py", ".yml", ".yaml"))
+    }
+    seed_paths.update(tracked_shell_paths(root))
+    texts: dict[str, str] = {}
+    for path in sorted(seed_paths):
+        try:
+            raw_bytes = (root / path).read_bytes()
+            if b"\x00" in raw_bytes:
+                continue
+            texts[path] = raw_bytes.decode("utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+    by_name: dict[str, list[str]] = {}
+    for path in tracked:
+        by_name.setdefault(Path(path).name, []).append(path)
+    inspected: set[str] = set()
+    while True:
+        candidates: set[str] = set()
+        for path, source in list(texts.items()):
+            if path in inspected:
+                continue
+            inspected.add(path)
+            if path.endswith((".yml", ".yaml")):
+                for _shell, run_source, working_directory in workflow_run_records(source):
+                    candidates.update(
+                        resolve_working_directory_path(candidate, working_directory)
+                        for candidate in python_entrypoints(run_source)
+                    )
+            elif path in paths:
+                candidates.update(local_process_candidates(source))
+            else:
+                candidates.update(python_entrypoints(source))
+        new_paths: set[str] = set()
+        for candidate in candidates:
+            matches = (
+                [candidate]
+                if candidate in tracked
+                else by_name.get(Path(candidate).name, [])
+            )
+            if len(matches) != 1:
+                continue
+            path = matches[0]
+            if path in paths:
+                continue
+            try:
+                raw_bytes = (root / path).read_bytes()
+                if b"\x00" in raw_bytes:
+                    continue
+                source = raw_bytes.decode("utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            paths.add(path)
+            texts[path] = source
+            new_paths.add(path)
+        if not new_paths:
+            break
+    return sorted(paths)
 
 
 def tracked_python_texts(root: Path) -> dict[str, str]:
@@ -133,6 +187,7 @@ def tracked_python_texts(root: Path) -> dict[str, str]:
     }
 
 
+@lru_cache(maxsize=16)
 def tracked_file_paths(root: Path) -> list[str]:
     try:
         raw = subprocess.check_output(
@@ -154,6 +209,7 @@ def tracked_file_paths(root: Path) -> list[str]:
         )
 
 
+@lru_cache(maxsize=16)
 def tracked_shell_paths(root: Path) -> list[str]:
     """Discover tracked shell sources, including arbitrary interpreter operands."""
     tracked = set(tracked_file_paths(root))
@@ -330,6 +386,12 @@ def module_entrypoint(module: str) -> str:
     return f"{str(module).replace('.', '/')}.py"
 
 
+def module_execution_entrypoints(module: str) -> tuple[str, str]:
+    """Return both file-module and package ``__main__`` execution targets."""
+    base = str(module).replace(".", "/")
+    return f"{base}.py", f"{base}/__main__.py"
+
+
 def normalize_script_entrypoint(value: str) -> str:
     normalized = str(value).replace("\\", "/")
     root_prefix = ROOT.as_posix().rstrip("/") + "/"
@@ -372,6 +434,9 @@ def shell_command_position(tokens: list[str], index: int) -> bool:
         if SHELL_ASSIGNMENT_WORD.fullmatch(token):
             cursor += 1
             continue
+        if executable in {"if", "then", "elif", "else", "while", "until", "do", "!", "{"}:
+            cursor += 1
+            continue
         if executable == "exec":
             cursor += 1
             while cursor < index:
@@ -395,6 +460,39 @@ def shell_command_position(tokens: list[str], index: int) -> bool:
                     cursor += 1
                     continue
                 break
+            continue
+        if executable == "timeout":
+            cursor += 1
+            while cursor < index:
+                value = tokens[cursor]
+                if value in {"-k", "--kill-after", "-s", "--signal"}:
+                    cursor += 2
+                    continue
+                if value.startswith("-"):
+                    cursor += 1
+                    continue
+                cursor += 1  # duration
+                break
+            continue
+        if executable == "sudo":
+            cursor += 1
+            while cursor < index:
+                value = tokens[cursor]
+                if value in {
+                    "-u", "--user", "-g", "--group", "-h", "--host",
+                    "-p", "--prompt", "-C", "--close-from", "-T", "--command-timeout",
+                }:
+                    cursor += 2
+                    continue
+                if value.startswith("-"):
+                    cursor += 1
+                    continue
+                break
+            continue
+        if executable in {"unshare", "nice", "ionice"}:
+            cursor += 1
+            while cursor < index and tokens[cursor].startswith("-"):
+                cursor += 1
             continue
         if executable == "env":
             cursor += 1
@@ -450,7 +548,10 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
 
         for index, token in enumerate(tokens):
             shell_name = token.rsplit("/", 1)[-1]
-            if shell_name in {"bash", "sh", "dash", "zsh", "ksh"}:
+            if (
+                shell_name in {"bash", "sh", "dash", "zsh", "ksh"}
+                and shell_command_position(tokens, index)
+            ):
                 for option_index in range(index + 1, len(tokens) - 1):
                     if re.fullmatch(r"-[A-Za-z]*c[A-Za-z]*", tokens[option_index]):
                         nested_source = resolved_token(tokens[option_index + 1])
@@ -514,6 +615,8 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
                 continue
             if not re.fullmatch(r"python(?:3(?:\.\d+)?)?", executable):
                 continue
+            if not shell_command_position(tokens, index):
+                continue
             end = index + 1
             while end < len(tokens) and tokens[end] not in boundaries:
                 end += 1
@@ -537,15 +640,17 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
             cursor = 1
             entrypoint = ""
             command_source = ""
+            module_name = ""
             while cursor < len(argv):
                 value = resolved_token(argv[cursor])
                 if value == "-m" and cursor + 1 < len(argv):
-                    entrypoint = module_entrypoint(argv[cursor + 1])
+                    module_name = resolved_token(argv[cursor + 1])
+                    entrypoint = module_entrypoint(module_name)
                     break
                 if value == "-c":
                     entrypoint = value
                     if cursor + 1 < len(argv):
-                        command_source = argv[cursor + 1]
+                        command_source = resolved_token(argv[cursor + 1])
                     break
                 if value == "-":
                     entrypoint = value
@@ -565,6 +670,7 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
                     "argv": argv,
                     "command": command,
                     "command_source": command_source,
+                    "module_name": module_name,
                 }
             )
     return tuple(result)
@@ -583,11 +689,16 @@ def executable_invocations(text: str, entrypoint: str) -> list[int]:
 
 
 def python_entrypoints(text: str) -> set[str]:
-    return {
-        str(row["entrypoint"])
-        for row in python_invocations(text)
-        if row["entrypoint"] not in {"", "-c", *STDIN_ENTRYPOINTS}
-    }
+    result: set[str] = set()
+    for row in python_invocations(text):
+        entrypoint = str(row["entrypoint"])
+        if entrypoint in {"", "-c", *STDIN_ENTRYPOINTS}:
+            continue
+        result.add(entrypoint)
+        module_name = str(row.get("module_name") or "")
+        if module_name:
+            result.update(module_execution_entrypoints(module_name))
+    return result
 
 
 @lru_cache(maxsize=512)
@@ -804,6 +915,7 @@ def local_import_candidates(source: str, source_path: str) -> tuple[str, ...]:
             if node.args and call_name in run_module_callables:
                 value = node.args[0]
                 if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    result.update(module_execution_entrypoints(value.value))
                     candidates.append(value.value)
             elif node.args and call_name in run_path_callables:
                 value = node.args[0]
@@ -837,6 +949,131 @@ PROCESS_CALL_BASENAMES = {
 }
 
 
+def python_assignment_values(tree: ast.AST) -> dict[str, list[ast.AST]]:
+    assignments: dict[str, list[ast.AST]] = {}
+    for node in ast.walk(tree):
+        pairs: list[tuple[ast.AST, ast.AST]] = []
+        if isinstance(node, ast.Assign):
+            pairs.extend((target, node.value) for target in node.targets)
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            pairs.append((node.target, node.value))
+        elif isinstance(node, ast.NamedExpr):
+            pairs.append((node.target, node.value))
+        for target, value in pairs:
+            if isinstance(target, ast.Name):
+                assignments.setdefault(target.id, []).append(value)
+    return assignments
+
+
+def bound_expression_nodes(
+    expression: ast.AST, assignments: Mapping[str, list[ast.AST]]
+) -> list[ast.AST]:
+    """Return an expression plus every definite assignment it references."""
+    result: list[ast.AST] = []
+    pending = [expression]
+    seen_nodes: set[int] = set()
+    expanded_names: set[str] = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in seen_nodes:
+            continue
+        seen_nodes.add(id(current))
+        result.append(current)
+        for child in ast.walk(current):
+            if not isinstance(child, ast.Name) or child.id in expanded_names:
+                continue
+            expanded_names.add(child.id)
+            pending.extend(assignments.get(child.id, []))
+    return result
+
+
+def process_callable_names(tree: ast.AST) -> set[str]:
+    """Return exact process-launch spellings, including definite aliases."""
+    os_names = {
+        "system", "popen", "execv", "execve", "execvp", "execvpe", "execl",
+        "execle", "execlp", "execlpe", "spawnl", "spawnle", "spawnlp",
+        "spawnlpe", "spawnv", "spawnve", "spawnvp", "spawnvpe",
+        "posix_spawn", "posix_spawnp",
+    }
+    subprocess_names = {
+        "run", "popen", "call", "check_call", "check_output", "getoutput",
+        "getstatusoutput",
+    }
+    callables = {f"subprocess.{name}" for name in subprocess_names}
+    callables.update(f"os.{name}" for name in os_names)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                local = alias.asname or alias.name
+                if alias.name == "subprocess":
+                    callables.update(f"{local}.{name}" for name in subprocess_names)
+                elif alias.name == "os":
+                    callables.update(f"{local}.{name}" for name in os_names)
+        elif isinstance(node, ast.ImportFrom) and node.module in {"subprocess", "os"}:
+            allowed = subprocess_names if node.module == "subprocess" else os_names
+            for alias in node.names:
+                if alias.name.casefold() in allowed:
+                    callables.add(alias.asname or alias.name)
+    normalized = {value.casefold() for value in callables}
+    changed = True
+    while changed:
+        changed = False
+        for node in ast.walk(tree):
+            pairs: list[tuple[ast.AST, ast.AST]] = []
+            if isinstance(node, ast.Assign):
+                pairs.extend((target, node.value) for target in node.targets)
+            elif isinstance(node, ast.AnnAssign) and node.value is not None:
+                pairs.append((node.target, node.value))
+            elif isinstance(node, ast.NamedExpr):
+                pairs.append((node.target, node.value))
+            for target, value in pairs:
+                if not isinstance(target, ast.Name):
+                    continue
+                if (
+                    dotted_expression_name(value).casefold() in normalized
+                    and target.id.casefold() not in normalized
+                ):
+                    normalized.add(target.id.casefold())
+                    changed = True
+    return normalized
+
+
+def recognized_process_call(node: ast.Call, callables: set[str]) -> bool:
+    name = dotted_expression_name(node.func).casefold()
+    return (
+        name in callables
+        or name.rsplit(".", 1)[-1] in PROCESS_CALL_BASENAMES
+    )
+
+
+def process_python_candidates(strings: list[str]) -> set[str]:
+    candidates: set[str] = set()
+    for value in strings:
+        candidates.update(python_entrypoints(value))
+        normalized = normalize_script_entrypoint(value)
+        if normalized.endswith(".py"):
+            candidates.add(normalized)
+    for index, value in enumerate(strings):
+        executable = normalize_script_entrypoint(value).rsplit("/", 1)[-1]
+        if not re.fullmatch(r"python(?:3(?:\.\d+)?)?", executable):
+            continue
+        cursor = index + 1
+        while cursor < len(strings):
+            operand = strings[cursor]
+            if operand == "-m" and cursor + 1 < len(strings):
+                candidates.update(module_execution_entrypoints(strings[cursor + 1]))
+                break
+            if operand == "-c" and cursor + 1 < len(strings):
+                candidates.update(local_import_candidates(strings[cursor + 1]))
+                break
+            if operand.startswith("-"):
+                cursor += 1
+                continue
+            candidates.add(normalize_script_entrypoint(operand))
+            break
+    return candidates
+
+
 def process_argv_expressions(node: ast.Call) -> tuple[ast.AST, ...]:
     """Return argv-bearing expressions for subprocess and os exec/spawn APIs."""
     basename = dotted_expression_name(node.func).casefold().rsplit(".", 1)[-1]
@@ -868,35 +1105,20 @@ def local_process_candidates(source: str) -> tuple[str, ...]:
         tree = ast.parse(source)
     except SyntaxError:
         return ()
-    assignments: dict[str, list[ast.AST]] = {}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name):
-                    assignments.setdefault(target.id, []).append(node.value)
-        elif (
-            isinstance(node, ast.AnnAssign)
-            and isinstance(node.target, ast.Name)
-            and node.value is not None
-        ):
-            assignments.setdefault(node.target.id, []).append(node.value)
+    assignments = python_assignment_values(tree)
+    callables = process_callable_names(tree)
 
     expressions: list[ast.AST] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
-        name = dotted_expression_name(node.func).casefold()
-        basename = name.rsplit(".", 1)[-1]
-        if basename not in PROCESS_CALL_BASENAMES:
+        if not recognized_process_call(node, callables):
             continue
         argv_expressions = process_argv_expressions(node)
         if not argv_expressions:
             continue
         for expression in argv_expressions:
-            if isinstance(expression, ast.Name) and expression.id in assignments:
-                expressions.extend(assignments[expression.id])
-            else:
-                expressions.append(expression)
+            expressions.extend(bound_expression_nodes(expression, assignments))
 
     candidates: set[str] = set()
     for expression in expressions:
@@ -905,13 +1127,7 @@ def local_process_candidates(source: str) -> tuple[str, ...]:
             for node in ast.walk(expression)
             if isinstance(node, ast.Constant) and isinstance(node.value, str)
         ]
-        for index, value in enumerate(strings):
-            normalized = normalize_script_entrypoint(value)
-            if normalized.endswith(".py"):
-                candidates.add(normalized)
-            if value == "-m" and index + 1 < len(strings):
-                candidates.add(module_entrypoint(strings[index + 1]))
-            candidates.update(python_entrypoints(value))
+        candidates.update(process_python_candidates(strings))
     return tuple(sorted(candidates))
 
 
@@ -939,18 +1155,21 @@ def local_process_shell_candidates(source: str) -> tuple[str, ...]:
         tree = ast.parse(source)
     except SyntaxError:
         return ()
+    assignments = python_assignment_values(tree)
+    callables = process_callable_names(tree)
     candidates: set[str] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
-        basename = dotted_expression_name(node.func).casefold().rsplit(".", 1)[-1]
-        if basename not in PROCESS_CALL_BASENAMES:
+        if not recognized_process_call(node, callables):
             continue
         for expression in process_argv_expressions(node):
             strings = [
                 str(value.value)
-                for value in ast.walk(expression)
-                if isinstance(value, ast.Constant) and isinstance(value.value, str)
+                for bound in bound_expression_nodes(expression, assignments)
+                for value in ast.walk(bound)
+                if isinstance(value, ast.Constant)
+                and isinstance(value.value, str)
             ]
             for command_text in strings:
                 if re.search(r"\s|[;&|<>]", command_text):
@@ -1011,96 +1230,47 @@ def python_process_launches(source: str) -> tuple[str, ...]:
         tree = ast.parse(source)
     except SyntaxError:
         return ()
-    os_process_names = {
-        "system", "popen", "execv", "execve", "execvp", "execvpe", "execl",
-        "execle", "execlp", "execlpe", "spawnl", "spawnle", "spawnlp",
-        "spawnlpe", "spawnv", "spawnve", "spawnvp", "spawnvpe",
-        "posix_spawn", "posix_spawnp",
-    }
-    callables = {
-        "subprocess.run", "subprocess.popen", "subprocess.call",
-        "subprocess.check_call", "subprocess.check_output", "subprocess.getoutput",
-        "subprocess.getstatusoutput", "os.system",
-        "os.popen",
-    }
-    callables.update(f"os.{name}" for name in os_process_names)
-    wrappers = {"_run", "run_command", "execute", "exec_command"} | os_process_names
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                local = alias.asname or alias.name
-                if alias.name == "subprocess":
-                    callables.update(
-                        f"{local}.{name}"
-                        for name in (
-                            "run", "Popen", "call", "check_call", "check_output",
-                            "getoutput", "getstatusoutput",
-                        )
-                    )
-                elif alias.name == "os":
-                    callables.update(f"{local}.{name}" for name in os_process_names)
-        elif isinstance(node, ast.ImportFrom) and node.module in {"subprocess", "os"}:
-            for alias in node.names:
-                if alias.name in {
-                    "run", "Popen", "call", "check_call", "check_output",
-                    "getoutput", "getstatusoutput",
-                } | os_process_names:
-                    callables.add(alias.asname or alias.name)
-    normalized_callables = {value.casefold() for value in callables}
-    assignments: dict[str, list[ast.AST]] = {}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name):
-                    assignments.setdefault(target.id, []).append(node.value)
-        elif (
-            isinstance(node, ast.AnnAssign)
-            and isinstance(node.target, ast.Name)
-            and node.value is not None
-        ):
-            assignments.setdefault(node.target.id, []).append(node.value)
+    callables = process_callable_names(tree)
+    assignments = python_assignment_values(tree)
     findings: set[str] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         name = dotted_expression_name(node.func)
-        if (
-            name.casefold() not in normalized_callables
-            and name.rsplit(".", 1)[-1].casefold() not in wrappers
-        ):
+        if not recognized_process_call(node, callables):
             continue
         argv_expressions = process_argv_expressions(node)
         if not argv_expressions:
             continue
-        expressions: list[ast.AST] = []
         for expression in argv_expressions:
-            expressions.extend(
-                assignments.get(expression.id, [expression])
-                if isinstance(expression, ast.Name)
-                else [expression]
-            )
-        # ``ast.dump`` is not a stable serialization contract across Python
-        # minor versions.  PR validation runs on 3.12 while developer hosts
-        # may be newer, so bind the exact source expression instead.  Parsed
-        # nodes have end-position metadata; the full source is a fail-closed
-        # fallback for synthetic or otherwise unlocatable nodes.
-        for expression in expressions:
-            expression_source = ast.get_source_segment(source, expression) or source
-            expression_source = expression_source.replace("\r\n", "\n").replace(
-                "\r", "\n"
+            bound_nodes = bound_expression_nodes(expression, assignments)
+            # Bind both argv syntax and referenced definite assignments.  A
+            # variable-only target change must alter this fingerprint.
+            expression_sources = [
+                (ast.get_source_segment(source, bound) or source)
+                .replace("\r\n", "\n")
+                .replace("\r", "\n")
+                .strip()
+                for bound in bound_nodes
+            ]
+            binding_source = (
+                expression_sources[0]
+                if len(expression_sources) == 1
+                else json.dumps(
+                    sorted(set(expression_sources)), separators=(",", ":")
+                )
             )
             expression_hash = hashlib.sha256(
-                expression_source.strip().encode("utf-8")
+                binding_source.encode("utf-8")
             ).hexdigest()[:16]
-            candidates = sorted(
-                {
-                    normalize_script_entrypoint(str(value.value))
-                    for value in ast.walk(expression)
-                    if isinstance(value, ast.Constant)
-                    and isinstance(value.value, str)
-                    and str(value.value).endswith(".py")
-                }
-            )
+            strings = [
+                str(value.value)
+                for bound in bound_nodes
+                for value in ast.walk(bound)
+                if isinstance(value, ast.Constant)
+                and isinstance(value.value, str)
+            ]
+            candidates = sorted(process_python_candidates(strings))
             detail = ",".join(candidates) if candidates else "UNRESOLVED_LOCAL_PROCESS"
             findings.add(
                 f"line={getattr(node, 'lineno', 0)}:{name or '<call>'}:"
@@ -1494,6 +1664,7 @@ def authority_write_sinks(
     link_functions = {
         f"os.{name}" for name in ("link", "symlink", "rename", "replace")
     }
+    os_open_functions = {"os.open"}
     delete_functions.add("shutil.rmtree")
     findings: set[str] = set()
     normalized_source = source.replace("\r\n", "\n").replace("\r", "\n")
@@ -1554,6 +1725,7 @@ def authority_write_sinks(
                         f"{local}.{name}"
                         for name in ("link", "symlink", "rename", "replace")
                     )
+                    os_open_functions.add(f"{local}.open")
         elif isinstance(imported, ast.ImportFrom) and imported.module in {
             "io", "builtins", "shutil", "os"
         }:
@@ -1574,11 +1746,14 @@ def authority_write_sinks(
                     "link", "symlink", "rename", "replace"
                 }:
                     link_functions.add(alias.asname or alias.name)
+                elif imported.module == "os" and alias.name == "open":
+                    os_open_functions.add(alias.asname or alias.name)
     callable_groups = (
         open_aliases,
         copy_functions,
         delete_functions,
         link_functions,
+        os_open_functions,
     )
     changed = True
     while changed:
@@ -1603,10 +1778,54 @@ def authority_write_sinks(
         if not isinstance(node, ast.Call):
             continue
         func_name = dotted_expression_name(node.func)
+
+        if func_name in os_open_functions:
+            destination_node = node.args[0] if node.args else None
+            flag_node = node.args[1] if len(node.args) > 1 else next(
+                (keyword.value for keyword in node.keywords if keyword.arg == "flags"),
+                None,
+            )
+            flag_names = {
+                dotted_expression_name(child).rsplit(".", 1)[-1]
+                for child in ast.walk(flag_node)
+            } if flag_node is not None else set()
+            write_flag_names = {
+                "O_WRONLY", "O_RDWR", "O_APPEND", "O_CREAT", "O_TRUNC",
+            }
+            numeric_write_mask = (
+                os.O_WRONLY | os.O_RDWR | os.O_APPEND | os.O_CREAT | os.O_TRUNC
+            )
+            numeric_flags = (
+                int(flag_node.value)
+                if isinstance(flag_node, ast.Constant)
+                and isinstance(flag_node.value, int)
+                else 0
+            )
+            writes = bool(
+                flag_names & write_flag_names
+                or numeric_flags & numeric_write_mask
+            )
+            if writes:
+                literal_paths = literal_path_values(destination_node, literal_names)
+                sensitive = sorted(
+                    {
+                        term
+                        for literal_path in literal_paths
+                        for term in sensitive_terms
+                        if term in literal_path.casefold()
+                    }
+                )
+                if sensitive or not literal_paths:
+                    findings.add(
+                        f"line={getattr(node, 'lineno', 0)}:os.open:"
+                        f"{','.join(sensitive) if sensitive else unresolved_destination(destination_node)}"
+                    )
+            continue
         path_method_open = (
             isinstance(node.func, ast.Attribute)
             and node.func.attr == "open"
             and func_name not in open_aliases
+            and func_name not in os_open_functions
         )
         if func_name in open_aliases or path_method_open:
             destination_node = (
@@ -1999,13 +2218,25 @@ def python_declared_shell(value: str) -> bool:
     return bool(re.fullmatch(r"python(?:3(?:\.\d+)?)?", executable))
 
 
+def supported_posix_declared_shell(value: str) -> bool:
+    shell = str(value or "").strip().replace("\\", "/").casefold()
+    if not shell:
+        return True
+    executable = shell.split()[0].rsplit("/", 1)[-1]
+    return executable in {"bash", "sh", "dash", "zsh", "ksh"}
+
+
+def supported_declared_shell(value: str) -> bool:
+    return python_declared_shell(value) or supported_posix_declared_shell(value)
+
+
 @lru_cache(maxsize=512)
 def workflow_run_text(text: str) -> str:
     """Return non-Python run blocks for shell parsing and flag validation."""
     return "\n".join(
         source
         for shell, source in workflow_run_blocks(text)
-        if not python_declared_shell(shell)
+        if not python_declared_shell(shell) and supported_posix_declared_shell(shell)
     )
 
 
@@ -2023,7 +2254,7 @@ def resolved_workflow_python_invocations(
 ) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for yaml_path, shell, source, working_directory in records:
-        if python_declared_shell(shell):
+        if python_declared_shell(shell) or not supported_posix_declared_shell(shell):
             continue
         for invocation in python_invocations(source):
             copied = dict(invocation)
@@ -2213,6 +2444,7 @@ def audit_texts(
     workflow_run_record_map: dict[
         str, list[tuple[str, str, str, str]]
     ] = {}
+    unsupported_declared_shells: list[tuple[str, str, str]] = []
     for path, text in sorted(workflows.items()):
         yaml_reachable = reachable_local_yaml_paths(path, text, yaml_sources)
         workflow_yaml_reachable[path] = sorted(yaml_reachable)
@@ -2235,10 +2467,16 @@ def audit_texts(
             for shell, source, workdir in workflow_run_records(yaml_text)
         ]
         workflow_run_record_map[path] = run_records
+        unsupported_declared_shells.extend(
+            (path, yaml_path, shell)
+            for yaml_path, shell, _source, _workdir in run_records
+            if not supported_declared_shell(shell)
+        )
         executable_workflows[path] = "\n".join(
             source
             for _yaml_path, shell, source, _workdir in run_records
             if not python_declared_shell(shell)
+            and supported_posix_declared_shell(shell)
         )
     workflow_shell_reachable: dict[str, list[str]] = {}
     workflow_direct_invocations = {
@@ -2262,6 +2500,8 @@ def audit_texts(
                         "working_directory": workdir,
                     }
                 )
+                continue
+            if not supported_posix_declared_shell(shell):
                 continue
             references.update(
                 workflow_local_references(
@@ -2348,6 +2588,10 @@ def audit_texts(
         workflow_references[path] = references
         workflow_reachable_python[path] = reachable
     failures: list[str] = []
+    failures.extend(
+        f"unsupported_declared_shell:{path}:{yaml_path}:{shell}"
+        for path, yaml_path, shell in unsupported_declared_shells
+    )
     records: list[dict[str, Any]] = []
     expected_workflow_hashes = contract.get("tracked_workflow_sha256") or {}
     observed_workflow_hashes = {
@@ -2907,6 +3151,7 @@ def git_source_identity(root: Path, paths: list[str]) -> dict[str, Any]:
             input_hashes[path] = "MISSING"
     head_input_hashes: dict[str, str] = {}
     canonical_worktree_blob_ids: dict[str, str] = {}
+    raw_worktree_blob_ids: dict[str, str] = {}
     canonical_head_blob_ids: dict[str, str] = {}
     try:
         head = subprocess.check_output(
@@ -2946,17 +3191,31 @@ def git_source_identity(root: Path, paths: list[str]) -> dict[str, Any]:
                     timeout=30,
                     stderr=subprocess.DEVNULL,
                 ).decode("ascii").strip()
+                raw_worktree_blob_id = subprocess.check_output(
+                    ["git", "hash-object", "--no-filters", "--", path],
+                    cwd=root,
+                    timeout=30,
+                    stderr=subprocess.DEVNULL,
+                ).decode("ascii").strip()
             except (OSError, subprocess.SubprocessError):
                 head_hash = "MISSING_AT_HEAD"
                 head_blob_id = "MISSING_AT_HEAD"
                 worktree_blob_id = "MISSING_IN_WORKTREE"
+                raw_worktree_blob_id = "MISSING_IN_WORKTREE"
             head_input_hashes[path] = head_hash
             canonical_head_blob_ids[path] = head_blob_id
             canonical_worktree_blob_ids[path] = worktree_blob_id
+            raw_worktree_blob_ids[path] = raw_worktree_blob_id
             # Compare Git's canonical worktree bytes to the exact HEAD blob.
             # This catches assume-unchanged/skip-worktree bypasses while still
             # respecting declared checkout filters such as CRLF normalization.
-            if worktree_blob_id != head_blob_id:
+            # An exact raw-byte match is also authoritative: repositories can
+            # contain historical CRLF blobs while the current global clean
+            # filter would normalize a newly added copy differently.
+            if (
+                worktree_blob_id != head_blob_id
+                and raw_worktree_blob_id != head_blob_id
+            ):
                 dirty.append(f"HEAD_BYTE_MISMATCH:{path}")
         dirty = sorted(set(dirty))
         identity_status = "CLEAN_HEAD_BOUND" if not dirty else "DIRTY_INPUTS_NOT_HEAD_BOUND"
@@ -2976,6 +3235,7 @@ def git_source_identity(root: Path, paths: list[str]) -> dict[str, Any]:
         "head_audit_input_tree_sha256": canonical_sha256(head_input_hashes),
         "head_audit_input_hashes": head_input_hashes,
         "canonical_worktree_blob_ids": canonical_worktree_blob_ids,
+        "raw_worktree_blob_ids": raw_worktree_blob_ids,
         "canonical_head_blob_ids": canonical_head_blob_ids,
     }
 

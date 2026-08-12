@@ -816,8 +816,17 @@ def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> No
         "subprocess.run(command)\n"
     )
     process_findings = MOD.python_process_launches(process_source)
+    expected_binding_source = json.dumps(
+        sorted(
+            {
+                "command",
+                '["python", "tools/build_new_target_writer.py"]',
+            }
+        ),
+        separators=(",", ":"),
+    )
     expected_expression_hash = hashlib.sha256(
-        '["python", "tools/build_new_target_writer.py"]'.encode("utf-8")
+        expected_binding_source.encode("utf-8")
     ).hexdigest()[:16]
     assert len(process_findings) == 1
     assert f"argv={expected_expression_hash}:" in process_findings[0]
@@ -874,6 +883,20 @@ def test_indirect_execution_and_destination_bypasses_fail_closed() -> None:
     assert MOD.python_entrypoints(
         'CMD="python tools/harmless.py"\nbash -c "$CMD"'
     ) == {"tools/harmless.py"}
+    assigned_python_source = MOD.python_invocations(
+        "CMD='from tools.build_run287_same_close_target_books import main; main()'\n"
+        'python -c "$CMD"\n'
+    )[0]["command_source"]
+    assert dict(MOD.python_main_call_counts(str(assigned_python_source)))[
+        "tools/build_run287_same_close_target_books.py"
+    ] == 1
+    assert MOD.python_invocations(
+        "echo python tools/build_run287_same_close_target_books.py\n"
+    ) == ()
+    assert MOD.python_entrypoints("python -m tools.helper") == {
+        "tools/helper.py",
+        "tools/helper/__main__.py",
+    }
     assert any(
         "dynamic-shell-c:UNRESOLVED_COMMAND" in finding
         for finding in MOD.shell_authority_write_sinks(
@@ -921,6 +944,23 @@ def test_indirect_execution_and_destination_bypasses_fail_closed() -> None:
     assert MOD.python_process_launches(
         'import subprocess\nsubprocess.getstatusoutput("python tools/harmless.py")\n'
     )
+    assert "tools/harmless.py" in MOD.local_process_candidates(
+        "import subprocess\nlaunch = subprocess.run\n"
+        'launch(["python", "tools/harmless.py"])\n'
+    )
+    assert MOD.python_process_launches(
+        "import subprocess\nlaunch = subprocess.run\n"
+        'launch(["python", "tools/harmless.py"])\n'
+    )
+    variable_launch = (
+        "import subprocess\nSCRIPT = 'tools/harmless.py'\n"
+        'subprocess.run(["python", SCRIPT])\n'
+    )
+    assert "tools/harmless.py" in MOD.local_process_candidates(variable_launch)
+    assert "tools/harmless.py" in MOD.python_process_launches(variable_launch)[0]
+    assert "tools/harmless.txt" in MOD.local_process_candidates(
+        'import subprocess\nsubprocess.run(["python", "tools/harmless.txt"])\n'
+    )
     here_sources = MOD.embedded_python_sources(
         "python - <<< 'from tools.build_new_target_writer import main; main()'"
     )
@@ -946,6 +986,13 @@ def test_indirect_execution_and_destination_bypasses_fail_closed() -> None:
         ":open:target" in finding
         for finding in MOD.authority_write_sinks(
             'writer = open\nwriter("outputs/main_target.csv", "w")\n',
+            ("target",),
+        )
+    )
+    assert any(
+        ":os.open:target" in finding
+        for finding in MOD.authority_write_sinks(
+            'import os\nos.open("outputs/main_target.csv", os.O_WRONLY | os.O_TRUNC)\n',
             ("target",),
         )
     )
@@ -1019,6 +1066,18 @@ def test_indirect_execution_and_destination_bypasses_fail_closed() -> None:
         "tools/node-action/cleanup.js",
     }
 
+    unsupported = deepcopy(workflows)
+    unsupported[observer] = unsupported[observer].replace(
+        "        run: |",
+        "        shell: node {0}\n        run: |",
+        1,
+    )
+    unsupported_result = MOD.audit_texts(contract, unsupported, accepted)
+    assert any(
+        "unsupported_declared_shell:" + observer in failure
+        for failure in unsupported_result["failures"]
+    )
+
 
 def test_untracked_workflow_is_not_repository_authority() -> None:
     with tempfile.TemporaryDirectory() as tmp:
@@ -1029,7 +1088,8 @@ def test_untracked_workflow_is_not_repository_authority() -> None:
         untracked = workflows / "untracked.yml"
         tracked.write_text(
             "name: tracked\njobs:\n  x:\n    steps:\n"
-            "      - run: bash tools/helper.bash\n",
+            "      - run: bash tools/helper.bash\n"
+            "      - run: python tools/helper.txt\n",
             encoding="utf-8",
         )
         untracked.write_text("name: untracked\n", encoding="utf-8")
@@ -1037,15 +1097,24 @@ def test_untracked_workflow_is_not_repository_authority() -> None:
         (root / "tools" / "helper.bash").write_text(
             "python tools/harmless.py\n", encoding="utf-8"
         )
+        (root / "tools" / "helper.txt").write_text(
+            "from tools.build_run287_same_close_target_books import main\n"
+            "main()\n",
+            encoding="utf-8",
+        )
         subprocess.run(["git", "init", "-q"], cwd=root, check=True)
         subprocess.run(
-            ["git", "add", ".github/workflows/tracked.yml", "tools/helper.bash"],
+            [
+                "git", "add", ".github/workflows/tracked.yml",
+                "tools/helper.bash", "tools/helper.txt",
+            ],
             cwd=root,
             check=True,
         )
         paths = MOD.tracked_workflow_paths(root)
         assert paths == [".github/workflows/tracked.yml"]
         assert MOD.tracked_shell_paths(root) == ["tools/helper.bash"]
+        assert "tools/helper.txt" in MOD.tracked_python_paths(root)
 
 
 def test_execution_defaults_are_bound_to_named_inputs() -> None:
@@ -1211,6 +1280,27 @@ def test_dirty_input_is_not_attributed_to_head_and_defaults_follow_repo_root() -
         assert clean["source_identity_status"] == "CLEAN_HEAD_BOUND"
         assert clean["source_commit_sha"] == clean["observed_head_sha"]
         assert MOD.git_path_tracked_at_head(root, "tracked.txt") is True
+
+        # A historical CRLF blob remains clean when its exact worktree bytes
+        # match HEAD, even if a current clean filter would produce an LF blob.
+        crlf_tracked = root / "historical_crlf.txt"
+        crlf_tracked.write_bytes(b"historical\r\n")
+        subprocess.run(
+            ["git", "-c", "core.autocrlf=false", "add", "historical_crlf.txt"],
+            cwd=root,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-qm", "historical crlf fixture"],
+            cwd=root,
+            check=True,
+        )
+        crlf_clean = MOD.git_source_identity(root, ["historical_crlf.txt"])
+        assert crlf_clean["source_identity_status"] == "CLEAN_HEAD_BOUND"
+        assert (
+            crlf_clean["raw_worktree_blob_ids"]["historical_crlf.txt"]
+            == crlf_clean["canonical_head_blob_ids"]["historical_crlf.txt"]
+        )
 
         ignored = root / "outputs" / "audit.py"
         ignored.parent.mkdir()

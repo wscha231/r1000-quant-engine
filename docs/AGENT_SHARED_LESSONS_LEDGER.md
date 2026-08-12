@@ -4218,3 +4218,36 @@ Expected contract:
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
+
+## 2026-08-12 - Interpreter, process binding, and low-level write closure
+
+- A Python `-c` payload can be supplied through an assigned shell variable.
+  Resolve exact assignment values before parsing the embedded source, and bind
+  unresolved payloads fail-closed.
+- Process-launch callables remain process sinks after imports or assignments
+  rename them. Propagate callable aliases to a fixed point before classifying
+  calls.
+- Low-level `os.open` is a filesystem write when its flags include a write,
+  append, create, or truncate bit. Include both direct and aliased calls in the
+  authority inventory.
+- Interpreter-like words are executable only in shell command position. Parse
+  control operators and approved wrappers such as `sudo`, `timeout`, and
+  `unshare` before treating a Python token as a launch.
+- A process argv assembled through local assignments must bind both the call
+  expression and the referenced assignment sources. Otherwise changing the
+  launched target can leave the reviewed fingerprint unchanged.
+- Python interpreter operands are content-defined, not suffix-defined. A
+  tracked decodable `.txt` or extensionless file passed to Python is executable
+  source and belongs in the transitive inventory.
+- `python -m package` can execute `package/__main__.py`; inventory both the
+  module file and the package entrypoint when either exists.
+- A declared workflow shell outside the supported static parsers must fail
+  closed. Do not parse JavaScript, PowerShell, or another shell body as Bash and
+  then certify an incomplete authority graph.
+- HEAD identity must accept either Git-canonical equality or exact raw-byte
+  equality. Historical CRLF blobs can differ under today's clean filter without
+  being modified, while any raw and canonical mismatch still blocks hidden
+  worktree changes.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
