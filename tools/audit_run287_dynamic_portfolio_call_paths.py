@@ -8,6 +8,7 @@ import ast
 import hashlib
 import json
 import re
+import shlex
 import subprocess
 import textwrap
 from pathlib import Path
@@ -95,7 +96,7 @@ def workflow_texts(root: Path, paths: list[str]) -> dict[str, str]:
     }
 
 
-def tracked_python_texts(root: Path) -> dict[str, str]:
+def tracked_python_paths(root: Path) -> list[str]:
     try:
         raw = subprocess.check_output(
             ["git", "ls-files", "--", "*.py"],
@@ -106,9 +107,13 @@ def tracked_python_texts(root: Path) -> dict[str, str]:
         paths = [line.strip().replace("\\", "/") for line in raw.splitlines() if line.strip()]
     except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
         paths = [path.relative_to(root).as_posix() for path in root.rglob("*.py")]
+    return sorted(set(paths))
+
+
+def tracked_python_texts(root: Path) -> dict[str, str]:
     return {
         path: (root / path).read_text(encoding="utf-8")
-        for path in sorted(set(paths))
+        for path in tracked_python_paths(root)
         if (root / path).is_file()
     }
 
@@ -133,15 +138,69 @@ def shell_logical_commands(text: str) -> list[tuple[int, str]]:
     return commands
 
 
-def executable_commands(text: str, entrypoint: str) -> list[tuple[int, str]]:
-    result: list[tuple[int, str]] = []
-    for number, command in shell_logical_commands(text):
-        if entrypoint not in command:
+def shell_tokens(command: str) -> list[str]:
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|")
+    lexer.commenters = ""
+    lexer.whitespace_split = True
+    return list(lexer)
+
+
+def module_entrypoint(module: str) -> str:
+    return f"{str(module).replace('.', '/')}.py"
+
+
+def python_invocations(text: str) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    boundaries = {";", "&&", "||", "|", "&"}
+    options_with_values = {"-X", "-W", "--check-hash-based-pycs"}
+    for line, command in shell_logical_commands(text):
+        try:
+            tokens = shell_tokens(command)
+        except ValueError:
             continue
-        prefix = command.split(entrypoint, 1)[0]
-        if re.search(r"(?:^|\s)python(?:3)?(?:\s|$)", prefix):
-            result.append((number, command))
+        for index, token in enumerate(tokens):
+            executable = token.rsplit("/", 1)[-1]
+            if executable not in {"python", "python3"} and not executable.endswith("$(python"):
+                continue
+            end = index + 1
+            while end < len(tokens) and tokens[end] not in boundaries:
+                end += 1
+            argv = tokens[index:end]
+            cursor = 1
+            entrypoint = ""
+            while cursor < len(argv):
+                value = argv[cursor]
+                if value == "-m" and cursor + 1 < len(argv):
+                    entrypoint = module_entrypoint(argv[cursor + 1])
+                    break
+                if value in {"-", "-c"}:
+                    entrypoint = value
+                    break
+                if value in options_with_values:
+                    cursor += 2
+                    continue
+                if value.startswith("-"):
+                    cursor += 1
+                    continue
+                entrypoint = value
+                break
+            result.append(
+                {
+                    "line": line,
+                    "entrypoint": entrypoint,
+                    "argv": argv,
+                    "command": command,
+                }
+            )
     return result
+
+
+def executable_commands(text: str, entrypoint: str) -> list[tuple[int, str]]:
+    return [
+        (int(row["line"]), " ".join(str(value) for value in row["argv"]))
+        for row in python_invocations(text)
+        if row["entrypoint"] == entrypoint
+    ]
 
 
 def executable_invocations(text: str, entrypoint: str) -> list[int]:
@@ -149,13 +208,11 @@ def executable_invocations(text: str, entrypoint: str) -> list[int]:
 
 
 def python_entrypoints(text: str) -> set[str]:
-    result: set[str] = set()
-    pattern = re.compile(r"(?:^|\s)python(?:3)?\s+([^\s\\]+)")
-    for _number, command in shell_logical_commands(text):
-        for match in pattern.finditer(command):
-            if match.group(1) not in {"-", "-c", "-m"}:
-                result.add(match.group(1))
-    return result
+    return {
+        str(row["entrypoint"])
+        for row in python_invocations(text)
+        if row["entrypoint"] not in {"", "-", "-c"}
+    }
 
 
 def inline_python_blocks(text: str) -> list[dict[str, Any]]:
@@ -202,12 +259,18 @@ def _module_candidates(module: str) -> tuple[str, str]:
     return f"{base}.py", f"{base}/__init__.py"
 
 
-def local_import_paths(source: str, source_path: str, sources: Mapping[str, str]) -> set[str]:
+def local_import_paths(
+    source: str,
+    source_path: str,
+    sources: Mapping[str, str],
+    known_paths: set[str] | None = None,
+) -> set[str]:
     try:
         tree = ast.parse(source)
     except SyntaxError:
         return set()
     result: set[str] = set()
+    known = set(sources) if known_paths is None else set(known_paths)
     source_parts = Path(source_path).with_suffix("").parts[:-1]
     for node in ast.walk(tree):
         candidates: list[str] = []
@@ -232,23 +295,30 @@ def local_import_paths(source: str, source_path: str, sources: Mapping[str, str]
             )
         for module in candidates:
             for candidate in _module_candidates(module):
-                if candidate in sources:
+                if candidate in known:
                     result.add(candidate)
     return result
 
 
 def reachable_python_paths(
-    roots: set[str], sources: Mapping[str, str]
+    roots: set[str],
+    sources: Mapping[str, str],
+    known_paths: set[str] | None = None,
 ) -> tuple[set[str], dict[str, str]]:
+    known = set(sources) if known_paths is None else set(known_paths)
     seen: set[str] = set()
     parents: dict[str, str] = {}
-    stack = sorted(root for root in roots if root in sources)
+    stack = sorted(root for root in roots if root in known)
     while stack:
         path = stack.pop()
         if path in seen:
             continue
         seen.add(path)
-        for imported in sorted(local_import_paths(sources[path], path, sources)):
+        if path not in sources:
+            continue
+        for imported in sorted(
+            local_import_paths(sources[path], path, sources, known)
+        ):
             if imported not in seen:
                 parents.setdefault(imported, path)
                 stack.append(imported)
@@ -269,12 +339,42 @@ def noncomment_text(text: str) -> str:
     )
 
 
+def contains_argv_sequence(argv: list[str], sequence: list[str]) -> bool:
+    if not sequence or len(sequence) > len(argv):
+        return False
+    return any(
+        argv[index:index + len(sequence)] == sequence
+        for index in range(len(argv) - len(sequence) + 1)
+    )
+
+
+def workflow_local_references(
+    path: str,
+    text: str,
+    sources: Mapping[str, str],
+    known_paths: set[str],
+) -> set[str]:
+    references = set(python_entrypoints(text))
+    for block in inline_python_blocks(text):
+        references.update(
+            local_import_paths(
+                str(block["source"]),
+                f"{path}::inline:{block['line']}",
+                sources,
+                known_paths,
+            )
+        )
+    return references
+
+
 def audit_texts(
     contract: Mapping[str, Any],
     workflows: Mapping[str, str],
     accepted_files: Mapping[str, str],
+    known_python_paths: set[str] | None = None,
 ) -> dict[str, Any]:
     validate_contract(contract)
+    known_paths = set(accepted_files) if known_python_paths is None else set(known_python_paths)
     failures: list[str] = []
     records: list[dict[str, Any]] = []
     roles = contract.get("workflow_roles") or {}
@@ -340,12 +440,18 @@ def audit_texts(
     for requirement in contract.get("required_executable_commands") or []:
         path = str(requirement.get("workflow") or "")
         entrypoint = str(requirement.get("entrypoint") or "")
-        tokens = [" ".join(str(token).split()) for token in requirement.get("required_tokens") or []]
+        sequences = [
+            shlex.split(str(token), posix=True)
+            for token in requirement.get("required_tokens") or []
+        ]
         commands = executable_commands(workflows.get(path, ""), entrypoint)
         matches = [
             (line, command)
             for line, command in commands
-            if all(token in " ".join(command.split()) for token in tokens)
+            if all(
+                contains_argv_sequence(shlex.split(command, posix=True), sequence)
+                for sequence in sequences
+            )
         ]
         exact_matches = int(requirement.get("exact_match_count", 1))
         if len(matches) != exact_matches:
@@ -366,7 +472,9 @@ def audit_texts(
     for block in inline_blocks:
         source = str(block["source"])
         virtual_path = f"{accepted_workflow}::inline:{block['line']}"
-        inline_local_paths.update(local_import_paths(source, virtual_path, accepted_files))
+        inline_local_paths.update(
+            local_import_paths(source, virtual_path, accepted_files, known_paths)
+        )
         for token in forbidden:
             if token in noncomment_text(source):
                 failures.append(
@@ -383,15 +491,54 @@ def audit_texts(
             f"observed={','.join(observed_inline)}"
         )
 
+    observed_sensitive = sorted(
+        entrypoint
+        for entrypoint in python_entrypoints(workflows.get(accepted_workflow, ""))
+        if authority_sensitive(entrypoint, contract)
+    )
+    expected_sensitive = sorted(
+        set(contract.get("accepted_workflow_authority_sensitive_entrypoints") or [])
+    )
+    if observed_sensitive != expected_sensitive:
+        failures.append(
+            "accepted_workflow_sensitive_entrypoint_mismatch:"
+            f"expected={','.join(expected_sensitive)}:"
+            f"observed={','.join(observed_sensitive)}"
+        )
+
+    expected_by_workflow = contract.get("workflow_authority_sensitive_entrypoints") or {}
+    observed_by_workflow: dict[str, list[str]] = {}
+    for path, text in sorted(workflows.items()):
+        references = workflow_local_references(path, text, accepted_files, known_paths)
+        sensitive = sorted(
+            reference for reference in references if authority_sensitive(reference, contract)
+        )
+        if sensitive:
+            observed_by_workflow[path] = sensitive
+            if path not in roles:
+                failures.append(f"authority_sensitive_workflow_role_missing:{path}")
+        expected = sorted(set(expected_by_workflow.get(path) or []))
+        if sensitive != expected:
+            failures.append(
+                f"workflow_authority_sensitive_mismatch:{path}:"
+                f"expected={','.join(expected)}:observed={','.join(sensitive)}"
+            )
+
     root_paths = {
         str(path)
         for path in contract.get("accepted_path_files") or []
         if str(path).endswith(".py")
     }
     root_paths.update(inline_local_paths)
-    reachable, import_parents = reachable_python_paths(root_paths, accepted_files)
+    root_paths.update(observed_sensitive)
+    reachable, import_parents = reachable_python_paths(
+        root_paths, accepted_files, known_paths
+    )
     legacy_paths: list[str] = []
     for path in sorted(reachable):
+        if path not in accepted_files:
+            failures.append(f"reachable_python_file_missing:{path}")
+            continue
         source = noncomment_text(accepted_files[path])
         path_blocked = path == "r1000_risk_sensing.py"
         for token in forbidden:
@@ -406,25 +553,18 @@ def audit_texts(
                 chain.append(cursor)
             legacy_paths.append("<-".join(chain))
 
-    for path, role in sorted(roles.items()):
-        if not str(role).endswith("_no_target_writer"):
-            continue
-        references = set(python_entrypoints(workflows.get(path, "")))
-        for block in inline_python_blocks(workflows.get(path, "")):
-            references.update(
-                local_import_paths(
-                    str(block["source"]),
-                    f"{path}::inline:{block['line']}",
-                    accepted_files,
-                )
-            )
-        sensitive = sorted(
-            reference for reference in references if authority_sensitive(reference, contract)
+    reachable_sensitive = sorted(
+        path for path in reachable if authority_sensitive(path, contract)
+    )
+    expected_reachable_sensitive = sorted(
+        set(contract.get("accepted_reachable_authority_sensitive_modules") or [])
+    )
+    if reachable_sensitive != expected_reachable_sensitive:
+        failures.append(
+            "accepted_reachable_authority_sensitive_mismatch:"
+            f"expected={','.join(expected_reachable_sensitive)}:"
+            f"observed={','.join(reachable_sensitive)}"
         )
-        if sensitive:
-            failures.append(
-                f"no_target_writer_role_violated:{path}:{','.join(sensitive)}"
-            )
 
     authority = contract.get("writer_authority") or {}
     accepted_entrypoint = str(authority.get("accepted_current_target_writer") or "")
@@ -434,22 +574,6 @@ def audit_texts(
         for row in records
     ):
         failures.append("accepted_daily_writer_binding_missing")
-    sensitive_terms = ("target", "ledger", "order", "selector", "decision")
-    observed_sensitive = sorted(
-        entrypoint
-        for entrypoint in python_entrypoints(workflows.get(accepted_workflow, ""))
-        if any(term in entrypoint.casefold() for term in sensitive_terms)
-    )
-    expected_sensitive = sorted(
-        set(contract.get("accepted_workflow_authority_sensitive_entrypoints") or [])
-    )
-    if observed_sensitive != expected_sensitive:
-        failures.append(
-            "accepted_workflow_sensitive_entrypoint_mismatch:"
-            f"expected={','.join(expected_sensitive)}:"
-            f"observed={','.join(observed_sensitive)}"
-        )
-
     return {
         "schema_version": "run287-dynamic-portfolio-call-path-audit-v1",
         "status": PASS_STATUS if not failures else BLOCKED_STATUS,
@@ -458,8 +582,10 @@ def audit_texts(
         "accepted_daily_workflow": accepted_workflow,
         "accepted_current_target_writer": accepted_entrypoint,
         "accepted_workflow_authority_sensitive_entrypoints": observed_sensitive,
+        "workflow_authority_sensitive_entrypoints": observed_by_workflow,
         "accepted_workflow_inline_local_imports": observed_inline,
         "accepted_python_reachable_files": sorted(reachable),
+        "accepted_reachable_authority_sensitive_modules": reachable_sensitive,
         "legacy_exit_reachability_paths": sorted(legacy_paths),
         "invocations": records,
         "failure_count": len(failures),
@@ -524,9 +650,19 @@ def run_audit(
 ) -> dict[str, Any]:
     tracked = tracked_workflow_paths(root)
     workflows = workflow_texts(root, tracked)
-    python_sources = tracked_python_texts(root)
+    python_paths = set(tracked_python_paths(root))
+    python_sources = {
+        path: (root / path).read_text(encoding="utf-8")
+        for path in sorted(python_paths)
+        if (root / path).is_file()
+    }
     accepted_files = {**python_sources, **workflows}
-    result = audit_texts(contract, workflows, accepted_files)
+    result = audit_texts(
+        contract,
+        workflows,
+        accepted_files,
+        known_python_paths=python_paths,
+    )
     relevant = list(tracked)
     relevant.extend(result.get("accepted_python_reachable_files") or [])
     relevant.extend(str(path) for path in contract.get("accepted_path_files") or [])

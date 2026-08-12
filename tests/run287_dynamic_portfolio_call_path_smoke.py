@@ -118,6 +118,19 @@ def test_required_transaction_boundary_cannot_be_removed() -> None:
         for item in result["failures"]
     )
 
+    shell_suffix = deepcopy(workflows)
+    shell_suffix[daily] = shell_suffix[daily].replace(
+        "--suppress-new-orders \\",
+        "; : --suppress-new-orders \\",
+        1,
+    )
+    result = MOD.audit_texts(contract, shell_suffix, accepted)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "required_executable_command_mismatch" in item
+        for item in result["failures"]
+    )
+
 
 def test_no_writer_role_and_duplicate_accepted_writer_fail_closed() -> None:
     contract, workflows, accepted = source_inputs()
@@ -126,7 +139,10 @@ def test_no_writer_role_and_duplicate_accepted_writer_fail_closed() -> None:
     no_writer[observer] += "\n  python tools/build_new_target_writer.py\n"
     result = MOD.audit_texts(contract, no_writer, accepted)
     assert result["status"] == MOD.BLOCKED_STATUS
-    assert any("no_target_writer_role_violated" in item for item in result["failures"])
+    assert any(
+        "workflow_authority_sensitive_mismatch" in item
+        for item in result["failures"]
+    )
 
     duplicate = deepcopy(workflows)
     daily = contract["accepted_daily_workflow"]
@@ -135,6 +151,70 @@ def test_no_writer_role_and_duplicate_accepted_writer_fail_closed() -> None:
     assert result["status"] == MOD.BLOCKED_STATUS
     assert any(
         "entrypoint_invocation_count_mismatch" in item
+        for item in result["failures"]
+    )
+
+    module_mode = deepcopy(workflows)
+    module_mode[daily] += (
+        "\n  python -m tools.build_run287_same_close_target_books\n"
+    )
+    result = MOD.audit_texts(contract, module_mode, accepted)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "entrypoint_invocation_count_mismatch" in item
+        for item in result["failures"]
+    )
+
+
+def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> None:
+    contract, workflows, accepted = source_inputs()
+    undeclared = deepcopy(workflows)
+    undeclared[".github/workflows/new_production.yml"] = (
+        "jobs:\n  run:\n    steps:\n      - run: python tools/build_new_target_writer.py\n"
+    )
+    result = MOD.audit_texts(contract, undeclared, accepted)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "authority_sensitive_workflow_role_missing" in item
+        for item in result["failures"]
+    )
+
+    accepted_root = deepcopy(accepted)
+    accepted_root["tools/build_run287_catchup_target_evidence.py"] += (
+        "\nfrom r1000_risk_sensing import evaluate_layer1_individual\n"
+    )
+    result = MOD.audit_texts(contract, workflows, accepted_root)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "forbidden_legacy_exit_reachability:"
+        "tools/build_run287_catchup_target_evidence.py" in item
+        for item in result["failures"]
+    )
+
+    transitive_writer = deepcopy(accepted)
+    transitive_writer["tools/build_new_target_writer.py"] = "def main():\n    return None\n"
+    transitive_writer["tools/build_run287_exact_packet_input_registry.py"] += (
+        "\nfrom tools.build_new_target_writer import main as new_writer_main\n"
+    )
+    result = MOD.audit_texts(contract, workflows, transitive_writer)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "accepted_reachable_authority_sensitive_mismatch" in item
+        for item in result["failures"]
+    )
+
+    missing_import = deepcopy(accepted)
+    missing_import.pop("tools/run287_crisis_policy.py")
+    known = set(accepted)
+    result = MOD.audit_texts(
+        contract,
+        workflows,
+        missing_import,
+        known_python_paths=known,
+    )
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "reachable_python_file_missing:tools/run287_crisis_policy.py" in item
         for item in result["failures"]
     )
 
@@ -188,6 +268,7 @@ def main() -> int:
     test_inline_writer_and_transitive_legacy_exit_fail_closed()
     test_required_transaction_boundary_cannot_be_removed()
     test_no_writer_role_and_duplicate_accepted_writer_fail_closed()
+    test_global_workflow_and_transitive_authority_allowlists_fail_closed()
     test_untracked_workflow_is_not_repository_authority()
     test_dirty_input_is_not_attributed_to_head_and_defaults_follow_repo_root()
     print("run287 dynamic portfolio call-path smoke: PASS")

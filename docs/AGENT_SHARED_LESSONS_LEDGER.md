@@ -3810,15 +3810,21 @@ Expected contract:
   prohibited standalone legacy EXIT reachability.
 - Result: The accepted daily path has exactly one current target writer; a
   second known or previously unknown target writer, a missing suppression flag,
-  or a legacy risk-sensing import fails the focused validation.
+  or a legacy risk-sensing import fails the focused validation. Shell control
+  boundaries cannot lend flags from a later command, `python -m` entrypoints
+  are normalized with direct script calls, and every tracked workflow's
+  authority-sensitive entrypoints must exactly match its declared role.
 - Failure or caveat: Filename-pattern checks alone do not detect a newly named
   target writer. Raw token checks can also be satisfied by comments, direct-file
   scans miss transitive imports, and `python -` heredocs can hide local calls.
   The accepted workflow therefore binds flags to logical executable commands,
   allowlists direct entrypoints and inline local imports, and traverses the
-  local Python import graph. Untracked workflows are excluded so user-owned
-  local files cannot silently become authority. Dirty audited inputs are never
-  attributed to the unchanged HEAD SHA.
+  local Python import graph. The accepted graph's complete set of
+  authority-sensitive modules is allowlisted, all accepted direct entrypoints
+  seed transitive traversal, and a deleted tracked dependency remains an input
+  and fails closed. Untracked workflows are excluded so user-owned local files
+  cannot silently become authority. Dirty audited inputs are never attributed
+  to the unchanged HEAD SHA.
 - Reusable lesson: Determine portfolio authority from the tracked workflow call
   graph plus explicit role contracts, not from filenames or artifact labels.
 - Next action: Merge this behavior-neutral guard before introducing the first

@@ -41,7 +41,16 @@
     ".github/workflows/layer4_monthly_swap.yml": "legacy_proposal_and_manual_paper_executor_not_authoritative",
     ".github/workflows/full_rebuild_manual.yml": "manual_full_rebuild_preliminary_target_writer",
     ".github/workflows/alphaops_replay_sidecars_manual.yml": "manual_research_target_writers",
-    ".github/workflows/phase_g_crisis_evidence_liquidity_replay.yml": "manual_research_crisis_shadow_writer"
+    ".github/workflows/phase_g_crisis_evidence_liquidity_replay.yml": "manual_research_crisis_shadow_writer",
+    ".github/workflows/daily_autolearning_scan.yml": "research_diagnostics_not_operating_authority",
+    ".github/workflows/earnings_estimates_daily.yml": "forward_observation_ledger_not_operating_authority",
+    ".github/workflows/free_data_daily_update.yml": "research_broker_replay_not_operating_authority",
+    ".github/workflows/free_data_lake_bootstrap.yml": "research_broker_replay_not_operating_authority",
+    ".github/workflows/free_historical_data_backfill.yml": "forward_observation_ledger_not_operating_authority",
+    ".github/workflows/pages_deploy.yml": "read_only_publication_not_operating_authority",
+    ".github/workflows/portfolio_system_guard.yml": "read_only_guard_not_operating_authority",
+    ".github/workflows/post_disclosure_alpha_pipeline.yml": "research_event_builder_not_operating_authority",
+    ".github/workflows/quarterly_auto_learning.yml": "research_learning_proposal_not_operating_authority"
   },
   "entrypoint_bindings": [
     {
@@ -120,6 +129,84 @@
       ]
     }
   ],
+  "workflow_authority_sensitive_entrypoints": {
+    ".github/workflows/alphaops_replay_sidecars_manual.yml": [
+      "tools/archive_target_snapshots.py",
+      "tools/build_event_target_books.py",
+      "tools/build_operating_target_books.py",
+      "tools/build_weekly_leader_target_books.py",
+      "tools/run_account_evaluation.py",
+      "tools/run_account_order_preview.py",
+      "tools/run_broker_execution_policy_replay.py",
+      "tools/run_broker_gap_attribution.py",
+      "tools/run_broker_ledger_replay.py",
+      "tools/run_broker_position_risk_replay.py",
+      "tools/run_broker_trade_journal.py",
+      "tools/run_portfolio_goal_search.py",
+      "tools/run_portfolio_system_guard.py",
+      "tools/run_position_cleanup_review.py",
+      "tools/run_position_risk_weekly_validation.py",
+      "tools/run_strategy_logic_ledger.py",
+      "tools/run_superperformance_trader_replay.py",
+      "tools/run_trade_attribution_analysis.py",
+      "tools/run_user_portfolio_reports.py",
+      "tools/validate_target_book_cash_contract.py"
+    ],
+    ".github/workflows/daily_autolearning_scan.yml": [
+      "tools/run_historical_trade_journey.py",
+      "tools/run_main_cash_drag_replay.py",
+      "tools/run_position_aware_risk_replay.py"
+    ],
+    ".github/workflows/daily_operating_selection_refresh.yml": [
+      "tools/archive_run287_decision_observation.py",
+      "tools/bootstrap_run287_daily_paper_accounts.py",
+      "tools/build_operating_target_books.py",
+      "tools/build_run287_catchup_target_evidence.py",
+      "tools/build_run287_same_close_target_books.py",
+      "tools/run287_paper_ledger_integrity.py",
+      "tools/run_daily_simulated_fill_ledger.py",
+      "tools/run_run287_promotion_gate.py",
+      "tools/run_user_portfolio_reports.py"
+    ],
+    ".github/workflows/earnings_estimates_daily.yml": [
+      "tools/run_free_data_forward_paper_ledger.py"
+    ],
+    ".github/workflows/free_data_daily_update.yml": [
+      "tools/run_broker_ledger_replay.py"
+    ],
+    ".github/workflows/free_data_lake_bootstrap.yml": [
+      "tools/run_broker_ledger_replay.py"
+    ],
+    ".github/workflows/free_historical_data_backfill.yml": [
+      "tools/run_free_data_forward_paper_ledger.py"
+    ],
+    ".github/workflows/full_rebuild_manual.yml": [
+      "tools/build_concentrated_trade_journal.py",
+      "tools/build_operating_target_books.py",
+      "tools/trade_insights.py"
+    ],
+    ".github/workflows/pages_deploy.yml": [
+      "tests/public_portfolio_dashboard_smoke.py",
+      "tools/build_public_portfolio_dashboard.py"
+    ],
+    ".github/workflows/phase_g_crisis_evidence_liquidity_replay.yml": [
+      "tools/build_crisis_governed_target_books.py",
+      "tools/build_operating_target_books.py"
+    ],
+    ".github/workflows/portfolio_system_guard.yml": [
+      "tests/portfolio_goal_search_smoke.py",
+      "tests/portfolio_system_guard_smoke.py",
+      "tools/run_portfolio_goal_search.py",
+      "tools/run_portfolio_system_guard.py"
+    ],
+    ".github/workflows/post_disclosure_alpha_pipeline.yml": [
+      "tools/run_13f_position_event_builder.py"
+    ],
+    ".github/workflows/quarterly_auto_learning.yml": [
+      "tools/build_concentrated_trade_journal.py",
+      "tools/trade_insights.py"
+    ]
+  },
   "accepted_path_files": [
     ".github/workflows/daily_operating_selection_refresh.yml",
     "tools/build_operating_target_books.py",
@@ -128,11 +215,35 @@
   ],
   "accepted_workflow_authority_sensitive_entrypoints": [
     "tools/archive_run287_decision_observation.py",
+    "tools/bootstrap_run287_daily_paper_accounts.py",
     "tools/build_operating_target_books.py",
     "tools/build_run287_catchup_target_evidence.py",
     "tools/build_run287_same_close_target_books.py",
     "tools/run287_paper_ledger_integrity.py",
-    "tools/run_daily_simulated_fill_ledger.py"
+    "tools/run_daily_simulated_fill_ledger.py",
+    "tools/run_run287_promotion_gate.py",
+    "tools/run_user_portfolio_reports.py"
+  ],
+  "accepted_reachable_authority_sensitive_modules": [
+    "r1000_portfolio_state.py",
+    "r1000_trade_journal.py",
+    "tools/archive_run287_decision_observation.py",
+    "tools/bootstrap_run287_daily_paper_accounts.py",
+    "tools/build_operating_target_books.py",
+    "tools/build_run287_catchup_target_evidence.py",
+    "tools/build_run287_same_close_target_books.py",
+    "tools/concentrated_score_sizing_reweight.py",
+    "tools/reserve_asset_policy.py",
+    "tools/run287_paper_ledger_integrity.py",
+    "tools/run287_promotion_gate.py",
+    "tools/run_account_order_preview.py",
+    "tools/run_broker_ledger_replay.py",
+    "tools/run_daily_simulated_fill_ledger.py",
+    "tools/run_free_data_forward_paper_ledger.py",
+    "tools/run_run287_current_advisory_selector.py",
+    "tools/run_run287_current_selector_no_write.py",
+    "tools/run_run287_promotion_gate.py",
+    "tools/run_user_portfolio_reports.py"
   ],
   "accepted_workflow_inline_local_imports": [
     "tools/archive_run287_ohlcv_pattern_memory.py",
