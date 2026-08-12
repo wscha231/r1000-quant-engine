@@ -1086,6 +1086,145 @@ def test_indirect_execution_and_destination_bypasses_fail_closed() -> None:
     )
 
 
+def test_reviewed_execution_edges_are_inventory_bound() -> None:
+    protected = "tools/build_run287_same_close_target_books.py"
+    helper_source = (
+        "from tools import build_run287_same_close_target_books as protected\n"
+        "def invoke():\n    protected.main()\n"
+        "invoke()\ninvoke()\n"
+    )
+    assert dict(MOD.python_main_call_counts(helper_source))[protected] == 2
+    assert protected not in dict(
+        MOD.python_main_call_counts(
+            "from tools import build_run287_same_close_target_books as protected\n"
+            "def never_called():\n    protected.main()\n"
+        )
+    )
+
+    assert any(
+        ":open:target" in finding
+        for finding in MOD.authority_write_sinks(
+            'MODE = "w"\nopen("outputs/main_target.csv", MODE)\n',
+            ("target",),
+        )
+    )
+    assert any(
+        "UNRESOLVED_MODE" in finding
+        for finding in MOD.authority_write_sinks(
+            'open("outputs/main_target.csv", dynamic_mode)\n',
+            ("target",),
+        )
+    )
+    assert any(
+        ":os.truncate:target" in finding
+        for finding in MOD.authority_write_sinks(
+            'from os import truncate as cut\ncut("outputs/main_target.csv", 0)\n',
+            ("target",),
+        )
+    )
+
+    action = (
+        "runs:\n  using: composite\n  steps:\n"
+        "    - shell: bash\n"
+        "      run: python ${{ github.action_path }}/writer.py\n"
+    )
+    records = MOD.workflow_run_records(action, "tools/authority-action/action.yml")
+    assert "tools/authority-action/writer.py" in MOD.python_entrypoints(records[0][1])
+    action_env = action.replace(
+        "${{ github.action_path }}", "$GITHUB_ACTION_PATH"
+    )
+    records = MOD.workflow_run_records(
+        action_env, "tools/authority-action/action.yml"
+    )
+    assert "tools/authority-action/writer.py" in MOD.python_entrypoints(records[0][1])
+    assert "tools/harmless.py" in MOD.python_entrypoints(
+        "( python tools/harmless.py )"
+    )
+
+    async_source = (
+        "import asyncio\n"
+        "await asyncio.create_subprocess_exec("
+        '"python", "worker.py", cwd="tools")\n'
+    )
+    assert "tools/worker.py" in MOD.local_process_candidates(async_source)
+    assert any("create_subprocess_exec" in row for row in MOD.python_process_launches(async_source))
+    first_cwd = MOD.python_process_launches(
+        'import subprocess\nsubprocess.run(["python", "worker.py"], cwd="tools")\n'
+    )
+    second_cwd = MOD.python_process_launches(
+        'import subprocess\nsubprocess.run(["python", "worker.py"], cwd="jobs")\n'
+    )
+    assert first_cwd != second_cwd
+
+    exec_source = (
+        "exec('from tools.build_run287_same_close_target_books "
+        "import main; main()')\n"
+    )
+    assert dict(MOD.python_main_call_counts(exec_source))[protected] == 1
+    assert dict(
+        MOD.python_main_call_counts(
+            "from builtins import exec as execute\n"
+            "execute('from tools.build_run287_same_close_target_books "
+            "import main; main()')\n"
+        )
+    )[protected] == 1
+    assert protected in MOD.local_import_candidates(exec_source, "tools/helper.py")
+    assert any(
+        "dynamic-exec" in finding and "target" in finding
+        for finding in MOD.authority_write_sinks(
+            'exec(\'open("outputs/main_target.csv", "w")\')\n',
+            ("target",),
+        )
+    )
+    assert "tools/harmless.py" in MOD.local_process_candidates(
+        'exec(\'import subprocess; '
+        'subprocess.run(["python", "tools/harmless.py"])\')\n'
+    )
+
+    unresolved = MOD.python_invocations('python "${{ inputs.script }}"\n')
+    assert unresolved and unresolved[0]["unresolved_entrypoint"] is True
+    assert MOD.invocation_matches_requirement(
+        ["tool.py", "--required"], {"required_flags": ["--required"]}
+    )
+    assert not MOD.invocation_matches_requirement(
+        ["tool.py", "--", "--required"], {"required_flags": ["--required"]}
+    )
+    disabled = (
+        "jobs:\n  disabled:\n    if: false\n    steps:\n"
+        "      - run: python tools/writer.py\n"
+        "  enabled:\n    steps:\n"
+        "      - if: false\n        run: python tools/writer.py\n"
+    )
+    assert MOD.workflow_run_records(disabled, "workflow.yml") == ()
+
+    package_only = (
+        "from . import build_run287_same_close_target_books as writer\n"
+        "writer.main()\n"
+    )
+    assert dict(MOD.python_main_call_counts(package_only, "tools/helper.py"))[
+        protected
+    ] == 1
+    assert dict(
+        MOD.python_main_call_counts(
+            'import runpy\nrunpy.run_module('
+            '"tools.build_run287_same_close_target_books", run_name="__main__")\n'
+        )
+    )[protected] == 1
+    attached = MOD.python_invocations(
+        "python -c'from tools.build_run287_same_close_target_books import main; main()'\n"
+    )
+    assert attached[0]["entrypoint"] == "-c"
+    assert dict(MOD.python_main_call_counts(str(attached[0]["command_source"])))[
+        protected
+    ] == 1
+    assert MOD.python_entrypoints(
+        "PYTHONPATH=tools python tools/harmless.py\n"
+    ) >= {"tools/sitecustomize.py", "tools/usercustomize.py"}
+    assert "tools/sitecustomize.py" not in MOD.python_entrypoints(
+        "PYTHONPATH=tools python -I tools/harmless.py\n"
+    )
+
+
 def test_untracked_workflow_is_not_repository_authority() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -1505,6 +1644,7 @@ def main() -> int:
     test_no_writer_role_and_duplicate_accepted_writer_fail_closed()
     test_global_workflow_and_transitive_authority_allowlists_fail_closed()
     test_indirect_execution_and_destination_bypasses_fail_closed()
+    test_reviewed_execution_edges_are_inventory_bound()
     test_untracked_workflow_is_not_repository_authority()
     test_execution_defaults_are_bound_to_named_inputs()
     test_dirty_input_is_not_attributed_to_head_and_defaults_follow_repo_root()

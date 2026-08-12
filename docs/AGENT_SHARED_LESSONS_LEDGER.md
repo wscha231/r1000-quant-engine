@@ -3795,6 +3795,38 @@ Expected contract:
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
 
+## 2026-08-12 - Complete execution-edge and review-pagination closure
+
+- GitHub review-thread inspection must paginate to `hasNextPage=false`; the
+  first 100 threads are not proof that a large PR has no unresolved review.
+- Protected calls inside local helpers inherit the helper's definite call
+  multiplicity. A syntactic call count of one is wrong when the helper runs
+  twice, while an uncalled helper contributes zero executions.
+- Literal `exec` and `eval` payloads are transitive Python source. Parse their
+  imports, protected calls, subprocesses, shell launches, and write sinks to a
+  bounded fixed point; callable aliases do not make them inert.
+- Python process inventory includes `asyncio.create_subprocess_exec` and
+  `asyncio.create_subprocess_shell`. Bind a literal or assigned `cwd` together
+  with argv so a directory-only target change alters the reviewed fingerprint.
+- Repository-local `sitecustomize.py` and `usercustomize.py` selected by a
+  definite `PYTHONPATH` are interpreter entrypoints unless `-E`, `-I`, or `-S`
+  disables that startup path.
+- Composite actions resolve `${{ github.action_path }}` and
+  `$GITHUB_ACTION_PATH` relative to the action file, not the caller workflow.
+- A statically false job or step is not executable authority. Conversely,
+  subshell grouping with parentheses does not make a command unreachable.
+- File-write modes can be assigned variables, and `os.truncate` is always a
+  mutation of its path argument. Unresolved modes on sensitive destinations
+  fail closed.
+- Command-profile options after argv `--` are positional data and cannot
+  satisfy a reviewed safety flag or required option.
+- Exact hashes of every reachable Python authority source belong in the
+  workflow fingerprint so a semantic helper edit cannot retain an obsolete
+  approval merely because its extracted sink names stayed constant.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
 ## 2026-08-12 - Interpreter, workdir, and implementation-edge closure
 
 - A shell interpreter can execute any tracked decodable operand, including
