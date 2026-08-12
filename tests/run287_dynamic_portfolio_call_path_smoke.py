@@ -159,6 +159,59 @@ def test_required_transaction_boundary_cannot_be_removed() -> None:
         for item in result["failures"]
     )
 
+    for operator in ("&>", "&>>"):
+        combined_redirect = deepcopy(workflows)
+        combined_redirect[daily] = combined_redirect[daily].replace(
+            "--suppress-new-orders \\",
+            f"{operator} --suppress-new-orders \\",
+            1,
+        )
+        result = MOD.audit_texts(contract, combined_redirect, accepted)
+        assert result["status"] == MOD.BLOCKED_STATUS
+        assert any(
+            "required_executable_command_mismatch" in item
+            for item in result["failures"]
+        )
+
+    duplicate_cost = deepcopy(workflows)
+    duplicate_cost[daily] = duplicate_cost[daily].replace(
+        "            --security-lifecycle-events data_static/run287_exact_packet/security_lifecycle_events.csv \\\n"
+        "            --cost-bps 25 \\\n            --max-fill-lag-days 7 \\",
+        "            --security-lifecycle-events data_static/run287_exact_packet/security_lifecycle_events.csv \\\n"
+        "            --cost-bps 25 \\\n            --cost-bps 0 \\\n"
+        "            --max-fill-lag-days 7 \\",
+        1,
+    )
+    result = MOD.audit_texts(contract, duplicate_cost, accepted)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "required_executable_command_mismatch" in item
+        for item in result["failures"]
+    )
+
+    empty_handoff = deepcopy(workflows)
+    empty_handoff[daily] = empty_handoff[daily].replace(
+        '--target-handoff-manifest "$SAME_CLOSE_DIR/status.json" \\',
+        '--target-handoff-manifest "" \\',
+        1,
+    )
+    for option, variable in (
+        ("--expected-target-handoff-sha256", "TARGET_HANDOFF_SHA"),
+        ("--main-target-sha256", "MAIN_TARGET_SHA"),
+        ("--concentrated-target-sha256", "CONCENTRATED_TARGET_SHA"),
+    ):
+        empty_handoff[daily] = empty_handoff[daily].replace(
+            f"              {option} \"${variable}\" \\\n",
+            "",
+            1,
+        )
+    result = MOD.audit_texts(contract, empty_handoff, accepted)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "required_executable_command_mismatch" in item
+        for item in result["failures"]
+    )
+
 
 def test_no_writer_role_and_duplicate_accepted_writer_fail_closed() -> None:
     contract, workflows, accepted = source_inputs()
@@ -212,6 +265,19 @@ def test_no_writer_role_and_duplicate_accepted_writer_fail_closed() -> None:
         "import main; main()\"\n"
     )
     result = MOD.audit_texts(contract, command_writer, accepted)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "entrypoint_invocation_count_mismatch:"
+        "tools/build_run287_same_close_target_books.py" in item
+        for item in result["failures"]
+    )
+
+    dotted_command_writer = deepcopy(workflows)
+    dotted_command_writer[daily] += (
+        '\n  python -c "import tools.build_run287_same_close_target_books; '
+        'tools.build_run287_same_close_target_books.main()"\n'
+    )
+    result = MOD.audit_texts(contract, dotted_command_writer, accepted)
     assert result["status"] == MOD.BLOCKED_STATUS
     assert any(
         "entrypoint_invocation_count_mismatch:"
@@ -370,6 +436,18 @@ def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> No
         for item in result["failures"]
     )
 
+    direct_write_sources = deepcopy(accepted)
+    direct_write_sources["tools/run_daily_crisis_monitor.py"] += (
+        '\nfrom pathlib import Path\n'
+        'Path("outputs/reports/operating_main_target_book.csv").write_text("x")\n'
+    )
+    result = MOD.audit_texts(contract, workflows, direct_write_sources)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "no_writer_authority_write_sink:" + observer in item
+        for item in result["failures"]
+    )
+
     missing_import = deepcopy(accepted)
     missing_import.pop("tools/run287_crisis_policy.py")
     known = set(accepted)
@@ -445,6 +523,36 @@ def test_execution_defaults_are_bound_to_named_inputs() -> None:
         for item in result["failures"]
     )
 
+    eager_layer4 = deepcopy(workflows)
+    path = ".github/workflows/layer4_monthly_swap.yml"
+    eager_layer4[path] = eager_layer4[path].replace(
+        '          EXECUTE_FLAG=""',
+        '          EXECUTE_FLAG="--execute --confirm"',
+        1,
+    )
+    result = MOD.audit_texts(contract, eager_layer4, accepted)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "workflow_shell_flag_derivation_mismatch:"
+        ".github/workflows/layer4_monthly_swap.yml:EXECUTE_FLAG" in item
+        for item in result["failures"]
+    )
+
+    eager_after_close = deepcopy(workflows)
+    path = ".github/workflows/after_close_daily.yml"
+    eager_after_close[path] = eager_after_close[path].replace(
+        '          LEGACY_EXECUTE_FLAG=""',
+        '          LEGACY_EXECUTE_FLAG="--allow-legacy-execute"',
+        1,
+    )
+    result = MOD.audit_texts(contract, eager_after_close, accepted)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "workflow_shell_flag_derivation_mismatch:"
+        ".github/workflows/after_close_daily.yml:LEGACY_EXECUTE_FLAG" in item
+        for item in result["failures"]
+    )
+
 
 def test_dirty_input_is_not_attributed_to_head_and_defaults_follow_repo_root() -> None:
     with tempfile.TemporaryDirectory() as tmp:
@@ -474,6 +582,115 @@ def test_dirty_input_is_not_attributed_to_head_and_defaults_follow_repo_root() -
         ).resolve()
 
 
+def test_run_audit_binds_no_writer_traversal_sources_to_head() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / ".github" / "workflows").mkdir(parents=True)
+        (root / "tools").mkdir()
+        (root / "docs").mkdir()
+        accepted_workflow = ".github/workflows/accepted.yml"
+        observer_workflow = ".github/workflows/observer.yml"
+        workflow_texts = {
+            accepted_workflow: (
+                "jobs:\n  run:\n    steps:\n"
+                "      - run: python tools/build_run287_same_close_target_books.py\n"
+            ),
+            observer_workflow: (
+                "jobs:\n  run:\n    steps:\n"
+                "      - run: python tools/neutral.py\n"
+            ),
+        }
+        for path, text in workflow_texts.items():
+            target = root / path
+            target.write_text(text, encoding="utf-8")
+        (root / "tools" / "build_run287_same_close_target_books.py").write_text(
+            "def main():\n    return None\n", encoding="utf-8"
+        )
+        (root / "tools" / "run_daily_simulated_fill_ledger.py").write_text(
+            "def main():\n    return None\n", encoding="utf-8"
+        )
+        neutral = root / "tools" / "neutral.py"
+        neutral.write_text("VALUE = 1\n", encoding="utf-8")
+        contract = {
+            "schema_version": MOD.SCHEMA_VERSION,
+            "status": "RESEARCH_ONLY_STATIC_AUTHORITY_CONTRACT",
+            "tracked_workflow_sha256": {
+                path: MOD.text_sha256(text) for path, text in workflow_texts.items()
+            },
+            "writer_authority": {
+                "accepted_current_target_writer": "tools/build_run287_same_close_target_books.py",
+                "durable_paper_ledger_consumer": "tools/run_daily_simulated_fill_ledger.py",
+            },
+            "workflow_roles": {
+                accepted_workflow: "accepted_daily_target",
+                observer_workflow: "state_observer_no_target_writer",
+            },
+            "entrypoint_bindings": [
+                {
+                    "entrypoint": "tools/build_run287_same_close_target_books.py",
+                    "role": "accepted_current_target_writer",
+                    "exact_invocation_count": 1,
+                    "allowed_workflows": [accepted_workflow],
+                }
+            ],
+            "workflow_authority_sensitive_entrypoints": {
+                accepted_workflow: ["tools/build_run287_same_close_target_books.py"]
+            },
+            "no_writer_reachable_authority_sensitive_modules": {
+                observer_workflow: []
+            },
+            "no_writer_authority_write_sinks": {observer_workflow: []},
+            "accepted_daily_workflow": accepted_workflow,
+            "accepted_path_files": [
+                accepted_workflow,
+                "tools/build_run287_same_close_target_books.py",
+            ],
+            "accepted_workflow_authority_sensitive_entrypoints": [
+                "tools/build_run287_same_close_target_books.py"
+            ],
+            "accepted_workflow_local_entrypoints": [
+                "tools/build_run287_same_close_target_books.py"
+            ],
+            "accepted_reachable_authority_sensitive_modules": [
+                "tools/build_run287_same_close_target_books.py"
+            ],
+            "accepted_workflow_inline_local_imports": [],
+            "authority_sensitive_name_terms": ["target", "writer", "ledger"],
+            "forbidden_accepted_path_tokens": ["forbidden_legacy_exit"],
+            "required_workflow_input_defaults": [],
+            "required_shell_boolean_flag_derivations": [],
+            "required_workflow_tokens": {},
+            "required_executable_commands": [],
+            "safety": {
+                "changes_investment_behavior": False,
+                "target_mutation_authorized": False,
+                "paper_execution_authorized": False,
+                "fullrun_authorized": False,
+                "production_activation_allowed": False,
+                "live_trading_enabled": False,
+                "automatic_promotion_allowed": False,
+                "untracked_workflows_are_authority": False,
+            },
+        }
+        contract_path = root / "docs" / "contract.json"
+        contract_path.write_text(json.dumps(contract), encoding="utf-8")
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.name", "Run287 Test"], cwd=root, check=True)
+        subprocess.run(["git", "add", "."], cwd=root, check=True)
+        subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
+
+        clean = MOD.run_audit(root, contract, contract_path=contract_path)
+        assert clean["source_identity_status"] == "CLEAN_HEAD_BOUND", clean["failures"]
+        assert "tools/neutral.py" in clean["audit_input_paths"]
+
+        neutral.write_text("VALUE = 2\n", encoding="utf-8")
+        dirty = MOD.run_audit(root, contract, contract_path=contract_path)
+        assert dirty["source_identity_status"] == "DIRTY_INPUTS_NOT_HEAD_BOUND"
+        assert dirty["source_commit_sha"] == ""
+        assert any("tools/neutral.py" in row for row in dirty["dirty_input_records"])
+
+
 def main() -> int:
     test_current_repository_passes_and_has_one_accepted_writer()
     test_second_writer_and_legacy_exit_reachability_fail_closed()
@@ -484,6 +701,7 @@ def main() -> int:
     test_untracked_workflow_is_not_repository_authority()
     test_execution_defaults_are_bound_to_named_inputs()
     test_dirty_input_is_not_attributed_to_head_and_defaults_follow_repo_root()
+    test_run_audit_binds_no_writer_traversal_sources_to_head()
     print("run287 dynamic portfolio call-path smoke: PASS")
     return 0
 

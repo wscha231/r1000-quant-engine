@@ -101,6 +101,13 @@
     ".github/workflows/unified_monthly.yml": [],
     ".github/workflows/weekly_data_refresh.yml": []
   },
+  "no_writer_authority_write_sinks": {
+    ".github/workflows/daily_crisis_monitor.yml": [
+      "tools/run_weekly_evaluation.py:line=511:to_csv:portfolio"
+    ],
+    ".github/workflows/unified_monthly.yml": [],
+    ".github/workflows/weekly_data_refresh.yml": []
+  },
   "entrypoint_bindings": [
     {
       "entrypoint": "tools/build_run287_same_close_target_books.py",
@@ -377,6 +384,38 @@
       "expected": "false"
     }
   ],
+  "required_shell_boolean_flag_derivations": [
+    {
+      "workflow": ".github/workflows/after_close_daily.yml",
+      "variable": "EXECUTE_FLAG",
+      "input": "execute",
+      "enabled_value": "--execute --confirm"
+    },
+    {
+      "workflow": ".github/workflows/after_close_daily.yml",
+      "variable": "OVERRIDE_FLAG",
+      "input": "override_regime_halt",
+      "enabled_value": "--override-regime-halt"
+    },
+    {
+      "workflow": ".github/workflows/after_close_daily.yml",
+      "variable": "LEGACY_EXECUTE_FLAG",
+      "input": "allow_legacy_execute",
+      "enabled_value": "--allow-legacy-execute"
+    },
+    {
+      "workflow": ".github/workflows/layer4_monthly_swap.yml",
+      "variable": "EXECUTE_FLAG",
+      "input": "execute",
+      "enabled_value": "--execute --confirm"
+    },
+    {
+      "workflow": ".github/workflows/layer4_monthly_swap.yml",
+      "variable": "THROTTLE_FLAG",
+      "input": "no_throttle",
+      "enabled_value": "--no-throttle"
+    }
+  ],
   "required_workflow_tokens": {
     ".github/workflows/daily_operating_selection_refresh.yml": [
       "--suppress-new-orders",
@@ -399,27 +438,34 @@
     {
       "workflow": ".github/workflows/daily_operating_selection_refresh.yml",
       "entrypoint": "tools/run_daily_simulated_fill_ledger.py",
-      "required_tokens": [
-        "--suppress-new-orders",
-        "--cost-bps 25"
+      "required_flags": [
+        "--suppress-new-orders"
       ],
+      "required_option_values": {
+        "--cost-bps": "25"
+      },
       "exclusive_profile_group": "daily_durable_ledger",
       "exact_match_count": 1
     },
     {
       "workflow": ".github/workflows/daily_operating_selection_refresh.yml",
       "entrypoint": "tools/run_daily_simulated_fill_ledger.py",
-      "required_tokens": [
+      "required_nonempty_options": [
         "--target-handoff-manifest",
-        "--cost-bps 25"
+        "--expected-target-handoff-sha256",
+        "--main-target-sha256",
+        "--concentrated-target-sha256"
       ],
+      "required_option_values": {
+        "--cost-bps": "25"
+      },
       "exclusive_profile_group": "daily_durable_ledger",
       "exact_match_count": 1
     },
     {
       "workflow": ".github/workflows/daily_operating_selection_refresh.yml",
       "entrypoint": "tools/build_run287_same_close_target_books.py",
-      "required_tokens": [
+      "required_nonempty_options": [
         "--producer-status",
         "--freshness-status",
         "--valuation-date",

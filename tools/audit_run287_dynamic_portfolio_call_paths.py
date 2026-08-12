@@ -194,7 +194,10 @@ def normalize_script_entrypoint(value: str) -> str:
 def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
     result: list[dict[str, Any]] = []
     boundaries = {";", "&&", "||", "|", "&"}
-    redirections = {"<", ">", "<<", ">>", "<<<", "<>", ">&", "<&", ">|"}
+    redirections = {
+        "<", ">", "<<", ">>", "<<<", "<>", ">&", "<&", ">|",
+        "&>", "&>>",
+    }
     options_with_values = {"-X", "-W", "--check-hash-based-pycs"}
     for line, command in shell_logical_commands(text):
         try:
@@ -409,7 +412,7 @@ def python_main_call_counts(source: str) -> tuple[tuple[str, int], ...]:
                     )
         elif isinstance(node, ast.Import):
             for alias in node.names:
-                modules[alias.asname or alias.name.split(".")[-1]] = module_entrypoint(
+                modules[alias.asname or alias.name] = module_entrypoint(
                     alias.name
                 )
     counts: dict[str, int] = {}
@@ -419,15 +422,21 @@ def python_main_call_counts(source: str) -> tuple[tuple[str, int], ...]:
         target = ""
         if isinstance(node.func, ast.Name):
             target = names.get(node.func.id, "")
-        elif (
-            isinstance(node.func, ast.Attribute)
-            and node.func.attr == "main"
-            and isinstance(node.func.value, ast.Name)
-        ):
-            target = modules.get(node.func.value.id, "")
+        elif isinstance(node.func, ast.Attribute) and node.func.attr == "main":
+            target = modules.get(dotted_expression_name(node.func.value), "")
         if target:
             counts[target] = counts.get(target, 0) + 1
     return tuple(sorted(counts.items()))
+
+
+def dotted_expression_name(node: ast.AST) -> str:
+    """Return a dotted Name/Attribute expression, or an empty string."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        prefix = dotted_expression_name(node.value)
+        return f"{prefix}.{node.attr}" if prefix else ""
+    return ""
 
 
 def embedded_python_sources(text: str) -> list[dict[str, Any]]:
@@ -498,6 +507,108 @@ def contains_argv_sequence(argv: list[str], sequence: list[str]) -> bool:
         argv[index:index + len(sequence)] == sequence
         for index in range(len(argv) - len(sequence) + 1)
     )
+
+
+def argv_option_values(argv: list[str], option: str) -> list[str | None]:
+    """Return every effective operand supplied for a long option."""
+    values: list[str | None] = []
+    prefix = f"{option}="
+    for index, value in enumerate(argv):
+        if value == option:
+            operand = argv[index + 1] if index + 1 < len(argv) else None
+            if operand is not None and operand.startswith("--"):
+                operand = None
+            values.append(operand)
+        elif value.startswith(prefix):
+            values.append(value[len(prefix):])
+    return values
+
+
+def invocation_matches_requirement(
+    argv: list[str], requirement: Mapping[str, Any]
+) -> bool:
+    sequences = [
+        shlex.split(str(token), posix=True)
+        for token in requirement.get("required_tokens") or []
+    ]
+    if not all(contains_argv_sequence(argv, sequence) for sequence in sequences):
+        return False
+    for flag in requirement.get("required_flags") or []:
+        if argv.count(str(flag)) != 1:
+            return False
+    for option, expected in (
+        requirement.get("required_option_values") or {}
+    ).items():
+        if argv_option_values(argv, str(option)) != [str(expected)]:
+            return False
+    for option in requirement.get("required_nonempty_options") or []:
+        values = argv_option_values(argv, str(option))
+        if len(values) != 1 or values[0] in {None, ""}:
+            return False
+    return True
+
+
+def shell_boolean_flag_guard_matches(
+    text: str,
+    *,
+    variable: str,
+    input_name: str,
+    enabled_value: str,
+) -> bool:
+    """Validate a fail-closed empty default and one named-input assignment."""
+    assignment = re.compile(
+        rf"^\s*{re.escape(variable)}=(?:\"([^\"]*)\"|'([^']*)'|([^\s#]+))\s*$",
+        re.MULTILINE,
+    )
+    values = [next(value for value in match.groups() if value is not None) for match in assignment.finditer(text)]
+    if values != ["", enabled_value]:
+        return False
+    block = re.compile(
+        rf"^\s*{re.escape(variable)}=\"\"\s*$\n"
+        rf"\s*if \[ \"\$\{{\{{ github\.event\.inputs\.{re.escape(input_name)} \}}\}}\" = \"true\" \]; then\s*$\n"
+        rf"\s*{re.escape(variable)}=\"{re.escape(enabled_value)}\"\s*$\n"
+        rf"\s*fi\s*$",
+        re.MULTILINE,
+    )
+    return block.search(text) is not None
+
+
+@lru_cache(maxsize=4096)
+def authority_write_sinks(
+    source: str, sensitive_terms: tuple[str, ...]
+) -> tuple[str, ...]:
+    """Find direct writes whose literal destination is authority-sensitive."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return ()
+    write_methods = {
+        "write_text", "write_bytes", "to_csv", "to_json", "to_parquet",
+        "rename", "replace",
+    }
+    findings: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        method = node.func.attr
+        if method not in write_methods:
+            continue
+        literals = [
+            value.value
+            for value in ast.walk(node)
+            if isinstance(value, ast.Constant) and isinstance(value.value, str)
+        ]
+        sensitive = sorted(
+            {
+                term
+                for literal in literals
+                for term in sensitive_terms
+                if term in literal.casefold()
+            }
+        )
+        if sensitive:
+            findings.add(f"line={getattr(node, 'lineno', 0)}:{method}:{','.join(sensitive)}")
+    return tuple(sorted(findings))
 
 
 def workflow_local_references(
@@ -646,15 +757,27 @@ def audit_texts(
             if str(token) not in text:
                 failures.append(f"required_workflow_token_missing:{path}:{token}")
 
+    for requirement in contract.get("required_shell_boolean_flag_derivations") or []:
+        path = str(requirement.get("workflow") or "")
+        variable = str(requirement.get("variable") or "")
+        input_name = str(requirement.get("input") or "")
+        enabled_value = str(requirement.get("enabled_value") or "")
+        if not shell_boolean_flag_guard_matches(
+            workflows.get(path, ""),
+            variable=variable,
+            input_name=input_name,
+            enabled_value=enabled_value,
+        ):
+            failures.append(
+                f"workflow_shell_flag_derivation_mismatch:{path}:{variable}:"
+                f"input={input_name}:enabled={enabled_value}"
+            )
+
     profile_coverage: dict[tuple[str, str, str], dict[int, int]] = {}
     profile_actual_counts: dict[tuple[str, str, str], int] = {}
     for requirement in contract.get("required_executable_commands") or []:
         path = str(requirement.get("workflow") or "")
         entrypoint = str(requirement.get("entrypoint") or "")
-        sequences = [
-            shlex.split(str(token), posix=True)
-            for token in requirement.get("required_tokens") or []
-        ]
         command_rows = [
             row
             for row in python_invocations(workflows.get(path, ""))
@@ -663,10 +786,7 @@ def audit_texts(
         matches = [
             (index, int(row["line"]), list(row["argv"]))
             for index, row in enumerate(command_rows)
-            if all(
-                contains_argv_sequence(list(row["argv"]), sequence)
-                for sequence in sequences
-            )
+            if invocation_matches_requirement(list(row["argv"]), requirement)
         ]
         exact_matches = int(requirement.get("exact_match_count", 1))
         if len(matches) != exact_matches:
@@ -762,9 +882,23 @@ def audit_texts(
     expected_no_writer_reachable = (
         contract.get("no_writer_reachable_authority_sensitive_modules") or {}
     )
+    expected_no_writer_write_sinks = (
+        contract.get("no_writer_authority_write_sinks") or {}
+    )
     observed_by_workflow: dict[str, list[str]] = {}
     observed_no_writer_reachable: dict[str, list[str]] = {}
+    workflow_python_reachable: dict[str, list[str]] = {}
+    no_writer_authority_write_sinks: dict[str, list[str]] = {}
     local_references_by_workflow: dict[str, set[str]] = {}
+    sensitive_terms = tuple(
+        sorted(
+            {
+                str(term).casefold()
+                for term in contract.get("authority_sensitive_name_terms") or []
+                if str(term)
+            }
+        )
+    )
     for path, text in sorted(workflows.items()):
         references = workflow_local_references(path, text, accepted_files, known_paths)
         local_references_by_workflow[path] = references
@@ -776,6 +910,7 @@ def audit_texts(
             accepted_files,
             known_paths,
         )
+        workflow_python_reachable[path] = sorted(workflow_reachable)
         reachable_sensitive = sorted(
             reference
             for reference in workflow_reachable
@@ -802,6 +937,25 @@ def audit_texts(
                     f"no_writer_reachable_authority_mismatch:{path}:"
                     f"expected={','.join(expected_reachable)}:"
                     f"observed={','.join(reachable_sensitive)}"
+                )
+            write_findings = sorted(
+                f"{source_path}:{finding}"
+                for source_path in workflow_reachable
+                if source_path in accepted_files
+                for finding in authority_write_sinks(
+                    accepted_files[source_path], sensitive_terms
+                )
+            )
+            if write_findings:
+                no_writer_authority_write_sinks[path] = write_findings
+            expected_write_findings = sorted(
+                set(expected_no_writer_write_sinks.get(path) or [])
+            )
+            if write_findings != expected_write_findings:
+                failures.append(
+                    f"no_writer_authority_write_sink:{path}:"
+                    f"expected={','.join(expected_write_findings)}:"
+                    f"observed={','.join(write_findings)}"
                 )
 
     root_paths = {
@@ -868,9 +1022,11 @@ def audit_texts(
         "accepted_workflow_authority_sensitive_entrypoints": observed_sensitive,
         "accepted_workflow_local_entrypoints": observed_local_entrypoints,
         "workflow_authority_sensitive_entrypoints": observed_by_workflow,
+        "workflow_python_reachable_files": workflow_python_reachable,
         "no_writer_reachable_authority_sensitive_modules": (
             observed_no_writer_reachable
         ),
+        "no_writer_authority_write_sinks": no_writer_authority_write_sinks,
         "accepted_workflow_inline_local_imports": observed_inline,
         "accepted_python_reachable_files": sorted(reachable),
         "accepted_reachable_authority_sensitive_modules": reachable_sensitive,
@@ -953,6 +1109,10 @@ def run_audit(
     )
     relevant = list(tracked)
     relevant.extend(result.get("accepted_python_reachable_files") or [])
+    for reachable_files in (
+        result.get("workflow_python_reachable_files") or {}
+    ).values():
+        relevant.extend(str(path) for path in reachable_files)
     relevant.extend(str(path) for path in contract.get("accepted_path_files") or [])
     tool_path = Path(__file__).resolve()
     result["audit_runtime_path"] = str(tool_path)

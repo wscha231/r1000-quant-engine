@@ -3795,6 +3795,26 @@ Expected contract:
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
 
+## 2026-08-12 - Call-path authority parsers must validate semantics
+
+- Shell safety profiles must remove all Bash redirection forms, including
+  combined stdout/stderr operators, before treating tokens as application argv.
+- Required command options are effective-value contracts. Reject duplicates,
+  empty operands, missing integrity pins, and later overrides rather than
+  accepting a required token anywhere in the command.
+- Embedded Python invocation counting must cover both imported aliases and
+  dotted-module `main()` calls. A protected writer executed through `python -c`
+  or stdin is still an invocation.
+- A no-writer declaration requires transitive source inspection, direct
+  authority-sensitive write-sink inspection, and HEAD identity binding for
+  every source that affected the result, even when filenames are neutral.
+- A false workflow input default is not sufficient execution safety. The shell
+  variable must start empty and acquire its executable flag only inside the
+  matching named-input true branch.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
 ## 2026-08-12 - Dynamic portfolio call-path authority must be explicit
 
 - Agent: Codex GPT-5.6
