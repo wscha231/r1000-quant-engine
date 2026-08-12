@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 from copy import deepcopy
+from functools import lru_cache
 from pathlib import Path
 
 
@@ -21,6 +22,7 @@ from tools import audit_run287_dynamic_portfolio_call_paths as MOD  # noqa: E402
 CONTRACT_PATH = ROOT / "docs" / "run287_dynamic_portfolio_call_path_contract.json"
 
 
+@lru_cache(maxsize=1)
 def source_inputs() -> tuple[dict, dict[str, str], dict[str, str]]:
     contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
     tracked = MOD.tracked_workflow_paths(ROOT)
@@ -118,6 +120,19 @@ def test_required_transaction_boundary_cannot_be_removed() -> None:
         for item in result["failures"]
     )
 
+    inline_comment = deepcopy(workflows)
+    inline_comment[daily] = inline_comment[daily].replace(
+        "--suppress-new-orders \\",
+        "# --suppress-new-orders \\",
+        1,
+    )
+    result = MOD.audit_texts(contract, inline_comment, accepted)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "required_executable_command_mismatch" in item
+        for item in result["failures"]
+    )
+
     shell_suffix = deepcopy(workflows)
     shell_suffix[daily] = shell_suffix[daily].replace(
         "--suppress-new-orders \\",
@@ -165,6 +180,19 @@ def test_no_writer_role_and_duplicate_accepted_writer_fail_closed() -> None:
         for item in result["failures"]
     )
 
+    extra_ledger = deepcopy(workflows)
+    extra_ledger[daily] += (
+        "\n  python tools/run_daily_simulated_fill_ledger.py "
+        "--as-of-date 2026-08-11 --decision-time-utc 2026-08-12T00:00:00Z\n"
+    )
+    result = MOD.audit_texts(contract, extra_ledger, accepted)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "entrypoint_invocation_count_mismatch:"
+        "tools/run_daily_simulated_fill_ledger.py" in item
+        for item in result["failures"]
+    )
+
 
 def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> None:
     contract, workflows, accepted = source_inputs()
@@ -176,6 +204,24 @@ def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> No
     assert result["status"] == MOD.BLOCKED_STATUS
     assert any(
         "authority_sensitive_workflow_role_missing" in item
+        for item in result["failures"]
+    )
+
+    command_string = deepcopy(workflows)
+    command_string[".github/workflows/new_command_string.yml"] = (
+        "jobs:\n  run:\n    steps:\n      - run: >-\n"
+        "          python -c \"from tools.build_new_target_writer import main; "
+        "main()\"\n"
+    )
+    command_sources = deepcopy(accepted)
+    command_sources["tools/build_new_target_writer.py"] = (
+        "def main():\n    return None\n"
+    )
+    result = MOD.audit_texts(contract, command_string, command_sources)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "authority_sensitive_workflow_role_missing:"
+        ".github/workflows/new_command_string.yml" in item
         for item in result["failures"]
     )
 
@@ -198,6 +244,32 @@ def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> No
     )
     result = MOD.audit_texts(contract, workflows, transitive_writer)
     assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "accepted_reachable_authority_sensitive_mismatch" in item
+        for item in result["failures"]
+    )
+
+    neutral_helper_workflow = deepcopy(workflows)
+    neutral_helper_workflow[contract["accepted_daily_workflow"]] += (
+        "\n  python tools/harmless.py\n"
+    )
+    neutral_helper_sources = deepcopy(accepted)
+    neutral_helper_sources["tools/harmless.py"] = (
+        "from tools.build_new_target_writer import main\nmain()\n"
+    )
+    neutral_helper_sources["tools/build_new_target_writer.py"] = (
+        "def main():\n    return None\n"
+    )
+    result = MOD.audit_texts(
+        contract,
+        neutral_helper_workflow,
+        neutral_helper_sources,
+    )
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "accepted_workflow_local_entrypoint_mismatch" in item
+        for item in result["failures"]
+    )
     assert any(
         "accepted_reachable_authority_sensitive_mismatch" in item
         for item in result["failures"]

@@ -3812,7 +3812,8 @@ Expected contract:
   second known or previously unknown target writer, a missing suppression flag,
   or a legacy risk-sensing import fails the focused validation. Shell control
   boundaries cannot lend flags from a later command, `python -m` entrypoints
-  are normalized with direct script calls, and every tracked workflow's
+  are normalized with direct script calls, inline shell comments cannot lend
+  flags, and `python -c` local imports are inspected. Every tracked workflow's
   authority-sensitive entrypoints must exactly match its declared role.
 - Failure or caveat: Filename-pattern checks alone do not detect a newly named
   target writer. Raw token checks can also be satisfied by comments, direct-file
@@ -3821,8 +3822,12 @@ Expected contract:
   allowlists direct entrypoints and inline local imports, and traverses the
   local Python import graph. The accepted graph's complete set of
   authority-sensitive modules is allowlisted, all accepted direct entrypoints
-  seed transitive traversal, and a deleted tracked dependency remains an input
-  and fails closed. Untracked workflows are excluded so user-owned local files
+  including neutrally named helpers seed transitive traversal, and a deleted
+  tracked dependency remains an input and fails closed. The accepted workflow's
+  complete local-entrypoint set and the two expected durable-ledger invocations
+  are exact. Parsed imports and stable workflow invocations are cached so these
+  guards remain inside the Tier-1 fast-test budget. Untracked workflows are
+  excluded so user-owned local files
   cannot silently become authority. Dirty audited inputs are never attributed
   to the unchanged HEAD SHA.
 - Reusable lesson: Determine portfolio authority from the tracked workflow call

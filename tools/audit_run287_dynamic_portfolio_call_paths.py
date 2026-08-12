@@ -11,6 +11,7 @@ import re
 import shlex
 import subprocess
 import textwrap
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -123,7 +124,7 @@ def shell_logical_commands(text: str) -> list[tuple[int, str]]:
     parts: list[str] = []
     start_line = 0
     for number, raw in enumerate(text.splitlines(), start=1):
-        line = raw.strip()
+        line = strip_shell_comment(raw.strip())
         if not parts and (not line or line.startswith("#")):
             continue
         if not parts:
@@ -138,8 +139,35 @@ def shell_logical_commands(text: str) -> list[tuple[int, str]]:
     return commands
 
 
+def strip_shell_comment(command: str) -> str:
+    """Strip a Bash comment without treating embedded or quoted # as a comment."""
+    quote = ""
+    escaped = False
+    for index, char in enumerate(command):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\" and quote != "'":
+            escaped = True
+            continue
+        if quote:
+            if char == quote:
+                quote = ""
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            continue
+        if char == "#" and (
+            index == 0 or command[index - 1].isspace() or command[index - 1] in ";|&"
+        ):
+            return command[:index].rstrip()
+    return command
+
+
 def shell_tokens(command: str) -> list[str]:
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|")
+    lexer = shlex.shlex(
+        strip_shell_comment(command), posix=True, punctuation_chars=";&|"
+    )
     lexer.commenters = ""
     lexer.whitespace_split = True
     return list(lexer)
@@ -149,7 +177,15 @@ def module_entrypoint(module: str) -> str:
     return f"{str(module).replace('.', '/')}.py"
 
 
-def python_invocations(text: str) -> list[dict[str, Any]]:
+def normalize_script_entrypoint(value: str) -> str:
+    normalized = str(value).replace("\\", "/")
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    return normalized
+
+
+@lru_cache(maxsize=512)
+def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
     result: list[dict[str, Any]] = []
     boundaries = {";", "&&", "||", "|", "&"}
     options_with_values = {"-X", "-W", "--check-hash-based-pycs"}
@@ -160,7 +196,7 @@ def python_invocations(text: str) -> list[dict[str, Any]]:
             continue
         for index, token in enumerate(tokens):
             executable = token.rsplit("/", 1)[-1]
-            if executable not in {"python", "python3"} and not executable.endswith("$(python"):
+            if not re.fullmatch(r"python(?:3(?:\.\d+)?)?", executable):
                 continue
             end = index + 1
             while end < len(tokens) and tokens[end] not in boundaries:
@@ -168,12 +204,18 @@ def python_invocations(text: str) -> list[dict[str, Any]]:
             argv = tokens[index:end]
             cursor = 1
             entrypoint = ""
+            command_source = ""
             while cursor < len(argv):
                 value = argv[cursor]
                 if value == "-m" and cursor + 1 < len(argv):
                     entrypoint = module_entrypoint(argv[cursor + 1])
                     break
-                if value in {"-", "-c"}:
+                if value == "-c":
+                    entrypoint = value
+                    if cursor + 1 < len(argv):
+                        command_source = argv[cursor + 1]
+                    break
+                if value == "-":
                     entrypoint = value
                     break
                 if value in options_with_values:
@@ -182,7 +224,7 @@ def python_invocations(text: str) -> list[dict[str, Any]]:
                 if value.startswith("-"):
                     cursor += 1
                     continue
-                entrypoint = value
+                entrypoint = normalize_script_entrypoint(value)
                 break
             result.append(
                 {
@@ -190,9 +232,10 @@ def python_invocations(text: str) -> list[dict[str, Any]]:
                     "entrypoint": entrypoint,
                     "argv": argv,
                     "command": command,
+                    "command_source": command_source,
                 }
             )
-    return result
+    return tuple(result)
 
 
 def executable_commands(text: str, entrypoint: str) -> list[tuple[int, str]]:
@@ -215,7 +258,8 @@ def python_entrypoints(text: str) -> set[str]:
     }
 
 
-def inline_python_blocks(text: str) -> list[dict[str, Any]]:
+@lru_cache(maxsize=512)
+def inline_python_blocks(text: str) -> tuple[dict[str, Any], ...]:
     lines = text.splitlines()
     blocks: list[dict[str, Any]] = []
     index = 0
@@ -251,7 +295,7 @@ def inline_python_blocks(text: str) -> list[dict[str, Any]]:
                 )
                 index = body_end
         index += 1
-    return blocks
+    return tuple(blocks)
 
 
 def _module_candidates(module: str) -> tuple[str, str]:
@@ -259,18 +303,14 @@ def _module_candidates(module: str) -> tuple[str, str]:
     return f"{base}.py", f"{base}/__init__.py"
 
 
-def local_import_paths(
-    source: str,
-    source_path: str,
-    sources: Mapping[str, str],
-    known_paths: set[str] | None = None,
-) -> set[str]:
+@lru_cache(maxsize=4096)
+def local_import_candidates(source: str, source_path: str) -> tuple[str, ...]:
+    """Parse import candidates once; callers filter them against a repository."""
     try:
         tree = ast.parse(source)
     except SyntaxError:
-        return set()
+        return ()
     result: set[str] = set()
-    known = set(sources) if known_paths is None else set(known_paths)
     source_parts = Path(source_path).with_suffix("").parts[:-1]
     for node in ast.walk(tree):
         candidates: list[str] = []
@@ -294,10 +334,22 @@ def local_import_paths(
                 if alias.name != "*"
             )
         for module in candidates:
-            for candidate in _module_candidates(module):
-                if candidate in known:
-                    result.add(candidate)
-    return result
+            result.update(_module_candidates(module))
+    return tuple(sorted(result))
+
+
+def local_import_paths(
+    source: str,
+    source_path: str,
+    sources: Mapping[str, str],
+    known_paths: set[str] | None = None,
+) -> set[str]:
+    known = set(sources) if known_paths is None else set(known_paths)
+    return {
+        candidate
+        for candidate in local_import_candidates(source, source_path)
+        if candidate in known
+    }
 
 
 def reachable_python_paths(
@@ -333,6 +385,7 @@ def authority_sensitive(name: str, contract: Mapping[str, Any]) -> bool:
     )
 
 
+@lru_cache(maxsize=4096)
 def noncomment_text(text: str) -> str:
     return "\n".join(
         raw for raw in text.splitlines() if raw.strip() and not raw.lstrip().startswith("#")
@@ -355,6 +408,17 @@ def workflow_local_references(
     known_paths: set[str],
 ) -> set[str]:
     references = set(python_entrypoints(text))
+    for invocation in python_invocations(text):
+        if invocation["entrypoint"] != "-c" or not invocation["command_source"]:
+            continue
+        references.update(
+            local_import_paths(
+                str(invocation["command_source"]),
+                f"{path}::command:{invocation['line']}",
+                sources,
+                known_paths,
+            )
+        )
     for block in inline_python_blocks(text):
         references.update(
             local_import_paths(
@@ -506,10 +570,27 @@ def audit_texts(
             f"observed={','.join(observed_sensitive)}"
         )
 
+    observed_local_entrypoints = sorted(
+        entrypoint
+        for entrypoint in python_entrypoints(workflows.get(accepted_workflow, ""))
+        if entrypoint in known_paths
+    )
+    expected_local_entrypoints = sorted(
+        set(contract.get("accepted_workflow_local_entrypoints") or [])
+    )
+    if observed_local_entrypoints != expected_local_entrypoints:
+        failures.append(
+            "accepted_workflow_local_entrypoint_mismatch:"
+            f"expected={','.join(expected_local_entrypoints)}:"
+            f"observed={','.join(observed_local_entrypoints)}"
+        )
+
     expected_by_workflow = contract.get("workflow_authority_sensitive_entrypoints") or {}
     observed_by_workflow: dict[str, list[str]] = {}
+    local_references_by_workflow: dict[str, set[str]] = {}
     for path, text in sorted(workflows.items()):
         references = workflow_local_references(path, text, accepted_files, known_paths)
+        local_references_by_workflow[path] = references
         sensitive = sorted(
             reference for reference in references if authority_sensitive(reference, contract)
         )
@@ -530,7 +611,11 @@ def audit_texts(
         if str(path).endswith(".py")
     }
     root_paths.update(inline_local_paths)
-    root_paths.update(observed_sensitive)
+    root_paths.update(
+        reference
+        for reference in local_references_by_workflow.get(accepted_workflow, set())
+        if reference in known_paths
+    )
     reachable, import_parents = reachable_python_paths(
         root_paths, accepted_files, known_paths
     )
@@ -582,6 +667,7 @@ def audit_texts(
         "accepted_daily_workflow": accepted_workflow,
         "accepted_current_target_writer": accepted_entrypoint,
         "accepted_workflow_authority_sensitive_entrypoints": observed_sensitive,
+        "accepted_workflow_local_entrypoints": observed_local_entrypoints,
         "workflow_authority_sensitive_entrypoints": observed_by_workflow,
         "accepted_workflow_inline_local_imports": observed_inline,
         "accepted_python_reachable_files": sorted(reachable),
