@@ -25,10 +25,7 @@ def source_inputs() -> tuple[dict, dict[str, str], dict[str, str]]:
     contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
     tracked = MOD.tracked_workflow_paths(ROOT)
     workflows = MOD.workflow_texts(ROOT, tracked)
-    accepted = {
-        path: (ROOT / path).read_text(encoding="utf-8")
-        for path in contract["accepted_path_files"]
-    }
+    accepted = {**MOD.tracked_python_texts(ROOT), **workflows}
     return contract, workflows, accepted
 
 
@@ -75,14 +72,71 @@ def test_second_writer_and_legacy_exit_reachability_fail_closed() -> None:
     )
 
 
+def test_inline_writer_and_transitive_legacy_exit_fail_closed() -> None:
+    contract, workflows, accepted = source_inputs()
+    daily = contract["accepted_daily_workflow"]
+    inline = deepcopy(workflows)
+    needle = "from tools.build_run287_same_close_target_books import ("
+    inline[daily] = inline[daily].replace(
+        needle,
+        "from tools.build_new_target_writer import main as new_main\n"
+        "          new_main()\n"
+        f"          {needle}",
+        1,
+    )
+    inline_sources = deepcopy(accepted)
+    inline_sources["tools/build_new_target_writer.py"] = "def main():\n    return None\n"
+    result = MOD.audit_texts(contract, inline, inline_sources)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "accepted_workflow_inline_import_mismatch" in item
+        for item in result["failures"]
+    )
+
+    transitive = deepcopy(accepted)
+    transitive["tools/run287_crisis_policy.py"] += (
+        "\nfrom r1000_risk_sensing import evaluate_layer1_individual\n"
+    )
+    result = MOD.audit_texts(contract, workflows, transitive)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "forbidden_legacy_exit_reachability:tools/run287_crisis_policy.py" in item
+        for item in result["failures"]
+    )
+
+
 def test_required_transaction_boundary_cannot_be_removed() -> None:
     contract, workflows, accepted = source_inputs()
     changed = deepcopy(workflows)
     daily = contract["accepted_daily_workflow"]
     changed[daily] = changed[daily].replace("--suppress-new-orders", "--removed-boundary")
+    changed[daily] += "\n# --suppress-new-orders\n"
     result = MOD.audit_texts(contract, changed, accepted)
     assert result["status"] == MOD.BLOCKED_STATUS
-    assert any("required_workflow_token_missing" in item for item in result["failures"])
+    assert any(
+        "required_executable_command_mismatch" in item
+        for item in result["failures"]
+    )
+
+
+def test_no_writer_role_and_duplicate_accepted_writer_fail_closed() -> None:
+    contract, workflows, accepted = source_inputs()
+    no_writer = deepcopy(workflows)
+    observer = ".github/workflows/daily_crisis_monitor.yml"
+    no_writer[observer] += "\n  python tools/build_new_target_writer.py\n"
+    result = MOD.audit_texts(contract, no_writer, accepted)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any("no_target_writer_role_violated" in item for item in result["failures"])
+
+    duplicate = deepcopy(workflows)
+    daily = contract["accepted_daily_workflow"]
+    duplicate[daily] += "\n  python tools/build_run287_same_close_target_books.py\n"
+    result = MOD.audit_texts(contract, duplicate, accepted)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    assert any(
+        "entrypoint_invocation_count_mismatch" in item
+        for item in result["failures"]
+    )
 
 
 def test_untracked_workflow_is_not_repository_authority() -> None:
@@ -100,11 +154,42 @@ def test_untracked_workflow_is_not_repository_authority() -> None:
         assert paths == [".github/workflows/tracked.yml"]
 
 
+def test_dirty_input_is_not_attributed_to_head_and_defaults_follow_repo_root() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        tracked = root / "tracked.txt"
+        tracked.write_text("clean\n", encoding="utf-8")
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root, check=True)
+        subprocess.run(["git", "config", "user.name", "Run287 Test"], cwd=root, check=True)
+        subprocess.run(["git", "add", "tracked.txt"], cwd=root, check=True)
+        subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
+        clean = MOD.git_source_identity(root, ["tracked.txt"])
+        assert clean["source_identity_status"] == "CLEAN_HEAD_BOUND"
+        assert clean["source_commit_sha"] == clean["observed_head_sha"]
+
+        tracked.write_text("dirty\n", encoding="utf-8")
+        dirty = MOD.git_source_identity(root, ["tracked.txt"])
+        assert dirty["source_identity_status"] == "DIRTY_INPUTS_NOT_HEAD_BOUND"
+        assert dirty["source_commit_sha"] == ""
+        assert dirty["dirty_input_records"]
+
+        assert MOD.resolve_repo_path(root, MOD.DEFAULT_CONTRACT) == (
+            root / "docs/run287_dynamic_portfolio_call_path_contract.json"
+        ).resolve()
+        assert MOD.resolve_repo_path(root, MOD.DEFAULT_OUTPUT) == (
+            root / "outputs/run287_dynamic_portfolio_call_path_audit.json"
+        ).resolve()
+
+
 def main() -> int:
     test_current_repository_passes_and_has_one_accepted_writer()
     test_second_writer_and_legacy_exit_reachability_fail_closed()
+    test_inline_writer_and_transitive_legacy_exit_fail_closed()
     test_required_transaction_boundary_cannot_be_removed()
+    test_no_writer_role_and_duplicate_accepted_writer_fail_closed()
     test_untracked_workflow_is_not_repository_authority()
+    test_dirty_input_is_not_attributed_to_head_and_defaults_follow_repo_root()
     print("run287 dynamic portfolio call-path smoke: PASS")
     return 0
 

@@ -11,6 +11,27 @@
     "accepted_target_status": "READY_SAME_CLOSE_PAPER_TARGETS",
     "fill_semantics": "next_nyse_close_review_only"
   },
+  "authority_sensitive_name_terms": [
+    "account",
+    "broker",
+    "cash",
+    "decision",
+    "execute",
+    "fill",
+    "ledger",
+    "order",
+    "portfolio",
+    "position",
+    "promotion",
+    "publish",
+    "rebalance",
+    "reserve",
+    "selector",
+    "target",
+    "trade",
+    "weight",
+    "writer"
+  ],
   "workflow_roles": {
     ".github/workflows/daily_operating_selection_refresh.yml": "accepted_daily_target_and_durable_review_only_paper_ledger",
     ".github/workflows/daily_crisis_monitor.yml": "state_observer_no_target_writer",
@@ -26,6 +47,7 @@
     {
       "entrypoint": "tools/build_run287_same_close_target_books.py",
       "role": "accepted_current_target_writer",
+      "exact_invocation_count": 1,
       "allowed_workflows": [
         ".github/workflows/daily_operating_selection_refresh.yml"
       ]
@@ -112,6 +134,15 @@
     "tools/run287_paper_ledger_integrity.py",
     "tools/run_daily_simulated_fill_ledger.py"
   ],
+  "accepted_workflow_inline_local_imports": [
+    "tools/archive_run287_ohlcv_pattern_memory.py",
+    "tools/build_run287_catchup_price_evidence.py",
+    "tools/build_run287_exact_packet_input_registry.py",
+    "tools/build_run287_same_close_target_books.py",
+    "tools/run287_paper_ledger_integrity.py",
+    "tools/run_daily_simulated_fill_ledger.py",
+    "tools/run_run287_exact_packet_producer.py"
+  ],
   "forbidden_accepted_path_tokens": [
     "from r1000_risk_sensing import",
     "import r1000_risk_sensing",
@@ -136,6 +167,54 @@
       "--execute --confirm"
     ]
   },
+  "required_executable_commands": [
+    {
+      "workflow": ".github/workflows/daily_operating_selection_refresh.yml",
+      "entrypoint": "tools/run_daily_simulated_fill_ledger.py",
+      "required_tokens": [
+        "--suppress-new-orders",
+        "--cost-bps 25"
+      ],
+      "exact_match_count": 1
+    },
+    {
+      "workflow": ".github/workflows/daily_operating_selection_refresh.yml",
+      "entrypoint": "tools/run_daily_simulated_fill_ledger.py",
+      "required_tokens": [
+        "--target-handoff-manifest",
+        "--cost-bps 25"
+      ],
+      "exact_match_count": 1
+    },
+    {
+      "workflow": ".github/workflows/daily_operating_selection_refresh.yml",
+      "entrypoint": "tools/build_run287_same_close_target_books.py",
+      "required_tokens": [
+        "--producer-status",
+        "--freshness-status",
+        "--valuation-date",
+        "--output-dir"
+      ],
+      "exact_match_count": 1
+    },
+    {
+      "workflow": ".github/workflows/after_close_daily.yml",
+      "entrypoint": "r1000_paper_executor.py",
+      "required_tokens": [
+        "$EXECUTE_FLAG",
+        "$LEGACY_EXECUTE_FLAG"
+      ],
+      "exact_match_count": 1
+    },
+    {
+      "workflow": ".github/workflows/layer4_monthly_swap.yml",
+      "entrypoint": "r1000_layer4_swap.py",
+      "required_tokens": [
+        "$EXECUTE_FLAG"
+      ],
+      "exact_match_count": 1
+    }
+  ],
   "safety": {
     "changes_investment_behavior": false,
     "target_mutation_authorized": false,

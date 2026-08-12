@@ -3806,14 +3806,19 @@ Expected contract:
   current target and one ledger consumer may apply it.
 - Attempt: Added a machine-readable workflow/entrypoint contract and a tracked
   workflow audit that checks writer roles, exact accepted-path commands,
-  mandatory safety flags, and prohibited standalone legacy EXIT imports.
+  inline Python imports, transitive local imports, mandatory safety flags, and
+  prohibited standalone legacy EXIT reachability.
 - Result: The accepted daily path has exactly one current target writer; a
   second known or previously unknown target writer, a missing suppression flag,
   or a legacy risk-sensing import fails the focused validation.
 - Failure or caveat: Filename-pattern checks alone do not detect a newly named
-  target writer. The accepted workflow therefore uses an exact allowlist of
-  authority-sensitive executable entrypoints. Untracked workflows are excluded
-  so user-owned local files cannot silently become authority.
+  target writer. Raw token checks can also be satisfied by comments, direct-file
+  scans miss transitive imports, and `python -` heredocs can hide local calls.
+  The accepted workflow therefore binds flags to logical executable commands,
+  allowlists direct entrypoints and inline local imports, and traverses the
+  local Python import graph. Untracked workflows are excluded so user-owned
+  local files cannot silently become authority. Dirty audited inputs are never
+  attributed to the unchanged HEAD SHA.
 - Reusable lesson: Determine portfolio authority from the tracked workflow call
   graph plus explicit role contracts, not from filenames or artifact labels.
 - Next action: Merge this behavior-neutral guard before introducing the first
