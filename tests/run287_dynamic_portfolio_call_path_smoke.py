@@ -1424,6 +1424,17 @@ def test_static_control_and_indirect_launch_edges_are_bound() -> None:
         "if false; then :; else "
         "python tools/build_run287_same_close_target_books.py; fi\n"
     )
+    assert len(
+        MOD.executable_invocations(
+            "for x in 1 2; do python "
+            "tools/build_run287_same_close_target_books.py; done\n",
+            protected,
+        )
+    ) == 2
+    assert protected not in MOD.python_entrypoints(
+        "if true; then :; else "
+        "python tools/build_run287_same_close_target_books.py; fi\n"
+    )
     assert MOD.statically_disabled_workflow_condition(
         "${{ false && github.event_name == 'push' }}"
     )
@@ -1508,6 +1519,28 @@ def test_static_control_and_indirect_launch_edges_are_bound() -> None:
         "launch(['python', 'tools/helper.py'])\n"
     )
     assert "tools/helper.py" in MOD.local_process_candidates(pty_launch)
+    subprocess_startup = (
+        "import os, subprocess\n"
+        "subprocess.run(['python', 'tools/harmless.py'], "
+        "env={**os.environ, 'PYTHONPATH': 'tools/hooks'})\n"
+    )
+    assert set(MOD.local_process_candidates(subprocess_startup)) >= {
+        "tools/harmless.py",
+        "tools/hooks/sitecustomize.py",
+        "tools/hooks/usercustomize.py",
+    }
+
+    dynamic_module = (
+        "import importlib\n"
+        "name = 'tools.build_run287_same_close_target_books'\n"
+        "importlib.import_module(name).main()\n"
+    )
+    assert protected in MOD.local_import_candidates(dynamic_module)
+    assert dict(MOD.python_main_call_counts(dynamic_module))[protected] == 1
+
+    assert "tools/hook.sh" in MOD.shell_script_candidates(
+        'DIR=tools\nsource "$DIR/hook.sh"\n'
+    )
 
     bash_env_workflow = (
         "env:\n  BASH_ENV: tools/startup.sh\n"
@@ -1539,6 +1572,35 @@ def test_static_control_and_indirect_launch_edges_are_bound() -> None:
     )
     assert cycle is False
     assert counts == {"tools/writer-action/action.yml": 2}
+
+    external_node_sources = {
+        "tools/node-action/action.yml": "runs:\n  using: node20\n  main: index.js\n",
+        "tools/node-action/index.js": 'require("../../shared/helper.js");\n',
+        "shared/helper.js": "module.exports = {};\n",
+    }
+    assert "shared/helper.js" in MOD.local_action_implementation_paths(
+        "tools/node-action/action.yml",
+        external_node_sources["tools/node-action/action.yml"],
+        set(external_node_sources),
+        external_node_sources,
+    )
+
+
+def test_protected_binding_schema_cannot_be_weakened() -> None:
+    contract, _workflows, _accepted = source_inputs()
+    weakened = deepcopy(contract)
+    binding = next(
+        row
+        for row in weakened["entrypoint_bindings"]
+        if row["entrypoint"] == "tools/build_run287_same_close_target_books.py"
+    )
+    binding.pop("exact_invocation_count")
+    try:
+        MOD.validate_contract(weakened)
+    except ValueError as exc:
+        assert "protected entrypoint binding changed" in str(exc)
+    else:
+        raise AssertionError("weakened protected binding was accepted")
 
 
 def test_untracked_workflow_is_not_repository_authority() -> None:
@@ -1809,12 +1871,16 @@ def test_run_audit_binds_no_writer_traversal_sources_to_head() -> None:
         (root / ".github" / "workflows").mkdir(parents=True)
         (root / "tools").mkdir()
         (root / "docs").mkdir()
-        accepted_workflow = ".github/workflows/accepted.yml"
+        accepted_workflow = (
+            ".github/workflows/daily_operating_selection_refresh.yml"
+        )
         observer_workflow = ".github/workflows/observer.yml"
         workflow_texts = {
             accepted_workflow: (
                 "jobs:\n  run:\n    steps:\n"
                 "      - run: python tools/build_run287_same_close_target_books.py\n"
+                "      - run: python tools/run_daily_simulated_fill_ledger.py --portfolio main\n"
+                "      - run: python tools/run_daily_simulated_fill_ledger.py --portfolio concentrated\n"
             ),
             observer_workflow: (
                 "jobs:\n  run:\n    steps:\n"
@@ -1869,11 +1935,18 @@ def test_run_audit_binds_no_writer_traversal_sources_to_head() -> None:
                     "role": "accepted_current_target_writer",
                     "exact_invocation_count": 1,
                     "allowed_workflows": [accepted_workflow],
-                }
+                },
+                {
+                    "entrypoint": "tools/run_daily_simulated_fill_ledger.py",
+                    "role": "durable_review_only_paper_ledger_consumer",
+                    "exact_invocation_count": 2,
+                    "allowed_workflows": [accepted_workflow],
+                },
             ],
-            "workflow_authority_sensitive_entrypoints": {
-                accepted_workflow: ["tools/build_run287_same_close_target_books.py"]
-            },
+            "workflow_authority_sensitive_entrypoints": {accepted_workflow: [
+                "tools/build_run287_same_close_target_books.py",
+                "tools/run_daily_simulated_fill_ledger.py",
+            ]},
             "no_writer_reachable_authority_sensitive_modules": {
                 observer_workflow: []
             },
@@ -1882,15 +1955,19 @@ def test_run_audit_binds_no_writer_traversal_sources_to_head() -> None:
             "accepted_path_files": [
                 accepted_workflow,
                 "tools/build_run287_same_close_target_books.py",
+                "tools/run_daily_simulated_fill_ledger.py",
             ],
             "accepted_workflow_authority_sensitive_entrypoints": [
-                "tools/build_run287_same_close_target_books.py"
+                "tools/build_run287_same_close_target_books.py",
+                "tools/run_daily_simulated_fill_ledger.py",
             ],
             "accepted_workflow_local_entrypoints": [
-                "tools/build_run287_same_close_target_books.py"
+                "tools/build_run287_same_close_target_books.py",
+                "tools/run_daily_simulated_fill_ledger.py",
             ],
             "accepted_reachable_authority_sensitive_modules": [
-                "tools/build_run287_same_close_target_books.py"
+                "tools/build_run287_same_close_target_books.py",
+                "tools/run_daily_simulated_fill_ledger.py",
             ],
             "accepted_workflow_inline_local_imports": [],
             "authority_sensitive_name_terms": ["target", "writer", "ledger"],

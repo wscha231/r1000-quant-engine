@@ -83,6 +83,37 @@ def validate_contract(contract: Mapping[str, Any]) -> None:
         raise ValueError("dynamic-portfolio call-path safety authority broadened")
     if not contract.get("authority_sensitive_name_terms"):
         raise ValueError("authority-sensitive name terms missing")
+    bindings = contract.get("entrypoint_bindings") or []
+    by_entrypoint = {
+        str(row.get("entrypoint") or ""): row
+        for row in bindings
+        if isinstance(row, dict)
+    }
+    immutable_bindings = {
+        "tools/build_run287_same_close_target_books.py": {
+            "role": "accepted_current_target_writer",
+            "exact_invocation_count": 1,
+            "allowed_workflows": [
+                ".github/workflows/daily_operating_selection_refresh.yml"
+            ],
+        },
+        "tools/run_daily_simulated_fill_ledger.py": {
+            "role": "durable_review_only_paper_ledger_consumer",
+            "exact_invocation_count": 2,
+            "allowed_workflows": [
+                ".github/workflows/daily_operating_selection_refresh.yml"
+            ],
+        },
+    }
+    for entrypoint, required in immutable_bindings.items():
+        binding = by_entrypoint.get(entrypoint) or {}
+        observed = {
+            "role": binding.get("role"),
+            "exact_invocation_count": binding.get("exact_invocation_count"),
+            "allowed_workflows": sorted(binding.get("allowed_workflows") or []),
+        }
+        if observed != required:
+            raise ValueError(f"protected entrypoint binding changed: {entrypoint}")
 
 
 def tracked_workflow_paths(root: Path) -> list[str]:
@@ -310,7 +341,10 @@ def tracked_local_action_paths(root: Path) -> list[str]:
 
 
 def local_action_implementation_paths(
-    action_path: str, text: str, known_paths: set[str]
+    action_path: str,
+    text: str,
+    known_paths: set[str],
+    sources: Mapping[str, str] | None = None,
 ) -> set[str]:
     """Resolve Node/Docker action implementation files relative to action.yml."""
     try:
@@ -338,6 +372,38 @@ def local_action_implementation_paths(
         candidates.update(
             path for path in known_paths if path.startswith(context_prefix)
         )
+    if using.startswith("node") and sources is not None:
+        pending = [candidate for candidate in candidates if candidate in sources]
+        seen: set[str] = set()
+        while pending:
+            source_path = pending.pop()
+            if source_path in seen:
+                continue
+            seen.add(source_path)
+            for value in re.findall(
+                r"(?:require\s*\(|import\s*\(|from\s+)[\"']([^\"']+)[\"']",
+                sources[source_path],
+            ):
+                if not value.startswith("."):
+                    continue
+                base = normalize_script_entrypoint(
+                    Path(Path(source_path).parent, value).as_posix()
+                )
+                choices = [
+                    base,
+                    f"{base}.js",
+                    f"{base}.cjs",
+                    f"{base}.mjs",
+                    f"{base}.json",
+                    f"{base}/index.js",
+                    f"{base}/index.cjs",
+                    f"{base}/index.mjs",
+                ]
+                matches = [candidate for candidate in choices if candidate in known_paths]
+                if len(matches) == 1 and matches[0] not in seen:
+                    candidates.add(matches[0])
+                    if matches[0] in sources:
+                        pending.append(matches[0])
     return {candidate for candidate in candidates if candidate in known_paths}
 
 
@@ -368,6 +434,39 @@ def shell_logical_commands(text: str) -> list[tuple[int, str]]:
     skipped_closers: list[str] = []
     for line, command in raw:
         stripped = command.strip()
+        inline_for = re.match(
+            r"^for\s+[A-Za-z_][A-Za-z0-9_]*\s+in\s+(.*?)\s*;\s*do\s+"
+            r"(.*?)\s*;\s*done(?:\s*;\s*(.*))?$",
+            stripped,
+        )
+        if inline_for:
+            try:
+                values = shlex.split(inline_for.group(1), posix=True)
+            except ValueError:
+                values = []
+            if not values or any(re.search(r"[$`*?\[]", value) for value in values):
+                reachable_raw.append((0, SHELL_UNRESOLVED_CONTROL_SENTINEL))
+            else:
+                reachable_raw.extend(
+                    (line, inline_for.group(2)) for _value in values
+                )
+            if inline_for.group(3):
+                reachable_raw.append((line, inline_for.group(3)))
+            continue
+        true_if = bool(
+            re.match(r"^if\s+(?:true|!\s*false)\s*;?\s*then\b", stripped)
+        )
+        if true_if:
+            inline_true = re.match(
+                r"^if\s+(?:true|!\s*false)\s*;?\s*then\s+(.*?)"
+                r"(?:;\s*(?:else|elif)\b.*)?;\s*fi(?:\s*;\s*(.*))?$",
+                stripped,
+            )
+            if inline_true:
+                reachable_raw.append((line, inline_true.group(1)))
+                if inline_true.group(2):
+                    reachable_raw.append((line, inline_true.group(2)))
+                continue
         false_if = bool(re.match(r"^if\s+(?:false|!\s*true)\s*;?\s*then\b", stripped))
         false_loop = bool(
             re.match(
@@ -1163,16 +1262,22 @@ def literal_dynamic_import_module(
     node: ast.AST,
     callables: set[str] | None = None,
     source_path: str = "",
+    assignments: Mapping[str, list[ast.AST]] | None = None,
 ) -> str:
-    """Resolve common dynamic imports only when their module is a literal."""
+    """Resolve common dynamic imports when their module is definitely finite."""
     if not isinstance(node, ast.Call) or not node.args:
         return ""
     first = node.args[0]
-    if not isinstance(first, ast.Constant) or not isinstance(first.value, str):
+    module_values = {
+        str(bound.value)
+        for bound in bound_expression_nodes(first, assignments or {})
+        if isinstance(bound, ast.Constant) and isinstance(bound.value, str)
+    }
+    if len(module_values) != 1:
         return ""
     func = dotted_expression_name(node.func)
     if func in (callables or {"importlib.import_module", "__import__", "builtins.__import__"}):
-        module = first.value
+        module = next(iter(module_values))
         if not module.startswith("."):
             return module
         package = ""
@@ -1278,7 +1383,7 @@ def _local_import_candidates_direct(source: str, source_path: str) -> tuple[str,
             )
         elif isinstance(node, ast.Call):
             dynamic_module = literal_dynamic_import_module(
-                node, dynamic_callables, source_path
+                node, dynamic_callables, source_path, assignments
             )
             if dynamic_module:
                 candidates.append(dynamic_module)
@@ -1532,6 +1637,49 @@ def process_cwd_values(
     )
 
 
+def process_pythonpath_values(
+    node: ast.Call, assignments: Mapping[str, list[ast.AST]]
+) -> tuple[str, ...]:
+    environment = next(
+        (keyword.value for keyword in node.keywords if keyword.arg == "env"),
+        None,
+    )
+    if environment is None:
+        return ()
+    values: set[str] = set()
+    for bound in bound_expression_nodes(environment, assignments):
+        for candidate in ast.walk(bound):
+            if not isinstance(candidate, ast.Dict):
+                continue
+            for key, value in zip(candidate.keys, candidate.values):
+                if not (
+                    isinstance(key, ast.Constant)
+                    and key.value == "PYTHONPATH"
+                ):
+                    continue
+                values.update(
+                    str(item.value)
+                    for item in bound_expression_nodes(value, assignments)
+                    if isinstance(item, ast.Constant)
+                    and isinstance(item.value, str)
+                )
+    return tuple(sorted(values))
+
+
+def pythonpath_startup_candidates(values: tuple[str, ...]) -> set[str]:
+    result: set[str] = set()
+    for pythonpath in values:
+        for part in re.split(r"[;:]", pythonpath):
+            normalized = normalize_script_entrypoint(part or ".")
+            for startup in ("sitecustomize.py", "usercustomize.py"):
+                result.add(
+                    Path(normalized, startup).as_posix()
+                    if normalized not in {"", "."}
+                    else startup
+                )
+    return result
+
+
 @lru_cache(maxsize=4096)
 def _local_process_candidates_direct(source: str) -> tuple[str, ...]:
     """Return literal Python entrypoints passed through process-launch calls."""
@@ -1571,6 +1719,11 @@ def _local_process_candidates_direct(source: str) -> tuple[str, ...]:
                 for cwd in cwd_values
             }
         candidates.update(call_candidates)
+        candidates.update(
+            pythonpath_startup_candidates(
+                process_pythonpath_values(node, assignments)
+            )
+        )
 
     if has_process_call:
         # A helper can pass finite caller-built argv into the eventual process
@@ -1728,6 +1881,22 @@ def _python_process_launches_direct(source: str) -> tuple[str, ...]:
             .strip()
             for bound in cwd_nodes
         ]
+        environment = next(
+            (keyword.value for keyword in node.keywords if keyword.arg == "env"),
+            None,
+        )
+        environment_nodes = (
+            bound_expression_nodes(environment, assignments)
+            if environment is not None
+            else []
+        )
+        environment_sources = [
+            (ast.get_source_segment(source, bound) or source)
+            .replace("\r\n", "\n")
+            .replace("\r", "\n")
+            .strip()
+            for bound in environment_nodes
+        ]
         for expression in argv_expressions:
             bound_nodes = bound_expression_nodes(expression, assignments)
             # Bind both argv syntax and referenced definite assignments.  A
@@ -1740,6 +1909,9 @@ def _python_process_launches_direct(source: str) -> tuple[str, ...]:
                 for bound in bound_nodes
             ]
             expression_sources.extend(f"cwd:{value}" for value in cwd_sources)
+            expression_sources.extend(
+                f"env:{value}" for value in environment_sources
+            )
             binding_source = (
                 expression_sources[0]
                 if len(expression_sources) == 1
@@ -1757,7 +1929,12 @@ def _python_process_launches_direct(source: str) -> tuple[str, ...]:
                 if isinstance(value, ast.Constant)
                 and isinstance(value.value, str)
             ]
-            candidates = sorted(process_python_candidates(strings))
+            candidates = sorted(
+                process_python_candidates(strings)
+                | pythonpath_startup_candidates(
+                    process_pythonpath_values(node, assignments)
+                )
+            )
             detail = ",".join(candidates) if candidates else "UNRESOLVED_LOCAL_PROCESS"
             findings.add(
                 f"line={getattr(node, 'lineno', 0)}:{name or '<call>'}:"
@@ -1788,6 +1965,7 @@ def python_main_call_counts(
         return ()
     names: dict[str, str] = {}
     modules: dict[str, str] = {}
+    assignments = python_assignment_values(tree)
     dynamic_callables = dynamic_import_callables(tree)
     runpy_callables = imported_callable_names(
         tree, {"runpy": {"run_module", "run_path"}}
@@ -1820,7 +1998,7 @@ def python_main_call_counts(
             if target:
                 return target
             dynamic_module = literal_dynamic_import_module(
-                value.value, dynamic_callables, source_path
+                value.value, dynamic_callables, source_path, assignments
             )
             return module_entrypoint(dynamic_module) if dynamic_module else ""
         if (
@@ -1835,7 +2013,7 @@ def python_main_call_counts(
             if target:
                 return target
             dynamic_module = literal_dynamic_import_module(
-                module_expression, dynamic_callables, source_path
+                module_expression, dynamic_callables, source_path, assignments
             )
             return module_entrypoint(dynamic_module) if dynamic_module else ""
         return ""
@@ -3255,11 +3433,15 @@ def shell_script_candidates(text: str) -> set[str]:
                     literal_names[name] = value
 
         def resolved(value: str) -> str:
-            match = re.fullmatch(
+            def replace(match: re.Match[str]) -> str:
+                name = match.group(1) or match.group(2)
+                return literal_names.get(name, match.group(0))
+
+            return re.sub(
                 r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))",
+                replace,
                 value,
             )
-            return literal_names.get(match.group(1) or match.group(2), value) if match else value
 
         for index, token in enumerate(tokens):
             if not shell_command_position(tokens, index):
@@ -3453,7 +3635,7 @@ def audit_texts(
             implementation
             for yaml_path in yaml_reachable
             for implementation in local_action_implementation_paths(
-                yaml_path, yaml_sources[yaml_path], tracked_paths
+                yaml_path, yaml_sources[yaml_path], tracked_paths, accepted_files
             )
         }
         workflow_action_implementations[path] = sorted(action_implementations)

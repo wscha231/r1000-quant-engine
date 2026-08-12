@@ -3823,6 +3823,29 @@ Expected contract:
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
 
+## 2026-08-12 - Cross-runtime import and immutable-count closure
+
+- A finite shell `for` list multiplies every command in its body; literal-true
+  `if` blocks make their alternate branch unreachable. Exact invocation audits
+  must model both effects rather than flattening the source to one text row.
+- Dynamic imports may take a module name from a definite assignment. Resolve
+  the assignment into both local-import reachability and protected-call counts.
+- A subprocess can inject `PYTHONPATH` through its own `env` mapping. Bind that
+  mapping to the process fingerprint and traverse its `sitecustomize.py` and
+  `usercustomize.py` startup hooks.
+- A local Node action can import tracked helpers outside its action directory.
+  Follow canonical relative `require`/`import` edges instead of assuming the
+  action directory is the complete runtime context.
+- Shell helper paths can contain definite variables, for example
+  `source "$DIR/hook.sh"`; expand embedded known variables before tracked-path
+  matching.
+- The accepted writer and durable ledger roles, workflows, and exact invocation
+  counts are immutable contract schema, not optional fields that a later edit
+  may remove to weaken enforcement.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
 ## 2026-08-12 - Complete execution-edge and review-pagination closure
 
 - GitHub review-thread inspection must paginate to `hasNextPage=false`; the
