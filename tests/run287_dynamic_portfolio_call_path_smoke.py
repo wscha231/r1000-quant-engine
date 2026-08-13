@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -2833,25 +2835,117 @@ def test_final_runtime_semantics_and_remote_actions_fail_closed() -> None:
     ] == MOD.text_sha256(pinned_loader.read_text(encoding="utf-8"))
 
 
-def main() -> int:
-    test_current_repository_passes_and_has_one_accepted_writer()
-    test_second_writer_and_legacy_exit_reachability_fail_closed()
-    test_inline_writer_and_transitive_legacy_exit_fail_closed()
-    test_required_transaction_boundary_cannot_be_removed()
-    test_no_writer_role_and_duplicate_accepted_writer_fail_closed()
-    test_global_workflow_and_transitive_authority_allowlists_fail_closed()
-    test_indirect_execution_and_destination_bypasses_fail_closed()
-    test_reviewed_execution_edges_are_inventory_bound()
-    test_latest_review_execution_context_edges_are_bound()
-    test_shell_and_loader_authority_edges_fail_closed()
-    test_static_control_and_indirect_launch_edges_are_bound()
-    test_protected_binding_schema_cannot_be_weakened()
-    test_untracked_workflow_is_not_repository_authority()
-    test_execution_defaults_are_bound_to_named_inputs()
-    test_dirty_input_is_not_attributed_to_head_and_defaults_follow_repo_root()
-    test_run_audit_binds_no_writer_traversal_sources_to_head()
-    test_final_runtime_semantics_and_remote_actions_fail_closed()
-    print("run287 dynamic portfolio call-path smoke: PASS")
+def test_authority_ci_shards_are_static_and_exhaustive() -> None:
+    workflow = MOD.yaml.safe_load(
+        (ROOT / ".github/workflows/pr_validation.yml").read_text(encoding="utf-8")
+    )
+    jobs = workflow["jobs"]
+    shard_jobs = tuple(f"authority_validate_{index}" for index in range(8))
+    assert tuple(sorted(job for job in jobs if job.startswith("authority_validate_"))) == (
+        shard_jobs
+    )
+    for index, job_name in enumerate(shard_jobs):
+        job = jobs[job_name]
+        assert "strategy" not in job
+        run_step = next(
+            step
+            for step in job["steps"]
+            if step.get("name") == "Run authority-graph regression shard"
+        )
+        assert run_step["env"] == {
+            "RUN287_AUTHORITY_SHARD_INDEX": str(index),
+            "RUN287_AUTHORITY_SHARD_COUNT": "8",
+        }
+        assert " ".join(run_step["run"].split()) == (
+            "python tools/run_pr_validation.py "
+            "--only run287_dynamic_portfolio_call_path_smoke"
+        )
+    assert set(jobs["validate"]["needs"]) == {"fast_validate", *shard_jobs}
+
+
+TEST_CASES = (
+    test_current_repository_passes_and_has_one_accepted_writer,
+    test_second_writer_and_legacy_exit_reachability_fail_closed,
+    test_inline_writer_and_transitive_legacy_exit_fail_closed,
+    test_required_transaction_boundary_cannot_be_removed,
+    test_no_writer_role_and_duplicate_accepted_writer_fail_closed,
+    test_global_workflow_and_transitive_authority_allowlists_fail_closed,
+    test_indirect_execution_and_destination_bypasses_fail_closed,
+    test_reviewed_execution_edges_are_inventory_bound,
+    test_latest_review_execution_context_edges_are_bound,
+    test_shell_and_loader_authority_edges_fail_closed,
+    test_static_control_and_indirect_launch_edges_are_bound,
+    test_protected_binding_schema_cannot_be_weakened,
+    test_untracked_workflow_is_not_repository_authority,
+    test_execution_defaults_are_bound_to_named_inputs,
+    test_dirty_input_is_not_attributed_to_head_and_defaults_follow_repo_root,
+    test_run_audit_binds_no_writer_traversal_sources_to_head,
+    test_final_runtime_semantics_and_remote_actions_fail_closed,
+    test_authority_ci_shards_are_static_and_exhaustive,
+)
+
+
+def selected_test_cases(
+    shard_index: int | None,
+    shard_count: int | None,
+) -> tuple:
+    if (shard_index is None) != (shard_count is None):
+        raise ValueError("--shard-index and --shard-count must be used together")
+    if shard_index is None:
+        return TEST_CASES
+    if shard_count is None or shard_count <= 0:
+        raise ValueError("--shard-count must be greater than zero")
+    if shard_index < 0 or shard_index >= shard_count:
+        raise ValueError("--shard-index must be in [0, shard-count)")
+    selected = TEST_CASES[shard_index::shard_count]
+    if not selected:
+        raise ValueError("selected shard contains zero tests")
+    return selected
+
+
+def environment_shard_value(name: str) -> int | None:
+    raw_value = os.environ.get(name)
+    if raw_value is None:
+        return None
+    try:
+        return int(raw_value)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer") from exc
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--shard-index", type=int)
+    parser.add_argument("--shard-count", type=int)
+    args = parser.parse_args(argv)
+    try:
+        shard_index = (
+            args.shard_index
+            if args.shard_index is not None
+            else environment_shard_value("RUN287_AUTHORITY_SHARD_INDEX")
+        )
+        shard_count = (
+            args.shard_count
+            if args.shard_count is not None
+            else environment_shard_value("RUN287_AUTHORITY_SHARD_COUNT")
+        )
+        selected = selected_test_cases(shard_index, shard_count)
+    except ValueError as exc:
+        parser.error(str(exc))
+
+    if shard_index is not None:
+        print(
+            "run287 authority shard "
+            f"{shard_index + 1}/{shard_count}: "
+            f"{len(selected)} tests"
+        )
+    for test_case in selected:
+        print(f"RUN {test_case.__name__}", flush=True)
+        test_case()
+    print(
+        "run287 dynamic portfolio call-path smoke: PASS "
+        f"({len(selected)}/{len(TEST_CASES)} tests)"
+    )
     return 0
 
 
