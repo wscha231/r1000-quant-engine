@@ -403,97 +403,69 @@ def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> No
     contract, workflows, accepted = source_inputs()
     undeclared = deepcopy(workflows)
     undeclared[".github/workflows/new_production.yml"] = (
-        "jobs:\n  run:\n    steps:\n      - run: python tools/build_new_target_writer.py\n"
+        "jobs:\n  run:\n    runs-on: ubuntu-latest\n    steps:\n"
+        "      - run: python tools/build_new_target_writer.py\n"
     )
-    result = MOD.audit_texts(contract, undeclared, accepted)
-    assert result["status"] == MOD.BLOCKED_STATUS
-    assert any(
-        "authority_sensitive_workflow_role_missing" in item
-        for item in result["failures"]
+    undeclared_sources = deepcopy(accepted)
+    undeclared_sources["tools/build_new_target_writer.py"] = (
+        "def main():\n    return None\n"
     )
-
-    command_string = deepcopy(workflows)
-    command_string[".github/workflows/new_command_string.yml"] = (
-        "jobs:\n  run:\n    steps:\n      - run: >-\n"
+    undeclared_sources["tools/harmless.py"] = (
+        "from tools.build_new_target_writer import main\nmain()\n"
+    )
+    undeclared[".github/workflows/new_command_string.yml"] = (
+        "jobs:\n  run:\n    runs-on: ubuntu-latest\n    steps:\n      - run: >-\n"
         "          python -c \"from tools.build_new_target_writer import main; "
         "main()\"\n"
     )
-    command_sources = deepcopy(accepted)
-    command_sources["tools/build_new_target_writer.py"] = (
-        "def main():\n    return None\n"
-    )
-    result = MOD.audit_texts(contract, command_string, command_sources)
-    assert result["status"] == MOD.BLOCKED_STATUS
-    assert any(
-        "authority_sensitive_workflow_role_missing:"
-        ".github/workflows/new_command_string.yml" in item
-        for item in result["failures"]
-    )
-
-    backslash_stdin_wrapper = deepcopy(workflows)
-    backslash_stdin_wrapper[".github/workflows/new_backslash_stdin.yml"] = (
-        "jobs:\n  run:\n    steps:\n      - run: |\n"
+    undeclared[".github/workflows/new_backslash_stdin.yml"] = (
+        "jobs:\n  run:\n    runs-on: ubuntu-latest\n    steps:\n      - run: |\n"
         "          python /dev/stdin <<\\PY\n"
         "          from tools.build_new_target_writer import main\n"
         "          main()\n"
         "          PY\n"
     )
-    result = MOD.audit_texts(contract, backslash_stdin_wrapper, command_sources)
-    assert result["status"] == MOD.BLOCKED_STATUS
-    assert any(
-        "authority_sensitive_workflow_role_missing:"
-        ".github/workflows/new_backslash_stdin.yml" in item
-        or "reachable_authority_workflow_role_missing:"
-        ".github/workflows/new_backslash_stdin.yml" in item
-        for item in result["failures"]
-    )
-
-    stdin_wrapper = deepcopy(workflows)
-    stdin_wrapper[".github/workflows/new_stdin.yml"] = (
-        "jobs:\n  run:\n    steps:\n      - run: |\n"
+    undeclared[".github/workflows/new_stdin.yml"] = (
+        "jobs:\n  run:\n    runs-on: ubuntu-latest\n    steps:\n      - run: |\n"
         "          python3.12 -u - <<'PY'\n"
         "          from tools.build_new_target_writer import main\n"
         "          main()\n"
         "          PY\n"
     )
-    result = MOD.audit_texts(contract, stdin_wrapper, command_sources)
-    assert result["status"] == MOD.BLOCKED_STATUS
-    assert any(
-        "authority_sensitive_workflow_role_missing:"
-        ".github/workflows/new_stdin.yml" in item
-        for item in result["failures"]
-    )
-
-    dev_stdin_wrapper = deepcopy(workflows)
-    dev_stdin_wrapper[".github/workflows/new_dev_stdin.yml"] = (
-        "jobs:\n  run:\n    steps:\n      - run: |\n"
+    undeclared[".github/workflows/new_dev_stdin.yml"] = (
+        "jobs:\n  run:\n    runs-on: ubuntu-latest\n    steps:\n      - run: |\n"
         "          python /dev/stdin <<'PY'\n"
         "          from tools.build_new_target_writer import main\n"
         "          main()\n"
         "          PY\n"
     )
-    result = MOD.audit_texts(contract, dev_stdin_wrapper, command_sources)
-    assert result["status"] == MOD.BLOCKED_STATUS
-    assert any(
-        "authority_sensitive_workflow_role_missing:"
-        ".github/workflows/new_dev_stdin.yml" in item
-        or "reachable_authority_workflow_role_missing:"
-        ".github/workflows/new_dev_stdin.yml" in item
-        for item in result["failures"]
-    )
-
-    shell_wrapper = deepcopy(workflows)
-    shell_wrapper[".github/workflows/new_shell_wrapper.yml"] = (
-        "jobs:\n  run:\n    steps:\n      - run: >-\n"
+    undeclared[".github/workflows/new_shell_wrapper.yml"] = (
+        "jobs:\n  run:\n    runs-on: ubuntu-latest\n    steps:\n      - run: >-\n"
         "          bash -c 'python tools/build_new_target_writer.py'\n"
     )
-    result = MOD.audit_texts(contract, shell_wrapper, command_sources)
-    assert result["status"] == MOD.BLOCKED_STATUS
-    assert any(
-        "authority_sensitive_workflow_role_missing:"
-        ".github/workflows/new_shell_wrapper.yml" in item
-        for item in result["failures"]
+    undeclared[".github/workflows/new_neutral_helper.yml"] = (
+        "jobs:\n  run:\n    runs-on: ubuntu-latest\n    steps:\n"
+        "      - run: python tools/harmless.py\n"
     )
+    result = MOD.audit_texts(contract, undeclared, undeclared_sources)
+    assert result["status"] == MOD.BLOCKED_STATUS
+    for path in (
+        ".github/workflows/new_production.yml",
+        ".github/workflows/new_command_string.yml",
+        ".github/workflows/new_stdin.yml",
+        ".github/workflows/new_shell_wrapper.yml",
+    ):
+        assert f"authority_sensitive_workflow_role_missing:{path}" in result["failures"]
+    for path in (
+        ".github/workflows/new_backslash_stdin.yml",
+        ".github/workflows/new_dev_stdin.yml",
+        ".github/workflows/new_neutral_helper.yml",
+    ):
+        assert any(
+            item == f"authority_sensitive_workflow_role_missing:{path}"
+            or item == f"reachable_authority_workflow_role_missing:{path}"
+            for item in result["failures"]
+        )
 
     accepted_root = deepcopy(accepted)
     accepted_root["tools/build_run287_catchup_target_evidence.py"] += (
@@ -523,13 +495,7 @@ def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> No
     neutral_helper_workflow[contract["accepted_daily_workflow"]] += (
         "\n  python tools/harmless.py\n"
     )
-    neutral_helper_sources = deepcopy(accepted)
-    neutral_helper_sources["tools/harmless.py"] = (
-        "from tools.build_new_target_writer import main\nmain()\n"
-    )
-    neutral_helper_sources["tools/build_new_target_writer.py"] = (
-        "def main():\n    return None\n"
-    )
+    neutral_helper_sources = undeclared_sources
     result = MOD.audit_texts(
         contract,
         neutral_helper_workflow,
@@ -556,23 +522,6 @@ def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> No
     assert result["status"] == MOD.BLOCKED_STATUS
     assert any(
         "no_writer_reachable_authority_mismatch:" + observer in item
-        for item in result["failures"]
-    )
-
-    undeclared_neutral_helper = deepcopy(workflows)
-    undeclared_neutral_helper[".github/workflows/new_neutral_helper.yml"] = (
-        "jobs:\n  run:\n    steps:\n"
-        "      - run: python tools/harmless.py\n"
-    )
-    result = MOD.audit_texts(
-        contract,
-        undeclared_neutral_helper,
-        neutral_helper_sources,
-    )
-    assert result["status"] == MOD.BLOCKED_STATUS
-    assert any(
-        "reachable_authority_workflow_role_missing:"
-        ".github/workflows/new_neutral_helper.yml" in item
         for item in result["failures"]
     )
 
