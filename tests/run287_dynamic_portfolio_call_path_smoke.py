@@ -58,6 +58,7 @@ def test_current_repository_passes_and_has_one_accepted_writer() -> None:
                         key: {
                             "count": len(values),
                             "sha256": MOD.canonical_sha256(values),
+                            "items": values if len(values) <= 10 else [],
                         }
                         for key, values in sorted(evidence.items())
                     },
