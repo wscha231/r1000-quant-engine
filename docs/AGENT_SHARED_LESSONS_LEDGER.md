@@ -3876,6 +3876,24 @@ Expected contract:
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
 
+## 2026-08-13 - Runtime identity and generated-source closure
+
+- A pinned `actions/checkout` revision is insufficient if a protected workflow
+  overrides `with.ref`; protected execution must use the triggering commit.
+- A Python launch whose output redirection is definitely a directory never
+  starts. Such a command cannot satisfy writer cardinality or argument profiles.
+- Copying or linking a reviewed Python writer to an untracked/generated path
+  does not erase its authority. Reject execution of generated script aliases.
+- Serializer write-sink coverage includes pickle, Excel, Feather, HDF, HTML,
+  XML, Stata, SQL, ORC, and GBQ outputs as well as CSV/JSON/Parquet.
+- A bare shell receiving piped or redirected stdin executes generated source;
+  fail closed when that source is not statically bound.
+- PR validation must reject an empty test set after every include/only/exclude
+  filter, not only after an `--only` filter.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
 ## 2026-08-13 - Terminal control and sole-writer sink closure
 
 - Deterministic Bash `DEBUG` and `RETURN` traps can execute authority callbacks

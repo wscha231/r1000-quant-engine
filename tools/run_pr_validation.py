@@ -338,9 +338,9 @@ def main() -> int:
             for (p, a) in tests
             if not any(token in p for token in args.exclude)
         ]
-    if args.only and not tests:
+    if not tests:
         print(
-            "ERROR: --only selected zero tests; refusing an empty validation lane",
+            "ERROR: filters selected zero tests; refusing an empty validation lane",
             file=sys.stderr,
         )
         return 2

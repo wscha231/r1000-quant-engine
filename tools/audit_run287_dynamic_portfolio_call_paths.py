@@ -1381,6 +1381,16 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
         "<", ">", "<<", ">>", "<<<", "<>", ">&", "<&", ">|",
         "&>", "&>>",
     }
+    output_redirections = {">", ">>", ">|", "&>", "&>>"}
+
+    def definitely_nonstarting_redirection(argv: list[str]) -> bool:
+        for cursor, value in enumerate(argv[:-1]):
+            if value not in output_redirections:
+                continue
+            destination = normalize_script_entrypoint(argv[cursor + 1]).strip()
+            if destination in {"/", ".", ".."} or destination.endswith("/"):
+                return True
+        return False
     options_with_values = {"-X", "-W", "--check-hash-based-pycs"}
     for line, command in shell_logical_commands(text):
         try:
@@ -1476,6 +1486,9 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
                 while end < len(tokens) and tokens[end] not in boundaries:
                     end += 1
                 raw_argv = tokens[index:end]
+                nonstarting_redirection = definitely_nonstarting_redirection(
+                    raw_argv
+                )
                 argv: list[str] = []
                 cursor = 0
                 while cursor < len(raw_argv):
@@ -1493,6 +1506,7 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
                         "command": command,
                         "command_source": "",
                         "direct_executable": True,
+                        "nonstarting_redirection": nonstarting_redirection,
                     }
                 )
                 continue
@@ -1504,6 +1518,7 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
             while end < len(tokens) and tokens[end] not in boundaries:
                 end += 1
             raw_argv = tokens[index:end]
+            nonstarting_redirection = definitely_nonstarting_redirection(raw_argv)
             argv: list[str] = []
             cursor = 0
             while cursor < len(raw_argv):
@@ -1594,6 +1609,7 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
                     "unresolved_stdin_pipeline": bool(
                         entrypoint in STDIN_ENTRYPOINTS and "|" in tokens[:index]
                     ),
+                    "nonstarting_redirection": nonstarting_redirection,
                 }
             )
     return tuple(result)
@@ -3505,7 +3521,11 @@ def _authority_write_sinks_direct(
         "write_text", "write_bytes", "unlink", "rmdir", "touch", "link_to",
         "symlink_to", "hardlink_to",
     }
-    generic_output_methods = {"to_csv", "to_json", "to_parquet"}
+    generic_output_methods = {
+        "to_csv", "to_json", "to_parquet", "to_pickle", "to_excel",
+        "to_feather", "to_hdf", "to_html", "to_xml", "to_stata",
+        "to_sql", "to_orc", "to_gbq",
+    }
     path_move_methods = {"rename", "replace"}
     copy_functions = {
         f"shutil.{name}"
@@ -4304,6 +4324,10 @@ def protected_remote_action_findings(text: str) -> tuple[str, ...]:
             expected = PROTECTED_REMOTE_ACTION_REVISIONS.get(reviewed_action)
             if not separator or expected is None or revision != expected:
                 findings.add(f"unreviewed-remote-action:{value}")
+            if reviewed_action == "actions/checkout":
+                inputs = container.get("with")
+                if isinstance(inputs, dict) and str(inputs.get("ref") or ""):
+                    findings.add("protected-checkout-ref-override")
         steps = container.get("steps")
         if isinstance(steps, list):
             for step in steps:
@@ -4741,6 +4765,85 @@ def shell_script_candidates(text: str) -> set[str]:
             if executable in shells:
                 break
     return candidates
+
+
+def generated_python_script_alias_findings(text: str) -> tuple[str, ...]:
+    """Reject execution of scripts copied/linked from tracked Python sources."""
+    aliases: dict[str, str] = {}
+    findings: set[str] = set()
+    copy_commands = {"cp", "install", "ln"}
+    for line, command in shell_logical_commands(text):
+        try:
+            tokens = shell_tokens(command)
+        except ValueError:
+            continue
+        for index, token in enumerate(tokens):
+            executable = token.rsplit("/", 1)[-1]
+            if executable in copy_commands and shell_command_position(tokens, index):
+                operands = [
+                    value
+                    for value in tokens[index + 1:]
+                    if value not in SHELL_COMMAND_BOUNDARIES
+                    and not value.startswith("-")
+                ]
+                if len(operands) >= 2 and operands[-2].endswith(".py"):
+                    aliases[normalize_script_entrypoint(operands[-1])] = (
+                        normalize_script_entrypoint(operands[-2])
+                    )
+            if not re.fullmatch(r"python(?:3(?:\.\d+)?)?", executable):
+                continue
+            if not shell_command_position(tokens, index):
+                continue
+            cursor = index + 1
+            while cursor < len(tokens) and tokens[cursor].startswith("-"):
+                if tokens[cursor] in {"-c", "-m"}:
+                    break
+                cursor += 1
+            if cursor >= len(tokens):
+                continue
+            executed = normalize_script_entrypoint(tokens[cursor])
+            if executed in aliases:
+                findings.add(
+                    f"line={line}:generated-python-alias:{aliases[executed]}:{executed}"
+                )
+    return tuple(sorted(findings))
+
+
+def unresolved_shell_stdin_execution(text: str) -> bool:
+    """Detect a shell reading executable source from a pipe/redirection."""
+    for _line, command in shell_logical_commands(text):
+        try:
+            tokens = shell_tokens(command)
+        except ValueError:
+            continue
+        for index, token in enumerate(tokens):
+            executable = token.rsplit("/", 1)[-1]
+            if executable not in {"bash", "sh", "dash", "zsh", "ksh"}:
+                continue
+            if not shell_command_position(tokens, index):
+                continue
+            end = next(
+                (
+                    cursor
+                    for cursor in range(index + 1, len(tokens))
+                    if tokens[cursor] in SHELL_COMMAND_BOUNDARIES
+                ),
+                len(tokens),
+            )
+            operands = tokens[index + 1:end]
+            has_command_or_script = any(
+                value == "-c"
+                or (value.startswith("-") and "c" in value[1:])
+                or not value.startswith("-")
+                for value in operands
+            )
+            if has_command_or_script:
+                continue
+            if "|" in tokens[:index] or any(
+                value in {"<", "<<", "<<<"} for value in tokens[:index]
+            ):
+                return True
+    return False
 
 
 def shell_script_dialects(
@@ -5419,6 +5522,21 @@ def audit_texts(
         if bool(row.get("direct_executable"))
     )
     failures.extend(
+        f"nonstarting_python_redirection:{path}:{row.get('yaml_path', path)}:"
+        f"line={row.get('line', 0)}"
+        for path, rows in workflow_direct_invocations.items()
+        for row in rows
+        if bool(row.get("nonstarting_redirection"))
+    )
+    failures.extend(
+        f"nonstarting_python_redirection:{path}:{shell_path}:"
+        f"line={row.get('line', 0)}"
+        for path, reachable_shells in workflow_shell_reachable.items()
+        for shell_path in reachable_shells
+        for row in python_invocations(shell_sources[shell_path])
+        if bool(row.get("nonstarting_redirection"))
+    )
+    failures.extend(
         f"shell_expansion_budget_exceeded:{path}:{yaml_path}"
         for path, records_for_workflow in workflow_run_record_map.items()
         for yaml_path, _shell, source, _workdir in records_for_workflow
@@ -5461,6 +5579,32 @@ def audit_texts(
                 executable_shell_text(shell_sources[shell_path])
             )
         )
+    )
+    failures.extend(
+        f"generated_python_script_alias:{path}:{yaml_path}:{finding}"
+        for path, records_for_workflow in workflow_run_record_map.items()
+        for yaml_path, _shell, source, _workdir in records_for_workflow
+        for finding in generated_python_script_alias_findings(source)
+    )
+    failures.extend(
+        f"generated_python_script_alias:{path}:{shell_path}:{finding}"
+        for path, reachable_shells in workflow_shell_reachable.items()
+        for shell_path in reachable_shells
+        for finding in generated_python_script_alias_findings(
+            shell_sources[shell_path]
+        )
+    )
+    failures.extend(
+        f"unresolved_shell_stdin_execution:{path}:{yaml_path}"
+        for path, records_for_workflow in workflow_run_record_map.items()
+        for yaml_path, _shell, source, _workdir in records_for_workflow
+        if unresolved_shell_stdin_execution(source)
+    )
+    failures.extend(
+        f"unresolved_shell_stdin_execution:{path}:{shell_path}"
+        for path, reachable_shells in workflow_shell_reachable.items()
+        for shell_path in reachable_shells
+        if unresolved_shell_stdin_execution(shell_sources[shell_path])
     )
     for path, reachable_sources in workflow_reachable_python.items():
         for source_path in sorted(reachable_sources):

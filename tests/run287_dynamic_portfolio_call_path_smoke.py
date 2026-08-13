@@ -1958,6 +1958,23 @@ def test_static_control_and_indirect_launch_edges_are_bound() -> None:
     )
     assert empty_selection.returncode == 2
     assert "selected zero tests" in empty_selection.stderr
+    empty_exclusion = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "tools" / "run_pr_validation.py"),
+            "--exclude",
+            "tests/",
+            "--quiet",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    assert empty_exclusion.returncode == 2
+    assert "selected zero tests" in empty_exclusion.stderr
 
 
 def test_protected_binding_schema_cannot_be_weakened() -> None:
@@ -2588,6 +2605,25 @@ def test_final_runtime_semantics_and_remote_actions_fail_closed() -> None:
         [writer, "--required", "value", "--help"],
         {"required_tokens": ["--required value"]},
     )
+    redirected = MOD.python_invocations(
+        f"python {writer} --required value > / || true"
+    )
+    assert redirected and redirected[0]["nonstarting_redirection"] is True
+    copied_writer = (
+        f"cp {writer} /tmp/x.py\n"
+        "PYTHONPATH=. python /tmp/x.py --required value\n"
+    )
+    assert MOD.generated_python_script_alias_findings(copied_writer)
+    assert MOD.unresolved_shell_stdin_execution(
+        "printf ZWNobyBoaQ== | base64 -d | bash"
+    )
+    assert not MOD.unresolved_shell_stdin_execution("bash tools/helper.sh")
+    serializer_findings = MOD.authority_write_sinks(
+        "df.to_pickle('outputs/same_close_main_target_book.pkl')\n"
+        "df.to_excel('outputs/same_close_concentrated_target_book.xlsx')\n",
+        tuple(MOD.PROTECTED_AUTHORITY_WRITE_TERMS),
+    )
+    assert len(serializer_findings) == 2
 
     shell_sources = {
         "tools/a/outer.sh": "env sh helper.sh",
@@ -2677,6 +2713,11 @@ def test_final_runtime_semantics_and_remote_actions_fail_closed() -> None:
     assert unresolved_a != unresolved_b
     assert MOD.protected_remote_action_findings(
         "jobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: evil/action@v1\n"
+    )
+    assert MOD.protected_remote_action_findings(
+        "jobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n"
+        "      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262\n"
+        "        with:\n          ref: deadbeef\n"
     )
     assert not MOD.protected_remote_action_findings(
         "jobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n"
