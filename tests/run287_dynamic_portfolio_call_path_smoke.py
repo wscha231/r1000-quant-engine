@@ -1431,6 +1431,15 @@ def test_static_control_and_indirect_launch_edges_are_bound() -> None:
             protected,
         )
     ) == 2
+    brace_loop = (
+        "for x in {1..2}; do\n"
+        "  python tools/build_run287_same_close_target_books.py\n"
+        "done\n"
+    )
+    assert any(
+        command == MOD.SHELL_UNRESOLVED_CONTROL_SENTINEL
+        for _line, command in MOD.shell_logical_commands(brace_loop)
+    )
     assert protected not in MOD.python_entrypoints(
         "if true; then :; else "
         "python tools/build_run287_same_close_target_books.py; fi\n"
@@ -1580,6 +1589,33 @@ def test_static_control_and_indirect_launch_edges_are_bound() -> None:
     assert MOD.PYTHON_UNRESOLVED_DYNAMIC_IMPORT_SENTINEL in (
         MOD.local_import_candidates(ambiguous_dynamic_module)
     )
+    partial_dynamic_module = (
+        "import importlib\n"
+        "importlib.import_module(f'tools.{suffix}').main()\n"
+    )
+    assert MOD.PYTHON_UNRESOLVED_DYNAMIC_IMPORT_SENTINEL in (
+        MOD.local_import_candidates(partial_dynamic_module)
+    )
+
+    quoted_substitution = (
+        'echo "$(python tools/build_run287_same_close_target_books.py)"\n'
+    )
+    assert len(MOD.executable_invocations(quoted_substitution, protected)) == 1
+    shadowed_python = (
+        "python() { :; }\n"
+        "python tools/build_run287_same_close_target_books.py\n"
+    )
+    assert any(
+        command == MOD.SHELL_UNRESOLVED_CONTROL_SENTINEL
+        for _line, command in MOD.shell_logical_commands(shadowed_python)
+    )
+
+    exit_callback = (
+        "import atexit\n"
+        "from tools import build_run287_same_close_target_books as writer\n"
+        "atexit.register(writer.main)\n"
+    )
+    assert dict(MOD.python_main_call_counts(exit_callback))[protected] == 1
 
     aliased_local_launcher = (
         "import tools.build_run287_same_close_target_books as writer\n"
@@ -1661,6 +1697,55 @@ def test_static_control_and_indirect_launch_edges_are_bound() -> None:
         set(external_node_sources),
         external_node_sources,
     )
+    assert MOD.node_action_authority_findings(
+        "tools/node-action/index.js",
+        "const {execFileSync} = require('node:child_process');\n"
+        "execFileSync('python', "
+        "['tools/build_run287_same_close_target_books.py']);\n",
+        MOD.PROTECTED_AUTHORITY_SENSITIVE_TERMS,
+    ) == ("process-launch",)
+
+    ubuntu_records = MOD.workflow_run_records(
+        "jobs:\n  audit:\n    runs-on: ubuntu-latest\n"
+        "    steps:\n      - run: echo ready\n"
+    )
+    assert ubuntu_records[0][0] == ""
+    windows_records = MOD.workflow_run_records(
+        "jobs:\n  audit:\n    runs-on: windows-latest\n"
+        "    steps:\n      - run: echo ready\n"
+    )
+    assert windows_records[0][0] == "pwsh"
+    dynamic_runner_records = MOD.workflow_run_records(
+        "jobs:\n  audit:\n    runs-on: ${{ matrix.runner }}\n"
+        "    steps:\n      - run: echo ready\n"
+    )
+    assert dynamic_runner_records[0][0] == MOD.IMPLICIT_UNKNOWN_RUNNER_SHELL
+
+    contract, workflows, accepted = source_inputs()
+    multiplied = deepcopy(workflows)
+    daily = contract["accepted_daily_workflow"]
+    duplicate_helper = "tools/" + "duplicate_" + "helper.py"
+    multiplied[daily] = multiplied[daily].replace(
+        "          set -euo pipefail",
+        f"          python {duplicate_helper}\n"
+        f"          python {duplicate_helper}\n"
+        "          set -euo pipefail",
+        1,
+    )
+    multiplied_sources = deepcopy(accepted)
+    multiplied_sources[duplicate_helper] = (
+        "from tools.build_run287_same_close_target_books import main\n"
+        "main()\n"
+    )
+    multiplied_result = MOD.audit_texts(
+        contract, multiplied, multiplied_sources
+    )
+    assert any(
+        "entrypoint_invocation_count_mismatch:"
+        "tools/build_run287_same_close_target_books.py:expected=1:observed=3"
+        in failure
+        for failure in multiplied_result["failures"]
+    ), multiplied_result["failures"]
 
 
 def test_protected_binding_schema_cannot_be_weakened() -> None:
@@ -1701,6 +1786,16 @@ def test_protected_binding_schema_cannot_be_weakened() -> None:
         assert "protected executable command profiles changed" in str(exc)
     else:
         raise AssertionError("weakened protected command profile was accepted")
+
+    weakened = deepcopy(contract)
+    observer = ".github/workflows/daily_crisis_monitor.yml"
+    weakened["workflow_roles"][observer] = "renamed_observer"
+    try:
+        MOD.validate_contract(weakened)
+    except ValueError as exc:
+        assert "protected no-writer role changed" in str(exc)
+    else:
+        raise AssertionError("renamed protected no-writer role was accepted")
 
 
 def test_untracked_workflow_is_not_repository_authority() -> None:

@@ -312,6 +312,15 @@ def main() -> int:
         default=[],
         help="If supplied, restrict to these tests (matched by substring against the path).",
     )
+    parser.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        help=(
+            "Exclude tests matched by substring. CI may use this only when "
+            "the excluded test is enforced by a separate required job."
+        ),
+    )
     parser.add_argument("--quiet", action="store_true", help="Suppress per-test tail output on success.")
     args = parser.parse_args()
 
@@ -323,6 +332,12 @@ def main() -> int:
         tests.append((path, []))
     if args.only:
         tests = [(p, a) for (p, a) in tests if any(token in p for token in args.only)]
+    if args.exclude:
+        tests = [
+            (p, a)
+            for (p, a) in tests
+            if not any(token in p for token in args.exclude)
+        ]
 
     print("=" * 72)
     print(f"PR validation: {len(tests)} test files")

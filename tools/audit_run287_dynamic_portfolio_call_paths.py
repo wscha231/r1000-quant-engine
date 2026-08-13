@@ -49,6 +49,18 @@ PROTECTED_AUTHORITY_WRITE_TERMS = (
     "same_close_concentrated_target_book", "same_close_main_target_book",
     "simulated_fill_ledger", "target_book",
 )
+PROTECTED_NO_WRITER_ROLES = {
+    ".github/workflows/daily_crisis_monitor.yml": (
+        "state_observer_no_target_writer"
+    ),
+    ".github/workflows/unified_monthly.yml": (
+        "legacy_score_bridge_no_target_writer"
+    ),
+    ".github/workflows/weekly_data_refresh.yml": (
+        "data_refresh_no_target_writer"
+    ),
+}
+IMPLICIT_UNKNOWN_RUNNER_SHELL = "__run287_implicit_unknown_runner_shell__"
 
 
 def heredoc_delimiter(match: re.Match[str]) -> str:
@@ -182,6 +194,20 @@ def validate_contract(contract: Mapping[str, Any]) -> None:
     )
     if normalize_profiles(protected_profiles) != normalize_profiles(required_profiles):
         raise ValueError("protected executable command profiles changed")
+    roles = contract.get("workflow_roles") or {}
+    for workflow, required_role in PROTECTED_NO_WRITER_ROLES.items():
+        if workflow in roles and roles.get(workflow) != required_role:
+            raise ValueError(f"protected no-writer role changed: {workflow}")
+        if workflow in roles:
+            for field in (
+                "no_writer_reachable_authority_sensitive_modules",
+                "no_writer_authority_write_sinks",
+            ):
+                values = contract.get(field) or {}
+                if workflow not in values:
+                    raise ValueError(
+                        f"protected no-writer enforcement missing: {workflow}:{field}"
+                    )
 
 
 def tracked_workflow_paths(root: Path) -> list[str]:
@@ -476,6 +502,37 @@ def local_action_implementation_paths(
     return {candidate for candidate in candidates if candidate in known_paths}
 
 
+def node_action_authority_findings(
+    path: str, source: str, sensitive_terms: tuple[str, ...]
+) -> tuple[str, ...]:
+    """Reject local Node implementations capable of hidden authority mutation."""
+    if Path(path).suffix.casefold() not in {".js", ".cjs", ".mjs", ".ts"}:
+        return ()
+    findings: set[str] = set()
+    process_launch = bool(
+        re.search(r"(?:node:)?child_process", source)
+        or re.search(
+            r"\b(?:exec|execFile|spawn|fork)(?:Sync)?\s*\(", source
+        )
+        or re.search(r"\b(?:Bun\.spawn|Deno\.Command)\b", source)
+    )
+    if process_launch:
+        findings.add("process-launch")
+    lowered = source.casefold()
+    write_api = bool(
+        re.search(
+            r"\b(?:writeFile|appendFile|rename|rm|unlink|truncate)(?:Sync)?\s*\(",
+            source,
+        )
+    )
+    authority_terms = sorted(
+        term for term in sensitive_terms if term.casefold() in lowered
+    )
+    if write_api and authority_terms:
+        findings.add("authority-write:" + ",".join(authority_terms))
+    return tuple(sorted(findings))
+
+
 def _raw_shell_logical_commands(text: str) -> list[tuple[int, str]]:
     commands: list[tuple[int, str]] = []
     parts: list[str] = []
@@ -573,7 +630,7 @@ def _multiline_static_control_commands(
                 values = shlex.split(static_for.group(1), posix=True)
             except ValueError:
                 values = []
-            if not values or any(re.search(r"[$`*?\[]", value) for value in values):
+            if not values or any(re.search(r"[$`*?\[{}]", value) for value in values):
                 body = _multiline_static_control_commands(body_rows)
                 authority_body = "\n".join(command for _line, command in body).casefold()
                 if any(term in authority_body for term in PROTECTED_AUTHORITY_SENSITIVE_TERMS):
@@ -598,6 +655,85 @@ def _multiline_static_control_commands(
     return result
 
 
+def shell_command_substitution_payloads(command: str) -> tuple[tuple[str, ...], bool]:
+    """Return executable ``$(...)``/backtick payloads, including quoted ones."""
+    payloads: list[str] = []
+    unresolved = False
+    index = 0
+    quote = ""
+    escaped = False
+    while index < len(command):
+        char = command[index]
+        if escaped:
+            escaped = False
+            index += 1
+            continue
+        if char == "\\" and quote != "'":
+            escaped = True
+            index += 1
+            continue
+        if char == "'":
+            quote = "" if quote == "'" else ("'" if not quote else quote)
+            index += 1
+            continue
+        if char == '"':
+            quote = "" if quote == '"' else ('"' if not quote else quote)
+            index += 1
+            continue
+        if quote != "'" and command.startswith("$(", index) and not command.startswith("$((", index):
+            start = index + 2
+            cursor = start
+            depth = 1
+            inner_quote = ""
+            inner_escaped = False
+            while cursor < len(command):
+                current = command[cursor]
+                if inner_escaped:
+                    inner_escaped = False
+                elif current == "\\" and inner_quote != "'":
+                    inner_escaped = True
+                elif current in {"'", '"'}:
+                    inner_quote = "" if inner_quote == current else (current if not inner_quote else inner_quote)
+                elif not inner_quote and command.startswith("$(", cursor) and not command.startswith("$((", cursor):
+                    depth += 1
+                    cursor += 1
+                elif not inner_quote and current == ")":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                cursor += 1
+            if depth:
+                unresolved = True
+                break
+            payload = command[start:cursor].strip()
+            if payload:
+                payloads.append(payload)
+            index = cursor + 1
+            continue
+        if quote != "'" and char == "`":
+            cursor = index + 1
+            inner_escaped = False
+            while cursor < len(command):
+                current = command[cursor]
+                if inner_escaped:
+                    inner_escaped = False
+                elif current == "\\":
+                    inner_escaped = True
+                elif current == "`":
+                    break
+                cursor += 1
+            if cursor >= len(command):
+                unresolved = True
+                break
+            payload = command[index + 1:cursor].strip()
+            if payload:
+                payloads.append(payload)
+            index = cursor + 1
+            continue
+        index += 1
+    return tuple(payloads), unresolved
+
+
 def shell_logical_commands(text: str) -> list[tuple[int, str]]:
     """Return commands that execute, expanding definite local shell calls."""
     raw = _multiline_static_control_commands(_raw_shell_logical_commands(text))
@@ -615,7 +751,7 @@ def shell_logical_commands(text: str) -> list[tuple[int, str]]:
                 values = shlex.split(inline_for.group(1), posix=True)
             except ValueError:
                 values = []
-            if not values or any(re.search(r"[$`*?\[]", value) for value in values):
+            if not values or any(re.search(r"[$`*?\[{}]", value) for value in values):
                 reachable_raw.append((0, SHELL_UNRESOLVED_CONTROL_SENTINEL))
             else:
                 reachable_raw.extend(
@@ -718,8 +854,24 @@ def shell_logical_commands(text: str) -> list[tuple[int, str]]:
 
     result: list[tuple[int, str]] = []
     expansion_budget = 10000
+    shadowed_python_commands = {
+        name
+        for name in functions
+        if re.fullmatch(r"python(?:3(?:\.\d+)?)?", name)
+    }
+    for _line, command in top_level:
+        shadowed_python_commands.update(
+            re.findall(
+                r"(?:^|[;&|]\s*)alias\s+(python(?:3(?:\.\d+)?)?)\s*=",
+                command,
+            )
+        )
 
-    def expand(commands: list[tuple[int, str]], stack: tuple[str, ...] = ()) -> None:
+    def expand(
+        commands: list[tuple[int, str]],
+        stack: tuple[str, ...] = (),
+        substitution_stack: tuple[str, ...] = (),
+    ) -> None:
         nonlocal expansion_budget
         for line, command in commands:
             if expansion_budget <= 0:
@@ -730,6 +882,27 @@ def shell_logical_commands(text: str) -> list[tuple[int, str]]:
                 tokens = shell_tokens(command)
             except ValueError:
                 continue
+            substitutions, unresolved_substitution = (
+                shell_command_substitution_payloads(command)
+            )
+            # Multiline command substitutions arrive as separate logical rows;
+            # their payload rows are still inspected below. A balanced inline
+            # substitution is expanded recursively here.
+            for payload in substitutions:
+                if payload in substitution_stack:
+                    result.append((line, SHELL_UNRESOLVED_CONTROL_SENTINEL))
+                    continue
+                expand(
+                    [(line, payload)],
+                    stack,
+                    (*substitution_stack, payload),
+                )
+            if any(
+                token.rsplit("/", 1)[-1] in shadowed_python_commands
+                and shell_command_position(tokens, token_index)
+                for token_index, token in enumerate(tokens)
+            ):
+                result.append((line, SHELL_UNRESOLVED_CONTROL_SENTINEL))
             if any(
                 token.rsplit("/", 1)[-1] == "eval"
                 and shell_command_position(tokens, token_index)
@@ -756,6 +929,11 @@ def shell_logical_commands(text: str) -> list[tuple[int, str]]:
                 if any(
                     value in {"-r", "--no-run-if-empty"}
                     for value in tokens[token_index + 1:command_end]
+                ) and any(
+                    term in " ".join(
+                        tokens[token_index + 1:command_end]
+                    ).casefold()
+                    for term in PROTECTED_AUTHORITY_SENSITIVE_TERMS
                 ):
                     result.append((line, SHELL_UNRESOLVED_CONTROL_SENTINEL))
             for token_index, token in enumerate(tokens):
@@ -1443,6 +1621,76 @@ def transitive_literal_python_sources(source: str) -> tuple[str, ...]:
     return tuple(sorted(result))
 
 
+def finite_string_expression_values(
+    expression: ast.AST,
+    assignments: Mapping[str, list[ast.AST]],
+    seen_names: frozenset[str] = frozenset(),
+) -> tuple[set[str], bool]:
+    """Evaluate a bounded string expression without accepting literal fragments."""
+    if isinstance(expression, ast.Constant) and isinstance(expression.value, str):
+        return {str(expression.value)}, True
+    if isinstance(expression, ast.Name):
+        if expression.id in seen_names or expression.id not in assignments:
+            return set(), False
+        values: set[str] = set()
+        complete = True
+        for bound in assignments[expression.id]:
+            found, resolved = finite_string_expression_values(
+                bound, assignments, seen_names | {expression.id}
+            )
+            values.update(found)
+            complete = complete and resolved
+        return values, complete and bool(assignments[expression.id])
+    if isinstance(expression, ast.IfExp):
+        left, left_complete = finite_string_expression_values(
+            expression.body, assignments, seen_names
+        )
+        right, right_complete = finite_string_expression_values(
+            expression.orelse, assignments, seen_names
+        )
+        return left | right, left_complete and right_complete
+    if isinstance(expression, ast.BinOp) and isinstance(expression.op, ast.Add):
+        left, left_complete = finite_string_expression_values(
+            expression.left, assignments, seen_names
+        )
+        right, right_complete = finite_string_expression_values(
+            expression.right, assignments, seen_names
+        )
+        if not left_complete or not right_complete or len(left) * len(right) > 128:
+            return left | right, False
+        return {prefix + suffix for prefix in left for suffix in right}, True
+    if isinstance(expression, ast.JoinedStr):
+        pieces: list[set[str]] = []
+        for value in expression.values:
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                pieces.append({str(value.value)})
+                continue
+            if isinstance(value, ast.FormattedValue):
+                found, complete = finite_string_expression_values(
+                    value.value, assignments, seen_names
+                )
+                if complete and found:
+                    pieces.append(found)
+                    continue
+            literals = {
+                str(node.value)
+                for node in ast.walk(value)
+                if isinstance(node, ast.Constant) and isinstance(node.value, str)
+            }
+            return set().union(*pieces, literals), False
+        values = {""}
+        for piece in pieces:
+            if len(values) * len(piece) > 128:
+                return values | piece, False
+            values = {prefix + suffix for prefix in values for suffix in piece}
+        return values, True
+    return {
+        str(node.value)
+        for node in ast.walk(expression)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }, False
+
+
 def literal_dynamic_import_module(
     node: ast.AST,
     callables: set[str] | None = None,
@@ -1458,12 +1706,11 @@ def literal_dynamic_import_module(
     ):
         return ""
     first = node.args[0]
-    module_values = {
-        str(value.value)
-        for bound in bound_expression_nodes(first, assignments or {})
-        for value in ast.walk(bound)
-        if isinstance(value, ast.Constant) and isinstance(value.value, str)
-    }
+    module_values, complete = finite_string_expression_values(
+        first, assignments or {}
+    )
+    if not complete and module_values:
+        return PYTHON_UNRESOLVED_DYNAMIC_IMPORT_SENTINEL
     if len(module_values) > 1:
         return PYTHON_UNRESOLVED_DYNAMIC_IMPORT_SENTINEL
     if not module_values:
@@ -2185,6 +2432,9 @@ def python_main_call_counts(
     exec_callables = imported_callable_names(
         tree, {"builtins": {"exec", "eval"}}
     ) | {"exec", "eval", "builtins.exec", "builtins.eval"}
+    exit_callback_registries = imported_callable_names(
+        tree, {"atexit": {"register"}}
+    )
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             resolved_module = resolved_import_from_module(node, source_path)
@@ -2349,6 +2599,10 @@ def python_main_call_counts(
         if target:
             add_protected(scope, target)
         call_name = dotted_expression_name(node.func)
+        if call_name in exit_callback_registries and node.args:
+            callback_target = main_target(node.args[0])
+            if callback_target:
+                add_protected(scope, callback_target)
         if (
             isinstance(node.func, ast.Attribute)
             and node.func.attr in {"start", "run"}
@@ -3434,7 +3688,7 @@ def workflow_run_records(
         if not isinstance(payload, dict):
             return (("", text, ""),)
         jobs = payload.get("jobs")
-        blocks: list[tuple[str, str]] = []
+        blocks: list[tuple[str, str, str]] = []
         workflow_env = (
             {str(key): str(value) for key, value in payload.get("env", {}).items()}
             if isinstance(payload.get("env"), dict)
@@ -3467,6 +3721,24 @@ def workflow_run_records(
             if isinstance(payload.get("defaults"), dict)
             else ""
         )
+
+        def implicit_shell_for_runner(value: Any) -> str:
+            labels = value if isinstance(value, list) else [value]
+            normalized = [str(label or "").casefold() for label in labels]
+            if not normalized or any(
+                not label or "${{" in label for label in normalized
+            ):
+                return IMPLICIT_UNKNOWN_RUNNER_SHELL
+            if any("windows" in label for label in normalized):
+                return "pwsh"
+            if any(
+                marker in label
+                for label in normalized
+                for marker in ("ubuntu", "linux", "macos")
+            ):
+                return ""
+            return IMPLICIT_UNKNOWN_RUNNER_SHELL
+
         if isinstance(jobs, dict):
             for job in jobs.values():
                 if not isinstance(job, dict):
@@ -3477,6 +3749,7 @@ def workflow_run_records(
                     blocks.append(("", SHELL_UNRESOLVED_CONTROL_SENTINEL, ""))
                 job_default = workflow_default
                 job_workdir = workflow_workdir
+                implicit_job_shell = implicit_shell_for_runner(job.get("runs-on"))
                 job_env = (
                     {str(key): str(value) for key, value in job.get("env", {}).items()}
                     if isinstance(job.get("env"), dict)
@@ -3511,7 +3784,11 @@ def workflow_run_records(
                         )
                         blocks.append(
                             (
-                                str(step.get("shell") or job_default),
+                                str(
+                                    step.get("shell")
+                                    or job_default
+                                    or implicit_job_shell
+                                ),
                                 resolve_local_action_path_expressions(
                                     with_effective_environment(
                                         str(step["run"]), job_env, step_env
@@ -3541,7 +3818,10 @@ def workflow_run_records(
                         )
                         blocks.append(
                             (
-                                str(step.get("shell") or ""),
+                                str(
+                                    step.get("shell")
+                                    or IMPLICIT_UNKNOWN_RUNNER_SHELL
+                                ),
                                 resolve_local_action_path_expressions(
                                     with_effective_environment(
                                         str(step["run"]), step_env
@@ -4015,7 +4295,53 @@ def audit_texts(
         workflow_embedded[path] = embedded
         workflow_references[path] = references
         workflow_reachable_python[path] = reachable
+    workflow_python_execution_counts: dict[str, dict[str, int]] = {}
+    for path, reachable_sources in workflow_reachable_python.items():
+        roots = [
+            str(row.get("entrypoint") or "")
+            for row in workflow_direct_invocations.get(path, [])
+            if str(row.get("entrypoint") or "") in known_paths
+        ]
+        roots.extend(
+            str(row.get("entrypoint") or "")
+            for shell_path in workflow_shell_reachable.get(path, [])
+            for row in python_invocations(shell_sources[shell_path])
+            if str(row.get("entrypoint") or "") in known_paths
+        )
+        counts: dict[str, int] = {}
+        for root in roots:
+            executed, _parents = reachable_python_paths(
+                {root}, accepted_files, known_paths
+            )
+            for source_path in executed:
+                counts[source_path] = counts.get(source_path, 0) + 1
+        for source_path in reachable_sources:
+            # Preserve the prior conservative one-execution assumption for
+            # startup hooks and embedded-import roots not represented by a
+            # direct shell argv record.
+            counts.setdefault(source_path, 1)
+        workflow_python_execution_counts[path] = counts
     failures: list[str] = []
+    node_action_findings: dict[str, list[str]] = {}
+    for path, implementations in workflow_action_implementations.items():
+        findings = sorted(
+            {
+                f"{implementation}:{finding}"
+                for implementation in implementations
+                if implementation in accepted_files
+                for finding in node_action_authority_findings(
+                    implementation,
+                    accepted_files[implementation],
+                    PROTECTED_AUTHORITY_SENSITIVE_TERMS,
+                )
+            }
+        )
+        if findings:
+            node_action_findings[path] = findings
+            failures.extend(
+                f"authority_capable_local_node_action:{path}:{finding}"
+                for finding in findings
+            )
     failures.extend(
         f"unsupported_declared_shell:{path}:{yaml_path}:{shell}"
         for path, yaml_path, shell in unsupported_declared_shells
@@ -4204,6 +4530,11 @@ def audit_texts(
                         accepted_files[source_path], source_path
                     )
                 ).get(entrypoint, 0)
+                call_count *= int(
+                    workflow_python_execution_counts.get(path, {}).get(
+                        source_path, 1
+                    )
+                )
                 transitive_main_calls.extend(
                     [source_path] * int(call_count)
                 )
@@ -4414,6 +4745,11 @@ def audit_texts(
     expected_no_writer_write_sinks = (
         contract.get("no_writer_authority_write_sinks") or {}
     )
+    designated_no_writer_paths = (
+        set(expected_no_writer_reachable)
+        | set(expected_no_writer_write_sinks)
+        | {path for path in PROTECTED_NO_WRITER_ROLES if path in workflows}
+    )
     expected_authority_fingerprints = (
         contract.get("workflow_authority_fingerprints") or {}
     )
@@ -4551,7 +4887,7 @@ def audit_texts(
                 f"expected={','.join(expected)}:observed={','.join(sensitive)}"
             )
         role = str(roles.get(path) or "")
-        if role.endswith("_no_target_writer"):
+        if path in designated_no_writer_paths:
             observed_no_writer_reachable[path] = reachable_sensitive
             expected_reachable = sorted(
                 set(expected_no_writer_reachable.get(path) or [])
@@ -4653,6 +4989,8 @@ def audit_texts(
         "workflow_shell_reachable_files": workflow_shell_reachable,
         "workflow_yaml_reachable_files": workflow_yaml_reachable,
         "workflow_action_implementation_files": workflow_action_implementations,
+        "workflow_node_action_authority_findings": node_action_findings,
+        "workflow_python_execution_counts": workflow_python_execution_counts,
         "no_writer_reachable_authority_sensitive_modules": (
             observed_no_writer_reachable
         ),

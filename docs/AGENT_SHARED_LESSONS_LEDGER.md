@@ -3795,6 +3795,34 @@ Expected contract:
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
 
+## 2026-08-13 - Authority validation must preserve runtime multiplicity
+
+- Shell brace expansion and quoted command substitution can multiply or hide a
+  protected launch. Expand finite forms and fail closed when authority-bearing
+  multiplicity is not statically bounded.
+- A literal fragment inside an f-string is not a complete dynamic-import
+  target. Only fully resolved finite module values may enter reachability.
+- Shell functions and aliases can shadow `python`; a textual interpreter token
+  is not trusted until the effective command is unshadowed.
+- Definite shutdown callbacks such as `atexit.register(writer.main)` are real
+  executions and contribute to protected-call cardinality.
+- Local Node actions are executable authority, not hash-only assets. Reject
+  process-launch or sensitive write capability until equivalent semantic Node
+  analysis is present.
+- An omitted workflow shell is meaningful only together with a finite runner
+  platform. Unknown or Windows-capable runner selection cannot be parsed as
+  POSIX by default.
+- Reachability sets deduplicate source files, but runtime executions do not.
+  Propagate each workflow process-launch occurrence through the Python graph.
+- No-writer status is an immutable workflow identity/role contract, not a
+  mutable role-name suffix.
+- Long authority suites should run in a separate required CI lane. A final
+  aggregator must require both the ordinary Tier-1 lane and authority lane, so
+  parallelism reduces wall time without weakening merge safety.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
 ## 2026-08-12 - Control-flow, startup-hook, and execution-multiplicity closure
 
 - Literal shell loop reachability depends on the operator: `while false` and
