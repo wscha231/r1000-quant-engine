@@ -24,7 +24,7 @@ name: PR Validation (Fast)
 #   * 84-month broker-ledger metric regeneration — use
 #     full_rebuild_manual.yml (Tier 3, ~2-6 h).
 #
-# Runtime target: < 35 minutes on the free GitHub runner, including the
+# Runtime target: < 55 minutes on the free GitHub runner, including the
 # complete authority-graph audit, sparse checkout, and dependency setup.
 # Add new critical smoke tests to tools/run_pr_validation.py's DEFAULT_TESTS so
 # both this workflow and the local runner stay in sync.
@@ -39,7 +39,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
 
     steps:
       - name: Checkout

@@ -32,6 +32,23 @@ HEREDOC_WORD = re.compile(
 )
 SHELL_EXPANSION_BUDGET_SENTINEL = "__RUN287_SHELL_EXPANSION_BUDGET_EXCEEDED__"
 SHELL_UNRESOLVED_CONTROL_SENTINEL = "__RUN287_UNRESOLVED_SHELL_CONTROL__"
+PYTHON_UNRESOLVED_DYNAMIC_IMPORT_SENTINEL = (
+    "__RUN287_UNRESOLVED_DYNAMIC_IMPORT__"
+)
+PYTHON_DYNAMIC_EXEC_BUDGET_SENTINEL = "__RUN287_DYNAMIC_EXEC_BUDGET_EXCEEDED__"
+PYTHON_DYNAMIC_EXEC_SOURCE_BUDGET = 128
+PROTECTED_AUTHORITY_SENSITIVE_TERMS = (
+    "account", "broker", "cash", "decision", "execute", "fill", "ledger",
+    "order", "portfolio", "position", "promotion", "publish", "rebalance",
+    "reserve", "selector", "target", "trade", "weight", "writer",
+)
+PROTECTED_AUTHORITY_WRITE_TERMS = (
+    "accepted_publication_manifest", "decision_packet",
+    "operating_concentrated_target_book", "operating_main_target_book",
+    "paper_account", "paper_ledger", "promotion_state",
+    "same_close_concentrated_target_book", "same_close_main_target_book",
+    "simulated_fill_ledger", "target_book",
+)
 
 
 def heredoc_delimiter(match: re.Match[str]) -> str:
@@ -81,8 +98,14 @@ def validate_contract(contract: Mapping[str, Any]) -> None:
     )
     if any(safety.get(field) is not False for field in required_false):
         raise ValueError("dynamic-portfolio call-path safety authority broadened")
-    if not contract.get("authority_sensitive_name_terms"):
-        raise ValueError("authority-sensitive name terms missing")
+    if tuple(contract.get("authority_sensitive_name_terms") or ()) != (
+        PROTECTED_AUTHORITY_SENSITIVE_TERMS
+    ):
+        raise ValueError("protected authority-sensitive vocabulary changed")
+    if tuple(contract.get("authority_write_destination_terms") or ()) != (
+        PROTECTED_AUTHORITY_WRITE_TERMS
+    ):
+        raise ValueError("protected authority-write vocabulary changed")
     bindings = contract.get("entrypoint_bindings") or []
     by_entrypoint = {
         str(row.get("entrypoint") or ""): row
@@ -114,6 +137,51 @@ def validate_contract(contract: Mapping[str, Any]) -> None:
         }
         if observed != required:
             raise ValueError(f"protected entrypoint binding changed: {entrypoint}")
+    protected_profiles = [
+        row
+        for row in contract.get("required_executable_commands") or []
+        if isinstance(row, dict)
+        and row.get("workflow")
+        == ".github/workflows/daily_operating_selection_refresh.yml"
+        and row.get("entrypoint") in immutable_bindings
+    ]
+    required_profiles = [
+        {
+            "workflow": ".github/workflows/daily_operating_selection_refresh.yml",
+            "entrypoint": "tools/run_daily_simulated_fill_ledger.py",
+            "required_flags": ["--suppress-new-orders"],
+            "required_option_values": {"--cost-bps": "25"},
+            "exclusive_profile_group": "daily_durable_ledger",
+            "exact_match_count": 1,
+        },
+        {
+            "workflow": ".github/workflows/daily_operating_selection_refresh.yml",
+            "entrypoint": "tools/run_daily_simulated_fill_ledger.py",
+            "required_option_values": {
+                "--target-handoff-manifest": "$SAME_CLOSE_DIR/status.json",
+                "--expected-target-handoff-sha256": "$TARGET_HANDOFF_SHA",
+                "--main-target-sha256": "$MAIN_TARGET_SHA",
+                "--concentrated-target-sha256": "$CONCENTRATED_TARGET_SHA",
+                "--cost-bps": "25",
+            },
+            "exclusive_profile_group": "daily_durable_ledger",
+            "exact_match_count": 1,
+        },
+        {
+            "workflow": ".github/workflows/daily_operating_selection_refresh.yml",
+            "entrypoint": "tools/build_run287_same_close_target_books.py",
+            "required_nonempty_options": [
+                "--producer-status", "--freshness-status", "--valuation-date",
+                "--output-dir",
+            ],
+            "exact_match_count": 1,
+        },
+    ]
+    normalize_profiles = lambda rows: sorted(
+        (json.dumps(row, sort_keys=True, separators=(",", ":")) for row in rows)
+    )
+    if normalize_profiles(protected_profiles) != normalize_profiles(required_profiles):
+        raise ValueError("protected executable command profiles changed")
 
 
 def tracked_workflow_paths(root: Path) -> list[str]:
@@ -381,7 +449,8 @@ def local_action_implementation_paths(
                 continue
             seen.add(source_path)
             for value in re.findall(
-                r"(?:require\s*\(|import\s*\(|from\s+)[\"']([^\"']+)[\"']",
+                r"(?:\brequire\s*\(|\bimport\s*\(|\bfrom\s+|\bimport\s+)"
+                r"[\"']([^\"']+)[\"']",
                 sources[source_path],
             ):
                 if not value.startswith("."):
@@ -427,9 +496,111 @@ def _raw_shell_logical_commands(text: str) -> list[tuple[int, str]]:
     return commands
 
 
+def _multiline_static_control_commands(
+    rows: list[tuple[int, str]],
+) -> list[tuple[int, str]]:
+    """Expand finite multiline loops and prune literal-true branches."""
+
+    def opener_closer(command: str) -> str:
+        stripped = command.strip()
+        if (
+            re.match(r"^if\b.*(?:;\s*|\s+)then\s*$", stripped)
+            and not re.search(r";\s*fi\b", stripped)
+        ):
+            return "fi"
+        if (
+            re.match(r"^(?:for|select|while|until)\b.*(?:;\s*|\s+)do\s*$", stripped)
+            and not re.search(r";\s*done\b", stripped)
+        ):
+            return "done"
+        if re.match(r"^case\b.*\bin\s*$", stripped):
+            return "esac"
+        return ""
+
+    def closes(command: str, closer: str) -> bool:
+        return bool(re.match(rf"^{closer}(?:\s*;)?\s*$", command.strip()))
+
+    def locate(start: int) -> tuple[int, int | None]:
+        first = opener_closer(rows[start][1])
+        if not first:
+            return -1, None
+        stack = [first]
+        alternate: int | None = None
+        for cursor in range(start + 1, len(rows)):
+            stripped = rows[cursor][1].strip()
+            if (
+                len(stack) == 1
+                and stack[-1] == "fi"
+                and re.match(r"^(?:else|elif)\b", stripped)
+                and alternate is None
+            ):
+                alternate = cursor
+                continue
+            nested = opener_closer(stripped)
+            if nested:
+                stack.append(nested)
+                continue
+            if closes(stripped, stack[-1]):
+                stack.pop()
+                if not stack:
+                    return cursor, alternate
+        return -1, alternate
+
+    result: list[tuple[int, str]] = []
+    index = 0
+    while index < len(rows):
+        line, command = rows[index]
+        stripped = command.strip()
+        static_for = re.match(
+            r"^for\s+[A-Za-z_][A-Za-z0-9_]*\s+in\s+(.*?)\s*;?\s*do\s*$",
+            stripped,
+        )
+        literal_true = bool(
+            re.match(r"^if\s+(?:true|!\s*false)\s*;?\s*then\s*$", stripped)
+        )
+        if not static_for and not literal_true:
+            result.append((line, command))
+            index += 1
+            continue
+        end, alternate = locate(index)
+        if end < 0:
+            result.append((0, SHELL_UNRESOLVED_CONTROL_SENTINEL))
+            index += 1
+            continue
+        if static_for:
+            body_rows = rows[index + 1:end]
+            try:
+                values = shlex.split(static_for.group(1), posix=True)
+            except ValueError:
+                values = []
+            if not values or any(re.search(r"[$`*?\[]", value) for value in values):
+                body = _multiline_static_control_commands(body_rows)
+                authority_body = "\n".join(command for _line, command in body).casefold()
+                if any(term in authority_body for term in PROTECTED_AUTHORITY_SENSITIVE_TERMS):
+                    result.append((0, SHELL_UNRESOLVED_CONTROL_SENTINEL))
+                else:
+                    # Unknown multiplicity is harmless to exact authority counts
+                    # when the loop body contains no authority-bearing operation.
+                    result.extend(body)
+            else:
+                body = _multiline_static_control_commands(body_rows)
+                if len(body) * len(values) > 10000:
+                    result.append((0, SHELL_EXPANSION_BUDGET_SENTINEL))
+                else:
+                    for _value in values:
+                        result.extend(body)
+        else:
+            branch_end = alternate if alternate is not None else end
+            result.extend(
+                _multiline_static_control_commands(rows[index + 1:branch_end])
+            )
+        index = end + 1
+    return result
+
+
 def shell_logical_commands(text: str) -> list[tuple[int, str]]:
     """Return commands that execute, expanding definite local shell calls."""
-    raw = _raw_shell_logical_commands(text)
+    raw = _multiline_static_control_commands(_raw_shell_logical_commands(text))
     reachable_raw: list[tuple[int, str]] = []
     skipped_closers: list[str] = []
     for line, command in raw:
@@ -559,6 +730,18 @@ def shell_logical_commands(text: str) -> list[tuple[int, str]]:
                 tokens = shell_tokens(command)
             except ValueError:
                 continue
+            if any(
+                token.rsplit("/", 1)[-1] == "eval"
+                and shell_command_position(tokens, token_index)
+                for token_index, token in enumerate(tokens)
+            ):
+                result.append((line, SHELL_UNRESOLVED_CONTROL_SENTINEL))
+            if re.search(
+                r"(?:\b(?:source|bash|sh|dash|zsh|ksh)|(?:^|[;&|]\s*)\.)"
+                r"\s+(?:-[^\s]+\s+)*'[^']*\$[^']*'",
+                strip_shell_comment(command),
+            ):
+                result.append((line, SHELL_UNRESOLVED_CONTROL_SENTINEL))
             for token_index, token in enumerate(tokens):
                 if token.rsplit("/", 1)[-1] != "xargs":
                     continue
@@ -1248,13 +1431,15 @@ def transitive_literal_python_sources(source: str) -> tuple[str, ...]:
     seen = {source}
     result: set[str] = set()
     pending = list(literal_inprocess_python_sources(source))
-    while pending and len(seen) <= 128:
+    while pending and len(seen) <= PYTHON_DYNAMIC_EXEC_SOURCE_BUDGET:
         payload = pending.pop()
         if payload in seen:
             continue
         seen.add(payload)
         result.add(payload)
         pending.extend(literal_inprocess_python_sources(payload))
+    if pending:
+        result.add(PYTHON_DYNAMIC_EXEC_BUDGET_SENTINEL)
     return tuple(sorted(result))
 
 
@@ -1267,15 +1452,22 @@ def literal_dynamic_import_module(
     """Resolve common dynamic imports when their module is definitely finite."""
     if not isinstance(node, ast.Call) or not node.args:
         return ""
+    func = dotted_expression_name(node.func)
+    if func not in (
+        callables or {"importlib.import_module", "__import__", "builtins.__import__"}
+    ):
+        return ""
     first = node.args[0]
     module_values = {
-        str(bound.value)
+        str(value.value)
         for bound in bound_expression_nodes(first, assignments or {})
-        if isinstance(bound, ast.Constant) and isinstance(bound.value, str)
+        for value in ast.walk(bound)
+        if isinstance(value, ast.Constant) and isinstance(value.value, str)
     }
-    if len(module_values) != 1:
+    if len(module_values) > 1:
+        return PYTHON_UNRESOLVED_DYNAMIC_IMPORT_SENTINEL
+    if not module_values:
         return ""
-    func = dotted_expression_name(node.func)
     if func in (callables or {"importlib.import_module", "__import__", "builtins.__import__"}):
         module = next(iter(module_values))
         if not module.startswith("."):
@@ -1407,7 +1599,10 @@ def _local_import_candidates_direct(source: str, source_path: str) -> tuple[str,
                     ):
                         result.add(normalize_script_entrypoint(bound.value))
         for module in candidates:
-            result.update(_module_candidates(module))
+            if module == PYTHON_UNRESOLVED_DYNAMIC_IMPORT_SENTINEL:
+                result.add(module)
+            else:
+                result.update(_module_candidates(module))
     return tuple(sorted(result))
 
 
@@ -1649,14 +1844,23 @@ def process_pythonpath_values(
     values: set[str] = set()
     for bound in bound_expression_nodes(environment, assignments):
         for candidate in ast.walk(bound):
-            if not isinstance(candidate, ast.Dict):
-                continue
-            for key, value in zip(candidate.keys, candidate.values):
-                if not (
-                    isinstance(key, ast.Constant)
-                    and key.value == "PYTHONPATH"
-                ):
-                    continue
+            value_nodes: list[ast.AST] = []
+            if isinstance(candidate, ast.Dict):
+                value_nodes.extend(
+                    value
+                    for key, value in zip(candidate.keys, candidate.values)
+                    if isinstance(key, ast.Constant) and key.value == "PYTHONPATH"
+                )
+            elif (
+                isinstance(candidate, ast.Call)
+                and dotted_expression_name(candidate.func) in {"dict", "builtins.dict"}
+            ):
+                value_nodes.extend(
+                    keyword.value
+                    for keyword in candidate.keywords
+                    if keyword.arg == "PYTHONPATH"
+                )
+            for value in value_nodes:
                 values.update(
                     str(item.value)
                     for item in bound_expression_nodes(value, assignments)
@@ -1666,16 +1870,23 @@ def process_pythonpath_values(
     return tuple(sorted(values))
 
 
-def pythonpath_startup_candidates(values: tuple[str, ...]) -> set[str]:
+def pythonpath_startup_candidates(
+    values: tuple[str, ...], cwd_values: tuple[str, ...] = ()
+) -> set[str]:
     result: set[str] = set()
+    working_directories = cwd_values or ("",)
     for pythonpath in values:
         for part in re.split(r"[;:]", pythonpath):
             normalized = normalize_script_entrypoint(part or ".")
             for startup in ("sitecustomize.py", "usercustomize.py"):
-                result.add(
+                candidate = (
                     Path(normalized, startup).as_posix()
                     if normalized not in {"", "."}
                     else startup
+                )
+                result.update(
+                    resolve_working_directory_path(candidate, cwd)
+                    for cwd in working_directories
                 )
     return result
 
@@ -1721,7 +1932,7 @@ def _local_process_candidates_direct(source: str) -> tuple[str, ...]:
         candidates.update(call_candidates)
         candidates.update(
             pythonpath_startup_candidates(
-                process_pythonpath_values(node, assignments)
+                process_pythonpath_values(node, assignments), cwd_values
             )
         )
 
@@ -1932,7 +2143,8 @@ def _python_process_launches_direct(source: str) -> tuple[str, ...]:
             candidates = sorted(
                 process_python_candidates(strings)
                 | pythonpath_startup_candidates(
-                    process_pythonpath_values(node, assignments)
+                    process_pythonpath_values(node, assignments),
+                    process_cwd_values(node, assignments),
                 )
             )
             detail = ",".join(candidates) if candidates else "UNRESOLVED_LOCAL_PROCESS"
@@ -2048,6 +2260,25 @@ def python_main_call_counts(
         for node in ast.walk(tree)
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
+    local_function_aliases = {name: name for name in function_names}
+    alias_changed = True
+    while alias_changed:
+        alias_changed = False
+        for node in ast.walk(tree):
+            pairs: list[tuple[ast.AST, ast.AST]] = []
+            if isinstance(node, ast.Assign):
+                pairs.extend((target, node.value) for target in node.targets)
+            elif isinstance(node, ast.AnnAssign) and node.value is not None:
+                pairs.append((node.target, node.value))
+            elif isinstance(node, ast.NamedExpr):
+                pairs.append((node.target, node.value))
+            for target, value in pairs:
+                if not isinstance(target, ast.Name) or not isinstance(value, ast.Name):
+                    continue
+                resolved = local_function_aliases.get(value.id)
+                if resolved and local_function_aliases.get(target.id) != resolved:
+                    local_function_aliases[target.id] = resolved
+                    alias_changed = True
     parents = {
         child: parent
         for parent in ast.walk(tree)
@@ -2171,9 +2402,13 @@ def python_main_call_counts(
                         str(bound.value), f"{source_path}::dynamic-exec"
                     ):
                         add_protected(scope, embedded_target, embedded_count)
-        if isinstance(node.func, ast.Name) and node.func.id in function_names:
+        if (
+            isinstance(node.func, ast.Name)
+            and node.func.id in local_function_aliases
+        ):
             bucket = local_calls.setdefault(scope, {})
-            bucket[node.func.id] = bucket.get(node.func.id, 0) + 1
+            function = local_function_aliases[node.func.id]
+            bucket[function] = bucket.get(function, 0) + 1
 
     execution_count = {name: 0 for name in function_names}
     cap = 1_000_000
@@ -3819,7 +4054,9 @@ def audit_texts(
         for yaml_path, _shell, source, _workdir in records_for_workflow
         if any(
             command == SHELL_EXPANSION_BUDGET_SENTINEL
-            for _line, command in shell_logical_commands(source)
+            for _line, command in shell_logical_commands(
+                executable_shell_text(source)
+            )
         )
     )
     failures.extend(
@@ -3828,7 +4065,9 @@ def audit_texts(
         for shell_path in reachable_shells
         if any(
             command == SHELL_EXPANSION_BUDGET_SENTINEL
-            for _line, command in shell_logical_commands(shell_sources[shell_path])
+            for _line, command in shell_logical_commands(
+                executable_shell_text(shell_sources[shell_path])
+            )
         )
     )
     failures.extend(
@@ -3837,9 +4076,50 @@ def audit_texts(
         for yaml_path, _shell, source, _workdir in records_for_workflow
         if any(
             command == SHELL_UNRESOLVED_CONTROL_SENTINEL
-            for _line, command in shell_logical_commands(source)
+            for _line, command in shell_logical_commands(
+                executable_shell_text(source)
+            )
         )
     )
+    failures.extend(
+        f"unresolved_shell_control:{path}:{shell_path}"
+        for path, reachable_shells in workflow_shell_reachable.items()
+        for shell_path in reachable_shells
+        if any(
+            command == SHELL_UNRESOLVED_CONTROL_SENTINEL
+            for _line, command in shell_logical_commands(
+                executable_shell_text(shell_sources[shell_path])
+            )
+        )
+    )
+    for path, reachable_sources in workflow_reachable_python.items():
+        for source_path in sorted(reachable_sources):
+            if source_path not in accepted_files:
+                continue
+            source = accepted_files[source_path]
+            if PYTHON_UNRESOLVED_DYNAMIC_IMPORT_SENTINEL in local_import_candidates(
+                source, source_path
+            ):
+                failures.append(
+                    f"unresolved_dynamic_import:{path}:{source_path}"
+                )
+            if PYTHON_DYNAMIC_EXEC_BUDGET_SENTINEL in (
+                transitive_literal_python_sources(source)
+            ):
+                failures.append(
+                    f"dynamic_exec_budget_exceeded:{path}:{source_path}"
+                )
+        for embedded in workflow_embedded.get(path, []):
+            source = str(embedded["source"])
+            label = f"{path}::embedded:{embedded['kind']}:{embedded['line']}"
+            if PYTHON_UNRESOLVED_DYNAMIC_IMPORT_SENTINEL in local_import_candidates(
+                source, label
+            ):
+                failures.append(f"unresolved_dynamic_import:{label}")
+            if PYTHON_DYNAMIC_EXEC_BUDGET_SENTINEL in (
+                transitive_literal_python_sources(source)
+            ):
+                failures.append(f"dynamic_exec_budget_exceeded:{label}")
     records: list[dict[str, Any]] = []
     expected_workflow_hashes = contract.get("tracked_workflow_sha256") or {}
     observed_workflow_hashes = {
@@ -4532,15 +4812,38 @@ def run_audit(
     shell_sources = tracked_shell_texts(root)
     local_action_paths = tracked_local_action_paths(root)
     local_action_sources = workflow_texts(root, local_action_paths)
+    tracked_node_sources: dict[str, str] = {}
+    for path in sorted(
+        candidate
+        for candidate in all_tracked_paths
+        if candidate.endswith((".js", ".cjs", ".mjs", ".json"))
+    ):
+        try:
+            tracked_node_sources[path] = (root / path).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+    action_resolution_sources = {
+        **local_action_sources,
+        **tracked_node_sources,
+    }
     implementation_paths = {
         implementation
         for action_path, action_text in local_action_sources.items()
         for implementation in local_action_implementation_paths(
-            action_path, action_text, all_tracked_paths
+            action_path,
+            action_text,
+            all_tracked_paths,
+            action_resolution_sources,
         )
     }
-    implementation_sources: dict[str, str] = {}
+    implementation_sources: dict[str, str] = {
+        path: tracked_node_sources[path]
+        for path in implementation_paths
+        if path in tracked_node_sources
+    }
     for path in sorted(implementation_paths):
+        if path in implementation_sources:
+            continue
         try:
             implementation_sources[path] = (root / path).read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):

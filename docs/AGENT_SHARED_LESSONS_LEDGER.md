@@ -3843,8 +3843,30 @@ Expected contract:
   counts are immutable contract schema, not optional fields that a later edit
   may remove to weaken enforcement.
 - The complete authority-graph regression now exceeds the former 20-minute
-  GitHub job budget. Preserve the regression and give Tier-1 a 40-minute hard
+  GitHub job budget. Preserve the regression and give Tier-1 a 60-minute hard
   ceiling; a timeout cancellation is not evidence of a passing check.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
+## 2026-08-13 - Complete dynamic-control and external-runtime closure
+
+- Multiline finite shell loops must preserve invocation multiplicity, and
+  literal-true multiline conditionals must exclude unreachable alternates.
+  Unknown loop multiplicity blocks only authority-bearing bodies; inert
+  research collection loops remain analyzable without weakening writer counts.
+- Heredoc bodies are parsed by their declared interpreter, not again as shell
+  control text. Double heredoc stripping can silently erase later commands.
+- Local Node actions include side-effect-only ESM imports and recursively loaded
+  tracked helpers outside the action directory in both content hashes and exact
+  HEAD inputs.
+- Python subprocess startup hooks resolve constructor-built environments and
+  relative `PYTHONPATH` entries against definite `cwd` values.
+- Multiple finite dynamic-import alternatives, shell `eval`, and exhausted
+  dynamic-exec traversal budgets fail closed. Definite local-function aliases
+  remain part of protected invocation counts.
+- Protected authority vocabulary and accepted writer/ledger executable command
+  profiles are immutable schema, not refreshable tuning fields.
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.

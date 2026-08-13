@@ -1435,6 +1435,21 @@ def test_static_control_and_indirect_launch_edges_are_bound() -> None:
         "if true; then :; else "
         "python tools/build_run287_same_close_target_books.py; fi\n"
     )
+    assert len(
+        MOD.executable_invocations(
+            "for x in 1 2; do\n"
+            "  python tools/build_run287_same_close_target_books.py\n"
+            "done\n",
+            protected,
+        )
+    ) == 2
+    assert protected not in MOD.python_entrypoints(
+        "if true; then\n"
+        "  :\n"
+        "else\n"
+        "  python tools/build_run287_same_close_target_books.py\n"
+        "fi\n"
+    )
     assert MOD.statically_disabled_workflow_condition(
         "${{ false && github.event_name == 'push' }}"
     )
@@ -1529,6 +1544,25 @@ def test_static_control_and_indirect_launch_edges_are_bound() -> None:
         "tools/hooks/sitecustomize.py",
         "tools/hooks/usercustomize.py",
     }
+    cwd_subprocess_startup = (
+        "import os, subprocess\n"
+        "subprocess.run(['python', 'harmless.py'], cwd='sandbox', "
+        "env={**os.environ, 'PYTHONPATH': 'hooks'})\n"
+    )
+    assert set(MOD.local_process_candidates(cwd_subprocess_startup)) >= {
+        "sandbox/harmless.py",
+        "sandbox/hooks/sitecustomize.py",
+        "sandbox/hooks/usercustomize.py",
+    }
+    constructor_environment = (
+        "import os, subprocess\n"
+        "subprocess.run(['python', 'tools/harmless.py'], "
+        "env=dict(os.environ, PYTHONPATH='tools/hooks'))\n"
+    )
+    assert set(MOD.local_process_candidates(constructor_environment)) >= {
+        "tools/hooks/sitecustomize.py",
+        "tools/hooks/usercustomize.py",
+    }
 
     dynamic_module = (
         "import importlib\n"
@@ -1537,10 +1571,53 @@ def test_static_control_and_indirect_launch_edges_are_bound() -> None:
     )
     assert protected in MOD.local_import_candidates(dynamic_module)
     assert dict(MOD.python_main_call_counts(dynamic_module))[protected] == 1
+    ambiguous_dynamic_module = (
+        "import importlib\n"
+        "name = ('tools.build_run287_same_close_target_books' "
+        "if enabled else 'tools.harmless')\n"
+        "importlib.import_module(name).main()\n"
+    )
+    assert MOD.PYTHON_UNRESOLVED_DYNAMIC_IMPORT_SENTINEL in (
+        MOD.local_import_candidates(ambiguous_dynamic_module)
+    )
+
+    aliased_local_launcher = (
+        "import tools.build_run287_same_close_target_books as writer\n"
+        "def launch():\n"
+        "    writer.main()\n"
+        "callback = launch\n"
+        "callback()\n"
+    )
+    assert dict(MOD.python_main_call_counts(aliased_local_launcher))[protected] == 1
 
     assert "tools/hook.sh" in MOD.shell_script_candidates(
         'DIR=tools\nsource "$DIR/hook.sh"\n'
     )
+    assert any(
+        command == MOD.SHELL_UNRESOLVED_CONTROL_SENTINEL
+        for _line, command in MOD.shell_logical_commands(
+            "DIR=tools\nsource '$DIR/hook.sh'\n"
+        )
+    )
+    assert any(
+        command == MOD.SHELL_UNRESOLVED_CONTROL_SENTINEL
+        for _line, command in MOD.shell_logical_commands(
+            "CMD='python tools/build_run287_same_close_target_books.py'\n"
+            "eval \"$CMD\"\n"
+        )
+    )
+
+    nested_payload = "import tools.harmless"
+    for _index in range(5):
+        nested_payload = f"exec({nested_payload!r})"
+    original_budget = MOD.PYTHON_DYNAMIC_EXEC_SOURCE_BUDGET
+    try:
+        MOD.PYTHON_DYNAMIC_EXEC_SOURCE_BUDGET = 3
+        assert MOD.PYTHON_DYNAMIC_EXEC_BUDGET_SENTINEL in (
+            MOD.transitive_literal_python_sources(nested_payload)
+        )
+    finally:
+        MOD.PYTHON_DYNAMIC_EXEC_SOURCE_BUDGET = original_budget
 
     bash_env_workflow = (
         "env:\n  BASH_ENV: tools/startup.sh\n"
@@ -1575,7 +1652,7 @@ def test_static_control_and_indirect_launch_edges_are_bound() -> None:
 
     external_node_sources = {
         "tools/node-action/action.yml": "runs:\n  using: node20\n  main: index.js\n",
-        "tools/node-action/index.js": 'require("../../shared/helper.js");\n',
+        "tools/node-action/index.js": 'import "../../shared/helper.js";\n',
         "shared/helper.js": "module.exports = {};\n",
     }
     assert "shared/helper.js" in MOD.local_action_implementation_paths(
@@ -1601,6 +1678,29 @@ def test_protected_binding_schema_cannot_be_weakened() -> None:
         assert "protected entrypoint binding changed" in str(exc)
     else:
         raise AssertionError("weakened protected binding was accepted")
+
+    weakened = deepcopy(contract)
+    weakened["authority_sensitive_name_terms"] = ["irrelevant"]
+    try:
+        MOD.validate_contract(weakened)
+    except ValueError as exc:
+        assert "protected authority-sensitive vocabulary changed" in str(exc)
+    else:
+        raise AssertionError("weakened authority vocabulary was accepted")
+
+    weakened = deepcopy(contract)
+    weakened["required_executable_commands"] = [
+        row
+        for row in weakened["required_executable_commands"]
+        if row.get("entrypoint")
+        != "tools/build_run287_same_close_target_books.py"
+    ]
+    try:
+        MOD.validate_contract(weakened)
+    except ValueError as exc:
+        assert "protected executable command profiles changed" in str(exc)
+    else:
+        raise AssertionError("weakened protected command profile was accepted")
 
 
 def test_untracked_workflow_is_not_repository_authority() -> None:
@@ -1878,9 +1978,17 @@ def test_run_audit_binds_no_writer_traversal_sources_to_head() -> None:
         workflow_texts = {
             accepted_workflow: (
                 "jobs:\n  run:\n    steps:\n"
-                "      - run: python tools/build_run287_same_close_target_books.py\n"
-                "      - run: python tools/run_daily_simulated_fill_ledger.py --portfolio main\n"
-                "      - run: python tools/run_daily_simulated_fill_ledger.py --portfolio concentrated\n"
+                "      - run: python tools/build_run287_same_close_target_books.py "
+                "--producer-status ready --freshness-status ready "
+                "--valuation-date 2026-08-12 --output-dir outputs\n"
+                "      - run: python tools/run_daily_simulated_fill_ledger.py "
+                "--suppress-new-orders --cost-bps 25\n"
+                "      - run: python tools/run_daily_simulated_fill_ledger.py "
+                "--target-handoff-manifest $SAME_CLOSE_DIR/status.json "
+                "--expected-target-handoff-sha256 $TARGET_HANDOFF_SHA "
+                "--main-target-sha256 $MAIN_TARGET_SHA "
+                "--concentrated-target-sha256 $CONCENTRATED_TARGET_SHA "
+                "--cost-bps 25\n"
             ),
             observer_workflow: (
                 "jobs:\n  run:\n    steps:\n"
@@ -1912,7 +2020,14 @@ def test_run_audit_binds_no_writer_traversal_sources_to_head() -> None:
             encoding="utf-8",
         )
         node_implementation = node_action.parent / "index.js"
-        node_implementation.write_text("console.log('read only');\n", encoding="utf-8")
+        node_implementation.write_text(
+            'import "../../shared/helper.js";\n', encoding="utf-8"
+        )
+        external_node_helper = root / "shared" / "helper.js"
+        external_node_helper.parent.mkdir()
+        external_node_helper.write_text(
+            "export const value = 1;\n", encoding="utf-8"
+        )
         neutral = root / "tools" / "neutral.py"
         neutral.write_text("VALUE = 1\n", encoding="utf-8")
         contract = {
@@ -1970,12 +2085,25 @@ def test_run_audit_binds_no_writer_traversal_sources_to_head() -> None:
                 "tools/run_daily_simulated_fill_ledger.py",
             ],
             "accepted_workflow_inline_local_imports": [],
-            "authority_sensitive_name_terms": ["target", "writer", "ledger"],
+            "authority_sensitive_name_terms": list(
+                MOD.PROTECTED_AUTHORITY_SENSITIVE_TERMS
+            ),
+            "authority_write_destination_terms": list(
+                MOD.PROTECTED_AUTHORITY_WRITE_TERMS
+            ),
             "forbidden_accepted_path_tokens": ["forbidden_legacy_exit"],
             "required_workflow_input_defaults": [],
             "required_shell_boolean_flag_derivations": [],
             "required_workflow_tokens": {},
-            "required_executable_commands": [],
+            "required_executable_commands": [
+                deepcopy(row)
+                for row in source_inputs()[0]["required_executable_commands"]
+                if row.get("workflow") == accepted_workflow
+                and row.get("entrypoint") in {
+                    "tools/build_run287_same_close_target_books.py",
+                    "tools/run_daily_simulated_fill_ledger.py",
+                }
+            ],
             "safety": {
                 "changes_investment_behavior": False,
                 "target_mutation_authorized": False,
@@ -2004,10 +2132,12 @@ def test_run_audit_binds_no_writer_traversal_sources_to_head() -> None:
             "tools/node-action/action.yml",
         ]
         assert clean["workflow_action_implementation_files"][observer_workflow] == [
+            "shared/helper.js",
             "tools/node-action/action.yml",
-            "tools/node-action/index.js"
+            "tools/node-action/index.js",
         ]
         assert "tools/node-action/index.js" in clean["audit_input_paths"]
+        assert "shared/helper.js" in clean["audit_input_paths"]
         assert clean["audit_runtime_head_bound"] is False
         assert "audit_runtime_outside_selected_repository" in clean["failures"]
 
@@ -2022,6 +2152,23 @@ def test_run_audit_binds_no_writer_traversal_sources_to_head() -> None:
         )
         assert untracked_contract["contract_head_bound"] is False
         assert "contract_not_tracked_at_head" in untracked_contract["failures"]
+
+        external_node_helper.write_text(
+            "export const value = 2;\n", encoding="utf-8"
+        )
+        dirty_node_helper = MOD.run_audit(
+            root, contract, contract_path=contract_path
+        )
+        assert dirty_node_helper["source_identity_status"] == (
+            "DIRTY_INPUTS_NOT_HEAD_BOUND"
+        )
+        assert any(
+            "shared/helper.js" in row
+            for row in dirty_node_helper["dirty_input_records"]
+        )
+        external_node_helper.write_text(
+            "export const value = 1;\n", encoding="utf-8"
+        )
 
         neutral.write_text("VALUE = 2\n", encoding="utf-8")
         dirty = MOD.run_audit(root, contract, contract_path=contract_path)
@@ -2042,6 +2189,7 @@ def main() -> int:
     test_latest_review_execution_context_edges_are_bound()
     test_shell_and_loader_authority_edges_fail_closed()
     test_static_control_and_indirect_launch_edges_are_bound()
+    test_protected_binding_schema_cannot_be_weakened()
     test_untracked_workflow_is_not_repository_authority()
     test_execution_defaults_are_bound_to_named_inputs()
     test_dirty_input_is_not_attributed_to_head_and_defaults_follow_repo_root()
