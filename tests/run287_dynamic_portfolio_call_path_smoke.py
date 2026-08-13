@@ -42,6 +42,9 @@ def test_current_repository_passes_and_has_one_accepted_writer() -> None:
     result = MOD.audit_texts(contract, workflows, accepted)
     if result["status"] != MOD.PASS_STATUS:
         diagnostic_path = ".github/workflows/full_rebuild_manual.yml"
+        evidence = result["workflow_authority_fingerprint_evidence"].get(
+            diagnostic_path
+        ) or {}
         print(
             "AUTHORITY_FINGERPRINT_DIAGNOSTIC="
             + json.dumps(
@@ -51,9 +54,13 @@ def test_current_repository_passes_and_has_one_accepted_writer() -> None:
                     "fingerprint": result[
                         "workflow_authority_fingerprints"
                     ].get(diagnostic_path),
-                    "evidence": result[
-                        "workflow_authority_fingerprint_evidence"
-                    ].get(diagnostic_path),
+                    "evidence_categories": {
+                        key: {
+                            "count": len(values),
+                            "sha256": MOD.canonical_sha256(values),
+                        }
+                        for key, values in sorted(evidence.items())
+                    },
                 },
                 sort_keys=True,
                 separators=(",", ":"),
