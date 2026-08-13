@@ -374,10 +374,10 @@ def tracked_shell_paths(root: Path) -> list[str]:
             if path.endswith((".yml", ".yaml")):
                 for _shell, run_source, _workdir in workflow_run_records(source, path):
                     candidates.update(shell_script_candidates(run_source))
+            elif path.endswith(".py"):
+                candidates.update(local_process_shell_candidates(source))
             else:
                 candidates.update(shell_script_candidates(source))
-            if path.endswith(".py"):
-                candidates.update(local_process_shell_candidates(source))
         new_paths: set[str] = set()
         for candidate in candidates:
             matches = (

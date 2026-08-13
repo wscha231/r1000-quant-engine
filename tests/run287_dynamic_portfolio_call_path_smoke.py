@@ -1748,6 +1748,28 @@ def test_static_control_and_indirect_launch_edges_are_bound() -> None:
     )
     assert dynamic_runner_records[0][0] == MOD.IMPLICIT_UNKNOWN_RUNNER_SHELL
 
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "tests").mkdir()
+        (root / "docs").mkdir()
+        (root / "outputs").mkdir()
+        (root / "tests" / "reader.py").write_text(
+            "from pathlib import Path\n"
+            "Path('docs/status.md').read_text()\n",
+            encoding="utf-8",
+        )
+        (root / "docs" / "status.md").write_text(
+            "outputs/summary.json\n", encoding="utf-8"
+        )
+        (root / "outputs" / "summary.json").write_text(
+            "{}\n", encoding="utf-8"
+        )
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(["git", "add", "."], cwd=root, check=True)
+        discovered_shells = MOD.tracked_shell_paths(root)
+        assert "docs/status.md" not in discovered_shells
+        assert "outputs/summary.json" not in discovered_shells
+
     contract, workflows, accepted = source_inputs()
     multiplied = deepcopy(workflows)
     daily = contract["accepted_daily_workflow"]

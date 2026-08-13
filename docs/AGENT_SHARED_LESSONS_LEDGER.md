@@ -3822,6 +3822,10 @@ Expected contract:
 - A repository-wide authority graph cannot run from a partial checkout. Give
   the authority lane the full tracked tree; sparse checkout is safe only for
   lanes whose contract does not compare transitive repository reachability.
+- Dispatch each source to the parser for its actual execution kind. Python
+  source must not also be parsed as shell text: a harmless document read can
+  otherwise promote Markdown and then JSON paths into the executable graph,
+  making fingerprints depend on sparse-checkout materialization.
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
