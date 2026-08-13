@@ -40,6 +40,25 @@ def source_inputs() -> tuple[dict, dict[str, str], dict[str, str]]:
 def test_current_repository_passes_and_has_one_accepted_writer() -> None:
     contract, workflows, accepted = source_inputs()
     result = MOD.audit_texts(contract, workflows, accepted)
+    if result["status"] != MOD.PASS_STATUS:
+        diagnostic_path = ".github/workflows/full_rebuild_manual.yml"
+        print(
+            "AUTHORITY_FINGERPRINT_DIAGNOSTIC="
+            + json.dumps(
+                {
+                    "failures": result["failures"],
+                    "workflow": diagnostic_path,
+                    "fingerprint": result[
+                        "workflow_authority_fingerprints"
+                    ].get(diagnostic_path),
+                    "evidence": result[
+                        "workflow_authority_fingerprint_evidence"
+                    ].get(diagnostic_path),
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
     assert result["status"] == MOD.PASS_STATUS, result["failures"]
     accepted_rows = [
         row for row in result["invocations"]

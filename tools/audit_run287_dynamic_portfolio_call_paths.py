@@ -3482,6 +3482,32 @@ def authority_fingerprint(
     reachable_action_files: list[str] | None = None,
     reachable_python_files: list[str] | None = None,
 ) -> str:
+    return canonical_sha256(
+        authority_fingerprint_evidence(
+            reachable_sensitive=reachable_sensitive,
+            python_write_sinks=python_write_sinks,
+            python_process_launches=python_process_launches,
+            shell_write_sinks=shell_write_sinks,
+            reachable_shell_scripts=reachable_shell_scripts,
+            reachable_yaml_files=reachable_yaml_files,
+            reachable_action_files=reachable_action_files,
+            reachable_python_files=reachable_python_files,
+        )
+    )
+
+
+def authority_fingerprint_evidence(
+    *,
+    reachable_sensitive: list[str],
+    python_write_sinks: list[str],
+    python_process_launches: list[str],
+    shell_write_sinks: list[str],
+    reachable_shell_scripts: list[str] | None = None,
+    reachable_yaml_files: list[str] | None = None,
+    reachable_action_files: list[str] | None = None,
+    reachable_python_files: list[str] | None = None,
+) -> dict[str, list[str]]:
+    """Return the exact portable evidence encoded by a workflow fingerprint."""
     payload = {
         "reachable_sensitive": sorted(reachable_sensitive),
         "python_write_sinks": sorted(python_write_sinks),
@@ -3497,7 +3523,7 @@ def authority_fingerprint(
         payload["reachable_yaml_files"] = sorted(reachable_yaml_files)
     if reachable_action_files:
         payload["reachable_action_files"] = sorted(reachable_action_files)
-    return canonical_sha256(payload)
+    return payload
 
 
 def workflow_local_references(
@@ -4763,6 +4789,9 @@ def audit_texts(
     workflow_python_process_launches: dict[str, list[str]] = {}
     workflow_shell_authority_write_sinks: dict[str, list[str]] = {}
     observed_authority_fingerprints: dict[str, str] = {}
+    observed_authority_fingerprint_evidence: dict[
+        str, dict[str, list[str]]
+    ] = {}
     local_references_by_workflow: dict[str, set[str]] = {}
     sensitive_terms = tuple(
         sorted(
@@ -4842,7 +4871,7 @@ def audit_texts(
             workflow_python_process_launches[path] = python_process_findings
         if shell_write_findings:
             workflow_shell_authority_write_sinks[path] = shell_write_findings
-        fingerprint = authority_fingerprint(
+        fingerprint_arguments = dict(
             reachable_sensitive=reachable_sensitive,
             python_write_sinks=python_write_findings,
             python_process_launches=python_process_findings,
@@ -4867,7 +4896,10 @@ def audit_texts(
                 if source_path in accepted_files
             ],
         )
+        evidence = authority_fingerprint_evidence(**fingerprint_arguments)
+        fingerprint = canonical_sha256(evidence)
         observed_authority_fingerprints[path] = fingerprint
+        observed_authority_fingerprint_evidence[path] = evidence
         expected_fingerprint = str(expected_authority_fingerprints.get(path) or "")
         if fingerprint != expected_fingerprint:
             failures.append(
@@ -4978,6 +5010,9 @@ def audit_texts(
         "accepted_workflow_local_entrypoints": observed_local_entrypoints,
         "workflow_authority_sensitive_entrypoints": observed_by_workflow,
         "workflow_authority_fingerprints": observed_authority_fingerprints,
+        "workflow_authority_fingerprint_evidence": (
+            observed_authority_fingerprint_evidence
+        ),
         "workflow_python_authority_write_sinks": (
             workflow_python_authority_write_sinks
         ),
