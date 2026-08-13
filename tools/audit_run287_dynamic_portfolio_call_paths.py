@@ -502,6 +502,18 @@ def local_action_implementation_paths(
     return {candidate for candidate in candidates if candidate in known_paths}
 
 
+def local_action_runtime(text: str) -> str:
+    """Return the normalized ``runs.using`` value for a local action."""
+    try:
+        payload = yaml.load(text, Loader=yaml.BaseLoader)
+    except yaml.YAMLError:
+        return ""
+    runs = payload.get("runs") if isinstance(payload, dict) else None
+    if not isinstance(runs, dict):
+        return ""
+    return str(runs.get("using") or "").casefold()
+
+
 def node_action_authority_findings(
     path: str, source: str, sensitive_terms: tuple[str, ...]
 ) -> tuple[str, ...]:
@@ -656,7 +668,7 @@ def _multiline_static_control_commands(
 
 
 def shell_command_substitution_payloads(command: str) -> tuple[tuple[str, ...], bool]:
-    """Return executable ``$(...)``/backtick payloads, including quoted ones."""
+    """Return command/process-substitution payloads, including quoted ones."""
     payloads: list[str] = []
     unresolved = False
     index = 0
@@ -680,7 +692,15 @@ def shell_command_substitution_payloads(command: str) -> tuple[tuple[str, ...], 
             quote = "" if quote == '"' else ('"' if not quote else quote)
             index += 1
             continue
-        if quote != "'" and command.startswith("$(", index) and not command.startswith("$((", index):
+        substitution_opener = ""
+        if quote != "'":
+            if command.startswith("$(", index) and not command.startswith("$((", index):
+                substitution_opener = "$("
+            elif command.startswith("<(", index):
+                substitution_opener = "<("
+            elif command.startswith(">(", index):
+                substitution_opener = ">("
+        if substitution_opener:
             start = index + 2
             cursor = start
             depth = 1
@@ -694,7 +714,14 @@ def shell_command_substitution_payloads(command: str) -> tuple[tuple[str, ...], 
                     inner_escaped = True
                 elif current in {"'", '"'}:
                     inner_quote = "" if inner_quote == current else (current if not inner_quote else inner_quote)
-                elif not inner_quote and command.startswith("$(", cursor) and not command.startswith("$((", cursor):
+                elif not inner_quote and (
+                    (
+                        command.startswith("$(", cursor)
+                        and not command.startswith("$((", cursor)
+                    )
+                    or command.startswith("<(", cursor)
+                    or command.startswith(">(", cursor)
+                ):
                     depth += 1
                     cursor += 1
                 elif not inner_quote and current == ")":
@@ -1588,6 +1615,24 @@ def literal_inprocess_python_sources(source: str) -> tuple[str, ...]:
     callables = imported_callable_names(
         tree, {"builtins": {"exec", "eval"}}
     ) | {"exec", "eval"}
+    compile_callables = imported_callable_names(
+        tree, {"builtins": {"compile"}}
+    ) | {"compile", "builtins.compile"}
+
+    def literal_payloads(expression: ast.AST) -> set[str]:
+        values: set[str] = set()
+        for bound in bound_expression_nodes(expression, assignments):
+            if isinstance(bound, ast.Constant) and isinstance(bound.value, str):
+                values.add(str(bound.value))
+                continue
+            if (
+                isinstance(bound, ast.Call)
+                and dotted_expression_name(bound.func) in compile_callables
+                and bound.args
+            ):
+                values.update(literal_payloads(bound.args[0]))
+        return values
+
     payloads: set[str] = set()
     for node in ast.walk(tree):
         if (
@@ -1596,11 +1641,9 @@ def literal_inprocess_python_sources(source: str) -> tuple[str, ...]:
             or not node.args
         ):
             continue
-        for bound in bound_expression_nodes(node.args[0], assignments):
-            if isinstance(bound, ast.Constant) and isinstance(bound.value, str):
-                payload = str(bound.value)
-                if payload and payload != source:
-                    payloads.add(payload)
+        for payload in literal_payloads(node.args[0]):
+            if payload and payload != source:
+                payloads.add(payload)
     return tuple(sorted(payloads))
 
 
@@ -2208,6 +2251,123 @@ def local_process_candidates(source: str) -> tuple[str, ...]:
     return tuple(sorted(result))
 
 
+@lru_cache(maxsize=4096)
+def _python_process_entrypoint_counts_direct(
+    source: str,
+) -> tuple[tuple[str, int], ...]:
+    """Count definite Python entrypoints launched by local process calls."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return ()
+    assignments = python_assignment_values(tree)
+    callables = process_callable_names(tree)
+    counts: dict[str, int] = {}
+
+    def token_values(expression: ast.AST) -> set[str]:
+        if isinstance(expression, ast.Constant) and isinstance(
+            expression.value, str
+        ):
+            return {str(expression.value)}
+        if (
+            isinstance(expression, ast.Attribute)
+            and dotted_expression_name(expression) in {
+                "sys.executable", "os.sys.executable"
+            }
+        ):
+            return {"python"}
+        values, complete = finite_string_expression_values(expression, assignments)
+        return values if complete else set()
+
+    def argv_sequences(
+        expression: ast.AST, seen_names: frozenset[str] = frozenset()
+    ) -> list[list[str]]:
+        if isinstance(expression, ast.Name):
+            if expression.id in seen_names:
+                return []
+            return [
+                sequence
+                for bound in assignments.get(expression.id, [])
+                for sequence in argv_sequences(
+                    bound, seen_names | {expression.id}
+                )
+            ]
+        if isinstance(expression, (ast.List, ast.Tuple)):
+            sequences: list[list[str]] = [[]]
+            for element in expression.elts:
+                values = token_values(element)
+                if not values:
+                    return []
+                sequences = [
+                    prior + [value]
+                    for prior in sequences
+                    for value in sorted(values)
+                ]
+            return sequences
+        values = token_values(expression)
+        return [shlex.split(value, posix=True) for value in sorted(values)]
+
+    def exact_python_entrypoints(argv: list[str]) -> set[str]:
+        if not argv:
+            return set()
+        executable = normalize_script_entrypoint(argv[0]).rsplit("/", 1)[-1]
+        if not re.fullmatch(r"python(?:3(?:\.\d+)?)?", executable):
+            return set()
+        cursor = 1
+        while cursor < len(argv):
+            operand = argv[cursor]
+            if operand == "-m" and cursor + 1 < len(argv):
+                return set(module_execution_entrypoints(argv[cursor + 1]))
+            if operand == "-c" and cursor + 1 < len(argv):
+                return {
+                    entrypoint
+                    for entrypoint, _count in python_main_call_counts(
+                        argv[cursor + 1], "<process-c>"
+                    )
+                }
+            if operand.startswith("-"):
+                cursor += 1
+                continue
+            normalized = normalize_script_entrypoint(operand)
+            return {normalized} if normalized.endswith(".py") else set()
+        return set()
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        # Exact invocation counts must not inherit the reachability scanner's
+        # intentionally broad ``*.run``/``*.execute`` heuristic.  Only a
+        # known process API or one of its definite aliases launches here.
+        if dotted_expression_name(node.func).casefold() not in callables:
+            continue
+        call_candidates: list[str] = []
+        for expression in process_argv_expressions(node):
+            for argv in argv_sequences(expression):
+                call_candidates.extend(sorted(exact_python_entrypoints(argv)))
+        cwd_values = process_cwd_values(node, assignments)
+        if cwd_values:
+            call_candidates = [
+                resolve_working_directory_path(candidate, cwd)
+                for candidate in call_candidates
+                for cwd in cwd_values
+            ]
+        for candidate in call_candidates:
+            counts[candidate] = counts.get(candidate, 0) + 1
+    return tuple(sorted(counts.items()))
+
+
+@lru_cache(maxsize=4096)
+def python_process_entrypoint_counts(
+    source: str,
+) -> tuple[tuple[str, int], ...]:
+    """Count process-launched entrypoints, including literal exec payloads."""
+    counts = dict(_python_process_entrypoint_counts_direct(source))
+    for payload in transitive_literal_python_sources(source):
+        for entrypoint, count in _python_process_entrypoint_counts_direct(payload):
+            counts[entrypoint] = counts.get(entrypoint, 0) + count
+    return tuple(sorted(counts.items()))
+
+
 def local_process_paths(
     source: str, known_paths: set[str], working_directory: str = ""
 ) -> set[str]:
@@ -2432,6 +2592,9 @@ def python_main_call_counts(
     exec_callables = imported_callable_names(
         tree, {"builtins": {"exec", "eval"}}
     ) | {"exec", "eval", "builtins.exec", "builtins.eval"}
+    compile_callables = imported_callable_names(
+        tree, {"builtins": {"compile"}}
+    ) | {"compile", "builtins.compile"}
     exit_callback_registries = imported_callable_names(
         tree, {"atexit": {"register"}}
     )
@@ -2571,6 +2734,29 @@ def python_main_call_counts(
     protected_by_scope: dict[str, dict[str, int]] = {}
     local_calls: dict[str, dict[str, int]] = {}
 
+    def exec_literal_payloads(expression: ast.AST) -> set[str]:
+        payloads: set[str] = set()
+        for bound in bound_expression_nodes(expression, assignments):
+            if isinstance(bound, ast.Constant) and isinstance(bound.value, str):
+                payloads.add(str(bound.value))
+            elif (
+                isinstance(bound, ast.Call)
+                and dotted_expression_name(bound.func) in compile_callables
+                and bound.args
+            ):
+                payloads.update(exec_literal_payloads(bound.args[0]))
+        return payloads
+
+    for definition in ast.walk(tree):
+        if not isinstance(definition, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if any(
+            dotted_expression_name(decorator) in exit_callback_registries
+            for decorator in definition.decorator_list
+        ):
+            callbacks = local_calls.setdefault("<module>", {})
+            callbacks[definition.name] = callbacks.get(definition.name, 0) + 1
+
     def add_protected(scope: str, target: str, count: int = 1) -> None:
         if not target or count <= 0:
             return
@@ -2643,17 +2829,11 @@ def python_main_call_counts(
                         add_protected(scope, module_entrypoint(value))
         if call_name in exec_callables:
             if node.args:
-                for bound in bound_expression_nodes(
-                    node.args[0], python_assignment_values(tree)
-                ):
-                    if not (
-                        isinstance(bound, ast.Constant)
-                        and isinstance(bound.value, str)
-                        and bound.value != source
-                    ):
+                for payload in exec_literal_payloads(node.args[0]):
+                    if payload == source:
                         continue
                     for embedded_target, embedded_count in python_main_call_counts(
-                        str(bound.value), f"{source_path}::dynamic-exec"
+                        payload, f"{source_path}::dynamic-exec"
                     ):
                         add_protected(scope, embedded_target, embedded_count)
         if (
@@ -3325,6 +3505,18 @@ def authority_write_sinks(
     return tuple(sorted(result))
 
 
+def protected_authority_write_finding(finding: str) -> bool:
+    """Classify an explicit immutable authority destination in a sink finding."""
+    if "UNRESOLVED_DESTINATION" in finding:
+        return False
+    destination_terms = {
+        term.strip().casefold()
+        for term in finding.rsplit(":", 1)[-1].split(",")
+        if term.strip()
+    }
+    return bool(destination_terms & set(PROTECTED_AUTHORITY_WRITE_TERMS))
+
+
 @lru_cache(maxsize=4096)
 def shell_authority_write_sinks(
     text: str, sensitive_terms: tuple[str, ...]
@@ -3589,14 +3781,78 @@ def statically_disabled_workflow_condition(value: Any) -> bool:
     expression = normalized
     if expression.startswith("${{") and expression.endswith("}}"):
         expression = expression[3:-2]
-    prior = None
-    while expression != prior:
-        prior = expression
-        expression = re.sub(r"\((false|true)\)", r"\1", expression)
-    return bool(
-        re.match(r"^(?:false&&|!true(?:&&|\|\||$))", expression)
-        or re.search(r"(?:^|&&)false(?:&&|$)", expression)
-    )
+
+    def strip_outer_parentheses(item: str) -> str:
+        while item.startswith("(") and item.endswith(")"):
+            depth = 0
+            closes_at_end = True
+            for index, character in enumerate(item):
+                if character == "(":
+                    depth += 1
+                elif character == ")":
+                    depth -= 1
+                    if depth == 0 and index != len(item) - 1:
+                        closes_at_end = False
+                        break
+                if depth < 0:
+                    return item
+            if depth or not closes_at_end:
+                break
+            item = item[1:-1]
+        return item
+
+    def split_top_level(item: str, operator: str) -> list[str]:
+        depth = 0
+        parts: list[str] = []
+        start = 0
+        index = 0
+        quote = ""
+        while index < len(item):
+            character = item[index]
+            if character in {"'", '"'}:
+                quote = "" if quote == character else (character if not quote else quote)
+            elif not quote:
+                if character == "(":
+                    depth += 1
+                elif character == ")":
+                    depth -= 1
+                elif depth == 0 and item.startswith(operator, index):
+                    parts.append(item[start:index])
+                    start = index + len(operator)
+                    index += len(operator) - 1
+            index += 1
+        if parts:
+            parts.append(item[start:])
+        return parts
+
+    def evaluate(item: str) -> bool | None:
+        item = strip_outer_parentheses(item)
+        or_parts = split_top_level(item, "||")
+        if or_parts:
+            values = [evaluate(part) for part in or_parts]
+            if any(result is True for result in values):
+                return True
+            if all(result is False for result in values):
+                return False
+            return None
+        and_parts = split_top_level(item, "&&")
+        if and_parts:
+            values = [evaluate(part) for part in and_parts]
+            if any(result is False for result in values):
+                return False
+            if all(result is True for result in values):
+                return True
+            return None
+        if item.startswith("!") and not item.startswith("!="):
+            nested = evaluate(item[1:])
+            return None if nested is None else not nested
+        if item in {"true", "1"}:
+            return True
+        if item in {"false", "0"}:
+            return False
+        return None
+
+    return evaluate(expression) is False
 
 
 def resolve_local_action_path_expressions(source: str, source_path: str) -> str:
@@ -4349,6 +4605,7 @@ def audit_texts(
         workflow_python_execution_counts[path] = counts
     failures: list[str] = []
     node_action_findings: dict[str, list[str]] = {}
+    docker_action_findings: dict[str, list[str]] = {}
     for path, implementations in workflow_action_implementations.items():
         findings = sorted(
             {
@@ -4367,6 +4624,18 @@ def audit_texts(
             failures.extend(
                 f"authority_capable_local_node_action:{path}:{finding}"
                 for finding in findings
+            )
+        docker_actions = sorted(
+            yaml_path
+            for yaml_path in workflow_yaml_reachable.get(path, [])
+            if yaml_path in yaml_sources
+            and local_action_runtime(yaml_sources[yaml_path]) == "docker"
+        )
+        if docker_actions:
+            docker_action_findings[path] = docker_actions
+            failures.extend(
+                f"authority_capable_local_docker_action:{path}:{action_path}"
+                for action_path in docker_actions
             )
     failures.extend(
         f"unsupported_declared_shell:{path}:{yaml_path}:{shell}"
@@ -4544,6 +4813,12 @@ def audit_texts(
                         f"{path}::embedded:{source['kind']}:{source['line']}",
                     )
                 )
+                for process_entrypoint, process_count in (
+                    python_process_entrypoint_counts(str(source["source"]))
+                ):
+                    call_counts[process_entrypoint] = (
+                        call_counts.get(process_entrypoint, 0) + process_count
+                    )
                 embedded_lines.extend(
                     [int(source["line"])] * int(call_counts.get(entrypoint, 0))
                 )
@@ -4551,11 +4826,18 @@ def audit_texts(
             for source_path in sorted(workflow_reachable_python.get(path, set())):
                 if source_path not in accepted_files:
                     continue
-                call_count = dict(
+                call_counts = dict(
                     python_main_call_counts(
                         accepted_files[source_path], source_path
                     )
-                ).get(entrypoint, 0)
+                )
+                for process_entrypoint, process_count in (
+                    python_process_entrypoint_counts(accepted_files[source_path])
+                ):
+                    call_counts[process_entrypoint] = (
+                        call_counts.get(process_entrypoint, 0) + process_count
+                    )
+                call_count = call_counts.get(entrypoint, 0)
                 call_count *= int(
                     workflow_python_execution_counts.get(path, {}).get(
                         source_path, 1
@@ -4944,6 +5226,16 @@ def audit_texts(
                     f"expected={','.join(expected_write_findings)}:"
                     f"observed={','.join(write_findings)}"
                 )
+            immutable_write_findings = sorted(
+                finding
+                for finding in write_findings
+                if protected_authority_write_finding(finding)
+            )
+            if path in PROTECTED_NO_WRITER_ROLES and immutable_write_findings:
+                failures.append(
+                    f"protected_no_writer_authority_write_sink:{path}:"
+                    + ",".join(immutable_write_findings)
+                )
 
     root_paths = {
         str(path)
@@ -5025,6 +5317,7 @@ def audit_texts(
         "workflow_yaml_reachable_files": workflow_yaml_reachable,
         "workflow_action_implementation_files": workflow_action_implementations,
         "workflow_node_action_authority_findings": node_action_findings,
+        "workflow_docker_action_authority_findings": docker_action_findings,
         "workflow_python_execution_counts": workflow_python_execution_counts,
         "no_writer_reachable_authority_sensitive_modules": (
             observed_no_writer_reachable

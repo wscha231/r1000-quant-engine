@@ -1628,6 +1628,13 @@ def test_static_control_and_indirect_launch_edges_are_bound() -> None:
         'echo "$(python tools/build_run287_same_close_target_books.py)"\n'
     )
     assert len(MOD.executable_invocations(quoted_substitution, protected)) == 1
+    for process_substitution in (
+        "cat <(python tools/build_run287_same_close_target_books.py)\n",
+        "tee >(python tools/build_run287_same_close_target_books.py)\n",
+    ):
+        assert len(
+            MOD.executable_invocations(process_substitution, protected)
+        ) == 1
     shadowed_python = (
         "python() { :; }\n"
         "python tools/build_run287_same_close_target_books.py\n"
@@ -1643,6 +1650,39 @@ def test_static_control_and_indirect_launch_edges_are_bound() -> None:
         "atexit.register(writer.main)\n"
     )
     assert dict(MOD.python_main_call_counts(exit_callback))[protected] == 1
+    decorated_exit_callback = (
+        "import atexit\n"
+        "from tools import build_run287_same_close_target_books as writer\n"
+        "@atexit.register\n"
+        "def publish_at_exit():\n"
+        "    writer.main()\n"
+    )
+    assert (
+        dict(MOD.python_main_call_counts(decorated_exit_callback))[protected]
+        == 1
+    )
+
+    compiled_exec = (
+        "payload = 'from tools.build_run287_same_close_target_books "
+        "import main; main()'\n"
+        "exec(compile(payload, '<authority>', 'exec'))\n"
+    )
+    assert dict(MOD.python_main_call_counts(compiled_exec))[protected] == 1
+    assert any(
+        protected in payload
+        for payload in MOD.transitive_literal_python_sources(compiled_exec)
+    )
+
+    process_launches = (
+        "import subprocess\n"
+        "subprocess.run(['python', "
+        "'tools/build_run287_same_close_target_books.py'])\n"
+        "subprocess.run(['python', "
+        "'tools/build_run287_same_close_target_books.py'])\n"
+    )
+    assert dict(MOD.python_process_entrypoint_counts(process_launches))[
+        protected
+    ] == 2
 
     aliased_local_launcher = (
         "import tools.build_run287_same_close_target_books as writer\n"
@@ -1732,6 +1772,16 @@ def test_static_control_and_indirect_launch_edges_are_bound() -> None:
         MOD.PROTECTED_AUTHORITY_SENSITIVE_TERMS,
     ) == ("process-launch",)
 
+    assert not MOD.statically_disabled_workflow_condition(
+        "${{ false && cancelled() || true }}"
+    )
+    assert not MOD.statically_disabled_workflow_condition(
+        "${{ !true || true }}"
+    )
+    assert MOD.statically_disabled_workflow_condition(
+        "${{ false && cancelled() }}"
+    )
+
     ubuntu_records = MOD.workflow_run_records(
         "jobs:\n  audit:\n    runs-on: ubuntu-latest\n"
         "    steps:\n      - run: echo ready\n"
@@ -1795,6 +1845,43 @@ def test_static_control_and_indirect_launch_edges_are_bound() -> None:
         in failure
         for failure in multiplied_result["failures"]
     ), multiplied_result["failures"]
+
+    explicit_write_findings = MOD.authority_write_sinks(
+        "from pathlib import Path\n"
+        "Path('outputs/operating_main_target_book.csv').write_text('x')\n",
+        MOD.PROTECTED_AUTHORITY_WRITE_TERMS,
+    )
+    assert any(
+        MOD.protected_authority_write_finding(finding)
+        for finding in explicit_write_findings
+    )
+    assert not MOD.protected_authority_write_finding(
+        "line=1:write_text:UNRESOLVED_DESTINATION"
+    )
+
+    docker_action_text = "runs:\n  using: docker\n  image: Dockerfile\n"
+    assert MOD.local_action_runtime(docker_action_text) == "docker"
+    assert MOD.local_action_runtime(
+        "runs:\n  using: node20\n  main: index.js\n"
+    ) == "node20"
+
+    empty_selection = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "tools" / "run_pr_validation.py"),
+            "--only",
+            "__run287_missing_authority_test__",
+            "--quiet",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    assert empty_selection.returncode == 2
+    assert "selected zero tests" in empty_selection.stderr
 
 
 def test_protected_binding_schema_cannot_be_weakened() -> None:

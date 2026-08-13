@@ -90,6 +90,34 @@ Expected contract:
 
 ## Ledger
 
+### 2026-08-13 - Exact authority counts need ordered argv semantics
+
+- Agent: Codex GPT-5.6
+- Branch/PR/run: `codex/run287-dynamic-portfolio-call-path-contract-20260812`, PR #359
+- Context: Exact-head review found process-substitution, compiled exec,
+  decorated atexit, subprocess multiplicity, static-condition, local Docker,
+  immutable no-writer, and empty-selection CI bypasses.
+- Attempt: Extended the authority graph and initially reused the broad process
+  reachability candidate extractor for exact invocation counts.
+- Result: The broad extractor counted `.py` examples inside later test argv and
+  produced false writer workflows. Exact counts now parse ordered argv and
+  bind only the Python interpreter's actual script, `-m`, or `-c` operand.
+- Failure or caveat: Full-repository audit variants multiplied the authority
+  smoke runtime beyond 20 minutes before the new regressions were reduced to
+  focused fixtures and one canonical full audit.
+- Root cause: Conservative reachability and exact execution multiplicity have
+  different semantics and cannot share a candidate-union parser.
+- Reusable lesson: Keep fail-closed reachability broad, but derive immutable
+  execution counts from ordered, definite call bindings. Test security edge
+  classifiers directly instead of repeating the complete repository graph.
+- Next action: Require the split authority lane and exact-head review to pass
+  before merging PR #359.
+- Do-not-repeat: Do not refresh authority inventories to hide false positives,
+  and do not add redundant full-repository variants to a bounded CI lane.
+- Evidence files: `tools/audit_run287_dynamic_portfolio_call_paths.py`,
+  `tests/run287_dynamic_portfolio_call_path_smoke.py`,
+  `tools/run_pr_validation.py`
+
 ### 2026-07-10 - SEC identity coverage repaired and forward-only queue/ledger hardened
 
 - Agent: Codex GPT-5.6

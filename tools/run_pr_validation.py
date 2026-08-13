@@ -338,6 +338,12 @@ def main() -> int:
             for (p, a) in tests
             if not any(token in p for token in args.exclude)
         ]
+    if args.only and not tests:
+        print(
+            "ERROR: --only selected zero tests; refusing an empty validation lane",
+            file=sys.stderr,
+        )
+        return 2
 
     print("=" * 72)
     print(f"PR validation: {len(tests)} test files")
