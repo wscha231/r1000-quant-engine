@@ -65,14 +65,29 @@ PROTECTED_NO_WRITER_ROLES = {
 }
 PROTECTED_NO_WRITER_UNRESOLVED_SINK_HASHES = {
     ".github/workflows/daily_crisis_monitor.yml": (
-        "2b354f144cf2450d620b2dd48f983885b0d4b1dcdaaf082dccb22e9ef9e61518"
+        "0f8a1264fe965c3b3740895adba55d5af84e304ba178996dc2166c7392bf7643"
     ),
     ".github/workflows/unified_monthly.yml": (
-        "388d1dee63ad30a66f12f2036b39bd217906aedae7b0986ba0308467f66ca2dd"
+        "21614b950af6a9fb87a07aab3c4351953e85d2f66c6ba8838e8cd816cb19f22f"
     ),
     ".github/workflows/weekly_data_refresh.yml": (
-        "c8901c5289ac7d0382ad80c4b101bf80d2b80fcc9863fe5f59711dd875efb397"
+        "72180350bee814b7bfb558720d7ef757b99768883cc4bce068f2f65fae9e3753"
     ),
+}
+PROTECTED_REMOTE_ACTION_REVISIONS = {
+    "actions/cache": "0057852bfaa89a56745cba8c7296529d2fc39830",
+    "actions/checkout": "11d5960a326750d5838078e36cf38b85af677262",
+    "actions/setup-python": "a26af69be951a213d495a4c3e4e4022e16d87065",
+    "actions/upload-artifact": "ea165f8d65b6e75b540449e92b4886f43607fa02",
+}
+PROTECTED_DYNAMIC_COMPILE_SOURCE_HASHES = {
+    "tools/run287_pinned_git_import.py": (
+        "b7fa973ae0e4e456dbf2540d2ee57ca7273f1e7f3c8386bf843f0e4d4dc48ec7"
+    ),
+}
+PROTECTED_REMOTE_ACTION_WORKFLOWS = {
+    ".github/workflows/daily_operating_selection_refresh.yml",
+    *PROTECTED_NO_WRITER_ROLES,
 }
 IMPLICIT_UNKNOWN_RUNNER_SHELL = "__run287_implicit_unknown_runner_shell__"
 
@@ -940,6 +955,7 @@ def shell_logical_commands(text: str) -> list[tuple[int, str]]:
         commands: list[tuple[int, str]],
         stack: tuple[str, ...] = (),
         substitution_stack: tuple[str, ...] = (),
+        trap_stack: tuple[str, ...] = (),
     ) -> None:
         nonlocal expansion_budget
         for line, command in commands:
@@ -965,6 +981,7 @@ def shell_logical_commands(text: str) -> list[tuple[int, str]]:
                     [(line, payload)],
                     stack,
                     (*substitution_stack, payload),
+                    trap_stack,
                 )
             if any(
                 token.rsplit("/", 1)[-1] in shadowed_python_commands
@@ -984,6 +1001,37 @@ def shell_logical_commands(text: str) -> list[tuple[int, str]]:
                 strip_shell_comment(command),
             ):
                 result.append((line, SHELL_UNRESOLVED_CONTROL_SENTINEL))
+            for token_index, token in enumerate(tokens):
+                if (
+                    token.rsplit("/", 1)[-1] == "trap"
+                    and shell_command_position(tokens, token_index)
+                ):
+                    trap_tokens = tokens[token_index + 1:]
+                    action_index = next(
+                        (
+                            cursor
+                            for cursor, value in enumerate(trap_tokens)
+                            if not value.startswith("-")
+                        ),
+                        None,
+                    )
+                    if action_index is not None:
+                        action = trap_tokens[action_index]
+                        signals = {
+                            value.upper()
+                            for value in trap_tokens[action_index + 1:]
+                        }
+                        if action not in {"", "-"} and signals & {"0", "EXIT"}:
+                            if re.search(r"[$`]", action) or action in trap_stack:
+                                result.append((line, SHELL_UNRESOLVED_CONTROL_SENTINEL))
+                            else:
+                                expand(
+                                    [(line, action)],
+                                    stack,
+                                    substitution_stack,
+                                    (*trap_stack, action),
+                                )
+                    break
             for token_index, token in enumerate(tokens):
                 if token.rsplit("/", 1)[-1] != "xargs":
                     continue
@@ -1155,6 +1203,7 @@ def shell_command_position(tokens: list[str], index: int) -> bool:
             continue
         if executable in {
             "if", "then", "elif", "else", "while", "until", "do", "!", "{", "(",
+            "coproc",
         }:
             cursor += 1
             continue
@@ -1265,6 +1314,10 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
         "&>", "&>>",
     }
     options_with_values = {"-X", "-W", "--check-hash-based-pycs"}
+    terminal_options = {
+        "-h", "--help", "-V", "--version", "--help-env",
+        "--help-xoptions", "--help-all", "-VV",
+    }
     for line, command in shell_logical_commands(text):
         try:
             tokens = shell_tokens(command)
@@ -1435,6 +1488,8 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
                     break
                 if value == "-":
                     entrypoint = value
+                    break
+                if value in terminal_options:
                     break
                 if value in options_with_values:
                     cursor += 2
@@ -1674,6 +1729,36 @@ def literal_inprocess_python_sources(source: str) -> tuple[str, ...]:
     def literal_payloads(
         expression: ast.AST, *, allow_bytes: bool = False
     ) -> set[str]:
+        def finite_compile_values(
+            node: ast.AST, seen_names: frozenset[str] = frozenset()
+        ) -> tuple[set[str], bool]:
+            if isinstance(node, ast.Constant):
+                payload = literal_source(node.value)
+                return ({payload}, True) if payload is not None else (set(), False)
+            if isinstance(node, ast.Name):
+                if node.id in seen_names or node.id not in assignments:
+                    return set(), False
+                values: set[str] = set()
+                complete = True
+                for assigned in assignments[node.id]:
+                    found, resolved = finite_compile_values(
+                        assigned, seen_names | {node.id}
+                    )
+                    values.update(found)
+                    complete = complete and resolved
+                return values, complete and bool(assignments[node.id])
+            if isinstance(node, ast.IfExp):
+                left, left_complete = finite_compile_values(node.body, seen_names)
+                right, right_complete = finite_compile_values(node.orelse, seen_names)
+                return left | right, left_complete and right_complete
+            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+                left, left_complete = finite_compile_values(node.left, seen_names)
+                right, right_complete = finite_compile_values(node.right, seen_names)
+                if not left_complete or not right_complete or len(left) * len(right) > 128:
+                    return set(), False
+                return {prefix + suffix for prefix in left for suffix in right}, True
+            return set(), False
+
         values: set[str] = set()
         for bound in bound_expression_nodes(expression, assignments):
             if isinstance(bound, ast.Constant):
@@ -1690,7 +1775,10 @@ def literal_inprocess_python_sources(source: str) -> tuple[str, ...]:
                 and dotted_expression_name(bound.func) in compile_callables
                 and bound.args
             ):
-                values.update(literal_payloads(bound.args[0], allow_bytes=True))
+                compiled, complete = finite_compile_values(bound.args[0])
+                values.update(compiled)
+                if not complete:
+                    values.add(PYTHON_UNRESOLVED_COMPILE_PAYLOAD_SENTINEL)
         return values
 
     payloads: set[str] = set()
@@ -2394,7 +2482,10 @@ def _python_process_entrypoint_counts_direct(
             if operand in {"-W", "-X", "--check-hash-based-pycs"}:
                 cursor += 2
                 continue
-            if operand in {"-h", "--help", "-V", "--version"}:
+            if operand in {
+                "-h", "--help", "-V", "--version", "--help-env",
+                "--help-xoptions", "--help-all", "-VV",
+            }:
                 return set()
             if operand.startswith("-"):
                 cursor += 1
@@ -3077,7 +3168,7 @@ def argv_option_values(argv: list[str], option: str) -> list[str | None]:
     for index, value in enumerate(argv):
         if value == option:
             operand = argv[index + 1] if index + 1 < len(argv) else None
-            if operand is not None and operand.startswith("--"):
+            if operand is not None and operand.startswith("-"):
                 operand = None
             values.append(operand)
         elif value.startswith(prefix):
@@ -3160,7 +3251,7 @@ def shell_variable_occurrence_lines(text: str, variable: str) -> list[str]:
 
 
 def executable_shell_text(text: str) -> str:
-    """Blank heredoc bodies so inert text cannot satisfy shell contracts."""
+    """Blank inert heredocs but retain expansions executed by unquoted bodies."""
     lines = text.splitlines()
     result = list(lines)
     heredoc = HEREDOC_WORD
@@ -3171,9 +3262,18 @@ def executable_shell_text(text: str) -> str:
             index += 1
             continue
         delimiter = heredoc_delimiter(match)
+        quoted_delimiter = any(value is not None for value in match.groups()[:3])
         index += 1
         while index < len(lines) and lines[index].strip() != delimiter:
-            result[index] = ""
+            if quoted_delimiter:
+                result[index] = ""
+            else:
+                payloads, unresolved, _process = shell_command_substitution_payloads(
+                    lines[index]
+                )
+                result[index] = "\n".join(payloads)
+                if unresolved:
+                    result[index] += "\n" + SHELL_UNRESOLVED_CONTROL_SENTINEL
             index += 1
         if index < len(lines):
             result[index] = ""
@@ -3646,10 +3746,15 @@ def shell_authority_write_sinks(
             values = next_values
         return values
 
-    def record_destination(line: int, kind: str, destination: str) -> None:
+    def record_destination(
+        line: int, kind: str, destination: str, command: str
+    ) -> None:
         values = resolved_values(destination)
         if not values:
-            findings.add(f"line={line}:{kind}:UNRESOLVED_DESTINATION")
+            binding = hashlib.sha256(command.encode("utf-8")).hexdigest()[:16]
+            findings.add(
+                f"line={line}:{kind}:UNRESOLVED_DESTINATION:binding={binding}"
+            )
             return
         for value in sorted(values):
             terms = sensitive(value)
@@ -3690,7 +3795,7 @@ def shell_authority_write_sinks(
         for index, token in enumerate(tokens[:-1]):
             if token in redirections:
                 destination = tokens[index + 1]
-                record_destination(line, "redirect", destination)
+                record_destination(line, "redirect", destination, command)
         executable_index = next(
             (
                 index
@@ -3718,7 +3823,7 @@ def shell_authority_write_sinks(
                 else operands[-1:]
             )
             for destination in destinations:
-                record_destination(line, executable, destination)
+                record_destination(line, executable, destination, command)
         sed_index = next(
             (
                 index
@@ -3733,7 +3838,7 @@ def shell_authority_write_sinks(
         ):
             for destination in tokens[sed_index + 1:]:
                 if not destination.startswith("-"):
-                    record_destination(line, "sed-in-place", destination)
+                    record_destination(line, "sed-in-place", destination, command)
         recognized = redirections | copy_commands | {"sed", "dd"}
         for index, token in enumerate(tokens):
             if not shell_command_position(tokens, index):
@@ -3753,7 +3858,7 @@ def shell_authority_write_sinks(
         for token in tokens:
             if token.startswith("of="):
                 destination = token[3:]
-                record_destination(line, "dd", destination)
+                record_destination(line, "dd", destination, command)
     return tuple(sorted(findings))
 
 
@@ -3964,7 +4069,11 @@ def statically_disabled_workflow_condition(value: Any) -> bool:
                 left, right = (scalar(part) for part in comparison)
                 if left is Ellipsis or right is Ellipsis:
                     return None
-                equal = left == right
+                equal = (
+                    left.casefold() == right.casefold()
+                    if isinstance(left, str) and isinstance(right, str)
+                    else left == right
+                )
                 return equal if operator == "==" else not equal
         if item.startswith("!") and not item.startswith("!="):
             nested = evaluate(item[1:])
@@ -3988,6 +4097,66 @@ def resolve_local_action_path_expressions(source: str, source_path: str) -> str:
         .replace("${GITHUB_ACTION_PATH}", action_dir)
         .replace("$GITHUB_ACTION_PATH", action_dir)
     )
+
+
+def active_workflow_jobs(jobs: Mapping[str, Any]) -> set[str]:
+    """Return jobs that can run after definite conditions and skipped needs."""
+    disabled = {
+        str(job_id)
+        for job_id, job in jobs.items()
+        if isinstance(job, dict)
+        and statically_disabled_workflow_condition(job.get("if"))
+    }
+    changed = True
+    while changed:
+        changed = False
+        for job_id, job in jobs.items():
+            job_id = str(job_id)
+            if job_id in disabled or not isinstance(job, dict):
+                continue
+            condition = str(job.get("if") or "")
+            if re.search(r"\balways\s*\(", condition, re.IGNORECASE):
+                continue
+            needs_value = job.get("needs")
+            needs = needs_value if isinstance(needs_value, list) else [needs_value]
+            if any(str(need) in disabled for need in needs if need is not None):
+                disabled.add(job_id)
+                changed = True
+    return {str(job_id) for job_id in jobs if str(job_id) not in disabled}
+
+
+def protected_remote_action_findings(text: str) -> tuple[str, ...]:
+    """Reject unreviewed or mutable remote action execution."""
+    try:
+        payload = yaml.load(text, Loader=yaml.BaseLoader)
+    except yaml.YAMLError:
+        return ("invalid-workflow-yaml",)
+    findings: set[str] = set()
+
+    def inspect(container: Any) -> None:
+        if not isinstance(container, dict):
+            return
+        if statically_disabled_workflow_condition(container.get("if")):
+            return
+        value = container.get("uses")
+        if isinstance(value, str) and not value.startswith("./"):
+            action, separator, revision = value.partition("@")
+            reviewed_action = (
+                "actions/cache" if action.startswith("actions/cache/") else action
+            )
+            expected = PROTECTED_REMOTE_ACTION_REVISIONS.get(reviewed_action)
+            if not separator or expected is None or revision != expected:
+                findings.add(f"unreviewed-remote-action:{value}")
+        steps = container.get("steps")
+        if isinstance(steps, list):
+            for step in steps:
+                inspect(step)
+
+    jobs = payload.get("jobs") if isinstance(payload, dict) else None
+    if isinstance(jobs, dict):
+        for job_id in active_workflow_jobs(jobs):
+            inspect(jobs[job_id])
+    return tuple(sorted(findings))
 
 
 @lru_cache(maxsize=512)
@@ -4145,10 +4314,9 @@ def workflow_run_records(
             return IMPLICIT_UNKNOWN_RUNNER_SHELL
 
         if isinstance(jobs, dict):
-            for job in jobs.values():
+            for job_id in active_workflow_jobs(jobs):
+                job = jobs[job_id]
                 if not isinstance(job, dict):
-                    continue
-                if statically_disabled_workflow_condition(job.get("if")):
                     continue
                 if isinstance(job.get("strategy"), dict) and "matrix" in job["strategy"]:
                     blocks.append(("", SHELL_UNRESOLVED_CONTROL_SENTINEL, ""))
@@ -4420,8 +4588,8 @@ def local_uses_path_occurrences(text: str, known_paths: set[str]) -> list[str]:
                 active_uses(step)
 
     if isinstance(payload, dict) and isinstance(payload.get("jobs"), dict):
-        for job in payload["jobs"].values():
-            active_uses(job)
+        for job_id in active_workflow_jobs(payload["jobs"]):
+            active_uses(payload["jobs"][job_id])
     elif isinstance(payload, dict) and isinstance(payload.get("runs"), dict):
         active_uses(payload["runs"])
     else:
@@ -4495,6 +4663,63 @@ def local_shell_script_paths(
     return result
 
 
+def local_shell_script_launches(
+    text: str,
+    known_paths: set[str],
+    working_directory: str = "",
+    default_shell: str = "",
+) -> tuple[set[tuple[str, str, str]], bool]:
+    """Resolve local shell launches with runtime dialect and cwd provenance."""
+    result: set[tuple[str, str, str]] = set()
+    unresolved = False
+    shells = {"bash", "sh", "dash", "zsh", "ksh"}
+    for candidate in shell_script_candidates(text):
+        resolved = resolve_working_directory_path(candidate, working_directory)
+        matches = [resolved] if resolved in known_paths else sorted(
+            path for path in known_paths if Path(path).name == Path(resolved).name
+        )
+        if len(matches) > 1:
+            unresolved = True
+            continue
+        if not matches:
+            continue
+        dialect = default_shell
+        pattern = re.compile(
+            rf"(?:^|[;&|]\s*)(bash|sh|dash|zsh|ksh)\s+(?:-[^\s]+\s+)*"
+            rf"(?:{re.escape(candidate)}|{re.escape(resolved)})(?:\s|$)"
+        )
+        match = pattern.search(executable_shell_text(text))
+        if match and match.group(1) in shells:
+            dialect = match.group(1)
+        result.add((matches[0], dialect, working_directory))
+    return result, unresolved
+
+
+def reachable_shell_execution_contexts(
+    roots: set[tuple[str, str, str]], sources: Mapping[str, str]
+) -> tuple[set[tuple[str, str, str]], bool]:
+    """Traverse shell helpers without dropping interpreter or runtime cwd."""
+    known = set(sources)
+    seen: set[tuple[str, str, str]] = set()
+    stack = sorted(roots)
+    unresolved = False
+    while stack:
+        context = stack.pop()
+        if context in seen:
+            continue
+        seen.add(context)
+        path, dialect, working_directory = context
+        if path not in sources:
+            unresolved = True
+            continue
+        children, child_unresolved = local_shell_script_launches(
+            sources[path], known, working_directory, dialect
+        )
+        unresolved |= child_unresolved
+        stack.extend(child for child in sorted(children) if child not in seen)
+    return seen, unresolved
+
+
 def reachable_shell_paths(
     roots: set[str], sources: Mapping[str, str]
 ) -> set[str]:
@@ -4548,6 +4773,8 @@ def audit_texts(
     unsupported_process_substitution_shells: list[
         tuple[str, str, str]
     ] = []
+    unresolved_shell_helper_paths: list[tuple[str, str]] = []
+    protected_remote_action_violations: list[tuple[str, str]] = []
     for path, text in sorted(workflows.items()):
         yaml_execution_counts, yaml_cycle = reachable_local_yaml_execution_counts(
             path, text, yaml_sources
@@ -4570,6 +4797,11 @@ def audit_texts(
         caller_pythonpaths = workflow_pythonpath_values(text)
         caller_bash_envs = workflow_bash_env_values(text)
         workflow_yaml_texts[path] = sources
+        if path in PROTECTED_REMOTE_ACTION_WORKFLOWS:
+            protected_remote_action_violations.extend(
+                (path, finding)
+                for finding in protected_remote_action_findings(text)
+            )
         run_records = [
             (yaml_path, shell, source, workdir)
             for yaml_path, yaml_text in sources
@@ -4612,6 +4844,7 @@ def audit_texts(
         references: set[str] = set()
         embedded: list[dict[str, Any]] = []
         shell_roots: set[str] = set()
+        shell_context_roots: set[tuple[str, str, str]] = set()
         for yaml_path, shell, run_text, workdir in workflow_run_record_map[path]:
             if python_declared_shell(shell):
                 embedded.append(
@@ -4641,7 +4874,25 @@ def audit_texts(
             shell_roots.update(
                 local_shell_script_paths(run_text, known_shell_paths, workdir)
             )
+            launches, unresolved_launch = local_shell_script_launches(
+                run_text, known_shell_paths, workdir, shell
+            )
+            shell_context_roots.update(launches)
+            if unresolved_launch:
+                unresolved_shell_helper_paths.append((path, yaml_path))
+        shell_contexts, unresolved_context = reachable_shell_execution_contexts(
+            shell_context_roots, shell_sources
+        )
+        if unresolved_context:
+            unresolved_shell_helper_paths.append((path, "transitive-shell-helper"))
+        unsupported_process_substitution_shells.extend(
+            (path, shell_path, dialect)
+            for shell_path, dialect, _workdir in shell_contexts
+            if shell_uses_process_substitution(shell_sources[shell_path])
+            and not process_substitution_shell_supported(dialect)
+        )
         shell_reachable: set[str] = set()
+        shell_reachable.update(shell_path for shell_path, _dialect, _cwd in shell_contexts)
         reachable: set[str] = set()
         processed_shells: set[str] = set()
         processed_embedded = 0
@@ -4775,7 +5026,15 @@ def audit_texts(
     )
     failures.extend(
         f"unsupported_process_substitution_shell:{path}:{yaml_path}:{shell}"
-        for path, yaml_path, shell in unsupported_process_substitution_shells
+        for path, yaml_path, shell in sorted(set(unsupported_process_substitution_shells))
+    )
+    failures.extend(
+        f"unresolved_shell_helper_path:{path}:{source}"
+        for path, source in sorted(set(unresolved_shell_helper_paths))
+    )
+    failures.extend(
+        f"protected_remote_action_violation:{path}:{finding}"
+        for path, finding in sorted(set(protected_remote_action_violations))
     )
     failures.extend(
         f"unresolved_python_entrypoint:{path}:{row.get('yaml_path', path)}:"
@@ -4865,7 +5124,14 @@ def audit_texts(
                 failures.append(
                     f"dynamic_exec_budget_exceeded:{path}:{source_path}"
                 )
-            if PYTHON_UNRESOLVED_COMPILE_PAYLOAD_SENTINEL in dynamic_sources:
+            reviewed_dynamic_compile = (
+                PROTECTED_DYNAMIC_COMPILE_SOURCE_HASHES.get(source_path)
+                == text_sha256(source)
+            )
+            if (
+                PYTHON_UNRESOLVED_COMPILE_PAYLOAD_SENTINEL in dynamic_sources
+                and not reviewed_dynamic_compile
+            ):
                 failures.append(
                     f"unresolved_compile_payload:{path}:{source_path}"
                 )

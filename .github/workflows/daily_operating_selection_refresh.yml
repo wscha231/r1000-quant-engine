@@ -72,12 +72,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 1
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12'
           cache: 'pip'
@@ -135,7 +135,7 @@ jobs:
 
       - name: Restore GitHub cache
         if: steps.market.outputs.ready == 'yes'
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: |
             cache_prices
@@ -473,14 +473,14 @@ jobs:
       - name: Restore Run287 research-static archive cache
         if: steps.market.outputs.ready == 'yes'
         id: run287-research-static-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: run287_static_archive/run287_exact_static_archive_v1.zip
           key: run287-research-static-${{ runner.os }}-66ca4b6a6a61cb7e-v1
 
       - name: Restore validated forward paper state cache
         if: steps.market.outputs.ready == 'yes' && steps.market.outputs.catchup_mode != 'yes'
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: |
             outputs/holding_risk_watch
@@ -499,7 +499,7 @@ jobs:
 
       - name: Restore validated cross-mode paper continuity cache
         if: steps.market.outputs.ready == 'yes'
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: |
             outputs/daily_simulated_fill_ledger
@@ -1653,7 +1653,7 @@ jobs:
 
       - name: Save Run287 research-static archive cache
         if: steps.market.outputs.ready == 'yes' && steps.run287-research-static-cache.outputs.cache-hit != 'true' && steps.run287-research-static.outputs.ready == 'yes'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: run287_static_archive/run287_exact_static_archive_v1.zip
           key: run287-research-static-${{ runner.os }}-66ca4b6a6a61cb7e-v1
@@ -3375,7 +3375,7 @@ jobs:
 
       - name: Upload daily operating evidence artifact
         if: always() && steps.market.outputs.ready == 'yes' && steps.market.outputs.catchup_mode != 'yes'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: daily-operating-selection-refresh-${{ github.run_id }}
           path: |
@@ -4266,7 +4266,7 @@ jobs:
 
       - name: Upload accepted paper transaction artifact
         if: success() && steps.market.outputs.ready == 'yes' && steps.paper_transaction.outcome == 'success' && steps.paper_integrity.outcome == 'success' && steps.risk_outcomes.outcome == 'success' && steps.operating_scorecard.outcome == 'success' && steps.promotion_gate.outcome == 'success' && steps.operating_review.outcome == 'success' && steps.accepted_publication.outcome == 'success' && steps.paper_persist.outcome == 'success' && steps.accepted_refresh_preflight.outcome == 'success' && steps.default_head_publication_gate.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: accepted-paper-transaction-${{ github.run_id }}
           path: |
@@ -4296,7 +4296,7 @@ jobs:
 
       - name: Upload accepted chronological catch-up artifact
         if: success() && steps.market.outputs.ready == 'yes' && steps.market.outputs.catchup_mode == 'yes' && steps.paper_transaction.outcome == 'success' && steps.paper_integrity.outcome == 'success' && steps.paper_persist.outcome == 'success' && steps.default_head_publication_gate.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: accepted-paper-catchup-${{ env.LAST_NYSE_SESSION_DATE }}-${{ github.run_id }}
           path: |
@@ -4331,7 +4331,7 @@ jobs:
 
       - name: Upload chronological catch-up diagnostics
         if: always() && steps.market.outputs.ready == 'yes' && steps.market.outputs.catchup_mode == 'yes' && (steps.paper_persist.outcome != 'success' || steps.default_head_publication_gate.outcome != 'success')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: blocked-paper-catchup-${{ env.LAST_NYSE_SESSION_DATE }}-${{ github.run_id }}
           path: |
@@ -4377,7 +4377,7 @@ jobs:
 
       - name: Save validated forward paper state cache
         if: success() && steps.market.outputs.ready == 'yes' && steps.market.outputs.catchup_mode != 'yes' && steps.paper_persist.outcome == 'success' && steps.accepted_refresh_preflight.outcome == 'success' && steps.default_head_publication_gate.outcome == 'success' && steps.default_head_cache_gate.outcome == 'success'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: |
             outputs/holding_risk_watch
@@ -4394,7 +4394,7 @@ jobs:
 
       - name: Save validated cross-mode paper continuity cache
         if: success() && steps.market.outputs.ready == 'yes' && steps.paper_persist.outcome == 'success' && steps.default_head_publication_gate.outcome == 'success' && steps.default_head_cache_gate.outcome == 'success'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: |
             outputs/daily_simulated_fill_ledger
@@ -4476,7 +4476,7 @@ jobs:
 
       - name: Save refreshed GitHub cache
         if: success() && steps.market.outputs.ready == 'yes' && steps.market.outputs.catchup_mode != 'yes' && steps.accepted_publication.outcome == 'success' && steps.accepted_refresh_preflight.outcome == 'success' && steps.final_default_head_gate.outcome == 'success'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: |
             cache_prices

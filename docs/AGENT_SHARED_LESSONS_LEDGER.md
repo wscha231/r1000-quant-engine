@@ -90,6 +90,33 @@ Expected contract:
 
 ## Ledger
 
+### 2026-08-13 - Authority graphs must retain caller runtime context
+
+- Agent: Codex GPT-5.6
+- Branch/PR/run: `codex/run287-dynamic-portfolio-call-path-contract-20260812`, PR #359
+- Context: Exact-head review found twelve final execution-context gaps after
+  direct interpreter and sink semantics were hardened.
+- Attempt: Propagated shell dialect and working directory through helper calls,
+  modeled skipped `needs`, EXIT traps, coprocesses, unquoted-heredoc expansion,
+  complete Python help options and compile expressions, and bound unresolved
+  redirects to command source. Protected workflows now pin reviewed remote
+  actions to immutable commit SHAs.
+- Result: Focused regressions cover every reported bypass; the full repository
+  authority audit is the remaining exact-head acceptance check.
+- Failure or caveat: A correct token parser is still unsafe if it forgets the
+  caller's shell, cwd, dependency status, or remotely supplied executable code.
+- Root cause: Execution authority is a contextual graph property, not a set of
+  file names or matching command strings.
+- Reusable lesson: Carry runtime context across every graph edge and make
+  external executable dependencies immutable before certifying sole-writer or
+  no-writer contracts.
+- Next action: Bind the recalculated fingerprints, pass dual-runtime and CI
+  audits, obtain zero unresolved exact-head review threads, then merge PR #359.
+- Do-not-repeat: Do not approve a refreshed workflow fingerprint while helper
+  context or remote action revisions remain semantically unbound.
+- Evidence files: `tools/audit_run287_dynamic_portfolio_call_paths.py`,
+  `tests/run287_dynamic_portfolio_call_path_smoke.py`, protected workflow YAMLs
+
 ### 2026-08-13 - Authority parsers must preserve runtime language semantics
 
 - Agent: Codex GPT-5.6

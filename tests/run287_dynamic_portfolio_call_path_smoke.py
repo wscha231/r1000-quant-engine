@@ -2489,6 +2489,80 @@ def test_run_audit_binds_no_writer_traversal_sources_to_head() -> None:
         assert any("tools/neutral.py" in row for row in dirty["dirty_input_records"])
 
 
+def test_final_runtime_semantics_and_remote_actions_fail_closed() -> None:
+    writer = "tools/build_run287_same_close_target_books.py"
+    assert MOD.statically_disabled_workflow_condition("${{ 'RUN' != 'run' }}")
+    assert not MOD.statically_disabled_workflow_condition("${{ 'RUN' == 'run' }}")
+    assert not any(
+        row["entrypoint"] == writer
+        for row in MOD.python_invocations(f"python --help-env {writer}")
+    )
+    assert any(
+        row["entrypoint"] == writer
+        for row in MOD.python_invocations(f"coproc python {writer}")
+    )
+    assert any(
+        row["entrypoint"] == writer
+        for row in MOD.python_invocations(f"trap 'python {writer}' EXIT")
+    )
+    assert any(
+        row["entrypoint"] == writer
+        for row in MOD.python_invocations(
+            f"cat <<EOF\n$(python {writer})\nEOF"
+        )
+    )
+    compiled = (
+        "exec(compile(b'import tools.build_run287_same_close_target_books as w;' "
+        "+ b'w.main()', '<x>', 'exec'))"
+    )
+    assert writer in MOD.local_import_candidates(compiled, "tools/helper.py")
+    assert MOD.argv_option_values(
+        [writer, "--producer-status", "-h"], "--producer-status"
+    ) == [None]
+    jobs = {
+        "gate": {"if": "${{ false }}"},
+        "writer": {"needs": "gate"},
+        "cleanup": {"needs": "gate", "if": "${{ always() }}"},
+    }
+    assert MOD.active_workflow_jobs(jobs) == {"cleanup"}
+
+    shell_sources = {
+        "tools/a/outer.sh": "sh helper.sh",
+        "tools/a/helper.sh": f"cat <(python {writer})",
+        "tools/b/helper.sh": "echo inert",
+    }
+    roots, unresolved = MOD.local_shell_script_launches(
+        "bash outer.sh", set(shell_sources), "tools/a", "bash"
+    )
+    assert unresolved is False
+    contexts, unresolved = MOD.reachable_shell_execution_contexts(
+        roots, shell_sources
+    )
+    assert unresolved is False
+    assert ("tools/a/helper.sh", "sh", "tools/a") in contexts
+    assert MOD.shell_uses_process_substitution(shell_sources["tools/a/helper.sh"])
+    assert MOD.process_substitution_shell_supported("sh") is False
+
+    unresolved_a = MOD.shell_authority_write_sinks(
+        "echo ok > $GITHUB_OUTPUT", tuple(MOD.PROTECTED_AUTHORITY_WRITE_TERMS)
+    )
+    unresolved_b = MOD.shell_authority_write_sinks(
+        "echo changed > $GITHUB_OUTPUT", tuple(MOD.PROTECTED_AUTHORITY_WRITE_TERMS)
+    )
+    assert unresolved_a != unresolved_b
+    assert MOD.protected_remote_action_findings(
+        "jobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: evil/action@v1\n"
+    )
+    assert not MOD.protected_remote_action_findings(
+        "jobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n"
+        "      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262\n"
+    )
+    pinned_loader = ROOT / "tools" / "run287_pinned_git_import.py"
+    assert MOD.PROTECTED_DYNAMIC_COMPILE_SOURCE_HASHES[
+        "tools/run287_pinned_git_import.py"
+    ] == MOD.text_sha256(pinned_loader.read_text(encoding="utf-8"))
+
+
 def main() -> int:
     test_current_repository_passes_and_has_one_accepted_writer()
     test_second_writer_and_legacy_exit_reachability_fail_closed()
@@ -2506,6 +2580,7 @@ def main() -> int:
     test_execution_defaults_are_bound_to_named_inputs()
     test_dirty_input_is_not_attributed_to_head_and_defaults_follow_repo_root()
     test_run_audit_binds_no_writer_traversal_sources_to_head()
+    test_final_runtime_semantics_and_remote_actions_fail_closed()
     print("run287 dynamic portfolio call-path smoke: PASS")
     return 0
 
