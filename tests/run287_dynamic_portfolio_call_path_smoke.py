@@ -2272,7 +2272,7 @@ def test_run_audit_binds_no_writer_traversal_sources_to_head() -> None:
         observer_workflow = ".github/workflows/observer.yml"
         workflow_texts = {
             accepted_workflow: (
-                "jobs:\n  run:\n    steps:\n"
+                "jobs:\n  run:\n    runs-on: ubuntu-latest\n    steps:\n"
                 "      - run: python tools/build_run287_same_close_target_books.py "
                 "--producer-status ready --freshness-status ready "
                 "--valuation-date 2026-08-12 --output-dir outputs\n"
@@ -2286,11 +2286,17 @@ def test_run_audit_binds_no_writer_traversal_sources_to_head() -> None:
                 "--cost-bps 25\n"
             ),
             observer_workflow: (
-                "jobs:\n  run:\n    steps:\n"
+                "jobs:\n  run:\n    runs-on: ubuntu-latest\n    steps:\n"
                 "      - uses: ./tools/neutral-action\n"
                 "      - uses: ./tools/node-action\n"
             ),
         }
+        for protected_workflow in MOD.PROTECTED_NO_WRITER_ROLES:
+            workflow_texts.setdefault(
+                protected_workflow,
+                "jobs:\n  observe:\n    runs-on: ubuntu-latest\n    steps:\n"
+                "      - run: echo observed\n",
+            )
         for path, text in workflow_texts.items():
             target = root / path
             target.write_text(text, encoding="utf-8")
@@ -2325,6 +2331,10 @@ def test_run_audit_binds_no_writer_traversal_sources_to_head() -> None:
         )
         neutral = root / "tools" / "neutral.py"
         neutral.write_text("VALUE = 1\n", encoding="utf-8")
+        (root / MOD.PROTECTED_DEPENDENCY_LOCK).write_text(
+            (ROOT / MOD.PROTECTED_DEPENDENCY_LOCK).read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
         contract = {
             "schema_version": MOD.SCHEMA_VERSION,
             "status": "RESEARCH_ONLY_STATIC_AUTHORITY_CONTRACT",
@@ -2338,6 +2348,7 @@ def test_run_audit_binds_no_writer_traversal_sources_to_head() -> None:
             "workflow_roles": {
                 accepted_workflow: "accepted_daily_target",
                 observer_workflow: "state_observer_no_target_writer",
+                **MOD.PROTECTED_NO_WRITER_ROLES,
             },
             "entrypoint_bindings": [
                 {
@@ -2358,9 +2369,17 @@ def test_run_audit_binds_no_writer_traversal_sources_to_head() -> None:
                 "tools/run_daily_simulated_fill_ledger.py",
             ]},
             "no_writer_reachable_authority_sensitive_modules": {
-                observer_workflow: []
+                observer_workflow: [],
+                **{
+                    path: [] for path in MOD.PROTECTED_NO_WRITER_ROLES
+                },
             },
-            "no_writer_authority_write_sinks": {observer_workflow: []},
+            "no_writer_authority_write_sinks": {
+                observer_workflow: [],
+                **{
+                    path: [] for path in MOD.PROTECTED_NO_WRITER_ROLES
+                },
+            },
             "accepted_daily_workflow": accepted_workflow,
             "accepted_path_files": [
                 accepted_workflow,
