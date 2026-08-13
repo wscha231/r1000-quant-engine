@@ -2660,6 +2660,26 @@ def test_final_runtime_semantics_and_remote_actions_fail_closed() -> None:
     )
     assert MOD.unresolved_shell_stdin_execution("bash < /tmp/payload.sh")
     assert not MOD.unresolved_shell_stdin_execution("bash tools/helper.sh")
+    assert writer not in MOD.python_entrypoints(
+        f"false || exit 0; python {writer} --required value"
+    )
+    assert not MOD.supported_declared_shell("bash --rcfile {0}")
+    assert not MOD.supported_declared_shell("bash --init-file {0}")
+    assert MOD.resolve_known_python_operand(
+        "tools/neutral_app", {"tools/neutral_app/__main__.py"}
+    ) == "tools/neutral_app/__main__.py"
+    scoped_assignment = (
+        f"CMD='python {writer} --required value' true\n$CMD || true"
+    )
+    assert writer not in MOD.python_entrypoints(scoped_assignment)
+    persistent_assignment = (
+        f"CMD='python {writer} --required value'\n$CMD || true"
+    )
+    assert writer in MOD.python_entrypoints(persistent_assignment)
+    path_shadow = MOD.python_invocations(
+        f"PATH=tools/fake:$PATH python {writer} --required value"
+    )
+    assert path_shadow and path_shadow[0]["path_override"] is True
     shell_sequence = (
         "import subprocess\n"
         f"subprocess.run(['python {writer} --required value'], shell=True)\n"
@@ -2811,6 +2831,53 @@ def test_final_runtime_semantics_and_remote_actions_fail_closed() -> None:
     ).read_text(encoding="utf-8")
     assert not MOD.protected_dependency_lock_findings(dependency_lock)
     assert MOD.protected_dependency_lock_findings("pandas>=2\n")
+    unresolved_node_write = MOD.node_action_authority_findings(
+        "tools/action/index.js",
+        "writeFileSync(['outputs/main_', 'tar', 'get.csv'].join(''), data);",
+        tuple(MOD.PROTECTED_AUTHORITY_WRITE_TERMS),
+    )
+    assert "unresolved-write-destination" in unresolved_node_write
+    assert MOD.python_shebang_source("#!/usr/bin/env python3\nprint('ok')\n")
+    shebang_source = (
+        "#!/usr/bin/env python3\n"
+        "import tools.build_run287_same_close_target_books as writer\n"
+    )
+    shebang_refs = MOD.workflow_local_references(
+        "workflow.yml",
+        "tools/extensionless",
+        {"tools/extensionless": shebang_source, writer: ""},
+        {"tools/extensionless", writer},
+    )
+    assert "tools/extensionless" in shebang_refs
+    action_path = "tools/input-action/action.yml"
+    action_source = (
+        "inputs:\n"
+        "  command:\n"
+        "    required: true\n"
+        "runs:\n"
+        "  using: composite\n"
+        "  steps:\n"
+        "    - shell: bash\n"
+        "      run: ${{ inputs.command }}\n"
+    )
+    input_workflow = (
+        "jobs:\n"
+        "  caller:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        f"      - uses: ./{action_path}\n"
+        "        with:\n"
+        f"          command: python {writer} --required value\n"
+    )
+    input_contexts, input_cycle = MOD.reachable_local_yaml_execution_bindings(
+        "workflow.yml", input_workflow, {action_path: action_source}
+    )
+    assert input_cycle is False and len(input_contexts) == 1
+    _path, _pythonpath, _bash_env, input_bindings = input_contexts[0]
+    input_records = MOD.workflow_run_records(
+        action_source, action_path, (), (), input_bindings
+    )
+    assert writer in MOD.python_entrypoints(input_records[0][1])
     pinned_loader = ROOT / "tools" / "run287_pinned_git_import.py"
     assert MOD.PROTECTED_DYNAMIC_COMPILE_SOURCE_HASHES[
         "tools/run287_pinned_git_import.py"

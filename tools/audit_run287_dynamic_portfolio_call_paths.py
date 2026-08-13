@@ -278,11 +278,38 @@ def workflow_texts(root: Path, paths: list[str]) -> dict[str, str]:
     }
 
 
+def python_shebang_source(source: str) -> bool:
+    """Return whether an extensionless text file declares Python execution."""
+    first_line = source.splitlines()[0] if source.splitlines() else ""
+    return bool(
+        re.match(
+            r"^#!\s*(?:/usr/bin/env(?:\s+-S)?\s+|\S*/)?python(?:3(?:\.\d+)?)?(?:\s|$)",
+            first_line,
+        )
+    )
+
+
+def tracked_python_shebang_paths(root: Path, tracked: set[str]) -> set[str]:
+    result: set[str] = set()
+    for path in tracked:
+        if Path(path).suffix:
+            continue
+        try:
+            source = (root / path).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if python_shebang_source(source):
+            result.add(path)
+    return result
+
+
 @lru_cache(maxsize=16)
 def tracked_python_paths(root: Path) -> list[str]:
     """Discover tracked Python sources, including arbitrary interpreter operands."""
     tracked = set(tracked_file_paths(root))
-    paths = {path for path in tracked if path.endswith(".py")}
+    paths = {
+        path for path in tracked if path.endswith(".py")
+    } | tracked_python_shebang_paths(root, tracked)
     seed_paths = {
         path
         for path in tracked
@@ -322,9 +349,12 @@ def tracked_python_paths(root: Path) -> list[str]:
                 candidates.update(python_entrypoints(source))
         new_paths: set[str] = set()
         for candidate in candidates:
+            package_main = f"{candidate.rstrip('/')}/__main__.py"
             matches = (
                 [candidate]
                 if candidate in tracked
+                else [package_main]
+                if package_main in tracked
                 else by_name.get(Path(candidate).name, [])
             )
             if len(matches) != 1:
@@ -381,11 +411,13 @@ def tracked_file_paths(root: Path) -> list[str]:
 def tracked_shell_paths(root: Path) -> list[str]:
     """Discover tracked shell sources, including arbitrary interpreter operands."""
     tracked = set(tracked_file_paths(root))
+    python_shebangs = tracked_python_shebang_paths(root, tracked)
     paths = {
         path
         for path in tracked
         if path.endswith(".sh") or (
             not Path(path).suffix and not path.endswith((".py", ".yml", ".yaml"))
+            and path not in python_shebangs
         )
     }
     seed_paths = {
@@ -578,8 +610,12 @@ def node_action_authority_findings(
     authority_terms = sorted(
         term for term in sensitive_terms if term.casefold() in lowered
     )
-    if write_api and authority_terms:
-        findings.add("authority-write:" + ",".join(authority_terms))
+    if write_api:
+        findings.add(
+            "authority-write:" + ",".join(authority_terms)
+            if authority_terms
+            else "unresolved-write-destination"
+        )
     return tuple(sorted(findings))
 
 
@@ -826,6 +862,71 @@ def process_substitution_shell_supported(shell: str) -> bool:
     return Path(executable).name.casefold() in {"bash", "zsh", "ksh"}
 
 
+def deterministic_scope_termination_end(
+    tokens: list[str], allow_return: bool = False
+) -> int | None:
+    """Return the token end where every literal status path has terminated."""
+    segments: list[tuple[int, int, str | None]] = []
+    start = 0
+    incoming: str | None = None
+    for index, token in enumerate(tokens):
+        if token not in {";", "&&", "||", "&", "|", "(", ")", "{", "}"}:
+            continue
+        if token in {"&", "|", "(", ")", "{", "}"}:
+            return None
+        if start < index:
+            segments.append((start, index, incoming))
+        start = index + 1
+        incoming = token
+    if start < len(tokens):
+        segments.append((start, len(tokens), incoming))
+    alive_statuses: set[int] = {0}
+    for segment_index, (segment_start, segment_end, operator) in enumerate(segments):
+        if segment_index == 0 or operator == ";":
+            executes = set(alive_statuses)
+            skipped: set[int] = set()
+        elif operator == "&&":
+            executes = {status for status in alive_statuses if status == 0}
+            skipped = alive_statuses - executes
+        elif operator == "||":
+            executes = {status for status in alive_statuses if status != 0}
+            skipped = alive_statuses - executes
+        else:
+            return None
+        if not executes:
+            alive_statuses = skipped
+            continue
+        segment = tokens[segment_start:segment_end]
+        executable_index = next(
+            (
+                index
+                for index, _token in enumerate(segment)
+                if shell_command_position(segment, index)
+                and not SHELL_ASSIGNMENT_WORD.fullmatch(segment[index])
+            ),
+            None,
+        )
+        if executable_index is None:
+            command_statuses = {0}
+            terminates = False
+        else:
+            executable = segment[executable_index].rsplit("/", 1)[-1]
+            terminates = executable == "exit" or (
+                executable == "return" and allow_return
+            )
+            command_statuses = (
+                {0}
+                if executable in {"true", ":"}
+                else {1}
+                if executable == "false"
+                else {0, 1}
+            )
+        alive_statuses = skipped if terminates else skipped | command_statuses
+        if not alive_statuses:
+            return segment_end
+    return None
+
+
 def shell_logical_commands(text: str) -> list[tuple[int, str]]:
     """Return commands that execute, expanding definite local shell calls."""
     raw = _multiline_static_control_commands(_raw_shell_logical_commands(text))
@@ -979,39 +1080,16 @@ def shell_logical_commands(text: str) -> list[tuple[int, str]]:
             except ValueError:
                 result.append((line, command))
                 continue
-            first_executable_index = next(
-                (
-                    token_index
-                    for token_index, token in enumerate(tokens)
-                    if not SHELL_ASSIGNMENT_WORD.fullmatch(token)
-                    and shell_command_position(tokens, token_index)
-                ),
-                None,
-            )
-            terminates_scope = bool(
-                control_depth == 0
-                and first_executable_index is not None
-                and (
-                    tokens[first_executable_index].rsplit("/", 1)[-1] == "exit"
-                    or (
-                        tokens[first_executable_index].rsplit("/", 1)[-1]
-                        == "return"
-                        and bool(stack)
-                    )
-                )
-            )
             effective_command = command
-            if terminates_scope and first_executable_index is not None:
-                command_end = next(
-                    (
-                        cursor
-                        for cursor in range(first_executable_index + 1, len(tokens))
-                        if tokens[cursor] in SHELL_COMMAND_BOUNDARIES
-                    ),
-                    len(tokens),
-                )
-                effective_command = shlex.join(tokens[:command_end])
-                tokens = tokens[:command_end]
+            termination_end = (
+                deterministic_scope_termination_end(tokens, bool(stack))
+                if control_depth == 0
+                else None
+            )
+            terminates_scope = termination_end is not None
+            if termination_end is not None:
+                effective_command = shlex.join(tokens[:termination_end])
+                tokens = tokens[:termination_end]
             result.append((line, effective_command))
             substitutions, unresolved_substitution, _uses_process_substitution = (
                 shell_command_substitution_payloads(effective_command)
@@ -1439,15 +1517,51 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
             tokens = shell_tokens(command)
         except ValueError:
             continue
-        for token in tokens:
-            if SHELL_ASSIGNMENT_WORD.fullmatch(token):
-                name, value = token.split("=", 1)
-                if not re.search(r"[$`]", value):
-                    literal_names[name] = value
-                    dynamic_names.discard(name)
+        segment_ranges: list[tuple[int, int]] = []
+        segment_start = 0
+        for boundary_index, value in enumerate(tokens):
+            if value in boundaries:
+                if segment_start < boundary_index:
+                    segment_ranges.append((segment_start, boundary_index))
+                segment_start = boundary_index + 1
+        if segment_start < len(tokens):
+            segment_ranges.append((segment_start, len(tokens)))
+        scoped_literals: dict[tuple[int, int], dict[str, str]] = {}
+        scoped_dynamic: dict[tuple[int, int], set[str]] = {}
+        persistent_assignment_indices: set[int] = set()
+        token_segments: dict[int, tuple[int, int]] = {}
+        for start, end in segment_ranges:
+            for token_index in range(start, end):
+                token_segments[token_index] = (start, end)
+            prefix_assignments: list[tuple[int, str, str]] = []
+            cursor = start
+            while cursor < end and SHELL_ASSIGNMENT_WORD.fullmatch(tokens[cursor]):
+                name, value = tokens[cursor].split("=", 1)
+                prefix_assignments.append((cursor, name, value))
+                cursor += 1
+            redirection_only = True
+            while cursor < end:
+                if tokens[cursor].isdigit() and cursor + 1 < end and tokens[cursor + 1] in redirections:
+                    cursor += 1
+                if tokens[cursor] in redirections:
+                    cursor += 2
+                    continue
+                redirection_only = False
+                break
+            if redirection_only:
+                persistent_assignment_indices.update(
+                    index for index, _name, _value in prefix_assignments
+                )
+                continue
+            literal_scope: dict[str, str] = {}
+            dynamic_scope: set[str] = set()
+            for _index, name, value in prefix_assignments:
+                if re.search(r"[$`]", value):
+                    dynamic_scope.add(name)
                 else:
-                    literal_names.pop(name, None)
-                    dynamic_names.add(name)
+                    literal_scope[name] = value
+            scoped_literals[(start, end)] = literal_scope
+            scoped_dynamic[(start, end)] = dynamic_scope
 
         def resolved_token(value: str) -> str:
             match = re.fullmatch(
@@ -1457,6 +1571,15 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
             if not match:
                 return value
             return literal_names.get(match.group(1) or match.group(2), value)
+
+        def effective_environment(name: str, token_index: int) -> tuple[str, bool]:
+            segment = token_segments.get(token_index)
+            if segment is not None:
+                if name in scoped_dynamic.get(segment, set()):
+                    return "", True
+                if name in scoped_literals.get(segment, {}):
+                    return scoped_literals[segment][name], False
+            return literal_names.get(name, ""), name in dynamic_names
 
         def unresolved_operand(value: str) -> bool:
             stripped = str(value).strip()
@@ -1470,6 +1593,15 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
             )
 
         for index, token in enumerate(tokens):
+            if index in persistent_assignment_indices:
+                name, value = token.split("=", 1)
+                if not re.search(r"[$`]", value):
+                    literal_names[name] = value
+                    dynamic_names.discard(name)
+                else:
+                    literal_names.pop(name, None)
+                    dynamic_names.add(name)
+                continue
             shell_name = token.rsplit("/", 1)[-1]
             if (
                 shell_name in {"bash", "sh", "dash", "zsh", "ksh"}
@@ -1622,7 +1754,21 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
                 unresolved_entrypoint = bool(re.search(r"[$`]", entrypoint))
                 break
             startup_entrypoints: list[str] = []
-            pythonpath = literal_names.get("PYTHONPATH", "")
+            pythonpath, pythonpath_dynamic = effective_environment(
+                "PYTHONPATH", index
+            )
+            segment = token_segments.get(index)
+            path_overridden = bool(
+                "PATH" in literal_names
+                or "PATH" in dynamic_names
+                or (
+                    segment is not None
+                    and (
+                        "PATH" in scoped_literals.get(segment, {})
+                        or "PATH" in scoped_dynamic.get(segment, set())
+                    )
+                )
+            )
             ignores_environment = any(
                 option in argv[1:] for option in {"-E", "-I", "-S"}
             )
@@ -1646,7 +1792,10 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
                     "startup_entrypoints": sorted(set(startup_entrypoints)),
                     "unresolved_entrypoint": unresolved_entrypoint,
                     "unresolved_pythonpath": bool(
-                        "PYTHONPATH" in dynamic_names and not ignores_environment
+                        pythonpath_dynamic and not ignores_environment
+                    ),
+                    "path_override": bool(
+                        path_overridden
                     ),
                     "unresolved_stdin_pipeline": bool(
                         entrypoint in STDIN_ENTRYPOINTS and "|" in tokens[:index]
@@ -4198,9 +4347,18 @@ def workflow_local_references(
     working_directory: str = "",
 ) -> set[str]:
     references = {
-        resolve_working_directory_path(entrypoint, working_directory)
+        resolve_known_python_operand(
+            entrypoint, known_paths, working_directory
+        )
         for entrypoint in python_entrypoints(text)
     }
+    references.update(
+        resolve_known_python_operand(candidate, known_paths, working_directory)
+        for candidate in shell_script_candidates(text)
+        if resolve_known_python_operand(
+            candidate, known_paths, working_directory
+        ) in known_paths
+    )
     for invocation in python_invocations(text):
         if invocation["entrypoint"] != "-c" or not invocation["command_source"]:
             continue
@@ -4595,8 +4753,10 @@ def workflow_run_records(
     source_path: str = "",
     inherited_pythonpaths: tuple[str, ...] = (),
     inherited_bash_envs: tuple[str, ...] = (),
+    inherited_action_inputs: tuple[tuple[str, str], ...] | None = None,
 ) -> tuple[tuple[str, str, str], ...]:
     """Return effective ``(shell, source, working_directory)`` run records."""
+    text = resolve_action_input_expressions(text, inherited_action_inputs)
     try:
         payload = yaml.load(text, Loader=yaml.BaseLoader)
         if not isinstance(payload, dict):
@@ -4618,6 +4778,8 @@ def workflow_run_records(
             prefixes: list[str] = []
             if "PYTHONPATH" in effective:
                 prefixes.append(f"PYTHONPATH={shlex.quote(effective['PYTHONPATH'])}")
+            if "PATH" in effective:
+                prefixes.append(f"PATH={shlex.quote(effective['PATH'])}")
             if "BASH_ENV" in effective:
                 bash_env = str(effective["BASH_ENV"])
                 if re.search(r"[$`]", bash_env):
@@ -4821,6 +4983,10 @@ def supported_posix_declared_shell(value: str) -> bool:
         )
     ):
         return False
+    if len(tokens) >= 2 and tokens[-2] in {
+        "--rcfile", "--init-file", "--startup-file", "-O", "-o",
+    }:
+        return False
     # GitHub custom shell templates can be parse-only.  A run block passed to
     # `bash -n {0}` is never executed and cannot establish writer authority.
     for option in tokens[1:]:
@@ -4856,6 +5022,7 @@ def workflow_python_shell_sources(text: str) -> tuple[dict[str, Any], ...]:
 
 def resolved_workflow_python_invocations(
     records: list[tuple[str, str, str, str]],
+    known_python_paths: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for yaml_path, shell, source, working_directory in records:
@@ -4863,8 +5030,10 @@ def resolved_workflow_python_invocations(
             continue
         for invocation in python_invocations(source):
             copied = dict(invocation)
-            copied["entrypoint"] = resolve_working_directory_path(
-                str(invocation["entrypoint"]), working_directory
+            copied["entrypoint"] = resolve_known_python_operand(
+                str(invocation["entrypoint"]),
+                known_python_paths or set(),
+                working_directory,
             )
             copied["yaml_path"] = yaml_path
             copied["working_directory"] = working_directory
@@ -4877,7 +5046,23 @@ def uninspectable_tracked_python_operand(
 ) -> bool:
     """Return whether Python executes tracked bytes unavailable to the parser."""
     entrypoint = str(row.get("entrypoint") or "")
-    return bool(entrypoint in tracked_paths and entrypoint not in known_python_paths)
+    package_main = f"{entrypoint.rstrip('/')}/__main__.py"
+    return bool(
+        (entrypoint in tracked_paths and entrypoint not in known_python_paths)
+        or (
+            package_main in tracked_paths
+            and package_main not in known_python_paths
+        )
+    )
+
+
+def resolve_known_python_operand(
+    entrypoint: str, known_python_paths: set[str], working_directory: str = ""
+) -> str:
+    """Map Python directory execution to its tracked ``__main__.py``."""
+    resolved = resolve_working_directory_path(entrypoint, working_directory)
+    package_main = f"{resolved.rstrip('/')}/__main__.py"
+    return package_main if package_main in known_python_paths else resolved
 
 
 def shell_script_candidates(text: str) -> set[str]:
@@ -5167,6 +5352,151 @@ def local_uses_edges(
     return result
 
 
+def resolve_action_input_expressions(
+    text: str, bindings: tuple[tuple[str, str], ...] | None
+) -> str:
+    """Apply edge-bound local-action inputs and flag unresolved executable text."""
+    if bindings is None:
+        return text
+    values = dict(bindings)
+    unresolved = False
+
+    def replace(match: re.Match[str]) -> str:
+        nonlocal unresolved
+        name = match.group(1)
+        value = values.get(name)
+        if value is None or re.search(r"\$\{\{|[$`]", value):
+            unresolved = True
+            return match.group(0)
+        return value
+
+    resolved = re.sub(
+        r"\$\{\{\s*inputs\.([A-Za-z_][A-Za-z0-9_-]*)\s*\}\}",
+        replace,
+        text,
+    )
+    if re.search(r"\$\{\{\s*inputs\.", resolved):
+        unresolved = True
+    return (
+        f"{SHELL_UNRESOLVED_CONTROL_SENTINEL}\n{resolved}"
+        if unresolved
+        else resolved
+    )
+
+
+def local_action_input_bindings(
+    action_text: str, supplied: Mapping[str, str]
+) -> tuple[tuple[str, str], ...]:
+    """Merge local action defaults with one caller's literal ``with`` values."""
+    defaults: dict[str, str] = {}
+    try:
+        payload = yaml.load(action_text, Loader=yaml.BaseLoader)
+    except yaml.YAMLError:
+        payload = None
+    inputs = payload.get("inputs") if isinstance(payload, dict) else None
+    if isinstance(inputs, dict):
+        for name, specification in inputs.items():
+            if isinstance(specification, dict) and "default" in specification:
+                defaults[str(name)] = str(specification["default"])
+    defaults.update({str(name): str(value) for name, value in supplied.items()})
+    return tuple(sorted(defaults.items()))
+
+
+def local_uses_edges_with_inputs(
+    text: str,
+    known_paths: set[str],
+    sources: Mapping[str, str],
+    inherited_pythonpath: str = "",
+    inherited_bash_env: str = "",
+    inherited_inputs: tuple[tuple[str, str], ...] | None = None,
+) -> list[tuple[str, str, str, tuple[tuple[str, str], ...]]]:
+    """Resolve local YAML edges with environment and caller input bindings."""
+    resolved_text = resolve_action_input_expressions(text, inherited_inputs)
+    try:
+        payload = yaml.load(resolved_text, Loader=yaml.BaseLoader)
+    except yaml.YAMLError:
+        return []
+    values: list[tuple[str, str, str, dict[str, str]]] = []
+
+    def merged_environment(
+        inherited: Mapping[str, str], container: Mapping[str, Any]
+    ) -> dict[str, str]:
+        current = dict(inherited)
+        environment = container.get("env")
+        if isinstance(environment, dict):
+            current.update({str(key): str(value) for key, value in environment.items()})
+        return current
+
+    def active_uses(container: Any, inherited: Mapping[str, str]) -> None:
+        if not isinstance(container, dict) or statically_disabled_workflow_condition(
+            container.get("if")
+        ):
+            return
+        current = merged_environment(inherited, container)
+        if isinstance(container.get("uses"), str):
+            supplied = (
+                {str(key): str(value) for key, value in container["with"].items()}
+                if isinstance(container.get("with"), dict)
+                else {}
+            )
+            values.append(
+                (
+                    str(container["uses"]),
+                    str(current.get("PYTHONPATH") or ""),
+                    str(current.get("BASH_ENV") or ""),
+                    supplied,
+                )
+            )
+        steps = container.get("steps")
+        if isinstance(steps, list):
+            for step in steps:
+                active_uses(step, current)
+
+    if not isinstance(payload, dict):
+        return []
+    inherited = {
+        key: value
+        for key, value in {
+            "PYTHONPATH": inherited_pythonpath,
+            "BASH_ENV": inherited_bash_env,
+        }.items()
+        if value
+    }
+    root_environment = merged_environment(inherited, payload)
+    if isinstance(payload.get("jobs"), dict):
+        for job_id in active_workflow_jobs(payload["jobs"]):
+            active_uses(payload["jobs"][job_id], root_environment)
+    elif isinstance(payload.get("runs"), dict):
+        active_uses(payload["runs"], root_environment)
+    else:
+        active_uses(payload, inherited)
+    result: list[tuple[str, str, str, tuple[tuple[str, str], ...]]] = []
+    for value, pythonpath, bash_env, supplied in values:
+        if not value.startswith("./"):
+            continue
+        candidate = normalize_script_entrypoint(value)
+        candidates = [candidate]
+        if not Path(candidate).suffix:
+            candidates.extend(
+                [
+                    f"{candidate.rstrip('/')}/action.yml",
+                    f"{candidate.rstrip('/')}/action.yaml",
+                ]
+            )
+        for path in candidates:
+            if path not in known_paths or path not in sources:
+                continue
+            result.append(
+                (
+                    path,
+                    pythonpath,
+                    bash_env,
+                    local_action_input_bindings(sources[path], supplied),
+                )
+            )
+    return result
+
+
 def local_uses_path_occurrences(text: str, known_paths: set[str]) -> list[str]:
     """Resolve repository-local composite actions and reusable workflows."""
     return [path for path, _pythonpath, _bash_env in local_uses_edges(text, known_paths)]
@@ -5227,6 +5557,60 @@ def reachable_local_yaml_execution_contexts(
             )
 
     visit(root_text, "", "", (root_path,))
+    return contexts, cycle
+
+
+def reachable_local_yaml_execution_bindings(
+    root_path: str, root_text: str, sources: Mapping[str, str]
+) -> tuple[
+    list[tuple[str, str, str, tuple[tuple[str, str], ...]]], bool
+]:
+    """Return local YAML contexts including edge-specific action inputs."""
+    known = set(sources)
+    contexts: list[
+        tuple[str, str, str, tuple[tuple[str, str], ...]]
+    ] = []
+    cycle = False
+
+    def visit(
+        text: str,
+        pythonpath: str,
+        bash_env: str,
+        inputs: tuple[tuple[str, str], ...] | None,
+        stack: tuple[str, ...],
+    ) -> None:
+        nonlocal cycle
+        for child, child_pythonpath, child_bash_env, child_inputs in (
+            local_uses_edges_with_inputs(
+                text,
+                known,
+                sources,
+                pythonpath,
+                bash_env,
+                inputs,
+            )
+        ):
+            if child in stack:
+                cycle = True
+                continue
+            if child.startswith(".github/workflows/"):
+                child_pythonpath = ""
+                child_bash_env = ""
+            contexts.append(
+                (child, child_pythonpath, child_bash_env, child_inputs)
+            )
+            if len(contexts) > 10000:
+                cycle = True
+                continue
+            visit(
+                sources[child],
+                child_pythonpath,
+                child_bash_env,
+                child_inputs,
+                (*stack, child),
+            )
+
+    visit(root_text, "", "", None, (root_path,))
     return contexts, cycle
 
 
@@ -5357,7 +5741,11 @@ def audit_texts(
 ) -> dict[str, Any]:
     validate_contract(contract)
     known_paths = (
-        {path for path in accepted_files if path.endswith(".py")}
+        {
+            path
+            for path, source in accepted_files.items()
+            if path.endswith(".py") or python_shebang_source(source)
+        }
         if known_python_paths is None
         else set(known_python_paths)
     )
@@ -5396,11 +5784,11 @@ def audit_texts(
     protected_dependency_install_violations: list[tuple[str, str]] = []
     workflow_dependency_files: dict[str, list[str]] = {}
     for path, text in sorted(workflows.items()):
-        yaml_contexts, yaml_cycle = reachable_local_yaml_execution_contexts(
+        yaml_binding_contexts, yaml_cycle = reachable_local_yaml_execution_bindings(
             path, text, yaml_sources
         )
         yaml_execution_counts: dict[str, int] = {}
-        for yaml_path, _pythonpath, _bash_env in yaml_contexts:
+        for yaml_path, _pythonpath, _bash_env, _inputs in yaml_binding_contexts:
             yaml_execution_counts[yaml_path] = (
                 yaml_execution_counts.get(yaml_path, 0) + 1
             )
@@ -5414,13 +5802,13 @@ def audit_texts(
             )
         }
         workflow_action_implementations[path] = sorted(action_implementations)
-        sources = [(path, text, "", "")] + [
-            (yaml_path, yaml_sources[yaml_path], pythonpath, bash_env)
-            for yaml_path, pythonpath, bash_env in yaml_contexts
+        sources = [(path, text, "", "", None)] + [
+            (yaml_path, yaml_sources[yaml_path], pythonpath, bash_env, inputs)
+            for yaml_path, pythonpath, bash_env, inputs in yaml_binding_contexts
         ]
         workflow_yaml_texts[path] = [
             (yaml_path, yaml_text)
-            for yaml_path, yaml_text, _pythonpath, _bash_env in sources
+            for yaml_path, yaml_text, _pythonpath, _bash_env, _inputs in sources
         ]
         if path in PROTECTED_REMOTE_ACTION_WORKFLOWS:
             protected_remote_action_violations.extend(
@@ -5431,18 +5819,19 @@ def audit_texts(
             )
             protected_dependency_install_violations.extend(
                 (path, f"{yaml_path}:{finding}")
-                for yaml_path, yaml_text, _pythonpath, _bash_env in sources
+                for yaml_path, yaml_text, _pythonpath, _bash_env, _inputs in sources
                 for finding in protected_dependency_install_findings(yaml_text)
             )
             workflow_dependency_files[path] = [PROTECTED_DEPENDENCY_LOCK]
         run_records = [
             (yaml_path, shell, source, workdir)
-            for yaml_path, yaml_text, pythonpath, bash_env in sources
+            for yaml_path, yaml_text, pythonpath, bash_env, inputs in sources
             for shell, source, workdir in workflow_run_records(
                 yaml_text,
                 yaml_path,
                 (pythonpath,) if pythonpath else (),
                 (bash_env,) if bash_env else (),
+                inputs,
             )
         ]
         if yaml_cycle:
@@ -5467,7 +5856,7 @@ def audit_texts(
         )
     workflow_shell_reachable: dict[str, list[str]] = {}
     workflow_direct_invocations = {
-        path: resolved_workflow_python_invocations(records)
+        path: resolved_workflow_python_invocations(records, known_paths)
         for path, records in workflow_run_record_map.items()
     }
     workflow_embedded: dict[str, list[dict[str, Any]]] = {}
@@ -5610,7 +5999,12 @@ def audit_texts(
                 add_root_mode(str(startup), "imported")
         for shell_path in shell_reachable:
             for row in python_invocations(shell_sources[shell_path]):
-                add_root_mode(str(row.get("entrypoint") or ""), "script")
+                add_root_mode(
+                    resolve_known_python_operand(
+                        str(row.get("entrypoint") or ""), known_paths
+                    ),
+                    "script",
+                )
                 for startup in row.get("startup_entrypoints") or []:
                     add_root_mode(str(startup), "imported")
         for embedded_source in embedded:
@@ -5640,10 +6034,14 @@ def audit_texts(
             if str(row.get("entrypoint") or "") in known_paths
         ]
         roots.extend(
-            str(row.get("entrypoint") or "")
+            resolve_known_python_operand(
+                str(row.get("entrypoint") or ""), known_paths
+            )
             for shell_path in workflow_shell_reachable.get(path, [])
             for row in python_invocations(shell_sources[shell_path])
-            if str(row.get("entrypoint") or "") in known_paths
+            if resolve_known_python_operand(
+                str(row.get("entrypoint") or ""), known_paths
+            ) in known_paths
         )
         counts: dict[str, int] = {}
         for root in roots:
@@ -5752,6 +6150,20 @@ def audit_texts(
         for path, rows in workflow_direct_invocations.items()
         for row in rows
         if bool(row.get("unresolved_pythonpath"))
+    )
+    failures.extend(
+        f"python_path_override:{path}:{row.get('yaml_path', path)}:"
+        f"line={row.get('line', 0)}"
+        for path, rows in workflow_direct_invocations.items()
+        for row in rows
+        if bool(row.get("path_override"))
+    )
+    failures.extend(
+        f"python_path_override:{path}:{shell_path}:line={row.get('line', 0)}"
+        for path, reachable_shells in workflow_shell_reachable.items()
+        for shell_path in reachable_shells
+        for row in python_invocations(shell_sources[shell_path])
+        if bool(row.get("path_override"))
     )
     failures.extend(
         f"unresolved_python_stdin_pipeline:{path}:{row.get('yaml_path', path)}:"
