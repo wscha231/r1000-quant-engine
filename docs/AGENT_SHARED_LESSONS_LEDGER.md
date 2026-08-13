@@ -3876,6 +3876,30 @@ Expected contract:
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
 
+## 2026-08-13 - Terminal control and sole-writer sink closure
+
+- Deterministic Bash `DEBUG` and `RETURN` traps can execute authority callbacks
+  just like `EXIT`; traverse their literal actions or fail closed.
+- `ThreadPoolExecutor` and `ProcessPoolExecutor` submit/map callbacks are real
+  executions. Include local callback call graphs and protected callables in
+  writer cardinality.
+- Jobs with explicit Actions status-check functions such as `!cancelled()` must
+  remain reachable when a needed job is skipped; do not apply an implicit
+  `success()` model to those conditions.
+- A top-level unconditional shell `exit`/`return` makes following commands in
+  that active scope unreachable. Conditional exits inside `if`/loop/case
+  scopes must not erase the outer continuation.
+- `command -v`/`command -V` query names and `builtin` cannot launch an external
+  Python command. They cannot satisfy a protected command profile.
+- Reject parse-only custom Actions shell templates such as `bash -n {0}` and
+  terminal script help flags that exit before a target writer performs work.
+- Sole-writer enforcement includes the accepted workflow's explicit protected
+  destination sinks. Bind the reviewed sink set outside the editable contract
+  so refreshing a fingerprint cannot authorize a second target writer.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
 ## 2026-08-13 - Edge-bound runtime and imported-module closure
 
 - Python help and version flags are terminal in every accepted short form,

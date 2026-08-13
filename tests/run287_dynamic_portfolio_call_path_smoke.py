@@ -700,6 +700,10 @@ def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> No
         + contract["accepted_daily_workflow"] in item
         for item in result["failures"]
     )
+    assert any(
+        item.startswith("protected_accepted_authority_write_sink_mismatch:")
+        for item in result["failures"]
+    )
 
     direct_write_sources = deepcopy(accepted)
     direct_write_sources["tools/run_daily_crisis_monitor.py"] += (
@@ -2519,6 +2523,30 @@ def test_final_runtime_semantics_and_remote_actions_fail_closed() -> None:
         row["entrypoint"] == writer
         for row in MOD.python_invocations(f"trap 'python {writer}' EXIT")
     )
+    for signal in ("DEBUG", "RETURN"):
+        assert any(
+            row["entrypoint"] == writer
+            for row in MOD.python_invocations(
+                f"trap 'python {writer}' {signal}\ntrue"
+            )
+        )
+    assert not any(
+        row["entrypoint"] == writer
+        for row in MOD.python_invocations(
+            f"exit 0\npython {writer} --required value"
+        )
+    )
+    assert not any(
+        row["entrypoint"] == writer
+        for row in MOD.python_invocations(
+            f"exit 0; python {writer} --required value"
+        )
+    )
+    for query in ("command -v --", "command -V", "builtin"):
+        assert not any(
+            row["entrypoint"] == writer
+            for row in MOD.python_invocations(f"{query} python {writer}")
+        )
     assert any(
         row["entrypoint"] == writer
         for row in MOD.python_invocations(
@@ -2537,8 +2565,29 @@ def test_final_runtime_semantics_and_remote_actions_fail_closed() -> None:
         "gate": {"if": "${{ false }}"},
         "writer": {"needs": "gate"},
         "cleanup": {"needs": "gate", "if": "${{ always() }}"},
+        "not_cancelled": {
+            "needs": "gate",
+            "if": "${{ !cancelled() }}",
+        },
     }
-    assert MOD.active_workflow_jobs(jobs) == {"cleanup"}
+    assert MOD.active_workflow_jobs(jobs) == {"cleanup", "not_cancelled"}
+
+    executor_source = (
+        "from concurrent.futures import ThreadPoolExecutor\n"
+        "import tools.build_run287_same_close_target_books as writer\n"
+        "def helper():\n"
+        "    writer.main()\n"
+        "with ThreadPoolExecutor() as executor:\n"
+        "    executor.submit(helper).result()\n"
+    )
+    assert dict(MOD.python_main_call_counts(executor_source))[writer] == 1
+    assert not MOD.supported_declared_shell("bash -n {0}")
+    assert not MOD.supported_declared_shell("bash --noexec {0}")
+    assert MOD.supported_declared_shell("bash --noprofile --norc -eo pipefail {0}")
+    assert not MOD.invocation_matches_requirement(
+        [writer, "--required", "value", "--help"],
+        {"required_tokens": ["--required value"]},
+    )
 
     shell_sources = {
         "tools/a/outer.sh": "env sh helper.sh",

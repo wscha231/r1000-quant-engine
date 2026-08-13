@@ -74,6 +74,9 @@ PROTECTED_NO_WRITER_UNRESOLVED_SINK_HASHES = {
         "72180350bee814b7bfb558720d7ef757b99768883cc4bce068f2f65fae9e3753"
     ),
 }
+PROTECTED_ACCEPTED_AUTHORITY_WRITE_SINK_HASH = (
+    "3b734198ac7e2dcdca950ed1592ba92538ea4206c8a1407a51db108de5c87ecc"
+)
 PROTECTED_REMOTE_ACTION_REVISIONS = {
     "actions/cache": "0057852bfaa89a56745cba8c7296529d2fc39830",
     "actions/checkout": "11d5960a326750d5838078e36cf38b85af677262",
@@ -958,17 +961,49 @@ def shell_logical_commands(text: str) -> list[tuple[int, str]]:
         trap_stack: tuple[str, ...] = (),
     ) -> None:
         nonlocal expansion_budget
+        control_depth = 0
         for line, command in commands:
             if expansion_budget <= 0:
                 return
             expansion_budget -= 1
-            result.append((line, command))
+            stripped_command = strip_shell_comment(command).strip()
+            if re.match(r"^(?:fi|done|esac)\b", stripped_command):
+                control_depth = max(0, control_depth - 1)
             try:
                 tokens = shell_tokens(command)
             except ValueError:
+                result.append((line, command))
                 continue
+            first_executable_index = next(
+                (
+                    token_index
+                    for token_index, token in enumerate(tokens)
+                    if not SHELL_ASSIGNMENT_WORD.fullmatch(token)
+                    and shell_command_position(tokens, token_index)
+                ),
+                None,
+            )
+            terminates_scope = bool(
+                control_depth == 0
+                and first_executable_index is not None
+                and tokens[first_executable_index].rsplit("/", 1)[-1]
+                in {"exit", "return"}
+            )
+            effective_command = command
+            if terminates_scope and first_executable_index is not None:
+                command_end = next(
+                    (
+                        cursor
+                        for cursor in range(first_executable_index + 1, len(tokens))
+                        if tokens[cursor] in SHELL_COMMAND_BOUNDARIES
+                    ),
+                    len(tokens),
+                )
+                effective_command = shlex.join(tokens[:command_end])
+                tokens = tokens[:command_end]
+            result.append((line, effective_command))
             substitutions, unresolved_substitution, _uses_process_substitution = (
-                shell_command_substitution_payloads(command)
+                shell_command_substitution_payloads(effective_command)
             )
             # Multiline command substitutions arrive as separate logical rows;
             # their payload rows are still inspected below. A balanced inline
@@ -998,7 +1033,7 @@ def shell_logical_commands(text: str) -> list[tuple[int, str]]:
             if re.search(
                 r"(?:\b(?:source|bash|sh|dash|zsh|ksh)|(?:^|[;&|]\s*)\.)"
                 r"\s+(?:-[^\s]+\s+)*'[^']*\$[^']*'",
-                strip_shell_comment(command),
+                strip_shell_comment(effective_command),
             ):
                 result.append((line, SHELL_UNRESOLVED_CONTROL_SENTINEL))
             for token_index, token in enumerate(tokens):
@@ -1021,7 +1056,9 @@ def shell_logical_commands(text: str) -> list[tuple[int, str]]:
                             value.upper()
                             for value in trap_tokens[action_index + 1:]
                         }
-                        if action not in {"", "-"} and signals & {"0", "EXIT"}:
+                        if action not in {"", "-"} and signals & {
+                            "0", "EXIT", "DEBUG", "RETURN",
+                        }:
                             if re.search(r"[$`]", action) or action in trap_stack:
                                 result.append((line, SHELL_UNRESOLVED_CONTROL_SENTINEL))
                             else:
@@ -1061,6 +1098,17 @@ def shell_logical_commands(text: str) -> list[tuple[int, str]]:
                     and shell_command_position(tokens, token_index)
                 ):
                     expand(functions[name], (*stack, name))
+            if terminates_scope:
+                return
+            if (
+                re.match(
+                    r"^(?:if\b.*\bthen|(?:for|select|while|until)\b.*\bdo|"
+                    r"case\b.*\bin)\s*$",
+                    stripped_command,
+                )
+                and not re.search(r";\s*(?:fi|done|esac)\b", stripped_command)
+            ):
+                control_depth += 1
 
     expand(top_level)
     if expansion_budget <= 0:
@@ -1230,10 +1278,19 @@ def shell_command_position(tokens: list[str], index: int) -> bool:
                     continue
                 break
             continue
-        if executable in {"command", "builtin", "nohup", "time"}:
+        if executable == "builtin":
+            # `builtin` can invoke shell builtins only; a following external
+            # path is an operand, never an executed wrapper target.
+            return False
+        if executable in {"command", "nohup", "time"}:
             cursor += 1
             while cursor < index:
                 value = tokens[cursor]
+                if executable == "command" and (
+                    value in {"--help", "--version"}
+                    or bool(re.fullmatch(r"-[p]*[vV][p]*", value))
+                ):
+                    return False
                 if executable == "time" and value in {"-f", "--format", "-o", "--output"}:
                     cursor += 2
                     continue
@@ -3029,6 +3086,22 @@ def python_main_call_counts(
             }
             for callback_target in sorted(launched_callbacks):
                 add_protected(scope, callback_target)
+        if (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr in {"submit", "map"}
+            and node.args
+        ):
+            callback = node.args[0]
+            callback_target = main_target(callback)
+            if callback_target:
+                add_protected(scope, callback_target)
+            if (
+                isinstance(callback, ast.Name)
+                and callback.id in local_function_aliases
+            ):
+                bucket = local_calls.setdefault(scope, {})
+                function = local_function_aliases[callback.id]
+                bucket[function] = bucket.get(function, 0) + 1
         if call_name in runpy_callables and node.args:
             values = [
                 str(bound.value)
@@ -3257,6 +3330,8 @@ def invocation_matches_requirement(
     # The script-level option parser receives tokens after ``--`` as
     # positionals.  They cannot satisfy a reviewed command profile.
     effective_argv = argv[:argv.index("--")] if "--" in argv else argv
+    if any(value in {"-h", "--help"} for value in effective_argv[1:]):
+        return False
     sequences = [
         shlex.split(str(token), posix=True)
         for token in requirement.get("required_tokens") or []
@@ -4190,7 +4265,14 @@ def active_workflow_jobs(jobs: Mapping[str, Any]) -> set[str]:
             if job_id in disabled or not isinstance(job, dict):
                 continue
             condition = str(job.get("if") or "")
-            if re.search(r"\balways\s*\(", condition, re.IGNORECASE):
+            # An explicit status-check function replaces the implicit
+            # `success()` guard. Retain such jobs conservatively instead of
+            # deleting a runnable `!cancelled()`/`failure()` branch.
+            if re.search(
+                r"\b(?:always|cancelled|failure|success)\s*\(",
+                condition,
+                re.IGNORECASE,
+            ):
                 continue
             needs_value = job.get("needs")
             needs = needs_value if isinstance(needs_value, list) else [needs_value]
@@ -4538,8 +4620,23 @@ def supported_posix_declared_shell(value: str) -> bool:
     shell = str(value or "").strip().replace("\\", "/").casefold()
     if not shell:
         return True
-    executable = shell.split()[0].rsplit("/", 1)[-1]
-    return executable in {"bash", "sh", "dash", "zsh", "ksh"}
+    try:
+        tokens = shlex.split(shell, posix=True)
+    except ValueError:
+        return False
+    if not tokens:
+        return False
+    executable = tokens[0].rsplit("/", 1)[-1]
+    if executable not in {"bash", "sh", "dash", "zsh", "ksh"}:
+        return False
+    # GitHub custom shell templates can be parse-only.  A run block passed to
+    # `bash -n {0}` is never executed and cannot establish writer authority.
+    for option in tokens[1:]:
+        if option in {"--noexec", "--help", "--version"}:
+            return False
+        if re.fullmatch(r"-[^-]*n[^-]*", option):
+            return False
+    return True
 
 
 def supported_declared_shell(value: str) -> bool:
@@ -5870,6 +5967,24 @@ def audit_texts(
                 f"expected={','.join(expected)}:observed={','.join(sensitive)}"
             )
         role = str(roles.get(path) or "")
+        if path == accepted_workflow:
+            accepted_protected_write_findings = sorted(
+                finding
+                for finding in set(python_write_findings) | set(shell_write_findings)
+                if protected_authority_write_finding(finding)
+            )
+            observed_accepted_sink_hash = canonical_sha256(
+                accepted_protected_write_findings
+            )
+            if (
+                observed_accepted_sink_hash
+                != PROTECTED_ACCEPTED_AUTHORITY_WRITE_SINK_HASH
+            ):
+                failures.append(
+                    "protected_accepted_authority_write_sink_mismatch:"
+                    f"expected={PROTECTED_ACCEPTED_AUTHORITY_WRITE_SINK_HASH}:"
+                    f"observed={observed_accepted_sink_hash}"
+                )
         if path in designated_no_writer_paths:
             observed_no_writer_reachable[path] = reachable_sensitive
             expected_reachable = sorted(
