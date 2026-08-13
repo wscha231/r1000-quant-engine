@@ -1492,6 +1492,15 @@ def test_static_control_and_indirect_launch_edges_are_bound() -> None:
     assert MOD.statically_disabled_workflow_condition(
         "${{ ((false)) && github.event_name == 'push' }}"
     )
+    assert MOD.statically_disabled_workflow_condition(
+        "${{ true == false }}"
+    )
+    assert not MOD.statically_disabled_workflow_condition(
+        "${{ true != false }}"
+    )
+    assert MOD.statically_disabled_workflow_condition(
+        "${{ 'ready' != 'ready' }}"
+    )
     heredoc = (
         "cat <<'EOF'\n"
         "python tools/build_run287_same_close_target_books.py --required\n"
@@ -1672,6 +1681,11 @@ def test_static_control_and_indirect_launch_edges_are_bound() -> None:
         protected in payload
         for payload in MOD.transitive_literal_python_sources(compiled_exec)
     )
+    compiled_bytes_exec = (
+        "exec(compile(b'import tools.build_run287_same_close_target_books "
+        "as writer; writer.main()', '<authority>', 'exec'))\n"
+    )
+    assert dict(MOD.python_main_call_counts(compiled_bytes_exec))[protected] == 1
 
     process_launches = (
         "import subprocess\n"
@@ -1683,6 +1697,24 @@ def test_static_control_and_indirect_launch_edges_are_bound() -> None:
     assert dict(MOD.python_process_entrypoint_counts(process_launches))[
         protected
     ] == 2
+    option_process_launches = (
+        "import subprocess\n"
+        "subprocess.run(['python', '-W', 'ignore', "
+        "'tools/build_run287_same_close_target_books.py'])\n"
+        "subprocess.run(['python', '-X', 'dev', "
+        "'tools/build_run287_same_close_target_books.py'])\n"
+    )
+    assert dict(MOD.python_process_entrypoint_counts(option_process_launches))[
+        protected
+    ] == 2
+
+    partial_exit_callback = (
+        "import atexit\n"
+        "from functools import partial as bind\n"
+        "from tools import build_run287_same_close_target_books as writer\n"
+        "atexit.register(bind(writer.main))\n"
+    )
+    assert dict(MOD.python_main_call_counts(partial_exit_callback))[protected] == 1
 
     aliased_local_launcher = (
         "import tools.build_run287_same_close_target_books as writer\n"
@@ -1865,6 +1897,46 @@ def test_static_control_and_indirect_launch_edges_are_bound() -> None:
         "runs:\n  using: node20\n  main: index.js\n"
     ) == "node20"
 
+    assert MOD.shell_uses_process_substitution(
+        "cat <(python tools/build_run287_same_close_target_books.py)\n"
+    )
+    assert MOD.process_substitution_shell_supported("bash")
+    assert not MOD.process_substitution_shell_supported("sh")
+    assert not MOD.process_substitution_shell_supported("dash -e {0}")
+    sh_process_records = MOD.workflow_run_records(
+        "jobs:\n  audit:\n    runs-on: ubuntu-latest\n"
+        "    steps:\n      - shell: sh\n"
+        "        run: cat <(python tools/helper.py)\n"
+    )
+    assert sh_process_records[0][0] == "sh"
+    assert MOD.shell_uses_process_substitution(sh_process_records[0][1])
+
+    concatenated_destination = MOD.authority_write_sinks(
+        "from pathlib import Path\n"
+        "name = 'target_' + 'book.json'\n"
+        "Path(name).write_text('x')\n",
+        MOD.PROTECTED_AUTHORITY_WRITE_TERMS,
+    )
+    assert any(
+        MOD.protected_authority_write_finding(finding)
+        for finding in concatenated_destination
+    )
+
+    for no_writer_path, expected_hash in (
+        MOD.PROTECTED_NO_WRITER_UNRESOLVED_SINK_HASHES.items()
+    ):
+        unresolved = sorted(
+            finding
+            for finding in contract["no_writer_authority_write_sinks"][
+                no_writer_path
+            ]
+            if "UNRESOLVED_DESTINATION" in finding
+        )
+        assert MOD.canonical_sha256(unresolved) == expected_hash
+        assert MOD.canonical_sha256(
+            unresolved + ["new:UNRESOLVED_DESTINATION"]
+        ) != expected_hash
+
     empty_selection = subprocess.run(
         [
             sys.executable,
@@ -1932,6 +2004,15 @@ def test_protected_binding_schema_cannot_be_weakened() -> None:
         assert "protected no-writer role changed" in str(exc)
     else:
         raise AssertionError("renamed protected no-writer role was accepted")
+
+    weakened = deepcopy(contract)
+    weakened["workflow_roles"].pop(observer)
+    try:
+        MOD.validate_contract(weakened)
+    except ValueError as exc:
+        assert "protected no-writer workflow missing" in str(exc)
+    else:
+        raise AssertionError("missing protected no-writer workflow was accepted")
 
 
 def test_untracked_workflow_is_not_repository_authority() -> None:

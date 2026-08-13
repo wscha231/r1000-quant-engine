@@ -90,6 +90,32 @@ Expected contract:
 
 ## Ledger
 
+### 2026-08-13 - Authority parsers must preserve runtime language semantics
+
+- Agent: Codex GPT-5.6
+- Branch/PR/run: `codex/run287-dynamic-portfolio-call-path-contract-20260812`, PR #359
+- Context: Exact-head review found seven follow-on boundary cases after the
+  initial authority-graph hardening.
+- Attempt: Bound Python option arity and byte `compile` payloads, constrained
+  process substitution to compatible shells, evaluated constant equality,
+  unwrapped `atexit` partials, resolved finite path concatenation, and made
+  protected no-writer presence plus unresolved-sink baselines immutable.
+- Result: Focused probes pass and the complete repository audit differs only
+  by the expected `pr_validation` authority fingerprint.
+- Failure or caveat: Treating all POSIX shells as Bash or all Python options as
+  zero-arity can credit commands that never execute, while treating unresolved
+  sinks as mutable inventory leaves a refresh-based bypass.
+- Root cause: Static authority evidence must model the execution semantics of
+  each host language, not just recognize familiar tokens.
+- Reusable lesson: Bind interpreter option arity, shell dialect, callback
+  wrappers, literal encodings, and unresolved authority baselines independently
+  of editable contract snapshots.
+- Next action: Re-run exact-head Python 3.14/3.12 audits and GitHub authority CI.
+- Do-not-repeat: Do not accept a refreshed fingerprint as proof when the
+  semantic parser can still credit an unreachable command or omit a callback.
+- Evidence files: `tools/audit_run287_dynamic_portfolio_call_paths.py`,
+  `tests/run287_dynamic_portfolio_call_path_smoke.py`
+
 ### 2026-08-13 - Exact authority counts need ordered argv semantics
 
 - Agent: Codex GPT-5.6

@@ -36,6 +36,9 @@ PYTHON_UNRESOLVED_DYNAMIC_IMPORT_SENTINEL = (
     "__RUN287_UNRESOLVED_DYNAMIC_IMPORT__"
 )
 PYTHON_DYNAMIC_EXEC_BUDGET_SENTINEL = "__RUN287_DYNAMIC_EXEC_BUDGET_EXCEEDED__"
+PYTHON_UNRESOLVED_COMPILE_PAYLOAD_SENTINEL = (
+    "__RUN287_UNRESOLVED_COMPILE_PAYLOAD__"
+)
 PYTHON_DYNAMIC_EXEC_SOURCE_BUDGET = 128
 PROTECTED_AUTHORITY_SENSITIVE_TERMS = (
     "account", "broker", "cash", "decision", "execute", "fill", "ledger",
@@ -58,6 +61,17 @@ PROTECTED_NO_WRITER_ROLES = {
     ),
     ".github/workflows/weekly_data_refresh.yml": (
         "data_refresh_no_target_writer"
+    ),
+}
+PROTECTED_NO_WRITER_UNRESOLVED_SINK_HASHES = {
+    ".github/workflows/daily_crisis_monitor.yml": (
+        "2b354f144cf2450d620b2dd48f983885b0d4b1dcdaaf082dccb22e9ef9e61518"
+    ),
+    ".github/workflows/unified_monthly.yml": (
+        "388d1dee63ad30a66f12f2036b39bd217906aedae7b0986ba0308467f66ca2dd"
+    ),
+    ".github/workflows/weekly_data_refresh.yml": (
+        "c8901c5289ac7d0382ad80c4b101bf80d2b80fcc9863fe5f59711dd875efb397"
     ),
 }
 IMPLICIT_UNKNOWN_RUNNER_SHELL = "__run287_implicit_unknown_runner_shell__"
@@ -196,18 +210,19 @@ def validate_contract(contract: Mapping[str, Any]) -> None:
         raise ValueError("protected executable command profiles changed")
     roles = contract.get("workflow_roles") or {}
     for workflow, required_role in PROTECTED_NO_WRITER_ROLES.items():
-        if workflow in roles and roles.get(workflow) != required_role:
+        if workflow not in roles:
+            raise ValueError(f"protected no-writer workflow missing: {workflow}")
+        if roles.get(workflow) != required_role:
             raise ValueError(f"protected no-writer role changed: {workflow}")
-        if workflow in roles:
-            for field in (
-                "no_writer_reachable_authority_sensitive_modules",
-                "no_writer_authority_write_sinks",
-            ):
-                values = contract.get(field) or {}
-                if workflow not in values:
-                    raise ValueError(
-                        f"protected no-writer enforcement missing: {workflow}:{field}"
-                    )
+        for field in (
+            "no_writer_reachable_authority_sensitive_modules",
+            "no_writer_authority_write_sinks",
+        ):
+            values = contract.get(field) or {}
+            if workflow not in values:
+                raise ValueError(
+                    f"protected no-writer enforcement missing: {workflow}:{field}"
+                )
 
 
 def tracked_workflow_paths(root: Path) -> list[str]:
@@ -667,10 +682,13 @@ def _multiline_static_control_commands(
     return result
 
 
-def shell_command_substitution_payloads(command: str) -> tuple[tuple[str, ...], bool]:
+def shell_command_substitution_payloads(
+    command: str,
+) -> tuple[tuple[str, ...], bool, bool]:
     """Return command/process-substitution payloads, including quoted ones."""
     payloads: list[str] = []
     unresolved = False
+    uses_process_substitution = False
     index = 0
     quote = ""
     escaped = False
@@ -701,6 +719,7 @@ def shell_command_substitution_payloads(command: str) -> tuple[tuple[str, ...], 
             elif command.startswith(">(", index):
                 substitution_opener = ">("
         if substitution_opener:
+            uses_process_substitution |= substitution_opener in {"<(", ">("}
             start = index + 2
             cursor = start
             depth = 1
@@ -758,7 +777,30 @@ def shell_command_substitution_payloads(command: str) -> tuple[tuple[str, ...], 
             index = cursor + 1
             continue
         index += 1
-    return tuple(payloads), unresolved
+    return tuple(payloads), unresolved, uses_process_substitution
+
+
+def shell_uses_process_substitution(text: str) -> bool:
+    """Return whether executable shell text contains ``<(...)`` or ``>(...)``."""
+    return any(
+        shell_command_substitution_payloads(command)[2]
+        for _line, command in _raw_shell_logical_commands(
+            executable_shell_text(text)
+        )
+    )
+
+
+def process_substitution_shell_supported(shell: str) -> bool:
+    """Accept process substitution only for a known compatible shell."""
+    if not shell:
+        # GitHub's implicit Linux/macOS shell is Bash; unknown runner defaults
+        # are represented by a non-empty sentinel and fail below.
+        return True
+    try:
+        executable = shlex.split(shell, posix=True)[0]
+    except (IndexError, ValueError):
+        return False
+    return Path(executable).name.casefold() in {"bash", "zsh", "ksh"}
 
 
 def shell_logical_commands(text: str) -> list[tuple[int, str]]:
@@ -909,7 +951,7 @@ def shell_logical_commands(text: str) -> list[tuple[int, str]]:
                 tokens = shell_tokens(command)
             except ValueError:
                 continue
-            substitutions, unresolved_substitution = (
+            substitutions, unresolved_substitution, _uses_process_substitution = (
                 shell_command_substitution_payloads(command)
             )
             # Multiline command substitutions arrive as separate logical rows;
@@ -1619,18 +1661,36 @@ def literal_inprocess_python_sources(source: str) -> tuple[str, ...]:
         tree, {"builtins": {"compile"}}
     ) | {"compile", "builtins.compile"}
 
-    def literal_payloads(expression: ast.AST) -> set[str]:
+    def literal_source(value: Any) -> str | None:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, bytes):
+            try:
+                return value.decode("utf-8")
+            except UnicodeDecodeError:
+                return PYTHON_UNRESOLVED_COMPILE_PAYLOAD_SENTINEL
+        return None
+
+    def literal_payloads(
+        expression: ast.AST, *, allow_bytes: bool = False
+    ) -> set[str]:
         values: set[str] = set()
         for bound in bound_expression_nodes(expression, assignments):
-            if isinstance(bound, ast.Constant) and isinstance(bound.value, str):
-                values.add(str(bound.value))
+            if isinstance(bound, ast.Constant):
+                payload = (
+                    literal_source(bound.value)
+                    if allow_bytes or isinstance(bound.value, str)
+                    else None
+                )
+                if payload is not None:
+                    values.add(payload)
                 continue
             if (
                 isinstance(bound, ast.Call)
                 and dotted_expression_name(bound.func) in compile_callables
                 and bound.args
             ):
-                values.update(literal_payloads(bound.args[0]))
+                values.update(literal_payloads(bound.args[0], allow_bytes=True))
         return values
 
     payloads: set[str] = set()
@@ -2316,6 +2376,12 @@ def _python_process_entrypoint_counts_direct(
         cursor = 1
         while cursor < len(argv):
             operand = argv[cursor]
+            if operand == "--":
+                cursor += 1
+                if cursor >= len(argv):
+                    return set()
+                normalized = normalize_script_entrypoint(argv[cursor])
+                return {normalized} if normalized.endswith(".py") else set()
             if operand == "-m" and cursor + 1 < len(argv):
                 return set(module_execution_entrypoints(argv[cursor + 1]))
             if operand == "-c" and cursor + 1 < len(argv):
@@ -2325,6 +2391,11 @@ def _python_process_entrypoint_counts_direct(
                         argv[cursor + 1], "<process-c>"
                     )
                 }
+            if operand in {"-W", "-X", "--check-hash-based-pycs"}:
+                cursor += 2
+                continue
+            if operand in {"-h", "--help", "-V", "--version"}:
+                return set()
             if operand.startswith("-"):
                 cursor += 1
                 continue
@@ -2598,6 +2669,9 @@ def python_main_call_counts(
     exit_callback_registries = imported_callable_names(
         tree, {"atexit": {"register"}}
     )
+    partial_callables = imported_callable_names(
+        tree, {"functools": {"partial"}}
+    )
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             resolved_module = resolved_import_from_module(node, source_path)
@@ -2616,6 +2690,12 @@ def python_main_call_counts(
                 )
 
     def main_target(value: ast.AST) -> str:
+        if (
+            isinstance(value, ast.Call)
+            and dotted_expression_name(value.func) in partial_callables
+            and value.args
+        ):
+            return main_target(value.args[0])
         if isinstance(value, ast.Name):
             return names.get(value.id, "")
         if isinstance(value, ast.Attribute) and value.attr == "main":
@@ -2734,17 +2814,27 @@ def python_main_call_counts(
     protected_by_scope: dict[str, dict[str, int]] = {}
     local_calls: dict[str, dict[str, int]] = {}
 
-    def exec_literal_payloads(expression: ast.AST) -> set[str]:
+    def exec_literal_payloads(
+        expression: ast.AST, *, allow_bytes: bool = False
+    ) -> set[str]:
         payloads: set[str] = set()
         for bound in bound_expression_nodes(expression, assignments):
-            if isinstance(bound, ast.Constant) and isinstance(bound.value, str):
-                payloads.add(str(bound.value))
+            if isinstance(bound, ast.Constant):
+                if allow_bytes and isinstance(bound.value, bytes):
+                    try:
+                        payloads.add(bound.value.decode("utf-8"))
+                    except UnicodeDecodeError:
+                        payloads.add(PYTHON_UNRESOLVED_COMPILE_PAYLOAD_SENTINEL)
+                elif isinstance(bound.value, str):
+                    payloads.add(str(bound.value))
             elif (
                 isinstance(bound, ast.Call)
                 and dotted_expression_name(bound.func) in compile_callables
                 and bound.args
             ):
-                payloads.update(exec_literal_payloads(bound.args[0]))
+                payloads.update(
+                    exec_literal_payloads(bound.args[0], allow_bytes=True)
+                )
         return payloads
 
     for definition in ast.walk(tree):
@@ -3145,6 +3235,10 @@ def literal_path_values(
             for a in left
             for b in right
         }
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = literal_path_values(node.left, names)
+        right = literal_path_values(node.right, names)
+        return {a + b for a in left for b in right}
     return set()
 
 
@@ -3843,6 +3937,35 @@ def statically_disabled_workflow_condition(value: Any) -> bool:
             if all(result is True for result in values):
                 return True
             return None
+        for operator in ("==", "!="):
+            comparison = split_top_level(item, operator)
+            if comparison:
+                if len(comparison) != 2:
+                    return None
+
+                def scalar(value: str) -> object:
+                    value = strip_outer_parentheses(value)
+                    if value == "true":
+                        return True
+                    if value == "false":
+                        return False
+                    if value == "null":
+                        return None
+                    if re.fullmatch(r"-?\d+(?:\.\d+)?", value):
+                        return float(value) if "." in value else int(value)
+                    if (
+                        len(value) >= 2
+                        and value[0] == value[-1]
+                        and value[0] in {"'", '"'}
+                    ):
+                        return value[1:-1]
+                    return Ellipsis
+
+                left, right = (scalar(part) for part in comparison)
+                if left is Ellipsis or right is Ellipsis:
+                    return None
+                equal = left == right
+                return equal if operator == "==" else not equal
         if item.startswith("!") and not item.startswith("!="):
             nested = evaluate(item[1:])
             return None if nested is None else not nested
@@ -4422,6 +4545,9 @@ def audit_texts(
         str, list[tuple[str, str, str, str]]
     ] = {}
     unsupported_declared_shells: list[tuple[str, str, str]] = []
+    unsupported_process_substitution_shells: list[
+        tuple[str, str, str]
+    ] = []
     for path, text in sorted(workflows.items()):
         yaml_execution_counts, yaml_cycle = reachable_local_yaml_execution_counts(
             path, text, yaml_sources
@@ -4461,6 +4587,12 @@ def audit_texts(
             (path, yaml_path, shell)
             for yaml_path, shell, _source, _workdir in run_records
             if not supported_declared_shell(shell)
+        )
+        unsupported_process_substitution_shells.extend(
+            (path, yaml_path, shell)
+            for yaml_path, shell, source, _workdir in run_records
+            if shell_uses_process_substitution(source)
+            and not process_substitution_shell_supported(shell)
         )
         executable_workflows[path] = "\n".join(
             source
@@ -4642,6 +4774,10 @@ def audit_texts(
         for path, yaml_path, shell in unsupported_declared_shells
     )
     failures.extend(
+        f"unsupported_process_substitution_shell:{path}:{yaml_path}:{shell}"
+        for path, yaml_path, shell in unsupported_process_substitution_shells
+    )
+    failures.extend(
         f"unresolved_python_entrypoint:{path}:{row.get('yaml_path', path)}:"
         f"line={row.get('line', 0)}"
         for path, rows in workflow_direct_invocations.items()
@@ -4724,11 +4860,14 @@ def audit_texts(
                 failures.append(
                     f"unresolved_dynamic_import:{path}:{source_path}"
                 )
-            if PYTHON_DYNAMIC_EXEC_BUDGET_SENTINEL in (
-                transitive_literal_python_sources(source)
-            ):
+            dynamic_sources = transitive_literal_python_sources(source)
+            if PYTHON_DYNAMIC_EXEC_BUDGET_SENTINEL in dynamic_sources:
                 failures.append(
                     f"dynamic_exec_budget_exceeded:{path}:{source_path}"
+                )
+            if PYTHON_UNRESOLVED_COMPILE_PAYLOAD_SENTINEL in dynamic_sources:
+                failures.append(
+                    f"unresolved_compile_payload:{path}:{source_path}"
                 )
         for embedded in workflow_embedded.get(path, []):
             source = str(embedded["source"])
@@ -4737,10 +4876,11 @@ def audit_texts(
                 source, label
             ):
                 failures.append(f"unresolved_dynamic_import:{label}")
-            if PYTHON_DYNAMIC_EXEC_BUDGET_SENTINEL in (
-                transitive_literal_python_sources(source)
-            ):
+            dynamic_sources = transitive_literal_python_sources(source)
+            if PYTHON_DYNAMIC_EXEC_BUDGET_SENTINEL in dynamic_sources:
                 failures.append(f"dynamic_exec_budget_exceeded:{label}")
+            if PYTHON_UNRESOLVED_COMPILE_PAYLOAD_SENTINEL in dynamic_sources:
+                failures.append(f"unresolved_compile_payload:{label}")
     records: list[dict[str, Any]] = []
     expected_workflow_hashes = contract.get("tracked_workflow_sha256") or {}
     observed_workflow_hashes = {
@@ -5236,6 +5376,24 @@ def audit_texts(
                     f"protected_no_writer_authority_write_sink:{path}:"
                     + ",".join(immutable_write_findings)
                 )
+            unresolved_write_findings = sorted(
+                finding
+                for finding in write_findings
+                if "UNRESOLVED_DESTINATION" in finding
+            )
+            if path in PROTECTED_NO_WRITER_ROLES:
+                expected_unresolved_hash = (
+                    PROTECTED_NO_WRITER_UNRESOLVED_SINK_HASHES[path]
+                )
+                observed_unresolved_hash = canonical_sha256(
+                    unresolved_write_findings
+                )
+                if observed_unresolved_hash != expected_unresolved_hash:
+                    failures.append(
+                        f"protected_no_writer_unresolved_sink_mismatch:{path}:"
+                        f"expected={expected_unresolved_hash}:"
+                        f"observed={observed_unresolved_hash}"
+                    )
 
     root_paths = {
         str(path)
