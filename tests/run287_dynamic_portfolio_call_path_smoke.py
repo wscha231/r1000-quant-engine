@@ -401,7 +401,7 @@ def test_no_writer_role_and_duplicate_accepted_writer_fail_closed() -> None:
     )
 
 
-def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> None:
+def test_global_workflow_roles_and_transitive_imports_fail_closed() -> None:
     contract, workflows, accepted = source_inputs()
     undeclared = deepcopy(workflows)
     undeclared[".github/workflows/new_production.yml"] = (
@@ -570,6 +570,10 @@ def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> No
             for item in result["failures"]
         )
 
+def test_global_shell_wrappers_and_writes_fail_closed() -> None:
+    contract, workflows, accepted = source_inputs()
+    observer = ".github/workflows/daily_crisis_monitor.yml"
+
     for shell_write in (
         "printf x > outputs/reports/operating_main_target_book.csv",
         "cp source.csv outputs/reports/operating_main_target_book.csv",
@@ -659,6 +663,10 @@ def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> No
         for item in result["failures"]
     )
 
+def test_global_python_write_sinks_fail_closed() -> None:
+    contract, workflows, accepted = source_inputs()
+    observer = ".github/workflows/daily_crisis_monitor.yml"
+
     direct_write_sources = deepcopy(accepted)
     direct_write_sources["tools/run_daily_crisis_monitor.py"] += (
         '\nfrom pathlib import Path\n'
@@ -730,6 +738,17 @@ def test_global_workflow_and_transitive_authority_allowlists_fail_closed() -> No
     assert any(
         "workflow_authority_fingerprint_mismatch:" + observer in item
         for item in result["failures"]
+    )
+
+def test_global_process_and_missing_import_edges_fail_closed() -> None:
+    contract, workflows, accepted = source_inputs()
+    observer = ".github/workflows/daily_crisis_monitor.yml"
+    neutral_helper_sources = deepcopy(accepted)
+    neutral_helper_sources["tools/build_new_target_writer.py"] = (
+        "def main():\n    return None\n"
+    )
+    neutral_helper_sources["tools/harmless.py"] = (
+        "from tools.build_new_target_writer import main\nmain()\n"
     )
 
     subprocess_writer_sources = deepcopy(neutral_helper_sources)
@@ -2886,6 +2905,19 @@ def test_authority_ci_shards_are_static_and_exhaustive() -> None:
             "--only run287_dynamic_portfolio_call_path_smoke"
         )
     assert set(jobs["validate"]["needs"]) == {"fast_validate", *shard_jobs}
+    assigned_cases = [
+        test_case
+        for shard_index in range(8)
+        for test_case in selected_test_cases(shard_index, 8)
+    ]
+    assert len(assigned_cases) == len(TEST_CASES)
+    assert len(set(assigned_cases)) == len(TEST_CASES)
+    assert set(assigned_cases) == set(TEST_CASES)
+    shard_sizes = [
+        len(selected_test_cases(shard_index, 8))
+        for shard_index in range(8)
+    ]
+    assert max(shard_sizes) - min(shard_sizes) <= 1
 
 
 TEST_CASES = (
@@ -2894,7 +2926,10 @@ TEST_CASES = (
     test_inline_writer_and_transitive_legacy_exit_fail_closed,
     test_required_transaction_boundary_cannot_be_removed,
     test_no_writer_role_and_duplicate_accepted_writer_fail_closed,
-    test_global_workflow_and_transitive_authority_allowlists_fail_closed,
+    test_global_workflow_roles_and_transitive_imports_fail_closed,
+    test_global_shell_wrappers_and_writes_fail_closed,
+    test_global_python_write_sinks_fail_closed,
+    test_global_process_and_missing_import_edges_fail_closed,
     test_indirect_execution_and_destination_bypasses_fail_closed,
     test_reviewed_execution_edges_are_inventory_bound,
     test_latest_review_execution_context_edges_are_bound,
