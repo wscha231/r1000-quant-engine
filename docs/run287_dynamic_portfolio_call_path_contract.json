@@ -156,7 +156,7 @@
     ".github/workflows/phase_g_crisis_evidence_liquidity_replay.yml": "9c9f155b19f627b5e7d154ca87f66a8718b83bcdfa8f9f087d25f80b2b8ea75e",
     ".github/workflows/portfolio_system_guard.yml": "16af1cfbe00e7623a5e039b0fa9ed5378337d7d7741d5524dd5b0f3db0532ebe",
     ".github/workflows/post_disclosure_alpha_pipeline.yml": "07803cedd416d03ad8390c4baf1b2992d75d271cc6ba950cbc4efccb5f99778e",
-    ".github/workflows/pr_validation.yml": "6752cb58542bb29173d90cf4032bb769d32e150e8791019d32b13709f5a50dbe",
+    ".github/workflows/pr_validation.yml": "ab6cb44c09dd20dccf064ce6c5e072b820c2121d6cc370654e5533101677fbe0",
     ".github/workflows/quarterly_auto_learning.yml": "cfc2f52dfb16870e44925b9ca838be8e77fd02bf1d1762b31624c5ecd087b55c",
     ".github/workflows/review_complete_gate.yml": "05f49053c055a9a08a52124ffb3b190e1555a3009d15320284a1888160e22335",
     ".github/workflows/run287_sector_leadership_research.yml": "8568311be5d66fa7857ec02ecc6c95cd2e4d45646bd745479168c05510951c57",

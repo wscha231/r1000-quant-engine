@@ -3694,6 +3694,25 @@ def executable_shell_text(text: str) -> str:
 
 def shell_uses_indirect_assignment(text: str) -> bool:
     """Reject shell primitives that can assign guarded names indirectly."""
+    indirect_builtins = {"eval", "read", "mapfile", "readarray", "getopts"}
+
+    def dangerous_builtin(tokens: list[str], index: int) -> bool:
+        cursor = index + 1
+        while cursor < len(tokens) and tokens[cursor].startswith("-"):
+            cursor += 1
+        if cursor >= len(tokens):
+            return False
+        executable = tokens[cursor].rsplit("/", 1)[-1]
+        arguments = tokens[cursor + 1:]
+        if executable in indirect_builtins:
+            return True
+        if executable == "printf" and "-v" in arguments:
+            return True
+        return executable in {"declare", "typeset"} and any(
+            value == "-n" or (value.startswith("-") and "n" in value[1:])
+            for value in arguments
+        )
+
     for _line, command in shell_logical_commands(text):
         try:
             tokens = shell_tokens(command)
@@ -3703,7 +3722,9 @@ def shell_uses_indirect_assignment(text: str) -> bool:
             executable = token.rsplit("/", 1)[-1]
             if not shell_command_position(tokens, index):
                 continue
-            if executable in {"eval", "read", "mapfile", "readarray", "getopts"}:
+            if executable == "builtin" and dangerous_builtin(tokens, index):
+                return True
+            if executable in indirect_builtins:
                 return True
             if executable == "printf" and "-v" in tokens[index + 1:]:
                 return True

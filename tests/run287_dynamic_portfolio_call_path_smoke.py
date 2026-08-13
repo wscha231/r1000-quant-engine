@@ -839,6 +839,11 @@ def test_indirect_execution_and_destination_bypasses_fail_closed() -> None:
     assert MOD.shell_uses_indirect_assignment(
         'name="AFTER_CLOSE_LAYER4_ARGS"\nbuiltin read "$name"'
     )
+    assert MOD.shell_uses_indirect_assignment(
+        'builtin printf -v "$name" "%s" value'
+    )
+    assert MOD.shell_uses_indirect_assignment('builtin declare -n ref="$name"')
+    assert not MOD.shell_uses_indirect_assignment("builtin echo safe")
     assert dict(
         MOD.python_main_call_counts(
             "from tools import build_run287_same_close_target_books as protected\n"
@@ -1016,7 +1021,8 @@ def test_indirect_execution_and_destination_bypasses_fail_closed() -> None:
     ) == {"tools/helper.bash"}
     workdir_records = MOD.workflow_run_records(
         "defaults:\n  run:\n    working-directory: tools\n"
-        "jobs:\n  audit:\n    steps:\n      - run: python harmless.py\n"
+        "jobs:\n  audit:\n    runs-on: ubuntu-latest\n"
+        "    steps:\n      - run: python harmless.py\n"
     )
     assert MOD.resolved_workflow_python_invocations(
         [("workflow.yml", *workdir_records[0])]
@@ -1644,7 +1650,7 @@ def test_static_control_and_indirect_launch_edges_are_bound() -> None:
     )
     assert dict(MOD.python_main_call_counts(compiled_exec))[protected] == 1
     assert any(
-        protected in payload
+        "tools.build_run287_same_close_target_books" in payload
         for payload in MOD.transitive_literal_python_sources(compiled_exec)
     )
     compiled_bytes_exec = (
