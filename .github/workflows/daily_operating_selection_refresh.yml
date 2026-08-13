@@ -81,12 +81,12 @@ jobs:
         with:
           python-version: '3.12'
           cache: 'pip'
-          cache-dependency-path: requirements_github.txt
+          cache-dependency-path: requirements_github.lock
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements_github.txt
+          # Exact wheel artifacts are reviewed and bound by the authority contract.
+          python -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r requirements_github.lock
 
       - name: Check latest NYSE close
         id: market

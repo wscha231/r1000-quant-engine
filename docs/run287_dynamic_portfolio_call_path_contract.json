@@ -9,8 +9,8 @@
     ".github/workflows/aggressive_lab_manual.yml": "f6f1e01134c122a4e0bcafa38c7576c62a205251e1839e0551976e5b220be25b",
     ".github/workflows/alphaops_replay_sidecars_manual.yml": "2cd67240bb071e1b2c5283dbd4f066c96a703d85a26279be8940a7f013ce335d",
     ".github/workflows/daily_autolearning_scan.yml": "510899a95c78d19d536845fdad59b9acea99db75b10e0febbf3f6ef4e4bbb92d",
-    ".github/workflows/daily_crisis_monitor.yml": "c413f1044a2aab7b2922d833477e7d7780f3a4b009217e073e0d9acb0e67efe4",
-    ".github/workflows/daily_operating_selection_refresh.yml": "a581ad7befd1fedff3473ff3f75c00b2a23b45ebe26ecd8c3672efbb2dba6417",
+    ".github/workflows/daily_crisis_monitor.yml": "a43ab9762183bc992ab9ecfccf565318f44af9c4ffb25362b7ef5d614391b7ff",
+    ".github/workflows/daily_operating_selection_refresh.yml": "f7202d5126b0dca0cdd61936a9a48916b32a3553b51901c3a7ef2a9bf76693d0",
     ".github/workflows/data_readiness_preflight.yml": "93645475a0bbb68f17cea630753e0391ff1b45b47fca4afa912a38a763b79412",
     ".github/workflows/earnings_estimates_daily.yml": "51f951f1d651f2b04afd81cea9d4fdede46ff4965e5c818b30a03d91c2792cbb",
     ".github/workflows/etf_holdings_monthly_refresh.yml": "6bdc92fc797937522197287a002056210c8c77ac89fd0e050fb9a43428b715a0",
@@ -41,8 +41,8 @@
     ".github/workflows/sidecar_only_verify.yml": "7815df511e2d4bb61c1be9c541c2a47c7062d31d1a817457e85e838b39422ef3",
     ".github/workflows/smart_money_top30_refresh.yml": "07cca9b73e0884102180e2f7bc510429eee4f8f124ca0d86080e0c855bcf7e0e",
     ".github/workflows/subdaily_exit_grid_sweep_manual.yml": "ef62f1ef81fe72e897a80be3bd3589476aefb50be753046cd883020eb25625ac",
-    ".github/workflows/unified_monthly.yml": "14555b4a164cbea3f60a83af39bf193ba170db264ff012cad1edaa38d993f48f",
-    ".github/workflows/weekly_data_refresh.yml": "4908d043ebb56756d5e78494eef95cfefb02c101b35f8dae29cafab4097561d1"
+    ".github/workflows/unified_monthly.yml": "2387bfbe5d97bfd73516d88c908b220d7b011920f85eab2d67611e4c7376da85",
+    ".github/workflows/weekly_data_refresh.yml": "4ff9b2cfe89e5ed379ba44cbe90c7f27315f1134843123fa05fda2bb010ae683"
   },
   "accepted_daily_workflow": ".github/workflows/daily_operating_selection_refresh.yml",
   "writer_authority": {
@@ -136,8 +136,8 @@
     ".github/workflows/aggressive_lab_manual.yml": "91a6ea7ce24c9f9b762b501c84510adf8960a649a78a003bf64a1b033c636ca9",
     ".github/workflows/alphaops_replay_sidecars_manual.yml": "5f0b36a669d14f8d448c4c05d90f39f10f011c7fd0fa7eb8f08819c8c54ddc96",
     ".github/workflows/daily_autolearning_scan.yml": "7f0f18ecf48a749149f3525f419f239c296e4a9243fe4739487bfbf08818c247",
-    ".github/workflows/daily_crisis_monitor.yml": "d8055abb112ae03a3c1810931d8389b1657c0a91f2ae075e6b012eddcad270c8",
-    ".github/workflows/daily_operating_selection_refresh.yml": "5addade7f22ab6caeb2375a6adfd8cc3278af37ab160219509df635a9f404cb3",
+    ".github/workflows/daily_crisis_monitor.yml": "5234458424d8276ae551d1e756c8b5f0a9a2abef8deb58d3827b8b648b9c44ad",
+    ".github/workflows/daily_operating_selection_refresh.yml": "3fa0d78bc67f81c2d7ffef0ebf223900758bef11358bc5be9a3d6c6f6beddd08",
     ".github/workflows/data_readiness_preflight.yml": "5b8957734afb840e83ec506abddf4be62c796e5a409ad00f5b8ac8d71348dc8f",
     ".github/workflows/earnings_estimates_daily.yml": "7edfb3c51447750122186817b6121da55e4291c53d233c646960680f731e0378",
     ".github/workflows/etf_holdings_monthly_refresh.yml": "9f97c24b44d520999280da93989e688dd48deb9566e0aee7f799bbf95c8a0ef5",
@@ -156,7 +156,7 @@
     ".github/workflows/phase_g_crisis_evidence_liquidity_replay.yml": "9c9f155b19f627b5e7d154ca87f66a8718b83bcdfa8f9f087d25f80b2b8ea75e",
     ".github/workflows/portfolio_system_guard.yml": "16af1cfbe00e7623a5e039b0fa9ed5378337d7d7741d5524dd5b0f3db0532ebe",
     ".github/workflows/post_disclosure_alpha_pipeline.yml": "07803cedd416d03ad8390c4baf1b2992d75d271cc6ba950cbc4efccb5f99778e",
-    ".github/workflows/pr_validation.yml": "f1fb44581677a90a38ec8b7701f620e0b43db9cd39fa64692f86078ad3a79e3d",
+    ".github/workflows/pr_validation.yml": "96efe5b9b099df21f30029da9cc26f0067d890bd7ab861461890ca0184da4fd0",
     ".github/workflows/quarterly_auto_learning.yml": "cfc2f52dfb16870e44925b9ca838be8e77fd02bf1d1762b31624c5ecd087b55c",
     ".github/workflows/review_complete_gate.yml": "05f49053c055a9a08a52124ffb3b190e1555a3009d15320284a1888160e22335",
     ".github/workflows/run287_sector_leadership_research.yml": "8568311be5d66fa7857ec02ecc6c95cd2e4d45646bd745479168c05510951c57",
@@ -168,8 +168,8 @@
     ".github/workflows/sidecar_only_verify.yml": "01ed1176c65f3f7813166286f0f4f38c42a490daf869a1572c81fe1c43e1e893",
     ".github/workflows/smart_money_top30_refresh.yml": "8d2a0df1b8c4785cff29e5b0420ad46cb22fd238d25e226dd37c78536fb93f18",
     ".github/workflows/subdaily_exit_grid_sweep_manual.yml": "88cf8517d2bbb22961b96f1f8ec26da029e31d5279501705ca85b6c035ef39f6",
-    ".github/workflows/unified_monthly.yml": "adaad40e0ebbfb3fceb4234cca668b1de9c673f24174837bba2528462dc2a0a6",
-    ".github/workflows/weekly_data_refresh.yml": "455aec44119973d2b0af3cb2d3c67d5ea5ddf0acd1189b7aed9653db821e4563"
+    ".github/workflows/unified_monthly.yml": "936591d2ad4a5703c5142c519def68c00b355d166485ac011afee3684074b9c7",
+    ".github/workflows/weekly_data_refresh.yml": "e7f45e1ccc668fcfb15cfc69d013f866f8ef3e574b00a496f3c1c3e93eadfa17"
   },
   "no_writer_reachable_authority_sensitive_modules": {
     ".github/workflows/daily_crisis_monitor.yml": [

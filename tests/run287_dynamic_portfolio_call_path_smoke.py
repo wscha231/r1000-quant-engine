@@ -34,6 +34,9 @@ def source_inputs() -> tuple[dict, dict[str, str], dict[str, str]]:
         **MOD.workflow_texts(ROOT, MOD.tracked_local_action_paths(ROOT)),
         **workflows,
     }
+    accepted[MOD.PROTECTED_DEPENDENCY_LOCK] = (
+        ROOT / MOD.PROTECTED_DEPENDENCY_LOCK
+    ).read_text(encoding="utf-8")
     return contract, workflows, accepted
 
 
@@ -1393,6 +1396,14 @@ def test_shell_and_loader_authority_edges_fail_closed() -> None:
     assert "tools/helper.py" in MOD.local_import_candidates(
         loader, "tools/launcher.py"
     )
+    source_loader = (
+        "from importlib.machinery import SourceFileLoader\n"
+        "loader = SourceFileLoader('helper', 'tools/helper.py')\n"
+        "loader.load_module()\n"
+    )
+    assert "tools/helper.py" in MOD.local_import_candidates(
+        source_loader, "tools/launcher.py"
+    )
 
     node_action = "runs:\n  using: node20\n  main: index.js\n"
     node_paths = {
@@ -2630,15 +2641,31 @@ def test_final_runtime_semantics_and_remote_actions_fail_closed() -> None:
         f"python {writer} --required value > / || true"
     )
     assert redirected and redirected[0]["nonstarting_redirection"] is True
+    input_redirected = MOD.python_invocations(
+        f"python {writer} < /dev/null/child || true"
+    )
+    assert input_redirected and input_redirected[0][
+        "nonstarting_redirection"
+    ] is True
     copied_writer = (
         f"cp {writer} /tmp/x.py\n"
         "PYTHONPATH=. python /tmp/x.py --required value\n"
     )
     assert MOD.generated_python_script_alias_findings(copied_writer)
+    assert MOD.generated_python_script_alias_findings(
+        f"cp {writer} /tmp/x.py && python /tmp/x.py --required value"
+    )
     assert MOD.unresolved_shell_stdin_execution(
         "printf ZWNobyBoaQ== | base64 -d | bash"
     )
+    assert MOD.unresolved_shell_stdin_execution("bash < /tmp/payload.sh")
     assert not MOD.unresolved_shell_stdin_execution("bash tools/helper.sh")
+    shell_sequence = (
+        "import subprocess\n"
+        f"subprocess.run(['python {writer} --required value'], shell=True)\n"
+    )
+    assert writer in MOD.local_process_candidates(shell_sequence)
+    assert dict(MOD.python_process_entrypoint_counts(shell_sequence))[writer] == 1
     serializer_findings = MOD.authority_write_sinks(
         "df.to_pickle('outputs/same_close_main_target_book.pkl')\n"
         "df.to_excel('outputs/same_close_concentrated_target_book.xlsx')\n",
@@ -2740,6 +2767,13 @@ def test_final_runtime_semantics_and_remote_actions_fail_closed() -> None:
         "      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262\n"
         "        with:\n          ref: deadbeef\n"
     )
+    checkout_override = MOD.protected_remote_action_findings(
+        "jobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n"
+        "      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262\n"
+        "        with:\n          repository: attacker/repo\n          path: shadow\n"
+    )
+    assert "protected-checkout-repository-override" in checkout_override
+    assert "protected-checkout-layout-override:path" in checkout_override
     assert not MOD.protected_remote_action_findings(
         "jobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n"
         "      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262\n"
@@ -2759,6 +2793,24 @@ def test_final_runtime_semantics_and_remote_actions_fail_closed() -> None:
         finding.startswith(f"{local_action}:unreviewed-remote-action:")
         for finding in remote_findings
     )
+    locked_install = (
+        "jobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n"
+        "      - run: |\n        "
+        + MOD.PROTECTED_DEPENDENCY_INSTALL
+        + "\n"
+    )
+    assert not MOD.protected_dependency_install_findings(locked_install)
+    assert MOD.protected_dependency_install_findings(
+        locked_install.replace(
+            MOD.PROTECTED_DEPENDENCY_INSTALL,
+            "pip install -r requirements_github.txt",
+        )
+    )
+    dependency_lock = (
+        ROOT / MOD.PROTECTED_DEPENDENCY_LOCK
+    ).read_text(encoding="utf-8")
+    assert not MOD.protected_dependency_lock_findings(dependency_lock)
+    assert MOD.protected_dependency_lock_findings("pandas>=2\n")
     pinned_loader = ROOT / "tools" / "run287_pinned_git_import.py"
     assert MOD.PROTECTED_DYNAMIC_COMPILE_SOURCE_HASHES[
         "tools/run287_pinned_git_import.py"

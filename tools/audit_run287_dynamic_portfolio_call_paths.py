@@ -92,6 +92,11 @@ PROTECTED_REMOTE_ACTION_WORKFLOWS = {
     ".github/workflows/daily_operating_selection_refresh.yml",
     *PROTECTED_NO_WRITER_ROLES,
 }
+PROTECTED_DEPENDENCY_LOCK = "requirements_github.lock"
+PROTECTED_DEPENDENCY_INSTALL = (
+    "python -m pip install --disable-pip-version-check --require-hashes "
+    "--only-binary=:all: -r requirements_github.lock"
+)
 IMPLICIT_UNKNOWN_RUNNER_SHELL = "__run287_implicit_unknown_runner_shell__"
 
 
@@ -1414,13 +1419,18 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
         "&>", "&>>",
     }
     output_redirections = {">", ">>", ">|", "&>", "&>>"}
+    file_redirections = output_redirections | {"<", "<>"}
 
     def definitely_nonstarting_redirection(argv: list[str]) -> bool:
         for cursor, value in enumerate(argv[:-1]):
-            if value not in output_redirections:
+            if value not in file_redirections:
                 continue
             destination = normalize_script_entrypoint(argv[cursor + 1]).strip()
             if destination in {"/", ".", ".."} or destination.endswith("/"):
+                return True
+            if re.match(
+                r"^/dev/(?:null|zero|random|urandom)(?:/|$)", destination
+            ) and destination.count("/") > 2:
                 return True
         return False
     options_with_values = {"-X", "-W", "--check-hash-based-pycs"}
@@ -2148,6 +2158,16 @@ def _local_import_candidates_direct(source: str, source_path: str) -> tuple[str,
                         bound.value, str
                     ):
                         result.add(normalize_script_entrypoint(bound.value))
+            if (
+                call_name.rsplit(".", 1)[-1]
+                in {"SourceFileLoader", "SourcelessFileLoader"}
+                and len(node.args) >= 2
+            ):
+                for bound in bound_expression_nodes(node.args[1], assignments):
+                    if isinstance(bound, ast.Constant) and isinstance(
+                        bound.value, str
+                    ):
+                        result.add(normalize_script_entrypoint(bound.value))
         for module in candidates:
             if module == PYTHON_UNRESOLVED_DYNAMIC_IMPORT_SENTINEL:
                 result.add(module)
@@ -2360,6 +2380,16 @@ def process_argv_expressions(node: ast.Call) -> tuple[ast.AST, ...]:
     return (keyword,) if keyword is not None else ()
 
 
+def process_uses_shell(node: ast.Call) -> bool:
+    """Return whether a process call definitely delegates argv to a shell."""
+    return any(
+        keyword.arg == "shell"
+        and isinstance(keyword.value, ast.Constant)
+        and keyword.value.value is True
+        for keyword in node.keywords
+    )
+
+
 def process_cwd_values(
     node: ast.Call, assignments: Mapping[str, list[ast.AST]]
 ) -> tuple[str, ...]:
@@ -2472,6 +2502,15 @@ def _local_process_candidates_direct(source: str) -> tuple[str, ...]:
             if isinstance(value, ast.Constant) and isinstance(value.value, str)
         ]
         call_candidates = process_python_candidates(strings)
+        if process_uses_shell(node):
+            call_candidates.update(
+                candidate
+                for expression in argv_expressions
+                for bound in bound_expression_nodes(expression, assignments)
+                if isinstance(bound, ast.Constant)
+                and isinstance(bound.value, str)
+                for candidate in python_entrypoints(str(bound.value))
+            )
         cwd_values = process_cwd_values(node, assignments)
         if cwd_values:
             call_candidates = {
@@ -2603,6 +2642,23 @@ def _python_process_entrypoint_counts_direct(
             return {normalized} if normalized.endswith(".py") else set()
         return set()
 
+    def shell_command_values(
+        expression: ast.AST, seen_names: frozenset[str] = frozenset()
+    ) -> set[str]:
+        if isinstance(expression, ast.Name):
+            if expression.id in seen_names:
+                return set()
+            return {
+                value
+                for bound in assignments.get(expression.id, [])
+                for value in shell_command_values(
+                    bound, seen_names | {expression.id}
+                )
+            }
+        if isinstance(expression, (ast.List, ast.Tuple)):
+            return token_values(expression.elts[0]) if expression.elts else set()
+        return token_values(expression)
+
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -2613,8 +2669,12 @@ def _python_process_entrypoint_counts_direct(
             continue
         call_candidates: list[str] = []
         for expression in process_argv_expressions(node):
-            for argv in argv_sequences(expression):
-                call_candidates.extend(sorted(exact_python_entrypoints(argv)))
+            if process_uses_shell(node):
+                for command in shell_command_values(expression):
+                    call_candidates.extend(sorted(python_entrypoints(command)))
+            else:
+                for argv in argv_sequences(expression):
+                    call_candidates.extend(sorted(exact_python_entrypoints(argv)))
         cwd_values = process_cwd_values(node, assignments)
         if cwd_values:
             call_candidates = [
@@ -4078,6 +4138,7 @@ def authority_fingerprint(
     reachable_yaml_files: list[str] | None = None,
     reachable_action_files: list[str] | None = None,
     reachable_python_files: list[str] | None = None,
+    reachable_dependency_files: list[str] | None = None,
 ) -> str:
     return canonical_sha256(
         authority_fingerprint_evidence(
@@ -4089,6 +4150,7 @@ def authority_fingerprint(
             reachable_yaml_files=reachable_yaml_files,
             reachable_action_files=reachable_action_files,
             reachable_python_files=reachable_python_files,
+            reachable_dependency_files=reachable_dependency_files,
         )
     )
 
@@ -4103,6 +4165,7 @@ def authority_fingerprint_evidence(
     reachable_yaml_files: list[str] | None = None,
     reachable_action_files: list[str] | None = None,
     reachable_python_files: list[str] | None = None,
+    reachable_dependency_files: list[str] | None = None,
 ) -> dict[str, list[str]]:
     """Return the exact portable evidence encoded by a workflow fingerprint."""
     payload = {
@@ -4120,6 +4183,10 @@ def authority_fingerprint_evidence(
         payload["reachable_yaml_files"] = sorted(reachable_yaml_files)
     if reachable_action_files:
         payload["reachable_action_files"] = sorted(reachable_action_files)
+    if reachable_dependency_files:
+        payload["reachable_dependency_files"] = sorted(
+            reachable_dependency_files
+        )
     return payload
 
 
@@ -4362,8 +4429,22 @@ def protected_remote_action_findings(text: str) -> tuple[str, ...]:
                 findings.add(f"unreviewed-remote-action:{value}")
             if reviewed_action == "actions/checkout":
                 inputs = container.get("with")
-                if isinstance(inputs, dict) and str(inputs.get("ref") or ""):
-                    findings.add("protected-checkout-ref-override")
+                if isinstance(inputs, dict):
+                    if str(inputs.get("ref") or ""):
+                        findings.add("protected-checkout-ref-override")
+                    if str(inputs.get("repository") or ""):
+                        findings.add("protected-checkout-repository-override")
+                    for key in ("path", "sparse-checkout"):
+                        if str(inputs.get(key) or ""):
+                            findings.add(
+                                f"protected-checkout-layout-override:{key}"
+                            )
+                    for key in ("submodules", "lfs"):
+                        configured = str(inputs.get(key) or "").casefold()
+                        if configured not in {"", "false", "0", "no", "off"}:
+                            findings.add(
+                                f"protected-checkout-layout-override:{key}"
+                            )
         steps = container.get("steps")
         if isinstance(steps, list):
             for step in steps:
@@ -4377,6 +4458,44 @@ def protected_remote_action_findings(text: str) -> tuple[str, ...]:
         inspect(payload["runs"])
     elif isinstance(payload, dict):
         inspect(payload)
+    return tuple(sorted(findings))
+
+
+def protected_dependency_install_findings(text: str) -> tuple[str, ...]:
+    """Require protected jobs to install only the reviewed hash-locked set."""
+    findings: set[str] = set()
+    for _shell, source, _workdir in workflow_run_records(text):
+        for _line, command in shell_logical_commands(executable_shell_text(source)):
+            normalized = " ".join(command.split())
+            if not re.search(r"(?:^|\s)(?:pip|python\s+-m\s+pip)\s+install\b", normalized):
+                continue
+            if normalized != PROTECTED_DEPENDENCY_INSTALL:
+                findings.add(f"unreviewed-dependency-install:{normalized}")
+    return tuple(sorted(findings))
+
+
+def protected_dependency_lock_findings(text: str) -> tuple[str, ...]:
+    """Validate a wheel-only lock whose every artifact is SHA-256 bound."""
+    findings: set[str] = set()
+    packages: set[str] = set()
+    requirement = re.compile(
+        r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s]+) "
+        r"--hash=sha256:([0-9a-f]{64})$"
+    )
+    for line_number, raw_line in enumerate(text.splitlines(), 1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        match = requirement.fullmatch(line)
+        if not match:
+            findings.add(f"invalid-lock-entry:line={line_number}")
+            continue
+        package = re.sub(r"[-_.]+", "-", match.group(1)).casefold()
+        if package in packages:
+            findings.add(f"duplicate-lock-package:{package}")
+        packages.add(package)
+    if not packages:
+        findings.add("empty-dependency-lock")
     return tuple(sorted(findings))
 
 
@@ -4837,11 +4956,18 @@ def generated_python_script_alias_findings(text: str) -> tuple[str, ...]:
         for index, token in enumerate(tokens):
             executable = token.rsplit("/", 1)[-1]
             if executable in copy_commands and shell_command_position(tokens, index):
+                end = next(
+                    (
+                        cursor
+                        for cursor in range(index + 1, len(tokens))
+                        if tokens[cursor] in SHELL_COMMAND_BOUNDARIES
+                    ),
+                    len(tokens),
+                )
                 operands = [
                     value
-                    for value in tokens[index + 1:]
-                    if value not in SHELL_COMMAND_BOUNDARIES
-                    and not value.startswith("-")
+                    for value in tokens[index + 1:end]
+                    if not value.startswith("-")
                 ]
                 if len(operands) >= 2 and operands[-2].endswith(".py"):
                     aliases[normalize_script_entrypoint(operands[-1])] = (
@@ -4887,7 +5013,25 @@ def unresolved_shell_stdin_execution(text: str) -> bool:
                 ),
                 len(tokens),
             )
-            operands = tokens[index + 1:end]
+            operands: list[str] = []
+            has_stdin_redirection = False
+            cursor = index + 1
+            while cursor < end:
+                value = tokens[cursor]
+                if value.isdigit() and cursor + 1 < end and tokens[cursor + 1] in {
+                    "<", "<<", "<<<", "<&",
+                }:
+                    cursor += 1
+                    value = tokens[cursor]
+                if value in {"<", "<<", "<<<", "<&"}:
+                    has_stdin_redirection = True
+                    cursor += 2
+                    continue
+                if value in {">", ">>", ">|", ">&", "&>", "&>>", "<>"}:
+                    cursor += 2
+                    continue
+                operands.append(value)
+                cursor += 1
             has_command_or_script = any(
                 value == "-c"
                 or (value.startswith("-") and "c" in value[1:])
@@ -4896,9 +5040,8 @@ def unresolved_shell_stdin_execution(text: str) -> bool:
             )
             if has_command_or_script:
                 continue
-            if "|" in tokens[:index] or any(
-                value in {"<", "<<", "<<<"} for value in tokens[:index]
-            ):
+            piped = index > 0 and tokens[index - 1] == "|"
+            if piped or has_stdin_redirection:
                 return True
     return False
 
@@ -5223,11 +5366,18 @@ def audit_texts(
         for path, source in accepted_files.items()
         if path.endswith((".yml", ".yaml"))
     }
+    dependency_sources = {
+        path: source
+        for path, source in accepted_files.items()
+        if path == PROTECTED_DEPENDENCY_LOCK
+    }
     tracked_paths = set(accepted_files) if known_tracked_paths is None else set(known_tracked_paths)
     shell_sources = {
         path: source
         for path, source in accepted_files.items()
-        if path not in known_paths and path not in yaml_sources
+        if path not in known_paths
+        and path not in yaml_sources
+        and path not in dependency_sources
     }
     known_shell_paths = set(shell_sources)
     workflow_yaml_reachable: dict[str, list[str]] = {}
@@ -5243,6 +5393,8 @@ def audit_texts(
     ] = []
     unresolved_shell_helper_paths: list[tuple[str, str]] = []
     protected_remote_action_violations: list[tuple[str, str]] = []
+    protected_dependency_install_violations: list[tuple[str, str]] = []
+    workflow_dependency_files: dict[str, list[str]] = {}
     for path, text in sorted(workflows.items()):
         yaml_contexts, yaml_cycle = reachable_local_yaml_execution_contexts(
             path, text, yaml_sources
@@ -5277,6 +5429,12 @@ def audit_texts(
                     path, text, yaml_sources
                 )
             )
+            protected_dependency_install_violations.extend(
+                (path, f"{yaml_path}:{finding}")
+                for yaml_path, yaml_text, _pythonpath, _bash_env in sources
+                for finding in protected_dependency_install_findings(yaml_text)
+            )
+            workflow_dependency_files[path] = [PROTECTED_DEPENDENCY_LOCK]
         run_records = [
             (yaml_path, shell, source, workdir)
             for yaml_path, yaml_text, pythonpath, bash_env in sources
@@ -5550,6 +5708,21 @@ def audit_texts(
         f"protected_remote_action_violation:{path}:{finding}"
         for path, finding in sorted(set(protected_remote_action_violations))
     )
+    failures.extend(
+        f"protected_dependency_install_violation:{path}:{finding}"
+        for path, finding in sorted(set(protected_dependency_install_violations))
+    )
+    if PROTECTED_REMOTE_ACTION_WORKFLOWS & set(workflows):
+        lock_source = dependency_sources.get(PROTECTED_DEPENDENCY_LOCK)
+        if lock_source is None:
+            failures.append(
+                f"protected_dependency_lock_missing:{PROTECTED_DEPENDENCY_LOCK}"
+            )
+        else:
+            failures.extend(
+                f"protected_dependency_lock_invalid:{finding}"
+                for finding in protected_dependency_lock_findings(lock_source)
+            )
     failures.extend(
         f"unresolved_python_entrypoint:{path}:{row.get('yaml_path', path)}:"
         f"line={row.get('line', 0)}"
@@ -6160,6 +6333,11 @@ def audit_texts(
                 for source_path in workflow_reachable
                 if source_path in accepted_files
             ],
+            reachable_dependency_files=[
+                f"{dependency_path}:{text_sha256(dependency_sources[dependency_path])}"
+                for dependency_path in workflow_dependency_files.get(path, [])
+                if dependency_path in dependency_sources
+            ],
         )
         evidence = authority_fingerprint_evidence(**fingerprint_arguments)
         fingerprint = canonical_sha256(evidence)
@@ -6335,6 +6513,7 @@ def audit_texts(
         "workflow_shell_reachable_files": workflow_shell_reachable,
         "workflow_yaml_reachable_files": workflow_yaml_reachable,
         "workflow_action_implementation_files": workflow_action_implementations,
+        "workflow_dependency_files": workflow_dependency_files,
         "workflow_node_action_authority_findings": node_action_findings,
         "workflow_docker_action_authority_findings": docker_action_findings,
         "workflow_python_execution_counts": workflow_python_execution_counts,
@@ -6540,6 +6719,11 @@ def run_audit(
         **implementation_sources,
         **workflows,
     }
+    dependency_lock_path = root / PROTECTED_DEPENDENCY_LOCK
+    if dependency_lock_path.is_file():
+        accepted_files[PROTECTED_DEPENDENCY_LOCK] = (
+            dependency_lock_path.read_text(encoding="utf-8")
+        )
     result = audit_texts(
         contract,
         workflows,
@@ -6563,6 +6747,10 @@ def run_audit(
         relevant.extend(str(path) for path in reachable_files)
     for reachable_files in (
         result.get("workflow_action_implementation_files") or {}
+    ).values():
+        relevant.extend(str(path) for path in reachable_files)
+    for reachable_files in (
+        result.get("workflow_dependency_files") or {}
     ).values():
         relevant.extend(str(path) for path in reachable_files)
     relevant.extend(str(path) for path in contract.get("accepted_path_files") or [])
