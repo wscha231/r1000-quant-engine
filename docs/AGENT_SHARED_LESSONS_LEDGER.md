@@ -3876,6 +3876,22 @@ Expected contract:
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
 
+## 2026-08-13 - Invocation-mode and binary-operand closure
+
+- Top-level `return` in an Actions Bash script is invalid and can fall through
+  an `||` branch; only prune `return` within a known function scope.
+- A custom Actions shell must execute `{0}` as its script operand. Reject `-c`
+  command-string modes even when `{0}` appears later as a positional argument.
+- Default argparse long-option abbreviation makes `--h`, `--he`, and `--hel`
+  terminal help spellings; protected command profiles must reject them.
+- `find -exec` and `find -execdir` payloads are executable command lines and
+  belong in transitive authority traversal.
+- A tracked binary Python operand such as a zipapp is executable but not
+  statically inspectable as source. Protected reachability must fail closed.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
 ## 2026-08-13 - Runtime identity and generated-source closure
 
 - A pinned `actions/checkout` revision is insufficient if a protected workflow

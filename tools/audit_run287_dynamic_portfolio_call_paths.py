@@ -986,8 +986,14 @@ def shell_logical_commands(text: str) -> list[tuple[int, str]]:
             terminates_scope = bool(
                 control_depth == 0
                 and first_executable_index is not None
-                and tokens[first_executable_index].rsplit("/", 1)[-1]
-                in {"exit", "return"}
+                and (
+                    tokens[first_executable_index].rsplit("/", 1)[-1] == "exit"
+                    or (
+                        tokens[first_executable_index].rsplit("/", 1)[-1]
+                        == "return"
+                        and bool(stack)
+                    )
+                )
             )
             effective_command = command
             if terminates_scope and first_executable_index is not None:
@@ -1018,6 +1024,32 @@ def shell_logical_commands(text: str) -> list[tuple[int, str]]:
                     (*substitution_stack, payload),
                     trap_stack,
                 )
+            for token_index, token in enumerate(tokens):
+                if (
+                    token.rsplit("/", 1)[-1] == "find"
+                    and shell_command_position(tokens, token_index)
+                ):
+                    for exec_index in range(token_index + 1, len(tokens)):
+                        if tokens[exec_index] not in {"-exec", "-execdir"}:
+                            continue
+                        end = next(
+                            (
+                                cursor
+                                for cursor in range(exec_index + 1, len(tokens))
+                                if tokens[cursor] in {";", "+"}
+                            ),
+                            len(tokens),
+                        )
+                        payload_tokens = tokens[exec_index + 1:end]
+                        if not payload_tokens:
+                            result.append((line, SHELL_UNRESOLVED_CONTROL_SENTINEL))
+                        else:
+                            expand(
+                                [(line, shlex.join(payload_tokens))],
+                                stack,
+                                substitution_stack,
+                                trap_stack,
+                            )
             if any(
                 token.rsplit("/", 1)[-1] in shadowed_python_commands
                 and shell_command_position(tokens, token_index)
@@ -3346,7 +3378,11 @@ def invocation_matches_requirement(
     # The script-level option parser receives tokens after ``--`` as
     # positionals.  They cannot satisfy a reviewed command profile.
     effective_argv = argv[:argv.index("--")] if "--" in argv else argv
-    if any(value in {"-h", "--help"} for value in effective_argv[1:]):
+    if any(
+        value == "-h"
+        or (value.startswith("--") and "--help".startswith(value))
+        for value in effective_argv[1:]
+    ):
         return False
     sequences = [
         shlex.split(str(token), posix=True)
@@ -4653,6 +4689,19 @@ def supported_posix_declared_shell(value: str) -> bool:
     executable = tokens[0].rsplit("/", 1)[-1]
     if executable not in {"bash", "sh", "dash", "zsh", "ksh"}:
         return False
+    if len(tokens) > 1 and (
+        tokens[-1] != "{0}"
+        or any(
+            value == "-c"
+            or (
+                value.startswith("-")
+                and not value.startswith("--")
+                and "c" in value[1:]
+            )
+            for value in tokens[1:]
+        )
+    ):
+        return False
     # GitHub custom shell templates can be parse-only.  A run block passed to
     # `bash -n {0}` is never executed and cannot establish writer authority.
     for option in tokens[1:]:
@@ -4702,6 +4751,14 @@ def resolved_workflow_python_invocations(
             copied["working_directory"] = working_directory
             result.append(copied)
     return result
+
+
+def uninspectable_tracked_python_operand(
+    row: Mapping[str, Any], tracked_paths: set[str], known_python_paths: set[str]
+) -> bool:
+    """Return whether Python executes tracked bytes unavailable to the parser."""
+    entrypoint = str(row.get("entrypoint") or "")
+    return bool(entrypoint in tracked_paths and entrypoint not in known_python_paths)
 
 
 def shell_script_candidates(text: str) -> set[str]:
@@ -5499,6 +5556,22 @@ def audit_texts(
         for path, rows in workflow_direct_invocations.items()
         for row in rows
         if bool(row.get("unresolved_entrypoint"))
+    )
+    failures.extend(
+        f"uninspectable_tracked_python_operand:{path}:"
+        f"{row.get('yaml_path', path)}:line={row.get('line', 0)}:"
+        f"{row.get('entrypoint', '')}"
+        for path, rows in workflow_direct_invocations.items()
+        for row in rows
+        if uninspectable_tracked_python_operand(row, tracked_paths, known_paths)
+    )
+    failures.extend(
+        f"uninspectable_tracked_python_operand:{path}:{shell_path}:"
+        f"line={row.get('line', 0)}:{row.get('entrypoint', '')}"
+        for path, reachable_shells in workflow_shell_reachable.items()
+        for shell_path in reachable_shells
+        for row in python_invocations(shell_sources[shell_path])
+        if uninspectable_tracked_python_operand(row, tracked_paths, known_paths)
     )
     failures.extend(
         f"unresolved_pythonpath_startup_hook:{path}:{row.get('yaml_path', path)}:"

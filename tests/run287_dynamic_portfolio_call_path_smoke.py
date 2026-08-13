@@ -2559,6 +2559,12 @@ def test_final_runtime_semantics_and_remote_actions_fail_closed() -> None:
             f"exit 0; python {writer} --required value"
         )
     )
+    assert any(
+        row["entrypoint"] == writer
+        for row in MOD.python_invocations(
+            f"return 0 || python {writer} --required value"
+        )
+    )
     for query in ("command -v --", "command -V", "builtin"):
         assert not any(
             row["entrypoint"] == writer
@@ -2600,10 +2606,25 @@ def test_final_runtime_semantics_and_remote_actions_fail_closed() -> None:
     assert dict(MOD.python_main_call_counts(executor_source))[writer] == 1
     assert not MOD.supported_declared_shell("bash -n {0}")
     assert not MOD.supported_declared_shell("bash --noexec {0}")
+    assert not MOD.supported_declared_shell("bash -c 'true' {0}")
     assert MOD.supported_declared_shell("bash --noprofile --norc -eo pipefail {0}")
     assert not MOD.invocation_matches_requirement(
         [writer, "--required", "value", "--help"],
         {"required_tokens": ["--required value"]},
+    )
+    assert not MOD.invocation_matches_requirement(
+        [writer, "--required", "value", "--he"],
+        {"required_tokens": ["--required value"]},
+    )
+    assert any(
+        row["entrypoint"] == writer
+        for row in MOD.python_invocations(
+            f"find . -maxdepth 0 -exec python {writer} --required value \\;"
+        )
+    )
+    zipapp_row = MOD.python_invocations("python tools/helper.pyz")[0]
+    assert MOD.uninspectable_tracked_python_operand(
+        zipapp_row, {"tools/helper.pyz"}, set()
     )
     redirected = MOD.python_invocations(
         f"python {writer} --required value > / || true"
