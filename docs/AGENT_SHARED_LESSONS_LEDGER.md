@@ -3819,6 +3819,9 @@ Expected contract:
 - Long authority suites should run in a separate required CI lane. A final
   aggregator must require both the ordinary Tier-1 lane and authority lane, so
   parallelism reduces wall time without weakening merge safety.
+- A repository-wide authority graph cannot run from a partial checkout. Give
+  the authority lane the full tracked tree; sparse checkout is safe only for
+  lanes whose contract does not compare transitive repository reachability.
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.

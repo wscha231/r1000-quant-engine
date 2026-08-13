@@ -115,23 +115,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-          sparse-checkout: |
-            .github
-            aggressive
-            auto_learning_v2
-            backtest_results
-            data_static
-            docs
-            outputs
-            outputs_advisor
-            outputs_advisor_v2
-            outputs_advisor_v3
-            outputs_advisor_v4
-            reports
-            research
-            tests
-            tools
-          sparse-checkout-cone-mode: true
 
       - name: Setup Python
         uses: actions/setup-python@v5
