@@ -3887,6 +3887,8 @@ Expected contract:
 - A protected workflow inherits the executable supply chain of every reachable
   local composite action or reusable workflow. Pinned remote-action validation
   therefore applies to those reachable YAML sources as well as the root file.
+- Workflow smoke tests must assert the reviewed immutable action SHA, not a
+  mutable major tag that the protected workflow deliberately rejects.
 - `PYTHONPATH` and `BASH_ENV` inheritance is edge-specific. Never union values
   from sibling jobs and apply the union to an unrelated local-action edge.
 - Python protected-call counting records whether a source is executed as a

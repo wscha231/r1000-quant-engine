@@ -1335,7 +1335,7 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "outputs/full_rebuild_logs/data_freshness_contract.log",
         "daily-operating-selection-refresh-${{ github.run_id }}",
         "research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/daily_operating_selection_refresh",
-        "actions/cache/save@v4",
+        "actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830",
         "RCLONE_CONFIG_GDRIVE",
         "GOOGLE_SERVICE_ACCOUNT_KEY",
     ]:
