@@ -3876,6 +3876,26 @@ Expected contract:
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
 
+## 2026-08-13 - Edge-bound runtime and imported-module closure
+
+- Python help and version flags are terminal in every accepted short form,
+  including `-?` and combined forms such as `-hh` or `-VVV`; a later script
+  operand is not executed.
+- Shell dialect belongs to the executable after approved command wrappers.
+  Calls such as `env sh helper.sh` execute the helper as `sh`, not as the
+  caller's default Bash dialect.
+- A protected workflow inherits the executable supply chain of every reachable
+  local composite action or reusable workflow. Pinned remote-action validation
+  therefore applies to those reachable YAML sources as well as the root file.
+- `PYTHONPATH` and `BASH_ENV` inheritance is edge-specific. Never union values
+  from sibling jobs and apply the union to an unrelated local-action edge.
+- Python protected-call counting records whether a source is executed as a
+  script or imported as a module. A definite `if __name__ == "__main__"` body
+  is inert on an import path and cannot satisfy writer cardinality.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
 ## 2026-08-13 - Authority validation must preserve runtime multiplicity
 
 - Shell brace expansion and quoted command substitution can multiply or hide a

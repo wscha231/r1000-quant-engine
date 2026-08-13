@@ -2497,6 +2497,20 @@ def test_final_runtime_semantics_and_remote_actions_fail_closed() -> None:
         row["entrypoint"] == writer
         for row in MOD.python_invocations(f"python --help-env {writer}")
     )
+    for terminal_option in ("-?", "-hh", "-VVV"):
+        assert not any(
+            row["entrypoint"] == writer
+            for row in MOD.python_invocations(
+                f"python {terminal_option} {writer}"
+            )
+        )
+        process_source = (
+            "import subprocess\n"
+            f"subprocess.run(['python', '{terminal_option}', '{writer}'])\n"
+        )
+        assert writer not in dict(
+            MOD.python_process_entrypoint_counts(process_source)
+        )
     assert any(
         row["entrypoint"] == writer
         for row in MOD.python_invocations(f"coproc python {writer}")
@@ -2527,7 +2541,7 @@ def test_final_runtime_semantics_and_remote_actions_fail_closed() -> None:
     assert MOD.active_workflow_jobs(jobs) == {"cleanup"}
 
     shell_sources = {
-        "tools/a/outer.sh": "sh helper.sh",
+        "tools/a/outer.sh": "env sh helper.sh",
         "tools/a/helper.sh": f"cat <(python {writer})",
         "tools/b/helper.sh": "echo inert",
     }
@@ -2543,6 +2557,68 @@ def test_final_runtime_semantics_and_remote_actions_fail_closed() -> None:
     assert MOD.shell_uses_process_substitution(shell_sources["tools/a/helper.sh"])
     assert MOD.process_substitution_shell_supported("sh") is False
 
+    imported_helper = (
+        "import tools.build_run287_same_close_target_books as writer\n"
+        "if __name__ == '__main__':\n"
+        "    writer.main()\n"
+    )
+    assert dict(
+        MOD.python_main_call_counts(
+            imported_helper, "tools/imported_helper.py", "script"
+        )
+    )[writer] == 1
+    assert writer not in dict(
+        MOD.python_main_call_counts(
+            imported_helper, "tools/imported_helper.py", "imported"
+        )
+    )
+    execution_modes = MOD.reachable_python_execution_modes(
+        {"tools/root.py": {"script"}},
+        {
+            "tools/root.py": "import tools.imported_helper\n",
+            "tools/imported_helper.py": imported_helper,
+        },
+    )
+    assert execution_modes["tools/root.py"] == {"script"}
+    assert execution_modes["tools/imported_helper.py"] == {"imported"}
+
+    local_action = "tools/local-action/action.yml"
+    edge_workflow = (
+        "jobs:\n"
+        "  sibling:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    env:\n"
+        "      PYTHONPATH: tools/sibling-hooks\n"
+        "      BASH_ENV: tools/sibling-env.sh\n"
+        "    steps:\n"
+        "      - run: echo sibling\n"
+        "  caller:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        f"      - uses: ./{local_action}\n"
+        f"      - uses: ./{local_action}\n"
+        "        env:\n"
+        "          PYTHONPATH: tools/edge-hooks\n"
+        "          BASH_ENV: tools/edge-env.sh\n"
+    )
+    local_action_source = (
+        "runs:\n"
+        "  using: composite\n"
+        "  steps:\n"
+        "    - shell: bash\n"
+        "      run: python tools/neutral.py\n"
+    )
+    contexts, cycle = MOD.reachable_local_yaml_execution_contexts(
+        ".github/workflows/root.yml",
+        edge_workflow,
+        {local_action: local_action_source},
+    )
+    assert cycle is False
+    assert sorted(contexts) == [
+        (local_action, "", ""),
+        (local_action, "tools/edge-hooks", "tools/edge-env.sh"),
+    ]
+
     unresolved_a = MOD.shell_authority_write_sinks(
         "echo ok > $GITHUB_OUTPUT", tuple(MOD.PROTECTED_AUTHORITY_WRITE_TERMS)
     )
@@ -2556,6 +2632,21 @@ def test_final_runtime_semantics_and_remote_actions_fail_closed() -> None:
     assert not MOD.protected_remote_action_findings(
         "jobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n"
         "      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262\n"
+    )
+    remote_local_action = (
+        "runs:\n"
+        "  using: composite\n"
+        "  steps:\n"
+        "    - uses: evil/action@v1\n"
+    )
+    remote_findings = MOD.protected_reachable_remote_action_findings(
+        ".github/workflows/root.yml",
+        edge_workflow,
+        {local_action: remote_local_action},
+    )
+    assert any(
+        finding.startswith(f"{local_action}:unreviewed-remote-action:")
+        for finding in remote_findings
     )
     pinned_loader = ROOT / "tools" / "run287_pinned_git_import.py"
     assert MOD.PROTECTED_DYNAMIC_COMPILE_SOURCE_HASHES[

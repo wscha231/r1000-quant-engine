@@ -1187,6 +1187,17 @@ SHELL_COMMAND_BOUNDARIES = {";", "&&", "||", "|", "&", "(", ")", "{", "}"}
 SHELL_ASSIGNMENT_WORD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$", re.DOTALL)
 
 
+def python_terminal_option(value: str) -> bool:
+    """Return whether a Python CLI option exits before running an operand."""
+    if value in {
+        "--help", "--version", "--help-env", "--help-xoptions", "--help-all",
+    }:
+        return True
+    # CPython accepts the short help/version flags in combined forms.  Once
+    # either family is selected, a following path is not executed.
+    return bool(re.fullmatch(r"-[h?V]+", value))
+
+
 def shell_command_position(tokens: list[str], index: int) -> bool:
     """Return whether *index* is the executable after assignments/wrappers."""
     start = 0
@@ -1314,10 +1325,6 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
         "&>", "&>>",
     }
     options_with_values = {"-X", "-W", "--check-hash-based-pycs"}
-    terminal_options = {
-        "-h", "--help", "-V", "--version", "--help-env",
-        "--help-xoptions", "--help-all", "-VV",
-    }
     for line, command in shell_logical_commands(text):
         try:
             tokens = shell_tokens(command)
@@ -1489,7 +1496,7 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
                 if value == "-":
                     entrypoint = value
                     break
-                if value in terminal_options:
+                if python_terminal_option(value):
                     break
                 if value in options_with_values:
                     cursor += 2
@@ -2482,10 +2489,7 @@ def _python_process_entrypoint_counts_direct(
             if operand in {"-W", "-X", "--check-hash-based-pycs"}:
                 cursor += 2
                 continue
-            if operand in {
-                "-h", "--help", "-V", "--version", "--help-env",
-                "--help-xoptions", "--help-all", "-VV",
-            }:
+            if python_terminal_option(operand):
                 return set()
             if operand.startswith("-"):
                 cursor += 1
@@ -2737,7 +2741,7 @@ def python_process_launches(source: str) -> tuple[str, ...]:
 
 @lru_cache(maxsize=2048)
 def python_main_call_counts(
-    source: str, source_path: str = ""
+    source: str, source_path: str = "", execution_mode: str = "script"
 ) -> tuple[tuple[str, int], ...]:
     """Count protected executions, including definite local call graphs."""
     try:
@@ -2868,6 +2872,45 @@ def python_main_call_counts(
         for parent in ast.walk(tree)
         for child in ast.iter_child_nodes(parent)
     }
+
+    def main_guard_truth(expression: ast.AST) -> bool | None:
+        if not (
+            isinstance(expression, ast.Compare)
+            and len(expression.ops) == 1
+            and len(expression.comparators) == 1
+        ):
+            return None
+        left, right = expression.left, expression.comparators[0]
+        if isinstance(left, ast.Constant) and left.value == "__main__":
+            left, right = right, left
+        if not (
+            isinstance(left, ast.Name)
+            and left.id == "__name__"
+            and isinstance(right, ast.Constant)
+            and right.value == "__main__"
+        ):
+            return None
+        equal = execution_mode != "imported"
+        if isinstance(expression.ops[0], ast.Eq):
+            return equal
+        if isinstance(expression.ops[0], ast.NotEq):
+            return not equal
+        return None
+
+    def reachable_in_execution_mode(node: ast.AST) -> bool:
+        current = node
+        parent = parents.get(current)
+        while parent is not None:
+            if isinstance(parent, ast.If):
+                truth = main_guard_truth(parent.test)
+                if truth is not None:
+                    if current in parent.body and not truth:
+                        return False
+                    if current in parent.orelse and truth:
+                        return False
+            current = parent
+            parent = parents.get(current)
+        return True
     definition_time_owner: dict[ast.AST, ast.AST] = {}
     for definition_node in ast.walk(tree):
         if not isinstance(definition_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -2931,6 +2974,8 @@ def python_main_call_counts(
     for definition in ast.walk(tree):
         if not isinstance(definition, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
+        if not reachable_in_execution_mode(definition):
+            continue
         if any(
             dotted_expression_name(decorator) in exit_callback_registries
             for decorator in definition.decorator_list
@@ -2960,6 +3005,8 @@ def python_main_call_counts(
 
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
+            continue
+        if not reachable_in_execution_mode(node):
             continue
         scope = owner_scope(node)
         target = main_target(node.func)
@@ -3014,7 +3061,7 @@ def python_main_call_counts(
                     if payload == source:
                         continue
                     for embedded_target, embedded_count in python_main_call_counts(
-                        payload, f"{source_path}::dynamic-exec"
+                        payload, f"{source_path}::dynamic-exec", execution_mode
                     ):
                         add_protected(scope, embedded_target, embedded_count)
         if (
@@ -3135,6 +3182,34 @@ def reachable_python_paths(
                 parents.setdefault(imported, path)
                 stack.append(imported)
     return seen, parents
+
+
+def reachable_python_execution_modes(
+    roots: Mapping[str, set[str]],
+    sources: Mapping[str, str],
+    known_paths: set[str] | None = None,
+) -> dict[str, set[str]]:
+    """Propagate script-versus-import execution across local Python edges."""
+    known = set(sources) if known_paths is None else set(known_paths)
+    result: dict[str, set[str]] = {}
+    pending = [
+        (path, mode)
+        for path, modes in roots.items()
+        if path in known
+        for mode in modes
+    ]
+    while pending:
+        path, mode = pending.pop()
+        if mode in result.setdefault(path, set()):
+            continue
+        result[path].add(mode)
+        if path not in sources:
+            continue
+        imports = local_import_paths(sources[path], path, sources, known)
+        processes = local_process_paths(sources[path], known)
+        pending.extend((child, "imported") for child in sorted(imports))
+        pending.extend((child, "script") for child in sorted(processes))
+    return result
 
 
 def authority_sensitive(name: str, contract: Mapping[str, Any]) -> bool:
@@ -4156,6 +4231,10 @@ def protected_remote_action_findings(text: str) -> tuple[str, ...]:
     if isinstance(jobs, dict):
         for job_id in active_workflow_jobs(jobs):
             inspect(jobs[job_id])
+    elif isinstance(payload, dict) and isinstance(payload.get("runs"), dict):
+        inspect(payload["runs"])
+    elif isinstance(payload, dict):
+        inspect(payload)
     return tuple(sorted(findings))
 
 
@@ -4567,35 +4646,113 @@ def shell_script_candidates(text: str) -> set[str]:
     return candidates
 
 
-def local_uses_path_occurrences(text: str, known_paths: set[str]) -> list[str]:
-    """Resolve repository-local composite actions and reusable workflows."""
+def shell_script_dialects(
+    text: str, working_directory: str = ""
+) -> dict[str, set[str]]:
+    """Bind named shell interpreters to the script operand they execute."""
+    result: dict[str, set[str]] = {}
+    shells = {"bash", "sh", "dash", "zsh", "ksh"}
+    literal_names: dict[str, str] = {}
+    for _line, command in shell_logical_commands(executable_shell_text(text)):
+        try:
+            tokens = shell_tokens(command)
+        except ValueError:
+            continue
+        for token in tokens:
+            if SHELL_ASSIGNMENT_WORD.fullmatch(token):
+                name, value = token.split("=", 1)
+                if not re.search(r"[$`]", value):
+                    literal_names[name] = value
+
+        def resolved(value: str) -> str:
+            match = re.fullmatch(
+                r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))",
+                value,
+            )
+            return literal_names.get(match.group(1) or match.group(2), value) if match else value
+
+        for index, token in enumerate(tokens):
+            executable = resolved(token).rsplit("/", 1)[-1]
+            if executable not in shells or not shell_command_position(tokens, index):
+                continue
+            cursor = index + 1
+            candidate = ""
+            while cursor < len(tokens):
+                value = resolved(tokens[cursor])
+                if value == "-c" or (value.startswith("-") and "c" in value[1:]):
+                    break
+                if value.startswith("-"):
+                    cursor += 1
+                    continue
+                candidate = resolve_working_directory_path(value, working_directory)
+                break
+            if candidate:
+                result.setdefault(candidate, set()).add(executable)
+            break
+    return result
+
+
+def local_uses_edges(
+    text: str,
+    known_paths: set[str],
+    inherited_pythonpath: str = "",
+    inherited_bash_env: str = "",
+) -> list[tuple[str, str, str]]:
+    """Resolve local ``uses`` edges with their effective control environment."""
     try:
         payload = yaml.load(text, Loader=yaml.BaseLoader)
     except yaml.YAMLError:
-        return set()
-    values: list[str] = []
+        return []
+    values: list[tuple[str, str, str]] = []
 
-    def active_uses(container: Any) -> None:
+    def merged_environment(
+        inherited: Mapping[str, str], container: Mapping[str, Any]
+    ) -> dict[str, str]:
+        current = dict(inherited)
+        environment = container.get("env")
+        if isinstance(environment, dict):
+            current.update({str(key): str(value) for key, value in environment.items()})
+        return current
+
+    def active_uses(container: Any, inherited: Mapping[str, str]) -> None:
         if not isinstance(container, dict):
             return
         if statically_disabled_workflow_condition(container.get("if")):
             return
+        current = merged_environment(inherited, container)
         if isinstance(container.get("uses"), str):
-            values.append(str(container["uses"]))
+            values.append(
+                (
+                    str(container["uses"]),
+                    str(current.get("PYTHONPATH") or ""),
+                    str(current.get("BASH_ENV") or ""),
+                )
+            )
         steps = container.get("steps")
         if isinstance(steps, list):
             for step in steps:
-                active_uses(step)
+                active_uses(step, current)
 
-    if isinstance(payload, dict) and isinstance(payload.get("jobs"), dict):
+    if not isinstance(payload, dict):
+        return []
+    inherited = {
+        key: value
+        for key, value in {
+            "PYTHONPATH": inherited_pythonpath,
+            "BASH_ENV": inherited_bash_env,
+        }.items()
+        if value
+    }
+    root_environment = merged_environment(inherited, payload)
+    if isinstance(payload.get("jobs"), dict):
         for job_id in active_workflow_jobs(payload["jobs"]):
-            active_uses(payload["jobs"][job_id])
-    elif isinstance(payload, dict) and isinstance(payload.get("runs"), dict):
-        active_uses(payload["runs"])
+            active_uses(payload["jobs"][job_id], root_environment)
+    elif isinstance(payload.get("runs"), dict):
+        active_uses(payload["runs"], root_environment)
     else:
-        active_uses(payload)
-    result: list[str] = []
-    for value in values:
+        active_uses(payload, inherited)
+    result: list[tuple[str, str, str]] = []
+    for value, pythonpath, bash_env in values:
         if not value.startswith("./"):
             continue
         candidate = normalize_script_entrypoint(value)
@@ -4604,8 +4761,15 @@ def local_uses_path_occurrences(text: str, known_paths: set[str]) -> list[str]:
             candidates.extend(
                 [f"{candidate.rstrip('/')}/action.yml", f"{candidate.rstrip('/')}/action.yaml"]
             )
-        result.extend(path for path in candidates if path in known_paths)
+        result.extend(
+            (path, pythonpath, bash_env) for path in candidates if path in known_paths
+        )
     return result
+
+
+def local_uses_path_occurrences(text: str, known_paths: set[str]) -> list[str]:
+    """Resolve repository-local composite actions and reusable workflows."""
+    return [path for path, _pythonpath, _bash_env in local_uses_edges(text, known_paths)]
 
 
 def local_uses_paths(text: str, known_paths: set[str]) -> set[str]:
@@ -4616,25 +4780,54 @@ def reachable_local_yaml_execution_counts(
     root_path: str, root_text: str, sources: Mapping[str, str]
 ) -> tuple[dict[str, int], bool]:
     """Return local uses execution multiplicity and whether a cycle exists."""
-    known = set(sources)
+    contexts, cycle = reachable_local_yaml_execution_contexts(
+        root_path, root_text, sources
+    )
     counts: dict[str, int] = {}
+    for path, _pythonpath, _bash_env in contexts:
+        counts[path] = counts.get(path, 0) + 1
+    return counts, cycle
+
+
+def reachable_local_yaml_execution_contexts(
+    root_path: str, root_text: str, sources: Mapping[str, str]
+) -> tuple[list[tuple[str, str, str]], bool]:
+    """Return each reachable local YAML execution with edge-bound control env."""
+    known = set(sources)
+    contexts: list[tuple[str, str, str]] = []
     cycle = False
 
-    def visit(text: str, multiplier: int, stack: tuple[str, ...]) -> None:
+    def visit(
+        text: str,
+        pythonpath: str,
+        bash_env: str,
+        stack: tuple[str, ...],
+    ) -> None:
         nonlocal cycle
-        for child in local_uses_path_occurrences(text, known):
+        for child, child_pythonpath, child_bash_env in local_uses_edges(
+            text, known, pythonpath, bash_env
+        ):
             if child in stack:
                 cycle = True
                 continue
-            counts[child] = counts.get(child, 0) + multiplier
-            if counts[child] > 10000:
+            # Reusable workflows are separate jobs and do not inherit caller
+            # environment. Composite actions execute inside the caller step.
+            if child.startswith(".github/workflows/"):
+                child_pythonpath = ""
+                child_bash_env = ""
+            contexts.append((child, child_pythonpath, child_bash_env))
+            if len(contexts) > 10000:
                 cycle = True
                 continue
-            visit(sources[child], multiplier, (*stack, child))
+            visit(
+                sources[child],
+                child_pythonpath,
+                child_bash_env,
+                (*stack, child),
+            )
 
-    visit(root_text, 1, (root_path,))
-    counts.pop(root_path, None)
-    return counts, cycle
+    visit(root_text, "", "", (root_path,))
+    return contexts, cycle
 
 
 def reachable_local_yaml_paths(
@@ -4644,6 +4837,27 @@ def reachable_local_yaml_paths(
         root_path, root_text, sources
     )
     return set(counts)
+
+
+def protected_reachable_remote_action_findings(
+    root_path: str, root_text: str, sources: Mapping[str, str]
+) -> tuple[str, ...]:
+    """Inspect pinned remote actions across every reachable local YAML edge."""
+    contexts, _cycle = reachable_local_yaml_execution_contexts(
+        root_path, root_text, sources
+    )
+    reachable_sources = [(root_path, root_text)] + [
+        (path, sources[path]) for path, _pythonpath, _bash_env in contexts
+    ]
+    return tuple(
+        sorted(
+            {
+                f"{path}:{finding}"
+                for path, source in reachable_sources
+                for finding in protected_remote_action_findings(source)
+            }
+        )
+    )
 
 
 def local_shell_script_paths(
@@ -4672,7 +4886,7 @@ def local_shell_script_launches(
     """Resolve local shell launches with runtime dialect and cwd provenance."""
     result: set[tuple[str, str, str]] = set()
     unresolved = False
-    shells = {"bash", "sh", "dash", "zsh", "ksh"}
+    dialects_by_candidate = shell_script_dialects(text, working_directory)
     for candidate in shell_script_candidates(text):
         resolved = resolve_working_directory_path(candidate, working_directory)
         matches = [resolved] if resolved in known_paths else sorted(
@@ -4683,15 +4897,12 @@ def local_shell_script_launches(
             continue
         if not matches:
             continue
-        dialect = default_shell
-        pattern = re.compile(
-            rf"(?:^|[;&|]\s*)(bash|sh|dash|zsh|ksh)\s+(?:-[^\s]+\s+)*"
-            rf"(?:{re.escape(candidate)}|{re.escape(resolved)})(?:\s|$)"
+        dialects = dialects_by_candidate.get(resolved) or dialects_by_candidate.get(candidate)
+        if not dialects:
+            dialects = {default_shell}
+        result.update(
+            (matches[0], dialect, working_directory) for dialect in dialects
         )
-        match = pattern.search(executable_shell_text(text))
-        if match and match.group(1) in shells:
-            dialect = match.group(1)
-        result.add((matches[0], dialect, working_directory))
     return result, unresolved
 
 
@@ -4776,9 +4987,14 @@ def audit_texts(
     unresolved_shell_helper_paths: list[tuple[str, str]] = []
     protected_remote_action_violations: list[tuple[str, str]] = []
     for path, text in sorted(workflows.items()):
-        yaml_execution_counts, yaml_cycle = reachable_local_yaml_execution_counts(
+        yaml_contexts, yaml_cycle = reachable_local_yaml_execution_contexts(
             path, text, yaml_sources
         )
+        yaml_execution_counts: dict[str, int] = {}
+        for yaml_path, _pythonpath, _bash_env in yaml_contexts:
+            yaml_execution_counts[yaml_path] = (
+                yaml_execution_counts.get(yaml_path, 0) + 1
+            )
         yaml_reachable = set(yaml_execution_counts)
         workflow_yaml_reachable[path] = sorted(yaml_reachable)
         action_implementations = {
@@ -4789,27 +5005,29 @@ def audit_texts(
             )
         }
         workflow_action_implementations[path] = sorted(action_implementations)
-        sources = [(path, text)] + [
-            (yaml_path, yaml_sources[yaml_path])
-            for yaml_path in sorted(yaml_reachable)
-            for _occurrence in range(yaml_execution_counts[yaml_path])
+        sources = [(path, text, "", "")] + [
+            (yaml_path, yaml_sources[yaml_path], pythonpath, bash_env)
+            for yaml_path, pythonpath, bash_env in yaml_contexts
         ]
-        caller_pythonpaths = workflow_pythonpath_values(text)
-        caller_bash_envs = workflow_bash_env_values(text)
-        workflow_yaml_texts[path] = sources
+        workflow_yaml_texts[path] = [
+            (yaml_path, yaml_text)
+            for yaml_path, yaml_text, _pythonpath, _bash_env in sources
+        ]
         if path in PROTECTED_REMOTE_ACTION_WORKFLOWS:
             protected_remote_action_violations.extend(
                 (path, finding)
-                for finding in protected_remote_action_findings(text)
+                for finding in protected_reachable_remote_action_findings(
+                    path, text, yaml_sources
+                )
             )
         run_records = [
             (yaml_path, shell, source, workdir)
-            for yaml_path, yaml_text in sources
+            for yaml_path, yaml_text, pythonpath, bash_env in sources
             for shell, source, workdir in workflow_run_records(
                 yaml_text,
                 yaml_path,
-                caller_pythonpaths if yaml_path != path else (),
-                caller_bash_envs if yaml_path != path else (),
+                (pythonpath,) if pythonpath else (),
+                (bash_env,) if bash_env else (),
             )
         ]
         if yaml_cycle:
@@ -4840,6 +5058,7 @@ def audit_texts(
     workflow_embedded: dict[str, list[dict[str, Any]]] = {}
     workflow_references: dict[str, set[str]] = {}
     workflow_reachable_python: dict[str, set[str]] = {}
+    workflow_python_execution_modes: dict[str, dict[str, set[str]]] = {}
     for path, text in sorted(executable_workflows.items()):
         references: set[str] = set()
         embedded: list[dict[str, Any]] = []
@@ -4960,6 +5179,44 @@ def audit_texts(
         workflow_embedded[path] = embedded
         workflow_references[path] = references
         workflow_reachable_python[path] = reachable
+        root_modes: dict[str, set[str]] = {
+            reference: {"imported"}
+            for reference in references
+            if reference in known_paths
+        }
+
+        def add_root_mode(source_path: str, mode: str) -> None:
+            if source_path in known_paths:
+                root_modes.setdefault(source_path, set()).add(mode)
+
+        for row in workflow_direct_invocations.get(path, []):
+            add_root_mode(str(row.get("entrypoint") or ""), "script")
+            for startup in row.get("startup_entrypoints") or []:
+                add_root_mode(str(startup), "imported")
+        for shell_path in shell_reachable:
+            for row in python_invocations(shell_sources[shell_path]):
+                add_root_mode(str(row.get("entrypoint") or ""), "script")
+                for startup in row.get("startup_entrypoints") or []:
+                    add_root_mode(str(startup), "imported")
+        for embedded_source in embedded:
+            source_text = str(embedded_source["source"])
+            working_directory = str(
+                embedded_source.get("working_directory") or ""
+            )
+            for imported in local_import_paths(
+                source_text,
+                f"{path}::embedded:{embedded_source['kind']}:{embedded_source['line']}",
+                accepted_files,
+                known_paths,
+            ):
+                add_root_mode(imported, "imported")
+            for launched in local_process_paths(
+                source_text, known_paths, working_directory
+            ):
+                add_root_mode(launched, "script")
+        workflow_python_execution_modes[path] = reachable_python_execution_modes(
+            root_modes, accepted_files, known_paths
+        )
     workflow_python_execution_counts: dict[str, dict[str, int]] = {}
     for path, reachable_sources in workflow_reachable_python.items():
         roots = [
@@ -5234,7 +5491,13 @@ def audit_texts(
                     continue
                 call_counts = dict(
                     python_main_call_counts(
-                        accepted_files[source_path], source_path
+                        accepted_files[source_path],
+                        source_path,
+                        "script"
+                        if "script" in workflow_python_execution_modes.get(
+                            path, {}
+                        ).get(source_path, set())
+                        else "imported",
                     )
                 )
                 for process_entrypoint, process_count in (
