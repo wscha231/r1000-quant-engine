@@ -880,6 +880,19 @@ def test_indirect_execution_and_destination_bypasses_fail_closed() -> None:
             "tools/helper.py",
         )
     )["tools/build_run287_same_close_target_books.py"] == 1
+    assert "tools/build_run287_same_close_target_books.py" not in dict(
+        MOD.python_main_call_counts(
+            "from tools import build_run287_same_close_target_books as writer\n"
+            "class Dormant:\n"
+            "    def __init__(self):\n"
+            "        writer.main()\n"
+            "class Harmless:\n"
+            "    def __init__(self):\n"
+            "        self.ready = True\n"
+            "Harmless()\n",
+            "tools/helper.py",
+        )
+    )
     assert dict(
         MOD.python_main_call_counts(
             "from .build_run287_same_close_target_books import main\n"
@@ -917,6 +930,9 @@ def test_indirect_execution_and_destination_bypasses_fail_closed() -> None:
     ) == {"tools/harmless.py"}
     assert MOD.python_entrypoints(
         'CMD="python tools/harmless.py"\nbash -c "$CMD"'
+    ) == {"tools/harmless.py"}
+    assert MOD.python_entrypoints(
+        "nice -n 5 python tools/harmless.py"
     ) == {"tools/harmless.py"}
     assigned_python_source = MOD.python_invocations(
         "CMD='from tools.build_run287_same_close_target_books import main; main()'\n"
@@ -2912,6 +2928,12 @@ def test_final_runtime_semantics_and_remote_actions_fail_closed() -> None:
     assert MOD.unresolved_workflow_executable_expression(
         "true && ${{ github.event.inputs.command }}"
     )
+    assert MOD.unresolved_workflow_executable_expression(
+        "${{ inputs['command'] }}"
+    )
+    assert MOD.unresolved_workflow_executable_expression(
+        '${{ github.event.inputs["command"] }}'
+    )
     assert not MOD.unresolved_workflow_executable_expression(
         'ARGS=("${{ inputs.argument }}")\npython tools/harmless.py "${{ inputs.argument }}"'
     )
@@ -2935,6 +2957,15 @@ def test_final_runtime_semantics_and_remote_actions_fail_closed() -> None:
     assert MOD.SHELL_UNRESOLVED_CONTROL_SENTINEL in MOD.workflow_run_records(
         warnings_workflow
     )[0][1]
+    prefix_warning_invocation = MOD.python_invocations(
+        f"PYTHONWARNINGS=ignore::tools.neutral.Warning python {writer}"
+    )[0]
+    assert prefix_warning_invocation["python_startup_environment_override"] is True
+    assert MOD.python_invocations(
+        f"PYTHONWARNINGS=ignore::tools.neutral.Warning python -E {writer}"
+    )[0][
+        "python_startup_environment_override"
+    ] is False
     warnings_action_workflow = (
         "jobs:\n"
         "  caller:\n"

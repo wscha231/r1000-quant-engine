@@ -1451,8 +1451,27 @@ def shell_command_position(tokens: list[str], index: int) -> bool:
             continue
         if executable in {"unshare", "nice", "ionice"}:
             cursor += 1
-            while cursor < index and tokens[cursor].startswith("-"):
-                cursor += 1
+            options_with_values = {
+                "nice": {"-n", "--adjustment"},
+                "ionice": {
+                    "-c", "--class", "-n", "--classdata", "-p", "--pid",
+                    "-P", "--pgid", "-u", "--uid",
+                },
+                "unshare": {
+                    "--propagation", "-R", "--root", "-w", "--wd",
+                    "-S", "--map-user", "-G", "--map-group",
+                    "--map-users", "--map-groups",
+                },
+            }[executable]
+            while cursor < index:
+                value = tokens[cursor]
+                if value in options_with_values:
+                    cursor += 2
+                    continue
+                if value.startswith("-"):
+                    cursor += 1
+                    continue
+                break
             continue
         if executable == "env":
             cursor += 1
@@ -1588,6 +1607,23 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
                     return scoped_literals[segment][name], False
             return literal_names.get(name, ""), name in dynamic_names
 
+        def python_startup_environment_override(token_index: int) -> bool:
+            segment = token_segments.get(token_index)
+            start = segment[0] if segment is not None else 0
+            command_assignments: dict[str, str] = {}
+            for value in tokens[start:token_index]:
+                if not SHELL_ASSIGNMENT_WORD.fullmatch(value):
+                    continue
+                name, assigned = value.split("=", 1)
+                command_assignments[name] = assigned
+            for name in PYTHON_STARTUP_EXECUTION_ENV:
+                if str(command_assignments.get(name) or "").strip():
+                    return True
+                value, dynamic = effective_environment(name, token_index)
+                if dynamic or str(value).strip():
+                    return True
+            return False
+
         def unresolved_operand(value: str) -> bool:
             stripped = str(value).strip()
             return bool(
@@ -1687,6 +1723,9 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
                         "command": command,
                         "command_source": "",
                         "direct_executable": True,
+                        "python_startup_environment_override": (
+                            python_startup_environment_override(index)
+                        ),
                         "nonstarting_redirection": nonstarting_redirection,
                     }
                 )
@@ -1779,6 +1818,10 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
             ignores_environment = any(
                 option in argv[1:] for option in {"-E", "-I", "-S"}
             )
+            startup_environment_override = bool(
+                python_startup_environment_override(index)
+                and not any(option in argv[1:] for option in {"-E", "-I"})
+            )
             if pythonpath and not ignores_environment:
                 for part in re.split(r"[;:]", pythonpath):
                     normalized = normalize_script_entrypoint(part or ".")
@@ -1803,6 +1846,9 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
                     ),
                     "path_override": bool(
                         path_overridden
+                    ),
+                    "python_startup_environment_override": (
+                        startup_environment_override
                     ),
                     "unresolved_stdin_pipeline": bool(
                         entrypoint in STDIN_ENTRYPOINTS and "|" in tokens[:index]
@@ -3164,22 +3210,34 @@ def python_main_call_counts(
                     if target and names.get(target_node.id) != target:
                         names[target_node.id] = target
                         changed = True
+    constructor_scope_by_node: dict[ast.AST, str] = {}
+    class_constructors: dict[str, tuple[str, ...]] = {}
+    for class_node in (
+        node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)
+    ):
+        scopes: list[str] = []
+        for member in class_node.body:
+            if not isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if member.name not in {"__new__", "__init__"}:
+                continue
+            scope = f"{class_node.name}@{class_node.lineno}.{member.name}"
+            constructor_scope_by_node[member] = scope
+            scopes.append(scope)
+        if scopes:
+            existing = class_constructors.get(class_node.name, ())
+            class_constructors[class_node.name] = (*existing, *scopes)
     function_names = {
-        node.name
+        constructor_scope_by_node.get(node, node.name)
         for node in ast.walk(tree)
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
-    class_constructors = {
-        node.name: tuple(
-            member.name
-            for member in node.body
-            if isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and member.name in {"__new__", "__init__"}
-        )
+    local_function_aliases = {
+        node.name: node.name
         for node in ast.walk(tree)
-        if isinstance(node, ast.ClassDef)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node not in constructor_scope_by_node
     }
-    local_function_aliases = {name: name for name in function_names}
     alias_changed = True
     while alias_changed:
         alias_changed = False
@@ -3272,7 +3330,7 @@ def python_main_call_counts(
                 if current is definition_owner:
                     current = parents.get(current)
                     continue
-                return current.name
+                return constructor_scope_by_node.get(current, current.name)
             current = parents.get(current)
         return "<module>"
 
@@ -3312,7 +3370,8 @@ def python_main_call_counts(
             for decorator in definition.decorator_list
         ):
             callbacks = local_calls.setdefault("<module>", {})
-            callbacks[definition.name] = callbacks.get(definition.name, 0) + 1
+            scope = constructor_scope_by_node.get(definition, definition.name)
+            callbacks[scope] = callbacks.get(scope, 0) + 1
 
     def add_protected(scope: str, target: str, count: int = 1) -> None:
         if not target or count <= 0:
@@ -4766,8 +4825,10 @@ def unresolved_workflow_executable_expression(source: str) -> bool:
     marker = "__RUN287_WORKFLOW_INPUT_EXECUTABLE__"
     source = executable_shell_text(source)
     masked = re.sub(
-        r"\$\{\{\s*(?:inputs|github\.event\.inputs)\."
-        r"[A-Za-z_][A-Za-z0-9_-]*[^}]*\}\}",
+        r"\$\{\{\s*(?:inputs|github\.event\.inputs)"
+        r"(?:\.[A-Za-z_][A-Za-z0-9_-]*|"
+        r"\[\s*['\"][A-Za-z_][A-Za-z0-9_-]*['\"]\s*\])"
+        r"[^}]*\}\}",
         marker,
         source,
     )
@@ -6314,6 +6375,21 @@ def audit_texts(
         for shell_path in reachable_shells
         for row in python_invocations(shell_sources[shell_path])
         if bool(row.get("path_override"))
+    )
+    failures.extend(
+        f"python_startup_environment_override:{path}:"
+        f"{row.get('yaml_path', path)}:line={row.get('line', 0)}"
+        for path, rows in workflow_direct_invocations.items()
+        for row in rows
+        if bool(row.get("python_startup_environment_override"))
+    )
+    failures.extend(
+        f"python_startup_environment_override:{path}:{shell_path}:"
+        f"line={row.get('line', 0)}"
+        for path, reachable_shells in workflow_shell_reachable.items()
+        for shell_path in reachable_shells
+        for row in python_invocations(shell_sources[shell_path])
+        if bool(row.get("python_startup_environment_override"))
     )
     failures.extend(
         f"unresolved_python_stdin_pipeline:{path}:{row.get('yaml_path', path)}:"
