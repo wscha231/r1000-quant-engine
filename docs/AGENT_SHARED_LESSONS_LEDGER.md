@@ -94,13 +94,16 @@ Expected contract:
 
 - Agent: Codex GPT-5.6
 - Branch/PR/run: `codex/run287-dynamic-portfolio-call-path-contract-20260812`, PR #359
-- Context: Exact-head review found same-family edge cases after constructor,
+- Context: Two exact-head reviews found same-family edge cases after constructor,
   workflow-input, wrapper, and Python startup-environment hardening.
 - Attempt: Bound redefined constructors by visible definition, failed closed on
   computed input indices, modeled terminal/non-command wrapper modes and
   mandatory operands, and limited Python isolation to pre-script options while
-  covering split-string assignments and `PYTHONUSERBASE`.
-- Result: Focused regressions pass for all eight reported cases.
+  covering split-string assignments and `PYTHONUSERBASE`. Follow-up handling
+  retained constructors captured from enclosing functions, parsed option
+  payloads and short clusters in order, and deferred YAML `PYTHONUSERBASE`
+  judgment until the actual Python invocation was known.
+- Result: Focused regressions pass for all fifteen reported cases.
 - Failure or caveat: Bare command names and unordered option membership can
   credit an operand that never executes or suppress a startup hook that does.
 - Root cause: Execution authority depends on definition visibility and ordered

@@ -1478,6 +1478,15 @@ def shell_command_position(tokens: list[str], index: int) -> bool:
                 value = tokens[cursor]
                 if value in terminal_options:
                     return False
+                if value.startswith("-") and not value.startswith("--"):
+                    for short_name in value[1:]:
+                        short_option = f"-{short_name}"
+                        if short_option in terminal_options:
+                            return False
+                        if short_option in non_command_modes:
+                            return False
+                        if short_option in options_with_values:
+                            break
                 if value in non_command_modes or any(
                     value.startswith(f"{option}=")
                     or (
@@ -1642,6 +1651,11 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
                         assignment_tokens = shell_tokens(value.split("=", 1)[1])
                     except ValueError:
                         assignment_tokens = [value.split("=", 1)[1]]
+                elif value.startswith("-S") and len(value) > 2:
+                    try:
+                        assignment_tokens = shell_tokens(value[2:])
+                    except ValueError:
+                        assignment_tokens = [value[2:]]
                 for assignment in assignment_tokens:
                     if not SHELL_ASSIGNMENT_WORD.fullmatch(assignment):
                         continue
@@ -1840,11 +1854,13 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
                     continue
                 if value.startswith("-"):
                     if not value.startswith("--"):
-                        interpreter_isolation_options.update(
-                            option
-                            for option in {"E", "I", "S", "s"}
-                            if option in value[1:]
-                        )
+                        for option in value[1:]:
+                            if option in {"W", "X"}:
+                                # The remainder is the attached payload, not
+                                # additional zero-arity interpreter flags.
+                                break
+                            if option in {"E", "I", "S", "s"}:
+                                interpreter_isolation_options.add(option)
                     cursor += 1
                     continue
                 entrypoint = normalize_script_entrypoint(value)
@@ -3292,10 +3308,9 @@ def python_main_call_counts(
             scope = f"{class_node.name}@{class_node.lineno}.{member.name}"
             constructor_scope_by_node[member] = scope
             scopes.append(scope)
-        if scopes:
-            class_constructor_definitions.setdefault(class_node.name, []).append(
-                (class_node, tuple(scopes))
-            )
+        class_constructor_definitions.setdefault(class_node.name, []).append(
+            (class_node, tuple(scopes))
+        )
     function_names = {
         constructor_scope_by_node.get(node, node.name)
         for node in ast.walk(tree)
@@ -3391,7 +3406,9 @@ def python_main_call_counts(
             for descendant in ast.walk(expression):
                 definition_time_owner[descendant] = definition_node
 
-    def owner_scope(node: ast.AST) -> str:
+    def owner_function_node(
+        node: ast.AST,
+    ) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
         definition_owner = definition_time_owner.get(node)
         current = parents.get(node)
         while current is not None:
@@ -3399,8 +3416,14 @@ def python_main_call_counts(
                 if current is definition_owner:
                     current = parents.get(current)
                     continue
-                return constructor_scope_by_node.get(current, current.name)
+                return current
             current = parents.get(current)
+        return None
+
+    def owner_scope(node: ast.AST) -> str:
+        owner = owner_function_node(node)
+        if owner is not None:
+            return constructor_scope_by_node.get(owner, owner.name)
         return "<module>"
 
     def visible_class_constructors(node: ast.Call) -> tuple[str, ...]:
@@ -3409,11 +3432,11 @@ def python_main_call_counts(
         definitions = class_constructor_definitions.get(node.func.id, [])
         if not definitions:
             return ()
-        scope = owner_scope(node)
+        owner = owner_function_node(node)
         same_scope = [
             (definition, constructors)
             for definition, constructors in definitions
-            if owner_scope(definition) == scope
+            if owner_function_node(definition) is owner
             and int(getattr(definition, "lineno", 0))
             <= int(getattr(node, "lineno", 0))
         ]
@@ -3421,14 +3444,28 @@ def python_main_call_counts(
             return max(
                 same_scope, key=lambda item: int(getattr(item[0], "lineno", 0))
             )[1]
-        if scope == "<module>":
+        if owner is None:
             return ()
+        enclosing = owner_function_node(owner)
+        while enclosing is not None:
+            captured = [
+                constructors
+                for definition, constructors in definitions
+                if owner_function_node(definition) is enclosing
+            ]
+            if captured:
+                return tuple(
+                    constructor
+                    for constructors in captured
+                    for constructor in constructors
+                )
+            enclosing = owner_function_node(enclosing)
         # Calls inside a function resolve module globals at execution time;
         # conservatively retain every possible module-level redefinition.
         return tuple(
             constructor
             for definition, constructors in definitions
-            if owner_scope(definition) == "<module>"
+            if owner_function_node(definition) is None
             for constructor in constructors
         )
 
@@ -4925,7 +4962,7 @@ def unresolved_workflow_executable_expression(source: str) -> bool:
     source = executable_shell_text(source)
     masked = re.sub(
         r"\$\{\{\s*(?:inputs|github\.event\.inputs)"
-        r"(?:\.[A-Za-z_][A-Za-z0-9_-]*|"
+        r"\s*(?:\.[A-Za-z_][A-Za-z0-9_-]*|"
         r"\[\s*[^]\r\n]+\s*\])"
         r"[^}]*\}\}",
         marker,
@@ -5074,8 +5111,14 @@ def workflow_run_records(
             for environment in environments:
                 effective.update(environment)
             prefixes: list[str] = []
-            if unsafe_python_startup_environment(effective):
+            immediate_startup_environment = dict(effective)
+            immediate_startup_environment.pop("PYTHONUSERBASE", None)
+            if unsafe_python_startup_environment(immediate_startup_environment):
                 prefixes.append(SHELL_UNRESOLVED_CONTROL_SENTINEL)
+            if "PYTHONUSERBASE" in effective:
+                prefixes.append(
+                    f"PYTHONUSERBASE={shlex.quote(effective['PYTHONUSERBASE'])}"
+                )
             if unresolved_workflow_executable_expression(source):
                 prefixes.append(SHELL_UNRESOLVED_CONTROL_SENTINEL)
             if "PYTHONPATH" in effective:

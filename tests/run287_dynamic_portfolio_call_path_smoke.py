@@ -900,6 +900,32 @@ def test_indirect_execution_and_destination_bypasses_fail_closed() -> None:
             "    def __init__(self):\n"
             "        writer.main()\n"
             "class Replaced:\n"
+            "    pass\n"
+            "Replaced()\n",
+            "tools/helper.py",
+        )
+    )
+    assert dict(
+        MOD.python_main_call_counts(
+            "from tools import build_run287_same_close_target_books as writer\n"
+            "def outer():\n"
+            "    class LocalWriter:\n"
+            "        def __init__(self):\n"
+            "            writer.main()\n"
+            "    def inner():\n"
+            "        LocalWriter()\n"
+            "    inner()\n"
+            "outer()\n",
+            "tools/helper.py",
+        )
+    )["tools/build_run287_same_close_target_books.py"] == 1
+    assert "tools/build_run287_same_close_target_books.py" not in dict(
+        MOD.python_main_call_counts(
+            "from tools import build_run287_same_close_target_books as writer\n"
+            "class Replaced:\n"
+            "    def __init__(self):\n"
+            "        writer.main()\n"
+            "class Replaced:\n"
             "    def __init__(self):\n"
             "        self.ready = True\n"
             "Replaced()\n",
@@ -955,6 +981,12 @@ def test_indirect_execution_and_destination_bypasses_fail_closed() -> None:
     ) == set()
     assert MOD.python_entrypoints(
         "nice --help python tools/harmless.py"
+    ) == set()
+    assert MOD.python_entrypoints(
+        "unshare -Uh python tools/harmless.py"
+    ) == set()
+    assert MOD.python_entrypoints(
+        "ionice -tV python tools/harmless.py"
     ) == set()
     assigned_python_source = MOD.python_invocations(
         "CMD='from tools.build_run287_same_close_target_books import main; main()'\n"
@@ -2959,6 +2991,9 @@ def test_final_runtime_semantics_and_remote_actions_fail_closed() -> None:
     assert MOD.unresolved_workflow_executable_expression(
         "${{ inputs[inputs.selector] }}"
     )
+    assert MOD.unresolved_workflow_executable_expression(
+        "${{ inputs [inputs.selector] }}"
+    )
     assert not MOD.unresolved_workflow_executable_expression(
         'ARGS=("${{ inputs.argument }}")\npython tools/harmless.py "${{ inputs.argument }}"'
     )
@@ -3003,6 +3038,18 @@ def test_final_runtime_semantics_and_remote_actions_fail_closed() -> None:
         "python_startup_environment_override"
     ] is True
     assert MOD.python_invocations(
+        "env '-SPYTHONWARNINGS=ignore::tools.neutral.Warning' "
+        f"python {writer}"
+    )[0][
+        "python_startup_environment_override"
+    ] is True
+    assert MOD.python_invocations(
+        "PYTHONWARNINGS=ignore::tools.neutral.Warning "
+        f"python -Wignore::ImportWarning {writer}"
+    )[0][
+        "python_startup_environment_override"
+    ] is True
+    assert MOD.python_invocations(
         f"PYTHONUSERBASE=tools/hooks python {writer}"
     )[0][
         "python_startup_environment_override"
@@ -3010,6 +3057,20 @@ def test_final_runtime_semantics_and_remote_actions_fail_closed() -> None:
     assert MOD.python_invocations(
         f"PYTHONUSERBASE=tools/hooks python -s {writer}"
     )[0][
+        "python_startup_environment_override"
+    ] is False
+    userbase_workflow = (
+        "env:\n"
+        "  PYTHONUSERBASE: tools/hooks\n"
+        "jobs:\n"
+        "  audit:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        f"      - run: python -s {writer}\n"
+    )
+    userbase_source = MOD.workflow_run_records(userbase_workflow)[0][1]
+    assert MOD.SHELL_UNRESOLVED_CONTROL_SENTINEL not in userbase_source
+    assert MOD.python_invocations(userbase_source)[0][
         "python_startup_environment_override"
     ] is False
     warnings_action_workflow = (
