@@ -11,13 +11,41 @@ commit.
 | --- | --- | --- | --- |
 | PR / push CI | `pr_validation.yml` | Tier-1 code-level smoke + leakage audit + topology guard via `tools/run_pr_validation.py` | No data, no model impact |
 | Manual long-run | `full_rebuild_manual.yml` | full data rebuild, backtests, verdicts, GDrive sync, auto-learning diagnostics | Generates production artifacts; no blind baseline rotation |
-| Daily after close | `after_close_daily.yml` | scanner, macro pulse, ETF leadership, explosive alerts, tactical review, paper dry-run, Layer 4 suggestions | Dry-run/report-only unless manual `execute=true` |
+| Daily accepted close | `daily_operating_selection_refresh.yml` | exact-close target handoff, mark/settle, and integrity-bound review-only paper ledger | Sole accepted daily target/ledger chain; next-close orders remain review-only |
+| Daily crisis state | `daily_crisis_monitor.yml` | canonical crisis-state observation | State only; no target writer |
+| Daily legacy report | `after_close_daily.yml` | scanner, macro pulse, ETF leadership, explosive alerts, tactical review, legacy paper dry-run, Layer 4 suggestions | Not authoritative; scheduled run is dry-run and manual execution uses the separately acknowledged legacy path |
 | Weekly | `weekly_data_refresh.yml` | Finnhub substrate refresh, theme discovery, PIT data freshness review, and universe/coverage gap reporting | Data refresh only |
 | Monthly | `monthly_research.yml` | cycle-play universe refresh, ADR/macro IC, tactical sleeve backtest, explosive pattern model retrain | Research/model artifacts only |
 | Quarterly | `quarterly_auto_learning.yml` | trade insights, feature-gate proposals, promotion dry-run or gated manual promotion | Scheduled runs diagnostic; manual promotion only after gates pass |
 | Monthly legacy bridge | `unified_monthly.yml` | `scored_unified.csv` bridge for legacy advisors/tools | Data bridge only |
 | Monthly proposal | `layer4_monthly_swap.yml` | Layer 4 swap proposal and optional manual paper execution | Scheduled runs dry-run; live requires manual input |
 | Manual smoke | `gdrive_smoke_test.yml` | Google Drive credential verification | No model impact |
+
+## Target And Execution Authority
+
+The machine-readable authority is
+`docs/run287_dynamic_portfolio_call_path_contract.json`, enforced by
+`tools/audit_run287_dynamic_portfolio_call_paths.py` and its Tier-1 smoke test.
+
+- `tools/build_operating_target_books.py` prepares preliminary or manual-replay
+  books. A file at its output path is not by itself an accepted decision.
+- `tools/build_run287_same_close_target_books.py`, called from
+  `daily_operating_selection_refresh.yml`, is the sole accepted current-session
+  target writer after exact producer, freshness, coverage, timestamp, and hash
+  gates pass.
+- `tools/run_daily_simulated_fill_ledger.py` consumes a validated target. It is
+  the durable review-only paper ledger mutator, not a selector or target writer.
+- `daily_crisis_monitor.yml`, `weekly_data_refresh.yml`, and
+  `unified_monthly.yml` do not write accepted targets.
+- Event, weekly-leader, crisis-governed, and AlphaOps reconstruction books are
+  manual research/replay outputs unless a later separately reviewed contract
+  changes their authority.
+- `after_close_daily.yml` and `layer4_monthly_swap.yml` retain legacy manual
+  paper execution surfaces. They are not part of the accepted same-close and
+  durable-ledger chain.
+- The standalone `r1000_risk_sensing.py` Layer 1 price/RS `EXIT` functions must
+  not be imported or called from the accepted target/ledger path. Connecting
+  them requires a separate preregistered policy PR and evidence review.
 
 ## Rules For Future System Changes
 

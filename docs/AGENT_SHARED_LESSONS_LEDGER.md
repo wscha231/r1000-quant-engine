@@ -90,6 +90,116 @@ Expected contract:
 
 ## Ledger
 
+### 2026-08-14 - Wrapper and startup authority follows operand order
+
+- Agent: Codex GPT-5.6
+- Branch/PR/run: `codex/run287-dynamic-portfolio-call-path-contract-20260812`, PR #359
+- Context: Two exact-head reviews found same-family edge cases after constructor,
+  workflow-input, wrapper, and Python startup-environment hardening.
+- Attempt: Bound redefined constructors by visible definition, failed closed on
+  computed input indices, modeled terminal/non-command wrapper modes and
+  mandatory operands, and limited Python isolation to pre-script options while
+  covering split-string assignments and `PYTHONUSERBASE`. Follow-up handling
+  retained constructors captured from enclosing functions, parsed option
+  payloads and short clusters in order, and deferred YAML `PYTHONUSERBASE`
+  judgment until the actual Python invocation was known.
+- Result: Focused regressions pass for all fifteen reported cases.
+- Failure or caveat: Bare command names and unordered option membership can
+  credit an operand that never executes or suppress a startup hook that does.
+- Root cause: Execution authority depends on definition visibility and ordered
+  CLI semantics, including whether an option terminates, selects a process, or
+  appears before the interpreter operand.
+- Reusable lesson: Parse wrapper and interpreter argv in order, distinguish
+  command mode from inspection/process-selection mode, and bind callable
+  definitions to their visible source binding.
+- Next action: Rebind the authority fingerprint, obtain zero unresolved
+  exact-head threads and green required checks, then merge PR #359.
+- Do-not-repeat: Do not treat every post-command token as an interpreter option
+  or every wrapper option as a zero-arity pass-through.
+- Evidence files: `tools/audit_run287_dynamic_portfolio_call_paths.py`,
+  `tests/run287_dynamic_portfolio_call_path_smoke.py`
+
+### 2026-08-13 - Authority graphs must retain caller runtime context
+
+- Agent: Codex GPT-5.6
+- Branch/PR/run: `codex/run287-dynamic-portfolio-call-path-contract-20260812`, PR #359
+- Context: Exact-head review found twelve final execution-context gaps after
+  direct interpreter and sink semantics were hardened.
+- Attempt: Propagated shell dialect and working directory through helper calls,
+  modeled skipped `needs`, EXIT traps, coprocesses, unquoted-heredoc expansion,
+  complete Python help options and compile expressions, and bound unresolved
+  redirects to command source. Protected workflows now pin reviewed remote
+  actions to immutable commit SHAs.
+- Result: Focused regressions cover every reported bypass; the full repository
+  authority audit is the remaining exact-head acceptance check.
+- Failure or caveat: A correct token parser is still unsafe if it forgets the
+  caller's shell, cwd, dependency status, or remotely supplied executable code.
+- Root cause: Execution authority is a contextual graph property, not a set of
+  file names or matching command strings.
+- Reusable lesson: Carry runtime context across every graph edge and make
+  external executable dependencies immutable before certifying sole-writer or
+  no-writer contracts.
+- Next action: Bind the recalculated fingerprints, pass dual-runtime and CI
+  audits, obtain zero unresolved exact-head review threads, then merge PR #359.
+- Do-not-repeat: Do not approve a refreshed workflow fingerprint while helper
+  context or remote action revisions remain semantically unbound.
+- Evidence files: `tools/audit_run287_dynamic_portfolio_call_paths.py`,
+  `tests/run287_dynamic_portfolio_call_path_smoke.py`, protected workflow YAMLs
+
+### 2026-08-13 - Authority parsers must preserve runtime language semantics
+
+- Agent: Codex GPT-5.6
+- Branch/PR/run: `codex/run287-dynamic-portfolio-call-path-contract-20260812`, PR #359
+- Context: Exact-head review found seven follow-on boundary cases after the
+  initial authority-graph hardening.
+- Attempt: Bound Python option arity and byte `compile` payloads, constrained
+  process substitution to compatible shells, evaluated constant equality,
+  unwrapped `atexit` partials, resolved finite path concatenation, and made
+  protected no-writer presence plus unresolved-sink baselines immutable.
+- Result: Focused probes pass and the complete repository audit differs only
+  by the expected `pr_validation` authority fingerprint.
+- Failure or caveat: Treating all POSIX shells as Bash or all Python options as
+  zero-arity can credit commands that never execute, while treating unresolved
+  sinks as mutable inventory leaves a refresh-based bypass.
+- Root cause: Static authority evidence must model the execution semantics of
+  each host language, not just recognize familiar tokens.
+- Reusable lesson: Bind interpreter option arity, shell dialect, callback
+  wrappers, literal encodings, and unresolved authority baselines independently
+  of editable contract snapshots.
+- Next action: Re-run exact-head Python 3.14/3.12 audits and GitHub authority CI.
+- Do-not-repeat: Do not accept a refreshed fingerprint as proof when the
+  semantic parser can still credit an unreachable command or omit a callback.
+- Evidence files: `tools/audit_run287_dynamic_portfolio_call_paths.py`,
+  `tests/run287_dynamic_portfolio_call_path_smoke.py`
+
+### 2026-08-13 - Exact authority counts need ordered argv semantics
+
+- Agent: Codex GPT-5.6
+- Branch/PR/run: `codex/run287-dynamic-portfolio-call-path-contract-20260812`, PR #359
+- Context: Exact-head review found process-substitution, compiled exec,
+  decorated atexit, subprocess multiplicity, static-condition, local Docker,
+  immutable no-writer, and empty-selection CI bypasses.
+- Attempt: Extended the authority graph and initially reused the broad process
+  reachability candidate extractor for exact invocation counts.
+- Result: The broad extractor counted `.py` examples inside later test argv and
+  produced false writer workflows. Exact counts now parse ordered argv and
+  bind only the Python interpreter's actual script, `-m`, or `-c` operand.
+- Failure or caveat: Full-repository audit variants multiplied the authority
+  smoke runtime beyond 20 minutes before the new regressions were reduced to
+  focused fixtures and one canonical full audit.
+- Root cause: Conservative reachability and exact execution multiplicity have
+  different semantics and cannot share a candidate-union parser.
+- Reusable lesson: Keep fail-closed reachability broad, but derive immutable
+  execution counts from ordered, definite call bindings. Test security edge
+  classifiers directly instead of repeating the complete repository graph.
+- Next action: Require the split authority lane and exact-head review to pass
+  before merging PR #359.
+- Do-not-repeat: Do not refresh authority inventories to hide false positives,
+  and do not add redundant full-repository variants to a bounded CI lane.
+- Evidence files: `tools/audit_run287_dynamic_portfolio_call_paths.py`,
+  `tests/run287_dynamic_portfolio_call_path_smoke.py`,
+  `tools/run_pr_validation.py`
+
 ### 2026-07-10 - SEC identity coverage repaired and forward-only queue/ledger hardened
 
 - Agent: Codex GPT-5.6
@@ -3795,6 +3905,425 @@ Expected contract:
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
 
+## 2026-08-13 - Invocation-mode and binary-operand closure
+
+- Top-level `return` in an Actions Bash script is invalid and can fall through
+  an `||` branch; only prune `return` within a known function scope.
+- A custom Actions shell must execute `{0}` as its script operand. Reject `-c`
+  command-string modes even when `{0}` appears later as a positional argument.
+- Default argparse long-option abbreviation makes `--h`, `--he`, and `--hel`
+  terminal help spellings; protected command profiles must reject them.
+- `find -exec` and `find -execdir` payloads are executable command lines and
+  belong in transitive authority traversal.
+- A tracked binary Python operand such as a zipapp is executable but not
+  statically inspectable as source. Protected reachability must fail closed.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
+## 2026-08-13 - Runtime identity and generated-source closure
+
+- A pinned `actions/checkout` revision is insufficient if a protected workflow
+  overrides `with.ref`; protected execution must use the triggering commit.
+- A Python launch whose output redirection is definitely a directory never
+  starts. Such a command cannot satisfy writer cardinality or argument profiles.
+- Copying or linking a reviewed Python writer to an untracked/generated path
+  does not erase its authority. Reject execution of generated script aliases.
+- Serializer write-sink coverage includes pickle, Excel, Feather, HDF, HTML,
+  XML, Stata, SQL, ORC, and GBQ outputs as well as CSV/JSON/Parquet.
+- A bare shell receiving piped or redirected stdin executes generated source;
+  fail closed when that source is not statically bound.
+- PR validation must reject an empty test set after every include/only/exclude
+  filter, not only after an `--only` filter.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
+## 2026-08-13 - Terminal control and sole-writer sink closure
+
+- Deterministic Bash `DEBUG` and `RETURN` traps can execute authority callbacks
+  just like `EXIT`; traverse their literal actions or fail closed.
+- `ThreadPoolExecutor` and `ProcessPoolExecutor` submit/map callbacks are real
+  executions. Include local callback call graphs and protected callables in
+  writer cardinality.
+- Jobs with explicit Actions status-check functions such as `!cancelled()` must
+  remain reachable when a needed job is skipped; do not apply an implicit
+  `success()` model to those conditions.
+- A top-level unconditional shell `exit`/`return` makes following commands in
+  that active scope unreachable. Conditional exits inside `if`/loop/case
+  scopes must not erase the outer continuation.
+- `command -v`/`command -V` query names and `builtin` cannot launch an external
+  Python command. They cannot satisfy a protected command profile.
+- Reject parse-only custom Actions shell templates such as `bash -n {0}` and
+  terminal script help flags that exit before a target writer performs work.
+- Sole-writer enforcement includes the accepted workflow's explicit protected
+  destination sinks. Bind the reviewed sink set outside the editable contract
+  so refreshing a fingerprint cannot authorize a second target writer.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
+## 2026-08-13 - Edge-bound runtime and imported-module closure
+
+- Python help and version flags are terminal in every accepted short form,
+  including `-?` and combined forms such as `-hh` or `-VVV`; a later script
+  operand is not executed.
+- Shell dialect belongs to the executable after approved command wrappers.
+  Calls such as `env sh helper.sh` execute the helper as `sh`, not as the
+  caller's default Bash dialect.
+- A protected workflow inherits the executable supply chain of every reachable
+  local composite action or reusable workflow. Pinned remote-action validation
+  therefore applies to those reachable YAML sources as well as the root file.
+- Workflow smoke tests must assert the reviewed immutable action SHA, not a
+  mutable major tag that the protected workflow deliberately rejects.
+- `PYTHONPATH` and `BASH_ENV` inheritance is edge-specific. Never union values
+  from sibling jobs and apply the union to an unrelated local-action edge.
+- Python protected-call counting records whether a source is executed as a
+  script or imported as a module. A definite `if __name__ == "__main__"` body
+  is inert on an import path and cannot satisfy writer cardinality.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
+## 2026-08-13 - Authority validation must preserve runtime multiplicity
+
+- Shell brace expansion and quoted command substitution can multiply or hide a
+  protected launch. Expand finite forms and fail closed when authority-bearing
+  multiplicity is not statically bounded.
+- A literal fragment inside an f-string is not a complete dynamic-import
+  target. Only fully resolved finite module values may enter reachability.
+- Shell functions and aliases can shadow `python`; a textual interpreter token
+  is not trusted until the effective command is unshadowed.
+- Definite shutdown callbacks such as `atexit.register(writer.main)` are real
+  executions and contribute to protected-call cardinality.
+- Local Node actions are executable authority, not hash-only assets. Reject
+  process-launch or sensitive write capability until equivalent semantic Node
+  analysis is present.
+- An omitted workflow shell is meaningful only together with a finite runner
+  platform. Unknown or Windows-capable runner selection cannot be parsed as
+  POSIX by default.
+- Reachability sets deduplicate source files, but runtime executions do not.
+  Propagate each workflow process-launch occurrence through the Python graph.
+- No-writer status is an immutable workflow identity/role contract, not a
+  mutable role-name suffix.
+- Long authority suites should run in a separate required CI lane. A final
+  aggregator must require both the ordinary Tier-1 lane and authority lane, so
+  parallelism reduces wall time without weakening merge safety.
+- A repository-wide authority graph cannot run from a partial checkout. Give
+  the authority lane the full tracked tree; sparse checkout is safe only for
+  lanes whose contract does not compare transitive repository reachability.
+- Dispatch each source to the parser for its actual execution kind. Python
+  source must not also be parsed as shell text: a harmless document read can
+  otherwise promote Markdown and then JSON paths into the executable graph,
+  making fingerprints depend on sparse-checkout materialization.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
+## 2026-08-12 - Control-flow, startup-hook, and execution-multiplicity closure
+
+- Literal shell loop reachability depends on the operator: `while false` and
+  `until true` are inert, while `until false` executes its body. A literal-false
+  one-line `if` may still execute its `else` branch.
+- `xargs -r`/`--no-run-if-empty` makes command execution input-dependent. Static
+  authority certification must model the input or fail closed instead of
+  crediting an invocation that may never occur.
+- A `Thread` or `Process` target is not executed merely because its constructor
+  exists. Count the callback only through a definite `.start()` or `.run()`
+  launch, including a constructor stored in a local variable.
+- Workflow constant folding includes redundant parentheses around boolean
+  literals; `${{ ((false)) && ... }}` is statically disabled.
+- Source-removing filesystem operations mutate both sides. Inventory shell
+  `mv`, `rsync --remove-source-files`, and Python `os.renames` sources and
+  destinations, including imported aliases.
+- Noninteractive Bash executes a repository-local `BASH_ENV` hook before a run
+  block. Propagate workflow/job/step environment values into composite actions,
+  traverse literal hooks, and fail closed on unresolved hook values.
+- Execution multiplicity is part of authority. A matrix job or repeated local
+  `uses` edge cannot be deduplicated to one audited command; preserve finite
+  caller-edge multiplicity or fail closed.
+- `pty.spawn` is a standard-library process sink and must contribute its argv
+  targets to transitive reachability and exact-head identity.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
+## 2026-08-12 - Cross-runtime import and immutable-count closure
+
+- A finite shell `for` list multiplies every command in its body; literal-true
+  `if` blocks make their alternate branch unreachable. Exact invocation audits
+  must model both effects rather than flattening the source to one text row.
+- Dynamic imports may take a module name from a definite assignment. Resolve
+  the assignment into both local-import reachability and protected-call counts.
+- A subprocess can inject `PYTHONPATH` through its own `env` mapping. Bind that
+  mapping to the process fingerprint and traverse its `sitecustomize.py` and
+  `usercustomize.py` startup hooks.
+- A local Node action can import tracked helpers outside its action directory.
+  Follow canonical relative `require`/`import` edges instead of assuming the
+  action directory is the complete runtime context.
+- Shell helper paths can contain definite variables, for example
+  `source "$DIR/hook.sh"`; expand embedded known variables before tracked-path
+  matching.
+- The accepted writer and durable ledger roles, workflows, and exact invocation
+  counts are immutable contract schema, not optional fields that a later edit
+  may remove to weaken enforcement.
+- The complete authority-graph regression now exceeds the former 20-minute
+  GitHub job budget. Preserve the regression and give Tier-1 a 60-minute hard
+  ceiling; a timeout cancellation is not evidence of a passing check.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
+## 2026-08-13 - Complete dynamic-control and external-runtime closure
+
+- Multiline finite shell loops must preserve invocation multiplicity, and
+  literal-true multiline conditionals must exclude unreachable alternates.
+  Unknown loop multiplicity blocks only authority-bearing bodies; inert
+  research collection loops remain analyzable without weakening writer counts.
+- Heredoc bodies are parsed by their declared interpreter, not again as shell
+  control text. Double heredoc stripping can silently erase later commands.
+- Local Node actions include side-effect-only ESM imports and recursively loaded
+  tracked helpers outside the action directory in both content hashes and exact
+  HEAD inputs.
+- Python subprocess startup hooks resolve constructor-built environments and
+  relative `PYTHONPATH` entries against definite `cwd` values.
+- Multiple finite dynamic-import alternatives, shell `eval`, and exhausted
+  dynamic-exec traversal budgets fail closed. Definite local-function aliases
+  remain part of protected invocation counts.
+- Protected authority vocabulary and accepted writer/ledger executable command
+  profiles are immutable schema, not refreshable tuning fields.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
+## 2026-08-12 - Complete execution-edge and review-pagination closure
+
+- GitHub review-thread inspection must paginate to `hasNextPage=false`; the
+  first 100 threads are not proof that a large PR has no unresolved review.
+- Protected calls inside local helpers inherit the helper's definite call
+  multiplicity. A syntactic call count of one is wrong when the helper runs
+  twice, while an uncalled helper contributes zero executions.
+- Literal `exec` and `eval` payloads are transitive Python source. Parse their
+  imports, protected calls, subprocesses, shell launches, and write sinks to a
+  bounded fixed point; callable aliases do not make them inert.
+- Python process inventory includes `asyncio.create_subprocess_exec` and
+  `asyncio.create_subprocess_shell`. Bind a literal or assigned `cwd` together
+  with argv so a directory-only target change alters the reviewed fingerprint.
+- Repository-local `sitecustomize.py` and `usercustomize.py` selected by a
+  definite `PYTHONPATH` are interpreter entrypoints unless `-E`, `-I`, or `-S`
+  disables that startup path.
+- Composite actions resolve `${{ github.action_path }}` and
+  `$GITHUB_ACTION_PATH` relative to the action file, not the caller workflow.
+- A statically false job or step is not executable authority. Conversely,
+  subshell grouping with parentheses does not make a command unreachable.
+- File-write modes can be assigned variables, and `os.truncate` is always a
+  mutation of its path argument. Unresolved modes on sensitive destinations
+  fail closed.
+- Command-profile options after argv `--` are positional data and cannot
+  satisfy a reviewed safety flag or required option.
+- Exact hashes of every reachable Python authority source belong in the
+  workflow fingerprint so a semantic helper edit cannot retain an obsolete
+  approval merely because its extracted sink names stayed constant.
+- Shell function definitions are inert until called. Exclude uncalled bodies
+  and expand definite calls (including repeated and nested calls) before
+  accepting protected cardinality or required command profiles.
+- Statically disabled `uses:` steps do not contribute local-action authority,
+  just as statically disabled `run:` steps do not execute.
+- Effective workflow, job, and step `PYTHONPATH` values use normal precedence
+  and can select repository-local Python startup hooks; preserve that
+  environment in run records.
+- A path-shaped `.py` shell command is not proof of execution. Without verified
+  Git executable mode and a usable shebang, fail closed rather than crediting
+  the protected invocation.
+- `shutil.move` mutates both source and destination authority locations. It is
+  not equivalent to a copy for write-sink inventory.
+- A local Docker action's authority includes its complete tracked local build
+  context, not only `action.yml` and the Dockerfile named by `runs.image`.
+- Shell function syntax includes one-line definitions and `function name {}`
+  as well as multiline `name() {}`. None of their bodies is executable until
+  a definite call is reached.
+- Literal `false && ...` and `true || ...` branches are statically unreachable
+  and cannot satisfy protected invocation or required-command contracts.
+- Caller workflow/job/step environments propagate into local composite
+  actions. A local action is not a fresh process environment boundary.
+- A definite unquoted command variable can word-split into an interpreter
+  launch; retokenize its literal value or fail closed.
+- Python stdin fed by a nonliteral pipeline is executable but unauditable.
+  Reject it unless the producer payload is statically available and parsed.
+- `importlib.util.spec_from_file_location` plus loader execution creates a
+  file-based Python execution edge even though no module-name import exists.
+- Local Node actions bind their full tracked action directory so transitive
+  `require`/`import` helpers cannot escape source identity.
+- Function defaults, annotations, and decorators execute at definition time;
+  protected calls in those expressions belong to the enclosing scope.
+- Canonicalize safe local `.` and `..` path components before matching tracked
+  files. Preserve repository escapes as unresolved external paths.
+- Any static-analysis traversal budget exhaustion is a blocking finding, never
+  permission to certify a partial execution graph.
+- Literal false shell blocks (`if false`, `while false`) are not execution
+  authority. Exclude their bodies; if an alternate branch cannot be proven,
+  emit a blocking control-flow finding instead of guessing.
+- `os.rename` and `os.replace` mutate both source and destination locations,
+  just as `shutil.move` does.
+- GitHub expressions containing a constant-false conjunction are disabled even
+  when the expression also names dynamic event fields.
+- Heredoc bodies are data, not shell commands. Distinguish `<<` from the Bash
+  here-string operator `<<<` at both possible match offsets.
+- Process-launch wrappers such as `xargs` create a new command position; unwrap
+  reviewed options before discovering their executable.
+- When a source contains a process sink fed through helper arguments, bind all
+  finite local Python-path literals in that source so dispatch allowlists
+  become explicit reachability edges.
+- Thread and multiprocessing callback targets are executions when passed as a
+  definite `target`; direct-call-only accounting is incomplete.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
+## 2026-08-12 - Interpreter, workdir, and implementation-edge closure
+
+- A shell interpreter can execute any tracked decodable operand, including
+  `.bash` or `.txt`; inventory the interpreter operand rather than filtering it
+  by a `.sh` suffix. Direct executable discovery must still avoid treating
+  ordinary data-file arguments as programs.
+- Resolve exact shell variables before recursively parsing `bash -c` or
+  equivalent command strings. An unresolved dynamic command remains a
+  fail-closed authority fingerprint.
+- Python process-launch coverage includes `subprocess.getoutput` and
+  `subprocess.getstatusoutput`, including imported aliases.
+- Protected entrypoint cardinality includes constant `getattr(module,
+  "main")()` calls; alternate attribute syntax does not change authority.
+- Filesystem write callables remain writes after aliasing, such as
+  `writer = open`. Propagate callable aliases to a fixed point before classifying
+  destinations.
+- Workflow-relative Python and shell paths resolve from the effective
+  workflow, job, or step `working-directory`, with step precedence.
+- Local JavaScript and Docker actions bind `runs.main`, `runs.pre`,
+  `runs.post`, and local `runs.image` implementation bytes to their calling
+  workflow, not only the action manifest.
+- Valid shell heredoc delimiters are arbitrary quoted or unquoted shell words,
+  not identifier-only tokens; source extraction and inert-body masking must use
+  the same grammar.
+- `runpy.run_path` and `runpy.run_module` are executable import edges and must
+  participate in local Python reachability.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
+## 2026-08-12 - Call-path authority parsers must validate semantics
+
+- Shell safety profiles must remove all Bash redirection forms, including
+  combined stdout/stderr operators, before treating tokens as application argv.
+- Required command options are effective-value contracts. Reject duplicates,
+  empty operands, missing integrity pins, and later overrides rather than
+  accepting a required token anywhere in the command.
+- Embedded Python invocation counting must cover both imported aliases and
+  dotted-module `main()` calls. A protected writer executed through `python -c`
+  or stdin is still an invocation.
+- A no-writer declaration requires transitive source inspection, direct
+  authority-sensitive write-sink inspection, and HEAD identity binding for
+  every source that affected the result, even when filenames are neutral.
+- A false workflow input default is not sufficient execution safety. The shell
+  variable must start empty and acquire its executable flag only inside the
+  matching named-input true branch.
+- Guard every assignment form, including `export`, and bind integrity options
+  to their exact producer variables so a nominally nonempty token cannot expand
+  to an empty value at execution.
+- Python authority discovery must include direct executable scripts, common
+  stdin device paths, and literal dynamic imports. No-writer sink analysis must
+  include write-mode `open`, not only convenience writer methods.
+- Give every tracked workflow one explicit non-authorizing or authorizing role;
+  a neutral helper in a newly tracked, undeclared workflow must fail closed.
+- An exact-head audit may pass only when its own runtime is inside, tracked by,
+  and clean in the selected repository.
+- Exact source hashes are a backstop, not semantic authority. Bind every tracked
+  workflow to a reviewed fingerprint of transitive authority modules, Python
+  write sinks, and shell write/copy/redirection sinks; apply it to accepted,
+  read-only, research, and explicit no-writer roles alike.
+- Bind the full occurrence set of execution and handoff variables. Valid operand
+  spellings are insufficient when an intervening shell reassignment can redirect
+  the accepted ledger to a different manifest or target set.
+- Treat leading environment assignments and `env`/`command` wrappers as part of
+  executable discovery; a protected direct script remains authoritative in
+  those command positions.
+- Propagate simple aliases of dynamic-import callables, and traverse literal
+  repository Python entrypoints launched through subprocess wrappers. Include
+  unresolved process argv in each workflow fingerprint so later indirection
+  cannot silently introduce a writer.
+- Embedded `python -c` and stdin bodies contribute write sinks as well as
+  imports. Resolve simple literal and `Path` assignments before classifying
+  writes, and retain unresolved definite write destinations in the exact
+  workflow fingerprint.
+- Shell mutation inventory must cover redirection, copy/link/sync tools,
+  in-place editing, and any unclassified command with an authority-sensitive
+  operand. An exact workflow source hash alone is not a semantic write guard.
+- Raw occurrence lines inside a quoted no-op heredoc are not executable proof.
+  Validate guarded assignments after removing heredoc bodies and reject
+  indirect assignment primitives such as `eval`, `printf -v`, and namerefs.
+- Exact-head evidence requires the selected authority contract itself, not only
+  the audit runtime, to be tracked at the audited Git head.
+- Do not hash `ast.dump()` output into a cross-runtime authority contract.
+  Python minor versions can serialize the same expression differently; bind
+  the normalized source segment so Windows development and Linux CI produce
+  the same process-launch fingerprint without weakening change detection.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
+## 2026-08-12 - Dynamic portfolio call-path authority must be explicit
+
+- Agent: Codex GPT-5.6
+- Branch/PR/run:
+  `codex/run287-dynamic-portfolio-call-path-contract-20260812`; no workflow or
+  fullrun dispatched.
+- Context: Several daily, weekly, research, and legacy workflows can construct
+  target-like artifacts, while only one accepted daily path may authorize the
+  current target and one ledger consumer may apply it.
+- Attempt: Added a machine-readable workflow/entrypoint contract and a tracked
+  workflow audit that checks writer roles, exact accepted-path commands,
+  inline Python imports, transitive local imports, mandatory safety flags, and
+  prohibited standalone legacy EXIT reachability.
+- Result: The accepted daily path has exactly one current target writer; a
+  second known or previously unknown target writer, a missing suppression flag,
+  or a legacy risk-sensing import fails the focused validation. Shell control
+  boundaries cannot lend flags from a later command, `python -m` entrypoints
+  are normalized with direct script calls, inline shell comments cannot lend
+  flags, redirection operands are removed from argv, and `python -c`, optioned
+  stdin, and shell-wrapped Python are inspected. Every tracked workflow's
+  authority-sensitive entrypoints must exactly match its declared role.
+- Failure or caveat: Filename-pattern checks alone do not detect a newly named
+  target writer. Raw token checks can also be satisfied by comments, direct-file
+  scans miss transitive imports, and `python -` heredocs can hide local calls.
+  The accepted workflow therefore binds flags to logical executable commands,
+  allowlists direct entrypoints and inline local imports, and traverses the
+  local Python import graph. The accepted graph's complete set of
+  authority-sensitive modules is allowlisted, all accepted direct entrypoints
+  including neutrally named helpers seed transitive traversal, and a deleted
+  tracked dependency remains an input and fails closed. The accepted workflow's
+  complete local-entrypoint set and the two expected durable-ledger invocations
+  are exact; the two ledger profiles must cover distinct invocations exactly
+  once. Named manual-execution inputs are parsed and required to default false,
+  no-writer workflows traverse neutral helpers, and all 40 tracked workflow
+  source hashes are pinned so unrecognized wrappers or new paths fail closed.
+  Parsed imports and stable workflow invocations are cached so these guards
+  remain inside the Tier-1 fast-test budget. Untracked workflows are
+  excluded so user-owned local files
+  cannot silently become authority. Dirty audited inputs are never attributed
+  to the unchanged HEAD SHA.
+- Reusable lesson: Determine portfolio authority from the tracked workflow call
+  graph plus explicit role contracts, not from filenames or artifact labels.
+- Next action: Merge this behavior-neutral guard before introducing the first
+  dynamic cash/reserve challenger and its broker-ledger CAGR/MDD comparison.
+- Do-not-repeat: Do not connect `r1000_risk_sensing.py` Layer-1 EXIT decisions,
+  legacy paper executors, or a second target writer to the accepted daily path.
+- Evidence files:
+  `docs/run287_dynamic_portfolio_call_path_contract.json`,
+  `tools/audit_run287_dynamic_portfolio_call_paths.py`, and
+  `tests/run287_dynamic_portfolio_call_path_smoke.py`.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
 ## 2026-08-11 - U0 acceptance freshness and candidate-discovery boundary
 
 - A default-branch SHA is not a complete GitHub census identity. Branches and
@@ -3992,6 +4521,121 @@ Expected contract:
   feature or as-of date is not a substitute for the orderable session identity.
   Exact-close evidence also requires one unambiguous session row because replay
   row selection can diverge when duplicate dates remain in a cache.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
+## 2026-08-12 - Transitive workflow authority and exact-source identity
+
+- A reviewed shell Boolean guard is valid only when it is executable at the
+  top level. Reject indirect assignment primitives (`read`, `mapfile`,
+  `readarray`, `getopts`, `eval`, `printf -v`, namerefs) and do not accept a
+  matching guard nested under an inert conditional.
+- Static path resolution must preserve every assignment that can reach a write
+  site. A later harmless reassignment must not hide an earlier sensitive
+  destination from the authority fingerprint.
+- Process-launch inspection must treat positional argv and keyword `args=` as
+  the same sink and fingerprint unresolved dynamic argv fail-closed.
+- Shell mutation destinations can be carried through simple variables. Resolve
+  every known value and fingerprint an unresolved variable destination instead
+  of scanning only the literal command token.
+- Dynamic-import aliases include assignment expressions and equal-length tuple
+  or list destructuring; an alias spelling change must not bypass local import
+  reachability.
+- Python authority writes include filesystem copy, move, delete, rename, and
+  link operations as well as direct text/dataframe writes. Scope generic method
+  names carefully so domain-object `copy` or string `replace` is not mistaken
+  for a filesystem mutation.
+- Entrypoint cardinality is transitive. Count protected `.main()` calls inside
+  every Python source reachable from a workflow, not only direct workflow
+  command lines and inline heredocs.
+- `git status` can be suppressed with index flags. Bind audit inputs by
+  comparing each filter-normalized worktree object to its exact `HEAD:<path>`
+  blob, while retaining raw SHA-256 values as separate provenance.
+- Shell execution discovery must unwrap `time`, `exec -a`, environment and
+  command wrappers before deciding which tracked script is authoritative.
+- A GitHub Actions step with `shell: python` is executable Python source even
+  when it contains no `python ...` command token; include it in import, call,
+  process, and write-sink analysis.
+- Tracked repository shell scripts form a transitive call graph just like
+  Python modules. Traverse invoked scripts, bind them to source identity, and
+  include both their writes and their Python launches in the workflow
+  fingerprint.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
+## 2026-08-12 - Wrapper, local-action, and dynamic-destination closure
+
+- Shell-wrapper analysis must unwrap `builtin` as well as `command`; otherwise
+  `builtin read`, `builtin mapfile`, or another indirect assignment primitive
+  can alter a reviewed safety flag without detection.
+- Protected Python entrypoints remain protected after callable aliasing. Follow
+  assignments such as `invoke = protected.main` and count the later call.
+- A GitHub Actions run step inherits `defaults.run.shell` from the job and then
+  the workflow. Use the effective shell, not only a step-local `shell` field.
+- A shell interpreter can execute a tracked extensionless file. Build the shell
+  inventory from tracked decodable scripts and resolve the interpreter operand,
+  rather than relying on a `.sh` suffix.
+- Python and shell reachability are one fixed-point graph. A reachable Python
+  process may launch a tracked shell helper, which may launch more Python.
+- An unresolved write destination needs a binding fingerprint containing the
+  destination expression and its source context; the generic word
+  `UNRESOLVED_DESTINATION` cannot distinguish a changed default or binding.
+- `os.rename` and `os.replace` write their second argument. Resolve exact
+  filesystem APIs before applying generic attribute-method rules.
+- Unclassified shell commands still require variable expansion for sensitive
+  operands. `DEST=...; rm "$DEST"` is an authority mutation even when `rm` has
+  no dedicated command classifier.
+- GNU `env -S`/`--split-string` contains another command line. Recursively parse
+  its literal split string so Python entrypoints cannot hide inside one token.
+- Resolve literal relative dynamic imports with their explicit package or the
+  source module package before local-module reachability is evaluated.
+- Repository-local composite actions and reusable workflows are transitive
+  executable sources. Bind their exact YAML bytes, run blocks, launched scripts,
+  and reachable Python to the caller workflow's authority fingerprint.
+- Simple shell variables can name a Python entrypoint. Resolve an exact
+  `$SCRIPT`/`${SCRIPT}` operand before deciding the invoked file.
+- Process inventory includes `os.exec*`, `os.spawn*`, and `posix_spawn*`, with
+  each API's actual argv position rather than a universal first-argument rule.
+- Literal Python here-strings are executable embedded source just like `-c` and
+  heredocs; parse their imports, protected calls, processes, and writes.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
+## 2026-08-12 - Interpreter, process binding, and low-level write closure
+
+- A Python `-c` payload can be supplied through an assigned shell variable.
+  Resolve exact assignment values before parsing the embedded source, and bind
+  unresolved payloads fail-closed.
+- Process-launch callables remain process sinks after imports or assignments
+  rename them. Propagate callable aliases to a fixed point before classifying
+  calls.
+- Low-level `os.open` is a filesystem write when its flags include a write,
+  append, create, or truncate bit. Include both direct and aliased calls in the
+  authority inventory.
+- Interpreter-like words are executable only in shell command position. Parse
+  control operators and approved wrappers such as `sudo`, `timeout`, and
+  `unshare` before treating a Python token as a launch.
+- A process argv assembled through local assignments must bind both the call
+  expression and the referenced assignment sources. Otherwise changing the
+  launched target can leave the reviewed fingerprint unchanged.
+- Python interpreter operands are content-defined, not suffix-defined. A
+  tracked decodable `.txt` or extensionless file passed to Python is executable
+  source and belongs in the transitive inventory.
+- `python -m package` can execute `package/__main__.py`; inventory both the
+  module file and the package entrypoint when either exists.
+- A declared workflow shell outside the supported static parsers must fail
+  closed. Do not parse JavaScript, PowerShell, or another shell body as Bash and
+  then certify an incomplete authority graph.
+- HEAD identity must accept either Git-canonical equality or exact raw-byte
+  equality. Historical CRLF blobs can differ under today's clean filter without
+  being modified, while any raw and canonical mismatch still blocks hidden
+  worktree changes.
+- Protected-call accounting must resolve static relative `ImportFrom` modules
+  against the source file package, just as reachability resolves them. A short
+  unresolved module name can otherwise hide an extra protected `main()` call.
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.

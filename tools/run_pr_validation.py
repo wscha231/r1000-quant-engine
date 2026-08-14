@@ -110,6 +110,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/research_handoff_package_smoke.py", []),
     ("tests/agent_shared_lessons_contract_smoke.py", []),
     ("tests/run287_agent_github_operating_standard_smoke.py", []),
+    ("tests/run287_dynamic_portfolio_call_path_smoke.py", []),
     ("tests/run287_do_not_repeat_registry_smoke.py", []),
     ("tests/run287_u0_experiment_audit_smoke.py", []),
     ("tests/run287_u0_v2_github_census_smoke.py", []),
@@ -311,6 +312,15 @@ def main() -> int:
         default=[],
         help="If supplied, restrict to these tests (matched by substring against the path).",
     )
+    parser.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        help=(
+            "Exclude tests matched by substring. CI may use this only when "
+            "the excluded test is enforced by a separate required job."
+        ),
+    )
     parser.add_argument("--quiet", action="store_true", help="Suppress per-test tail output on success.")
     args = parser.parse_args()
 
@@ -322,6 +332,18 @@ def main() -> int:
         tests.append((path, []))
     if args.only:
         tests = [(p, a) for (p, a) in tests if any(token in p for token in args.only)]
+    if args.exclude:
+        tests = [
+            (p, a)
+            for (p, a) in tests
+            if not any(token in p for token in args.exclude)
+        ]
+    if not tests:
+        print(
+            "ERROR: filters selected zero tests; refusing an empty validation lane",
+            file=sys.stderr,
+        )
+        return 2
 
     print("=" * 72)
     print(f"PR validation: {len(tests)} test files")

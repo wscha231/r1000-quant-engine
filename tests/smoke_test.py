@@ -1842,7 +1842,7 @@ def test_helpers_imports_requests() -> None:
 @_test("regression.workflows_pip_cache_dependency_path")
 def test_workflows_pip_cache_path() -> None:
     """All workflows using actions/setup-python@v5 with cache:'pip' MUST also
-    declare cache-dependency-path pointing to requirements_github.txt.
+    declare cache-dependency-path pointing to an existing dependency file.
 
     Bug history (2026-04-26):
       Without this, setup-python tries default '**/requirements.txt or
@@ -1858,13 +1858,26 @@ def test_workflows_pip_cache_path() -> None:
     if not wf_dir.exists():
         return
     bad = []
+    pip_cache = re.compile(
+        r"^\s*cache:\s*['\"]?pip['\"]?\s*(?:#.*)?$", re.MULTILINE
+    )
+    dependency_path = re.compile(
+        r"^\s*cache-dependency-path:\s*['\"]?([^'\"\s#]+)['\"]?\s*(?:#.*)?$",
+        re.MULTILINE,
+    )
     for wf in sorted(wf_dir.glob("*.yml")):
         src = wf.read_text(encoding="utf-8")
-        if "cache: 'pip'" in src:
-            if "cache-dependency-path: requirements_github.txt" not in src:
-                bad.append(wf.name)
+        if not pip_cache.search(src):
+            continue
+        match = dependency_path.search(src)
+        if match is None:
+            bad.append(f"{wf.name} (missing cache-dependency-path)")
+            continue
+        configured_path = match.group(1)
+        if not (ROOT / configured_path).is_file():
+            bad.append(f"{wf.name} (missing file: {configured_path})")
     assert not bad, (
-        f"Workflows use cache:'pip' but missing cache-dependency-path "
+        f"Workflows use cache:'pip' but have no usable cache-dependency-path "
         f"(setup-python will fail): {bad}"
     )
 

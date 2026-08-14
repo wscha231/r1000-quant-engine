@@ -24,9 +24,10 @@ name: PR Validation (Fast)
 #   * 84-month broker-ledger metric regeneration — use
 #     full_rebuild_manual.yml (Tier 3, ~2-6 h).
 #
-# Runtime target: < 15 minutes on the free GitHub runner, including
-# sparse checkout and dependency setup. Add new
-# critical smoke tests to tools/run_pr_validation.py's DEFAULT_TESTS so
+# Runtime target: < 85 minutes on the free GitHub runner. The complete
+# authority-graph suite runs in parallel with the remaining Tier-1 tests, and
+# the final validate job requires both lanes to succeed.
+# Add new critical smoke tests to tools/run_pr_validation.py's DEFAULT_TESTS so
 # both this workflow and the local runner stay in sync.
 
 on:
@@ -37,9 +38,9 @@ permissions:
   contents: read
 
 jobs:
-  validate:
+  fast_validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -101,4 +102,223 @@ jobs:
           python tools/check_run287_artifact_hygiene.py --base-ref "${{ github.event.pull_request.base.sha }}"
 
       - name: Run Tier-1 PR validation
-        run: python tools/run_pr_validation.py
+        run: >-
+          python tools/run_pr_validation.py
+          --exclude run287_dynamic_portfolio_call_path_smoke
+
+  authority_validate_0:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install authority-audit dependency
+        run: pip install 'pyyaml>=6.0'
+
+      - name: Run authority-graph regression shard
+        env:
+          RUN287_AUTHORITY_SHARD_INDEX: '0'
+          RUN287_AUTHORITY_SHARD_COUNT: '8'
+        run: >-
+          python tools/run_pr_validation.py
+          --only run287_dynamic_portfolio_call_path_smoke
+
+  authority_validate_1:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install authority-audit dependency
+        run: pip install 'pyyaml>=6.0'
+      - name: Run authority-graph regression shard
+        env:
+          RUN287_AUTHORITY_SHARD_INDEX: '1'
+          RUN287_AUTHORITY_SHARD_COUNT: '8'
+        run: >-
+          python tools/run_pr_validation.py
+          --only run287_dynamic_portfolio_call_path_smoke
+
+  authority_validate_2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install authority-audit dependency
+        run: pip install 'pyyaml>=6.0'
+      - name: Run authority-graph regression shard
+        env:
+          RUN287_AUTHORITY_SHARD_INDEX: '2'
+          RUN287_AUTHORITY_SHARD_COUNT: '8'
+        run: >-
+          python tools/run_pr_validation.py
+          --only run287_dynamic_portfolio_call_path_smoke
+
+  authority_validate_3:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install authority-audit dependency
+        run: pip install 'pyyaml>=6.0'
+      - name: Run authority-graph regression shard
+        env:
+          RUN287_AUTHORITY_SHARD_INDEX: '3'
+          RUN287_AUTHORITY_SHARD_COUNT: '8'
+        run: >-
+          python tools/run_pr_validation.py
+          --only run287_dynamic_portfolio_call_path_smoke
+
+  authority_validate_4:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install authority-audit dependency
+        run: pip install 'pyyaml>=6.0'
+      - name: Run authority-graph regression shard
+        env:
+          RUN287_AUTHORITY_SHARD_INDEX: '4'
+          RUN287_AUTHORITY_SHARD_COUNT: '8'
+        run: >-
+          python tools/run_pr_validation.py
+          --only run287_dynamic_portfolio_call_path_smoke
+
+  authority_validate_5:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install authority-audit dependency
+        run: pip install 'pyyaml>=6.0'
+      - name: Run authority-graph regression shard
+        env:
+          RUN287_AUTHORITY_SHARD_INDEX: '5'
+          RUN287_AUTHORITY_SHARD_COUNT: '8'
+        run: >-
+          python tools/run_pr_validation.py
+          --only run287_dynamic_portfolio_call_path_smoke
+
+  authority_validate_6:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install authority-audit dependency
+        run: pip install 'pyyaml>=6.0'
+      - name: Run authority-graph regression shard
+        env:
+          RUN287_AUTHORITY_SHARD_INDEX: '6'
+          RUN287_AUTHORITY_SHARD_COUNT: '8'
+        run: >-
+          python tools/run_pr_validation.py
+          --only run287_dynamic_portfolio_call_path_smoke
+
+  authority_validate_7:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install authority-audit dependency
+        run: pip install 'pyyaml>=6.0'
+      - name: Run authority-graph regression shard
+        env:
+          RUN287_AUTHORITY_SHARD_INDEX: '7'
+          RUN287_AUTHORITY_SHARD_COUNT: '8'
+        run: >-
+          python tools/run_pr_validation.py
+          --only run287_dynamic_portfolio_call_path_smoke
+
+  validate:
+    if: ${{ always() }}
+    needs:
+      - fast_validate
+      - authority_validate_0
+      - authority_validate_1
+      - authority_validate_2
+      - authority_validate_3
+      - authority_validate_4
+      - authority_validate_5
+      - authority_validate_6
+      - authority_validate_7
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require both validation lanes
+        env:
+          FAST_RESULT: ${{ needs.fast_validate.result }}
+          AUTHORITY_0_RESULT: ${{ needs.authority_validate_0.result }}
+          AUTHORITY_1_RESULT: ${{ needs.authority_validate_1.result }}
+          AUTHORITY_2_RESULT: ${{ needs.authority_validate_2.result }}
+          AUTHORITY_3_RESULT: ${{ needs.authority_validate_3.result }}
+          AUTHORITY_4_RESULT: ${{ needs.authority_validate_4.result }}
+          AUTHORITY_5_RESULT: ${{ needs.authority_validate_5.result }}
+          AUTHORITY_6_RESULT: ${{ needs.authority_validate_6.result }}
+          AUTHORITY_7_RESULT: ${{ needs.authority_validate_7.result }}
+        run: |
+          test "$FAST_RESULT" = "success"
+          test "$AUTHORITY_0_RESULT" = "success"
+          test "$AUTHORITY_1_RESULT" = "success"
+          test "$AUTHORITY_2_RESULT" = "success"
+          test "$AUTHORITY_3_RESULT" = "success"
+          test "$AUTHORITY_4_RESULT" = "success"
+          test "$AUTHORITY_5_RESULT" = "success"
+          test "$AUTHORITY_6_RESULT" = "success"
+          test "$AUTHORITY_7_RESULT" = "success"
