@@ -12,6 +12,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.build_crisis_governed_target_books import build_governed_book  # noqa: E402
+from tools.run287_crisis_policy import (  # noqa: E402
+    INCREMENTAL_CRISIS_REENTRY_POLICY_ID,
+)
 from tools.run_broker_ledger_replay import replay  # noqa: E402
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
@@ -90,6 +93,21 @@ def test_crisis_governed_target_book_materializes_broker_replay_rows() -> None:
         assert metrics["metric_mode"] == "broker_ledger_next_close"
         trades = pd.read_csv(root / "broker" / "trades.csv")
         assert "SELL" in set(trades["side"].astype(str))
+
+        _challenger_book, challenger_audit, challenger_summary = build_governed_book(
+            target_book=target,
+            crisis_features=features,
+            portfolio_kind="main",
+            mode="conservative",
+            incremental_crisis_reentry=True,
+        )
+        assert challenger_summary["incremental_crisis_reentry_enabled"] is True
+        assert (
+            challenger_summary["reentry_policy_id"]
+            == INCREMENTAL_CRISIS_REENTRY_POLICY_ID
+        )
+        assert challenger_audit["incremental_crisis_reentry_enabled"].all()
+        assert "episode_incremental_crisis_reserve_weight" in challenger_audit
 
 
 if __name__ == "__main__":
