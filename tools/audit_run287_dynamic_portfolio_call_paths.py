@@ -102,6 +102,7 @@ PYTHON_STARTUP_EXECUTION_ENV = {
     "PYTHONHOME",
     "PYTHONINSPECT",
     "PYTHONSTARTUP",
+    "PYTHONUSERBASE",
     "PYTHONWARNINGS",
 }
 IMPLICIT_UNKNOWN_RUNNER_SHELL = "__run287_implicit_unknown_runner_shell__"
@@ -1451,20 +1452,43 @@ def shell_command_position(tokens: list[str], index: int) -> bool:
             continue
         if executable in {"unshare", "nice", "ionice"}:
             cursor += 1
+            terminal_options = {
+                "nice": {"--help", "--version"},
+                "ionice": {"-h", "--help", "-V", "--version"},
+                "unshare": {"-h", "--help", "-V", "--version"},
+            }[executable]
+            non_command_modes = {
+                "nice": set(),
+                "ionice": {"-p", "--pid", "-P", "--pgid", "-u", "--uid"},
+                "unshare": set(),
+            }[executable]
             options_with_values = {
                 "nice": {"-n", "--adjustment"},
                 "ionice": {
-                    "-c", "--class", "-n", "--classdata", "-p", "--pid",
-                    "-P", "--pgid", "-u", "--uid",
+                    "-c", "--class", "-n", "--classdata",
                 },
                 "unshare": {
                     "--propagation", "-R", "--root", "-w", "--wd",
                     "-S", "--map-user", "-G", "--map-group",
-                    "--map-users", "--map-groups",
+                    "--map-users", "--map-groups", "--setgroups",
+                    "--monotonic", "--boottime",
                 },
             }[executable]
             while cursor < index:
                 value = tokens[cursor]
+                if value in terminal_options:
+                    return False
+                if value in non_command_modes or any(
+                    value.startswith(f"{option}=")
+                    or (
+                        option.startswith("-")
+                        and not option.startswith("--")
+                        and value.startswith(option)
+                        and value != option
+                    )
+                    for option in non_command_modes
+                ):
+                    return False
                 if value in options_with_values:
                     cursor += 2
                     continue
@@ -1607,22 +1631,32 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
                     return scoped_literals[segment][name], False
             return literal_names.get(name, ""), name in dynamic_names
 
-        def python_startup_environment_override(token_index: int) -> bool:
+        def python_startup_environment_overrides(token_index: int) -> set[str]:
             segment = token_segments.get(token_index)
             start = segment[0] if segment is not None else 0
             command_assignments: dict[str, str] = {}
             for value in tokens[start:token_index]:
-                if not SHELL_ASSIGNMENT_WORD.fullmatch(value):
-                    continue
-                name, assigned = value.split("=", 1)
-                command_assignments[name] = assigned
+                assignment_tokens = [value]
+                if value.startswith("--split-string="):
+                    try:
+                        assignment_tokens = shell_tokens(value.split("=", 1)[1])
+                    except ValueError:
+                        assignment_tokens = [value.split("=", 1)[1]]
+                for assignment in assignment_tokens:
+                    if not SHELL_ASSIGNMENT_WORD.fullmatch(assignment):
+                        continue
+                    name, assigned = assignment.split("=", 1)
+                    command_assignments[name] = assigned
+            overrides: set[str] = set()
             for name in PYTHON_STARTUP_EXECUTION_ENV:
-                if str(command_assignments.get(name) or "").strip():
-                    return True
+                if name in command_assignments:
+                    if str(command_assignments[name]).strip():
+                        overrides.add(name)
+                    continue
                 value, dynamic = effective_environment(name, token_index)
                 if dynamic or str(value).strip():
-                    return True
-            return False
+                    overrides.add(name)
+            return overrides
 
         def unresolved_operand(value: str) -> bool:
             stripped = str(value).strip()
@@ -1724,7 +1758,7 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
                         "command_source": "",
                         "direct_executable": True,
                         "python_startup_environment_override": (
-                            python_startup_environment_override(index)
+                            bool(python_startup_environment_overrides(index))
                         ),
                         "nonstarting_redirection": nonstarting_redirection,
                     }
@@ -1760,6 +1794,7 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
             command_source = ""
             module_name = ""
             unresolved_entrypoint = False
+            interpreter_isolation_options: set[str] = set()
             while cursor < len(argv):
                 value = resolved_token(argv[cursor])
                 if value == "-m" and cursor + 1 < len(argv):
@@ -1788,12 +1823,28 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
                 if value == "-":
                     entrypoint = value
                     break
+                if value == "--":
+                    cursor += 1
+                    if cursor < len(argv):
+                        entrypoint = normalize_script_entrypoint(
+                            resolved_token(argv[cursor])
+                        )
+                        unresolved_entrypoint = bool(
+                            re.search(r"[$`]", entrypoint)
+                        )
+                    break
                 if python_terminal_option(value):
                     break
                 if value in options_with_values:
                     cursor += 2
                     continue
                 if value.startswith("-"):
+                    if not value.startswith("--"):
+                        interpreter_isolation_options.update(
+                            option
+                            for option in {"E", "I", "S", "s"}
+                            if option in value[1:]
+                        )
                     cursor += 1
                     continue
                 entrypoint = normalize_script_entrypoint(value)
@@ -1815,14 +1866,26 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
                     )
                 )
             )
-            ignores_environment = any(
-                option in argv[1:] for option in {"-E", "-I", "-S"}
+            ignores_python_environment = bool(
+                interpreter_isolation_options & {"E", "I"}
             )
-            startup_environment_override = bool(
-                python_startup_environment_override(index)
-                and not any(option in argv[1:] for option in {"-E", "-I"})
+            disables_site_startup = bool(
+                interpreter_isolation_options & {"I", "S"}
             )
-            if pythonpath and not ignores_environment:
+            disables_user_site = bool(
+                interpreter_isolation_options & {"I", "S", "s"}
+            )
+            startup_environment_overrides = (
+                python_startup_environment_overrides(index)
+            )
+            if ignores_python_environment:
+                startup_environment_overrides.clear()
+            elif disables_user_site:
+                startup_environment_overrides.discard("PYTHONUSERBASE")
+            startup_environment_override = bool(startup_environment_overrides)
+            if pythonpath and not (
+                ignores_python_environment or disables_site_startup
+            ):
                 for part in re.split(r"[;:]", pythonpath):
                     normalized = normalize_script_entrypoint(part or ".")
                     for startup in ("sitecustomize.py", "usercustomize.py"):
@@ -1842,7 +1905,10 @@ def python_invocations(text: str) -> tuple[dict[str, Any], ...]:
                     "startup_entrypoints": sorted(set(startup_entrypoints)),
                     "unresolved_entrypoint": unresolved_entrypoint,
                     "unresolved_pythonpath": bool(
-                        pythonpath_dynamic and not ignores_environment
+                        pythonpath_dynamic
+                        and not (
+                            ignores_python_environment or disables_site_startup
+                        )
                     ),
                     "path_override": bool(
                         path_overridden
@@ -3211,7 +3277,9 @@ def python_main_call_counts(
                         names[target_node.id] = target
                         changed = True
     constructor_scope_by_node: dict[ast.AST, str] = {}
-    class_constructors: dict[str, tuple[str, ...]] = {}
+    class_constructor_definitions: dict[
+        str, list[tuple[ast.ClassDef, tuple[str, ...]]]
+    ] = {}
     for class_node in (
         node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)
     ):
@@ -3225,8 +3293,9 @@ def python_main_call_counts(
             constructor_scope_by_node[member] = scope
             scopes.append(scope)
         if scopes:
-            existing = class_constructors.get(class_node.name, ())
-            class_constructors[class_node.name] = (*existing, *scopes)
+            class_constructor_definitions.setdefault(class_node.name, []).append(
+                (class_node, tuple(scopes))
+            )
     function_names = {
         constructor_scope_by_node.get(node, node.name)
         for node in ast.walk(tree)
@@ -3333,6 +3402,35 @@ def python_main_call_counts(
                 return constructor_scope_by_node.get(current, current.name)
             current = parents.get(current)
         return "<module>"
+
+    def visible_class_constructors(node: ast.Call) -> tuple[str, ...]:
+        if not isinstance(node.func, ast.Name):
+            return ()
+        definitions = class_constructor_definitions.get(node.func.id, [])
+        if not definitions:
+            return ()
+        scope = owner_scope(node)
+        same_scope = [
+            (definition, constructors)
+            for definition, constructors in definitions
+            if owner_scope(definition) == scope
+            and int(getattr(definition, "lineno", 0))
+            <= int(getattr(node, "lineno", 0))
+        ]
+        if same_scope:
+            return max(
+                same_scope, key=lambda item: int(getattr(item[0], "lineno", 0))
+            )[1]
+        if scope == "<module>":
+            return ()
+        # Calls inside a function resolve module globals at execution time;
+        # conservatively retain every possible module-level redefinition.
+        return tuple(
+            constructor
+            for definition, constructors in definitions
+            if owner_scope(definition) == "<module>"
+            for constructor in constructors
+        )
 
     protected_by_scope: dict[str, dict[str, int]] = {}
     local_calls: dict[str, dict[str, int]] = {}
@@ -3477,9 +3575,10 @@ def python_main_call_counts(
             bucket = local_calls.setdefault(scope, {})
             function = local_function_aliases[node.func.id]
             bucket[function] = bucket.get(function, 0) + 1
-        if isinstance(node.func, ast.Name) and node.func.id in class_constructors:
+        constructors = visible_class_constructors(node)
+        if constructors:
             bucket = local_calls.setdefault(scope, {})
-            for constructor in class_constructors[node.func.id]:
+            for constructor in constructors:
                 bucket[constructor] = bucket.get(constructor, 0) + 1
 
     execution_count = {name: 0 for name in function_names}
@@ -4827,7 +4926,7 @@ def unresolved_workflow_executable_expression(source: str) -> bool:
     masked = re.sub(
         r"\$\{\{\s*(?:inputs|github\.event\.inputs)"
         r"(?:\.[A-Za-z_][A-Za-z0-9_-]*|"
-        r"\[\s*['\"][A-Za-z_][A-Za-z0-9_-]*['\"]\s*\])"
+        r"\[\s*[^]\r\n]+\s*\])"
         r"[^}]*\}\}",
         marker,
         source,

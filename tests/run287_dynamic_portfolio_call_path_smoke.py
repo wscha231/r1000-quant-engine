@@ -893,6 +893,19 @@ def test_indirect_execution_and_destination_bypasses_fail_closed() -> None:
             "tools/helper.py",
         )
     )
+    assert "tools/build_run287_same_close_target_books.py" not in dict(
+        MOD.python_main_call_counts(
+            "from tools import build_run287_same_close_target_books as writer\n"
+            "class Replaced:\n"
+            "    def __init__(self):\n"
+            "        writer.main()\n"
+            "class Replaced:\n"
+            "    def __init__(self):\n"
+            "        self.ready = True\n"
+            "Replaced()\n",
+            "tools/helper.py",
+        )
+    )
     assert dict(
         MOD.python_main_call_counts(
             "from .build_run287_same_close_target_books import main\n"
@@ -934,6 +947,15 @@ def test_indirect_execution_and_destination_bypasses_fail_closed() -> None:
     assert MOD.python_entrypoints(
         "nice -n 5 python tools/harmless.py"
     ) == {"tools/harmless.py"}
+    assert MOD.python_entrypoints(
+        "unshare --setgroups deny -U python tools/harmless.py"
+    ) == {"tools/harmless.py"}
+    assert MOD.python_entrypoints(
+        "ionice -p $$ python tools/harmless.py || true"
+    ) == set()
+    assert MOD.python_entrypoints(
+        "nice --help python tools/harmless.py"
+    ) == set()
     assigned_python_source = MOD.python_invocations(
         "CMD='from tools.build_run287_same_close_target_books import main; main()'\n"
         'python -c "$CMD"\n'
@@ -2934,6 +2956,9 @@ def test_final_runtime_semantics_and_remote_actions_fail_closed() -> None:
     assert MOD.unresolved_workflow_executable_expression(
         '${{ github.event.inputs["command"] }}'
     )
+    assert MOD.unresolved_workflow_executable_expression(
+        "${{ inputs[inputs.selector] }}"
+    )
     assert not MOD.unresolved_workflow_executable_expression(
         'ARGS=("${{ inputs.argument }}")\npython tools/harmless.py "${{ inputs.argument }}"'
     )
@@ -2963,6 +2988,27 @@ def test_final_runtime_semantics_and_remote_actions_fail_closed() -> None:
     assert prefix_warning_invocation["python_startup_environment_override"] is True
     assert MOD.python_invocations(
         f"PYTHONWARNINGS=ignore::tools.neutral.Warning python -E {writer}"
+    )[0][
+        "python_startup_environment_override"
+    ] is False
+    assert MOD.python_invocations(
+        f"PYTHONWARNINGS=ignore::tools.neutral.Warning python {writer} -E"
+    )[0][
+        "python_startup_environment_override"
+    ] is True
+    assert MOD.python_invocations(
+        "env --split-string='PYTHONWARNINGS=ignore::tools.neutral.Warning' "
+        f"python {writer}"
+    )[0][
+        "python_startup_environment_override"
+    ] is True
+    assert MOD.python_invocations(
+        f"PYTHONUSERBASE=tools/hooks python {writer}"
+    )[0][
+        "python_startup_environment_override"
+    ] is True
+    assert MOD.python_invocations(
+        f"PYTHONUSERBASE=tools/hooks python -s {writer}"
     )[0][
         "python_startup_environment_override"
     ] is False

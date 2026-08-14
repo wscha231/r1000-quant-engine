@@ -90,6 +90,32 @@ Expected contract:
 
 ## Ledger
 
+### 2026-08-14 - Wrapper and startup authority follows operand order
+
+- Agent: Codex GPT-5.6
+- Branch/PR/run: `codex/run287-dynamic-portfolio-call-path-contract-20260812`, PR #359
+- Context: Exact-head review found same-family edge cases after constructor,
+  workflow-input, wrapper, and Python startup-environment hardening.
+- Attempt: Bound redefined constructors by visible definition, failed closed on
+  computed input indices, modeled terminal/non-command wrapper modes and
+  mandatory operands, and limited Python isolation to pre-script options while
+  covering split-string assignments and `PYTHONUSERBASE`.
+- Result: Focused regressions pass for all eight reported cases.
+- Failure or caveat: Bare command names and unordered option membership can
+  credit an operand that never executes or suppress a startup hook that does.
+- Root cause: Execution authority depends on definition visibility and ordered
+  CLI semantics, including whether an option terminates, selects a process, or
+  appears before the interpreter operand.
+- Reusable lesson: Parse wrapper and interpreter argv in order, distinguish
+  command mode from inspection/process-selection mode, and bind callable
+  definitions to their visible source binding.
+- Next action: Rebind the authority fingerprint, obtain zero unresolved
+  exact-head threads and green required checks, then merge PR #359.
+- Do-not-repeat: Do not treat every post-command token as an interpreter option
+  or every wrapper option as a zero-arity pass-through.
+- Evidence files: `tools/audit_run287_dynamic_portfolio_call_paths.py`,
+  `tests/run287_dynamic_portfolio_call_path_smoke.py`
+
 ### 2026-08-13 - Authority graphs must retain caller runtime context
 
 - Agent: Codex GPT-5.6
