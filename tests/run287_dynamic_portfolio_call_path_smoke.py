@@ -861,7 +861,16 @@ def test_indirect_execution_and_destination_bypasses_fail_closed() -> None:
     assert MOD.shell_uses_indirect_assignment(
         'builtin printf -v "$name" "%s" value'
     )
+    assert MOD.shell_uses_indirect_assignment(
+        'builtin printf -v"$name" "%s" value'
+    )
+    assert MOD.shell_uses_indirect_assignment(
+        'builtin builtin printf -v "$name" "%s" value'
+    )
     assert MOD.shell_uses_indirect_assignment('builtin declare -n ref="$name"')
+    assert MOD.shell_uses_indirect_assignment(
+        'builtin declare "$name=--execute --confirm"'
+    )
     assert not MOD.shell_uses_indirect_assignment("builtin echo safe")
     assert dict(
         MOD.python_main_call_counts(
@@ -875,6 +884,16 @@ def test_indirect_execution_and_destination_bypasses_fail_closed() -> None:
         MOD.python_main_call_counts(
             "from .build_run287_same_close_target_books import main\n"
             "main()\n",
+            "tools/helper.py",
+        )
+    )["tools/build_run287_same_close_target_books.py"] == 1
+    assert dict(
+        MOD.python_main_call_counts(
+            "from tools import build_run287_same_close_target_books as writer\n"
+            "class Neutral:\n"
+            "    def __init__(self):\n"
+            "        writer.main()\n"
+            "Neutral()\n",
             "tools/helper.py",
         )
     )["tools/build_run287_same_close_target_books.py"] == 1
@@ -2821,6 +2840,12 @@ def test_final_runtime_semantics_and_remote_actions_fail_closed() -> None:
             "pip install -r requirements_github.txt",
         )
     )
+    assert MOD.protected_dependency_install_findings(
+        locked_install.replace(
+            MOD.PROTECTED_DEPENDENCY_INSTALL,
+            "python -m pip --disable-pip-version-check install unsafe-package",
+        )
+    )
     dependency_lock = (
         ROOT / MOD.PROTECTED_DEPENDENCY_LOCK
     ).read_text(encoding="utf-8")
@@ -2873,6 +2898,69 @@ def test_final_runtime_semantics_and_remote_actions_fail_closed() -> None:
         action_source, action_path, (), (), input_bindings
     )
     assert writer in MOD.python_entrypoints(input_records[0][1])
+    unresolved_root_command = (
+        "jobs:\n"
+        "  audit:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        "      - run: ${{ inputs.command }}\n"
+    )
+    assert MOD.unresolved_workflow_executable_expression("${{ inputs.command }}")
+    assert MOD.unresolved_workflow_executable_expression(
+        "env -u SAFE ${{ inputs.command }}"
+    )
+    assert MOD.unresolved_workflow_executable_expression(
+        "true && ${{ github.event.inputs.command }}"
+    )
+    assert not MOD.unresolved_workflow_executable_expression(
+        'ARGS=("${{ inputs.argument }}")\npython tools/harmless.py "${{ inputs.argument }}"'
+    )
+    assert not MOD.unresolved_workflow_executable_expression(
+        "cat > manifest.json <<EOF\n"
+        "{\"source_run_id\":\"${{ inputs.source_run_id }}\"}\n"
+        "EOF\n"
+    )
+    assert MOD.SHELL_UNRESOLVED_CONTROL_SENTINEL in MOD.workflow_run_records(
+        unresolved_root_command
+    )[0][1]
+    warnings_workflow = (
+        "env:\n"
+        "  PYTHONWARNINGS: ignore::tools.neutral.Warning\n"
+        "jobs:\n"
+        "  audit:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        f"      - run: python {writer}\n"
+    )
+    assert MOD.SHELL_UNRESOLVED_CONTROL_SENTINEL in MOD.workflow_run_records(
+        warnings_workflow
+    )[0][1]
+    warnings_action_workflow = (
+        "jobs:\n"
+        "  caller:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        f"      - uses: ./{action_path}\n"
+        "        env:\n"
+        "          PYTHONWARNINGS: ignore::tools.neutral.Warning\n"
+        "        with:\n"
+        f"          command: python {writer}\n"
+    )
+    warnings_contexts, warnings_cycle = MOD.reachable_local_yaml_execution_bindings(
+        "workflow.yml", warnings_action_workflow, {action_path: action_source}
+    )
+    assert warnings_cycle is False and len(warnings_contexts) == 1
+    warnings_path, _pythonpath, warnings_bash_env, warnings_inputs = (
+        warnings_contexts[0]
+    )
+    assert "$" in warnings_bash_env
+    assert MOD.SHELL_UNRESOLVED_CONTROL_SENTINEL in MOD.workflow_run_records(
+        action_source,
+        warnings_path,
+        (),
+        (warnings_bash_env,),
+        warnings_inputs,
+    )[0][1]
     pinned_loader = ROOT / "tools" / "run287_pinned_git_import.py"
     assert MOD.PROTECTED_DYNAMIC_COMPILE_SOURCE_HASHES[
         "tools/run287_pinned_git_import.py"

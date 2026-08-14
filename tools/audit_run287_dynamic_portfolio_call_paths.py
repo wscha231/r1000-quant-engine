@@ -97,6 +97,13 @@ PROTECTED_DEPENDENCY_INSTALL = (
     "python -m pip install --disable-pip-version-check --require-hashes "
     "--only-binary=:all: -r requirements_github.lock"
 )
+PYTHON_STARTUP_EXECUTION_ENV = {
+    "PYTHONBREAKPOINT",
+    "PYTHONHOME",
+    "PYTHONINSPECT",
+    "PYTHONSTARTUP",
+    "PYTHONWARNINGS",
+}
 IMPLICIT_UNKNOWN_RUNNER_SHELL = "__run287_implicit_unknown_runner_shell__"
 
 
@@ -3162,6 +3169,16 @@ def python_main_call_counts(
         for node in ast.walk(tree)
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
+    class_constructors = {
+        node.name: tuple(
+            member.name
+            for member in node.body
+            if isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and member.name in {"__new__", "__init__"}
+        )
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef)
+    }
     local_function_aliases = {name: name for name in function_names}
     alias_changed = True
     while alias_changed:
@@ -3401,6 +3418,10 @@ def python_main_call_counts(
             bucket = local_calls.setdefault(scope, {})
             function = local_function_aliases[node.func.id]
             bucket[function] = bucket.get(function, 0) + 1
+        if isinstance(node.func, ast.Name) and node.func.id in class_constructors:
+            bucket = local_calls.setdefault(scope, {})
+            for constructor in class_constructors[node.func.id]:
+                bucket[constructor] = bucket.get(constructor, 0) + 1
 
     execution_count = {name: 0 for name in function_names}
     cap = 1_000_000
@@ -3696,6 +3717,19 @@ def shell_uses_indirect_assignment(text: str) -> bool:
     """Reject shell primitives that can assign guarded names indirectly."""
     indirect_builtins = {"eval", "read", "mapfile", "readarray", "getopts"}
 
+    def dangerous_declare_arguments(arguments: list[str]) -> bool:
+        """Return whether declare/typeset can mutate a dynamically named flag."""
+        if any(
+            value == "-n" or (value.startswith("-") and "n" in value[1:])
+            for value in arguments
+        ):
+            return True
+        return any(
+            not value.startswith("-")
+            and bool(re.search(r"[$`]", value))
+            for value in arguments
+        )
+
     def dangerous_builtin(tokens: list[str], index: int) -> bool:
         cursor = index + 1
         while cursor < len(tokens) and tokens[cursor].startswith("-"):
@@ -3704,13 +3738,16 @@ def shell_uses_indirect_assignment(text: str) -> bool:
             return False
         executable = tokens[cursor].rsplit("/", 1)[-1]
         arguments = tokens[cursor + 1:]
+        if executable == "builtin":
+            return dangerous_builtin(tokens, cursor)
         if executable in indirect_builtins:
             return True
-        if executable == "printf" and "-v" in arguments:
+        if executable == "printf" and any(
+            value == "-v" or value.startswith("-v") for value in arguments
+        ):
             return True
-        return executable in {"declare", "typeset"} and any(
-            value == "-n" or (value.startswith("-") and "n" in value[1:])
-            for value in arguments
+        return executable in {"declare", "typeset"} and dangerous_declare_arguments(
+            arguments
         )
 
     for _line, command in shell_logical_commands(text):
@@ -3726,11 +3763,13 @@ def shell_uses_indirect_assignment(text: str) -> bool:
                 return True
             if executable in indirect_builtins:
                 return True
-            if executable == "printf" and "-v" in tokens[index + 1:]:
-                return True
-            if executable in {"declare", "typeset"} and any(
-                value == "-n" or (value.startswith("-") and "n" in value[1:])
+            if executable == "printf" and any(
+                value == "-v" or value.startswith("-v")
                 for value in tokens[index + 1:]
+            ):
+                return True
+            if executable in {"declare", "typeset"} and dangerous_declare_arguments(
+                tokens[index + 1:]
             ):
                 return True
     return False
@@ -4640,13 +4679,49 @@ def protected_remote_action_findings(text: str) -> tuple[str, ...]:
     return tuple(sorted(findings))
 
 
+def shell_command_runs_pip_install(command: str) -> bool:
+    """Recognize pip installs even when pip global options precede ``install``."""
+    try:
+        tokens = shell_tokens(command)
+    except ValueError:
+        return False
+    for index, token in enumerate(tokens):
+        if not shell_command_position(tokens, index):
+            continue
+        executable = token.rsplit("/", 1)[-1]
+        end = index + 1
+        while end < len(tokens) and tokens[end] not in SHELL_COMMAND_BOUNDARIES:
+            end += 1
+        arguments = tokens[index + 1:end]
+        if re.fullmatch(r"pip(?:3(?:\.\d+)?)?", executable):
+            if "install" in arguments:
+                return True
+            continue
+        if not re.fullmatch(r"python(?:3(?:\.\d+)?)?", executable):
+            continue
+        pip_arguments: list[str] | None = None
+        for cursor, value in enumerate(arguments):
+            if value == "-m" and cursor + 1 < len(arguments):
+                if arguments[cursor + 1] == "pip":
+                    pip_arguments = arguments[cursor + 2:]
+                break
+            if value.startswith("-m") and value[2:] == "pip":
+                pip_arguments = arguments[cursor + 1:]
+                break
+            if python_terminal_option(value) or not value.startswith("-"):
+                break
+        if pip_arguments is not None and "install" in pip_arguments:
+            return True
+    return False
+
+
 def protected_dependency_install_findings(text: str) -> tuple[str, ...]:
     """Require protected jobs to install only the reviewed hash-locked set."""
     findings: set[str] = set()
     for _shell, source, _workdir in workflow_run_records(text):
         for _line, command in shell_logical_commands(executable_shell_text(source)):
             normalized = " ".join(command.split())
-            if not re.search(r"(?:^|\s)(?:pip|python\s+-m\s+pip)\s+install\b", normalized):
+            if not shell_command_runs_pip_install(command):
                 continue
             if normalized != PROTECTED_DEPENDENCY_INSTALL:
                 findings.add(f"unreviewed-dependency-install:{normalized}")
@@ -4676,6 +4751,48 @@ def protected_dependency_lock_findings(text: str) -> tuple[str, ...]:
     if not packages:
         findings.add("empty-dependency-lock")
     return tuple(sorted(findings))
+
+
+def unsafe_python_startup_environment(environment: Mapping[str, str]) -> bool:
+    """Fail closed on Python environment hooks not represented in the graph."""
+    return any(
+        str(environment.get(name) or "").strip()
+        for name in PYTHON_STARTUP_EXECUTION_ENV
+    )
+
+
+def unresolved_workflow_executable_expression(source: str) -> bool:
+    """Detect runtime workflow inputs occupying a shell executable position."""
+    marker = "__RUN287_WORKFLOW_INPUT_EXECUTABLE__"
+    source = executable_shell_text(source)
+    masked = re.sub(
+        r"\$\{\{\s*(?:inputs|github\.event\.inputs)\."
+        r"[A-Za-z_][A-Za-z0-9_-]*[^}]*\}\}",
+        marker,
+        source,
+    )
+    if marker not in masked:
+        return False
+    for _line, command in shell_logical_commands(masked):
+        try:
+            tokens = shell_tokens(command)
+        except ValueError:
+            return True
+        for index, token in enumerate(tokens):
+            if marker not in token or SHELL_ASSIGNMENT_WORD.fullmatch(token):
+                continue
+            if not shell_command_position(tokens, index):
+                continue
+            # Bash array assignments tokenize the opening parenthesis as a
+            # command boundary even though the following value is inert data.
+            if (
+                index >= 2
+                and tokens[index - 1] == "("
+                and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*\+?=", tokens[index - 2])
+            ):
+                continue
+            return True
+    return False
 
 
 @lru_cache(maxsize=512)
@@ -4797,6 +4914,10 @@ def workflow_run_records(
             for environment in environments:
                 effective.update(environment)
             prefixes: list[str] = []
+            if unsafe_python_startup_environment(effective):
+                prefixes.append(SHELL_UNRESOLVED_CONTROL_SENTINEL)
+            if unresolved_workflow_executable_expression(source):
+                prefixes.append(SHELL_UNRESOLVED_CONTROL_SENTINEL)
             if "PYTHONPATH" in effective:
                 prefixes.append(f"PYTHONPATH={shlex.quote(effective['PYTHONPATH'])}")
             if "PATH" in effective:
@@ -5331,7 +5452,11 @@ def local_uses_edges(
                 (
                     str(container["uses"]),
                     str(current.get("PYTHONPATH") or ""),
-                    str(current.get("BASH_ENV") or ""),
+                    (
+                        "$RUN287_UNSAFE_PYTHON_STARTUP_ENV"
+                        if unsafe_python_startup_environment(current)
+                        else str(current.get("BASH_ENV") or "")
+                    ),
                 )
             )
         steps = container.get("steps")
@@ -5464,7 +5589,11 @@ def local_uses_edges_with_inputs(
                 (
                     str(container["uses"]),
                     str(current.get("PYTHONPATH") or ""),
-                    str(current.get("BASH_ENV") or ""),
+                    (
+                        "$RUN287_UNSAFE_PYTHON_STARTUP_ENV"
+                        if unsafe_python_startup_environment(current)
+                        else str(current.get("BASH_ENV") or "")
+                    ),
                     supplied,
                 )
             )
