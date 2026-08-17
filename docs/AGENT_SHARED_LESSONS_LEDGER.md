@@ -3795,6 +3795,47 @@ Expected contract:
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
 
+## 2026-08-17 - Stalled catch-up recovery evidence boundary
+
+- Agent: Codex GPT-5.6
+- Branch/PR/run: `codex/run287-recovery-price-evidence-20260817`; failed
+  scheduled run `31858833210`; no recovery workflow dispatched.
+- Context: the authoritative paper chain ends at 2026-07-24, while later
+  scheduled runs stopped before current-session price refresh because the
+  risk-outcome parent still requires an explicit one-time legacy migration.
+- Result: added a manual, read-only evidence producer that derives its ticker
+  scope from a hash-verified accepted paper snapshot, downloads fresh OHLCV for
+  exactly that scope, requires 100% exact-session coverage, and cross-checks
+  available After-Close adjusted-close/volume rows.
+- Failure or caveat: After-Close leadership artifacts cover only part of the
+  accepted operating book and therefore cannot themselves advance the paper
+  chain. The new bundle is explicitly not consumable by catch-up until a
+  separate reviewed integration change authorizes that schema. Local full PR
+  validation passed 218/220; the two unrelated OHLCV pattern tests hash CRLF
+  worktree bytes on Windows (`dd8b9a...`) against the unchanged LF Git-blob pin
+  (`30c1e1...`). The five involved files are byte-identical to `origin/master`
+  in Git, and Linux CI uses the pinned LF identity.
+- Root cause: transactional daily refresh and historical price-evidence
+  production were coupled; failure before refresh left no safe same-session
+  evidence artifact for chronological replay.
+- Reusable lesson: recovery evidence must be produced outside the mutation
+  workflow, inherit scope from the last accepted immutable state, bind exact
+  artifact/workflow ancestry, and remain review-only until a separate consumer
+  gate is merged.
+- Next action: review and merge the evidence producer, then separately add a
+  one-time risk-outcome migration and a closed consumer allowlist before
+  sequential 2026-07-27 onward catch-up.
+- Do-not-repeat: do not dispatch 2026-08-14 directly from the 2026-07-24 head;
+  do not treat partial After-Close rows, stale failed-run artifacts, or a fresh
+  network download without accepted-state scope binding as durable evidence.
+- Evidence files: `docs/run287_recovery_price_evidence_contract.json`,
+  `tools/build_run287_recovery_price_evidence.py`,
+  `.github/workflows/run287_recovery_price_evidence_manual.yml`, and
+  `tests/run287_recovery_price_evidence_smoke.py`.
+- Fullrun executed: false. Backtest executed: false. Target, order, paper-ledger,
+  Drive/durable state, production, live trading, and champion state mutated:
+  false.
+
 ## 2026-08-11 - U0 acceptance freshness and candidate-discovery boundary
 
 - A default-branch SHA is not a complete GitHub census identity. Branches and
