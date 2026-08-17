@@ -1,0 +1,361 @@
+name: Run287 Recovery Price Evidence (Manual Review Only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      session_date:
+        description: 'One missing NYSE session (YYYY-MM-DD)'
+        required: true
+        type: string
+      after_close_run_id:
+        description: 'Pinned successful After-Close run id for this session'
+        required: true
+        type: string
+      after_close_artifact_digest:
+        description: 'Pinned sha256:... digest for after-close-daily-<run_id>'
+        required: true
+        type: string
+      accepted_paper_run_id:
+        description: 'Pinned successful accepted paper run id for the prior session'
+        required: true
+        type: string
+      accepted_paper_artifact_digest:
+        description: 'Pinned sha256:... digest for the accepted paper artifact'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: run287-recovery-price-evidence-${{ inputs.session_date }}
+  cancel-in-progress: false
+
+jobs:
+  build_review_only_evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SESSION_DATE: ${{ inputs.session_date }}
+      AFTER_CLOSE_RUN_ID: ${{ inputs.after_close_run_id }}
+      AFTER_CLOSE_DIGEST: ${{ inputs.after_close_artifact_digest }}
+      ACCEPTED_PAPER_RUN_ID: ${{ inputs.accepted_paper_run_id }}
+      ACCEPTED_PAPER_DIGEST: ${{ inputs.accepted_paper_artifact_digest }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      CONTRACT: docs/run287_recovery_price_evidence_contract.json
+    steps:
+      - name: Checkout the requested default-branch implementation
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install bounded evidence dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+
+      - name: Require current default branch and closed inputs
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_NAME:-}" != "${DEFAULT_BRANCH:-}" ]; then
+            echo "[recovery-evidence] BLOCKED: dispatch must use the default branch"
+            exit 2
+          fi
+          if ! [[ "${SESSION_DATE:-}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+            echo "[recovery-evidence] BLOCKED: invalid session date"
+            exit 2
+          fi
+          for value in "$AFTER_CLOSE_RUN_ID" "$ACCEPTED_PAPER_RUN_ID"; do
+            if ! [[ "$value" =~ ^[1-9][0-9]*$ ]]; then
+              echo "[recovery-evidence] BLOCKED: invalid run id"
+              exit 2
+            fi
+          done
+          for value in "$AFTER_CLOSE_DIGEST" "$ACCEPTED_PAPER_DIGEST"; do
+            if ! [[ "$value" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "[recovery-evidence] BLOCKED: invalid artifact digest"
+              exit 2
+            fi
+          done
+          REMOTE_DEFAULT_SHA="$({
+            git ls-remote --exit-code origin "refs/heads/${DEFAULT_BRANCH:?}" |
+              awk 'NR == 1 { print $1 }'
+          })"
+          if [ "$REMOTE_DEFAULT_SHA" != "$GITHUB_SHA" ]; then
+            echo "[recovery-evidence] BLOCKED: default branch advanced"
+            exit 2
+          fi
+          echo "REMOTE_DEFAULT_SHA=$REMOTE_DEFAULT_SHA" >> "$GITHUB_ENV"
+
+      - name: Download and bind pinned source artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/run287_recovery_sources" outputs/run287_recovery_price_evidence
+
+          download_and_bind() {
+            local role="$1"
+            local run_id="$2"
+            local expected_digest="$3"
+            local workflow_path="$4"
+            local artifact_pattern="$5"
+            local destination="$6"
+            local prefix="$RUNNER_TEMP/run287_recovery_sources/${role}"
+            local run_json="${prefix}_run.json"
+            local workflow_json="${prefix}_workflow.json"
+            local artifacts_json="${prefix}_artifacts.json"
+            local compare_json="${prefix}_compare.json"
+            local archive="${prefix}.zip"
+            local metadata="outputs/run287_recovery_price_evidence/${role}_artifact_metadata.json"
+
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" > "$run_json"
+            gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_path##*/}" > "$workflow_json"
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" > "$artifacts_json"
+
+            mapfile -t selected < <(
+              python - "$artifacts_json" "$artifact_pattern" "$expected_digest" <<'PY'
+          import json
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          pattern = re.compile(sys.argv[2])
+          expected_digest = sys.argv[3]
+          matches = [
+              row for row in payload.get("artifacts", [])
+              if pattern.fullmatch(str(row.get("name") or ""))
+              and row.get("digest") == expected_digest
+              and row.get("expired") is False
+          ]
+          if len(matches) != 1:
+              raise SystemExit("expected exactly one unexpired digest-pinned artifact")
+          print(matches[0].get("id") or "")
+          print(matches[0].get("name") or "")
+          PY
+            )
+            if [ "${#selected[@]}" -ne 2 ] || ! [[ "${selected[0]}" =~ ^[1-9][0-9]*$ ]]; then
+              echo "[recovery-evidence] BLOCKED: incomplete artifact selection role=$role"
+              exit 2
+            fi
+            gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${selected[0]}/zip" > "$archive"
+            local archive_sha
+            archive_sha="$(sha256sum "$archive" | awk '{print $1}')"
+            if [ "sha256:$archive_sha" != "$expected_digest" ]; then
+              echo "[recovery-evidence] BLOCKED: archive bytes differ from API digest role=$role"
+              exit 2
+            fi
+
+            local head_sha
+            head_sha="$(python - "$run_json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          print(json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")).get("head_sha") or "")
+          PY
+            )"
+            gh api "repos/${GITHUB_REPOSITORY}/compare/${head_sha}...${REMOTE_DEFAULT_SHA}" > "$compare_json"
+            python - \
+              "$role" "$run_id" "$expected_digest" "$workflow_path" \
+              "$artifact_pattern" "${selected[0]}" "${selected[1]}" \
+              "$archive" "$run_json" "$workflow_json" "$artifacts_json" \
+              "$compare_json" "$metadata" <<'PY'
+          import json
+          import os
+          import re
+          import sys
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          from tools.build_run287_catchup_price_evidence import validate_github_compare_payload
+          from tools.build_run287_recovery_price_evidence import sha256_file
+
+          (
+              role, expected_run_id, expected_digest, expected_workflow_path,
+              artifact_pattern, selected_id, selected_name, archive_path,
+              run_path, workflow_path, artifacts_path, compare_path, output_path,
+          ) = sys.argv[1:]
+          run = json.loads(Path(run_path).read_text(encoding="utf-8"))
+          workflow = json.loads(Path(workflow_path).read_text(encoding="utf-8"))
+          artifacts = json.loads(Path(artifacts_path).read_text(encoding="utf-8"))
+          compare = json.loads(Path(compare_path).read_text(encoding="utf-8"))
+          selected = [
+              row for row in artifacts.get("artifacts", [])
+              if str(row.get("id") or "") == selected_id
+          ]
+          if len(selected) != 1:
+              raise SystemExit("selected artifact disappeared from API response")
+          artifact = selected[0]
+          repository = str((run.get("repository") or {}).get("full_name") or "")
+          head_repository = str((run.get("head_repository") or {}).get("full_name") or "")
+          head_sha = str(run.get("head_sha") or "")
+          current_sha = os.environ.get("REMOTE_DEFAULT_SHA", "")
+          default_branch = os.environ.get("DEFAULT_BRANCH", "")
+          expected_repository = os.environ.get("GITHUB_REPOSITORY", "")
+          validate_github_compare_payload(compare, source_sha=head_sha, current_sha=current_sha)
+          if (
+              str(run.get("id") or "") != expected_run_id
+              or str(run.get("workflow_id") or "") != str(workflow.get("id") or "")
+              or run.get("path") != expected_workflow_path
+              or not re.fullmatch(artifact_pattern, selected_name)
+              or artifact.get("name") != selected_name
+              or artifact.get("digest") != expected_digest
+              or artifact.get("expired") is not False
+              or run.get("status") != "completed"
+              or run.get("conclusion") != "success"
+              or run.get("event") not in {"schedule", "workflow_dispatch"}
+              or repository != expected_repository
+              or head_repository != expected_repository
+              or run.get("head_branch") != default_branch
+          ):
+              raise SystemExit("GitHub artifact/workflow identity contract failed")
+          archive_sha = sha256_file(Path(archive_path))
+          if expected_digest != f"sha256:{archive_sha}":
+              raise SystemExit("archive digest parity failed")
+          payload = {
+              "schema_version": "github-artifact-download-metadata-v3",
+              "role": role,
+              "run_id": expected_run_id,
+              "artifact_id": selected_id,
+              "artifact_name": selected_name,
+              "artifact_zip_sha256": archive_sha,
+              "artifact_api_digest": expected_digest,
+              "artifact_created_at_utc": artifact.get("created_at"),
+              "downloaded_at_utc": datetime.now(timezone.utc).isoformat(),
+              "workflow_id": str(run.get("workflow_id") or ""),
+              "workflow_path": expected_workflow_path,
+              "head_branch": str(run.get("head_branch") or ""),
+              "head_sha": head_sha,
+              "workflow_event": str(run.get("event") or ""),
+              "workflow_status": str(run.get("status") or ""),
+              "workflow_conclusion": str(run.get("conclusion") or ""),
+              "workflow_created_at_utc": run.get("created_at"),
+              "workflow_updated_at_utc": run.get("updated_at"),
+              "workflow_run_attempt": str(run.get("run_attempt") or ""),
+              "repository": repository,
+              "head_repository": head_repository,
+              "default_branch": default_branch,
+              "current_default_head_sha": current_sha,
+              "head_lineage_verified": True,
+          }
+          Path(output_path).write_text(
+              json.dumps(payload, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+            python - "$role" "$archive" "$metadata" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          from tools.build_run287_recovery_price_evidence import validate_archive
+
+          role, archive_path, metadata_path = sys.argv[1:]
+          metadata = json.loads(Path(metadata_path).read_text(encoding="utf-8"))
+          validate_archive(Path(archive_path), metadata, role)
+          PY
+            rm -rf "$destination"
+            mkdir -p "$destination"
+            unzip -q "$archive" -d "$destination"
+          }
+
+          download_and_bind \
+            after_close "$AFTER_CLOSE_RUN_ID" "$AFTER_CLOSE_DIGEST" \
+            .github/workflows/after_close_daily.yml \
+            "^after-close-daily-${AFTER_CLOSE_RUN_ID}$" \
+            "$RUNNER_TEMP/run287_recovery_sources/after_close"
+          download_and_bind \
+            accepted_paper "$ACCEPTED_PAPER_RUN_ID" "$ACCEPTED_PAPER_DIGEST" \
+            .github/workflows/daily_operating_selection_refresh.yml \
+            "^accepted-paper-(catchup-[0-9]{4}-[0-9]{2}-[0-9]{2}-|transaction-)${ACCEPTED_PAPER_RUN_ID}$" \
+            "$RUNNER_TEMP/run287_recovery_sources/accepted_paper"
+
+      - name: Verify accepted paper anchor and locate immutable state
+        run: |
+          set -euo pipefail
+          mapfile -t states < <(
+            find "$RUNNER_TEMP/run287_recovery_sources/accepted_paper" \
+              -type f -path '*/outputs/daily_simulated_fill_ledger/snapshot_integrity.json' \
+              -printf '%h\n'
+          )
+          if [ "${#states[@]}" -ne 1 ]; then
+            echo "[recovery-evidence] BLOCKED: accepted artifact must contain exactly one paper state"
+            exit 2
+          fi
+          python tools/run287_paper_ledger_integrity.py \
+            --state-dir "${states[0]}" \
+            --require-integrity \
+            --output outputs/run287_recovery_price_evidence/accepted_paper_integrity.json
+          echo "ACCEPTED_PAPER_STATE=${states[0]}" >> "$GITHUB_ENV"
+
+      - name: Download fresh one-session OHLCV for the accepted operating scope
+        run: |
+          set -euo pipefail
+          END_DATE="$(python - "$SESSION_DATE" <<'PY'
+          import sys
+          import pandas as pd
+          print((pd.Timestamp(sys.argv[1]) + pd.Timedelta(days=1)).date().isoformat())
+          PY
+          )"
+          python tools/build_replay_price_cache.py \
+            --books \
+              "$ACCEPTED_PAPER_STATE/main/effective_target_latest.csv" \
+              "$ACCEPTED_PAPER_STATE/concentrated/effective_target_latest.csv" \
+            --account "$ACCEPTED_PAPER_STATE/main/account_state_latest.json" \
+            --account "$ACCEPTED_PAPER_STATE/concentrated/account_state_latest.json" \
+            --state-dir "$ACCEPTED_PAPER_STATE" \
+            --exact-operating-universe \
+            --required-tickers SPY QQQ SMH SOXX \
+            --max-scored 0 \
+            --refresh-stale-days -1 \
+            --refresh-through-date "$SESSION_DATE" \
+            --start "$SESSION_DATE" \
+            --end "$END_DATE" \
+            --output-dir outputs/run287_recovery_fresh_price_cache
+
+      - name: Build closed review-only recovery evidence
+        run: |
+          set -euo pipefail
+          python tools/build_run287_recovery_price_evidence.py \
+            --session-date "$SESSION_DATE" \
+            --contract "$CONTRACT" \
+            --accepted-paper-state "$ACCEPTED_PAPER_STATE" \
+            --accepted-paper-metadata outputs/run287_recovery_price_evidence/accepted_paper_artifact_metadata.json \
+            --accepted-paper-archive "$RUNNER_TEMP/run287_recovery_sources/accepted_paper.zip" \
+            --after-close-root "$RUNNER_TEMP/run287_recovery_sources/after_close" \
+            --after-close-metadata outputs/run287_recovery_price_evidence/after_close_artifact_metadata.json \
+            --after-close-archive "$RUNNER_TEMP/run287_recovery_sources/after_close.zip" \
+            --price-cache outputs/run287_recovery_fresh_price_cache \
+            --output-dir outputs/run287_recovery_price_evidence/bundle \
+            --output-status outputs/run287_recovery_price_evidence/status.json
+
+      - name: Upload immutable review-only evidence
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run287-recovery-price-evidence-${{ inputs.session_date }}-${{ github.run_id }}
+          path: |
+            outputs/run287_recovery_price_evidence/
+          if-no-files-found: error
+          retention-days: 45
+
+      - name: Upload blocked diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blocked-run287-recovery-price-evidence-${{ inputs.session_date }}-${{ github.run_id }}
+          path: |
+            outputs/run287_recovery_price_evidence/
+            outputs/run287_recovery_fresh_price_cache/replay_price_cache_manifest.json
+          if-no-files-found: warn
+          retention-days: 14
