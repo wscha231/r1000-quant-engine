@@ -160,12 +160,20 @@ def test_late_restatement_keeps_earlier_disclosure_events() -> None:
     restatement["amendment_type"] = "RESTATEMENT"
     restatement["accepted_at"] = "2026-06-01T18:00:00Z"
     restatement["available_from"] = "2026-06-01T18:00:00Z"
+    added_then_exited = restatement.copy()
+    added_then_exited["ticker_mapped"] = "NVDA"
+    added_then_exited["cusip"] = "67066G104"
+    added_then_exited["issuer_name"] = "NVIDIA Corp"
+    restatement = pd.concat([restatement, added_then_exited], ignore_index=True)
     events = build_position_events(pd.concat([holdings, restatement], ignore_index=True), metadata_fixture())
     assert set(events[events["available_from"].eq("2026-02-14T18:00:00Z")]["ticker"]) == {"AAPL", "MSFT"}
     assert set(events[events["available_from"].eq("2026-05-15T18:00:00Z")]["ticker"]) == {"AAPL", "CLSK", "MSFT"}
     late = events[events["available_from"].eq("2026-06-01T18:00:00Z")]
-    assert set(late["ticker"]) == {"MSFT"}
+    assert set(late["ticker"]) == {"NVDA"}
     assert late.iloc[0]["event_type"] == "exit"
+    assert late.iloc[0]["report_period"] == "2026-03-31"
+    assert float(late.iloc[0]["previous_shares"]) > 0.0
+    assert float(late.iloc[0]["shares"]) == 0.0
 
 
 def test_cli_writes_pit_and_latest_outputs() -> None:

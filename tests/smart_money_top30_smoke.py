@@ -237,7 +237,43 @@ def test_smart_money_cli_requires_weighted_evidence_when_requested() -> None:
             text=True,
         )
         assert result.returncode != 0
-        assert "Form 4 evidence is missing or empty" in (result.stdout + result.stderr)
+        assert "Form 4 evidence" in (result.stdout + result.stderr)
+        assert "refusing to publish weighted Smart Money scores" in (result.stdout + result.stderr)
+        assert not output.exists()
+
+
+def test_smart_money_cli_rejects_nonempty_but_unusable_weighted_evidence() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        form4 = root / "form4.csv"
+        etf = root / "etf.csv"
+        output = root / "smart_money"
+        pd.DataFrame(
+            [{"ticker": "NAN", "early_evidence_score": 0.8, "evidence_confidence_score": 0.8}]
+        ).to_csv(form4, index=False)
+        pd.DataFrame(
+            [{"ticker": "AAA", "etf_holdings_score": 0.5, "etf_evidence_confidence": 0.5}]
+        ).to_csv(etf, index=False)
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "tools" / "run_smart_money_top30.py"),
+                "--form4",
+                str(form4),
+                "--etf",
+                str(etf),
+                "--require-form4-evidence",
+                "--require-etf-evidence",
+                "--output-dir",
+                str(output),
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode != 0
+        assert "Form 4 evidence has no usable ticker/score rows" in (result.stdout + result.stderr)
         assert not output.exists()
 
 
@@ -254,6 +290,9 @@ def test_smart_money_workflow_braces_gdrive_base() -> None:
     assert "tools/audit_sec_13f_filing_freshness.py" in workflow
     assert "--require-13f-freshness" in workflow
     assert "--require-parsed-holdings" in workflow
+    assert "--require-weighted-evidence" in workflow
+    assert "--form4-evidence outputs/sec_ownership_signals/form4_latest.csv" in workflow
+    assert "--etf-evidence outputs/etf_thematic_signals/signals_latest.csv" in workflow
     assert "--source-head-sha" in workflow
     assert "durable Smart Money publication requires" in workflow
     assert "tools/run_sec_institutional_signals.py" in workflow
@@ -278,6 +317,9 @@ def test_13f_workflow_refreshes_recent_metadata_and_fails_closed() -> None:
     assert "tools/audit_sec_13f_filing_freshness.py" in workflow
     assert "--minimum-manager-coverage 0.80" in workflow
     assert "--require-parsed-holdings" in workflow
+    assert "--require-weighted-evidence" in workflow
+    assert "--form4-evidence outputs/sec_ownership_signals/form4_latest.csv" in workflow
+    assert "--etf-evidence outputs/etf_thematic_signals/signals_latest.csv" in workflow
     assert "--as-of-timestamp" in workflow
     assert "subset manager dispatch is non-canonical" in workflow
     assert "durable SEC publication requires" in workflow
@@ -328,6 +370,7 @@ def main() -> int:
     test_smart_money_cli_writes_research_only_outputs()
     test_smart_money_cli_rejects_blocked_13f_freshness()
     test_smart_money_cli_requires_weighted_evidence_when_requested()
+    test_smart_money_cli_rejects_nonempty_but_unusable_weighted_evidence()
     test_smart_money_workflow_braces_gdrive_base()
     test_13f_workflow_refreshes_recent_metadata_and_fails_closed()
     test_post_disclosure_runs_only_after_fresh_13f_chain()

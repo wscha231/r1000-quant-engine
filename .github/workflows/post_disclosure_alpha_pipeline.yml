@@ -197,6 +197,9 @@ jobs:
             --as-of-timestamp "$AS_OF_TIMESTAMP" \
             --holdings data_pit/sec/institutional_13f_holdings.parquet \
             --require-parsed-holdings \
+            --form4-evidence outputs/sec_ownership_signals/form4_latest.csv \
+            --etf-evidence outputs/etf_thematic_signals/signals_latest.csv \
+            --require-weighted-evidence \
             --minimum-manager-coverage 0.80 \
             --minimum-mapped-row-coverage 0.20 \
             --minimum-mapped-value-coverage 0.50 \

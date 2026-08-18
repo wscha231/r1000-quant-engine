@@ -147,6 +147,28 @@ def _prepare_source(frame: pd.DataFrame, keep_cols: list[str]) -> pd.DataFrame:
     return d[["ticker", *keep_cols]].drop_duplicates("ticker", keep="first")
 
 
+def usable_weighted_evidence(
+    frame: pd.DataFrame,
+    *,
+    source_name: str,
+    required_numeric_fields: list[str],
+) -> tuple[pd.DataFrame, str]:
+    missing = [field for field in ["ticker", *required_numeric_fields] if field not in frame.columns]
+    if missing:
+        return frame.iloc[0:0].copy(), f"{source_name} missing required fields: {','.join(missing)}"
+    d = frame.copy()
+    d["ticker"] = _normalize_ticker_series(d)
+    valid = d["ticker"].ne("") & d["ticker"].ne("NAN") & d["ticker"].ne("NONE")
+    for field in required_numeric_fields:
+        values = pd.to_numeric(d[field], errors="coerce")
+        valid &= values.notna() & values.map(lambda value: math.isfinite(float(value)) if pd.notna(value) else False)
+        d[field] = values
+    usable = d[valid].copy()
+    if usable.empty:
+        return usable, f"{source_name} has no usable ticker/score rows"
+    return usable, ""
+
+
 def _latest_available(row: pd.Series) -> str:
     values = [
         row.get("latest_available_from_13f", ""),
@@ -358,10 +380,24 @@ def main() -> int:
     institutional = read_table(institutional_path)
     form4 = read_table(form4_path)
     etf = read_table(etf_path)
-    if args.require_form4_evidence and form4.empty:
-        raise SystemExit("Form 4 evidence is missing or empty; refusing to publish weighted Smart Money scores")
-    if args.require_etf_evidence and etf.empty:
-        raise SystemExit("ETF evidence is missing or empty; refusing to publish weighted Smart Money scores")
+    usable_form4, form4_problem = usable_weighted_evidence(
+        form4,
+        source_name="Form 4 evidence",
+        required_numeric_fields=["early_evidence_score", "evidence_confidence_score"],
+    )
+    usable_etf, etf_problem = usable_weighted_evidence(
+        etf,
+        source_name="ETF evidence",
+        required_numeric_fields=["etf_holdings_score", "etf_evidence_confidence"],
+    )
+    if args.require_form4_evidence and form4_problem:
+        raise SystemExit(f"{form4_problem}; refusing to publish weighted Smart Money scores")
+    if args.require_etf_evidence and etf_problem:
+        raise SystemExit(f"{etf_problem}; refusing to publish weighted Smart Money scores")
+    if args.require_form4_evidence:
+        form4 = usable_form4
+    if args.require_etf_evidence:
+        etf = usable_etf
     ranked = build_smart_money_rank(
         institutional,
         form4,
@@ -385,6 +421,8 @@ def main() -> int:
         "institutional_rows": int(len(institutional)),
         "form4_rows": int(len(form4)),
         "etf_rows": int(len(etf)),
+        "form4_usable_rows": int(len(usable_form4)),
+        "etf_usable_rows": int(len(usable_etf)),
         "ranked_tickers": int(len(ranked)),
         "top_n": int(args.top_n),
         "top_csv": str(top_path),
@@ -421,6 +459,8 @@ def main() -> int:
                 "required_period_mapped_value_coverage",
                 "required_period_amendment_accession_count",
                 "required_period_parsed_amendment_accession_count",
+                "weighted_evidence_required",
+                "weighted_evidence_sha256",
                 "source_identity",
                 "score_consumption",
             ]

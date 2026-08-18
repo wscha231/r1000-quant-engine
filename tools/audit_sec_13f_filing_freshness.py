@@ -83,6 +83,37 @@ def sha256_file(path: str | Path) -> str:
     return digest.hexdigest()
 
 
+def bind_weighted_evidence(
+    payload: dict[str, Any],
+    *,
+    form4_path: str | Path | None = None,
+    etf_path: str | Path | None = None,
+    required: bool = False,
+) -> dict[str, Any]:
+    result = dict(payload)
+    blockers = list(result.get("blockers") or [])
+    paths = {
+        "form4": repo_path(form4_path) if form4_path else None,
+        "etf": repo_path(etf_path) if etf_path else None,
+    }
+    hashes: dict[str, str] = {}
+    observed_paths: dict[str, str] = {}
+    for label, path in paths.items():
+        observed_paths[label] = str(path) if path is not None else ""
+        usable_file = path is not None and path.is_file() and path.stat().st_size > 0
+        hashes[label] = sha256_file(path) if usable_file else ""
+        if required and not usable_file:
+            blockers.append(f"weighted_evidence_missing_or_empty:{label}")
+    result["weighted_evidence_required"] = bool(required)
+    result["weighted_evidence_paths"] = observed_paths
+    result["weighted_evidence_sha256"] = hashes
+    result["blockers"] = blockers
+    if blockers:
+        result["status"] = "blocked"
+        result["freshness_ready"] = False
+    return result
+
+
 def _finite_ratio(numerator: int, denominator: int) -> float | None:
     if denominator <= 0:
         return None
@@ -283,7 +314,7 @@ def evaluate_freshness(
 
     monitored_deadline = str(monitored["filing_deadline"]) if monitored else ""
     return {
-        "schema_version": "sec-13f-filing-freshness-v1",
+        "schema_version": "sec-13f-filing-freshness-v2",
         "status": status,
         "freshness_ready": not blockers,
         "as_of_date": as_of.isoformat(),
@@ -368,6 +399,7 @@ def render_report(payload: dict[str, Any]) -> str:
         f"- mapped row/value coverage: {mapped_rows_text} / {mapped_values_text}",
         f"- due-period parse-error managers: {payload.get('required_period_parse_error_manager_count', 0)}",
         f"- parsed due-period amendments: {payload.get('required_period_parsed_amendment_accession_count', 0)} / {payload.get('required_period_amendment_accession_count', 0)}",
+        f"- weighted Form 4/ETF evidence bound: {bool((payload.get('weighted_evidence_sha256') or {}).get('form4'))} / {bool((payload.get('weighted_evidence_sha256') or {}).get('etf'))}",
         f"- newest period in data: `{payload.get('newest_period_of_report')}`",
         f"- latest accepted at: `{payload.get('latest_accepted_at')}`",
         f"- score use: `{payload.get('score_consumption')}`",
@@ -394,6 +426,9 @@ def main() -> int:
     parser.add_argument("--as-of-timestamp", default="")
     parser.add_argument("--holdings", default="")
     parser.add_argument("--require-parsed-holdings", action="store_true")
+    parser.add_argument("--form4-evidence", default="")
+    parser.add_argument("--etf-evidence", default="")
+    parser.add_argument("--require-weighted-evidence", action="store_true")
     parser.add_argument("--minimum-manager-coverage", type=float, default=0.80)
     parser.add_argument("--minimum-mapped-row-coverage", type=float, default=0.20)
     parser.add_argument("--minimum-mapped-value-coverage", type=float, default=0.50)
@@ -434,6 +469,12 @@ def main() -> int:
     payload["filings_index_sha256"] = sha256_file(filings_path)
     payload["holdings"] = str(holdings_path) if holdings_path else ""
     payload["holdings_sha256"] = sha256_file(holdings_path) if holdings_path and holdings_path.exists() else ""
+    payload = bind_weighted_evidence(
+        payload,
+        form4_path=args.form4_evidence or None,
+        etf_path=args.etf_evidence or None,
+        required=bool(args.require_weighted_evidence),
+    )
     payload["source_identity"] = {
         "workflow_run_id": str(args.source_workflow_run_id or ""),
         "head_sha": str(args.source_head_sha or ""),

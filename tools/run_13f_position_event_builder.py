@@ -331,7 +331,46 @@ def build_position_events(
                 current = filing_snapshot
 
             prior_periods = sorted(candidate for candidate in complete_periods if candidate < period)
-            if period_was_seen:
+            later_periods = sorted(candidate for candidate in complete_periods if candidate > period)
+            event_period = period
+            event_current = current
+            ticker_filter: set[str] | None = None
+            if period_was_seen and later_periods:
+                before_by_ticker = same_period_before.set_index("ticker", drop=False)
+                corrected_by_ticker = current.set_index("ticker", drop=False)
+                correction_tickers = set(before_by_ticker.index.astype(str)) | set(
+                    corrected_by_ticker.index.astype(str)
+                )
+                ticker_filter = {
+                    ticker
+                    for ticker in correction_tickers
+                    if float(
+                        corrected_by_ticker.loc[ticker].get("shares", 0.0)
+                        if ticker in corrected_by_ticker.index
+                        else 0.0
+                    )
+                    != float(
+                        before_by_ticker.loc[ticker].get("shares", 0.0)
+                        if ticker in before_by_ticker.index
+                        else 0.0
+                    )
+                    or float(
+                        corrected_by_ticker.loc[ticker].get("market_value_usd", 0.0)
+                        if ticker in corrected_by_ticker.index
+                        else 0.0
+                    )
+                    != float(
+                        before_by_ticker.loc[ticker].get("market_value_usd", 0.0)
+                        if ticker in before_by_ticker.index
+                        else 0.0
+                    )
+                }
+                event_period = later_periods[-1]
+                previous = current
+                event_current = effective_by_period[event_period].copy()
+                history_boundary = False
+                emit_only_changes = True
+            elif period_was_seen:
                 previous = same_period_before
                 history_boundary = False
                 emit_only_changes = True
@@ -345,9 +384,11 @@ def build_position_events(
                 history_boundary = not prior_periods
                 emit_only_changes = False
 
-            cur = current.set_index("ticker", drop=False)
+            cur = event_current.set_index("ticker", drop=False)
             prev = previous.set_index("ticker", drop=False) if not previous.empty else pd.DataFrame()
             tickers = sorted(set(cur.index.astype(str)) | (set(prev.index.astype(str)) if not prev.empty else set()))
+            if ticker_filter is not None:
+                tickers = [ticker for ticker in tickers if ticker in ticker_filter]
             for ticker in tickers:
                 cur_row = cur.loc[ticker] if ticker in cur.index else pd.Series(dtype=object)
                 prev_row = prev.loc[ticker] if not prev.empty and ticker in prev.index else pd.Series(dtype=object)
@@ -365,8 +406,12 @@ def build_position_events(
                 shares_delta = shares - prev_shares
                 value_delta = value - prev_value
                 filing_identity = str(filing_rows["filing_identity"].iloc[0])
+                event_period_label = event_period.date().isoformat()
                 row = {
-                    "event_id": f"13f:{manager_cik}:{period.date().isoformat()}:{filing_identity}:{ticker}",
+                    "event_id": (
+                        f"13f:{manager_cik}:{period.date().isoformat()}:{event_period_label}:"
+                        f"{filing_identity}:{ticker}"
+                    ),
                     "source_type": "13f",
                     "manager_cik": manager_cik,
                     "manager_name": str(
@@ -382,7 +427,7 @@ def build_position_events(
                     "ticker": str(ticker).upper().strip(),
                     "cusip": str(cur_row.get("cusip") or prev_row.get("cusip") or ""),
                     "issuer_name": str(cur_row.get("issuer_name") or prev_row.get("issuer_name") or ""),
-                    "report_period": pd.Timestamp(period).date().isoformat(),
+                    "report_period": event_period_label,
                     "filing_date": filing["filing_date"],
                     "accepted_at": filing["accepted_at"],
                     "available_from": filing["available_from"],

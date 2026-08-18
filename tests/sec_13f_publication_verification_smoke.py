@@ -33,6 +33,11 @@ def test_sec_and_smart_publications_bind_identity_and_hashes() -> None:
             "parsed_holdings_required": True,
             "filings_index_sha256": digest(index),
             "holdings_sha256": digest(holdings),
+            "weighted_evidence_required": True,
+            "weighted_evidence_sha256": {
+                "form4": digest(form4),
+                "etf": digest(etf),
+            },
             "source_identity": {
                 "workflow_run_id": "123",
                 "head_sha": "a" * 40,
@@ -44,6 +49,8 @@ def test_sec_and_smart_publications_bind_identity_and_hashes() -> None:
             manifest=freshness,
             filings_index=index,
             holdings=holdings,
+            form4=form4,
+            etf=etf,
             expected_run_id="123",
             expected_head_sha="a" * 40,
             expected_head_branch="master",

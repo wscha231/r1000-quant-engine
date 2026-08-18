@@ -233,6 +233,9 @@ jobs:
             --manager-ciks-file outputs/sec_institutional_signals/manager_ciks.txt \
             --holdings data_pit/sec/institutional_13f_holdings.parquet \
             --require-parsed-holdings \
+            --form4-evidence outputs/sec_ownership_signals/form4_latest.csv \
+            --etf-evidence outputs/etf_thematic_signals/signals_latest.csv \
+            --require-weighted-evidence \
             --as-of "$AS_OF_DATE" \
             --as-of-timestamp "$AS_OF_TIMESTAMP" \
             --minimum-manager-coverage 0.80 \

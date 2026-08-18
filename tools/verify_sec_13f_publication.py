@@ -80,6 +80,11 @@ def verify(
     evidence_hashes: dict[str, str] = {}
     if kind == "smart":
         expected_evidence = manifest.get("evidence_sha256") or {}
+        evidence_required = True
+    else:
+        expected_evidence = freshness.get("weighted_evidence_sha256") or {}
+        evidence_required = bool(freshness.get("weighted_evidence_required"))
+    if evidence_required or expected_evidence or form4 is not None or etf is not None:
         for label, path in [("form4", form4), ("etf", etf)]:
             if path is None or not path.exists():
                 evidence_hashes[label] = ""

@@ -3856,6 +3856,15 @@ Expected contract:
   the same immutable upstream artifact as 13F, record their hashes, and verify
   those hashes downstream. Missing weighted sources are a blocker, not a zero
   score silently substituted into a 35% or 20% component.
+- Bind Form 4 and ETF hashes in the upstream SEC manifest and verify them before
+  scoring; recording hashes only in the downstream result cannot prove which
+  weighted inputs were accepted. Required evidence must also survive ticker
+  normalization and contain finite score/confidence fields, not merely have a
+  nonzero raw row count.
+- When a late amendment changes an older period after a newer complete filing
+  is already public, derive the amended transition against that newer snapshot.
+  A newly disclosed old holding that the newer filing omits produces a
+  same-availability exit, never a fresh positive candidate.
 - Safety: Fullrun executed false; production/live trading enabled false;
   automatic promotion enabled false.
 

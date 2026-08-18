@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 from datetime import date
 from pathlib import Path
 
@@ -12,6 +13,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.audit_sec_13f_filing_freshness import (  # noqa: E402
+    bind_weighted_evidence,
     evaluate_freshness,
     load_schedule,
     manager_ciks_from_text,
@@ -203,6 +205,33 @@ def test_single_mapped_row_does_not_make_large_filing_substantive() -> None:
     assert blocked["required_period_parsed_manager_count"] == 0
 
 
+def test_weighted_evidence_hashes_are_bound_or_fail_closed() -> None:
+    payload = {"status": "ready", "freshness_ready": True, "blockers": []}
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        form4 = root / "form4.csv"
+        etf = root / "etf.csv"
+        form4.write_bytes(b"form4")
+        etf.write_bytes(b"etf")
+        ready = bind_weighted_evidence(
+            payload,
+            form4_path=form4,
+            etf_path=etf,
+            required=True,
+        )
+        assert ready["freshness_ready"] is True
+        assert len(ready["weighted_evidence_sha256"]["form4"]) == 64
+        assert len(ready["weighted_evidence_sha256"]["etf"]) == 64
+        blocked = bind_weighted_evidence(
+            payload,
+            form4_path=form4,
+            etf_path=root / "missing_etf.csv",
+            required=True,
+        )
+        assert blocked["freshness_ready"] is False
+        assert "weighted_evidence_missing_or_empty:etf" in blocked["blockers"]
+
+
 if __name__ == "__main__":
     test_official_schedule_contains_sec_2026_deadlines()
     test_due_quarter_missing_is_blocked()
@@ -212,4 +241,5 @@ if __name__ == "__main__":
     test_due_period_parsed_holdings_coverage_is_required()
     test_unmapped_manager_and_unparsed_amendment_are_blocked()
     test_single_mapped_row_does_not_make_large_filing_substantive()
+    test_weighted_evidence_hashes_are_bound_or_fail_closed()
     print("sec_13f_filing_freshness_smoke: PASS")
