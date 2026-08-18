@@ -3817,6 +3817,23 @@ Expected contract:
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
 
+## 2026-08-18 - PIT manager cohorts must not project the next refresh date
+
+- The official Q2 post-disclosure artifact exposed a future
+  `latest_cohort_date` of `2027-02-01` even though the newest accepted filing
+  was `2026-08-14`. The cohort generator had appended one refresh interval
+  beyond the newest observed disclosure month.
+- A scheduled refresh date is not an observed PIT state. Generate cohort dates
+  only through the newest observed disclosure month; later events can continue
+  using the most recent prior cohort until a new observed month exists.
+- This boundary did not alter the Q2 13F or Smart Money score and did not assign
+  current events to the phantom cohort, but it made the research report's
+  "latest" cohort misleading. Lock both the cohort output and summary date with
+  a regression test.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
 ## 2026-08-18 - A green 13F refresh was replaying restored submissions metadata
 
 - Agent: Codex GPT-5.6

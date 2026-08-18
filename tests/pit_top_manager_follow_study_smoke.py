@@ -130,6 +130,7 @@ def test_pit_top_manager_follow_study_uses_only_completed_prior_labels() -> None
 
         cohorts = pd.read_parquet(cohort_pit)
         follow = pd.read_parquet(follow_pit)
+        assert cohorts["cohort_date"].max() == "2021-07-01"
         july = cohorts[cohorts["cohort_date"].eq("2021-07-01")]
         assert not july.empty
         assert str(july.iloc[0]["manager_cik"]) == "0000000001"
@@ -141,6 +142,7 @@ def test_pit_top_manager_follow_study_uses_only_completed_prior_labels() -> None
         assert set(stats["horizon"]) >= {21, 63, 126, 252}
         summary = json.loads((out_dir / "summary.json").read_text(encoding="utf-8"))
         assert summary["selected_follow_events"] == 1
+        assert summary["latest_cohort_date"] == "2021-07-01"
         report = (out_dir / "report.md").read_text(encoding="utf-8")
         assert "Research-only study" in report
 
