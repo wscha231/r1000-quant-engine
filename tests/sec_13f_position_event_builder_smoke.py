@@ -126,6 +126,83 @@ def test_manager_universe_metadata_is_attached() -> None:
     assert set(latest["manager_name"]) == {"Atreides Management LP"}
 
 
+def test_restatement_replaces_base_snapshot_in_position_events() -> None:
+    holdings = holdings_fixture().iloc[:2].copy()
+    holdings["source_accession"] = "base"
+    holdings["form_type"] = "13F-HR"
+    holdings["amendment_type"] = ""
+    restatement = holdings.iloc[[0]].copy()
+    restatement["source_accession"] = "restatement"
+    restatement["form_type"] = "13F-HR/A"
+    restatement["amendment_type"] = "RESTATEMENT"
+    restatement["accepted_at"] = "2026-02-17T18:00:00Z"
+    restatement["available_from"] = "2026-02-17T18:00:00Z"
+    events = build_position_events(pd.concat([holdings, restatement], ignore_index=True), metadata_fixture())
+    base_events = events[events["available_from"].eq("2026-02-14T18:00:00Z")]
+    assert set(base_events["ticker"]) == {"AAPL", "MSFT"}
+    restatement_events = events[events["available_from"].eq("2026-02-17T18:00:00Z")]
+    assert set(restatement_events["ticker"]) == {"MSFT"}
+    assert restatement_events.iloc[0]["event_type"] == "exit"
+    assert float(restatement_events.iloc[0]["previous_shares"]) == 50_000.0
+    assert float(restatement_events.iloc[0]["shares"]) == 0.0
+
+
+def test_late_restatement_keeps_earlier_disclosure_events() -> None:
+    holdings = holdings_fixture().copy()
+    holdings["source_accession"] = holdings["report_period"].map(
+        {"2025-12-31": "prior-base", "2026-03-31": "current-base"}
+    )
+    holdings["form_type"] = "13F-HR"
+    holdings["amendment_type"] = ""
+    restatement = holdings[holdings["report_period"].eq("2025-12-31") & holdings["ticker_mapped"].eq("AAPL")].copy()
+    restatement["source_accession"] = "late-prior-restatement"
+    restatement["form_type"] = "13F-HR/A"
+    restatement["amendment_type"] = "RESTATEMENT"
+    restatement["accepted_at"] = "2026-06-01T18:00:00Z"
+    restatement["available_from"] = "2026-06-01T18:00:00Z"
+    added_then_exited = restatement.copy()
+    added_then_exited["ticker_mapped"] = "NVDA"
+    added_then_exited["cusip"] = "67066G104"
+    added_then_exited["issuer_name"] = "NVIDIA Corp"
+    restatement = pd.concat([restatement, added_then_exited], ignore_index=True)
+    events = build_position_events(pd.concat([holdings, restatement], ignore_index=True), metadata_fixture())
+    assert set(events[events["available_from"].eq("2026-02-14T18:00:00Z")]["ticker"]) == {"AAPL", "MSFT"}
+    assert set(events[events["available_from"].eq("2026-05-15T18:00:00Z")]["ticker"]) == {"AAPL", "CLSK", "MSFT"}
+    late = events[events["available_from"].eq("2026-06-01T18:00:00Z")]
+    assert set(late["ticker"]) == {"NVDA"}
+    assert late.iloc[0]["event_type"] == "exit"
+    assert late.iloc[0]["report_period"] == "2026-03-31"
+    assert float(late.iloc[0]["previous_shares"]) > 0.0
+    assert float(late.iloc[0]["shares"]) == 0.0
+
+
+def test_late_new_holdings_only_reconciles_to_newer_complete_snapshot() -> None:
+    newer = holdings_fixture()[
+        holdings_fixture()["report_period"].eq("2026-03-31")
+        & holdings_fixture()["ticker_mapped"].eq("AAPL")
+    ].copy()
+    newer["source_accession"] = "newer-complete"
+    newer["form_type"] = "13F-HR"
+    newer["amendment_type"] = ""
+    incremental = newer.copy()
+    incremental["report_period"] = "2025-12-31"
+    incremental["ticker_mapped"] = "NVDA"
+    incremental["cusip"] = "67066G104"
+    incremental["issuer_name"] = "NVIDIA Corp"
+    incremental["source_accession"] = "late-new-holdings"
+    incremental["form_type"] = "13F-HR/A"
+    incremental["amendment_type"] = "NEW HOLDINGS"
+    incremental["accepted_at"] = "2026-06-01T18:00:00Z"
+    incremental["available_from"] = "2026-06-01T18:00:00Z"
+    events = build_position_events(pd.concat([newer, incremental], ignore_index=True), metadata_fixture())
+    late = events[events["available_from"].eq("2026-06-01T18:00:00Z")]
+    assert set(late["ticker"]) == {"NVDA"}
+    assert late.iloc[0]["event_type"] == "exit"
+    assert late.iloc[0]["report_period"] == "2026-03-31"
+    assert float(late.iloc[0]["previous_shares"]) > 0.0
+    assert float(late.iloc[0]["shares"]) == 0.0
+
+
 def test_cli_writes_pit_and_latest_outputs() -> None:
     tmp = Path(tempfile.mkdtemp(prefix="13f_events_"))
     try:
@@ -148,6 +225,7 @@ def test_cli_writes_pit_and_latest_outputs() -> None:
             )()
         )
         assert payload["status"] == "completed"
+        assert payload["schema_version"] == "13f-position-events-v2"
         assert payload["available_from_before_accepted_at"] == 0
         assert pit.exists()
         assert (out / "latest.csv").exists()
@@ -161,6 +239,9 @@ def main() -> int:
     test_event_builder_detects_add_new_and_exit()
     test_initial_period_is_not_false_new_signal()
     test_manager_universe_metadata_is_attached()
+    test_restatement_replaces_base_snapshot_in_position_events()
+    test_late_restatement_keeps_earlier_disclosure_events()
+    test_late_new_holdings_only_reconciles_to_newer_complete_snapshot()
     test_cli_writes_pit_and_latest_outputs()
     print("sec_13f_position_event_builder_smoke: PASS")
     return 0

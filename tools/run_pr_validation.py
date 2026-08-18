@@ -88,6 +88,8 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/sec_form4_parser_smoke.py", []),
     ("tests/sec_13f_parser_smoke.py", []),
     ("tests/sec_submissions_collector_history_smoke.py", []),
+    ("tests/sec_13f_filing_freshness_smoke.py", []),
+    ("tests/sec_13f_publication_verification_smoke.py", []),
     ("tests/sec_13f_cusip_mapping_smoke.py", []),
     ("tests/sec_13f_position_event_builder_smoke.py", []),
     ("tests/post_disclosure_alpha_labeler_smoke.py", []),

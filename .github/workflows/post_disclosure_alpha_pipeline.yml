@@ -23,9 +23,10 @@ on:
         description: 'Broker grid cost bps when enabled'
         type: string
         default: '25'
-  schedule:
-    # 09:45 KST Tue-Sat, after Form 4 and Smart Money daily windows.
-    - cron: '45 0 * * 2-6'
+  workflow_run:
+    workflows: ["Smart Money Top 30 Refresh"]
+    types: [completed]
+    branches: [master]
 
 permissions:
   contents: read
@@ -37,6 +38,11 @@ concurrency:
 
 jobs:
   post_disclosure_alpha:
+    if: >-
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == github.event.repository.default_branch) ||
+      (github.event_name != 'workflow_run' && github.ref_name == github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
@@ -44,6 +50,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 1
 
       - name: Setup Python
@@ -80,9 +87,8 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${RCLONE_CONFIG_GDRIVE:-}" ] && [ -z "${GOOGLE_SERVICE_ACCOUNT_KEY:-}" ]; then
-            echo "[gdrive] no auth configured; continuing without Drive restore/sync"
-            echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
-            exit 0
+            echo "[gdrive] durable post-disclosure publication requires configured Drive authentication" >&2
+            exit 2
           fi
           curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
           unzip -q /tmp/rclone.zip -d /tmp/
@@ -103,35 +109,114 @@ jobs:
           echo "GDRIVE_READY=yes" >> "$GITHUB_ENV"
 
       - name: Restore evidence data lake from Google Drive
+        if: github.event_name != 'workflow_run'
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: r1000_top30_institutional
         run: |
           set -euo pipefail
           if [ "${GDRIVE_READY:-no}" != "yes" ]; then
-            exit 0
+            echo "[gdrive] required SEC restore is unavailable" >&2
+            exit 2
           fi
           if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
             BASE="gdrive:"
           else
             BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
           fi
-          for d in data_pit/sec data_pit/etf_holdings outputs/sec_institutional_signals outputs/sec_ownership_signals outputs/etf_thematic_signals; do
+          for d in data_pit/sec outputs/sec_institutional_signals; do
+            mkdir -p "$d"
+            timeout 45s rclone lsf "$BASE$d" >/dev/null
+            timeout 8m rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line
+          done
+          for d in data_pit/etf_holdings outputs/sec_ownership_signals outputs/etf_thematic_signals; do
             mkdir -p "$d"
             if timeout 45s rclone lsf "$BASE$d" >/dev/null 2>&1; then
               timeout 8m rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
-            else
-              echo "[gdrive] $d unavailable or listing timed out; continuing"
             fi
           done
 
+      - name: Restore immutable Smart Money artifact from triggering run
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/smart-upstream"
+          mkdir -p "$ROOT" outputs/full_rebuild_logs
+          gh run download "$SOURCE_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "smart-money-top30-$SOURCE_RUN_ID" \
+            --dir "$ROOT"
+          test -d "$ROOT/data_pit/sec"
+          test -d "$ROOT/data_pit/etf_holdings"
+          test -d "$ROOT/outputs/sec_institutional_signals"
+          test -d "$ROOT/outputs/sec_ownership_signals"
+          test -d "$ROOT/outputs/etf_thematic_signals"
+          test -f "$ROOT/outputs/smart_money/smart_money_summary.json"
+          for d in data_pit/sec data_pit/etf_holdings outputs/sec_institutional_signals outputs/sec_ownership_signals outputs/etf_thematic_signals outputs/smart_money; do
+            test -d "$ROOT/$d"
+            mkdir -p "$d"
+            cp -a "$ROOT/$d/." "$d/"
+          done
+          test -s outputs/sec_ownership_signals/form4_latest.csv
+          test -s outputs/etf_thematic_signals/signals_latest.csv
+          test -s data_pit/etf_holdings/etf_holdings.parquet
+          python tools/verify_sec_13f_publication.py \
+            --kind smart \
+            --manifest outputs/smart_money/smart_money_summary.json \
+            --filings-index data_pit/sec/13f_latest/sec_filings_index.parquet \
+            --holdings data_pit/sec/institutional_13f_holdings.parquet \
+            --form4 outputs/sec_ownership_signals/form4_latest.csv \
+            --etf outputs/etf_thematic_signals/signals_latest.csv \
+            --expected-run-id "$SOURCE_RUN_ID" \
+            --expected-head-sha "$SOURCE_HEAD_SHA" \
+            --expected-head-branch "$SOURCE_HEAD_BRANCH" \
+            --output outputs/full_rebuild_logs/smart_upstream_publication_verification.json \
+            --strict
+
       - name: Build disclosure event tables
+        env:
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id || github.run_id }}
+          SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          SOURCE_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+          SOURCE_WORKFLOW_NAME: ${{ github.event.workflow_run.name || github.workflow }}
         run: |
           set -euo pipefail
           mkdir -p outputs/full_rebuild_logs data_pit/sec data_pit/etf_holdings
+          AS_OF_DATE="$(TZ=America/New_York date +%F)"
+          AS_OF_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          python tools/audit_sec_13f_filing_freshness.py \
+            --schedule research/sec_13f_filing_schedule.json \
+            --filings-index data_pit/sec/13f_latest/sec_filings_index.parquet \
+            --manager-ciks-file outputs/sec_institutional_signals/manager_ciks.txt \
+            --as-of "$AS_OF_DATE" \
+            --as-of-timestamp "$AS_OF_TIMESTAMP" \
+            --holdings data_pit/sec/institutional_13f_holdings.parquet \
+            --require-parsed-holdings \
+            --form4-evidence outputs/sec_ownership_signals/form4_latest.csv \
+            --etf-evidence outputs/etf_thematic_signals/signals_latest.csv \
+            --require-weighted-evidence \
+            --minimum-manager-coverage 0.80 \
+            --minimum-mapped-row-coverage 0.20 \
+            --minimum-mapped-value-coverage 0.50 \
+            --minimum-future-deadlines 2 \
+            --source-workflow-run-id "$SOURCE_RUN_ID" \
+            --source-head-sha "$SOURCE_HEAD_SHA" \
+            --source-head-branch "$SOURCE_HEAD_BRANCH" \
+            --source-workflow-name "$SOURCE_WORKFLOW_NAME" \
+            --source-repository "$GITHUB_REPOSITORY" \
+            --output-json outputs/full_rebuild_logs/post_disclosure_13f_freshness.json \
+            --output-report outputs/full_rebuild_logs/post_disclosure_13f_freshness.md \
+            --strict \
+            2>&1 | tee outputs/full_rebuild_logs/post_disclosure_13f_freshness.log
+          cat outputs/full_rebuild_logs/post_disclosure_13f_freshness.md >> "$GITHUB_STEP_SUMMARY"
           python tools/run_13f_position_event_builder.py \
             --output-dir outputs/post_disclosure_alpha_pipeline/13f_position_events \
-            2>&1 | tee outputs/full_rebuild_logs/post_disclosure_13f_events.log || true
+            2>&1 | tee outputs/full_rebuild_logs/post_disclosure_13f_events.log
           python tools/run_form4_transaction_event_builder.py \
             --output-dir outputs/post_disclosure_alpha_pipeline/form4_transaction_events \
             2>&1 | tee outputs/full_rebuild_logs/post_disclosure_form4_events.log || true
@@ -178,7 +263,8 @@ jobs:
           print(f"[price-cache] requested {len(files)} files for {len(tickers)} tickers")
           PY
           if [ "${GDRIVE_READY:-no}" != "yes" ]; then
-            exit 0
+            echo "[gdrive] durable post-disclosure publication is unavailable" >&2
+            exit 2
           fi
           if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
             BASE="gdrive:"
@@ -231,7 +317,7 @@ jobs:
             --cost-bps "$COST_BPS" \
             $OVERLAY_FLAG \
             $BROKER_FLAG \
-            2>&1 | tee outputs/full_rebuild_logs/post_disclosure_alpha_pipeline.log || true
+            2>&1 | tee outputs/full_rebuild_logs/post_disclosure_alpha_pipeline.log
 
       - name: Run PIT top-manager follow study
         run: |
@@ -268,12 +354,14 @@ jobs:
             outputs/post_disclosure_alpha_pipeline/
             outputs/pit_top_manager_follow_study/
             outputs/full_rebuild_logs/post_disclosure_*.log
+            outputs/full_rebuild_logs/post_disclosure_13f_freshness.*
             outputs/full_rebuild_logs/pit_top_manager_follow_study.log
             outputs/full_rebuild_logs/post_disclosure_price_cache_*
+            outputs/full_rebuild_logs/smart_upstream_publication_verification.json
           retention-days: 30
 
       - name: Sync post-disclosure outputs to Google Drive
-        if: always()
+        if: success()
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: r1000_top30_institutional
@@ -289,6 +377,6 @@ jobs:
           fi
           for d in data_pit/sec data_pit/etf_holdings outputs/post_disclosure_alpha_pipeline outputs/pit_top_manager_follow_study; do
             if [ -d "$d" ]; then
-              timeout 8m rclone copy "$d" "$BASE$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
+              timeout 8m rclone copy "$d" "$BASE$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line
             fi
           done

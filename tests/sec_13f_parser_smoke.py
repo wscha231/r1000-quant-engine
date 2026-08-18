@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -11,8 +12,9 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.run_sec_13f_parser import market_value_usd, parse_13f_index, parse_13f_xml, write_outputs  # noqa: E402
-from tools.run_sec_institutional_signals import build_13f_signal  # noqa: E402
+import tools.run_sec_13f_parser as parser_module  # noqa: E402
+from tools.run_sec_13f_parser import amendment_type_from_text, market_value_usd, parse_13f_index, parse_13f_xml, write_outputs  # noqa: E402
+from tools.run_sec_institutional_signals import add_13f_position_deltas, build_13f_signal, prepare_13f_holdings  # noqa: E402
 
 
 SAMPLE_13F = """<?xml version="1.0" encoding="UTF-8"?>
@@ -168,8 +170,245 @@ def test_13f_parser_max_filings_prefers_latest_accepted_at() -> None:
     assert frame.iloc[0]["manager_cik"] == "0000000002"
 
 
+def test_13f_parser_excludes_not_yet_available_filings() -> None:
+    base = {
+        "ticker": "MGR",
+        "cik10": "0000000001",
+        "accession_number": "0000000001-26-000001",
+        "form_type": "13F-HR",
+        "filing_date": "2026-08-14",
+        "accepted_at": "2026-08-14T20:00:00+00:00",
+        "available_from": "2026-08-14T22:00:00+00:00",
+        "period_of_report": "2026-06-30",
+        "primary_document": "info.xml",
+        "filing_url": "",
+    }
+    original_cache = parser_module.cache_13f_document
+    try:
+        parser_module.cache_13f_document = (  # type: ignore[assignment]
+            lambda *args, **kwargs: (Path("fixture.xml"), SAMPLE_13F)
+        )
+        before = parse_13f_index(
+            pd.DataFrame([base]),
+            raw_dir=Path("."),
+            as_of="2026-08-14T21:59:59+00:00",
+        )
+        after = parse_13f_index(
+            pd.DataFrame([base]),
+            raw_dir=Path("."),
+            as_of="2026-08-14T22:00:00+00:00",
+        )
+    finally:
+        parser_module.cache_13f_document = original_cache  # type: ignore[assignment]
+    assert before.empty
+    assert len(after) == 1
+
+
+def test_institutional_signal_cli_refuses_empty_verified_result() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        holdings = root / "holdings.csv"
+        output = root / "signals"
+        pd.DataFrame(columns=["manager_cik", "ticker_mapped", "report_period"]).to_csv(holdings, index=False)
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "tools" / "run_sec_institutional_signals.py"),
+                "--holdings",
+                str(holdings),
+                "--output-dir",
+                str(output),
+                "--require-nonempty",
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode != 0
+        assert "refusing publication" in (result.stdout + result.stderr)
+        assert not output.exists()
+
+
+def test_amendment_type_and_restatement_snapshot_semantics() -> None:
+    assert amendment_type_from_text("<amendmentType>RESTATEMENT</amendmentType>") == "RESTATEMENT"
+    assert amendment_type_from_text("<ns:amendmentType>NEW HOLDINGS</ns:amendmentType>") == "NEW HOLDINGS"
+    rows = []
+    for ticker in ["AAPL", "MSFT"]:
+        rows.append(
+            {
+                "manager_cik": "0000000001",
+                "ticker_mapped": ticker,
+                "report_period": "2026-06-30",
+                "available_from": "2026-08-14T20:00:00+00:00",
+                "accepted_at": "2026-08-14T20:00:00+00:00",
+                "source_accession": "base",
+                "form_type": "13F-HR",
+                "amendment_type": "",
+                "shares": 10.0,
+                "market_value_usd": 100.0,
+            }
+        )
+    rows.append(
+        {
+            **rows[0],
+            "accepted_at": "2026-08-17T20:00:00+00:00",
+            "available_from": "2026-08-17T20:00:00+00:00",
+            "source_accession": "restatement",
+            "form_type": "13F-HR/A",
+            "amendment_type": "RESTATEMENT",
+            "shares": 20.0,
+        }
+    )
+    rows.append(
+        {
+            **rows[0],
+            "ticker_mapped": "NVDA",
+            "accepted_at": "2026-08-18T20:00:00+00:00",
+            "available_from": "2026-08-18T20:00:00+00:00",
+            "source_accession": "new-holdings",
+            "form_type": "13F-HR/A",
+            "amendment_type": "NEW HOLDINGS",
+        }
+    )
+    prepared = prepare_13f_holdings(pd.DataFrame(rows))
+    assert set(prepared["ticker"]) == {"AAPL", "NVDA"}
+    assert "MSFT" not in set(prepared["ticker"])
+    historical = prepare_13f_holdings(pd.DataFrame(rows), as_of="2026-08-15T00:00:00+00:00")
+    assert set(historical["ticker"]) == {"AAPL", "MSFT"}
+
+
+def test_restatement_removal_emits_latest_exit_in_signal() -> None:
+    prior = {
+        "manager_cik": "0000000001",
+        "ticker_mapped": "MSFT",
+        "report_period": "2026-03-31",
+        "available_from": "2026-05-15T20:00:00+00:00",
+        "accepted_at": "2026-05-15T20:00:00+00:00",
+        "source_accession": "prior-base",
+        "form_type": "13F-HR",
+        "amendment_type": "",
+        "shares": 10.0,
+        "market_value_usd": 100.0,
+    }
+    current_msft = {
+        **prior,
+        "report_period": "2026-06-30",
+        "available_from": "2026-08-14T20:00:00+00:00",
+        "accepted_at": "2026-08-14T20:00:00+00:00",
+        "source_accession": "current-base",
+    }
+    current_aapl = {**current_msft, "ticker_mapped": "AAPL"}
+    restated_aapl = {
+        **current_aapl,
+        "available_from": "2026-08-17T20:00:00+00:00",
+        "accepted_at": "2026-08-17T20:00:00+00:00",
+        "source_accession": "current-restatement",
+        "form_type": "13F-HR/A",
+        "amendment_type": "RESTATEMENT",
+        "shares": 20.0,
+        "market_value_usd": 200.0,
+    }
+    holdings = pd.DataFrame([prior, current_msft, current_aapl, restated_aapl])
+    before = build_13f_signal(holdings, as_of="2026-08-15T00:00:00+00:00", lookback_days=210).set_index("ticker")
+    assert int(before.loc["MSFT", "sec_13f_manager_count"]) == 1
+
+    deltas = add_13f_position_deltas(holdings, as_of="2026-08-18T00:00:00+00:00")
+    exit_row = deltas[deltas["ticker"].eq("MSFT")].sort_values("available_from_ts").iloc[-1]
+    assert bool(exit_row["synthetic_exit"]) is True
+    assert bool(exit_row["exited_position"]) is True
+    assert float(exit_row["shares_delta"]) == -10.0
+
+    after = build_13f_signal(holdings, as_of="2026-08-18T00:00:00+00:00", lookback_days=210).set_index("ticker")
+    assert int(after.loc["MSFT", "sec_13f_manager_count"]) == 0
+    assert int(after.loc["MSFT", "sec_13f_selling_manager_count"]) == 1
+    assert float(after.loc["MSFT", "sec_13f_shares_delta"]) == -10.0
+    assert after.loc["MSFT", "latest_available_from"].startswith("2026-08-17T20:00:00")
+
+
+def test_new_holdings_only_period_does_not_emit_false_exits() -> None:
+    prior = {
+        "manager_cik": "0000000001",
+        "ticker_mapped": "MSFT",
+        "report_period": "2026-03-31",
+        "available_from": "2026-05-15T20:00:00+00:00",
+        "accepted_at": "2026-05-15T20:00:00+00:00",
+        "source_accession": "prior-base",
+        "form_type": "13F-HR",
+        "amendment_type": "",
+        "shares": 10.0,
+        "market_value_usd": 100.0,
+    }
+    incremental = {
+        **prior,
+        "ticker_mapped": "NVDA",
+        "report_period": "2026-06-30",
+        "available_from": "2026-08-17T20:00:00+00:00",
+        "accepted_at": "2026-08-17T20:00:00+00:00",
+        "source_accession": "new-holdings-only",
+        "form_type": "13F-HR/A",
+        "amendment_type": "NEW HOLDINGS",
+    }
+    holdings = pd.DataFrame([prior, incremental])
+    deltas = add_13f_position_deltas(holdings, as_of="2026-08-18T00:00:00+00:00")
+    assert not deltas["synthetic_exit"].astype(bool).any()
+    latest = build_13f_signal(holdings, as_of="2026-08-18T00:00:00+00:00", lookback_days=210).set_index("ticker")
+    assert int(latest.loc["MSFT", "sec_13f_manager_count"]) == 1
+    assert int(latest.loc["MSFT", "sec_13f_selling_manager_count"]) == 0
+
+
+def test_late_prior_period_restatement_cannot_resurrect_position() -> None:
+    prior = {
+        "manager_cik": "0000000001",
+        "ticker_mapped": "AAPL",
+        "report_period": "2026-03-31",
+        "available_from": "2026-05-15T20:00:00+00:00",
+        "accepted_at": "2026-05-15T20:00:00+00:00",
+        "source_accession": "prior-base",
+        "form_type": "13F-HR",
+        "amendment_type": "",
+        "shares": 10.0,
+        "market_value_usd": 100.0,
+    }
+    current = {
+        **prior,
+        "ticker_mapped": "MSFT",
+        "report_period": "2026-06-30",
+        "available_from": "2026-08-14T20:00:00+00:00",
+        "accepted_at": "2026-08-14T20:00:00+00:00",
+        "source_accession": "current-base",
+    }
+    late_prior_restatement = {
+        **prior,
+        "available_from": "2026-09-01T20:00:00+00:00",
+        "accepted_at": "2026-09-01T20:00:00+00:00",
+        "source_accession": "late-prior-restatement",
+        "form_type": "13F-HR/A",
+        "amendment_type": "RESTATEMENT",
+        "shares": 20.0,
+        "market_value_usd": 200.0,
+    }
+    holdings = pd.DataFrame([prior, current, late_prior_restatement])
+    deltas = add_13f_position_deltas(holdings, as_of="2026-09-02T00:00:00+00:00")
+    exit_row = deltas[deltas["ticker"].eq("AAPL")].sort_values(
+        ["available_from_ts", "report_period_ts"]
+    ).iloc[-1]
+    assert bool(exit_row["exited_position"]) is True
+    assert exit_row["report_period_ts"] == pd.Timestamp("2026-06-30")
+    assert exit_row["available_from_ts"] == pd.Timestamp("2026-09-01T20:00:00+00:00")
+    latest = build_13f_signal(holdings, as_of="2026-09-02T00:00:00+00:00", lookback_days=210).set_index("ticker")
+    assert int(latest.loc["AAPL", "sec_13f_manager_count"]) == 0
+    assert int(latest.loc["AAPL", "sec_13f_selling_manager_count"]) == 1
+
+
 if __name__ == "__main__":
     test_13f_xml_parser_extracts_information_table_rows()
     test_13f_signal_is_pit_and_scores_accumulation()
     test_13f_write_outputs_normalizes_parse_error_dtypes()
+    test_13f_parser_excludes_not_yet_available_filings()
+    test_institutional_signal_cli_refuses_empty_verified_result()
+    test_amendment_type_and_restatement_snapshot_semantics()
+    test_restatement_removal_emits_latest_exit_in_signal()
+    test_new_holdings_only_period_does_not_emit_false_exits()
+    test_late_prior_period_restatement_cannot_resurrect_position()
     print("sec_13f_parser_smoke: PASS")

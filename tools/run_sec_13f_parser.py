@@ -60,6 +60,8 @@ FORM13F_COLUMNS = [
     "voting_authority_shared",
     "voting_authority_none",
     "source_accession",
+    "form_type",
+    "amendment_type",
     "filing_url",
 ]
 
@@ -280,6 +282,48 @@ def cache_13f_document(
     return cache, cache.read_text(encoding="utf-8")
 
 
+def cache_13f_amendment_type(
+    filing: dict[str, Any],
+    raw_dir: Path,
+    *,
+    user_agent: str | None = None,
+    refresh: bool = False,
+    sleep_s: float = 0.12,
+) -> str:
+    form_type = str(filing.get("form_type") or "").upper().strip()
+    if form_type != "13F-HR/A":
+        return ""
+    cik = cik10(filing.get("cik10") or filing.get("manager_cik"))
+    accession = str(filing.get("accession_number") or "").strip()
+    primary_doc = str(filing.get("primary_document") or "").strip()
+    if not cik or not accession or not primary_doc:
+        raise RuntimeError("13F amendment is missing CIK, accession, or primary document")
+    out_dir = raw_dir / "filings" / "13f_cover"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    cache = out_dir / cache_name(accession, primary_doc)
+    if refresh or not cache.exists():
+        text = sec_get_text(
+            filing_archive_url(cik, accession, primary_doc),
+            user_agent=user_agent,
+            sleep_s=sleep_s,
+        )
+        cache.write_text(text, encoding="utf-8")
+    text = cache.read_text(encoding="utf-8")
+    return amendment_type_from_text(cache.read_text(encoding="utf-8"))
+
+
+def amendment_type_from_text(text: str) -> str:
+    match = re.search(
+        r"<(?:[A-Za-z0-9_]+:)?amendmentType[^>]*>\s*([^<]+?)\s*</",
+        text,
+        flags=re.IGNORECASE,
+    )
+    amendment_type = re.sub(r"[_-]+", " ", match.group(1) if match else "").upper().strip()
+    if amendment_type not in {"RESTATEMENT", "NEW HOLDINGS"}:
+        raise RuntimeError(f"unrecognized 13F amendment type: {amendment_type or 'missing'}")
+    return amendment_type
+
+
 def parse_13f_xml(
     xml_text: str,
     filing: dict[str, Any] | None = None,
@@ -318,6 +362,8 @@ def parse_13f_xml(
                 "voting_authority_shared": as_float(first_text(first(info, "votingAuthority"), "Shared")),
                 "voting_authority_none": as_float(first_text(first(info, "votingAuthority"), "None")),
                 "source_accession": str(filing.get("accession_number") or filing.get("source_accession") or ""),
+                "form_type": str(filing.get("form_type") or "").upper().strip(),
+                "amendment_type": str(filing.get("amendment_type") or "").upper().strip(),
                 "filing_url": str(filing.get("filing_url") or ""),
             }
         )
@@ -333,12 +379,20 @@ def parse_13f_index(
     sleep_s: float = 0.12,
     max_filings: int = 0,
     cusip_map: dict[str, str] | None = None,
+    as_of: str = "",
 ) -> pd.DataFrame:
     if index.empty:
         return pd.DataFrame(columns=FORM13F_COLUMNS)
     d = index.copy()
     d["form_type"] = d.get("form_type", "").astype(str).str.upper().str.strip()
     d = d[d["form_type"].isin(FORM_13F_TYPES)].copy()
+    if as_of:
+        cutoff = pd.to_datetime(as_of, errors="coerce", utc=True)
+        if pd.isna(cutoff):
+            raise ValueError(f"invalid 13F parser as-of timestamp: {as_of}")
+        available_source = d["available_from"] if "available_from" in d.columns else pd.Series("", index=d.index)
+        available = pd.to_datetime(available_source, errors="coerce", utc=True)
+        d = d[available.notna() & (available <= cutoff)].copy()
     if max_filings and max_filings > 0:
         d["_accepted_sort"] = pd.to_datetime(d.get("accepted_at"), errors="coerce", utc=True)
         d["_filing_sort"] = pd.to_datetime(d.get("filing_date"), errors="coerce", utc=True)
@@ -353,6 +407,13 @@ def parse_13f_index(
     for _, item in d.iterrows():
         filing = item.to_dict()
         try:
+            filing["amendment_type"] = cache_13f_amendment_type(
+                filing,
+                raw_dir,
+                user_agent=user_agent,
+                refresh=refresh,
+                sleep_s=sleep_s,
+            )
             _, xml_text = cache_13f_document(
                 filing,
                 raw_dir,
@@ -372,6 +433,8 @@ def parse_13f_index(
                     "accepted_at": str(filing.get("accepted_at") or ""),
                     "available_from": str(filing.get("available_from") or ""),
                     "source_accession": str(filing.get("accession_number") or ""),
+                    "form_type": str(filing.get("form_type") or "").upper().strip(),
+                    "amendment_type": str(filing.get("amendment_type") or "").upper().strip(),
                     "filing_url": str(filing.get("filing_url") or ""),
                     "issuer_name": f"PARSE_ERROR: {str(exc)[:180]}",
                 }
@@ -423,6 +486,7 @@ def main() -> int:
     parser.add_argument("--refresh", action="store_true")
     parser.add_argument("--sleep", type=float, default=0.12)
     parser.add_argument("--max-filings", type=int, default=0)
+    parser.add_argument("--as-of", default="", help="Only parse filings whose available_from is at or before this timestamp.")
     args = parser.parse_args()
 
     cusip_map = read_cusip_map(repo_path(args.cusip_map)) if args.cusip_map else {}
@@ -434,6 +498,7 @@ def main() -> int:
         sleep_s=float(args.sleep),
         max_filings=int(args.max_filings),
         cusip_map=cusip_map,
+        as_of=str(args.as_of or ""),
     )
     paths = write_outputs(frame, repo_path(args.output_dir))
     print(json.dumps({"status": "ok", "rows": int(len(frame)), **paths}, indent=2, sort_keys=True))

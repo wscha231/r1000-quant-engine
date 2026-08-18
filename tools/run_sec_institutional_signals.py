@@ -67,7 +67,31 @@ def _log_score(value: float, scale: float) -> float:
     return _safe_pct(math.log1p(value) / math.log1p(scale))
 
 
-def prepare_13f_holdings(frame: pd.DataFrame) -> pd.DataFrame:
+def apply_13f_amendment_semantics(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return frame.copy()
+    effective_groups: list[pd.DataFrame] = []
+    for _, group in frame.groupby(["manager_cik", "report_period_ts"], sort=False):
+        restatements = group[group["amendment_type"].eq("RESTATEMENT")].copy()
+        if restatements.empty:
+            effective_groups.append(group)
+            continue
+        latest_restatement = restatements.sort_values(
+            ["accepted_at_ts", "source_accession"]
+        ).iloc[-1]
+        restatement_accession = str(latest_restatement.get("source_accession") or "")
+        restatement_at = latest_restatement.get("accepted_at_ts")
+        keep = group["source_accession"].eq(restatement_accession)
+        if pd.notna(restatement_at):
+            keep = keep | (
+                group["amendment_type"].eq("NEW HOLDINGS")
+                & group["accepted_at_ts"].gt(restatement_at)
+            )
+        effective_groups.append(group[keep].copy())
+    return pd.concat(effective_groups, ignore_index=True) if effective_groups else frame.iloc[0:0].copy()
+
+
+def prepare_13f_holdings(frame: pd.DataFrame, *, as_of: str | None = None) -> pd.DataFrame:
     if frame.empty:
         return pd.DataFrame()
     d = frame.copy()
@@ -76,9 +100,23 @@ def prepare_13f_holdings(frame: pd.DataFrame) -> pd.DataFrame:
     d["report_period_ts"] = pd.to_datetime(d.get("report_period"), errors="coerce").dt.normalize()
     d["available_from_ts"] = pd.to_datetime(d.get("available_from"), errors="coerce", utc=True)
     d["accepted_at_ts"] = pd.to_datetime(d.get("accepted_at"), errors="coerce", utc=True)
+    for column in ["source_accession", "form_type", "amendment_type"]:
+        if column not in d.columns:
+            d[column] = ""
+        d[column] = d[column].fillna("").astype(str).str.strip()
+    d["form_type"] = d["form_type"].str.upper()
+    d["amendment_type"] = d["amendment_type"].str.upper().str.replace(r"[_-]+", " ", regex=True)
     d["shares"] = pd.to_numeric(d.get("shares", 0.0), errors="coerce").fillna(0.0).clip(lower=0.0)
     d["market_value_usd"] = pd.to_numeric(d.get("market_value_usd", 0.0), errors="coerce").fillna(0.0).clip(lower=0.0)
+    if as_of:
+        cutoff = pd.to_datetime(as_of, errors="coerce", utc=True)
+        if pd.isna(cutoff):
+            raise ValueError(f"invalid institutional signal as-of timestamp: {as_of}")
+        d = d[d["available_from_ts"].notna() & (d["available_from_ts"] <= cutoff)].copy()
     d = d[d["manager_cik"].ne("") & d["ticker"].ne("") & d["report_period_ts"].notna()].copy()
+    if d.empty:
+        return pd.DataFrame()
+    d = apply_13f_amendment_semantics(d)
     if d.empty:
         return pd.DataFrame()
     d = d.sort_values(["manager_cik", "ticker", "report_period_ts", "accepted_at_ts"])
@@ -91,10 +129,72 @@ def prepare_13f_holdings(frame: pd.DataFrame) -> pd.DataFrame:
     return d
 
 
-def add_13f_position_deltas(frame: pd.DataFrame) -> pd.DataFrame:
-    d = prepare_13f_holdings(frame)
+def append_13f_exit_tombstones(frame: pd.DataFrame) -> pd.DataFrame:
+    """Represent positions omitted from a newer complete snapshot as exits."""
+    if frame.empty:
+        return frame.copy()
+    d = frame.copy()
+    d["synthetic_exit"] = False
+    tombstones: list[pd.Series] = []
+    for _, manager in d.groupby("manager_cik", sort=False):
+        previous_active: set[str] = set()
+        previous_rows: dict[str, pd.Series] = {}
+        periods = sorted(manager["report_period_ts"].dropna().unique())
+        for period in periods:
+            current = manager[manager["report_period_ts"].eq(period)].copy()
+            if current.empty:
+                continue
+            present = set(current["ticker"].astype(str))
+            active = set(current.loc[current["shares"].gt(0.0), "ticker"].astype(str))
+            complete = current[current["amendment_type"].eq("RESTATEMENT")]
+            if complete.empty:
+                complete = current[~current["amendment_type"].eq("NEW HOLDINGS")]
+            if complete.empty:
+                # NEW HOLDINGS is additive and cannot prove that omitted names
+                # exited. Carry the last complete state forward conservatively.
+                for ticker, row in current[current["shares"].gt(0.0)].set_index("ticker", drop=False).iterrows():
+                    previous_rows[str(ticker)] = row
+                previous_active |= active
+                continue
+            template = complete.sort_values(["accepted_at_ts", "source_accession"]).iloc[-1]
+            removed = previous_active - active
+            for ticker in sorted(removed - present):
+                row = template.copy()
+                negated = previous_rows.get(ticker)
+                if negated is not None:
+                    for ts_column, raw_column in [
+                        ("available_from_ts", "available_from"),
+                        ("accepted_at_ts", "accepted_at"),
+                    ]:
+                        current_ts = row.get(ts_column)
+                        negated_ts = negated.get(ts_column)
+                        candidates = [value for value in [current_ts, negated_ts] if pd.notna(value)]
+                        if candidates:
+                            effective_ts = max(candidates)
+                            row[ts_column] = effective_ts
+                            row[raw_column] = effective_ts.isoformat()
+                row["ticker"] = ticker
+                row["shares"] = 0.0
+                row["market_value_usd"] = 0.0
+                row["manager_position_weight"] = 0.0
+                row["manager_conviction_rank"] = 0.0
+                row["synthetic_exit"] = True
+                tombstones.append(row)
+            previous_active = active
+            previous_rows = {
+                str(ticker): row
+                for ticker, row in current[current["shares"].gt(0.0)].set_index("ticker", drop=False).iterrows()
+            }
+    if not tombstones:
+        return d
+    return pd.concat([d, pd.DataFrame(tombstones)], ignore_index=True)
+
+
+def add_13f_position_deltas(frame: pd.DataFrame, *, as_of: str | None = None) -> pd.DataFrame:
+    d = prepare_13f_holdings(frame, as_of=as_of)
     if d.empty:
         return pd.DataFrame()
+    d = append_13f_exit_tombstones(d)
     d = d.sort_values(["manager_cik", "ticker", "report_period_ts", "available_from_ts"]).copy()
     prev_shares = d.groupby(["manager_cik", "ticker"])["shares"].shift(1)
     prev_value = d.groupby(["manager_cik", "ticker"])["market_value_usd"].shift(1)
@@ -104,13 +204,13 @@ def add_13f_position_deltas(frame: pd.DataFrame) -> pd.DataFrame:
     d["market_value_delta_usd"] = d["market_value_usd"] - d["previous_market_value_usd"]
     d["new_position"] = (d["previous_shares"] <= 0.0) & (d["shares"] > 0.0)
     d["added_position"] = d["shares_delta"] > 0.0
-    d["trimmed_position"] = d["shares_delta"] < 0.0
-    d["exited_position"] = False
+    d["trimmed_position"] = (d["shares"] > 0.0) & (d["shares_delta"] < 0.0)
+    d["exited_position"] = (d["previous_shares"] > 0.0) & (d["shares"] <= 0.0)
     return d
 
 
 def build_13f_signal(df: pd.DataFrame, *, as_of: str | None = None, lookback_days: int = 210) -> pd.DataFrame:
-    d = add_13f_position_deltas(df)
+    d = add_13f_position_deltas(df, as_of=as_of)
     if d.empty:
         return pd.DataFrame(columns=INSTITUTIONAL_SIGNAL_COLUMNS)
     if as_of:
@@ -222,10 +322,13 @@ def main() -> int:
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--as-of", default="")
     parser.add_argument("--lookback-days", type=int, default=210)
+    parser.add_argument("--require-nonempty", action="store_true")
     args = parser.parse_args()
 
     holdings = read_table(repo_path(args.holdings))
     latest = build_13f_signal(holdings, as_of=args.as_of or None, lookback_days=int(args.lookback_days))
+    if args.require_nonempty and latest.empty:
+        raise SystemExit("verified 13F holdings produced no institutional signals; refusing publication")
     out = repo_path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
     latest_csv = out / "13f_latest.csv"

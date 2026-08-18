@@ -8,6 +8,7 @@ that can be used for review and later broker-ledger challenger tests.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import sys
@@ -24,6 +25,7 @@ if str(REPO_ROOT) not in sys.path:
 DEFAULT_INSTITUTIONAL = "outputs/sec_institutional_signals/13f_latest.csv"
 DEFAULT_FORM4 = "outputs/sec_ownership_signals/form4_latest.csv"
 DEFAULT_ETF = "outputs/etf_thematic_signals/signals_latest.csv"
+DEFAULT_13F_FRESHNESS = "outputs/sec_institutional_signals/13f_filing_freshness.json"
 DEFAULT_OUTPUT_DIR = "outputs/smart_money"
 
 OUTPUT_COLUMNS = [
@@ -87,6 +89,22 @@ def write_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def read_json(path: str | Path) -> dict[str, Any]:
+    resolved = repo_path(path)
+    if not resolved.exists():
+        return {}
+    payload = json.loads(resolved.read_text(encoding="utf-8"))
+    return payload if isinstance(payload, dict) else {}
+
+
 def _safe_pct(value: Any) -> float:
     try:
         out = float(value)
@@ -127,6 +145,28 @@ def _prepare_source(frame: pd.DataFrame, keep_cols: list[str]) -> pd.DataFrame:
         if col not in d.columns:
             d[col] = ""
     return d[["ticker", *keep_cols]].drop_duplicates("ticker", keep="first")
+
+
+def usable_weighted_evidence(
+    frame: pd.DataFrame,
+    *,
+    source_name: str,
+    required_numeric_fields: list[str],
+) -> tuple[pd.DataFrame, str]:
+    missing = [field for field in ["ticker", *required_numeric_fields] if field not in frame.columns]
+    if missing:
+        return frame.iloc[0:0].copy(), f"{source_name} missing required fields: {','.join(missing)}"
+    d = frame.copy()
+    d["ticker"] = _normalize_ticker_series(d)
+    valid = d["ticker"].ne("") & d["ticker"].ne("NAN") & d["ticker"].ne("NONE")
+    for field in required_numeric_fields:
+        values = pd.to_numeric(d[field], errors="coerce")
+        valid &= values.notna() & values.map(lambda value: math.isfinite(float(value)) if pd.notna(value) else False)
+        d[field] = values
+    usable = d[valid].copy()
+    if usable.empty:
+        return usable, f"{source_name} has no usable ticker/score rows"
+    return usable, ""
 
 
 def _latest_available(row: pd.Series) -> str:
@@ -267,6 +307,8 @@ def build_smart_money_rank(
 
 
 def render_report(summary: dict[str, Any], top: pd.DataFrame) -> str:
+    freshness = summary.get("13f_freshness") or {}
+    source_identity = freshness.get("source_identity") or {}
     lines = [
         "# Smart Money Top 30",
         "",
@@ -277,6 +319,10 @@ def render_report(summary: dict[str, Any], top: pd.DataFrame) -> str:
         f"- Form 4 source rows: {summary.get('form4_rows', 0)}",
         f"- ETF source rows: {summary.get('etf_rows', 0)}",
         f"- ranked tickers: {summary.get('ranked_tickers', 0)}",
+        f"- 13F required period: {freshness.get('required_due_period_end', '')}",
+        f"- 13F freshness: {freshness.get('status', 'not_bound')}",
+        f"- 13F parsed manager coverage: {freshness.get('required_period_parsed_manager_coverage', 'n/a')}",
+        f"- triggering workflow run/head: {source_identity.get('workflow_run_id', '')} / {source_identity.get('head_sha', '')}",
         "",
         "## Top Ranked",
         "",
@@ -304,6 +350,19 @@ def main() -> int:
     parser.add_argument("--institutional", default=DEFAULT_INSTITUTIONAL)
     parser.add_argument("--form4", default=DEFAULT_FORM4)
     parser.add_argument("--etf", default=DEFAULT_ETF)
+    parser.add_argument(
+        "--13f-freshness-manifest",
+        dest="freshness_manifest",
+        default=DEFAULT_13F_FRESHNESS,
+    )
+    parser.add_argument("--require-13f-freshness", action="store_true")
+    parser.add_argument("--require-form4-evidence", action="store_true")
+    parser.add_argument("--require-etf-evidence", action="store_true")
+    parser.add_argument("--publication-workflow-run-id", default="")
+    parser.add_argument("--publication-head-sha", default="")
+    parser.add_argument("--publication-head-branch", default="")
+    parser.add_argument("--publication-workflow-name", default="")
+    parser.add_argument("--publication-repository", default="")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--top-n", type=int, default=30)
     parser.add_argument("--institutional-weight", type=float, default=0.45)
@@ -311,9 +370,34 @@ def main() -> int:
     parser.add_argument("--etf-weight", type=float, default=0.20)
     args = parser.parse_args()
 
-    institutional = read_table(args.institutional)
-    form4 = read_table(args.form4)
-    etf = read_table(args.etf)
+    freshness = read_json(args.freshness_manifest)
+    if args.require_13f_freshness and not freshness.get("freshness_ready"):
+        raise SystemExit("13F freshness manifest is missing or blocked; refusing to publish Smart Money scores")
+
+    institutional_path = repo_path(args.institutional)
+    form4_path = repo_path(args.form4)
+    etf_path = repo_path(args.etf)
+    institutional = read_table(institutional_path)
+    form4 = read_table(form4_path)
+    etf = read_table(etf_path)
+    usable_form4, form4_problem = usable_weighted_evidence(
+        form4,
+        source_name="Form 4 evidence",
+        required_numeric_fields=["early_evidence_score", "evidence_confidence_score"],
+    )
+    usable_etf, etf_problem = usable_weighted_evidence(
+        etf,
+        source_name="ETF evidence",
+        required_numeric_fields=["etf_holdings_score", "etf_evidence_confidence"],
+    )
+    if args.require_form4_evidence and form4_problem:
+        raise SystemExit(f"{form4_problem}; refusing to publish weighted Smart Money scores")
+    if args.require_etf_evidence and etf_problem:
+        raise SystemExit(f"{etf_problem}; refusing to publish weighted Smart Money scores")
+    if args.require_form4_evidence:
+        form4 = usable_form4
+    if args.require_etf_evidence:
+        etf = usable_etf
     ranked = build_smart_money_rank(
         institutional,
         form4,
@@ -337,6 +421,8 @@ def main() -> int:
         "institutional_rows": int(len(institutional)),
         "form4_rows": int(len(form4)),
         "etf_rows": int(len(etf)),
+        "form4_usable_rows": int(len(usable_form4)),
+        "etf_usable_rows": int(len(usable_etf)),
         "ranked_tickers": int(len(ranked)),
         "top_n": int(args.top_n),
         "top_csv": str(top_path),
@@ -345,6 +431,46 @@ def main() -> int:
             "institutional": float(args.institutional_weight),
             "insider": float(args.insider_weight),
             "etf": float(args.etf_weight),
+        },
+        "evidence_sha256": {
+            "institutional": sha256_file(institutional_path) if institutional_path.is_file() else "",
+            "form4": sha256_file(form4_path) if form4_path.is_file() else "",
+            "etf": sha256_file(etf_path) if etf_path.is_file() else "",
+        },
+        "13f_freshness": {
+            key: freshness.get(key)
+            for key in [
+                "status",
+                "freshness_ready",
+                "as_of_date",
+                "required_due_period_end",
+                "required_due_deadline",
+                "monitored_period_end",
+                "next_scheduled_period_end",
+                "next_scheduled_deadline",
+                "selected_manager_coverage",
+                "latest_accepted_at",
+                "filings_index_sha256",
+                "holdings_sha256",
+                "required_period_parsed_manager_coverage",
+                "parsed_holdings_required",
+                "required_period_parse_error_manager_count",
+                "required_period_mapped_row_coverage",
+                "required_period_mapped_value_coverage",
+                "required_period_amendment_accession_count",
+                "required_period_parsed_amendment_accession_count",
+                "weighted_evidence_required",
+                "weighted_evidence_sha256",
+                "source_identity",
+                "score_consumption",
+            ]
+        },
+        "publication_identity": {
+            "workflow_run_id": str(args.publication_workflow_run_id or ""),
+            "head_sha": str(args.publication_head_sha or ""),
+            "head_branch": str(args.publication_head_branch or ""),
+            "workflow_name": str(args.publication_workflow_name or ""),
+            "repository": str(args.publication_repository or ""),
         },
     }
     write_json(out / "smart_money_summary.json", summary)

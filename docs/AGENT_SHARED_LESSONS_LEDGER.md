@@ -3795,6 +3795,83 @@ Expected contract:
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
 
+## 2026-08-18 - A green 13F refresh was replaying restored submissions metadata
+
+- Agent: Codex GPT-5.6
+- Branch: `codex/run287-sec-13f-freshness-20260818`
+- Context: The scheduled 13F workflow reported success after the official
+  2026 Q2 filing deadline, but its artifact still ended at 2026 Q1.
+- Result: The 2026-08-18 artifact contained zero rows for period end
+  `2026-06-30`; filings, holdings, mapped tickers, and Smart Money Top 30 were
+  unchanged from the prior run. A bounded live SEC submissions check found 30
+  of 34 selected managers had filed 2026 Q2 reports, proving the source was
+  available and the durable collector was stale.
+- Root cause: The workflow restored `data_raw/sec/submissions` and invoked the
+  collector without a refresh flag. The collector therefore reused every
+  cached current CIK submissions JSON while still returning success.
+- Reusable lesson: Refresh small current submissions metadata on every 13F
+  collection, retain large historical archives in cache, and bind downstream
+  scoring to an official-deadline freshness manifest. A green workflow is not
+  current-data evidence without the expected reporting period and manager
+  coverage.
+- Next action: Merge the focused fix, run the 13F refresh, verify the due-period
+  manifest and artifact, then allow the success-triggered Smart Money and
+  post-disclosure research chain to recalculate confirmation scores.
+- Do-not-repeat: Do not use a broad archive refresh to solve current-metadata
+  staleness, publish stale scores after a due-period failure, auto-promote a
+  13F result, or treat 13F as a same-day buy signal.
+- Review hardening: Metadata coverage alone is insufficient. Canonical 13F
+  publication also requires due-period parsed-holdings coverage, exact
+  `available_from` enforcement, the reviewed full manager universe, a trusted
+  default-branch source identity, and successful durable publication. A
+  current-submissions refresh failure aborts instead of replacing a manager's
+  history with an error-only row.
+- Exact-head follow-up: Parsed coverage means at least one mapped holding per
+  manager, every indexed due-period amendment must parse, and the rebuilt
+  institutional signal set must be nonempty. Chained workflows pin checkout to
+  the triggering SHA and treat required SEC Drive restore as fail-closed.
+- Publication quality is filing-level, not merely manager-level: require
+  substantive mapped row and market-value coverage, retain amendment type, and
+  replace the base snapshot for `RESTATEMENT` while unioning only later
+  `NEW HOLDINGS`. Filing-month Smart Money runs must originate from the
+  successful SEC chain; the weekly SEC cadence runs only outside filing months.
+- Immutable-chain rule: A downstream `workflow_run` consumes the triggering
+  run's artifact, verifies run ID, head SHA, branch, index hash, and holdings
+  hash, and never relabels a mutable Drive snapshot. Apply the PIT as-of cutoff
+  before amendment replacement, and reuse the same amendment-normalization
+  function for institutional scores and post-disclosure events.
+- Snapshot-removal rule: Dropping rows that disappear from a newer complete
+  manager snapshot is not enough. Emit a zero-share exit tombstone at that
+  snapshot's PIT availability time; otherwise latest-per-manager scoring can
+  fall back to an older quarter and resurrect a position removed by a regular
+  filing or `RESTATEMENT`.
+- A `NEW HOLDINGS` amendment is additive, not a complete snapshot. It may add
+  evidence but cannot create exit tombstones for omitted names. A late
+  restatement of an older period also requires the corresponding later-period
+  exit to be timestamped no earlier than the evidence it negates.
+- Event learning must retain every disclosure version in availability order.
+  A later restatement replaces current state but does not erase the base filing
+  events that were observable before the amendment became public.
+- Weighted Smart Money publication must carry nonempty Form 4 and ETF inputs in
+  the same immutable upstream artifact as 13F, record their hashes, and verify
+  those hashes downstream. Missing weighted sources are a blocker, not a zero
+  score silently substituted into a 35% or 20% component.
+- Bind Form 4 and ETF hashes in the upstream SEC manifest and verify them before
+  scoring; recording hashes only in the downstream result cannot prove which
+  weighted inputs were accepted. Required evidence must also survive ticker
+  normalization and contain finite score/confidence fields, not merely have a
+  nonzero raw row count.
+- When a late amendment changes an older period after a newer complete filing
+  is already public, derive the amended transition against that newer snapshot.
+  A newly disclosed old holding that the newer filing omits produces a
+  same-availability exit, never a fresh positive candidate.
+- The later-snapshot reconciliation also applies when a late `NEW HOLDINGS`
+  amendment is the first usable filing retained for its old period. Because it
+  is additive, reconcile only its disclosed tickers; never infer anything from
+  names it omits.
+- Safety: Fullrun executed false; production/live trading enabled false;
+  automatic promotion enabled false.
+
 ## 2026-08-11 - U0 acceptance freshness and candidate-discovery boundary
 
 - A default-branch SHA is not a complete GitHub census identity. Branches and

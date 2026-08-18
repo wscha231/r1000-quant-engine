@@ -8,8 +8,13 @@ on:
         type: string
         default: '30'
   schedule:
-    # 09:20 KST Tue-Sat, after the Form 4 daily refresh window.
-    - cron: '20 0 * * 2-6'
+    # Outside filing months, refresh daily after the Form 4 window.
+    # In Feb/May/Aug/Nov, only a successful canonical SEC workflow may trigger scoring.
+    - cron: '20 0 * 1,3,4,6,7,9,10,12 2-6'
+  workflow_run:
+    workflows: ["SEC 13F Quarterly Refresh"]
+    types: [completed]
+    branches: [master]
 
 permissions:
   contents: read
@@ -21,12 +26,19 @@ concurrency:
 
 jobs:
   smart_money_top30:
+    if: >-
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == github.event.repository.default_branch) ||
+      (github.event_name != 'workflow_run' && github.ref_name == github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -48,8 +60,8 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${RCLONE_CONFIG_GDRIVE:-}" ] && [ -z "${GOOGLE_SERVICE_ACCOUNT_KEY:-}" ]; then
-            echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
-            exit 0
+            echo "[gdrive] durable Smart Money publication requires configured Drive authentication" >&2
+            exit 2
           fi
           curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
           unzip -q /tmp/rclone.zip -d /tmp/
@@ -70,33 +82,127 @@ jobs:
           echo "GDRIVE_READY=yes" >> "$GITHUB_ENV"
 
       - name: Restore evidence data lake from Google Drive
+        if: github.event_name != 'workflow_run'
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: r1000_top30_institutional
         run: |
           set -euo pipefail
           if [ "${GDRIVE_READY:-no}" != "yes" ]; then
-            exit 0
+            echo "[gdrive] required SEC restore is unavailable" >&2
+            exit 2
           fi
           if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
             BASE="gdrive:"
           else
             BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
           fi
-          for d in outputs/sec_institutional_signals outputs/sec_ownership_signals outputs/etf_thematic_signals data_pit/sec data_pit/etf_holdings; do
+          for d in outputs/sec_institutional_signals data_pit/sec; do
             mkdir -p "$d"
-            if rclone lsf "$BASE$d" >/dev/null 2>&1; then
-              rclone copy "$BASE$d" "$d/"
-            fi
+            rclone lsf "$BASE$d" >/dev/null
+            rclone copy "$BASE$d" "$d/"
           done
+          for d in outputs/sec_ownership_signals outputs/etf_thematic_signals data_pit/etf_holdings; do
+            mkdir -p "$d"
+            rclone lsf "$BASE$d" >/dev/null
+            rclone copy "$BASE$d" "$d/"
+          done
+          test -s outputs/sec_ownership_signals/form4_latest.csv
+          test -s outputs/etf_thematic_signals/signals_latest.csv
+          test -s data_pit/etf_holdings/etf_holdings.parquet
+
+      - name: Restore immutable SEC artifact from triggering run
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/sec-upstream"
+          mkdir -p "$ROOT" outputs/full_rebuild_logs
+          gh run download "$SOURCE_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "sec-13f-quarterly-$SOURCE_RUN_ID" \
+            --dir "$ROOT"
+          for d in data_pit/sec data_pit/etf_holdings outputs/sec_institutional_signals outputs/sec_ownership_signals outputs/etf_thematic_signals; do
+            test -d "$ROOT/$d"
+            mkdir -p "$d"
+            cp -a "$ROOT/$d/." "$d/"
+          done
+          test -s outputs/sec_ownership_signals/form4_latest.csv
+          test -s outputs/etf_thematic_signals/signals_latest.csv
+          test -s data_pit/etf_holdings/etf_holdings.parquet
+          python tools/verify_sec_13f_publication.py \
+            --kind sec \
+            --manifest outputs/sec_institutional_signals/13f_filing_freshness.json \
+            --filings-index data_pit/sec/13f_latest/sec_filings_index.parquet \
+            --holdings data_pit/sec/institutional_13f_holdings.parquet \
+            --form4 outputs/sec_ownership_signals/form4_latest.csv \
+            --etf outputs/etf_thematic_signals/signals_latest.csv \
+            --expected-run-id "$SOURCE_RUN_ID" \
+            --expected-head-sha "$SOURCE_HEAD_SHA" \
+            --expected-head-branch "$SOURCE_HEAD_BRANCH" \
+            --output outputs/full_rebuild_logs/sec_upstream_publication_verification.json \
+            --strict
 
       - name: Build Smart Money Top 30
+        env:
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id || github.run_id }}
+          SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          SOURCE_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+          SOURCE_WORKFLOW_NAME: ${{ github.event.workflow_run.name || github.workflow }}
         run: |
           set -euo pipefail
           mkdir -p outputs/full_rebuild_logs outputs/smart_money
+          AS_OF_DATE="$(TZ=America/New_York date +%F)"
+          AS_OF_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          python tools/audit_sec_13f_filing_freshness.py \
+            --schedule research/sec_13f_filing_schedule.json \
+            --filings-index data_pit/sec/13f_latest/sec_filings_index.parquet \
+            --manager-ciks-file outputs/sec_institutional_signals/manager_ciks.txt \
+            --as-of "$AS_OF_DATE" \
+            --as-of-timestamp "$AS_OF_TIMESTAMP" \
+            --holdings data_pit/sec/institutional_13f_holdings.parquet \
+            --require-parsed-holdings \
+            --form4-evidence outputs/sec_ownership_signals/form4_latest.csv \
+            --etf-evidence outputs/etf_thematic_signals/signals_latest.csv \
+            --require-weighted-evidence \
+            --minimum-manager-coverage 0.80 \
+            --minimum-mapped-row-coverage 0.20 \
+            --minimum-mapped-value-coverage 0.50 \
+            --minimum-future-deadlines 2 \
+            --source-workflow-run-id "$SOURCE_RUN_ID" \
+            --source-head-sha "$SOURCE_HEAD_SHA" \
+            --source-head-branch "$SOURCE_HEAD_BRANCH" \
+            --source-workflow-name "$SOURCE_WORKFLOW_NAME" \
+            --source-repository "$GITHUB_REPOSITORY" \
+            --output-json outputs/sec_institutional_signals/13f_filing_freshness.json \
+            --output-report outputs/full_rebuild_logs/smart_money_13f_freshness.md \
+            --strict \
+            2>&1 | tee outputs/full_rebuild_logs/smart_money_13f_freshness.log
+          cat outputs/full_rebuild_logs/smart_money_13f_freshness.md >> "$GITHUB_STEP_SUMMARY"
+          python tools/run_sec_institutional_signals.py \
+            --holdings data_pit/sec/institutional_13f_holdings.parquet \
+            --output-dir outputs/sec_institutional_signals \
+            --as-of "$AS_OF_TIMESTAMP" \
+            --lookback-days 210 \
+            --require-nonempty \
+            2>&1 | tee outputs/full_rebuild_logs/smart_money_13f_signals.log
           python tools/run_smart_money_top30.py \
             --top-n "${{ github.event.inputs.top_n || '30' }}" \
+            --13f-freshness-manifest outputs/sec_institutional_signals/13f_filing_freshness.json \
+            --require-13f-freshness \
+            --require-form4-evidence \
+            --require-etf-evidence \
+            --publication-workflow-run-id "$GITHUB_RUN_ID" \
+            --publication-head-sha "$SOURCE_HEAD_SHA" \
+            --publication-head-branch "$SOURCE_HEAD_BRANCH" \
+            --publication-workflow-name "$GITHUB_WORKFLOW" \
+            --publication-repository "$GITHUB_REPOSITORY" \
             2>&1 | tee outputs/full_rebuild_logs/smart_money_top30.log
+          cat outputs/smart_money/report.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Smart Money artifact
         if: always()
@@ -105,18 +211,27 @@ jobs:
           name: smart-money-top30-${{ github.run_id }}
           path: |
             outputs/smart_money/
+            data_pit/sec/
+            data_pit/etf_holdings/
+            outputs/sec_institutional_signals/
+            outputs/sec_ownership_signals/
+            outputs/etf_thematic_signals/
             outputs/full_rebuild_logs/smart_money_top30.log
+            outputs/full_rebuild_logs/smart_money_13f_freshness.*
+            outputs/full_rebuild_logs/smart_money_13f_signals.log
+            outputs/full_rebuild_logs/sec_upstream_publication_verification.json
           retention-days: 30
 
       - name: Sync Smart Money outputs to Google Drive
-        if: always()
+        if: success()
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: r1000_top30_institutional
         run: |
           set -euo pipefail
           if [ "${GDRIVE_READY:-no}" != "yes" ]; then
-            exit 0
+            echo "[gdrive] durable Smart Money publication is unavailable" >&2
+            exit 2
           fi
           if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
             BASE="gdrive:"
