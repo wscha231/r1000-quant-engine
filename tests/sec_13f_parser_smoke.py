@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -203,9 +204,36 @@ def test_13f_parser_excludes_not_yet_available_filings() -> None:
     assert len(after) == 1
 
 
+def test_institutional_signal_cli_refuses_empty_verified_result() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        holdings = root / "holdings.csv"
+        output = root / "signals"
+        pd.DataFrame(columns=["manager_cik", "ticker_mapped", "report_period"]).to_csv(holdings, index=False)
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "tools" / "run_sec_institutional_signals.py"),
+                "--holdings",
+                str(holdings),
+                "--output-dir",
+                str(output),
+                "--require-nonempty",
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode != 0
+        assert "refusing publication" in (result.stdout + result.stderr)
+        assert not output.exists()
+
+
 if __name__ == "__main__":
     test_13f_xml_parser_extracts_information_table_rows()
     test_13f_signal_is_pit_and_scores_accumulation()
     test_13f_write_outputs_normalizes_parse_error_dtypes()
     test_13f_parser_excludes_not_yet_available_filings()
+    test_institutional_signal_cli_refuses_empty_verified_result()
     print("sec_13f_parser_smoke: PASS")

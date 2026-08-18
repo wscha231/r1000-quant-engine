@@ -222,10 +222,13 @@ def main() -> int:
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--as-of", default="")
     parser.add_argument("--lookback-days", type=int, default=210)
+    parser.add_argument("--require-nonempty", action="store_true")
     args = parser.parse_args()
 
     holdings = read_table(repo_path(args.holdings))
     latest = build_13f_signal(holdings, as_of=args.as_of or None, lookback_days=int(args.lookback_days))
+    if args.require_nonempty and latest.empty:
+        raise SystemExit("verified 13F holdings produced no institutional signals; refusing publication")
     out = repo_path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
     latest_csv = out / "13f_latest.csv"

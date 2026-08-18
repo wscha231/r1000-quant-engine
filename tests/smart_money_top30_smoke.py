@@ -224,6 +224,9 @@ def test_smart_money_workflow_braces_gdrive_base() -> None:
     assert "durable Smart Money publication requires" in workflow
     assert "tools/run_sec_institutional_signals.py" in workflow
     assert '--as-of "$AS_OF_TIMESTAMP"' in workflow
+    assert "--require-nonempty" in workflow
+    assert "ref: ${{ github.event.workflow_run.head_sha || github.sha }}" in workflow
+    assert 'rclone lsf "$BASE$d" >/dev/null\n            rclone copy "$BASE$d" "$d/"' in workflow
     assert "if: success()" in workflow
 
 
@@ -236,6 +239,7 @@ def test_13f_workflow_refreshes_recent_metadata_and_fails_closed() -> None:
     assert "--as-of-timestamp" in workflow
     assert "subset manager dispatch is non-canonical" in workflow
     assert "durable SEC publication requires" in workflow
+    assert "--require-nonempty" in workflow
     assert "warning: sync for" not in workflow
     assert "--strict" in workflow
     assert "1-25 2,5,8,11" in workflow
@@ -252,6 +256,8 @@ def test_post_disclosure_runs_only_after_fresh_13f_chain() -> None:
     assert "--require-parsed-holdings" in workflow
     assert "--source-head-sha" in workflow
     assert "durable post-disclosure publication requires" in workflow
+    assert "ref: ${{ github.event.workflow_run.head_sha || github.sha }}" in workflow
+    assert 'timeout 45s rclone lsf "$BASE$d" >/dev/null\n            timeout 8m rclone copy "$BASE$d" "$d/"' in workflow
     assert 'rclone copy "$d" "$BASE$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true' not in workflow
     assert "post_disclosure_13f_events.log || true" not in workflow
     assert "post_disclosure_alpha_pipeline.log || true" not in workflow

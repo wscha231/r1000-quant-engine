@@ -250,6 +250,7 @@ jobs:
             --output-dir outputs/sec_institutional_signals \
             --as-of "$AS_OF_TIMESTAMP" \
             --lookback-days 210 \
+            --require-nonempty \
             2>&1 | tee outputs/full_rebuild_logs/sec_13f_signals.log
 
       - name: Upload SEC 13F artifact

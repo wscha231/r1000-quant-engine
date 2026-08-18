@@ -36,6 +36,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -85,14 +87,20 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${GDRIVE_READY:-no}" != "yes" ]; then
-            exit 0
+            echo "[gdrive] required SEC restore is unavailable" >&2
+            exit 2
           fi
           if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
             BASE="gdrive:"
           else
             BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
           fi
-          for d in outputs/sec_institutional_signals outputs/sec_ownership_signals outputs/etf_thematic_signals data_pit/sec data_pit/etf_holdings; do
+          for d in outputs/sec_institutional_signals data_pit/sec; do
+            mkdir -p "$d"
+            rclone lsf "$BASE$d" >/dev/null
+            rclone copy "$BASE$d" "$d/"
+          done
+          for d in outputs/sec_ownership_signals outputs/etf_thematic_signals data_pit/etf_holdings; do
             mkdir -p "$d"
             if rclone lsf "$BASE$d" >/dev/null 2>&1; then
               rclone copy "$BASE$d" "$d/"
@@ -135,6 +143,7 @@ jobs:
             --output-dir outputs/sec_institutional_signals \
             --as-of "$AS_OF_TIMESTAMP" \
             --lookback-days 210 \
+            --require-nonempty \
             2>&1 | tee outputs/full_rebuild_logs/smart_money_13f_signals.log
           python tools/run_smart_money_top30.py \
             --top-n "${{ github.event.inputs.top_n || '30' }}" \

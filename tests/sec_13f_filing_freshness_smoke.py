@@ -37,6 +37,7 @@ def holding(cik: int, period_end: str, available_from: str, *, parse_error: bool
         "source_accession": f"{str(cik).zfill(10)}-26-000001",
         "issuer_name": "PARSE_ERROR: fixture" if parse_error else "EXAMPLE INC",
         "cusip": "123456789",
+        "ticker_mapped": "EXM",
     }
 
 
@@ -153,6 +154,28 @@ def test_due_period_parsed_holdings_coverage_is_required() -> None:
     assert ready["required_period_parsed_manager_coverage"] == 0.8
 
 
+def test_unmapped_manager_and_unparsed_amendment_are_blocked() -> None:
+    schedule = load_schedule(ROOT / "research" / "sec_13f_filing_schedule.json")
+    selected = manager_ciks_from_text(",".join(f"M{cik}:{cik}" for cik in range(1, 11)))
+    accepted_at = "2026-08-14T20:00:00+00:00"
+    current_rows = [filing(cik, "2026-06-30", accepted_at) for cik in range(1, 9)]
+    amendment = filing(1, "2026-06-30", "2026-08-17T20:00:00+00:00", "13F-HR/A")
+    amendment["accession_number"] = "0000000001-26-000099"
+    current = pd.DataFrame([*current_rows, amendment])
+    parsed = pd.DataFrame([holding(cik, "2026-06-30", accepted_at) for cik in range(1, 9)])
+    parsed.loc[parsed["manager_cik"].eq("0000000008"), "ticker_mapped"] = ""
+    blocked = evaluate_freshness(
+        schedule=schedule,
+        filings=current,
+        selected_manager_ciks=selected,
+        as_of=date(2026, 8, 18),
+        holdings=parsed,
+        require_parsed_holdings=True,
+    )
+    assert blocked["required_period_parsed_manager_count"] == 7
+    assert "unparsed_due_period_amendments:1" in blocked["blockers"]
+
+
 if __name__ == "__main__":
     test_official_schedule_contains_sec_2026_deadlines()
     test_due_quarter_missing_is_blocked()
@@ -160,4 +183,5 @@ if __name__ == "__main__":
     test_empty_manager_universe_is_blocked()
     test_not_yet_available_filing_does_not_count_toward_coverage()
     test_due_period_parsed_holdings_coverage_is_required()
+    test_unmapped_manager_and_unparsed_amendment_are_blocked()
     print("sec_13f_filing_freshness_smoke: PASS")

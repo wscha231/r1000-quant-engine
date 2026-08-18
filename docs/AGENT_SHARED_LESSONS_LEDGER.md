@@ -3826,6 +3826,10 @@ Expected contract:
   default-branch source identity, and successful durable publication. A
   current-submissions refresh failure aborts instead of replacing a manager's
   history with an error-only row.
+- Exact-head follow-up: Parsed coverage means at least one mapped holding per
+  manager, every indexed due-period amendment must parse, and the rebuilt
+  institutional signal set must be nonempty. Chained workflows pin checkout to
+  the triggering SHA and treat required SEC Drive restore as fail-closed.
 - Safety: Fullrun executed false; production/live trading enabled false;
   automatic promotion enabled false.
 

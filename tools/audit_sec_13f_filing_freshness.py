@@ -165,6 +165,7 @@ def evaluate_freshness(
             "source_accession",
             "issuer_name",
             "cusip",
+            "ticker_mapped",
         ]:
             if column not in parsed.columns:
                 parsed[column] = ""
@@ -173,9 +174,16 @@ def evaluate_freshness(
         parsed_available = pd.to_datetime(parsed["available_from"], errors="coerce", utc=True)
         parsed = parsed[parsed_available.notna() & (parsed_available <= cutoff)].copy()
         parsed = parsed[parsed["report_period"].eq(required_period_end)].copy()
-        required_accessions = set(
+        required_base_accessions = set(
             required_base.get("accession_number", pd.Series(dtype=str)).fillna("").astype(str)
         ) - {""}
+        required_amendment_accessions = set(
+            amendments[amendments["period_of_report"].eq(required_period_end)]
+            .get("accession_number", pd.Series(dtype=str))
+            .fillna("")
+            .astype(str)
+        ) - {""}
+        required_accessions = required_base_accessions | required_amendment_accessions
         if required_accessions:
             parsed = parsed[parsed["source_accession"].isin(required_accessions)].copy()
         parse_error = parsed["issuer_name"].str.startswith("PARSE_ERROR", na=False)
@@ -185,10 +193,15 @@ def evaluate_freshness(
             & parsed["manager_cik"].ne("")
             & parsed["source_accession"].ne("")
             & parsed["cusip"].ne("")
+            & parsed["ticker_mapped"].ne("")
         ].copy()
         required_usable_holding_rows = int(len(usable))
         parsed_manager_ciks = set(usable["manager_cik"]) & selected_manager_ciks
         parsed_coverage = _finite_ratio(len(parsed_manager_ciks), len(selected_manager_ciks))
+        parsed_amendment_accessions = set(usable["source_accession"]) & required_amendment_accessions
+    else:
+        required_amendment_accessions = set()
+        parsed_amendment_accessions = set()
 
     blockers: list[str] = []
     if not selected_manager_ciks:
@@ -210,6 +223,9 @@ def evaluate_freshness(
                 f"{0.0 if parsed_coverage is None else parsed_coverage:.6f}"
                 f"<{float(minimum_manager_coverage):.6f}"
             )
+        missing_amendments = required_amendment_accessions - parsed_amendment_accessions
+        if missing_amendments:
+            blockers.append(f"unparsed_due_period_amendments:{len(missing_amendments)}")
     if len(future) < int(minimum_future_deadlines):
         blockers.append(
             f"official_schedule_horizon_low:{len(future)}<{int(minimum_future_deadlines)}"
@@ -262,6 +278,8 @@ def evaluate_freshness(
         "required_period_parsed_manager_count": int(len(parsed_manager_ciks)),
         "required_period_parsed_manager_coverage": parsed_coverage,
         "required_period_parse_error_manager_count": int(len(required_parse_error_manager_ciks)),
+        "required_period_amendment_accession_count": int(len(required_amendment_accessions)),
+        "required_period_parsed_amendment_accession_count": int(len(parsed_amendment_accessions)),
         "monitored_period_filing_rows": int(len(monitored_rows)),
         "monitored_period_base_filing_rows": int(len(monitored_base)),
         "monitored_period_amendment_rows": int(len(monitored_amendments)),
@@ -296,6 +314,7 @@ def render_report(payload: dict[str, Any]) -> str:
         f"- selected-manager coverage for due period: {coverage_text}",
         f"- parsed-holdings manager coverage: {parsed_coverage_text}",
         f"- due-period parse-error managers: {payload.get('required_period_parse_error_manager_count', 0)}",
+        f"- parsed due-period amendments: {payload.get('required_period_parsed_amendment_accession_count', 0)} / {payload.get('required_period_amendment_accession_count', 0)}",
         f"- newest period in data: `{payload.get('newest_period_of_report')}`",
         f"- latest accepted at: `{payload.get('latest_accepted_at')}`",
         f"- score use: `{payload.get('score_consumption')}`",
