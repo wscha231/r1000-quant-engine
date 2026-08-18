@@ -129,6 +129,12 @@ jobs:
             timeout 45s rclone lsf "$BASE$d" >/dev/null
             timeout 8m rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line
           done
+          for d in data_pit/etf_holdings outputs/sec_ownership_signals outputs/etf_thematic_signals; do
+            mkdir -p "$d"
+            if timeout 45s rclone lsf "$BASE$d" >/dev/null 2>&1; then
+              timeout 8m rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
+            fi
+          done
 
       - name: Restore immutable Smart Money artifact from triggering run
         if: github.event_name == 'workflow_run'
@@ -164,12 +170,6 @@ jobs:
             --expected-head-branch "$SOURCE_HEAD_BRANCH" \
             --output outputs/full_rebuild_logs/smart_upstream_publication_verification.json \
             --strict
-          for d in data_pit/etf_holdings outputs/sec_ownership_signals outputs/etf_thematic_signals; do
-            mkdir -p "$d"
-            if timeout 45s rclone lsf "$BASE$d" >/dev/null 2>&1; then
-              timeout 8m rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
-            fi
-          done
 
       - name: Build disclosure event tables
         env:

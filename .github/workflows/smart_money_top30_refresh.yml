@@ -102,6 +102,12 @@ jobs:
             rclone lsf "$BASE$d" >/dev/null
             rclone copy "$BASE$d" "$d/"
           done
+          for d in outputs/sec_ownership_signals outputs/etf_thematic_signals data_pit/etf_holdings; do
+            mkdir -p "$d"
+            if rclone lsf "$BASE$d" >/dev/null 2>&1; then
+              rclone copy "$BASE$d" "$d/"
+            fi
+          done
 
       - name: Restore immutable SEC artifact from triggering run
         if: github.event_name == 'workflow_run'
@@ -133,12 +139,6 @@ jobs:
             --expected-head-branch "$SOURCE_HEAD_BRANCH" \
             --output outputs/full_rebuild_logs/sec_upstream_publication_verification.json \
             --strict
-          for d in outputs/sec_ownership_signals outputs/etf_thematic_signals data_pit/etf_holdings; do
-            mkdir -p "$d"
-            if rclone lsf "$BASE$d" >/dev/null 2>&1; then
-              rclone copy "$BASE$d" "$d/"
-            fi
-          done
 
       - name: Build Smart Money Top 30
         env:

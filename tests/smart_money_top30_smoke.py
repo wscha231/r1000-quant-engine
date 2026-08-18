@@ -212,6 +212,9 @@ def test_smart_money_cli_rejects_blocked_13f_freshness() -> None:
 
 def test_smart_money_workflow_braces_gdrive_base() -> None:
     workflow = (ROOT / ".github" / "workflows" / "smart_money_top30_refresh.yml").read_text(encoding="utf-8")
+    immutable_restore = workflow.split("- name: Restore immutable SEC artifact from triggering run", 1)[1].split(
+        "- name: Build Smart Money Top 30", 1
+    )[0]
     assert "$BASEoutputs" not in workflow
     assert "${BASE}outputs/smart_money/" in workflow
     assert 'workflows: ["SEC 13F Quarterly Refresh"]' in workflow
@@ -230,6 +233,8 @@ def test_smart_money_workflow_braces_gdrive_base() -> None:
     assert "--require-nonempty" in workflow
     assert "ref: ${{ github.event.workflow_run.head_sha || github.sha }}" in workflow
     assert 'rclone lsf "$BASE$d" >/dev/null\n            rclone copy "$BASE$d" "$d/"' in workflow
+    assert "$BASE" not in immutable_restore
+    assert "rclone" not in immutable_restore
     assert "20 0 * 1,3,4,6,7,9,10,12 2-6" in workflow
     assert "if: success()" in workflow
 
@@ -255,6 +260,9 @@ def test_13f_workflow_refreshes_recent_metadata_and_fails_closed() -> None:
 
 def test_post_disclosure_runs_only_after_fresh_13f_chain() -> None:
     workflow = (ROOT / ".github" / "workflows" / "post_disclosure_alpha_pipeline.yml").read_text(encoding="utf-8")
+    immutable_restore = workflow.split("- name: Restore immutable Smart Money artifact from triggering run", 1)[
+        1
+    ].split("- name: Build disclosure event tables", 1)[0]
     assert 'workflows: ["Smart Money Top 30 Refresh"]' in workflow
     assert "branches: [master]" in workflow
     assert "head_branch == github.event.repository.default_branch" in workflow
@@ -268,6 +276,8 @@ def test_post_disclosure_runs_only_after_fresh_13f_chain() -> None:
     assert "--kind smart" in workflow
     assert "ref: ${{ github.event.workflow_run.head_sha || github.sha }}" in workflow
     assert 'timeout 45s rclone lsf "$BASE$d" >/dev/null\n            timeout 8m rclone copy "$BASE$d" "$d/"' in workflow
+    assert "$BASE" not in immutable_restore
+    assert "rclone" not in immutable_restore
     assert "schedule:" not in workflow.split("workflow_run:", 1)[0]
     assert 'rclone copy "$d" "$BASE$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true' not in workflow
     assert "post_disclosure_13f_events.log || true" not in workflow
