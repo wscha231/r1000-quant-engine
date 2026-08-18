@@ -222,6 +222,8 @@ def test_smart_money_workflow_braces_gdrive_base() -> None:
     assert "--require-parsed-holdings" in workflow
     assert "--source-head-sha" in workflow
     assert "durable Smart Money publication requires" in workflow
+    assert "tools/run_sec_institutional_signals.py" in workflow
+    assert '--as-of "$AS_OF_TIMESTAMP"' in workflow
     assert "if: success()" in workflow
 
 

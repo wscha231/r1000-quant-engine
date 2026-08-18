@@ -130,6 +130,12 @@ jobs:
             --strict \
             2>&1 | tee outputs/full_rebuild_logs/smart_money_13f_freshness.log
           cat outputs/full_rebuild_logs/smart_money_13f_freshness.md >> "$GITHUB_STEP_SUMMARY"
+          python tools/run_sec_institutional_signals.py \
+            --holdings data_pit/sec/institutional_13f_holdings.parquet \
+            --output-dir outputs/sec_institutional_signals \
+            --as-of "$AS_OF_TIMESTAMP" \
+            --lookback-days 210 \
+            2>&1 | tee outputs/full_rebuild_logs/smart_money_13f_signals.log
           python tools/run_smart_money_top30.py \
             --top-n "${{ github.event.inputs.top_n || '30' }}" \
             --13f-freshness-manifest outputs/sec_institutional_signals/13f_filing_freshness.json \
@@ -146,6 +152,7 @@ jobs:
             outputs/smart_money/
             outputs/full_rebuild_logs/smart_money_top30.log
             outputs/full_rebuild_logs/smart_money_13f_freshness.*
+            outputs/full_rebuild_logs/smart_money_13f_signals.log
           retention-days: 30
 
       - name: Sync Smart Money outputs to Google Drive
