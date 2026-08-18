@@ -136,7 +136,39 @@ def test_recent_refresh_does_not_redownload_historical_archives() -> None:
     assert archive_refresh_values == [False]
 
 
+def test_recent_refresh_failure_does_not_emit_error_only_manager_history() -> None:
+    def fake_load_company_tickers(raw_dir: Path, **_: object) -> pd.DataFrame:
+        return pd.DataFrame(columns=["ticker", "cik10", "name"])
+
+    def failing_fetch_submissions(cik: str, raw_dir: Path, **kwargs: object) -> dict:
+        raise OSError("temporary SEC failure")
+
+    original_load = collector.load_company_tickers
+    original_fetch = collector.fetch_submissions
+    try:
+        collector.load_company_tickers = fake_load_company_tickers  # type: ignore[assignment]
+        collector.fetch_submissions = failing_fetch_submissions  # type: ignore[assignment]
+        with tempfile.TemporaryDirectory() as tmp:
+            try:
+                collector.collect_filings_index(
+                    tickers=[],
+                    cik_rows=collector.cik_rows_from_inputs("ATREIDES:0001777813"),
+                    raw_dir=Path(tmp),
+                    forms=["13F-HR"],
+                    refresh_recent_submissions=True,
+                    include_older_submissions=True,
+                )
+            except RuntimeError as exc:
+                assert "refusing to replace the durable index" in str(exc)
+            else:
+                raise AssertionError("strict current-submissions refresh must fail closed")
+    finally:
+        collector.load_company_tickers = original_load  # type: ignore[assignment]
+        collector.fetch_submissions = original_fetch  # type: ignore[assignment]
+
+
 if __name__ == "__main__":
     test_sec_submissions_collector_includes_older_archive_files()
     test_recent_refresh_does_not_redownload_historical_archives()
+    test_recent_refresh_failure_does_not_emit_error_only_manager_history()
     print("sec_submissions_collector_history_smoke: PASS")

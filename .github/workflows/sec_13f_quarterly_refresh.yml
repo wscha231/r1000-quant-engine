@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       manager_ciks:
-        description: 'Comma-separated manager CIKs or label:CIK pairs. Empty = build from managers.csv.'
+        description: 'Canonical publication requires empty; subset CIK dispatches are blocked and must run locally.'
         type: string
         default: ''
       max_filings:
@@ -35,6 +35,7 @@ concurrency:
 
 jobs:
   sec_13f_quarterly:
+    if: github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
@@ -84,9 +85,8 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${RCLONE_CONFIG_GDRIVE:-}" ] && [ -z "${GOOGLE_SERVICE_ACCOUNT_KEY:-}" ]; then
-            echo "[gdrive] no auth configured; continuing without Drive restore/sync"
-            echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
-            exit 0
+            echo "[gdrive] durable SEC publication requires configured Drive authentication" >&2
+            exit 2
           fi
           curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
           unzip -q /tmp/rclone.zip -d /tmp/
@@ -140,24 +140,23 @@ jobs:
       - name: Collect and score 13F
         env:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT || 'R1000QuantEngine research andrewcha231@gmail.com' }}
-          MANAGER_CIKS_INPUT: ${{ github.event.inputs.manager_ciks || vars.SEC_13F_MANAGER_CIKS || '' }}
+          MANAGER_CIKS_INPUT: ${{ github.event.inputs.manager_ciks || '' }}
           MAX_FILINGS: ${{ github.event.inputs.max_filings || '1500' }}
           HISTORY_START: ${{ github.event.inputs.history_start || '2018-01-01' }}
           SAFETY_DELAY_HOURS: ${{ github.event.inputs.safety_delay_hours || '0' }}
         run: |
           set -euo pipefail
           mkdir -p outputs/full_rebuild_logs outputs/sec_institutional_signals data_pit/sec data_raw/sec
-          if [ -z "${MANAGER_CIKS_INPUT:-}" ]; then
-            python tools/build_sec_13f_manager_universe.py \
-              --output-ciks outputs/sec_institutional_signals/manager_ciks.txt \
-              --output-summary outputs/sec_institutional_signals/manager_universe_summary.json \
-              --max-managers 50 \
-              2>&1 | tee outputs/full_rebuild_logs/sec_13f_manager_universe.log
-            MANAGER_CIKS="$(cat outputs/sec_institutional_signals/manager_ciks.txt)"
-          else
-            MANAGER_CIKS="$MANAGER_CIKS_INPUT"
-            printf '%s' "$MANAGER_CIKS" > outputs/sec_institutional_signals/manager_ciks.txt
+          if [ -n "${MANAGER_CIKS_INPUT:-}" ]; then
+            echo "[sec-13f] subset manager dispatch is non-canonical and cannot publish or chain; use a local smoke run" >&2
+            exit 2
           fi
+          python tools/build_sec_13f_manager_universe.py \
+            --output-ciks outputs/sec_institutional_signals/manager_ciks.txt \
+            --output-summary outputs/sec_institutional_signals/manager_universe_summary.json \
+            --max-managers 50 \
+            2>&1 | tee outputs/full_rebuild_logs/sec_13f_manager_universe.log
+          MANAGER_CIKS="$(cat outputs/sec_institutional_signals/manager_ciks.txt)"
           if [ -z "${MANAGER_CIKS:-}" ]; then
             echo "[sec-13f] manager CIK list is empty; refusing to run BRK-only fallback"
             exit 2
@@ -176,21 +175,23 @@ jobs:
             --history-start "$HISTORY_START" \
             2>&1 | tee outputs/full_rebuild_logs/sec_13f_submissions.log
           AS_OF_DATE="$(TZ=America/New_York date +%F)"
+          AS_OF_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           set +e
           python tools/audit_sec_13f_filing_freshness.py \
             --schedule research/sec_13f_filing_schedule.json \
             --filings-index data_pit/sec/13f_latest/sec_filings_index.parquet \
             --manager-ciks-file outputs/sec_institutional_signals/manager_ciks.txt \
             --as-of "$AS_OF_DATE" \
+            --as-of-timestamp "$AS_OF_TIMESTAMP" \
             --minimum-manager-coverage 0.80 \
             --minimum-future-deadlines 2 \
-            --output-json outputs/sec_institutional_signals/13f_filing_freshness.json \
-            --output-report outputs/sec_institutional_signals/13f_filing_freshness.md \
+            --output-json outputs/sec_institutional_signals/13f_index_freshness.json \
+            --output-report outputs/sec_institutional_signals/13f_index_freshness.md \
             --strict \
             2>&1 | tee outputs/full_rebuild_logs/sec_13f_freshness.log
           FRESHNESS_STATUS="${PIPESTATUS[0]}"
           set -e
-          cat outputs/sec_institutional_signals/13f_filing_freshness.md >> "$GITHUB_STEP_SUMMARY"
+          cat outputs/sec_institutional_signals/13f_index_freshness.md >> "$GITHUB_STEP_SUMMARY"
           if [ "$FRESHNESS_STATUS" -ne 0 ]; then
             exit "$FRESHNESS_STATUS"
           fi
@@ -201,6 +202,7 @@ jobs:
             --user-agent "$SEC_USER_AGENT" \
             --sleep 0.12 \
             --max-filings "$MAX_FILINGS" \
+            --as-of "$AS_OF_TIMESTAMP" \
             2>&1 | tee outputs/full_rebuild_logs/sec_13f_parser.log
           python tools/build_sec_13f_cusip_ticker_map.py \
             --holdings data_pit/sec/institutional_13f_holdings.parquet \
@@ -221,10 +223,32 @@ jobs:
             --user-agent "$SEC_USER_AGENT" \
             --sleep 0.12 \
             --max-filings "$MAX_FILINGS" \
+            --as-of "$AS_OF_TIMESTAMP" \
             2>&1 | tee outputs/full_rebuild_logs/sec_13f_parser_mapped.log
+          python tools/audit_sec_13f_filing_freshness.py \
+            --schedule research/sec_13f_filing_schedule.json \
+            --filings-index data_pit/sec/13f_latest/sec_filings_index.parquet \
+            --manager-ciks-file outputs/sec_institutional_signals/manager_ciks.txt \
+            --holdings data_pit/sec/institutional_13f_holdings.parquet \
+            --require-parsed-holdings \
+            --as-of "$AS_OF_DATE" \
+            --as-of-timestamp "$AS_OF_TIMESTAMP" \
+            --minimum-manager-coverage 0.80 \
+            --minimum-future-deadlines 2 \
+            --source-workflow-run-id "$GITHUB_RUN_ID" \
+            --source-head-sha "$GITHUB_SHA" \
+            --source-head-branch "$GITHUB_REF_NAME" \
+            --source-workflow-name "SEC 13F Quarterly Refresh" \
+            --source-repository "$GITHUB_REPOSITORY" \
+            --output-json outputs/sec_institutional_signals/13f_filing_freshness.json \
+            --output-report outputs/sec_institutional_signals/13f_filing_freshness.md \
+            --strict \
+            2>&1 | tee outputs/full_rebuild_logs/sec_13f_parsed_freshness.log
+          cat outputs/sec_institutional_signals/13f_filing_freshness.md >> "$GITHUB_STEP_SUMMARY"
           python tools/run_sec_institutional_signals.py \
             --holdings data_pit/sec/institutional_13f_holdings.parquet \
             --output-dir outputs/sec_institutional_signals \
+            --as-of "$AS_OF_TIMESTAMP" \
             --lookback-days 210 \
             2>&1 | tee outputs/full_rebuild_logs/sec_13f_signals.log
 
@@ -262,9 +286,7 @@ jobs:
             local src="$1"
             local dst="$2"
             echo "[gdrive] sync $src -> $dst"
-            if ! timeout 8m rclone copy "$src" "$dst" --transfers 4 --checkers 8 --stats 30s --stats-one-line; then
-              echo "[gdrive] warning: sync for $src timed out or failed; GitHub artifact remains available"
-            fi
+            timeout 8m rclone copy "$src" "$dst" --transfers 4 --checkers 8 --stats 30s --stats-one-line
           }
           for d in data_raw/sec data_pit/sec outputs/sec_institutional_signals; do
             if [ -d "$d" ]; then

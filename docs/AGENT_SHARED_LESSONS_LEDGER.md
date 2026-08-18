@@ -3820,6 +3820,12 @@ Expected contract:
 - Do-not-repeat: Do not use a broad archive refresh to solve current-metadata
   staleness, publish stale scores after a due-period failure, auto-promote a
   13F result, or treat 13F as a same-day buy signal.
+- Review hardening: Metadata coverage alone is insufficient. Canonical 13F
+  publication also requires due-period parsed-holdings coverage, exact
+  `available_from` enforcement, the reviewed full manager universe, a trusted
+  default-branch source identity, and successful durable publication. A
+  current-submissions refresh failure aborts instead of replacing a manager's
+  history with an error-only row.
 - Safety: Fullrun executed false; production/live trading enabled false;
   automatic promotion enabled false.
 

@@ -333,12 +333,20 @@ def parse_13f_index(
     sleep_s: float = 0.12,
     max_filings: int = 0,
     cusip_map: dict[str, str] | None = None,
+    as_of: str = "",
 ) -> pd.DataFrame:
     if index.empty:
         return pd.DataFrame(columns=FORM13F_COLUMNS)
     d = index.copy()
     d["form_type"] = d.get("form_type", "").astype(str).str.upper().str.strip()
     d = d[d["form_type"].isin(FORM_13F_TYPES)].copy()
+    if as_of:
+        cutoff = pd.to_datetime(as_of, errors="coerce", utc=True)
+        if pd.isna(cutoff):
+            raise ValueError(f"invalid 13F parser as-of timestamp: {as_of}")
+        available_source = d["available_from"] if "available_from" in d.columns else pd.Series("", index=d.index)
+        available = pd.to_datetime(available_source, errors="coerce", utc=True)
+        d = d[available.notna() & (available <= cutoff)].copy()
     if max_filings and max_filings > 0:
         d["_accepted_sort"] = pd.to_datetime(d.get("accepted_at"), errors="coerce", utc=True)
         d["_filing_sort"] = pd.to_datetime(d.get("filing_date"), errors="coerce", utc=True)
@@ -423,6 +431,7 @@ def main() -> int:
     parser.add_argument("--refresh", action="store_true")
     parser.add_argument("--sleep", type=float, default=0.12)
     parser.add_argument("--max-filings", type=int, default=0)
+    parser.add_argument("--as-of", default="", help="Only parse filings whose available_from is at or before this timestamp.")
     args = parser.parse_args()
 
     cusip_map = read_cusip_map(repo_path(args.cusip_map)) if args.cusip_map else {}
@@ -434,6 +443,7 @@ def main() -> int:
         sleep_s=float(args.sleep),
         max_filings=int(args.max_filings),
         cusip_map=cusip_map,
+        as_of=str(args.as_of or ""),
     )
     paths = write_outputs(frame, repo_path(args.output_dir))
     print(json.dumps({"status": "ok", "rows": int(len(frame)), **paths}, indent=2, sort_keys=True))

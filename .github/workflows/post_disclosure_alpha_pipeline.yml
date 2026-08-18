@@ -29,6 +29,7 @@ on:
   workflow_run:
     workflows: ["Smart Money Top 30 Refresh"]
     types: [completed]
+    branches: [master]
 
 permissions:
   contents: read
@@ -40,7 +41,11 @@ concurrency:
 
 jobs:
   post_disclosure_alpha:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    if: >-
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == github.event.repository.default_branch) ||
+      (github.event_name != 'workflow_run' && github.ref_name == github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
@@ -84,9 +89,8 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${RCLONE_CONFIG_GDRIVE:-}" ] && [ -z "${GOOGLE_SERVICE_ACCOUNT_KEY:-}" ]; then
-            echo "[gdrive] no auth configured; continuing without Drive restore/sync"
-            echo "GDRIVE_READY=no" >> "$GITHUB_ENV"
-            exit 0
+            echo "[gdrive] durable post-disclosure publication requires configured Drive authentication" >&2
+            exit 2
           fi
           curl -sLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
           unzip -q /tmp/rclone.zip -d /tmp/
@@ -130,17 +134,31 @@ jobs:
           done
 
       - name: Build disclosure event tables
+        env:
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id || github.run_id }}
+          SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          SOURCE_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+          SOURCE_WORKFLOW_NAME: ${{ github.event.workflow_run.name || github.workflow }}
         run: |
           set -euo pipefail
           mkdir -p outputs/full_rebuild_logs data_pit/sec data_pit/etf_holdings
           AS_OF_DATE="$(TZ=America/New_York date +%F)"
+          AS_OF_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           python tools/audit_sec_13f_filing_freshness.py \
             --schedule research/sec_13f_filing_schedule.json \
             --filings-index data_pit/sec/13f_latest/sec_filings_index.parquet \
             --manager-ciks-file outputs/sec_institutional_signals/manager_ciks.txt \
             --as-of "$AS_OF_DATE" \
+            --as-of-timestamp "$AS_OF_TIMESTAMP" \
+            --holdings data_pit/sec/institutional_13f_holdings.parquet \
+            --require-parsed-holdings \
             --minimum-manager-coverage 0.80 \
             --minimum-future-deadlines 2 \
+            --source-workflow-run-id "$SOURCE_RUN_ID" \
+            --source-head-sha "$SOURCE_HEAD_SHA" \
+            --source-head-branch "$SOURCE_HEAD_BRANCH" \
+            --source-workflow-name "$SOURCE_WORKFLOW_NAME" \
+            --source-repository "$GITHUB_REPOSITORY" \
             --output-json outputs/full_rebuild_logs/post_disclosure_13f_freshness.json \
             --output-report outputs/full_rebuild_logs/post_disclosure_13f_freshness.md \
             --strict \
@@ -195,7 +213,8 @@ jobs:
           print(f"[price-cache] requested {len(files)} files for {len(tickers)} tickers")
           PY
           if [ "${GDRIVE_READY:-no}" != "yes" ]; then
-            exit 0
+            echo "[gdrive] durable post-disclosure publication is unavailable" >&2
+            exit 2
           fi
           if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
             BASE="gdrive:"
@@ -307,6 +326,6 @@ jobs:
           fi
           for d in data_pit/sec data_pit/etf_holdings outputs/post_disclosure_alpha_pipeline outputs/pit_top_manager_follow_study; do
             if [ -d "$d" ]; then
-              timeout 8m rclone copy "$d" "$BASE$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
+              timeout 8m rclone copy "$d" "$BASE$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line
             fi
           done

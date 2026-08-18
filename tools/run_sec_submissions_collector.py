@@ -340,6 +340,11 @@ def collect_filings_index(
                 sleep_s=sleep_s,
             )
         except Exception as exc:
+            if refresh_recent_submissions:
+                raise RuntimeError(
+                    "current SEC submissions refresh failed for "
+                    f"CIK {cik10(row.get('cik10'))}; refusing to replace the durable index"
+                ) from exc
             frames.append(
                 pd.DataFrame(
                     [

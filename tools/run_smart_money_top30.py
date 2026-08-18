@@ -276,6 +276,8 @@ def build_smart_money_rank(
 
 
 def render_report(summary: dict[str, Any], top: pd.DataFrame) -> str:
+    freshness = summary.get("13f_freshness") or {}
+    source_identity = freshness.get("source_identity") or {}
     lines = [
         "# Smart Money Top 30",
         "",
@@ -286,8 +288,10 @@ def render_report(summary: dict[str, Any], top: pd.DataFrame) -> str:
         f"- Form 4 source rows: {summary.get('form4_rows', 0)}",
         f"- ETF source rows: {summary.get('etf_rows', 0)}",
         f"- ranked tickers: {summary.get('ranked_tickers', 0)}",
-        f"- 13F required period: {(summary.get('13f_freshness') or {}).get('required_due_period_end', '')}",
-        f"- 13F freshness: {(summary.get('13f_freshness') or {}).get('status', 'not_bound')}",
+        f"- 13F required period: {freshness.get('required_due_period_end', '')}",
+        f"- 13F freshness: {freshness.get('status', 'not_bound')}",
+        f"- 13F parsed manager coverage: {freshness.get('required_period_parsed_manager_coverage', 'n/a')}",
+        f"- triggering workflow run/head: {source_identity.get('workflow_run_id', '')} / {source_identity.get('head_sha', '')}",
         "",
         "## Top Ranked",
         "",
@@ -381,6 +385,10 @@ def main() -> int:
                 "selected_manager_coverage",
                 "latest_accepted_at",
                 "filings_index_sha256",
+                "holdings_sha256",
+                "required_period_parsed_manager_coverage",
+                "required_period_parse_error_manager_count",
+                "source_identity",
                 "score_consumption",
             ]
         },

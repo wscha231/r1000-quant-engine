@@ -215,8 +215,13 @@ def test_smart_money_workflow_braces_gdrive_base() -> None:
     assert "$BASEoutputs" not in workflow
     assert "${BASE}outputs/smart_money/" in workflow
     assert 'workflows: ["SEC 13F Quarterly Refresh"]' in workflow
+    assert "branches: [master]" in workflow
+    assert "head_branch == github.event.repository.default_branch" in workflow
     assert "tools/audit_sec_13f_filing_freshness.py" in workflow
     assert "--require-13f-freshness" in workflow
+    assert "--require-parsed-holdings" in workflow
+    assert "--source-head-sha" in workflow
+    assert "durable Smart Money publication requires" in workflow
     assert "if: success()" in workflow
 
 
@@ -225,6 +230,11 @@ def test_13f_workflow_refreshes_recent_metadata_and_fails_closed() -> None:
     assert "--refresh-recent-submissions" in workflow
     assert "tools/audit_sec_13f_filing_freshness.py" in workflow
     assert "--minimum-manager-coverage 0.80" in workflow
+    assert "--require-parsed-holdings" in workflow
+    assert "--as-of-timestamp" in workflow
+    assert "subset manager dispatch is non-canonical" in workflow
+    assert "durable SEC publication requires" in workflow
+    assert "warning: sync for" not in workflow
     assert "--strict" in workflow
     assert "1-25 2,5,8,11" in workflow
     assert "Sync SEC 13F data lake to Google Drive\n        if: success()" in workflow
@@ -233,8 +243,14 @@ def test_13f_workflow_refreshes_recent_metadata_and_fails_closed() -> None:
 def test_post_disclosure_runs_only_after_fresh_13f_chain() -> None:
     workflow = (ROOT / ".github" / "workflows" / "post_disclosure_alpha_pipeline.yml").read_text(encoding="utf-8")
     assert 'workflows: ["Smart Money Top 30 Refresh"]' in workflow
+    assert "branches: [master]" in workflow
+    assert "head_branch == github.event.repository.default_branch" in workflow
     assert "tools/audit_sec_13f_filing_freshness.py" in workflow
     assert "post_disclosure_13f_freshness.json" in workflow
+    assert "--require-parsed-holdings" in workflow
+    assert "--source-head-sha" in workflow
+    assert "durable post-disclosure publication requires" in workflow
+    assert 'rclone copy "$d" "$BASE$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true' not in workflow
     assert "post_disclosure_13f_events.log || true" not in workflow
     assert "post_disclosure_alpha_pipeline.log || true" not in workflow
 

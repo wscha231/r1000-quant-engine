@@ -11,6 +11,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+import tools.run_sec_13f_parser as parser_module  # noqa: E402
 from tools.run_sec_13f_parser import market_value_usd, parse_13f_index, parse_13f_xml, write_outputs  # noqa: E402
 from tools.run_sec_institutional_signals import build_13f_signal  # noqa: E402
 
@@ -168,8 +169,43 @@ def test_13f_parser_max_filings_prefers_latest_accepted_at() -> None:
     assert frame.iloc[0]["manager_cik"] == "0000000002"
 
 
+def test_13f_parser_excludes_not_yet_available_filings() -> None:
+    base = {
+        "ticker": "MGR",
+        "cik10": "0000000001",
+        "accession_number": "0000000001-26-000001",
+        "form_type": "13F-HR",
+        "filing_date": "2026-08-14",
+        "accepted_at": "2026-08-14T20:00:00+00:00",
+        "available_from": "2026-08-14T22:00:00+00:00",
+        "period_of_report": "2026-06-30",
+        "primary_document": "info.xml",
+        "filing_url": "",
+    }
+    original_cache = parser_module.cache_13f_document
+    try:
+        parser_module.cache_13f_document = (  # type: ignore[assignment]
+            lambda *args, **kwargs: (Path("fixture.xml"), SAMPLE_13F)
+        )
+        before = parse_13f_index(
+            pd.DataFrame([base]),
+            raw_dir=Path("."),
+            as_of="2026-08-14T21:59:59+00:00",
+        )
+        after = parse_13f_index(
+            pd.DataFrame([base]),
+            raw_dir=Path("."),
+            as_of="2026-08-14T22:00:00+00:00",
+        )
+    finally:
+        parser_module.cache_13f_document = original_cache  # type: ignore[assignment]
+    assert before.empty
+    assert len(after) == 1
+
+
 if __name__ == "__main__":
     test_13f_xml_parser_extracts_information_table_rows()
     test_13f_signal_is_pit_and_scores_accumulation()
     test_13f_write_outputs_normalizes_parse_error_dtypes()
+    test_13f_parser_excludes_not_yet_available_filings()
     print("sec_13f_parser_smoke: PASS")

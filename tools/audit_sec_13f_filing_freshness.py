@@ -96,8 +96,11 @@ def evaluate_freshness(
     filings: pd.DataFrame,
     selected_manager_ciks: set[str],
     as_of: date,
+    as_of_at: Any | None = None,
     minimum_manager_coverage: float = 0.80,
     minimum_future_deadlines: int = 2,
+    holdings: pd.DataFrame | None = None,
+    require_parsed_holdings: bool = False,
 ) -> dict[str, Any]:
     deadlines = [
         {
@@ -116,11 +119,20 @@ def evaluate_freshness(
     ]
     monitored = open_periods[0] if open_periods else latest_due
 
+    if as_of_at is None:
+        cutoff = pd.Timestamp(as_of).tz_localize("UTC") + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
+    else:
+        cutoff = pd.to_datetime(as_of_at, errors="coerce", utc=True)
+        if pd.isna(cutoff):
+            raise ValueError(f"invalid 13F freshness as-of timestamp: {as_of_at}")
+
     frame = filings.copy()
     for column in ["period_of_report", "accepted_at", "available_from", "form_type", "cik10"]:
         if column not in frame.columns:
             frame[column] = ""
         frame[column] = frame[column].fillna("").astype(str).str.strip()
+    available = pd.to_datetime(frame["available_from"], errors="coerce", utc=True)
+    frame = frame[available.notna() & (available <= cutoff)].copy()
     frame["cik10"] = frame["cik10"].map(normalize_cik)
     frame["form_type"] = frame["form_type"].str.upper()
     base = frame[frame["form_type"].eq("13F-HR")].copy()
@@ -140,6 +152,44 @@ def evaluate_freshness(
     latest_accepted = pd.to_datetime(frame["accepted_at"], errors="coerce", utc=True).max()
     newest_period = pd.to_datetime(frame["period_of_report"], errors="coerce").max()
 
+    parsed_manager_ciks: set[str] = set()
+    parsed_coverage: float | None = None
+    required_parse_error_manager_ciks: set[str] = set()
+    required_usable_holding_rows = 0
+    if holdings is not None:
+        parsed = holdings.copy()
+        for column in [
+            "manager_cik",
+            "report_period",
+            "available_from",
+            "source_accession",
+            "issuer_name",
+            "cusip",
+        ]:
+            if column not in parsed.columns:
+                parsed[column] = ""
+            parsed[column] = parsed[column].fillna("").astype(str).str.strip()
+        parsed["manager_cik"] = parsed["manager_cik"].map(normalize_cik)
+        parsed_available = pd.to_datetime(parsed["available_from"], errors="coerce", utc=True)
+        parsed = parsed[parsed_available.notna() & (parsed_available <= cutoff)].copy()
+        parsed = parsed[parsed["report_period"].eq(required_period_end)].copy()
+        required_accessions = set(
+            required_base.get("accession_number", pd.Series(dtype=str)).fillna("").astype(str)
+        ) - {""}
+        if required_accessions:
+            parsed = parsed[parsed["source_accession"].isin(required_accessions)].copy()
+        parse_error = parsed["issuer_name"].str.startswith("PARSE_ERROR", na=False)
+        required_parse_error_manager_ciks = set(parsed.loc[parse_error, "manager_cik"]) - {""}
+        usable = parsed[
+            ~parse_error
+            & parsed["manager_cik"].ne("")
+            & parsed["source_accession"].ne("")
+            & parsed["cusip"].ne("")
+        ].copy()
+        required_usable_holding_rows = int(len(usable))
+        parsed_manager_ciks = set(usable["manager_cik"]) & selected_manager_ciks
+        parsed_coverage = _finite_ratio(len(parsed_manager_ciks), len(selected_manager_ciks))
+
     blockers: list[str] = []
     if not selected_manager_ciks:
         blockers.append("selected_manager_universe_empty")
@@ -150,6 +200,15 @@ def evaluate_freshness(
             blockers.append(
                 "manager_coverage_below_threshold:"
                 f"{0.0 if coverage is None else coverage:.6f}<{float(minimum_manager_coverage):.6f}"
+            )
+    if require_parsed_holdings:
+        if holdings is None:
+            blockers.append("parsed_holdings_missing")
+        elif parsed_coverage is None or parsed_coverage < float(minimum_manager_coverage):
+            blockers.append(
+                "parsed_manager_coverage_below_threshold:"
+                f"{0.0 if parsed_coverage is None else parsed_coverage:.6f}"
+                f"<{float(minimum_manager_coverage):.6f}"
             )
     if len(future) < int(minimum_future_deadlines):
         blockers.append(
@@ -169,6 +228,7 @@ def evaluate_freshness(
         "status": status,
         "freshness_ready": not blockers,
         "as_of_date": as_of.isoformat(),
+        "as_of_timestamp": cutoff.isoformat(),
         "official_schedule_source": schedule.get("source", {}),
         "publication_model": (schedule.get("rule") or {}).get("publication_model", ""),
         "required_due_period_end": required_period_end,
@@ -197,6 +257,11 @@ def evaluate_freshness(
         "covered_selected_manager_count": int(len(covered_selected)),
         "selected_manager_coverage": coverage,
         "minimum_manager_coverage": float(minimum_manager_coverage),
+        "parsed_holdings_required": bool(require_parsed_holdings),
+        "required_period_usable_holding_rows": required_usable_holding_rows,
+        "required_period_parsed_manager_count": int(len(parsed_manager_ciks)),
+        "required_period_parsed_manager_coverage": parsed_coverage,
+        "required_period_parse_error_manager_count": int(len(required_parse_error_manager_ciks)),
         "monitored_period_filing_rows": int(len(monitored_rows)),
         "monitored_period_base_filing_rows": int(len(monitored_base)),
         "monitored_period_amendment_rows": int(len(monitored_amendments)),
@@ -215,6 +280,8 @@ def evaluate_freshness(
 def render_report(payload: dict[str, Any]) -> str:
     coverage = payload.get("selected_manager_coverage")
     coverage_text = "n/a" if coverage is None else f"{float(coverage):.1%}"
+    parsed_coverage = payload.get("required_period_parsed_manager_coverage")
+    parsed_coverage_text = "n/a" if parsed_coverage is None else f"{float(parsed_coverage):.1%}"
     blockers = payload.get("blockers") or []
     lines = [
         "# SEC 13F Filing Freshness",
@@ -227,6 +294,8 @@ def render_report(payload: dict[str, Any]) -> str:
         f"- monitored period base filings: {payload.get('monitored_period_base_filing_rows', 0)}",
         f"- next scheduled period/deadline: `{payload.get('next_scheduled_period_end')}` / `{payload.get('next_scheduled_deadline')}`",
         f"- selected-manager coverage for due period: {coverage_text}",
+        f"- parsed-holdings manager coverage: {parsed_coverage_text}",
+        f"- due-period parse-error managers: {payload.get('required_period_parse_error_manager_count', 0)}",
         f"- newest period in data: `{payload.get('newest_period_of_report')}`",
         f"- latest accepted at: `{payload.get('latest_accepted_at')}`",
         f"- score use: `{payload.get('score_consumption')}`",
@@ -250,11 +319,19 @@ def main() -> int:
     parser.add_argument("--filings-index", default=DEFAULT_FILINGS_INDEX)
     parser.add_argument("--manager-ciks-file", default=DEFAULT_MANAGER_CIKS)
     parser.add_argument("--as-of", default=date.today().isoformat())
+    parser.add_argument("--as-of-timestamp", default="")
+    parser.add_argument("--holdings", default="")
+    parser.add_argument("--require-parsed-holdings", action="store_true")
     parser.add_argument("--minimum-manager-coverage", type=float, default=0.80)
     parser.add_argument("--minimum-future-deadlines", type=int, default=2)
     parser.add_argument("--output-json", default=DEFAULT_OUTPUT_JSON)
     parser.add_argument("--output-report", default=DEFAULT_OUTPUT_REPORT)
     parser.add_argument("--strict", action="store_true")
+    parser.add_argument("--source-workflow-run-id", default="")
+    parser.add_argument("--source-head-sha", default="")
+    parser.add_argument("--source-head-branch", default="")
+    parser.add_argument("--source-workflow-name", default="")
+    parser.add_argument("--source-repository", default="")
     args = parser.parse_args()
 
     schedule = load_schedule(args.schedule)
@@ -264,16 +341,30 @@ def main() -> int:
     manager_ciks = manager_ciks_from_text(
         manager_path.read_text(encoding="utf-8") if manager_path.exists() else ""
     )
+    holdings_path = repo_path(args.holdings) if args.holdings else None
+    holdings = read_table(holdings_path) if holdings_path and holdings_path.exists() else None
     payload = evaluate_freshness(
         schedule=schedule,
         filings=filings,
         selected_manager_ciks=manager_ciks,
         as_of=date.fromisoformat(args.as_of),
+        as_of_at=args.as_of_timestamp or None,
         minimum_manager_coverage=float(args.minimum_manager_coverage),
         minimum_future_deadlines=int(args.minimum_future_deadlines),
+        holdings=holdings,
+        require_parsed_holdings=bool(args.require_parsed_holdings),
     )
     payload["filings_index"] = str(filings_path)
     payload["filings_index_sha256"] = sha256_file(filings_path)
+    payload["holdings"] = str(holdings_path) if holdings_path else ""
+    payload["holdings_sha256"] = sha256_file(holdings_path) if holdings_path and holdings_path.exists() else ""
+    payload["source_identity"] = {
+        "workflow_run_id": str(args.source_workflow_run_id or ""),
+        "head_sha": str(args.source_head_sha or ""),
+        "head_branch": str(args.source_head_branch or ""),
+        "workflow_name": str(args.source_workflow_name or ""),
+        "repository": str(args.source_repository or ""),
+    }
     output_json = repo_path(args.output_json)
     output_report = repo_path(args.output_report)
     output_json.parent.mkdir(parents=True, exist_ok=True)
