@@ -175,16 +175,77 @@ def test_smart_money_cli_writes_research_only_outputs() -> None:
         assert (out / "report.md").exists()
 
 
+def test_smart_money_cli_rejects_blocked_13f_freshness() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        freshness = root / "13f_filing_freshness.json"
+        output = root / "smart_money"
+        freshness.write_text(
+            json.dumps(
+                {
+                    "status": "blocked",
+                    "freshness_ready": False,
+                    "blockers": ["missing_due_period:2026-06-30"],
+                }
+            ),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "tools" / "run_smart_money_top30.py"),
+                "--13f-freshness-manifest",
+                str(freshness),
+                "--require-13f-freshness",
+                "--output-dir",
+                str(output),
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode != 0
+        assert "refusing to publish Smart Money scores" in (result.stdout + result.stderr)
+        assert not output.exists()
+
+
 def test_smart_money_workflow_braces_gdrive_base() -> None:
     workflow = (ROOT / ".github" / "workflows" / "smart_money_top30_refresh.yml").read_text(encoding="utf-8")
     assert "$BASEoutputs" not in workflow
     assert "${BASE}outputs/smart_money/" in workflow
+    assert 'workflows: ["SEC 13F Quarterly Refresh"]' in workflow
+    assert "tools/audit_sec_13f_filing_freshness.py" in workflow
+    assert "--require-13f-freshness" in workflow
+    assert "if: success()" in workflow
+
+
+def test_13f_workflow_refreshes_recent_metadata_and_fails_closed() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "sec_13f_quarterly_refresh.yml").read_text(encoding="utf-8")
+    assert "--refresh-recent-submissions" in workflow
+    assert "tools/audit_sec_13f_filing_freshness.py" in workflow
+    assert "--minimum-manager-coverage 0.80" in workflow
+    assert "--strict" in workflow
+    assert "1-25 2,5,8,11" in workflow
+    assert "Sync SEC 13F data lake to Google Drive\n        if: success()" in workflow
+
+
+def test_post_disclosure_runs_only_after_fresh_13f_chain() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "post_disclosure_alpha_pipeline.yml").read_text(encoding="utf-8")
+    assert 'workflows: ["Smart Money Top 30 Refresh"]' in workflow
+    assert "tools/audit_sec_13f_filing_freshness.py" in workflow
+    assert "post_disclosure_13f_freshness.json" in workflow
+    assert "post_disclosure_13f_events.log || true" not in workflow
+    assert "post_disclosure_alpha_pipeline.log || true" not in workflow
 
 
 def main() -> int:
     test_smart_money_convergence_ranks_first()
     test_smart_money_cli_writes_research_only_outputs()
+    test_smart_money_cli_rejects_blocked_13f_freshness()
     test_smart_money_workflow_braces_gdrive_base()
+    test_13f_workflow_refreshes_recent_metadata_and_fails_closed()
+    test_post_disclosure_runs_only_after_fresh_13f_chain()
     print("smart_money_top30_smoke: PASS")
     return 0
 

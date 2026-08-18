@@ -307,6 +307,7 @@ def collect_filings_index(
     forms: Iterable[str],
     user_agent: str | None = None,
     refresh: bool = False,
+    refresh_recent_submissions: bool = False,
     sleep_s: float = 0.12,
     safety_delay_hours: float = 0.0,
     max_tickers: int = 0,
@@ -335,7 +336,7 @@ def collect_filings_index(
                 str(row["cik10"]),
                 raw_dir,
                 user_agent=user_agent,
-                refresh=refresh,
+                refresh=refresh or refresh_recent_submissions,
                 sleep_s=sleep_s,
             )
         except Exception as exc:
@@ -443,7 +444,12 @@ def collect_filings_index(
     return out
 
 
-def write_outputs(frame: pd.DataFrame, output_dir: Path) -> dict[str, str]:
+def write_outputs(
+    frame: pd.DataFrame,
+    output_dir: Path,
+    *,
+    collection_metadata: dict[str, Any] | None = None,
+) -> dict[str, str]:
     output_dir.mkdir(parents=True, exist_ok=True)
     parquet_path = output_dir / "sec_filings_index.parquet"
     csv_path = output_dir / "sec_filings_index.csv"
@@ -458,6 +464,7 @@ def write_outputs(frame: pd.DataFrame, output_dir: Path) -> dict[str, str]:
         "max_available_from": str(frame["available_from"].replace("", pd.NA).dropna().max()) if "available_from" in frame and frame["available_from"].replace("", pd.NA).notna().any() else "",
         "parquet": str(parquet_path),
         "csv": str(csv_path),
+        "collection": dict(collection_metadata or {}),
     }
     summary_path = output_dir / "sec_filings_index_summary.json"
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
@@ -474,6 +481,11 @@ def main() -> int:
     parser.add_argument("--raw-dir", default=DEFAULT_RAW_DIR)
     parser.add_argument("--user-agent", default="")
     parser.add_argument("--refresh", action="store_true")
+    parser.add_argument(
+        "--refresh-recent-submissions",
+        action="store_true",
+        help="Refresh each manager's current CIK submissions JSON while retaining cached historical archive files.",
+    )
     parser.add_argument("--sleep", type=float, default=0.12)
     parser.add_argument("--max-tickers", type=int, default=0)
     parser.add_argument("--safety-delay-hours", type=float, default=0.0)
@@ -493,6 +505,7 @@ def main() -> int:
         forms=forms,
         user_agent=args.user_agent,
         refresh=bool(args.refresh),
+        refresh_recent_submissions=bool(args.refresh_recent_submissions),
         sleep_s=float(args.sleep),
         safety_delay_hours=float(args.safety_delay_hours),
         max_tickers=int(args.max_tickers),
@@ -501,7 +514,15 @@ def main() -> int:
         history_end=str(args.history_end or ""),
         max_submission_files=int(args.max_submission_files),
     )
-    paths = write_outputs(frame, repo_path(args.output_dir))
+    paths = write_outputs(
+        frame,
+        repo_path(args.output_dir),
+        collection_metadata={
+            "full_refresh": bool(args.refresh),
+            "recent_submissions_refresh": bool(args.refresh or args.refresh_recent_submissions),
+            "historical_archives_refresh": bool(args.refresh),
+        },
+    )
     print(json.dumps({"status": "ok", "rows": int(len(frame)), **paths}, indent=2, sort_keys=True))
     return 0
 

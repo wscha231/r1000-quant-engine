@@ -24,6 +24,7 @@ if str(REPO_ROOT) not in sys.path:
 DEFAULT_INSTITUTIONAL = "outputs/sec_institutional_signals/13f_latest.csv"
 DEFAULT_FORM4 = "outputs/sec_ownership_signals/form4_latest.csv"
 DEFAULT_ETF = "outputs/etf_thematic_signals/signals_latest.csv"
+DEFAULT_13F_FRESHNESS = "outputs/sec_institutional_signals/13f_filing_freshness.json"
 DEFAULT_OUTPUT_DIR = "outputs/smart_money"
 
 OUTPUT_COLUMNS = [
@@ -85,6 +86,14 @@ def read_table(path: str | Path) -> pd.DataFrame:
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+
+
+def read_json(path: str | Path) -> dict[str, Any]:
+    resolved = repo_path(path)
+    if not resolved.exists():
+        return {}
+    payload = json.loads(resolved.read_text(encoding="utf-8"))
+    return payload if isinstance(payload, dict) else {}
 
 
 def _safe_pct(value: Any) -> float:
@@ -277,6 +286,8 @@ def render_report(summary: dict[str, Any], top: pd.DataFrame) -> str:
         f"- Form 4 source rows: {summary.get('form4_rows', 0)}",
         f"- ETF source rows: {summary.get('etf_rows', 0)}",
         f"- ranked tickers: {summary.get('ranked_tickers', 0)}",
+        f"- 13F required period: {(summary.get('13f_freshness') or {}).get('required_due_period_end', '')}",
+        f"- 13F freshness: {(summary.get('13f_freshness') or {}).get('status', 'not_bound')}",
         "",
         "## Top Ranked",
         "",
@@ -304,12 +315,22 @@ def main() -> int:
     parser.add_argument("--institutional", default=DEFAULT_INSTITUTIONAL)
     parser.add_argument("--form4", default=DEFAULT_FORM4)
     parser.add_argument("--etf", default=DEFAULT_ETF)
+    parser.add_argument(
+        "--13f-freshness-manifest",
+        dest="freshness_manifest",
+        default=DEFAULT_13F_FRESHNESS,
+    )
+    parser.add_argument("--require-13f-freshness", action="store_true")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--top-n", type=int, default=30)
     parser.add_argument("--institutional-weight", type=float, default=0.45)
     parser.add_argument("--insider-weight", type=float, default=0.35)
     parser.add_argument("--etf-weight", type=float, default=0.20)
     args = parser.parse_args()
+
+    freshness = read_json(args.freshness_manifest)
+    if args.require_13f_freshness and not freshness.get("freshness_ready"):
+        raise SystemExit("13F freshness manifest is missing or blocked; refusing to publish Smart Money scores")
 
     institutional = read_table(args.institutional)
     form4 = read_table(args.form4)
@@ -345,6 +366,23 @@ def main() -> int:
             "institutional": float(args.institutional_weight),
             "insider": float(args.insider_weight),
             "etf": float(args.etf_weight),
+        },
+        "13f_freshness": {
+            key: freshness.get(key)
+            for key in [
+                "status",
+                "freshness_ready",
+                "as_of_date",
+                "required_due_period_end",
+                "required_due_deadline",
+                "monitored_period_end",
+                "next_scheduled_period_end",
+                "next_scheduled_deadline",
+                "selected_manager_coverage",
+                "latest_accepted_at",
+                "filings_index_sha256",
+                "score_consumption",
+            ]
         },
     }
     write_json(out / "smart_money_summary.json", summary)

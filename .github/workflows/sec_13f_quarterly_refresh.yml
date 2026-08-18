@@ -20,8 +20,10 @@ on:
         type: string
         default: '0'
   schedule:
-    # 08:40 KST during normal 13F filing windows: Feb/May/Aug/Nov day 1-20.
-    - cron: '40 23 1-20 2,5,8,11 *'
+    # Daily during SEC 13F filing windows, including late filings and amendments.
+    - cron: '40 23 1-25 2,5,8,11 *'
+    # Weekly outside the filing windows so later amendments are not missed.
+    - cron: '10 0 * * 1'
 
 permissions:
   contents: read
@@ -169,9 +171,29 @@ jobs:
             --user-agent "$SEC_USER_AGENT" \
             --sleep 0.12 \
             --safety-delay-hours "$SAFETY_DELAY_HOURS" \
+            --refresh-recent-submissions \
             --include-older-submissions \
             --history-start "$HISTORY_START" \
             2>&1 | tee outputs/full_rebuild_logs/sec_13f_submissions.log
+          AS_OF_DATE="$(TZ=America/New_York date +%F)"
+          set +e
+          python tools/audit_sec_13f_filing_freshness.py \
+            --schedule research/sec_13f_filing_schedule.json \
+            --filings-index data_pit/sec/13f_latest/sec_filings_index.parquet \
+            --manager-ciks-file outputs/sec_institutional_signals/manager_ciks.txt \
+            --as-of "$AS_OF_DATE" \
+            --minimum-manager-coverage 0.80 \
+            --minimum-future-deadlines 2 \
+            --output-json outputs/sec_institutional_signals/13f_filing_freshness.json \
+            --output-report outputs/sec_institutional_signals/13f_filing_freshness.md \
+            --strict \
+            2>&1 | tee outputs/full_rebuild_logs/sec_13f_freshness.log
+          FRESHNESS_STATUS="${PIPESTATUS[0]}"
+          set -e
+          cat outputs/sec_institutional_signals/13f_filing_freshness.md >> "$GITHUB_STEP_SUMMARY"
+          if [ "$FRESHNESS_STATUS" -ne 0 ]; then
+            exit "$FRESHNESS_STATUS"
+          fi
           python tools/run_sec_13f_parser.py \
             --filings-index data_pit/sec/13f_latest/sec_filings_index.parquet \
             --output-dir data_pit/sec \
@@ -222,7 +244,7 @@ jobs:
           retention-days: 30
 
       - name: Sync SEC 13F data lake to Google Drive
-        if: always()
+        if: success()
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: r1000_top30_institutional

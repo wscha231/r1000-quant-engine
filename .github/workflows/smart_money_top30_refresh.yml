@@ -10,6 +10,9 @@ on:
   schedule:
     # 09:20 KST Tue-Sat, after the Form 4 daily refresh window.
     - cron: '20 0 * * 2-6'
+  workflow_run:
+    workflows: ["SEC 13F Quarterly Refresh"]
+    types: [completed]
 
 permissions:
   contents: read
@@ -21,6 +24,7 @@ concurrency:
 
 jobs:
   smart_money_top30:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -94,9 +98,25 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p outputs/full_rebuild_logs outputs/smart_money
+          AS_OF_DATE="$(TZ=America/New_York date +%F)"
+          python tools/audit_sec_13f_filing_freshness.py \
+            --schedule research/sec_13f_filing_schedule.json \
+            --filings-index data_pit/sec/13f_latest/sec_filings_index.parquet \
+            --manager-ciks-file outputs/sec_institutional_signals/manager_ciks.txt \
+            --as-of "$AS_OF_DATE" \
+            --minimum-manager-coverage 0.80 \
+            --minimum-future-deadlines 2 \
+            --output-json outputs/sec_institutional_signals/13f_filing_freshness.json \
+            --output-report outputs/full_rebuild_logs/smart_money_13f_freshness.md \
+            --strict \
+            2>&1 | tee outputs/full_rebuild_logs/smart_money_13f_freshness.log
+          cat outputs/full_rebuild_logs/smart_money_13f_freshness.md >> "$GITHUB_STEP_SUMMARY"
           python tools/run_smart_money_top30.py \
             --top-n "${{ github.event.inputs.top_n || '30' }}" \
+            --13f-freshness-manifest outputs/sec_institutional_signals/13f_filing_freshness.json \
+            --require-13f-freshness \
             2>&1 | tee outputs/full_rebuild_logs/smart_money_top30.log
+          cat outputs/smart_money/report.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Smart Money artifact
         if: always()
@@ -106,10 +126,11 @@ jobs:
           path: |
             outputs/smart_money/
             outputs/full_rebuild_logs/smart_money_top30.log
+            outputs/full_rebuild_logs/smart_money_13f_freshness.*
           retention-days: 30
 
       - name: Sync Smart Money outputs to Google Drive
-        if: always()
+        if: success()
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: r1000_top30_institutional

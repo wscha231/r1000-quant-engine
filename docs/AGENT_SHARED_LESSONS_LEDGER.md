@@ -3795,6 +3795,34 @@ Expected contract:
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
 
+## 2026-08-18 - A green 13F refresh was replaying restored submissions metadata
+
+- Agent: Codex GPT-5.6
+- Branch: `codex/run287-sec-13f-freshness-20260818`
+- Context: The scheduled 13F workflow reported success after the official
+  2026 Q2 filing deadline, but its artifact still ended at 2026 Q1.
+- Result: The 2026-08-18 artifact contained zero rows for period end
+  `2026-06-30`; filings, holdings, mapped tickers, and Smart Money Top 30 were
+  unchanged from the prior run. A bounded live SEC submissions check found 30
+  of 34 selected managers had filed 2026 Q2 reports, proving the source was
+  available and the durable collector was stale.
+- Root cause: The workflow restored `data_raw/sec/submissions` and invoked the
+  collector without a refresh flag. The collector therefore reused every
+  cached current CIK submissions JSON while still returning success.
+- Reusable lesson: Refresh small current submissions metadata on every 13F
+  collection, retain large historical archives in cache, and bind downstream
+  scoring to an official-deadline freshness manifest. A green workflow is not
+  current-data evidence without the expected reporting period and manager
+  coverage.
+- Next action: Merge the focused fix, run the 13F refresh, verify the due-period
+  manifest and artifact, then allow the success-triggered Smart Money and
+  post-disclosure research chain to recalculate confirmation scores.
+- Do-not-repeat: Do not use a broad archive refresh to solve current-metadata
+  staleness, publish stale scores after a due-period failure, auto-promote a
+  13F result, or treat 13F as a same-day buy signal.
+- Safety: Fullrun executed false; production/live trading enabled false;
+  automatic promotion enabled false.
+
 ## 2026-08-11 - U0 acceptance freshness and candidate-discovery boundary
 
 - A default-branch SHA is not a complete GitHub census identity. Branches and
