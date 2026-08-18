@@ -158,6 +158,8 @@ def test_smart_money_cli_writes_research_only_outputs() -> None:
                 str(form4),
                 "--etf",
                 str(etf),
+                "--require-form4-evidence",
+                "--require-etf-evidence",
                 "--output-dir",
                 str(out),
             ],
@@ -171,6 +173,8 @@ def test_smart_money_cli_writes_research_only_outputs() -> None:
         assert summary["production_activation_allowed"] is False
         assert summary["score_total_changed"] is False
         assert summary["ranked_tickers"] == 1
+        assert len(summary["evidence_sha256"]["form4"]) == 64
+        assert len(summary["evidence_sha256"]["etf"]) == 64
         assert (out / "top30_latest.csv").exists()
         assert (out / "report.md").exists()
 
@@ -210,6 +214,33 @@ def test_smart_money_cli_rejects_blocked_13f_freshness() -> None:
         assert not output.exists()
 
 
+def test_smart_money_cli_requires_weighted_evidence_when_requested() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        output = root / "smart_money"
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "tools" / "run_smart_money_top30.py"),
+                "--form4",
+                str(root / "missing_form4.csv"),
+                "--etf",
+                str(root / "missing_etf.csv"),
+                "--require-form4-evidence",
+                "--require-etf-evidence",
+                "--output-dir",
+                str(output),
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode != 0
+        assert "Form 4 evidence is missing or empty" in (result.stdout + result.stderr)
+        assert not output.exists()
+
+
 def test_smart_money_workflow_braces_gdrive_base() -> None:
     workflow = (ROOT / ".github" / "workflows" / "smart_money_top30_refresh.yml").read_text(encoding="utf-8")
     immutable_restore = workflow.split("- name: Restore immutable SEC artifact from triggering run", 1)[1].split(
@@ -231,6 +262,8 @@ def test_smart_money_workflow_braces_gdrive_base() -> None:
     assert 'sec-13f-quarterly-$SOURCE_RUN_ID' in workflow
     assert '--as-of "$AS_OF_TIMESTAMP"' in workflow
     assert "--require-nonempty" in workflow
+    assert "--require-form4-evidence" in workflow
+    assert "--require-etf-evidence" in workflow
     assert "ref: ${{ github.event.workflow_run.head_sha || github.sha }}" in workflow
     assert 'rclone lsf "$BASE$d" >/dev/null\n            rclone copy "$BASE$d" "$d/"' in workflow
     assert "$BASE" not in immutable_restore
@@ -249,6 +282,10 @@ def test_13f_workflow_refreshes_recent_metadata_and_fails_closed() -> None:
     assert "subset manager dispatch is non-canonical" in workflow
     assert "durable SEC publication requires" in workflow
     assert "canonical SEC restore is unavailable" in workflow
+    assert "restore_required_dir outputs/sec_ownership_signals 3m" in workflow
+    assert "restore_required_dir outputs/etf_thematic_signals 3m" in workflow
+    assert "outputs/sec_ownership_signals/" in workflow
+    assert "outputs/etf_thematic_signals/" in workflow
     assert "warning: restore for" not in workflow
     assert "--require-nonempty" in workflow
     assert "warning: sync for" not in workflow
@@ -274,6 +311,8 @@ def test_post_disclosure_runs_only_after_fresh_13f_chain() -> None:
     assert "tools/verify_sec_13f_publication.py" in workflow
     assert 'smart-money-top30-$SOURCE_RUN_ID' in workflow
     assert "--kind smart" in workflow
+    assert "--form4 outputs/sec_ownership_signals/form4_latest.csv" in workflow
+    assert "--etf outputs/etf_thematic_signals/signals_latest.csv" in workflow
     assert "ref: ${{ github.event.workflow_run.head_sha || github.sha }}" in workflow
     assert 'timeout 45s rclone lsf "$BASE$d" >/dev/null\n            timeout 8m rclone copy "$BASE$d" "$d/"' in workflow
     assert "$BASE" not in immutable_restore
@@ -288,6 +327,7 @@ def main() -> int:
     test_smart_money_convergence_ranks_first()
     test_smart_money_cli_writes_research_only_outputs()
     test_smart_money_cli_rejects_blocked_13f_freshness()
+    test_smart_money_cli_requires_weighted_evidence_when_requested()
     test_smart_money_workflow_braces_gdrive_base()
     test_13f_workflow_refreshes_recent_metadata_and_fails_closed()
     test_post_disclosure_runs_only_after_fresh_13f_chain()

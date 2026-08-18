@@ -8,6 +8,7 @@ that can be used for review and later broker-ledger challenger tests.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import sys
@@ -86,6 +87,14 @@ def read_table(path: str | Path) -> pd.DataFrame:
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def read_json(path: str | Path) -> dict[str, Any]:
@@ -325,6 +334,8 @@ def main() -> int:
         default=DEFAULT_13F_FRESHNESS,
     )
     parser.add_argument("--require-13f-freshness", action="store_true")
+    parser.add_argument("--require-form4-evidence", action="store_true")
+    parser.add_argument("--require-etf-evidence", action="store_true")
     parser.add_argument("--publication-workflow-run-id", default="")
     parser.add_argument("--publication-head-sha", default="")
     parser.add_argument("--publication-head-branch", default="")
@@ -341,9 +352,16 @@ def main() -> int:
     if args.require_13f_freshness and not freshness.get("freshness_ready"):
         raise SystemExit("13F freshness manifest is missing or blocked; refusing to publish Smart Money scores")
 
-    institutional = read_table(args.institutional)
-    form4 = read_table(args.form4)
-    etf = read_table(args.etf)
+    institutional_path = repo_path(args.institutional)
+    form4_path = repo_path(args.form4)
+    etf_path = repo_path(args.etf)
+    institutional = read_table(institutional_path)
+    form4 = read_table(form4_path)
+    etf = read_table(etf_path)
+    if args.require_form4_evidence and form4.empty:
+        raise SystemExit("Form 4 evidence is missing or empty; refusing to publish weighted Smart Money scores")
+    if args.require_etf_evidence and etf.empty:
+        raise SystemExit("ETF evidence is missing or empty; refusing to publish weighted Smart Money scores")
     ranked = build_smart_money_rank(
         institutional,
         form4,
@@ -375,6 +393,11 @@ def main() -> int:
             "institutional": float(args.institutional_weight),
             "insider": float(args.insider_weight),
             "etf": float(args.etf_weight),
+        },
+        "evidence_sha256": {
+            "institutional": sha256_file(institutional_path) if institutional_path.is_file() else "",
+            "form4": sha256_file(form4_path) if form4_path.is_file() else "",
+            "etf": sha256_file(etf_path) if etf_path.is_file() else "",
         },
         "13f_freshness": {
             key: freshness.get(key)

@@ -3845,6 +3845,17 @@ Expected contract:
   snapshot's PIT availability time; otherwise latest-per-manager scoring can
   fall back to an older quarter and resurrect a position removed by a regular
   filing or `RESTATEMENT`.
+- A `NEW HOLDINGS` amendment is additive, not a complete snapshot. It may add
+  evidence but cannot create exit tombstones for omitted names. A late
+  restatement of an older period also requires the corresponding later-period
+  exit to be timestamped no earlier than the evidence it negates.
+- Event learning must retain every disclosure version in availability order.
+  A later restatement replaces current state but does not erase the base filing
+  events that were observable before the amendment became public.
+- Weighted Smart Money publication must carry nonempty Form 4 and ETF inputs in
+  the same immutable upstream artifact as 13F, record their hashes, and verify
+  those hashes downstream. Missing weighted sources are a blocker, not a zero
+  score silently substituted into a 35% or 20% component.
 - Safety: Fullrun executed false; production/live trading enabled false;
   automatic promotion enabled false.
 

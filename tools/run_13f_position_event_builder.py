@@ -22,7 +22,6 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run_sec_submissions_collector import cik10  # noqa: E402
-from tools.run_sec_institutional_signals import apply_13f_amendment_semantics  # noqa: E402
 
 DEFAULT_13F = "data_pit/sec/institutional_13f_holdings.parquet"
 DEFAULT_OUTPUT_DIR = "outputs/13f_position_events"
@@ -169,11 +168,29 @@ def normalize_holdings(frame: pd.DataFrame) -> pd.DataFrame:
     d = d[d["manager_cik"].ne("") & d["ticker"].ne("") & d["report_period_ts"].notna()].copy()
     if d.empty:
         return pd.DataFrame()
-    d = apply_13f_amendment_semantics(d)
-    if d.empty:
-        return pd.DataFrame()
-    d = d.sort_values(["manager_cik", "ticker", "report_period_ts", "accepted_at_ts", "available_from_ts"])
-    d = d.drop_duplicates(["manager_cik", "ticker", "report_period_ts"], keep="last")
+    fallback_identity = (
+        d["report_period_ts"].astype(str)
+        + "|"
+        + d["available_from_ts"].astype(str)
+        + "|"
+        + d["accepted_at_ts"].astype(str)
+        + "|"
+        + d["form_type"]
+    )
+    d["filing_identity"] = d["source_accession"].where(d["source_accession"].ne(""), fallback_identity)
+    d = d.sort_values(
+        ["manager_cik", "available_from_ts", "accepted_at_ts", "report_period_ts", "filing_identity", "ticker"]
+    )
+    d = d.drop_duplicates(["manager_cik", "filing_identity", "ticker"], keep="last")
+    return d
+
+
+def snapshot_with_weights(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return frame.copy()
+    d = frame.sort_values(["accepted_at_ts", "available_from_ts", "filing_identity"]).drop_duplicates(
+        "ticker", keep="last"
+    )
     total = d.groupby(["manager_cik", "report_period_ts"])["market_value_usd"].transform("sum").replace(0.0, pd.NA)
     d["position_weight"] = (d["market_value_usd"] / total).fillna(0.0).clip(0.0, 1.0)
     d["position_rank"] = (
@@ -288,11 +305,46 @@ def build_position_events(
     rows: list[dict[str, Any]] = []
     for manager_cik, manager_frame in d.groupby("manager_cik", sort=True):
         mgr = manager_meta.get(str(manager_cik), {})
-        periods = sorted(manager_frame["report_period_ts"].dropna().unique())
-        previous = pd.DataFrame()
-        for index, period in enumerate(periods):
-            current = manager_frame[manager_frame["report_period_ts"].eq(period)].copy()
-            filing = period_filing_meta(current)
+        effective_by_period: dict[pd.Timestamp, pd.DataFrame] = {}
+        complete_periods: set[pd.Timestamp] = set()
+        ordered = manager_frame.sort_values(
+            ["available_from_ts", "accepted_at_ts", "report_period_ts", "filing_identity"]
+        )
+        for _, filing_rows in ordered.groupby("filing_identity", sort=False):
+            filing_rows = filing_rows.copy()
+            period = pd.Timestamp(filing_rows["report_period_ts"].iloc[0]).normalize()
+            filing = period_filing_meta(filing_rows)
+            amendment_types = set(filing_rows["amendment_type"].astype(str)) - {""}
+            if "RESTATEMENT" in amendment_types:
+                amendment_type = "RESTATEMENT"
+            elif "NEW HOLDINGS" in amendment_types:
+                amendment_type = "NEW HOLDINGS"
+            else:
+                amendment_type = ""
+
+            same_period_before = effective_by_period.get(period, pd.DataFrame()).copy()
+            period_was_seen = not same_period_before.empty
+            filing_snapshot = snapshot_with_weights(filing_rows)
+            if amendment_type == "NEW HOLDINGS" and period_was_seen:
+                current = snapshot_with_weights(pd.concat([same_period_before, filing_snapshot], ignore_index=True))
+            else:
+                current = filing_snapshot
+
+            prior_periods = sorted(candidate for candidate in complete_periods if candidate < period)
+            if period_was_seen:
+                previous = same_period_before
+                history_boundary = False
+                emit_only_changes = True
+            elif amendment_type == "NEW HOLDINGS":
+                # An additive-only filing cannot establish omissions or exits.
+                previous = pd.DataFrame()
+                history_boundary = not prior_periods
+                emit_only_changes = False
+            else:
+                previous = effective_by_period[prior_periods[-1]].copy() if prior_periods else pd.DataFrame()
+                history_boundary = not prior_periods
+                emit_only_changes = False
+
             cur = current.set_index("ticker", drop=False)
             prev = previous.set_index("ticker", drop=False) if not previous.empty else pd.DataFrame()
             tickers = sorted(set(cur.index.astype(str)) | (set(prev.index.astype(str)) if not prev.empty else set()))
@@ -303,15 +355,18 @@ def build_position_events(
                 prev_shares = float(prev_row.get("shares", 0.0) or 0.0)
                 value = float(cur_row.get("market_value_usd", 0.0) or 0.0)
                 prev_value = float(prev_row.get("market_value_usd", 0.0) or 0.0)
-                event = event_type_for(shares, prev_shares, initial_period=(index == 0))
+                if emit_only_changes and shares == prev_shares and value == prev_value:
+                    continue
+                event = event_type_for(shares, prev_shares, initial_period=history_boundary)
                 m = meta.get(str(ticker).upper(), {})
                 issuer_float = float(m.get("issuer_float") or 0.0)
                 mcap = float(m.get("issuer_market_cap") or 0.0)
                 dollar_volume = float(m.get("dollar_volume_20d") or 0.0)
                 shares_delta = shares - prev_shares
                 value_delta = value - prev_value
+                filing_identity = str(filing_rows["filing_identity"].iloc[0])
                 row = {
-                    "event_id": f"13f:{manager_cik}:{pd.Timestamp(period).date().isoformat()}:{ticker}",
+                    "event_id": f"13f:{manager_cik}:{period.date().isoformat()}:{filing_identity}:{ticker}",
                     "source_type": "13f",
                     "manager_cik": manager_cik,
                     "manager_name": str(
@@ -332,7 +387,7 @@ def build_position_events(
                     "accepted_at": filing["accepted_at"],
                     "available_from": filing["available_from"],
                     "event_type": event,
-                    "history_boundary": bool(index == 0),
+                    "history_boundary": bool(history_boundary),
                     "shares": shares,
                     "previous_shares": prev_shares,
                     "shares_delta": shares_delta,
@@ -358,7 +413,9 @@ def build_position_events(
                 }
                 row["post_disclosure_event_seed_score"] = seed_score(row)
                 rows.append(row)
-            previous = current
+            effective_by_period[period] = current
+            if amendment_type != "NEW HOLDINGS":
+                complete_periods.add(period)
     out = pd.DataFrame(rows)
     for col in EVENT_COLUMNS:
         if col not in out.columns:
@@ -437,7 +494,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     summary = {
         "status": "completed" if not events.empty else "blocked",
         "reason": "" if not events.empty else "missing 13F holdings with mapped tickers",
-        "schema_version": "13f-position-events-v1",
+        "schema_version": "13f-position-events-v2",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "research_only": True,
         "production_activation_allowed": False,

@@ -22,8 +22,12 @@ def test_sec_and_smart_publications_bind_identity_and_hashes() -> None:
         root = Path(tmp)
         index = root / "index.parquet"
         holdings = root / "holdings.parquet"
+        form4 = root / "form4.csv"
+        etf = root / "etf.csv"
         index.write_bytes(b"index")
         holdings.write_bytes(b"holdings")
+        form4.write_bytes(b"form4")
+        etf.write_bytes(b"etf")
         freshness = {
             "freshness_ready": True,
             "parsed_holdings_required": True,
@@ -52,18 +56,38 @@ def test_sec_and_smart_publications_bind_identity_and_hashes() -> None:
                 "head_branch": "master",
             },
             "13f_freshness": freshness,
+            "evidence_sha256": {
+                "form4": digest(form4),
+                "etf": digest(etf),
+            },
         }
         blocked = verify(
             kind="smart",
             manifest=smart,
             filings_index=index,
             holdings=holdings,
+            form4=form4,
+            etf=etf,
             expected_run_id="456",
             expected_head_sha="c" * 40,
             expected_head_branch="master",
         )
         assert blocked["status"] == "blocked"
         assert "identity_mismatch:head_sha" in blocked["failures"]
+        etf.write_bytes(b"tampered")
+        tampered = verify(
+            kind="smart",
+            manifest=smart,
+            filings_index=index,
+            holdings=holdings,
+            form4=form4,
+            etf=etf,
+            expected_run_id="456",
+            expected_head_sha="b" * 40,
+            expected_head_branch="master",
+        )
+        assert tampered["status"] == "blocked"
+        assert "etf_evidence_sha256_mismatch" in tampered["failures"]
 
 
 if __name__ == "__main__":

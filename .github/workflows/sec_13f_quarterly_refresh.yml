@@ -132,6 +132,12 @@ jobs:
           restore_required_dir data_raw/sec 6m
           restore_required_dir data_pit/sec 6m
           restore_required_dir outputs/sec_institutional_signals 3m
+          restore_required_dir data_pit/etf_holdings 3m
+          restore_required_dir outputs/sec_ownership_signals 3m
+          restore_required_dir outputs/etf_thematic_signals 3m
+          test -s outputs/sec_ownership_signals/form4_latest.csv
+          test -s outputs/etf_thematic_signals/signals_latest.csv
+          test -s data_pit/etf_holdings/etf_holdings.parquet
 
       - name: Collect and score 13F
         env:
@@ -262,7 +268,10 @@ jobs:
             data_pit/sec/cusip_ticker_map.*
             data_pit/sec/institutional_13f_holdings.*
             data_pit/sec/*13f*summary.json
+            data_pit/etf_holdings/
             outputs/sec_institutional_signals/
+            outputs/sec_ownership_signals/
+            outputs/etf_thematic_signals/
             outputs/full_rebuild_logs/sec_13f_*.log
           retention-days: 30
 

@@ -30,6 +30,8 @@ def verify(
     manifest: dict[str, Any],
     filings_index: Path,
     holdings: Path,
+    form4: Path | None = None,
+    etf: Path | None = None,
     expected_run_id: str,
     expected_head_sha: str,
     expected_head_branch: str,
@@ -75,14 +77,27 @@ def verify(
         holdings_sha = sha256_file(holdings)
         if holdings_sha != str(freshness.get("holdings_sha256") or "").lower():
             failures.append("holdings_sha256_mismatch")
+    evidence_hashes: dict[str, str] = {}
+    if kind == "smart":
+        expected_evidence = manifest.get("evidence_sha256") or {}
+        for label, path in [("form4", form4), ("etf", etf)]:
+            if path is None or not path.exists():
+                evidence_hashes[label] = ""
+                failures.append(f"{label}_evidence_missing")
+                continue
+            observed_hash = sha256_file(path)
+            evidence_hashes[label] = observed_hash
+            if observed_hash != str(expected_evidence.get(label) or "").lower():
+                failures.append(f"{label}_evidence_sha256_mismatch")
     return {
-        "schema_version": "sec-13f-publication-verification-v1",
+        "schema_version": "sec-13f-publication-verification-v2",
         "status": "ready" if not failures else "blocked",
         "kind": kind,
         "expected_identity": expected_identity,
         "observed_identity": observed_identity,
         "filings_index_sha256": filings_sha,
         "holdings_sha256": holdings_sha,
+        "evidence_sha256": evidence_hashes,
         "failures": failures,
         "research_only": True,
         "production_activation_allowed": False,
@@ -96,6 +111,8 @@ def main() -> int:
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--filings-index", required=True)
     parser.add_argument("--holdings", required=True)
+    parser.add_argument("--form4", default="")
+    parser.add_argument("--etf", default="")
     parser.add_argument("--expected-run-id", required=True)
     parser.add_argument("--expected-head-sha", required=True)
     parser.add_argument("--expected-head-branch", required=True)
@@ -107,6 +124,8 @@ def main() -> int:
         manifest=load_object(Path(args.manifest)),
         filings_index=Path(args.filings_index),
         holdings=Path(args.holdings),
+        form4=Path(args.form4) if args.form4 else None,
+        etf=Path(args.etf) if args.etf else None,
         expected_run_id=str(args.expected_run_id),
         expected_head_sha=str(args.expected_head_sha),
         expected_head_branch=str(args.expected_head_branch),

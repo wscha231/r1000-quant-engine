@@ -104,10 +104,12 @@ jobs:
           done
           for d in outputs/sec_ownership_signals outputs/etf_thematic_signals data_pit/etf_holdings; do
             mkdir -p "$d"
-            if rclone lsf "$BASE$d" >/dev/null 2>&1; then
-              rclone copy "$BASE$d" "$d/"
-            fi
+            rclone lsf "$BASE$d" >/dev/null
+            rclone copy "$BASE$d" "$d/"
           done
+          test -s outputs/sec_ownership_signals/form4_latest.csv
+          test -s outputs/etf_thematic_signals/signals_latest.csv
+          test -s data_pit/etf_holdings/etf_holdings.parquet
 
       - name: Restore immutable SEC artifact from triggering run
         if: github.event_name == 'workflow_run'
@@ -124,11 +126,14 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --name "sec-13f-quarterly-$SOURCE_RUN_ID" \
             --dir "$ROOT"
-          test -d "$ROOT/data_pit/sec"
-          test -d "$ROOT/outputs/sec_institutional_signals"
-          mkdir -p data_pit/sec outputs/sec_institutional_signals
-          cp -a "$ROOT/data_pit/sec/." data_pit/sec/
-          cp -a "$ROOT/outputs/sec_institutional_signals/." outputs/sec_institutional_signals/
+          for d in data_pit/sec data_pit/etf_holdings outputs/sec_institutional_signals outputs/sec_ownership_signals outputs/etf_thematic_signals; do
+            test -d "$ROOT/$d"
+            mkdir -p "$d"
+            cp -a "$ROOT/$d/." "$d/"
+          done
+          test -s outputs/sec_ownership_signals/form4_latest.csv
+          test -s outputs/etf_thematic_signals/signals_latest.csv
+          test -s data_pit/etf_holdings/etf_holdings.parquet
           python tools/verify_sec_13f_publication.py \
             --kind sec \
             --manifest outputs/sec_institutional_signals/13f_filing_freshness.json \
@@ -184,6 +189,8 @@ jobs:
             --top-n "${{ github.event.inputs.top_n || '30' }}" \
             --13f-freshness-manifest outputs/sec_institutional_signals/13f_filing_freshness.json \
             --require-13f-freshness \
+            --require-form4-evidence \
+            --require-etf-evidence \
             --publication-workflow-run-id "$GITHUB_RUN_ID" \
             --publication-head-sha "$SOURCE_HEAD_SHA" \
             --publication-head-branch "$SOURCE_HEAD_BRANCH" \

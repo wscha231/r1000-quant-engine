@@ -138,6 +138,7 @@ def append_13f_exit_tombstones(frame: pd.DataFrame) -> pd.DataFrame:
     tombstones: list[pd.Series] = []
     for _, manager in d.groupby("manager_cik", sort=False):
         previous_active: set[str] = set()
+        previous_rows: dict[str, pd.Series] = {}
         periods = sorted(manager["report_period_ts"].dropna().unique())
         for period in periods:
             current = manager[manager["report_period_ts"].eq(period)].copy()
@@ -145,25 +146,45 @@ def append_13f_exit_tombstones(frame: pd.DataFrame) -> pd.DataFrame:
                 continue
             present = set(current["ticker"].astype(str))
             active = set(current.loc[current["shares"].gt(0.0), "ticker"].astype(str))
+            complete = current[current["amendment_type"].eq("RESTATEMENT")]
+            if complete.empty:
+                complete = current[~current["amendment_type"].eq("NEW HOLDINGS")]
+            if complete.empty:
+                # NEW HOLDINGS is additive and cannot prove that omitted names
+                # exited. Carry the last complete state forward conservatively.
+                for ticker, row in current[current["shares"].gt(0.0)].set_index("ticker", drop=False).iterrows():
+                    previous_rows[str(ticker)] = row
+                previous_active |= active
+                continue
+            template = complete.sort_values(["accepted_at_ts", "source_accession"]).iloc[-1]
             removed = previous_active - active
-            missing_tombstones = sorted(removed - present)
-            if missing_tombstones:
-                complete = current[current["amendment_type"].eq("RESTATEMENT")]
-                if complete.empty:
-                    complete = current[~current["amendment_type"].eq("NEW HOLDINGS")]
-                if complete.empty:
-                    complete = current
-                template = complete.sort_values(["accepted_at_ts", "source_accession"]).iloc[-1]
-                for ticker in missing_tombstones:
-                    row = template.copy()
-                    row["ticker"] = ticker
-                    row["shares"] = 0.0
-                    row["market_value_usd"] = 0.0
-                    row["manager_position_weight"] = 0.0
-                    row["manager_conviction_rank"] = 0.0
-                    row["synthetic_exit"] = True
-                    tombstones.append(row)
+            for ticker in sorted(removed - present):
+                row = template.copy()
+                negated = previous_rows.get(ticker)
+                if negated is not None:
+                    for ts_column, raw_column in [
+                        ("available_from_ts", "available_from"),
+                        ("accepted_at_ts", "accepted_at"),
+                    ]:
+                        current_ts = row.get(ts_column)
+                        negated_ts = negated.get(ts_column)
+                        candidates = [value for value in [current_ts, negated_ts] if pd.notna(value)]
+                        if candidates:
+                            effective_ts = max(candidates)
+                            row[ts_column] = effective_ts
+                            row[raw_column] = effective_ts.isoformat()
+                row["ticker"] = ticker
+                row["shares"] = 0.0
+                row["market_value_usd"] = 0.0
+                row["manager_position_weight"] = 0.0
+                row["manager_conviction_rank"] = 0.0
+                row["synthetic_exit"] = True
+                tombstones.append(row)
             previous_active = active
+            previous_rows = {
+                str(ticker): row
+                for ticker, row in current[current["shares"].gt(0.0)].set_index("ticker", drop=False).iterrows()
+            }
     if not tombstones:
         return d
     return pd.concat([d, pd.DataFrame(tombstones)], ignore_index=True)

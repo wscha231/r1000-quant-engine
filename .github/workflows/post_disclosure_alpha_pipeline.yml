@@ -152,19 +152,26 @@ jobs:
             --name "smart-money-top30-$SOURCE_RUN_ID" \
             --dir "$ROOT"
           test -d "$ROOT/data_pit/sec"
+          test -d "$ROOT/data_pit/etf_holdings"
           test -d "$ROOT/outputs/sec_institutional_signals"
+          test -d "$ROOT/outputs/sec_ownership_signals"
+          test -d "$ROOT/outputs/etf_thematic_signals"
           test -f "$ROOT/outputs/smart_money/smart_money_summary.json"
           for d in data_pit/sec data_pit/etf_holdings outputs/sec_institutional_signals outputs/sec_ownership_signals outputs/etf_thematic_signals outputs/smart_money; do
-            if [ -d "$ROOT/$d" ]; then
-              mkdir -p "$d"
-              cp -a "$ROOT/$d/." "$d/"
-            fi
+            test -d "$ROOT/$d"
+            mkdir -p "$d"
+            cp -a "$ROOT/$d/." "$d/"
           done
+          test -s outputs/sec_ownership_signals/form4_latest.csv
+          test -s outputs/etf_thematic_signals/signals_latest.csv
+          test -s data_pit/etf_holdings/etf_holdings.parquet
           python tools/verify_sec_13f_publication.py \
             --kind smart \
             --manifest outputs/smart_money/smart_money_summary.json \
             --filings-index data_pit/sec/13f_latest/sec_filings_index.parquet \
             --holdings data_pit/sec/institutional_13f_holdings.parquet \
+            --form4 outputs/sec_ownership_signals/form4_latest.csv \
+            --etf outputs/etf_thematic_signals/signals_latest.csv \
             --expected-run-id "$SOURCE_RUN_ID" \
             --expected-head-sha "$SOURCE_HEAD_SHA" \
             --expected-head-branch "$SOURCE_HEAD_BRANCH" \
