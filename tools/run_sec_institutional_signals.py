@@ -67,28 +67,11 @@ def _log_score(value: float, scale: float) -> float:
     return _safe_pct(math.log1p(value) / math.log1p(scale))
 
 
-def prepare_13f_holdings(frame: pd.DataFrame) -> pd.DataFrame:
+def apply_13f_amendment_semantics(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty:
-        return pd.DataFrame()
-    d = frame.copy()
-    d["manager_cik"] = d.get("manager_cik", "").map(cik10)
-    d["ticker"] = d.get("ticker_mapped", "").astype(str).str.upper().str.strip()
-    d["report_period_ts"] = pd.to_datetime(d.get("report_period"), errors="coerce").dt.normalize()
-    d["available_from_ts"] = pd.to_datetime(d.get("available_from"), errors="coerce", utc=True)
-    d["accepted_at_ts"] = pd.to_datetime(d.get("accepted_at"), errors="coerce", utc=True)
-    for column in ["source_accession", "form_type", "amendment_type"]:
-        if column not in d.columns:
-            d[column] = ""
-        d[column] = d[column].fillna("").astype(str).str.strip()
-    d["form_type"] = d["form_type"].str.upper()
-    d["amendment_type"] = d["amendment_type"].str.upper().str.replace(r"[_-]+", " ", regex=True)
-    d["shares"] = pd.to_numeric(d.get("shares", 0.0), errors="coerce").fillna(0.0).clip(lower=0.0)
-    d["market_value_usd"] = pd.to_numeric(d.get("market_value_usd", 0.0), errors="coerce").fillna(0.0).clip(lower=0.0)
-    d = d[d["manager_cik"].ne("") & d["ticker"].ne("") & d["report_period_ts"].notna()].copy()
-    if d.empty:
-        return pd.DataFrame()
+        return frame.copy()
     effective_groups: list[pd.DataFrame] = []
-    for _, group in d.groupby(["manager_cik", "report_period_ts"], sort=False):
+    for _, group in frame.groupby(["manager_cik", "report_period_ts"], sort=False):
         restatements = group[group["amendment_type"].eq("RESTATEMENT")].copy()
         if restatements.empty:
             effective_groups.append(group)
@@ -105,7 +88,35 @@ def prepare_13f_holdings(frame: pd.DataFrame) -> pd.DataFrame:
                 & group["accepted_at_ts"].gt(restatement_at)
             )
         effective_groups.append(group[keep].copy())
-    d = pd.concat(effective_groups, ignore_index=True) if effective_groups else d.iloc[0:0].copy()
+    return pd.concat(effective_groups, ignore_index=True) if effective_groups else frame.iloc[0:0].copy()
+
+
+def prepare_13f_holdings(frame: pd.DataFrame, *, as_of: str | None = None) -> pd.DataFrame:
+    if frame.empty:
+        return pd.DataFrame()
+    d = frame.copy()
+    d["manager_cik"] = d.get("manager_cik", "").map(cik10)
+    d["ticker"] = d.get("ticker_mapped", "").astype(str).str.upper().str.strip()
+    d["report_period_ts"] = pd.to_datetime(d.get("report_period"), errors="coerce").dt.normalize()
+    d["available_from_ts"] = pd.to_datetime(d.get("available_from"), errors="coerce", utc=True)
+    d["accepted_at_ts"] = pd.to_datetime(d.get("accepted_at"), errors="coerce", utc=True)
+    for column in ["source_accession", "form_type", "amendment_type"]:
+        if column not in d.columns:
+            d[column] = ""
+        d[column] = d[column].fillna("").astype(str).str.strip()
+    d["form_type"] = d["form_type"].str.upper()
+    d["amendment_type"] = d["amendment_type"].str.upper().str.replace(r"[_-]+", " ", regex=True)
+    d["shares"] = pd.to_numeric(d.get("shares", 0.0), errors="coerce").fillna(0.0).clip(lower=0.0)
+    d["market_value_usd"] = pd.to_numeric(d.get("market_value_usd", 0.0), errors="coerce").fillna(0.0).clip(lower=0.0)
+    if as_of:
+        cutoff = pd.to_datetime(as_of, errors="coerce", utc=True)
+        if pd.isna(cutoff):
+            raise ValueError(f"invalid institutional signal as-of timestamp: {as_of}")
+        d = d[d["available_from_ts"].notna() & (d["available_from_ts"] <= cutoff)].copy()
+    d = d[d["manager_cik"].ne("") & d["ticker"].ne("") & d["report_period_ts"].notna()].copy()
+    if d.empty:
+        return pd.DataFrame()
+    d = apply_13f_amendment_semantics(d)
     if d.empty:
         return pd.DataFrame()
     d = d.sort_values(["manager_cik", "ticker", "report_period_ts", "accepted_at_ts"])
@@ -118,8 +129,8 @@ def prepare_13f_holdings(frame: pd.DataFrame) -> pd.DataFrame:
     return d
 
 
-def add_13f_position_deltas(frame: pd.DataFrame) -> pd.DataFrame:
-    d = prepare_13f_holdings(frame)
+def add_13f_position_deltas(frame: pd.DataFrame, *, as_of: str | None = None) -> pd.DataFrame:
+    d = prepare_13f_holdings(frame, as_of=as_of)
     if d.empty:
         return pd.DataFrame()
     d = d.sort_values(["manager_cik", "ticker", "report_period_ts", "available_from_ts"]).copy()
@@ -137,7 +148,7 @@ def add_13f_position_deltas(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_13f_signal(df: pd.DataFrame, *, as_of: str | None = None, lookback_days: int = 210) -> pd.DataFrame:
-    d = add_13f_position_deltas(df)
+    d = add_13f_position_deltas(df, as_of=as_of)
     if d.empty:
         return pd.DataFrame(columns=INSTITUTIONAL_SIGNAL_COLUMNS)
     if as_of:

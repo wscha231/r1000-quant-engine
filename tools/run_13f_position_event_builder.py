@@ -22,6 +22,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run_sec_submissions_collector import cik10  # noqa: E402
+from tools.run_sec_institutional_signals import apply_13f_amendment_semantics  # noqa: E402
 
 DEFAULT_13F = "data_pit/sec/institutional_13f_holdings.parquet"
 DEFAULT_OUTPUT_DIR = "outputs/13f_position_events"
@@ -160,9 +161,15 @@ def normalize_holdings(frame: pd.DataFrame) -> pd.DataFrame:
     d["report_period_ts"] = pd.to_datetime(d.get("report_period"), errors="coerce").dt.normalize()
     d["available_from_ts"] = pd.to_datetime(d.get("available_from"), errors="coerce", utc=True)
     d["accepted_at_ts"] = pd.to_datetime(d.get("accepted_at"), errors="coerce", utc=True)
+    d["source_accession"] = txt(d, "source_accession").str.strip()
+    d["form_type"] = txt(d, "form_type").str.upper().str.strip()
+    d["amendment_type"] = txt(d, "amendment_type").str.upper().str.replace(r"[_-]+", " ", regex=True).str.strip()
     d["shares"] = num(d, "shares").clip(lower=0.0)
     d["market_value_usd"] = num(d, "market_value_usd").clip(lower=0.0)
     d = d[d["manager_cik"].ne("") & d["ticker"].ne("") & d["report_period_ts"].notna()].copy()
+    if d.empty:
+        return pd.DataFrame()
+    d = apply_13f_amendment_semantics(d)
     if d.empty:
         return pd.DataFrame()
     d = d.sort_values(["manager_cik", "ticker", "report_period_ts", "accepted_at_ts", "available_from_ts"])

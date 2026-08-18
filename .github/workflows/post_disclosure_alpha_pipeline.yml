@@ -109,6 +109,7 @@ jobs:
           echo "GDRIVE_READY=yes" >> "$GITHUB_ENV"
 
       - name: Restore evidence data lake from Google Drive
+        if: github.event_name != 'workflow_run'
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: r1000_top30_institutional
@@ -128,6 +129,41 @@ jobs:
             timeout 45s rclone lsf "$BASE$d" >/dev/null
             timeout 8m rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line
           done
+
+      - name: Restore immutable Smart Money artifact from triggering run
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/smart-upstream"
+          mkdir -p "$ROOT" outputs/full_rebuild_logs
+          gh run download "$SOURCE_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "smart-money-top30-$SOURCE_RUN_ID" \
+            --dir "$ROOT"
+          test -d "$ROOT/data_pit/sec"
+          test -d "$ROOT/outputs/sec_institutional_signals"
+          test -f "$ROOT/outputs/smart_money/smart_money_summary.json"
+          for d in data_pit/sec data_pit/etf_holdings outputs/sec_institutional_signals outputs/sec_ownership_signals outputs/etf_thematic_signals outputs/smart_money; do
+            if [ -d "$ROOT/$d" ]; then
+              mkdir -p "$d"
+              cp -a "$ROOT/$d/." "$d/"
+            fi
+          done
+          python tools/verify_sec_13f_publication.py \
+            --kind smart \
+            --manifest outputs/smart_money/smart_money_summary.json \
+            --filings-index data_pit/sec/13f_latest/sec_filings_index.parquet \
+            --holdings data_pit/sec/institutional_13f_holdings.parquet \
+            --expected-run-id "$SOURCE_RUN_ID" \
+            --expected-head-sha "$SOURCE_HEAD_SHA" \
+            --expected-head-branch "$SOURCE_HEAD_BRANCH" \
+            --output outputs/full_rebuild_logs/smart_upstream_publication_verification.json \
+            --strict
           for d in data_pit/etf_holdings outputs/sec_ownership_signals outputs/etf_thematic_signals; do
             mkdir -p "$d"
             if timeout 45s rclone lsf "$BASE$d" >/dev/null 2>&1; then
@@ -311,6 +347,7 @@ jobs:
             outputs/full_rebuild_logs/post_disclosure_13f_freshness.*
             outputs/full_rebuild_logs/pit_top_manager_follow_study.log
             outputs/full_rebuild_logs/post_disclosure_price_cache_*
+            outputs/full_rebuild_logs/smart_upstream_publication_verification.json
           retention-days: 30
 
       - name: Sync post-disclosure outputs to Google Drive

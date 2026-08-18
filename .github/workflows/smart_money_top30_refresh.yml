@@ -82,6 +82,7 @@ jobs:
           echo "GDRIVE_READY=yes" >> "$GITHUB_ENV"
 
       - name: Restore evidence data lake from Google Drive
+        if: github.event_name != 'workflow_run'
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: r1000_top30_institutional
@@ -101,6 +102,37 @@ jobs:
             rclone lsf "$BASE$d" >/dev/null
             rclone copy "$BASE$d" "$d/"
           done
+
+      - name: Restore immutable SEC artifact from triggering run
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/sec-upstream"
+          mkdir -p "$ROOT" outputs/full_rebuild_logs
+          gh run download "$SOURCE_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "sec-13f-quarterly-$SOURCE_RUN_ID" \
+            --dir "$ROOT"
+          test -d "$ROOT/data_pit/sec"
+          test -d "$ROOT/outputs/sec_institutional_signals"
+          mkdir -p data_pit/sec outputs/sec_institutional_signals
+          cp -a "$ROOT/data_pit/sec/." data_pit/sec/
+          cp -a "$ROOT/outputs/sec_institutional_signals/." outputs/sec_institutional_signals/
+          python tools/verify_sec_13f_publication.py \
+            --kind sec \
+            --manifest outputs/sec_institutional_signals/13f_filing_freshness.json \
+            --filings-index data_pit/sec/13f_latest/sec_filings_index.parquet \
+            --holdings data_pit/sec/institutional_13f_holdings.parquet \
+            --expected-run-id "$SOURCE_RUN_ID" \
+            --expected-head-sha "$SOURCE_HEAD_SHA" \
+            --expected-head-branch "$SOURCE_HEAD_BRANCH" \
+            --output outputs/full_rebuild_logs/sec_upstream_publication_verification.json \
+            --strict
           for d in outputs/sec_ownership_signals outputs/etf_thematic_signals data_pit/etf_holdings; do
             mkdir -p "$d"
             if rclone lsf "$BASE$d" >/dev/null 2>&1; then
@@ -152,6 +184,11 @@ jobs:
             --top-n "${{ github.event.inputs.top_n || '30' }}" \
             --13f-freshness-manifest outputs/sec_institutional_signals/13f_filing_freshness.json \
             --require-13f-freshness \
+            --publication-workflow-run-id "$GITHUB_RUN_ID" \
+            --publication-head-sha "$SOURCE_HEAD_SHA" \
+            --publication-head-branch "$SOURCE_HEAD_BRANCH" \
+            --publication-workflow-name "$GITHUB_WORKFLOW" \
+            --publication-repository "$GITHUB_REPOSITORY" \
             2>&1 | tee outputs/full_rebuild_logs/smart_money_top30.log
           cat outputs/smart_money/report.md >> "$GITHUB_STEP_SUMMARY"
 
@@ -162,9 +199,15 @@ jobs:
           name: smart-money-top30-${{ github.run_id }}
           path: |
             outputs/smart_money/
+            data_pit/sec/
+            data_pit/etf_holdings/
+            outputs/sec_institutional_signals/
+            outputs/sec_ownership_signals/
+            outputs/etf_thematic_signals/
             outputs/full_rebuild_logs/smart_money_top30.log
             outputs/full_rebuild_logs/smart_money_13f_freshness.*
             outputs/full_rebuild_logs/smart_money_13f_signals.log
+            outputs/full_rebuild_logs/sec_upstream_publication_verification.json
           retention-days: 30
 
       - name: Sync Smart Money outputs to Google Drive

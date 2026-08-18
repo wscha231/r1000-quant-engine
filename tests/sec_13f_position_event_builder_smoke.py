@@ -126,6 +126,21 @@ def test_manager_universe_metadata_is_attached() -> None:
     assert set(latest["manager_name"]) == {"Atreides Management LP"}
 
 
+def test_restatement_replaces_base_snapshot_in_position_events() -> None:
+    holdings = holdings_fixture().iloc[:2].copy()
+    holdings["source_accession"] = "base"
+    holdings["form_type"] = "13F-HR"
+    holdings["amendment_type"] = ""
+    restatement = holdings.iloc[[0]].copy()
+    restatement["source_accession"] = "restatement"
+    restatement["form_type"] = "13F-HR/A"
+    restatement["amendment_type"] = "RESTATEMENT"
+    restatement["accepted_at"] = "2026-02-17T18:00:00Z"
+    restatement["available_from"] = "2026-02-17T18:00:00Z"
+    events = build_position_events(pd.concat([holdings, restatement], ignore_index=True), metadata_fixture())
+    assert set(events["ticker"]) == {"AAPL"}
+
+
 def test_cli_writes_pit_and_latest_outputs() -> None:
     tmp = Path(tempfile.mkdtemp(prefix="13f_events_"))
     try:
@@ -161,6 +176,7 @@ def main() -> int:
     test_event_builder_detects_add_new_and_exit()
     test_initial_period_is_not_false_new_signal()
     test_manager_universe_metadata_is_attached()
+    test_restatement_replaces_base_snapshot_in_position_events()
     test_cli_writes_pit_and_latest_outputs()
     print("sec_13f_position_event_builder_smoke: PASS")
     return 0

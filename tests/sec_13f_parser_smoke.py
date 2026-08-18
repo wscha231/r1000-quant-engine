@@ -274,6 +274,8 @@ def test_amendment_type_and_restatement_snapshot_semantics() -> None:
     prepared = prepare_13f_holdings(pd.DataFrame(rows))
     assert set(prepared["ticker"]) == {"AAPL", "NVDA"}
     assert "MSFT" not in set(prepared["ticker"])
+    historical = prepare_13f_holdings(pd.DataFrame(rows), as_of="2026-08-15T00:00:00+00:00")
+    assert set(historical["ticker"]) == {"AAPL", "MSFT"}
 
 
 if __name__ == "__main__":

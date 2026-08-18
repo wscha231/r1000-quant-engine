@@ -223,6 +223,9 @@ def test_smart_money_workflow_braces_gdrive_base() -> None:
     assert "--source-head-sha" in workflow
     assert "durable Smart Money publication requires" in workflow
     assert "tools/run_sec_institutional_signals.py" in workflow
+    assert "tools/verify_sec_13f_publication.py" in workflow
+    assert 'gh run download "$SOURCE_RUN_ID"' in workflow
+    assert 'sec-13f-quarterly-$SOURCE_RUN_ID' in workflow
     assert '--as-of "$AS_OF_TIMESTAMP"' in workflow
     assert "--require-nonempty" in workflow
     assert "ref: ${{ github.event.workflow_run.head_sha || github.sha }}" in workflow
@@ -260,6 +263,9 @@ def test_post_disclosure_runs_only_after_fresh_13f_chain() -> None:
     assert "--require-parsed-holdings" in workflow
     assert "--source-head-sha" in workflow
     assert "durable post-disclosure publication requires" in workflow
+    assert "tools/verify_sec_13f_publication.py" in workflow
+    assert 'smart-money-top30-$SOURCE_RUN_ID' in workflow
+    assert "--kind smart" in workflow
     assert "ref: ${{ github.event.workflow_run.head_sha || github.sha }}" in workflow
     assert 'timeout 45s rclone lsf "$BASE$d" >/dev/null\n            timeout 8m rclone copy "$BASE$d" "$d/"' in workflow
     assert "schedule:" not in workflow.split("workflow_run:", 1)[0]

@@ -325,6 +325,11 @@ def main() -> int:
         default=DEFAULT_13F_FRESHNESS,
     )
     parser.add_argument("--require-13f-freshness", action="store_true")
+    parser.add_argument("--publication-workflow-run-id", default="")
+    parser.add_argument("--publication-head-sha", default="")
+    parser.add_argument("--publication-head-branch", default="")
+    parser.add_argument("--publication-workflow-name", default="")
+    parser.add_argument("--publication-repository", default="")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--top-n", type=int, default=30)
     parser.add_argument("--institutional-weight", type=float, default=0.45)
@@ -387,6 +392,7 @@ def main() -> int:
                 "filings_index_sha256",
                 "holdings_sha256",
                 "required_period_parsed_manager_coverage",
+                "parsed_holdings_required",
                 "required_period_parse_error_manager_count",
                 "required_period_mapped_row_coverage",
                 "required_period_mapped_value_coverage",
@@ -395,6 +401,13 @@ def main() -> int:
                 "source_identity",
                 "score_consumption",
             ]
+        },
+        "publication_identity": {
+            "workflow_run_id": str(args.publication_workflow_run_id or ""),
+            "head_sha": str(args.publication_head_sha or ""),
+            "head_branch": str(args.publication_head_branch or ""),
+            "workflow_name": str(args.publication_workflow_name or ""),
+            "repository": str(args.publication_repository or ""),
         },
     }
     write_json(out / "smart_money_summary.json", summary)

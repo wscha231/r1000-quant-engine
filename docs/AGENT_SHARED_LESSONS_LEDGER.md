@@ -3835,6 +3835,11 @@ Expected contract:
   replace the base snapshot for `RESTATEMENT` while unioning only later
   `NEW HOLDINGS`. Filing-month Smart Money runs must originate from the
   successful SEC chain; the weekly SEC cadence runs only outside filing months.
+- Immutable-chain rule: A downstream `workflow_run` consumes the triggering
+  run's artifact, verifies run ID, head SHA, branch, index hash, and holdings
+  hash, and never relabels a mutable Drive snapshot. Apply the PIT as-of cutoff
+  before amendment replacement, and reuse the same amendment-normalization
+  function for institutional scores and post-disclosure events.
 - Safety: Fullrun executed false; production/live trading enabled false;
   automatic promotion enabled false.
 
