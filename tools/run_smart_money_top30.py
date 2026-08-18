@@ -388,6 +388,10 @@ def main() -> int:
                 "holdings_sha256",
                 "required_period_parsed_manager_coverage",
                 "required_period_parse_error_manager_count",
+                "required_period_mapped_row_coverage",
+                "required_period_mapped_value_coverage",
+                "required_period_amendment_accession_count",
+                "required_period_parsed_amendment_accession_count",
                 "source_identity",
                 "score_consumption",
             ]

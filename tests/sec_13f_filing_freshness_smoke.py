@@ -176,6 +176,33 @@ def test_unmapped_manager_and_unparsed_amendment_are_blocked() -> None:
     assert "unparsed_due_period_amendments:1" in blocked["blockers"]
 
 
+def test_single_mapped_row_does_not_make_large_filing_substantive() -> None:
+    schedule = load_schedule(ROOT / "research" / "sec_13f_filing_schedule.json")
+    selected = manager_ciks_from_text("M1:1")
+    accepted_at = "2026-08-14T20:00:00+00:00"
+    current = pd.DataFrame([filing(1, "2026-06-30", accepted_at)])
+    rows = []
+    for index in range(10):
+        row = holding(1, "2026-06-30", accepted_at)
+        row["cusip"] = f"12345678{index}"
+        row["ticker_mapped"] = "EXM" if index == 0 else ""
+        row["market_value_usd"] = "100"
+        rows.append(row)
+    blocked = evaluate_freshness(
+        schedule=schedule,
+        filings=current,
+        selected_manager_ciks=selected,
+        as_of=date(2026, 8, 18),
+        holdings=pd.DataFrame(rows),
+        require_parsed_holdings=True,
+        minimum_mapped_row_coverage=0.20,
+        minimum_mapped_value_coverage=0.50,
+    )
+    assert blocked["required_period_mapped_row_coverage"] == 0.1
+    assert blocked["required_period_mapped_value_coverage"] == 0.1
+    assert blocked["required_period_parsed_manager_count"] == 0
+
+
 if __name__ == "__main__":
     test_official_schedule_contains_sec_2026_deadlines()
     test_due_quarter_missing_is_blocked()
@@ -184,4 +211,5 @@ if __name__ == "__main__":
     test_not_yet_available_filing_does_not_count_toward_coverage()
     test_due_period_parsed_holdings_coverage_is_required()
     test_unmapped_manager_and_unparsed_amendment_are_blocked()
+    test_single_mapped_row_does_not_make_large_filing_substantive()
     print("sec_13f_filing_freshness_smoke: PASS")

@@ -101,6 +101,8 @@ def evaluate_freshness(
     minimum_future_deadlines: int = 2,
     holdings: pd.DataFrame | None = None,
     require_parsed_holdings: bool = False,
+    minimum_mapped_row_coverage: float = 0.20,
+    minimum_mapped_value_coverage: float = 0.50,
 ) -> dict[str, Any]:
     deadlines = [
         {
@@ -156,6 +158,9 @@ def evaluate_freshness(
     parsed_coverage: float | None = None
     required_parse_error_manager_ciks: set[str] = set()
     required_usable_holding_rows = 0
+    required_mapped_row_coverage: float | None = None
+    required_mapped_value_coverage: float | None = None
+    substantive_accessions: set[str] = set()
     if holdings is not None:
         parsed = holdings.copy()
         for column in [
@@ -166,6 +171,8 @@ def evaluate_freshness(
             "issuer_name",
             "cusip",
             "ticker_mapped",
+            "amendment_type",
+            "market_value_usd",
         ]:
             if column not in parsed.columns:
                 parsed[column] = ""
@@ -188,17 +195,53 @@ def evaluate_freshness(
             parsed = parsed[parsed["source_accession"].isin(required_accessions)].copy()
         parse_error = parsed["issuer_name"].str.startswith("PARSE_ERROR", na=False)
         required_parse_error_manager_ciks = set(parsed.loc[parse_error, "manager_cik"]) - {""}
-        usable = parsed[
+        parsed["market_value_usd"] = pd.to_numeric(parsed["market_value_usd"], errors="coerce").fillna(0.0).clip(lower=0.0)
+        raw_usable = parsed[
             ~parse_error
             & parsed["manager_cik"].ne("")
             & parsed["source_accession"].ne("")
             & parsed["cusip"].ne("")
-            & parsed["ticker_mapped"].ne("")
         ].copy()
+        usable = raw_usable[raw_usable["ticker_mapped"].ne("")].copy()
         required_usable_holding_rows = int(len(usable))
-        parsed_manager_ciks = set(usable["manager_cik"]) & selected_manager_ciks
+        required_mapped_row_coverage = _finite_ratio(len(usable), len(raw_usable))
+        total_value = float(raw_usable["market_value_usd"].sum())
+        mapped_value = float(usable["market_value_usd"].sum())
+        required_mapped_value_coverage = mapped_value / total_value if total_value > 0.0 else required_mapped_row_coverage
+        for accession, group in raw_usable.groupby("source_accession"):
+            mapped = group[group["ticker_mapped"].ne("")]
+            row_coverage = _finite_ratio(len(mapped), len(group)) or 0.0
+            filing_total_value = float(group["market_value_usd"].sum())
+            filing_mapped_value = float(mapped["market_value_usd"].sum())
+            value_coverage = (
+                filing_mapped_value / filing_total_value
+                if filing_total_value > 0.0
+                else row_coverage
+            )
+            if (
+                row_coverage >= float(minimum_mapped_row_coverage)
+                and value_coverage >= float(minimum_mapped_value_coverage)
+            ):
+                substantive_accessions.add(str(accession))
+        base_accession_to_cik = {
+            str(row.get("accession_number") or ""): normalize_cik(row.get("cik10"))
+            for _, row in required_base.iterrows()
+        }
+        parsed_manager_ciks = {
+            base_accession_to_cik[accession]
+            for accession in substantive_accessions & required_base_accessions
+            if base_accession_to_cik.get(accession)
+        } & selected_manager_ciks
         parsed_coverage = _finite_ratio(len(parsed_manager_ciks), len(selected_manager_ciks))
-        parsed_amendment_accessions = set(usable["source_accession"]) & required_amendment_accessions
+        recognized_amendments = set(
+            parsed[
+                parsed["source_accession"].isin(required_amendment_accessions)
+                & parsed["amendment_type"].str.upper().isin({"RESTATEMENT", "NEW HOLDINGS"})
+            ]["source_accession"]
+        )
+        parsed_amendment_accessions = (
+            substantive_accessions & required_amendment_accessions & recognized_amendments
+        )
     else:
         required_amendment_accessions = set()
         parsed_amendment_accessions = set()
@@ -273,11 +316,16 @@ def evaluate_freshness(
         "covered_selected_manager_count": int(len(covered_selected)),
         "selected_manager_coverage": coverage,
         "minimum_manager_coverage": float(minimum_manager_coverage),
+        "minimum_mapped_row_coverage": float(minimum_mapped_row_coverage),
+        "minimum_mapped_value_coverage": float(minimum_mapped_value_coverage),
         "parsed_holdings_required": bool(require_parsed_holdings),
         "required_period_usable_holding_rows": required_usable_holding_rows,
         "required_period_parsed_manager_count": int(len(parsed_manager_ciks)),
         "required_period_parsed_manager_coverage": parsed_coverage,
         "required_period_parse_error_manager_count": int(len(required_parse_error_manager_ciks)),
+        "required_period_mapped_row_coverage": required_mapped_row_coverage,
+        "required_period_mapped_value_coverage": required_mapped_value_coverage,
+        "required_period_substantive_accession_count": int(len(substantive_accessions)),
         "required_period_amendment_accession_count": int(len(required_amendment_accessions)),
         "required_period_parsed_amendment_accession_count": int(len(parsed_amendment_accessions)),
         "monitored_period_filing_rows": int(len(monitored_rows)),
@@ -300,6 +348,10 @@ def render_report(payload: dict[str, Any]) -> str:
     coverage_text = "n/a" if coverage is None else f"{float(coverage):.1%}"
     parsed_coverage = payload.get("required_period_parsed_manager_coverage")
     parsed_coverage_text = "n/a" if parsed_coverage is None else f"{float(parsed_coverage):.1%}"
+    mapped_rows = payload.get("required_period_mapped_row_coverage")
+    mapped_values = payload.get("required_period_mapped_value_coverage")
+    mapped_rows_text = "n/a" if mapped_rows is None else f"{float(mapped_rows):.1%}"
+    mapped_values_text = "n/a" if mapped_values is None else f"{float(mapped_values):.1%}"
     blockers = payload.get("blockers") or []
     lines = [
         "# SEC 13F Filing Freshness",
@@ -313,6 +365,7 @@ def render_report(payload: dict[str, Any]) -> str:
         f"- next scheduled period/deadline: `{payload.get('next_scheduled_period_end')}` / `{payload.get('next_scheduled_deadline')}`",
         f"- selected-manager coverage for due period: {coverage_text}",
         f"- parsed-holdings manager coverage: {parsed_coverage_text}",
+        f"- mapped row/value coverage: {mapped_rows_text} / {mapped_values_text}",
         f"- due-period parse-error managers: {payload.get('required_period_parse_error_manager_count', 0)}",
         f"- parsed due-period amendments: {payload.get('required_period_parsed_amendment_accession_count', 0)} / {payload.get('required_period_amendment_accession_count', 0)}",
         f"- newest period in data: `{payload.get('newest_period_of_report')}`",
@@ -342,6 +395,8 @@ def main() -> int:
     parser.add_argument("--holdings", default="")
     parser.add_argument("--require-parsed-holdings", action="store_true")
     parser.add_argument("--minimum-manager-coverage", type=float, default=0.80)
+    parser.add_argument("--minimum-mapped-row-coverage", type=float, default=0.20)
+    parser.add_argument("--minimum-mapped-value-coverage", type=float, default=0.50)
     parser.add_argument("--minimum-future-deadlines", type=int, default=2)
     parser.add_argument("--output-json", default=DEFAULT_OUTPUT_JSON)
     parser.add_argument("--output-report", default=DEFAULT_OUTPUT_REPORT)
@@ -372,6 +427,8 @@ def main() -> int:
         minimum_future_deadlines=int(args.minimum_future_deadlines),
         holdings=holdings,
         require_parsed_holdings=bool(args.require_parsed_holdings),
+        minimum_mapped_row_coverage=float(args.minimum_mapped_row_coverage),
+        minimum_mapped_value_coverage=float(args.minimum_mapped_value_coverage),
     )
     payload["filings_index"] = str(filings_path)
     payload["filings_index_sha256"] = sha256_file(filings_path)

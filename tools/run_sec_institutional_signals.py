@@ -76,9 +76,36 @@ def prepare_13f_holdings(frame: pd.DataFrame) -> pd.DataFrame:
     d["report_period_ts"] = pd.to_datetime(d.get("report_period"), errors="coerce").dt.normalize()
     d["available_from_ts"] = pd.to_datetime(d.get("available_from"), errors="coerce", utc=True)
     d["accepted_at_ts"] = pd.to_datetime(d.get("accepted_at"), errors="coerce", utc=True)
+    for column in ["source_accession", "form_type", "amendment_type"]:
+        if column not in d.columns:
+            d[column] = ""
+        d[column] = d[column].fillna("").astype(str).str.strip()
+    d["form_type"] = d["form_type"].str.upper()
+    d["amendment_type"] = d["amendment_type"].str.upper().str.replace(r"[_-]+", " ", regex=True)
     d["shares"] = pd.to_numeric(d.get("shares", 0.0), errors="coerce").fillna(0.0).clip(lower=0.0)
     d["market_value_usd"] = pd.to_numeric(d.get("market_value_usd", 0.0), errors="coerce").fillna(0.0).clip(lower=0.0)
     d = d[d["manager_cik"].ne("") & d["ticker"].ne("") & d["report_period_ts"].notna()].copy()
+    if d.empty:
+        return pd.DataFrame()
+    effective_groups: list[pd.DataFrame] = []
+    for _, group in d.groupby(["manager_cik", "report_period_ts"], sort=False):
+        restatements = group[group["amendment_type"].eq("RESTATEMENT")].copy()
+        if restatements.empty:
+            effective_groups.append(group)
+            continue
+        latest_restatement = restatements.sort_values(
+            ["accepted_at_ts", "source_accession"]
+        ).iloc[-1]
+        restatement_accession = str(latest_restatement.get("source_accession") or "")
+        restatement_at = latest_restatement.get("accepted_at_ts")
+        keep = group["source_accession"].eq(restatement_accession)
+        if pd.notna(restatement_at):
+            keep = keep | (
+                group["amendment_type"].eq("NEW HOLDINGS")
+                & group["accepted_at_ts"].gt(restatement_at)
+            )
+        effective_groups.append(group[keep].copy())
+    d = pd.concat(effective_groups, ignore_index=True) if effective_groups else d.iloc[0:0].copy()
     if d.empty:
         return pd.DataFrame()
     d = d.sort_values(["manager_cik", "ticker", "report_period_ts", "accepted_at_ts"])

@@ -227,6 +227,7 @@ def test_smart_money_workflow_braces_gdrive_base() -> None:
     assert "--require-nonempty" in workflow
     assert "ref: ${{ github.event.workflow_run.head_sha || github.sha }}" in workflow
     assert 'rclone lsf "$BASE$d" >/dev/null\n            rclone copy "$BASE$d" "$d/"' in workflow
+    assert "20 0 * 1,3,4,6,7,9,10,12 2-6" in workflow
     assert "if: success()" in workflow
 
 
@@ -239,10 +240,13 @@ def test_13f_workflow_refreshes_recent_metadata_and_fails_closed() -> None:
     assert "--as-of-timestamp" in workflow
     assert "subset manager dispatch is non-canonical" in workflow
     assert "durable SEC publication requires" in workflow
+    assert "canonical SEC restore is unavailable" in workflow
+    assert "warning: restore for" not in workflow
     assert "--require-nonempty" in workflow
     assert "warning: sync for" not in workflow
     assert "--strict" in workflow
-    assert "1-25 2,5,8,11" in workflow
+    assert "40 23 * 2,5,8,11 *" in workflow
+    assert "10 0 * 1,3,4,6,7,9,10,12 1" in workflow
     assert "Sync SEC 13F data lake to Google Drive\n        if: success()" in workflow
 
 
@@ -258,6 +262,7 @@ def test_post_disclosure_runs_only_after_fresh_13f_chain() -> None:
     assert "durable post-disclosure publication requires" in workflow
     assert "ref: ${{ github.event.workflow_run.head_sha || github.sha }}" in workflow
     assert 'timeout 45s rclone lsf "$BASE$d" >/dev/null\n            timeout 8m rclone copy "$BASE$d" "$d/"' in workflow
+    assert "schedule:" not in workflow.split("workflow_run:", 1)[0]
     assert 'rclone copy "$d" "$BASE$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true' not in workflow
     assert "post_disclosure_13f_events.log || true" not in workflow
     assert "post_disclosure_alpha_pipeline.log || true" not in workflow

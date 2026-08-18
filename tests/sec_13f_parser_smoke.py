@@ -13,8 +13,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 import tools.run_sec_13f_parser as parser_module  # noqa: E402
-from tools.run_sec_13f_parser import market_value_usd, parse_13f_index, parse_13f_xml, write_outputs  # noqa: E402
-from tools.run_sec_institutional_signals import build_13f_signal  # noqa: E402
+from tools.run_sec_13f_parser import amendment_type_from_text, market_value_usd, parse_13f_index, parse_13f_xml, write_outputs  # noqa: E402
+from tools.run_sec_institutional_signals import build_13f_signal, prepare_13f_holdings  # noqa: E402
 
 
 SAMPLE_13F = """<?xml version="1.0" encoding="UTF-8"?>
@@ -230,10 +230,57 @@ def test_institutional_signal_cli_refuses_empty_verified_result() -> None:
         assert not output.exists()
 
 
+def test_amendment_type_and_restatement_snapshot_semantics() -> None:
+    assert amendment_type_from_text("<amendmentType>RESTATEMENT</amendmentType>") == "RESTATEMENT"
+    assert amendment_type_from_text("<ns:amendmentType>NEW HOLDINGS</ns:amendmentType>") == "NEW HOLDINGS"
+    rows = []
+    for ticker in ["AAPL", "MSFT"]:
+        rows.append(
+            {
+                "manager_cik": "0000000001",
+                "ticker_mapped": ticker,
+                "report_period": "2026-06-30",
+                "available_from": "2026-08-14T20:00:00+00:00",
+                "accepted_at": "2026-08-14T20:00:00+00:00",
+                "source_accession": "base",
+                "form_type": "13F-HR",
+                "amendment_type": "",
+                "shares": 10.0,
+                "market_value_usd": 100.0,
+            }
+        )
+    rows.append(
+        {
+            **rows[0],
+            "accepted_at": "2026-08-17T20:00:00+00:00",
+            "available_from": "2026-08-17T20:00:00+00:00",
+            "source_accession": "restatement",
+            "form_type": "13F-HR/A",
+            "amendment_type": "RESTATEMENT",
+            "shares": 20.0,
+        }
+    )
+    rows.append(
+        {
+            **rows[0],
+            "ticker_mapped": "NVDA",
+            "accepted_at": "2026-08-18T20:00:00+00:00",
+            "available_from": "2026-08-18T20:00:00+00:00",
+            "source_accession": "new-holdings",
+            "form_type": "13F-HR/A",
+            "amendment_type": "NEW HOLDINGS",
+        }
+    )
+    prepared = prepare_13f_holdings(pd.DataFrame(rows))
+    assert set(prepared["ticker"]) == {"AAPL", "NVDA"}
+    assert "MSFT" not in set(prepared["ticker"])
+
+
 if __name__ == "__main__":
     test_13f_xml_parser_extracts_information_table_rows()
     test_13f_signal_is_pit_and_scores_accumulation()
     test_13f_write_outputs_normalizes_parse_error_dtypes()
     test_13f_parser_excludes_not_yet_available_filings()
     test_institutional_signal_cli_refuses_empty_verified_result()
+    test_amendment_type_and_restatement_snapshot_semantics()
     print("sec_13f_parser_smoke: PASS")

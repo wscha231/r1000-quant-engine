@@ -3830,6 +3830,11 @@ Expected contract:
   manager, every indexed due-period amendment must parse, and the rebuilt
   institutional signal set must be nonempty. Chained workflows pin checkout to
   the triggering SHA and treat required SEC Drive restore as fail-closed.
+- Publication quality is filing-level, not merely manager-level: require
+  substantive mapped row and market-value coverage, retain amendment type, and
+  replace the base snapshot for `RESTATEMENT` while unioning only later
+  `NEW HOLDINGS`. Filing-month Smart Money runs must originate from the
+  successful SEC chain; the weekly SEC cadence runs only outside filing months.
 - Safety: Fullrun executed false; production/live trading enabled false;
   automatic promotion enabled false.
 

@@ -23,9 +23,6 @@ on:
         description: 'Broker grid cost bps when enabled'
         type: string
         default: '25'
-  schedule:
-    # 09:45 KST Tue-Sat, after Form 4 and Smart Money daily windows.
-    - cron: '45 0 * * 2-6'
   workflow_run:
     workflows: ["Smart Money Top 30 Refresh"]
     types: [completed]
@@ -158,6 +155,8 @@ jobs:
             --holdings data_pit/sec/institutional_13f_holdings.parquet \
             --require-parsed-holdings \
             --minimum-manager-coverage 0.80 \
+            --minimum-mapped-row-coverage 0.20 \
+            --minimum-mapped-value-coverage 0.50 \
             --minimum-future-deadlines 2 \
             --source-workflow-run-id "$SOURCE_RUN_ID" \
             --source-head-sha "$SOURCE_HEAD_SHA" \
