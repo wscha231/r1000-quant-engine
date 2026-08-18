@@ -224,7 +224,11 @@ def cohort_dates(frame: pd.DataFrame, refresh_months: int, history_years: int) -
     dates: list[pd.Timestamp] = []
     cur = start
     step = max(1, int(refresh_months))
-    while cur <= end + pd.DateOffset(months=step):
+    # A cohort is a PIT state that must already exist at or before the newest
+    # observed disclosure month.  Emitting one extra refresh interval creates
+    # a future-dated "latest" cohort whose lookback window is unknowable at the
+    # current as-of boundary.
+    while cur <= end:
         dates.append(pd.Timestamp(cur))
         cur = cur + pd.DateOffset(months=step)
     return dates
