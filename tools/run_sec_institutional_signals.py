@@ -129,10 +129,51 @@ def prepare_13f_holdings(frame: pd.DataFrame, *, as_of: str | None = None) -> pd
     return d
 
 
+def append_13f_exit_tombstones(frame: pd.DataFrame) -> pd.DataFrame:
+    """Represent positions omitted from a newer complete snapshot as exits."""
+    if frame.empty:
+        return frame.copy()
+    d = frame.copy()
+    d["synthetic_exit"] = False
+    tombstones: list[pd.Series] = []
+    for _, manager in d.groupby("manager_cik", sort=False):
+        previous_active: set[str] = set()
+        periods = sorted(manager["report_period_ts"].dropna().unique())
+        for period in periods:
+            current = manager[manager["report_period_ts"].eq(period)].copy()
+            if current.empty:
+                continue
+            present = set(current["ticker"].astype(str))
+            active = set(current.loc[current["shares"].gt(0.0), "ticker"].astype(str))
+            removed = previous_active - active
+            missing_tombstones = sorted(removed - present)
+            if missing_tombstones:
+                complete = current[current["amendment_type"].eq("RESTATEMENT")]
+                if complete.empty:
+                    complete = current[~current["amendment_type"].eq("NEW HOLDINGS")]
+                if complete.empty:
+                    complete = current
+                template = complete.sort_values(["accepted_at_ts", "source_accession"]).iloc[-1]
+                for ticker in missing_tombstones:
+                    row = template.copy()
+                    row["ticker"] = ticker
+                    row["shares"] = 0.0
+                    row["market_value_usd"] = 0.0
+                    row["manager_position_weight"] = 0.0
+                    row["manager_conviction_rank"] = 0.0
+                    row["synthetic_exit"] = True
+                    tombstones.append(row)
+            previous_active = active
+    if not tombstones:
+        return d
+    return pd.concat([d, pd.DataFrame(tombstones)], ignore_index=True)
+
+
 def add_13f_position_deltas(frame: pd.DataFrame, *, as_of: str | None = None) -> pd.DataFrame:
     d = prepare_13f_holdings(frame, as_of=as_of)
     if d.empty:
         return pd.DataFrame()
+    d = append_13f_exit_tombstones(d)
     d = d.sort_values(["manager_cik", "ticker", "report_period_ts", "available_from_ts"]).copy()
     prev_shares = d.groupby(["manager_cik", "ticker"])["shares"].shift(1)
     prev_value = d.groupby(["manager_cik", "ticker"])["market_value_usd"].shift(1)
@@ -142,8 +183,8 @@ def add_13f_position_deltas(frame: pd.DataFrame, *, as_of: str | None = None) ->
     d["market_value_delta_usd"] = d["market_value_usd"] - d["previous_market_value_usd"]
     d["new_position"] = (d["previous_shares"] <= 0.0) & (d["shares"] > 0.0)
     d["added_position"] = d["shares_delta"] > 0.0
-    d["trimmed_position"] = d["shares_delta"] < 0.0
-    d["exited_position"] = False
+    d["trimmed_position"] = (d["shares"] > 0.0) & (d["shares_delta"] < 0.0)
+    d["exited_position"] = (d["previous_shares"] > 0.0) & (d["shares"] <= 0.0)
     return d
 
 

@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT))
 
 import tools.run_sec_13f_parser as parser_module  # noqa: E402
 from tools.run_sec_13f_parser import amendment_type_from_text, market_value_usd, parse_13f_index, parse_13f_xml, write_outputs  # noqa: E402
-from tools.run_sec_institutional_signals import build_13f_signal, prepare_13f_holdings  # noqa: E402
+from tools.run_sec_institutional_signals import add_13f_position_deltas, build_13f_signal, prepare_13f_holdings  # noqa: E402
 
 
 SAMPLE_13F = """<?xml version="1.0" encoding="UTF-8"?>
@@ -278,6 +278,54 @@ def test_amendment_type_and_restatement_snapshot_semantics() -> None:
     assert set(historical["ticker"]) == {"AAPL", "MSFT"}
 
 
+def test_restatement_removal_emits_latest_exit_in_signal() -> None:
+    prior = {
+        "manager_cik": "0000000001",
+        "ticker_mapped": "MSFT",
+        "report_period": "2026-03-31",
+        "available_from": "2026-05-15T20:00:00+00:00",
+        "accepted_at": "2026-05-15T20:00:00+00:00",
+        "source_accession": "prior-base",
+        "form_type": "13F-HR",
+        "amendment_type": "",
+        "shares": 10.0,
+        "market_value_usd": 100.0,
+    }
+    current_msft = {
+        **prior,
+        "report_period": "2026-06-30",
+        "available_from": "2026-08-14T20:00:00+00:00",
+        "accepted_at": "2026-08-14T20:00:00+00:00",
+        "source_accession": "current-base",
+    }
+    current_aapl = {**current_msft, "ticker_mapped": "AAPL"}
+    restated_aapl = {
+        **current_aapl,
+        "available_from": "2026-08-17T20:00:00+00:00",
+        "accepted_at": "2026-08-17T20:00:00+00:00",
+        "source_accession": "current-restatement",
+        "form_type": "13F-HR/A",
+        "amendment_type": "RESTATEMENT",
+        "shares": 20.0,
+        "market_value_usd": 200.0,
+    }
+    holdings = pd.DataFrame([prior, current_msft, current_aapl, restated_aapl])
+    before = build_13f_signal(holdings, as_of="2026-08-15T00:00:00+00:00", lookback_days=210).set_index("ticker")
+    assert int(before.loc["MSFT", "sec_13f_manager_count"]) == 1
+
+    deltas = add_13f_position_deltas(holdings, as_of="2026-08-18T00:00:00+00:00")
+    exit_row = deltas[deltas["ticker"].eq("MSFT")].sort_values("available_from_ts").iloc[-1]
+    assert bool(exit_row["synthetic_exit"]) is True
+    assert bool(exit_row["exited_position"]) is True
+    assert float(exit_row["shares_delta"]) == -10.0
+
+    after = build_13f_signal(holdings, as_of="2026-08-18T00:00:00+00:00", lookback_days=210).set_index("ticker")
+    assert int(after.loc["MSFT", "sec_13f_manager_count"]) == 0
+    assert int(after.loc["MSFT", "sec_13f_selling_manager_count"]) == 1
+    assert float(after.loc["MSFT", "sec_13f_shares_delta"]) == -10.0
+    assert after.loc["MSFT", "latest_available_from"].startswith("2026-08-17T20:00:00")
+
+
 if __name__ == "__main__":
     test_13f_xml_parser_extracts_information_table_rows()
     test_13f_signal_is_pit_and_scores_accumulation()
@@ -285,4 +333,5 @@ if __name__ == "__main__":
     test_13f_parser_excludes_not_yet_available_filings()
     test_institutional_signal_cli_refuses_empty_verified_result()
     test_amendment_type_and_restatement_snapshot_semantics()
+    test_restatement_removal_emits_latest_exit_in_signal()
     print("sec_13f_parser_smoke: PASS")

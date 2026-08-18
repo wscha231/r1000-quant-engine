@@ -3840,6 +3840,11 @@ Expected contract:
   hash, and never relabels a mutable Drive snapshot. Apply the PIT as-of cutoff
   before amendment replacement, and reuse the same amendment-normalization
   function for institutional scores and post-disclosure events.
+- Snapshot-removal rule: Dropping rows that disappear from a newer complete
+  manager snapshot is not enough. Emit a zero-share exit tombstone at that
+  snapshot's PIT availability time; otherwise latest-per-manager scoring can
+  fall back to an older quarter and resurrect a position removed by a regular
+  filing or `RESTATEMENT`.
 - Safety: Fullrun executed false; production/live trading enabled false;
   automatic promotion enabled false.
 
