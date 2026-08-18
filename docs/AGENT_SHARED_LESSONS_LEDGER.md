@@ -3795,6 +3795,28 @@ Expected contract:
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
 
+## 2026-08-18 - Official Q2 13F refresh and CUSIP coverage boundary
+
+- A fresh submissions index is not sufficient proof that 13F scores are
+  publishable. The first official master run (`32138071806`) found 30 Q2 base
+  filings for 34 selected managers, but the substantive per-filing mapping gate
+  correctly blocked publication at 26/34 managers.
+- Treat a parsed information table and a scoreable information table as
+  separate states. Four valid public securities were parsed correctly but
+  failed the filing-level mapped-value threshold because the curated CUSIP map
+  lacked `TPL`, `QQQ`, `HPE`, and `EGO`.
+- Do not lower the 80% manager or 50% filing-value thresholds to make a run
+  pass. Add only issuer-verified CUSIP/ticker mappings and lock them with a
+  regression test. Replaying the failed Q2 artifact with those four mappings
+  raised substantive coverage to 30/34, mapped-row coverage to 56.22%, and
+  mapped-value coverage to 78.70% with no blocker.
+- Failed collection must retain diagnostics but must not sync the canonical
+  Drive lake or trigger downstream Smart Money scoring. This run demonstrated
+  that the fail-closed publication boundary works as intended.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
 ## 2026-08-18 - A green 13F refresh was replaying restored submissions metadata
 
 - Agent: Codex GPT-5.6
