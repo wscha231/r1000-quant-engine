@@ -3865,6 +3865,10 @@ Expected contract:
   is already public, derive the amended transition against that newer snapshot.
   A newly disclosed old holding that the newer filing omits produces a
   same-availability exit, never a fresh positive candidate.
+- The later-snapshot reconciliation also applies when a late `NEW HOLDINGS`
+  amendment is the first usable filing retained for its old period. Because it
+  is additive, reconcile only its disclosed tickers; never infer anything from
+  names it omits.
 - Safety: Fullrun executed false; production/live trading enabled false;
   automatic promotion enabled false.
 

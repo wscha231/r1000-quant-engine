@@ -335,36 +335,41 @@ def build_position_events(
             event_period = period
             event_current = current
             ticker_filter: set[str] | None = None
-            if period_was_seen and later_periods:
-                before_by_ticker = same_period_before.set_index("ticker", drop=False)
-                corrected_by_ticker = current.set_index("ticker", drop=False)
-                correction_tickers = set(before_by_ticker.index.astype(str)) | set(
-                    corrected_by_ticker.index.astype(str)
-                )
-                ticker_filter = {
-                    ticker
-                    for ticker in correction_tickers
-                    if float(
-                        corrected_by_ticker.loc[ticker].get("shares", 0.0)
-                        if ticker in corrected_by_ticker.index
-                        else 0.0
+            if later_periods:
+                if period_was_seen:
+                    before_by_ticker = same_period_before.set_index("ticker", drop=False)
+                    corrected_by_ticker = current.set_index("ticker", drop=False)
+                    correction_tickers = set(before_by_ticker.index.astype(str)) | set(
+                        corrected_by_ticker.index.astype(str)
                     )
-                    != float(
-                        before_by_ticker.loc[ticker].get("shares", 0.0)
-                        if ticker in before_by_ticker.index
-                        else 0.0
-                    )
-                    or float(
-                        corrected_by_ticker.loc[ticker].get("market_value_usd", 0.0)
-                        if ticker in corrected_by_ticker.index
-                        else 0.0
-                    )
-                    != float(
-                        before_by_ticker.loc[ticker].get("market_value_usd", 0.0)
-                        if ticker in before_by_ticker.index
-                        else 0.0
-                    )
-                }
+                    ticker_filter = {
+                        ticker
+                        for ticker in correction_tickers
+                        if float(
+                            corrected_by_ticker.loc[ticker].get("shares", 0.0)
+                            if ticker in corrected_by_ticker.index
+                            else 0.0
+                        )
+                        != float(
+                            before_by_ticker.loc[ticker].get("shares", 0.0)
+                            if ticker in before_by_ticker.index
+                            else 0.0
+                        )
+                        or float(
+                            corrected_by_ticker.loc[ticker].get("market_value_usd", 0.0)
+                            if ticker in corrected_by_ticker.index
+                            else 0.0
+                        )
+                        != float(
+                            before_by_ticker.loc[ticker].get("market_value_usd", 0.0)
+                            if ticker in before_by_ticker.index
+                            else 0.0
+                        )
+                    }
+                elif amendment_type == "NEW HOLDINGS":
+                    # Omission from an additive-only filing is not evidence,
+                    # so reconcile only the newly disclosed tickers.
+                    ticker_filter = set(current["ticker"].astype(str))
                 event_period = later_periods[-1]
                 previous = current
                 event_current = effective_by_period[event_period].copy()
