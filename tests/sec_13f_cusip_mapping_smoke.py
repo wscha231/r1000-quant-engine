@@ -99,6 +99,19 @@ def test_cusip_builder_maps_manual_overrides_and_preserves_unmapped_audit() -> N
         assert float(signals.loc[0, "institutional_evidence_score"]) > 0.0
 
 
+def test_canonical_overrides_cover_verified_q2_2026_disclosures() -> None:
+    overrides = pd.read_csv(ROOT / "research" / "sec_13f_cusip_map_overrides.csv", dtype=str)
+    overrides["cusip"] = overrides["cusip"].fillna("").str.strip().str.upper()
+    overrides["ticker"] = overrides["ticker"].fillna("").str.strip().str.upper()
+    assert not overrides["cusip"].duplicated().any()
+    lookup = overrides.set_index("cusip")["ticker"].to_dict()
+    assert lookup["88262P102"] == "TPL"
+    assert lookup["46090E103"] == "QQQ"
+    assert lookup["42824C109"] == "HPE"
+    assert lookup["284902509"] == "EGO"
+
+
 if __name__ == "__main__":
     test_cusip_builder_maps_manual_overrides_and_preserves_unmapped_audit()
+    test_canonical_overrides_cover_verified_q2_2026_disclosures()
     print(json.dumps({"status": "PASS", "test": "sec_13f_cusip_mapping_smoke"}))
