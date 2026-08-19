@@ -17,6 +17,8 @@
     "macro_risk_router": {
       "role": "accepted_equity_budget_cash_and_risk_constraints_only",
       "direct_stock_alpha_points_allowed": false,
+      "current_shadow_contract": "docs/run287_macro_risk_budget_shadow_contract.json",
+      "current_shadow_is_performance_proof": false,
       "inputs": [
         "policy_rate_and_yield_curve",
         "credit_spreads",
