@@ -3795,6 +3795,24 @@ Expected contract:
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
 
+## 2026-08-19 - Public holdings amounts must be local-only and stale-aware
+
+- The public dashboard intentionally excludes total capital, quantities,
+  market values, cost basis, and P&L. A useful amount view can preserve that
+  boundary by multiplying public weights by a user-entered reference total in
+  the browser only; the reference value must never enter dashboard JSON.
+- “Current holdings” is unsafe wording when the public snapshot is stale. The
+  UI now raises a freshness warning after five calendar days and keeps the
+  exact valuation close visible next to every allocation view.
+- The live public snapshot remained at `2026-07-10`. Scheduled daily refreshes
+  from `2026-08-06` through `2026-08-18` failed closed at the verified
+  risk-outcome parent gate. The latest observed blocker requires explicit
+  one-time `workflow_dispatch` authorization; it must not be bypassed or
+  silently converted into a scheduled bootstrap.
+- Static privacy/export smoke: pass. Historical fit executed: false. Broker
+  replay executed: false. Production/live trading enabled: false. Automatic
+  promotion enabled: false.
+
 ## 2026-08-18 - Official Q2 13F refresh and CUSIP coverage boundary
 
 - A fresh submissions index is not sufficient proof that 13F scores are

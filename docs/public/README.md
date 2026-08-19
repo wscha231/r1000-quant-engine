@@ -10,9 +10,12 @@ metrics, recent replay trades, separately labelled forward paper fills,
 review-only target deltas, and a filtered code change log.
 
 The current allocation view includes side-by-side donut charts for both
-portfolios. Each chart has an explicit button that opens the matching backtest
-BUY/SELL ledger; the ledger can switch portfolios, filter by side or ticker,
-and progressively reveal the complete published history.
+portfolios. It can switch between weights and browser-only reference-dollar
+amounts. The reference total defaults to a clearly labelled example and is
+stored only in local browser storage; it is never treated as the actual account
+value or added to the public JSON. Each chart has an explicit button that opens
+the matching backtest BUY/SELL ledger; the ledger can switch portfolios, filter
+by side or ticker, and progressively reveal the complete published history.
 
 ## Public data boundary
 
