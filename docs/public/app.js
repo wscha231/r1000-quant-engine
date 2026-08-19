@@ -1,6 +1,8 @@
 const state = {
   data: null,
   portfolio: "main",
+  allocationView: "weight",
+  referenceCapital: 100000,
   holdingsSearch: "",
   tradeSearch: "",
   tradeSide: "all",
@@ -22,6 +24,8 @@ const allocationColors = [
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
+const REFERENCE_CAPITAL_KEY = "run287-reference-capital-usd";
+const ALLOCATION_VIEW_KEY = "run287-allocation-view";
 
 function valueOrDash(value) {
   return value === null || value === undefined || value === "" ? "—" : value;
@@ -44,6 +48,52 @@ function price(value) {
   return Number.isFinite(number)
     ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(number)
     : "—";
+}
+
+function currency(value, maximumFractionDigits = 0) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric)
+    ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits }).format(numeric)
+    : "—";
+}
+
+function compactCurrency(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "—";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(numeric);
+}
+
+function allocationAmount(weight) {
+  const numericWeight = Number(weight);
+  const capital = Number(state.referenceCapital);
+  return Number.isFinite(numericWeight) && Number.isFinite(capital) ? numericWeight * capital : null;
+}
+
+function loadAllocationPreferences() {
+  try {
+    const savedCapitalRaw = window.localStorage.getItem(REFERENCE_CAPITAL_KEY);
+    const savedCapital = savedCapitalRaw === null ? null : Number(savedCapitalRaw);
+    const savedView = window.localStorage.getItem(ALLOCATION_VIEW_KEY);
+    if (savedCapital !== null && Number.isFinite(savedCapital) && savedCapital >= 0 && savedCapital <= 1_000_000_000_000) {
+      state.referenceCapital = savedCapital;
+    }
+    if (["weight", "amount"].includes(savedView)) state.allocationView = savedView;
+  } catch (error) {
+    console.warn("브라우저 표시 설정을 불러오지 못했습니다.", error);
+  }
+}
+
+function saveAllocationPreference(key, value) {
+  try {
+    window.localStorage.setItem(key, String(value));
+  } catch (error) {
+    console.warn("브라우저 표시 설정을 저장하지 못했습니다.", error);
+  }
 }
 
 function number(value, digits = 2) {
@@ -113,12 +163,19 @@ function metricCard(portfolio, item) {
 
 function renderHeader() {
   const data = state.data;
+  const closeDate = new Date(`${data.as_of_close}T00:00:00Z`);
+  const ageDays = Number.isNaN(closeDate.getTime())
+    ? null
+    : Math.max(0, Math.floor((Date.now() - closeDate.getTime()) / 86400000));
+  const stale = ageDays !== null && ageDays > 5;
   $("#as-of-close").textContent = formatDate(data.as_of_close);
   $("#generated-at").textContent = formatTimestamp(data.generated_at_utc);
   $("#source-label").textContent = valueOrDash(data.source?.label);
   $("#decision-label").textContent = valueOrDash(data.status?.promotion_state || data.status?.decision);
-  $("#header-status-text").textContent = `${formatDate(data.as_of_close)} 종가 반영`;
+  $("#header-status-text").textContent = `${formatDate(data.as_of_close)} 종가 반영${stale ? " · 갱신 확인 필요" : ""}`;
   $("#allocation-asof").textContent = formatDate(data.as_of_close);
+  $("#stale-data-warning").hidden = !stale;
+  $("#stale-data-age").textContent = ageDays === null ? "—" : String(ageDays);
 }
 
 function renderMetricCards() {
@@ -158,11 +215,16 @@ function renderAllocationDonuts() {
       const data = portfolioData(portfolio);
       const items = allocationItems(portfolio);
       const tradeCount = (data.trades || []).length;
+      const amountView = state.allocationView === "amount";
       const legend = items.map((item) => `
         <li>
           <span class="donut-legend-name"><span class="donut-swatch" style="background:${item.color}"></span>${escapeHtml(item.ticker)}</span>
-          <strong>${percent(item.weight)}</strong>
+          <span class="donut-legend-value"><strong>${amountView ? currency(allocationAmount(item.weight)) : percent(item.weight)}</strong>${amountView ? `<small>${percent(item.weight)}</small>` : ""}</span>
         </li>`).join("");
+      const investedWeight = 1 - Number(data.cash_weight || 0);
+      const centerValue = amountView ? compactCurrency(allocationAmount(investedWeight)) : percent(investedWeight, 1);
+      const centerLabel = amountView ? "주식 환산액" : "주식 비중";
+      const cashAmount = amountView ? ` · ${currency(allocationAmount(data.cash_weight))}` : "";
       return `
         <article class="donut-card" data-portfolio="${portfolio}">
           <div class="donut-card-head">
@@ -170,13 +232,13 @@ function renderAllocationDonuts() {
               <span class="donut-portfolio-label">${escapeHtml(data.label || portfolio)}</span>
               <small>${data.holding_count ?? data.holdings?.length ?? 0}종목 + 현금</small>
             </div>
-            <span class="donut-cash-chip">현금 ${percent(data.cash_weight)}</span>
+            <span class="donut-cash-chip">현금 ${percent(data.cash_weight)}${cashAmount}</span>
           </div>
           <div class="donut-card-body">
             <div class="donut-chart" style="background:${donutGradient(items)}" role="img" aria-label="${escapeHtml(data.label || portfolio)} 종목별 보유 비중 원형 차트">
               <div class="donut-center">
-                <strong>${percent(1 - Number(data.cash_weight || 0), 1)}</strong>
-                <span>주식 비중</span>
+                <strong title="${amountView ? currency(allocationAmount(investedWeight)) : percent(investedWeight)}">${centerValue}</strong>
+                <span>${centerLabel}</span>
               </div>
             </div>
             <ol class="donut-legend" aria-label="${escapeHtml(data.label || portfolio)} 종목별 비중">${legend}</ol>
@@ -275,6 +337,7 @@ function holdingsRow(item, rank) {
       <td class="ticker-cell">${escapeHtml(item.ticker)}</td>
       <td class="number">${price(item.price)}</td>
       <td class="number">${percent(item.weight)}</td>
+      <td class="number amount-cell">${currency(allocationAmount(item.weight))}</td>
       <td class="number">${hasTarget ? percent(item.target_weight) : "—"}</td>
       <td class="number ${deltaClass}">${hasTarget ? signedPercent(delta) : "—"}</td>
     </tr>`;
@@ -294,10 +357,11 @@ function renderHoldings() {
       <td class="ticker-cell">CASH</td>
       <td class="number">—</td>
       <td class="number">${percent(portfolio.cash_weight)}</td>
+      <td class="number amount-cell">${currency(allocationAmount(portfolio.cash_weight))}</td>
       <td class="number">${cashTargetValid ? percent(cashTarget) : "—"}</td>
       <td class="number">${cashTargetValid ? signedPercent(cashDelta) : "—"}</td>
     </tr>`;
-  $("#holdings-body").innerHTML = body + cashRow || `<tr><td colspan="6" class="empty-state">검색 결과가 없습니다.</td></tr>`;
+  $("#holdings-body").innerHTML = body + cashRow || `<tr><td colspan="7" class="empty-state">검색 결과가 없습니다.</td></tr>`;
   $("#holdings-footer").textContent = `${portfolio.label || state.portfolio} · 주식 ${portfolio.holding_count ?? holdings.length}종목 · 현금 ${percent(portfolio.cash_weight)}`;
   renderAllocationStrip(portfolio.holdings || [], portfolio.cash_weight);
 }
@@ -392,6 +456,7 @@ function renderChanges() {
 }
 
 function renderAll() {
+  renderAllocationControls();
   renderHeader();
   renderMetricCards();
   renderAllocationDonuts();
@@ -400,6 +465,23 @@ function renderAll() {
   renderPreviews();
   renderTrades();
   renderChanges();
+}
+
+function renderAllocationControls() {
+  const input = $("#reference-capital");
+  if (input && document.activeElement !== input) input.value = String(state.referenceCapital);
+  $$(".allocation-view-button").forEach((button) => {
+    const active = button.dataset.allocationView === state.allocationView;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+}
+
+function rerenderAllocationAmounts() {
+  renderAllocationControls();
+  if (!state.data) return;
+  renderAllocationDonuts();
+  renderHoldings();
 }
 
 function setActivePortfolio(portfolio) {
@@ -429,6 +511,22 @@ function closeTradeLedger() {
 }
 
 function attachEvents() {
+  $$(".allocation-view-button").forEach((button) => button.addEventListener("click", () => {
+    state.allocationView = button.dataset.allocationView;
+    saveAllocationPreference(ALLOCATION_VIEW_KEY, state.allocationView);
+    rerenderAllocationAmounts();
+  }));
+  $("#reference-capital").addEventListener("input", (event) => {
+    if (event.target.value.trim() === "") return;
+    const capital = Number(event.target.value);
+    if (!Number.isFinite(capital) || capital < 0 || capital > 1_000_000_000_000) return;
+    state.referenceCapital = capital;
+    saveAllocationPreference(REFERENCE_CAPITAL_KEY, capital);
+    if (!state.data) return;
+    renderAllocationDonuts();
+    renderHoldings();
+  });
+  $("#reference-capital").addEventListener("change", renderAllocationControls);
   $$(".portfolio-tab").forEach((button) => button.addEventListener("click", () => {
     setActivePortfolio(button.dataset.portfolio);
   }));
@@ -478,5 +576,7 @@ async function loadDashboard() {
   }
 }
 
+loadAllocationPreferences();
+renderAllocationControls();
 attachEvents();
 loadDashboard();
