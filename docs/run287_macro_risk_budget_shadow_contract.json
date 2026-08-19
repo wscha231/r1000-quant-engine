@@ -1,0 +1,103 @@
+{
+  "schema_version": "run287-macro-risk-budget-shadow-contract-v1",
+  "contract_version": "2026-08-19.1",
+  "purpose": "Convert one hash-bound current macro sidecar into a bounded research-only asset-sleeve proposal without changing stock ranking, target books, orders, or accepted ledger state.",
+  "input_contract": {
+    "required_manifest_status": "READY_CONSERVATIVE_MACRO_SIDECAR",
+    "current_decision_only_required": true,
+    "macro_merge_allowed_required": true,
+    "historical_backtest_acceptance_allowed_required": false,
+    "valuation_close_date_must_match": true,
+    "decision_time_must_be_on_or_after_macro_available_from": true,
+    "macro_current_sha256_must_match_manifest": true,
+    "one_macro_row_required": true,
+    "required_columns": [
+      "macro_risk_off_score",
+      "market_regime_score",
+      "liquidity_drain_score",
+      "liquidity_impulse_score",
+      "liquidity_regime_score",
+      "inflation_pressure_score",
+      "inflation_reacceleration_score",
+      "upstream_cost_pressure_score",
+      "labor_softening_score",
+      "cpi_yoy",
+      "core_cpi_yoy"
+    ]
+  },
+  "scientific_method": {
+    "stock_alpha_separation": "macro inputs may change only sleeve risk budgets and never stock score or order",
+    "family_weights": {
+      "market_stress": 0.25,
+      "liquidity_stress": 0.25,
+      "inflation_stress": 0.25,
+      "labor_stress": 0.25
+    },
+    "z_transform": "tanh(value / 1.5)",
+    "market_stress": "mean(tanh(macro_risk_off_score/1.5), tanh(-market_regime_score/1.5))",
+    "liquidity_stress": "mean(clip(liquidity_drain_score-liquidity_impulse_score,-1,1), tanh(-liquidity_regime_score/1.5))",
+    "inflation_stress": "mean(tanh(inflation_pressure_score/1.5), tanh(inflation_reacceleration_score/1.5), tanh(upstream_cost_pressure_score/1.5))",
+    "labor_stress": "tanh(labor_softening_score/1.5)",
+    "composite": "equal_weight_mean_of_four_families_clipped_minus1_plus1",
+    "inflation_guard": {
+      "trigger": "max(cpi_yoy,core_cpi_yoy)>0.025",
+      "action": "floor_effective_macro_stress_at_zero",
+      "reason": "do_not_add_risk_above_the_preregistered_neutral_budget_while_observed_inflation_is_materially_above_two_percent"
+    },
+    "fit_to_historical_returns": false,
+    "post_outcome_threshold_tuning_allowed": false
+  },
+  "profiles": {
+    "conservative": {
+      "risk_assets": 0.45,
+      "stability_assets": 0.35,
+      "cash_or_broker_mmf": 0.20
+    },
+    "balanced": {
+      "risk_assets": 0.60,
+      "stability_assets": 0.25,
+      "cash_or_broker_mmf": 0.15
+    },
+    "growth": {
+      "risk_assets": 0.75,
+      "stability_assets": 0.15,
+      "cash_or_broker_mmf": 0.10
+    }
+  },
+  "tilt_policy": {
+    "maximum_risk_asset_tilt": 0.12,
+    "risk_asset_change": "-0.12 * effective_macro_stress",
+    "stability_asset_change": "+0.08 * effective_macro_stress",
+    "cash_change": "+0.04 * effective_macro_stress",
+    "stability_split": {
+      "short_treasury": 0.80,
+      "intermediate_treasury": 0.20
+    },
+    "long_only": true,
+    "weights_sum_to_one": true,
+    "no_leverage": true
+  },
+  "validation": {
+    "historical_performance_status": "NOT_RUN_BLOCKED_BY_PIT_SCIENTIFIC_WEIGHTING_READINESS",
+    "current_output_role": "SHADOW_PROPOSAL_NOT_PERFORMANCE_PROOF",
+    "next_required_evidence": [
+      "PIT macro vintages and exact release timestamps",
+      "preregistered historical replay independent of rejected P3 and P4 policies",
+      "equal-weight and accepted-champion broker-ledger comparisons at 25/50/100 bps",
+      "forward paper evidence and separate exact-head human review"
+    ]
+  },
+  "safety": {
+    "research_only": true,
+    "proposal_only": true,
+    "stock_ranking_allowed": false,
+    "selector_execution_allowed": false,
+    "target_books_written": false,
+    "orders_generated": false,
+    "operating_ledger_mutated": false,
+    "portfolio_mutation_allowed": false,
+    "automatic_promotion_allowed": false,
+    "production_or_live_trading_enabled": false,
+    "fullrun_executed": false
+  }
+}
