@@ -1,0 +1,118 @@
+{
+  "schema_version": "run287-scientific-weighting-input-materialization-contract-v1",
+  "contract_version": "2026-08-19.1",
+  "purpose": "Materialize the three point-in-time input frames required by the Run287 scientific weighting readiness gate without fitting a model or changing a portfolio.",
+  "component_frame": {
+    "canonical_input_identity_columns": [
+      "feature_date",
+      "rebalance_date",
+      "decision_time_utc",
+      "ticker",
+      "sector",
+      "stable_security_id",
+      "pit_universe_label_clean"
+    ],
+    "canonical_raw_components": {
+      "quality_moat": "raw_quality_moat",
+      "valuation": "raw_valuation",
+      "growth_revisions": "raw_growth_revisions",
+      "leadership_momentum": "raw_leadership_momentum",
+      "event_actuals": "raw_event_actuals",
+      "manager_13f_flow": "raw_manager_13f_flow"
+    },
+    "availability_policy": "every observed raw component requires its own UTC available-from field on or before the row decision time",
+    "transform": "within each decision date, rank only finite observed values by average percentile and subtract 0.5; never turn missing or unobserved values into zero",
+    "label_policy": {
+      "entry": "first NYSE session strictly after feature_date",
+      "horizons": [63, 126],
+      "exit": "the horizon-th price interval after entry, using exact NYSE sessions",
+      "benchmark": "SPY adjusted-close total-return proxy",
+      "availability": "maximum of the four endpoint price availability timestamps and the scheduled exit close",
+      "future_materialization_allowed": false
+    },
+    "scored_snapshot_adapter": {
+      "role": "diagnostic bridge for exact scored snapshots only; it cannot make historical membership PIT-clean",
+      "raw_mapping": {
+        "raw_quality_moat": ["moat_quality_blueprint_score"],
+        "raw_valuation": ["valuation_blueprint_score"],
+        "raw_growth_revisions": ["growth_blueprint_score", "revision_blueprint_score"],
+        "raw_leadership_momentum": ["technical_blueprint_score"],
+        "raw_event_actuals": ["actual_results_score"],
+        "raw_manager_13f_flow": ["sec_13f_score"]
+      },
+      "fundamental_observation_gate": "decision_feature_complete=true and latest_only_inputs_neutralized=false",
+      "technical_observation_gate": "current_technical_context_row_count is positive",
+      "event_observation_gate": "actual_report_available=true",
+      "manager_13f_observation_gate": "institutional_actual_available=true",
+      "decision_time_column": "score_available_from",
+      "general_availability_column": "feature_available_from",
+      "manager_13f_availability_fallback_column": "score_available_from",
+      "stable_id_fallback": "UNVERIFIED_SEC_CIK or UNVERIFIED_TICKER, which always forces pit_universe_label_clean=false"
+    }
+  },
+  "daily_returns": {
+    "canonical_price_columns": [
+      "date",
+      "ticker",
+      "stable_security_id",
+      "adjusted_close",
+      "available_from",
+      "pit_lifecycle_state",
+      "pit_universe_label_clean"
+    ],
+    "return_definition": "adjusted_close_t divided by adjusted_close_previous_exact_NYSE_session minus one",
+    "gap_policy": "do not compute a multi-session return across a missing NYSE session",
+    "availability": "maximum of current and prior endpoint availability timestamps",
+    "selector_price_map_adapter": {
+      "role": "diagnostic bridge for the hash-pinned selector archive",
+      "price_column": "Adj Close",
+      "availability_upper_bound": "price-map manifest generated_at_utc",
+      "path_resolution": "resolve one archive member by declared basename and exact SHA-256; never trust the stored machine path",
+      "identity_policy": "join exact ticker to the component identity map; benchmark SPY uses BENCHMARK:SPY",
+      "pit_universe_label_clean": false,
+      "pit_lifecycle_state": "UNVERIFIED_CURRENT_VINTAGE"
+    }
+  },
+  "prior_weights": {
+    "required_input_columns": ["rebalance_date", "ticker"],
+    "weight_column_must_be_explicit": true,
+    "normalization_allowed": false,
+    "source_hash": "SHA-256 of the exact source target-book bytes repeated on every output row",
+    "accepted_provenance": [
+      "exact member of the hash-pinned Run287 research-static archive",
+      "separate accepted research-prior attestation bound to the exact source SHA-256"
+    ],
+    "cash_policy": "preserve an explicit CASH row when present; do not redistribute cash into equities"
+  },
+  "archive": {
+    "accepted_schema_version": "run287-exact-static-archive-v1",
+    "accepted_status": "READY_RUN287_EXACT_STATIC_ARCHIVE_REVIEW_ONLY",
+    "accepted_sha256": "66ca4b6a6a61cb7e9a3a47e2f6d26aa42f30a9b96a25d07699c6cdeb8faf1d84",
+    "member_manifest": "run287_exact_static_archive_manifest.json"
+  },
+  "outputs": [
+    "component_frame.parquet",
+    "daily_returns.parquet",
+    "prior_weights.csv",
+    "input_manifest.json",
+    "materialization_summary.json",
+    "report.md",
+    "readiness/contract_audit.json",
+    "readiness/data_readiness.json",
+    "readiness/report.md"
+  ],
+  "safety": {
+    "research_only": true,
+    "model_fit_executed": false,
+    "outer_test_opened": false,
+    "portfolio_replay_executed": false,
+    "stock_selection_produced": false,
+    "portfolio_weights_produced": false,
+    "target_books_written": false,
+    "orders_generated": false,
+    "operating_ledger_mutated": false,
+    "production_or_live_trading_enabled": false,
+    "automatic_promotion_allowed": false,
+    "fullrun_executed": false
+  }
+}

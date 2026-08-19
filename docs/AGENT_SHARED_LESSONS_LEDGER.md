@@ -4139,3 +4139,37 @@ Expected contract:
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
+
+## 2026-08-19 - Scientific weighting inputs can be materialized without waiving PIT blockers
+
+- The three readiness files now exist: 989 component rows, 1,091,097 exact
+  consecutive-session daily returns, and 1,207 prior-weight rows. File presence
+  is no longer the blocker.
+- The hash-pinned research-static archive supplied 363 price histories and an
+  official Main research anchor. All 363 securities exceed 252 return sessions;
+  the latest prior book has 15 rows, explicit cash, and sums to one within the
+  fixed tolerance.
+- A current CIK is an issuer identifier, not a historical security identifier.
+  Current CIK/ticker fallbacks must carry `UNVERIFIED_*`, include the ticker to
+  avoid share-class collisions, and force `pit_universe_label_clean=false`.
+- Missing-neutral scored values are not observed scientific components. The
+  exact snapshot's incomplete fundamental flag leaves quality, valuation, and
+  growth/revisions missing; event actuals cover 74.6208%; official 13F covers
+  zero. Only leadership/momentum is complete.
+- Source prices with only a later archive-verification timestamp can support a
+  conservative current research return frame, but they cannot establish
+  historical universe or lifecycle PIT truth.
+- Preserve prior cash and weights exactly and repeat the exact source-file
+  SHA-256 on every row. Never normalize a source book merely to satisfy a sum
+  check.
+- A full synthetic 60-date/100-name PIT fixture passed the unchanged readiness
+  audit, proving the materializer can reach READY when evidence is genuinely
+  complete. The real packet remains blocked on PIT membership/lifecycle,
+  60 mature decision dates, component coverage, and mature labels.
+- Local Tier-1 validation passed 221/223. The two unrelated OHLCV failures are
+  an unchanged pinned-contract byte-identity issue on Windows: the worktree has
+  94 CRLF sequences while the exact Git blob and pinned SHA use LF. Do not
+  rewrite that independent immutable-chain contract inside this data feature.
+- Fullrun executed: false. Historical fit executed: false. Portfolio replay
+  executed: false. Target/order/ledger state mutated: false. Production/live
+  trading and automatic promotion enabled: false.
