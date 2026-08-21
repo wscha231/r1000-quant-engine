@@ -1074,6 +1074,7 @@ def test_canonical_u0_workflow_is_research_only() -> None:
     assert "run287-u0-accepted-evidence" in source
     assert "build_run287_u0_v3_acceptance.py" in source
     assert "github_recovery_census.json" in source
+    assert "+refs/pull/*/head:refs/run287-u0-pull-heads/*" in source
     assert "run287-u0-v2-acceptance" not in source
     assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" in source
     diagnostic = "name: run287-u0-census-diagnostic"

@@ -24,11 +24,15 @@ from typing import Any, Iterable, Mapping
 
 
 REPOSITORY = "wscha231/r1000-quant-engine"
+REPO_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_VERSION = "run287-u0-v2-github-census-v1"
 COLLECTION_CACHE_SCHEMA_VERSION = "run287-u0-v2-github-collection-cache-v3"
 COLLECTION_IDENTITY_SNAPSHOT_SOURCE = (
     "GITHUB_NAMESPACE_AND_MUTABLE_EVIDENCE_PINNED_V1"
 )
+REMOTE_CHANGED_PATH_SOURCE = "GITHUB_HEAD_AND_BASE_PINNED_PR_FILES_API"
+LOCAL_CHANGED_PATH_SOURCE = "LOCAL_GIT_PINNED_MERGE_BASE_DIFF"
+LOCAL_COMMIT_SOURCE = "LOCAL_GIT_PINNED_BASE_HEAD_REV_LIST"
 SHA_RE = re.compile(r"[0-9a-f]{40}")
 EXPERIMENT_PATH_RE = re.compile(
     r"(^|/)(backtest|research|aggressive|auto_learning|experiments?)(/|$)|"
@@ -524,11 +528,153 @@ def enrich_remote_changed_paths(
         raw["changedFilesDetail"] = detail_count
         raw["changedPathsComplete"] = not cap_reached and not declared_mismatch
         raw["changedPathsApiCapReached"] = cap_reached
-        raw["changedPathsSource"] = "GITHUB_HEAD_AND_BASE_PINNED_PR_FILES_API"
+        raw["changedPathsSource"] = REMOTE_CHANGED_PATH_SOURCE
         raw["changedPathsHeadBefore"] = before_head
         raw["changedPathsHeadAfter"] = after_head
         raw["changedPathsBaseBefore"] = before_base
         raw["changedPathsBaseAfter"] = after_base
+
+
+def _git_output(
+    arguments: list[str], *, repo_root: Path, binary: bool = False
+) -> bytes | str:
+    completed = subprocess.run(
+        ["git", *arguments],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=not binary,
+    )
+    return completed.stdout
+
+
+def _local_changed_paths(
+    *, base_sha: str, head_sha: str, repo_root: Path
+) -> tuple[list[str], list[str], str]:
+    merge_bases = str(
+        _git_output(
+            ["merge-base", "--all", base_sha, head_sha],
+            repo_root=repo_root,
+        )
+    ).splitlines()
+    merge_bases = [clean_sha(value.strip()) for value in merge_bases]
+    if len(merge_bases) != 1 or not merge_bases[0]:
+        raise RuntimeError("PR base/head do not have one exact merge base")
+    payload = bytes(
+        _git_output(
+            [
+                "diff",
+                "--name-status",
+                "-z",
+                "--find-renames",
+                f"{base_sha}...{head_sha}",
+                "--",
+            ],
+            repo_root=repo_root,
+            binary=True,
+        )
+    )
+    fields = payload.decode("utf-8", errors="strict").split("\0")
+    if fields and fields[-1] == "":
+        fields.pop()
+    paths: set[str] = set()
+    renamed_from: set[str] = set()
+    index = 0
+    while index < len(fields):
+        status = fields[index]
+        index += 1
+        if not status:
+            raise RuntimeError("empty local Git name-status record")
+        if status.startswith(("R", "C")):
+            if index + 1 >= len(fields):
+                raise RuntimeError("truncated local Git rename/copy record")
+            previous, current = fields[index], fields[index + 1]
+            index += 2
+            if not previous or not current:
+                raise RuntimeError("empty local Git rename/copy path")
+            renamed_from.add(previous)
+            paths.add(current)
+        else:
+            if index >= len(fields):
+                raise RuntimeError("truncated local Git path record")
+            current = fields[index]
+            index += 1
+            if not current:
+                raise RuntimeError("empty local Git path")
+            paths.add(current)
+    return sorted(paths), sorted(renamed_from), merge_bases[0]
+
+
+def enrich_local_pr_git_evidence(
+    pull_requests: list[dict[str, Any]], *, repo_root: Path = REPO_ROOT
+) -> None:
+    """Repair API gaps from exact local base/head Git objects.
+
+    The GitHub PR-files endpoint is capped at 3,000 paths, and old PR detail
+    rows can incorrectly report ``changed_files=0`` while the pinned files
+    endpoint returns paths.  Local evidence is accepted only from the exact
+    API-captured base/head SHAs. Complete remote path sets remain authoritative
+    and are not replaced.
+    """
+    for raw in pull_requests:
+        number = int(raw.get("number") or 0)
+        base_sha = clean_sha(raw.get("baseRefOid"))
+        head_sha = clean_sha(raw.get("headRefOid"))
+        if number <= 0 or not base_sha or not head_sha:
+            continue
+        base_exists = subprocess.run(
+            ["git", "cat-file", "-e", f"{base_sha}^{{commit}}"],
+            cwd=repo_root,
+            capture_output=True,
+            check=False,
+        )
+        head_exists = subprocess.run(
+            ["git", "cat-file", "-e", f"{head_sha}^{{commit}}"],
+            cwd=repo_root,
+            capture_output=True,
+            check=False,
+        )
+        if base_exists.returncode != 0 or head_exists.returncode != 0:
+            continue
+
+        local_paths: list[str] | None = None
+        local_renamed: list[str] | None = None
+        merge_base = ""
+        if raw.get("changedPathsComplete") is not True:
+            local_paths, local_renamed, merge_base = _local_changed_paths(
+                base_sha=base_sha,
+                head_sha=head_sha,
+                repo_root=repo_root,
+            )
+            raw["files"] = [{"path": path} for path in local_paths]
+            raw["renamedFromPaths"] = [
+                {"path": path} for path in local_renamed
+            ]
+            raw["changedFiles"] = len(local_paths)
+            raw["changedFilesLocal"] = len(local_paths)
+            raw["changedPathsComplete"] = True
+            raw["changedPathsApiCapReached"] = False
+            raw["changedPathsSource"] = LOCAL_CHANGED_PATH_SOURCE
+            raw["changedPathsHeadBefore"] = head_sha
+            raw["changedPathsHeadAfter"] = head_sha
+            raw["changedPathsBaseBefore"] = base_sha
+            raw["changedPathsBaseAfter"] = base_sha
+            raw["changedPathsMergeBase"] = merge_base
+
+        commit_lines = str(
+            _git_output(
+                ["rev-list", "--reverse", f"{base_sha}..{head_sha}"],
+                repo_root=repo_root,
+            )
+        ).splitlines()
+        commits = [clean_sha(value.strip()) for value in commit_lines]
+        if not commits or not all(commits) or len(commits) != len(set(commits)):
+            raise RuntimeError(f"invalid local Git commit evidence:PR-{number}")
+        if head_sha not in commits:
+            raise RuntimeError(f"local Git commit evidence omits head:PR-{number}")
+        raw["commits"] = [{"oid": value} for value in commits]
+        raw["commitCount"] = len(commits)
+        raw["commitOidsSource"] = LOCAL_COMMIT_SOURCE
 
 
 def collect_local_ancestry(
@@ -735,18 +881,26 @@ def changed_path_evidence(raw: dict[str, Any], paths: list[str]) -> tuple[int, b
         and not isinstance(graphql, bool)
         and graphql >= 0
     )
-    provenance_consistent = bool(
+    remote_provenance_consistent = bool(
         detail_valid
         and graphql_valid
         and changed_files == int(detail)
         and (graphql_absent or changed_files == int(graphql))
     )
+    local_count = raw.get("changedFilesLocal")
+    local_provenance_consistent = bool(
+        isinstance(local_count, int)
+        and not isinstance(local_count, bool)
+        and local_count >= 0
+        and changed_files == int(local_count)
+        and clean_sha(raw.get("changedPathsMergeBase"))
+    )
     head_sha = clean_sha(raw.get("headRefOid"))
     base_sha = clean_sha(raw.get("baseRefOid"))
+    source = str(raw.get("changedPathsSource") or "")
     pinned = bool(
         raw.get("changedPathsComplete") is True
-        and raw.get("changedPathsSource")
-        == "GITHUB_HEAD_AND_BASE_PINNED_PR_FILES_API"
+        and source in {REMOTE_CHANGED_PATH_SOURCE, LOCAL_CHANGED_PATH_SOURCE}
         and clean_sha(raw.get("changedPathsHeadBefore")) == head_sha
         and clean_sha(raw.get("changedPathsHeadAfter")) == head_sha
         and clean_sha(raw.get("changedPathsBaseBefore")) == base_sha
@@ -757,10 +911,19 @@ def changed_path_evidence(raw: dict[str, Any], paths: list[str]) -> tuple[int, b
     complete = bool(
         count_valid
         and pinned
-        and provenance_consistent
+        and (
+            remote_provenance_consistent
+            if source == REMOTE_CHANGED_PATH_SOURCE
+            else local_provenance_consistent
+        )
         and changed_files == len(paths)
-        and len(paths) < 3000
-        and raw.get("changedPathsApiCapReached") is not True
+        and (
+            source == LOCAL_CHANGED_PATH_SOURCE
+            or (
+                len(paths) < 3000
+                and raw.get("changedPathsApiCapReached") is not True
+            )
+        )
     )
     return changed_files, complete
 
@@ -1155,11 +1318,23 @@ def normalize_pr(
         ),
         "changed_paths_sha256": canonical_sha256(paths),
         "renamed_from_paths_sha256": canonical_sha256(renamed_from_paths),
+        "local_git_changed_file_count": (
+            int(raw["changedFilesLocal"])
+            if isinstance(raw.get("changedFilesLocal"), int)
+            and not isinstance(raw.get("changedFilesLocal"), bool)
+            else None
+        ),
+        "changed_paths_merge_base": clean_sha(
+            raw.get("changedPathsMergeBase")
+        ),
         "commit_oids": commit_oids,
         "commit_oids_sha256": (
             canonical_sha256(commit_oids) if commit_oids_complete else None
         ),
         "commit_oids_complete": commit_oids_complete,
+        "commit_oids_source": str(
+            raw.get("commitOidsSource") or "UNRESOLVED_BLOCKED"
+        ),
         "commit_count": commit_count,
         "review_count": len(reviews) if reviews is not None else None,
         "check_count": len(checks) if checks is not None else None,
@@ -1555,6 +1730,8 @@ def main() -> int:
     )
     if not args.pull_requests_json:
         enrich_remote_changed_paths(args.repository, pull_requests)
+    if args.collect_local_ancestry:
+        enrich_local_pr_git_evidence(pull_requests)
     live_collection = not (
         args.repository_json and args.branches_json and args.pull_requests_json
     )

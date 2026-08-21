@@ -186,6 +186,8 @@ def test_cli_and_workflow_publish_canonical_v3_evidence_only() -> None:
     assert "run287-u0-accepted-evidence" in workflow
     assert "run287-u0-accepted-evidence-v1" not in workflow
     assert "run287-u0-v2-acceptance" not in workflow
+    assert "+refs/pull/*/head:refs/run287-u0-pull-heads/*" in workflow
+    assert "--collect-local-ancestry" in workflow
 
 
 def main() -> int:
