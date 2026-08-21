@@ -32,11 +32,13 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
 
       - name: Install scan dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pandas numpy yfinance pyyaml pyarrow
+          pip install -r requirements_github.txt
 
       - name: Run winner lifecycle diagnostics
         run: |
