@@ -447,6 +447,32 @@ def test_local_git_repairs_pinned_path_and_commit_evidence() -> None:
         )
         assert changed_count == 2
         assert complete is True
+        row.update(
+            {
+                "title": "Add alpha evidence",
+                "body": "research-only",
+                "state": "OPEN",
+                "isDraft": True,
+                "headRefName": "candidate",
+                "baseRefName": "master",
+                "statusMetadataHeadOid": head_sha,
+                "statusMetadataHeadMatches": True,
+                "statusMetadataSource": "GRAPHQL_STATUS_HEAD_PINNED",
+                "reviews": [],
+                "statusCheckRollup": [],
+            }
+        )
+        normalized = MOD.normalize_pr(
+            row,
+            audit_sha=base_sha,
+            ancestry_by_sha={head_sha: "ORPHANED_FROM_AUDIT_HEAD"},
+            do_not_repeat_ids=set(),
+        )
+        assert normalized["changed_paths_complete"] is True
+        assert normalized["changed_paths_source"] == MOD.LOCAL_CHANGED_PATH_SOURCE
+        assert normalized["commit_oids_complete"] is True
+        assert normalized["commit_oids"] == [head_sha]
+        assert normalized["commit_oids_source"] == MOD.LOCAL_COMMIT_SOURCE
 
 
 def test_cached_changed_paths_require_head_and_base_pins() -> None:
