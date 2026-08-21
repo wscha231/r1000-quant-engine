@@ -89,6 +89,8 @@ DATASETS: list[dict[str, Any]] = [
      "kind": "json", "layer": "prices", "owner_workflow": "after_close_daily.yml", "cadence_days": 4},
     {"name": "price_cache_dir", "path": "cache_prices",
      "kind": "dir", "layer": "prices", "owner_workflow": "after_close_daily.yml", "cadence_days": 4},
+    {"name": "macro_daily_snapshot", "path": "cloud_results/macro_daily/latest.json",
+     "kind": "json", "layer": "macro", "owner_workflow": "after_close_daily.yml", "cadence_days": 4},
     # --- materialised candidate / scored books ---
     {"name": "scored_latest", "path": "outputs/scored_latest.csv",
      "kind": "csv", "ticker_col": "ticker", "date_col": "", "layer": "scored",

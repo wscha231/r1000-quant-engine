@@ -62,6 +62,7 @@ jobs:
             cache_prices
             data_raw/free
             data_pit/free
+            data_pit/events
             data_pit/sec
             data_pit/etf_holdings
             data_pit/macro
@@ -133,6 +134,7 @@ jobs:
           restore_dir cache_prices cache_prices
           restore_dir data_raw/free data_raw/free
           restore_dir data_pit/free data_pit/free
+          restore_dir data_pit/events data_pit/events
           restore_dir data_pit/sec data_pit/sec
           restore_dir data_pit/etf_holdings data_pit/etf_holdings
           restore_dir data_pit/macro data_pit/macro
@@ -161,6 +163,10 @@ jobs:
         run: |
           set -e
           mkdir -p outputs/full_rebuild_logs
+          python tools/build_data_catalog.py \
+            --output outputs/data_catalog/catalog.json \
+            --print-summary \
+            2>&1 | tee outputs/full_rebuild_logs/data_catalog.log
           STRICT_FLAG=""
           if [ "${{ github.event.inputs.strict || 'false' }}" = "true" ]; then
             STRICT_FLAG="--strict"
@@ -173,6 +179,35 @@ jobs:
             $STRICT_FLAG \
             2>&1 | tee outputs/full_rebuild_logs/data_readiness.log
 
+      - name: Build current virtual-account evaluation and rebalance review
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/full_rebuild_logs
+          LATEST_RUN="${{ github.event.inputs.latest_run || 'cloud_results/full_rebuild/latest_global_alpha_universe' }}"
+          python tools/run_weekly_evaluation.py \
+            --latest-run "$LATEST_RUN" \
+            --price-cache cache_prices \
+            --output-dir outputs/weekly_evaluation \
+            2>&1 | tee outputs/full_rebuild_logs/weekly_evaluation.log
+          python tools/run_account_evaluation.py \
+            --latest-run "$LATEST_RUN" \
+            --data-readiness-summary outputs/data_readiness/summary.json \
+            --output-dir outputs/account_evaluation \
+            2>&1 | tee outputs/full_rebuild_logs/account_evaluation.log
+          python tools/run_decision_cadence_review.py \
+            --latest-run "$LATEST_RUN" \
+            --price-cache cache_prices \
+            --output-dir outputs/decision_cadence \
+            2>&1 | tee outputs/full_rebuild_logs/decision_cadence.log
+          python tools/build_operating_model_review.py \
+            --data-readiness outputs/data_readiness/summary.json \
+            --data-catalog outputs/data_catalog/catalog.json \
+            --weekly-evaluation outputs/weekly_evaluation/weekly_freshness_audit.json \
+            --account-evaluation outputs/account_evaluation/official_metrics.json \
+            --decision-cadence outputs/decision_cadence/decision_cadence_summary.json \
+            --output-dir outputs/operating_model_review \
+            2>&1 | tee outputs/full_rebuild_logs/operating_model_review.log
+
       - name: Upload preflight artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -180,8 +215,18 @@ jobs:
           name: data-readiness-preflight-${{ github.run_id }}
           path: |
             outputs/data_readiness/
+            outputs/data_catalog/
+            outputs/weekly_evaluation/
+            outputs/account_evaluation/
+            outputs/decision_cadence/
+            outputs/operating_model_review/
             outputs/full_rebuild_logs/data_readiness.log
+            outputs/full_rebuild_logs/data_catalog.log
             outputs/full_rebuild_logs/sec_companyfacts_refresh.log
+            outputs/full_rebuild_logs/weekly_evaluation.log
+            outputs/full_rebuild_logs/account_evaluation.log
+            outputs/full_rebuild_logs/decision_cadence.log
+            outputs/full_rebuild_logs/operating_model_review.log
           retention-days: 30
 
       - name: Sync preflight report to Google Drive
@@ -229,6 +274,11 @@ jobs:
             BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
           fi
           rclone copy outputs/data_readiness "$DEST/"
+          for report_dir in data_catalog weekly_evaluation account_evaluation decision_cadence operating_model_review; do
+            if [ -d "outputs/$report_dir" ]; then
+              rclone copy "outputs/$report_dir" "$DEST/$report_dir/"
+            fi
+          done
           if [ "${{ github.event.inputs.sec_companyfacts || 'false' }}" = "true" ] && [ -s data_raw/free/sec/companyfacts.zip ]; then
             echo "[preflight] syncing refreshed companyfacts.zip to canonical Drive paths"
             rclone copy data_raw/free/sec "$BASE"data_raw/free/sec/ --include companyfacts.zip

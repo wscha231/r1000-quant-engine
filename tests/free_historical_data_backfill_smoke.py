@@ -193,6 +193,7 @@ def test_data_catalog_tracks_new_free_history_feeds() -> None:
         "forward_estimate_collection_universe",
         "forward_estimate_collection_checkpoint",
         "forward_earnings_revision_signals",
+        "macro_daily_snapshot",
     ]:
         assert token in text
 
