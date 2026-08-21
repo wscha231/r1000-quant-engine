@@ -1627,15 +1627,31 @@ def validate_target_handoff(
             "same-close target handoff marker hash mismatch",
         )
     manifest = read_json(manifest_path)
+    handoff_schema = str(manifest.get("schema_version") or "")
+    accepted_status = {
+        "run287-same-close-target-books-v1": "READY_SAME_CLOSE_PAPER_TARGETS",
+        "run287-paper-buy-guard-targets-v1": "READY_PAPER_BUY_GUARD_TARGETS",
+    }.get(handoff_schema)
+    guard_contract_valid = bool(
+        handoff_schema != "run287-paper-buy-guard-targets-v1"
+        or (
+            manifest.get("macro_crisis_inputs_bound") is True
+            and manifest.get("historical_performance_validated") is False
+            and manifest.get("automatic_promotion_allowed") is False
+            and ((manifest.get("policy") or {}).get("forced_crisis_sales_allowed"))
+            is False
+        )
+    )
     if (
-        manifest.get("schema_version") != "run287-same-close-target-books-v1"
-        or manifest.get("status") != "READY_SAME_CLOSE_PAPER_TARGETS"
+        accepted_status is None
+        or manifest.get("status") != accepted_status
         or manifest.get("target_book_file_written") is not True
         or manifest.get("orders_generated") is not False
         or manifest.get("paper_only") is not True
         or manifest.get("production_activation_allowed") is not False
         or manifest.get("live_trading_enabled") is not False
         or manifest.get("fullrun_executed") is not False
+        or not guard_contract_valid
         or clean_date(manifest.get("valuation_close_date"))
         != pd.Timestamp(as_of_date).date().isoformat()
     ):
@@ -1681,6 +1697,7 @@ def validate_target_handoff(
         }
     return {
         "schema_version": "run287-paper-target-handoff-v1",
+        "source_manifest_schema_version": handoff_schema,
         "manifest_path": portable_path(manifest_path),
         "manifest_sha256": expected_manifest_sha,
         "targets": target_audit,

@@ -2255,7 +2255,8 @@ jobs:
             rm -rf \
               outputs/daily_operating_selection_refresh \
               outputs/holding_risk_watch \
-              outputs/run287_same_close_decision
+              outputs/run287_same_close_decision \
+              outputs/run287_paper_buy_guard
           else
             DECISION_CUTOFF_UTC="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
             GENERATED_AT_UTC="$DECISION_CUTOFF_UTC"
@@ -2264,7 +2265,9 @@ jobs:
           export GENERATED_AT_UTC
           DATE_TOKEN="${PAPER_AS_OF//-/}"
           SAME_CLOSE_DIR="outputs/run287_same_close_decision/${DATE_TOKEN}"
+          PAPER_BUY_GUARD_DIR="outputs/run287_paper_buy_guard/${DATE_TOKEN}"
           export SAME_CLOSE_DIR
+          export PAPER_BUY_GUARD_DIR
           LEGACY_MIGRATION_ARGS=()
           if [ "${PAPER_LEGACY_MIGRATION_PENDING:-no}" = "yes" ]; then
             LEGACY_MIGRATION_ARGS=(
@@ -2800,14 +2803,24 @@ jobs:
             --output-dir "$SAME_CLOSE_DIR" \
             2>&1 | tee outputs/full_rebuild_logs/daily_run287_same_close_target_books.log; then
             SAME_CLOSE_READY=yes
+            # Bind the exact marked account and canonical macro/crisis state
+            # before any second-pass paper order is allowed.  This guard never
+            # forces a crisis sale; it limits only selector-requested increases.
+            if python tools/build_run287_paper_buy_guard_targets.py \
+              --same-close-status "$SAME_CLOSE_DIR/status.json" \
+              --state-dir outputs/daily_simulated_fill_ledger \
+              --valuation-date "$PAPER_AS_OF" \
+              --output-dir "$PAPER_BUY_GUARD_DIR" \
+              2>&1 | tee outputs/full_rebuild_logs/daily_run287_paper_buy_guard.log; then
             # A second same-session transaction is permitted only after the
-            # suppressed mark and only when the target identity changed.  It
-            # enqueues review-only orders eligible for the next NYSE close.
+            # suppressed mark, the fail-closed paper buy guard, and an exact
+            # target identity change.  Orders remain review-only and are
+            # eligible for the next NYSE close.
             read -r TARGET_HANDOFF_SHA MAIN_TARGET_SHA CONCENTRATED_TARGET_SHA < <(
               python - \
-                "$SAME_CLOSE_DIR/status.json" \
-                "$SAME_CLOSE_DIR/same_close_main_target_book.csv" \
-                "$SAME_CLOSE_DIR/same_close_concentrated_target_book.csv" <<'PY'
+                "$PAPER_BUY_GUARD_DIR/status.json" \
+                "$PAPER_BUY_GUARD_DIR/paper_buy_guard_main_target_book.csv" \
+                "$PAPER_BUY_GUARD_DIR/paper_buy_guard_concentrated_target_book.csv" <<'PY'
           import hashlib
           import json
           import sys
@@ -2829,12 +2842,15 @@ jobs:
 
           if (
               status.get("schema_version")
-              != "run287-same-close-target-books-v1"
-              or status.get("status") != "READY_SAME_CLOSE_PAPER_TARGETS"
+              != "run287-paper-buy-guard-targets-v1"
+              or status.get("status") != "READY_PAPER_BUY_GUARD_TARGETS"
               or status.get("target_book_file_written") is not True
               or status.get("orders_generated") is not False
+              or status.get("macro_crisis_inputs_bound") is not True
+              or status.get("historical_performance_validated") is not False
+              or status.get("automatic_promotion_allowed") is not False
           ):
-              raise SystemExit("same-close target handoff marker is not READY")
+              raise SystemExit("paper buy guard target handoff marker is not READY")
           hashes = {}
           outputs = status.get("outputs") or {}
           for portfolio, target_path in targets.items():
@@ -2847,7 +2863,7 @@ jobs:
                   or str(record.get("sha256") or "").lower() != actual_sha
               ):
                   raise SystemExit(
-                      f"same-close target handoff mismatch:{portfolio}"
+                      f"paper buy guard target handoff mismatch:{portfolio}"
                   )
               hashes[portfolio] = actual_sha
           print(
@@ -2863,9 +2879,9 @@ jobs:
               --order-preview-root outputs/account_ledger_preview \
               --main-bootstrap-account outputs/daily_simulated_fill_ledger/bootstrap/main_account.json \
               --concentrated-bootstrap-account outputs/daily_simulated_fill_ledger/bootstrap/concentrated_account.json \
-              --main-target "$SAME_CLOSE_DIR/same_close_main_target_book.csv" \
-              --concentrated-target "$SAME_CLOSE_DIR/same_close_concentrated_target_book.csv" \
-              --target-handoff-manifest "$SAME_CLOSE_DIR/status.json" \
+              --main-target "$PAPER_BUY_GUARD_DIR/paper_buy_guard_main_target_book.csv" \
+              --concentrated-target "$PAPER_BUY_GUARD_DIR/paper_buy_guard_concentrated_target_book.csv" \
+              --target-handoff-manifest "$PAPER_BUY_GUARD_DIR/status.json" \
               --expected-target-handoff-sha256 "$TARGET_HANDOFF_SHA" \
               --main-target-sha256 "$MAIN_TARGET_SHA" \
               --concentrated-target-sha256 "$CONCENTRATED_TARGET_SHA" \
@@ -2877,6 +2893,9 @@ jobs:
               --cost-bps 25 \
               --max-fill-lag-days 7 \
               2>&1 | tee outputs/full_rebuild_logs/daily_simulated_fill_ledger.log
+            else
+              echo "[daily-operating] paper buy guard blocked; prior fills/marks retained and zero new orders generated"
+            fi
           else
             echo "[daily-operating] same-close selector blocked; prior fills/marks retained and zero new orders generated"
           fi
@@ -3391,6 +3410,7 @@ jobs:
             outputs/run287_exact_packet_input_registry/
             outputs/run287_exact_packet_producer/
             outputs/run287_same_close_decision/*/status.json
+            outputs/run287_paper_buy_guard/*/status.json
             outputs/run287_current_selector_no_write_exact_close_*/
             outputs/run287_candidate_risk_watch_exact_close_*/
             outputs/run287_ohlcv_location_timing_exact_close_*/
@@ -3428,6 +3448,7 @@ jobs:
             outputs/full_rebuild_logs/daily_run287_ohlcv_location_timing_challenger.log
             outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log
             outputs/full_rebuild_logs/daily_run287_same_close_target_books.log
+            outputs/full_rebuild_logs/daily_run287_paper_buy_guard.log
             outputs/full_rebuild_logs/daily_run287_decision_observation_archive.log
             outputs/full_rebuild_logs/daily_run287_risk_outcome_parent_anchor.log
             outputs/full_rebuild_logs/daily_run287_risk_outcomes.log
@@ -4278,6 +4299,7 @@ jobs:
             outputs/daily_simulated_fill_ledger/
             outputs/run287_paper_immutable_head_bundles/
             outputs/run287_same_close_decision/
+            outputs/run287_paper_buy_guard/
             outputs/run287_decision_observation_archive/
             outputs/run287_risk_outcome_parent_accepted/
             outputs/run287_risk_outcome_parent_anchor/
@@ -4314,6 +4336,7 @@ jobs:
             outputs/run287_paper_immutable_head_bundles/
             outputs/account_ledger_preview/
             outputs/run287_same_close_decision/*/status.json
+            outputs/run287_paper_buy_guard/*/status.json
             ${{ runner.temp }}/run287_durable_scope_initial.json
             ${{ runner.temp }}/run287_durable_scope_final.json
             ${{ runner.temp }}/run287_durable_scope_persist.json
@@ -4437,7 +4460,7 @@ jobs:
           fi
           SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-daily}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
           DEST="${BASE}research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/accepted_paper_transaction"
-          for d in outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/daily_simulated_fill_ledger outputs/run287_same_close_decision outputs/run287_decision_observation_archive outputs/run287_risk_outcome_parent_anchor outputs/run287_risk_outcome_accepted_head_manifests outputs/run287_risk_outcome_archive outputs/run287_risk_outcome_price_cache outputs/run287_operating_scorecard outputs/run287_promotion_gate; do
+          for d in outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview outputs/daily_simulated_fill_ledger outputs/run287_same_close_decision outputs/run287_paper_buy_guard outputs/run287_decision_observation_archive outputs/run287_risk_outcome_parent_anchor outputs/run287_risk_outcome_accepted_head_manifests outputs/run287_risk_outcome_archive outputs/run287_risk_outcome_price_cache outputs/run287_operating_scorecard outputs/run287_promotion_gate; do
             test -d "$d"
             rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line
           done
