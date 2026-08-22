@@ -3795,6 +3795,24 @@ Expected contract:
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
 
+## 2026-08-22 - Exact-head local Git evidence must retain API provenance
+
+- A local repair must not erase why the remote evidence was incomplete. Keep the
+  GitHub PR-files cap flag true even when an exact local diff supplies the full
+  path set, and expose both sources in the artifact contract.
+- Rename-aware evidence is incomplete when Git silently skips exhaustive rename
+  detection. Pin a repository-independent rename limit and fail closed on the
+  skip warning; record the applied limit with the normalized row.
+- Preserve GitHub's declared PR commit count before replacing the working count
+  with local `base..head` enumeration. Publish both counts and block the row when
+  they differ.
+- Validate fallback policy on the largest known historical PR, not only on a
+  tiny fixture. PR #11 produced 13,414 paths and 131 local commits, matching the
+  131 commits declared by GitHub under the pinned 20,000 rename limit.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
+
 ## 2026-08-18 - Official Q2 13F refresh and CUSIP coverage boundary
 
 - A fresh submissions index is not sufficient proof that 13F scores are

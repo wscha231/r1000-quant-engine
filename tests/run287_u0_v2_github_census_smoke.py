@@ -6,6 +6,7 @@ import json
 import subprocess
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -156,6 +157,10 @@ def test_census_is_complete_metadata_but_blocks_research_claims() -> None:
     assert census["source_contract"][
         "normalized_pull_request_rows_sha256"
     ] == MOD.canonical_sha256(census["pull_requests"])
+    assert MOD.REMOTE_CHANGED_PATH_SOURCE in census["source_contract"]["changed_paths"]
+    assert MOD.LOCAL_CHANGED_PATH_SOURCE in census["source_contract"]["changed_paths"]
+    assert str(MOD.LOCAL_GIT_RENAME_LIMIT) in census["source_contract"]["changed_paths"]
+    assert MOD.LOCAL_COMMIT_SOURCE in census["source_contract"]["commit_oids"]
     candidate = census["pull_requests"][0]
     assert candidate["experiment_identity_status"] == "UNMAPPED_BLOCKED"
     assert candidate["base_sha"] == AUDIT_SHA
@@ -423,10 +428,10 @@ def test_local_git_repairs_pinned_path_and_commit_evidence() -> None:
             "files": [{"path": "alpha.py"}],
             "renamedFromPaths": [],
             "changedPathsComplete": False,
-            "changedPathsApiCapReached": False,
+            "changedPathsApiCapReached": True,
             "changedPathsSource": MOD.REMOTE_CHANGED_PATH_SOURCE,
             "commits": [],
-            "commitCount": None,
+            "commitCount": 1,
         }
         MOD.enrich_local_pr_git_evidence([row], repo_root=repo)
         assert row["changedFiles"] == 2
@@ -439,8 +444,13 @@ def test_local_git_repairs_pinned_path_and_commit_evidence() -> None:
         assert row["changedPathsSource"] == MOD.LOCAL_CHANGED_PATH_SOURCE
         assert row["changedPathsMergeBase"] == base_sha
         assert row["changedPathsComplete"] is True
+        assert row["changedPathsApiCapReached"] is True
+        assert row["changedPathsRenameLimit"] == MOD.LOCAL_GIT_RENAME_LIMIT
         assert row["commits"] == [{"oid": head_sha}]
         assert row["commitCount"] == 1
+        assert row["commitCountApi"] == 1
+        assert row["commitCountLocal"] == 1
+        assert row["commitOidsCountMatchesApi"] is True
         assert row["commitOidsSource"] == MOD.LOCAL_COMMIT_SOURCE
         changed_count, complete = MOD.changed_path_evidence(
             row, MOD.path_list(row["files"])
@@ -470,9 +480,62 @@ def test_local_git_repairs_pinned_path_and_commit_evidence() -> None:
         )
         assert normalized["changed_paths_complete"] is True
         assert normalized["changed_paths_source"] == MOD.LOCAL_CHANGED_PATH_SOURCE
+        assert normalized["changed_paths_api_cap_reached"] is True
+        assert normalized["changed_paths_rename_limit"] == MOD.LOCAL_GIT_RENAME_LIMIT
         assert normalized["commit_oids_complete"] is True
         assert normalized["commit_oids"] == [head_sha]
         assert normalized["commit_oids_source"] == MOD.LOCAL_COMMIT_SOURCE
+        assert normalized["github_declared_commit_count"] == 1
+        assert normalized["local_git_commit_count"] == 1
+        assert normalized["commit_count_matches_github"] is True
+
+        mismatch = dict(row)
+        mismatch["commitCountApi"] = 2
+        mismatch["commitOidsCountMatchesApi"] = False
+        normalized_mismatch = MOD.normalize_pr(
+            mismatch,
+            audit_sha=base_sha,
+            ancestry_by_sha={head_sha: "ORPHANED_FROM_AUDIT_HEAD"},
+            do_not_repeat_ids=set(),
+        )
+        assert normalized_mismatch["commit_oids_complete"] is False
+        assert normalized_mismatch["github_declared_commit_count"] == 2
+        assert normalized_mismatch["local_git_commit_count"] == 1
+        assert normalized_mismatch["commit_count_matches_github"] is False
+        assert "github_local_commit_count_mismatch" in normalized_mismatch[
+            "promotion_blockers"
+        ]
+
+
+def test_local_git_rejects_skipped_rename_detection() -> None:
+    base_sha = "a" * 40
+    head_sha = "b" * 40
+    completed = [
+        subprocess.CompletedProcess(
+            args=[], returncode=0, stdout=base_sha + "\n", stderr=""
+        ),
+        subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=b"",
+            stderr=(
+                b"warning: exhaustive rename detection was skipped due to too many files\n"
+            ),
+        ),
+    ]
+    with patch.object(MOD.subprocess, "run", side_effect=completed) as run:
+        try:
+            MOD._local_changed_paths(
+                base_sha=base_sha,
+                head_sha=head_sha,
+                repo_root=Path.cwd(),
+            )
+        except RuntimeError as exc:
+            assert "rename detection was skipped" in str(exc)
+        else:
+            raise AssertionError("skipped rename detection was accepted")
+    diff_command = run.call_args_list[1].args[0]
+    assert f"-l{MOD.LOCAL_GIT_RENAME_LIMIT}" in diff_command
 
 
 def test_cached_changed_paths_require_head_and_base_pins() -> None:
@@ -1498,6 +1561,7 @@ def main() -> int:
     test_remote_files_are_counted_and_bound_to_one_head()
     test_remote_file_cap_and_head_race_remain_blocked()
     test_local_git_repairs_pinned_path_and_commit_evidence()
+    test_local_git_rejects_skipped_rename_detection()
     test_cached_changed_paths_require_head_and_base_pins()
     test_zero_count_conflict_and_status_head_race_fail_closed()
     test_cached_collections_require_complete_bound_envelopes()

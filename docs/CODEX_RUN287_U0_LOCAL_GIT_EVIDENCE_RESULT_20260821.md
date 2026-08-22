@@ -81,3 +81,20 @@ stage.  It explicitly keeps all of the following false:
 All 365 legacy trials still lack exact parameter/data hashes, verified PIT
 contracts, target/cash/cost contracts, and synchronized daily after-cost return
 series.  Completing the census does not validate their reported CAGR or MDD.
+
+## Exact-head review hardening — 2026-08-22
+
+The local fallback now preserves the original GitHub API-cap observation instead
+of rewriting it after repair.  Its source contract explicitly identifies the
+remote and local path sources, pins local rename detection to 20,000 candidates,
+and fails closed if Git reports that exhaustive rename detection was skipped.
+
+The collector also retains GitHub's declared PR commit count separately from the
+local `base..head` count.  A mismatch makes commit-OID evidence incomplete and
+adds an explicit promotion blocker.  On the largest known case, PR #11, the
+hardened path recovered 13,414 current paths, 2 rename-source paths, and 131
+local commits; the local commit count matched GitHub's declared count of 131.
+
+Focused U0 census, recovery, acceptance, experiment-audit, and expected-return
+challenger smoke tests passed.  No fullrun, portfolio backtest, target/order/
+ledger mutation, production change, or live-trading action was executed.
