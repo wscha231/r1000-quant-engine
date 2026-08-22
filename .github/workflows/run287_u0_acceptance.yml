@@ -41,7 +41,9 @@ jobs:
           test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
           REMOTE_MASTER="$(gh api "repos/${GITHUB_REPOSITORY}/commits/master" --jq .sha)"
           test "$REMOTE_MASTER" = "$GITHUB_SHA"
-          git fetch --no-tags origin '+refs/heads/*:refs/remotes/origin/*'
+          git fetch --no-tags origin \
+            '+refs/heads/*:refs/remotes/origin/*' \
+            '+refs/pull/*/head:refs/run287-u0-pull-heads/*'
 
       - name: Build exact-head GitHub census
         env:
