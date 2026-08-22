@@ -1957,6 +1957,7 @@ def main() -> int:
     test_fast_replay_workflow_uses_artifacts_not_full_rebuild()
     test_free_data_lake_workflow_restores_drive_and_runs_proxy_replay()
     test_free_data_daily_workflow_updates_metrics_after_close()
+    test_daily_autolearning_installs_market_calendar_and_remains_report_only()
     test_data_readiness_preflight_workflow_restores_drive_and_audits_without_full_rebuild()
     test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract()
     test_pages_deploy_keeps_prior_site_without_completed_session_artifact()
