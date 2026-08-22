@@ -4150,3 +4150,37 @@ Expected contract:
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
+
+## 2026-08-23 - Local recovery requires object databases and worktree bytes
+
+- Agent: Codex GPT-5.6.
+- Branch: `codex/p0-1-local-recovery-20260823`.
+- Context: Issue #369 required preservation of every recoverable local R1000
+  lineage before any folder cleanup.
+- Result: 23 worktrees mapped to eight common Git directories. Eight bundles,
+  eight Git-directory snapshots, 12 dirty/untracked TARs, and one loose R1000
+  TAR were created outside Git and bound by SHA-256. All eight bundles and all
+  13 TARs passed their applicable validation.
+- Caveat: `db03_codex_dev2_alternate` already lacked three parent commits.
+  GitHub direct-SHA fetch did not recover them. Its verified bundle therefore
+  contains 18 healthy refs; 108 incomplete refs remain preserved only in the
+  exact Git-directory snapshot and raw reports.
+- Reusable lesson: A bundle preserves reachable refs, not worktree bytes,
+  staged indexes, reflogs, or unreachable objects. Recovery needs one bundle
+  and one Git-directory snapshot per distinct object database plus a
+  path-preserving dirty/untracked snapshot. Verify a bundle against its matching
+  object database because an unrelated verifier can lack prerequisites.
+- Validation caveat: The complete local fast suite passed `217/221`. Two OHLCV
+  tests read CRLF working-tree bytes under `core.autocrlf=true` while their
+  pinned SHA-256 correctly matches the LF Git blob. The current-crisis and
+  advisory-selector tests could not resolve historical commit `15176b...` in
+  the publication clone's object database. None of the four failures touches a
+  changed recovery path. Archive-specific validation passed `21/21`.
+- Next action: Review and merge the P0-1 manifest PR, then begin P0-2 canonical
+  SHA and `CURRENT_STATUS.md` work without deleting any recovered path.
+- Do-not-repeat: Do not assume `H:/codex` is the R1000 repository, create only
+  one bundle for multiple common Git directories, or treat incomplete refs as
+  mergeable history.
+- Fullrun executed: false. Target/order/ledger mutation executed: false.
+  Production enabled: false. Live trading enabled: false. Automatic promotion
+  enabled: false.

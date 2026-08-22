@@ -1,0 +1,206 @@
+schema_version: 1
+recovery_id: r1000-recovery-20260823
+issue: 369
+repository: wscha231/r1000-quant-engine
+captured_on: 2026-08-23
+operating_boundary: RESEARCH_ONLY
+
+canonical_context:
+  issue_baseline_sha: 8790af4dc520fa7962e7375390d7f42219896c40
+  remote_master_at_publication_start_sha: faf01e1cc2d30e7c5e125352cbc9ba9712151b85
+  mixed_workspace_root: H:/codex
+  mixed_workspace_repository: wscha231/eth-dashboard
+  official_r1000_worktree: H:/r1000-quant-engine
+  publication_worktree: H:/repos/r1000-quant-engine
+  note: >-
+    The publication worktree was captured at its pre-existing a171226 tip and
+    only then fetched and switched to a P0-1 branch. The official R1000
+    healthcare worktree was not checked out, reset, staged, or modified.
+
+scope:
+  external_recovery_root: H:/backup/r1000-recovery-20260823
+  external_recovery_root_is_local_only: true
+  large_files_committed_to_git: false
+  r1000_worktrees: 23
+  distinct_common_git_directories: 8
+  dirty_worktrees: 12
+  verified_bundles: 8
+  validated_tar_snapshots: 13
+  loose_r1000_top_level_entries: 206
+  pre_post_status_differences_at_snapshot_boundary: 0
+  live_trading_changed: false
+  paper_ledger_changed: false
+  target_book_changed: false
+  champion_changed: false
+
+tracked_indexes:
+  worktree_status: recovery/r1000_worktree_status/summary.tsv
+  bundle_hashes: recovery/r1000_bundle_sha256.txt
+  snapshot_hashes: recovery/r1000_snapshot_sha256.txt
+  gitdb_manifest_hashes: recovery/r1000_gitdb_snapshot_manifests_sha256.txt
+  restore_procedure: recovery/R1000_RESTORE_PROCEDURE.md
+
+external_evidence:
+  bundle_directory: bundles
+  dirty_worktree_directory: dirty_worktrees
+  gitdb_snapshot_directory: gitdb_snapshots
+  loose_material_directory: loose_r1000_material
+  raw_manifest_directory: manifests
+  raw_worktree_status_directory: worktree_status
+  raw_object_report_directory: object_db_reports
+  sensitive_local_only_directory: sensitive_local_only
+  bundle_bytes: 12946889382
+  dirty_worktree_tar_bytes: 112032938496
+  loose_material_tar_bytes: 41061381120
+  note: >-
+    The Git-directory snapshot total grew after capture because promised blobs
+    were hydrated into backup copies only. Per-file hashes bind the resulting
+    recoverable snapshots.
+
+object_databases:
+  - id: db01_codex_grossfloor
+    original_common_git_dir: H:/codex/tmp_r1000_grossfloor_20260625/.git
+    representative_worktree: H:/codex/tmp_r1000_grossfloor_20260625
+    worktree_count: 6
+    origin: https://github.com/wscha231/r1000-quant-engine.git
+    original_promisor_missing_blobs: 25
+    backup_hydrated: true
+    refs_reported_before_bundle: 1025
+    bundle_heads: 1031
+    unreachable_objects: 23942
+    missing_objects: 0
+    bundle: bundles/db01_codex_grossfloor.bundle
+    bundle_sha256: 4f400b001036b4ff1a1e4511efdbbd13aceddf042503c793d94527d295cd495e
+    bundle_verified: true
+  - id: db02_codex_quant_engine
+    original_common_git_dir: H:/codex/tmp_r1000_quant_engine/.git
+    representative_worktree: H:/codex/tmp_r1000_quant_engine
+    worktree_count: 9
+    origin: https://github.com/wscha231/r1000-quant-engine.git
+    refs_reported_before_bundle: 238
+    bundle_heads: 247
+    unreachable_objects: 1687
+    missing_objects: 0
+    non_object_garbage_files_reported: 4
+    bundle: bundles/db02_codex_quant_engine.bundle
+    bundle_sha256: df4c9d8e3ea79d1922c6dcd2dec5850bcec3181b19f1010b7f0389fbc2fec737
+    bundle_verified: true
+  - id: db03_codex_dev2_alternate
+    original_common_git_dir: H:/codex/tmp_r1000_dev2_20260624/.git
+    representative_worktree: H:/codex/tmp_r1000_dev2_20260624
+    worktree_count: 1
+    origin: H:/codex/tmp_r1000_fullrun_hotfix
+    resolved_github_remote: https://github.com/wscha231/r1000-quant-engine.git
+    alternate_object_database: H:/codex/tmp_r1000_quant_engine/.git/objects
+    refs_reported_before_bundle: 126
+    healthy_refs_bundled: 18
+    incomplete_refs_preserved_in_gitdb_snapshot: 108
+    unreachable_objects: 12682
+    missing_objects: 3
+    missing_commit_shas:
+      - 87300e3e63ff5dea5ca68babbe170501f2b955a1
+      - 0a70ff41ba3ea89dd7c29912af0a057cc50ad07d
+      - 3ffaf09b2034501aa129fc0f3c3226817bd3f23a
+    direct_github_fetch_recovery_succeeded: false
+    bundle_scope: healthy_refs_only
+    bundle: bundles/db03_codex_dev2_alternate.bundle
+    bundle_sha256: 5f4b35fe14f3d9b4d5a7f743bd29ba9285e787b5226d4bc97a935a688b393cc7
+    bundle_verified: true
+    note: >-
+      The complete original refs, object files, alternates metadata, and the
+      list of 108 incomplete refs remain in the Git-directory snapshot and raw
+      reports. The verified bundle intentionally excludes histories that Git
+      cannot traverse without the three missing commits.
+  - id: db04_codex_dev
+    original_common_git_dir: H:/codex/tmp_r1000_dev_20260624/.git
+    representative_worktree: H:/codex/tmp_r1000_dev_20260624
+    worktree_count: 1
+    refs_reported_before_bundle: 2
+    bundle_heads: 3
+    unreachable_objects: 0
+    missing_objects: 0
+    bundle: bundles/db04_codex_dev.bundle
+    bundle_sha256: 9bceef0196bd9d1a0763dc0ac372960782a866b21fef58a7d29cf5ee779d08a6
+    bundle_verified: true
+  - id: db05_codex_pr3_harden
+    original_common_git_dir: H:/codex/tmp_r1000_quant_engine_pr3_harden/.git
+    representative_worktree: H:/codex/tmp_r1000_quant_engine_pr3_harden
+    worktree_count: 3
+    refs_reported_before_bundle: 92
+    bundle_heads: 95
+    unreachable_objects: 46
+    missing_objects: 0
+    bundle: bundles/db05_codex_pr3_harden.bundle
+    bundle_sha256: 615b8c996538529c4fd9aff4804b554ee0ad819f60191ee48dc298d68d60b5a4
+    bundle_verified: true
+  - id: db06_codex_push_accbe
+    original_common_git_dir: H:/codex/tmp_r1000_quant_engine_push_accbe/.git
+    representative_worktree: H:/codex/tmp_r1000_quant_engine_push_accbe
+    worktree_count: 1
+    refs_reported_before_bundle: 42
+    bundle_heads: 43
+    unreachable_objects: 4
+    missing_objects: 0
+    non_object_garbage_files_reported: 1
+    bundle: bundles/db06_codex_push_accbe.bundle
+    bundle_sha256: b75c7d82a8d71e942d26965434d93e075c098c01566c01732bb25d118bf31461
+    bundle_verified: true
+  - id: db07_official_current
+    original_common_git_dir: H:/r1000-quant-engine/.git
+    representative_worktree: H:/r1000-quant-engine
+    worktree_count: 1
+    origin: https://github.com/wscha231/r1000-quant-engine.git
+    captured_head: faf01e1cc2d30e7c5e125352cbc9ba9712151b85
+    captured_branch: codex/healthcare-biotech-universe-20260822
+    original_promisor_missing_blobs: 10594
+    backup_hydrated: true
+    refs_reported_before_bundle: 324
+    bundle_heads: 325
+    unreachable_objects: 18827
+    missing_objects: 0
+    bundle: bundles/db07_official_current.bundle
+    bundle_sha256: 9d0abe47f80dab4acfa50ad1ac857e855b004c039d02c4ce3d3821035d95dda0
+    bundle_verified: true
+  - id: db08_repos_clone
+    original_common_git_dir: H:/repos/r1000-quant-engine/.git
+    representative_worktree: H:/repos/r1000-quant-engine
+    worktree_count: 1
+    captured_head: a171226642fba7e2afddc2fe9322eac8d578b35c
+    captured_branch: master
+    refs_reported_before_bundle: 42
+    bundle_heads: 43
+    unreachable_objects: 0
+    missing_objects: 0
+    bundle: bundles/db08_repos_clone.bundle
+    bundle_sha256: feca2c5cc126922475758778d489e44eebf132f79ad2572caae3f0ace0ebf7e5
+    bundle_verified: true
+
+snapshot_contract:
+  format: uncompressed_tar
+  path_preserving: true
+  dirty_snapshot_count: 12
+  loose_material_snapshot_count: 1
+  validation:
+    tar_create_exit_zero: true
+    size_multiple_of_512: true
+    ustar_magic_present: true
+    trailing_zero_blocks_present: true
+    sha256_recorded: true
+  staged_content_note: >-
+    Worktree TARs preserve working-tree bytes. Staged index state is preserved
+    in the corresponding Git-directory snapshot.
+
+sensitive_material:
+  detected_source: H:/codex/.env
+  copied_to_local_only_area: true
+  included_in_git: false
+  included_in_loose_material_tar: false
+  value_or_hash_printed_in_repository: false
+
+explicit_exclusions:
+  - openai/codex repository
+  - wscha231/eth-dashboard Git history
+  - H:/kr_quant_engine
+  - H:/kr-quant-engine-reference
+  - production or live-trading state
+  - accepted paper ledger or target mutation
