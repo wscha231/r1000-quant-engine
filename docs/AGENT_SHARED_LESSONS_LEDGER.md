@@ -4129,3 +4129,24 @@ Expected contract:
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
+
+## 2026-08-22 - Continuous learning requires an outcome ledger before RL
+
+- A successful daily data refresh does not prove that selection learning is
+  operating. On 2026-08-22 the free-data update was green while the daily
+  AutoLearning scan failed on a missing `pandas_market_calendars` dependency and
+  the operating-selection path stopped at an explicit durable-state boundary.
+- Training only from executed trades creates selection bias. A usable learning
+  loop labels every eligible alternative after its horizon matures and preserves
+  the exact decision state, action, reason, costs, model/config/data hashes, and
+  availability timestamps.
+- Do not describe a deterministic backtest feedback loop as reinforcement
+  learning unless action support, behavior probabilities, delayed outcomes, and
+  off-policy evaluation are present. Until then, use supervised walk-forward
+  challengers and counterfactual measurement with no automatic promotion.
+- Separate stock selection, entry timing, and exit policy into different causal
+  experiments. A single portfolio-return reward hides whether an apparent gain
+  came from alpha, cash, turnover suppression, or risk exposure.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
