@@ -491,7 +491,12 @@ def evaluate_window_gate(
     }
 
 
-def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
+def summarize_portfolio(
+    latest_run: Path,
+    portfolio: str,
+    *,
+    data_readiness_override: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     broker_metrics = read_json(latest_run / "broker_replay" / portfolio / "metrics.json")
     run_manifest = read_json(latest_run / "run_manifest.json")
     if run_manifest.get("evaluation_start_date") and not broker_metrics.get("evaluation_start_date"):
@@ -500,7 +505,11 @@ def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
     account_state = read_json(latest_run / "broker_replay" / portfolio / "account_state_latest.json")
     preview = read_json(latest_run / "account_ledger_preview" / portfolio / "preview_metrics.json")
     journal = read_json(latest_run / "broker_trade_journal" / portfolio / "summary.json")
-    data_readiness = read_json(latest_run / "data_readiness" / "summary.json")
+    data_readiness = (
+        data_readiness_override
+        if data_readiness_override is not None
+        else read_json(latest_run / "data_readiness" / "summary.json")
+    )
     legacy = legacy_metrics(latest_run, portfolio)
     target = target_for(portfolio)
     target_contract = target_contract_for(portfolio)
@@ -781,7 +790,20 @@ def render_report(payload: dict[str, Any]) -> str:
 def run(args: argparse.Namespace) -> dict[str, Any]:
     latest_run = repo_path(args.latest_run)
     output_dir = repo_path(args.output_dir)
-    portfolios = [summarize_portfolio(latest_run, name) for name in PORTFOLIOS]
+    data_readiness_summary_arg = str(getattr(args, "data_readiness_summary", "") or "").strip()
+    data_readiness_override = (
+        read_json(repo_path(data_readiness_summary_arg))
+        if data_readiness_summary_arg
+        else None
+    )
+    portfolios = [
+        summarize_portfolio(
+            latest_run,
+            name,
+            data_readiness_override=data_readiness_override,
+        )
+        for name in PORTFOLIOS
+    ]
     goal_search = summarize_goal_search(latest_run)
     production_target_pass = all(bool(row.get("target_pass")) for row in portfolios)
     strengthened_pass_all = all(bool(row.get("strengthened_pass")) for row in portfolios)
@@ -799,6 +821,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "rule": "Do not treat interim operating gates as a canonical mission rewrite without explicit user approval.",
         },
         "latest_run": str(latest_run),
+        "data_readiness_source": (
+            str(repo_path(data_readiness_summary_arg))
+            if data_readiness_summary_arg
+            else str(latest_run / "data_readiness" / "summary.json")
+        ),
         "generated_at_utc": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "production_target_pass": production_target_pass,
         "production_promotion_allowed": False,
@@ -829,6 +856,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--latest-run", default=DEFAULT_LATEST_RUN)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument(
+        "--data-readiness-summary",
+        default="",
+        help="Optional current readiness summary; overrides the copy embedded in --latest-run.",
+    )
     return parser.parse_args()
 
 

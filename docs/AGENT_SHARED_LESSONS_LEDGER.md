@@ -4129,3 +4129,27 @@ Expected contract:
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
+
+## 2026-08-21 - Daily collection health is not daily model-evaluation health
+
+- Baseline was `master@8790af4dc520fa7962e7375390d7f42219896c40`.
+  Recent scheduled price/free-data, earnings-estimate, Form 4, 13F,
+  after-close, and data-readiness workflows were green, but this did not mean
+  the operating selection and virtual-account evaluation path had completed.
+- `Daily Operating Selection Refresh` run `32440400556`, job `96649802798`,
+  stopped before price refresh/target/ledger work because the restored legacy
+  risk-outcome parent requires explicit one-time dispatch authorization. Never
+  rerun this transactional workflow blindly; verify the accepted parent and use
+  its authorization contract.
+- A daily operating review must bind current data readiness and catalog
+  freshness (previous NYSE close, fundamentals, earnings estimates, 13F, Form 4,
+  macro) to weekly mark-to-market, official next-close virtual broker metrics,
+  and the preregistered daily/weekly/monthly cadence. It remains report-only and
+  must expose stale or missing evidence rather than treating collector success
+  as model success.
+- The directly affected smoke tests passed locally. A broader Tier-0 sweep was
+  interrupted after more than nine minutes without output, so the exact PR head
+  still requires the normal remote required checks before merge.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.

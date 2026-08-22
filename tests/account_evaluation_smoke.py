@@ -138,6 +138,43 @@ def test_account_evaluation_uses_broker_ledger_as_official_source() -> None:
         assert (out / "account_evaluation_report.md").exists()
 
 
+def test_account_evaluation_accepts_current_readiness_override() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp) / "latest"
+        out = Path(tmp) / "account_eval"
+        current_readiness = Path(tmp) / "current_readiness.json"
+        for portfolio in ("main", "concentrated"):
+            seed_portfolio(root, portfolio, cagr=0.50, max_dd=-0.20, sharpe=1.5)
+        write_json(
+            root / "data_readiness" / "summary.json",
+            {"status": "ready", "ready_for_policy_replay": True},
+        )
+        write_json(
+            current_readiness,
+            {
+                "status": "blocked",
+                "ready_for_policy_replay": False,
+                "policy_replay_blockers": ["current SEC source is stale"],
+            },
+        )
+
+        result = run(
+            Namespace(
+                latest_run=str(root),
+                output_dir=str(out),
+                data_readiness_summary=str(current_readiness),
+            )
+        )
+
+        assert result["data_readiness_source"] == str(current_readiness)
+        assert all(
+            row["data_readiness_policy_replay_ready"] is False
+            for row in result["portfolios"]
+        )
+        assert all(row["valid_for_production"] is False for row in result["portfolios"])
+
+
 if __name__ == "__main__":
     test_account_evaluation_uses_broker_ledger_as_official_source()
+    test_account_evaluation_accepts_current_readiness_override()
     print("account_evaluation_smoke: PASS")
