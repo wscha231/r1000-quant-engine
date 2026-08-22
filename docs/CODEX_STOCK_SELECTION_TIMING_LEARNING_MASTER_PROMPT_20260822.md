@@ -16,12 +16,12 @@ PIT data and exact-close outcomes
 -> human approval or rejection
 ```
 
-This is the first safe form of continuous reinforcement.  True offline
-reinforcement learning or a contextual bandit is a later challenger and is not
-valid until the system records actions, eligible alternatives, action
-probabilities, delayed outcomes, costs, and complete state provenance.  Live
-exploration, automatic weight updates, and automatic champion replacement
-remain prohibited.
+This is a safe form of continuous supervised learning and evaluation.  It is
+not reinforcement learning.  True offline reinforcement learning or a
+contextual bandit is a later challenger and is not valid until the system
+records actions, eligible alternatives, action probabilities, delayed
+outcomes, costs, and complete state provenance.  Live exploration, automatic
+weight updates, and automatic champion replacement remain prohibited.
 
 ## Current starting evidence
 
@@ -67,8 +67,9 @@ evidence and stopping conditions.
 ```text
 Role:
 You are the research engineering lead for `wscha231/r1000-quant-engine`.
-Work only in the existing `H:\r1000-quant-engine` worktree. Your job is to
-evaluate and strengthen US stock selection, entry timing, holding, and exit
+Discover the current repository root and confirm that its canonical remote is
+`wscha231/r1000-quant-engine`; work only in that current worktree. Your job is
+to evaluate and strengthen US stock selection, entry timing, holding, and exit
 timing through a fail-closed champion–challenger learning loop.
 
 Goal:
@@ -85,9 +86,11 @@ Success means:
 2. Restore the report-only learning path if a deterministic dependency or
    wiring defect blocks it. Do not resume or rerun a transactional daily
    workflow without its explicit durable-state authorization.
-3. Reproduce a trustworthy incumbent baseline from exact PIT inputs and
-   `broker_ledger_next_close`; label stale, proxy, or invalid-window evidence
-   instead of treating it as official.
+3. Resolve the operating champion and inspect its already accepted immutable
+   PIT and `broker_ledger_next_close` evidence. Do not run or reproduce a
+   historical broker replay unless a separately versioned current contract
+   explicitly authorizes that exact replay. Label stale, proxy, challenger,
+   or invalid-window evidence instead of treating it as official.
 4. Build a current pipeline map showing the sole writer and data flow for:
    universe -> PIT features -> stock scores -> expected returns -> candidate
    book -> entry overlay -> target book -> next-close fills -> outcome ledger.
@@ -149,20 +152,23 @@ B. Incumbent evaluation
   measured failure modes.
 
 C. Stock-selection challenger
-- Use the existing multi-horizon contract as the incumbent:
+- Keep the current operating selector and portfolio policy as the incumbent.
+  Treat the existing expected-return contract and its ridge/logistic model as
+  a default-off research challenger reference, not as an accepted champion:
   21 NYSE sessions for timing warning, 63 for primary selection, 126 for
   persistence; current score weights 0.00/0.65/0.35.
 - Train on the full eligible cross-section for each decision date, not only
   holdings or winners. Use next-session entry labels and benchmark/sector
   excess outcomes with the required purge and 126-session embargo.
-- Keep the accepted ridge/logistic model as baseline. Add only one challenger
-  family per PR, such as a regularized nonlinear ranker, and keep it default
-  off. Do not tune several model families and select the best from the same
-  holdout.
-- Emit for every eligible name: 1m/3m/6m/12m expected return where supported,
-  benchmark excess return, downside probability, uncertainty, feature/data
-  confidence, model ID, code SHA, config hash, data hash, universe hash, and
-  availability timestamp.
+- Compare the ridge/logistic reference to the operating champion and label it
+  as a challenger. Add only one further challenger family per PR, such as a
+  regularized nonlinear ranker, and keep it default off. Do not tune several
+  model families and select the best from the same holdout.
+- Emit only the contracted 21/63/126-session expected returns for every
+  eligible name, plus benchmark excess return, downside probability,
+  uncertainty, feature/data confidence, model ID, code SHA, config hash, data
+  hash, universe hash, and availability timestamp. A new horizon, including
+  252 sessions/12 months, requires its own versioned preregistered contract.
 - Keep candidate quality separate from portfolio capacity, cash, and macro
   risk. A high expected return does not bypass liquidity, lifecycle, or
   concentration gates.
@@ -186,9 +192,13 @@ D. Entry, hold, and exit challengers
   policy in the same causal experiment.
 
 E. Continuous learning contract
-- Daily: append exact-session state, eligible alternatives, decisions, reasons,
-  model/config/data hashes, and newly matured outcomes. Measure drift and data
-  quality only; do not retrain or promote.
+- Daily inspection: resolve the earliest unprocessed NYSE session before the
+  latest session. Inspect its exact-session state, eligible alternatives,
+  decisions, reasons, model/config/data hashes, and newly matured outcomes.
+  Measure drift and data quality only; do not append or advance durable state,
+  retrain, or promote. Any durable state/outcome append must be a separate
+  explicitly authorized workflow with chronological-session, identity,
+  idempotency, and durability gates.
 - Monthly: train one proposal-only challenger on expanding and rolling windows
   using only matured labels. Freeze its preregistered features, parameters, and
   reward before opening the final holdout.
@@ -260,12 +270,14 @@ Allowed actions without asking:
 - inspect logs and download artifacts;
 - edit one in-scope causal branch;
 - run unit, smoke, schema, lint, and measurement-only tests;
-- create proposal-only research artifacts and a draft PR.
+- create proposal-only research evidence that is not a target or order artifact,
+  and create a draft PR.
 
 Require explicit approval before:
 - fullrun or expensive long replay;
 - transactional workflow dispatch or durable paper-ledger mutation;
-- target/order generation beyond dry-run preview;
+- any target or order generation; without approval, only inspect an existing
+  immutable preview;
 - champion/promotion/policy default changes;
 - production/live activation;
 - deleting branches, artifacts, data, or rewriting history.
@@ -301,23 +313,28 @@ action. Do not claim improvement from training metrics alone.
 ## 2. Daily measurement prompt
 
 ```text
-Evaluate the latest completed NYSE session for Run287 in read-only mode.
-Resolve the exact master SHA and trusted input/artifact identities first.
-Append or inspect matured selection and timing outcomes for all eligible names,
-including names that were not selected. Report data/PIT quality, score and
+Evaluate Run287 in read-only mode. Resolve the exact master SHA and trusted
+input/artifact identities first, then identify the earliest unprocessed NYSE
+session. Inspect that session before any later session; inspect the latest only
+when no earlier session is pending. Inspect matured selection and timing
+outcomes for all eligible names, including names that were not selected, but do
+not append or advance any durable state. Report data/PIT quality, score and
 feature drift, missed-leader capture, downside calibration, entry/exit alerts,
 and regime/macro risk state. Do not retrain, change weights, create targets or
-orders, mutate the paper ledger, promote a model, or rerun a failed
-transactional workflow. If a required state is missing or conflicting, fail
-closed and identify the exact missing artifact or authorization.
+orders, mutate any paper or outcome ledger, promote a model, or rerun a failed
+transactional workflow. If chronological state, identity, or authorization is
+missing or conflicting, fail closed and identify the exact gap.
 ```
 
 ## 3. Monthly challenger-training prompt
 
 ```text
 Train one proposal-only Run287 challenger from matured labels under the accepted
-selection/timing contract. First reproduce the incumbent on the same exact PIT
-dataset and manifest. Use the full eligible cross-section, contracted
+selection/timing contract. First resolve the operating champion and its already
+accepted immutable PIT and next-close evidence on the same manifest. Do not run
+a historical broker replay unless a separately versioned current contract
+explicitly authorizes that exact replay; if new replay evidence is required,
+stop and request approval. Use the full eligible cross-section, contracted
 purge/embargo, expanding plus rolling windows, fixed preregistered features and
 parameters, and an untouched final holdout. Change either stock selection or
 one entry/exit timing mechanism, not both. Evaluate rank/capture/calibration,
