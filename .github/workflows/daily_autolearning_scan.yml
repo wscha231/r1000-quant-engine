@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       latest_run:
-        description: 'artifact source path to inspect'
+        description: 'candidate artifact path; trusted only after provenance/freshness gate'
         type: string
         default: cloud_results/full_rebuild/latest_global_alpha_universe
   schedule:
@@ -17,6 +17,7 @@ on:
     - cron: '30 22 * * 1-5'
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -27,6 +28,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -38,8 +41,37 @@ jobs:
           python -m pip install --upgrade pip
           pip install pandas numpy yfinance pyyaml pyarrow pandas-market-calendars
 
-      - name: Run winner lifecycle diagnostics
+      - name: Resolve completed NYSE session
+        id: market
         run: |
+          set -euo pipefail
+          python tools/run_daily_market_session_gate.py \
+            --output outputs/daily_autolearning_source_selection/market_session.json \
+            --min-close-age-minutes 90 \
+            --max-close-age-hours 18
+
+      - name: Select provenance-locked AutoLearning source
+        if: steps.market.outputs.ready == 'yes'
+        id: source_gate
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          CANDIDATE_RUN="${{ inputs.latest_run }}"
+          if [ -z "$CANDIDATE_RUN" ]; then
+            CANDIDATE_RUN="cloud_results/full_rebuild/latest_global_alpha_universe"
+          fi
+          python tools/select_daily_autolearning_source.py \
+            --candidate-run "$CANDIDATE_RUN" \
+            --expected-session-date "${{ steps.market.outputs.session_date }}" \
+            --current-code-sha "${{ github.sha }}" \
+            --github-repository "${{ github.repository }}" \
+            --output-dir outputs/daily_autolearning_source_selection
+
+      - name: Run winner lifecycle diagnostics
+        if: steps.source_gate.outputs.ready == 'yes'
+        run: |
+          set -euo pipefail
           LATEST_RUN="${{ inputs.latest_run }}"
           if [ -z "$LATEST_RUN" ]; then
             LATEST_RUN="cloud_results/full_rebuild/latest_global_alpha_universe"
@@ -125,6 +157,7 @@ jobs:
         with:
           name: daily-autolearning-scan-${{ github.run_id }}
           path: |
+            outputs/daily_autolearning_source_selection/
             outputs/winner_lifecycle/
             outputs/winner_onset_study/
             outputs/shakeout_breakdown_study/

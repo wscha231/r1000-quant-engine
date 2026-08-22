@@ -4150,3 +4150,22 @@ Expected contract:
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
+
+## 2026-08-22 - Daily AutoLearning source identity must fail closed
+
+- A checked-in directory name such as `latest_global_alpha_universe` is not a
+  current data identity. Bind the source workflow run, conclusion, code SHA,
+  artifact ID/digest, actual file hashes, universe hash, and per-layer
+  `as_of`/`available_from` before any daily learning or replay starts.
+- Recompute hashes after restore. An embedded hash that differs from the file
+  beside it proves the directory is mixed, even when every required filename is
+  present and an earlier workflow uploaded an artifact.
+- Resolve the last accepted chronological cursor independently of the newest
+  market close. A daily job must report the earliest unprocessed NYSE session
+  and block rather than jump directly to the latest session.
+- Source/freshness gates are read-only and deterministic. A blocked result must
+  leave target books, orders, paper accounts, outcome ledgers, promotions, and
+  live trading untouched.
+- Fullrun executed: false. Backtest executed: false. Portfolio mutation
+  executed: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
