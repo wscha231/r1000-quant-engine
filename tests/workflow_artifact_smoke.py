@@ -13,6 +13,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "full_rebuild_manual.yml"
 REPLAY_WORKFLOW = ROOT / ".github" / "workflows" / "alphaops_replay_sidecars_manual.yml"
 FREE_DATA_WORKFLOW = ROOT / ".github" / "workflows" / "free_data_lake_bootstrap.yml"
 FREE_DATA_DAILY_WORKFLOW = ROOT / ".github" / "workflows" / "free_data_daily_update.yml"
+DAILY_AUTOLEARNING_WORKFLOW = ROOT / ".github" / "workflows" / "daily_autolearning_scan.yml"
 DATA_PREFLIGHT_WORKFLOW = ROOT / ".github" / "workflows" / "data_readiness_preflight.yml"
 DAILY_OPERATING_WORKFLOW = ROOT / ".github" / "workflows" / "daily_operating_selection_refresh.yml"
 PAGES_WORKFLOW = ROOT / ".github" / "workflows" / "pages_deploy.yml"
@@ -979,6 +980,24 @@ def test_free_data_daily_workflow_updates_metrics_after_close() -> None:
         assert forbidden not in text, forbidden
 
 
+def test_daily_autolearning_installs_market_calendar_and_remains_report_only() -> None:
+    text = DAILY_AUTOLEARNING_WORKFLOW.read_text(encoding="utf-8")
+    for token in [
+        "Daily AutoLearning Scan",
+        "contents: read",
+        "pandas-market-calendars",
+        "tools/run_autolearning_winner_challenger.py",
+        "outputs/autolearning_winner_challenger/",
+    ]:
+        assert token in text, token
+    for forbidden in [
+        "contents: write",
+        "git commit",
+        "git push",
+    ]:
+        assert forbidden not in text, forbidden
+
+
 def test_data_readiness_preflight_workflow_restores_drive_and_audits_without_full_rebuild() -> None:
     text = DATA_PREFLIGHT_WORKFLOW.read_text(encoding="utf-8")
     for token in [
@@ -1938,6 +1957,7 @@ def main() -> int:
     test_fast_replay_workflow_uses_artifacts_not_full_rebuild()
     test_free_data_lake_workflow_restores_drive_and_runs_proxy_replay()
     test_free_data_daily_workflow_updates_metrics_after_close()
+    test_daily_autolearning_installs_market_calendar_and_remains_report_only()
     test_data_readiness_preflight_workflow_restores_drive_and_audits_without_full_rebuild()
     test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract()
     test_pages_deploy_keeps_prior_site_without_completed_session_artifact()
