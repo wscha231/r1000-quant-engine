@@ -4129,3 +4129,15 @@ Expected contract:
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
+
+## 2026-08-21 - Scheduled analysis must install the repository dependency contract
+
+- `Daily AutoLearning Scan` run `32426500171`, job `96609414266`, failed in the
+  concentrated policy replay because its hand-written dependency subset omitted
+  `pandas_market_calendars`.
+- Scheduled analysis workflows should install `requirements_github.txt` rather
+  than maintain partial package lists that drift from imports shared with the
+  virtual broker replay and NYSE calendar logic.
+- Fullrun executed: false. Broker comparison executed: false. Production
+  enabled: false. Live trading enabled: false. Automatic promotion enabled:
+  false.
