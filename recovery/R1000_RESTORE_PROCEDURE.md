@@ -54,9 +54,38 @@ file named inside it must be re-hashed, and the governed directory must contain
 no missing or extra files.
 
 ```powershell
+$reviewedRecoveryCommit = $env:R1000_RECOVERY_REVIEWED_SHA
+if ($reviewedRecoveryCommit -notmatch '^[0-9a-f]{40}$') {
+  throw 'Set R1000_RECOVERY_REVIEWED_SHA from accepted GitHub merge evidence'
+}
+
 $control = [IO.Path]::GetFullPath((Get-Location).Path)
 if (-not (Test-Path -LiteralPath (Join-Path $control 'recovery') -PathType Container)) {
   throw 'Run the verification from the reviewed repository root'
+}
+$gitRoot = git -C $control rev-parse --show-toplevel
+Assert-Native 'control repository root observation'
+$gitRoot = [IO.Path]::GetFullPath($gitRoot)
+if (-not $gitRoot.Equals($control, [StringComparison]::OrdinalIgnoreCase)) {
+  throw "Control path is not the repository root: $control"
+}
+$origin = git -C $control remote get-url origin
+Assert-Native 'control repository origin observation'
+if ($origin -ne 'https://github.com/wscha231/r1000-quant-engine.git') {
+  throw "Unexpected control repository origin: $origin"
+}
+$controlHead = git -C $control rev-parse HEAD
+Assert-Native 'control repository HEAD observation'
+if ($controlHead -ne $reviewedRecoveryCommit) {
+  throw "Control HEAD is not the reviewed recovery commit"
+}
+git -C $control diff --quiet $reviewedRecoveryCommit -- recovery
+Assert-Native 'recovery controls match reviewed commit'
+$recoveryStatus = @(git -C $control status --porcelain=v1 `
+  --untracked-files=all -- recovery)
+Assert-Native 'recovery control status observation'
+if ($recoveryStatus.Count -ne 0) {
+  throw 'Recovery controls contain tracked or untracked local changes'
 }
 
 function Read-Sha256Index([string] $path) {

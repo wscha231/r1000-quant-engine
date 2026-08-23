@@ -4183,6 +4183,9 @@ Expected contract:
   a zero-missing usable db03 restore, and compares exact status plus staged
   object inventories. The 23 worktree and 18 object-DB raw reports are bound by
   two new external per-file manifests and one tracked hash index.
+- Second exact-head review follow-up: The verifier now requires an out-of-band
+  accepted GitHub commit SHA and checks the repository root, canonical origin,
+  exact HEAD, and clean `recovery/` controls before trusting any local index.
 - Next action: Review and merge the P0-1 manifest PR, then begin P0-2 canonical
   SHA and `CURRENT_STATUS.md` work without deleting any recovered path.
 - Do-not-repeat: Do not assume `H:/codex` is the R1000 repository, create only
