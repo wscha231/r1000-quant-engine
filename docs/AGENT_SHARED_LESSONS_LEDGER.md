@@ -4176,6 +4176,13 @@ Expected contract:
   advisory-selector tests could not resolve historical commit `15176b...` in
   the publication clone's object database. None of the four failures touches a
   changed recovery path. Archive-specific validation passed `21/21`.
+- Exact-head review follow-up: The restore contract now rejects an existing
+  destination, recomputes every Git-directory and raw-report member hash with
+  exact missing/extra detection, maps every advertised bundle head into an
+  explicit recovery namespace with atomic fetch and native exit checks, requires
+  a zero-missing usable db03 restore, and compares exact status plus staged
+  object inventories. The 23 worktree and 18 object-DB raw reports are bound by
+  two new external per-file manifests and one tracked hash index.
 - Next action: Review and merge the P0-1 manifest PR, then begin P0-2 canonical
   SHA and `CURRENT_STATUS.md` work without deleting any recovered path.
 - Do-not-repeat: Do not assume `H:/codex` is the R1000 repository, create only

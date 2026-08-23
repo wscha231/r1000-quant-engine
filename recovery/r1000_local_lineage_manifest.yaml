@@ -38,6 +38,7 @@ tracked_indexes:
   bundle_hashes: recovery/r1000_bundle_sha256.txt
   snapshot_hashes: recovery/r1000_snapshot_sha256.txt
   gitdb_manifest_hashes: recovery/r1000_gitdb_snapshot_manifests_sha256.txt
+  raw_report_manifest_hashes: recovery/r1000_raw_report_manifests_sha256.txt
   restore_procedure: recovery/R1000_RESTORE_PROCEDURE.md
 
 external_evidence:
@@ -48,6 +49,10 @@ external_evidence:
   raw_manifest_directory: manifests
   raw_worktree_status_directory: worktree_status
   raw_object_report_directory: object_db_reports
+  worktree_status_file_count: 23
+  object_db_report_file_count: 18
+  worktree_status_hash_manifest: manifests/worktree_status_sha256.txt
+  object_db_report_hash_manifest: manifests/object_db_reports_sha256.txt
   sensitive_local_only_directory: sensitive_local_only
   bundle_bytes: 12946889382
   dirty_worktree_tar_bytes: 112032938496

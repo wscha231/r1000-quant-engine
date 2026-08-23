@@ -9,7 +9,9 @@ Captured on 2026-08-23 before any cleanup or branch census mutation.
   untracked counts matched for all 23 worktrees.
 - Full path lists, reflogs, refs, stash listings, `git fsck` output, archive
   validation, and per-file Git-directory hashes remain outside Git at
-  `H:/backup/r1000-recovery-20260823`.
+  `H:/backup/r1000-recovery-20260823`. The raw worktree-status and object-DB
+  report directories have complete per-file SHA-256 manifests bound by
+  `recovery/r1000_raw_report_manifests_sha256.txt`.
 - `H:/codex` itself is `wscha231/eth-dashboard`; it was not bundled as an
   R1000 repository. Only clearly identified loose R1000/Run287 material was
   copied into the dedicated loose-material TAR.
