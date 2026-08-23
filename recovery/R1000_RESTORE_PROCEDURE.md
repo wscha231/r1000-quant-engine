@@ -55,6 +55,9 @@ no missing or extra files.
 
 ```powershell
 $control = [IO.Path]::GetFullPath((Get-Location).Path)
+if (-not (Test-Path -LiteralPath (Join-Path $control 'recovery') -PathType Container)) {
+  throw 'Run the verification from the reviewed repository root'
+}
 
 function Read-Sha256Index([string] $path) {
   $rows = @()
@@ -314,7 +317,8 @@ function Assert-ExactLines($expected, $actual, [string] $label) {
 }
 
 $statusReport = Join-Path $recovery 'worktree_status\r1000-quant-engine.txt'
-$capturedIndex = Join-Path $recovery 'gitdb_snapshots\db07_official_current\index'
+$capturedGitDir = Join-Path $recovery 'gitdb_snapshots\db07_official_current'
+$capturedIndex = Join-Path $capturedGitDir 'index'
 $restoredGitDir = git -C $worktree rev-parse --absolute-git-dir
 Assert-Native "restored Git-directory observation"
 $restoredIndex = Join-Path $restoredGitDir 'index'
@@ -322,8 +326,8 @@ $restoredIndex = Join-Path $restoredGitDir 'index'
 $previousIndex = $env:GIT_INDEX_FILE
 try {
   $env:GIT_INDEX_FILE = $capturedIndex
-  $expectedStage = @(git --git-dir=(Join-Path $recovery `
-    'gitdb_snapshots\db07_official_current') --work-tree=$worktree ls-files --stage)
+  $expectedStage = @(git --git-dir=$capturedGitDir `
+    --work-tree=$worktree ls-files --stage)
   Assert-Native "captured staged-index inventory"
 } finally {
   $env:GIT_INDEX_FILE = $previousIndex
