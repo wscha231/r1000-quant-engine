@@ -1,0 +1,24 @@
+group_id	worktree	branch_or_state	head	upstream	ahead	behind	staged	unstaged	untracked	dirty_snapshot
+db01_codex_grossfloor	H:/codex/tmp_r1000_grossfloor_20260625	codex/integration-fullrun-clean-20260630	15176b588d5bb0792bce1df6367758d795a8a33a	NONE			35	11	8530	codex_tmp_r1000_grossfloor_20260625.dirty_untracked.tar
+db01_codex_grossfloor	H:/codex/r1000_run287_closeout_20260707	codex/run287-hedgefollow-manager-events-20260819	1ab4940d1c9f9684240725c2b62f32cd823d770b	NONE			0	2	30	codex_r1000_run287_closeout_20260707.dirty_untracked.tar
+db01_codex_grossfloor	H:/codex/r1000_run287_drive_autorecovery_20260820	codex/run287-drive-autorecovery-20260820	8790af4dc520fa7962e7375390d7f42219896c40	origin/master	0	0	0	3	3	codex_r1000_run287_drive_autorecovery_20260820.dirty_untracked.tar
+db01_codex_grossfloor	H:/codex/r1000_run287_r1r2_20260706	codex/latest-close-reval-20260707	10c13306a51489e09ab6b9dc02716066a1071207	NONE			0	0	41	codex_r1000_run287_r1r2_20260706.dirty_untracked.tar
+db01_codex_grossfloor	H:/codex/tmp_r1000_prefullrun_fix_20260706	codex/fix-free-data-frozen-payload-20260706	eef5c0f002b94a5d0965f038bb74ea2453d0f319	NONE			0	0	84	codex_tmp_r1000_prefullrun_fix_20260706.dirty_untracked.tar
+db01_codex_grossfloor	H:/codex/tmp_r1000_w1_clean_15176b58	DETACHED	15176b588d5bb0792bce1df6367758d795a8a33a	NONE			0	0	0	NONE
+db02_codex_quant_engine	H:/codex/tmp_r1000_quant_engine	codex/github-agent-coordination-20260615	854c4a283d0199fd4b5eb92777b3fa8d2a55ac8a	origin/codex/github-agent-coordination-20260615	0	0	0	4	27562	codex_tmp_r1000_quant_engine.dirty_untracked.tar
+db02_codex_quant_engine	H:/codex/tmp_r1000_b1_fixup	DETACHED	290334a951e418583099a8e5c077ecee51767016	NONE			0	0	0	NONE
+db02_codex_quant_engine	H:/codex/tmp_r1000_coord_pr	codex/cagr-walkforward-20260619	ae98f95e60420a8985ca7d6c56df5b212c26845f	NONE			3	0	786	codex_tmp_r1000_coord_pr.dirty_untracked.tar
+db02_codex_quant_engine	H:/codex/tmp_r1000_forward_validation	DETACHED	232c7f866f92a2898918a03f4b5a8d5b0bfebf01	NONE			0	0	0	NONE
+db02_codex_quant_engine	H:/codex/tmp_r1000_fullrun_hotfix	DETACHED	e9510dad63e82108c6c199f98910817448ebb688	NONE			0	0	5199	codex_tmp_r1000_fullrun_hotfix.dirty_untracked.tar
+db02_codex_quant_engine	H:/codex/tmp_r1000_market_snapshot	codex/daily-market-snapshot-20260619	22db9e7a1cd5c1e0bc94583fbc23655b71f7459f	NONE			0	0	0	NONE
+db02_codex_quant_engine	H:/codex/tmp_r1000_origin_master_20260624	DETACHED	e9510dad63e82108c6c199f98910817448ebb688	NONE			0	0	0	NONE
+db02_codex_quant_engine	H:/codex/tmp_r1000_quant_engine_claude_review	codex/claude-review-OfEbu	6dcd7fdc66167eb6d72c29d661d5509f54d2356d	origin/codex/claude-review-OfEbu	0	0	0	0	0	NONE
+db02_codex_quant_engine	H:/codex/tmp_r1000_quant_engine_integrate	codex/ab-auto-feature-gates-active	878d5179ddb14def7058ef9df6987363c526ca65	origin/codex/ab-auto-feature-gates-active	0	1	0	0	83	codex_tmp_r1000_quant_engine_integrate.dirty_untracked.tar
+db03_codex_dev2_alternate	H:/codex/tmp_r1000_dev2_20260624	codex/pit-evidence-dtype-sanitize-20260625	527c186b04c07e95086d310ac5eb09abb375aae4	github/codex/pit-evidence-dtype-sanitize-20260625	0	0	0	0	0	NONE
+db04_codex_dev	H:/codex/tmp_r1000_dev_20260624	master	e9510dad63e82108c6c199f98910817448ebb688	origin/master	0	0	0	0	0	NONE
+db05_codex_pr3_harden	H:/codex/tmp_r1000_quant_engine_pr3_harden	claude/short-rs-intc-etf-overlay	5ef7589e27acd7724614ea7467cf3b132e140b9c	origin/claude/short-rs-intc-etf-overlay	0	7	0	4	61715	codex_tmp_r1000_quant_engine_pr3_harden.dirty_untracked.tar
+db05_codex_pr3_harden	H:/codex/tmp_r1000_quant_engine_master_workflow	master	73742de4dc674950904893af6910c34fe982dbd9	origin/master	0	174	0	0	0	NONE
+db05_codex_pr3_harden	H:/codex/tmp_r1000_quant_engine_sec_edgar	codex/post-disclosure-discovery-buckets	e74e81bb222ca1ad6484ec9074f4e3ae8aac2ed1	origin/codex/post-disclosure-discovery-buckets	0	0	0	0	23898	codex_tmp_r1000_quant_engine_sec_edgar.dirty_untracked.tar
+db06_codex_push_accbe	H:/codex/tmp_r1000_quant_engine_push_accbe	codex/alphaops-integrated-replay	969cf4bd5f001ddea18bf94d4b121cf4e324dad2	origin/codex/alphaops-integrated-replay	0	0	0	0	0	NONE
+db07_official_current	H:/r1000-quant-engine	codex/healthcare-biotech-universe-20260822	faf01e1cc2d30e7c5e125352cbc9ba9712151b85	NONE			0	6	4	r1000-quant-engine.dirty_untracked.tar
+db08_repos_clone	H:/repos/r1000-quant-engine	master	a171226642fba7e2afddc2fe9322eac8d578b35c	origin/master	0	0	0	0	0	NONE
