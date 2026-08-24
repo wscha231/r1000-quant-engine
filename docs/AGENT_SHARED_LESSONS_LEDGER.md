@@ -4202,8 +4202,11 @@ Expected contract:
 - Context: Issue #382 required one source-of-truth status snapshot for the US
   engine without changing alpha or durable state.
 - Result: The protected source snapshot base, registered champion source,
-  accepted metric evidence, scheduled-run heads, and P0-1 recovery publication
-  were recorded as separate identities in root `CURRENT_STATUS.md`.
+  tracked metric source (`UNVERIFIED FIXTURE EVIDENCE`), aggregate scheduled-run
+  head claim (`UNVERIFIED`), and P0-1 recovery publication were separated in
+  root `CURRENT_STATUS.md`.
+- Caveat: P0-2 did not record an exact head SHA for every inspected run, so no
+  aggregate scheduled-run source-head identity is accepted by this snapshot.
 - Caveat: A green data workflow can retain stale or partial semantic coverage.
   The 2026-08-21 free-data run completed while reporting a common coverage end
   of 2026-07-02; the 2026-08-22 estimate collector covered only 1/6 requested
@@ -4212,9 +4215,12 @@ Expected contract:
   after-close macro/regime jobs succeeded for data through 2026-08-21, but the
   daily selector stopped before price refresh, target construction, macro
   freshness validation, and the simulated-ledger transaction.
-- Reusable lesson: Source publication, champion policy, metric evidence, data
-  freshness, and accepted paper state each need their own exact identity. A
-  workflow name such as `Live Extension` is not evidence of live broker use,
+- Reusable lesson: Source publication, champion policy, tracked metric fixture,
+  per-run execution head, data freshness, and accepted paper state require
+  distinct identities. Until a hash-bound accepted metric packet and each
+  run's exact head SHA are recorded, the fixture and aggregate head claims stay
+  unverified. A workflow name such as `Live Extension` is not evidence of live
+  broker use,
   and executable paper-broker utilities are not authorized merely because they
   exist in the repository.
 - Next action: Complete the P0-3 authority census and P0-4 artifact inventory,
