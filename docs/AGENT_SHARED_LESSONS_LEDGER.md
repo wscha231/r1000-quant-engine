@@ -4201,7 +4201,7 @@ Expected contract:
 - Branch: `codex/p0-2-current-status-20260823`.
 - Context: Issue #382 required one source-of-truth status snapshot for the US
   engine without changing alpha or durable state.
-- Result: The protected source snapshot base, registered champion source,
+- Result: The observed source snapshot base, registered champion source,
   tracked metric source (`UNVERIFIED FIXTURE EVIDENCE`), aggregate scheduled-run
   head claim (`UNVERIFIED`), and P0-1 recovery publication were separated in
   root `CURRENT_STATUS.md`.
