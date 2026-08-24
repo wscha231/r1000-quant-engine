@@ -36,15 +36,15 @@ one another.
 |---|---|---|
 | Source snapshot base | [`86ff31f3528ce62b6ebcf327d260e76ee6a872bb`](https://github.com/wscha231/r1000-quant-engine/commit/86ff31f3528ce62b6ebcf327d260e76ee6a872bb) | Protected `master` observed when issue #382 and this status branch were created. The P0-2 merge necessarily advances `master`; GitHub's default-branch head remains the source-publication authority. |
 | Registered champion policy | [`819cbaa905bab6a455ed3e7c2a2a90ae2824833a`](https://github.com/wscha231/r1000-quant-engine/commit/819cbaa905bab6a455ed3e7c2a2a90ae2824833a) | `run287-generated-book-champion-20260710`, as declared by [`data_static/run287_promotion_state.json`](data_static/run287_promotion_state.json). This is a policy identity, not the current repository head. |
-| Accepted metric evidence | [`dc735d9953ca195fde69930d16ff893b5786194f`](https://github.com/wscha231/r1000-quant-engine/commit/dc735d9953ca195fde69930d16ff893b5786194f) | Last commit touching [`data_static/run287_promotion_evidence_current.json`](data_static/run287_promotion_evidence_current.json); evidence `as_of_date` is `2026-07-10`. |
-| Latest broadly scheduled data/operating code | [`8790af4dc520fa7962e7375390d7f42219896c40`](https://github.com/wscha231/r1000-quant-engine/commit/8790af4dc520fa7962e7375390d7f42219896c40) | Head used by most scheduled runs on 2026-08-19 through 2026-08-22. It is neither the champion policy identity nor proof of a completed paper session. |
+| Tracked fixture metric source | [`dc735d9953ca195fde69930d16ff893b5786194f`](https://github.com/wscha231/r1000-quant-engine/commit/dc735d9953ca195fde69930d16ff893b5786194f) | `UNVERIFIED FIXTURE EVIDENCE`: this is only the last commit touching [`data_static/run287_promotion_evidence_current.json`](data_static/run287_promotion_evidence_current.json), whose `as_of_date` is `2026-07-10`. Foundation finding `F1_CANONICAL_METRIC_IDENTITY` remains `OPEN`; no hash-bound accepted metric packet is identified here. |
+| Aggregate scheduled-run head claim | `UNVERIFIED` | P0-2 did not record a head SHA for every run below, so it does not attribute those executions in aggregate to `8790af4...` or any other source revision. Each outcome is bound only to its linked run until P0-3 records that run's exact head SHA. |
 | AutoLearning dependency fix | [`faf01e1cc2d30e7c5e125352cbc9ba9712151b85`](https://github.com/wscha231/r1000-quant-engine/commit/faf01e1cc2d30e7c5e125352cbc9ba9712151b85) | Restored the daily AutoLearning calendar dependency; the manual verification run succeeded. |
 | Local recovery publication | [`86ff31f3528ce62b6ebcf327d260e76ee6a872bb`](https://github.com/wscha231/r1000-quant-engine/commit/86ff31f3528ce62b6ebcf327d260e76ee6a872bb) | P0-1 recovery manifest merge. It preserves lineage evidence and does not promote recovered code. |
 
-`master` protection was observed with strict required checks `validate`,
-`portfolio_guard`, and `review_complete`, enforced for administrators, with
-required conversation resolution. Protection evidence is a GitHub setting and
-is not encoded by a Git commit.
+`master` branch protection is `NOT VERIFIED` by this snapshot. The mutable
+GitHub setting was reported as requiring `validate`, `portfolio_guard`, and
+`review_complete`, administrator enforcement, and conversation resolution, but
+P0-2 did not preserve a settings export or other hash-bound evidence identity.
 
 ## Strategy and performance state
 
@@ -52,17 +52,17 @@ The tracked promotion state is `RESEARCH_ONLY`, has no official challenger,
 allows neither production activation nor automatic transition, and explicitly
 sets `live_trading_enabled=false`.
 
-The current accepted fixture records:
+The current tracked fixture (`UNVERIFIED FIXTURE EVIDENCE`) records:
 
 | Sleeve | CAGR | Max drawdown | Mission constraint status |
 |---|---:|---:|---|
 | Main | `34.4032%` | `-25.3629%` | Fails the `MDD <= 25%` hard constraint by `0.3629%p`; CAGR is `0.5968%p` below `35%`. |
 | Concentrated | `49.0968%` | `-22.9560%` | MDD passes; CAGR is `0.9032%p` below `50%`. |
 
-These figures are fixture/promotion evidence, not a corrected current
-fullrun. The tracked evidence also marks PIT no-lookahead, OOS, OOS2, cost,
-stress, concentration, multiple-testing, and scorecard trust gates as not
-passed. The [foundation review](docs/CODEX_RUN287_SYSTEM_FOUNDATION_REVIEW_20260727.md)
+These figures have no accepted canonical metric identity and are not a
+corrected current fullrun. The tracked fixture also marks PIT no-lookahead,
+OOS, OOS2, cost, stress, concentration, multiple-testing, and scorecard trust
+gates as not passed. The [foundation review](docs/CODEX_RUN287_SYSTEM_FOUNDATION_REVIEW_20260727.md)
 requires a separately approved corrected rebaseline before these numbers are
 used as a new optimization authority. Issue
 [#358](https://github.com/wscha231/r1000-quant-engine/issues/358) remains an
@@ -99,11 +99,14 @@ the canonical accepted paper state. P0-2 did not directly read or mutate that
 Drive state. Therefore the exact accepted holdings, cash, ledger tip, and last
 durably completed market session are `NOT VERIFIED` in this snapshot.
 
-The latest failed operating run observed an immutable remote terminal hash
-`65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7`,
-but then failed before selecting/migrating the legacy outcome parent. That hash
-is discovery evidence only; it is not a claim that the `2026-08-21` paper
-session completed.
+The latest failed operating run observed
+`PAPER_IMMUTABLE_REMOTE_TERMINAL_HASH=65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7`
+in the simulated-fill paper-ledger immutable-head namespace
+`paper_archive/run287_daily_simulated_fill_ledger_heads/`. The separate
+`Restore verified risk-outcome accepted head` step then failed before any
+risk-outcome accepted parent was selected or migrated. The paper-ledger hash is
+discovery evidence only: it is not a risk-outcome head and does not prove that
+the `2026-08-21` paper session completed.
 
 Do not rerun the transactional daily workflow blindly. Resume only through its
 explicit chronological catch-up / one-time migration contract after verifying
@@ -115,8 +118,11 @@ required authorization.
 1. **P0-5 operating blocker:** issue
    [#357](https://github.com/wscha231/r1000-quant-engine/issues/357) remains
    open, and its failure boundary still reproduces on run `32545955145`.
-   Diagnose and authorize the narrow legacy-parent migration without changing
-   alpha, risk thresholds, target policy, or ledger semantics.
+   Diagnose and prepare the narrow legacy-parent migration without changing
+   alpha, risk thresholds, target policy, or ledger semantics. This snapshot
+   grants no migration or dispatch authority: keep
+   `allow_quarantined_legacy_outcome_parent` and `workflow_dispatch` blocked
+   until a separate durable-state authorization is recorded.
 2. **Price freshness ambiguity:** the green free-data run's common coverage
    ended on `2026-07-02`, while a later earnings workflow obtained coverage
    through `2026-08-21`. P0-3/P0-4 must identify which dataset is the official
