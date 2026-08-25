@@ -324,6 +324,19 @@ def test_frozen_pr_check_summary_is_derived_and_corruption_fails_closed() -> Non
     )
     assert verified_summary["required_success_provider_unverified_names"] == []
 
+    ambiguous_results = copy.deepcopy(verified_successes)
+    duplicate_validate = copy.deepcopy(ambiguous_results[0])
+    duplicate_validate["name"] = "validate"
+    duplicate_validate["app_id"] = REQUIRED_CHECK_APP_IDS["validate"]
+    duplicate_validate["conclusion"] = "FAILURE"
+    ambiguous_results.append(duplicate_validate)
+    ambiguous_summary = check_summary(ambiguous_results)
+    assert not ambiguous_summary["required_success_observed"]
+    assert "validate" not in ambiguous_summary["required_success_names"]
+    assert "validate" in ambiguous_summary[
+        "required_success_provider_unverified_names"
+    ]
+
     row["check_summary"]["count"] += 1
     try:
         validated_frozen_checks(row, int(row["number"]))

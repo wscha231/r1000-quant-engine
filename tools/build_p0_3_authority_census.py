@@ -1397,13 +1397,21 @@ def check_summary(checks: list[dict[str, Any]]) -> dict[str, Any]:
     success_names = {
         row["name"] for row in checks if str(row.get("conclusion") or "").upper() == "SUCCESS"
     }
+    required_provider_rows: dict[str, list[dict[str, Any]]] = {}
+    for row in checks:
+        name = str(row.get("name") or "")
+        if (
+            name in required
+            and row.get("type") == "CHECK_RUN"
+            and type(row.get("app_id")) is int
+            and row["app_id"] == REQUIRED_CHECK_APP_IDS[name]
+        ):
+            required_provider_rows.setdefault(name, []).append(row)
     provider_verified_success_names = {
-        row["name"]
-        for row in checks
-        if str(row.get("conclusion") or "").upper() == "SUCCESS"
-        and row.get("type") == "CHECK_RUN"
-        and type(row.get("app_id")) is int
-        and row["app_id"] == REQUIRED_CHECK_APP_IDS.get(row.get("name"))
+        name
+        for name, rows in required_provider_rows.items()
+        if len(rows) == 1
+        and str(rows[0].get("conclusion") or "").upper() == "SUCCESS"
     }
     return {
         "count": len(checks),

@@ -4263,10 +4263,11 @@ Expected contract:
   timestamp, and do not treat omitted API fields as empty authority lists.
 - Reusable lesson: A successful check name alone does not satisfy branch
   protection. Bind required contexts to their GitHub App IDs, reject duplicate
-  context/provider rows, and collect the Check Suite App separately when the
-  primary PR rollup omits it. Keep legacy status contexts or provider-less
-  historical rollups explicitly unverified; otherwise an unrelated producer
-  can silently upgrade a blocked PR's disposition.
+  protection-contract rows and ambiguous duplicate results from the same App,
+  and collect the Check Suite App separately when the primary PR rollup omits
+  it. Keep legacy status contexts or provider-less historical rollups
+  explicitly unverified; otherwise an unrelated producer can silently upgrade
+  a blocked PR's disposition.
 - Reusable lesson: A frozen compressed source is already an immutable artifact.
   Validate its decompressed canonical hash, but copy its authenticated archive
   bytes during regeneration instead of recompressing them; zlib implementation
