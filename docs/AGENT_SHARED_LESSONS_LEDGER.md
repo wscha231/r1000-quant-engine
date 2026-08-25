@@ -4288,3 +4288,42 @@ Expected contract:
 - Fullrun executed: false. Target/order/ledger mutation executed: false.
   Production enabled: false. Live trading enabled: false. Automatic promotion
   enabled: false.
+
+## 2026-08-25 - Artifact completeness must be proven outside the declared registry
+
+- Agent: Codex GPT-5.6.
+- Branch: `codex/p0-4-artifact-inventory-20260825`.
+- Context: Issue #372 required a read-only inventory connecting US data,
+  models, durable paper state, target outputs, and operational evidence at
+  exact master `0f34de9a2747059b7bb808cb070a86261e119f95`.
+- Result: 14 dataset classes, four model objects, eight durable-state objects,
+  and 15 artifact/infrastructure objects were normalized into 41 hash- and
+  provenance-bearing Parquet rows. Mutable aliases are verified or explicitly
+  blocked; the official target workflow's four fixed recommendation/target
+  paths are required independently of the source object's own declarations.
+- Operational blocker: The latest three scheduled operating-selection runs
+  stopped at `Restore verified risk-outcome accepted head`. Exact run/job IDs,
+  terminal excerpt hashes, exit code 2, and skipped target/ledger/persistence
+  steps are frozen in `docs/run287_p0_4_artifact_inventory/`. This evidence
+  authorizes no dispatch, bootstrap, target write, or ledger mutation.
+- Reusable lesson: Completeness cannot be proved only by iterating objects that
+  a source already declares. Census fixed writer paths and mutable aliases from
+  the frozen authority/workflow contracts, then require the registry and alias
+  map to cover that external set. A mutable alias is never `NOT_APPLICABLE`.
+- Reusable lesson: A reproducible evidence bundle pins the source publication,
+  generator inputs, dependency versions, and row-level source provenance. It
+  stages the complete bundle before replacement, rejects dirty generator code
+  and custom-source writes to the canonical destination, and freezes the audit
+  commit range so unrelated future commits do not invalidate the snapshot.
+- Caveat: Historical Russell membership remains not proven PIT-safe; the price
+  cache view is incomplete; mutable macro, feature, and model objects lack
+  complete immutable lineage; and the shared rclone Drive client is a 2026
+  operational dependency risk. None of these caveats is cleared by green
+  sidecar or readiness jobs.
+- Next action: Merge the reviewed P0-4 inventory, then repair issue #357 in an
+  isolated P0-5 change. Do not blindly rerun or dispatch the transactional
+  operating workflow; first prove the accepted risk-outcome parent and exact
+  durable-state transition.
+- Fullrun executed: false. Target/order/ledger mutation executed: false.
+  Production enabled: false. Live trading enabled: false. Automatic promotion
+  enabled: false.

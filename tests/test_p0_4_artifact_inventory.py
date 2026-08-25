@@ -67,6 +67,9 @@ REQUIRED_COLUMNS = {
     "discovery_status",
     "blockers",
     "observed_at_utc",
+    "baseline_code_sha",
+    "source_snapshot_sha256",
+    "source_publication_commit",
 }
 
 
@@ -105,8 +108,8 @@ def test_tracked_bundle_exists_and_has_expected_counts() -> None:
         "datasets": 14,
         "models": 4,
         "durable_states": 8,
-        "artifacts": 13,
-        "artifact_registry_rows": 39,
+        "artifacts": 15,
+        "artifact_registry_rows": 41,
     }
     assert summary["safety"]["mutations_performed"] == []
     assert summary["safety"]["live_trading_enabled"] is False
@@ -140,12 +143,19 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
         for key in ("datasets", "models", "durable_states", "artifacts")
         for row in payload[key]
     }
-    assert len(expected) == 39
+    assert len(expected) == 41
     frame = pd.read_parquet(INVENTORY / "artifact_registry.parquet")
     assert REQUIRED_COLUMNS == set(frame.columns)
     assert set(frame["object_id"]) == expected
     assert frame["object_id"].is_unique
     assert frame["market"].eq("US").all()
+    assert frame["baseline_code_sha"].eq(payload["baseline_code_sha"]).all()
+    assert frame["source_snapshot_sha256"].eq(
+        "74f0d882af525261378ff770452d7d0b9e670f582532ca8f4d06419f50e52f51"
+    ).all()
+    assert frame["source_publication_commit"].eq(
+        "a14fd445e5108dd9885cc1cb64cc6d2ce9459067"
+    ).all()
     assert frame["exact_location"].astype(str).str.strip().ne("").all()
     assert frame["rollback_restore"].astype(str).str.strip().ne("").all()
     assert set(frame["object_class"]) == {"dataset", "model", "durable_state", "artifact"}
@@ -190,6 +200,10 @@ def test_every_mutable_alias_is_verified_or_explicitly_blocked() -> None:
         ),
         "artifact.drive.operating-concentrated-target-book": (
             "outputs/reports/operating_concentrated_target_book.csv"
+        ),
+        "artifact.drive.portfolio-latest": "outputs/portfolio_latest.csv",
+        "artifact.drive.concentrated-portfolio-latest": (
+            "outputs/concentrated_portfolio_latest.csv"
         ),
     }
     mapped = {row["object_id"]: row for row in mappings}
@@ -398,7 +412,7 @@ def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
 
     relative = "docs/run287_p0_4_artifact_inventory/source_inventory_snapshot.json"
     assert FROZEN_SOURCE_PUBLICATION_COMMIT == (
-        "1e5ce4a2e428a6c264577053a8719636fb9cabdd"
+        "a14fd445e5108dd9885cc1cb64cc6d2ce9459067"
     )
     assert git("rev-parse", f"{FROZEN_SOURCE_PUBLICATION_COMMIT}:{relative}").strip() == (
         FROZEN_SOURCE_GIT_BLOB_SHA1
@@ -422,6 +436,18 @@ def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
         assert str(exc) == "verify_live_head_requires_canonical_source"
     else:
         raise AssertionError("live-head verification accepted a custom source")
+    canonical_before = {
+        name: (INVENTORY / name).read_bytes() for name in OUTPUT_FILES
+    }
+    try:
+        build(custom, INVENTORY)
+    except InventoryError as exc:
+        assert str(exc) == "canonical_output_requires_canonical_source"
+    else:
+        raise AssertionError("custom source replaced the canonical bundle")
+    assert canonical_before == {
+        name: (INVENTORY / name).read_bytes() for name in OUTPUT_FILES
+    }
 
 
 def test_pr_validation_checkout_supports_pinned_lineage_checks() -> None:

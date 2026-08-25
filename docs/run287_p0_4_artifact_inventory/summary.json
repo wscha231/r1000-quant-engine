@@ -1,8 +1,8 @@
 {
   "baseline_code_sha": "0f34de9a2747059b7bb808cb070a86261e119f95",
   "counts": {
-    "artifact_registry_rows": 39,
-    "artifacts": 13,
+    "artifact_registry_rows": 41,
+    "artifacts": 15,
     "datasets": 14,
     "durable_states": 8,
     "models": 4
@@ -11,6 +11,7 @@
     "COMPLETE_DIRECT_LIST_HASHES_NOT_COLLECTED": 1,
     "DIRTY_READ_ONLY_OBSERVATION": 1,
     "FIXED_PATH_CENSUS_FROM_BASELINE_WORKFLOW": 2,
+    "FIXED_PATH_CENSUS_FROM_BASELINE_WORKFLOW_AND_P0_3": 2,
     "FROZEN_BOUNDED_METADATA": 33,
     "INCOMPLETE_100_OF_MANIFEST_1048_DIRECT_CHILDREN": 1,
     "PROVEN_ABSENT_IN_LATEST_GITHUB_JOB": 1
@@ -32,7 +33,7 @@
   "mapping_status_counts": {
     "BLOCKED_DIVERGENT": 2,
     "BLOCKED_MULTIPLE_WRITERS": 1,
-    "BLOCKED_NO_IMMUTABLE_SOURCE": 21,
+    "BLOCKED_NO_IMMUTABLE_SOURCE": 23,
     "NOT_APPLICABLE": 6,
     "VERIFIED_IMMUTABLE": 9
   },
@@ -222,5 +223,5 @@
     "target_order_ledger_mutation": false
   },
   "schema_version": "run287-p0-4-inventory-summary-v1",
-  "source_snapshot_sha256": "bf67523d85e70a1ce80703fcc6f500a765c5b7c47a00faa7e1576eabbb4860d7"
+  "source_snapshot_sha256": "74f0d882af525261378ff770452d7d0b9e670f582532ca8f4d06419f50e52f51"
 }

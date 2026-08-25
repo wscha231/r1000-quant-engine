@@ -31,9 +31,9 @@ DEFAULT_SOURCE = ROOT / "docs" / "run287_p0_4_artifact_inventory" / "source_inve
 DEFAULT_OUTPUT = ROOT / "docs" / "run287_p0_4_artifact_inventory"
 SCHEMA_VERSION = "run287-p0-4-inventory-source-v1"
 REGISTRY_SCHEMA_VERSION = "run287-p0-4-registry-v1"
-FROZEN_SOURCE_PUBLICATION_COMMIT = "1e5ce4a2e428a6c264577053a8719636fb9cabdd"
-FROZEN_SOURCE_GIT_BLOB_SHA1 = "8ece611a29ec731a84eb2fec349cbfbf5592d8f1"
-FROZEN_SOURCE_SHA256 = "bf67523d85e70a1ce80703fcc6f500a765c5b7c47a00faa7e1576eabbb4860d7"
+FROZEN_SOURCE_PUBLICATION_COMMIT = "a14fd445e5108dd9885cc1cb64cc6d2ce9459067"
+FROZEN_SOURCE_GIT_BLOB_SHA1 = "e6aef346b22931cd6f6097692030b5a0f8410482"
+FROZEN_SOURCE_SHA256 = "74f0d882af525261378ff770452d7d0b9e670f582532ca8f4d06419f50e52f51"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
 OBJECT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]+$")
@@ -66,6 +66,10 @@ REQUIRED_FIXED_ALIAS_OBJECTS = {
     ),
     "artifact.drive.operating-concentrated-target-book": (
         "outputs/reports/operating_concentrated_target_book.csv"
+    ),
+    "artifact.drive.portfolio-latest": "outputs/portfolio_latest.csv",
+    "artifact.drive.concentrated-portfolio-latest": (
+        "outputs/concentrated_portfolio_latest.csv"
     ),
 }
 OFFICIAL_TARGET_WORKFLOW = ".github/workflows/daily_operating_selection_refresh.yml"
@@ -158,6 +162,9 @@ ARTIFACT_COLUMNS = [
     "discovery_status",
     "blockers",
     "observed_at_utc",
+    "baseline_code_sha",
+    "source_snapshot_sha256",
+    "source_publication_commit",
 ]
 
 
@@ -528,6 +535,9 @@ def artifact_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
             row = {column: source.get(column, "") for column in ARTIFACT_COLUMNS}
             row["object_class"] = object_class
             row["observed_at_utc"] = observed
+            row["baseline_code_sha"] = payload["baseline_code_sha"]
+            row["source_snapshot_sha256"] = payload["_source_sha256"]
+            row["source_publication_commit"] = FROZEN_SOURCE_PUBLICATION_COMMIT
             rows.append({key: serialise_cell(value) for key, value in row.items()})
     return sorted(rows, key=lambda item: item["object_id"])
 
@@ -808,6 +818,9 @@ def publish_bundle_atomically(output: Path, render) -> None:
 def build(source: Path, output: Path, *, verify_live_head: bool = False) -> None:
     source_bytes = canonical_source_bytes(source.read_bytes())
     is_canonical_source = source.resolve() == DEFAULT_SOURCE.resolve()
+    is_canonical_output = output.resolve() == DEFAULT_OUTPUT.resolve()
+    if is_canonical_output and not is_canonical_source:
+        raise InventoryError("canonical_output_requires_canonical_source")
     if is_canonical_source:
         verify_frozen_source_publication(source_bytes)
     elif verify_live_head:

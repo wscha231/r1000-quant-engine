@@ -2,11 +2,11 @@ schema_version: run287-p0-4-latest-map-v1
 market: US
 baseline_code_sha: 0f34de9a2747059b7bb808cb070a86261e119f95
 observed_at_utc: '2026-08-25T12:06:47.159838+00:00'
-source_snapshot_sha256: bf67523d85e70a1ce80703fcc6f500a765c5b7c47a00faa7e1576eabbb4860d7
+source_snapshot_sha256: 74f0d882af525261378ff770452d7d0b9e670f582532ca8f4d06419f50e52f51
 status_counts:
   BLOCKED_DIVERGENT: 2
   BLOCKED_MULTIPLE_WRITERS: 1
-  BLOCKED_NO_IMMUTABLE_SOURCE: 20
+  BLOCKED_NO_IMMUTABLE_SOURCE: 22
   VERIFIED_IMMUTABLE: 6
 mappings:
 - object_id: ds.us.universe.historical-auto
@@ -112,6 +112,20 @@ mappings:
   verification: fixed path observed in the frozen official target-writer workflow
   blockers:
   - mutable canonical target has no hash-bound accepted publication in the bounded inventory view
+- object_id: artifact.drive.portfolio-latest
+  mutable_alias: outputs/portfolio_latest.csv
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: fixed path observed in the frozen official workflow and P0-3 authority census
+  blockers:
+  - mutable recommendation has no hash-bound accepted publication in the bounded inventory view
+- object_id: artifact.drive.concentrated-portfolio-latest
+  mutable_alias: outputs/concentrated_portfolio_latest.csv
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: fixed path observed in the frozen official workflow and P0-3 authority census
+  blockers:
+  - mutable recommendation has no hash-bound accepted publication in the bounded inventory view
 - object_id: artifact.repo.latest-global-alias
   mutable_alias: cloud_results/full_rebuild/latest_global_alpha_universe
   immutable_source: nearest candidate cloud_results/full_rebuild/20260624_28074476465_global_alpha_universe
