@@ -65,6 +65,44 @@
     "Same-name Drive folders outside the canonical root were not treated as canonical by name alone.",
     "No secret, token, service-account, broker-account, or personally identifying value was collected. Presence classifications only are recorded."
   ],
+  "folder_child_manifests": {
+    "feature_store": {
+      "parent_exact_location": "gdrive-id:1sFgZ9AZpLm7alwSq7Vgt6uzPXR7iAkKA",
+      "manifest_sha256": "c478b3dc09c4a9b8a3f2eb940fd83af965bae5a051ce780df3d7f4ae8bce59d4",
+      "children": [
+        {"title": "candidate_universe_latest.parquet", "id": "1vFZ2szAa0mImuYLJasI92ftObtKGtLXT", "size_bytes": 32628, "modified_time": "2026-06-23T08:32:15.546Z"},
+        {"title": "latest_recommendations.parquet", "id": "1YEoAicCMEdvh9FJ4LM-x-QkE09EmrodQ", "size_bytes": 1642090, "modified_time": "2026-04-23T05:01:50.358Z"},
+        {"title": "scored_oos_partial.parquet", "id": "1pGxm_U6VpQ3NT4yVhuMq8x8yCp9HNSMw", "size_bytes": 69334549, "modified_time": "2026-04-23T03:33:30.729Z"},
+        {"title": "scored_oos_latest.parquet", "id": "12xTMQH4th5hdiWl_ohbHJJXpto_FCvG1", "size_bytes": 69575143, "modified_time": "2026-04-23T03:33:14.078Z"},
+        {"title": "feature_store_latest.parquet", "id": "1HqiUXTPqMZMEn3bAdfLWuuLiFHQdFO69", "size_bytes": 56540175, "modified_time": "2026-04-23T03:25:16.494Z"},
+        {"title": "universe_monthly_latest.parquet", "id": "1iKzOdW36E1mlPlag0_VJJ2fitSTbYgrt", "size_bytes": 36096568, "modified_time": "2026-04-23T03:21:22.886Z"},
+        {"title": "macro_regime_latest.parquet", "id": "12WY5Wf96y8_jF-nRIaF6doKKfN0GJgjm", "size_bytes": 2555024, "modified_time": "2026-04-23T03:21:03.775Z"},
+        {"title": "live_event_alert_latest.parquet", "id": "1_lYuzrAVtCcOuudt2zsoWCroIud4U781", "size_bytes": 481337, "modified_time": "2026-04-22T09:03:55.693Z"},
+        {"title": "fund_panel_latest.parquet", "id": "1lssy0Y5RwhOBJAWyOeSJDUA0J2gmElIF", "size_bytes": 19501099, "modified_time": "2026-04-22T08:44:49.245Z"}
+      ]
+    },
+    "cache_macro": {
+      "parent_exact_location": "gdrive-id:1daFnhx94BIRWV5PItrdSCjj4b6khaR6h",
+      "manifest_sha256": "96db5506b8b3f5b5eeebf5c49ce5ceff39a53b91e84710901cc82adaa24d92d1",
+      "children": [
+        {"title": "fred_benchmark_sp500_SP500.parquet", "id": "1kPROgU8vZXOH_deJWcHpyVaUvlYKCrDv", "size_bytes": 41230, "modified_time": "2026-04-20T06:41:25.778Z"},
+        {"title": "fred_dxy_DTWEXBGS.parquet", "id": "16xxmTGsAGAa_rIe_0TJxNVp5ma1QZ5_8", "size_bytes": 89288, "modified_time": "2026-04-20T03:40:09.840Z"},
+        {"title": "fred_hy_oas_BAMLH0A0HYM2.parquet", "id": "19GwtSiijq3WGkDrNPPAAAIN2H8oajjWQ", "size_bytes": 10290, "modified_time": "2026-04-20T03:40:07.197Z"},
+        {"title": "fred_dgs10_DGS10.parquet", "id": "1L6PhXfvqOy5MECVMr5QqTXZDaOAePiUo", "size_bytes": 184833, "modified_time": "2026-04-20T03:40:04.751Z"},
+        {"title": "fred_vix_VIXCLS.parquet", "id": "1ZBOJ1vh-43Gab0nRx5jZYP90ocR3gorJ", "size_bytes": 112993, "modified_time": "2026-04-20T03:39:56.563Z"},
+        {"title": "cnn_fear_greed.parquet", "id": "10O7zDvs-NnpOmj7h7Fp5ajmxyzOPBZWs", "size_bytes": 5599, "modified_time": "2026-04-20T03:39:32.209Z"},
+        {"title": "fred_sahm_SAHMREALTIME.parquet", "id": "1ZhSY7EyVsntHLVPfmaILHjMa6BfLQEza", "size_bytes": 10400, "modified_time": "2026-04-20T03:39:24.170Z"},
+        {"title": "fred_unrate_UNRATE.parquet", "id": "1msf_3K8U-vM53uj2K6MSK_zTqtbO0R8b", "size_bytes": 11630, "modified_time": "2026-04-20T03:39:22.311Z"},
+        {"title": "fred_ppi_PPIFDG.parquet", "id": "11p5Mj5hh5WskJTBvM24P6vhncCRco3AZ", "size_bytes": 4586, "modified_time": "2026-04-20T03:39:13.238Z"},
+        {"title": "fred_core_cpi_CPILFESL.parquet", "id": "176OrN0vAoMN3StlrjU7HZ5xwbSFEXTUI", "size_bytes": 14179, "modified_time": "2026-04-20T03:39:07.168Z"},
+        {"title": "fred_cpi_CPIAUCSL.parquet", "id": "1jgbFFM_F_GeKK29rYeEhakR5nTUKclhu", "size_bytes": 15986, "modified_time": "2026-04-20T03:39:02.127Z"},
+        {"title": "fred_tga_WDTGAL.parquet", "id": "1AJBtAah3iMe733-6-fgj-rP9XsqIVPO8", "size_bytes": 20729, "modified_time": "2026-04-20T03:38:57.143Z"},
+        {"title": "fred_reverse_repo_RRPTSYD.parquet", "id": "1TyoxSI930cLsgXiMRapwjYq1Qo65VAnW", "size_bytes": 76947, "modified_time": "2026-04-20T03:38:52.159Z"},
+        {"title": "fred_fed_assets_WALCL.parquet", "id": "1GqOlo6H9XoB2AQRKDP7zfQQR3W9CV0ie", "size_bytes": 21455, "modified_time": "2026-04-20T03:38:47.040Z"},
+        {"title": "fred_m2_M2SL.parquet", "id": "1IS1cwRwjNYHpk3eDQwopcjWzh-aH9ROQ", "size_bytes": 14079, "modified_time": "2026-04-20T03:38:40.112Z"}
+      ]
+    }
+  },
   "pipeline_health": {
     "source": "GitHub Actions read-only metadata and job-step evidence",
     "latest_runs": {
@@ -326,6 +364,7 @@
       "decision_time_cutoff": "NOT_BOUND_STALE_AT_OBSERVATION",
       "size_bytes": 634224,
       "file_count": 15,
+      "manifest_sha256": "96db5506b8b3f5b5eeebf5c49ce5ceff39a53b91e84710901cc82adaa24d92d1",
       "writer_workflow": "daily_operating_selection_refresh.yml; legacy macro collection paths",
       "writer_job": "restore and persist refreshed operational cache",
       "write_authority": "OFFICIAL_DAILY_OPERATING_CACHE_PERSIST_AND_LEGACY_COLLECTORS",
@@ -497,6 +536,7 @@
       "decision_time_cutoff": "NOT_BOUND",
       "size_bytes": 255758613,
       "file_count": 9,
+      "manifest_sha256": "c478b3dc09c4a9b8a3f2eb940fd83af965bae5a051ce780df3d7f4ae8bce59d4",
       "writer_workflow": "legacy full rebuild paths",
       "write_authority": "RESEARCH_OR_LEGACY",
       "pit_classification": "MIXED_AND_NOT_MANIFEST_BOUND",
