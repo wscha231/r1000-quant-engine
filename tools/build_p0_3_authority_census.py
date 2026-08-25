@@ -10,6 +10,7 @@ ledger, or authorize production/live behavior.
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import json
 import re
@@ -27,6 +28,13 @@ REPOSITORY = "wscha231/r1000-quant-engine"
 SCHEMA_VERSION = "run287-p0-3-authority-census-v1"
 POLICY_SCHEMA = "run287-p0-3-workflow-authority-policy-v1"
 U0_SCHEMA = "run287-u0-v2-github-census-v1"
+REQUIRED_GLOBAL_GUARDS = {
+    "live_broker_execution_enabled": False,
+    "automatic_model_promotion_enabled": False,
+    "production_authority_default": "NONE_RESEARCH_ONLY",
+    "model_promotion_authority_default": "NONE_AUTOMATIC_DISABLED",
+    "unlisted_workflow_policy": "FAIL_CLOSED",
+}
 SHA_RE = re.compile(r"[0-9a-f]{40}")
 ISSUE_RE = re.compile(
     r"(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)", re.IGNORECASE
@@ -96,8 +104,13 @@ def portable_text_sha256(path: Path) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
+def document_bytes(path: Path) -> bytes:
+    content = path.read_bytes()
+    return gzip.decompress(content) if path.suffix.lower() == ".gz" else content
+
+
 def read_json(path: Path) -> Any:
-    return json.loads(path.read_text(encoding="utf-8"))
+    return json.loads(document_bytes(path).decode("utf-8"))
 
 
 def write_json(path: Path, value: Any) -> None:
@@ -105,6 +118,19 @@ def write_json(path: Path, value: Any) -> None:
     serialized = json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
     with path.open("w", encoding="utf-8", newline="\n") as handle:
         handle.write(serialized)
+
+
+def write_gzip(path: Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as raw_handle:
+        with gzip.GzipFile(
+            filename="",
+            fileobj=raw_handle,
+            mode="wb",
+            compresslevel=9,
+            mtime=0,
+        ) as gzip_handle:
+            gzip_handle.write(content)
 
 
 def run(arguments: list[str], *, cwd: Path) -> str:
@@ -129,6 +155,26 @@ def run_json(arguments: list[str], *, cwd: Path) -> Any:
 def clean_sha(value: Any) -> str:
     text = str(value or "").lower()
     return text if SHA_RE.fullmatch(text) else ""
+
+
+def validate_research_only_policy(policy: Mapping[str, Any], audit_sha: str) -> None:
+    if policy.get("schema_version") != POLICY_SCHEMA:
+        raise SystemExit("workflow policy schema mismatch")
+    if policy.get("repository") != REPOSITORY:
+        raise SystemExit("workflow policy repository mismatch")
+    if clean_sha(policy.get("baseline_master_sha")) != audit_sha:
+        raise SystemExit("workflow policy baseline mismatch")
+    if policy.get("global_guards") != REQUIRED_GLOBAL_GUARDS:
+        raise SystemExit("workflow policy research-only guards mismatch")
+    official = policy.get("official_authority") or {}
+    if official.get("live_broker_writer_workflow") is not None:
+        raise SystemExit("workflow policy must not authorize a live broker writer")
+    policy_rows = policy.get("workflows") or {}
+    if any(
+        row.get("production_live_authority") == "AUTHORIZED"
+        for row in policy_rows.values()
+    ):
+        raise SystemExit("workflow policy must not authorize production or live execution")
 
 
 def require_exact_keys(actual: Iterable[str], expected: Iterable[str], label: str) -> None:
@@ -500,7 +546,7 @@ def workflow_git_blob(repo_root: Path, audit_sha: str, relative_path: str) -> st
     return value
 
 
-def workflow_git_blob_sha256(repo_root: Path, audit_sha: str, relative_path: str) -> str:
+def workflow_git_blob_bytes(repo_root: Path, audit_sha: str, relative_path: str) -> bytes:
     completed = subprocess.run(
         ["git", "cat-file", "blob", f"{audit_sha}:{relative_path}"],
         cwd=repo_root,
@@ -512,7 +558,7 @@ def workflow_git_blob_sha256(repo_root: Path, audit_sha: str, relative_path: str
             f"workflow blob read failed: {relative_path}: "
             f"{completed.stderr.decode('utf-8', errors='replace').strip()}"
         )
-    return hashlib.sha256(completed.stdout).hexdigest()
+    return completed.stdout
 
 
 def scan_workflow(
@@ -523,7 +569,9 @@ def scan_workflow(
     policy: Mapping[str, Any],
     globals_policy: Mapping[str, Any],
 ) -> dict[str, Any]:
-    raw = path.read_text(encoding="utf-8-sig")
+    relative = path.relative_to(repo_root).as_posix()
+    blob_bytes = workflow_git_blob_bytes(repo_root, audit_sha, relative)
+    raw = blob_bytes.decode("utf-8-sig")
     document = yaml.load(raw, Loader=yaml.BaseLoader)
     if not isinstance(document, Mapping):
         raise ValueError(f"workflow is not an object: {path.name}")
@@ -563,7 +611,6 @@ def scan_workflow(
         )
     )
     promotion_reference = bool(re.search(r"promotion|champion", scalar_text, re.IGNORECASE))
-    relative = path.relative_to(repo_root).as_posix()
     known_blocker = str(policy.get("known_blocker") or "")
     platform_blockers = []
     authority_blockers = list(policy.get("authority_blockers") or [])
@@ -576,7 +623,7 @@ def scan_workflow(
         "path": relative,
         "display_name": str(document.get("name") or path.name),
         "workflow_blob_sha": workflow_git_blob(repo_root, audit_sha, relative),
-        "workflow_sha256": workflow_git_blob_sha256(repo_root, audit_sha, relative),
+        "workflow_sha256": hashlib.sha256(blob_bytes).hexdigest(),
         "trigger": trigger_rows(document),
         "job_count": len(document.get("jobs") or {}),
         "permissions": permissions,
@@ -649,6 +696,7 @@ def write_readme(path: Path, summary: Mapping[str, Any]) -> None:
     counts = summary["counts"]
     classification = summary["branch_classification_counts"]
     decisions = summary["workflow_decision_counts"]
+    source_artifact = summary["source_artifact"]
     text = f"""# Run287 P0-3 authority census
 
 This directory is the read-only census required by Issue #371.  The snapshot is
@@ -662,6 +710,14 @@ bound to `master` `{summary['audit_master_sha']}` and was observed at
 - Workflow YAML files: `{counts['workflows']}`
 - Branch classifications: `{canonical_json(classification)}`
 - Workflow decisions: `{canonical_json(decisions)}`
+
+## Reproducible source
+
+The exact U0 GitHub input is tracked as
+`{source_artifact['repository_path']}` (deterministic gzip, SHA-256
+`{source_artifact['compressed_sha256']}`). The collector accepts this `.gz`
+file directly; its decompressed SHA-256 is
+`{source_artifact['uncompressed_sha256']}`.
 
 The publication branch and its PR did not exist in the captured namespace.  Their
 creation is the expected publication-only delta and does not authorize cleanup,
@@ -711,7 +767,8 @@ def main() -> int:
         raise SystemExit("audit SHA must be exact")
     if run(["git", "rev-parse", "HEAD"], cwd=repo_root).strip() != audit_sha:
         raise SystemExit("local HEAD does not equal the audit SHA")
-    source = read_json(args.source_census)
+    source_bytes = document_bytes(args.source_census)
+    source = json.loads(source_bytes.decode("utf-8"))
     if source.get("schema_version") != U0_SCHEMA:
         raise SystemExit("source U0 census schema mismatch")
     if source.get("repository") != REPOSITORY:
@@ -719,10 +776,7 @@ def main() -> int:
     if clean_sha(source.get("audit_default_branch_sha")) != audit_sha:
         raise SystemExit("source census audit SHA mismatch")
     policy = read_json(args.policy)
-    if policy.get("schema_version") != POLICY_SCHEMA:
-        raise SystemExit("workflow policy schema mismatch")
-    if clean_sha(policy.get("baseline_master_sha")) != audit_sha:
-        raise SystemExit("workflow policy baseline mismatch")
+    validate_research_only_policy(policy, audit_sha)
 
     source_branches = source_branch_identity(source)
     live_branches_before = live_branch_identity(repo_root)
@@ -880,15 +934,29 @@ def main() -> int:
     branch_path = args.output_dir / "branch_census.parquet"
     pr_path = args.output_dir / "pr_census.parquet"
     registry_path = args.output_dir / "workflow_registry.yaml"
+    source_artifact_path = args.output_dir / "source_u0_github_census.json.gz"
     write_parquet(branch_path, branch_rows)
     write_parquet(pr_path, pr_rows)
     write_registry(registry_path, registry)
+    write_gzip(source_artifact_path, source_bytes)
+    try:
+        source_repository_path = source_artifact_path.relative_to(repo_root).as_posix()
+    except ValueError:
+        source_repository_path = source_artifact_path.as_posix()
 
     summary = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": generated_at,
         "repository": REPOSITORY,
         "audit_master_sha": audit_sha,
+        "source_artifact": {
+            "repository_path": source_repository_path,
+            "media_type": "application/gzip",
+            "compressed_bytes": source_artifact_path.stat().st_size,
+            "compressed_sha256": file_sha256(source_artifact_path),
+            "uncompressed_bytes": len(source_bytes),
+            "uncompressed_sha256": hashlib.sha256(source_bytes).hexdigest(),
+        },
         "counts": {
             "branches": len(branch_rows),
             "pull_requests": len(pr_rows),
@@ -955,7 +1023,7 @@ def main() -> int:
             ),
         },
         "source_hashes": {
-            "source_u0_census_sha256": file_sha256(args.source_census),
+            "source_u0_census_sha256": hashlib.sha256(source_bytes).hexdigest(),
             "workflow_policy_sha256": portable_text_sha256(args.policy),
             "branch_namespace_sha256": canonical_sha256(source_branches),
             "pull_request_namespace_sha256": canonical_sha256(source_prs),
@@ -964,6 +1032,7 @@ def main() -> int:
             "branch_census.parquet": file_sha256(branch_path),
             "pr_census.parquet": file_sha256(pr_path),
             "workflow_registry.yaml": portable_text_sha256(registry_path),
+            "source_u0_github_census.json.gz": file_sha256(source_artifact_path),
         },
         "safety": {
             "metadata_only": True,

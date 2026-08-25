@@ -12,6 +12,15 @@ bound to `master` `916a02ac0612d64d41f71690cf667a90dfd0531a` and was observed at
 - Branch classifications: `{"A":67,"B":24,"C":74,"D":27,"E":4,"F":101}`
 - Workflow decisions: `{"CONSOLIDATE":6,"KEEP":32,"UNKNOWN":2}`
 
+## Reproducible source
+
+The exact U0 GitHub input is tracked as
+`docs/run287_p0_3_authority_census/source_u0_github_census.json.gz`
+(deterministic gzip, SHA-256
+`43037952f1464bd41cdb0d2eaba78503da60f17d66c410dea186b34e0b62ef2c`).
+The collector accepts this `.gz` file directly; its decompressed SHA-256 is
+`5c9741b84fe9cfff74619322bc99402d92f25979974d42a405e30091ff461216`.
+
 The publication branch and its PR did not exist in the captured namespace.  Their
 creation is the expected publication-only delta and does not authorize cleanup,
 workflow dispatch, a target/ledger mutation, fullrun, promotion, production, or

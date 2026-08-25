@@ -1,14 +1,23 @@
 from __future__ import annotations
 
+import copy
+import gzip
 import hashlib
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pandas as pd
+import pytest
 import yaml
 
-
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from tools.build_p0_3_authority_census import validate_research_only_policy  # noqa: E402
+
+
 CENSUS = ROOT / "docs" / "run287_p0_3_authority_census"
 POLICY = ROOT / "docs" / "run287_p0_3_workflow_authority_policy.json"
 AUDIT_SHA = "916a02ac0612d64d41f71690cf667a90dfd0531a"
@@ -59,6 +68,18 @@ def test_census_is_hash_bound_and_read_only() -> None:
     for name, expected in summary["output_hashes"].items():
         assert sha256(CENSUS / name) == expected
     assert sha256(POLICY) == summary["source_hashes"]["workflow_policy_sha256"]
+    source_artifact = summary["source_artifact"]
+    source_path = ROOT / source_artifact["repository_path"]
+    source_bytes = gzip.decompress(source_path.read_bytes())
+    assert sha256(source_path) == source_artifact["compressed_sha256"]
+    assert len(source_bytes) == source_artifact["uncompressed_bytes"]
+    assert hashlib.sha256(source_bytes).hexdigest() == source_artifact["uncompressed_sha256"]
+    assert source_artifact["uncompressed_sha256"] == summary["source_hashes"][
+        "source_u0_census_sha256"
+    ]
+    source = json.loads(source_bytes.decode("utf-8"))
+    assert len(source["branches"]) == summary["counts"]["branches"]
+    assert len(source["pull_requests"]) == summary["counts"]["pull_requests"]
 
 
 def test_every_branch_has_required_issue_371_fields_and_fail_closed_disposition() -> None:
@@ -131,7 +152,12 @@ def test_workflow_registry_has_singular_official_authority_and_blocks_legacy_nam
     assert registry["audit_master_sha"] == AUDIT_SHA
     assert len(rows) == 40
     assert {row["file"] for row in rows} == set(policy["workflows"])
-    assert all(sha256(ROOT / row["path"]) == row["workflow_sha256"] for row in rows)
+    for row in rows:
+        blob = subprocess.check_output(
+            ["git", "cat-file", "blob", f"{registry['audit_master_sha']}:{row['path']}"],
+            cwd=ROOT,
+        )
+        assert hashlib.sha256(blob).hexdigest() == row["workflow_sha256"]
     assert {row["decision"] for row in rows} <= {"KEEP", "CONSOLIDATE", "RETIRE", "UNKNOWN"}
     target_writers = [
         row["file"]
@@ -173,6 +199,32 @@ def test_workflow_registry_has_singular_official_authority_and_blocks_legacy_nam
     ]
 
 
+def test_workflow_policy_drift_fails_closed() -> None:
+    policy = json.loads(POLICY.read_text(encoding="utf-8"))
+    validate_research_only_policy(policy, AUDIT_SHA)
+    for key, unsafe_value in (
+        ("live_broker_execution_enabled", True),
+        ("automatic_model_promotion_enabled", True),
+        ("production_authority_default", "AUTHORIZED"),
+        ("model_promotion_authority_default", "AUTOMATIC"),
+        ("unlisted_workflow_policy", "ALLOW"),
+    ):
+        unsafe = copy.deepcopy(policy)
+        unsafe["global_guards"][key] = unsafe_value
+        with pytest.raises(SystemExit):
+            validate_research_only_policy(unsafe, AUDIT_SHA)
+    unsafe = copy.deepcopy(policy)
+    unsafe["official_authority"]["live_broker_writer_workflow"] = "live.yml"
+    with pytest.raises(SystemExit):
+        validate_research_only_policy(unsafe, AUDIT_SHA)
+    unsafe = copy.deepcopy(policy)
+    unsafe["workflows"]["after_close_daily.yml"][
+        "production_live_authority"
+    ] = "AUTHORIZED"
+    with pytest.raises(SystemExit):
+        validate_research_only_policy(unsafe, AUDIT_SHA)
+
+
 def test_summary_exposes_ambiguous_and_duplicate_writer_surfaces() -> None:
     findings = load_summary()["authority_findings"]
     assert findings["official_target_writers"] == [
@@ -207,6 +259,7 @@ def main() -> int:
     test_every_branch_has_required_issue_371_fields_and_fail_closed_disposition()
     test_every_pr_has_exact_identity_checks_review_state_and_disposition()
     test_workflow_registry_has_singular_official_authority_and_blocks_legacy_names()
+    test_workflow_policy_drift_fails_closed()
     test_summary_exposes_ambiguous_and_duplicate_writer_surfaces()
     print("P0-3 authority census smoke: PASS")
     return 0
