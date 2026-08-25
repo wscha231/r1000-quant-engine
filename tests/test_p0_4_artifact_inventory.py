@@ -5,14 +5,15 @@ import json
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pandas as pd
-import pytest
 import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 INVENTORY = ROOT / "docs" / "run287_p0_4_artifact_inventory"
 SOURCE = INVENTORY / "source_inventory_snapshot.json"
 OUTPUT_FILES = (
@@ -331,12 +332,33 @@ def test_invalid_or_incomplete_sources_fail_closed(tmp_path: Path) -> None:
     payload["datasets"][0]["immutable_location"] = ""
     invalid = tmp_path / "invalid.json"
     invalid.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises(InventoryError, match="mutable_alias_not_bound_or_blocked"):
+    try:
         build(invalid, tmp_path / "output")
+    except InventoryError as exc:
+        assert "mutable_alias_not_bound_or_blocked" in str(exc)
+    else:
+        raise AssertionError("invalid mutable alias mapping was not rejected")
 
 
 def main() -> int:
-    return int(pytest.main([str(Path(__file__).resolve()), "-q"]))
+    test_tracked_bundle_exists_and_has_expected_counts()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        test_generator_is_byte_stable(Path(temp_dir))
+    test_registries_and_parquet_cover_every_object_once()
+    test_every_mutable_alias_is_verified_or_explicitly_blocked()
+    test_frozen_repository_inventory_matches_baseline_tree()
+    test_latest_global_alias_diverges_in_exactly_scored_file()
+    test_latest_r1000_adr_alias_is_exact_tree_match()
+    test_pipeline_blocker_is_bound_to_exact_github_runs()
+    test_authority_aligns_with_p0_3_census()
+    test_failed_source_run_grants_price_replay_only()
+    test_macro_freshness_gap_is_evidence_backed()
+    test_incomplete_drive_views_fail_closed()
+    test_no_secret_values_are_embedded()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        test_invalid_or_incomplete_sources_fail_closed(Path(temp_dir))
+    print("P0-4 artifact inventory smoke: 14 passed")
+    return 0
 
 
 if __name__ == "__main__":
