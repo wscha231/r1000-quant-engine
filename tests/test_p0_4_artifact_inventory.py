@@ -122,8 +122,8 @@ def test_tracked_bundle_exists_and_has_expected_counts() -> None:
         "datasets": 24,
         "models": 4,
         "durable_states": 8,
-        "artifacts": 35,
-        "artifact_registry_rows": 71,
+        "artifacts": 41,
+        "artifact_registry_rows": 77,
     }
     assert summary["safety"]["mutations_performed"] == []
     assert summary["safety"]["live_trading_enabled"] is False
@@ -163,7 +163,7 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
         for key in ("datasets", "models", "durable_states", "artifacts")
         for row in payload[key]
     }
-    assert len(expected) == 71
+    assert len(expected) == 77
     frame = pd.read_parquet(INVENTORY / "artifact_registry.parquet")
     assert REQUIRED_COLUMNS == set(frame.columns)
     assert set(frame["object_id"]) == expected
@@ -171,10 +171,10 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
     assert frame["market"].eq("US").all()
     assert frame["baseline_code_sha"].eq(payload["baseline_code_sha"]).all()
     assert frame["source_snapshot_sha256"].eq(
-        "15f06a5e121632a597dc1ef1fecf262dda973e5b0976d25cfc511824d2b0792c"
+        "3c28008b10e2c3e2d0ce7f603300a544d437474062d86d307369ca31c610e096"
     ).all()
     assert frame["source_publication_commit"].eq(
-        "3fac8edfa925c809d530a921e5cabc9346d7bccb"
+        "302516e5229760477bc9d5b5ddc618bf0b493185"
     ).all()
     assert frame["exact_location"].astype(str).str.strip().ne("").all()
     assert frame["rollback_restore"].astype(str).str.strip().ne("").all()
@@ -479,6 +479,34 @@ def test_distinct_provider_publications_are_complete() -> None:
         assert publication["provider_paths"]
         assert publication["retention_days"] in (30, 365)
         assert step_name in publication["writer_job"]
+    for object_id, expected in builder.REQUIRED_FULL_REBUILD_CACHES.items():
+        publication = objects[object_id]
+        assert publication["provider"] == "github_actions_cache"
+        assert publication["cache_key"] == expected["cache_key"]
+        assert publication["restore_keys"] == expected["restore_keys"]
+        assert publication["provider_paths"]
+        assert "EPHEMERAL_PROVIDER_CACHE" in publication[
+            "retention_classification"
+        ]
+    for (
+        object_id,
+        expected,
+    ) in builder.REQUIRED_FULL_REBUILD_DRIVE_PUBLICATIONS.items():
+        publication = objects[object_id]
+        assert publication["provider"] == "google_drive"
+        assert publication["storage_kind"] == expected["storage_kind"]
+        assert publication["destination_templates"] == expected[
+            "destination_templates"
+        ]
+        assert publication["manifest_published_last"] is True
+        assert publication["acceptance_manifest"] == (
+            "outputs/gdrive_sync_manifest.json"
+        )
+    production = objects[
+        "artifact.drive.full-rebuild-production-valid-publication"
+    ]
+    assert production["mutable_alias"] == "gdrive:outputs"
+    assert production["mapping_status"] == "BLOCKED_NO_IMMUTABLE_SOURCE"
 
 
 def test_paper_heads_use_the_baseline_writer_namespace() -> None:
@@ -773,6 +801,17 @@ def test_rebuild_uses_the_pinned_dependency_contract() -> None:
     assert "$P0_4Python = '.\\.venv-p0-4\\Scripts\\python.exe'" in readme
     assert "& $P0_4Python -m pip install --require-hashes --requirement $P0_4RequirementsTemp" in readme
     assert "Python 3.12 required" in readme
+    assert "Linux x86-64 CPython required" in readme
+    assert "sysconfig.get_platform() != 'linux-x86_64'" in readme
+    assert "Windows x64 CPython required" in readme
+    assert "sysconfig.get_platform() != 'win-amd64'" in readme
+    assert "macOS, ARM, and other interpreter platforms fail the preflight" in readme
+    assert readme.index("Linux x86-64 CPython required") < readme.index(
+        ".venv-p0-4/bin/python -m pip install"
+    )
+    assert readme.index("Windows x64 CPython required") < readme.index(
+        "& $P0_4Python -m pip install"
+    )
     assert readme.index(
         "git diff --exit-code -- docs/run287_p0_4_artifact_inventory"
     ) < readme.index("tests/test_p0_4_artifact_inventory.py")
@@ -855,7 +894,7 @@ def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
 
     relative = "docs/run287_p0_4_artifact_inventory/source_inventory_snapshot.json"
     assert FROZEN_SOURCE_PUBLICATION_COMMIT == (
-        "3fac8edfa925c809d530a921e5cabc9346d7bccb"
+        "302516e5229760477bc9d5b5ddc618bf0b493185"
     )
     assert git("rev-parse", f"{FROZEN_SOURCE_PUBLICATION_COMMIT}:{relative}").strip() == (
         FROZEN_SOURCE_GIT_BLOB_SHA1
@@ -1342,6 +1381,32 @@ def test_output_destination_cannot_contain_repository() -> None:
         assert str(exc) == "canonical_output_requires_live_head_verification"
     else:
         raise AssertionError("canonical bundle rebuild skipped live-head verification")
+
+
+def test_canonical_output_preserves_untracked_entries(tmp_path: Path) -> None:
+    from tools import build_p0_4_artifact_inventory as builder
+
+    repo = tmp_path / "repo"
+    output = repo / "docs" / "run287_p0_4_artifact_inventory"
+    output.mkdir(parents=True)
+    for name in builder.BUNDLE_FILENAMES:
+        (output / name).write_bytes(b"fixture\n")
+    sentinel = output / "user-notes.txt"
+    sentinel.write_bytes(b"user-owned-untracked-bytes\n")
+    with (
+        mock.patch.object(builder, "ROOT", repo),
+        mock.patch.object(builder, "DEFAULT_OUTPUT", output),
+    ):
+        try:
+            builder.validate_output_destination(output)
+        except builder.InventoryError as exc:
+            assert str(exc) == "canonical_output_not_dedicated:user-notes.txt"
+        else:
+            raise AssertionError("canonical output accepted an untracked user file")
+    assert sentinel.read_bytes() == b"user-owned-untracked-bytes\n"
+    assert {path.name for path in output.iterdir()} == (
+        builder.BUNDLE_FILENAMES | {"user-notes.txt"}
+    )
 
 
 def test_existing_external_output_must_be_a_dedicated_bundle(tmp_path: Path) -> None:
@@ -2058,6 +2123,36 @@ def test_invalid_or_incomplete_sources_fail_closed(tmp_path: Path) -> None:
         raise AssertionError("known storage kind accepted a conflicting provider")
 
     payload = source()
+    object_id = "artifact.github.full-rebuild-collector-actions-cache"
+    cache = next(
+        row for row in payload["artifacts"] if row["object_id"] == object_id
+    )
+    cache["provider_paths"] = cache["provider_paths"][:-1]
+    incomplete_cache = tmp_path / "incomplete-full-rebuild-cache.json"
+    incomplete_cache.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(incomplete_cache, tmp_path / "incomplete-full-rebuild-cache-output")
+    except InventoryError as exc:
+        assert str(exc) == f"full_rebuild_cache_evidence_mismatch:{object_id}"
+    else:
+        raise AssertionError("incomplete full-rebuild cache publication was accepted")
+
+    payload = source()
+    object_id = "artifact.drive.full-rebuild-research-valid-publication"
+    drive_publication = next(
+        row for row in payload["artifacts"] if row["object_id"] == object_id
+    )
+    drive_publication["manifest_published_last"] = False
+    incomplete_drive = tmp_path / "incomplete-full-rebuild-drive.json"
+    incomplete_drive.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(incomplete_drive, tmp_path / "incomplete-full-rebuild-drive-output")
+    except InventoryError as exc:
+        assert str(exc) == f"full_rebuild_drive_evidence_mismatch:{object_id}"
+    else:
+        raise AssertionError("non-transactional full-rebuild Drive publication was accepted")
+
+    payload = source()
     object_id = "ds.us.universe.monthly-snapshots"
     invented = next(
         row for row in payload["datasets"] if row["object_id"] == object_id
@@ -2109,6 +2204,7 @@ def main() -> int:
         test_post_commit_backup_cleanup_failure_is_reported(temp_path)
         test_generated_destination_symlink_is_rejected(temp_path)
         test_cli_output_directory_symlink_is_rejected(temp_path)
+        test_canonical_output_preserves_untracked_entries(temp_path)
         test_existing_external_output_must_be_a_dedicated_bundle(temp_path)
         test_safety_authority_flags_fail_closed(temp_path)
         test_required_fixed_target_aliases_cannot_be_omitted(temp_path)
@@ -2116,7 +2212,7 @@ def main() -> int:
         test_compound_aliases_and_wrong_paper_head_namespaces_fail_closed(temp_path)
         test_folder_child_manifests_are_pinned_and_bound(temp_path)
         test_invalid_or_incomplete_sources_fail_closed(temp_path)
-    print("P0-4 artifact inventory smoke: 36 passed")
+    print("P0-4 artifact inventory smoke: 37 passed")
     return 0
 
 

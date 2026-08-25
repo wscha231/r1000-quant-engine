@@ -4437,6 +4437,23 @@ Expected contract:
   the frozen workflow. Rebuild dependency versions require distribution hashes
   and a pinned interpreter/platform contract, and canonical regeneration must
   prove the complete tracked bundle remains byte-clean before its smoke can pass.
+- Reusable lesson: Distribution hashes define a platform allowlist as well as a
+  package allowlist. Fail before installation unless the interpreter ABI and
+  operating platform exactly match the hashed wheels; a generic POSIX command
+  must not imply macOS or ARM support when only Linux x86-64 is covered.
+- Reusable lesson: `actions/cache` publications are provider objects even when
+  the workflow names the step as a restore. A successful cache miss can publish
+  the complete path set at job completion, while restore prefixes can select an
+  older mutable object; record keys, prefixes, paths, and noncanonical status.
+- Reusable lesson: One manifest-driven Drive sync can expose multiple authority
+  surfaces. Census valid master mutable outputs, valid run-addressed research,
+  failed master runs, and failed branch runs separately. The remote transaction
+  is complete only when the allowlisted copies finish and the manifest is
+  published last; a missing final manifest grants no accepted authority.
+- Reusable lesson: Atomic replacement must inspect the canonical destination too.
+  A tracked-byte diff cannot detect deletion of an untracked note or ignored
+  directory, so reject every unexpected, linked, or non-file entry before the
+  old directory is renamed and later removed.
 - Caveat: Historical Russell membership remains not proven PIT-safe; the price
   cache view is incomplete; mutable macro, feature, and model objects lack
   complete immutable lineage; and the shared rclone Drive client is a 2026

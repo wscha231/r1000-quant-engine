@@ -33,9 +33,9 @@ DEFAULT_SOURCE = ROOT / "docs" / "run287_p0_4_artifact_inventory" / "source_inve
 DEFAULT_OUTPUT = ROOT / "docs" / "run287_p0_4_artifact_inventory"
 SCHEMA_VERSION = "run287-p0-4-inventory-source-v1"
 REGISTRY_SCHEMA_VERSION = "run287-p0-4-registry-v1"
-FROZEN_SOURCE_PUBLICATION_COMMIT = "3fac8edfa925c809d530a921e5cabc9346d7bccb"
-FROZEN_SOURCE_GIT_BLOB_SHA1 = "39a126c4bc3bf303a862cbabcd374b7f78b9b56f"
-FROZEN_SOURCE_SHA256 = "15f06a5e121632a597dc1ef1fecf262dda973e5b0976d25cfc511824d2b0792c"
+FROZEN_SOURCE_PUBLICATION_COMMIT = "302516e5229760477bc9d5b5ddc618bf0b493185"
+FROZEN_SOURCE_GIT_BLOB_SHA1 = "c75bde800400b230329f057b0f9b5b2103d5184c"
+FROZEN_SOURCE_SHA256 = "3c28008b10e2c3e2d0ce7f603300a544d437474062d86d307369ca31c610e096"
 FROZEN_PUBLICATION_COMMIT = "f7fadfa4e7814c6453bf96ebf3a1ff4d39eadfae"
 FROZEN_PROTECTED_PUBLICATION_COMMIT = "37139c29765f985a6989d86e904de5eb50daa300"
 GENERATOR_PATH = "tools/build_p0_4_artifact_inventory.py"
@@ -80,6 +80,8 @@ PROVIDER_BY_STORAGE_KIND = {
     "google_drive_folder": "google_drive",
     "google_drive_folder_and_file": "google_drive",
     "google_drive_folder_and_workflow_cache": "google_drive_and_github_actions_cache",
+    "google_drive_manifest_last_mutable_publication": "google_drive",
+    "google_drive_manifest_last_run_addressed_publication": "google_drive",
     "google_drive_mutable_directory": "google_drive",
     "google_drive_mutable_output": "google_drive",
     "google_drive_run_addressed_accepted_publication": "google_drive",
@@ -485,6 +487,128 @@ REQUIRED_FULL_REBUILD_ARTIFACTS = {
     "artifact.github.full-rebuild-research-full-publication": (
         "Upload artifact (research full diagnostics)"
     ),
+}
+REQUIRED_FULL_REBUILD_CACHES = {
+    "artifact.github.full-rebuild-collector-actions-cache": {
+        "step_name": "Restore collector cache",
+        "cache_key": (
+            "collector-cache-${{ inputs.cache_key_suffix }}-"
+            "${{ runner.os }}-${{ github.run_id }}"
+        ),
+        "restore_keys": [
+            "collector-cache-${{ inputs.cache_key_suffix }}-${{ runner.os }}-",
+            "collector-cache-${{ runner.os }}-",
+        ],
+        "write_authority": (
+            "GITHUB_ACTIONS_CACHE_ONLY_NOT_CANONICAL_INPUT_OUTPUT_OR_"
+            "ACCEPTED_STATE_AUTHORITY"
+        ),
+    },
+    "artifact.github.full-rebuild-engine-actions-cache": {
+        "step_name": "Restore engine cache",
+        "cache_key": (
+            "engine-cache-${{ inputs.cache_key_suffix }}-"
+            "${{ runner.os }}-${{ github.run_id }}"
+        ),
+        "restore_keys": [
+            "engine-cache-${{ inputs.cache_key_suffix }}-${{ runner.os }}-",
+            "engine-cache-${{ runner.os }}-",
+        ],
+        "write_authority": (
+            "GITHUB_ACTIONS_CACHE_ONLY_NOT_CANONICAL_MODEL_OUTPUT_OR_"
+            "ACCEPTED_STATE_AUTHORITY"
+        ),
+    },
+}
+REQUIRED_FULL_REBUILD_DRIVE_PUBLICATIONS = {
+    "artifact.drive.full-rebuild-production-valid-publication": {
+        "storage_kind": "google_drive_manifest_last_mutable_publication",
+        "exact_location": "gdrive:outputs or gdrive:${GDRIVE_FOLDER_NAME}/outputs",
+        "destination_templates": [
+            "gdrive:outputs",
+            "gdrive:${GDRIVE_FOLDER_NAME}/outputs",
+        ],
+        "publication_condition": (
+            "BRANCH_NAME == master && VALID_PRIMARY_OUTPUTS == yes && "
+            "gdrive_sync_mode != off"
+        ),
+        "write_authority": (
+            "VALID_MASTER_FULL_REBUILD_OUTPUTS_ONLY_NOT_DAILY_TARGET_LEDGER_"
+            "ACCEPTANCE_OR_LIVE_AUTHORITY"
+        ),
+        "mapping_status": "BLOCKED_NO_IMMUTABLE_SOURCE",
+    },
+    "artifact.drive.full-rebuild-research-valid-publication": {
+        "storage_kind": "google_drive_manifest_last_run_addressed_publication",
+        "exact_location": (
+            "gdrive:research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/outputs or "
+            "gdrive:${GDRIVE_FOLDER_NAME}/research_runs/${SAFE_BRANCH}/"
+            "${GITHUB_RUN_ID}/outputs"
+        ),
+        "destination_templates": [
+            "gdrive:research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/outputs",
+            (
+                "gdrive:${GDRIVE_FOLDER_NAME}/research_runs/${SAFE_BRANCH}/"
+                "${GITHUB_RUN_ID}/outputs"
+            ),
+        ],
+        "publication_condition": (
+            "BRANCH_NAME != master && VALID_PRIMARY_OUTPUTS == yes && "
+            "gdrive_sync_mode != off"
+        ),
+        "write_authority": (
+            "RUN_ADDRESSED_RESEARCH_EVIDENCE_ONLY_NO_PRODUCTION_ACCEPTANCE_"
+            "PROMOTION_OR_LIVE_AUTHORITY"
+        ),
+        "mapping_status": "NOT_APPLICABLE",
+    },
+    "artifact.drive.full-rebuild-production-failed-publication": {
+        "storage_kind": "google_drive_manifest_last_run_addressed_publication",
+        "exact_location": (
+            "gdrive:failed_runs/${GITHUB_RUN_ID}/outputs or "
+            "gdrive:${GDRIVE_FOLDER_NAME}/failed_runs/${GITHUB_RUN_ID}/outputs"
+        ),
+        "destination_templates": [
+            "gdrive:failed_runs/${GITHUB_RUN_ID}/outputs",
+            "gdrive:${GDRIVE_FOLDER_NAME}/failed_runs/${GITHUB_RUN_ID}/outputs",
+        ],
+        "publication_condition": (
+            "BRANCH_NAME == master && VALID_PRIMARY_OUTPUTS == no && "
+            "gdrive_sync_mode != off"
+        ),
+        "write_authority": (
+            "FAILED_RUN_DIAGNOSTICS_ONLY_NO_CANONICAL_OUTPUT_ACCEPTANCE_"
+            "TARGET_LEDGER_OR_LIVE_AUTHORITY"
+        ),
+        "mapping_status": "NOT_APPLICABLE",
+    },
+    "artifact.drive.full-rebuild-research-failed-publication": {
+        "storage_kind": "google_drive_manifest_last_run_addressed_publication",
+        "exact_location": (
+            "gdrive:research_runs/${SAFE_BRANCH}/failed_runs/${GITHUB_RUN_ID}/"
+            "outputs or gdrive:${GDRIVE_FOLDER_NAME}/research_runs/"
+            "${SAFE_BRANCH}/failed_runs/${GITHUB_RUN_ID}/outputs"
+        ),
+        "destination_templates": [
+            (
+                "gdrive:research_runs/${SAFE_BRANCH}/failed_runs/"
+                "${GITHUB_RUN_ID}/outputs"
+            ),
+            (
+                "gdrive:${GDRIVE_FOLDER_NAME}/research_runs/${SAFE_BRANCH}/"
+                "failed_runs/${GITHUB_RUN_ID}/outputs"
+            ),
+        ],
+        "publication_condition": (
+            "BRANCH_NAME != master && VALID_PRIMARY_OUTPUTS == no && "
+            "gdrive_sync_mode != off"
+        ),
+        "write_authority": (
+            "FAILED_RESEARCH_DIAGNOSTICS_ONLY_NO_PRODUCTION_ACCEPTANCE_"
+            "PROMOTION_OR_LIVE_AUTHORITY"
+        ),
+        "mapping_status": "NOT_APPLICABLE",
+    },
 }
 REQUIRED_OBJECT_FIELDS = {
     "object_id",
@@ -1046,6 +1170,81 @@ def validate_full_rebuild_publications(
             or row.get("mapping_status") != "NOT_APPLICABLE"
         ):
             raise InventoryError(f"full_rebuild_provider_evidence_mismatch:{object_id}")
+
+    for object_id, expected in REQUIRED_FULL_REBUILD_CACHES.items():
+        row = object_index.get(object_id)
+        if row is None:
+            raise InventoryError(f"full_rebuild_cache_object_missing:{object_id}")
+        step = baseline_workflow_step(workflow_text, str(expected["step_name"]))
+        values = step.get("with", {})
+        restore_keys = values.get("restore-keys")
+        if not isinstance(restore_keys, str):
+            raise InventoryError(f"full_rebuild_cache_restore_keys_missing:{object_id}")
+        normalized_restore_keys = [
+            line.strip() for line in restore_keys.splitlines() if line.strip()
+        ]
+        cache_key = str(expected["cache_key"])
+        if (
+            step.get("uses") != "actions/cache@v4"
+            or values.get("key") != cache_key
+            or normalized_restore_keys != expected["restore_keys"]
+            or row.get("provider") != "github_actions_cache"
+            or row.get("storage_kind") != "github_actions_cache"
+            or row.get("exact_location") != f"github-actions-cache:{cache_key}"
+            or row.get("cache_key") != cache_key
+            or row.get("restore_keys") != expected["restore_keys"]
+            or row.get("provider_paths") != workflow_multiline_paths(step)
+            or row.get("write_authority") != expected["write_authority"]
+            or row.get("mapping_status") != "NOT_APPLICABLE"
+        ):
+            raise InventoryError(f"full_rebuild_cache_evidence_mismatch:{object_id}")
+
+    sync_step = baseline_workflow_step(
+        workflow_text,
+        "Sync outputs to user's Google Drive (OAuth preferred, Service Account fallback)",
+    )
+    sync_script = sync_step.get("run")
+    if sync_step.get("if") != "success()" or not isinstance(sync_script, str):
+        raise InventoryError("full_rebuild_drive_sync_step_mismatch")
+    required_script_tokens = (
+        'if [ "$BRANCH_NAME" = "master" ]; then',
+        'VALID_PRIMARY_OUTPUTS="no"',
+        'VALID_PRIMARY_OUTPUTS="yes"',
+        'if [ "$SYNC_MODE" = "off" ]; then',
+        "done < outputs/gdrive_sync_files.tsv",
+        "--copy-status outputs/gdrive_copy_status.jsonl",
+        'rclone copyto outputs/gdrive_sync_manifest.json "$DEST/gdrive_sync_manifest.json"',
+    )
+    if any(token not in sync_script for token in required_script_tokens):
+        raise InventoryError("full_rebuild_drive_sync_script_incomplete")
+    if sync_script.count("python tools/build_gdrive_sync_manifest.py") != 2:
+        raise InventoryError("full_rebuild_drive_manifest_build_count")
+    copy_loop_end = sync_script.index("done < outputs/gdrive_sync_files.tsv")
+    manifest_copy = sync_script.index(
+        'rclone copyto outputs/gdrive_sync_manifest.json "$DEST/gdrive_sync_manifest.json"'
+    )
+    if copy_loop_end >= manifest_copy:
+        raise InventoryError("full_rebuild_drive_manifest_not_published_last")
+    for object_id, expected in REQUIRED_FULL_REBUILD_DRIVE_PUBLICATIONS.items():
+        row = object_index.get(object_id)
+        if row is None:
+            raise InventoryError(f"full_rebuild_drive_object_missing:{object_id}")
+        destinations = expected["destination_templates"]
+        if any(str(destination) not in sync_script for destination in destinations):
+            raise InventoryError(f"full_rebuild_drive_destination_missing:{object_id}")
+        if (
+            row.get("provider") != "google_drive"
+            or row.get("storage_kind") != expected["storage_kind"]
+            or row.get("exact_location") != expected["exact_location"]
+            or row.get("destination_templates") != destinations
+            or row.get("publication_condition") != expected["publication_condition"]
+            or row.get("provider_paths_manifest") != "outputs/gdrive_sync_files.tsv"
+            or row.get("acceptance_manifest") != "outputs/gdrive_sync_manifest.json"
+            or row.get("manifest_published_last") is not True
+            or row.get("write_authority") != expected["write_authority"]
+            or row.get("mapping_status") != expected["mapping_status"]
+        ):
+            raise InventoryError(f"full_rebuild_drive_evidence_mismatch:{object_id}")
 
 
 def validate_failure_evidence(payload: dict[str, Any]) -> None:
@@ -1661,9 +1860,11 @@ def render_readme(payload: dict[str, Any], row_count: int) -> str:
             "## Rebuild",
             "",
             "Publication merge contract: merge this PR only with an expected-head merge commit; squash and rebase are prohibited because the pinned source and protected-publication commits must remain ancestors.",
+            "The hashed dependency contract supports CPython 3.12 on Linux x86-64 and Windows x64 only; macOS, ARM, and other interpreter platforms fail the preflight before installation.",
             "",
             "```bash",
             "set -euo pipefail",
+            "python -c \"import sys,sysconfig; sys.exit('Linux x86-64 CPython required') if sysconfig.get_platform() != 'linux-x86_64' else None\"",
             "python -c \"import sys; sys.exit('Python 3.12 required') if sys.version_info[:2] != (3, 12) else None\"",
             "git diff --quiet -- docs/run287_p0_4_artifact_inventory/requirements.txt",
             "git diff --cached --quiet -- docs/run287_p0_4_artifact_inventory/requirements.txt",
@@ -1695,6 +1896,8 @@ def render_readme(payload: dict[str, Any], row_count: int) -> str:
             "",
             "```powershell",
             "$P0_4RequirementsPath = 'docs/run287_p0_4_artifact_inventory/requirements.txt'",
+            "python -c \"import sys,sysconfig; sys.exit('Windows x64 CPython required') if sysconfig.get_platform() != 'win-amd64' else None\"",
+            "if ($LASTEXITCODE -ne 0) { throw 'Windows x64 CPython is required' }",
             "python -c \"import sys; sys.exit('Python 3.12 required') if sys.version_info[:2] != (3, 12) else None\"",
             "if ($LASTEXITCODE -ne 0) { throw 'Python 3.12 is required' }",
             "git diff --quiet -- $P0_4RequirementsPath",
@@ -2001,6 +2204,28 @@ def validate_output_destination(output: Path) -> None:
     if not output.is_dir():
         raise InventoryError("output_path_not_directory")
     if resolved_output == DEFAULT_OUTPUT.resolve():
+        entries = list(output.iterdir())
+        observed = {entry.name for entry in entries}
+        unexpected = sorted(observed - BUNDLE_FILENAMES)
+        if unexpected:
+            raise InventoryError(
+                "canonical_output_not_dedicated:" + ",".join(unexpected)
+            )
+        missing = sorted(BUNDLE_FILENAMES - observed)
+        if missing:
+            raise InventoryError(
+                "canonical_output_bundle_incomplete:" + ",".join(missing)
+            )
+        linked = sorted(entry.name for entry in entries if entry.is_symlink())
+        if linked:
+            raise InventoryError(
+                "canonical_output_has_linked_entries:" + ",".join(linked)
+            )
+        non_files = sorted(entry.name for entry in entries if not entry.is_file())
+        if non_files:
+            raise InventoryError(
+                "canonical_output_has_non_file_entries:" + ",".join(non_files)
+            )
         return
     entries = list(output.iterdir())
     if not entries:
