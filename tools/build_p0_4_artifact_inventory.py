@@ -1571,6 +1571,10 @@ def render_readme(payload: dict[str, Any], row_count: int) -> str:
                 "else pathlib.Path(sys.argv[1]).write_bytes(c)\" "
                 '"$P0_4_REQUIREMENTS"'
             ),
+            "if [ -L .venv-p0-4 ]; then",
+            "  echo 'refusing symlinked .venv-p0-4' >&2",
+            "  exit 1",
+            "fi",
             "python -m venv --clear .venv-p0-4",
             '.venv-p0-4/bin/python -m pip install --requirement "$P0_4_REQUIREMENTS"',
             ".venv-p0-4/bin/python tools/build_p0_4_artifact_inventory.py --verify-live-head",
@@ -1598,6 +1602,10 @@ def render_readme(payload: dict[str, Any], row_count: int) -> str:
                 "$P0_4RequirementsTemp"
             ),
             "  if ($LASTEXITCODE -ne 0) { throw 'authenticated requirements capture failed' }",
+            "  if (Test-Path -LiteralPath '.venv-p0-4') {",
+            "    $P0_4VenvItem = Get-Item -LiteralPath '.venv-p0-4' -Force",
+            "    if (($P0_4VenvItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'refusing linked .venv-p0-4' }",
+            "  }",
             "  python -m venv --clear .venv-p0-4",
             "  if ($LASTEXITCODE -ne 0) { throw 'virtual environment creation failed' }",
             "  $P0_4Python = '.\\.venv-p0-4\\Scripts\\python.exe'",
@@ -1878,22 +1886,52 @@ def validate_output_destination(output: Path) -> None:
         raise InventoryError("output_path_not_directory")
     if resolved_output == DEFAULT_OUTPUT.resolve():
         return
-    unexpected = sorted(
-        entry.name for entry in output.iterdir() if entry.name not in BUNDLE_FILENAMES
-    )
+    entries = list(output.iterdir())
+    if not entries:
+        return
+    observed = {entry.name for entry in entries}
+    unexpected = sorted(observed - BUNDLE_FILENAMES)
     if unexpected:
         raise InventoryError(
             "external_output_not_dedicated:" + ",".join(unexpected)
         )
+    missing = sorted(BUNDLE_FILENAMES - observed)
+    if missing:
+        raise InventoryError(
+            "external_output_bundle_incomplete:" + ",".join(missing)
+        )
+    linked = sorted(entry.name for entry in entries if entry.is_symlink())
+    if linked:
+        raise InventoryError("staged_bundle_symlink:" + ",".join(linked))
     non_files = sorted(
-        entry.name
-        for entry in output.iterdir()
-        if not entry.is_file() and not entry.is_symlink()
+        entry.name for entry in entries if not entry.is_file()
     )
     if non_files:
         raise InventoryError(
             "external_output_has_non_file_entries:" + ",".join(non_files)
         )
+    try:
+        source_bytes = canonical_source_bytes(
+            (output / "source_inventory_snapshot.json").read_bytes()
+        )
+        source_payload = json.loads(source_bytes)
+        summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
+        requirements_bytes = canonical_source_bytes(
+            (output / "requirements.txt").read_bytes()
+        )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise InventoryError("external_output_bundle_authentication_failed") from exc
+    source_sha256 = hashlib.sha256(source_bytes).hexdigest()
+    if (
+        not isinstance(source_payload, dict)
+        or source_payload.get("schema_version") != SCHEMA_VERSION
+        or not isinstance(summary, dict)
+        or summary.get("schema_version") != "run287-p0-4-inventory-summary-v1"
+        or summary.get("source_snapshot_sha256") != source_sha256
+        or hashlib.sha256(requirements_bytes).hexdigest()
+        != FROZEN_REQUIREMENTS_SHA256
+    ):
+        raise InventoryError("external_output_bundle_authentication_failed")
 
 
 def publish_bundle_atomically(output: Path, render) -> None:

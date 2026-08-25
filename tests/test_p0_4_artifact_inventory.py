@@ -723,10 +723,18 @@ def test_rebuild_uses_the_pinned_dependency_contract() -> None:
     assert "git diff --cached --quiet -- docs/run287_p0_4_artifact_inventory/requirements.txt" in readme
     assert "9a32746dec8900d8663ba5f6a2f47ec8f9a817eb7fb051fde772a0e7af5c0a4e" in readme
     assert readme.index("write_bytes(c)") < readme.index("pip install")
+    assert readme.index("if [ -L .venv-p0-4 ]; then") < readme.index(
+        "python -m venv --clear .venv-p0-4"
+    )
+    assert "refusing symlinked .venv-p0-4" in readme
     assert "```powershell" in readme
     assert "$P0_4RequirementsTemp = New-TemporaryFile" in readme
     assert "$P0_4Python = '.\\.venv-p0-4\\Scripts\\python.exe'" in readme
     assert "& $P0_4Python -m pip install --requirement $P0_4RequirementsTemp" in readme
+    assert "[System.IO.FileAttributes]::ReparsePoint" in readme
+    assert readme.index("refusing linked .venv-p0-4") < readme.rindex(
+        "python -m venv --clear .venv-p0-4"
+    )
     for failure in (
         "authenticated requirements capture failed",
         "virtual environment creation failed",
@@ -1151,9 +1159,8 @@ def test_failed_render_keeps_the_existing_bundle_intact(tmp_path: Path) -> None:
     from tools import build_p0_4_artifact_inventory as builder
 
     output = tmp_path / "bundle"
-    output.mkdir()
-    sentinel = output / "README.md"
-    sentinel.write_bytes(b"reviewed-old-bundle\n")
+    builder.build(SOURCE, output)
+    before = {name: (output / name).read_bytes() for name in builder.BUNDLE_FILENAMES}
     with mock.patch.object(
         builder.pd.DataFrame,
         "to_parquet",
@@ -1165,17 +1172,18 @@ def test_failed_render_keeps_the_existing_bundle_intact(tmp_path: Path) -> None:
             assert "injected parquet failure" in str(exc)
         else:
             raise AssertionError("injected render failure was not propagated")
-    assert sentinel.read_bytes() == b"reviewed-old-bundle\n"
-    assert sorted(path.name for path in output.iterdir()) == ["README.md"]
+    assert before == {
+        name: (output / name).read_bytes() for name in builder.BUNDLE_FILENAMES
+    }
     assert not list(tmp_path.glob(".bundle.stage-*"))
     assert not list(tmp_path.glob(".bundle.backup-*"))
 
 
-def test_successful_rebuild_replaces_a_partial_bundle(tmp_path: Path) -> None:
+def test_successful_rebuild_replaces_an_authenticated_bundle(tmp_path: Path) -> None:
     from tools import build_p0_4_artifact_inventory as builder
 
-    output = tmp_path / "partial-bundle"
-    output.mkdir()
+    output = tmp_path / "authenticated-bundle"
+    builder.build(SOURCE, output)
     stale = output / "README.md"
     stale.write_bytes(b"reviewed-old-bundle\n")
     builder.build(SOURCE, output)
@@ -1187,7 +1195,7 @@ def test_post_commit_backup_cleanup_failure_is_reported(tmp_path: Path) -> None:
     from tools import build_p0_4_artifact_inventory as builder
 
     output = tmp_path / "cleanup-bundle"
-    output.mkdir()
+    builder.build(SOURCE, output)
     (output / "README.md").write_bytes(b"reviewed-old-bundle\n")
     real_rmtree = builder.shutil.rmtree
 
@@ -1213,10 +1221,11 @@ def test_generated_destination_symlink_is_rejected(tmp_path: Path) -> None:
     from tools.build_p0_4_artifact_inventory import InventoryError, build
 
     output = tmp_path / "symlink-bundle"
-    output.mkdir()
+    build(SOURCE, output)
     external = tmp_path / "external.txt"
     external.write_bytes(b"outside-must-not-change\n")
     try:
+        (output / "README.md").unlink()
         (output / "README.md").symlink_to(external)
     except OSError:
         return
@@ -1307,7 +1316,8 @@ def test_existing_external_output_must_be_a_dedicated_bundle(tmp_path: Path) -> 
     assert not list(tmp_path.glob(".unrelated-directory.backup-*"))
 
     malformed = tmp_path / "malformed-bundle"
-    malformed.mkdir()
+    builder.build(SOURCE, malformed)
+    (malformed / "README.md").unlink()
     (malformed / "README.md").mkdir()
     try:
         builder.validate_output_destination(malformed)
@@ -1315,6 +1325,32 @@ def test_existing_external_output_must_be_a_dedicated_bundle(tmp_path: Path) -> 
         assert str(exc) == "external_output_has_non_file_entries:README.md"
     else:
         raise AssertionError("external bundle with a directory entry was accepted")
+
+    partial = tmp_path / "partial-bundle"
+    partial.mkdir()
+    partial_sentinel = partial / "README.md"
+    partial_sentinel.write_bytes(b"another-project\n")
+    try:
+        builder.validate_output_destination(partial)
+    except builder.InventoryError as exc:
+        assert str(exc).startswith("external_output_bundle_incomplete:")
+    else:
+        raise AssertionError("partial name-only bundle was accepted")
+    assert partial_sentinel.read_bytes() == b"another-project\n"
+
+    unauthenticated = tmp_path / "unauthenticated-bundle"
+    builder.build(SOURCE, unauthenticated)
+    summary = json.loads((unauthenticated / "summary.json").read_text(encoding="utf-8"))
+    summary["source_snapshot_sha256"] = "0" * 64
+    (unauthenticated / "summary.json").write_text(
+        json.dumps(summary), encoding="utf-8"
+    )
+    try:
+        builder.validate_output_destination(unauthenticated)
+    except builder.InventoryError as exc:
+        assert str(exc) == "external_output_bundle_authentication_failed"
+    else:
+        raise AssertionError("unauthenticated complete bundle was accepted")
 
 
 def test_safety_authority_flags_fail_closed(tmp_path: Path) -> None:
@@ -1968,7 +2004,7 @@ def main() -> int:
         test_post_publication_protected_changes_are_rejected(temp_path)
         test_protected_generator_allows_only_pin_delta(temp_path)
         test_failed_render_keeps_the_existing_bundle_intact(temp_path)
-        test_successful_rebuild_replaces_a_partial_bundle(temp_path)
+        test_successful_rebuild_replaces_an_authenticated_bundle(temp_path)
         test_post_commit_backup_cleanup_failure_is_reported(temp_path)
         test_generated_destination_symlink_is_rejected(temp_path)
         test_cli_output_directory_symlink_is_rejected(temp_path)

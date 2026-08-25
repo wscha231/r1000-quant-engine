@@ -4418,8 +4418,11 @@ Expected contract:
   survive into generation or testing.
 - Reusable lesson: Repository-boundary checks do not protect user-owned
   directories elsewhere. An existing external regeneration destination must be
-  empty or contain only recognized bundle file names, with no directory or
-  special-file entries, before atomic replacement may rename and delete it.
+  empty or contain a complete, schema- and source-hash-authenticated bundle,
+  with no linked, directory, or special-file entries, before atomic replacement
+  may rename and delete it. A name-only allowlist is not an ownership marker.
+  Before clearing a reusable virtual environment, reject POSIX symlinks and
+  Windows reparse points so `venv --clear` cannot follow a link into user data.
 - Caveat: Historical Russell membership remains not proven PIT-safe; the price
   cache view is incomplete; mutable macro, feature, and model objects lack
   complete immutable lineage; and the shared rclone Drive client is a 2026
