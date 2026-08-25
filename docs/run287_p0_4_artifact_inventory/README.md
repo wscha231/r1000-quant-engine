@@ -7,8 +7,8 @@ This is the read-only inventory required by Issue #372, frozen at `2026-08-25T12
 - Dataset classes: `24`
 - Model objects: `4`
 - Durable-state objects: `8`
-- Infrastructure/artifact objects: `20`
-- Total normalized Parquet rows: `56`
+- Infrastructure/artifact objects: `21`
+- Total normalized Parquet rows: `57`
 - Latest aliases verified: `7`
 - Latest aliases blocked: `38`
 
