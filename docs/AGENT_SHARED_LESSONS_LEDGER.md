@@ -4334,9 +4334,16 @@ Expected contract:
   mutable root. A container census must independently require every declared
   child and reconcile its file count and total size; deriving completeness only
   from objects that remain in a supplied source lets omissions pass silently.
+  Preserve and hash the direct-child names, provider IDs, sizes, and modified
+  timestamps, then bind each concrete object to that authenticated parent
+  manifest; aggregate count and byte size alone are not reproducible evidence.
   Canonical regeneration must authenticate every copied input, including the
   dependency contract, require live-head lineage verification, and reject any
   output destination that is the repository or an ancestor of it.
+- Reusable lesson: Atomic publication has a commit point. A backup-cleanup
+  failure after the new directory is installed must report that publication
+  succeeded and retain the backup for later cleanup; raising an ordinary build
+  failure at that point invites an unsafe retry against already-changed state.
 - Reusable lesson: Shallow CI history must deepen through every commit used by
   verifier ancestry checks, including the oldest frozen inventory baseline;
   stopping at a newer publication commit leaves a future boundary window where

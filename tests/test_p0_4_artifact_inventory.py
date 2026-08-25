@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import io
 import json
 import re
 import subprocess
@@ -162,10 +164,10 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
     assert frame["market"].eq("US").all()
     assert frame["baseline_code_sha"].eq(payload["baseline_code_sha"]).all()
     assert frame["source_snapshot_sha256"].eq(
-        "cb18ad7804154268df6e873d85b5ec45092290bdebdf8d833eb908dbb66e9e5d"
+        "e9f8467d96dd2f3e6602d6d52889653f98272149f320b47aa079f6d4b7b181a0"
     ).all()
     assert frame["source_publication_commit"].eq(
-        "daf8dc2bb4f5e71293347cf4face3f139a15d0eb"
+        "c13f19079cde8e30615a55629f840096d8c4f87b"
     ).all()
     assert frame["exact_location"].astype(str).str.strip().ne("").all()
     assert frame["rollback_restore"].astype(str).str.strip().ne("").all()
@@ -288,6 +290,18 @@ def test_every_mutable_alias_is_verified_or_explicitly_blocked() -> None:
     }
     assert feature_aliases <= set(aliases)
     assert not any(alias.startswith("feature_store/") and "*" in alias for alias in aliases)
+    folder_manifests = payload["folder_child_manifests"]
+    assert len(folder_manifests["feature_store"]["children"]) == 9
+    assert folder_manifests["feature_store"]["manifest_sha256"] == (
+        "c478b3dc09c4a9b8a3f2eb940fd83af965bae5a051ce780df3d7f4ae8bce59d4"
+    )
+    assert len(folder_manifests["cache_macro"]["children"]) == 15
+    assert sum(
+        child["size_bytes"] for child in folder_manifests["cache_macro"]["children"]
+    ) == 634224
+    assert folder_manifests["cache_macro"]["manifest_sha256"] == (
+        "96db5506b8b3f5b5eeebf5c49ce5ceff39a53b91e84710901cc82adaa24d92d1"
+    )
 
 
 def test_paper_heads_use_the_baseline_writer_namespace() -> None:
@@ -612,7 +626,7 @@ def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
 
     relative = "docs/run287_p0_4_artifact_inventory/source_inventory_snapshot.json"
     assert FROZEN_SOURCE_PUBLICATION_COMMIT == (
-        "daf8dc2bb4f5e71293347cf4face3f139a15d0eb"
+        "c13f19079cde8e30615a55629f840096d8c4f87b"
     )
     assert git("rev-parse", f"{FROZEN_SOURCE_PUBLICATION_COMMIT}:{relative}").strip() == (
         FROZEN_SOURCE_GIT_BLOB_SHA1
@@ -844,6 +858,32 @@ def test_failed_render_keeps_the_existing_bundle_intact(tmp_path: Path) -> None:
     assert not list(tmp_path.glob(".bundle.backup-*"))
 
 
+def test_post_commit_backup_cleanup_failure_is_reported(tmp_path: Path) -> None:
+    from tools import build_p0_4_artifact_inventory as builder
+
+    output = tmp_path / "bundle"
+    output.mkdir()
+    (output / "existing.txt").write_bytes(b"reviewed-old-bundle\n")
+    real_rmtree = builder.shutil.rmtree
+
+    def fail_backup_cleanup(path, *args, **kwargs):
+        if ".backup-" in Path(path).name:
+            raise OSError("injected backup cleanup hold")
+        return real_rmtree(path, *args, **kwargs)
+
+    warning = io.StringIO()
+    with mock.patch.object(
+        builder.shutil, "rmtree", side_effect=fail_backup_cleanup
+    ), contextlib.redirect_stderr(warning):
+        builder.build(SOURCE, output)
+    assert (output / "summary.json").is_file()
+    assert "publication succeeded but backup cleanup failed" in warning.getvalue()
+    backups = list(tmp_path.glob(".bundle.backup-*"))
+    assert len(backups) == 1
+    assert (backups[0] / "existing.txt").read_bytes() == b"reviewed-old-bundle\n"
+    real_rmtree(backups[0])
+
+
 def test_generated_destination_symlink_is_rejected(tmp_path: Path) -> None:
     from tools.build_p0_4_artifact_inventory import InventoryError, build
 
@@ -1012,6 +1052,30 @@ def test_required_fixed_target_aliases_cannot_be_omitted(tmp_path: Path) -> None
         assert str(exc) == f"required_operational_cache_missing:{macro_cache_id}"
     else:
         raise AssertionError("missing operational macro cache was not rejected")
+
+    price_cache_ids = {
+        "ds.us.prices.replay-cache",
+        "ds.us.prices.replay-cache-manifest",
+    }
+    payload = source()
+    payload["datasets"] = [
+        row for row in payload["datasets"] if row["object_id"] not in price_cache_ids
+    ]
+    payload["latest_to_immutable"] = [
+        row
+        for row in payload["latest_to_immutable"]
+        if row["object_id"] not in price_cache_ids
+    ]
+    missing_price_cache = tmp_path / "missing-price-cache.json"
+    missing_price_cache.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(missing_price_cache, tmp_path / "missing-price-cache-output")
+    except InventoryError as exc:
+        assert str(exc) == (
+            "required_operational_cache_missing:ds.us.prices.replay-cache"
+        )
+    else:
+        raise AssertionError("missing operational price cache was not rejected")
 
 
 def test_alias_map_must_match_object_status_and_evidence(tmp_path: Path) -> None:
@@ -1218,6 +1282,61 @@ def test_compound_aliases_and_wrong_paper_head_namespaces_fail_closed(
         raise AssertionError("paper head mutable alias drift was not rejected")
 
 
+def test_folder_child_manifests_are_pinned_and_bound(tmp_path: Path) -> None:
+    from tools.build_p0_4_artifact_inventory import InventoryError, build
+
+    payload = source()
+    object_id = "ds.us.features.latest-recommendations"
+    row = next(row for row in payload["datasets"] if row["object_id"] == object_id)
+    row["exact_location"] = "gdrive-id:unrelated-file"
+    wrong_location = tmp_path / "wrong-feature-location.json"
+    wrong_location.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(wrong_location, tmp_path / "wrong-feature-location-output")
+    except InventoryError as exc:
+        assert str(exc) == f"feature_drive_child_location_mismatch:{object_id}"
+    else:
+        raise AssertionError("feature child outside its censused Drive folder was accepted")
+
+    payload = source()
+    row = next(row for row in payload["datasets"] if row["object_id"] == object_id)
+    row["file_count"] = 999
+    wrong_count = tmp_path / "wrong-feature-file-count.json"
+    wrong_count.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(wrong_count, tmp_path / "wrong-feature-file-count-output")
+    except InventoryError as exc:
+        assert str(exc) == f"feature_drive_child_file_count:{object_id}"
+    else:
+        raise AssertionError("non-file feature child count was accepted")
+
+    payload = source()
+    payload["folder_child_manifests"]["cache_macro"]["children"][0][
+        "size_bytes"
+    ] += 1
+    changed_manifest = tmp_path / "changed-macro-manifest.json"
+    changed_manifest.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(changed_manifest, tmp_path / "changed-macro-manifest-output")
+    except InventoryError as exc:
+        assert str(exc) == "folder_child_manifest_sha256_mismatch:cache_macro"
+    else:
+        raise AssertionError("changed macro child manifest was accepted")
+
+    payload = source()
+    macro_id = "ds.us.macro.operational-cache"
+    row = next(row for row in payload["datasets"] if row["object_id"] == macro_id)
+    row["exact_location"] = "gdrive-id:unrelated-folder"
+    wrong_parent = tmp_path / "wrong-macro-parent.json"
+    wrong_parent.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(wrong_parent, tmp_path / "wrong-macro-parent-output")
+    except InventoryError as exc:
+        assert str(exc) == "macro_cache_manifest_parent_mismatch"
+    else:
+        raise AssertionError("macro cache outside its censused Drive folder was accepted")
+
+
 def test_invalid_or_incomplete_sources_fail_closed(tmp_path: Path) -> None:
     from tools.build_p0_4_artifact_inventory import InventoryError, build
 
@@ -1261,14 +1380,16 @@ def main() -> int:
         test_dirty_generator_is_rejected(temp_path)
         test_post_publication_protected_changes_are_rejected(temp_path)
         test_failed_render_keeps_the_existing_bundle_intact(temp_path)
+        test_post_commit_backup_cleanup_failure_is_reported(temp_path)
         test_generated_destination_symlink_is_rejected(temp_path)
         test_cli_output_directory_symlink_is_rejected(temp_path)
         test_safety_authority_flags_fail_closed(temp_path)
         test_required_fixed_target_aliases_cannot_be_omitted(temp_path)
         test_alias_map_must_match_object_status_and_evidence(temp_path)
         test_compound_aliases_and_wrong_paper_head_namespaces_fail_closed(temp_path)
+        test_folder_child_manifests_are_pinned_and_bound(temp_path)
         test_invalid_or_incomplete_sources_fail_closed(temp_path)
-    print("P0-4 artifact inventory smoke: 29 passed")
+    print("P0-4 artifact inventory smoke: 31 passed")
     return 0
 
 

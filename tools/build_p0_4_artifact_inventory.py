@@ -17,6 +17,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import uuid
 from pathlib import Path
@@ -31,9 +32,9 @@ DEFAULT_SOURCE = ROOT / "docs" / "run287_p0_4_artifact_inventory" / "source_inve
 DEFAULT_OUTPUT = ROOT / "docs" / "run287_p0_4_artifact_inventory"
 SCHEMA_VERSION = "run287-p0-4-inventory-source-v1"
 REGISTRY_SCHEMA_VERSION = "run287-p0-4-registry-v1"
-FROZEN_SOURCE_PUBLICATION_COMMIT = "daf8dc2bb4f5e71293347cf4face3f139a15d0eb"
-FROZEN_SOURCE_GIT_BLOB_SHA1 = "307b2ad241bac299aac5eece437379c5682b3ecd"
-FROZEN_SOURCE_SHA256 = "cb18ad7804154268df6e873d85b5ec45092290bdebdf8d833eb908dbb66e9e5d"
+FROZEN_SOURCE_PUBLICATION_COMMIT = "c13f19079cde8e30615a55629f840096d8c4f87b"
+FROZEN_SOURCE_GIT_BLOB_SHA1 = "32e06d41cd9e31886e69e3bb10b6d2ac39edf055"
+FROZEN_SOURCE_SHA256 = "e9f8467d96dd2f3e6602d6d52889653f98272149f320b47aa079f6d4b7b181a0"
 FROZEN_PUBLICATION_COMMIT = "f7fadfa4e7814c6453bf96ebf3a1ff4d39eadfae"
 FROZEN_PROTECTED_PUBLICATION_COMMIT = "119b6cae7de5a9396ba5ee2097c9101d187fa3b5"
 GENERATOR_PATH = "tools/build_p0_4_artifact_inventory.py"
@@ -112,6 +113,10 @@ REQUIRED_DURABLE_ALIAS_OBJECTS = {
     ),
 }
 REQUIRED_OPERATIONAL_CACHE_ALIAS_OBJECTS = {
+    "ds.us.prices.replay-cache": "cache_prices",
+    "ds.us.prices.replay-cache-manifest": (
+        "cache_prices/replay_price_cache_manifest.json"
+    ),
     "ds.us.macro.operational-cache": "cache_macro",
 }
 REQUIRED_FEATURE_ALIAS_OBJECTS = {
@@ -138,6 +143,14 @@ REQUIRED_FEATURE_ALIAS_OBJECTS = {
     "ds.us.features.fund-panel-latest": "feature_store/fund_panel_latest.parquet",
 }
 FEATURE_DRIVE_CENSUS_OBJECT = "ds.us.features.drive-latest-family"
+PINNED_FOLDER_CHILD_MANIFEST_SHA256 = {
+    "feature_store": (
+        "c478b3dc09c4a9b8a3f2eb940fd83af965bae5a051ce780df3d7f4ae8bce59d4"
+    ),
+    "cache_macro": (
+        "96db5506b8b3f5b5eeebf5c49ce5ceff39a53b91e84710901cc82adaa24d92d1"
+    ),
+}
 OFFICIAL_TARGET_WORKFLOW = ".github/workflows/daily_operating_selection_refresh.yml"
 OFFICIAL_PAPER_HEAD_ROOT = (
     "paper_archive/run287_daily_simulated_fill_ledger_heads"
@@ -312,6 +325,48 @@ def read_source(path: Path) -> dict[str, Any]:
 
 def nonblank(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
+
+
+def canonical_folder_child_manifest(
+    name: str, manifest: Any
+) -> tuple[bytes, list[dict[str, Any]]]:
+    if not isinstance(manifest, dict):
+        raise InventoryError(f"folder_child_manifest_missing:{name}")
+    parent = manifest.get("parent_exact_location")
+    children = manifest.get("children")
+    if not nonblank(parent) or not isinstance(children, list) or not children:
+        raise InventoryError(f"folder_child_manifest_invalid:{name}")
+    normalized: list[dict[str, Any]] = []
+    titles: set[str] = set()
+    ids: set[str] = set()
+    for child in children:
+        if not isinstance(child, dict):
+            raise InventoryError(f"folder_child_manifest_child_invalid:{name}")
+        normalized_child = {
+            "title": child.get("title"),
+            "id": child.get("id"),
+            "size_bytes": child.get("size_bytes"),
+            "modified_time": child.get("modified_time"),
+        }
+        if not all(
+            nonblank(normalized_child[field])
+            for field in ("title", "id", "modified_time")
+        ) or not isinstance(normalized_child["size_bytes"], int):
+            raise InventoryError(f"folder_child_manifest_child_invalid:{name}")
+        if normalized_child["size_bytes"] < 0:
+            raise InventoryError(f"folder_child_manifest_child_invalid:{name}")
+        if normalized_child["title"] in titles or normalized_child["id"] in ids:
+            raise InventoryError(f"folder_child_manifest_duplicate:{name}")
+        titles.add(normalized_child["title"])
+        ids.add(normalized_child["id"])
+        normalized.append(normalized_child)
+    normalized.sort(key=lambda row: row["title"])
+    canonical = json.dumps(
+        {"parent_exact_location": parent, "children": normalized},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return canonical, normalized
 
 
 def validate_hash(value: Any, *, field: str, allow_blank: bool = True) -> None:
@@ -530,6 +585,19 @@ def validate_source(payload: dict[str, Any]) -> None:
         for collection in ("datasets", "models", "durable_states", "artifacts")
         for row in payload[collection]
     }
+    folder_manifests = payload.get("folder_child_manifests")
+    if not isinstance(folder_manifests, dict):
+        raise InventoryError("folder_child_manifests_missing")
+    verified_folder_children: dict[str, list[dict[str, Any]]] = {}
+    for name, expected_sha256 in PINNED_FOLDER_CHILD_MANIFEST_SHA256.items():
+        manifest = folder_manifests.get(name)
+        canonical, children = canonical_folder_child_manifest(name, manifest)
+        actual_sha256 = hashlib.sha256(canonical).hexdigest()
+        if manifest.get("manifest_sha256") != actual_sha256:
+            raise InventoryError(f"folder_child_manifest_sha256_mismatch:{name}")
+        if actual_sha256 != expected_sha256:
+            raise InventoryError(f"folder_child_manifest_not_pinned:{name}")
+        verified_folder_children[name] = children
     aliases = payload.get("latest_to_immutable")
     if not isinstance(aliases, list) or not aliases:
         raise InventoryError("latest_map_empty")
@@ -652,6 +720,21 @@ def validate_source(payload: dict[str, Any]) -> None:
             raise InventoryError(f"required_operational_cache_mismatch:{object_id}")
         if object_id not in alias_ids:
             raise InventoryError(f"required_operational_cache_map_missing:{object_id}")
+    macro_cache = object_index["ds.us.macro.operational-cache"]
+    macro_manifest = folder_manifests["cache_macro"]
+    macro_children = verified_folder_children["cache_macro"]
+    if macro_cache.get("exact_location") != macro_manifest.get(
+        "parent_exact_location"
+    ):
+        raise InventoryError("macro_cache_manifest_parent_mismatch")
+    if macro_cache.get("file_count") != len(macro_children):
+        raise InventoryError("macro_cache_manifest_file_count_mismatch")
+    if macro_cache.get("size_bytes") != sum(
+        row["size_bytes"] for row in macro_children
+    ):
+        raise InventoryError("macro_cache_manifest_size_mismatch")
+    if macro_cache.get("manifest_sha256") != macro_manifest.get("manifest_sha256"):
+        raise InventoryError("macro_cache_manifest_object_hash_mismatch")
     feature_rows: list[dict[str, Any]] = []
     for object_id, alias in REQUIRED_FEATURE_ALIAS_OBJECTS.items():
         row = object_index.get(object_id)
@@ -665,11 +748,41 @@ def validate_source(payload: dict[str, Any]) -> None:
     feature_census = object_index.get(FEATURE_DRIVE_CENSUS_OBJECT)
     if feature_census is None:
         raise InventoryError("feature_drive_census_missing")
-    if feature_census.get("file_count") != len(feature_rows):
+    feature_manifest = folder_manifests["feature_store"]
+    feature_children = verified_folder_children["feature_store"]
+    if feature_census.get("exact_location") != feature_manifest.get(
+        "parent_exact_location"
+    ):
+        raise InventoryError("feature_drive_census_parent_mismatch")
+    if feature_census.get("file_count") != len(feature_children):
         raise InventoryError("feature_drive_census_file_count_mismatch")
-    feature_size = sum(int(row.get("size_bytes") or 0) for row in feature_rows)
+    if len(feature_rows) != len(feature_children):
+        raise InventoryError("feature_drive_census_child_count_mismatch")
+    child_by_title = {row["title"]: row for row in feature_children}
+    for row in feature_rows:
+        title = str(row["mutable_alias"]).rsplit("/", 1)[-1]
+        child = child_by_title.get(title)
+        if child is None:
+            raise InventoryError(f"feature_drive_child_missing:{row['object_id']}")
+        if row.get("exact_location") != f"gdrive-id:{child['id']}":
+            raise InventoryError(
+                f"feature_drive_child_location_mismatch:{row['object_id']}"
+            )
+        if row.get("file_count") != 1:
+            raise InventoryError(f"feature_drive_child_file_count:{row['object_id']}")
+        if row.get("size_bytes") != child["size_bytes"]:
+            raise InventoryError(f"feature_drive_child_size_mismatch:{row['object_id']}")
+        if row.get("available_from") != child["modified_time"]:
+            raise InventoryError(
+                f"feature_drive_child_modified_time_mismatch:{row['object_id']}"
+            )
+    feature_size = sum(row["size_bytes"] for row in feature_children)
     if feature_census.get("size_bytes") != feature_size:
         raise InventoryError("feature_drive_census_size_mismatch")
+    if feature_census.get("manifest_sha256") != feature_manifest.get(
+        "manifest_sha256"
+    ):
+        raise InventoryError("feature_drive_census_manifest_hash_mismatch")
     validate_failure_evidence(payload)
     if not isinstance(payload.get("migration_items"), list) or not payload["migration_items"]:
         raise InventoryError("migration_items_empty")
@@ -1128,8 +1241,17 @@ def publish_bundle_atomically(output: Path, render) -> None:
                 backup = None
             raise
         if backup is not None:
-            shutil.rmtree(backup)
+            committed_backup = backup
             backup = None
+            try:
+                shutil.rmtree(committed_backup)
+            except OSError as exc:
+                print(
+                    "[p0-4-inventory] WARNING: publication succeeded but "
+                    f"backup cleanup failed and was retained at {committed_backup} "
+                    f"({type(exc).__name__})",
+                    file=sys.stderr,
+                )
     finally:
         if staging.exists():
             shutil.rmtree(staging)
