@@ -32,9 +32,9 @@ DEFAULT_SOURCE = ROOT / "docs" / "run287_p0_4_artifact_inventory" / "source_inve
 DEFAULT_OUTPUT = ROOT / "docs" / "run287_p0_4_artifact_inventory"
 SCHEMA_VERSION = "run287-p0-4-inventory-source-v1"
 REGISTRY_SCHEMA_VERSION = "run287-p0-4-registry-v1"
-FROZEN_SOURCE_PUBLICATION_COMMIT = "693928167cab6c4bc1b1dfbfdb9ce8b7f2c7eef1"
-FROZEN_SOURCE_GIT_BLOB_SHA1 = "b63e8744e0075ba44f524a19cbc3cb4a8a32a514"
-FROZEN_SOURCE_SHA256 = "797080a23a10299f6268335b762fd74c1b9ac9d96fc3294d03cf4d7e358cf142"
+FROZEN_SOURCE_PUBLICATION_COMMIT = "02637f0bc592d843eb6ce94cccea87374d169c51"
+FROZEN_SOURCE_GIT_BLOB_SHA1 = "c077aa3ae5de847a82695dcc7229f2b7e4addd7f"
+FROZEN_SOURCE_SHA256 = "8cd51434f7d8ad578a27d16f6c87f0111ce2189e1aaef08913f75d55a91c1ae4"
 FROZEN_PUBLICATION_COMMIT = "f7fadfa4e7814c6453bf96ebf3a1ff4d39eadfae"
 FROZEN_PROTECTED_PUBLICATION_COMMIT = "b90f070aa1180d3e2c326a3949d8f10e9492c47f"
 GENERATOR_PATH = "tools/build_p0_4_artifact_inventory.py"
@@ -50,6 +50,9 @@ PROTECTED_PUBLICATION_PATHS = (
 UNBOUND_SOURCE_PUBLICATION = "UNBOUND_CUSTOM_SOURCE"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
+PROTECTED_GENERATOR_PIN_RE = re.compile(
+    rb'FROZEN_PROTECTED_PUBLICATION_COMMIT = "[0-9a-f]{40}"'
+)
 OBJECT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]+$")
 ALIAS_STATUSES = {
     "VERIFIED_IMMUTABLE",
@@ -177,6 +180,57 @@ REQUIRED_LEDGER_RECOVERY_OBJECT = (
 OFFICIAL_LEDGER_RECOVERY_LOCATION = (
     "gdrive-root:1qcRMJCxDXsca5SmHFUu30yMAZdRLaxPA/paper_archive/recovery/"
     "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/"
+)
+OFFICIAL_DAILY_PAPER_LEDGER_CACHE_PATHS = (
+    "outputs/holding_risk_watch",
+    "outputs/run287_exact_packet_upstream",
+    "outputs/run287_exact_packet_input_sources",
+    "outputs/run287_exact_packet_input_registry",
+    "outputs/run287_decision_observation_archive",
+    "outputs/run287_accepted_publication",
+    "outputs/run287_risk_outcome_accepted_head_bundles",
+    "outputs/run287_risk_outcome_accepted_head_manifests",
+    "outputs/run287_risk_outcome_archive",
+    "outputs/run287_risk_outcome_price_cache",
+)
+OFFICIAL_DAILY_PAPER_LEDGER_CACHE_LOCATION = (
+    ".github/workflows/daily_operating_selection_refresh.yml Save validated "
+    "forward paper state cache actions/cache/save@v4 key daily-paper-ledger-"
+    "${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }} paths: "
+    + "; ".join(OFFICIAL_DAILY_PAPER_LEDGER_CACHE_PATHS)
+)
+OFFICIAL_DAILY_PAPER_CONTINUITY_CACHE_PATHS = (
+    "outputs/daily_simulated_fill_ledger",
+    "outputs/run287_paper_immutable_head_bundles",
+)
+OFFICIAL_DAILY_PAPER_CONTINUITY_CACHE_LOCATION = (
+    ".github/workflows/daily_operating_selection_refresh.yml Save validated "
+    "cross-mode paper continuity cache actions/cache/save@v4 key "
+    "daily-paper-continuity-v1-${{ runner.os }}-${{ github.run_id }}-"
+    "${{ github.run_attempt }} paths: "
+    + "; ".join(OFFICIAL_DAILY_PAPER_CONTINUITY_CACHE_PATHS)
+)
+REQUIRED_PAPER_ACTIONS_CACHE_OBJECTS = {
+    "artifact.github.daily-paper-ledger-actions-cache": (
+        OFFICIAL_DAILY_PAPER_LEDGER_CACHE_LOCATION,
+        OFFICIAL_DAILY_PAPER_LEDGER_CACHE_PATHS,
+        "daily-paper-ledger-${{ runner.os }}-${{ github.run_id }}-"
+        "${{ github.run_attempt }}",
+    ),
+    "artifact.github.daily-paper-continuity-actions-cache": (
+        OFFICIAL_DAILY_PAPER_CONTINUITY_CACHE_LOCATION,
+        OFFICIAL_DAILY_PAPER_CONTINUITY_CACHE_PATHS,
+        "daily-paper-continuity-v1-${{ runner.os }}-${{ github.run_id }}-"
+        "${{ github.run_attempt }}",
+    ),
+}
+REQUIRED_ACCEPTED_PAPER_TRANSACTION_OBJECT = (
+    "artifact.drive.accepted-paper-transaction-publication"
+)
+OFFICIAL_ACCEPTED_PAPER_TRANSACTION_LOCATION = (
+    "gdrive-root:1qcRMJCxDXsca5SmHFUu30yMAZdRLaxPA/research_runs/"
+    "${SAFE_BRANCH}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/"
+    "accepted_paper_transaction/"
 )
 OFFICIAL_TARGET_WORKFLOW = ".github/workflows/daily_operating_selection_refresh.yml"
 OFFICIAL_PAPER_HEAD_ROOT = (
@@ -467,6 +521,14 @@ def validate_object(row: dict[str, Any], *, object_class: str) -> None:
             raise InventoryError(f"object_field_not_list:{object_id}:{field}")
     if row.get("mapping_status") not in ALIAS_STATUSES:
         raise InventoryError(f"mapping_status_invalid:{object_id}")
+    if row.get("mapping_status") == "VERIFIED_IMMUTABLE":
+        if not nonblank(row.get("immutable_location")):
+            raise InventoryError(f"verified_without_immutable_location:{object_id}")
+        if not any(
+            nonblank(row.get(field))
+            for field in ("content_sha256", "manifest_sha256", "data_hash")
+        ):
+            raise InventoryError(f"verified_without_authenticated_hash:{object_id}")
     mutable_alias = row.get("mutable_alias")
     if mutable_alias and (
         not isinstance(mutable_alias, str)
@@ -810,6 +872,58 @@ def validate_source(payload: dict[str, Any]) -> None:
     ):
         if required_path not in workflow_text:
             raise InventoryError("paper_ledger_recovery_not_in_baseline_workflow")
+    for object_id, (
+        expected_location,
+        expected_paths,
+        expected_key,
+    ) in REQUIRED_PAPER_ACTIONS_CACHE_OBJECTS.items():
+        paper_cache = object_index.get(object_id)
+        if paper_cache is None:
+            raise InventoryError(f"paper_actions_cache_object_missing:{object_id}")
+        if paper_cache.get("storage_kind") != "github_actions_cache":
+            raise InventoryError(f"paper_actions_cache_storage_mismatch:{object_id}")
+        if paper_cache.get("exact_location") != expected_location:
+            raise InventoryError(f"paper_actions_cache_location_mismatch:{object_id}")
+        if paper_cache.get("mapping_status") != "NOT_APPLICABLE" or (
+            paper_cache.get("write_authority")
+            != "GITHUB_ACTIONS_CACHE_ONLY_NOT_CANONICAL_DRIVE_OR_LEDGER_AUTHORITY"
+        ):
+            raise InventoryError(f"paper_actions_cache_authority_mismatch:{object_id}")
+        if expected_key not in workflow_text or any(
+            path not in workflow_text for path in expected_paths
+        ):
+            raise InventoryError(f"paper_actions_cache_not_in_baseline:{object_id}")
+    accepted_transaction = object_index.get(
+        REQUIRED_ACCEPTED_PAPER_TRANSACTION_OBJECT
+    )
+    if accepted_transaction is None:
+        raise InventoryError("accepted_paper_transaction_object_missing")
+    if accepted_transaction.get("exact_location") != (
+        OFFICIAL_ACCEPTED_PAPER_TRANSACTION_LOCATION
+    ):
+        raise InventoryError("accepted_paper_transaction_location_mismatch")
+    if accepted_transaction.get("writer_job") != (
+        "refresh / Sync accepted paper transaction to Google Drive"
+    ) or accepted_transaction.get("mapping_status") != "NOT_APPLICABLE":
+        raise InventoryError("accepted_paper_transaction_authority_mismatch")
+    accepted_destination = (
+        'research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/'
+        'accepted_paper_transaction'
+    )
+    manifest_last_marker = (
+        "# Publish the verified manifest last as the remote acceptance marker."
+    )
+    manifest_copy = (
+        'rclone copy outputs/run287_accepted_publication '
+        '"$DEST/outputs/run287_accepted_publication/"'
+    )
+    if not all(
+        token in workflow_text
+        for token in (accepted_destination, manifest_last_marker, manifest_copy)
+    ) or workflow_text.index(manifest_last_marker) > workflow_text.index(
+        manifest_copy
+    ):
+        raise InventoryError("accepted_paper_transaction_not_in_baseline_workflow")
     feature_rows: list[dict[str, Any]] = []
     for object_id, alias in REQUIRED_FEATURE_ALIAS_OBJECTS.items():
         row = object_index.get(object_id)
@@ -1047,6 +1161,8 @@ def render_readme(payload: dict[str, Any], row_count: int) -> str:
             "```bash",
             "git diff --quiet -- docs/run287_p0_4_artifact_inventory/requirements.txt",
             "git diff --cached --quiet -- docs/run287_p0_4_artifact_inventory/requirements.txt",
+            'P0_4_REQUIREMENTS="$(mktemp)"',
+            'trap \'rm -f "$P0_4_REQUIREMENTS"\' EXIT',
             (
                 "python -c \"import hashlib,pathlib,subprocess,sys; "
                 "p='docs/run287_p0_4_artifact_inventory/requirements.txt'; "
@@ -1054,10 +1170,11 @@ def render_readme(payload: dict[str, Any], row_count: int) -> str:
                 "w=pathlib.Path(p).read_bytes().replace(b'\\r\\n',b'\\n'); "
                 "sys.exit('unreviewed requirements.txt') if w != c or "
                 f"hashlib.sha256(c).hexdigest() != '{FROZEN_REQUIREMENTS_SHA256}' "
-                "else None\""
+                "else pathlib.Path(sys.argv[1]).write_bytes(c)\" "
+                '"$P0_4_REQUIREMENTS"'
             ),
             "python -m venv .venv-p0-4",
-            ".venv-p0-4/bin/python -m pip install --requirement docs/run287_p0_4_artifact_inventory/requirements.txt",
+            '.venv-p0-4/bin/python -m pip install --requirement "$P0_4_REQUIREMENTS"',
             ".venv-p0-4/bin/python tools/build_p0_4_artifact_inventory.py --verify-live-head",
             ".venv-p0-4/bin/python tests/test_p0_4_artifact_inventory.py",
             "```",
@@ -1105,6 +1222,16 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     )
 
 
+def normalized_protected_generator_bytes(value: bytes) -> bytes:
+    normalized, count = PROTECTED_GENERATOR_PIN_RE.subn(
+        b'FROZEN_PROTECTED_PUBLICATION_COMMIT = "<REVIEWED_PIN>"',
+        canonical_source_bytes(value),
+    )
+    if count != 1:
+        raise InventoryError("protected_generator_pin_count")
+    return normalized
+
+
 def verify_protected_publication_lineage(protected_commit: str) -> None:
     if not SHA1_RE.fullmatch(protected_commit):
         raise InventoryError("protected_publication_commit_invalid")
@@ -1133,6 +1260,21 @@ def verify_protected_publication_lineage(protected_commit: str) -> None:
         raise InventoryError(
             "post_publication_protected_delta:" + ",".join(sorted(changed))
         )
+    try:
+        protected_generator = subprocess.check_output(
+            ["git", "show", f"{protected_commit}:{GENERATOR_PATH}"],
+            cwd=ROOT,
+        )
+        head_generator = subprocess.check_output(
+            ["git", "show", f"HEAD:{GENERATOR_PATH}"],
+            cwd=ROOT,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise InventoryError("protected_generator_unavailable") from exc
+    if normalized_protected_generator_bytes(
+        protected_generator
+    ) != normalized_protected_generator_bytes(head_generator):
+        raise InventoryError("post_publication_protected_generator_delta")
 
 
 def verify_live_publication_lineage(

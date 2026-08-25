@@ -4364,6 +4364,15 @@ Expected contract:
   boundary even when live contents and hashes remain blocked. Reject negative or
   non-integer physical counts, and invoke every security regression from the
   registered direct smoke entrypoint as well as pytest discovery.
+- Reusable lesson: Protect committed renderer semantics against descendant
+  commits, allowing only the visible protected-publication pin to advance after
+  the reviewed bundle commit. Every `VERIFIED_IMMUTABLE` claim needs an exact
+  immutable location and at least one authenticated content, manifest, or data
+  hash even when it has no mutable alias. Inventory paper-state and continuity
+  caches as noncanonical provider state, and inventory accepted paper
+  transactions separately from recovery namespaces with manifest-last semantics.
+  Dependency installation must consume the captured authenticated Git blob, not
+  reopen the worktree path after verification.
 - Reusable lesson: Shallow CI history must deepen through every commit used by
   verifier ancestry checks, including the oldest frozen inventory baseline;
   stopping at a newer publication commit leaves a future boundary window where

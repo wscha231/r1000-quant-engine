@@ -121,8 +121,8 @@ def test_tracked_bundle_exists_and_has_expected_counts() -> None:
         "datasets": 24,
         "models": 4,
         "durable_states": 8,
-        "artifacts": 21,
-        "artifact_registry_rows": 57,
+        "artifacts": 24,
+        "artifact_registry_rows": 60,
     }
     assert summary["safety"]["mutations_performed"] == []
     assert summary["safety"]["live_trading_enabled"] is False
@@ -156,7 +156,7 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
         for key in ("datasets", "models", "durable_states", "artifacts")
         for row in payload[key]
     }
-    assert len(expected) == 57
+    assert len(expected) == 60
     frame = pd.read_parquet(INVENTORY / "artifact_registry.parquet")
     assert REQUIRED_COLUMNS == set(frame.columns)
     assert set(frame["object_id"]) == expected
@@ -164,10 +164,10 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
     assert frame["market"].eq("US").all()
     assert frame["baseline_code_sha"].eq(payload["baseline_code_sha"]).all()
     assert frame["source_snapshot_sha256"].eq(
-        "797080a23a10299f6268335b762fd74c1b9ac9d96fc3294d03cf4d7e358cf142"
+        "8cd51434f7d8ad578a27d16f6c87f0111ce2189e1aaef08913f75d55a91c1ae4"
     ).all()
     assert frame["source_publication_commit"].eq(
-        "693928167cab6c4bc1b1dfbfdb9ce8b7f2c7eef1"
+        "02637f0bc592d843eb6ce94cccea87374d169c51"
     ).all()
     assert frame["exact_location"].astype(str).str.strip().ne("").all()
     assert frame["rollback_restore"].astype(str).str.strip().ne("").all()
@@ -316,6 +316,50 @@ def test_every_mutable_alias_is_verified_or_explicitly_blocked() -> None:
         "paper_archive/recovery/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/"
         "untrusted_mutable_canonical/"
     ) in baseline_daily
+    paper_caches = {
+        "artifact.github.daily-paper-ledger-actions-cache": (
+            "daily-paper-ledger-${{ runner.os }}-${{ github.run_id }}-"
+            "${{ github.run_attempt }}",
+            (
+                "outputs/holding_risk_watch",
+                "outputs/run287_exact_packet_upstream",
+                "outputs/run287_exact_packet_input_sources",
+                "outputs/run287_exact_packet_input_registry",
+                "outputs/run287_decision_observation_archive",
+                "outputs/run287_accepted_publication",
+                "outputs/run287_risk_outcome_accepted_head_bundles",
+                "outputs/run287_risk_outcome_accepted_head_manifests",
+                "outputs/run287_risk_outcome_archive",
+                "outputs/run287_risk_outcome_price_cache",
+            ),
+        ),
+        "artifact.github.daily-paper-continuity-actions-cache": (
+            "daily-paper-continuity-v1-${{ runner.os }}-${{ github.run_id }}-"
+            "${{ github.run_attempt }}",
+            (
+                "outputs/daily_simulated_fill_ledger",
+                "outputs/run287_paper_immutable_head_bundles",
+            ),
+        ),
+    }
+    for object_id, (key, paths) in paper_caches.items():
+        assert objects[object_id]["storage_kind"] == "github_actions_cache"
+        assert objects[object_id]["mapping_status"] == "NOT_APPLICABLE"
+        assert key in objects[object_id]["exact_location"]
+        assert all(path in objects[object_id]["exact_location"] for path in paths)
+        assert key in baseline_daily
+        assert all(path in baseline_daily for path in paths)
+    accepted_id = "artifact.drive.accepted-paper-transaction-publication"
+    assert objects[accepted_id]["exact_location"] == (
+        "gdrive-root:1qcRMJCxDXsca5SmHFUu30yMAZdRLaxPA/research_runs/"
+        "${SAFE_BRANCH}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/"
+        "accepted_paper_transaction/"
+    )
+    assert objects[accepted_id]["mapping_status"] == "NOT_APPLICABLE"
+    assert "accepted_paper_transaction" in baseline_daily
+    assert "Publish the verified manifest last as the remote acceptance marker" in (
+        baseline_daily
+    )
     feature_aliases = {
         f"feature_store/{name}"
         for name in (
@@ -603,11 +647,17 @@ def test_rebuild_uses_the_pinned_dependency_contract() -> None:
     ]
     readme = (INVENTORY / "README.md").read_text(encoding="utf-8")
     assert "python -m venv .venv-p0-4" in readme
-    assert "--requirement docs/run287_p0_4_artifact_inventory/requirements.txt" in readme
+    assert 'P0_4_REQUIREMENTS="$(mktemp)"' in readme
+    assert 'pathlib.Path(sys.argv[1]).write_bytes(c)' in readme
+    assert '--requirement "$P0_4_REQUIREMENTS"' in readme
+    assert (
+        "--requirement docs/run287_p0_4_artifact_inventory/requirements.txt"
+        not in readme
+    )
     assert "tests/test_p0_4_artifact_inventory.py" in readme
     assert "git diff --cached --quiet -- docs/run287_p0_4_artifact_inventory/requirements.txt" in readme
     assert "9a32746dec8900d8663ba5f6a2f47ec8f9a817eb7fb051fde772a0e7af5c0a4e" in readme
-    assert readme.index("unreviewed requirements.txt") < readme.index("pip install")
+    assert readme.index("write_bytes(c)") < readme.index("pip install")
 
 
 def test_requirements_publication_is_authenticated(tmp_path: Path) -> None:
@@ -672,7 +722,7 @@ def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
 
     relative = "docs/run287_p0_4_artifact_inventory/source_inventory_snapshot.json"
     assert FROZEN_SOURCE_PUBLICATION_COMMIT == (
-        "693928167cab6c4bc1b1dfbfdb9ce8b7f2c7eef1"
+        "02637f0bc592d843eb6ce94cccea87374d169c51"
     )
     assert git("rev-parse", f"{FROZEN_SOURCE_PUBLICATION_COMMIT}:{relative}").strip() == (
         FROZEN_SOURCE_GIT_BLOB_SHA1
@@ -875,8 +925,18 @@ def test_post_publication_protected_changes_are_rejected(tmp_path: Path) -> None
         subprocess.run(command, cwd=repo, check=True, capture_output=True)
     protected = repo / "protected.txt"
     protected.write_text("reviewed\n", encoding="utf-8", newline="\n")
+    generator = repo / builder.GENERATOR_PATH
+    generator.parent.mkdir(parents=True)
+    generator.write_text(
+        'FROZEN_PROTECTED_PUBLICATION_COMMIT = "0000000000000000000000000000000000000000"\n',
+        encoding="utf-8",
+        newline="\n",
+    )
     subprocess.run(
-        ["git", "add", "protected.txt"], cwd=repo, check=True, capture_output=True
+        ["git", "add", "protected.txt", builder.GENERATOR_PATH],
+        cwd=repo,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "commit", "-m", "protected publication"],
@@ -922,6 +982,90 @@ def test_post_publication_protected_changes_are_rejected(tmp_path: Path) -> None
             assert str(exc) == "post_publication_protected_delta:protected.txt"
         else:
             raise AssertionError("post-publication protected change was accepted")
+
+
+def test_protected_generator_allows_only_pin_delta(tmp_path: Path) -> None:
+    from tools import build_p0_4_artifact_inventory as builder
+
+    repo = tmp_path / "protected-generator-repo"
+    repo.mkdir()
+    for command in (
+        ["git", "init"],
+        ["git", "config", "user.name", "P0-4 Test"],
+        ["git", "config", "user.email", "p0-4@example.invalid"],
+        ["git", "config", "core.autocrlf", "false"],
+    ):
+        subprocess.run(command, cwd=repo, check=True, capture_output=True)
+    protected = repo / "protected.txt"
+    protected.write_text("reviewed\n", encoding="utf-8", newline="\n")
+    generator = repo / builder.GENERATOR_PATH
+    generator.parent.mkdir(parents=True)
+    generator.write_text(
+        'FROZEN_PROTECTED_PUBLICATION_COMMIT = "0000000000000000000000000000000000000000"\n'
+        "print('reviewed')\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    subprocess.run(
+        ["git", "add", "protected.txt", builder.GENERATOR_PATH],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "protected generator"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    publication = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    generator.write_text(
+        'FROZEN_PROTECTED_PUBLICATION_COMMIT = "1111111111111111111111111111111111111111"\n'
+        "print('reviewed')\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    subprocess.run(
+        ["git", "add", builder.GENERATOR_PATH],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "advance pin only"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    with mock.patch.object(builder, "ROOT", repo), mock.patch.object(
+        builder, "PROTECTED_PUBLICATION_PATHS", ("protected.txt",)
+    ):
+        builder.verify_protected_publication_lineage(publication)
+        generator.write_text(
+            generator.read_text(encoding="utf-8") + "print('unreviewed')\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        subprocess.run(
+            ["git", "add", builder.GENERATOR_PATH],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "change renderer"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        try:
+            builder.verify_protected_publication_lineage(publication)
+        except builder.InventoryError as exc:
+            assert str(exc) == "post_publication_protected_generator_delta"
+        else:
+            raise AssertionError("post-publication renderer change was accepted")
 
 
 def test_failed_render_keeps_the_existing_bundle_intact(tmp_path: Path) -> None:
@@ -1194,6 +1338,37 @@ def test_required_fixed_target_aliases_cannot_be_omitted(tmp_path: Path) -> None
         assert str(exc) == "paper_ledger_recovery_object_missing"
     else:
         raise AssertionError("missing paper-ledger recovery census was not rejected")
+
+    for object_id in (
+        "artifact.github.daily-paper-ledger-actions-cache",
+        "artifact.github.daily-paper-continuity-actions-cache",
+    ):
+        payload = source()
+        payload["artifacts"] = [
+            row for row in payload["artifacts"] if row["object_id"] != object_id
+        ]
+        missing_cache = tmp_path / f"missing-{object_id}.json"
+        missing_cache.write_text(json.dumps(payload), encoding="utf-8")
+        try:
+            build(missing_cache, tmp_path / f"missing-{object_id}-output")
+        except InventoryError as exc:
+            assert str(exc) == f"paper_actions_cache_object_missing:{object_id}"
+        else:
+            raise AssertionError(f"missing paper cache census was accepted: {object_id}")
+
+    accepted_id = "artifact.drive.accepted-paper-transaction-publication"
+    payload = source()
+    payload["artifacts"] = [
+        row for row in payload["artifacts"] if row["object_id"] != accepted_id
+    ]
+    missing_accepted = tmp_path / "missing-accepted-paper-transaction.json"
+    missing_accepted.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(missing_accepted, tmp_path / "missing-accepted-paper-transaction-output")
+    except InventoryError as exc:
+        assert str(exc) == "accepted_paper_transaction_object_missing"
+    else:
+        raise AssertionError("missing accepted paper transaction was not rejected")
 
 
 def test_alias_map_must_match_object_status_and_evidence(tmp_path: Path) -> None:
@@ -1493,7 +1668,9 @@ def test_invalid_or_incomplete_sources_fail_closed(tmp_path: Path) -> None:
     try:
         build(invalid, tmp_path / "output")
     except InventoryError as exc:
-        assert "mutable_alias_not_bound_or_blocked" in str(exc)
+        assert str(exc) == (
+            "verified_without_immutable_location:ds.us.universe.historical-auto"
+        )
     else:
         raise AssertionError("invalid mutable alias mapping was not rejected")
 
@@ -1516,6 +1693,34 @@ def test_invalid_or_incomplete_sources_fail_closed(tmp_path: Path) -> None:
                 )
             else:
                 raise AssertionError(f"invalid {field} value was not rejected")
+
+    payload = source()
+    unaliased = next(
+        row for row in payload["artifacts"] if not row.get("mutable_alias")
+    )
+    object_id = unaliased["object_id"]
+    unaliased["mapping_status"] = "VERIFIED_IMMUTABLE"
+    unaliased["immutable_location"] = ""
+    for field in ("content_sha256", "manifest_sha256", "data_hash"):
+        unaliased[field] = ""
+    unbound_verified = tmp_path / "unbound-verified.json"
+    unbound_verified.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(unbound_verified, tmp_path / "unbound-verified-output")
+    except InventoryError as exc:
+        assert str(exc) == f"verified_without_immutable_location:{object_id}"
+    else:
+        raise AssertionError("unbound VERIFIED_IMMUTABLE object was accepted")
+
+    unaliased["immutable_location"] = "immutable://reviewed-fixture"
+    unhashed_verified = tmp_path / "unhashed-verified.json"
+    unhashed_verified.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(unhashed_verified, tmp_path / "unhashed-verified-output")
+    except InventoryError as exc:
+        assert str(exc) == f"verified_without_authenticated_hash:{object_id}"
+    else:
+        raise AssertionError("unhashed VERIFIED_IMMUTABLE object was accepted")
 
 
 def main() -> int:
@@ -1545,6 +1750,7 @@ def main() -> int:
         test_build_parses_only_the_authenticated_source_bytes(temp_path)
         test_dirty_generator_is_rejected(temp_path)
         test_post_publication_protected_changes_are_rejected(temp_path)
+        test_protected_generator_allows_only_pin_delta(temp_path)
         test_failed_render_keeps_the_existing_bundle_intact(temp_path)
         test_post_commit_backup_cleanup_failure_is_reported(temp_path)
         test_generated_destination_symlink_is_rejected(temp_path)
@@ -1555,7 +1761,7 @@ def main() -> int:
         test_compound_aliases_and_wrong_paper_head_namespaces_fail_closed(temp_path)
         test_folder_child_manifests_are_pinned_and_bound(temp_path)
         test_invalid_or_incomplete_sources_fail_closed(temp_path)
-    print("P0-4 artifact inventory smoke: 32 passed")
+    print("P0-4 artifact inventory smoke: 33 passed")
     return 0
 
 
