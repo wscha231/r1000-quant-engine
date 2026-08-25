@@ -354,8 +354,8 @@
     {
       "object_id": "ds.us.macro.operational-cache",
       "schema_version": "legacy-parquet-series-folder",
-      "logical_role": "mutable macro series cache restored and persisted by the operating workflow",
-      "producer": "legacy macro collectors and daily_operating_selection_refresh.yml",
+      "logical_role": "mutable Drive macro series cache restored read-only by the operating workflow",
+      "producer": "UNRESOLVED_LEGACY_DRIVE_WRITER",
       "storage_kind": "google_drive_folder",
       "exact_location": "gdrive-id:1daFnhx94BIRWV5PItrdSCjj4b6khaR6h",
       "mutable_alias": "cache_macro",
@@ -365,9 +365,9 @@
       "size_bytes": 634224,
       "file_count": 15,
       "manifest_sha256": "96db5506b8b3f5b5eeebf5c49ce5ceff39a53b91e84710901cc82adaa24d92d1",
-      "writer_workflow": "daily_operating_selection_refresh.yml; legacy macro collection paths",
-      "writer_job": "restore and persist refreshed operational cache",
-      "write_authority": "OFFICIAL_DAILY_OPERATING_CACHE_PERSIST_AND_LEGACY_COLLECTORS",
+      "writer_workflow": "UNRESOLVED_LEGACY_DRIVE_WRITER",
+      "writer_job": "UNRESOLVED; daily_operating_selection_refresh.yml only restores this Drive folder",
+      "write_authority": "DRIVE_WRITER_UNRESOLVED; DAILY_WORKFLOW_READ_ONLY_RESTORE",
       "pit_classification": "SERIES_DATES_PRESENT_BUT_FOLDER_NOT_MANIFEST_BOUND",
       "survivorship_classification": "NOT_APPLICABLE_MACRO_SERIES",
       "corporate_action_classification": "NOT_APPLICABLE_MACRO_SERIES",
@@ -376,7 +376,7 @@
       "downstream_consumers": ["crisis detection", "data readiness", "benchmark-event sidecars", "replay integrity"],
       "mapping_status": "BLOCKED_NO_IMMUTABLE_SOURCE",
       "discovery_status": "COMPLETE_15_FILE_DIRECT_FOLDER_LISTING",
-      "blockers": ["no immutable session directory or manifest", "latest observed file is stale relative to the operating baseline"]
+      "blockers": ["no immutable session directory or manifest", "latest observed file is stale relative to the operating baseline", "Drive writer is unbound; the daily workflow publishes a separate GitHub Actions cache only"]
     },
     {
       "object_id": "ds.us.macro.daily-snapshot",
@@ -1365,6 +1365,30 @@
       "mapping_status": "BLOCKED_NO_IMMUTABLE_SOURCE",
       "discovery_status": "FIXED_PATH_CENSUS_FROM_BASELINE_P0_3_AND_DAILY_WORKFLOW",
       "blockers": ["mutable cache directory is not an accepted outcome head", "complete per-file hashes and exact price-universe coverage were not available"]
+    },
+    {
+      "object_id": "artifact.github.daily-operating-macro-actions-cache",
+      "schema_version": "github-actions-cache-v4-provider-defined",
+      "logical_role": "ephemeral GitHub Actions cache publication containing restored operational cache directories",
+      "producer": "daily_operating_selection_refresh.yml",
+      "storage_kind": "github_actions_cache",
+      "exact_location": ".github/workflows/daily_operating_selection_refresh.yml actions/cache/save for cache_prices, cache_macro, and cache_crisis",
+      "as_of": "WORKFLOW_RUNTIME_EPHEMERAL",
+      "available_from": "POST_OPERATING_WORKFLOW_CACHE_SAVE",
+      "decision_time_cutoff": "NOT_A_CANONICAL_DRIVE_PUBLICATION",
+      "file_count": 1,
+      "writer_workflow": "daily_operating_selection_refresh.yml",
+      "writer_job": "save restored operational caches to GitHub Actions cache",
+      "write_authority": "GITHUB_ACTIONS_CACHE_ONLY_NOT_DRIVE_WRITER",
+      "pit_classification": "CACHE_KEY_AND_SOURCE_SESSION_NOT_MANIFEST_BOUND",
+      "survivorship_classification": "INPUT_DIRECTORY_DEPENDENT",
+      "corporate_action_classification": "SOURCE_SPECIFIC_UNRESOLVED",
+      "retention_classification": "EPHEMERAL_PROVIDER_CACHE",
+      "downstream_consumers": ["future workflow cache restore acceleration"],
+      "rollback_restore": "never use this provider cache as canonical Drive evidence; rebuild only from verified source artifacts",
+      "mapping_status": "NOT_APPLICABLE",
+      "discovery_status": "FROZEN_BASELINE_WORKFLOW_ACTIONS_CACHE_SAVE",
+      "blockers": ["cache key and contents are not an immutable accepted publication", "provider cache publication grants no Drive write authority"]
     },
     {
       "object_id": "artifact.github.operating-run-health",
