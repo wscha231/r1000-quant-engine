@@ -9,7 +9,6 @@ import sys
 from pathlib import Path
 
 import pandas as pd
-import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -202,6 +201,14 @@ def test_workflow_registry_has_singular_official_authority_and_blocks_legacy_nam
 def test_workflow_policy_drift_fails_closed() -> None:
     policy = json.loads(POLICY.read_text(encoding="utf-8"))
     validate_research_only_policy(policy, AUDIT_SHA)
+
+    def assert_rejected(unsafe_policy: dict) -> None:
+        try:
+            validate_research_only_policy(unsafe_policy, AUDIT_SHA)
+        except SystemExit:
+            return
+        raise AssertionError("unsafe workflow policy was not rejected")
+
     for key, unsafe_value in (
         ("live_broker_execution_enabled", True),
         ("automatic_model_promotion_enabled", True),
@@ -211,18 +218,15 @@ def test_workflow_policy_drift_fails_closed() -> None:
     ):
         unsafe = copy.deepcopy(policy)
         unsafe["global_guards"][key] = unsafe_value
-        with pytest.raises(SystemExit):
-            validate_research_only_policy(unsafe, AUDIT_SHA)
+        assert_rejected(unsafe)
     unsafe = copy.deepcopy(policy)
     unsafe["official_authority"]["live_broker_writer_workflow"] = "live.yml"
-    with pytest.raises(SystemExit):
-        validate_research_only_policy(unsafe, AUDIT_SHA)
+    assert_rejected(unsafe)
     unsafe = copy.deepcopy(policy)
     unsafe["workflows"]["after_close_daily.yml"][
         "production_live_authority"
     ] = "AUTHORIZED"
-    with pytest.raises(SystemExit):
-        validate_research_only_policy(unsafe, AUDIT_SHA)
+    assert_rejected(unsafe)
 
 
 def test_summary_exposes_ambiguous_and_duplicate_writer_surfaces() -> None:
