@@ -27,6 +27,7 @@ import yaml
 
 
 REPOSITORY = "wscha231/r1000-quant-engine"
+CENSUS_REPOSITORY_DIR = Path("docs/run287_p0_3_authority_census")
 SCHEMA_VERSION = "run287-p0-3-authority-census-v1"
 POLICY_SCHEMA = "run287-p0-3-workflow-authority-policy-v1"
 U0_SCHEMA = "run287-u0-v2-github-census-v1"
@@ -45,7 +46,7 @@ FROZEN_BRANCH_SUPPLEMENT_SHA256 = (
     "12ea17046e062707437b995b95cc610ccf2ef0398dbdf9ff05c0011ff810f530"
 )
 FROZEN_WORKFLOW_POLICY_SHA256 = (
-    "e8c79fba9f44fc16a7170bc576488d6f62d31ca632d295c9d10180b8b9b7bd6e"
+    "01977fda9c76c2513244b07d118cbb8bae620e6db03c0d6c3060763e36b9d3f7"
 )
 FROZEN_RUNTIME_REQUIREMENTS_SHA256 = (
     "8c74d7c2c73e36c06bee51001a8ffc2579ea71555bb392cfb89a6ce0e05047ca"
@@ -438,22 +439,48 @@ def require_exact_keys(actual: Iterable[str], expected: Iterable[str], label: st
         )
 
 
-def live_branch_identity(repo_root: Path) -> dict[str, str]:
-    raw = run(
-        ["git", "ls-remote", "--heads", f"https://github.com/{REPOSITORY}.git"],
+def branch_live_identity_from_rows(value: Any) -> dict[str, tuple[str, bool]]:
+    records: list[Mapping[str, Any]] = []
+
+    def collect(item: Any) -> None:
+        if isinstance(item, list):
+            for child in item:
+                collect(child)
+        elif isinstance(item, Mapping):
+            records.append(item)
+        else:
+            raise RuntimeError("invalid remote branch metadata payload")
+
+    collect(value)
+    result: dict[str, tuple[str, bool]] = {}
+    for row in records:
+        name = str(row.get("name") or "")
+        commit = row.get("commit")
+        sha = clean_sha(commit.get("sha") if isinstance(commit, Mapping) else "")
+        protected = row.get("protected")
+        if (
+            not name
+            or not sha
+            or type(protected) is not bool
+            or name in result
+        ):
+            raise RuntimeError("duplicate or invalid remote branch metadata row")
+        result[name] = (sha, protected)
+    return result
+
+
+def live_branch_identity(repo_root: Path) -> dict[str, tuple[str, bool]]:
+    pages = run_json(
+        [
+            "gh",
+            "api",
+            "--paginate",
+            "--slurp",
+            f"repos/{REPOSITORY}/branches?per_page=100",
+        ],
         cwd=repo_root,
     )
-    result: dict[str, str] = {}
-    for line in raw.splitlines():
-        fields = line.split(maxsplit=1)
-        if len(fields) != 2 or not fields[1].startswith("refs/heads/"):
-            raise RuntimeError("invalid remote branch identity row")
-        sha = clean_sha(fields[0])
-        name = fields[1][len("refs/heads/") :]
-        if not sha or not name or name in result:
-            raise RuntimeError("duplicate or invalid remote branch identity")
-        result[name] = sha
-    return result
+    return branch_live_identity_from_rows(pages)
 
 
 def source_branch_identity(census: Mapping[str, Any]) -> dict[str, str]:
@@ -464,6 +491,25 @@ def source_branch_identity(census: Mapping[str, Any]) -> dict[str, str]:
         if not name or not sha or name in result:
             raise ValueError("source branch identity is invalid")
         result[name] = sha
+    return result
+
+
+def source_branch_live_identity(
+    census: Mapping[str, Any],
+) -> dict[str, tuple[str, bool]]:
+    result: dict[str, tuple[str, bool]] = {}
+    for row in census.get("branches") or []:
+        name = str(row.get("name") or "")
+        sha = clean_sha(row.get("head_sha"))
+        protected = row.get("protected")
+        if (
+            not name
+            or not sha
+            or type(protected) is not bool
+            or name in result
+        ):
+            raise ValueError("source branch live identity is invalid")
+        result[name] = (sha, protected)
     return result
 
 
@@ -1222,9 +1268,10 @@ def main() -> int:
     source_summary, promotion_blockers = validate_u0_fail_closed_source(source)
 
     source_branches = source_branch_identity(source)
+    source_live_branches = source_branch_live_identity(source)
     source_prs = source_pr_identity(source)
     source_pr_by_number = {int(row["number"]): row for row in source["pull_requests"]}
-    live_branches_before: dict[str, str] | None = None
+    live_branches_before: dict[str, tuple[str, bool]] | None = None
     supplement_before_identity: dict[int, tuple[str, str, str, str]] | None = None
     supplement_before_evidence: dict[int, dict[str, Any]] | None = None
     live_evidence_by_number: dict[int, dict[str, Any]] | None = None
@@ -1237,8 +1284,10 @@ def main() -> int:
 
     if args.verify_live_namespace:
         live_branches_before = live_branch_identity(repo_root)
-        if source_branches != live_branches_before:
-            raise SystemExit("branch namespace moved after U0 collection")
+        if source_live_branches != live_branches_before:
+            raise SystemExit(
+                "branch namespace, head, or protection state moved after U0 collection"
+            )
         pr_supplement_before = collect_pr_supplement(repo_root)
         supplement_before_identity = supplement_pr_identity(pr_supplement_before)
         if source_prs != supplement_before_identity:
@@ -1538,7 +1587,9 @@ def main() -> int:
     if args.verify_live_namespace:
         live_branches_after = live_branch_identity(repo_root)
         if live_branches_after != live_branches_before:
-            raise SystemExit("branch namespace moved during P0-3 collection")
+            raise SystemExit(
+                "branch namespace, head, or protection state moved during P0-3 collection"
+            )
         pr_supplement_after = collect_pr_supplement(repo_root)
         if supplement_pr_identity(pr_supplement_after) != supplement_before_identity:
             raise SystemExit("PR namespace or mutable identity moved during P0-3 collection")
@@ -1624,28 +1675,21 @@ def main() -> int:
         source_branch_supplement_path.write_bytes(frozen_branch_source_bytes)
     source_policy_path.write_bytes(policy_input_bytes)
     runtime_requirements_path.write_bytes(runtime_requirements_input_bytes)
-    try:
-        source_repository_path = source_artifact_path.relative_to(repo_root).as_posix()
-        source_pr_supplement_repository_path = source_pr_supplement_path.relative_to(
-            repo_root
-        ).as_posix()
-        source_branch_supplement_repository_path = (
-            source_branch_supplement_path.relative_to(repo_root).as_posix()
-        )
-        source_policy_repository_path = source_policy_path.relative_to(
-            repo_root
-        ).as_posix()
-        runtime_requirements_repository_path = runtime_requirements_path.relative_to(
-            repo_root
-        ).as_posix()
-    except ValueError:
-        source_repository_path = source_artifact_path.as_posix()
-        source_pr_supplement_repository_path = source_pr_supplement_path.as_posix()
-        source_branch_supplement_repository_path = (
-            source_branch_supplement_path.as_posix()
-        )
-        source_policy_repository_path = source_policy_path.as_posix()
-        runtime_requirements_repository_path = runtime_requirements_path.as_posix()
+    source_repository_path = (
+        CENSUS_REPOSITORY_DIR / source_artifact_path.name
+    ).as_posix()
+    source_pr_supplement_repository_path = (
+        CENSUS_REPOSITORY_DIR / source_pr_supplement_path.name
+    ).as_posix()
+    source_branch_supplement_repository_path = (
+        CENSUS_REPOSITORY_DIR / source_branch_supplement_path.name
+    ).as_posix()
+    source_policy_repository_path = (
+        CENSUS_REPOSITORY_DIR / source_policy_path.name
+    ).as_posix()
+    runtime_requirements_repository_path = (
+        CENSUS_REPOSITORY_DIR / runtime_requirements_path.name
+    ).as_posix()
 
     summary = {
         "schema_version": SCHEMA_VERSION,

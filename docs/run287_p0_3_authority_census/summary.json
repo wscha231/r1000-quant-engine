@@ -150,15 +150,15 @@
     "pyarrow": "23.0.1"
   },
   "output_hashes": {
-    "README.md": "05bc97f190d9cc5498eeecf7df1beb0391d0cf54eeaf21a7b77b5a78c3adea0f",
+    "README.md": "1ec141f38db3982914dd673e23f6fe4fe99c63fbfeee1a72199d8c91175218ef",
     "branch_census.parquet": "98701ad208b92bc9c21506d8a322cb7258050998e2f46ba9d6760f0ea134d773",
     "pr_census.parquet": "b0a00792b3b61bdc7a559c0a62b91af17c07b07130c8acc64b152500daa8ef68",
     "requirements.txt": "8c74d7c2c73e36c06bee51001a8ffc2579ea71555bb392cfb89a6ce0e05047ca",
     "source_branch_supplement.parquet": "12ea17046e062707437b995b95cc610ccf2ef0398dbdf9ff05c0011ff810f530",
     "source_pr_supplement.json.gz": "c61d10cd3408b1a9910e6a40fba317894ba82b1c8506abcc704de7df3ea89516",
     "source_u0_github_census.json.gz": "43037952f1464bd41cdb0d2eaba78503da60f17d66c410dea186b34e0b62ef2c",
-    "source_workflow_authority_policy.json": "e8c79fba9f44fc16a7170bc576488d6f62d31ca632d295c9d10180b8b9b7bd6e",
-    "workflow_registry.yaml": "f9da5bdc2693d1543de0ea4be21a0ea269a063d6bb82720fbac523b5ead80686"
+    "source_workflow_authority_policy.json": "01977fda9c76c2513244b07d118cbb8bae620e6db03c0d6c3060763e36b9d3f7",
+    "workflow_registry.yaml": "5e0a4a495956c7df96b9bc9ead6aa294f894d262bac4e34487164b219fadebd3"
   },
   "pr_disposition_counts": {
     "CLOSED_UNMERGED_QUARANTINE": 23,
@@ -209,7 +209,7 @@
     "source_branch_supplement_sha256": "12ea17046e062707437b995b95cc610ccf2ef0398dbdf9ff05c0011ff810f530",
     "source_pr_supplement_sha256": "362f0b7245ca05360ac206c122077a4c07b2111c748a2cd72e8b8af58244689a",
     "source_u0_census_sha256": "5c9741b84fe9cfff74619322bc99402d92f25979974d42a405e30091ff461216",
-    "workflow_policy_sha256": "e8c79fba9f44fc16a7170bc576488d6f62d31ca632d295c9d10180b8b9b7bd6e"
+    "workflow_policy_sha256": "01977fda9c76c2513244b07d118cbb8bae620e6db03c0d6c3060763e36b9d3f7"
   },
   "source_pr_supplement_artifact": {
     "compressed_bytes": 42206,
@@ -231,10 +231,10 @@
     "parameter_and_data_hash_duplicate_groups_not_yet_recovered"
   ],
   "source_workflow_policy_artifact": {
-    "bytes": 15588,
+    "bytes": 15766,
     "media_type": "application/json",
     "repository_path": "docs/run287_p0_3_authority_census/source_workflow_authority_policy.json",
-    "sha256": "e8c79fba9f44fc16a7170bc576488d6f62d31ca632d295c9d10180b8b9b7bd6e"
+    "sha256": "01977fda9c76c2513244b07d118cbb8bae620e6db03c0d6c3060763e36b9d3f7"
   },
   "workflow_decision_counts": {
     "CONSOLIDATE": 6,

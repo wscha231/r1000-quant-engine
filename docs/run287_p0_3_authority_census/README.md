@@ -26,7 +26,7 @@ Frozen branch ancestry/path evidence is tracked as
 `docs/run287_p0_3_authority_census/source_branch_supplement.parquet` (SHA-256
 `12ea17046e062707437b995b95cc610ccf2ef0398dbdf9ff05c0011ff810f530`).
 The frozen workflow authority policy is tracked as
-`docs/run287_p0_3_authority_census/source_workflow_authority_policy.json` (SHA-256 `e8c79fba9f44fc16a7170bc576488d6f62d31ca632d295c9d10180b8b9b7bd6e`).
+`docs/run287_p0_3_authority_census/source_workflow_authority_policy.json` (SHA-256 `01977fda9c76c2513244b07d118cbb8bae620e6db03c0d6c3060763e36b9d3f7`).
 By default regeneration uses these four frozen sources;
 `--verify-live-namespace` is reserved for the original generation-time
 equality guard.

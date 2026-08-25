@@ -87,12 +87,12 @@
       "human_approval_requirement": "SCHEDULE_FAIL_CLOSED; LEGACY_PARENT_MIGRATION_REQUIRES_EXPLICIT_ONE_TIME_WORKFLOW_DISPATCH_AUTHORIZATION"
     },
     "data_readiness_preflight.yml": {
-      "declared_role": "read_only_data_readiness_preflight",
+      "declared_role": "data_readiness_preflight_and_conditional_companyfacts_refresh",
       "decision": "KEEP",
       "target_authority": "NONE",
       "paper_ledger_authority": "NONE",
-      "durable_write_scope": "DIAGNOSTIC_ARTIFACT_ONLY",
-      "human_approval_requirement": "NO_MUTATION_AUTHORITY"
+      "durable_write_scope": "DIAGNOSTIC_ARTIFACT_AND_CONDITIONAL_CANONICAL_COMPANYFACTS_DATASET_WRITE",
+      "human_approval_requirement": "WORKFLOW_DISPATCH_WITH_SEC_COMPANYFACTS_TRUE_REQUIRED_FOR_CANONICAL_DATASET_MUTATION; NO_TARGET_OR_LEDGER_MUTATION_AUTHORITY"
     },
     "earnings_estimates_daily.yml": {
       "declared_role": "forward_only_earnings_estimate_collection",

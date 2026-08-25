@@ -20,11 +20,13 @@ from tools.build_p0_3_authority_census import (  # noqa: E402
     GENERATOR_RUNTIME_VERSIONS,
     PR_SUPPLEMENT_SCHEMA,
     audited_workflow_paths,
+    branch_live_identity_from_rows,
     canonical_text_bytes,
     check_summary,
     read_branch_supplement,
     require_audit_commit,
     resolve_generation_timestamp,
+    source_branch_live_identity,
     source_pr_identity,
     supplement_pr_mutable_evidence,
     validated_frozen_checks,
@@ -378,6 +380,61 @@ def test_pr_identity_and_frozen_timestamps_require_complete_exact_values() -> No
     raise AssertionError("timestamp-less frozen supplements were not rejected")
 
 
+def test_live_branch_guard_binds_head_and_protection_state() -> None:
+    source = json.loads(
+        gzip.decompress((CENSUS / "source_u0_github_census.json.gz").read_bytes())
+    )
+    expected = source_branch_live_identity(source)
+    rows = [
+        {
+            "name": row["name"],
+            "commit": {"sha": row["head_sha"]},
+            "protected": row["protected"],
+        }
+        for row in source["branches"]
+    ]
+    paginated = [rows[:100], rows[100:200], rows[200:]]
+    assert branch_live_identity_from_rows(paginated) == expected
+    rows[0]["protected"] = not rows[0]["protected"]
+    assert branch_live_identity_from_rows(paginated) != expected
+
+
+def test_frozen_regeneration_is_independent_of_staging_directory() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        output_dir = Path(temporary) / "alternate" / "staging"
+        subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "tools" / "build_p0_3_authority_census.py"),
+                "--audit-sha",
+                AUDIT_SHA,
+                "--source-census",
+                str(CENSUS / "source_u0_github_census.json.gz"),
+                "--output-dir",
+                str(output_dir),
+            ],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        for name in (
+            "README.md",
+            "branch_census.parquet",
+            "pr_census.parquet",
+            "requirements.txt",
+            "source_branch_supplement.parquet",
+            "source_pr_supplement.json.gz",
+            "source_u0_github_census.json.gz",
+            "source_workflow_authority_policy.json",
+            "summary.json",
+            "workflow_registry.yaml",
+        ):
+            assert (output_dir / name).read_bytes() == (
+                CENSUS / name
+            ).read_bytes(), name
+
+
 def test_workflow_registry_has_singular_official_authority_and_blocks_legacy_names() -> None:
     registry = load_registry()
     policy = json.loads(POLICY.read_text(encoding="utf-8"))
@@ -438,6 +495,19 @@ def test_workflow_registry_has_singular_official_authority_and_blocks_legacy_nam
     assert layer4["authority_blockers"] == [
         "LEGACY_ALPACA_PAPER_SWAP_BYPASSES_CANONICAL_ACCOUNT_LEDGER"
     ]
+    preflight = by_file["data_readiness_preflight.yml"]
+    assert preflight["static_authority_references"]["rclone_write"] is True
+    assert preflight["durable_write_scope"] == (
+        "DIAGNOSTIC_ARTIFACT_AND_CONDITIONAL_CANONICAL_COMPANYFACTS_DATASET_WRITE"
+    )
+    assert preflight["human_approval_requirement"] == (
+        "WORKFLOW_DISPATCH_WITH_SEC_COMPANYFACTS_TRUE_REQUIRED_FOR_CANONICAL_DATASET_MUTATION; "
+        "NO_TARGET_OR_LEDGER_MUTATION_AUTHORITY"
+    )
+    dispatch_inputs = {
+        row["name"]: row for row in preflight["trigger"]["workflow_dispatch_inputs"]
+    }
+    assert dispatch_inputs["sec_companyfacts"]["default"] == "false"
 
 
 def test_workflow_policy_drift_fails_closed() -> None:
@@ -530,6 +600,8 @@ def main() -> int:
     test_generator_requirements_require_exact_pins()
     test_u0_fail_closed_source_cannot_be_made_promotion_ready()
     test_pr_identity_and_frozen_timestamps_require_complete_exact_values()
+    test_live_branch_guard_binds_head_and_protection_state()
+    test_frozen_regeneration_is_independent_of_staging_directory()
     test_workflow_registry_has_singular_official_authority_and_blocks_legacy_names()
     test_workflow_policy_drift_fails_closed()
     test_frozen_audit_commit_is_resolved_independently_of_current_head()
