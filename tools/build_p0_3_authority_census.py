@@ -35,6 +35,21 @@ LEGACY_PR_SUPPLEMENT_SCHEMA = "run287-p0-3-frozen-pr-supplement-v1"
 LEGACY_PR_SUPPLEMENT_SHA256 = (
     "29bd41bcbd07a7a739856ccc870b91711491986c464efc4342a7081d391b554c"
 )
+FROZEN_U0_UNCOMPRESSED_SHA256 = (
+    "5c9741b84fe9cfff74619322bc99402d92f25979974d42a405e30091ff461216"
+)
+FROZEN_PR_SUPPLEMENT_V2_UNCOMPRESSED_SHA256 = (
+    "362f0b7245ca05360ac206c122077a4c07b2111c748a2cd72e8b8af58244689a"
+)
+FROZEN_BRANCH_SUPPLEMENT_SHA256 = (
+    "12ea17046e062707437b995b95cc610ccf2ef0398dbdf9ff05c0011ff810f530"
+)
+FROZEN_WORKFLOW_POLICY_SHA256 = (
+    "e8c79fba9f44fc16a7170bc576488d6f62d31ca632d295c9d10180b8b9b7bd6e"
+)
+FROZEN_RUNTIME_REQUIREMENTS_SHA256 = (
+    "8c74d7c2c73e36c06bee51001a8ffc2579ea71555bb392cfb89a6ce0e05047ca"
+)
 BRANCH_SUPPLEMENT_SCHEMA = "run287-p0-3-frozen-branch-supplement-v1"
 GENERATOR_RUNTIME_VERSIONS = {
     "pandas": "2.3.3",
@@ -161,6 +176,11 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def require_bytes_sha256(content: bytes, expected: str, label: str) -> None:
+    if hashlib.sha256(content).hexdigest() != expected:
+        raise SystemExit(f"{label} SHA-256 mismatch")
+
+
 def document_bytes(path: Path) -> bytes:
     content = path.read_bytes()
     return gzip.decompress(content) if path.suffix.lower() == ".gz" else content
@@ -218,6 +238,61 @@ def clean_sha(value: Any) -> str:
     return text if SHA_RE.fullmatch(text) else ""
 
 
+def require_iso_timestamp(value: Any, label: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{label} timestamp is missing")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ValueError(f"{label} timestamp is invalid") from error
+    if parsed.tzinfo is None:
+        raise ValueError(f"{label} timestamp lacks a timezone")
+    return value
+
+
+def resolve_generation_timestamp(
+    pr_supplement: dict[str, Any],
+    branch_supplement: dict[str, Any],
+    *,
+    verify_live_namespace: bool,
+) -> str:
+    if verify_live_namespace:
+        generated_at = datetime.now(timezone.utc).isoformat()
+        pr_supplement["generated_at_utc"] = generated_at
+        branch_supplement["generated_at_utc"] = generated_at
+        return generated_at
+    try:
+        generated_at = require_iso_timestamp(
+            pr_supplement.get("generated_at_utc"), "frozen PR supplement"
+        )
+        branch_generated_at = require_iso_timestamp(
+            branch_supplement.get("generated_at_utc"), "frozen branch supplement"
+        )
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
+    if branch_generated_at != generated_at:
+        raise SystemExit("frozen branch/PR supplement timestamps mismatch")
+    return generated_at
+
+
+def validated_pr_identity_tuple(
+    row: Mapping[str, Any],
+    *,
+    head_field: str,
+    base_field: str,
+    state_field: str,
+    updated_field: str,
+    label: str,
+) -> tuple[str, str, str, str]:
+    head_sha = clean_sha(row.get(head_field))
+    base_sha = clean_sha(row.get(base_field))
+    state = str(row.get(state_field) or "").upper()
+    updated_at = require_iso_timestamp(row.get(updated_field), label)
+    if not head_sha or not base_sha or state not in {"OPEN", "CLOSED", "MERGED"}:
+        raise ValueError(f"{label} identity is incomplete or invalid")
+    return head_sha, base_sha, state, updated_at
+
+
 def validate_research_only_policy(policy: Mapping[str, Any], audit_sha: str) -> None:
     if policy.get("schema_version") != POLICY_SCHEMA:
         raise SystemExit("workflow policy schema mismatch")
@@ -269,6 +344,52 @@ def validate_u0_fail_closed_source(
     source: Mapping[str, Any],
 ) -> tuple[dict[str, Any], list[str]]:
     summary = source.get("summary") or {}
+    branches = source.get("branches") or []
+    pull_requests = source.get("pull_requests") or []
+    candidates = source.get("experiment_candidates") or []
+    source_contract = source.get("source_contract") or {}
+    if source_contract.get("normalized_branch_rows_sha256") != canonical_sha256(
+        branches
+    ):
+        raise SystemExit("source normalized branch rows hash mismatch")
+    if source_contract.get(
+        "normalized_pull_request_rows_sha256"
+    ) != canonical_sha256(pull_requests):
+        raise SystemExit("source normalized PR rows hash mismatch")
+    expected_summary = {
+        "branch_count": len(branches),
+        "pull_request_count": len(pull_requests),
+        "experiment_candidate_count": len(candidates),
+        "branch_only_experiment_candidate_count": sum(
+            row.get("record_type") == "BRANCH" for row in candidates
+        ),
+        "pull_request_experiment_candidate_count": sum(
+            row.get("record_type") == "PULL_REQUEST" for row in candidates
+        ),
+        "unmapped_experiment_candidate_count": sum(
+            row.get("experiment_identity_status") == "UNMAPPED_BLOCKED"
+            for row in candidates
+        ),
+        "run287_named_branch_count": sum(bool(row.get("run287_named")) for row in branches),
+        "run287_named_pr_count": sum(
+            "run287" in str(row.get("head_branch") or "").lower()
+            for row in pull_requests
+        ),
+        "branch_ancestry_counts": dict(
+            sorted(Counter(str(row.get("ancestry") or "") for row in branches).items())
+        ),
+        "pull_request_head_ancestry_counts": dict(
+            sorted(
+                Counter(str(row.get("ancestry") or "") for row in pull_requests).items()
+            )
+        ),
+        "pull_request_state_counts": dict(
+            sorted(Counter(str(row.get("state") or "") for row in pull_requests).items())
+        ),
+    }
+    for key, expected in expected_summary.items():
+        if summary.get(key) != expected:
+            raise SystemExit(f"source summary mismatch: {key}")
     blockers = source.get("promotion_blockers")
     if blockers != REQUIRED_PROMOTION_BLOCKERS:
         raise SystemExit("source promotion blockers do not match the frozen fail-closed set")
@@ -277,7 +398,6 @@ def validate_u0_fail_closed_source(
     if summary.get("historical_challenger_allowed") is not False:
         raise SystemExit("source historical challenger authority must remain disabled")
     unmapped = summary.get("unmapped_experiment_candidate_count")
-    candidates = source.get("experiment_candidates") or []
     if type(unmapped) is not int or unmapped <= 0 or unmapped != len(candidates):
         raise SystemExit("source experiment candidates must remain unmapped and blocked")
     return dict(summary), list(blockers)
@@ -353,11 +473,13 @@ def source_pr_identity(census: Mapping[str, Any]) -> dict[int, tuple[str, str, s
         number = row.get("number")
         if type(number) is not int or number <= 0 or number in result:
             raise ValueError("source PR identity is invalid")
-        result[number] = (
-            clean_sha(row.get("head_sha")),
-            clean_sha(row.get("base_sha")),
-            str(row.get("state") or "").upper(),
-            str(row.get("updated_at") or ""),
+        result[number] = validated_pr_identity_tuple(
+            row,
+            head_field="head_sha",
+            base_field="base_sha",
+            state_field="state",
+            updated_field="updated_at",
+            label=f"source PR #{number}",
         )
     return result
 
@@ -397,11 +519,13 @@ def supplement_pr_identity(rows: Iterable[Mapping[str, Any]]) -> dict[int, tuple
         number = row.get("number")
         if type(number) is not int or number <= 0 or number in result:
             raise ValueError("PR supplement identity is invalid")
-        result[number] = (
-            clean_sha(row.get("headRefOid")),
-            clean_sha(row.get("baseRefOid")),
-            str(row.get("state") or "").upper(),
-            str(row.get("updatedAt") or ""),
+        result[number] = validated_pr_identity_tuple(
+            row,
+            head_field="headRefOid",
+            base_field="baseRefOid",
+            state_field="state",
+            updated_field="updatedAt",
+            label=f"live PR #{number}",
         )
     return result
 
@@ -1063,6 +1187,9 @@ def main() -> int:
         raise SystemExit("audit SHA must be exact")
     require_audit_commit(repo_root, audit_sha)
     source_bytes = document_bytes(args.source_census)
+    require_bytes_sha256(
+        source_bytes, FROZEN_U0_UNCOMPRESSED_SHA256, "frozen U0 source"
+    )
     source = json.loads(source_bytes.decode("utf-8"))
     if source.get("schema_version") != U0_SCHEMA:
         raise SystemExit("source U0 census schema mismatch")
@@ -1080,6 +1207,14 @@ def main() -> int:
     runtime_requirements_input_bytes = canonical_text_bytes(
         runtime_requirements_input_path
     )
+    require_bytes_sha256(
+        policy_input_bytes, FROZEN_WORKFLOW_POLICY_SHA256, "frozen workflow policy"
+    )
+    require_bytes_sha256(
+        runtime_requirements_input_bytes,
+        FROZEN_RUNTIME_REQUIREMENTS_SHA256,
+        "frozen runtime requirements",
+    )
     policy = json.loads(policy_input_bytes.decode("utf-8"))
     validate_research_only_policy(policy, audit_sha)
     validate_runtime_requirements_bytes(runtime_requirements_input_bytes)
@@ -1095,6 +1230,7 @@ def main() -> int:
     live_evidence_by_number: dict[int, dict[str, Any]] | None = None
     frozen_supplement_by_number: dict[int, dict[str, Any]] | None = None
     frozen_pr_supplement_document: dict[str, Any] | None = None
+    frozen_pr_supplement_bytes: bytes | None = None
     frozen_branch_by_name: dict[str, dict[str, Any]] | None = None
     frozen_branch_supplement_document: dict[str, Any] | None = None
     frozen_branch_source_bytes: bytes | None = None
@@ -1116,6 +1252,11 @@ def main() -> int:
             "source_branch_supplement.parquet"
         )
         frozen_branch_source_bytes = frozen_branch_path.read_bytes()
+        require_bytes_sha256(
+            frozen_branch_source_bytes,
+            FROZEN_BRANCH_SUPPLEMENT_SHA256,
+            "frozen branch supplement",
+        )
         frozen_branch_supplement_document = read_branch_supplement_bytes(
             frozen_branch_source_bytes
         )
@@ -1171,6 +1312,26 @@ def main() -> int:
             frozen_pr_supplement_document["schema_version"] = PR_SUPPLEMENT_SCHEMA
         elif frozen_schema != PR_SUPPLEMENT_SCHEMA:
             raise SystemExit("frozen PR supplement schema mismatch")
+        else:
+            require_bytes_sha256(
+                frozen_pr_input_bytes,
+                FROZEN_PR_SUPPLEMENT_V2_UNCOMPRESSED_SHA256,
+                "frozen PR supplement v2",
+            )
+        frozen_pr_supplement_bytes = (
+            json.dumps(
+                frozen_pr_supplement_document,
+                ensure_ascii=False,
+                sort_keys=True,
+                indent=2,
+            )
+            + "\n"
+        ).encode("utf-8")
+        require_bytes_sha256(
+            frozen_pr_supplement_bytes,
+            FROZEN_PR_SUPPLEMENT_V2_UNCOMPRESSED_SHA256,
+            "canonical frozen PR supplement v2",
+        )
         if clean_sha(frozen_pr_supplement_document.get("audit_master_sha")) != audit_sha:
             raise SystemExit("frozen PR supplement audit SHA mismatch")
         if frozen_pr_supplement_document.get(
@@ -1187,11 +1348,13 @@ def main() -> int:
             if type(number) is not int or number <= 0:
                 raise SystemExit("frozen PR supplement contains an invalid PR number")
             frozen_supplement_by_number[number] = row
-            frozen_supplement_identity[number] = (
-                clean_sha(row.get("head_sha")),
-                clean_sha(row.get("base_sha")),
-                str(row.get("state") or "").upper(),
-                str(row.get("updated_at") or ""),
+            frozen_supplement_identity[number] = validated_pr_identity_tuple(
+                row,
+                head_field="head_sha",
+                base_field="base_sha",
+                state_field="state",
+                updated_field="updated_at",
+                label=f"frozen PR #{number}",
             )
         if len(frozen_supplement_by_number) != len(frozen_pr_rows):
             raise SystemExit("frozen PR supplement contains duplicate PRs")
@@ -1396,16 +1559,11 @@ def main() -> int:
         if remote_master != audit_sha:
             raise SystemExit("remote master moved during P0-3 collection")
 
-    generated_at = str(frozen_pr_supplement_document.get("generated_at_utc") or "")
-    if not generated_at:
-        generated_at = datetime.now(timezone.utc).isoformat()
-        frozen_pr_supplement_document["generated_at_utc"] = generated_at
-    branch_generated_at = str(
-        frozen_branch_supplement_document.get("generated_at_utc") or ""
+    generated_at = resolve_generation_timestamp(
+        frozen_pr_supplement_document,
+        frozen_branch_supplement_document,
+        verify_live_namespace=args.verify_live_namespace,
     )
-    if branch_generated_at and branch_generated_at != generated_at:
-        raise SystemExit("frozen branch/PR supplement timestamps mismatch")
-    frozen_branch_supplement_document["generated_at_utc"] = generated_at
     registry = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": generated_at,
@@ -1447,15 +1605,16 @@ def main() -> int:
     write_parquet(pr_path, pr_rows)
     write_registry(registry_path, registry)
     write_gzip(source_artifact_path, source_bytes)
-    frozen_pr_supplement_bytes = (
-        json.dumps(
-            frozen_pr_supplement_document,
-            ensure_ascii=False,
-            sort_keys=True,
-            indent=2,
-        )
-        + "\n"
-    ).encode("utf-8")
+    if frozen_pr_supplement_bytes is None:
+        frozen_pr_supplement_bytes = (
+            json.dumps(
+                frozen_pr_supplement_document,
+                ensure_ascii=False,
+                sort_keys=True,
+                indent=2,
+            )
+            + "\n"
+        ).encode("utf-8")
     write_gzip(source_pr_supplement_path, frozen_pr_supplement_bytes)
     if frozen_branch_source_bytes is None:
         write_branch_supplement(

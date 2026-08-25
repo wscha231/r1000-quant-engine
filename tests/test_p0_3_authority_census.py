@@ -24,6 +24,8 @@ from tools.build_p0_3_authority_census import (  # noqa: E402
     check_summary,
     read_branch_supplement,
     require_audit_commit,
+    resolve_generation_timestamp,
+    source_pr_identity,
     supplement_pr_mutable_evidence,
     validated_frozen_checks,
     validate_runtime_requirements,
@@ -327,6 +329,11 @@ def test_u0_fail_closed_source_cannot_be_made_promotion_ready() -> None:
     unsafe = copy.deepcopy(source)
     unsafe["promotion_blockers"] = []
     assert_rejected(unsafe)
+    unsafe = copy.deepcopy(source)
+    unsafe["pull_requests"][0]["changed_paths_complete"] = not unsafe[
+        "pull_requests"
+    ][0]["changed_paths_complete"]
+    assert_rejected(unsafe)
     for key, unsafe_value in (
         ("historical_experiment_census_complete", True),
         ("historical_challenger_allowed", True),
@@ -335,6 +342,40 @@ def test_u0_fail_closed_source_cannot_be_made_promotion_ready() -> None:
         unsafe = copy.deepcopy(source)
         unsafe["summary"][key] = unsafe_value
         assert_rejected(unsafe)
+
+
+def test_pr_identity_and_frozen_timestamps_require_complete_exact_values() -> None:
+    source = json.loads(
+        gzip.decompress((CENSUS / "source_u0_github_census.json.gz").read_bytes())
+    )
+    source_pr_identity(source)
+    for field, unsafe_value in (
+        ("head_sha", ""),
+        ("base_sha", "bad"),
+        ("state", "UNKNOWN"),
+        ("updated_at", ""),
+    ):
+        unsafe = copy.deepcopy(source)
+        unsafe["pull_requests"][0][field] = unsafe_value
+        try:
+            source_pr_identity(unsafe)
+        except ValueError:
+            continue
+        raise AssertionError(f"invalid PR identity field was accepted: {field}")
+
+    timestamp = "2026-08-25T05:19:23.469377+00:00"
+    assert resolve_generation_timestamp(
+        {"generated_at_utc": timestamp},
+        {"generated_at_utc": timestamp},
+        verify_live_namespace=False,
+    ) == timestamp
+    try:
+        resolve_generation_timestamp(
+            {}, {}, verify_live_namespace=False
+        )
+    except SystemExit:
+        return
+    raise AssertionError("timestamp-less frozen supplements were not rejected")
 
 
 def test_workflow_registry_has_singular_official_authority_and_blocks_legacy_names() -> None:
@@ -488,6 +529,7 @@ def main() -> int:
     test_live_pr_mutable_evidence_detects_check_and_review_changes()
     test_generator_requirements_require_exact_pins()
     test_u0_fail_closed_source_cannot_be_made_promotion_ready()
+    test_pr_identity_and_frozen_timestamps_require_complete_exact_values()
     test_workflow_registry_has_singular_official_authority_and_blocks_legacy_names()
     test_workflow_policy_drift_fails_closed()
     test_frozen_audit_commit_is_resolved_independently_of_current_head()
