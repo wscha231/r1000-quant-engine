@@ -7,10 +7,10 @@ This is the read-only inventory required by Issue #372, frozen at `2026-08-25T12
 - Dataset classes: `24`
 - Model objects: `4`
 - Durable-state objects: `8`
-- Infrastructure/artifact objects: `35`
-- Total normalized Parquet rows: `71`
+- Infrastructure/artifact objects: `41`
+- Total normalized Parquet rows: `77`
 - Latest aliases verified: `7`
-- Latest aliases blocked: `38`
+- Latest aliases blocked: `39`
 
 ## Current pipeline connection
 
@@ -73,9 +73,11 @@ The latest three operating runs `32801137546, 32545955145, 32440400556` all fail
 ## Rebuild
 
 Publication merge contract: merge this PR only with an expected-head merge commit; squash and rebase are prohibited because the pinned source and protected-publication commits must remain ancestors.
+The hashed dependency contract supports CPython 3.12 on Linux x86-64 and Windows x64 only; macOS, ARM, and other interpreter platforms fail the preflight before installation.
 
 ```bash
 set -euo pipefail
+python -c "import sys,sysconfig; sys.exit('Linux x86-64 CPython required') if sysconfig.get_platform() != 'linux-x86_64' else None"
 python -c "import sys; sys.exit('Python 3.12 required') if sys.version_info[:2] != (3, 12) else None"
 git diff --quiet -- docs/run287_p0_4_artifact_inventory/requirements.txt
 git diff --cached --quiet -- docs/run287_p0_4_artifact_inventory/requirements.txt
@@ -98,6 +100,8 @@ PowerShell rebuild (the dependency bytes are captured from the authenticated Git
 
 ```powershell
 $P0_4RequirementsPath = 'docs/run287_p0_4_artifact_inventory/requirements.txt'
+python -c "import sys,sysconfig; sys.exit('Windows x64 CPython required') if sysconfig.get_platform() != 'win-amd64' else None"
+if ($LASTEXITCODE -ne 0) { throw 'Windows x64 CPython is required' }
 python -c "import sys; sys.exit('Python 3.12 required') if sys.version_info[:2] != (3, 12) else None"
 if ($LASTEXITCODE -ne 0) { throw 'Python 3.12 is required' }
 git diff --quiet -- $P0_4RequirementsPath
