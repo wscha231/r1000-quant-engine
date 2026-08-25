@@ -15,6 +15,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from tools.build_p0_3_authority_census import (  # noqa: E402
+    BRANCH_SUPPLEMENT_SCHEMA,
+    PR_SUPPLEMENT_SCHEMA,
+    audited_workflow_paths,
+    read_branch_supplement,
     require_audit_commit,
     validate_research_only_policy,
 )
@@ -87,6 +91,34 @@ def test_census_is_hash_bound_and_read_only() -> None:
     source = json.loads(source_bytes.decode("utf-8"))
     assert len(source["branches"]) == summary["counts"]["branches"]
     assert len(source["pull_requests"]) == summary["counts"]["pull_requests"]
+    pr_source_artifact = summary["source_pr_supplement_artifact"]
+    pr_source_path = ROOT / pr_source_artifact["repository_path"]
+    pr_source_bytes = gzip.decompress(pr_source_path.read_bytes())
+    assert sha256(pr_source_path) == pr_source_artifact["compressed_sha256"]
+    assert len(pr_source_bytes) == pr_source_artifact["uncompressed_bytes"]
+    assert hashlib.sha256(pr_source_bytes).hexdigest() == pr_source_artifact[
+        "uncompressed_sha256"
+    ]
+    assert pr_source_artifact["uncompressed_sha256"] == summary["source_hashes"][
+        "source_pr_supplement_sha256"
+    ]
+    pr_source = json.loads(pr_source_bytes.decode("utf-8"))
+    assert pr_source["schema_version"] == PR_SUPPLEMENT_SCHEMA
+    assert pr_source["audit_master_sha"] == AUDIT_SHA
+    assert pr_source["generated_at_utc"] == summary["generated_at_utc"]
+    assert len(pr_source["rows"]) == summary["counts"]["pull_requests"]
+    branch_source_artifact = summary["source_branch_supplement_artifact"]
+    branch_source_path = ROOT / branch_source_artifact["repository_path"]
+    assert sha256(branch_source_path) == branch_source_artifact["sha256"]
+    assert branch_source_artifact["sha256"] == summary["source_hashes"][
+        "source_branch_supplement_sha256"
+    ]
+    assert branch_source_path.stat().st_size == branch_source_artifact["bytes"]
+    branch_source = read_branch_supplement(branch_source_path)
+    assert branch_source["schema_version"] == BRANCH_SUPPLEMENT_SCHEMA
+    assert branch_source["audit_master_sha"] == AUDIT_SHA
+    assert branch_source["generated_at_utc"] == summary["generated_at_utc"]
+    assert len(branch_source["rows"]) == summary["counts"]["branches"]
 
 
 def test_every_branch_has_required_issue_371_fields_and_fail_closed_disposition() -> None:
@@ -159,6 +191,9 @@ def test_workflow_registry_has_singular_official_authority_and_blocks_legacy_nam
     assert registry["audit_master_sha"] == AUDIT_SHA
     assert len(rows) == 40
     assert {row["file"] for row in rows} == set(policy["workflows"])
+    assert {path.as_posix() for path in audited_workflow_paths(ROOT, AUDIT_SHA)} == {
+        (ROOT / row["path"]).as_posix() for row in rows
+    }
     for row in rows:
         blob = subprocess.check_output(
             ["git", "cat-file", "blob", f"{registry['audit_master_sha']}:{row['path']}"],

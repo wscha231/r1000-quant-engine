@@ -8,7 +8,7 @@ namespace_binding:
   pull_request_count: 372
   pull_request_identity_sha256: 639d708c707dbc48a1f02cc8eeb15a1c28837226f545b2ea8f84fb6b3313937c
   workflow_count: 40
-  workflow_identity_sha256: 0b30a8fdae27e12029a3b23e85198d3ff05691c21f6c860e0987a89723766874
+  workflow_identity_sha256: 25ce32134a73585f03d923463ca167bea66d9aef7cb288e58d437409ee9cb82e
   publication_delta: THIS_CENSUS_BRANCH_AND_PR_ABSENT_AT_SNAPSHOT_EXPECTED
 global_guards:
   live_broker_execution_enabled: false

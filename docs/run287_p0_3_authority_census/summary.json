@@ -140,8 +140,10 @@
   "output_hashes": {
     "branch_census.parquet": "98701ad208b92bc9c21506d8a322cb7258050998e2f46ba9d6760f0ea134d773",
     "pr_census.parquet": "b0a00792b3b61bdc7a559c0a62b91af17c07b07130c8acc64b152500daa8ef68",
+    "source_branch_supplement.parquet": "12ea17046e062707437b995b95cc610ccf2ef0398dbdf9ff05c0011ff810f530",
+    "source_pr_supplement.json.gz": "9afb5257b6ae73f96b668a54fd3cfda8e538ee386e4ba461222fc00d5e4903d3",
     "source_u0_github_census.json.gz": "43037952f1464bd41cdb0d2eaba78503da60f17d66c410dea186b34e0b62ef2c",
-    "workflow_registry.yaml": "69495eae71856f671da1c8d3948412d6368ca8c5fdb9aa8b603bf66d2deb4908"
+    "workflow_registry.yaml": "f9da5bdc2693d1543de0ea4be21a0ea269a063d6bb82720fbac523b5ead80686"
   },
   "pr_disposition_counts": {
     "CLOSED_UNMERGED_QUARANTINE": 23,
@@ -173,11 +175,28 @@
     "uncompressed_bytes": 6366713,
     "uncompressed_sha256": "5c9741b84fe9cfff74619322bc99402d92f25979974d42a405e30091ff461216"
   },
+  "source_branch_supplement_artifact": {
+    "bytes": 1418116,
+    "media_type": "application/vnd.apache.parquet",
+    "repository_path": "docs/run287_p0_3_authority_census/source_branch_supplement.parquet",
+    "rows": 297,
+    "sha256": "12ea17046e062707437b995b95cc610ccf2ef0398dbdf9ff05c0011ff810f530"
+  },
   "source_hashes": {
     "branch_namespace_sha256": "e70683436b46b133d93b66b47acde2565c6889bc654edce01e60182eb6afc126",
     "pull_request_namespace_sha256": "639d708c707dbc48a1f02cc8eeb15a1c28837226f545b2ea8f84fb6b3313937c",
+    "source_branch_supplement_sha256": "12ea17046e062707437b995b95cc610ccf2ef0398dbdf9ff05c0011ff810f530",
+    "source_pr_supplement_sha256": "29bd41bcbd07a7a739856ccc870b91711491986c464efc4342a7081d391b554c",
     "source_u0_census_sha256": "5c9741b84fe9cfff74619322bc99402d92f25979974d42a405e30091ff461216",
     "workflow_policy_sha256": "e8c79fba9f44fc16a7170bc576488d6f62d31ca632d295c9d10180b8b9b7bd6e"
+  },
+  "source_pr_supplement_artifact": {
+    "compressed_bytes": 20644,
+    "compressed_sha256": "9afb5257b6ae73f96b668a54fd3cfda8e538ee386e4ba461222fc00d5e4903d3",
+    "media_type": "application/gzip",
+    "repository_path": "docs/run287_p0_3_authority_census/source_pr_supplement.json.gz",
+    "uncompressed_bytes": 636613,
+    "uncompressed_sha256": "29bd41bcbd07a7a739856ccc870b91711491986c464efc4342a7081d391b554c"
   },
   "workflow_decision_counts": {
     "CONSOLIDATE": 6,

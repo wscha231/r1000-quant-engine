@@ -14,6 +14,7 @@ import gzip
 import hashlib
 import json
 import re
+import shutil
 import subprocess
 from collections import Counter
 from datetime import datetime, timezone
@@ -28,12 +29,35 @@ REPOSITORY = "wscha231/r1000-quant-engine"
 SCHEMA_VERSION = "run287-p0-3-authority-census-v1"
 POLICY_SCHEMA = "run287-p0-3-workflow-authority-policy-v1"
 U0_SCHEMA = "run287-u0-v2-github-census-v1"
+PR_SUPPLEMENT_SCHEMA = "run287-p0-3-frozen-pr-supplement-v1"
+BRANCH_SUPPLEMENT_SCHEMA = "run287-p0-3-frozen-branch-supplement-v1"
 REQUIRED_GLOBAL_GUARDS = {
     "live_broker_execution_enabled": False,
     "automatic_model_promotion_enabled": False,
     "production_authority_default": "NONE_RESEARCH_ONLY",
     "model_promotion_authority_default": "NONE_AUTOMATIC_DISABLED",
     "unlisted_workflow_policy": "FAIL_CLOSED",
+}
+BRANCH_EVIDENCE_FIELDS = (
+    "merge_base_sha",
+    "ahead_count",
+    "behind_count",
+    "last_commit_at",
+    "author_or_agent",
+    "changed_paths",
+    "workflow_changes",
+    "data_or_model_changes",
+    "test_changes",
+    "artifact_references",
+    "executable_changes",
+)
+BRANCH_JSON_FIELDS = {
+    "changed_paths",
+    "workflow_changes",
+    "data_or_model_changes",
+    "test_changes",
+    "artifact_references",
+    "executable_changes",
 }
 SHA_RE = re.compile(r"[0-9a-f]{40}")
 ISSUE_RE = re.compile(
@@ -557,6 +581,26 @@ def workflow_git_blob(repo_root: Path, audit_sha: str, relative_path: str) -> st
     return value
 
 
+def audited_workflow_paths(repo_root: Path, audit_sha: str) -> list[Path]:
+    paths = git_lines(
+        repo_root,
+        [
+            "ls-tree",
+            "-r",
+            "--name-only",
+            audit_sha,
+            "--",
+            ".github/workflows",
+        ],
+    )
+    workflows = sorted(
+        path for path in paths if WORKFLOW_RE.fullmatch(path)
+    )
+    if not workflows:
+        raise RuntimeError("audit commit has no workflow YAML files")
+    return [repo_root / Path(path) for path in workflows]
+
+
 def workflow_git_blob_bytes(repo_root: Path, audit_sha: str, relative_path: str) -> bytes:
     completed = subprocess.run(
         ["git", "cat-file", "blob", f"{audit_sha}:{relative_path}"],
@@ -691,6 +735,53 @@ def write_parquet(path: Path, rows: list[dict[str, Any]]) -> None:
         raise RuntimeError(f"parquet round-trip failed: {path}")
 
 
+def read_branch_supplement(path: Path) -> dict[str, Any]:
+    frame = pd.read_parquet(path)
+    if frame.empty:
+        raise ValueError("frozen branch supplement is empty")
+    metadata_fields = (
+        "schema_version",
+        "audit_master_sha",
+        "generated_at_utc",
+        "branch_namespace_sha256",
+    )
+    metadata: dict[str, str] = {}
+    for field in metadata_fields:
+        values = {str(value) for value in frame[field]}
+        if len(values) != 1:
+            raise ValueError(f"frozen branch supplement {field} is not singular")
+        metadata[field] = values.pop()
+    rows = []
+    for record in frame.to_dict(orient="records"):
+        row = {
+            "branch": str(record["branch"]),
+            "tip_sha": str(record["tip_sha"]),
+        }
+        for field in BRANCH_EVIDENCE_FIELDS:
+            value = record[field]
+            if field in BRANCH_JSON_FIELDS:
+                value = json.loads(str(value))
+            elif field in {"ahead_count", "behind_count"}:
+                value = int(value)
+            row[field] = value
+        rows.append(row)
+    return {**metadata, "rows": rows}
+
+
+def write_branch_supplement(path: Path, document: Mapping[str, Any]) -> None:
+    metadata = {
+        field: document[field]
+        for field in (
+            "schema_version",
+            "audit_master_sha",
+            "generated_at_utc",
+            "branch_namespace_sha256",
+        )
+    }
+    rows = [{**metadata, **row} for row in document["rows"]]
+    write_parquet(path, rows)
+
+
 def write_registry(path: Path, registry: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     serialized = yaml.safe_dump(
@@ -708,6 +799,8 @@ def write_readme(path: Path, summary: Mapping[str, Any]) -> None:
     classification = summary["branch_classification_counts"]
     decisions = summary["workflow_decision_counts"]
     source_artifact = summary["source_artifact"]
+    source_pr_supplement = summary["source_pr_supplement_artifact"]
+    source_branch_supplement = summary["source_branch_supplement_artifact"]
     incomplete_pr_changed_paths = summary["evidence_limitations"][
         "incomplete_changed_path_prs"
     ]
@@ -732,6 +825,13 @@ The exact U0 GitHub input is tracked as
 `{source_artifact['compressed_sha256']}`). The collector accepts this `.gz`
 file directly; its decompressed SHA-256 is
 `{source_artifact['uncompressed_sha256']}`.
+Frozen normalized PR check/review metadata is tracked separately as
+`{source_pr_supplement['repository_path']}` (SHA-256
+`{source_pr_supplement['compressed_sha256']}`). By default regeneration uses
+that file plus frozen branch ancestry/path metadata at
+`{source_branch_supplement['repository_path']}` (SHA-256
+`{source_branch_supplement['sha256']}`). `--verify-live-namespace`
+is reserved for the original generation-time equality guard.
 
 ## Evidence limitations
 
@@ -772,6 +872,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--audit-sha", required=True)
     parser.add_argument("--source-census", type=Path, required=True)
     parser.add_argument(
+        "--source-pr-supplement",
+        type=Path,
+        help="Frozen normalized PR checks/review metadata; defaults beside source census.",
+    )
+    parser.add_argument(
+        "--source-branch-supplement",
+        type=Path,
+        help="Frozen branch ancestry/path Parquet; defaults beside source census.",
+    )
+    parser.add_argument(
+        "--verify-live-namespace",
+        action="store_true",
+        help="Generation-time guard: require the live branch/PR namespace to match U0 exactly.",
+    )
+    parser.add_argument(
         "--policy",
         type=Path,
         default=Path("docs/run287_p0_3_workflow_authority_policy.json"),
@@ -799,34 +914,120 @@ def main() -> int:
     validate_research_only_policy(policy, audit_sha)
 
     source_branches = source_branch_identity(source)
-    live_branches_before = live_branch_identity(repo_root)
-    if source_branches != live_branches_before:
-        raise SystemExit("branch namespace moved after U0 collection")
-
-    pr_supplement_before = collect_pr_supplement(repo_root)
     source_prs = source_pr_identity(source)
-    supplement_before_identity = supplement_pr_identity(pr_supplement_before)
-    if source_prs != supplement_before_identity:
-        raise SystemExit("PR namespace or mutable identity moved after U0 collection")
-    supplement_by_number = {int(row["number"]): row for row in pr_supplement_before}
     source_pr_by_number = {int(row["number"]): row for row in source["pull_requests"]}
+    live_branches_before: dict[str, str] | None = None
+    supplement_before_identity: dict[int, tuple[str, str, str, str]] | None = None
+    live_supplement_by_number: dict[int, dict[str, Any]] | None = None
+    frozen_supplement_by_number: dict[int, dict[str, Any]] | None = None
+    frozen_pr_supplement_document: dict[str, Any] | None = None
+    frozen_branch_by_name: dict[str, dict[str, Any]] | None = None
+    frozen_branch_supplement_document: dict[str, Any] | None = None
+    frozen_branch_source_path: Path | None = None
+
+    if args.verify_live_namespace:
+        live_branches_before = live_branch_identity(repo_root)
+        if source_branches != live_branches_before:
+            raise SystemExit("branch namespace moved after U0 collection")
+        pr_supplement_before = collect_pr_supplement(repo_root)
+        supplement_before_identity = supplement_pr_identity(pr_supplement_before)
+        if source_prs != supplement_before_identity:
+            raise SystemExit("PR namespace or mutable identity moved after U0 collection")
+        live_supplement_by_number = {
+            int(row["number"]): row for row in pr_supplement_before
+        }
+    else:
+        frozen_branch_path = args.source_branch_supplement or args.source_census.with_name(
+            "source_branch_supplement.parquet"
+        )
+        frozen_branch_source_path = frozen_branch_path
+        frozen_branch_supplement_document = read_branch_supplement(
+            frozen_branch_path
+        )
+        if (
+            frozen_branch_supplement_document.get("schema_version")
+            != BRANCH_SUPPLEMENT_SCHEMA
+        ):
+            raise SystemExit("frozen branch supplement schema mismatch")
+        if clean_sha(
+            frozen_branch_supplement_document.get("audit_master_sha")
+        ) != audit_sha:
+            raise SystemExit("frozen branch supplement audit SHA mismatch")
+        if frozen_branch_supplement_document.get(
+            "branch_namespace_sha256"
+        ) != canonical_sha256(source_branches):
+            raise SystemExit("frozen branch supplement namespace hash mismatch")
+        frozen_branch_rows = frozen_branch_supplement_document.get("rows") or []
+        frozen_branch_by_name = {
+            str(row["branch"]): row
+            for row in frozen_branch_rows
+        }
+        if len(frozen_branch_by_name) != len(frozen_branch_rows):
+            raise SystemExit("frozen branch supplement contains duplicate branches")
+        require_exact_keys(
+            frozen_branch_by_name,
+            source_branches,
+            "frozen branch supplement coverage",
+        )
+
+        frozen_path = args.source_pr_supplement or args.source_census.with_name(
+            "source_pr_supplement.json.gz"
+        )
+        frozen_pr_supplement_document = read_json(frozen_path)
+        if frozen_pr_supplement_document.get("schema_version") != PR_SUPPLEMENT_SCHEMA:
+            raise SystemExit("frozen PR supplement schema mismatch")
+        if clean_sha(frozen_pr_supplement_document.get("audit_master_sha")) != audit_sha:
+            raise SystemExit("frozen PR supplement audit SHA mismatch")
+        if frozen_pr_supplement_document.get(
+            "pull_request_namespace_sha256"
+        ) != canonical_sha256(source_prs):
+            raise SystemExit("frozen PR supplement namespace hash mismatch")
+        frozen_pr_rows = frozen_pr_supplement_document.get("rows") or []
+        frozen_supplement_by_number = {
+            int(row["number"]): row
+            for row in frozen_pr_rows
+        }
+        if len(frozen_supplement_by_number) != len(frozen_pr_rows):
+            raise SystemExit("frozen PR supplement contains duplicate PRs")
+        require_exact_keys(
+            (str(number) for number in frozen_supplement_by_number),
+            (str(number) for number in source_prs),
+            "frozen PR supplement coverage",
+        )
+
+    issue_numbers_by_pr = {
+        number: (
+            list(frozen_supplement_by_number[number]["associated_issue"])
+            if frozen_supplement_by_number is not None
+            else issues_from_pr(
+                source_pr_by_number[number], live_supplement_by_number[number]
+            )
+        )
+        for number in source_pr_by_number
+    }
 
     branch_rows: list[dict[str, Any]] = []
     for source_row in sorted(source["branches"], key=lambda row: row["name"]):
         branch = str(source_row["name"])
         head_sha = clean_sha(source_row["head_sha"])
-        evidence = git_branch_evidence(
-            repo_root, audit_sha=audit_sha, branch=branch, head_sha=head_sha
-        )
+        if frozen_branch_by_name is not None:
+            frozen_branch = frozen_branch_by_name[branch]
+            if clean_sha(frozen_branch.get("tip_sha")) != head_sha:
+                raise SystemExit(f"frozen branch tip mismatch: {branch}")
+            evidence = {
+                field: frozen_branch[field] for field in BRANCH_EVIDENCE_FIELDS
+            }
+        else:
+            evidence = git_branch_evidence(
+                repo_root, audit_sha=audit_sha, branch=branch, head_sha=head_sha
+            )
         pr_numbers = sorted(int(value) for value in source_row.get("linked_pr_numbers") or [])
         associated_pr_rows = [source_pr_by_number[number] for number in pr_numbers]
         issue_numbers = sorted(
             {
                 issue
                 for number in pr_numbers
-                for issue in issues_from_pr(
-                    source_pr_by_number[number], supplement_by_number[number]
-                )
+                for issue in issue_numbers_by_pr[number]
             }
         )
         classification, classification_reason, recommendation = classify_branch(
@@ -849,15 +1050,40 @@ def main() -> int:
             }
         )
 
+    if frozen_branch_supplement_document is None:
+        frozen_branch_supplement_document = {
+            "schema_version": BRANCH_SUPPLEMENT_SCHEMA,
+            "audit_master_sha": audit_sha,
+            "branch_namespace_sha256": canonical_sha256(source_branches),
+            "rows": [
+                {
+                    "branch": row["branch"],
+                    "tip_sha": row["tip_sha"],
+                    **{field: row[field] for field in BRANCH_EVIDENCE_FIELDS},
+                }
+                for row in branch_rows
+            ],
+        }
+
     pr_rows: list[dict[str, Any]] = []
     for source_row in sorted(source["pull_requests"], key=lambda row: row["number"]):
-        supplement = supplement_by_number[int(source_row["number"])]
-        checks = [normalize_check(item) for item in supplement.get("statusCheckRollup") or []]
-        checks_summary = check_summary(checks)
-        reviews = review_summary(supplement)
-        issues = issues_from_pr(source_row, supplement)
+        number = int(source_row["number"])
+        if frozen_supplement_by_number is not None:
+            supplement = frozen_supplement_by_number[number]
+            checks = list(supplement["checks"])
+            checks_summary = dict(supplement["check_summary"])
+            reviews = dict(supplement["review_state"])
+        else:
+            supplement = live_supplement_by_number[number]
+            checks = [
+                normalize_check(item)
+                for item in supplement.get("statusCheckRollup") or []
+            ]
+            checks_summary = check_summary(checks)
+            reviews = review_summary(supplement)
+        issues = issue_numbers_by_pr[number]
         row = {
-            "number": int(source_row["number"]),
+            "number": number,
             "title": str(source_row.get("title") or ""),
             "state": str(source_row.get("state") or ""),
             "is_draft": bool(source_row.get("is_draft")),
@@ -882,8 +1108,24 @@ def main() -> int:
         }
         pr_rows.append(row)
 
-    workflow_dir = repo_root / ".github" / "workflows"
-    workflow_paths = sorted([*workflow_dir.glob("*.yml"), *workflow_dir.glob("*.yaml")])
+    if frozen_pr_supplement_document is None:
+        frozen_pr_supplement_document = {
+            "schema_version": PR_SUPPLEMENT_SCHEMA,
+            "audit_master_sha": audit_sha,
+            "pull_request_namespace_sha256": canonical_sha256(source_prs),
+            "rows": [
+                {
+                    "number": row["number"],
+                    "associated_issue": row["associated_issue"],
+                    "checks": row["checks"],
+                    "check_summary": row["check_summary"],
+                    "review_state": row["review_state"],
+                }
+                for row in pr_rows
+            ],
+        }
+
+    workflow_paths = audited_workflow_paths(repo_root, audit_sha)
     policy_rows = policy.get("workflows") or {}
     require_exact_keys(
         (path.name for path in workflow_paths), policy_rows.keys(), "workflow policy coverage"
@@ -916,16 +1158,35 @@ def main() -> int:
         row["number"] for row in pr_rows if not row["changed_paths_complete"]
     )
 
-    live_branches_after = live_branch_identity(repo_root)
-    if live_branches_after != live_branches_before:
-        raise SystemExit("branch namespace moved during P0-3 collection")
-    pr_supplement_after = collect_pr_supplement(repo_root)
-    if supplement_pr_identity(pr_supplement_after) != supplement_before_identity:
-        raise SystemExit("PR namespace or mutable identity moved during P0-3 collection")
-    if run(["git", "ls-remote", f"https://github.com/{REPOSITORY}.git", "refs/heads/master"], cwd=repo_root).split()[0] != audit_sha:
-        raise SystemExit("remote master moved during P0-3 collection")
+    if args.verify_live_namespace:
+        live_branches_after = live_branch_identity(repo_root)
+        if live_branches_after != live_branches_before:
+            raise SystemExit("branch namespace moved during P0-3 collection")
+        pr_supplement_after = collect_pr_supplement(repo_root)
+        if supplement_pr_identity(pr_supplement_after) != supplement_before_identity:
+            raise SystemExit("PR namespace or mutable identity moved during P0-3 collection")
+        remote_master = run(
+            [
+                "git",
+                "ls-remote",
+                f"https://github.com/{REPOSITORY}.git",
+                "refs/heads/master",
+            ],
+            cwd=repo_root,
+        ).split()[0]
+        if remote_master != audit_sha:
+            raise SystemExit("remote master moved during P0-3 collection")
 
-    generated_at = datetime.now(timezone.utc).isoformat()
+    generated_at = str(frozen_pr_supplement_document.get("generated_at_utc") or "")
+    if not generated_at:
+        generated_at = datetime.now(timezone.utc).isoformat()
+        frozen_pr_supplement_document["generated_at_utc"] = generated_at
+    branch_generated_at = str(
+        frozen_branch_supplement_document.get("generated_at_utc") or ""
+    )
+    if branch_generated_at and branch_generated_at != generated_at:
+        raise SystemExit("frozen branch/PR supplement timestamps mismatch")
+    frozen_branch_supplement_document["generated_at_utc"] = generated_at
     registry = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": generated_at,
@@ -959,14 +1220,42 @@ def main() -> int:
     pr_path = args.output_dir / "pr_census.parquet"
     registry_path = args.output_dir / "workflow_registry.yaml"
     source_artifact_path = args.output_dir / "source_u0_github_census.json.gz"
+    source_pr_supplement_path = args.output_dir / "source_pr_supplement.json.gz"
+    source_branch_supplement_path = args.output_dir / "source_branch_supplement.parquet"
     write_parquet(branch_path, branch_rows)
     write_parquet(pr_path, pr_rows)
     write_registry(registry_path, registry)
     write_gzip(source_artifact_path, source_bytes)
+    frozen_pr_supplement_bytes = (
+        json.dumps(
+            frozen_pr_supplement_document,
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+        )
+        + "\n"
+    ).encode("utf-8")
+    write_gzip(source_pr_supplement_path, frozen_pr_supplement_bytes)
+    if frozen_branch_source_path is None:
+        write_branch_supplement(
+            source_branch_supplement_path, frozen_branch_supplement_document
+        )
+    elif frozen_branch_source_path.resolve() != source_branch_supplement_path.resolve():
+        shutil.copyfile(frozen_branch_source_path, source_branch_supplement_path)
     try:
         source_repository_path = source_artifact_path.relative_to(repo_root).as_posix()
+        source_pr_supplement_repository_path = source_pr_supplement_path.relative_to(
+            repo_root
+        ).as_posix()
+        source_branch_supplement_repository_path = (
+            source_branch_supplement_path.relative_to(repo_root).as_posix()
+        )
     except ValueError:
         source_repository_path = source_artifact_path.as_posix()
+        source_pr_supplement_repository_path = source_pr_supplement_path.as_posix()
+        source_branch_supplement_repository_path = (
+            source_branch_supplement_path.as_posix()
+        )
 
     summary = {
         "schema_version": SCHEMA_VERSION,
@@ -980,6 +1269,23 @@ def main() -> int:
             "compressed_sha256": file_sha256(source_artifact_path),
             "uncompressed_bytes": len(source_bytes),
             "uncompressed_sha256": hashlib.sha256(source_bytes).hexdigest(),
+        },
+        "source_pr_supplement_artifact": {
+            "repository_path": source_pr_supplement_repository_path,
+            "media_type": "application/gzip",
+            "compressed_bytes": source_pr_supplement_path.stat().st_size,
+            "compressed_sha256": file_sha256(source_pr_supplement_path),
+            "uncompressed_bytes": len(frozen_pr_supplement_bytes),
+            "uncompressed_sha256": hashlib.sha256(
+                frozen_pr_supplement_bytes
+            ).hexdigest(),
+        },
+        "source_branch_supplement_artifact": {
+            "repository_path": source_branch_supplement_repository_path,
+            "media_type": "application/vnd.apache.parquet",
+            "bytes": source_branch_supplement_path.stat().st_size,
+            "sha256": file_sha256(source_branch_supplement_path),
+            "rows": len(frozen_branch_supplement_document["rows"]),
         },
         "counts": {
             "branches": len(branch_rows),
@@ -1052,6 +1358,12 @@ def main() -> int:
         },
         "source_hashes": {
             "source_u0_census_sha256": hashlib.sha256(source_bytes).hexdigest(),
+            "source_pr_supplement_sha256": hashlib.sha256(
+                frozen_pr_supplement_bytes
+            ).hexdigest(),
+            "source_branch_supplement_sha256": file_sha256(
+                source_branch_supplement_path
+            ),
             "workflow_policy_sha256": portable_text_sha256(args.policy),
             "branch_namespace_sha256": canonical_sha256(source_branches),
             "pull_request_namespace_sha256": canonical_sha256(source_prs),
@@ -1061,6 +1373,10 @@ def main() -> int:
             "pr_census.parquet": file_sha256(pr_path),
             "workflow_registry.yaml": portable_text_sha256(registry_path),
             "source_u0_github_census.json.gz": file_sha256(source_artifact_path),
+            "source_pr_supplement.json.gz": file_sha256(source_pr_supplement_path),
+            "source_branch_supplement.parquet": file_sha256(
+                source_branch_supplement_path
+            ),
         },
         "safety": {
             "metadata_only": True,

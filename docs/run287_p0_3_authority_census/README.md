@@ -20,6 +20,15 @@ The exact U0 GitHub input is tracked as
 `43037952f1464bd41cdb0d2eaba78503da60f17d66c410dea186b34e0b62ef2c`).
 The collector accepts this `.gz` file directly; its decompressed SHA-256 is
 `5c9741b84fe9cfff74619322bc99402d92f25979974d42a405e30091ff461216`.
+Frozen normalized PR check/review metadata is tracked separately as
+`docs/run287_p0_3_authority_census/source_pr_supplement.json.gz` (SHA-256
+`9afb5257b6ae73f96b668a54fd3cfda8e538ee386e4ba461222fc00d5e4903d3`).
+Frozen branch ancestry/path evidence is tracked as
+`docs/run287_p0_3_authority_census/source_branch_supplement.parquet` (SHA-256
+`12ea17046e062707437b995b95cc610ccf2ef0398dbdf9ff05c0011ff810f530`).
+By default regeneration uses these three frozen sources;
+`--verify-live-namespace` is reserved for the original generation-time
+equality guard.
 
 ## Evidence limitations
 
