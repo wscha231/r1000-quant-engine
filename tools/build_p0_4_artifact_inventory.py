@@ -32,9 +32,9 @@ DEFAULT_SOURCE = ROOT / "docs" / "run287_p0_4_artifact_inventory" / "source_inve
 DEFAULT_OUTPUT = ROOT / "docs" / "run287_p0_4_artifact_inventory"
 SCHEMA_VERSION = "run287-p0-4-inventory-source-v1"
 REGISTRY_SCHEMA_VERSION = "run287-p0-4-registry-v1"
-FROZEN_SOURCE_PUBLICATION_COMMIT = "47d07d7344e20ba98667aeba12fe15ddd10d7c99"
-FROZEN_SOURCE_GIT_BLOB_SHA1 = "cc7d30bfcc83d95e5e159973c07c5bf3b28c9ba8"
-FROZEN_SOURCE_SHA256 = "532cb406086f526f34fcadef564c8f9ed5f60f346edaf6073fe4f9d90e288f20"
+FROZEN_SOURCE_PUBLICATION_COMMIT = "5320cdced503fb30de4995b19a44cbb1c8e489fd"
+FROZEN_SOURCE_GIT_BLOB_SHA1 = "70239a1407e99d62cb826cf97eeab8bf1af6c8d2"
+FROZEN_SOURCE_SHA256 = "81de62490e9fe7308cc16767bbc40af809d981a3ac9bbb13ae1be495d2192390"
 FROZEN_PUBLICATION_COMMIT = "f7fadfa4e7814c6453bf96ebf3a1ff4d39eadfae"
 FROZEN_PROTECTED_PUBLICATION_COMMIT = "d0701cd203207acf22696ee783de182e13a26669"
 GENERATOR_PATH = "tools/build_p0_4_artifact_inventory.py"
@@ -153,6 +153,10 @@ PINNED_FOLDER_CHILD_MANIFEST_SHA256 = {
 }
 REQUIRED_GITHUB_ACTIONS_CACHE_OBJECT = (
     "artifact.github.daily-operating-macro-actions-cache"
+)
+OFFICIAL_GITHUB_ACTIONS_CACHE_LOCATION = (
+    ".github/workflows/daily_operating_selection_refresh.yml actions/cache/save "
+    "for cache_prices and cache_macro"
 )
 OFFICIAL_TARGET_WORKFLOW = ".github/workflows/daily_operating_selection_refresh.yml"
 OFFICIAL_PAPER_HEAD_ROOT = (
@@ -316,9 +320,9 @@ def verify_frozen_source_publication(source_bytes: bytes) -> None:
         raise InventoryError("canonical_source_differs_from_frozen_publication")
 
 
-def read_source(path: Path) -> dict[str, Any]:
+def parse_source(source_bytes: bytes) -> dict[str, Any]:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(source_bytes)
     except Exception as exc:
         raise InventoryError(f"source_invalid_json:{type(exc).__name__}") from exc
     if not isinstance(payload, dict):
@@ -749,6 +753,8 @@ def validate_source(payload: dict[str, Any]) -> None:
         raise InventoryError("github_actions_macro_cache_object_missing")
     if actions_cache.get("storage_kind") != "github_actions_cache":
         raise InventoryError("github_actions_macro_cache_storage_mismatch")
+    if actions_cache.get("exact_location") != OFFICIAL_GITHUB_ACTIONS_CACHE_LOCATION:
+        raise InventoryError("github_actions_macro_cache_location_mismatch")
     if actions_cache.get("writer_workflow") != (
         "daily_operating_selection_refresh.yml"
     ) or actions_cache.get("write_authority") != (
@@ -1305,7 +1311,7 @@ def build(source: Path, output: Path, *, verify_live_head: bool = False) -> None
         verify_frozen_source_publication(source_bytes)
     elif verify_live_head:
         raise InventoryError("verify_live_head_requires_canonical_source")
-    payload = read_source(source)
+    payload = parse_source(source_bytes)
     payload["_source_sha256"] = hashlib.sha256(source_bytes).hexdigest()
     validate_source(payload)
     if is_canonical_source:

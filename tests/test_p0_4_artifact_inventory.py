@@ -164,10 +164,10 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
     assert frame["market"].eq("US").all()
     assert frame["baseline_code_sha"].eq(payload["baseline_code_sha"]).all()
     assert frame["source_snapshot_sha256"].eq(
-        "532cb406086f526f34fcadef564c8f9ed5f60f346edaf6073fe4f9d90e288f20"
+        "81de62490e9fe7308cc16767bbc40af809d981a3ac9bbb13ae1be495d2192390"
     ).all()
     assert frame["source_publication_commit"].eq(
-        "47d07d7344e20ba98667aeba12fe15ddd10d7c99"
+        "5320cdced503fb30de4995b19a44cbb1c8e489fd"
     ).all()
     assert frame["exact_location"].astype(str).str.strip().ne("").all()
     assert frame["rollback_restore"].astype(str).str.strip().ne("").all()
@@ -286,6 +286,11 @@ def test_every_mutable_alias_is_verified_or_explicitly_blocked() -> None:
     assert objects[actions_cache_id]["write_authority"] == (
         "GITHUB_ACTIONS_CACHE_ONLY_NOT_DRIVE_WRITER"
     )
+    assert objects[actions_cache_id]["exact_location"] == (
+        ".github/workflows/daily_operating_selection_refresh.yml "
+        "actions/cache/save for cache_prices and cache_macro"
+    )
+    assert "cache_crisis" not in objects[actions_cache_id]["exact_location"]
     assert "actions/cache/save" in baseline_daily
     feature_aliases = {
         f"feature_store/{name}"
@@ -643,7 +648,7 @@ def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
 
     relative = "docs/run287_p0_4_artifact_inventory/source_inventory_snapshot.json"
     assert FROZEN_SOURCE_PUBLICATION_COMMIT == (
-        "47d07d7344e20ba98667aeba12fe15ddd10d7c99"
+        "5320cdced503fb30de4995b19a44cbb1c8e489fd"
     )
     assert git("rev-parse", f"{FROZEN_SOURCE_PUBLICATION_COMMIT}:{relative}").strip() == (
         FROZEN_SOURCE_GIT_BLOB_SHA1
@@ -700,6 +705,39 @@ def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
     assert canonical_before == {
         name: (INVENTORY / name).read_bytes() for name in OUTPUT_FILES
     }
+
+
+def test_build_parses_only_the_authenticated_source_bytes(tmp_path: Path) -> None:
+    from tools.build_p0_4_artifact_inventory import build
+
+    custom = tmp_path / "captured-source.json"
+    publication = SOURCE.read_bytes()
+    custom.write_bytes(publication)
+    original_read_bytes = Path.read_bytes
+    original_read_text = Path.read_text
+    source_byte_reads = 0
+
+    def guarded_read_bytes(path: Path) -> bytes:
+        nonlocal source_byte_reads
+        if path == custom:
+            source_byte_reads += 1
+            if source_byte_reads > 1:
+                raise AssertionError("source bytes were reopened after authentication")
+        return original_read_bytes(path)
+
+    def guarded_read_text(path: Path, *args: object, **kwargs: object) -> str:
+        if path == custom:
+            raise AssertionError("source path was reopened after authentication")
+        return original_read_text(path, *args, **kwargs)
+
+    with mock.patch.object(Path, "read_bytes", new=guarded_read_bytes), mock.patch.object(
+        Path, "read_text", new=guarded_read_text
+    ):
+        output = tmp_path / "captured-output"
+        build(custom, output)
+
+    assert source_byte_reads == 1
+    assert (output / "source_inventory_snapshot.json").read_bytes() == publication
 
 
 def test_pr_validation_checkout_supports_pinned_lineage_checks() -> None:
@@ -1389,6 +1427,21 @@ def test_folder_child_manifests_are_pinned_and_bound(tmp_path: Path) -> None:
         assert str(exc) == "macro_cache_drive_writer_must_be_unresolved"
     else:
         raise AssertionError("restore-only workflow was accepted as Drive writer")
+
+    payload = source()
+    actions_cache_id = "artifact.github.daily-operating-macro-actions-cache"
+    row = next(
+        row for row in payload["artifacts"] if row["object_id"] == actions_cache_id
+    )
+    row["exact_location"] += " and cache_crisis"
+    false_actions_path = tmp_path / "false-actions-cache-path.json"
+    false_actions_path.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(false_actions_path, tmp_path / "false-actions-cache-path-output")
+    except InventoryError as exc:
+        assert str(exc) == "github_actions_macro_cache_location_mismatch"
+    else:
+        raise AssertionError("nonexistent Actions cache path was accepted")
 
 
 def test_invalid_or_incomplete_sources_fail_closed(tmp_path: Path) -> None:

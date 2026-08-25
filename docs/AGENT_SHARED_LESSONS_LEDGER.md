@@ -4352,6 +4352,11 @@ Expected contract:
 - Reusable lesson: Authenticate dependency bytes before the first package
   installation command. A later generator check can block publication, but it
   cannot undo code already installed or executed from a dirty requirements file.
+- Reusable lesson: Provider evidence must name only paths present in the frozen
+  writer step; a plausible neighboring cache path is not publication evidence.
+  Read source bytes once, authenticate those captured bytes, and parse that same
+  buffer so a concurrent path replacement cannot split provenance from rendered
+  rows.
 - Reusable lesson: Shallow CI history must deepen through every commit used by
   verifier ancestry checks, including the oldest frozen inventory baseline;
   stopping at a newer publication commit leaves a future boundary window where
