@@ -2038,9 +2038,7 @@ def test_invalid_or_incomplete_sources_fail_closed(tmp_path: Path) -> None:
     try:
         build(wrong_provider, tmp_path / "wrong-verified-provider-output")
     except InventoryError as exc:
-        assert str(exc) == (
-            f"verified_provider_evidence_mismatch:{object_id}:provider"
-        )
+        assert str(exc) == f"provider_storage_kind_mismatch:{object_id}"
     else:
         raise AssertionError("verified object with conflicting provider was accepted")
 
