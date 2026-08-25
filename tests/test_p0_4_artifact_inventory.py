@@ -861,7 +861,7 @@ def test_failed_render_keeps_the_existing_bundle_intact(tmp_path: Path) -> None:
 def test_post_commit_backup_cleanup_failure_is_reported(tmp_path: Path) -> None:
     from tools import build_p0_4_artifact_inventory as builder
 
-    output = tmp_path / "bundle"
+    output = tmp_path / "cleanup-bundle"
     output.mkdir()
     (output / "existing.txt").write_bytes(b"reviewed-old-bundle\n")
     real_rmtree = builder.shutil.rmtree
@@ -878,7 +878,7 @@ def test_post_commit_backup_cleanup_failure_is_reported(tmp_path: Path) -> None:
         builder.build(SOURCE, output)
     assert (output / "summary.json").is_file()
     assert "publication succeeded but backup cleanup failed" in warning.getvalue()
-    backups = list(tmp_path.glob(".bundle.backup-*"))
+    backups = list(tmp_path.glob(".cleanup-bundle.backup-*"))
     assert len(backups) == 1
     assert (backups[0] / "existing.txt").read_bytes() == b"reviewed-old-bundle\n"
     real_rmtree(backups[0])
