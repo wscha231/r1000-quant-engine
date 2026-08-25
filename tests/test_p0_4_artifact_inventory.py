@@ -116,11 +116,11 @@ def test_tracked_bundle_exists_and_has_expected_counts() -> None:
         assert (INVENTORY / name).is_file(), name
     summary = json.loads((INVENTORY / "summary.json").read_text(encoding="utf-8"))
     assert summary["counts"] == {
-        "datasets": 15,
+        "datasets": 23,
         "models": 4,
         "durable_states": 8,
         "artifacts": 19,
-        "artifact_registry_rows": 46,
+        "artifact_registry_rows": 54,
     }
     assert summary["safety"]["mutations_performed"] == []
     assert summary["safety"]["live_trading_enabled"] is False
@@ -154,7 +154,7 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
         for key in ("datasets", "models", "durable_states", "artifacts")
         for row in payload[key]
     }
-    assert len(expected) == 46
+    assert len(expected) == 54
     frame = pd.read_parquet(INVENTORY / "artifact_registry.parquet")
     assert REQUIRED_COLUMNS == set(frame.columns)
     assert set(frame["object_id"]) == expected
@@ -162,10 +162,10 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
     assert frame["market"].eq("US").all()
     assert frame["baseline_code_sha"].eq(payload["baseline_code_sha"]).all()
     assert frame["source_snapshot_sha256"].eq(
-        "f8993f4971bfa03b9fbc58389ef40c8bd0a8dfddc9bdb57dcc9abdeb8a283a2f"
+        "038ca1f49d698e84aee42e3c57e6b66e8cc12358a0838792a41b7143d7cc1b79"
     ).all()
     assert frame["source_publication_commit"].eq(
-        "f50ab211e3c4ec64a5a09387f72a65da255bc1f1"
+        "a7660bf6e0cc36e73da8902abcbce4a8d4df292c"
     ).all()
     assert frame["exact_location"].astype(str).str.strip().ne("").all()
     assert frame["rollback_restore"].astype(str).str.strip().ne("").all()
@@ -198,6 +198,11 @@ def test_every_mutable_alias_is_verified_or_explicitly_blocked() -> None:
         if row.get("mutable_alias"):
             assert object_id in mapped_ids, object_id
             assert ";" not in row["mutable_alias"], object_id
+            assert not any(
+                token in row["mutable_alias"] for token in ("*", "?", "[", "]")
+            ), object_id
+    aliases = [row["mutable_alias"] for row in mappings]
+    assert len(aliases) == len(set(aliases))
     for row in mappings:
         status = row["status"]
         assert status == "VERIFIED_IMMUTABLE" or status.startswith("BLOCKED_")
@@ -248,6 +253,34 @@ def test_every_mutable_alias_is_verified_or_explicitly_blocked() -> None:
         assert mapped[object_id]["mutable_alias"] == alias
         assert mapped[object_id]["status"].startswith("BLOCKED_")
         assert alias in baseline_daily
+    required_durable_aliases = {
+        "state.us.paper.immutable-head": (
+            "paper_archive/run287_daily_simulated_fill_ledger/"
+        ),
+        "state.us.risk-outcome.accepted-heads": (
+            "paper_archive/run287_risk_outcome_accepted_heads/"
+        ),
+    }
+    for object_id, alias in required_durable_aliases.items():
+        assert objects[object_id]["mutable_alias"] == alias
+        assert mapped[object_id]["mutable_alias"] == alias
+        assert alias.removeprefix("paper_archive/") in baseline_daily
+    feature_aliases = {
+        f"feature_store/{name}"
+        for name in (
+            "candidate_universe_latest.parquet",
+            "latest_recommendations.parquet",
+            "scored_oos_partial.parquet",
+            "scored_oos_latest.parquet",
+            "feature_store_latest.parquet",
+            "universe_monthly_latest.parquet",
+            "macro_regime_latest.parquet",
+            "live_event_alert_latest.parquet",
+            "fund_panel_latest.parquet",
+        )
+    }
+    assert feature_aliases <= set(aliases)
+    assert not any(alias.startswith("feature_store/") and "*" in alias for alias in aliases)
 
 
 def test_paper_heads_use_the_baseline_writer_namespace() -> None:
@@ -269,10 +302,26 @@ def test_paper_heads_use_the_baseline_writer_namespace() -> None:
     assert root.rstrip("/") in baseline_text(
         ".github/workflows/daily_operating_selection_refresh.yml"
     )
+    paper_heads = set()
+    expected_suffixes = {
+        "state.us.paper.immutable-head": "",
+        "state.us.paper.accepted-publication": "accepted_publication.json",
+        "state.us.paper.main-account": "main/account_state_latest.json",
+        "state.us.paper.concentrated-account": "concentrated/account_state_latest.json",
+        "state.us.paper.main-ledger-manifest": "main/manifest.json",
+        "state.us.paper.concentrated-ledger-manifest": "concentrated/manifest.json",
+    }
     for object_id in paper_ids:
         row = objects[object_id]
         assert row["immutable_location"].startswith(root)
+        relative = row["immutable_location"][len(root) :]
+        head, separator, suffix = relative.partition("/")
+        assert re.fullmatch(r"[0-9a-f]{64}", head)
+        assert suffix == expected_suffixes[object_id]
+        assert bool(separator) == bool(expected_suffixes[object_id])
+        paper_heads.add(head)
         assert row["writer_workflow"] == "daily_operating_selection_refresh.yml"
+    assert paper_heads == {objects["state.us.paper.immutable-head"]["data_hash"]}
 
 
 def test_frozen_repository_inventory_matches_baseline_tree() -> None:
@@ -491,6 +540,55 @@ def test_rebuild_uses_the_pinned_dependency_contract() -> None:
     assert "tests/test_p0_4_artifact_inventory.py" in readme
 
 
+def test_requirements_publication_is_authenticated(tmp_path: Path) -> None:
+    from tools import build_p0_4_artifact_inventory as builder
+
+    repo = tmp_path / "requirements-repo"
+    requirements = repo / builder.REQUIREMENTS_PATH
+    requirements.parent.mkdir(parents=True)
+    expected = git("show", f"HEAD:{builder.REQUIREMENTS_PATH}", binary=True)
+    requirements.write_bytes(expected)
+    commands = (
+        ["git", "init"],
+        ["git", "config", "user.name", "P0-4 Test"],
+        ["git", "config", "user.email", "p0-4@example.invalid"],
+        ["git", "config", "core.autocrlf", "false"],
+        ["git", "add", builder.REQUIREMENTS_PATH],
+        ["git", "commit", "-m", "fixture"],
+    )
+    for command in commands:
+        subprocess.run(command, cwd=repo, check=True, capture_output=True)
+    with mock.patch.object(builder, "ROOT", repo):
+        assert builder.read_clean_pinned_requirements() == expected
+        requirements.write_bytes(expected + b"unreviewed==1\n")
+        try:
+            builder.read_clean_pinned_requirements()
+        except builder.InventoryError as exc:
+            assert str(exc) == (
+                f"tracked_path_dirty:worktree:{builder.REQUIREMENTS_PATH}"
+            )
+        else:
+            raise AssertionError("dirty dependency contract was accepted")
+        subprocess.run(
+            ["git", "add", builder.REQUIREMENTS_PATH],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "unreviewed dependency"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        try:
+            builder.read_clean_pinned_requirements()
+        except builder.InventoryError as exc:
+            assert str(exc) == "requirements_publication_sha256_mismatch"
+        else:
+            raise AssertionError("unreviewed dependency bytes were accepted")
+
+
 def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
     from tools.build_p0_4_artifact_inventory import (
         FROZEN_SOURCE_GIT_BLOB_SHA1,
@@ -503,7 +601,7 @@ def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
 
     relative = "docs/run287_p0_4_artifact_inventory/source_inventory_snapshot.json"
     assert FROZEN_SOURCE_PUBLICATION_COMMIT == (
-        "f50ab211e3c4ec64a5a09387f72a65da255bc1f1"
+        "a7660bf6e0cc36e73da8902abcbce4a8d4df292c"
     )
     assert git("rev-parse", f"{FROZEN_SOURCE_PUBLICATION_COMMIT}:{relative}").strip() == (
         FROZEN_SOURCE_GIT_BLOB_SHA1
@@ -787,6 +885,24 @@ def test_cli_output_directory_symlink_is_rejected(tmp_path: Path) -> None:
     assert sorted(path.name for path in external.iterdir()) == ["README.md"]
 
 
+def test_output_destination_cannot_contain_repository() -> None:
+    from tools import build_p0_4_artifact_inventory as builder
+
+    for output in (ROOT, ROOT.parent):
+        try:
+            builder.build(SOURCE, output)
+        except builder.InventoryError as exc:
+            assert str(exc) == "output_contains_repository"
+        else:
+            raise AssertionError(f"repository-containing output was accepted: {output}")
+    try:
+        builder.build(SOURCE, INVENTORY)
+    except builder.InventoryError as exc:
+        assert str(exc) == "canonical_output_requires_live_head_verification"
+    else:
+        raise AssertionError("canonical bundle rebuild skipped live-head verification")
+
+
 def test_safety_authority_flags_fail_closed(tmp_path: Path) -> None:
     from tools.build_p0_4_artifact_inventory import InventoryError, build
 
@@ -948,6 +1064,45 @@ def test_compound_aliases_and_wrong_paper_head_namespaces_fail_closed(
         raise AssertionError("compound mutable alias was not rejected")
 
     payload = source()
+    object_id = "ds.us.features.candidate-universe-latest"
+    row = next(row for row in payload["datasets"] if row["object_id"] == object_id)
+    mapping = next(
+        row for row in payload["latest_to_immutable"] if row["object_id"] == object_id
+    )
+    row["mutable_alias"] = "feature_store/*latest*.parquet"
+    mapping["mutable_alias"] = row["mutable_alias"]
+    wildcard = tmp_path / "wildcard-alias.json"
+    wildcard.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(wildcard, tmp_path / "wildcard-alias-output")
+    except InventoryError as exc:
+        assert str(exc) == f"mutable_alias_not_atomic:{object_id}"
+    else:
+        raise AssertionError("wildcard mutable alias was not rejected")
+
+    payload = source()
+    object_id = "ds.us.features.latest-recommendations"
+    row = next(row for row in payload["datasets"] if row["object_id"] == object_id)
+    mapping = next(
+        row for row in payload["latest_to_immutable"] if row["object_id"] == object_id
+    )
+    duplicate = "feature_store/candidate_universe_latest.parquet"
+    row["mutable_alias"] = duplicate
+    mapping["mutable_alias"] = duplicate
+    duplicate_source = tmp_path / "duplicate-alias.json"
+    duplicate_source.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(duplicate_source, tmp_path / "duplicate-alias-output")
+    except InventoryError as exc:
+        assert str(exc) == (
+            "duplicate_mutable_alias:feature_store/candidate_universe_latest.parquet:"
+            "ds.us.features.candidate-universe-latest:"
+            "ds.us.features.latest-recommendations"
+        )
+    else:
+        raise AssertionError("duplicate mutable alias was not rejected")
+
+    payload = source()
     object_id = "state.us.paper.immutable-head"
     row = next(
         row for row in payload["durable_states"] if row["object_id"] == object_id
@@ -956,6 +1111,10 @@ def test_compound_aliases_and_wrong_paper_head_namespaces_fail_closed(
         "run287_daily_simulated_fill_ledger_heads",
         "run287_daily_simulated_fill_ledger_immutable",
     )
+    mapping = next(
+        row for row in payload["latest_to_immutable"] if row["object_id"] == object_id
+    )
+    mapping["immutable_source"] = row["immutable_location"]
     wrong_namespace = tmp_path / "wrong-paper-head-namespace.json"
     wrong_namespace.write_text(json.dumps(payload), encoding="utf-8")
     try:
@@ -964,6 +1123,30 @@ def test_compound_aliases_and_wrong_paper_head_namespaces_fail_closed(
         assert str(exc) == f"paper_head_writer_namespace_mismatch:{object_id}"
     else:
         raise AssertionError("paper head writer namespace drift was not rejected")
+
+    payload = source()
+    object_id = "state.us.paper.main-account"
+    row = next(
+        row for row in payload["durable_states"] if row["object_id"] == object_id
+    )
+    mapping = next(
+        row for row in payload["latest_to_immutable"] if row["object_id"] == object_id
+    )
+    mixed_head = "a" * 64
+    row["immutable_location"] = re.sub(
+        r"(?<=run287_daily_simulated_fill_ledger_heads/)[0-9a-f]{64}",
+        mixed_head,
+        row["immutable_location"],
+    )
+    mapping["immutable_source"] = row["immutable_location"]
+    mixed = tmp_path / "mixed-paper-heads.json"
+    mixed.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(mixed, tmp_path / "mixed-paper-heads-output")
+    except InventoryError as exc:
+        assert str(exc) == "paper_head_mixed_snapshots"
+    else:
+        raise AssertionError("mixed paper-head snapshots were not rejected")
 
 
 def test_invalid_or_incomplete_sources_fail_closed(tmp_path: Path) -> None:
@@ -999,7 +1182,10 @@ def main() -> int:
     test_incomplete_drive_views_fail_closed()
     test_no_secret_values_are_embedded()
     test_rebuild_uses_the_pinned_dependency_contract()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        test_requirements_publication_is_authenticated(Path(temp_dir))
     test_pr_validation_checkout_supports_pinned_lineage_checks()
+    test_output_destination_cannot_contain_repository()
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir)
         test_source_snapshot_is_bound_to_publication_commit(temp_path)
@@ -1013,7 +1199,7 @@ def main() -> int:
         test_alias_map_must_match_object_status_and_evidence(temp_path)
         test_compound_aliases_and_wrong_paper_head_namespaces_fail_closed(temp_path)
         test_invalid_or_incomplete_sources_fail_closed(temp_path)
-    print("P0-4 artifact inventory smoke: 27 passed")
+    print("P0-4 artifact inventory smoke: 29 passed")
     return 0
 
 

@@ -31,12 +31,16 @@ DEFAULT_SOURCE = ROOT / "docs" / "run287_p0_4_artifact_inventory" / "source_inve
 DEFAULT_OUTPUT = ROOT / "docs" / "run287_p0_4_artifact_inventory"
 SCHEMA_VERSION = "run287-p0-4-inventory-source-v1"
 REGISTRY_SCHEMA_VERSION = "run287-p0-4-registry-v1"
-FROZEN_SOURCE_PUBLICATION_COMMIT = "f50ab211e3c4ec64a5a09387f72a65da255bc1f1"
-FROZEN_SOURCE_GIT_BLOB_SHA1 = "2c7431c527b7401e64413c9b29d7dc583cd154ce"
-FROZEN_SOURCE_SHA256 = "f8993f4971bfa03b9fbc58389ef40c8bd0a8dfddc9bdb57dcc9abdeb8a283a2f"
+FROZEN_SOURCE_PUBLICATION_COMMIT = "a7660bf6e0cc36e73da8902abcbce4a8d4df292c"
+FROZEN_SOURCE_GIT_BLOB_SHA1 = "d238755cc76fb2c7d553831d78acb7dbe6d182c8"
+FROZEN_SOURCE_SHA256 = "038ca1f49d698e84aee42e3c57e6b66e8cc12358a0838792a41b7143d7cc1b79"
 FROZEN_PUBLICATION_COMMIT = "f7fadfa4e7814c6453bf96ebf3a1ff4d39eadfae"
 FROZEN_PROTECTED_PUBLICATION_COMMIT = "1cf9246e8013684689f34e9ef19b63cabca3e6e5"
 GENERATOR_PATH = "tools/build_p0_4_artifact_inventory.py"
+REQUIREMENTS_PATH = "docs/run287_p0_4_artifact_inventory/requirements.txt"
+FROZEN_REQUIREMENTS_SHA256 = (
+    "9a32746dec8900d8663ba5f6a2f47ec8f9a817eb7fb051fde772a0e7af5c0a4e"
+)
 PROTECTED_PUBLICATION_PATHS = (
     ".github/workflows/pr_validation.yml",
     "docs/run287_p0_4_artifact_inventory",
@@ -99,18 +103,27 @@ REQUIRED_MUTABLE_ARCHIVE_OBJECTS = {
         "paper_archive/run287_risk_outcome_price_cache/"
     ),
 }
+REQUIRED_DURABLE_ALIAS_OBJECTS = {
+    "state.us.paper.immutable-head": (
+        "paper_archive/run287_daily_simulated_fill_ledger/"
+    ),
+    "state.us.risk-outcome.accepted-heads": (
+        "paper_archive/run287_risk_outcome_accepted_heads/"
+    ),
+}
 OFFICIAL_TARGET_WORKFLOW = ".github/workflows/daily_operating_selection_refresh.yml"
 OFFICIAL_PAPER_HEAD_ROOT = (
     "paper_archive/run287_daily_simulated_fill_ledger_heads"
 )
-PAPER_HEAD_BOUND_OBJECTS = {
-    "state.us.paper.immutable-head",
-    "state.us.paper.accepted-publication",
-    "state.us.paper.main-account",
-    "state.us.paper.concentrated-account",
-    "state.us.paper.main-ledger-manifest",
-    "state.us.paper.concentrated-ledger-manifest",
+PAPER_HEAD_EXPECTED_SUFFIXES = {
+    "state.us.paper.immutable-head": "",
+    "state.us.paper.accepted-publication": "accepted_publication.json",
+    "state.us.paper.main-account": "main/account_state_latest.json",
+    "state.us.paper.concentrated-account": "concentrated/account_state_latest.json",
+    "state.us.paper.main-ledger-manifest": "main/manifest.json",
+    "state.us.paper.concentrated-ledger-manifest": "concentrated/manifest.json",
 }
+PAPER_HEAD_BOUND_OBJECTS = set(PAPER_HEAD_EXPECTED_SUFFIXES)
 PINNED_PUBLICATION_FILE_SHA256 = {
     ".github/workflows/pr_validation.yml": (
         "cbefba4c7362b3ca7c14e058d1e95831ff06c18fb85341e24245ae61c61bd17f"
@@ -342,6 +355,7 @@ def validate_object(row: dict[str, Any], *, object_class: str) -> None:
         or ";" in mutable_alias
         or "\n" in mutable_alias
         or "\r" in mutable_alias
+        or any(token in mutable_alias for token in ("*", "?", "[", "]"))
     ):
         raise InventoryError(f"mutable_alias_not_atomic:{object_id}")
     if row.get("mutable_alias") and row.get("mapping_status") == "NOT_APPLICABLE":
@@ -472,6 +486,17 @@ def validate_source(payload: dict[str, Any]) -> None:
             objects_seen.add(object_id)
             normalized_rows.append(normalized)
         payload[collection] = normalized_rows
+    aliases_seen: dict[str, str] = {}
+    for collection in ("datasets", "models", "durable_states", "artifacts"):
+        for row in payload[collection]:
+            alias = str(row.get("mutable_alias") or "")
+            if not alias:
+                continue
+            if alias in aliases_seen:
+                raise InventoryError(
+                    f"duplicate_mutable_alias:{alias}:{aliases_seen[alias]}:{row['object_id']}"
+                )
+            aliases_seen[alias] = row["object_id"]
     object_index = {
         row["object_id"]: row
         for collection in ("datasets", "models", "durable_states", "artifacts")
@@ -530,15 +555,31 @@ def validate_source(payload: dict[str, Any]) -> None:
     workflow_text = baseline_workflow_text(baseline)
     if OFFICIAL_PAPER_HEAD_ROOT not in workflow_text:
         raise InventoryError("official_paper_head_root_not_in_baseline_workflow")
-    for object_id in PAPER_HEAD_BOUND_OBJECTS:
+    paper_heads: set[str] = set()
+    paper_prefix = OFFICIAL_PAPER_HEAD_ROOT + "/"
+    for object_id, expected_suffix in PAPER_HEAD_EXPECTED_SUFFIXES.items():
         row = object_index.get(object_id)
         if row is None:
             raise InventoryError(f"paper_head_object_missing:{object_id}")
         immutable_location = str(row.get("immutable_location") or "")
-        if not immutable_location.startswith(OFFICIAL_PAPER_HEAD_ROOT + "/"):
+        if not immutable_location.startswith(paper_prefix):
             raise InventoryError(f"paper_head_writer_namespace_mismatch:{object_id}")
+        relative = immutable_location[len(paper_prefix) :]
+        head_sha, separator, suffix = relative.partition("/")
+        if not SHA256_RE.fullmatch(head_sha):
+            raise InventoryError(f"paper_head_invalid_sha256:{object_id}")
+        if (separator and suffix != expected_suffix) or (
+            not separator and expected_suffix
+        ):
+            raise InventoryError(f"paper_head_object_path_mismatch:{object_id}")
+        paper_heads.add(head_sha)
         if row.get("writer_workflow") != "daily_operating_selection_refresh.yml":
             raise InventoryError(f"paper_head_writer_workflow_mismatch:{object_id}")
+    if len(paper_heads) != 1:
+        raise InventoryError("paper_head_mixed_snapshots")
+    paper_head = next(iter(paper_heads))
+    if object_index["state.us.paper.immutable-head"].get("data_hash") != paper_head:
+        raise InventoryError("paper_head_root_data_hash_mismatch")
     for object_id, alias in REQUIRED_FIXED_ALIAS_OBJECTS.items():
         if alias not in workflow_text:
             raise InventoryError(f"fixed_alias_not_in_baseline_workflow:{alias}")
@@ -559,6 +600,17 @@ def validate_source(payload: dict[str, Any]) -> None:
             raise InventoryError(f"required_mutable_archive_mismatch:{object_id}")
         if object_id not in alias_ids:
             raise InventoryError(f"required_mutable_archive_map_missing:{object_id}")
+    for object_id, alias in REQUIRED_DURABLE_ALIAS_OBJECTS.items():
+        workflow_archive_entry = alias.removeprefix("paper_archive/")
+        if workflow_archive_entry not in workflow_text:
+            raise InventoryError(f"durable_alias_not_in_baseline_workflow:{alias}")
+        row = object_index.get(object_id)
+        if row is None:
+            raise InventoryError(f"required_durable_alias_missing:{object_id}")
+        if row.get("mutable_alias") != alias:
+            raise InventoryError(f"required_durable_alias_mismatch:{object_id}")
+        if object_id not in alias_ids:
+            raise InventoryError(f"required_durable_alias_map_missing:{object_id}")
     validate_failure_evidence(payload)
     if not isinstance(payload.get("migration_items"), list) or not payload["migration_items"]:
         raise InventoryError("migration_items_empty")
@@ -931,6 +983,22 @@ def require_clean_tracked_path(path: str) -> None:
         raise InventoryError(f"tracked_path_differs_from_head:{path}")
 
 
+def read_clean_pinned_requirements() -> bytes:
+    require_clean_tracked_path(REQUIREMENTS_PATH)
+    try:
+        requirements_bytes = canonical_source_bytes(
+            subprocess.check_output(
+                ["git", "show", f"HEAD:{REQUIREMENTS_PATH}"],
+                cwd=ROOT,
+            )
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise InventoryError("requirements_publication_unavailable") from exc
+    if hashlib.sha256(requirements_bytes).hexdigest() != FROZEN_REQUIREMENTS_SHA256:
+        raise InventoryError("requirements_publication_sha256_mismatch")
+    return requirements_bytes
+
+
 def render_bundle(
     staging: Path,
     payload: dict[str, Any],
@@ -958,9 +1026,19 @@ def render_bundle(
     write_json(staging / "summary.json", render_summary(payload, rows))
 
 
-def publish_bundle_atomically(output: Path, render) -> None:
+def validate_output_destination(output: Path) -> None:
     if output.is_symlink():
         raise InventoryError("output_directory_symlink_rejected")
+    resolved_output = output.resolve()
+    resolved_root = ROOT.resolve()
+    if resolved_output == resolved_root or resolved_root.is_relative_to(
+        resolved_output
+    ):
+        raise InventoryError("output_contains_repository")
+
+
+def publish_bundle_atomically(output: Path, render) -> None:
+    validate_output_destination(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(
         tempfile.mkdtemp(prefix=f".{output.name}.stage-", dir=str(output.parent))
@@ -1001,11 +1079,14 @@ def publish_bundle_atomically(output: Path, render) -> None:
 
 
 def build(source: Path, output: Path, *, verify_live_head: bool = False) -> None:
+    validate_output_destination(output)
     source_bytes = canonical_source_bytes(source.read_bytes())
     is_canonical_source = source.resolve() == DEFAULT_SOURCE.resolve()
     is_canonical_output = output.resolve() == DEFAULT_OUTPUT.resolve()
     if is_canonical_output and not is_canonical_source:
         raise InventoryError("canonical_output_requires_canonical_source")
+    if is_canonical_output and not verify_live_head:
+        raise InventoryError("canonical_output_requires_live_head_verification")
     if is_canonical_source:
         verify_frozen_source_publication(source_bytes)
     elif verify_live_head:
@@ -1023,9 +1104,7 @@ def build(source: Path, output: Path, *, verify_live_head: bool = False) -> None
             else UNBOUND_SOURCE_PUBLICATION
         ),
     )
-    requirements_bytes = canonical_source_bytes(
-        (DEFAULT_OUTPUT / "requirements.txt").read_bytes()
-    )
+    requirements_bytes = read_clean_pinned_requirements()
     publish_bundle_atomically(
         output,
         lambda staging: render_bundle(

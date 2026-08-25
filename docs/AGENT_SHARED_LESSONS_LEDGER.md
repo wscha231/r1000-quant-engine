@@ -4296,11 +4296,14 @@ Expected contract:
 - Context: Issue #372 required a read-only inventory connecting US data,
   models, durable paper state, target outputs, and operational evidence at
   exact master `0f34de9a2747059b7bb808cb070a86261e119f95`.
-- Result: 15 dataset classes, four model objects, eight durable-state objects,
-  and 19 artifact/infrastructure objects were normalized into 46 hash- and
+- Result: 23 dataset classes, four model objects, eight durable-state objects,
+  and 19 artifact/infrastructure objects were normalized into 54 hash- and
   provenance-bearing Parquet rows. Mutable aliases are verified or explicitly
   blocked; four fixed recommendation/target paths and four mutable paper archive
   directories are required independently of the source object's declarations.
+  The nine-file Drive feature folder is represented by nine concrete file
+  aliases plus a non-mappable folder census object; the complete mutable paper
+  directory and risk-outcome accepted-head directory are also explicit aliases.
 - Operational blocker: The latest three scheduled operating-selection runs
   stopped at `Restore verified risk-outcome accepted head`. Exact run/job IDs,
   terminal excerpt hashes, exit code 2, and skipped target/ledger/persistence
@@ -4324,6 +4327,11 @@ Expected contract:
   full immutable location, and that location must use the namespace actually
   written by the frozen baseline workflow; a descriptive abbreviation or a
   legacy folder name is not restoration provenance.
+- Reusable lesson: A group of objects that claims one atomic durable snapshot
+  must extract and share the same immutable head hash, not merely a path prefix.
+  Canonical regeneration must authenticate every copied input, including the
+  dependency contract, require live-head lineage verification, and reject any
+  output destination that is the repository or an ancestor of it.
 - Caveat: Historical Russell membership remains not proven PIT-safe; the price
   cache view is incomplete; mutable macro, feature, and model objects lack
   complete immutable lineage; and the shared rclone Drive client is a 2026
