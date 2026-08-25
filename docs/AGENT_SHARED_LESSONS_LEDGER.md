@@ -4268,8 +4268,11 @@ Expected contract:
   it. Request `filter=all`, preserve each REST run ID, status, and conclusion,
   and require REST/rollup result agreement before matching; never collapse
   multiple runs into a provider set or discard runs omitted from the rollup.
+  Require explicit REST `status` and `conclusion` fields, preserve null only
+  for non-completed runs, and reject invalid status/conclusion combinations.
   Serialize the complete REST set into before/after evidence. Keep legacy
   status contexts or provider-less historical rollups explicitly unverified;
+  `NOT_COLLECTED` evidence must have both a null App ID and an empty App slug,
   otherwise an unrelated producer can silently upgrade a blocked PR's
   disposition.
 - Reusable lesson: A frozen compressed source is already an immutable artifact.

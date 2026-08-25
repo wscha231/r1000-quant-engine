@@ -307,6 +307,26 @@ def test_frozen_pr_check_summary_is_derived_and_corruption_fails_closed() -> Non
     assert provider_state == "NOT_COLLECTED_FAIL_CLOSED"
     assert provider_evidence == []
 
+    provider_slug_row = next(
+        copy.deepcopy(source_row)
+        for source_row in source["rows"]
+        if source_row["checks"]
+    )
+    provider_slug_checks = [dict(item) for item in provider_slug_row["checks"]]
+    provider_slug_checks[0]["app_slug"] = "github-actions"
+    try:
+        validated_frozen_check_run_provider_evidence(
+            provider_slug_row,
+            provider_slug_checks,
+            int(provider_slug_row["number"]),
+        )
+    except SystemExit:
+        pass
+    else:
+        raise AssertionError(
+            "provider slug in NOT_COLLECTED frozen evidence was accepted"
+        )
+
     providerless_successes = [
         {
             "type": "CHECK_RUN",
@@ -444,6 +464,53 @@ def test_live_pr_mutable_evidence_detects_check_and_review_changes() -> None:
     assert providers[("validate", "https://example.invalid/check/validate")][
         0
     ]["run_id"] == 1
+
+    missing_status = copy.deepcopy(provider_pages)
+    del missing_status[0]["check_runs"][0]["status"]
+    try:
+        check_run_provider_index(missing_status)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("CheckRun without an explicit status was accepted")
+
+    missing_conclusion = copy.deepcopy(provider_pages)
+    del missing_conclusion[0]["check_runs"][0]["conclusion"]
+    try:
+        check_run_provider_index(missing_conclusion)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("CheckRun without an explicit conclusion was accepted")
+
+    pending_pages = [
+        {
+            "total_count": 1,
+            "check_runs": [
+                {
+                    "id": 100,
+                    "name": "pending-diagnostic",
+                    "details_url": "https://example.invalid/check/pending",
+                    "app": {"id": 15368, "slug": "github-actions"},
+                    "status": "in_progress",
+                    "conclusion": None,
+                }
+            ],
+        }
+    ]
+    pending_providers = check_run_provider_index(pending_pages)
+    assert pending_providers[
+        ("pending-diagnostic", "https://example.invalid/check/pending")
+    ][0]["conclusion"] == ""
+
+    completed_without_conclusion = copy.deepcopy(pending_pages)
+    completed_without_conclusion[0]["check_runs"][0]["status"] = "completed"
+    try:
+        check_run_provider_index(completed_without_conclusion)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("completed CheckRun with null conclusion was accepted")
     rollup = [
         {
             "__typename": "CheckRun",

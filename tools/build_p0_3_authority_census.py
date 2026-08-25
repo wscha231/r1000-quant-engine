@@ -104,6 +104,25 @@ REQUIRED_CHECK_APP_IDS = {
     "portfolio_guard": 15368,
     "review_complete": 15368,
 }
+CHECK_RUN_STATUSES = {
+    "COMPLETED",
+    "IN_PROGRESS",
+    "PENDING",
+    "QUEUED",
+    "REQUESTED",
+    "WAITING",
+}
+CHECK_RUN_CONCLUSIONS = {
+    "ACTION_REQUIRED",
+    "CANCELLED",
+    "FAILURE",
+    "NEUTRAL",
+    "SKIPPED",
+    "STALE",
+    "STARTUP_FAILURE",
+    "SUCCESS",
+    "TIMED_OUT",
+}
 BRANCH_EVIDENCE_FIELDS = (
     "merge_base_sha",
     "ahead_count",
@@ -1133,13 +1152,36 @@ def check_run_provider_index(
             provider = (app_id, app_slug)
         else:
             raise RuntimeError("check-run App identity is invalid")
+        if "status" not in run_row or "conclusion" not in run_row:
+            raise RuntimeError("check-run result fields are incomplete")
+        status_value = run_row["status"]
+        conclusion_value = run_row["conclusion"]
+        if not isinstance(status_value, str):
+            raise RuntimeError("check-run status is invalid")
+        status = status_value.upper()
+        if status not in CHECK_RUN_STATUSES:
+            raise RuntimeError("check-run status is invalid")
+        if conclusion_value is None:
+            conclusion = ""
+        elif (
+            isinstance(conclusion_value, str)
+            and conclusion_value.upper() in CHECK_RUN_CONCLUSIONS
+        ):
+            conclusion = conclusion_value.upper()
+        else:
+            raise RuntimeError("check-run conclusion is invalid")
+        if (
+            (status == "COMPLETED" and conclusion not in CHECK_RUN_CONCLUSIONS)
+            or (status != "COMPLETED" and conclusion)
+        ):
+            raise RuntimeError("check-run status and conclusion disagree")
         app_id, app_slug = provider
         evidence = {
             "run_id": run_id,
             "app_id": app_id,
             "app_slug": app_slug,
-            "status": str(run_row.get("status") or ""),
-            "conclusion": str(run_row.get("conclusion") or ""),
+            "status": status,
+            "conclusion": conclusion,
         }
         result.setdefault((name, details_url), []).append(evidence)
         if name in REQUIRED_CHECK_APP_IDS and app_id == REQUIRED_CHECK_APP_IDS[name]:
@@ -1237,11 +1279,27 @@ def normalized_check_run_provider_evidence(value: Any) -> list[dict[str, Any]]:
             or (app_id is not None and not app_slug)
             or (app_id is None and app_slug)
             or not isinstance(item["status"], str)
+            or item["status"].upper() not in CHECK_RUN_STATUSES
             or not isinstance(item["conclusion"], str)
+            or (
+                item["conclusion"].upper() not in CHECK_RUN_CONCLUSIONS
+                and item["conclusion"] != ""
+            )
+            or (
+                item["status"].upper() == "COMPLETED"
+                and item["conclusion"].upper() not in CHECK_RUN_CONCLUSIONS
+            )
+            or (
+                item["status"].upper() != "COMPLETED"
+                and item["conclusion"] != ""
+            )
         ):
             raise RuntimeError("CheckRun provider evidence identity is incomplete")
         run_ids.add(run_id)
-        rows.append({field: item[field] for field in sorted(required_fields)})
+        normalized = {field: item[field] for field in sorted(required_fields)}
+        normalized["status"] = item["status"].upper()
+        normalized["conclusion"] = item["conclusion"].upper()
+        rows.append(normalized)
     return sorted(rows, key=canonical_json)
 
 
@@ -1513,7 +1571,10 @@ def validated_frozen_check_run_provider_evidence(
             f"frozen PR CheckRun provider evidence is invalid: #{number}"
         ) from error
     if state == "NOT_COLLECTED_FAIL_CLOSED":
-        if evidence or any(check.get("app_id") is not None for check in checks):
+        if evidence or any(
+            check.get("app_id") is not None or check.get("app_slug") != ""
+            for check in checks
+        ):
             raise SystemExit(
                 f"frozen PR provider-less evidence claims an App identity: #{number}"
             )
