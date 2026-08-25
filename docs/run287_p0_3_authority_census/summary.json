@@ -137,12 +137,26 @@
     ]
   },
   "generated_at_utc": "2026-08-25T05:19:23.469377+00:00",
+  "generator_runtime_requirements_artifact": {
+    "bytes": 44,
+    "media_type": "text/plain",
+    "repository_path": "docs/run287_p0_3_authority_census/requirements.txt",
+    "sha256": "8c74d7c2c73e36c06bee51001a8ffc2579ea71555bb392cfb89a6ce0e05047ca"
+  },
+  "generator_runtime_versions": {
+    "PyYAML": "6.0.3",
+    "pandas": "2.3.3",
+    "pyarrow": "23.0.1"
+  },
   "output_hashes": {
+    "README.md": "97e8c7b6a59b76fc144aa20822dc7b5e88787469f838a6d27344c492316c36bd",
     "branch_census.parquet": "98701ad208b92bc9c21506d8a322cb7258050998e2f46ba9d6760f0ea134d773",
     "pr_census.parquet": "b0a00792b3b61bdc7a559c0a62b91af17c07b07130c8acc64b152500daa8ef68",
+    "requirements.txt": "8c74d7c2c73e36c06bee51001a8ffc2579ea71555bb392cfb89a6ce0e05047ca",
     "source_branch_supplement.parquet": "12ea17046e062707437b995b95cc610ccf2ef0398dbdf9ff05c0011ff810f530",
     "source_pr_supplement.json.gz": "9afb5257b6ae73f96b668a54fd3cfda8e538ee386e4ba461222fc00d5e4903d3",
     "source_u0_github_census.json.gz": "43037952f1464bd41cdb0d2eaba78503da60f17d66c410dea186b34e0b62ef2c",
+    "source_workflow_authority_policy.json": "e8c79fba9f44fc16a7170bc576488d6f62d31ca632d295c9d10180b8b9b7bd6e",
     "workflow_registry.yaml": "f9da5bdc2693d1543de0ea4be21a0ea269a063d6bb82720fbac523b5ead80686"
   },
   "pr_disposition_counts": {
@@ -184,6 +198,7 @@
   },
   "source_hashes": {
     "branch_namespace_sha256": "e70683436b46b133d93b66b47acde2565c6889bc654edce01e60182eb6afc126",
+    "generator_runtime_requirements_sha256": "8c74d7c2c73e36c06bee51001a8ffc2579ea71555bb392cfb89a6ce0e05047ca",
     "pull_request_namespace_sha256": "639d708c707dbc48a1f02cc8eeb15a1c28837226f545b2ea8f84fb6b3313937c",
     "source_branch_supplement_sha256": "12ea17046e062707437b995b95cc610ccf2ef0398dbdf9ff05c0011ff810f530",
     "source_pr_supplement_sha256": "29bd41bcbd07a7a739856ccc870b91711491986c464efc4342a7081d391b554c",
@@ -197,6 +212,12 @@
     "repository_path": "docs/run287_p0_3_authority_census/source_pr_supplement.json.gz",
     "uncompressed_bytes": 636613,
     "uncompressed_sha256": "29bd41bcbd07a7a739856ccc870b91711491986c464efc4342a7081d391b554c"
+  },
+  "source_workflow_policy_artifact": {
+    "bytes": 15588,
+    "media_type": "application/json",
+    "repository_path": "docs/run287_p0_3_authority_census/source_workflow_authority_policy.json",
+    "sha256": "e8c79fba9f44fc16a7170bc576488d6f62d31ca632d295c9d10180b8b9b7bd6e"
   },
   "workflow_decision_counts": {
     "CONSOLIDATE": 6,

@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 import pandas as pd
+import pyarrow as pa
 import yaml
 
 
@@ -31,6 +32,11 @@ POLICY_SCHEMA = "run287-p0-3-workflow-authority-policy-v1"
 U0_SCHEMA = "run287-u0-v2-github-census-v1"
 PR_SUPPLEMENT_SCHEMA = "run287-p0-3-frozen-pr-supplement-v1"
 BRANCH_SUPPLEMENT_SCHEMA = "run287-p0-3-frozen-branch-supplement-v1"
+GENERATOR_RUNTIME_VERSIONS = {
+    "pandas": "2.3.3",
+    "pyarrow": "23.0.1",
+    "PyYAML": "6.0.3",
+}
 REQUIRED_GLOBAL_GUARDS = {
     "live_broker_execution_enabled": False,
     "automatic_model_promotion_enabled": False,
@@ -199,6 +205,20 @@ def validate_research_only_policy(policy: Mapping[str, Any], audit_sha: str) -> 
         for row in policy_rows.values()
     ):
         raise SystemExit("workflow policy must not authorize production or live execution")
+
+
+def validate_generator_runtime() -> None:
+    actual = {
+        "pandas": pd.__version__,
+        "pyarrow": pa.__version__,
+        "PyYAML": yaml.__version__,
+    }
+    if actual != GENERATOR_RUNTIME_VERSIONS:
+        raise SystemExit(
+            "generator runtime mismatch: "
+            f"expected={GENERATOR_RUNTIME_VERSIONS}, actual={actual}; "
+            "install docs/run287_p0_3_authority_census/requirements.txt"
+        )
 
 
 def require_audit_commit(repo_root: Path, audit_sha: str) -> None:
@@ -461,6 +481,16 @@ def check_summary(checks: list[dict[str, Any]]) -> dict[str, Any]:
         "required_success_observed": required.issubset(success_names),
         "required_success_names": sorted(required & success_names),
     }
+
+
+def validated_frozen_checks(
+    supplement: Mapping[str, Any], number: int
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    checks = [dict(item) for item in supplement["checks"]]
+    summary = check_summary(checks)
+    if summary != supplement["check_summary"]:
+        raise SystemExit(f"frozen PR check summary mismatch: #{number}")
+    return checks, summary
 
 
 def review_summary(row: Mapping[str, Any]) -> dict[str, Any]:
@@ -801,6 +831,8 @@ def write_readme(path: Path, summary: Mapping[str, Any]) -> None:
     source_artifact = summary["source_artifact"]
     source_pr_supplement = summary["source_pr_supplement_artifact"]
     source_branch_supplement = summary["source_branch_supplement_artifact"]
+    source_policy = summary["source_workflow_policy_artifact"]
+    runtime_requirements = summary["generator_runtime_requirements_artifact"]
     incomplete_pr_changed_paths = summary["evidence_limitations"][
         "incomplete_changed_path_prs"
     ]
@@ -827,11 +859,20 @@ file directly; its decompressed SHA-256 is
 `{source_artifact['uncompressed_sha256']}`.
 Frozen normalized PR check/review metadata is tracked separately as
 `{source_pr_supplement['repository_path']}` (SHA-256
-`{source_pr_supplement['compressed_sha256']}`). By default regeneration uses
-that file plus frozen branch ancestry/path metadata at
+`{source_pr_supplement['compressed_sha256']}`).
+Frozen branch ancestry/path evidence is tracked as
 `{source_branch_supplement['repository_path']}` (SHA-256
-`{source_branch_supplement['sha256']}`). `--verify-live-namespace`
-is reserved for the original generation-time equality guard.
+`{source_branch_supplement['sha256']}`).
+The frozen workflow authority policy is tracked as
+`{source_policy['repository_path']}` (SHA-256 `{source_policy['sha256']}`).
+By default regeneration uses these four frozen sources;
+`--verify-live-namespace` is reserved for the original generation-time
+equality guard.
+
+The byte-stable generator runtime is pinned in
+`{runtime_requirements['repository_path']}` (SHA-256
+`{runtime_requirements['sha256']}`):
+`{canonical_json(summary['generator_runtime_versions'])}`.
 
 ## Evidence limitations
 
@@ -889,7 +930,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--policy",
         type=Path,
-        default=Path("docs/run287_p0_3_workflow_authority_policy.json"),
+        help="Frozen workflow authority policy; defaults beside source census.",
+    )
+    parser.add_argument(
+        "--runtime-requirements",
+        type=Path,
+        help="Pinned generator requirements; defaults beside source census.",
     )
     parser.add_argument("--output-dir", type=Path, required=True)
     return parser.parse_args()
@@ -910,8 +956,15 @@ def main() -> int:
         raise SystemExit("source repository mismatch")
     if clean_sha(source.get("audit_default_branch_sha")) != audit_sha:
         raise SystemExit("source census audit SHA mismatch")
-    policy = read_json(args.policy)
+    policy_input_path = args.policy or args.source_census.with_name(
+        "source_workflow_authority_policy.json"
+    )
+    runtime_requirements_input_path = (
+        args.runtime_requirements or args.source_census.with_name("requirements.txt")
+    )
+    policy = read_json(policy_input_path)
     validate_research_only_policy(policy, audit_sha)
+    validate_generator_runtime()
 
     source_branches = source_branch_identity(source)
     source_prs = source_pr_identity(source)
@@ -1070,8 +1123,7 @@ def main() -> int:
         number = int(source_row["number"])
         if frozen_supplement_by_number is not None:
             supplement = frozen_supplement_by_number[number]
-            checks = list(supplement["checks"])
-            checks_summary = dict(supplement["check_summary"])
+            checks, checks_summary = validated_frozen_checks(supplement, number)
             reviews = dict(supplement["review_state"])
         else:
             supplement = live_supplement_by_number[number]
@@ -1222,6 +1274,8 @@ def main() -> int:
     source_artifact_path = args.output_dir / "source_u0_github_census.json.gz"
     source_pr_supplement_path = args.output_dir / "source_pr_supplement.json.gz"
     source_branch_supplement_path = args.output_dir / "source_branch_supplement.parquet"
+    source_policy_path = args.output_dir / "source_workflow_authority_policy.json"
+    runtime_requirements_path = args.output_dir / "requirements.txt"
     write_parquet(branch_path, branch_rows)
     write_parquet(pr_path, pr_rows)
     write_registry(registry_path, registry)
@@ -1242,6 +1296,10 @@ def main() -> int:
         )
     elif frozen_branch_source_path.resolve() != source_branch_supplement_path.resolve():
         shutil.copyfile(frozen_branch_source_path, source_branch_supplement_path)
+    if policy_input_path.resolve() != source_policy_path.resolve():
+        shutil.copyfile(policy_input_path, source_policy_path)
+    if runtime_requirements_input_path.resolve() != runtime_requirements_path.resolve():
+        shutil.copyfile(runtime_requirements_input_path, runtime_requirements_path)
     try:
         source_repository_path = source_artifact_path.relative_to(repo_root).as_posix()
         source_pr_supplement_repository_path = source_pr_supplement_path.relative_to(
@@ -1250,12 +1308,20 @@ def main() -> int:
         source_branch_supplement_repository_path = (
             source_branch_supplement_path.relative_to(repo_root).as_posix()
         )
+        source_policy_repository_path = source_policy_path.relative_to(
+            repo_root
+        ).as_posix()
+        runtime_requirements_repository_path = runtime_requirements_path.relative_to(
+            repo_root
+        ).as_posix()
     except ValueError:
         source_repository_path = source_artifact_path.as_posix()
         source_pr_supplement_repository_path = source_pr_supplement_path.as_posix()
         source_branch_supplement_repository_path = (
             source_branch_supplement_path.as_posix()
         )
+        source_policy_repository_path = source_policy_path.as_posix()
+        runtime_requirements_repository_path = runtime_requirements_path.as_posix()
 
     summary = {
         "schema_version": SCHEMA_VERSION,
@@ -1287,6 +1353,19 @@ def main() -> int:
             "sha256": file_sha256(source_branch_supplement_path),
             "rows": len(frozen_branch_supplement_document["rows"]),
         },
+        "source_workflow_policy_artifact": {
+            "repository_path": source_policy_repository_path,
+            "media_type": "application/json",
+            "bytes": source_policy_path.stat().st_size,
+            "sha256": portable_text_sha256(source_policy_path),
+        },
+        "generator_runtime_requirements_artifact": {
+            "repository_path": runtime_requirements_repository_path,
+            "media_type": "text/plain",
+            "bytes": runtime_requirements_path.stat().st_size,
+            "sha256": portable_text_sha256(runtime_requirements_path),
+        },
+        "generator_runtime_versions": GENERATOR_RUNTIME_VERSIONS,
         "counts": {
             "branches": len(branch_rows),
             "pull_requests": len(pr_rows),
@@ -1364,7 +1443,10 @@ def main() -> int:
             "source_branch_supplement_sha256": file_sha256(
                 source_branch_supplement_path
             ),
-            "workflow_policy_sha256": portable_text_sha256(args.policy),
+            "workflow_policy_sha256": portable_text_sha256(policy_input_path),
+            "generator_runtime_requirements_sha256": portable_text_sha256(
+                runtime_requirements_input_path
+            ),
             "branch_namespace_sha256": canonical_sha256(source_branches),
             "pull_request_namespace_sha256": canonical_sha256(source_prs),
         },
@@ -1377,6 +1459,10 @@ def main() -> int:
             "source_branch_supplement.parquet": file_sha256(
                 source_branch_supplement_path
             ),
+            "source_workflow_authority_policy.json": portable_text_sha256(
+                source_policy_path
+            ),
+            "requirements.txt": portable_text_sha256(runtime_requirements_path),
         },
         "safety": {
             "metadata_only": True,
@@ -1397,8 +1483,11 @@ def main() -> int:
             "publication_branch_and_pr_expected_delta": True,
         },
     }
-    write_json(args.output_dir / "summary.json", summary)
     write_readme(args.output_dir / "README.md", summary)
+    summary["output_hashes"]["README.md"] = portable_text_sha256(
+        args.output_dir / "README.md"
+    )
+    write_json(args.output_dir / "summary.json", summary)
     print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
     return 0
 

@@ -16,16 +16,19 @@ sys.path.insert(0, str(ROOT))
 
 from tools.build_p0_3_authority_census import (  # noqa: E402
     BRANCH_SUPPLEMENT_SCHEMA,
+    GENERATOR_RUNTIME_VERSIONS,
     PR_SUPPLEMENT_SCHEMA,
     audited_workflow_paths,
+    check_summary,
     read_branch_supplement,
     require_audit_commit,
+    validated_frozen_checks,
     validate_research_only_policy,
 )
 
 
 CENSUS = ROOT / "docs" / "run287_p0_3_authority_census"
-POLICY = ROOT / "docs" / "run287_p0_3_workflow_authority_policy.json"
+POLICY = CENSUS / "source_workflow_authority_policy.json"
 AUDIT_SHA = "916a02ac0612d64d41f71690cf667a90dfd0531a"
 TEXT_SUFFIXES = {".json", ".yaml", ".yml", ".md", ".py", ".txt", ".csv"}
 
@@ -107,6 +110,8 @@ def test_census_is_hash_bound_and_read_only() -> None:
     assert pr_source["audit_master_sha"] == AUDIT_SHA
     assert pr_source["generated_at_utc"] == summary["generated_at_utc"]
     assert len(pr_source["rows"]) == summary["counts"]["pull_requests"]
+    for row in pr_source["rows"]:
+        assert check_summary(row["checks"]) == row["check_summary"]
     branch_source_artifact = summary["source_branch_supplement_artifact"]
     branch_source_path = ROOT / branch_source_artifact["repository_path"]
     assert sha256(branch_source_path) == branch_source_artifact["sha256"]
@@ -119,6 +124,28 @@ def test_census_is_hash_bound_and_read_only() -> None:
     assert branch_source["audit_master_sha"] == AUDIT_SHA
     assert branch_source["generated_at_utc"] == summary["generated_at_utc"]
     assert len(branch_source["rows"]) == summary["counts"]["branches"]
+    policy_artifact = summary["source_workflow_policy_artifact"]
+    policy_path = ROOT / policy_artifact["repository_path"]
+    assert policy_path == POLICY
+    assert sha256(policy_path) == policy_artifact["sha256"]
+    assert policy_artifact["sha256"] == summary["source_hashes"][
+        "workflow_policy_sha256"
+    ]
+    runtime_artifact = summary["generator_runtime_requirements_artifact"]
+    runtime_path = ROOT / runtime_artifact["repository_path"]
+    assert sha256(runtime_path) == runtime_artifact["sha256"]
+    assert runtime_artifact["sha256"] == summary["source_hashes"][
+        "generator_runtime_requirements_sha256"
+    ]
+    pinned_versions = {
+        name: version
+        for name, version in (
+            line.split("==", maxsplit=1)
+            for line in runtime_path.read_text(encoding="utf-8").splitlines()
+        )
+    }
+    assert pinned_versions == GENERATOR_RUNTIME_VERSIONS
+    assert summary["generator_runtime_versions"] == GENERATOR_RUNTIME_VERSIONS
 
 
 def test_every_branch_has_required_issue_371_fields_and_fail_closed_disposition() -> None:
@@ -182,6 +209,21 @@ def test_every_pr_has_exact_identity_checks_review_state_and_disposition() -> No
     assert frame.loc[frame["state"] == "OPEN", "disposition"].str.contains(
         "REVIEW_REQUIRED|BLOCKED"
     ).all()
+
+
+def test_frozen_pr_check_summary_is_derived_and_corruption_fails_closed() -> None:
+    source = json.loads(
+        gzip.decompress((CENSUS / "source_pr_supplement.json.gz").read_bytes())
+    )
+    row = copy.deepcopy(source["rows"][0])
+    checks, summary = validated_frozen_checks(row, int(row["number"]))
+    assert summary == check_summary(checks)
+    row["check_summary"]["count"] += 1
+    try:
+        validated_frozen_checks(row, int(row["number"]))
+    except SystemExit:
+        return
+    raise AssertionError("corrupt frozen PR check summary was not rejected")
 
 
 def test_workflow_registry_has_singular_official_authority_and_blocks_legacy_names() -> None:
@@ -319,6 +361,7 @@ def main() -> int:
     test_census_is_hash_bound_and_read_only()
     test_every_branch_has_required_issue_371_fields_and_fail_closed_disposition()
     test_every_pr_has_exact_identity_checks_review_state_and_disposition()
+    test_frozen_pr_check_summary_is_derived_and_corruption_fails_closed()
     test_workflow_registry_has_singular_official_authority_and_blocks_legacy_names()
     test_workflow_policy_drift_fails_closed()
     test_frozen_audit_commit_is_resolved_independently_of_current_head()

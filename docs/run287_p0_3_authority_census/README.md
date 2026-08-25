@@ -15,10 +15,9 @@ bound to `master` `916a02ac0612d64d41f71690cf667a90dfd0531a` and was observed at
 ## Reproducible source
 
 The exact U0 GitHub input is tracked as
-`docs/run287_p0_3_authority_census/source_u0_github_census.json.gz`
-(deterministic gzip, SHA-256
-`43037952f1464bd41cdb0d2eaba78503da60f17d66c410dea186b34e0b62ef2c`).
-The collector accepts this `.gz` file directly; its decompressed SHA-256 is
+`docs/run287_p0_3_authority_census/source_u0_github_census.json.gz` (deterministic gzip, SHA-256
+`43037952f1464bd41cdb0d2eaba78503da60f17d66c410dea186b34e0b62ef2c`). The collector accepts this `.gz`
+file directly; its decompressed SHA-256 is
 `5c9741b84fe9cfff74619322bc99402d92f25979974d42a405e30091ff461216`.
 Frozen normalized PR check/review metadata is tracked separately as
 `docs/run287_p0_3_authority_census/source_pr_supplement.json.gz` (SHA-256
@@ -26,16 +25,23 @@ Frozen normalized PR check/review metadata is tracked separately as
 Frozen branch ancestry/path evidence is tracked as
 `docs/run287_p0_3_authority_census/source_branch_supplement.parquet` (SHA-256
 `12ea17046e062707437b995b95cc610ccf2ef0398dbdf9ff05c0011ff810f530`).
-By default regeneration uses these three frozen sources;
+The frozen workflow authority policy is tracked as
+`docs/run287_p0_3_authority_census/source_workflow_authority_policy.json` (SHA-256 `e8c79fba9f44fc16a7170bc576488d6f62d31ca632d295c9d10180b8b9b7bd6e`).
+By default regeneration uses these four frozen sources;
 `--verify-live-namespace` is reserved for the original generation-time
 equality guard.
+
+The byte-stable generator runtime is pinned in
+`docs/run287_p0_3_authority_census/requirements.txt` (SHA-256
+`8c74d7c2c73e36c06bee51001a8ffc2579ea71555bb392cfb89a6ce0e05047ca`):
+`{"PyYAML":"6.0.3","pandas":"2.3.3","pyarrow":"23.0.1"}`.
 
 ## Evidence limitations
 
 Changed-path collection is incomplete for PRs
-`[5,6,11,16,49,62,147,212]`. Their rows remain useful for identity and
-disposition evidence, but they are not complete recovery-path inventories and
-grant no merge or promotion authority.
+`[5,6,11,16,49,62,147,212]`. Their rows remain useful for
+identity and disposition evidence, but they are not complete recovery-path
+inventories and grant no merge or promotion authority.
 
 The publication branch and its PR did not exist in the captured namespace.  Their
 creation is the expected publication-only delta and does not authorize cleanup,
