@@ -33,15 +33,15 @@ DEFAULT_SOURCE = ROOT / "docs" / "run287_p0_4_artifact_inventory" / "source_inve
 DEFAULT_OUTPUT = ROOT / "docs" / "run287_p0_4_artifact_inventory"
 SCHEMA_VERSION = "run287-p0-4-inventory-source-v1"
 REGISTRY_SCHEMA_VERSION = "run287-p0-4-registry-v1"
-FROZEN_SOURCE_PUBLICATION_COMMIT = "e2be7ff35adac270d655397f8cb9502c9aef09fe"
-FROZEN_SOURCE_GIT_BLOB_SHA1 = "c4fa2a19a1368970cca0bceea44e3d6ceef9bcff"
-FROZEN_SOURCE_SHA256 = "0ff952be63c5ec3bdcd49ac63b8c7e3f484843bf1747cf5a144badd64879e3b4"
+FROZEN_SOURCE_PUBLICATION_COMMIT = "3fac8edfa925c809d530a921e5cabc9346d7bccb"
+FROZEN_SOURCE_GIT_BLOB_SHA1 = "39a126c4bc3bf303a862cbabcd374b7f78b9b56f"
+FROZEN_SOURCE_SHA256 = "15f06a5e121632a597dc1ef1fecf262dda973e5b0976d25cfc511824d2b0792c"
 FROZEN_PUBLICATION_COMMIT = "f7fadfa4e7814c6453bf96ebf3a1ff4d39eadfae"
 FROZEN_PROTECTED_PUBLICATION_COMMIT = "9e0d0318a520963fb9a5ebe61cd694ce2e3067df"
 GENERATOR_PATH = "tools/build_p0_4_artifact_inventory.py"
 REQUIREMENTS_PATH = "docs/run287_p0_4_artifact_inventory/requirements.txt"
 FROZEN_REQUIREMENTS_SHA256 = (
-    "9a32746dec8900d8663ba5f6a2f47ec8f9a817eb7fb051fde772a0e7af5c0a4e"
+    "ffc0231ec1e3cb19bd17fdee4d8314c3698b457531ede701381f640c78eb06db"
 )
 PROTECTED_PUBLICATION_PATHS = (
     ".github/workflows/pr_validation.yml",
@@ -88,6 +88,15 @@ PROVIDER_BY_STORAGE_KIND = {
     "local_worktree": "local_filesystem",
     "sha256_pinned_zip_input": "provider_independent_hash_pinned_input",
     "workflow_output_and_google_drive_file": "github_actions_and_google_drive",
+}
+PROVIDER_OVERRIDES_BY_STORAGE_KIND = {
+    "git_tree": {"git_tree_at_baseline"},
+    "github_actions_artifact_plus_drive_publication": {
+        "github_artifact_plus_drive_accepted_head"
+    },
+    "google_drive_file": {"google_drive_file"},
+    "google_drive_file_in_head": {"google_drive_accepted_head_child"},
+    "google_drive_folder": {"google_drive_accepted_head"},
 }
 GENERATED_FILENAMES = {
     "README.md",
@@ -465,6 +474,18 @@ RISK_OUTCOME_SKIPPED_STEPS = {
     34: "Run transactional paper ledger and same-close selector",
     46: "Persist validated forward paper ledger state",
 }
+FULL_REBUILD_WORKFLOW = ".github/workflows/full_rebuild_manual.yml"
+REQUIRED_FULL_REBUILD_ARTIFACTS = {
+    "artifact.github.full-rebuild-user-operating-minimal-publication": (
+        "Upload artifact (user operating minimal)"
+    ),
+    "artifact.github.full-rebuild-official-broker-ledger-publication": (
+        "Upload artifact (official broker-ledger evidence)"
+    ),
+    "artifact.github.full-rebuild-research-full-publication": (
+        "Upload artifact (research full diagnostics)"
+    ),
+}
 REQUIRED_OBJECT_FIELDS = {
     "object_id",
     "schema_version",
@@ -809,9 +830,13 @@ def validate_registered_verified_evidence(
 
 
 def baseline_workflow_text(baseline: str) -> str:
+    return baseline_text_file(baseline, OFFICIAL_TARGET_WORKFLOW)
+
+
+def baseline_text_file(baseline: str, path: str) -> str:
     try:
         return subprocess.check_output(
-            ["git", "show", f"{baseline}:{OFFICIAL_TARGET_WORKFLOW}"],
+            ["git", "show", f"{baseline}:{path}"],
             cwd=ROOT,
             text=True,
             encoding="utf-8",
@@ -823,7 +848,11 @@ def baseline_workflow_text(baseline: str) -> str:
 def baseline_workflow_step(workflow_text: str, name: str) -> dict[str, Any]:
     try:
         document = yaml.safe_load(workflow_text)
-        steps = document["jobs"]["refresh"]["steps"]
+        steps = [
+            step
+            for job in document["jobs"].values()
+            for step in job.get("steps", [])
+        ]
     except Exception as exc:
         raise InventoryError("official_target_workflow_steps_invalid") from exc
     matches = [step for step in steps if isinstance(step, dict) and step.get("name") == name]
@@ -994,6 +1023,31 @@ def validate_provider_publications(
         raise InventoryError("daily_operating_drive_evidence_mismatch")
 
 
+def validate_full_rebuild_publications(
+    object_index: dict[str, dict[str, Any]], workflow_text: str
+) -> None:
+    for object_id, step_name in REQUIRED_FULL_REBUILD_ARTIFACTS.items():
+        row = object_index.get(object_id)
+        if row is None:
+            raise InventoryError(f"full_rebuild_provider_object_missing:{object_id}")
+        step = baseline_workflow_step(workflow_text, step_name)
+        values = step.get("with", {})
+        if (
+            row.get("provider") != "github_actions_artifact"
+            or row.get("storage_kind") != "github_actions_artifact"
+            or row.get("artifact_name") != values.get("name")
+            or row.get("exact_location")
+            != f"github-actions-artifact:{values.get('name')}"
+            or row.get("publication_condition") != step.get("if")
+            or row.get("retention_days") != values.get("retention-days")
+            or row.get("if_no_files_found")
+            != values.get("if-no-files-found", "provider_default_warn")
+            or row.get("provider_paths") != workflow_multiline_paths(step)
+            or row.get("mapping_status") != "NOT_APPLICABLE"
+        ):
+            raise InventoryError(f"full_rebuild_provider_evidence_mismatch:{object_id}")
+
+
 def validate_failure_evidence(payload: dict[str, Any]) -> None:
     health = payload.get("pipeline_health")
     if not isinstance(health, dict):
@@ -1086,8 +1140,17 @@ def validate_source(payload: dict[str, Any]) -> None:
                 raise InventoryError(f"source_row_not_object:{collection}")
             normalized = {**defaults, **row}
             storage_kind = str(normalized.get("storage_kind") or "")
-            if "provider" not in row and storage_kind in PROVIDER_BY_STORAGE_KIND:
-                normalized["provider"] = PROVIDER_BY_STORAGE_KIND[storage_kind]
+            canonical_provider = PROVIDER_BY_STORAGE_KIND.get(storage_kind)
+            if canonical_provider is not None:
+                allowed_providers = {canonical_provider} | (
+                    PROVIDER_OVERRIDES_BY_STORAGE_KIND.get(storage_kind, set())
+                )
+                if "provider" not in row:
+                    normalized["provider"] = canonical_provider
+                elif row.get("provider") not in allowed_providers:
+                    raise InventoryError(
+                        f"provider_storage_kind_mismatch:{row.get('object_id')}"
+                    )
             validate_object(normalized, object_class=object_class)
             object_id = normalized["object_id"]
             if object_id in objects_seen:
@@ -1143,6 +1206,10 @@ def validate_source(payload: dict[str, Any]) -> None:
         if status == "NOT_APPLICABLE":
             raise InventoryError(f"latest_map_mutable_alias_not_applicable:{object_id}")
         object_row = object_index[object_id]
+        if not nonblank(object_row.get("mutable_alias")) or not nonblank(
+            row.get("mutable_alias")
+        ):
+            raise InventoryError(f"latest_map_nonmutable_object:{object_id}")
         if row.get("mutable_alias") != object_row.get("mutable_alias"):
             raise InventoryError(f"latest_map_alias_mismatch:{object_id}")
         if status != object_row.get("mapping_status"):
@@ -1176,6 +1243,9 @@ def validate_source(payload: dict[str, Any]) -> None:
         raise InventoryError("latest_map_missing_aliases:" + ",".join(missing_aliases))
     workflow_text = baseline_workflow_text(baseline)
     validate_provider_publications(object_index, workflow_text)
+    validate_full_rebuild_publications(
+        object_index, baseline_text_file(baseline, FULL_REBUILD_WORKFLOW)
+    )
     if OFFICIAL_PAPER_HEAD_ROOT not in workflow_text:
         raise InventoryError("official_paper_head_root_not_in_baseline_workflow")
     paper_heads: set[str] = set()
@@ -1594,6 +1664,7 @@ def render_readme(payload: dict[str, Any], row_count: int) -> str:
             "",
             "```bash",
             "set -euo pipefail",
+            "python -c \"import sys; sys.exit('Python 3.12 required') if sys.version_info[:2] != (3, 12) else None\"",
             "git diff --quiet -- docs/run287_p0_4_artifact_inventory/requirements.txt",
             "git diff --cached --quiet -- docs/run287_p0_4_artifact_inventory/requirements.txt",
             'P0_4_REQUIREMENTS="$(mktemp)"',
@@ -1613,8 +1684,10 @@ def render_readme(payload: dict[str, Any], row_count: int) -> str:
             "  exit 1",
             "fi",
             "python -m venv --clear .venv-p0-4",
-            '.venv-p0-4/bin/python -m pip install --requirement "$P0_4_REQUIREMENTS"',
+            '.venv-p0-4/bin/python -m pip install --require-hashes --requirement "$P0_4_REQUIREMENTS"',
             ".venv-p0-4/bin/python tools/build_p0_4_artifact_inventory.py --verify-live-head",
+            "git diff --exit-code -- docs/run287_p0_4_artifact_inventory",
+            "git diff --cached --exit-code -- docs/run287_p0_4_artifact_inventory",
             ".venv-p0-4/bin/python tests/test_p0_4_artifact_inventory.py",
             "```",
             "",
@@ -1622,6 +1695,8 @@ def render_readme(payload: dict[str, Any], row_count: int) -> str:
             "",
             "```powershell",
             "$P0_4RequirementsPath = 'docs/run287_p0_4_artifact_inventory/requirements.txt'",
+            "python -c \"import sys; sys.exit('Python 3.12 required') if sys.version_info[:2] != (3, 12) else None\"",
+            "if ($LASTEXITCODE -ne 0) { throw 'Python 3.12 is required' }",
             "git diff --quiet -- $P0_4RequirementsPath",
             "if ($LASTEXITCODE -ne 0) { throw 'unreviewed requirements.txt worktree bytes' }",
             "git diff --cached --quiet -- $P0_4RequirementsPath",
@@ -1646,10 +1721,14 @@ def render_readme(payload: dict[str, Any], row_count: int) -> str:
             "  python -m venv --clear .venv-p0-4",
             "  if ($LASTEXITCODE -ne 0) { throw 'virtual environment creation failed' }",
             "  $P0_4Python = '.\\.venv-p0-4\\Scripts\\python.exe'",
-            "  & $P0_4Python -m pip install --requirement $P0_4RequirementsTemp",
+            "  & $P0_4Python -m pip install --require-hashes --requirement $P0_4RequirementsTemp",
             "  if ($LASTEXITCODE -ne 0) { throw 'pinned dependency installation failed' }",
             "  & $P0_4Python tools/build_p0_4_artifact_inventory.py --verify-live-head",
             "  if ($LASTEXITCODE -ne 0) { throw 'artifact inventory regeneration failed' }",
+            "  git diff --exit-code -- docs/run287_p0_4_artifact_inventory",
+            "  if ($LASTEXITCODE -ne 0) { throw 'canonical bundle differs from reviewed worktree bytes' }",
+            "  git diff --cached --exit-code -- docs/run287_p0_4_artifact_inventory",
+            "  if ($LASTEXITCODE -ne 0) { throw 'canonical bundle differs from reviewed index bytes' }",
             "  & $P0_4Python tests/test_p0_4_artifact_inventory.py",
             "  if ($LASTEXITCODE -ne 0) { throw 'artifact inventory smoke failed' }",
             "} finally {",

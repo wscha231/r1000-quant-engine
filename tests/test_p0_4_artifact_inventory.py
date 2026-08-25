@@ -122,8 +122,8 @@ def test_tracked_bundle_exists_and_has_expected_counts() -> None:
         "datasets": 24,
         "models": 4,
         "durable_states": 8,
-        "artifacts": 32,
-        "artifact_registry_rows": 68,
+        "artifacts": 35,
+        "artifact_registry_rows": 71,
     }
     assert summary["safety"]["mutations_performed"] == []
     assert summary["safety"]["live_trading_enabled"] is False
@@ -163,7 +163,7 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
         for key in ("datasets", "models", "durable_states", "artifacts")
         for row in payload[key]
     }
-    assert len(expected) == 68
+    assert len(expected) == 71
     frame = pd.read_parquet(INVENTORY / "artifact_registry.parquet")
     assert REQUIRED_COLUMNS == set(frame.columns)
     assert set(frame["object_id"]) == expected
@@ -171,10 +171,10 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
     assert frame["market"].eq("US").all()
     assert frame["baseline_code_sha"].eq(payload["baseline_code_sha"]).all()
     assert frame["source_snapshot_sha256"].eq(
-        "0ff952be63c5ec3bdcd49ac63b8c7e3f484843bf1747cf5a144badd64879e3b4"
+        "15f06a5e121632a597dc1ef1fecf262dda973e5b0976d25cfc511824d2b0792c"
     ).all()
     assert frame["source_publication_commit"].eq(
-        "e2be7ff35adac270d655397f8cb9502c9aef09fe"
+        "3fac8edfa925c809d530a921e5cabc9346d7bccb"
     ).all()
     assert frame["exact_location"].astype(str).str.strip().ne("").all()
     assert frame["rollback_restore"].astype(str).str.strip().ne("").all()
@@ -420,6 +420,12 @@ def test_distinct_provider_publications_are_complete() -> None:
     objects = {row["object_id"]: row for row in payload["artifacts"]}
     workflow = builder.baseline_workflow_text(payload["baseline_code_sha"])
     builder.validate_provider_publications(objects, workflow)
+    builder.validate_full_rebuild_publications(
+        objects,
+        builder.baseline_text_file(
+            payload["baseline_code_sha"], builder.FULL_REBUILD_WORKFLOW
+        ),
+    )
     archive = objects["artifact.input.run287-research-static-archive"]
     assert archive["content_sha256"] == builder.RESEARCH_STATIC_SHA256
     assert archive["exact_location"] == builder.RESEARCH_STATIC_PATH
@@ -466,6 +472,13 @@ def test_distinct_provider_publications_are_complete() -> None:
         "provider_files"
     ]
     assert any("partial" in item.lower() for item in daily_drive["blockers"])
+    for object_id, step_name in builder.REQUIRED_FULL_REBUILD_ARTIFACTS.items():
+        publication = objects[object_id]
+        assert publication["provider"] == "github_actions_artifact"
+        assert publication["writer_workflow"] == "full_rebuild_manual.yml"
+        assert publication["provider_paths"]
+        assert publication["retention_days"] in (30, 365)
+        assert step_name in publication["writer_job"]
 
 
 def test_paper_heads_use_the_baseline_writer_namespace() -> None:
@@ -718,11 +731,19 @@ def test_no_secret_values_are_embedded() -> None:
 
 def test_rebuild_uses_the_pinned_dependency_contract() -> None:
     requirements = (INVENTORY / "requirements.txt").read_text(encoding="utf-8")
-    assert requirements.splitlines() == [
+    for requirement in (
         "PyYAML==6.0.3",
+        "numpy==2.3.3",
         "pandas==2.3.3",
         "pyarrow==23.0.1",
-    ]
+        "python-dateutil==2.9.0.post0",
+        "pytz==2025.2",
+        "six==1.17.0",
+        "tzdata==2025.2",
+    ):
+        assert requirement in requirements
+    assert "--only-binary=:all:" in requirements
+    assert requirements.count("--hash=sha256:") == 12
     readme = (INVENTORY / "README.md").read_text(encoding="utf-8")
     assert readme.count("python -m venv --clear .venv-p0-4") == 2
     assert readme.index("set -euo pipefail") < readme.index(
@@ -734,14 +755,14 @@ def test_rebuild_uses_the_pinned_dependency_contract() -> None:
     ) in readme
     assert 'P0_4_REQUIREMENTS="$(mktemp)"' in readme
     assert 'pathlib.Path(sys.argv[1]).write_bytes(c)' in readme
-    assert '--requirement "$P0_4_REQUIREMENTS"' in readme
+    assert '--require-hashes --requirement "$P0_4_REQUIREMENTS"' in readme
     assert (
         "--requirement docs/run287_p0_4_artifact_inventory/requirements.txt"
         not in readme
     )
     assert "tests/test_p0_4_artifact_inventory.py" in readme
     assert "git diff --cached --quiet -- docs/run287_p0_4_artifact_inventory/requirements.txt" in readme
-    assert "9a32746dec8900d8663ba5f6a2f47ec8f9a817eb7fb051fde772a0e7af5c0a4e" in readme
+    assert "ffc0231ec1e3cb19bd17fdee4d8314c3698b457531ede701381f640c78eb06db" in readme
     assert readme.index("write_bytes(c)") < readme.index("pip install")
     assert readme.index("if [ -L .venv-p0-4 ]; then") < readme.index(
         "python -m venv --clear .venv-p0-4"
@@ -750,7 +771,13 @@ def test_rebuild_uses_the_pinned_dependency_contract() -> None:
     assert "```powershell" in readme
     assert "$P0_4RequirementsTemp = New-TemporaryFile" in readme
     assert "$P0_4Python = '.\\.venv-p0-4\\Scripts\\python.exe'" in readme
-    assert "& $P0_4Python -m pip install --requirement $P0_4RequirementsTemp" in readme
+    assert "& $P0_4Python -m pip install --require-hashes --requirement $P0_4RequirementsTemp" in readme
+    assert "Python 3.12 required" in readme
+    assert readme.index(
+        "git diff --exit-code -- docs/run287_p0_4_artifact_inventory"
+    ) < readme.index("tests/test_p0_4_artifact_inventory.py")
+    assert "canonical bundle differs from reviewed worktree bytes" in readme
+    assert "canonical bundle differs from reviewed index bytes" in readme
     assert "[System.IO.FileAttributes]::ReparsePoint" in readme
     assert readme.index("refusing linked .venv-p0-4") < readme.rindex(
         "python -m venv --clear .venv-p0-4"
@@ -828,7 +855,7 @@ def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
 
     relative = "docs/run287_p0_4_artifact_inventory/source_inventory_snapshot.json"
     assert FROZEN_SOURCE_PUBLICATION_COMMIT == (
-        "e2be7ff35adac270d655397f8cb9502c9aef09fe"
+        "3fac8edfa925c809d530a921e5cabc9346d7bccb"
     )
     assert git("rev-parse", f"{FROZEN_SOURCE_PUBLICATION_COMMIT}:{relative}").strip() == (
         FROZEN_SOURCE_GIT_BLOB_SHA1
@@ -1637,6 +1664,32 @@ def test_alias_map_must_match_object_status_and_evidence(tmp_path: Path) -> None
         raise AssertionError("verified map/object immutable locations were not bound")
 
     payload = source()
+    nonmutable_id = "ds.us.universe.monthly-snapshots"
+    nonmutable = next(
+        row for row in payload["datasets"] if row["object_id"] == nonmutable_id
+    )
+    nonmutable["mapping_status"] = "BLOCKED_NO_IMMUTABLE_SOURCE"
+    nonmutable["blockers"] = ["not a mutable alias"]
+    payload["latest_to_immutable"].append(
+        {
+            "object_id": nonmutable_id,
+            "mutable_alias": "",
+            "immutable_source": "",
+            "status": "BLOCKED_NO_IMMUTABLE_SOURCE",
+            "verification": "invalid synthetic alias",
+            "blockers": ["not a mutable alias"],
+        }
+    )
+    nonmutable_map = tmp_path / "nonmutable-map-row.json"
+    nonmutable_map.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(nonmutable_map, tmp_path / "nonmutable-map-row-output")
+    except InventoryError as exc:
+        assert str(exc) == f"latest_map_nonmutable_object:{nonmutable_id}"
+    else:
+        raise AssertionError("nonmutable object was accepted as a latest alias")
+
+    payload = source()
     mutable_id = "artifact.drive.operating-main-target-book"
     mutable_object = next(
         row for row in payload["artifacts"] if row["object_id"] == mutable_id
@@ -1898,6 +1951,21 @@ def test_invalid_or_incomplete_sources_fail_closed(tmp_path: Path) -> None:
             raise AssertionError(f"catch-up {field} drift was accepted")
 
     payload = source()
+    full_id = "artifact.github.full-rebuild-official-broker-ledger-publication"
+    full_publication = next(
+        row for row in payload["artifacts"] if row["object_id"] == full_id
+    )
+    full_publication["provider_paths"] = full_publication["provider_paths"][:-1]
+    incomplete_full = tmp_path / "incomplete-full-rebuild-publication.json"
+    incomplete_full.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(incomplete_full, tmp_path / "incomplete-full-rebuild-output")
+    except InventoryError as exc:
+        assert str(exc) == f"full_rebuild_provider_evidence_mismatch:{full_id}"
+    else:
+        raise AssertionError("incomplete full-rebuild publication was accepted")
+
+    payload = source()
     payload["datasets"][0]["mapping_status"] = "VERIFIED_IMMUTABLE"
     payload["datasets"][0]["immutable_location"] = ""
     invalid = tmp_path / "invalid.json"
@@ -1975,6 +2043,21 @@ def test_invalid_or_incomplete_sources_fail_closed(tmp_path: Path) -> None:
         )
     else:
         raise AssertionError("verified object with conflicting provider was accepted")
+
+    payload = source()
+    object_id = "ds.us.universe.historical-auto"
+    known_storage = next(
+        row for row in payload["datasets"] if row["object_id"] == object_id
+    )
+    known_storage["provider"] = "UNRESOLVED"
+    conflicting_provider = tmp_path / "conflicting-known-provider.json"
+    conflicting_provider.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(conflicting_provider, tmp_path / "conflicting-known-provider-output")
+    except InventoryError as exc:
+        assert str(exc) == f"provider_storage_kind_mismatch:{object_id}"
+    else:
+        raise AssertionError("known storage kind accepted a conflicting provider")
 
     payload = source()
     object_id = "ds.us.universe.monthly-snapshots"

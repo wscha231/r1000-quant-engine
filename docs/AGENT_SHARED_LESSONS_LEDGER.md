@@ -4427,6 +4427,16 @@ Expected contract:
   default merely because an older source row omitted a redundant field. Apply a
   reviewed storage-kind-to-provider map during normalization, preserve stricter
   explicit verified-provider identities, and test the published Parquet column.
+- Reusable lesson: Provider inference must also reject conflicting explicit
+  values for known storage kinds. Every mutable-alias map row must point to a
+  nonblank mutable alias; coverage in only one direction permits synthetic
+  blocked rows that are not aliases.
+- Reusable lesson: Expiring workflow publications are independent provider
+  objects even when their local source trees overlap. Census each artifact name,
+  exact condition, path set, missing-file policy, and retention directly from
+  the frozen workflow. Rebuild dependency versions require distribution hashes
+  and a pinned interpreter/platform contract, and canonical regeneration must
+  prove the complete tracked bundle remains byte-clean before its smoke can pass.
 - Caveat: Historical Russell membership remains not proven PIT-safe; the price
   cache view is incomplete; mutable macro, feature, and model objects lack
   complete immutable lineage; and the shared rclone Drive client is a 2026
