@@ -4288,3 +4288,181 @@ Expected contract:
 - Fullrun executed: false. Target/order/ledger mutation executed: false.
   Production enabled: false. Live trading enabled: false. Automatic promotion
   enabled: false.
+
+## 2026-08-25 - Artifact completeness must be proven outside the declared registry
+
+- Agent: Codex GPT-5.6.
+- Branch: `codex/p0-4-artifact-inventory-20260825`.
+- Context: Issue #372 required a read-only inventory connecting US data,
+  models, durable paper state, target outputs, and operational evidence at
+  exact master `0f34de9a2747059b7bb808cb070a86261e119f95`.
+- Result: 24 dataset classes, four model objects, eight durable-state objects,
+  and 20 artifact/infrastructure objects were normalized into 56 hash- and
+  provenance-bearing Parquet rows. Mutable aliases are verified or explicitly
+  blocked; four fixed recommendation/target paths and four mutable paper archive
+  directories are required independently of the source object's declarations.
+  The nine-file Drive feature folder is represented by nine concrete file
+  aliases plus a non-mappable folder census object; the complete mutable paper
+  directory, risk-outcome accepted-head directory, and 15-file operational
+  macro cache are also explicit aliases.
+- Operational blocker: The latest three scheduled operating-selection runs
+  stopped at `Restore verified risk-outcome accepted head`. Exact run/job IDs,
+  terminal excerpt hashes, exit code 2, and skipped target/ledger/persistence
+  steps are frozen in `docs/run287_p0_4_artifact_inventory/`. This evidence
+  authorizes no dispatch, bootstrap, target write, or ledger mutation.
+- Reusable lesson: Completeness cannot be proved only by iterating objects that
+  a source already declares. Census fixed writer paths and mutable aliases from
+  the frozen authority/workflow contracts, then require the registry and alias
+  map to cover that external set. A mutable alias is never `NOT_APPLICABLE`.
+- Reusable lesson: A reproducible evidence bundle pins the source publication,
+  generator inputs, dependency versions, and row-level source provenance. It
+  stages the complete bundle before replacement, includes the actual source and
+  dependency contract, rejects generated-path symlinks, dirty generator code,
+  and custom-source writes to the canonical destination, and freezes the audit
+  commit range so unrelated future commits do not invalidate the snapshot. The
+  protected-publication constant is verifier code and becomes trusted only
+  through external exact-head review plus the review-complete gate.
+- Reusable lesson: One mutable alias must name exactly one addressable path.
+  Directory state and its independently mutable manifest require separate
+  objects and mappings. A `VERIFIED_IMMUTABLE` mapping must equal its object's
+  full immutable location, and that location must use the namespace actually
+  written by the frozen baseline workflow; a descriptive abbreviation or a
+  legacy folder name is not restoration provenance.
+- Reusable lesson: A group of objects that claims one atomic durable snapshot
+  must extract and share the same immutable head hash, not merely a path prefix.
+  Each mutable child must also equal the expected path beneath the canonical
+  mutable root. A container census must independently require every declared
+  child and reconcile its file count and total size; deriving completeness only
+  from objects that remain in a supplied source lets omissions pass silently.
+  Preserve and hash the direct-child names, provider IDs, sizes, and modified
+  timestamps, then bind each concrete object to that authenticated parent
+  manifest; aggregate count and byte size alone are not reproducible evidence.
+  Canonical regeneration must authenticate every copied input, including the
+  dependency contract, require live-head lineage verification, and reject any
+  output destination that is the repository or an ancestor of it.
+- Reusable lesson: Atomic publication has a commit point. A backup-cleanup
+  failure after the new directory is installed must report that publication
+  succeeded and retain the backup for later cleanup; raising an ordinary build
+  failure at that point invites an unsafe retry against already-changed state.
+- Reusable lesson: Restoring a Drive directory and saving a GitHub Actions cache
+  are different authorities. Do not label a restore-only workflow as the Drive
+  writer; leave the Drive producer unbound and register the ephemeral provider
+  cache publication separately. Canonical source provenance also authenticates
+  the renderer, even when exporting to a noncanonical destination.
+- Reusable lesson: Authenticate dependency bytes before the first package
+  installation command. A later generator check can block publication, but it
+  cannot undo code already installed or executed from a dirty requirements file.
+- Reusable lesson: Provider evidence must name only paths present in the frozen
+  writer step; a plausible neighboring cache path is not publication evidence.
+  Read source bytes once, authenticate those captured bytes, and parse that same
+  buffer so a concurrent path replacement cannot split provenance from rendered
+  rows.
+- Reusable lesson: A provider cache object that represents one multi-path save
+  must enumerate every published path, not only the paths relevant to the
+  immediate finding. Run-addressed pre-commit recovery and repair-quarantine
+  namespaces are durable publications too; census their writer and retention
+  boundary even when live contents and hashes remain blocked. Reject negative or
+  non-integer physical counts, and invoke every security regression from the
+  registered direct smoke entrypoint as well as pytest discovery.
+- Reusable lesson: Protect committed renderer semantics against descendant
+  commits, allowing only the visible protected-publication pin to advance after
+  the reviewed bundle commit. Every `VERIFIED_IMMUTABLE` claim needs an exact
+  immutable location and at least one authenticated content, manifest, or data
+  hash even when it has no mutable alias. Inventory paper-state and continuity
+  caches as noncanonical provider state, and inventory accepted paper
+  transactions separately from recovery namespaces with manifest-last semantics.
+  Dependency installation must consume the captured authenticated Git blob, not
+  reopen the worktree path after verification.
+- Reusable lesson: Shallow CI history must deepen through every commit used by
+  verifier ancestry checks, including the oldest frozen inventory baseline;
+  stopping at a newer publication commit leaves a future boundary window where
+  the registered test fails despite the publication itself being reachable.
+- Reusable lesson: On pull-request CI, a synthetic merge commit can make the
+  baseline reachable through the base parent and a publication reachable
+  through the PR parent while their direct ancestry is still absent. A shallow
+  history gate must verify every ancestry edge consumed by the validator, not
+  merely that each endpoint is independently an ancestor of `HEAD`.
+- Reusable lesson: A 64-hex string is not authenticated provider evidence.
+  Every `VERIFIED_IMMUTABLE` object must be registered independently with its
+  provider kind, exact provider location, immutable location, digest field, and
+  expected digest; custom sources cannot create new verified identities.
+- Reusable lesson: Provider copies are separate census objects. The immutable
+  research-static ZIP, its Drive path, and its evictable Actions cache are three
+  different authorities; the accepted GitHub transaction artifact is distinct
+  from its manifest-last Drive publication; and the always-run diagnostic
+  artifact is distinct from a best-effort, possibly partial Drive copy.
+- Reusable lesson: Atomic regeneration must start from an empty staging
+  directory. Copying the previous output tree into staging preserves obsolete
+  evidence files after schema changes even when all current files render
+  successfully. Document a native PowerShell rebuild when Windows is claimed
+  as supported; changing only the interpreter path does not translate POSIX
+  temporary-file, trap, quoting, or variable semantics.
+- Reusable lesson: A native PowerShell process returning nonzero does not throw
+  automatically; check `$LASTEXITCODE` after every dependency capture,
+  environment creation, install, build, and test command so a later successful
+  command cannot hide an earlier failure. A provider allowlist must compare its
+  declared provider identity as well as locations and hashes. Outcome-specific
+  publications also require separate objects: census both the accepted and the
+  blocked chronological catch-up artifacts with their exact conditions, path
+  sets, missing-file policy, retention, and noncanonical authority.
+- Reusable lesson: A documented POSIX rebuild must enable fail-fast behavior
+  before its first check; otherwise a later smoke can hide a rejected build.
+  When reproducibility pins intermediate publication commits by ancestry, the
+  publication path is merge-commit-only. Use an expected-head merge call and
+  prohibit squash/rebase so the source and protected commits remain ancestors.
+- Reusable lesson: Atomic directory replacement must reject every repository
+  descendant except the one canonical bundle path; otherwise a caller can turn
+  an unrelated source/docs directory into the replace-and-delete target. A
+  reproducible rebuild must also clear its dedicated virtual environment before
+  installing pinned requirements so stale modules and `sitecustomize.py` cannot
+  survive into generation or testing.
+- Reusable lesson: Repository-boundary checks do not protect user-owned
+  directories elsewhere. An existing external regeneration destination must be
+  empty or contain a complete, schema- and source-hash-authenticated bundle,
+  with no linked, directory, or special-file entries, before atomic replacement
+  may rename and delete it. A name-only allowlist is not an ownership marker.
+  Before clearing a reusable virtual environment, reject POSIX symlinks and
+  Windows reparse points so `venv --clear` cannot follow a link into user data.
+- Reusable lesson: A known storage provider must not inherit an `UNRESOLVED`
+  default merely because an older source row omitted a redundant field. Apply a
+  reviewed storage-kind-to-provider map during normalization, preserve stricter
+  explicit verified-provider identities, and test the published Parquet column.
+- Reusable lesson: Provider inference must also reject conflicting explicit
+  values for known storage kinds. Every mutable-alias map row must point to a
+  nonblank mutable alias; coverage in only one direction permits synthetic
+  blocked rows that are not aliases.
+- Reusable lesson: Expiring workflow publications are independent provider
+  objects even when their local source trees overlap. Census each artifact name,
+  exact condition, path set, missing-file policy, and retention directly from
+  the frozen workflow. Rebuild dependency versions require distribution hashes
+  and a pinned interpreter/platform contract, and canonical regeneration must
+  prove the complete tracked bundle remains byte-clean before its smoke can pass.
+- Reusable lesson: Distribution hashes define a platform allowlist as well as a
+  package allowlist. Fail before installation unless the interpreter ABI and
+  operating platform exactly match the hashed wheels; a generic POSIX command
+  must not imply macOS or ARM support when only Linux x86-64 is covered.
+- Reusable lesson: `actions/cache` publications are provider objects even when
+  the workflow names the step as a restore. A successful cache miss can publish
+  the complete path set at job completion, while restore prefixes can select an
+  older mutable object; record keys, prefixes, paths, and noncanonical status.
+- Reusable lesson: One manifest-driven Drive sync can expose multiple authority
+  surfaces. Census valid master mutable outputs, valid run-addressed research,
+  failed master runs, and failed branch runs separately. The remote transaction
+  is complete only when the allowlisted copies finish and the manifest is
+  published last; a missing final manifest grants no accepted authority.
+- Reusable lesson: Atomic replacement must inspect the canonical destination too.
+  A tracked-byte diff cannot detect deletion of an untracked note or ignored
+  directory, so reject every unexpected, linked, or non-file entry before the
+  old directory is renamed and later removed.
+- Caveat: Historical Russell membership remains not proven PIT-safe; the price
+  cache view is incomplete; mutable macro, feature, and model objects lack
+  complete immutable lineage; and the shared rclone Drive client is a 2026
+  operational dependency risk. None of these caveats is cleared by green
+  sidecar or readiness jobs.
+- Next action: Merge the reviewed P0-4 inventory, then repair issue #357 in an
+  isolated P0-5 change. Do not blindly rerun or dispatch the transactional
+  operating workflow; first prove the accepted risk-outcome parent and exact
+  durable-state transition.
+- Fullrun executed: false. Target/order/ledger mutation executed: false.
+  Production enabled: false. Live trading enabled: false. Automatic promotion
+  enabled: false.

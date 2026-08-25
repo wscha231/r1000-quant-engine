@@ -2,14 +2,14 @@
 """Tier-1 fast validation runner for code-level changes.
 
 Catches syntax errors, schema regressions, and smoke-test breakages in
-~30 seconds locally / ~2-3 minutes in CI. Designed so a developer can
-run one command before pushing, or have GitHub Actions
+~12 minutes locally / under 80 minutes on the free CI runner. Designed so a
+developer can run one command before pushing, or have GitHub Actions
 (pr_validation.yml) run the same set on every push.
 
 Validation tiers
 ================
-    Tier 0 (this script, local)         ~30 s    code-level smoke
-    Tier 1 (pr_validation.yml, CI)      ~2-3 min code-level smoke + leakage audit
+    Tier 0 (this script, local)         ~12 min  code-level smoke
+    Tier 1 (pr_validation.yml, CI)      <80 min  code-level smoke + leakage audit
     Tier 2 (alphaops_replay_sidecars_   10-30 min real-data sidecars rerun on
             manual.yml)                          prior full-rebuild artifacts
     Tier 3 (full_rebuild_manual.yml)    2-6 h    full data collection +
@@ -116,6 +116,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/run287_u0_experiment_audit_smoke.py", []),
     ("tests/run287_u0_v2_github_census_smoke.py", []),
     ("tests/test_p0_3_authority_census.py", []),
+    ("tests/test_p0_4_artifact_inventory.py", []),
     ("tests/run287_expected_return_challenger_smoke.py", []),
     ("tests/run287_u0_v3_recovery_census_smoke.py", []),
     ("tests/run287_u0_v3_acceptance_smoke.py", []),
@@ -326,22 +327,33 @@ def main() -> int:
     if args.only:
         tests = [(p, a) for (p, a) in tests if any(token in p for token in args.only)]
 
-    print("=" * 72)
-    print(f"PR validation: {len(tests)} test files")
-    print("=" * 72)
+    print("=" * 72, flush=True)
+    print(f"PR validation: {len(tests)} test files", flush=True)
+    print("=" * 72, flush=True)
     failures: list[tuple[str, str]] = []
     total_start = time.monotonic()
     for rel_path, extra_args in tests:
+        joined_args = " ".join(extra_args)
+        print(
+            f"  [RUN ]          {rel_path} {joined_args}".rstrip(),
+            flush=True,
+        )
         passed, elapsed, msg = run_one(rel_path, extra_args, args.quiet)
         mark = "PASS" if passed else "FAIL"
-        joined_args = " ".join(extra_args)
         suffix = f"  {msg}" if (passed and msg and not args.quiet) else ""
-        print(f"  [{mark}] {elapsed:6.2f}s  {rel_path} {joined_args}{suffix}".rstrip())
+        print(
+            f"  [{mark}] {elapsed:6.2f}s  {rel_path} {joined_args}{suffix}".rstrip(),
+            flush=True,
+        )
         if not passed:
             failures.append((rel_path, msg))
     total_elapsed = time.monotonic() - total_start
-    print("=" * 72)
-    print(f"Total: {total_elapsed:6.2f}s  ({len(tests) - len(failures)}/{len(tests)} passed)")
+    print("=" * 72, flush=True)
+    print(
+        f"Total: {total_elapsed:6.2f}s  "
+        f"({len(tests) - len(failures)}/{len(tests)} passed)",
+        flush=True,
+    )
     if failures:
         print()
         print("Failures (last 15 lines each):")

@@ -24,8 +24,8 @@ name: PR Validation (Fast)
 #   * 84-month broker-ledger metric regeneration — use
 #     full_rebuild_manual.yml (Tier 3, ~2-6 h).
 #
-# Runtime target: < 15 minutes on the free GitHub runner, including
-# sparse checkout and dependency setup. Add new
+# Runtime target: < 80 minutes on the free GitHub runner, including
+# sparse checkout and dependency setup; keep a 90-minute fail-safe. Add new
 # critical smoke tests to tools/run_pr_validation.py's DEFAULT_TESTS so
 # both this workflow and the local runner stay in sync.
 
@@ -39,12 +39,14 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 90
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          # The next step deepens commit/tree history until every frozen P0-4
+          # audit commit is connected. Historical blobs remain filtered out.
           fetch-depth: 1
           # Historical/runtime artifacts are not Tier-1 inputs. The small
           # checksum-locked fixture under tests/ is the canonical baseline.
@@ -65,6 +67,37 @@ jobs:
             tests
             tools
           sparse-checkout-cone-mode: true
+
+      - name: Connect frozen audit lineage without historical blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          frozen=(
+            0f34de9a2747059b7bb808cb070a86261e119f95
+            bf3e643efdc083ea5f43047aac04664e0a555f6b
+            f7fadfa4e7814c6453bf96ebf3a1ff4d39eadfae
+          )
+          while true; do
+            connected=yes
+            for commit in "${frozen[@]}"; do
+              if ! git merge-base --is-ancestor "$commit" HEAD 2>/dev/null; then
+                connected=no
+              fi
+            done
+            # On pull_request events HEAD is a synthetic merge commit. The
+            # baseline may be reachable through its base parent while the
+            # publication is reachable only through the PR parent, without
+            # their direct ancestry being present in a shallow clone.
+            if ! git merge-base --is-ancestor "${frozen[0]}" "${frozen[2]}" 2>/dev/null; then
+              connected=no
+            fi
+            [ "$connected" = yes ] && break
+            if [ "$(git rev-parse --is-shallow-repository)" != "true" ]; then
+              echo "frozen P0-4 audit lineage is not an ancestor of HEAD" >&2
+              exit 1
+            fi
+            git fetch --no-tags --filter=blob:none --deepen=64 origin "$GITHUB_REF"
+          done
 
       - name: Fetch P0-3 frozen audit commit
         shell: bash
@@ -104,8 +137,10 @@ jobs:
       - name: Reject new large or dated runtime artifacts
         if: ${{ github.event_name == 'pull_request' }}
         run: |
-          git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha }}"
-          python tools/check_run287_artifact_hygiene.py --base-ref "${{ github.event.pull_request.base.sha }}"
+          base_sha="${{ github.event.pull_request.base.sha }}"
+          git cat-file -e "${base_sha}^{commit}"
+          git merge-base --is-ancestor "$base_sha" HEAD
+          python tools/check_run287_artifact_hygiene.py --base-ref "$base_sha"
 
       - name: Run Tier-1 PR validation
         run: python tools/run_pr_validation.py

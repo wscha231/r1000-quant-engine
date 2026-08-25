@@ -1,0 +1,344 @@
+schema_version: run287-p0-4-latest-map-v1
+market: US
+baseline_code_sha: 0f34de9a2747059b7bb808cb070a86261e119f95
+observed_at_utc: '2026-08-25T12:06:47.159838+00:00'
+source_snapshot_sha256: 3c28008b10e2c3e2d0ce7f603300a544d437474062d86d307369ca31c610e096
+status_counts:
+  BLOCKED_DIVERGENT: 2
+  BLOCKED_MULTIPLE_WRITERS: 1
+  BLOCKED_NO_IMMUTABLE_SOURCE: 36
+  VERIFIED_IMMUTABLE: 7
+mappings:
+- object_id: artifact.drive.full-rebuild-production-valid-publication
+  mutable_alias: gdrive:outputs
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: frozen workflow proves manifest-last guarded publication, but the bounded Drive view does not bind the mutable
+    output view to one run-addressed immutable source
+  blockers:
+  - mutable canonical output view is not bound to one exact run manifest
+  - live manifest-selected children and hashes were not enumerated
+- object_id: ds.us.universe.historical-auto
+  mutable_alias: data_raw/historical_universe_membership_auto.csv
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: representative content SHA-256 captured
+  blockers:
+  - no immutable membership manifest
+  - PIT safety not proven
+- object_id: ds.us.sec.company-tickers
+  mutable_alias: data_raw/sec_company_tickers.parquet
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: representative content SHA-256 captured
+  blockers:
+  - current-only identity map
+  - no dated ticker history
+- object_id: ds.us.sec.companyfacts-bulk
+  mutable_alias: data_raw/free/sec/companyfacts.zip
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: Drive size and modification metadata captured
+  blockers:
+  - content hash unavailable
+  - no immutable session copy
+- object_id: ds.us.sec.form4-canonical
+  mutable_alias: outputs/sec_ownership_signals/form4_latest.csv
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: merge manifest SHA-256 captured
+  blockers:
+  - canonical output is mutable
+  - shard reconciliation incomplete
+- object_id: ds.us.sec.13f-canonical
+  mutable_alias: outputs/sec_institutional_signals/13f_latest.csv
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: summary SHA-256 and row count captured
+  blockers:
+  - canonical output lacks immutable session manifest
+- object_id: ds.us.etf.holdings
+  mutable_alias: data_pit/etf_holdings/etf_holdings.parquet
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: representative content SHA-256 captured
+  blockers:
+  - folder lacks immutable session manifest
+- object_id: ds.us.events.earnings-estimates
+  mutable_alias: data_pit/events/earnings_revision_signals.parquet
+  immutable_source: data_pit/events/earnings_estimates/estimates_YYYYMMDD.parquet is dated but not bound to the signal alias
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: 37 dated files observed and signal content SHA-256 captured
+  blockers:
+  - revision signal not bound to one dated archive manifest
+- object_id: state.us.paper.immutable-head
+  mutable_alias: paper_archive/run287_daily_simulated_fill_ledger/
+  immutable_source: paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7
+  status: VERIFIED_IMMUTABLE
+  verification: complete 243-file mutable paper-state directory is bound to the terminal verified immutable head
+  blockers: []
+- object_id: state.us.paper.accepted-publication
+  mutable_alias: paper_archive/run287_daily_simulated_fill_ledger/accepted_publication.json
+  immutable_source: paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/accepted_publication.json
+  status: VERIFIED_IMMUTABLE
+  verification: content SHA-256 1f2941e7... and immutable head topology
+  blockers: []
+- object_id: state.us.paper.main-account
+  mutable_alias: paper_archive/run287_daily_simulated_fill_ledger/main/account_state_latest.json
+  immutable_source: paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/main/account_state_latest.json
+  status: VERIFIED_IMMUTABLE
+  verification: accepted publication account state SHA-256 f959556e...
+  blockers: []
+- object_id: state.us.paper.concentrated-account
+  mutable_alias: paper_archive/run287_daily_simulated_fill_ledger/concentrated/account_state_latest.json
+  immutable_source: paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/concentrated/account_state_latest.json
+  status: VERIFIED_IMMUTABLE
+  verification: accepted publication account state SHA-256 8253abe8...
+  blockers: []
+- object_id: state.us.paper.main-ledger-manifest
+  mutable_alias: paper_archive/run287_daily_simulated_fill_ledger/main/manifest.json
+  immutable_source: paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/main/manifest.json
+  status: VERIFIED_IMMUTABLE
+  verification: manifest SHA-256 43f348b7...
+  blockers: []
+- object_id: state.us.paper.concentrated-ledger-manifest
+  mutable_alias: paper_archive/run287_daily_simulated_fill_ledger/concentrated/manifest.json
+  immutable_source: paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/concentrated/manifest.json
+  status: VERIFIED_IMMUTABLE
+  verification: manifest SHA-256 78fc4887...
+  blockers: []
+- object_id: artifact.repo.latest-r1000-adr-alias
+  mutable_alias: cloud_results/full_rebuild/latest_r1000+adr
+  immutable_source: cloud_results/full_rebuild/20260428_r1000+adr
+  status: VERIFIED_IMMUTABLE
+  verification: identical Git tree SHA-1 932c5a407be56790cea3ff486a9fb7791ce7ef4c
+  blockers: []
+- object_id: artifact.drive.operating-main-target-book
+  mutable_alias: outputs/reports/operating_main_target_book.csv
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: fixed path observed in the frozen official target-writer workflow
+  blockers:
+  - mutable canonical target has no hash-bound accepted publication in the bounded inventory view
+- object_id: artifact.drive.operating-concentrated-target-book
+  mutable_alias: outputs/reports/operating_concentrated_target_book.csv
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: fixed path observed in the frozen official target-writer workflow
+  blockers:
+  - mutable canonical target has no hash-bound accepted publication in the bounded inventory view
+- object_id: artifact.drive.portfolio-latest
+  mutable_alias: outputs/portfolio_latest.csv
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: fixed path observed in the frozen official workflow and P0-3 authority census
+  blockers:
+  - mutable recommendation has no hash-bound accepted publication in the bounded inventory view
+- object_id: artifact.drive.concentrated-portfolio-latest
+  mutable_alias: outputs/concentrated_portfolio_latest.csv
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: fixed path observed in the frozen official workflow and P0-3 authority census
+  blockers:
+  - mutable recommendation has no hash-bound accepted publication in the bounded inventory view
+- object_id: artifact.drive.paper-holding-risk-watch-archive
+  mutable_alias: paper_archive/run287_holding_risk_watch/
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: baseline P0-3 restore_dir and rclone copy writer evidence
+  blockers:
+  - mutable directory
+  - complete immutable directory manifest absent
+- object_id: artifact.drive.paper-decision-observation-archive
+  mutable_alias: paper_archive/run287_decision_observation_archive/
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: baseline P0-3 restore_dir and rclone copy writer evidence
+  blockers:
+  - mutable directory
+  - complete immutable directory manifest absent
+- object_id: artifact.drive.paper-risk-outcome-archive
+  mutable_alias: paper_archive/run287_risk_outcome_archive/
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: baseline P0-3 restore/persist census and exact three-run blocker evidence
+  blockers:
+  - legacy parent quarantined
+  - accepted immutable parent absent
+- object_id: artifact.drive.paper-risk-outcome-price-cache
+  mutable_alias: paper_archive/run287_risk_outcome_price_cache/
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: baseline P0-3 restore_dir and rclone copy writer evidence
+  blockers:
+  - mutable directory
+  - complete immutable price-universe manifest absent
+- object_id: artifact.repo.latest-global-alias
+  mutable_alias: cloud_results/full_rebuild/latest_global_alpha_universe
+  immutable_source: nearest candidate cloud_results/full_rebuild/20260624_28074476465_global_alpha_universe
+  status: BLOCKED_DIVERGENT
+  verification: 1103 of 1104 relative blobs match; scored_latest.csv differs
+  blockers:
+  - latest scored_latest.csv has no immutable run directory
+- object_id: ds.us.selector.scored-latest-repo
+  mutable_alias: cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv
+  immutable_source: nearest candidate 20260624_28074476465_global_alpha_universe/scored_latest.csv
+  status: BLOCKED_DIVERGENT
+  verification: SHA-256 4fe78609... versus 04f79def...
+  blockers:
+  - content differs
+- object_id: ds.us.prices.replay-cache
+  mutable_alias: cache_prices
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: folder is independently represented; full 1048-file Drive enumeration incomplete
+  blockers:
+  - no complete immutable session tree
+  - provider listing truncated
+- object_id: ds.us.prices.replay-cache-manifest
+  mutable_alias: cache_prices/replay_price_cache_manifest.json
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: manifest SHA-256 bbb94f82... captured independently from the mutable cache directory
+  blockers:
+  - no immutable session manifest copy
+  - provider listing truncated
+- object_id: ds.us.macro.operational-cache
+  mutable_alias: cache_macro
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: exact Drive folder ID plus complete 15-file direct listing and baseline workflow restore/persist paths
+  blockers:
+  - no immutable session directory or manifest
+  - stale mutable cache
+- object_id: ds.us.macro.daily-snapshot
+  mutable_alias: data_raw/free/macro/daily_snapshot/latest.json
+  immutable_source: ''
+  status: BLOCKED_MULTIPLE_WRITERS
+  verification: three workflow call sites invoke the same writer
+  blockers:
+  - same-day immutable path can be overwritten
+  - latest alias unbound
+- object_id: ds.us.macro.long-crisis-features
+  mutable_alias: data_pit/macro/long_crisis_daily_features.parquet
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: representative content hash captured
+  blockers:
+  - no dated feature bundle
+  - no freshness cutoff
+- object_id: ds.us.features.candidate-universe-latest
+  mutable_alias: feature_store/candidate_universe_latest.parquet
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: content SHA-256 captured
+  blockers:
+  - no universe hash or immutable session source
+- object_id: ds.us.features.latest-recommendations
+  mutable_alias: feature_store/latest_recommendations.parquet
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: exact Drive file ID, size, and modified time captured
+  blockers:
+  - no immutable run directory or manifest
+- object_id: ds.us.features.scored-oos-partial
+  mutable_alias: feature_store/scored_oos_partial.parquet
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: exact Drive file ID, size, and modified time captured
+  blockers:
+  - no immutable run directory or manifest
+- object_id: ds.us.features.scored-oos-latest
+  mutable_alias: feature_store/scored_oos_latest.parquet
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: exact Drive file ID, size, and modified time captured
+  blockers:
+  - no immutable run directory or manifest
+- object_id: ds.us.features.feature-store-latest
+  mutable_alias: feature_store/feature_store_latest.parquet
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: exact Drive file ID, size, and modified time captured
+  blockers:
+  - no immutable run directory or manifest
+- object_id: ds.us.features.universe-monthly-latest
+  mutable_alias: feature_store/universe_monthly_latest.parquet
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: exact Drive file ID, size, and modified time captured
+  blockers:
+  - no immutable run directory or manifest
+- object_id: ds.us.features.macro-regime-latest
+  mutable_alias: feature_store/macro_regime_latest.parquet
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: exact Drive file ID, size, and modified time captured
+  blockers:
+  - no immutable run directory or manifest
+- object_id: ds.us.features.live-event-alert-latest
+  mutable_alias: feature_store/live_event_alert_latest.parquet
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: exact Drive file ID, size, and modified time captured
+  blockers:
+  - no immutable run directory or manifest
+- object_id: ds.us.features.fund-panel-latest
+  mutable_alias: feature_store/fund_panel_latest.parquet
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: exact Drive file ID, size, and modified time captured
+  blockers:
+  - no immutable run directory or manifest
+- object_id: model.us.phase4.bundle-latest
+  mutable_alias: models/model_bundle_latest.json
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: content SHA-256 captured
+  blockers:
+  - no immutable training bundle
+- object_id: model.us.phase4.cat-reg-latest
+  mutable_alias: models/phase4_latest_cat_reg.cbm
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: Drive metadata only
+  blockers:
+  - binary hash and immutable training bundle absent
+- object_id: model.us.phase4.cat-cls-latest
+  mutable_alias: models/phase4_latest_cat_cls.cbm
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: Drive metadata only
+  blockers:
+  - binary hash and immutable training bundle absent
+- object_id: model.us.phase4.scoring-meta-latest
+  mutable_alias: models/phase4_latest_scoring_meta.json
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: content SHA-256 captured; strict JSON parse failed on NaN
+  blockers:
+  - non-strict JSON
+  - no immutable bundle
+- object_id: artifact.drive.free-data-manifest
+  mutable_alias: manifests/free_data/latest_manifest.json
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: content SHA-256 captured
+  blockers:
+  - no run/session immutable manifest path
+- object_id: state.us.risk-outcome.accepted-heads
+  mutable_alias: paper_archive/run287_risk_outcome_accepted_heads/
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: latest three job failures and Drive restore evidence
+  blockers:
+  - accepted head absent
+  - legacy parent quarantined pending P0-5
+- object_id: state.us.crisis.monitor-history
+  mutable_alias: outputs/daily_crisis_monitor/state_history.json
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: writer and consumer traced in code
+  blockers:
+  - mutable only
+  - input session lineage absent
