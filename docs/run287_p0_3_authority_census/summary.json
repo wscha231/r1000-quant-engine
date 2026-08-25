@@ -110,10 +110,19 @@
     "F": 101
   },
   "branch_protection_contract_artifact": {
-    "bytes": 2738,
+    "bytes": 3418,
     "media_type": "application/json",
+    "observation_identity": {
+      "audit_master_sha": "916a02ac0612d64d41f71690cf667a90dfd0531a",
+      "branch_namespace_sha256": "e70683436b46b133d93b66b47acde2565c6889bc654edce01e60182eb6afc126",
+      "observed_at_utc": "2026-08-25T09:58:24.4626105Z",
+      "publication_delta_handling": "EXPECTED_CENSUS_PUBLICATION_BRANCH_EXCLUDED_FROM_FROZEN_NAMESPACE_COMPARISON",
+      "repository": "wscha231/r1000-quant-engine",
+      "scope": "CLASSIC_PROTECTION_REVIEW_AND_PUSH_ACTORS_MATCHING_BRANCH_RULES_AND_REPOSITORY_RULESETS"
+    },
+    "observed_at_utc": "2026-08-25T09:58:24.4626105Z",
     "repository_path": "docs/run287_p0_3_authority_census/source_branch_protection_contract.json",
-    "sha256": "351eb09889631d81998a43d3bce58bde69876864bf6acf4e2143c228d3e19c2e"
+    "sha256": "f99942c67c46f53212067e81fa71f6c37f031f631fbb4a71ee4a507d25bff907"
   },
   "completeness": {
     "all_pr_changed_paths_complete": false,
@@ -156,16 +165,16 @@
     "pyarrow": "23.0.1"
   },
   "output_hashes": {
-    "README.md": "eecb23bf3236bd72934d9975e4f59acd0966b35fbb5455fb5027efce689940cb",
+    "README.md": "8515921b8636b8feaa3f781ec71bdfd5f0b15390659eee76bceaffc0b57473aa",
     "branch_census.parquet": "98701ad208b92bc9c21506d8a322cb7258050998e2f46ba9d6760f0ea134d773",
     "pr_census.parquet": "b0a00792b3b61bdc7a559c0a62b91af17c07b07130c8acc64b152500daa8ef68",
     "requirements.txt": "8c74d7c2c73e36c06bee51001a8ffc2579ea71555bb392cfb89a6ce0e05047ca",
-    "source_branch_protection_contract.json": "351eb09889631d81998a43d3bce58bde69876864bf6acf4e2143c228d3e19c2e",
+    "source_branch_protection_contract.json": "f99942c67c46f53212067e81fa71f6c37f031f631fbb4a71ee4a507d25bff907",
     "source_branch_supplement.parquet": "12ea17046e062707437b995b95cc610ccf2ef0398dbdf9ff05c0011ff810f530",
     "source_pr_supplement.json.gz": "c61d10cd3408b1a9910e6a40fba317894ba82b1c8506abcc704de7df3ea89516",
     "source_u0_github_census.json.gz": "43037952f1464bd41cdb0d2eaba78503da60f17d66c410dea186b34e0b62ef2c",
     "source_workflow_authority_policy.json": "01977fda9c76c2513244b07d118cbb8bae620e6db03c0d6c3060763e36b9d3f7",
-    "workflow_registry.yaml": "3135b7797655b4e928639732b4c634610647edd0b0f0072c3793d29d63b70cab"
+    "workflow_registry.yaml": "006003bfec081cda1e924e5db22c1f1cd612d40e0e8a136637af763ca658df53"
   },
   "pr_disposition_counts": {
     "CLOSED_UNMERGED_QUARANTINE": 23,
@@ -211,7 +220,7 @@
   },
   "source_hashes": {
     "branch_namespace_sha256": "e70683436b46b133d93b66b47acde2565c6889bc654edce01e60182eb6afc126",
-    "branch_protection_contract_sha256": "351eb09889631d81998a43d3bce58bde69876864bf6acf4e2143c228d3e19c2e",
+    "branch_protection_contract_sha256": "f99942c67c46f53212067e81fa71f6c37f031f631fbb4a71ee4a507d25bff907",
     "generator_runtime_requirements_sha256": "8c74d7c2c73e36c06bee51001a8ffc2579ea71555bb392cfb89a6ce0e05047ca",
     "pull_request_namespace_sha256": "639d708c707dbc48a1f02cc8eeb15a1c28837226f545b2ea8f84fb6b3313937c",
     "source_branch_supplement_sha256": "12ea17046e062707437b995b95cc610ccf2ef0398dbdf9ff05c0011ff810f530",

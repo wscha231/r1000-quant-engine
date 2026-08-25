@@ -1,6 +1,14 @@
 {
   "schema_version": "run287-review-complete-gate-contract-v2",
   "protected_branch": "master",
+  "authority_observation": {
+    "repository": "wscha231/r1000-quant-engine",
+    "audit_master_sha": "916a02ac0612d64d41f71690cf667a90dfd0531a",
+    "branch_namespace_sha256": "e70683436b46b133d93b66b47acde2565c6889bc654edce01e60182eb6afc126",
+    "observed_at_utc": "2026-08-25T09:58:24.4626105Z",
+    "scope": "CLASSIC_PROTECTION_REVIEW_AND_PUSH_ACTORS_MATCHING_BRANCH_RULES_AND_REPOSITORY_RULESETS",
+    "publication_delta_handling": "EXPECTED_CENSUS_PUBLICATION_BRANCH_EXCLUDED_FROM_FROZEN_NAMESPACE_COMPARISON"
+  },
   "branch_protection_configuration": {
     "required_status_checks": {
       "strict": true,
@@ -49,7 +57,16 @@
     "required_conversation_resolution": true,
     "lock_branch": false,
     "allow_fork_syncing": false,
-    "restrictions": null
+    "restrictions": {
+      "users": [],
+      "teams": [],
+      "apps": []
+    },
+    "bypass_force_push_allowances": {
+      "users": [],
+      "teams": [],
+      "apps": []
+    }
   },
   "matching_branch_rules": [],
   "repository_rulesets": [],

@@ -29,8 +29,10 @@ The frozen workflow authority policy is tracked as
 `docs/run287_p0_3_authority_census/source_workflow_authority_policy.json` (SHA-256 `01977fda9c76c2513244b07d118cbb8bae620e6db03c0d6c3060763e36b9d3f7`).
 The normalized full branch-protection and ruleset policy is tracked as
 `docs/run287_p0_3_authority_census/source_branch_protection_contract.json` (SHA-256
-`351eb09889631d81998a43d3bce58bde69876864bf6acf4e2143c228d3e19c2e`). By default regeneration uses these frozen
-sources;
+`f99942c67c46f53212067e81fa71f6c37f031f631fbb4a71ee4a507d25bff907`). This mutable GitHub authority surface was
+observed separately at `2026-08-25T09:58:24.4626105Z` and is not
+backdated to the U0/PR/branch supplement timestamp. By default regeneration
+uses these frozen sources;
 `--verify-live-namespace` is reserved for the original generation-time
 equality guard.
 

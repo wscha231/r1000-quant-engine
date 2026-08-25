@@ -53,7 +53,7 @@ FROZEN_RUNTIME_REQUIREMENTS_SHA256 = (
     "8c74d7c2c73e36c06bee51001a8ffc2579ea71555bb392cfb89a6ce0e05047ca"
 )
 FROZEN_BRANCH_PROTECTION_CONTRACT_SHA256 = (
-    "351eb09889631d81998a43d3bce58bde69876864bf6acf4e2143c228d3e19c2e"
+    "f99942c67c46f53212067e81fa71f6c37f031f631fbb4a71ee4a507d25bff907"
 )
 BRANCH_SUPPLEMENT_SCHEMA = "run287-p0-3-frozen-branch-supplement-v1"
 GENERATOR_RUNTIME_VERSIONS = {
@@ -514,6 +514,14 @@ query($owner:String!,$name:String!,$qualifiedName:String!){
           nodes{actor{__typename ... on User{databaseId login} ... on Team{databaseId slug} ... on App{databaseId slug}}}
           pageInfo{hasNextPage}
         }
+        pushAllowances(first:100){
+          nodes{actor{__typename ... on User{databaseId login} ... on Team{databaseId slug} ... on App{databaseId slug}}}
+          pageInfo{hasNextPage}
+        }
+        bypassForcePushAllowances(first:100){
+          nodes{actor{__typename ... on User{databaseId login} ... on Team{databaseId slug} ... on App{databaseId slug}}}
+          pageInfo{hasNextPage}
+        }
       }
     }
   }
@@ -582,18 +590,36 @@ def normalize_classic_branch_protection(value: Any) -> dict[str, Any] | None:
 
     normalized_status = None
     if isinstance(status, Mapping):
-        contexts = sorted(str(item) for item in status.get("contexts") or [])
-        checks = [
-            {
-                "context": str(item.get("context") or ""),
-                "app_id": item.get("app_id"),
-            }
-            for item in status.get("checks") or []
-            if isinstance(item, Mapping)
-        ]
+        if (
+            type(status.get("strict")) is not bool
+            or not isinstance(status.get("contexts"), list)
+            or not isinstance(status.get("checks"), list)
+        ):
+            raise RuntimeError("incomplete required status check evidence")
+        contexts = []
+        for item in status["contexts"]:
+            if not isinstance(item, str) or not item:
+                raise RuntimeError("invalid required status check context")
+            contexts.append(item)
+        checks = []
+        for item in status["checks"]:
+            if not isinstance(item, Mapping) or not {
+                "context",
+                "app_id",
+            } <= set(item):
+                raise RuntimeError("invalid required status check identity")
+            context = item["context"]
+            app_id = item["app_id"]
+            if (
+                not isinstance(context, str)
+                or not context
+                or (app_id is not None and type(app_id) is not int)
+            ):
+                raise RuntimeError("invalid required status check identity")
+            checks.append({"context": context, "app_id": app_id})
         normalized_status = {
-            "strict": bool(status.get("strict")),
-            "contexts": contexts,
+            "strict": status["strict"],
+            "contexts": sorted(contexts),
             "checks": sorted(
                 checks,
                 key=lambda item: (item["context"], str(item["app_id"])),
@@ -602,6 +628,17 @@ def normalize_classic_branch_protection(value: Any) -> dict[str, Any] | None:
 
     normalized_reviews = None
     if isinstance(reviews, Mapping):
+        boolean_fields = (
+            "dismiss_stale_reviews",
+            "require_code_owner_reviews",
+            "require_last_push_approval",
+        )
+        for field in boolean_fields:
+            if type(reviews.get(field)) is not bool:
+                raise RuntimeError(f"missing branch protection review scalar: {field}")
+        count = reviews.get("required_approving_review_count")
+        if type(count) is not int or count < 0:
+            raise RuntimeError("missing branch protection approving review count")
         for field in (
             "dismissal_restrictions",
             "bypass_pull_request_allowances",
@@ -609,16 +646,12 @@ def normalize_classic_branch_protection(value: Any) -> dict[str, Any] | None:
             if field not in reviews:
                 raise RuntimeError(f"missing branch protection review evidence: {field}")
         normalized_reviews = {
-            "dismiss_stale_reviews": bool(reviews.get("dismiss_stale_reviews")),
-            "require_code_owner_reviews": bool(
-                reviews.get("require_code_owner_reviews")
-            ),
-            "require_last_push_approval": bool(
-                reviews.get("require_last_push_approval")
-            ),
-            "required_approving_review_count": int(
-                reviews.get("required_approving_review_count") or 0
-            ),
+            "dismiss_stale_reviews": reviews["dismiss_stale_reviews"],
+            "require_code_owner_reviews": reviews[
+                "require_code_owner_reviews"
+            ],
+            "require_last_push_approval": reviews["require_last_push_approval"],
+            "required_approving_review_count": count,
             "dismissal_restrictions": normalize_review_actor_allowances(
                 reviews["dismissal_restrictions"]
             ),
@@ -629,7 +662,12 @@ def normalize_classic_branch_protection(value: Any) -> dict[str, Any] | None:
 
     def enabled(field: str) -> bool:
         item = value.get(field)
-        return bool(item.get("enabled")) if isinstance(item, Mapping) else False
+        if not isinstance(item, Mapping) or type(item.get("enabled")) is not bool:
+            raise RuntimeError(f"missing classic branch protection scalar: {field}")
+        return item["enabled"]
+
+    if "restrictions" not in value or "bypass_force_push_allowances" not in value:
+        raise RuntimeError("missing branch push actor evidence")
 
     return {
         "required_status_checks": normalized_status,
@@ -645,7 +683,10 @@ def normalize_classic_branch_protection(value: Any) -> dict[str, Any] | None:
         ),
         "lock_branch": enabled("lock_branch"),
         "allow_fork_syncing": enabled("allow_fork_syncing"),
-        "restrictions": normalize_authority_api_value(value.get("restrictions")),
+        "restrictions": normalize_review_actor_allowances(value["restrictions"]),
+        "bypass_force_push_allowances": normalize_review_actor_allowances(
+            value["bypass_force_push_allowances"]
+        ),
     }
 
 
@@ -693,6 +734,8 @@ def live_review_actor_allowances(repo_root: Path, branch: str) -> dict[str, Any]
     fields = {
         "reviewDismissalAllowances": "dismissal_restrictions",
         "bypassPullRequestAllowances": "bypass_pull_request_allowances",
+        "pushAllowances": "push_restrictions",
+        "bypassForcePushAllowances": "bypass_force_push_allowances",
     }
     category_by_type = {"User": "users", "Team": "teams", "App": "apps"}
     identity_by_type = {"User": "login", "Team": "slug", "App": "slug"}
@@ -786,11 +829,26 @@ def live_branch_identity(repo_root: Path) -> dict[str, Any]:
                 if not isinstance(classic_payload, Mapping):
                     raise RuntimeError("invalid classic branch protection payload")
                 classic_payload = dict(classic_payload)
+                actor_evidence = live_review_actor_allowances(repo_root, name)
                 reviews = classic_payload.get("required_pull_request_reviews")
                 if isinstance(reviews, Mapping):
                     reviews = dict(reviews)
-                    reviews.update(live_review_actor_allowances(repo_root, name))
+                    reviews.update(
+                        {
+                            field: actor_evidence[field]
+                            for field in (
+                                "dismissal_restrictions",
+                                "bypass_pull_request_allowances",
+                            )
+                        }
+                    )
                     classic_payload["required_pull_request_reviews"] = reviews
+                classic_payload["restrictions"] = actor_evidence[
+                    "push_restrictions"
+                ]
+                classic_payload["bypass_force_push_allowances"] = actor_evidence[
+                    "bypass_force_push_allowances"
+                ]
             classic_protection = normalize_classic_branch_protection(classic_payload)
             matching_rules_payload = run_json_optional(
                 ["gh", "api", f"repos/{REPOSITORY}/rules/branches/{encoded}"],
@@ -845,9 +903,32 @@ def validate_branch_protection_contract(contract: Mapping[str, Any]) -> None:
     if contract.get("schema_version") != "run287-review-complete-gate-contract-v2":
         raise SystemExit("branch protection contract schema mismatch")
     protected_branch = str(contract.get("protected_branch") or "")
+    observation = contract.get("authority_observation")
     configuration = contract.get("branch_protection_configuration")
-    if not protected_branch or not isinstance(configuration, Mapping):
+    if (
+        not protected_branch
+        or not isinstance(configuration, Mapping)
+        or not isinstance(observation, Mapping)
+    ):
         raise SystemExit("branch protection contract is incomplete")
+    if (
+        observation.get("repository") != REPOSITORY
+        or not clean_sha(observation.get("audit_master_sha"))
+        or not re.fullmatch(
+            r"[0-9a-f]{64}", str(observation.get("branch_namespace_sha256") or "")
+        )
+        or observation.get("scope")
+        != "CLASSIC_PROTECTION_REVIEW_AND_PUSH_ACTORS_MATCHING_BRANCH_RULES_AND_REPOSITORY_RULESETS"
+        or observation.get("publication_delta_handling")
+        != "EXPECTED_CENSUS_PUBLICATION_BRANCH_EXCLUDED_FROM_FROZEN_NAMESPACE_COMPARISON"
+    ):
+        raise SystemExit("branch protection observation identity is invalid")
+    try:
+        require_iso_timestamp(
+            observation.get("observed_at_utc"), "branch protection observation"
+        )
+    except ValueError as error:
+        raise SystemExit("branch protection observation timestamp is invalid") from error
     status = configuration.get("required_status_checks")
     reviews = configuration.get("required_pull_request_reviews")
     if not isinstance(status, Mapping) or not isinstance(reviews, Mapping):
@@ -860,6 +941,10 @@ def validate_branch_protection_contract(contract: Mapping[str, Any]) -> None:
             normalized = normalize_review_actor_allowances(reviews.get(field))
             if normalized != reviews.get(field):
                 raise RuntimeError("branch protection actor identities are not canonical")
+        for field in ("restrictions", "bypass_force_push_allowances"):
+            normalized = normalize_review_actor_allowances(configuration.get(field))
+            if normalized != configuration.get(field):
+                raise RuntimeError("branch push actor identities are not canonical")
     except RuntimeError as error:
         raise SystemExit("branch protection actor evidence is incomplete") from error
     if sorted(status.get("contexts") or []) != sorted(
@@ -893,6 +978,14 @@ def source_branch_authority_state(
 ) -> dict[str, Any]:
     protected_branch = str(contract["protected_branch"])
     basics = source_branch_live_identity(census)
+    observation = contract["authority_observation"]
+    if (
+        clean_sha(observation.get("audit_master_sha"))
+        != clean_sha(census.get("audit_default_branch_sha"))
+        or observation.get("branch_namespace_sha256")
+        != canonical_sha256(source_branch_identity(census))
+    ):
+        raise SystemExit("branch protection observation source identity mismatch")
     branches: dict[str, dict[str, Any]] = {}
     for name, (head_sha, protected) in sorted(basics.items()):
         if protected and name != protected_branch:
@@ -1553,8 +1646,10 @@ The frozen workflow authority policy is tracked as
 `{source_policy['repository_path']}` (SHA-256 `{source_policy['sha256']}`).
 The normalized full branch-protection and ruleset policy is tracked as
 `{protection_contract['repository_path']}` (SHA-256
-`{protection_contract['sha256']}`). By default regeneration uses these frozen
-sources;
+`{protection_contract['sha256']}`). This mutable GitHub authority surface was
+observed separately at `{protection_contract['observed_at_utc']}` and is not
+backdated to the U0/PR/branch supplement timestamp. By default regeneration
+uses these frozen sources;
 `--verify-live-namespace` is reserved for the original generation-time
 equality guard.
 
@@ -2059,6 +2154,9 @@ def main() -> int:
             "branch_authority_state_sha256": canonical_sha256(
                 source_branch_authority
             ),
+            "branch_authority_observed_at_utc": protection_contract[
+                "authority_observation"
+            ]["observed_at_utc"],
             "pull_request_count": len(source_prs),
             "pull_request_identity_sha256": canonical_sha256(source_prs),
             "workflow_count": len(workflows),
@@ -2175,6 +2273,12 @@ def main() -> int:
             "media_type": "application/json",
             "bytes": source_protection_contract_path.stat().st_size,
             "sha256": file_sha256(source_protection_contract_path),
+            "observed_at_utc": protection_contract["authority_observation"][
+                "observed_at_utc"
+            ],
+            "observation_identity": protection_contract[
+                "authority_observation"
+            ],
         },
         "generator_runtime_requirements_artifact": {
             "repository_path": runtime_requirements_repository_path,

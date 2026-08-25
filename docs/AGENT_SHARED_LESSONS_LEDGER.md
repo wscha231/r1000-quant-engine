@@ -4257,6 +4257,10 @@ Expected contract:
   with a conditional canonical dataset upload must disclose that write scope
   and its exact manual-dispatch condition even when it has no target or ledger
   authority.
+- Reusable lesson: Mutable GitHub protection evidence needs its own repository,
+  audit-SHA, namespace-hash, and observation-time binding. Do not backdate a
+  corrected protection/ruleset snapshot to an older PR or branch supplement
+  timestamp, and do not treat omitted API fields as empty authority lists.
 - Next action: Merge the reviewed P0-3 census, then begin P0-4 artifact inventory
   without deleting branches, dispatching workflows, or mutating durable state.
 - Fullrun executed: false. Target/order/ledger mutation executed: false.

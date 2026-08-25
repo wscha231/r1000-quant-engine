@@ -175,6 +175,11 @@ def test_census_is_hash_bound_and_read_only() -> None:
     assert protection_artifact["sha256"] == summary["source_hashes"][
         "branch_protection_contract_sha256"
     ]
+    protection_document = json.loads(protection_path.read_text(encoding="utf-8"))
+    assert protection_artifact["observation_identity"] == protection_document[
+        "authority_observation"
+    ]
+    assert protection_artifact["observed_at_utc"] != summary["generated_at_utc"]
     assert policy_artifact["sha256"] == summary["source_hashes"][
         "workflow_policy_sha256"
     ]
@@ -455,6 +460,48 @@ def test_live_branch_guard_binds_head_and_protection_state() -> None:
     else:
         raise AssertionError("missing review actor evidence was accepted")
 
+    normalized_config = contract["branch_protection_configuration"]
+    api_payload = {
+        "required_status_checks": copy.deepcopy(
+            normalized_config["required_status_checks"]
+        ),
+        "required_pull_request_reviews": copy.deepcopy(
+            normalized_config["required_pull_request_reviews"]
+        ),
+        **{
+            field: {"enabled": normalized_config[field]}
+            for field in (
+                "required_signatures",
+                "enforce_admins",
+                "required_linear_history",
+                "allow_force_pushes",
+                "allow_deletions",
+                "block_creations",
+                "required_conversation_resolution",
+                "lock_branch",
+                "allow_fork_syncing",
+            )
+        },
+        "restrictions": copy.deepcopy(normalized_config["restrictions"]),
+        "bypass_force_push_allowances": copy.deepcopy(
+            normalized_config["bypass_force_push_allowances"]
+        ),
+    }
+    assert normalize_classic_branch_protection(api_payload) == normalized_config
+    for field in (
+        "dismiss_stale_reviews",
+        "require_code_owner_reviews",
+        "require_last_push_approval",
+        "required_approving_review_count",
+    ):
+        incomplete = copy.deepcopy(api_payload)
+        incomplete["required_pull_request_reviews"].pop(field)
+        try:
+            normalize_classic_branch_protection(incomplete)
+        except RuntimeError:
+            continue
+        raise AssertionError(f"missing review scalar was accepted: {field}")
+
     changed_rules = copy.deepcopy(contract)
     changed_rules["matching_branch_rules"].append(
         {"type": "required_status_checks", "ruleset_id": 1}
@@ -534,6 +581,10 @@ def test_workflow_registry_has_singular_official_authority_and_blocks_legacy_nam
     )
     assert f"git fetch --no-tags --depth=1 origin {AUDIT_SHA}" in validation_workflow
     assert f"{AUDIT_SHA}^{{commit}}" in validation_workflow
+    assert (
+        "pip install -r docs/run287_p0_3_authority_census/requirements.txt"
+        in validation_workflow
+    )
     assert {row["decision"] for row in rows} <= {"KEEP", "CONSOLIDATE", "RETIRE", "UNKNOWN"}
     target_writers = [
         row["file"]
