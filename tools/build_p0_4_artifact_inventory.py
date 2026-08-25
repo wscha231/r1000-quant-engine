@@ -31,11 +31,19 @@ DEFAULT_SOURCE = ROOT / "docs" / "run287_p0_4_artifact_inventory" / "source_inve
 DEFAULT_OUTPUT = ROOT / "docs" / "run287_p0_4_artifact_inventory"
 SCHEMA_VERSION = "run287-p0-4-inventory-source-v1"
 REGISTRY_SCHEMA_VERSION = "run287-p0-4-registry-v1"
-FROZEN_SOURCE_PUBLICATION_COMMIT = "a14fd445e5108dd9885cc1cb64cc6d2ce9459067"
-FROZEN_SOURCE_GIT_BLOB_SHA1 = "e6aef346b22931cd6f6097692030b5a0f8410482"
-FROZEN_SOURCE_SHA256 = "74f0d882af525261378ff770452d7d0b9e670f582532ca8f4d06419f50e52f51"
+FROZEN_SOURCE_PUBLICATION_COMMIT = "bf3e643efdc083ea5f43047aac04664e0a555f6b"
+FROZEN_SOURCE_GIT_BLOB_SHA1 = "baaa2e8da3899c9d46190a8ca8af265dfb57614c"
+FROZEN_SOURCE_SHA256 = "a18a1f599a7c3082b7b4458e57de0d8609d8bb4bcec6b09f423c1019d65b1ed1"
 FROZEN_PUBLICATION_COMMIT = "f7fadfa4e7814c6453bf96ebf3a1ff4d39eadfae"
 GENERATOR_PATH = "tools/build_p0_4_artifact_inventory.py"
+PROTECTED_PUBLICATION_PIN_PATH = "docs/run287_p0_4_artifact_inventory.protected_commit"
+PROTECTED_PUBLICATION_PATHS = (
+    ".github/workflows/pr_validation.yml",
+    "docs/run287_p0_4_artifact_inventory",
+    GENERATOR_PATH,
+    "tools/run_pr_validation.py",
+)
+UNBOUND_SOURCE_PUBLICATION = "UNBOUND_CUSTOM_SOURCE"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
 OBJECT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]+$")
@@ -524,7 +532,9 @@ def serialise_cell(value: Any) -> Any:
     return value
 
 
-def artifact_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+def artifact_rows(
+    payload: dict[str, Any], *, source_publication_commit: str
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     observed = payload["observed_at_utc"]
     for collection, object_class in (
@@ -539,7 +549,7 @@ def artifact_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
             row["observed_at_utc"] = observed
             row["baseline_code_sha"] = payload["baseline_code_sha"]
             row["source_snapshot_sha256"] = payload["_source_sha256"]
-            row["source_publication_commit"] = FROZEN_SOURCE_PUBLICATION_COMMIT
+            row["source_publication_commit"] = source_publication_commit
             rows.append({key: serialise_cell(value) for key, value in row.items()})
     return sorted(rows, key=lambda item: item["object_id"])
 
@@ -675,6 +685,7 @@ def render_readme(payload: dict[str, Any], row_count: int) -> str:
             "```bash",
             "python -m venv .venv-p0-4",
             ".venv-p0-4/bin/python -m pip install --requirement docs/run287_p0_4_artifact_inventory/requirements.txt",
+            "# Live verification reads the exact protected-publication SHA from docs/run287_p0_4_artifact_inventory.protected_commit.",
             ".venv-p0-4/bin/python tools/build_p0_4_artifact_inventory.py --verify-live-head",
             ".venv-p0-4/bin/python tests/test_p0_4_artifact_inventory.py",
             "```",
@@ -721,7 +732,51 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     )
 
 
-def verify_live_publication_lineage(baseline: str) -> None:
+def read_protected_publication_pin() -> str:
+    path = ROOT / PROTECTED_PUBLICATION_PIN_PATH
+    try:
+        value = path.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise InventoryError("protected_publication_pin_unavailable") from exc
+    if not SHA1_RE.fullmatch(value):
+        raise InventoryError("protected_publication_pin_invalid")
+    require_clean_tracked_path(PROTECTED_PUBLICATION_PIN_PATH)
+    return value
+
+
+def verify_protected_publication_lineage(protected_commit: str) -> None:
+    if not SHA1_RE.fullmatch(protected_commit):
+        raise InventoryError("protected_publication_commit_invalid")
+    ancestor = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", protected_commit, "HEAD"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+    )
+    if ancestor.returncode != 0:
+        raise InventoryError("protected_publication_is_not_live_head_ancestor")
+    changed = subprocess.check_output(
+        [
+            "git",
+            "diff",
+            "--name-only",
+            f"{protected_commit}..HEAD",
+            "--",
+            *PROTECTED_PUBLICATION_PATHS,
+        ],
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+    ).splitlines()
+    if changed:
+        raise InventoryError(
+            "post_publication_protected_delta:" + ",".join(sorted(changed))
+        )
+
+
+def verify_live_publication_lineage(
+    baseline: str, *, protected_commit: str | None = None
+) -> None:
     baseline_ancestor = subprocess.run(
         [
             "git",
@@ -793,6 +848,9 @@ def verify_live_publication_lineage(baseline: str) -> None:
         )
         if hashlib.sha256(actual).hexdigest() != expected_sha256:
             raise InventoryError(f"pinned_publication_file_mismatch:{path}")
+    if protected_commit is None:
+        protected_commit = read_protected_publication_pin()
+    verify_protected_publication_lineage(protected_commit)
     require_clean_tracked_path(GENERATOR_PATH)
 
 
@@ -892,7 +950,14 @@ def build(source: Path, output: Path, *, verify_live_head: bool = False) -> None
     validate_source(payload)
     if verify_live_head:
         verify_live_publication_lineage(payload["baseline_code_sha"])
-    rows = artifact_rows(payload)
+    rows = artifact_rows(
+        payload,
+        source_publication_commit=(
+            FROZEN_SOURCE_PUBLICATION_COMMIT
+            if is_canonical_source
+            else UNBOUND_SOURCE_PUBLICATION
+        ),
+    )
     publish_bundle_atomically(
         output,
         lambda staging: render_bundle(staging, payload, rows),

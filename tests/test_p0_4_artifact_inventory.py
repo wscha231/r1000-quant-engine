@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 INVENTORY = ROOT / "docs" / "run287_p0_4_artifact_inventory"
 SOURCE = INVENTORY / "source_inventory_snapshot.json"
+FROZEN_PROTECTED_PUBLICATION_COMMIT = "0000000000000000000000000000000000000000"
 OUTPUT_FILES = (
     "README.md",
     "summary.json",
@@ -86,9 +87,19 @@ def git(*args: str, binary: bool = False):
     )
 
 
-def tree_rows(prefix: str) -> list[tuple[str, str, int]]:
+def baseline_sha() -> str:
+    return source()["baseline_code_sha"]
+
+
+def baseline_text(path: str) -> str:
+    return git("show", f"{baseline_sha()}:{path}")
+
+
+def tree_rows(prefix: str, *, ref: str | None = None) -> list[tuple[str, str, int]]:
     rows: list[tuple[str, str, int]] = []
-    for line in git("ls-tree", "-r", "-l", "HEAD", prefix).splitlines():
+    for line in git(
+        "ls-tree", "-r", "-l", ref or baseline_sha(), prefix
+    ).splitlines():
         meta, path = line.split("\t", 1)
         _mode, _kind, sha, size = meta.split()
         rows.append((path, sha, int(size)))
@@ -151,10 +162,10 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
     assert frame["market"].eq("US").all()
     assert frame["baseline_code_sha"].eq(payload["baseline_code_sha"]).all()
     assert frame["source_snapshot_sha256"].eq(
-        "74f0d882af525261378ff770452d7d0b9e670f582532ca8f4d06419f50e52f51"
+        "a18a1f599a7c3082b7b4458e57de0d8609d8bb4bcec6b09f423c1019d65b1ed1"
     ).all()
     assert frame["source_publication_commit"].eq(
-        "a14fd445e5108dd9885cc1cb64cc6d2ce9459067"
+        "bf3e643efdc083ea5f43047aac04664e0a555f6b"
     ).all()
     assert frame["exact_location"].astype(str).str.strip().ne("").all()
     assert frame["rollback_restore"].astype(str).str.strip().ne("").all()
@@ -235,12 +246,12 @@ def test_latest_global_alias_diverges_in_exactly_scored_file() -> None:
     assert differing == ["scored_latest.csv"]
     current_blob = git(
         "show",
-        "HEAD:cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv",
+        f"{baseline_sha()}:cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv",
         binary=True,
     )
     immutable_blob = git(
         "show",
-        "HEAD:cloud_results/full_rebuild/20260624_28074476465_global_alpha_universe/scored_latest.csv",
+        f"{baseline_sha()}:cloud_results/full_rebuild/20260624_28074476465_global_alpha_universe/scored_latest.csv",
         binary=True,
     )
     assert hashlib.sha256(current_blob).hexdigest() == "4fe7860960518240e55e6d61492bf823067928b37984ae88022f3bb3d166e25f"
@@ -305,9 +316,7 @@ def test_pipeline_blocker_is_bound_to_exact_github_runs() -> None:
 
 def test_authority_aligns_with_p0_3_census() -> None:
     census = yaml.safe_load(
-        (ROOT / "docs" / "run287_p0_3_authority_census" / "workflow_registry.yaml").read_text(
-            encoding="utf-8"
-        )
+        baseline_text("docs/run287_p0_3_authority_census/workflow_registry.yaml")
     )
     assert census["official_authority"]["us_target_writer_workflow"] == (
         "daily_operating_selection_refresh.yml"
@@ -317,13 +326,44 @@ def test_authority_aligns_with_p0_3_census() -> None:
     )
     assert census["official_authority"]["live_broker_writer_workflow"] is None
 
+    daily = baseline_text(
+        ".github/workflows/daily_operating_selection_refresh.yml"
+    )
+    full = baseline_text(".github/workflows/full_rebuild_manual.yml")
+    recommendations = {
+        row["object_id"]: row
+        for row in source()["artifacts"]
+        if row["object_id"]
+        in {
+            "artifact.drive.portfolio-latest",
+            "artifact.drive.concentrated-portfolio-latest",
+        }
+    }
+    assert set(recommendations) == {
+        "artifact.drive.portfolio-latest",
+        "artifact.drive.concentrated-portfolio-latest",
+    }
+    for row in recommendations.values():
+        assert row["writer_workflow"] == "full_rebuild_manual.yml"
+        assert row["write_authority"] == (
+            "MANUAL_FULL_REBUILD_PERSISTED_MUTABLE_RECOMMENDATION"
+        )
+        assert "daily_operating_selection_refresh.yml consumes" in row["blockers"][-2]
+    assert 'cp outputs/portfolio_latest.csv "$DEST/"' in full
+    assert 'cp outputs/concentrated_portfolio_latest.csv "$DEST/"' in full
+    assert "Sync outputs to user's Google Drive" in full
+    assert "outputs/portfolio_latest.csv" in daily
+    assert "outputs/concentrated_portfolio_latest.csv" in daily
+    assert "rclone copyto outputs/portfolio_latest.csv" not in daily
+    assert "rclone copyto outputs/concentrated_portfolio_latest.csv" not in daily
+
 
 def test_failed_source_run_grants_price_replay_only() -> None:
-    workflow = (
-        ROOT / ".github" / "workflows" / "daily_operating_selection_refresh.yml"
-    ).read_text(encoding="utf-8")
-    builder = (ROOT / "tools" / "build_run287_catchup_price_evidence.py").read_text(
-        encoding="utf-8"
+    workflow = baseline_text(
+        ".github/workflows/daily_operating_selection_refresh.yml"
+    )
+    builder = baseline_text(
+        "tools/build_run287_catchup_price_evidence.py"
     )
     assert 'fields["conclusion"] not in {"success", "failure"}' in workflow
     assert '"price_usage_scope": (' in builder
@@ -336,8 +376,8 @@ def test_failed_source_run_grants_price_replay_only() -> None:
 
 
 def test_macro_freshness_gap_is_evidence_backed() -> None:
-    engine = (ROOT / "tools" / "crisis_state_engine.py").read_text(encoding="utf-8")
-    policy = (ROOT / "tools" / "run287_crisis_policy.py").read_text(encoding="utf-8")
+    engine = baseline_text("tools/crisis_state_engine.py")
+    policy = baseline_text("tools/run287_crisis_policy.py")
     assert "decision_time=latest_date" in engine
     assert "available_from=latest_date" in engine
     assert "fresh = available and not explicitly_stale" in policy
@@ -412,7 +452,7 @@ def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
 
     relative = "docs/run287_p0_4_artifact_inventory/source_inventory_snapshot.json"
     assert FROZEN_SOURCE_PUBLICATION_COMMIT == (
-        "a14fd445e5108dd9885cc1cb64cc6d2ce9459067"
+        "bf3e643efdc083ea5f43047aac04664e0a555f6b"
     )
     assert git("rev-parse", f"{FROZEN_SOURCE_PUBLICATION_COMMIT}:{relative}").strip() == (
         FROZEN_SOURCE_GIT_BLOB_SHA1
@@ -430,6 +470,12 @@ def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
         raise AssertionError("replacement source was not rejected")
     custom = tmp_path / "custom-source.json"
     custom.write_bytes(publication)
+    custom_output = tmp_path / "custom-output-unbound"
+    build(custom, custom_output)
+    custom_frame = pd.read_parquet(custom_output / "artifact_registry.parquet")
+    assert custom_frame["source_publication_commit"].eq(
+        "UNBOUND_CUSTOM_SOURCE"
+    ).all()
     try:
         build(custom, tmp_path / "custom-output", verify_live_head=True)
     except InventoryError as exc:
@@ -461,8 +507,8 @@ def test_pr_validation_checkout_supports_pinned_lineage_checks() -> None:
     relative = ".github/workflows/pr_validation.yml"
     workflow = ROOT / relative
     text = workflow.read_text(encoding="utf-8")
-    assert "fetch-depth: 64" in text
-    assert "fetch-depth: 1" not in text
+    assert "fetch-depth: 1" in text
+    assert "--filter=blob:none --unshallow origin" in text
     assert 'git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha }}"' not in text
     assert 'git merge-base --is-ancestor "$base_sha" HEAD' in text
     assert FROZEN_PUBLICATION_COMMIT == (
@@ -490,7 +536,14 @@ def test_pr_validation_checkout_supports_pinned_lineage_checks() -> None:
         cwd=ROOT,
         check=False,
     ).returncode == 0
-    verify_live_publication_lineage(source()["baseline_code_sha"])
+    pin = ROOT / "docs" / "run287_p0_4_artifact_inventory.protected_commit"
+    assert pin.read_text(encoding="utf-8").strip() == (
+        FROZEN_PROTECTED_PUBLICATION_COMMIT
+    )
+    verify_live_publication_lineage(
+        source()["baseline_code_sha"],
+        protected_commit=FROZEN_PROTECTED_PUBLICATION_COMMIT,
+    )
 
 
 def test_dirty_generator_is_rejected(tmp_path: Path) -> None:
@@ -533,6 +586,70 @@ def test_dirty_generator_is_rejected(tmp_path: Path) -> None:
             assert str(exc) == f"tracked_path_dirty:index:{builder.GENERATOR_PATH}"
         else:
             raise AssertionError("dirty generator index was not rejected")
+
+
+def test_post_publication_protected_changes_are_rejected(tmp_path: Path) -> None:
+    from tools import build_p0_4_artifact_inventory as builder
+
+    repo = tmp_path / "protected-publication-repo"
+    repo.mkdir()
+    commands = (
+        ["git", "init"],
+        ["git", "config", "user.name", "P0-4 Test"],
+        ["git", "config", "user.email", "p0-4@example.invalid"],
+        ["git", "config", "core.autocrlf", "false"],
+    )
+    for command in commands:
+        subprocess.run(command, cwd=repo, check=True, capture_output=True)
+    protected = repo / "protected.txt"
+    protected.write_text("reviewed\n", encoding="utf-8", newline="\n")
+    subprocess.run(
+        ["git", "add", "protected.txt"], cwd=repo, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "protected publication"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    publication = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    (repo / "unrelated.txt").write_text(
+        "later\n", encoding="utf-8", newline="\n"
+    )
+    subprocess.run(
+        ["git", "add", "unrelated.txt"], cwd=repo, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "unrelated descendant"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    with mock.patch.object(builder, "ROOT", repo), mock.patch.object(
+        builder, "PROTECTED_PUBLICATION_PATHS", ("protected.txt",)
+    ):
+        builder.verify_protected_publication_lineage(publication)
+        protected.write_text("changed\n", encoding="utf-8", newline="\n")
+        subprocess.run(
+            ["git", "add", "protected.txt"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "change protected path"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        try:
+            builder.verify_protected_publication_lineage(publication)
+        except builder.InventoryError as exc:
+            assert str(exc) == "post_publication_protected_delta:protected.txt"
+        else:
+            raise AssertionError("post-publication protected change was accepted")
 
 
 def test_failed_render_keeps_the_existing_bundle_intact(tmp_path: Path) -> None:
@@ -700,12 +817,13 @@ def main() -> int:
         temp_path = Path(temp_dir)
         test_source_snapshot_is_bound_to_publication_commit(temp_path)
         test_dirty_generator_is_rejected(temp_path)
+        test_post_publication_protected_changes_are_rejected(temp_path)
         test_failed_render_keeps_the_existing_bundle_intact(temp_path)
         test_safety_authority_flags_fail_closed(temp_path)
         test_required_fixed_target_aliases_cannot_be_omitted(temp_path)
         test_alias_map_must_match_object_status_and_evidence(temp_path)
         test_invalid_or_incomplete_sources_fail_closed(temp_path)
-    print("P0-4 artifact inventory smoke: 22 passed")
+    print("P0-4 artifact inventory smoke: 23 passed")
     return 0
 
 

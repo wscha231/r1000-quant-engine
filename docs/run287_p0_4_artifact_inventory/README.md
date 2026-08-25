@@ -74,6 +74,7 @@ The latest three operating runs `32801137546, 32545955145, 32440400556` all fail
 ```bash
 python -m venv .venv-p0-4
 .venv-p0-4/bin/python -m pip install --requirement docs/run287_p0_4_artifact_inventory/requirements.txt
+# Live verification reads the exact protected-publication SHA from docs/run287_p0_4_artifact_inventory.protected_commit.
 .venv-p0-4/bin/python tools/build_p0_4_artifact_inventory.py --verify-live-head
 .venv-p0-4/bin/python tests/test_p0_4_artifact_inventory.py
 ```
