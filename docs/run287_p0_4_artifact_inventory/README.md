@@ -7,10 +7,10 @@ This is the read-only inventory required by Issue #372, frozen at `2026-08-25T12
 - Dataset classes: `14`
 - Model objects: `4`
 - Durable-state objects: `8`
-- Infrastructure/artifact objects: `15`
-- Total normalized Parquet rows: `41`
+- Infrastructure/artifact objects: `19`
+- Total normalized Parquet rows: `45`
 - Latest aliases verified: `6`
-- Latest aliases blocked: `25`
+- Latest aliases blocked: `29`
 
 ## Current pipeline connection
 
@@ -74,9 +74,9 @@ The latest three operating runs `32801137546, 32545955145, 32440400556` all fail
 ```bash
 python -m venv .venv-p0-4
 .venv-p0-4/bin/python -m pip install --requirement docs/run287_p0_4_artifact_inventory/requirements.txt
-# Live verification reads the exact protected-publication SHA from docs/run287_p0_4_artifact_inventory.protected_commit.
 .venv-p0-4/bin/python tools/build_p0_4_artifact_inventory.py --verify-live-head
 .venv-p0-4/bin/python tests/test_p0_4_artifact_inventory.py
 ```
 
 On Windows PowerShell, use `.\.venv-p0-4\Scripts\python.exe` in place of `.venv-p0-4/bin/python`. The exact dependency pins are part of the frozen bundle.
+The protected-publication constant is verifier code: advancing it requires an explicit verifier diff and a new external exact-head Codex review plus the repository review-complete gate; regeneration alone grants no trust.

@@ -31,16 +31,15 @@ DEFAULT_SOURCE = ROOT / "docs" / "run287_p0_4_artifact_inventory" / "source_inve
 DEFAULT_OUTPUT = ROOT / "docs" / "run287_p0_4_artifact_inventory"
 SCHEMA_VERSION = "run287-p0-4-inventory-source-v1"
 REGISTRY_SCHEMA_VERSION = "run287-p0-4-registry-v1"
-FROZEN_SOURCE_PUBLICATION_COMMIT = "bf3e643efdc083ea5f43047aac04664e0a555f6b"
-FROZEN_SOURCE_GIT_BLOB_SHA1 = "baaa2e8da3899c9d46190a8ca8af265dfb57614c"
-FROZEN_SOURCE_SHA256 = "a18a1f599a7c3082b7b4458e57de0d8609d8bb4bcec6b09f423c1019d65b1ed1"
+FROZEN_SOURCE_PUBLICATION_COMMIT = "5b6748fa4bd0ad5454eb2af4986324d724496bf8"
+FROZEN_SOURCE_GIT_BLOB_SHA1 = "0b2037328b3a4d77231e0600c4829a549d99bc89"
+FROZEN_SOURCE_SHA256 = "d13b1cc3c3dc46026257fb116f5e4180d0c5bd4165aec9e920d0e9da596279f3"
 FROZEN_PUBLICATION_COMMIT = "f7fadfa4e7814c6453bf96ebf3a1ff4d39eadfae"
+FROZEN_PROTECTED_PUBLICATION_COMMIT = "ab0e21925155eb7a4adfaf56ce12c1d0ea3bfd17"
 GENERATOR_PATH = "tools/build_p0_4_artifact_inventory.py"
-PROTECTED_PUBLICATION_PIN_PATH = "docs/run287_p0_4_artifact_inventory.protected_commit"
 PROTECTED_PUBLICATION_PATHS = (
     ".github/workflows/pr_validation.yml",
     "docs/run287_p0_4_artifact_inventory",
-    GENERATOR_PATH,
     "tools/run_pr_validation.py",
 )
 UNBOUND_SOURCE_PUBLICATION = "UNBOUND_CUSTOM_SOURCE"
@@ -64,6 +63,10 @@ GENERATED_FILENAMES = {
     "latest_to_immutable_map.yaml",
     "migration_map.md",
 }
+BUNDLE_FILENAMES = GENERATED_FILENAMES | {
+    "source_inventory_snapshot.json",
+    "requirements.txt",
+}
 SAFETY_FALSE_FIELDS = (
     "live_trading_enabled",
     "production_activation_allowed",
@@ -80,6 +83,20 @@ REQUIRED_FIXED_ALIAS_OBJECTS = {
     "artifact.drive.portfolio-latest": "outputs/portfolio_latest.csv",
     "artifact.drive.concentrated-portfolio-latest": (
         "outputs/concentrated_portfolio_latest.csv"
+    ),
+}
+REQUIRED_MUTABLE_ARCHIVE_OBJECTS = {
+    "artifact.drive.paper-holding-risk-watch-archive": (
+        "paper_archive/run287_holding_risk_watch/"
+    ),
+    "artifact.drive.paper-decision-observation-archive": (
+        "paper_archive/run287_decision_observation_archive/"
+    ),
+    "artifact.drive.paper-risk-outcome-archive": (
+        "paper_archive/run287_risk_outcome_archive/"
+    ),
+    "artifact.drive.paper-risk-outcome-price-cache": (
+        "paper_archive/run287_risk_outcome_price_cache/"
     ),
 }
 OFFICIAL_TARGET_WORKFLOW = ".github/workflows/daily_operating_selection_refresh.yml"
@@ -496,6 +513,16 @@ def validate_source(payload: dict[str, Any]) -> None:
             raise InventoryError(f"required_fixed_alias_mismatch:{object_id}")
         if object_id not in alias_ids:
             raise InventoryError(f"required_fixed_alias_map_missing:{object_id}")
+    for object_id, alias in REQUIRED_MUTABLE_ARCHIVE_OBJECTS.items():
+        if alias not in workflow_text:
+            raise InventoryError(f"mutable_archive_not_in_baseline_workflow:{alias}")
+        row = object_index.get(object_id)
+        if row is None:
+            raise InventoryError(f"required_mutable_archive_missing:{object_id}")
+        if row.get("mutable_alias") != alias:
+            raise InventoryError(f"required_mutable_archive_mismatch:{object_id}")
+        if object_id not in alias_ids:
+            raise InventoryError(f"required_mutable_archive_map_missing:{object_id}")
     validate_failure_evidence(payload)
     if not isinstance(payload.get("migration_items"), list) or not payload["migration_items"]:
         raise InventoryError("migration_items_empty")
@@ -685,12 +712,12 @@ def render_readme(payload: dict[str, Any], row_count: int) -> str:
             "```bash",
             "python -m venv .venv-p0-4",
             ".venv-p0-4/bin/python -m pip install --requirement docs/run287_p0_4_artifact_inventory/requirements.txt",
-            "# Live verification reads the exact protected-publication SHA from docs/run287_p0_4_artifact_inventory.protected_commit.",
             ".venv-p0-4/bin/python tools/build_p0_4_artifact_inventory.py --verify-live-head",
             ".venv-p0-4/bin/python tests/test_p0_4_artifact_inventory.py",
             "```",
             "",
             "On Windows PowerShell, use `.\\.venv-p0-4\\Scripts\\python.exe` in place of `.venv-p0-4/bin/python`. The exact dependency pins are part of the frozen bundle.",
+            "The protected-publication constant is verifier code: advancing it requires an explicit verifier diff and a new external exact-head Codex review plus the repository review-complete gate; regeneration alone grants no trust.",
             "",
         ]
     )
@@ -730,18 +757,6 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
         encoding="utf-8",
         newline="\n",
     )
-
-
-def read_protected_publication_pin() -> str:
-    path = ROOT / PROTECTED_PUBLICATION_PIN_PATH
-    try:
-        value = path.read_text(encoding="utf-8").strip()
-    except OSError as exc:
-        raise InventoryError("protected_publication_pin_unavailable") from exc
-    if not SHA1_RE.fullmatch(value):
-        raise InventoryError("protected_publication_pin_invalid")
-    require_clean_tracked_path(PROTECTED_PUBLICATION_PIN_PATH)
-    return value
 
 
 def verify_protected_publication_lineage(protected_commit: str) -> None:
@@ -849,7 +864,7 @@ def verify_live_publication_lineage(
         if hashlib.sha256(actual).hexdigest() != expected_sha256:
             raise InventoryError(f"pinned_publication_file_mismatch:{path}")
     if protected_commit is None:
-        protected_commit = read_protected_publication_pin()
+        protected_commit = FROZEN_PROTECTED_PUBLICATION_COMMIT
     verify_protected_publication_lineage(protected_commit)
     require_clean_tracked_path(GENERATOR_PATH)
 
@@ -880,7 +895,16 @@ def require_clean_tracked_path(path: str) -> None:
         raise InventoryError(f"tracked_path_differs_from_head:{path}")
 
 
-def render_bundle(staging: Path, payload: dict[str, Any], rows: list[dict[str, Any]]) -> None:
+def render_bundle(
+    staging: Path,
+    payload: dict[str, Any],
+    rows: list[dict[str, Any]],
+    *,
+    source_bytes: bytes,
+    requirements_bytes: bytes,
+) -> None:
+    (staging / "source_inventory_snapshot.json").write_bytes(source_bytes)
+    (staging / "requirements.txt").write_bytes(requirements_bytes)
     write_yaml(staging / "dataset_registry.yaml", registry_document(payload, "datasets"))
     write_yaml(staging / "model_registry.yaml", registry_document(payload, "models"))
     write_yaml(
@@ -911,8 +935,13 @@ def publish_bundle_atomically(output: Path, render) -> None:
             if not output.is_dir():
                 raise InventoryError("output_path_not_directory")
             shutil.copytree(output, staging, dirs_exist_ok=True, symlinks=True)
+        linked = sorted(
+            name for name in BUNDLE_FILENAMES if (staging / name).is_symlink()
+        )
+        if linked:
+            raise InventoryError("staged_bundle_symlink:" + ",".join(linked))
         render(staging)
-        missing = sorted(name for name in GENERATED_FILENAMES if not (staging / name).is_file())
+        missing = sorted(name for name in BUNDLE_FILENAMES if not (staging / name).is_file())
         if missing:
             raise InventoryError("staged_bundle_incomplete:" + ",".join(missing))
         if output.exists():
@@ -958,9 +987,18 @@ def build(source: Path, output: Path, *, verify_live_head: bool = False) -> None
             else UNBOUND_SOURCE_PUBLICATION
         ),
     )
+    requirements_bytes = canonical_source_bytes(
+        (DEFAULT_OUTPUT / "requirements.txt").read_bytes()
+    )
     publish_bundle_atomically(
         output,
-        lambda staging: render_bundle(staging, payload, rows),
+        lambda staging: render_bundle(
+            staging,
+            payload,
+            rows,
+            source_bytes=source_bytes,
+            requirements_bytes=requirements_bytes,
+        ),
     )
 
 

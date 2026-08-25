@@ -2,11 +2,11 @@ schema_version: run287-p0-4-latest-map-v1
 market: US
 baseline_code_sha: 0f34de9a2747059b7bb808cb070a86261e119f95
 observed_at_utc: '2026-08-25T12:06:47.159838+00:00'
-source_snapshot_sha256: a18a1f599a7c3082b7b4458e57de0d8609d8bb4bcec6b09f423c1019d65b1ed1
+source_snapshot_sha256: d13b1cc3c3dc46026257fb116f5e4180d0c5bd4165aec9e920d0e9da596279f3
 status_counts:
   BLOCKED_DIVERGENT: 2
   BLOCKED_MULTIPLE_WRITERS: 1
-  BLOCKED_NO_IMMUTABLE_SOURCE: 22
+  BLOCKED_NO_IMMUTABLE_SOURCE: 26
   VERIFIED_IMMUTABLE: 6
 mappings:
 - object_id: ds.us.universe.historical-auto
@@ -126,6 +126,38 @@ mappings:
   verification: fixed path observed in the frozen official workflow and P0-3 authority census
   blockers:
   - mutable recommendation has no hash-bound accepted publication in the bounded inventory view
+- object_id: artifact.drive.paper-holding-risk-watch-archive
+  mutable_alias: paper_archive/run287_holding_risk_watch/
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: baseline P0-3 restore_dir and rclone copy writer evidence
+  blockers:
+  - mutable directory
+  - complete immutable directory manifest absent
+- object_id: artifact.drive.paper-decision-observation-archive
+  mutable_alias: paper_archive/run287_decision_observation_archive/
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: baseline P0-3 restore_dir and rclone copy writer evidence
+  blockers:
+  - mutable directory
+  - complete immutable directory manifest absent
+- object_id: artifact.drive.paper-risk-outcome-archive
+  mutable_alias: paper_archive/run287_risk_outcome_archive/
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: baseline P0-3 restore/persist census and exact three-run blocker evidence
+  blockers:
+  - legacy parent quarantined
+  - accepted immutable parent absent
+- object_id: artifact.drive.paper-risk-outcome-price-cache
+  mutable_alias: paper_archive/run287_risk_outcome_price_cache/
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: baseline P0-3 restore_dir and rclone copy writer evidence
+  blockers:
+  - mutable directory
+  - complete immutable price-universe manifest absent
 - object_id: artifact.repo.latest-global-alias
   mutable_alias: cloud_results/full_rebuild/latest_global_alpha_universe
   immutable_source: nearest candidate cloud_results/full_rebuild/20260624_28074476465_global_alpha_universe

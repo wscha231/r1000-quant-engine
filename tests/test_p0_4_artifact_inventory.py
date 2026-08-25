@@ -119,8 +119,8 @@ def test_tracked_bundle_exists_and_has_expected_counts() -> None:
         "datasets": 14,
         "models": 4,
         "durable_states": 8,
-        "artifacts": 15,
-        "artifact_registry_rows": 41,
+        "artifacts": 19,
+        "artifact_registry_rows": 45,
     }
     assert summary["safety"]["mutations_performed"] == []
     assert summary["safety"]["live_trading_enabled"] is False
@@ -154,7 +154,7 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
         for key in ("datasets", "models", "durable_states", "artifacts")
         for row in payload[key]
     }
-    assert len(expected) == 41
+    assert len(expected) == 45
     frame = pd.read_parquet(INVENTORY / "artifact_registry.parquet")
     assert REQUIRED_COLUMNS == set(frame.columns)
     assert set(frame["object_id"]) == expected
@@ -162,10 +162,10 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
     assert frame["market"].eq("US").all()
     assert frame["baseline_code_sha"].eq(payload["baseline_code_sha"]).all()
     assert frame["source_snapshot_sha256"].eq(
-        "a18a1f599a7c3082b7b4458e57de0d8609d8bb4bcec6b09f423c1019d65b1ed1"
+        "d13b1cc3c3dc46026257fb116f5e4180d0c5bd4165aec9e920d0e9da596279f3"
     ).all()
     assert frame["source_publication_commit"].eq(
-        "bf3e643efdc083ea5f43047aac04664e0a555f6b"
+        "5b6748fa4bd0ad5454eb2af4986324d724496bf8"
     ).all()
     assert frame["exact_location"].astype(str).str.strip().ne("").all()
     assert frame["rollback_restore"].astype(str).str.strip().ne("").all()
@@ -222,6 +222,28 @@ def test_every_mutable_alias_is_verified_or_explicitly_blocked() -> None:
         assert objects[object_id]["mutable_alias"] == alias
         assert mapped[object_id]["mutable_alias"] == alias
         assert mapped[object_id]["status"].startswith("BLOCKED_")
+    required_archives = {
+        "artifact.drive.paper-holding-risk-watch-archive": (
+            "paper_archive/run287_holding_risk_watch/"
+        ),
+        "artifact.drive.paper-decision-observation-archive": (
+            "paper_archive/run287_decision_observation_archive/"
+        ),
+        "artifact.drive.paper-risk-outcome-archive": (
+            "paper_archive/run287_risk_outcome_archive/"
+        ),
+        "artifact.drive.paper-risk-outcome-price-cache": (
+            "paper_archive/run287_risk_outcome_price_cache/"
+        ),
+    }
+    baseline_daily = baseline_text(
+        ".github/workflows/daily_operating_selection_refresh.yml"
+    )
+    for object_id, alias in required_archives.items():
+        assert objects[object_id]["mutable_alias"] == alias
+        assert mapped[object_id]["mutable_alias"] == alias
+        assert mapped[object_id]["status"].startswith("BLOCKED_")
+        assert alias in baseline_daily
 
 
 def test_frozen_repository_inventory_matches_baseline_tree() -> None:
@@ -452,7 +474,7 @@ def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
 
     relative = "docs/run287_p0_4_artifact_inventory/source_inventory_snapshot.json"
     assert FROZEN_SOURCE_PUBLICATION_COMMIT == (
-        "bf3e643efdc083ea5f43047aac04664e0a555f6b"
+        "5b6748fa4bd0ad5454eb2af4986324d724496bf8"
     )
     assert git("rev-parse", f"{FROZEN_SOURCE_PUBLICATION_COMMIT}:{relative}").strip() == (
         FROZEN_SOURCE_GIT_BLOB_SHA1
@@ -472,6 +494,10 @@ def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
     custom.write_bytes(publication)
     custom_output = tmp_path / "custom-output-unbound"
     build(custom, custom_output)
+    assert (custom_output / "source_inventory_snapshot.json").read_bytes() == publication
+    assert (custom_output / "requirements.txt").read_bytes() == (
+        INVENTORY / "requirements.txt"
+    ).read_bytes()
     custom_frame = pd.read_parquet(custom_output / "artifact_registry.parquet")
     assert custom_frame["source_publication_commit"].eq(
         "UNBOUND_CUSTOM_SOURCE"
@@ -538,10 +564,11 @@ def test_pr_validation_checkout_supports_pinned_lineage_checks() -> None:
         cwd=ROOT,
         check=False,
     ).returncode == 0
-    pin = ROOT / "docs" / "run287_p0_4_artifact_inventory.protected_commit"
-    assert pin.read_text(encoding="utf-8").strip() == (
-        FROZEN_PROTECTED_PUBLICATION_COMMIT
+    from tools.build_p0_4_artifact_inventory import (
+        FROZEN_PROTECTED_PUBLICATION_COMMIT as verifier_publication,
     )
+
+    assert verifier_publication == FROZEN_PROTECTED_PUBLICATION_COMMIT
     verify_live_publication_lineage(
         source()["baseline_code_sha"],
         protected_commit=FROZEN_PROTECTED_PUBLICATION_COMMIT,
@@ -678,6 +705,26 @@ def test_failed_render_keeps_the_existing_bundle_intact(tmp_path: Path) -> None:
     assert not list(tmp_path.glob(".bundle.backup-*"))
 
 
+def test_generated_destination_symlink_is_rejected(tmp_path: Path) -> None:
+    from tools.build_p0_4_artifact_inventory import InventoryError, build
+
+    output = tmp_path / "bundle"
+    output.mkdir()
+    external = tmp_path / "external.txt"
+    external.write_bytes(b"outside-must-not-change\n")
+    try:
+        (output / "README.md").symlink_to(external)
+    except OSError:
+        return
+    try:
+        build(SOURCE, output)
+    except InventoryError as exc:
+        assert str(exc) == "staged_bundle_symlink:README.md"
+    else:
+        raise AssertionError("generated destination symlink was accepted")
+    assert external.read_bytes() == b"outside-must-not-change\n"
+
+
 def test_safety_authority_flags_fail_closed(tmp_path: Path) -> None:
     from tools.build_p0_4_artifact_inventory import InventoryError, build
 
@@ -718,6 +765,25 @@ def test_required_fixed_target_aliases_cannot_be_omitted(tmp_path: Path) -> None
         assert str(exc) == f"required_fixed_alias_object_missing:{object_id}"
     else:
         raise AssertionError("missing official target alias was not rejected")
+
+    archive_id = "artifact.drive.paper-risk-outcome-archive"
+    payload = source()
+    payload["artifacts"] = [
+        row for row in payload["artifacts"] if row["object_id"] != archive_id
+    ]
+    payload["latest_to_immutable"] = [
+        row
+        for row in payload["latest_to_immutable"]
+        if row["object_id"] != archive_id
+    ]
+    missing_archive = tmp_path / "missing-archive.json"
+    missing_archive.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(missing_archive, tmp_path / "missing-archive-output")
+    except InventoryError as exc:
+        assert str(exc) == f"required_mutable_archive_missing:{archive_id}"
+    else:
+        raise AssertionError("missing official paper archive was not rejected")
 
 
 def test_alias_map_must_match_object_status_and_evidence(tmp_path: Path) -> None:
@@ -821,11 +887,12 @@ def main() -> int:
         test_dirty_generator_is_rejected(temp_path)
         test_post_publication_protected_changes_are_rejected(temp_path)
         test_failed_render_keeps_the_existing_bundle_intact(temp_path)
+        test_generated_destination_symlink_is_rejected(temp_path)
         test_safety_authority_flags_fail_closed(temp_path)
         test_required_fixed_target_aliases_cannot_be_omitted(temp_path)
         test_alias_map_must_match_object_status_and_evidence(temp_path)
         test_invalid_or_incomplete_sources_fail_closed(temp_path)
-    print("P0-4 artifact inventory smoke: 23 passed")
+    print("P0-4 artifact inventory smoke: 24 passed")
     return 0
 
 

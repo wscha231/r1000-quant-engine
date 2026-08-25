@@ -1,8 +1,8 @@
 {
   "baseline_code_sha": "0f34de9a2747059b7bb808cb070a86261e119f95",
   "counts": {
-    "artifact_registry_rows": 41,
-    "artifacts": 15,
+    "artifact_registry_rows": 45,
+    "artifacts": 19,
     "datasets": 14,
     "durable_states": 8,
     "models": 4
@@ -10,7 +10,9 @@
   "discovery_status_counts": {
     "COMPLETE_DIRECT_LIST_HASHES_NOT_COLLECTED": 1,
     "DIRTY_READ_ONLY_OBSERVATION": 1,
+    "FIXED_PATH_CENSUS_AND_EXACT_FAILURE_LOG_EVIDENCE": 1,
     "FIXED_PATH_CENSUS_FROM_BASELINE_FULL_REBUILD_AND_DAILY_CONSUMER_WORKFLOWS": 2,
+    "FIXED_PATH_CENSUS_FROM_BASELINE_P0_3_AND_DAILY_WORKFLOW": 3,
     "FIXED_PATH_CENSUS_FROM_BASELINE_WORKFLOW": 2,
     "FROZEN_BOUNDED_METADATA": 33,
     "INCOMPLETE_100_OF_MANIFEST_1048_DIRECT_CHILDREN": 1,
@@ -33,7 +35,7 @@
   "mapping_status_counts": {
     "BLOCKED_DIVERGENT": 2,
     "BLOCKED_MULTIPLE_WRITERS": 1,
-    "BLOCKED_NO_IMMUTABLE_SOURCE": 23,
+    "BLOCKED_NO_IMMUTABLE_SOURCE": 27,
     "NOT_APPLICABLE": 6,
     "VERIFIED_IMMUTABLE": 9
   },
@@ -223,5 +225,5 @@
     "target_order_ledger_mutation": false
   },
   "schema_version": "run287-p0-4-inventory-summary-v1",
-  "source_snapshot_sha256": "a18a1f599a7c3082b7b4458e57de0d8609d8bb4bcec6b09f423c1019d65b1ed1"
+  "source_snapshot_sha256": "d13b1cc3c3dc46026257fb116f5e4180d0c5bd4165aec9e920d0e9da596279f3"
 }

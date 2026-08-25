@@ -4297,10 +4297,10 @@ Expected contract:
   models, durable paper state, target outputs, and operational evidence at
   exact master `0f34de9a2747059b7bb808cb070a86261e119f95`.
 - Result: 14 dataset classes, four model objects, eight durable-state objects,
-  and 15 artifact/infrastructure objects were normalized into 41 hash- and
+  and 19 artifact/infrastructure objects were normalized into 45 hash- and
   provenance-bearing Parquet rows. Mutable aliases are verified or explicitly
-  blocked; the official target workflow's four fixed recommendation/target
-  paths are required independently of the source object's own declarations.
+  blocked; four fixed recommendation/target paths and four mutable paper archive
+  directories are required independently of the source object's declarations.
 - Operational blocker: The latest three scheduled operating-selection runs
   stopped at `Restore verified risk-outcome accepted head`. Exact run/job IDs,
   terminal excerpt hashes, exit code 2, and skipped target/ledger/persistence
@@ -4312,9 +4312,12 @@ Expected contract:
   map to cover that external set. A mutable alias is never `NOT_APPLICABLE`.
 - Reusable lesson: A reproducible evidence bundle pins the source publication,
   generator inputs, dependency versions, and row-level source provenance. It
-  stages the complete bundle before replacement, rejects dirty generator code
+  stages the complete bundle before replacement, includes the actual source and
+  dependency contract, rejects generated-path symlinks, dirty generator code,
   and custom-source writes to the canonical destination, and freezes the audit
-  commit range so unrelated future commits do not invalidate the snapshot.
+  commit range so unrelated future commits do not invalidate the snapshot. The
+  protected-publication constant is verifier code and becomes trusted only
+  through external exact-head review plus the review-complete gate.
 - Caveat: Historical Russell membership remains not proven PIT-safe; the price
   cache view is incomplete; mutable macro, feature, and model objects lack
   complete immutable lineage; and the shared rclone Drive client is a 2026
