@@ -71,7 +71,10 @@ The latest three operating runs `32801137546, 32545955145, 32440400556` all fail
 
 ## Rebuild
 
+Publication merge contract: merge this PR only with an expected-head merge commit; squash and rebase are prohibited because the pinned source and protected-publication commits must remain ancestors.
+
 ```bash
+set -euo pipefail
 git diff --quiet -- docs/run287_p0_4_artifact_inventory/requirements.txt
 git diff --cached --quiet -- docs/run287_p0_4_artifact_inventory/requirements.txt
 P0_4_REQUIREMENTS="$(mktemp)"
