@@ -452,6 +452,7 @@ def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
 
 def test_pr_validation_checkout_supports_pinned_lineage_checks() -> None:
     from tools.build_p0_4_artifact_inventory import (
+        FROZEN_PUBLICATION_COMMIT,
         PINNED_PUBLICATION_FILE_SHA256,
         canonical_source_bytes,
         verify_live_publication_lineage,
@@ -464,10 +465,74 @@ def test_pr_validation_checkout_supports_pinned_lineage_checks() -> None:
     assert "fetch-depth: 1" not in text
     assert 'git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha }}"' not in text
     assert 'git merge-base --is-ancestor "$base_sha" HEAD' in text
+    assert FROZEN_PUBLICATION_COMMIT == (
+        "f7fadfa4e7814c6453bf96ebf3a1ff4d39eadfae"
+    )
+    publication_workflow = git(
+        "show", f"{FROZEN_PUBLICATION_COMMIT}:{relative}", binary=True
+    )
     assert hashlib.sha256(
-        canonical_source_bytes(workflow.read_bytes())
+        canonical_source_bytes(publication_workflow)
     ).hexdigest() == PINNED_PUBLICATION_FILE_SHA256[relative]
+    assert subprocess.run(
+        [
+            "git",
+            "merge-base",
+            "--is-ancestor",
+            source()["baseline_code_sha"],
+            FROZEN_PUBLICATION_COMMIT,
+        ],
+        cwd=ROOT,
+        check=False,
+    ).returncode == 0
+    assert subprocess.run(
+        ["git", "merge-base", "--is-ancestor", FROZEN_PUBLICATION_COMMIT, "HEAD"],
+        cwd=ROOT,
+        check=False,
+    ).returncode == 0
     verify_live_publication_lineage(source()["baseline_code_sha"])
+
+
+def test_dirty_generator_is_rejected(tmp_path: Path) -> None:
+    from tools import build_p0_4_artifact_inventory as builder
+
+    repo = tmp_path / "generator-repo"
+    generator = repo / builder.GENERATOR_PATH
+    generator.parent.mkdir(parents=True)
+    generator.write_text("print('reviewed')\n", encoding="utf-8", newline="\n")
+    commands = (
+        ["git", "init"],
+        ["git", "config", "user.name", "P0-4 Test"],
+        ["git", "config", "user.email", "p0-4@example.invalid"],
+        ["git", "config", "core.autocrlf", "false"],
+        ["git", "add", builder.GENERATOR_PATH],
+        ["git", "commit", "-m", "fixture"],
+    )
+    for command in commands:
+        subprocess.run(command, cwd=repo, check=True, capture_output=True)
+    with mock.patch.object(builder, "ROOT", repo):
+        builder.require_clean_tracked_path(builder.GENERATOR_PATH)
+        generator.write_text("print('dirty')\n", encoding="utf-8", newline="\n")
+        try:
+            builder.require_clean_tracked_path(builder.GENERATOR_PATH)
+        except builder.InventoryError as exc:
+            assert str(exc) == (
+                f"tracked_path_dirty:worktree:{builder.GENERATOR_PATH}"
+            )
+        else:
+            raise AssertionError("dirty generator worktree was not rejected")
+        subprocess.run(
+            ["git", "add", builder.GENERATOR_PATH],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        try:
+            builder.require_clean_tracked_path(builder.GENERATOR_PATH)
+        except builder.InventoryError as exc:
+            assert str(exc) == f"tracked_path_dirty:index:{builder.GENERATOR_PATH}"
+        else:
+            raise AssertionError("dirty generator index was not rejected")
 
 
 def test_failed_render_keeps_the_existing_bundle_intact(tmp_path: Path) -> None:
@@ -634,12 +699,13 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir)
         test_source_snapshot_is_bound_to_publication_commit(temp_path)
+        test_dirty_generator_is_rejected(temp_path)
         test_failed_render_keeps_the_existing_bundle_intact(temp_path)
         test_safety_authority_flags_fail_closed(temp_path)
         test_required_fixed_target_aliases_cannot_be_omitted(temp_path)
         test_alias_map_must_match_object_status_and_evidence(temp_path)
         test_invalid_or_incomplete_sources_fail_closed(temp_path)
-    print("P0-4 artifact inventory smoke: 21 passed")
+    print("P0-4 artifact inventory smoke: 22 passed")
     return 0
 
 

@@ -34,6 +34,8 @@ REGISTRY_SCHEMA_VERSION = "run287-p0-4-registry-v1"
 FROZEN_SOURCE_PUBLICATION_COMMIT = "a14fd445e5108dd9885cc1cb64cc6d2ce9459067"
 FROZEN_SOURCE_GIT_BLOB_SHA1 = "e6aef346b22931cd6f6097692030b5a0f8410482"
 FROZEN_SOURCE_SHA256 = "74f0d882af525261378ff770452d7d0b9e670f582532ca8f4d06419f50e52f51"
+FROZEN_PUBLICATION_COMMIT = "f7fadfa4e7814c6453bf96ebf3a1ff4d39eadfae"
+GENERATOR_PATH = "tools/build_p0_4_artifact_inventory.py"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
 OBJECT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]+$")
@@ -720,24 +722,52 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def verify_live_publication_lineage(baseline: str) -> None:
-    ancestor = subprocess.run(
-        ["git", "merge-base", "--is-ancestor", baseline, "HEAD"],
+    baseline_ancestor = subprocess.run(
+        [
+            "git",
+            "merge-base",
+            "--is-ancestor",
+            baseline,
+            FROZEN_PUBLICATION_COMMIT,
+        ],
         cwd=ROOT,
         check=False,
         capture_output=True,
         text=True,
         encoding="utf-8",
     )
-    if ancestor.returncode != 0:
-        raise InventoryError("frozen_baseline_is_not_live_head_ancestor")
+    if baseline_ancestor.returncode != 0:
+        raise InventoryError("frozen_baseline_is_not_publication_ancestor")
+    publication_ancestor = subprocess.run(
+        [
+            "git",
+            "merge-base",
+            "--is-ancestor",
+            FROZEN_PUBLICATION_COMMIT,
+            "HEAD",
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    if publication_ancestor.returncode != 0:
+        raise InventoryError("frozen_publication_is_not_live_head_ancestor")
     changed = subprocess.check_output(
-        ["git", "diff", "--name-only", f"{baseline}..HEAD"],
+        [
+            "git",
+            "diff",
+            "--name-only",
+            f"{baseline}..{FROZEN_PUBLICATION_COMMIT}",
+        ],
         cwd=ROOT,
         text=True,
         encoding="utf-8",
     ).splitlines()
     allowed_exact = {
         ".github/workflows/pr_validation.yml",
+        "docs/AGENT_SHARED_LESSONS_LEDGER.md",
         "tests/test_p0_4_artifact_inventory.py",
         "tools/build_p0_4_artifact_inventory.py",
         "tools/run_pr_validation.py",
@@ -755,9 +785,41 @@ def verify_live_publication_lineage(baseline: str) -> None:
     for path, expected_sha256 in PINNED_PUBLICATION_FILE_SHA256.items():
         if path not in changed:
             continue
-        actual = canonical_source_bytes((ROOT / path).read_bytes())
+        actual = canonical_source_bytes(
+            subprocess.check_output(
+                ["git", "show", f"{FROZEN_PUBLICATION_COMMIT}:{path}"],
+                cwd=ROOT,
+            )
+        )
         if hashlib.sha256(actual).hexdigest() != expected_sha256:
             raise InventoryError(f"pinned_publication_file_mismatch:{path}")
+    require_clean_tracked_path(GENERATOR_PATH)
+
+
+def require_clean_tracked_path(path: str) -> None:
+    for cached, label in ((False, "worktree"), (True, "index")):
+        command = ["git", "diff", "--quiet"]
+        if cached:
+            command.append("--cached")
+        command.extend(["--", path])
+        result = subprocess.run(
+            command,
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            raise InventoryError(f"tracked_path_dirty:{label}:{path}")
+    try:
+        head_bytes = subprocess.check_output(
+            ["git", "show", f"HEAD:{path}"],
+            cwd=ROOT,
+        )
+        worktree_bytes = (ROOT / path).read_bytes()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise InventoryError(f"tracked_path_unavailable:{path}") from exc
+    if canonical_source_bytes(worktree_bytes) != head_bytes:
+        raise InventoryError(f"tracked_path_differs_from_head:{path}")
 
 
 def render_bundle(staging: Path, payload: dict[str, Any], rows: list[dict[str, Any]]) -> None:
