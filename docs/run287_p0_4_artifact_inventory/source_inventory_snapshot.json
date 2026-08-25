@@ -1203,7 +1203,7 @@
     },
     {
       "object_id": "ds.us.prices.replay-cache",
-      "mutable_alias": "cache_prices and replay_price_cache_manifest.json",
+      "mutable_alias": "cache_prices; cache_prices/replay_price_cache_manifest.json",
       "immutable_source": "",
       "status": "BLOCKED_NO_IMMUTABLE_SOURCE",
       "verification": "manifest hash captured; full 1048-file Drive enumeration incomplete",
@@ -1211,7 +1211,7 @@
     },
     {
       "object_id": "ds.us.macro.daily-snapshot",
-      "mutable_alias": "data_raw/free/macro/daily_snapshot/latest.json and same-date snapshot",
+      "mutable_alias": "data_raw/free/macro/daily_snapshot/latest.json",
       "immutable_source": "",
       "status": "BLOCKED_MULTIPLE_WRITERS",
       "verification": "three workflow call sites invoke the same writer",
