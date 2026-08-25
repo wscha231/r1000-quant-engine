@@ -14,7 +14,10 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from tools.build_p0_3_authority_census import validate_research_only_policy  # noqa: E402
+from tools.build_p0_3_authority_census import (  # noqa: E402
+    require_audit_commit,
+    validate_research_only_policy,
+)
 
 
 CENSUS = ROOT / "docs" / "run287_p0_3_authority_census"
@@ -55,6 +58,11 @@ def test_census_is_hash_bound_and_read_only() -> None:
         "publication_branch_and_pr_expected_delta",
     ))
     assert summary["completeness"]["open_pr_review_threads_bulk_collected"] is False
+    assert summary["completeness"]["all_pr_changed_paths_complete"] is False
+    assert summary["evidence_limitations"] == {
+        "all_pr_changed_paths_complete": False,
+        "incomplete_changed_path_prs": [5, 6, 11, 16, 49, 62, 147, 212],
+    }
     assert summary["safety"] == {
         "branch_merge_delete_or_history_rewrite": False,
         "champion_or_production_changed": False,
@@ -157,6 +165,11 @@ def test_workflow_registry_has_singular_official_authority_and_blocks_legacy_nam
             cwd=ROOT,
         )
         assert hashlib.sha256(blob).hexdigest() == row["workflow_sha256"]
+    validation_workflow = (ROOT / ".github/workflows/pr_validation.yml").read_text(
+        encoding="utf-8"
+    )
+    assert f"git fetch --no-tags --depth=1 origin {AUDIT_SHA}" in validation_workflow
+    assert f"{AUDIT_SHA}^{{commit}}" in validation_workflow
     assert {row["decision"] for row in rows} <= {"KEEP", "CONSOLIDATE", "RETIRE", "UNKNOWN"}
     target_writers = [
         row["file"]
@@ -229,6 +242,15 @@ def test_workflow_policy_drift_fails_closed() -> None:
     assert_rejected(unsafe)
 
 
+def test_frozen_audit_commit_is_resolved_independently_of_current_head() -> None:
+    require_audit_commit(ROOT, AUDIT_SHA)
+    try:
+        require_audit_commit(ROOT, "0" * 40)
+    except SystemExit:
+        return
+    raise AssertionError("missing audit commit was not rejected")
+
+
 def test_summary_exposes_ambiguous_and_duplicate_writer_surfaces() -> None:
     findings = load_summary()["authority_findings"]
     assert findings["official_target_writers"] == [
@@ -264,6 +286,7 @@ def main() -> int:
     test_every_pr_has_exact_identity_checks_review_state_and_disposition()
     test_workflow_registry_has_singular_official_authority_and_blocks_legacy_names()
     test_workflow_policy_drift_fails_closed()
+    test_frozen_audit_commit_is_resolved_independently_of_current_head()
     test_summary_exposes_ambiguous_and_duplicate_writer_surfaces()
     print("P0-3 authority census smoke: PASS")
     return 0

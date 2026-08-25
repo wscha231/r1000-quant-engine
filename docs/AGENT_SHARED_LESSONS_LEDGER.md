@@ -4229,3 +4229,29 @@ Expected contract:
 - Fullrun executed: false. Target/order/ledger mutation executed: false.
   Production enabled: false. Live trading enabled: false. Automatic promotion
   enabled: false.
+
+## 2026-08-25 - Authority census completeness is multidimensional
+
+- Agent: Codex GPT-5.6.
+- Branch: `codex/p0-3-authority-census-20260825`.
+- Context: Issue #371 required a hash-bound census of every visible branch,
+  pull request, and workflow before any cleanup or authority consolidation.
+- Result: 297 branches, 372 pull requests, and 40 workflows were inventoried at
+  exact master `916a02ac0612d64d41f71690cf667a90dfd0531a`. One official target and
+  simulated-fill ledger writer was identified; no live broker or automatic
+  promotion writer was authorized.
+- Caveat: Review-thread resolution was not bulk-collected for the 372-PR source
+  snapshot, so open PR review status remains fail-closed rather than accepted.
+- Caveat: Changed-path evidence is truncated for PRs 5, 6, 11, 16, 49, 62,
+  147, and 212. Their identity and disposition rows are retained, but they are
+  not complete recovery inventories and grant no merge or promotion authority.
+- Reusable lesson: Record completeness separately for namespace coverage,
+  review-thread evidence, and changed-path coverage. A count-complete census is
+  not path-complete. Bind workflow analysis to the audited Git blobs, retain the
+  exact compressed source, and fetch the frozen audit commit explicitly in
+  shallow CI before validating historical hashes.
+- Next action: Merge the reviewed P0-3 census, then begin P0-4 artifact inventory
+  without deleting branches, dispatching workflows, or mutating durable state.
+- Fullrun executed: false. Target/order/ledger mutation executed: false.
+  Production enabled: false. Live trading enabled: false. Automatic promotion
+  enabled: false.

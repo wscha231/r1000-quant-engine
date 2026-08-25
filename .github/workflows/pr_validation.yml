@@ -66,6 +66,12 @@ jobs:
             tools
           sparse-checkout-cone-mode: true
 
+      - name: Fetch P0-3 frozen audit commit
+        shell: bash
+        run: |
+          git fetch --no-tags --depth=1 origin 916a02ac0612d64d41f71690cf667a90dfd0531a
+          git cat-file -e '916a02ac0612d64d41f71690cf667a90dfd0531a^{commit}'
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:

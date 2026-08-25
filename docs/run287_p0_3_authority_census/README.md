@@ -21,6 +21,13 @@ The exact U0 GitHub input is tracked as
 The collector accepts this `.gz` file directly; its decompressed SHA-256 is
 `5c9741b84fe9cfff74619322bc99402d92f25979974d42a405e30091ff461216`.
 
+## Evidence limitations
+
+Changed-path collection is incomplete for PRs
+`[5,6,11,16,49,62,147,212]`. Their rows remain useful for identity and
+disposition evidence, but they are not complete recovery-path inventories and
+grant no merge or promotion authority.
+
 The publication branch and its PR did not exist in the captured namespace.  Their
 creation is the expected publication-only delta and does not authorize cleanup,
 workflow dispatch, a target/ledger mutation, fullrun, promotion, production, or

@@ -177,6 +177,17 @@ def validate_research_only_policy(policy: Mapping[str, Any], audit_sha: str) -> 
         raise SystemExit("workflow policy must not authorize production or live execution")
 
 
+def require_audit_commit(repo_root: Path, audit_sha: str) -> None:
+    completed = subprocess.run(
+        ["git", "cat-file", "-e", f"{audit_sha}^{{commit}}"],
+        cwd=repo_root,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise SystemExit(f"audit commit is unavailable: {audit_sha}")
+
+
 def require_exact_keys(actual: Iterable[str], expected: Iterable[str], label: str) -> None:
     actual_set = set(actual)
     expected_set = set(expected)
@@ -697,6 +708,9 @@ def write_readme(path: Path, summary: Mapping[str, Any]) -> None:
     classification = summary["branch_classification_counts"]
     decisions = summary["workflow_decision_counts"]
     source_artifact = summary["source_artifact"]
+    incomplete_pr_changed_paths = summary["evidence_limitations"][
+        "incomplete_changed_path_prs"
+    ]
     text = f"""# Run287 P0-3 authority census
 
 This directory is the read-only census required by Issue #371.  The snapshot is
@@ -718,6 +732,13 @@ The exact U0 GitHub input is tracked as
 `{source_artifact['compressed_sha256']}`). The collector accepts this `.gz`
 file directly; its decompressed SHA-256 is
 `{source_artifact['uncompressed_sha256']}`.
+
+## Evidence limitations
+
+Changed-path collection is incomplete for PRs
+`{canonical_json(incomplete_pr_changed_paths)}`. Their rows remain useful for
+identity and disposition evidence, but they are not complete recovery-path
+inventories and grant no merge or promotion authority.
 
 The publication branch and its PR did not exist in the captured namespace.  Their
 creation is the expected publication-only delta and does not authorize cleanup,
@@ -765,8 +786,7 @@ def main() -> int:
     audit_sha = clean_sha(args.audit_sha)
     if not audit_sha:
         raise SystemExit("audit SHA must be exact")
-    if run(["git", "rev-parse", "HEAD"], cwd=repo_root).strip() != audit_sha:
-        raise SystemExit("local HEAD does not equal the audit SHA")
+    require_audit_commit(repo_root, audit_sha)
     source_bytes = document_bytes(args.source_census)
     source = json.loads(source_bytes.decode("utf-8"))
     if source.get("schema_version") != U0_SCHEMA:
@@ -892,6 +912,10 @@ def main() -> int:
     if official_ledger != [official["paper_ledger_consumer_workflow"]]:
         raise SystemExit("official paper ledger consumer is not singular")
 
+    incomplete_pr_changed_paths = sorted(
+        row["number"] for row in pr_rows if not row["changed_paths_complete"]
+    )
+
     live_branches_after = live_branch_identity(repo_root)
     if live_branches_after != live_branches_before:
         raise SystemExit("branch namespace moved during P0-3 collection")
@@ -961,6 +985,10 @@ def main() -> int:
             "branches": len(branch_rows),
             "pull_requests": len(pr_rows),
             "workflows": len(workflows),
+        },
+        "evidence_limitations": {
+            "all_pr_changed_paths_complete": not incomplete_pr_changed_paths,
+            "incomplete_changed_path_prs": incomplete_pr_changed_paths,
         },
         "branch_classification_counts": dict(
             sorted(Counter(row["classification"] for row in branch_rows).items())
@@ -1046,6 +1074,7 @@ def main() -> int:
         "completeness": {
             "every_visible_branch_classified": len(branch_rows) == len(source_branches),
             "every_visible_pr_dispositioned": len(pr_rows) == len(source_prs),
+            "all_pr_changed_paths_complete": not incomplete_pr_changed_paths,
             "every_workflow_profiled": len(workflows) == len(policy_rows),
             "open_pr_review_threads_bulk_collected": False,
             "unknown_lineage_fail_closed": True,
