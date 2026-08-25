@@ -45,9 +45,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # The next step unshallows commit/tree history with historical blobs
-          # filtered out, so permanent P0-4 ancestry checks never depend on a
-          # fixed depth while the sparse working tree remains bounded.
+          # The next step deepens commit/tree history until every frozen P0-4
+          # audit commit is connected. Historical blobs remain filtered out.
           fetch-depth: 1
           # Historical/runtime artifacts are not Tier-1 inputs. The small
           # checksum-locked fixture under tests/ is the canonical baseline.
@@ -69,15 +68,28 @@ jobs:
             tools
           sparse-checkout-cone-mode: true
 
-      - name: Unshallow frozen audit lineage without historical blobs
+      - name: Connect frozen audit lineage without historical blobs
         shell: bash
         run: |
           set -euo pipefail
-          if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
-            git fetch --no-tags --filter=blob:none --unshallow origin
-          fi
-          git merge-base --is-ancestor a14fd445e5108dd9885cc1cb64cc6d2ce9459067 HEAD
-          git merge-base --is-ancestor f7fadfa4e7814c6453bf96ebf3a1ff4d39eadfae HEAD
+          frozen=(
+            bf3e643efdc083ea5f43047aac04664e0a555f6b
+            f7fadfa4e7814c6453bf96ebf3a1ff4d39eadfae
+          )
+          while true; do
+            connected=yes
+            for commit in "${frozen[@]}"; do
+              if ! git merge-base --is-ancestor "$commit" HEAD 2>/dev/null; then
+                connected=no
+              fi
+            done
+            [ "$connected" = yes ] && break
+            if [ "$(git rev-parse --is-shallow-repository)" != "true" ]; then
+              echo "frozen P0-4 audit lineage is not an ancestor of HEAD" >&2
+              exit 1
+            fi
+            git fetch --no-tags --filter=blob:none --deepen=64 origin "$GITHUB_REF"
+          done
 
       - name: Fetch P0-3 frozen audit commit
         shell: bash

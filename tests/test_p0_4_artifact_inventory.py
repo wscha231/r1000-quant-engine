@@ -508,7 +508,9 @@ def test_pr_validation_checkout_supports_pinned_lineage_checks() -> None:
     workflow = ROOT / relative
     text = workflow.read_text(encoding="utf-8")
     assert "fetch-depth: 1" in text
-    assert "--filter=blob:none --unshallow origin" in text
+    assert 'git fetch --no-tags --filter=blob:none --deepen=64 origin "$GITHUB_REF"' in text
+    assert 'while true; do' in text
+    assert 'git rev-parse --is-shallow-repository' in text
     assert 'git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha }}"' not in text
     assert 'git merge-base --is-ancestor "$base_sha" HEAD' in text
     assert FROZEN_PUBLICATION_COMMIT == (
