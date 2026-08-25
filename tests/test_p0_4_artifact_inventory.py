@@ -162,7 +162,7 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
         for key in ("datasets", "models", "durable_states", "artifacts")
         for row in payload[key]
     }
-    assert len(expected) == 60
+    assert len(expected) == 66
     frame = pd.read_parquet(INVENTORY / "artifact_registry.parquet")
     assert REQUIRED_COLUMNS == set(frame.columns)
     assert set(frame["object_id"]) == expected
