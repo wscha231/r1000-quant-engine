@@ -4265,14 +4265,17 @@ Expected contract:
   protection. Bind required contexts to their GitHub App IDs, reject duplicate
   protection-contract rows and ambiguous duplicate results from the same App,
   and collect the Check Suite App separately when the primary PR rollup omits
-  it. Keep legacy status contexts or provider-less historical rollups
-  explicitly unverified; otherwise an unrelated producer can silently upgrade
-  a blocked PR's disposition.
+  it. Preserve each REST run ID, status, and conclusion before matching the
+  rollup; never collapse multiple runs into a provider set. Keep legacy status
+  contexts or provider-less historical rollups explicitly unverified;
+  otherwise an unrelated producer can silently upgrade a blocked PR's
+  disposition.
 - Reusable lesson: A frozen compressed source is already an immutable artifact.
   Validate its decompressed canonical hash, but copy its authenticated archive
   bytes during regeneration instead of recompressing them; zlib implementation
   differences can otherwise change gzip hashes across operating systems even
-  when the JSON content and Python package pins are identical.
+  when the JSON content and Python package pins are identical. Frozen replay
+  must reject uncompressed substitutes even when their JSON hash matches.
 - Next action: Merge the reviewed P0-3 census, then begin P0-4 artifact inventory
   without deleting branches, dispatching workflows, or mutating durable state.
 - Fullrun executed: false. Target/order/ledger mutation executed: false.

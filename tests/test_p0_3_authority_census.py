@@ -385,6 +385,8 @@ def test_live_pr_mutable_evidence_detects_check_and_review_changes() -> None:
                     "name": name,
                     "details_url": f"https://example.invalid/check/{name}",
                     "app": {"id": app_id, "slug": "github-actions"},
+                    "status": "completed",
+                    "conclusion": "success",
                 }
                 for index, (name, app_id) in enumerate(
                     REQUIRED_CHECK_APP_IDS.items(), start=1
@@ -393,6 +395,9 @@ def test_live_pr_mutable_evidence_detects_check_and_review_changes() -> None:
         }
     ]
     providers = check_run_provider_index(provider_pages)
+    assert providers[("validate", "https://example.invalid/check/validate")][
+        0
+    ]["run_id"] == 1
     rollup = [
         {
             "__typename": "CheckRun",
@@ -409,8 +414,14 @@ def test_live_pr_mutable_evidence_detects_check_and_review_changes() -> None:
     assert check_summary(normalized)["required_success_observed"]
 
     ambiguous = copy.deepcopy(providers)
-    ambiguous[("validate", "https://example.invalid/check/validate")].add(
-        (1, "untrusted")
+    ambiguous[("validate", "https://example.invalid/check/validate")].append(
+        {
+            "run_id": 99,
+            "app_id": 1,
+            "app_slug": "untrusted",
+            "status": "completed",
+            "conclusion": "success",
+        }
     )
     try:
         attach_check_run_providers(copy.deepcopy(rollup), ambiguous)
@@ -427,6 +438,28 @@ def test_live_pr_mutable_evidence_detects_check_and_review_changes() -> None:
         pass
     else:
         raise AssertionError("incomplete CheckRun provider pagination was accepted")
+
+    duplicate_required = copy.deepcopy(provider_pages)
+    duplicate_required[0]["check_runs"].append(
+        {
+            "id": 99,
+            "name": "validate",
+            "details_url": "https://example.invalid/check/validate-rerun",
+            "app": {
+                "id": REQUIRED_CHECK_APP_IDS["validate"],
+                "slug": "github-actions",
+            },
+            "status": "completed",
+            "conclusion": "failure",
+        }
+    )
+    duplicate_required[0]["total_count"] += 1
+    try:
+        check_run_provider_index(duplicate_required)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("duplicate required REST CheckRuns were accepted")
 
 
 def test_generator_requirements_require_exact_pins() -> None:
@@ -768,6 +801,62 @@ def test_frozen_regeneration_is_independent_of_staging_directory() -> None:
         assert rejected_pr.returncode != 0
         assert "frozen PR supplement v3 archive SHA-256 mismatch" in (
             rejected_pr.stdout + rejected_pr.stderr
+        )
+
+        plain_u0 = Path(temporary) / "plain_u0.json"
+        plain_u0.write_bytes(
+            gzip.decompress(
+                (CENSUS / "source_u0_github_census.json.gz").read_bytes()
+            )
+        )
+        rejected_plain_u0 = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "tools" / "build_p0_3_authority_census.py"),
+                "--audit-sha",
+                AUDIT_SHA,
+                "--source-census",
+                str(plain_u0),
+                "--output-dir",
+                str(Path(temporary) / "rejected_plain_u0"),
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert rejected_plain_u0.returncode != 0
+        assert "authenticated U0 gzip archive" in (
+            rejected_plain_u0.stdout + rejected_plain_u0.stderr
+        )
+
+        plain_pr = Path(temporary) / "plain_pr.json"
+        plain_pr.write_bytes(
+            gzip.decompress(
+                (CENSUS / "source_pr_supplement.json.gz").read_bytes()
+            )
+        )
+        rejected_plain_pr = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "tools" / "build_p0_3_authority_census.py"),
+                "--audit-sha",
+                AUDIT_SHA,
+                "--source-census",
+                str(CENSUS / "source_u0_github_census.json.gz"),
+                "--source-pr-supplement",
+                str(plain_pr),
+                "--output-dir",
+                str(Path(temporary) / "rejected_plain_pr"),
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert rejected_plain_pr.returncode != 0
+        assert "authenticated PR supplement gzip archive" in (
+            rejected_plain_pr.stdout + rejected_plain_pr.stderr
         )
 
 

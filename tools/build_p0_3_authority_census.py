@@ -1095,7 +1095,7 @@ PR_FIELDS = (
 
 def check_run_provider_index(
     payload: Any,
-) -> dict[tuple[str, str], set[tuple[int | None, str]]]:
+) -> dict[tuple[str, str], list[dict[str, Any]]]:
     pages = payload if isinstance(payload, list) else [payload]
     if not pages:
         raise RuntimeError("check-run provider response is empty")
@@ -1121,8 +1121,9 @@ def check_run_provider_index(
     if len(total_counts) != 1 or len(runs_by_id) != next(iter(total_counts)):
         raise RuntimeError("check-run provider pagination is incomplete")
 
-    result: dict[tuple[str, str], set[tuple[int | None, str]]] = {}
-    for run_row in runs_by_id.values():
+    result: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    required_provider_run_ids: dict[tuple[str, int], list[int]] = {}
+    for run_id, run_row in runs_by_id.items():
         name = str(run_row.get("name") or "")
         details_url = str(run_row.get("details_url") or "")
         if not name:
@@ -1140,13 +1141,25 @@ def check_run_provider_index(
             provider = (app_id, app_slug)
         else:
             raise RuntimeError("check-run App identity is invalid")
-        result.setdefault((name, details_url), set()).add(provider)
+        app_id, app_slug = provider
+        evidence = {
+            "run_id": run_id,
+            "app_id": app_id,
+            "app_slug": app_slug,
+            "status": str(run_row.get("status") or ""),
+            "conclusion": str(run_row.get("conclusion") or ""),
+        }
+        result.setdefault((name, details_url), []).append(evidence)
+        if name in REQUIRED_CHECK_APP_IDS and app_id == REQUIRED_CHECK_APP_IDS[name]:
+            required_provider_run_ids.setdefault((name, app_id), []).append(run_id)
+    if any(len(run_ids) != 1 for run_ids in required_provider_run_ids.values()):
+        raise RuntimeError("duplicate required CheckRun results are ambiguous")
     return result
 
 
 def live_check_run_provider_index(
     repo_root: Path, head_sha: str
-) -> dict[tuple[str, str], set[tuple[int | None, str]]]:
+) -> dict[tuple[str, str], list[dict[str, Any]]]:
     payload = run_json(
         [
             "gh",
@@ -1166,7 +1179,7 @@ def live_check_run_provider_index(
 
 def attach_check_run_providers(
     rollup: Any,
-    providers: Mapping[tuple[str, str], set[tuple[int | None, str]]],
+    providers: Mapping[tuple[str, str], list[dict[str, Any]]],
 ) -> None:
     if not isinstance(rollup, list):
         raise RuntimeError("PR status-check rollup is invalid")
@@ -1186,14 +1199,13 @@ def attach_check_run_providers(
         matches = providers.get(identity)
         if not matches or len(matches) != 1:
             raise RuntimeError("PR CheckRun provider identity is ambiguous")
-        app_id, app_slug = next(iter(matches))
-        item["app_id"] = app_id
-        item["app_slug"] = app_slug
+        item["app_id"] = matches[0]["app_id"]
+        item["app_slug"] = matches[0]["app_slug"]
 
 
 def enrich_pr_check_providers(repo_root: Path, rows: list[dict[str, Any]]) -> None:
     provider_cache: dict[
-        str, dict[tuple[str, str], set[tuple[int | None, str]]]
+        str, dict[tuple[str, str], list[dict[str, Any]]]
     ] = {}
     for row in rows:
         rollup = row.get("statusCheckRollup") or []
@@ -1958,6 +1970,8 @@ def main() -> int:
         if args.source_census.suffix.lower() == ".gz"
         else None
     )
+    if not args.verify_live_namespace and source_archive_bytes is None:
+        raise SystemExit("frozen regeneration requires an authenticated U0 gzip archive")
     if source_archive_bytes is not None:
         require_bytes_sha256(
             source_archive_bytes,
@@ -2096,6 +2110,10 @@ def main() -> int:
             if frozen_path.suffix.lower() == ".gz"
             else None
         )
+        if frozen_pr_input_archive_bytes is None:
+            raise SystemExit(
+                "frozen regeneration requires an authenticated PR supplement gzip archive"
+            )
         frozen_pr_input_bytes = (
             gzip.decompress(frozen_pr_input_archive_bytes)
             if frozen_pr_input_archive_bytes is not None
