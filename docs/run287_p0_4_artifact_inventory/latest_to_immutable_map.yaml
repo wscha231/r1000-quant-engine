@@ -2,12 +2,12 @@ schema_version: run287-p0-4-latest-map-v1
 market: US
 baseline_code_sha: 0f34de9a2747059b7bb808cb070a86261e119f95
 observed_at_utc: '2026-08-25T12:06:47.159838+00:00'
-source_snapshot_sha256: f8993f4971bfa03b9fbc58389ef40c8bd0a8dfddc9bdb57dcc9abdeb8a283a2f
+source_snapshot_sha256: 038ca1f49d698e84aee42e3c57e6b66e8cc12358a0838792a41b7143d7cc1b79
 status_counts:
   BLOCKED_DIVERGENT: 2
   BLOCKED_MULTIPLE_WRITERS: 1
-  BLOCKED_NO_IMMUTABLE_SOURCE: 27
-  VERIFIED_IMMUTABLE: 6
+  BLOCKED_NO_IMMUTABLE_SOURCE: 34
+  VERIFIED_IMMUTABLE: 7
 mappings:
 - object_id: ds.us.universe.historical-auto
   mutable_alias: data_raw/historical_universe_membership_auto.csv
@@ -62,6 +62,12 @@ mappings:
   verification: 37 dated files observed and signal content SHA-256 captured
   blockers:
   - revision signal not bound to one dated archive manifest
+- object_id: state.us.paper.immutable-head
+  mutable_alias: paper_archive/run287_daily_simulated_fill_ledger/
+  immutable_source: paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7
+  status: VERIFIED_IMMUTABLE
+  verification: complete 243-file mutable paper-state directory is bound to the terminal verified immutable head
+  blockers: []
 - object_id: state.us.paper.accepted-publication
   mutable_alias: paper_archive/run287_daily_simulated_fill_ledger/accepted_publication.json
   immutable_source: paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/accepted_publication.json
@@ -204,13 +210,6 @@ mappings:
   blockers:
   - no dated feature bundle
   - no freshness cutoff
-- object_id: ds.us.features.drive-latest-family
-  mutable_alias: feature_store/*latest*.parquet
-  immutable_source: ''
-  status: BLOCKED_NO_IMMUTABLE_SOURCE
-  verification: complete nine-file direct folder listing
-  blockers:
-  - no immutable run directory or manifest
 - object_id: ds.us.features.candidate-universe-latest
   mutable_alias: feature_store/candidate_universe_latest.parquet
   immutable_source: ''
@@ -218,6 +217,62 @@ mappings:
   verification: content SHA-256 captured
   blockers:
   - no universe hash or immutable session source
+- object_id: ds.us.features.latest-recommendations
+  mutable_alias: feature_store/latest_recommendations.parquet
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: exact Drive file ID, size, and modified time captured
+  blockers:
+  - no immutable run directory or manifest
+- object_id: ds.us.features.scored-oos-partial
+  mutable_alias: feature_store/scored_oos_partial.parquet
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: exact Drive file ID, size, and modified time captured
+  blockers:
+  - no immutable run directory or manifest
+- object_id: ds.us.features.scored-oos-latest
+  mutable_alias: feature_store/scored_oos_latest.parquet
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: exact Drive file ID, size, and modified time captured
+  blockers:
+  - no immutable run directory or manifest
+- object_id: ds.us.features.feature-store-latest
+  mutable_alias: feature_store/feature_store_latest.parquet
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: exact Drive file ID, size, and modified time captured
+  blockers:
+  - no immutable run directory or manifest
+- object_id: ds.us.features.universe-monthly-latest
+  mutable_alias: feature_store/universe_monthly_latest.parquet
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: exact Drive file ID, size, and modified time captured
+  blockers:
+  - no immutable run directory or manifest
+- object_id: ds.us.features.macro-regime-latest
+  mutable_alias: feature_store/macro_regime_latest.parquet
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: exact Drive file ID, size, and modified time captured
+  blockers:
+  - no immutable run directory or manifest
+- object_id: ds.us.features.live-event-alert-latest
+  mutable_alias: feature_store/live_event_alert_latest.parquet
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: exact Drive file ID, size, and modified time captured
+  blockers:
+  - no immutable run directory or manifest
+- object_id: ds.us.features.fund-panel-latest
+  mutable_alias: feature_store/fund_panel_latest.parquet
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: exact Drive file ID, size, and modified time captured
+  blockers:
+  - no immutable run directory or manifest
 - object_id: model.us.phase4.bundle-latest
   mutable_alias: models/model_bundle_latest.json
   immutable_source: ''
@@ -255,7 +310,7 @@ mappings:
   blockers:
   - no run/session immutable manifest path
 - object_id: state.us.risk-outcome.accepted-heads
-  mutable_alias: verified accepted risk-outcome parent selection
+  mutable_alias: paper_archive/run287_risk_outcome_accepted_heads/
   immutable_source: ''
   status: BLOCKED_NO_IMMUTABLE_SOURCE
   verification: latest three job failures and Drive restore evidence

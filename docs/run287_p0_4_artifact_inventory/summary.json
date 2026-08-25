@@ -1,9 +1,9 @@
 {
   "baseline_code_sha": "0f34de9a2747059b7bb808cb070a86261e119f95",
   "counts": {
-    "artifact_registry_rows": 46,
+    "artifact_registry_rows": 54,
     "artifacts": 19,
-    "datasets": 15,
+    "datasets": 23,
     "durable_states": 8,
     "models": 4
   },
@@ -14,7 +14,7 @@
     "FIXED_PATH_CENSUS_FROM_BASELINE_FULL_REBUILD_AND_DAILY_CONSUMER_WORKFLOWS": 2,
     "FIXED_PATH_CENSUS_FROM_BASELINE_P0_3_AND_DAILY_WORKFLOW": 3,
     "FIXED_PATH_CENSUS_FROM_BASELINE_WORKFLOW": 2,
-    "FROZEN_BOUNDED_METADATA": 33,
+    "FROZEN_BOUNDED_METADATA": 41,
     "INCOMPLETE_100_OF_MANIFEST_1048_DIRECT_CHILDREN": 1,
     "MANIFEST_HASH_CAPTURED_TREE_ENUMERATION_INCOMPLETE": 1,
     "PROVEN_ABSENT_IN_LATEST_GITHUB_JOB": 1
@@ -36,8 +36,8 @@
   "mapping_status_counts": {
     "BLOCKED_DIVERGENT": 2,
     "BLOCKED_MULTIPLE_WRITERS": 1,
-    "BLOCKED_NO_IMMUTABLE_SOURCE": 28,
-    "NOT_APPLICABLE": 6,
+    "BLOCKED_NO_IMMUTABLE_SOURCE": 35,
+    "NOT_APPLICABLE": 7,
     "VERIFIED_IMMUTABLE": 9
   },
   "market": "US",
@@ -226,5 +226,5 @@
     "target_order_ledger_mutation": false
   },
   "schema_version": "run287-p0-4-inventory-summary-v1",
-  "source_snapshot_sha256": "f8993f4971bfa03b9fbc58389ef40c8bd0a8dfddc9bdb57dcc9abdeb8a283a2f"
+  "source_snapshot_sha256": "038ca1f49d698e84aee42e3c57e6b66e8cc12358a0838792a41b7143d7cc1b79"
 }

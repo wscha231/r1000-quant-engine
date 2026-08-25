@@ -3,7 +3,7 @@ source_schema_version: run287-p0-4-inventory-source-v1
 market: US
 baseline_code_sha: 0f34de9a2747059b7bb808cb070a86261e119f95
 observed_at_utc: '2026-08-25T12:06:47.159838+00:00'
-source_snapshot_sha256: f8993f4971bfa03b9fbc58389ef40c8bd0a8dfddc9bdb57dcc9abdeb8a283a2f
+source_snapshot_sha256: 038ca1f49d698e84aee42e3c57e6b66e8cc12358a0838792a41b7143d7cc1b79
 discovery_limits:
 - Google Drive folder listing returned only 100 direct cache_price children while the frozen manifest reports 1048 files;
   the provider view has no continuation token and remains incomplete.

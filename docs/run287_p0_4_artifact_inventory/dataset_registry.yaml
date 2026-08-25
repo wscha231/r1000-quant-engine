@@ -3,7 +3,7 @@ source_schema_version: run287-p0-4-inventory-source-v1
 market: US
 baseline_code_sha: 0f34de9a2747059b7bb808cb070a86261e119f95
 observed_at_utc: '2026-08-25T12:06:47.159838+00:00'
-source_snapshot_sha256: f8993f4971bfa03b9fbc58389ef40c8bd0a8dfddc9bdb57dcc9abdeb8a283a2f
+source_snapshot_sha256: 038ca1f49d698e84aee42e3c57e6b66e8cc12358a0838792a41b7143d7cc1b79
 discovery_limits:
 - Google Drive folder listing returned only 100 direct cache_price children while the frozen manifest reports 1048 files;
   the provider view has no continuation token and remains incomplete.
@@ -527,12 +527,12 @@ datasets:
   object_id: ds.us.events.earnings-estimates
 - schema_version: mixed-parquet-legacy
   market: US
-  logical_role: feature store, OOS scores, recommendations, macro regime, events, and fund panel
+  logical_role: bounded census container for feature store, OOS scores, recommendations, macro regime, events, and fund panel
   producer: full rebuild and feature builders
   storage_kind: google_drive_folder
   exact_location: gdrive-id:1sFgZ9AZpLm7alwSq7Vgt6uzPXR7iAkKA
   immutable_location: ''
-  mutable_alias: feature_store/*latest*.parquet
+  mutable_alias: ''
   as_of: 2026-06-23_MAX_MODIFIED; MOST_FILES_2026-04-22_TO_2026-04-23
   available_from: NOT_BOUND
   created_at: ''
@@ -555,13 +555,13 @@ datasets:
   corporate_action_classification: SOURCE_SPECIFIC_UNRESOLVED
   license_classification: SOURCE_TERMS_APPLY
   secret_pii_classification: NO_SECRET_VALUES_COLLECTED
-  retention_classification: LATEST_ONLY_FOLDER
+  retention_classification: LATEST_ONLY_FOLDER_CENSUS
   downstream_consumers:
   - model scoring
   - research sidecars
   - full rebuild
   rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
-  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  mapping_status: NOT_APPLICABLE
   discovery_status: FROZEN_BOUNDED_METADATA
   blockers:
   - all nine top-level files are latest/partial aliases
@@ -608,6 +608,327 @@ datasets:
   blockers:
   - latest alias has no immutable run/session source
   object_id: ds.us.features.candidate-universe-latest
+- schema_version: legacy-parquet-unversioned
+  market: US
+  logical_role: latest recommendation output
+  producer: legacy full rebuild
+  storage_kind: google_drive_file
+  exact_location: gdrive-id:1YEoAicCMEdvh9FJ4LM-x-QkE09EmrodQ
+  immutable_location: ''
+  mutable_alias: feature_store/latest_recommendations.parquet
+  as_of: '2026-04-23'
+  available_from: '2026-04-23T05:01:50.358Z'
+  created_at: ''
+  decision_time_cutoff: NOT_BOUND
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: 1642090
+  row_count: null
+  file_count: 1
+  content_sha256: ''
+  manifest_sha256: ''
+  writer_workflow: legacy full rebuild paths
+  writer_job: recommendation publication
+  write_authority: RESEARCH_OR_LEGACY
+  pit_classification: MIXED_AND_NOT_MANIFEST_BOUND
+  survivorship_classification: UNIVERSE_SOURCE_NOT_HASH_BOUND
+  corporate_action_classification: SOURCE_SPECIFIC_UNRESOLVED
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: LATEST_ONLY
+  downstream_consumers:
+  - recommendation review
+  - research sidecars
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers:
+  - latest alias has no immutable run/session source
+  object_id: ds.us.features.latest-recommendations
+- schema_version: legacy-parquet-unversioned
+  market: US
+  logical_role: partial out-of-sample scoring output
+  producer: legacy full rebuild
+  storage_kind: google_drive_file
+  exact_location: gdrive-id:1pGxm_U6VpQ3NT4yVhuMq8x8yCp9HNSMw
+  immutable_location: ''
+  mutable_alias: feature_store/scored_oos_partial.parquet
+  as_of: '2026-04-23'
+  available_from: '2026-04-23T03:33:30.729Z'
+  created_at: ''
+  decision_time_cutoff: NOT_BOUND
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: 69334549
+  row_count: null
+  file_count: 1
+  content_sha256: ''
+  manifest_sha256: ''
+  writer_workflow: legacy full rebuild paths
+  writer_job: OOS scoring publication
+  write_authority: RESEARCH_OR_LEGACY
+  pit_classification: MIXED_AND_NOT_MANIFEST_BOUND
+  survivorship_classification: UNIVERSE_SOURCE_NOT_HASH_BOUND
+  corporate_action_classification: SOURCE_SPECIFIC_UNRESOLVED
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: PARTIAL_LATEST_ONLY
+  downstream_consumers:
+  - model scoring
+  - research diagnostics
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers:
+  - partial alias has no immutable run/session source
+  object_id: ds.us.features.scored-oos-partial
+- schema_version: legacy-parquet-unversioned
+  market: US
+  logical_role: latest out-of-sample scoring output
+  producer: legacy full rebuild
+  storage_kind: google_drive_file
+  exact_location: gdrive-id:12xTMQH4th5hdiWl_ohbHJJXpto_FCvG1
+  immutable_location: ''
+  mutable_alias: feature_store/scored_oos_latest.parquet
+  as_of: '2026-04-23'
+  available_from: '2026-04-23T03:33:14.078Z'
+  created_at: ''
+  decision_time_cutoff: NOT_BOUND
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: 69575143
+  row_count: null
+  file_count: 1
+  content_sha256: ''
+  manifest_sha256: ''
+  writer_workflow: legacy full rebuild paths
+  writer_job: OOS scoring publication
+  write_authority: RESEARCH_OR_LEGACY
+  pit_classification: MIXED_AND_NOT_MANIFEST_BOUND
+  survivorship_classification: UNIVERSE_SOURCE_NOT_HASH_BOUND
+  corporate_action_classification: SOURCE_SPECIFIC_UNRESOLVED
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: LATEST_ONLY
+  downstream_consumers:
+  - model scoring
+  - research diagnostics
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers:
+  - latest alias has no immutable run/session source
+  object_id: ds.us.features.scored-oos-latest
+- schema_version: legacy-parquet-unversioned
+  market: US
+  logical_role: latest feature matrix
+  producer: legacy full rebuild
+  storage_kind: google_drive_file
+  exact_location: gdrive-id:1HqiUXTPqMZMEn3bAdfLWuuLiFHQdFO69
+  immutable_location: ''
+  mutable_alias: feature_store/feature_store_latest.parquet
+  as_of: '2026-04-23'
+  available_from: '2026-04-23T03:25:16.494Z'
+  created_at: ''
+  decision_time_cutoff: NOT_BOUND
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: 56540175
+  row_count: null
+  file_count: 1
+  content_sha256: ''
+  manifest_sha256: ''
+  writer_workflow: legacy full rebuild paths
+  writer_job: feature store publication
+  write_authority: RESEARCH_OR_LEGACY
+  pit_classification: MIXED_AND_NOT_MANIFEST_BOUND
+  survivorship_classification: UNIVERSE_SOURCE_NOT_HASH_BOUND
+  corporate_action_classification: SOURCE_SPECIFIC_UNRESOLVED
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: LATEST_ONLY
+  downstream_consumers:
+  - model scoring
+  - research sidecars
+  - full rebuild
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers:
+  - latest alias has no immutable run/session source
+  object_id: ds.us.features.feature-store-latest
+- schema_version: legacy-parquet-unversioned
+  market: US
+  logical_role: latest monthly universe panel
+  producer: legacy full rebuild
+  storage_kind: google_drive_file
+  exact_location: gdrive-id:1iKzOdW36E1mlPlag0_VJJ2fitSTbYgrt
+  immutable_location: ''
+  mutable_alias: feature_store/universe_monthly_latest.parquet
+  as_of: '2026-04-23'
+  available_from: '2026-04-23T03:21:22.886Z'
+  created_at: ''
+  decision_time_cutoff: NOT_BOUND
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: 36096568
+  row_count: null
+  file_count: 1
+  content_sha256: ''
+  manifest_sha256: ''
+  writer_workflow: legacy full rebuild paths
+  writer_job: monthly universe publication
+  write_authority: RESEARCH_OR_LEGACY
+  pit_classification: MIXED_AND_NOT_MANIFEST_BOUND
+  survivorship_classification: UNIVERSE_SOURCE_NOT_HASH_BOUND
+  corporate_action_classification: SOURCE_SPECIFIC_UNRESOLVED
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: LATEST_ONLY
+  downstream_consumers:
+  - universe selection
+  - model scoring
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers:
+  - latest alias has no immutable run/session source
+  object_id: ds.us.features.universe-monthly-latest
+- schema_version: legacy-parquet-unversioned
+  market: US
+  logical_role: latest macro regime panel
+  producer: legacy full rebuild
+  storage_kind: google_drive_file
+  exact_location: gdrive-id:12WY5Wf96y8_jF-nRIaF6doKKfN0GJgjm
+  immutable_location: ''
+  mutable_alias: feature_store/macro_regime_latest.parquet
+  as_of: '2026-04-23'
+  available_from: '2026-04-23T03:21:03.775Z'
+  created_at: ''
+  decision_time_cutoff: NOT_BOUND
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: 2555024
+  row_count: null
+  file_count: 1
+  content_sha256: ''
+  manifest_sha256: ''
+  writer_workflow: legacy full rebuild paths
+  writer_job: macro regime publication
+  write_authority: RESEARCH_OR_LEGACY
+  pit_classification: MIXED_AND_NOT_MANIFEST_BOUND
+  survivorship_classification: UNIVERSE_SOURCE_NOT_HASH_BOUND
+  corporate_action_classification: SOURCE_SPECIFIC_UNRESOLVED
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: LATEST_ONLY
+  downstream_consumers:
+  - macro overlay
+  - model scoring
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers:
+  - latest alias has no immutable run/session source
+  object_id: ds.us.features.macro-regime-latest
+- schema_version: legacy-parquet-unversioned
+  market: US
+  logical_role: latest live event alert panel
+  producer: legacy feature builder
+  storage_kind: google_drive_file
+  exact_location: gdrive-id:1_lYuzrAVtCcOuudt2zsoWCroIud4U781
+  immutable_location: ''
+  mutable_alias: feature_store/live_event_alert_latest.parquet
+  as_of: '2026-04-22'
+  available_from: '2026-04-22T09:03:55.693Z'
+  created_at: ''
+  decision_time_cutoff: NOT_BOUND
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: 481337
+  row_count: null
+  file_count: 1
+  content_sha256: ''
+  manifest_sha256: ''
+  writer_workflow: legacy full rebuild paths
+  writer_job: live event publication
+  write_authority: RESEARCH_OR_LEGACY
+  pit_classification: MIXED_AND_NOT_MANIFEST_BOUND
+  survivorship_classification: UNIVERSE_SOURCE_NOT_HASH_BOUND
+  corporate_action_classification: SOURCE_SPECIFIC_UNRESOLVED
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: LATEST_ONLY
+  downstream_consumers:
+  - event overlay
+  - research sidecars
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers:
+  - latest alias has no immutable run/session source
+  object_id: ds.us.features.live-event-alert-latest
+- schema_version: legacy-parquet-unversioned
+  market: US
+  logical_role: latest fund panel
+  producer: legacy feature builder
+  storage_kind: google_drive_file
+  exact_location: gdrive-id:1lssy0Y5RwhOBJAWyOeSJDUA0J2gmElIF
+  immutable_location: ''
+  mutable_alias: feature_store/fund_panel_latest.parquet
+  as_of: '2026-04-22'
+  available_from: '2026-04-22T08:44:49.245Z'
+  created_at: ''
+  decision_time_cutoff: NOT_BOUND
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: 19501099
+  row_count: null
+  file_count: 1
+  content_sha256: ''
+  manifest_sha256: ''
+  writer_workflow: legacy full rebuild paths
+  writer_job: fund panel publication
+  write_authority: RESEARCH_OR_LEGACY
+  pit_classification: MIXED_AND_NOT_MANIFEST_BOUND
+  survivorship_classification: UNIVERSE_SOURCE_NOT_HASH_BOUND
+  corporate_action_classification: SOURCE_SPECIFIC_UNRESOLVED
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: LATEST_ONLY
+  downstream_consumers:
+  - fund overlay
+  - research sidecars
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers:
+  - latest alias has no immutable run/session source
+  object_id: ds.us.features.fund-panel-latest
 - schema_version: legacy-csv-unversioned
   market: US
   logical_role: static scored universe used by free-data and selection paths
