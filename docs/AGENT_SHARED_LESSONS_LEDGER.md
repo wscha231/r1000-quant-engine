@@ -4194,3 +4194,38 @@ Expected contract:
 - Fullrun executed: false. Target/order/ledger mutation executed: false.
   Production enabled: false. Live trading enabled: false. Automatic promotion
   enabled: false.
+
+## 2026-08-23 - Workflow success, data freshness, and paper completion are separate facts
+
+- Agent: Codex GPT-5.6.
+- Branch: `codex/p0-2-current-status-20260823`.
+- Context: Issue #382 required one source-of-truth status snapshot for the US
+  engine without changing alpha or durable state.
+- Result: The observed source snapshot base, registered champion source,
+  tracked metric source (`UNVERIFIED FIXTURE EVIDENCE`), aggregate scheduled-run
+  head claim (`UNVERIFIED`), and P0-1 recovery publication were separated in
+  root `CURRENT_STATUS.md`.
+- Caveat: P0-2 did not record an exact head SHA for every inspected run, so no
+  aggregate scheduled-run source-head identity is accepted by this snapshot.
+- Caveat: A green data workflow can retain stale or partial semantic coverage.
+  The 2026-08-21 free-data run completed while reporting a common coverage end
+  of 2026-07-02; the 2026-08-22 estimate collector covered only 1/6 requested
+  names. Record output-level dates and coverage, not just job conclusions.
+- Caveat: Monitoring success is not operating completion. Crisis and
+  after-close macro/regime jobs succeeded for data through 2026-08-21, but the
+  daily selector stopped before price refresh, target construction, macro
+  freshness validation, and the simulated-ledger transaction.
+- Reusable lesson: Source publication, champion policy, tracked metric fixture,
+  per-run execution head, data freshness, and accepted paper state require
+  distinct identities. Until a hash-bound accepted metric packet and each
+  run's exact head SHA are recorded, the fixture and aggregate head claims stay
+  unverified. A workflow name such as `Live Extension` is not evidence of live
+  broker use,
+  and executable paper-broker utilities are not authorized merely because they
+  exist in the repository.
+- Next action: Complete the P0-3 authority census and P0-4 artifact inventory,
+  then repair the daily operating failure under issue #357 in an isolated P0-5
+  change. Never blindly rerun the transactional workflow.
+- Fullrun executed: false. Target/order/ledger mutation executed: false.
+  Production enabled: false. Live trading enabled: false. Automatic promotion
+  enabled: false.
