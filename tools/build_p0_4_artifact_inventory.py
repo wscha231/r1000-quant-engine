@@ -32,9 +32,9 @@ DEFAULT_SOURCE = ROOT / "docs" / "run287_p0_4_artifact_inventory" / "source_inve
 DEFAULT_OUTPUT = ROOT / "docs" / "run287_p0_4_artifact_inventory"
 SCHEMA_VERSION = "run287-p0-4-inventory-source-v1"
 REGISTRY_SCHEMA_VERSION = "run287-p0-4-registry-v1"
-FROZEN_SOURCE_PUBLICATION_COMMIT = "c13f19079cde8e30615a55629f840096d8c4f87b"
-FROZEN_SOURCE_GIT_BLOB_SHA1 = "32e06d41cd9e31886e69e3bb10b6d2ac39edf055"
-FROZEN_SOURCE_SHA256 = "e9f8467d96dd2f3e6602d6d52889653f98272149f320b47aa079f6d4b7b181a0"
+FROZEN_SOURCE_PUBLICATION_COMMIT = "47d07d7344e20ba98667aeba12fe15ddd10d7c99"
+FROZEN_SOURCE_GIT_BLOB_SHA1 = "cc7d30bfcc83d95e5e159973c07c5bf3b28c9ba8"
+FROZEN_SOURCE_SHA256 = "532cb406086f526f34fcadef564c8f9ed5f60f346edaf6073fe4f9d90e288f20"
 FROZEN_PUBLICATION_COMMIT = "f7fadfa4e7814c6453bf96ebf3a1ff4d39eadfae"
 FROZEN_PROTECTED_PUBLICATION_COMMIT = "be3e89ffb78f7e8fcc5fe3d140f3843114d719c0"
 GENERATOR_PATH = "tools/build_p0_4_artifact_inventory.py"
@@ -151,6 +151,9 @@ PINNED_FOLDER_CHILD_MANIFEST_SHA256 = {
         "96db5506b8b3f5b5eeebf5c49ce5ceff39a53b91e84710901cc82adaa24d92d1"
     ),
 }
+REQUIRED_GITHUB_ACTIONS_CACHE_OBJECT = (
+    "artifact.github.daily-operating-macro-actions-cache"
+)
 OFFICIAL_TARGET_WORKFLOW = ".github/workflows/daily_operating_selection_refresh.yml"
 OFFICIAL_PAPER_HEAD_ROOT = (
     "paper_archive/run287_daily_simulated_fill_ledger_heads"
@@ -735,6 +738,25 @@ def validate_source(payload: dict[str, Any]) -> None:
         raise InventoryError("macro_cache_manifest_size_mismatch")
     if macro_cache.get("manifest_sha256") != macro_manifest.get("manifest_sha256"):
         raise InventoryError("macro_cache_manifest_object_hash_mismatch")
+    if macro_cache.get("writer_workflow") != "UNRESOLVED_LEGACY_DRIVE_WRITER":
+        raise InventoryError("macro_cache_drive_writer_must_be_unresolved")
+    if macro_cache.get("write_authority") != (
+        "DRIVE_WRITER_UNRESOLVED; DAILY_WORKFLOW_READ_ONLY_RESTORE"
+    ):
+        raise InventoryError("macro_cache_drive_write_authority_mismatch")
+    actions_cache = object_index.get(REQUIRED_GITHUB_ACTIONS_CACHE_OBJECT)
+    if actions_cache is None:
+        raise InventoryError("github_actions_macro_cache_object_missing")
+    if actions_cache.get("storage_kind") != "github_actions_cache":
+        raise InventoryError("github_actions_macro_cache_storage_mismatch")
+    if actions_cache.get("writer_workflow") != (
+        "daily_operating_selection_refresh.yml"
+    ) or actions_cache.get("write_authority") != (
+        "GITHUB_ACTIONS_CACHE_ONLY_NOT_DRIVE_WRITER"
+    ):
+        raise InventoryError("github_actions_macro_cache_authority_mismatch")
+    if "actions/cache/save" not in workflow_text or "cache_macro" not in workflow_text:
+        raise InventoryError("github_actions_macro_cache_not_in_baseline_workflow")
     feature_rows: list[dict[str, Any]] = []
     for object_id, alias in REQUIRED_FEATURE_ALIAS_OBJECTS.items():
         row = object_index.get(object_id)
@@ -970,6 +992,17 @@ def render_readme(payload: dict[str, Any], row_count: int) -> str:
             "## Rebuild",
             "",
             "```bash",
+            "git diff --quiet -- docs/run287_p0_4_artifact_inventory/requirements.txt",
+            "git diff --cached --quiet -- docs/run287_p0_4_artifact_inventory/requirements.txt",
+            (
+                "python -c \"import hashlib,pathlib,subprocess,sys; "
+                "p='docs/run287_p0_4_artifact_inventory/requirements.txt'; "
+                "c=subprocess.check_output(['git','show','HEAD:'+p]); "
+                "w=pathlib.Path(p).read_bytes().replace(b'\\r\\n',b'\\n'); "
+                "sys.exit('unreviewed requirements.txt') if w != c or "
+                f"hashlib.sha256(c).hexdigest() != '{FROZEN_REQUIREMENTS_SHA256}' "
+                "else None\""
+            ),
             "python -m venv .venv-p0-4",
             ".venv-p0-4/bin/python -m pip install --requirement docs/run287_p0_4_artifact_inventory/requirements.txt",
             ".venv-p0-4/bin/python tools/build_p0_4_artifact_inventory.py --verify-live-head",
@@ -1275,7 +1308,7 @@ def build(source: Path, output: Path, *, verify_live_head: bool = False) -> None
     payload = read_source(source)
     payload["_source_sha256"] = hashlib.sha256(source_bytes).hexdigest()
     validate_source(payload)
-    if verify_live_head:
+    if is_canonical_source:
         verify_live_publication_lineage(payload["baseline_code_sha"])
     rows = artifact_rows(
         payload,

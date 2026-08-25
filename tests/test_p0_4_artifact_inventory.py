@@ -121,8 +121,8 @@ def test_tracked_bundle_exists_and_has_expected_counts() -> None:
         "datasets": 24,
         "models": 4,
         "durable_states": 8,
-        "artifacts": 19,
-        "artifact_registry_rows": 55,
+        "artifacts": 20,
+        "artifact_registry_rows": 56,
     }
     assert summary["safety"]["mutations_performed"] == []
     assert summary["safety"]["live_trading_enabled"] is False
@@ -156,7 +156,7 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
         for key in ("datasets", "models", "durable_states", "artifacts")
         for row in payload[key]
     }
-    assert len(expected) == 55
+    assert len(expected) == 56
     frame = pd.read_parquet(INVENTORY / "artifact_registry.parquet")
     assert REQUIRED_COLUMNS == set(frame.columns)
     assert set(frame["object_id"]) == expected
@@ -164,10 +164,10 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
     assert frame["market"].eq("US").all()
     assert frame["baseline_code_sha"].eq(payload["baseline_code_sha"]).all()
     assert frame["source_snapshot_sha256"].eq(
-        "e9f8467d96dd2f3e6602d6d52889653f98272149f320b47aa079f6d4b7b181a0"
+        "532cb406086f526f34fcadef564c8f9ed5f60f346edaf6073fe4f9d90e288f20"
     ).all()
     assert frame["source_publication_commit"].eq(
-        "c13f19079cde8e30615a55629f840096d8c4f87b"
+        "47d07d7344e20ba98667aeba12fe15ddd10d7c99"
     ).all()
     assert frame["exact_location"].astype(str).str.strip().ne("").all()
     assert frame["rollback_restore"].astype(str).str.strip().ne("").all()
@@ -271,9 +271,22 @@ def test_every_mutable_alias_is_verified_or_explicitly_blocked() -> None:
     assert objects[macro_cache_id]["mutable_alias"] == "cache_macro"
     assert objects[macro_cache_id]["file_count"] == 15
     assert objects[macro_cache_id]["size_bytes"] == 634224
+    assert objects[macro_cache_id]["producer"] == "UNRESOLVED_LEGACY_DRIVE_WRITER"
+    assert objects[macro_cache_id]["writer_workflow"] == (
+        "UNRESOLVED_LEGACY_DRIVE_WRITER"
+    )
+    assert objects[macro_cache_id]["write_authority"] == (
+        "DRIVE_WRITER_UNRESOLVED; DAILY_WORKFLOW_READ_ONLY_RESTORE"
+    )
     assert mapped[macro_cache_id]["mutable_alias"] == "cache_macro"
     assert mapped[macro_cache_id]["status"] == "BLOCKED_NO_IMMUTABLE_SOURCE"
     assert "cache_macro" in baseline_daily
+    actions_cache_id = "artifact.github.daily-operating-macro-actions-cache"
+    assert objects[actions_cache_id]["storage_kind"] == "github_actions_cache"
+    assert objects[actions_cache_id]["write_authority"] == (
+        "GITHUB_ACTIONS_CACHE_ONLY_NOT_DRIVE_WRITER"
+    )
+    assert "actions/cache/save" in baseline_daily
     feature_aliases = {
         f"feature_store/{name}"
         for name in (
@@ -563,6 +576,9 @@ def test_rebuild_uses_the_pinned_dependency_contract() -> None:
     assert "python -m venv .venv-p0-4" in readme
     assert "--requirement docs/run287_p0_4_artifact_inventory/requirements.txt" in readme
     assert "tests/test_p0_4_artifact_inventory.py" in readme
+    assert "git diff --cached --quiet -- docs/run287_p0_4_artifact_inventory/requirements.txt" in readme
+    assert "9a32746dec8900d8663ba5f6a2f47ec8f9a817eb7fb051fde772a0e7af5c0a4e" in readme
+    assert readme.index("unreviewed requirements.txt") < readme.index("pip install")
 
 
 def test_requirements_publication_is_authenticated(tmp_path: Path) -> None:
@@ -615,6 +631,7 @@ def test_requirements_publication_is_authenticated(tmp_path: Path) -> None:
 
 
 def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
+    from tools import build_p0_4_artifact_inventory as builder
     from tools.build_p0_4_artifact_inventory import (
         FROZEN_SOURCE_GIT_BLOB_SHA1,
         FROZEN_SOURCE_PUBLICATION_COMMIT,
@@ -626,7 +643,7 @@ def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
 
     relative = "docs/run287_p0_4_artifact_inventory/source_inventory_snapshot.json"
     assert FROZEN_SOURCE_PUBLICATION_COMMIT == (
-        "c13f19079cde8e30615a55629f840096d8c4f87b"
+        "47d07d7344e20ba98667aeba12fe15ddd10d7c99"
     )
     assert git("rev-parse", f"{FROZEN_SOURCE_PUBLICATION_COMMIT}:{relative}").strip() == (
         FROZEN_SOURCE_GIT_BLOB_SHA1
@@ -642,6 +659,17 @@ def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
         assert str(exc) == "canonical_source_differs_from_frozen_publication"
     else:
         raise AssertionError("replacement source was not rejected")
+    with mock.patch.object(
+        builder,
+        "verify_live_publication_lineage",
+        side_effect=InventoryError("canonical-source-lineage-checked"),
+    ):
+        try:
+            builder.build(SOURCE, tmp_path / "canonical-source-export")
+        except InventoryError as exc:
+            assert str(exc) == "canonical-source-lineage-checked"
+        else:
+            raise AssertionError("canonical-source export skipped renderer lineage")
     custom = tmp_path / "custom-source.json"
     custom.write_bytes(publication)
     custom_output = tmp_path / "custom-output-unbound"
@@ -1077,6 +1105,20 @@ def test_required_fixed_target_aliases_cannot_be_omitted(tmp_path: Path) -> None
     else:
         raise AssertionError("missing operational price cache was not rejected")
 
+    actions_cache_id = "artifact.github.daily-operating-macro-actions-cache"
+    payload = source()
+    payload["artifacts"] = [
+        row for row in payload["artifacts"] if row["object_id"] != actions_cache_id
+    ]
+    missing_actions_cache = tmp_path / "missing-actions-cache.json"
+    missing_actions_cache.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(missing_actions_cache, tmp_path / "missing-actions-cache-output")
+    except InventoryError as exc:
+        assert str(exc) == "github_actions_macro_cache_object_missing"
+    else:
+        raise AssertionError("missing GitHub Actions macro cache was not rejected")
+
 
 def test_alias_map_must_match_object_status_and_evidence(tmp_path: Path) -> None:
     from tools.build_p0_4_artifact_inventory import InventoryError, build
@@ -1335,6 +1377,18 @@ def test_folder_child_manifests_are_pinned_and_bound(tmp_path: Path) -> None:
         assert str(exc) == "macro_cache_manifest_parent_mismatch"
     else:
         raise AssertionError("macro cache outside its censused Drive folder was accepted")
+
+    payload = source()
+    row = next(row for row in payload["datasets"] if row["object_id"] == macro_id)
+    row["writer_workflow"] = "daily_operating_selection_refresh.yml"
+    false_writer = tmp_path / "false-macro-drive-writer.json"
+    false_writer.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(false_writer, tmp_path / "false-macro-drive-writer-output")
+    except InventoryError as exc:
+        assert str(exc) == "macro_cache_drive_writer_must_be_unresolved"
+    else:
+        raise AssertionError("restore-only workflow was accepted as Drive writer")
 
 
 def test_invalid_or_incomplete_sources_fail_closed(tmp_path: Path) -> None:

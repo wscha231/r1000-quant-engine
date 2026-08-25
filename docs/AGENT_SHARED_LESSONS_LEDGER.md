@@ -4297,7 +4297,7 @@ Expected contract:
   models, durable paper state, target outputs, and operational evidence at
   exact master `0f34de9a2747059b7bb808cb070a86261e119f95`.
 - Result: 24 dataset classes, four model objects, eight durable-state objects,
-  and 19 artifact/infrastructure objects were normalized into 55 hash- and
+  and 20 artifact/infrastructure objects were normalized into 56 hash- and
   provenance-bearing Parquet rows. Mutable aliases are verified or explicitly
   blocked; four fixed recommendation/target paths and four mutable paper archive
   directories are required independently of the source object's declarations.
@@ -4344,6 +4344,14 @@ Expected contract:
   failure after the new directory is installed must report that publication
   succeeded and retain the backup for later cleanup; raising an ordinary build
   failure at that point invites an unsafe retry against already-changed state.
+- Reusable lesson: Restoring a Drive directory and saving a GitHub Actions cache
+  are different authorities. Do not label a restore-only workflow as the Drive
+  writer; leave the Drive producer unbound and register the ephemeral provider
+  cache publication separately. Canonical source provenance also authenticates
+  the renderer, even when exporting to a noncanonical destination.
+- Reusable lesson: Authenticate dependency bytes before the first package
+  installation command. A later generator check can block publication, but it
+  cannot undo code already installed or executed from a dirty requirements file.
 - Reusable lesson: Shallow CI history must deepen through every commit used by
   verifier ancestry checks, including the oldest frozen inventory baseline;
   stopping at a newer publication commit leaves a future boundary window where
