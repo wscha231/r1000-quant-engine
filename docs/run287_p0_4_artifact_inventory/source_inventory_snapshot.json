@@ -1372,7 +1372,7 @@
       "logical_role": "ephemeral GitHub Actions cache publication containing restored operational cache directories",
       "producer": "daily_operating_selection_refresh.yml",
       "storage_kind": "github_actions_cache",
-      "exact_location": ".github/workflows/daily_operating_selection_refresh.yml actions/cache/save for cache_prices, cache_macro, and cache_crisis",
+      "exact_location": ".github/workflows/daily_operating_selection_refresh.yml actions/cache/save for cache_prices and cache_macro",
       "as_of": "WORKFLOW_RUNTIME_EPHEMERAL",
       "available_from": "POST_OPERATING_WORKFLOW_CACHE_SAVE",
       "decision_time_cutoff": "NOT_A_CANONICAL_DRIVE_PUBLICATION",
