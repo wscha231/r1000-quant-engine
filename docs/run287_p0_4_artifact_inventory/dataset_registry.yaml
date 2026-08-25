@@ -3,7 +3,7 @@ source_schema_version: run287-p0-4-inventory-source-v1
 market: US
 baseline_code_sha: 0f34de9a2747059b7bb808cb070a86261e119f95
 observed_at_utc: '2026-08-25T12:06:47.159838+00:00'
-source_snapshot_sha256: cb18ad7804154268df6e873d85b5ec45092290bdebdf8d833eb908dbb66e9e5d
+source_snapshot_sha256: e9f8467d96dd2f3e6602d6d52889653f98272149f320b47aa079f6d4b7b181a0
 discovery_limits:
 - Google Drive folder listing returned only 100 direct cache_price children while the frozen manifest reports 1048 files;
   the provider view has no continuation token and remains incomplete.
@@ -295,7 +295,7 @@ datasets:
   row_count: null
   file_count: 15
   content_sha256: ''
-  manifest_sha256: ''
+  manifest_sha256: 96db5506b8b3f5b5eeebf5c49ce5ceff39a53b91e84710901cc82adaa24d92d1
   writer_workflow: daily_operating_selection_refresh.yml; legacy macro collection paths
   writer_job: restore and persist refreshed operational cache
   write_authority: OFFICIAL_DAILY_OPERATING_CACHE_PERSIST_AND_LEGACY_COLLECTORS
@@ -589,7 +589,7 @@ datasets:
   row_count: null
   file_count: 9
   content_sha256: ''
-  manifest_sha256: ''
+  manifest_sha256: c478b3dc09c4a9b8a3f2eb940fd83af965bae5a051ce780df3d7f4ae8bce59d4
   writer_workflow: legacy full rebuild paths
   writer_job: ''
   write_authority: RESEARCH_OR_LEGACY
