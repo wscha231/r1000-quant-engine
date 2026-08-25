@@ -2,11 +2,11 @@ schema_version: run287-p0-4-latest-map-v1
 market: US
 baseline_code_sha: 0f34de9a2747059b7bb808cb070a86261e119f95
 observed_at_utc: '2026-08-25T12:06:47.159838+00:00'
-source_snapshot_sha256: 038ca1f49d698e84aee42e3c57e6b66e8cc12358a0838792a41b7143d7cc1b79
+source_snapshot_sha256: cb18ad7804154268df6e873d85b5ec45092290bdebdf8d833eb908dbb66e9e5d
 status_counts:
   BLOCKED_DIVERGENT: 2
   BLOCKED_MULTIPLE_WRITERS: 1
-  BLOCKED_NO_IMMUTABLE_SOURCE: 34
+  BLOCKED_NO_IMMUTABLE_SOURCE: 35
   VERIFIED_IMMUTABLE: 7
 mappings:
 - object_id: ds.us.universe.historical-auto
@@ -194,6 +194,14 @@ mappings:
   blockers:
   - no immutable session manifest copy
   - provider listing truncated
+- object_id: ds.us.macro.operational-cache
+  mutable_alias: cache_macro
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: exact Drive folder ID plus complete 15-file direct listing and baseline workflow restore/persist paths
+  blockers:
+  - no immutable session directory or manifest
+  - stale mutable cache
 - object_id: ds.us.macro.daily-snapshot
   mutable_alias: data_raw/free/macro/daily_snapshot/latest.json
   immutable_source: ''

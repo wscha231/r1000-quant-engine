@@ -3,7 +3,7 @@ source_schema_version: run287-p0-4-inventory-source-v1
 market: US
 baseline_code_sha: 0f34de9a2747059b7bb808cb070a86261e119f95
 observed_at_utc: '2026-08-25T12:06:47.159838+00:00'
-source_snapshot_sha256: 038ca1f49d698e84aee42e3c57e6b66e8cc12358a0838792a41b7143d7cc1b79
+source_snapshot_sha256: cb18ad7804154268df6e873d85b5ec45092290bdebdf8d833eb908dbb66e9e5d
 discovery_limits:
 - Google Drive folder listing returned only 100 direct cache_price children while the frozen manifest reports 1048 files;
   the provider view has no continuation token and remains incomplete.
@@ -274,6 +274,49 @@ datasets:
   - required_ticker_count is 0
   - exact_operating_universe is false
   object_id: ds.us.prices.replay-cache-manifest
+- schema_version: legacy-parquet-series-folder
+  market: US
+  logical_role: mutable macro series cache restored and persisted by the operating workflow
+  producer: legacy macro collectors and daily_operating_selection_refresh.yml
+  storage_kind: google_drive_folder
+  exact_location: gdrive-id:1daFnhx94BIRWV5PItrdSCjj4b6khaR6h
+  immutable_location: ''
+  mutable_alias: cache_macro
+  as_of: '2026-04-20'
+  available_from: '2026-04-20T06:41:25.778Z'
+  created_at: ''
+  decision_time_cutoff: NOT_BOUND_STALE_AT_OBSERVATION
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: 634224
+  row_count: null
+  file_count: 15
+  content_sha256: ''
+  manifest_sha256: ''
+  writer_workflow: daily_operating_selection_refresh.yml; legacy macro collection paths
+  writer_job: restore and persist refreshed operational cache
+  write_authority: OFFICIAL_DAILY_OPERATING_CACHE_PERSIST_AND_LEGACY_COLLECTORS
+  pit_classification: SERIES_DATES_PRESENT_BUT_FOLDER_NOT_MANIFEST_BOUND
+  survivorship_classification: NOT_APPLICABLE_MACRO_SERIES
+  corporate_action_classification: NOT_APPLICABLE_MACRO_SERIES
+  license_classification: FRED_AND_SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: MUTABLE_LATEST_CACHE_ONLY
+  downstream_consumers:
+  - crisis detection
+  - data readiness
+  - benchmark-event sidecars
+  - replay integrity
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  discovery_status: COMPLETE_15_FILE_DIRECT_FOLDER_LISTING
+  blockers:
+  - no immutable session directory or manifest
+  - latest observed file is stale relative to the operating baseline
+  object_id: ds.us.macro.operational-cache
 - schema_version: macro-daily-snapshot-unversioned
   market: US
   logical_role: current macro pulse and regime input
