@@ -4357,6 +4357,13 @@ Expected contract:
   Read source bytes once, authenticate those captured bytes, and parse that same
   buffer so a concurrent path replacement cannot split provenance from rendered
   rows.
+- Reusable lesson: A provider cache object that represents one multi-path save
+  must enumerate every published path, not only the paths relevant to the
+  immediate finding. Run-addressed pre-commit recovery and repair-quarantine
+  namespaces are durable publications too; census their writer and retention
+  boundary even when live contents and hashes remain blocked. Reject negative or
+  non-integer physical counts, and invoke every security regression from the
+  registered direct smoke entrypoint as well as pytest discovery.
 - Reusable lesson: Shallow CI history must deepen through every commit used by
   verifier ancestry checks, including the oldest frozen inventory baseline;
   stopping at a newer publication commit leaves a future boundary window where

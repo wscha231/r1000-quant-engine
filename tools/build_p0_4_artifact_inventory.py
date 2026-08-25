@@ -32,9 +32,9 @@ DEFAULT_SOURCE = ROOT / "docs" / "run287_p0_4_artifact_inventory" / "source_inve
 DEFAULT_OUTPUT = ROOT / "docs" / "run287_p0_4_artifact_inventory"
 SCHEMA_VERSION = "run287-p0-4-inventory-source-v1"
 REGISTRY_SCHEMA_VERSION = "run287-p0-4-registry-v1"
-FROZEN_SOURCE_PUBLICATION_COMMIT = "5320cdced503fb30de4995b19a44cbb1c8e489fd"
-FROZEN_SOURCE_GIT_BLOB_SHA1 = "70239a1407e99d62cb826cf97eeab8bf1af6c8d2"
-FROZEN_SOURCE_SHA256 = "81de62490e9fe7308cc16767bbc40af809d981a3ac9bbb13ae1be495d2192390"
+FROZEN_SOURCE_PUBLICATION_COMMIT = "693928167cab6c4bc1b1dfbfdb9ce8b7f2c7eef1"
+FROZEN_SOURCE_GIT_BLOB_SHA1 = "b63e8744e0075ba44f524a19cbc3cb4a8a32a514"
+FROZEN_SOURCE_SHA256 = "797080a23a10299f6268335b762fd74c1b9ac9d96fc3294d03cf4d7e358cf142"
 FROZEN_PUBLICATION_COMMIT = "f7fadfa4e7814c6453bf96ebf3a1ff4d39eadfae"
 FROZEN_PROTECTED_PUBLICATION_COMMIT = "e2aa337fa5777775d0ef19109d70273c5ef9a4dd"
 GENERATOR_PATH = "tools/build_p0_4_artifact_inventory.py"
@@ -154,9 +154,29 @@ PINNED_FOLDER_CHILD_MANIFEST_SHA256 = {
 REQUIRED_GITHUB_ACTIONS_CACHE_OBJECT = (
     "artifact.github.daily-operating-macro-actions-cache"
 )
+OFFICIAL_GITHUB_ACTIONS_CACHE_PATHS = (
+    "cache_prices",
+    "cache_macro",
+    "models",
+    "feature_store/scored_oos_latest.parquet",
+    "data_raw/free",
+    "data_pit/free",
+    "data_pit/sec",
+    "data_pit/etf_holdings",
+    "data_pit/macro",
+    "manifests/free_data",
+)
 OFFICIAL_GITHUB_ACTIONS_CACHE_LOCATION = (
-    ".github/workflows/daily_operating_selection_refresh.yml actions/cache/save "
-    "for cache_prices and cache_macro"
+    ".github/workflows/daily_operating_selection_refresh.yml Save refreshed "
+    "GitHub cache actions/cache/save@v4 paths: "
+    + "; ".join(OFFICIAL_GITHUB_ACTIONS_CACHE_PATHS)
+)
+REQUIRED_LEDGER_RECOVERY_OBJECT = (
+    "artifact.drive.paper-ledger-recovery-publications"
+)
+OFFICIAL_LEDGER_RECOVERY_LOCATION = (
+    "gdrive-root:1qcRMJCxDXsca5SmHFUu30yMAZdRLaxPA/paper_archive/recovery/"
+    "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/"
 )
 OFFICIAL_TARGET_WORKFLOW = ".github/workflows/daily_operating_selection_refresh.yml"
 OFFICIAL_PAPER_HEAD_ROOT = (
@@ -421,6 +441,14 @@ def validate_object(row: dict[str, Any], *, object_class: str) -> None:
         "manifest_sha256",
     ):
         validate_hash(row.get(field), field=f"{object_id}.{field}")
+    for field in ("size_bytes", "row_count", "file_count"):
+        value = row.get(field)
+        if value in (None, ""):
+            continue
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise InventoryError(
+                f"object_nonnegative_integer_required:{object_id}:{field}"
+            )
     code_sha = row.get("code_sha")
     if code_sha not in (None, "") and (
         not isinstance(code_sha, str) or not SHA1_RE.fullmatch(code_sha)
@@ -761,8 +789,27 @@ def validate_source(payload: dict[str, Any]) -> None:
         "GITHUB_ACTIONS_CACHE_ONLY_NOT_DRIVE_WRITER"
     ):
         raise InventoryError("github_actions_macro_cache_authority_mismatch")
-    if "actions/cache/save" not in workflow_text or "cache_macro" not in workflow_text:
+    if "actions/cache/save@v4" not in workflow_text or any(
+        path not in workflow_text for path in OFFICIAL_GITHUB_ACTIONS_CACHE_PATHS
+    ):
         raise InventoryError("github_actions_macro_cache_not_in_baseline_workflow")
+    ledger_recovery = object_index.get(REQUIRED_LEDGER_RECOVERY_OBJECT)
+    if ledger_recovery is None:
+        raise InventoryError("paper_ledger_recovery_object_missing")
+    if ledger_recovery.get("exact_location") != OFFICIAL_LEDGER_RECOVERY_LOCATION:
+        raise InventoryError("paper_ledger_recovery_location_mismatch")
+    if ledger_recovery.get("writer_workflow") != (
+        "daily_operating_selection_refresh.yml"
+    ) or ledger_recovery.get("mapping_status") != "NOT_APPLICABLE":
+        raise InventoryError("paper_ledger_recovery_authority_mismatch")
+    for required_path in (
+        "paper_archive/recovery/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/"
+        "run287_daily_simulated_fill_ledger",
+        "paper_archive/recovery/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/"
+        "untrusted_mutable_canonical/",
+    ):
+        if required_path not in workflow_text:
+            raise InventoryError("paper_ledger_recovery_not_in_baseline_workflow")
     feature_rows: list[dict[str, Any]] = []
     for object_id, alias in REQUIRED_FEATURE_ALIAS_OBJECTS.items():
         row = object_index.get(object_id)

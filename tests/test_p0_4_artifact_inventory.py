@@ -121,8 +121,8 @@ def test_tracked_bundle_exists_and_has_expected_counts() -> None:
         "datasets": 24,
         "models": 4,
         "durable_states": 8,
-        "artifacts": 20,
-        "artifact_registry_rows": 56,
+        "artifacts": 21,
+        "artifact_registry_rows": 57,
     }
     assert summary["safety"]["mutations_performed"] == []
     assert summary["safety"]["live_trading_enabled"] is False
@@ -156,7 +156,7 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
         for key in ("datasets", "models", "durable_states", "artifacts")
         for row in payload[key]
     }
-    assert len(expected) == 56
+    assert len(expected) == 57
     frame = pd.read_parquet(INVENTORY / "artifact_registry.parquet")
     assert REQUIRED_COLUMNS == set(frame.columns)
     assert set(frame["object_id"]) == expected
@@ -164,10 +164,10 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
     assert frame["market"].eq("US").all()
     assert frame["baseline_code_sha"].eq(payload["baseline_code_sha"]).all()
     assert frame["source_snapshot_sha256"].eq(
-        "81de62490e9fe7308cc16767bbc40af809d981a3ac9bbb13ae1be495d2192390"
+        "797080a23a10299f6268335b762fd74c1b9ac9d96fc3294d03cf4d7e358cf142"
     ).all()
     assert frame["source_publication_commit"].eq(
-        "5320cdced503fb30de4995b19a44cbb1c8e489fd"
+        "693928167cab6c4bc1b1dfbfdb9ce8b7f2c7eef1"
     ).all()
     assert frame["exact_location"].astype(str).str.strip().ne("").all()
     assert frame["rollback_restore"].astype(str).str.strip().ne("").all()
@@ -286,12 +286,36 @@ def test_every_mutable_alias_is_verified_or_explicitly_blocked() -> None:
     assert objects[actions_cache_id]["write_authority"] == (
         "GITHUB_ACTIONS_CACHE_ONLY_NOT_DRIVE_WRITER"
     )
-    assert objects[actions_cache_id]["exact_location"] == (
-        ".github/workflows/daily_operating_selection_refresh.yml "
-        "actions/cache/save for cache_prices and cache_macro"
+    actions_location = objects[actions_cache_id]["exact_location"]
+    expected_actions_paths = (
+        "cache_prices",
+        "cache_macro",
+        "models",
+        "feature_store/scored_oos_latest.parquet",
+        "data_raw/free",
+        "data_pit/free",
+        "data_pit/sec",
+        "data_pit/etf_holdings",
+        "data_pit/macro",
+        "manifests/free_data",
     )
+    assert all(path in actions_location for path in expected_actions_paths)
     assert "cache_crisis" not in objects[actions_cache_id]["exact_location"]
     assert "actions/cache/save" in baseline_daily
+    recovery_id = "artifact.drive.paper-ledger-recovery-publications"
+    assert objects[recovery_id]["exact_location"] == (
+        "gdrive-root:1qcRMJCxDXsca5SmHFUu30yMAZdRLaxPA/paper_archive/"
+        "recovery/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/"
+    )
+    assert objects[recovery_id]["mapping_status"] == "NOT_APPLICABLE"
+    assert (
+        "paper_archive/recovery/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/"
+        "run287_daily_simulated_fill_ledger"
+    ) in baseline_daily
+    assert (
+        "paper_archive/recovery/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/"
+        "untrusted_mutable_canonical/"
+    ) in baseline_daily
     feature_aliases = {
         f"feature_store/{name}"
         for name in (
@@ -648,7 +672,7 @@ def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
 
     relative = "docs/run287_p0_4_artifact_inventory/source_inventory_snapshot.json"
     assert FROZEN_SOURCE_PUBLICATION_COMMIT == (
-        "5320cdced503fb30de4995b19a44cbb1c8e489fd"
+        "693928167cab6c4bc1b1dfbfdb9ce8b7f2c7eef1"
     )
     assert git("rev-parse", f"{FROZEN_SOURCE_PUBLICATION_COMMIT}:{relative}").strip() == (
         FROZEN_SOURCE_GIT_BLOB_SHA1
@@ -1157,6 +1181,20 @@ def test_required_fixed_target_aliases_cannot_be_omitted(tmp_path: Path) -> None
     else:
         raise AssertionError("missing GitHub Actions macro cache was not rejected")
 
+    recovery_id = "artifact.drive.paper-ledger-recovery-publications"
+    payload = source()
+    payload["artifacts"] = [
+        row for row in payload["artifacts"] if row["object_id"] != recovery_id
+    ]
+    missing_recovery = tmp_path / "missing-paper-ledger-recovery.json"
+    missing_recovery.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(missing_recovery, tmp_path / "missing-paper-ledger-recovery-output")
+    except InventoryError as exc:
+        assert str(exc) == "paper_ledger_recovery_object_missing"
+    else:
+        raise AssertionError("missing paper-ledger recovery census was not rejected")
+
 
 def test_alias_map_must_match_object_status_and_evidence(tmp_path: Path) -> None:
     from tools.build_p0_4_artifact_inventory import InventoryError, build
@@ -1459,6 +1497,26 @@ def test_invalid_or_incomplete_sources_fail_closed(tmp_path: Path) -> None:
     else:
         raise AssertionError("invalid mutable alias mapping was not rejected")
 
+    for field in ("size_bytes", "row_count", "file_count"):
+        for label, invalid_value in (
+            ("negative", -1),
+            ("fractional", 1.5),
+            ("boolean", True),
+        ):
+            payload = source()
+            object_id = payload["datasets"][0]["object_id"]
+            payload["datasets"][0][field] = invalid_value
+            invalid_count = tmp_path / f"{label}-{field}.json"
+            invalid_count.write_text(json.dumps(payload), encoding="utf-8")
+            try:
+                build(invalid_count, tmp_path / f"{label}-{field}-output")
+            except InventoryError as exc:
+                assert str(exc) == (
+                    f"object_nonnegative_integer_required:{object_id}:{field}"
+                )
+            else:
+                raise AssertionError(f"invalid {field} value was not rejected")
+
 
 def main() -> int:
     test_tracked_bundle_exists_and_has_expected_counts()
@@ -1484,6 +1542,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir)
         test_source_snapshot_is_bound_to_publication_commit(temp_path)
+        test_build_parses_only_the_authenticated_source_bytes(temp_path)
         test_dirty_generator_is_rejected(temp_path)
         test_post_publication_protected_changes_are_rejected(temp_path)
         test_failed_render_keeps_the_existing_bundle_intact(temp_path)
@@ -1496,7 +1555,7 @@ def main() -> int:
         test_compound_aliases_and_wrong_paper_head_namespaces_fail_closed(temp_path)
         test_folder_child_manifests_are_pinned_and_bound(temp_path)
         test_invalid_or_incomplete_sources_fail_closed(temp_path)
-    print("P0-4 artifact inventory smoke: 31 passed")
+    print("P0-4 artifact inventory smoke: 32 passed")
     return 0
 
 
