@@ -708,7 +708,7 @@ def test_failed_render_keeps_the_existing_bundle_intact(tmp_path: Path) -> None:
 def test_generated_destination_symlink_is_rejected(tmp_path: Path) -> None:
     from tools.build_p0_4_artifact_inventory import InventoryError, build
 
-    output = tmp_path / "bundle"
+    output = tmp_path / "symlink-bundle"
     output.mkdir()
     external = tmp_path / "external.txt"
     external.write_bytes(b"outside-must-not-change\n")
