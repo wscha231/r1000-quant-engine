@@ -62,6 +62,33 @@ ALIAS_STATUSES = {
     "BLOCKED_MULTIPLE_WRITERS",
     "NOT_APPLICABLE",
 }
+PROVIDER_BY_STORAGE_KIND = {
+    "external_runtime_dependency": "rclone_google_drive_runtime",
+    "frozen_github_actions_run_job_metadata_and_log_excerpts": "github_actions",
+    "git_blob": "git_repository",
+    "git_tree": "git_repository",
+    "github_actions_artifact": "github_actions_artifact",
+    "github_actions_artifact_plus_drive_publication": "github_actions_and_google_drive",
+    "github_actions_cache": "github_actions_cache",
+    "github_actions_metadata": "github_actions",
+    "google_drive_expected_folder": "google_drive",
+    "google_drive_file": "google_drive",
+    "google_drive_file_in_folder": "google_drive",
+    "google_drive_file_in_head": "google_drive",
+    "google_drive_file_path_reference": "google_drive",
+    "google_drive_files": "google_drive",
+    "google_drive_folder": "google_drive",
+    "google_drive_folder_and_file": "google_drive",
+    "google_drive_folder_and_workflow_cache": "google_drive_and_github_actions_cache",
+    "google_drive_mutable_directory": "google_drive",
+    "google_drive_mutable_output": "google_drive",
+    "google_drive_run_addressed_accepted_publication": "google_drive",
+    "google_drive_run_addressed_best_effort_diagnostics": "google_drive",
+    "google_drive_run_addressed_recovery_namespace": "google_drive",
+    "local_worktree": "local_filesystem",
+    "sha256_pinned_zip_input": "provider_independent_hash_pinned_input",
+    "workflow_output_and_google_drive_file": "github_actions_and_google_drive",
+}
 GENERATED_FILENAMES = {
     "README.md",
     "summary.json",
@@ -829,6 +856,7 @@ def validate_provider_publications(
         raise InventoryError("research_static_archive_evidence_mismatch")
     if (
         drive_archive.get("exact_location") != RESEARCH_STATIC_DRIVE_LOCATION
+        or drive_archive.get("provider") != "google_drive"
         or drive_archive.get("source_artifact_hashes") != [RESEARCH_STATIC_SHA256]
         or drive_archive.get("write_authority")
         != "DRIVE_WRITER_UNRESOLVED_DAILY_WORKFLOW_READ_ONLY_RESTORE"
@@ -847,6 +875,8 @@ def validate_provider_publications(
         ):
             raise InventoryError("research_static_cache_not_in_baseline_workflow")
     if (
+        cache_archive.get("provider") != "github_actions_cache"
+        or
         cache_archive.get("cache_key") != RESEARCH_STATIC_CACHE_KEY
         or cache_archive.get("provider_paths") != [RESEARCH_STATIC_PATH]
         or cache_archive.get("source_artifact_hashes") != [RESEARCH_STATIC_SHA256]
@@ -872,6 +902,7 @@ def validate_provider_publications(
     if (
         accepted_with.get("name") != "accepted-paper-transaction-${{ github.run_id }}"
         or accepted_with.get("retention-days") != 45
+        or accepted_github.get("provider") != "github_actions_artifact"
         or accepted_github.get("artifact_name") != accepted_with.get("name")
         or accepted_github.get("retention_days") != accepted_with.get("retention-days")
         or accepted_github.get("provider_paths") != accepted_paths
@@ -924,6 +955,7 @@ def validate_provider_publications(
     if (
         daily_with.get("name") != "daily-operating-selection-refresh-${{ github.run_id }}"
         or daily_with.get("retention-days") != 45
+        or daily_github.get("provider") != "github_actions_artifact"
         or daily_github.get("artifact_name") != daily_with.get("name")
         or daily_github.get("retention_days") != daily_with.get("retention-days")
         or daily_github.get("provider_paths") != workflow_multiline_paths(daily_step)
@@ -952,6 +984,7 @@ def validate_provider_publications(
     expected_files.append("cache_prices/replay_price_cache_manifest.json")
     if (
         daily_drive.get("exact_location") != OFFICIAL_DAILY_OPERATING_DRIVE_LOCATION
+        or daily_drive.get("provider") != "google_drive"
         or daily_drive.get("provider_directories") != expected_directories
         or daily_drive.get("provider_files") != expected_files
         or daily_drive.get("write_authority")
@@ -1052,6 +1085,9 @@ def validate_source(payload: dict[str, Any]) -> None:
             if not isinstance(row, dict):
                 raise InventoryError(f"source_row_not_object:{collection}")
             normalized = {**defaults, **row}
+            storage_kind = str(normalized.get("storage_kind") or "")
+            if "provider" not in row and storage_kind in PROVIDER_BY_STORAGE_KIND:
+                normalized["provider"] = PROVIDER_BY_STORAGE_KIND[storage_kind]
             validate_object(normalized, object_class=object_class)
             object_id = normalized["object_id"]
             if object_id in objects_seen:
@@ -1549,6 +1585,7 @@ def render_readme(payload: dict[str, Any], row_count: int) -> str:
     lines.extend(
         [
             "- No Drive upload/move/delete, local cleanup, workflow dispatch, fullrun, target/order/ledger mutation, champion change, production enablement, or live trading occurred.",
+            "- Known storage kinds use the canonical provider map; `UNRESOLVED` is reserved for storage whose provider is actually unknown.",
             "- A blank hash means it was not available from the bounded provider view; it is never interpreted as verified.",
             "",
             "## Rebuild",

@@ -178,6 +178,21 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
     ).all()
     assert frame["exact_location"].astype(str).str.strip().ne("").all()
     assert frame["rollback_restore"].astype(str).str.strip().ne("").all()
+    assert frame["provider"].astype(str).str.strip().ne("").all()
+    assert frame["provider"].ne("UNRESOLVED").all()
+    providers = frame.set_index("object_id")["provider"].to_dict()
+    assert providers["artifact.github.accepted-paper-transaction-publication"] == (
+        "github_actions_artifact"
+    )
+    assert providers["artifact.github.daily-operating-evidence-publication"] == (
+        "github_actions_artifact"
+    )
+    assert providers["artifact.drive.accepted-paper-transaction-publication"] == (
+        "google_drive"
+    )
+    assert providers["artifact.drive.daily-operating-evidence-publication"] == (
+        "google_drive"
+    )
     assert set(frame["object_class"]) == {"dataset", "model", "durable_state", "artifact"}
     for registry, key in (
         ("dataset_registry.yaml", "datasets"),
@@ -400,7 +415,8 @@ def test_every_mutable_alias_is_verified_or_explicitly_blocked() -> None:
 def test_distinct_provider_publications_are_complete() -> None:
     from tools import build_p0_4_artifact_inventory as builder
 
-    payload = source()
+    payload = builder.parse_source(SOURCE.read_bytes())
+    builder.validate_source(payload)
     objects = {row["object_id"]: row for row in payload["artifacts"]}
     workflow = builder.baseline_workflow_text(payload["baseline_code_sha"])
     builder.validate_provider_publications(objects, workflow)
@@ -411,9 +427,11 @@ def test_distinct_provider_publications_are_complete() -> None:
         "exact_location"
     ] == builder.RESEARCH_STATIC_DRIVE_LOCATION
     cache = objects["artifact.github.run287-research-static-actions-cache"]
+    assert cache["provider"] == "github_actions_cache"
     assert cache["cache_key"] == builder.RESEARCH_STATIC_CACHE_KEY
     assert cache["provider_paths"] == [builder.RESEARCH_STATIC_PATH]
     accepted = objects["artifact.github.accepted-paper-transaction-publication"]
+    assert accepted["provider"] == "github_actions_artifact"
     assert accepted["retention_days"] == 45
     assert "outputs/run287_accepted_publication/" in accepted["provider_paths"]
     assert "NO_DRIVE_OR_LEDGER_AUTHORITY" in accepted["write_authority"]
@@ -437,6 +455,8 @@ def test_distinct_provider_publications_are_complete() -> None:
             assert any("partial" in item.lower() for item in catchup["blockers"])
     daily_github = objects["artifact.github.daily-operating-evidence-publication"]
     daily_drive = objects["artifact.drive.daily-operating-evidence-publication"]
+    assert daily_github["provider"] == "github_actions_artifact"
+    assert daily_drive["provider"] == "google_drive"
     assert daily_github["retention_days"] == 45
     assert "outputs/daily_market_snapshot/" in daily_github["provider_paths"]
     assert daily_drive["exact_location"] == (

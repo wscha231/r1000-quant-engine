@@ -4423,6 +4423,10 @@ Expected contract:
   may rename and delete it. A name-only allowlist is not an ownership marker.
   Before clearing a reusable virtual environment, reject POSIX symlinks and
   Windows reparse points so `venv --clear` cannot follow a link into user data.
+- Reusable lesson: A known storage provider must not inherit an `UNRESOLVED`
+  default merely because an older source row omitted a redundant field. Apply a
+  reviewed storage-kind-to-provider map during normalization, preserve stricter
+  explicit verified-provider identities, and test the published Parquet column.
 - Caveat: Historical Russell membership remains not proven PIT-safe; the price
   cache view is incomplete; mutable macro, feature, and model objects lack
   complete immutable lineage; and the shared rclone Drive client is a 2026
