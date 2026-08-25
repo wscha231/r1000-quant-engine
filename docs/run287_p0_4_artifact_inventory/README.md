@@ -7,8 +7,8 @@ This is the read-only inventory required by Issue #372, frozen at `2026-08-25T12
 - Dataset classes: `24`
 - Model objects: `4`
 - Durable-state objects: `8`
-- Infrastructure/artifact objects: `32`
-- Total normalized Parquet rows: `68`
+- Infrastructure/artifact objects: `35`
+- Total normalized Parquet rows: `71`
 - Latest aliases verified: `7`
 - Latest aliases blocked: `38`
 
@@ -76,18 +76,21 @@ Publication merge contract: merge this PR only with an expected-head merge commi
 
 ```bash
 set -euo pipefail
+python -c "import sys; sys.exit('Python 3.12 required') if sys.version_info[:2] != (3, 12) else None"
 git diff --quiet -- docs/run287_p0_4_artifact_inventory/requirements.txt
 git diff --cached --quiet -- docs/run287_p0_4_artifact_inventory/requirements.txt
 P0_4_REQUIREMENTS="$(mktemp)"
 trap 'rm -f "$P0_4_REQUIREMENTS"' EXIT
-python -c "import hashlib,pathlib,subprocess,sys; p='docs/run287_p0_4_artifact_inventory/requirements.txt'; c=subprocess.check_output(['git','show','HEAD:'+p]); w=pathlib.Path(p).read_bytes().replace(b'\r\n',b'\n'); sys.exit('unreviewed requirements.txt') if w != c or hashlib.sha256(c).hexdigest() != '9a32746dec8900d8663ba5f6a2f47ec8f9a817eb7fb051fde772a0e7af5c0a4e' else pathlib.Path(sys.argv[1]).write_bytes(c)" "$P0_4_REQUIREMENTS"
+python -c "import hashlib,pathlib,subprocess,sys; p='docs/run287_p0_4_artifact_inventory/requirements.txt'; c=subprocess.check_output(['git','show','HEAD:'+p]); w=pathlib.Path(p).read_bytes().replace(b'\r\n',b'\n'); sys.exit('unreviewed requirements.txt') if w != c or hashlib.sha256(c).hexdigest() != 'ffc0231ec1e3cb19bd17fdee4d8314c3698b457531ede701381f640c78eb06db' else pathlib.Path(sys.argv[1]).write_bytes(c)" "$P0_4_REQUIREMENTS"
 if [ -L .venv-p0-4 ]; then
   echo 'refusing symlinked .venv-p0-4' >&2
   exit 1
 fi
 python -m venv --clear .venv-p0-4
-.venv-p0-4/bin/python -m pip install --requirement "$P0_4_REQUIREMENTS"
+.venv-p0-4/bin/python -m pip install --require-hashes --requirement "$P0_4_REQUIREMENTS"
 .venv-p0-4/bin/python tools/build_p0_4_artifact_inventory.py --verify-live-head
+git diff --exit-code -- docs/run287_p0_4_artifact_inventory
+git diff --cached --exit-code -- docs/run287_p0_4_artifact_inventory
 .venv-p0-4/bin/python tests/test_p0_4_artifact_inventory.py
 ```
 
@@ -95,13 +98,15 @@ PowerShell rebuild (the dependency bytes are captured from the authenticated Git
 
 ```powershell
 $P0_4RequirementsPath = 'docs/run287_p0_4_artifact_inventory/requirements.txt'
+python -c "import sys; sys.exit('Python 3.12 required') if sys.version_info[:2] != (3, 12) else None"
+if ($LASTEXITCODE -ne 0) { throw 'Python 3.12 is required' }
 git diff --quiet -- $P0_4RequirementsPath
 if ($LASTEXITCODE -ne 0) { throw 'unreviewed requirements.txt worktree bytes' }
 git diff --cached --quiet -- $P0_4RequirementsPath
 if ($LASTEXITCODE -ne 0) { throw 'unreviewed requirements.txt index bytes' }
 $P0_4RequirementsTemp = New-TemporaryFile
 try {
-  python -c "import hashlib,pathlib,subprocess,sys; p='docs/run287_p0_4_artifact_inventory/requirements.txt'; c=subprocess.check_output(['git','show','HEAD:'+p]); w=pathlib.Path(p).read_bytes().replace(b'\r\n',b'\n'); sys.exit('unreviewed requirements.txt') if w != c or hashlib.sha256(c).hexdigest() != '9a32746dec8900d8663ba5f6a2f47ec8f9a817eb7fb051fde772a0e7af5c0a4e' else pathlib.Path(sys.argv[1]).write_bytes(c)" $P0_4RequirementsTemp
+  python -c "import hashlib,pathlib,subprocess,sys; p='docs/run287_p0_4_artifact_inventory/requirements.txt'; c=subprocess.check_output(['git','show','HEAD:'+p]); w=pathlib.Path(p).read_bytes().replace(b'\r\n',b'\n'); sys.exit('unreviewed requirements.txt') if w != c or hashlib.sha256(c).hexdigest() != 'ffc0231ec1e3cb19bd17fdee4d8314c3698b457531ede701381f640c78eb06db' else pathlib.Path(sys.argv[1]).write_bytes(c)" $P0_4RequirementsTemp
   if ($LASTEXITCODE -ne 0) { throw 'authenticated requirements capture failed' }
   if (Test-Path -LiteralPath '.venv-p0-4') {
     $P0_4VenvItem = Get-Item -LiteralPath '.venv-p0-4' -Force
@@ -110,10 +115,14 @@ try {
   python -m venv --clear .venv-p0-4
   if ($LASTEXITCODE -ne 0) { throw 'virtual environment creation failed' }
   $P0_4Python = '.\.venv-p0-4\Scripts\python.exe'
-  & $P0_4Python -m pip install --requirement $P0_4RequirementsTemp
+  & $P0_4Python -m pip install --require-hashes --requirement $P0_4RequirementsTemp
   if ($LASTEXITCODE -ne 0) { throw 'pinned dependency installation failed' }
   & $P0_4Python tools/build_p0_4_artifact_inventory.py --verify-live-head
   if ($LASTEXITCODE -ne 0) { throw 'artifact inventory regeneration failed' }
+  git diff --exit-code -- docs/run287_p0_4_artifact_inventory
+  if ($LASTEXITCODE -ne 0) { throw 'canonical bundle differs from reviewed worktree bytes' }
+  git diff --cached --exit-code -- docs/run287_p0_4_artifact_inventory
+  if ($LASTEXITCODE -ne 0) { throw 'canonical bundle differs from reviewed index bytes' }
   & $P0_4Python tests/test_p0_4_artifact_inventory.py
   if ($LASTEXITCODE -ne 0) { throw 'artifact inventory smoke failed' }
 } finally {
