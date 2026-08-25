@@ -1,0 +1,265 @@
+{
+  "audit_master_sha": "916a02ac0612d64d41f71690cf667a90dfd0531a",
+  "authority_findings": {
+    "authority_blocked_workflows": [
+      "after_close_daily.yml",
+      "layer4_monthly_swap.yml",
+      "live_extension_daily.yml"
+    ],
+    "automatic_model_promotion_writers": [],
+    "broker_or_live_named_workflows": [
+      "after_close_daily.yml",
+      "alphaops_replay_sidecars_manual.yml",
+      "daily_crisis_monitor.yml",
+      "daily_operating_selection_refresh.yml",
+      "free_data_daily_update.yml",
+      "free_data_lake_bootstrap.yml",
+      "full_rebuild_manual.yml",
+      "gate_ablation_study_manual.yml",
+      "layer4_monthly_swap.yml",
+      "live_extension_daily.yml",
+      "monthly_research.yml",
+      "overlay_combination_search_manual.yml",
+      "phase_ab_quick_rescore_manual.yml",
+      "phase_g_crisis_evidence_liquidity_replay.yml",
+      "post_disclosure_alpha_pipeline.yml",
+      "run287_sector_leadership_research.yml",
+      "sec_evidence_learning_manual.yml",
+      "sidecar_only_verify.yml",
+      "subdaily_exit_grid_sweep_manual.yml",
+      "unified_monthly.yml",
+      "weekly_data_refresh.yml"
+    ],
+    "contents_write_workflows": [
+      "after_close_daily.yml",
+      "full_rebuild_manual.yml",
+      "layer4_monthly_swap.yml",
+      "live_extension_daily.yml",
+      "monthly_research.yml",
+      "quarterly_auto_learning.yml",
+      "sidecar_only_verify.yml",
+      "unified_monthly.yml",
+      "weekly_data_refresh.yml"
+    ],
+    "live_broker_writers": [],
+    "noncanonical_broker_execution_paths": [
+      "after_close_daily.yml",
+      "layer4_monthly_swap.yml"
+    ],
+    "noncanonical_or_research_target_references": [
+      "alphaops_replay_sidecars_manual.yml",
+      "free_data_daily_update.yml",
+      "free_data_lake_bootstrap.yml",
+      "full_rebuild_manual.yml",
+      "gate_ablation_study_manual.yml",
+      "overlay_combination_search_manual.yml",
+      "phase_g_crisis_evidence_liquidity_replay.yml",
+      "portfolio_system_guard.yml",
+      "run287_sector_leadership_research.yml",
+      "sidecar_only_verify.yml"
+    ],
+    "nonofficial_paper_ledger_references": [
+      "earnings_estimates_daily.yml",
+      "free_historical_data_backfill.yml",
+      "run287_sector_leadership_research.yml"
+    ],
+    "official_paper_ledger_consumers": [
+      "daily_operating_selection_refresh.yml"
+    ],
+    "official_target_writers": [
+      "daily_operating_selection_refresh.yml"
+    ],
+    "platform_blocked_workflows": [
+      "alphaops_replay_sidecars_manual.yml"
+    ],
+    "promotion_or_champion_reference_workflows": [
+      "daily_operating_selection_refresh.yml",
+      "full_rebuild_manual.yml",
+      "gate_ablation_study_manual.yml",
+      "overlay_combination_search_manual.yml",
+      "pages_deploy.yml",
+      "run287_sector_leadership_research.yml"
+    ],
+    "rclone_write_workflows": [
+      "alphaops_replay_sidecars_manual.yml",
+      "daily_crisis_monitor.yml",
+      "daily_operating_selection_refresh.yml",
+      "data_readiness_preflight.yml",
+      "earnings_estimates_daily.yml",
+      "etf_holdings_monthly_refresh.yml",
+      "free_data_daily_update.yml",
+      "free_data_lake_bootstrap.yml",
+      "free_historical_data_backfill.yml",
+      "full_rebuild_manual.yml",
+      "gdrive_smoke_test.yml",
+      "phase_g_crisis_evidence_liquidity_replay.yml",
+      "post_disclosure_alpha_pipeline.yml",
+      "sec_13f_manager_reselection.yml",
+      "sec_13f_quarterly_refresh.yml",
+      "sec_evidence_learning_manual.yml",
+      "sec_form4_daily_refresh.yml",
+      "smart_money_top30_refresh.yml"
+    ]
+  },
+  "branch_classification_counts": {
+    "A": 67,
+    "B": 24,
+    "C": 74,
+    "D": 27,
+    "E": 4,
+    "F": 101
+  },
+  "branch_protection_contract_artifact": {
+    "bytes": 3418,
+    "media_type": "application/json",
+    "observation_identity": {
+      "audit_master_sha": "916a02ac0612d64d41f71690cf667a90dfd0531a",
+      "branch_namespace_sha256": "e70683436b46b133d93b66b47acde2565c6889bc654edce01e60182eb6afc126",
+      "observed_at_utc": "2026-08-25T09:58:24.4626105Z",
+      "publication_delta_handling": "EXPECTED_CENSUS_PUBLICATION_BRANCH_EXCLUDED_FROM_FROZEN_NAMESPACE_COMPARISON",
+      "repository": "wscha231/r1000-quant-engine",
+      "scope": "CLASSIC_PROTECTION_REVIEW_AND_PUSH_ACTORS_MATCHING_BRANCH_RULES_AND_REPOSITORY_RULESETS"
+    },
+    "observed_at_utc": "2026-08-25T09:58:24.4626105Z",
+    "repository_path": "docs/run287_p0_3_authority_census/source_branch_protection_contract.json",
+    "sha256": "f99942c67c46f53212067e81fa71f6c37f031f631fbb4a71ee4a507d25bff907"
+  },
+  "completeness": {
+    "all_pr_changed_paths_complete": false,
+    "all_pr_check_run_provider_evidence_collected": false,
+    "every_visible_branch_classified": true,
+    "every_visible_pr_dispositioned": true,
+    "every_workflow_profiled": true,
+    "historical_experiment_census_complete": false,
+    "open_pr_review_threads_bulk_collected": false,
+    "publication_branch_and_pr_expected_delta": true,
+    "unknown_lineage_fail_closed": true
+  },
+  "counts": {
+    "branches": 297,
+    "pull_requests": 372,
+    "workflows": 40
+  },
+  "evidence_limitations": {
+    "all_pr_changed_paths_complete": false,
+    "incomplete_changed_path_prs": [
+      5,
+      6,
+      11,
+      16,
+      49,
+      62,
+      147,
+      212
+    ],
+    "pr_check_run_provider_evidence_state_counts": {
+      "NOT_COLLECTED_FAIL_CLOSED": 372
+    }
+  },
+  "generated_at_utc": "2026-08-25T05:19:23.469377+00:00",
+  "generator_runtime_requirements_artifact": {
+    "bytes": 44,
+    "media_type": "text/plain",
+    "repository_path": "docs/run287_p0_3_authority_census/requirements.txt",
+    "sha256": "8c74d7c2c73e36c06bee51001a8ffc2579ea71555bb392cfb89a6ce0e05047ca"
+  },
+  "generator_runtime_versions": {
+    "PyYAML": "6.0.3",
+    "pandas": "2.3.3",
+    "pyarrow": "23.0.1"
+  },
+  "output_hashes": {
+    "README.md": "543e49a68c94887162e91fb3b57f037a3b6dcafc229759cdab365fe6fbe5d910",
+    "branch_census.parquet": "98701ad208b92bc9c21506d8a322cb7258050998e2f46ba9d6760f0ea134d773",
+    "pr_census.parquet": "ebe4744ed506bf993ca127cb104f7d2dcb9484fedd91e6d0170602d7218faa2e",
+    "requirements.txt": "8c74d7c2c73e36c06bee51001a8ffc2579ea71555bb392cfb89a6ce0e05047ca",
+    "source_branch_protection_contract.json": "f99942c67c46f53212067e81fa71f6c37f031f631fbb4a71ee4a507d25bff907",
+    "source_branch_supplement.parquet": "12ea17046e062707437b995b95cc610ccf2ef0398dbdf9ff05c0011ff810f530",
+    "source_pr_supplement.json.gz": "78a5a6be1bf25c6b4b07bd3cf5f7ff390779e6d5583a5035a10a0872ef33872e",
+    "source_u0_github_census.json.gz": "43037952f1464bd41cdb0d2eaba78503da60f17d66c410dea186b34e0b62ef2c",
+    "source_workflow_authority_policy.json": "01977fda9c76c2513244b07d118cbb8bae620e6db03c0d6c3060763e36b9d3f7",
+    "workflow_registry.yaml": "006003bfec081cda1e924e5db22c1f1cd612d40e0e8a136637af763ca658df53"
+  },
+  "pr_disposition_counts": {
+    "CLOSED_UNMERGED_QUARANTINE": 23,
+    "INTEGRATED_NO_FURTHER_MERGE": 242,
+    "OPEN_BLOCKED_CHECKS_OR_REVIEW_REQUIRED": 4,
+    "OPEN_DRAFT_REVIEW_REQUIRED": 103
+  },
+  "pr_state_counts": {
+    "CLOSED": 23,
+    "MERGED": 242,
+    "OPEN": 107
+  },
+  "repository": "wscha231/r1000-quant-engine",
+  "safety": {
+    "branch_merge_delete_or_history_rewrite": false,
+    "champion_or_production_changed": false,
+    "fullrun_executed": false,
+    "live_trading_enabled": false,
+    "metadata_only": true,
+    "target_order_or_ledger_mutated": false,
+    "workflow_dispatched": false
+  },
+  "schema_version": "run287-p0-3-authority-census-v1",
+  "source_artifact": {
+    "compressed_bytes": 471357,
+    "compressed_sha256": "43037952f1464bd41cdb0d2eaba78503da60f17d66c410dea186b34e0b62ef2c",
+    "media_type": "application/gzip",
+    "repository_path": "docs/run287_p0_3_authority_census/source_u0_github_census.json.gz",
+    "uncompressed_bytes": 6366713,
+    "uncompressed_sha256": "5c9741b84fe9cfff74619322bc99402d92f25979974d42a405e30091ff461216"
+  },
+  "source_branch_supplement_artifact": {
+    "bytes": 1418116,
+    "media_type": "application/vnd.apache.parquet",
+    "repository_path": "docs/run287_p0_3_authority_census/source_branch_supplement.parquet",
+    "rows": 297,
+    "sha256": "12ea17046e062707437b995b95cc610ccf2ef0398dbdf9ff05c0011ff810f530"
+  },
+  "source_experiment_completeness": {
+    "historical_challenger_allowed": false,
+    "historical_experiment_census_complete": false,
+    "unmapped_experiment_candidate_count": 372
+  },
+  "source_hashes": {
+    "branch_namespace_sha256": "e70683436b46b133d93b66b47acde2565c6889bc654edce01e60182eb6afc126",
+    "branch_protection_contract_sha256": "f99942c67c46f53212067e81fa71f6c37f031f631fbb4a71ee4a507d25bff907",
+    "generator_runtime_requirements_sha256": "8c74d7c2c73e36c06bee51001a8ffc2579ea71555bb392cfb89a6ce0e05047ca",
+    "pull_request_namespace_sha256": "639d708c707dbc48a1f02cc8eeb15a1c28837226f545b2ea8f84fb6b3313937c",
+    "source_branch_supplement_sha256": "12ea17046e062707437b995b95cc610ccf2ef0398dbdf9ff05c0011ff810f530",
+    "source_pr_supplement_sha256": "26d73139a95334a0b954dd6c943dc4f24ed38df4afd5f870f7117546cb002c99",
+    "source_u0_census_sha256": "5c9741b84fe9cfff74619322bc99402d92f25979974d42a405e30091ff461216",
+    "workflow_policy_sha256": "01977fda9c76c2513244b07d118cbb8bae620e6db03c0d6c3060763e36b9d3f7"
+  },
+  "source_pr_supplement_artifact": {
+    "compressed_bytes": 44002,
+    "compressed_sha256": "78a5a6be1bf25c6b4b07bd3cf5f7ff390779e6d5583a5035a10a0872ef33872e",
+    "media_type": "application/gzip",
+    "repository_path": "docs/run287_p0_3_authority_census/source_pr_supplement.json.gz",
+    "uncompressed_bytes": 890184,
+    "uncompressed_sha256": "26d73139a95334a0b954dd6c943dc4f24ed38df4afd5f870f7117546cb002c99"
+  },
+  "source_promotion_blockers": [
+    "branch_only_experiment_candidates_require_recovery",
+    "duplicate_code_head_sha_groups_require_canonical_deduplication",
+    "experiment_candidates_require_canonical_mapping",
+    "historical_return_series_and_trial_deduplication_not_recovered",
+    "one_or_more_git_ancestry_results_are_unverified",
+    "one_or_more_pr_changed_path_lists_are_truncated",
+    "one_or_more_pr_check_metadata_sets_are_unresolved",
+    "one_or_more_pr_review_metadata_sets_are_unresolved",
+    "parameter_and_data_hash_duplicate_groups_not_yet_recovered"
+  ],
+  "source_workflow_policy_artifact": {
+    "bytes": 15766,
+    "media_type": "application/json",
+    "repository_path": "docs/run287_p0_3_authority_census/source_workflow_authority_policy.json",
+    "sha256": "01977fda9c76c2513244b07d118cbb8bae620e6db03c0d6c3060763e36b9d3f7"
+  },
+  "workflow_decision_counts": {
+    "CONSOLIDATE": 6,
+    "KEEP": 32,
+    "UNKNOWN": 2
+  }
+}

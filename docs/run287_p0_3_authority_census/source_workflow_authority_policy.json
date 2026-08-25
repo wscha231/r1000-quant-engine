@@ -1,0 +1,353 @@
+{
+  "schema_version": "run287-p0-3-workflow-authority-policy-v1",
+  "baseline_master_sha": "916a02ac0612d64d41f71690cf667a90dfd0531a",
+  "repository": "wscha231/r1000-quant-engine",
+  "global_guards": {
+    "live_broker_execution_enabled": false,
+    "automatic_model_promotion_enabled": false,
+    "production_authority_default": "NONE_RESEARCH_ONLY",
+    "model_promotion_authority_default": "NONE_AUTOMATIC_DISABLED",
+    "unlisted_workflow_policy": "FAIL_CLOSED"
+  },
+  "official_authority": {
+    "us_target_writer_workflow": "daily_operating_selection_refresh.yml",
+    "paper_ledger_consumer_workflow": "daily_operating_selection_refresh.yml",
+    "paper_ledger_mode": "SIMULATED_FILL_ONLY",
+    "accepted_state_store": "GOOGLE_DRIVE_CANONICAL_PAPER_STATE",
+    "live_broker_writer_workflow": null
+  },
+  "workflows": {
+    "adr_candidate_monthly.yml": {
+      "declared_role": "monthly_adr_candidate_research",
+      "decision": "KEEP",
+      "target_authority": "RESEARCH_ARTIFACT_ONLY",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "RESEARCH_OR_DATASET_ONLY",
+      "human_approval_requirement": "SCHEDULED_RESEARCH_ONLY"
+    },
+    "after_close_daily.yml": {
+      "declared_role": "after_close_macro_regime_advisory",
+      "decision": "CONSOLIDATE",
+      "target_authority": "NONE",
+      "paper_ledger_authority": "NONCANONICAL_ALPACA_PAPER_EXECUTOR_BLOCKED",
+      "durable_write_scope": "VERSIONED_RESEARCH_REPORT_ONLY",
+      "production_live_authority": "NONCANONICAL_ALPACA_PAPER_EXECUTION_PATH_BLOCKED",
+      "human_approval_requirement": "SCHEDULED_ADVISORY_ONLY; EXECUTE_AND_ALLOW_LEGACY_EXECUTE_INPUTS_GRANT_NO CANONICAL AUTHORITY",
+      "authority_blockers": [
+        "LEGACY_ALPACA_PAPER_EXECUTOR_BYPASSES_CANONICAL_ACCOUNT_LEDGER"
+      ]
+    },
+    "agent_board_manual.yml": {
+      "declared_role": "agent_and_issue_status_board",
+      "decision": "KEEP",
+      "target_authority": "NONE",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "ISSUE_AND_REPORT_METADATA_ONLY",
+      "human_approval_requirement": "MANUAL_OR_SCHEDULED_METADATA_ONLY"
+    },
+    "aggressive_lab_manual.yml": {
+      "declared_role": "manual_aggressive_challenger_research",
+      "decision": "KEEP",
+      "target_authority": "RESEARCH_ARTIFACT_ONLY",
+      "paper_ledger_authority": "RESEARCH_REPLAY_ONLY",
+      "durable_write_scope": "RESEARCH_ARTIFACT_ONLY",
+      "human_approval_requirement": "WORKFLOW_DISPATCH_RESEARCH_ONLY"
+    },
+    "alphaops_replay_sidecars_manual.yml": {
+      "declared_role": "manual_fast_research_replay",
+      "decision": "KEEP",
+      "target_authority": "RESEARCH_ARTIFACT_ONLY",
+      "paper_ledger_authority": "RESEARCH_REPLAY_ONLY",
+      "durable_write_scope": "RESEARCH_OR_DATASET_ONLY",
+      "human_approval_requirement": "WORKFLOW_DISPATCH_RESEARCH_ONLY",
+      "known_blocker": "INVALID_WORKFLOW_EXCEEDED_MAX_EXPRESSION_LENGTH_21000"
+    },
+    "daily_autolearning_scan.yml": {
+      "declared_role": "daily_challenger_proposal_scan",
+      "decision": "KEEP",
+      "target_authority": "NONE",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "PROPOSAL_ARTIFACT_ONLY",
+      "human_approval_requirement": "NO_AUTOMATIC_ACTIVATION"
+    },
+    "daily_crisis_monitor.yml": {
+      "declared_role": "daily_crisis_advisory_monitor",
+      "decision": "CONSOLIDATE",
+      "target_authority": "NONE",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "ADVISORY_RESEARCH_ONLY",
+      "human_approval_requirement": "NO_TARGET_MUTATION_AUTHORITY"
+    },
+    "daily_operating_selection_refresh.yml": {
+      "declared_role": "official_us_target_and_simulated_fill_paper_operation",
+      "decision": "KEEP",
+      "target_authority": "OFFICIAL_CURRENT_US_TARGET_WRITER",
+      "paper_ledger_authority": "OFFICIAL_SIMULATED_FILL_CONSUMER_AND_WRITER",
+      "durable_write_scope": "CANONICAL_PAPER_ACCEPTED_STATE_FAIL_CLOSED",
+      "human_approval_requirement": "SCHEDULE_FAIL_CLOSED; LEGACY_PARENT_MIGRATION_REQUIRES_EXPLICIT_ONE_TIME_WORKFLOW_DISPATCH_AUTHORIZATION"
+    },
+    "data_readiness_preflight.yml": {
+      "declared_role": "data_readiness_preflight_and_conditional_companyfacts_refresh",
+      "decision": "KEEP",
+      "target_authority": "NONE",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "DIAGNOSTIC_ARTIFACT_AND_CONDITIONAL_CANONICAL_COMPANYFACTS_DATASET_WRITE",
+      "human_approval_requirement": "WORKFLOW_DISPATCH_WITH_SEC_COMPANYFACTS_TRUE_REQUIRED_FOR_CANONICAL_DATASET_MUTATION; NO_TARGET_OR_LEDGER_MUTATION_AUTHORITY"
+    },
+    "earnings_estimates_daily.yml": {
+      "declared_role": "forward_only_earnings_estimate_collection",
+      "decision": "KEEP",
+      "target_authority": "RESEARCH_OVERLAY_ONLY",
+      "paper_ledger_authority": "FORWARD_RESEARCH_LEDGER_ONLY",
+      "durable_write_scope": "RESEARCH_OR_DATASET_ONLY",
+      "human_approval_requirement": "NO_HISTORICAL_BACKTEST_OR_PRODUCTION_ACCEPTANCE"
+    },
+    "etf_holdings_monthly_refresh.yml": {
+      "declared_role": "monthly_etf_holdings_collection",
+      "decision": "KEEP",
+      "target_authority": "NONE",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "DATASET_ONLY",
+      "human_approval_requirement": "NO_TARGET_MUTATION_AUTHORITY"
+    },
+    "free_data_daily_update.yml": {
+      "declared_role": "daily_free_data_collection_and_proxy_validation",
+      "decision": "KEEP",
+      "target_authority": "NONE",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "DATASET_AND_RESEARCH_VALIDATION_ONLY",
+      "human_approval_requirement": "NO_PRODUCTION_PROMOTION_AUTHORITY"
+    },
+    "free_data_lake_bootstrap.yml": {
+      "declared_role": "manual_free_data_lake_bootstrap",
+      "decision": "KEEP",
+      "target_authority": "NONE",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "DATASET_ONLY",
+      "human_approval_requirement": "WORKFLOW_DISPATCH_DATASET_ONLY"
+    },
+    "free_historical_data_backfill.yml": {
+      "declared_role": "manual_free_historical_data_backfill",
+      "decision": "KEEP",
+      "target_authority": "NONE",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "DATASET_ONLY",
+      "human_approval_requirement": "WORKFLOW_DISPATCH_DATASET_ONLY"
+    },
+    "full_rebuild_manual.yml": {
+      "declared_role": "manual_full_rebuild_research",
+      "decision": "KEEP",
+      "target_authority": "RESEARCH_ARTIFACT_ONLY",
+      "paper_ledger_authority": "RESEARCH_REPLAY_ONLY",
+      "durable_write_scope": "RESEARCH_ARTIFACT_AND_VERSIONED_RESULT_ONLY",
+      "human_approval_requirement": "EXPLICIT_FULLRUN_APPROVAL_REQUIRED; CURRENTLY_NOT_AUTHORIZED"
+    },
+    "gate_ablation_study_manual.yml": {
+      "declared_role": "manual_gate_ablation_research",
+      "decision": "KEEP",
+      "target_authority": "RESEARCH_ARTIFACT_ONLY",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "RESEARCH_ARTIFACT_ONLY",
+      "human_approval_requirement": "WORKFLOW_DISPATCH_RESEARCH_ONLY"
+    },
+    "gdrive_smoke_test.yml": {
+      "declared_role": "google_drive_connectivity_diagnostic",
+      "decision": "KEEP",
+      "target_authority": "NONE",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "DIAGNOSTIC_TEST_OBJECT_ONLY",
+      "human_approval_requirement": "WORKFLOW_DISPATCH_DIAGNOSTIC_ONLY"
+    },
+    "layer4_monthly_swap.yml": {
+      "declared_role": "monthly_layer4_research_swap",
+      "decision": "CONSOLIDATE",
+      "target_authority": "RESEARCH_ARTIFACT_ONLY",
+      "paper_ledger_authority": "NONCANONICAL_ALPACA_PAPER_EXECUTOR_BLOCKED",
+      "durable_write_scope": "VERSIONED_RESEARCH_RESULT_ONLY",
+      "production_live_authority": "NONCANONICAL_ALPACA_PAPER_EXECUTION_PATH_BLOCKED",
+      "human_approval_requirement": "SCHEDULED_PROPOSAL_ONLY; EXECUTE INPUT GRANTS NO CANONICAL AUTHORITY",
+      "authority_blockers": [
+        "LEGACY_ALPACA_PAPER_SWAP_BYPASSES_CANONICAL_ACCOUNT_LEDGER"
+      ]
+    },
+    "live_extension_daily.yml": {
+      "declared_role": "legacy_named_daily_extension_report",
+      "decision": "UNKNOWN",
+      "target_authority": "NONE",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "NONCANONICAL_VERSIONED_REPORT_ONLY",
+      "human_approval_requirement": "NAME_DOES_NOT_GRANT_LIVE_AUTHORITY; SEPARATE APPROVAL REQUIRED",
+      "authority_blockers": [
+        "LIVE_NAMED_CONTENTS_WRITER_NONCANONICAL_BLOCKED"
+      ]
+    },
+    "monthly_research.yml": {
+      "declared_role": "monthly_research_pipeline",
+      "decision": "CONSOLIDATE",
+      "target_authority": "RESEARCH_ARTIFACT_ONLY",
+      "paper_ledger_authority": "RESEARCH_REPLAY_ONLY",
+      "durable_write_scope": "VERSIONED_RESEARCH_RESULT_ONLY",
+      "human_approval_requirement": "NO_PRODUCTION_PROMOTION_AUTHORITY"
+    },
+    "overlay_combination_search_manual.yml": {
+      "declared_role": "manual_overlay_combination_research",
+      "decision": "KEEP",
+      "target_authority": "RESEARCH_ARTIFACT_ONLY",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "RESEARCH_ARTIFACT_ONLY",
+      "human_approval_requirement": "WORKFLOW_DISPATCH_RESEARCH_ONLY"
+    },
+    "pages_deploy.yml": {
+      "declared_role": "research_dashboard_publication",
+      "decision": "KEEP",
+      "target_authority": "NONE",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "GITHUB_PAGES_PUBLICATION_ONLY",
+      "human_approval_requirement": "UPSTREAM_SUCCESS_REQUIRED"
+    },
+    "phase_ab_quick_rescore_manual.yml": {
+      "declared_role": "manual_phase_ab_quick_rescore_research",
+      "decision": "KEEP",
+      "target_authority": "RESEARCH_ARTIFACT_ONLY",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "RESEARCH_ARTIFACT_ONLY",
+      "human_approval_requirement": "WORKFLOW_DISPATCH_RESEARCH_ONLY"
+    },
+    "phase_g_crisis_evidence_liquidity_replay.yml": {
+      "declared_role": "manual_crisis_and_liquidity_replay_research",
+      "decision": "KEEP",
+      "target_authority": "RESEARCH_ARTIFACT_ONLY",
+      "paper_ledger_authority": "RESEARCH_REPLAY_ONLY",
+      "durable_write_scope": "RESEARCH_ARTIFACT_ONLY",
+      "human_approval_requirement": "WORKFLOW_DISPATCH_RESEARCH_ONLY"
+    },
+    "portfolio_system_guard.yml": {
+      "declared_role": "pull_request_portfolio_contract_guard",
+      "decision": "KEEP",
+      "target_authority": "NONE",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "CI_STATUS_ONLY",
+      "human_approval_requirement": "REQUIRED_CHECK"
+    },
+    "post_disclosure_alpha_pipeline.yml": {
+      "declared_role": "post_disclosure_research_signal_derivation",
+      "decision": "KEEP",
+      "target_authority": "RESEARCH_OVERLAY_ONLY",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "RESEARCH_OR_DATASET_ONLY",
+      "human_approval_requirement": "UPSTREAM_DISCLOSURE_SUCCESS_REQUIRED"
+    },
+    "pr_validation.yml": {
+      "declared_role": "pull_request_fast_validation",
+      "decision": "KEEP",
+      "target_authority": "NONE",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "CI_STATUS_ONLY",
+      "human_approval_requirement": "REQUIRED_CHECK"
+    },
+    "quarterly_auto_learning.yml": {
+      "declared_role": "quarterly_challenger_research_review",
+      "decision": "CONSOLIDATE",
+      "target_authority": "NONE",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "VERSIONED_RESEARCH_PROPOSAL_ONLY",
+      "human_approval_requirement": "NO_AUTOMATIC_ACTIVATION"
+    },
+    "review_complete_gate.yml": {
+      "declared_role": "exact_head_review_completion_gate",
+      "decision": "KEEP",
+      "target_authority": "NONE",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "CI_STATUS_ONLY",
+      "human_approval_requirement": "REQUIRED_CHECK"
+    },
+    "run287_sector_leadership_research.yml": {
+      "declared_role": "post_operating_sector_leadership_research",
+      "decision": "KEEP",
+      "target_authority": "RESEARCH_ARTIFACT_ONLY",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "RESEARCH_ARTIFACT_ONLY",
+      "human_approval_requirement": "UPSTREAM_OPERATING_SUCCESS_REQUIRED"
+    },
+    "run287_u0_acceptance.yml": {
+      "declared_role": "u0_evidence_acceptance_guard",
+      "decision": "KEEP",
+      "target_authority": "NONE",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "CI_STATUS_AND_AUDIT_ARTIFACT_ONLY",
+      "human_approval_requirement": "REQUIRED_ACCEPTANCE_CHECK"
+    },
+    "sec_13f_manager_reselection.yml": {
+      "declared_role": "quarterly_13f_manager_cohort_research",
+      "decision": "KEEP",
+      "target_authority": "RESEARCH_OVERLAY_ONLY",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "RESEARCH_OR_DATASET_ONLY",
+      "human_approval_requirement": "NO_OFFICIAL_TARGET_AUTHORITY"
+    },
+    "sec_13f_quarterly_refresh.yml": {
+      "declared_role": "quarterly_13f_collection",
+      "decision": "KEEP",
+      "target_authority": "NONE",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "DATASET_ONLY",
+      "human_approval_requirement": "NO_TARGET_MUTATION_AUTHORITY"
+    },
+    "sec_evidence_learning_manual.yml": {
+      "declared_role": "manual_sec_evidence_research",
+      "decision": "KEEP",
+      "target_authority": "RESEARCH_ARTIFACT_ONLY",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "RESEARCH_ARTIFACT_ONLY",
+      "human_approval_requirement": "WORKFLOW_DISPATCH_RESEARCH_ONLY"
+    },
+    "sec_form4_daily_refresh.yml": {
+      "declared_role": "daily_sec_form4_collection",
+      "decision": "KEEP",
+      "target_authority": "NONE",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "DATASET_ONLY",
+      "human_approval_requirement": "NO_TARGET_MUTATION_AUTHORITY"
+    },
+    "sidecar_only_verify.yml": {
+      "declared_role": "manual_sidecar_verification_and_versioned_report",
+      "decision": "UNKNOWN",
+      "target_authority": "RESEARCH_ARTIFACT_ONLY",
+      "paper_ledger_authority": "RESEARCH_REPLAY_ONLY",
+      "durable_write_scope": "VERSIONED_RESEARCH_RESULT_ONLY",
+      "human_approval_requirement": "WORKFLOW_DISPATCH_RESEARCH_ONLY; CONTENTS_WRITE_REQUIRES_REVIEW"
+    },
+    "smart_money_top30_refresh.yml": {
+      "declared_role": "derived_smart_money_research_signal_refresh",
+      "decision": "KEEP",
+      "target_authority": "RESEARCH_OVERLAY_ONLY",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "RESEARCH_OR_DATASET_ONLY",
+      "human_approval_requirement": "UPSTREAM_SEC_SUCCESS_REQUIRED"
+    },
+    "subdaily_exit_grid_sweep_manual.yml": {
+      "declared_role": "manual_subdaily_exit_grid_research",
+      "decision": "KEEP",
+      "target_authority": "RESEARCH_ARTIFACT_ONLY",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "RESEARCH_ARTIFACT_ONLY",
+      "human_approval_requirement": "WORKFLOW_DISPATCH_RESEARCH_ONLY"
+    },
+    "unified_monthly.yml": {
+      "declared_role": "legacy_unified_monthly_research_pipeline",
+      "decision": "CONSOLIDATE",
+      "target_authority": "RESEARCH_ARTIFACT_ONLY",
+      "paper_ledger_authority": "RESEARCH_REPLAY_ONLY",
+      "durable_write_scope": "VERSIONED_RESEARCH_RESULT_ONLY",
+      "human_approval_requirement": "NO_OFFICIAL_TARGET_AUTHORITY"
+    },
+    "weekly_data_refresh.yml": {
+      "declared_role": "weekly_dataset_refresh_and_versioned_snapshot",
+      "decision": "KEEP",
+      "target_authority": "NONE",
+      "paper_ledger_authority": "NONE",
+      "durable_write_scope": "DATASET_AND_VERSIONED_SNAPSHOT_ONLY",
+      "human_approval_requirement": "NO_TARGET_MUTATION_AUTHORITY"
+    }
+  }
+}

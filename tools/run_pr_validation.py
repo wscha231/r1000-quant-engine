@@ -115,6 +115,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/run287_do_not_repeat_registry_smoke.py", []),
     ("tests/run287_u0_experiment_audit_smoke.py", []),
     ("tests/run287_u0_v2_github_census_smoke.py", []),
+    ("tests/test_p0_3_authority_census.py", []),
     ("tests/run287_expected_return_challenger_smoke.py", []),
     ("tests/run287_u0_v3_recovery_census_smoke.py", []),
     ("tests/run287_u0_v3_acceptance_smoke.py", []),

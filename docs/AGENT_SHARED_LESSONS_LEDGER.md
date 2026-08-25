@@ -4229,3 +4229,62 @@ Expected contract:
 - Fullrun executed: false. Target/order/ledger mutation executed: false.
   Production enabled: false. Live trading enabled: false. Automatic promotion
   enabled: false.
+
+## 2026-08-25 - Authority census completeness is multidimensional
+
+- Agent: Codex GPT-5.6.
+- Branch: `codex/p0-3-authority-census-20260825`.
+- Context: Issue #371 required a hash-bound census of every visible branch,
+  pull request, and workflow before any cleanup or authority consolidation.
+- Result: 297 branches, 372 pull requests, and 40 workflows were inventoried at
+  exact master `916a02ac0612d64d41f71690cf667a90dfd0531a`. One official target and
+  simulated-fill ledger writer was identified; no live broker or automatic
+  promotion writer was authorized.
+- Caveat: Review-thread resolution was not bulk-collected for the 372-PR source
+  snapshot, so open PR review status remains fail-closed rather than accepted.
+- Caveat: Changed-path evidence is truncated for PRs 5, 6, 11, 16, 49, 62,
+  147, and 212. Their identity and disposition rows are retained, but they are
+  not complete recovery inventories and grant no merge or promotion authority.
+- Reusable lesson: Record completeness separately for namespace coverage,
+  review-thread evidence, and changed-path coverage. A count-complete census is
+  not path-complete. Bind workflow analysis to the audited Git blobs, retain the
+  exact compressed source, and fetch the frozen audit commit explicitly in
+  shallow CI before validating historical hashes.
+- Reusable lesson: Live namespace guards must bind the normalized full branch
+  protection and matching-ruleset configuration as well as name and head SHA.
+  Generated evidence must record canonical repository
+  paths independently of temporary staging locations. A diagnostic workflow
+  with a conditional canonical dataset upload must disclose that write scope
+  and its exact manual-dispatch condition even when it has no target or ledger
+  authority.
+- Reusable lesson: Mutable GitHub protection evidence needs its own repository,
+  audit-SHA, namespace-hash, and observation-time binding. Do not backdate a
+  corrected protection/ruleset snapshot to an older PR or branch supplement
+  timestamp, and do not treat omitted API fields as empty authority lists.
+- Reusable lesson: A successful check name alone does not satisfy branch
+  protection. Bind required contexts to their GitHub App IDs, reject duplicate
+  protection-contract rows and ambiguous duplicate results from the same App,
+  and collect the Check Suite App separately when the primary PR rollup omits
+  it. Request `filter=all`, preserve each REST run ID, status, and conclusion,
+  and require REST/rollup result agreement before matching; never collapse
+  multiple runs into a provider set or discard runs omitted from the rollup.
+  Require explicit REST `status` and `conclusion` fields, preserve null only
+  for non-completed runs, and reject invalid status/conclusion combinations.
+  Serialize the complete REST set into before/after evidence. Keep legacy
+  status contexts or provider-less historical rollups explicitly unverified;
+  `NOT_COLLECTED` evidence must have both a null App ID and an empty App slug,
+  otherwise an unrelated producer can silently upgrade a blocked PR's
+  disposition.
+- Reusable lesson: A frozen compressed source is already an immutable artifact.
+  Validate its decompressed canonical hash, but copy its authenticated archive
+  bytes during regeneration instead of recompressing them; zlib implementation
+  differences can otherwise change gzip hashes across operating systems even
+  when the JSON content and Python package pins are identical. Frozen replay
+  must reject uncompressed substitutes even when their JSON hash matches, and
+  must reject legacy archive schemas that lack an authenticated compressed
+  digest. Authenticate compressed bytes before decompression.
+- Next action: Merge the reviewed P0-3 census, then begin P0-4 artifact inventory
+  without deleting branches, dispatching workflows, or mutating durable state.
+- Fullrun executed: false. Target/order/ledger mutation executed: false.
+  Production enabled: false. Live trading enabled: false. Automatic promotion
+  enabled: false.
