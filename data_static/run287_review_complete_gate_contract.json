@@ -29,8 +29,16 @@
       "require_code_owner_reviews": false,
       "require_last_push_approval": false,
       "required_approving_review_count": 0,
-      "dismissal_restrictions": null,
-      "bypass_pull_request_allowances": null
+      "dismissal_restrictions": {
+        "users": [],
+        "teams": [],
+        "apps": []
+      },
+      "bypass_pull_request_allowances": {
+        "users": [],
+        "teams": [],
+        "apps": []
+      }
     },
     "required_signatures": false,
     "enforce_admins": true,

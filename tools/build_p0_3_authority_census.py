@@ -53,7 +53,7 @@ FROZEN_RUNTIME_REQUIREMENTS_SHA256 = (
     "8c74d7c2c73e36c06bee51001a8ffc2579ea71555bb392cfb89a6ce0e05047ca"
 )
 FROZEN_BRANCH_PROTECTION_CONTRACT_SHA256 = (
-    "c315e1b01d92248610d0417bbda4311e1f8fc51ee3a8a07986f4022f2e804af6"
+    "351eb09889631d81998a43d3bce58bde69876864bf6acf4e2143c228d3e19c2e"
 )
 BRANCH_SUPPLEMENT_SCHEMA = "run287-p0-3-frozen-branch-supplement-v1"
 GENERATOR_RUNTIME_VERSIONS = {
@@ -501,6 +501,24 @@ IGNORED_AUTHORITY_API_FIELDS = {
     "updated_at",
     "url",
 }
+REVIEW_ACTOR_ALLOWANCES_QUERY = """
+query($owner:String!,$name:String!,$qualifiedName:String!){
+  repository(owner:$owner,name:$name){
+    ref(qualifiedName:$qualifiedName){
+      branchProtectionRule{
+        reviewDismissalAllowances(first:100){
+          nodes{actor{__typename ... on User{databaseId login} ... on Team{databaseId slug} ... on App{databaseId slug}}}
+          pageInfo{hasNextPage}
+        }
+        bypassPullRequestAllowances(first:100){
+          nodes{actor{__typename ... on User{databaseId login} ... on Team{databaseId slug} ... on App{databaseId slug}}}
+          pageInfo{hasNextPage}
+        }
+      }
+    }
+  }
+}
+""".strip()
 
 
 def normalize_authority_api_value(value: Any) -> Any:
@@ -519,6 +537,39 @@ def normalize_authority_api_value(value: Any) -> Any:
             ),
         )
     return value
+
+
+def normalize_review_actor_allowances(
+    item: Any,
+) -> dict[str, list[dict[str, Any]]]:
+    if not isinstance(item, Mapping):
+        raise RuntimeError("missing branch protection actor allowances")
+    identity_fields = {
+        "users": "login",
+        "teams": "slug",
+        "apps": "slug",
+    }
+    if set(item) != set(identity_fields):
+        raise RuntimeError("incomplete branch protection actor categories")
+    result: dict[str, list[dict[str, Any]]] = {}
+    for category, identity_field in identity_fields.items():
+        actors = item[category]
+        if not isinstance(actors, list):
+            raise RuntimeError("invalid branch protection actor category")
+        identities = []
+        for actor in actors:
+            if not isinstance(actor, Mapping):
+                raise RuntimeError("invalid branch protection actor identity")
+            identity = str(actor.get(identity_field) or "")
+            actor_id = actor.get("id")
+            if not identity or type(actor_id) is not int or actor_id <= 0:
+                raise RuntimeError("missing branch protection actor identity")
+            identities.append({"id": actor_id, identity_field: identity})
+        result[category] = sorted(
+            identities,
+            key=lambda row: (str(row[identity_field]), str(row["id"])),
+        )
+    return result
 
 
 def normalize_classic_branch_protection(value: Any) -> dict[str, Any] | None:
@@ -549,34 +600,14 @@ def normalize_classic_branch_protection(value: Any) -> dict[str, Any] | None:
             ),
         }
 
-    def actor_allowances(item: Any) -> dict[str, list[dict[str, Any]]] | None:
-        if item is None:
-            return None
-        if not isinstance(item, Mapping):
-            raise RuntimeError("invalid branch protection actor allowances")
-        result: dict[str, list[dict[str, Any]]] = {}
-        identity_fields = {
-            "users": "login",
-            "teams": "slug",
-            "apps": "slug",
-        }
-        for category, identity_field in identity_fields.items():
-            identities = []
-            for actor in item.get(category) or []:
-                if not isinstance(actor, Mapping):
-                    raise RuntimeError("invalid branch protection actor identity")
-                identity = str(actor.get(identity_field) or "")
-                if not identity:
-                    raise RuntimeError("missing branch protection actor identity")
-                identities.append({"id": actor.get("id"), identity_field: identity})
-            result[category] = sorted(
-                identities,
-                key=lambda row: (str(row[identity_field]), str(row["id"])),
-            )
-        return result
-
     normalized_reviews = None
     if isinstance(reviews, Mapping):
+        for field in (
+            "dismissal_restrictions",
+            "bypass_pull_request_allowances",
+        ):
+            if field not in reviews:
+                raise RuntimeError(f"missing branch protection review evidence: {field}")
         normalized_reviews = {
             "dismiss_stale_reviews": bool(reviews.get("dismiss_stale_reviews")),
             "require_code_owner_reviews": bool(
@@ -588,11 +619,11 @@ def normalize_classic_branch_protection(value: Any) -> dict[str, Any] | None:
             "required_approving_review_count": int(
                 reviews.get("required_approving_review_count") or 0
             ),
-            "dismissal_restrictions": actor_allowances(
-                reviews.get("dismissal_restrictions")
+            "dismissal_restrictions": normalize_review_actor_allowances(
+                reviews["dismissal_restrictions"]
             ),
-            "bypass_pull_request_allowances": actor_allowances(
-                reviews.get("bypass_pull_request_allowances")
+            "bypass_pull_request_allowances": normalize_review_actor_allowances(
+                reviews["bypass_pull_request_allowances"]
             ),
         }
 
@@ -632,6 +663,71 @@ def paginated_mapping_rows(value: Any, label: str) -> list[Mapping[str, Any]]:
 
     collect(value)
     return rows
+
+
+def live_review_actor_allowances(repo_root: Path, branch: str) -> dict[str, Any]:
+    owner, name = REPOSITORY.split("/", maxsplit=1)
+    payload = run_json(
+        [
+            "gh",
+            "api",
+            "graphql",
+            "-f",
+            f"query={REVIEW_ACTOR_ALLOWANCES_QUERY}",
+            "-F",
+            f"owner={owner}",
+            "-F",
+            f"name={name}",
+            "-F",
+            f"qualifiedName=refs/heads/{branch}",
+        ],
+        cwd=repo_root,
+    )
+    repository = (payload.get("data") or {}).get("repository")
+    ref = repository.get("ref") if isinstance(repository, Mapping) else None
+    rule = ref.get("branchProtectionRule") if isinstance(ref, Mapping) else None
+    if not isinstance(rule, Mapping):
+        raise RuntimeError("missing GraphQL branch protection actor evidence")
+
+    result: dict[str, Any] = {}
+    fields = {
+        "reviewDismissalAllowances": "dismissal_restrictions",
+        "bypassPullRequestAllowances": "bypass_pull_request_allowances",
+    }
+    category_by_type = {"User": "users", "Team": "teams", "App": "apps"}
+    identity_by_type = {"User": "login", "Team": "slug", "App": "slug"}
+    for graphql_field, output_field in fields.items():
+        connection = rule.get(graphql_field)
+        if not isinstance(connection, Mapping):
+            raise RuntimeError(f"missing GraphQL actor connection: {graphql_field}")
+        page_info = connection.get("pageInfo")
+        if not isinstance(page_info, Mapping) or "hasNextPage" not in page_info:
+            raise RuntimeError(f"missing GraphQL actor pagination: {graphql_field}")
+        if page_info["hasNextPage"] is not False:
+            raise RuntimeError(f"incomplete GraphQL actor pagination: {graphql_field}")
+        allowances: dict[str, list[dict[str, Any]]] = {
+            "users": [],
+            "teams": [],
+            "apps": [],
+        }
+        nodes = connection.get("nodes")
+        if not isinstance(nodes, list):
+            raise RuntimeError(f"missing GraphQL actor nodes: {graphql_field}")
+        for node in nodes:
+            actor = node.get("actor") if isinstance(node, Mapping) else None
+            actor_type = actor.get("__typename") if isinstance(actor, Mapping) else None
+            if actor_type not in category_by_type:
+                raise RuntimeError("unknown GraphQL branch protection actor")
+            actor_id = actor.get("databaseId")
+            identity_field = identity_by_type[str(actor_type)]
+            identity = str(actor.get(identity_field) or "")
+            if type(actor_id) is not int or actor_id <= 0 or not identity:
+                raise RuntimeError("invalid GraphQL branch protection actor")
+            allowances[category_by_type[str(actor_type)]].append(
+                {"id": actor_id, identity_field: identity}
+            )
+        result[output_field] = normalize_review_actor_allowances(allowances)
+    return result
 
 
 def live_repository_rulesets(repo_root: Path) -> list[Any]:
@@ -678,16 +774,24 @@ def live_branch_identity(repo_root: Path) -> dict[str, Any]:
         matching_rules: Any = []
         if protected:
             encoded = quote(name, safe="")
-            classic_protection = normalize_classic_branch_protection(
-                run_json_optional(
-                    [
-                        "gh",
-                        "api",
-                        f"repos/{REPOSITORY}/branches/{encoded}/protection",
-                    ],
-                    cwd=repo_root,
-                )
+            classic_payload = run_json_optional(
+                [
+                    "gh",
+                    "api",
+                    f"repos/{REPOSITORY}/branches/{encoded}/protection",
+                ],
+                cwd=repo_root,
             )
+            if classic_payload is not None:
+                if not isinstance(classic_payload, Mapping):
+                    raise RuntimeError("invalid classic branch protection payload")
+                classic_payload = dict(classic_payload)
+                reviews = classic_payload.get("required_pull_request_reviews")
+                if isinstance(reviews, Mapping):
+                    reviews = dict(reviews)
+                    reviews.update(live_review_actor_allowances(repo_root, name))
+                    classic_payload["required_pull_request_reviews"] = reviews
+            classic_protection = normalize_classic_branch_protection(classic_payload)
             matching_rules_payload = run_json_optional(
                 ["gh", "api", f"repos/{REPOSITORY}/rules/branches/{encoded}"],
                 cwd=repo_root,
@@ -748,6 +852,16 @@ def validate_branch_protection_contract(contract: Mapping[str, Any]) -> None:
     reviews = configuration.get("required_pull_request_reviews")
     if not isinstance(status, Mapping) or not isinstance(reviews, Mapping):
         raise SystemExit("branch protection contract review gates are incomplete")
+    try:
+        for field in (
+            "dismissal_restrictions",
+            "bypass_pull_request_allowances",
+        ):
+            normalized = normalize_review_actor_allowances(reviews.get(field))
+            if normalized != reviews.get(field):
+                raise RuntimeError("branch protection actor identities are not canonical")
+    except RuntimeError as error:
+        raise SystemExit("branch protection actor evidence is incomplete") from error
     if sorted(status.get("contexts") or []) != sorted(
         contract.get("required_status_checks") or []
     ):

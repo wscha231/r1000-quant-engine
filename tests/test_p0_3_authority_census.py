@@ -23,6 +23,7 @@ from tools.build_p0_3_authority_census import (  # noqa: E402
     branch_live_identity_from_rows,
     canonical_text_bytes,
     check_summary,
+    normalize_classic_branch_protection,
     read_branch_supplement,
     require_audit_commit,
     resolve_generation_timestamp,
@@ -425,8 +426,9 @@ def test_live_branch_guard_binds_head_and_protection_state() -> None:
     review_policy = master["classic_protection"][
         "required_pull_request_reviews"
     ]
-    assert review_policy["dismissal_restrictions"] is None
-    assert review_policy["bypass_pull_request_allowances"] is None
+    empty_actor_categories = {"users": [], "teams": [], "apps": []}
+    assert review_policy["dismissal_restrictions"] == empty_actor_categories
+    assert review_policy["bypass_pull_request_allowances"] == empty_actor_categories
 
     changed_actors = copy.deepcopy(contract)
     changed_actors["branch_protection_configuration"][
@@ -437,6 +439,21 @@ def test_live_branch_guard_binds_head_and_protection_state() -> None:
         "apps": [],
     }
     assert source_branch_authority_state(source, changed_actors) != authority
+
+    incomplete_api_payload = {
+        "required_pull_request_reviews": {
+            "dismiss_stale_reviews": True,
+            "require_code_owner_reviews": False,
+            "require_last_push_approval": False,
+            "required_approving_review_count": 0,
+        }
+    }
+    try:
+        normalize_classic_branch_protection(incomplete_api_payload)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("missing review actor evidence was accepted")
 
     changed_rules = copy.deepcopy(contract)
     changed_rules["matching_branch_rules"].append(
@@ -457,7 +474,7 @@ def test_live_branch_guard_binds_head_and_protection_state() -> None:
 def test_frozen_regeneration_is_independent_of_staging_directory() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         output_dir = Path(temporary) / "alternate" / "staging"
-        subprocess.run(
+        completed = subprocess.run(
             [
                 sys.executable,
                 str(ROOT / "tools" / "build_p0_3_authority_census.py"),
@@ -469,9 +486,13 @@ def test_frozen_regeneration_is_independent_of_staging_directory() -> None:
                 str(output_dir),
             ],
             cwd=ROOT,
-            check=True,
+            check=False,
             capture_output=True,
             text=True,
+        )
+        assert completed.returncode == 0, (
+            f"alternate staging regeneration failed:\n{completed.stdout}\n"
+            f"{completed.stderr}"
         )
         for name in (
             "README.md",

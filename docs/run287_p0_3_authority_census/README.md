@@ -29,7 +29,7 @@ The frozen workflow authority policy is tracked as
 `docs/run287_p0_3_authority_census/source_workflow_authority_policy.json` (SHA-256 `01977fda9c76c2513244b07d118cbb8bae620e6db03c0d6c3060763e36b9d3f7`).
 The normalized full branch-protection and ruleset policy is tracked as
 `docs/run287_p0_3_authority_census/source_branch_protection_contract.json` (SHA-256
-`c315e1b01d92248610d0417bbda4311e1f8fc51ee3a8a07986f4022f2e804af6`). By default regeneration uses these frozen
+`351eb09889631d81998a43d3bce58bde69876864bf6acf4e2143c228d3e19c2e`). By default regeneration uses these frozen
 sources;
 `--verify-live-namespace` is reserved for the original generation-time
 equality guard.
