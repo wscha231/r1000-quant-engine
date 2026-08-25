@@ -107,8 +107,10 @@ jobs:
       - name: Reject new large or dated runtime artifacts
         if: ${{ github.event_name == 'pull_request' }}
         run: |
-          git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha }}"
-          python tools/check_run287_artifact_hygiene.py --base-ref "${{ github.event.pull_request.base.sha }}"
+          base_sha="${{ github.event.pull_request.base.sha }}"
+          git cat-file -e "${base_sha}^{commit}"
+          git merge-base --is-ancestor "$base_sha" HEAD
+          python tools/check_run287_artifact_hygiene.py --base-ref "$base_sha"
 
       - name: Run Tier-1 PR validation
         run: python tools/run_pr_validation.py

@@ -436,6 +436,8 @@ def test_pr_validation_checkout_supports_pinned_lineage_checks() -> None:
     text = workflow.read_text(encoding="utf-8")
     assert "fetch-depth: 64" in text
     assert "fetch-depth: 1" not in text
+    assert 'git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha }}"' not in text
+    assert 'git merge-base --is-ancestor "$base_sha" HEAD' in text
     assert hashlib.sha256(
         canonical_source_bytes(workflow.read_bytes())
     ).hexdigest() == PINNED_PUBLICATION_FILE_SHA256[relative]
@@ -542,6 +544,32 @@ def test_alias_map_must_match_object_status_and_evidence(tmp_path: Path) -> None
         assert str(exc) == f"latest_map_verified_without_immutable_source:{verified_id}"
     else:
         raise AssertionError("verified map without immutable evidence was not rejected")
+
+    payload = source()
+    mutable_id = "artifact.drive.operating-main-target-book"
+    mutable_object = next(
+        row for row in payload["artifacts"] if row["object_id"] == mutable_id
+    )
+    mutable_map = next(
+        row for row in payload["latest_to_immutable"] if row["object_id"] == mutable_id
+    )
+    mutable_object["immutable_location"] = "invented/immutable.csv"
+    mutable_object["mapping_status"] = "NOT_APPLICABLE"
+    mutable_object["blockers"] = []
+    mutable_map["status"] = "NOT_APPLICABLE"
+    mutable_map["immutable_source"] = "invented/immutable.csv"
+    mutable_map["blockers"] = []
+    invalid_not_applicable = tmp_path / "invalid-map-not-applicable.json"
+    invalid_not_applicable.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(
+            invalid_not_applicable,
+            tmp_path / "invalid-map-not-applicable-output",
+        )
+    except InventoryError as exc:
+        assert str(exc) == f"mutable_alias_not_applicable:{mutable_id}"
+    else:
+        raise AssertionError("mutable alias marked not-applicable was not rejected")
 
 
 def test_invalid_or_incomplete_sources_fail_closed(tmp_path: Path) -> None:

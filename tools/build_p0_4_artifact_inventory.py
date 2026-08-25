@@ -71,7 +71,7 @@ REQUIRED_FIXED_ALIAS_OBJECTS = {
 OFFICIAL_TARGET_WORKFLOW = ".github/workflows/daily_operating_selection_refresh.yml"
 PINNED_PUBLICATION_FILE_SHA256 = {
     ".github/workflows/pr_validation.yml": (
-        "55d2be9e6a24b6af76215059e25f7340ec8d5c8729bf67c666fe296dfdc2093b"
+        "cbefba4c7362b3ca7c14e058d1e95831ff06c18fb85341e24245ae61c61bd17f"
     )
 }
 RISK_OUTCOME_FAILED_STEP = "Restore verified risk-outcome accepted head"
@@ -291,6 +291,8 @@ def validate_object(row: dict[str, Any], *, object_class: str) -> None:
             raise InventoryError(f"object_field_not_list:{object_id}:{field}")
     if row.get("mapping_status") not in ALIAS_STATUSES:
         raise InventoryError(f"mapping_status_invalid:{object_id}")
+    if row.get("mutable_alias") and row.get("mapping_status") == "NOT_APPLICABLE":
+        raise InventoryError(f"mutable_alias_not_applicable:{object_id}")
     blocked = str(row.get("mapping_status")).startswith("BLOCKED_")
     if blocked and not row.get("blockers"):
         raise InventoryError(f"blocked_without_reason:{object_id}")
@@ -438,6 +440,8 @@ def validate_source(payload: dict[str, Any]) -> None:
         status = row.get("status")
         if status not in ALIAS_STATUSES:
             raise InventoryError(f"latest_map_status:{object_id}")
+        if status == "NOT_APPLICABLE":
+            raise InventoryError(f"latest_map_mutable_alias_not_applicable:{object_id}")
         object_row = object_index[object_id]
         if row.get("mutable_alias") != object_row.get("mutable_alias"):
             raise InventoryError(f"latest_map_alias_mismatch:{object_id}")
