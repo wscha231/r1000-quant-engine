@@ -27,7 +27,7 @@ workflows:
   path: .github/workflows/adr_candidate_monthly.yml
   display_name: ADR Candidate Monthly
   workflow_blob_sha: bb77c3e949d3015710d40ea04d78deccd0adfc26
-  workflow_sha256: 24bf6d4de57c0ccacfe74445fd7a3bac54d96b8acb420def1f50ab07d6cc6484
+  workflow_sha256: 20fa527582dc97e4601c747bbb111aec6e4e42aa558122875fc74cd3208f8400
   trigger:
     events:
     - schedule
@@ -79,7 +79,7 @@ workflows:
   path: .github/workflows/after_close_daily.yml
   display_name: After-Close Daily Automation
   workflow_blob_sha: abe54a056da248e73923161400c1d05656655be0
-  workflow_sha256: 98ede7ba7a78161471a52f33a19ea1e7d65c2a58715900d11dbe9555193feff9
+  workflow_sha256: 591a089164bc278464f425be93dc445fefb7e390bbba12e96286ccadfdf17f27
   trigger:
     events:
     - schedule
@@ -197,7 +197,7 @@ workflows:
   path: .github/workflows/agent_board_manual.yml
   display_name: Agent Board (Manual / Scheduled)
   workflow_blob_sha: af595830276949c214c36c7d2bf71b3a5beaebcb
-  workflow_sha256: 117765c8f39a078134dd94a6b6997ad7940249908a8fe0df7f34a7d778af1422
+  workflow_sha256: 97771d4a8dc6e8c39413a2541300995daea938d37414b2ff19b87103e17c7fe3
   trigger:
     events:
     - schedule
@@ -262,7 +262,7 @@ workflows:
   path: .github/workflows/aggressive_lab_manual.yml
   display_name: Aggressive Lab (Manual / Report-Only)
   workflow_blob_sha: 7e6249bfc6061268117dcfbe300c7495ea0d8e19
-  workflow_sha256: aa0ad78bb3f98cf3bab91b817b1d82497188abc95619c9735cf4a5015103dab6
+  workflow_sha256: f6f1e01134c122a4e0bcafa38c7576c62a205251e1839e0551976e5b220be25b
   trigger:
     events:
     - workflow_dispatch
@@ -325,7 +325,7 @@ workflows:
   path: .github/workflows/alphaops_replay_sidecars_manual.yml
   display_name: AlphaOps Replay Sidecars (Manual / Fast)
   workflow_blob_sha: 3cce68c580388424b07057035f8004b0a51e256b
-  workflow_sha256: d3d1614e6e8dbabea57272556d5a2552cae142cbdeebafb64e06f322fa189a10
+  workflow_sha256: 2cd67240bb071e1b2c5283dbd4f066c96a703d85a26279be8940a7f013ce335d
   trigger:
     events:
     - workflow_dispatch
@@ -809,7 +809,7 @@ workflows:
   path: .github/workflows/daily_autolearning_scan.yml
   display_name: Daily AutoLearning Scan
   workflow_blob_sha: dd693d37583793d40ff33ef679e6b5a9c206b451
-  workflow_sha256: ceb62612e4839a6a828816ab32e65965f1fa61d9b09167ad456792f5259391b7
+  workflow_sha256: 19662d1775be1649d6bf2747f69e784c7574a846f961756675b10f8b9cb94329
   trigger:
     events:
     - schedule
@@ -902,7 +902,7 @@ workflows:
   path: .github/workflows/daily_crisis_monitor.yml
   display_name: Daily Crisis Monitor
   workflow_blob_sha: 2e39af1046007af7f4e6ea075370762be20787ff
-  workflow_sha256: 9bed2efb00169cce5b5f7936ddda5792b9d3404dcad367e17f735e35b88c08ed
+  workflow_sha256: cedd763cac61d05ccc4aeca260ecf80e38ae28e108b4cd302e95bf4612cb9b60
   trigger:
     events:
     - schedule
@@ -960,7 +960,7 @@ workflows:
   path: .github/workflows/daily_operating_selection_refresh.yml
   display_name: Daily Operating Selection Refresh
   workflow_blob_sha: b058cc27b80cd3f7cd162313a68ca320160e2925
-  workflow_sha256: 2641bac359df70a72a981171b8c2aa8ebd186353722139927fa2e8f5297cd851
+  workflow_sha256: 3b59b5172ccf5ef9dc147e8be70e339a728179751187dc4a6e0b83bce24455df
   trigger:
     events:
     - schedule
@@ -1567,7 +1567,7 @@ workflows:
   path: .github/workflows/data_readiness_preflight.yml
   display_name: Data Readiness Preflight
   workflow_blob_sha: 78a396715052d31db2edb0c1854a0afe60507875
-  workflow_sha256: 1a745cfc7826f6a7ec147228c85e5003bc29df4070124233caa7f0176062611e
+  workflow_sha256: 93645475a0bbb68f17cea630753e0391ff1b45b47fca4afa912a38a763b79412
   trigger:
     events:
     - schedule
@@ -1647,7 +1647,7 @@ workflows:
   path: .github/workflows/earnings_estimates_daily.yml
   display_name: Earnings Estimates Daily Archive
   workflow_blob_sha: e0e6aa7a0fdd794bfe5ef0384ae2130bdc6d639c
-  workflow_sha256: 4971188616bf94117b31be3eef98260b01c9c43d669c6562623e9e6c6515481c
+  workflow_sha256: 51f951f1d651f2b04afd81cea9d4fdede46ff4965e5c818b30a03d91c2792cbb
   trigger:
     events:
     - schedule
@@ -1800,7 +1800,7 @@ workflows:
   path: .github/workflows/etf_holdings_monthly_refresh.yml
   display_name: ETF Holdings Monthly Refresh
   workflow_blob_sha: 5ec2c27f28f3605b0fbf35f3677789f7811c720b
-  workflow_sha256: dbc132b1a85dcd9463209539e9c1462187cc1b6b84b0e7e9860eb035219e854c
+  workflow_sha256: 6bdc92fc797937522197287a002056210c8c77ac89fd0e050fb9a43428b715a0
   trigger:
     events:
     - schedule
@@ -1873,7 +1873,7 @@ workflows:
   path: .github/workflows/free_data_daily_update.yml
   display_name: Free Data Daily Update
   workflow_blob_sha: 900e2a2f9ef8fc17cee9c38ae79bf99ab0ec2481
-  workflow_sha256: 50f851f34c13f8e7ef96ca75da91ba59f52e8eb38f8567ab35a1b254d1740ca4
+  workflow_sha256: 3bade090b34c18d42fc5e5fc117f8cf8d8fc8f4525e0540ad502d5d6dacccb85
   trigger:
     events:
     - schedule
@@ -1977,7 +1977,7 @@ workflows:
   path: .github/workflows/free_data_lake_bootstrap.yml
   display_name: Free Data Lake Bootstrap
   workflow_blob_sha: 108a0bc5c8a92c81643bd593033bdd34398cb3e0
-  workflow_sha256: 5d47b61e4f46e05e245b26569ca55e51857d493f1f5465bc0b3553195ebced25
+  workflow_sha256: 61a5f0a8b5997ad62e8e1533b239207c5d8009310901e926484894e0f58a0962
   trigger:
     events:
     - workflow_dispatch
@@ -2107,7 +2107,7 @@ workflows:
   path: .github/workflows/free_historical_data_backfill.yml
   display_name: Free Historical Data Backfill
   workflow_blob_sha: 6536a6aad2f7592759022f544cd8f8300ff32946
-  workflow_sha256: c3abf84457d430379b07cb82bf98a30373f5eca308743aacf05017fdce0c7e6f
+  workflow_sha256: 19ea0c170a51b40ea83c40ac4a0d78ee76d9617694aaa3191d6cde244ad3c248
   trigger:
     events:
     - workflow_dispatch
@@ -2225,7 +2225,7 @@ workflows:
   path: .github/workflows/full_rebuild_manual.yml
   display_name: Full Rebuild (Manual / Long-Run)
   workflow_blob_sha: f087adeeb8fd4ecc8c9e515979020560eb72c01b
-  workflow_sha256: 8eaff104b1941eae5da9f0bea0a0607eb06d65439893c19d23dcfac0aec3c08b
+  workflow_sha256: 1da9230fef0cc29b282a57277abd9c51b24ada41dd83238573fe19796980bada
   trigger:
     events:
     - workflow_dispatch
@@ -3123,7 +3123,7 @@ workflows:
   path: .github/workflows/gate_ablation_study_manual.yml
   display_name: Gate Ablation Study (Manual)
   workflow_blob_sha: 29612b5cfd4bd8d3d4936472ccbecdf5ea3bcb7e
-  workflow_sha256: 4489f0bf101cabb796c011bd86761eebb36477a690366d0a3f6259827c5f6d68
+  workflow_sha256: f6ec7fda2bd9480edb969f473716eca7485cc1f8dd2adeb84afd1553410efc69
   trigger:
     events:
     - workflow_dispatch
@@ -3210,7 +3210,7 @@ workflows:
   path: .github/workflows/gdrive_smoke_test.yml
   display_name: Google Drive Sync Smoke Test
   workflow_blob_sha: c688a95a553ca99d5fee9a06840f3d3e251660ef
-  workflow_sha256: c3bf4678f6a5a1976cc83da1c9a0310cad630dd37fed30a0cf16ff2c5cf2d01b
+  workflow_sha256: 6cc7d8f4697a71455ec7bf95bf9b85127079f8622311a2687d7de1281b61e1b3
   trigger:
     events:
     - workflow_dispatch
@@ -3255,7 +3255,7 @@ workflows:
   path: .github/workflows/layer4_monthly_swap.yml
   display_name: Layer 4 Monthly Swap Proposal
   workflow_blob_sha: bb345ac584d890658a06d13876e5a2022821a25c
-  workflow_sha256: 5c5e9dcb2c8550bf878a27240e887b5391ca66004ad3b831892158e12286295b
+  workflow_sha256: f0bb4b277c76bcc8a307b711040eff2b3eb9453f766a0745a68d4af1a8626ea0
   trigger:
     events:
     - schedule
@@ -3321,7 +3321,7 @@ workflows:
   path: .github/workflows/live_extension_daily.yml
   display_name: Live Extension Daily
   workflow_blob_sha: 00e15a473dc38275a65a989e41ab569d767a6998
-  workflow_sha256: 8a25d1490d46a6a764933e7fb34cdc119c9e7f17a7bbfe894470a268ba843959
+  workflow_sha256: 6ffdcdb641d7881a685853427d7347151967fce8a52733d0c021f48ab8edfa4c
   trigger:
     events:
     - schedule
@@ -3388,7 +3388,7 @@ workflows:
   path: .github/workflows/monthly_research.yml
   display_name: Monthly Research and Universe Maintenance
   workflow_blob_sha: f1e1a2c3c22ed1b204df45882314e92546c77eec
-  workflow_sha256: 05b79ba6ae6da11746f5e18a2b65c4efb7a79ea7eca1229e02e7e366d5f917f3
+  workflow_sha256: e282f1b94e9c283850f6d87dea80bf45afa1beca5e55524f3fb0a4d8df5845da
   trigger:
     events:
     - schedule
@@ -3484,7 +3484,7 @@ workflows:
   path: .github/workflows/overlay_combination_search_manual.yml
   display_name: Overlay Combination Search (Manual)
   workflow_blob_sha: 45d9e7d1cfed7be90d42e88385f68460ef98fc33
-  workflow_sha256: a97b155b80c60b5ed312a604f8ac31cd34a022767941728d88ad39d8d8457c88
+  workflow_sha256: da476adf62dc62ca3f9894372dd2cb0210a9c63ea413b007755a82ff0a70d303
   trigger:
     events:
     - workflow_dispatch
@@ -3564,7 +3564,7 @@ workflows:
   path: .github/workflows/pages_deploy.yml
   display_name: Deploy Run287 Portfolio Dashboard
   workflow_blob_sha: 3fb26c09d9e773918f1a6a9ea2fb223ef5a8a590
-  workflow_sha256: 9bd9e5bcc4a79e497f244ccca482dcdc85dc0119f297d31f51812b53c74d3c48
+  workflow_sha256: e1c8dd42793140dcec168e0ea82725b09f6fbace755d4f7fc6797657a39a6d0e
   trigger:
     events:
     - push
@@ -3620,7 +3620,7 @@ workflows:
   path: .github/workflows/phase_ab_quick_rescore_manual.yml
   display_name: Phase A/B QUICK Rescore (Manual / Fast)
   workflow_blob_sha: b55a109568689c076015829ad1bce4785670de88
-  workflow_sha256: 5cfc5cf3c938d015c17f1c9501e6eff31a8827b940ac106a08b11f95c49af1d8
+  workflow_sha256: d055147da2af5c5ced353bb7662fc443f74554daa8fb003a79d5681557ed322c
   trigger:
     events:
     - workflow_dispatch
@@ -3703,7 +3703,7 @@ workflows:
   path: .github/workflows/phase_g_crisis_evidence_liquidity_replay.yml
   display_name: Phase G Crisis Evidence Liquidity Replay
   workflow_blob_sha: 5d0db478b8c65ecfa319b8f903a233e33ceae44e
-  workflow_sha256: 46d24c43ad1860f5c3e67af1885ce14d624ce8fddab548b886afe466f2572fa3
+  workflow_sha256: b669f6b8551e4e1654826c8d80a9c68e6d784ecbcdd2e6be554bc40d0fd6834a
   trigger:
     events:
     - workflow_dispatch
@@ -3824,7 +3824,7 @@ workflows:
   path: .github/workflows/portfolio_system_guard.yml
   display_name: Portfolio System Guard
   workflow_blob_sha: c2fd4d619bb06b1f36a0665e04fdc88634c14ad0
-  workflow_sha256: 727db624da4374e286f8e3df8177224153a8e48c441e5e793f83717a3fd6c86d
+  workflow_sha256: 9c491f491c34be9bc134320410dee08ee901afd8122aa8eea25d79ac6b73a0f7
   trigger:
     events:
     - pull_request
@@ -3894,7 +3894,7 @@ workflows:
   path: .github/workflows/post_disclosure_alpha_pipeline.yml
   display_name: Post-Disclosure Alpha Pipeline
   workflow_blob_sha: 31574f0a2728084b5c7caad6d27be869e3b2dc2b
-  workflow_sha256: e370f65c4e199c468c9bc8a559220dc8d6edf4d97e916bde9a497e01e26f46df
+  workflow_sha256: 0a7568e7857fb6cef318246103674904ae3fef16b00e2a5bdaed48c609db1f57
   trigger:
     events:
     - workflow_dispatch
@@ -4006,7 +4006,7 @@ workflows:
   path: .github/workflows/pr_validation.yml
   display_name: PR Validation (Fast)
   workflow_blob_sha: f0239f603b95e3d4dd40448b8d5e6d3d34205c26
-  workflow_sha256: 68e8a3f93a8a725f59ddae5af83af1a7fa87562a43f38951dd87176be72439f7
+  workflow_sha256: 39792556f79b49ad22407dfbddc9debf2578d2eb9fff5e7ee82aa0b19ab19f67
   trigger:
     events:
     - pull_request
@@ -4049,7 +4049,7 @@ workflows:
   path: .github/workflows/quarterly_auto_learning.yml
   display_name: Quarterly Auto-Learning Review
   workflow_blob_sha: 2ca836436b4d83e3e54bebaa52d3929386181479
-  workflow_sha256: ab11bd95742b560cbaa7f543c43279fa2c717baf8ca1de88002a20e1b00d9b75
+  workflow_sha256: 56941dab051ab9701d58e2415690234003e1d345cd4bfff784ae69033011f23b
   trigger:
     events:
     - schedule
@@ -4145,7 +4145,7 @@ workflows:
   path: .github/workflows/review_complete_gate.yml
   display_name: Review Complete Gate
   workflow_blob_sha: d9cdefe1b353467214a0c88b4d4330c12981dd2c
-  workflow_sha256: 05201ac2ef6beb792ea25e0a1d9c35c0ceda678def40eefc703213617de17dcc
+  workflow_sha256: 58494e4941c3bc2084229df5ae239d28889e9385a07989a215813e442e9ced23
   trigger:
     events:
     - issue_comment
@@ -4200,7 +4200,7 @@ workflows:
   path: .github/workflows/run287_sector_leadership_research.yml
   display_name: Run287 Sector Leadership Research
   workflow_blob_sha: d835b86bcc1c4d4107389005d507a28e1a5883df
-  workflow_sha256: 34d3ec8e10e7a3c51bf6982d435063e0f2460f7fa0a65ccef27f9331e896cfe5
+  workflow_sha256: 635c87510a8f606d449c55acd9c6b12b719ece1ef54b5f367a91fa8a0055789d
   trigger:
     events:
     - workflow_dispatch
@@ -4265,7 +4265,7 @@ workflows:
   path: .github/workflows/run287_u0_acceptance.yml
   display_name: Run287 U0 Acceptance
   workflow_blob_sha: b294485955d000564ea283969cba526ba49232f9
-  workflow_sha256: 55a595546b3545c812c0ef5a209a85dc91d16c5c12df9d622219550f05f89163
+  workflow_sha256: ff707456421e9c27efa2bb80538ec23b03ef41fae4ada36fcca05047e652df80
   trigger:
     events:
     - workflow_dispatch
@@ -4334,7 +4334,7 @@ workflows:
   path: .github/workflows/sec_13f_manager_reselection.yml
   display_name: SEC 13F Manager Reselection
   workflow_blob_sha: 1fbb296fc07418de483c568ea1717b15107477d2
-  workflow_sha256: a640e78f1c47cd351f5deb1c58dbf953bd2274f607711edffc9156cc759a9a01
+  workflow_sha256: b640f6794243b7fb1f078e5f54d2a30c4374d1fbfa8b078d3c2c8121f959e8bf
   trigger:
     events:
     - schedule
@@ -4410,7 +4410,7 @@ workflows:
   path: .github/workflows/sec_13f_quarterly_refresh.yml
   display_name: SEC 13F Quarterly Refresh
   workflow_blob_sha: 82732d4c9204194a7d5e5d5386bad2ae48964577
-  workflow_sha256: eab860d8bb9ebbac4ddec2a4bcf017bcb13d424a6e9a8b29214206bffe8c1264
+  workflow_sha256: 76e09c66dfc1dbe5dc3a5ee395b62831a9ae860a404a68db6107472455c2c076
   trigger:
     events:
     - schedule
@@ -4507,7 +4507,7 @@ workflows:
   path: .github/workflows/sec_evidence_learning_manual.yml
   display_name: SEC Evidence Learning (Manual)
   workflow_blob_sha: 09a8846da5f47e86d39ff4989f172e6c7b880079
-  workflow_sha256: fab66075af9661861e91509f3e620d40f5add779f22e11e13827bd2ecc1a11a1
+  workflow_sha256: 3c8f7567263ae28bebca0593004df498a0bc7f21e0facd4a96b705b8b1f27b46
   trigger:
     events:
     - workflow_dispatch
@@ -4588,7 +4588,7 @@ workflows:
   path: .github/workflows/sec_form4_daily_refresh.yml
   display_name: SEC Form 4 Daily Refresh
   workflow_blob_sha: d724b2fd55215ed1381b885350e552a26a565dde
-  workflow_sha256: e83e059b37b65de5624167b3d2500309734fb5190f034635905fa2722f17d26b
+  workflow_sha256: 01c18f237a1c751572141da0bc93a8b76bbeb92ddea80102f235fcca55a1917f
   trigger:
     events:
     - schedule
@@ -4668,7 +4668,7 @@ workflows:
   path: .github/workflows/sidecar_only_verify.yml
   display_name: Sidecar-Only Re-Verify (Fast Loop)
   workflow_blob_sha: f3597b98c096c71a1b9fdc3a320b15e681deabae
-  workflow_sha256: 6d09553665ad2cc3098a241fafc41bb3e2b87f50b1095a15f7ace3d45f26d647
+  workflow_sha256: 7815df511e2d4bb61c1be9c541c2a47c7062d31d1a817457e85e838b39422ef3
   trigger:
     events:
     - workflow_dispatch
@@ -4755,7 +4755,7 @@ workflows:
   path: .github/workflows/smart_money_top30_refresh.yml
   display_name: Smart Money Top 30 Refresh
   workflow_blob_sha: 372e6d290ad78d193b6bdbfd6426f1e0638ce487
-  workflow_sha256: 8d89eb5a5d9203255b741d17e3b04c3d3c8994b82eafb77b35b0228fde479de7
+  workflow_sha256: 47f69e9e0a6427438bc50e9dca6bc630e343dca65f4a08734029019bc52e864c
   trigger:
     events:
     - schedule
@@ -4836,7 +4836,7 @@ workflows:
   path: .github/workflows/subdaily_exit_grid_sweep_manual.yml
   display_name: Sub-Monthly Exit Grid Sweep (Manual / Fast)
   workflow_blob_sha: 2a485de643145acbde30acdf1fea3e398155bc94
-  workflow_sha256: e7ee6860ace3682c626f74b21559df8234e925eb3989abd99a59c4327cc78591
+  workflow_sha256: ef62f1ef81fe72e897a80be3bd3589476aefb50be753046cd883020eb25625ac
   trigger:
     events:
     - workflow_dispatch
@@ -4910,7 +4910,7 @@ workflows:
   path: .github/workflows/unified_monthly.yml
   display_name: Unified Universe Monthly Rebuild
   workflow_blob_sha: a4bf16fc5d732110c6c9b4cce1745b542819ff59
-  workflow_sha256: ae18482df06e6e8ae6b4c768c3bf960d2d41be82879566bd422864bbb6d15671
+  workflow_sha256: 74d49cdb604183af6a02aa9dfce90a69d42daf115af55293735bac643dd10a94
   trigger:
     events:
     - schedule
@@ -4968,7 +4968,7 @@ workflows:
   path: .github/workflows/weekly_data_refresh.yml
   display_name: Weekly Data Refresh
   workflow_blob_sha: 3ffb77770d8a1e41b1e798e1cd7c3116879075cf
-  workflow_sha256: 20bf9b061857968162ea41b31b603d629eb7e07e4a69a17191db74c0f59576ba
+  workflow_sha256: 26b4f562d6a331ac7cb40acf0f1d37b9cb2595b2c5a3f785ff064f5debd8aa5a
   trigger:
     events:
     - schedule

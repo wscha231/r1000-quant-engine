@@ -126,7 +126,7 @@
   "output_hashes": {
     "branch_census.parquet": "98701ad208b92bc9c21506d8a322cb7258050998e2f46ba9d6760f0ea134d773",
     "pr_census.parquet": "b0a00792b3b61bdc7a559c0a62b91af17c07b07130c8acc64b152500daa8ef68",
-    "workflow_registry.yaml": "629a599ae31d60a2a8254f4afea58fa409d42b86b8f026c59413a259bbfe51cc"
+    "workflow_registry.yaml": "69495eae71856f671da1c8d3948412d6368ca8c5fdb9aa8b603bf66d2deb4908"
   },
   "pr_disposition_counts": {
     "CLOSED_UNMERGED_QUARANTINE": 23,

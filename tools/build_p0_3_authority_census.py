@@ -90,16 +90,21 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def portable_text_sha256(path: Path) -> str:
+    """Hash text with Git's canonical LF newline representation."""
+    content = path.read_bytes().replace(b"\r\n", b"\n")
+    return hashlib.sha256(content).hexdigest()
+
+
 def read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
 def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    serialized = json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(serialized)
 
 
 def run(arguments: list[str], *, cwd: Path) -> str:
@@ -495,6 +500,21 @@ def workflow_git_blob(repo_root: Path, audit_sha: str, relative_path: str) -> st
     return value
 
 
+def workflow_git_blob_sha256(repo_root: Path, audit_sha: str, relative_path: str) -> str:
+    completed = subprocess.run(
+        ["git", "cat-file", "blob", f"{audit_sha}:{relative_path}"],
+        cwd=repo_root,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            f"workflow blob read failed: {relative_path}: "
+            f"{completed.stderr.decode('utf-8', errors='replace').strip()}"
+        )
+    return hashlib.sha256(completed.stdout).hexdigest()
+
+
 def scan_workflow(
     *,
     repo_root: Path,
@@ -556,7 +576,7 @@ def scan_workflow(
         "path": relative,
         "display_name": str(document.get("name") or path.name),
         "workflow_blob_sha": workflow_git_blob(repo_root, audit_sha, relative),
-        "workflow_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "workflow_sha256": workflow_git_blob_sha256(repo_root, audit_sha, relative),
         "trigger": trigger_rows(document),
         "job_count": len(document.get("jobs") or {}),
         "permissions": permissions,
@@ -615,15 +635,14 @@ def write_parquet(path: Path, rows: list[dict[str, Any]]) -> None:
 
 def write_registry(path: Path, registry: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        yaml.safe_dump(
-            dict(registry),
-            allow_unicode=True,
-            sort_keys=False,
-            width=120,
-        ),
-        encoding="utf-8",
+    serialized = yaml.safe_dump(
+        dict(registry),
+        allow_unicode=True,
+        sort_keys=False,
+        width=120,
     )
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(serialized)
 
 
 def write_readme(path: Path, summary: Mapping[str, Any]) -> None:
@@ -667,7 +686,8 @@ as research-only, noncanonical, or blocked in `workflow_registry.yaml`.
 - No branch deletion, merge, workflow execution, fullrun, target/order/ledger write,
   champion change, production enablement, or live trading occurred.
 """
-    path.write_text(text, encoding="utf-8")
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(text)
 
 
 def parse_args() -> argparse.Namespace:
@@ -936,14 +956,14 @@ def main() -> int:
         },
         "source_hashes": {
             "source_u0_census_sha256": file_sha256(args.source_census),
-            "workflow_policy_sha256": file_sha256(args.policy),
+            "workflow_policy_sha256": portable_text_sha256(args.policy),
             "branch_namespace_sha256": canonical_sha256(source_branches),
             "pull_request_namespace_sha256": canonical_sha256(source_prs),
         },
         "output_hashes": {
             "branch_census.parquet": file_sha256(branch_path),
             "pr_census.parquet": file_sha256(pr_path),
-            "workflow_registry.yaml": file_sha256(registry_path),
+            "workflow_registry.yaml": portable_text_sha256(registry_path),
         },
         "safety": {
             "metadata_only": True,

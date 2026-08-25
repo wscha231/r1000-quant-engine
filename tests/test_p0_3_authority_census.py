@@ -12,10 +12,14 @@ ROOT = Path(__file__).resolve().parents[1]
 CENSUS = ROOT / "docs" / "run287_p0_3_authority_census"
 POLICY = ROOT / "docs" / "run287_p0_3_workflow_authority_policy.json"
 AUDIT_SHA = "916a02ac0612d64d41f71690cf667a90dfd0531a"
+TEXT_SUFFIXES = {".json", ".yaml", ".yml", ".md", ".py", ".txt", ".csv"}
 
 
 def sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    content = path.read_bytes()
+    if path.suffix.lower() in TEXT_SUFFIXES:
+        content = content.replace(b"\r\n", b"\n")
+    return hashlib.sha256(content).hexdigest()
 
 
 def load_summary() -> dict:
@@ -127,6 +131,7 @@ def test_workflow_registry_has_singular_official_authority_and_blocks_legacy_nam
     assert registry["audit_master_sha"] == AUDIT_SHA
     assert len(rows) == 40
     assert {row["file"] for row in rows} == set(policy["workflows"])
+    assert all(sha256(ROOT / row["path"]) == row["workflow_sha256"] for row in rows)
     assert {row["decision"] for row in rows} <= {"KEEP", "CONSOLIDATE", "RETIRE", "UNKNOWN"}
     target_writers = [
         row["file"]
