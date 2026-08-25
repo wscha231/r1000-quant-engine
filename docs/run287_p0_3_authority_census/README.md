@@ -21,7 +21,7 @@ file directly; its decompressed SHA-256 is
 `5c9741b84fe9cfff74619322bc99402d92f25979974d42a405e30091ff461216`.
 Frozen normalized PR check/review metadata is tracked separately as
 `docs/run287_p0_3_authority_census/source_pr_supplement.json.gz` (SHA-256
-`c61d10cd3408b1a9910e6a40fba317894ba82b1c8506abcc704de7df3ea89516`).
+`6202be24bb8f7dd1c79c9559cf12433ba206ccb316442d12ae693f044479857e`).
 Frozen branch ancestry/path evidence is tracked as
 `docs/run287_p0_3_authority_census/source_branch_supplement.parquet` (SHA-256
 `12ea17046e062707437b995b95cc610ccf2ef0398dbdf9ff05c0011ff810f530`).

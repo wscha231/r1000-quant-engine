@@ -32,7 +32,8 @@ CENSUS_REPOSITORY_DIR = Path("docs/run287_p0_3_authority_census")
 SCHEMA_VERSION = "run287-p0-3-authority-census-v1"
 POLICY_SCHEMA = "run287-p0-3-workflow-authority-policy-v1"
 U0_SCHEMA = "run287-u0-v2-github-census-v1"
-PR_SUPPLEMENT_SCHEMA = "run287-p0-3-frozen-pr-supplement-v2"
+PR_SUPPLEMENT_SCHEMA = "run287-p0-3-frozen-pr-supplement-v3"
+LEGACY_PR_SUPPLEMENT_V2_SCHEMA = "run287-p0-3-frozen-pr-supplement-v2"
 LEGACY_PR_SUPPLEMENT_SCHEMA = "run287-p0-3-frozen-pr-supplement-v1"
 LEGACY_PR_SUPPLEMENT_SHA256 = (
     "29bd41bcbd07a7a739856ccc870b91711491986c464efc4342a7081d391b554c"
@@ -40,8 +41,11 @@ LEGACY_PR_SUPPLEMENT_SHA256 = (
 FROZEN_U0_UNCOMPRESSED_SHA256 = (
     "5c9741b84fe9cfff74619322bc99402d92f25979974d42a405e30091ff461216"
 )
-FROZEN_PR_SUPPLEMENT_V2_UNCOMPRESSED_SHA256 = (
+LEGACY_PR_SUPPLEMENT_V2_UNCOMPRESSED_SHA256 = (
     "362f0b7245ca05360ac206c122077a4c07b2111c748a2cd72e8b8af58244689a"
+)
+FROZEN_PR_SUPPLEMENT_V3_UNCOMPRESSED_SHA256 = (
+    "259ba25f4353c38ffd62a47b1d094ff67b2277f8bcdd9b7a9c750ed97f18626b"
 )
 FROZEN_BRANCH_SUPPLEMENT_SHA256 = (
     "12ea17046e062707437b995b95cc610ccf2ef0398dbdf9ff05c0011ff810f530"
@@ -96,6 +100,11 @@ REQUIRED_GLOBAL_GUARDS = {
     "production_authority_default": "NONE_RESEARCH_ONLY",
     "model_promotion_authority_default": "NONE_AUTOMATIC_DISABLED",
     "unlisted_workflow_policy": "FAIL_CLOSED",
+}
+REQUIRED_CHECK_APP_IDS = {
+    "validate": 15368,
+    "portfolio_guard": 15368,
+    "review_complete": 15368,
 }
 BRANCH_EVIDENCE_FIELDS = (
     "merge_base_sha",
@@ -933,6 +942,42 @@ def validate_branch_protection_contract(contract: Mapping[str, Any]) -> None:
     reviews = configuration.get("required_pull_request_reviews")
     if not isinstance(status, Mapping) or not isinstance(reviews, Mapping):
         raise SystemExit("branch protection contract review gates are incomplete")
+    frozen_classic_payload = {
+        "required_status_checks": status,
+        "required_pull_request_reviews": reviews,
+        **{
+            field: {"enabled": configuration.get(field)}
+            for field in (
+                "required_signatures",
+                "enforce_admins",
+                "required_linear_history",
+                "allow_force_pushes",
+                "allow_deletions",
+                "block_creations",
+                "required_conversation_resolution",
+                "lock_branch",
+                "allow_fork_syncing",
+            )
+        },
+        "restrictions": configuration.get("restrictions"),
+        "bypass_force_push_allowances": configuration.get(
+            "bypass_force_push_allowances"
+        ),
+    }
+    try:
+        normalized_configuration = normalize_classic_branch_protection(
+            frozen_classic_payload
+        )
+    except RuntimeError as error:
+        raise SystemExit("frozen branch protection configuration is invalid") from error
+    if normalized_configuration != configuration:
+        raise SystemExit("frozen branch protection configuration is not canonical")
+    contract_check_apps = {
+        row["context"]: row["app_id"]
+        for row in normalized_configuration["required_status_checks"]["checks"]
+    }
+    if contract_check_apps != REQUIRED_CHECK_APP_IDS:
+        raise SystemExit("branch protection required check apps conflict")
     try:
         for field in (
             "dismissal_restrictions",
@@ -1192,6 +1237,8 @@ def normalize_check(row: Mapping[str, Any]) -> dict[str, Any]:
             "status": str(row.get("state") or ""),
             "conclusion": str(row.get("state") or ""),
             "details_url": str(row.get("targetUrl") or ""),
+            "app_id": None,
+            "app_slug": "",
         }
     return {
         "type": "CHECK_RUN",
@@ -1200,6 +1247,8 @@ def normalize_check(row: Mapping[str, Any]) -> dict[str, Any]:
         "status": str(row.get("status") or ""),
         "conclusion": str(row.get("conclusion") or ""),
         "details_url": str(row.get("detailsUrl") or ""),
+        "app_id": row.get("app_id") if type(row.get("app_id")) is int else None,
+        "app_slug": str(row.get("app_slug") or ""),
     }
 
 
@@ -1208,15 +1257,31 @@ def check_summary(checks: list[dict[str, Any]]) -> dict[str, Any]:
         str(row.get("conclusion") or row.get("status") or "UNKNOWN").upper()
         for row in checks
     )
-    required = {"validate", "portfolio_guard", "review_complete"}
+    required = set(REQUIRED_CHECK_APP_IDS)
     success_names = {
         row["name"] for row in checks if str(row.get("conclusion") or "").upper() == "SUCCESS"
+    }
+    provider_verified_success_names = {
+        row["name"]
+        for row in checks
+        if str(row.get("conclusion") or "").upper() == "SUCCESS"
+        and row.get("type") == "CHECK_RUN"
+        and type(row.get("app_id")) is int
+        and row["app_id"] == REQUIRED_CHECK_APP_IDS.get(row.get("name"))
     }
     return {
         "count": len(checks),
         "conclusion_counts": dict(sorted(conclusions.items())),
-        "required_success_observed": required.issubset(success_names),
-        "required_success_names": sorted(required & success_names),
+        "required_success_observed": required.issubset(
+            provider_verified_success_names
+        ),
+        "required_success_names": sorted(
+            required & provider_verified_success_names
+        ),
+        "required_success_provider_unverified_names": sorted(
+            (required & success_names) - provider_verified_success_names
+        ),
+        "required_check_app_ids": dict(sorted(REQUIRED_CHECK_APP_IDS.items())),
     }
 
 
@@ -1871,6 +1936,7 @@ def main() -> int:
             frozen_pr_input_bytes.decode("utf-8")
         )
         frozen_schema = frozen_pr_supplement_document.get("schema_version")
+        legacy_pr_supplement = False
         if frozen_schema == LEGACY_PR_SUPPLEMENT_SCHEMA:
             if hashlib.sha256(frozen_pr_input_bytes).hexdigest() != (
                 LEGACY_PR_SUPPLEMENT_SHA256
@@ -1886,15 +1952,33 @@ def main() -> int:
                         "updated_at": source_row["updated_at"],
                     }
                 )
-            frozen_pr_supplement_document["schema_version"] = PR_SUPPLEMENT_SCHEMA
+            legacy_pr_supplement = True
+        elif frozen_schema == LEGACY_PR_SUPPLEMENT_V2_SCHEMA:
+            require_bytes_sha256(
+                frozen_pr_input_bytes,
+                LEGACY_PR_SUPPLEMENT_V2_UNCOMPRESSED_SHA256,
+                "legacy frozen PR supplement v2",
+            )
+            legacy_pr_supplement = True
         elif frozen_schema != PR_SUPPLEMENT_SCHEMA:
             raise SystemExit("frozen PR supplement schema mismatch")
         else:
             require_bytes_sha256(
                 frozen_pr_input_bytes,
-                FROZEN_PR_SUPPLEMENT_V2_UNCOMPRESSED_SHA256,
-                "frozen PR supplement v2",
+                FROZEN_PR_SUPPLEMENT_V3_UNCOMPRESSED_SHA256,
+                "frozen PR supplement v3",
             )
+        if legacy_pr_supplement:
+            for row in frozen_pr_supplement_document.get("rows") or []:
+                migrated_checks = []
+                for check in row.get("checks") or []:
+                    migrated = dict(check)
+                    migrated.setdefault("app_id", None)
+                    migrated.setdefault("app_slug", "")
+                    migrated_checks.append(migrated)
+                row["checks"] = migrated_checks
+                row["check_summary"] = check_summary(migrated_checks)
+            frozen_pr_supplement_document["schema_version"] = PR_SUPPLEMENT_SCHEMA
         frozen_pr_supplement_bytes = (
             json.dumps(
                 frozen_pr_supplement_document,
@@ -1906,8 +1990,8 @@ def main() -> int:
         ).encode("utf-8")
         require_bytes_sha256(
             frozen_pr_supplement_bytes,
-            FROZEN_PR_SUPPLEMENT_V2_UNCOMPRESSED_SHA256,
-            "canonical frozen PR supplement v2",
+            FROZEN_PR_SUPPLEMENT_V3_UNCOMPRESSED_SHA256,
+            "canonical frozen PR supplement v3",
         )
         if clean_sha(frozen_pr_supplement_document.get("audit_master_sha")) != audit_sha:
             raise SystemExit("frozen PR supplement audit SHA mismatch")

@@ -19,6 +19,7 @@ from tools.build_p0_3_authority_census import (  # noqa: E402
     BRANCH_SUPPLEMENT_SCHEMA,
     GENERATOR_RUNTIME_VERSIONS,
     PR_SUPPLEMENT_SCHEMA,
+    REQUIRED_CHECK_APP_IDS,
     audited_workflow_paths,
     branch_live_identity_from_rows,
     canonical_text_bytes,
@@ -275,9 +276,51 @@ def test_frozen_pr_check_summary_is_derived_and_corruption_fails_closed() -> Non
     source = json.loads(
         gzip.decompress((CENSUS / "source_pr_supplement.json.gz").read_bytes())
     )
+    assert all(
+        {"app_id", "app_slug"}.issubset(check)
+        for source_row in source["rows"]
+        for check in source_row["checks"]
+    )
     row = copy.deepcopy(source["rows"][0])
     checks, summary = validated_frozen_checks(row, int(row["number"]))
     assert summary == check_summary(checks)
+
+    providerless_successes = [
+        {
+            "type": "CHECK_RUN",
+            "name": name,
+            "workflow": "",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "details_url": "",
+            "app_id": None,
+            "app_slug": "",
+        }
+        for name in REQUIRED_CHECK_APP_IDS
+    ]
+    providerless_summary = check_summary(providerless_successes)
+    assert not providerless_summary["required_success_observed"]
+    assert providerless_summary["required_success_names"] == []
+    assert providerless_summary[
+        "required_success_provider_unverified_names"
+    ] == sorted(REQUIRED_CHECK_APP_IDS)
+
+    wrong_provider = copy.deepcopy(providerless_successes)
+    for check in wrong_provider:
+        check["app_id"] = 1
+    assert not check_summary(wrong_provider)["required_success_observed"]
+
+    verified_successes = copy.deepcopy(providerless_successes)
+    for check in verified_successes:
+        check["app_id"] = REQUIRED_CHECK_APP_IDS[check["name"]]
+        check["app_slug"] = "github-actions"
+    verified_summary = check_summary(verified_successes)
+    assert verified_summary["required_success_observed"]
+    assert verified_summary["required_success_names"] == sorted(
+        REQUIRED_CHECK_APP_IDS
+    )
+    assert verified_summary["required_success_provider_unverified_names"] == []
+
     row["check_summary"]["count"] += 1
     try:
         validated_frozen_checks(row, int(row["number"]))
@@ -516,6 +559,37 @@ def test_live_branch_guard_binds_head_and_protection_state() -> None:
         pass
     else:
         raise AssertionError("conflicting branch protection contract was accepted")
+
+    frozen_scalar_paths = (
+        ("required_status_checks", "checks"),
+        ("required_pull_request_reviews", "require_code_owner_reviews"),
+        ("required_pull_request_reviews", "require_last_push_approval"),
+        ("required_signatures",),
+        ("block_creations",),
+        ("lock_branch",),
+        ("allow_fork_syncing",),
+    )
+    for path in frozen_scalar_paths:
+        incomplete_contract = copy.deepcopy(contract)
+        parent = incomplete_contract["branch_protection_configuration"]
+        for key in path[:-1]:
+            parent = parent[key]
+        parent.pop(path[-1])
+        try:
+            validate_branch_protection_contract(incomplete_contract)
+        except SystemExit:
+            continue
+        raise AssertionError(f"missing frozen protection scalar was accepted: {path}")
+
+    mistyped_contract = copy.deepcopy(contract)
+    mistyped_contract["branch_protection_configuration"]["enforce_admins"] = "true"
+    mistyped_contract["enforce_admins"] = "true"
+    try:
+        validate_branch_protection_contract(mistyped_contract)
+    except SystemExit:
+        pass
+    else:
+        raise AssertionError("mistyped frozen protection scalar was accepted")
 
 
 def test_frozen_regeneration_is_independent_of_staging_directory() -> None:

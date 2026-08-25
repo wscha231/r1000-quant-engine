@@ -165,13 +165,13 @@
     "pyarrow": "23.0.1"
   },
   "output_hashes": {
-    "README.md": "8515921b8636b8feaa3f781ec71bdfd5f0b15390659eee76bceaffc0b57473aa",
+    "README.md": "3fb22722728d01cf3de5eca31cbc026b294337f82ea2fe3e6236baadb114bcb4",
     "branch_census.parquet": "98701ad208b92bc9c21506d8a322cb7258050998e2f46ba9d6760f0ea134d773",
-    "pr_census.parquet": "b0a00792b3b61bdc7a559c0a62b91af17c07b07130c8acc64b152500daa8ef68",
+    "pr_census.parquet": "24303ef30788844fdd92028f98824147478966f88380351a9f6e2684db25bb97",
     "requirements.txt": "8c74d7c2c73e36c06bee51001a8ffc2579ea71555bb392cfb89a6ce0e05047ca",
     "source_branch_protection_contract.json": "f99942c67c46f53212067e81fa71f6c37f031f631fbb4a71ee4a507d25bff907",
     "source_branch_supplement.parquet": "12ea17046e062707437b995b95cc610ccf2ef0398dbdf9ff05c0011ff810f530",
-    "source_pr_supplement.json.gz": "c61d10cd3408b1a9910e6a40fba317894ba82b1c8506abcc704de7df3ea89516",
+    "source_pr_supplement.json.gz": "6202be24bb8f7dd1c79c9559cf12433ba206ccb316442d12ae693f044479857e",
     "source_u0_github_census.json.gz": "43037952f1464bd41cdb0d2eaba78503da60f17d66c410dea186b34e0b62ef2c",
     "source_workflow_authority_policy.json": "01977fda9c76c2513244b07d118cbb8bae620e6db03c0d6c3060763e36b9d3f7",
     "workflow_registry.yaml": "006003bfec081cda1e924e5db22c1f1cd612d40e0e8a136637af763ca658df53"
@@ -224,17 +224,17 @@
     "generator_runtime_requirements_sha256": "8c74d7c2c73e36c06bee51001a8ffc2579ea71555bb392cfb89a6ce0e05047ca",
     "pull_request_namespace_sha256": "639d708c707dbc48a1f02cc8eeb15a1c28837226f545b2ea8f84fb6b3313937c",
     "source_branch_supplement_sha256": "12ea17046e062707437b995b95cc610ccf2ef0398dbdf9ff05c0011ff810f530",
-    "source_pr_supplement_sha256": "362f0b7245ca05360ac206c122077a4c07b2111c748a2cd72e8b8af58244689a",
+    "source_pr_supplement_sha256": "259ba25f4353c38ffd62a47b1d094ff67b2277f8bcdd9b7a9c750ed97f18626b",
     "source_u0_census_sha256": "5c9741b84fe9cfff74619322bc99402d92f25979974d42a405e30091ff461216",
     "workflow_policy_sha256": "01977fda9c76c2513244b07d118cbb8bae620e6db03c0d6c3060763e36b9d3f7"
   },
   "source_pr_supplement_artifact": {
-    "compressed_bytes": 42206,
-    "compressed_sha256": "c61d10cd3408b1a9910e6a40fba317894ba82b1c8506abcc704de7df3ea89516",
+    "compressed_bytes": 43536,
+    "compressed_sha256": "6202be24bb8f7dd1c79c9559cf12433ba206ccb316442d12ae693f044479857e",
     "media_type": "application/gzip",
     "repository_path": "docs/run287_p0_3_authority_census/source_pr_supplement.json.gz",
-    "uncompressed_bytes": 708195,
-    "uncompressed_sha256": "362f0b7245ca05360ac206c122077a4c07b2111c748a2cd72e8b8af58244689a"
+    "uncompressed_bytes": 848148,
+    "uncompressed_sha256": "259ba25f4353c38ffd62a47b1d094ff67b2277f8bcdd9b7a9c750ed97f18626b"
   },
   "source_promotion_blockers": [
     "branch_only_experiment_candidates_require_recovery",

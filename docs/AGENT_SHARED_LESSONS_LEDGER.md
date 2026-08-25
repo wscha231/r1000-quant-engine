@@ -4261,6 +4261,11 @@ Expected contract:
   audit-SHA, namespace-hash, and observation-time binding. Do not backdate a
   corrected protection/ruleset snapshot to an older PR or branch supplement
   timestamp, and do not treat omitted API fields as empty authority lists.
+- Reusable lesson: A successful check name alone does not satisfy branch
+  protection. Bind required contexts to their GitHub App IDs and keep legacy
+  status contexts or provider-less historical rollups explicitly unverified;
+  otherwise an unrelated producer can silently upgrade a blocked PR's
+  disposition.
 - Next action: Merge the reviewed P0-3 census, then begin P0-4 artifact inventory
   without deleting branches, dispatching workflows, or mutating durable state.
 - Fullrun executed: false. Target/order/ledger mutation executed: false.
