@@ -116,11 +116,11 @@ def test_tracked_bundle_exists_and_has_expected_counts() -> None:
         assert (INVENTORY / name).is_file(), name
     summary = json.loads((INVENTORY / "summary.json").read_text(encoding="utf-8"))
     assert summary["counts"] == {
-        "datasets": 23,
+        "datasets": 24,
         "models": 4,
         "durable_states": 8,
         "artifacts": 19,
-        "artifact_registry_rows": 54,
+        "artifact_registry_rows": 55,
     }
     assert summary["safety"]["mutations_performed"] == []
     assert summary["safety"]["live_trading_enabled"] is False
@@ -154,7 +154,7 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
         for key in ("datasets", "models", "durable_states", "artifacts")
         for row in payload[key]
     }
-    assert len(expected) == 54
+    assert len(expected) == 55
     frame = pd.read_parquet(INVENTORY / "artifact_registry.parquet")
     assert REQUIRED_COLUMNS == set(frame.columns)
     assert set(frame["object_id"]) == expected
@@ -162,10 +162,10 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
     assert frame["market"].eq("US").all()
     assert frame["baseline_code_sha"].eq(payload["baseline_code_sha"]).all()
     assert frame["source_snapshot_sha256"].eq(
-        "038ca1f49d698e84aee42e3c57e6b66e8cc12358a0838792a41b7143d7cc1b79"
+        "cb18ad7804154268df6e873d85b5ec45092290bdebdf8d833eb908dbb66e9e5d"
     ).all()
     assert frame["source_publication_commit"].eq(
-        "a7660bf6e0cc36e73da8902abcbce4a8d4df292c"
+        "daf8dc2bb4f5e71293347cf4face3f139a15d0eb"
     ).all()
     assert frame["exact_location"].astype(str).str.strip().ne("").all()
     assert frame["rollback_restore"].astype(str).str.strip().ne("").all()
@@ -265,6 +265,13 @@ def test_every_mutable_alias_is_verified_or_explicitly_blocked() -> None:
         assert objects[object_id]["mutable_alias"] == alias
         assert mapped[object_id]["mutable_alias"] == alias
         assert alias.removeprefix("paper_archive/") in baseline_daily
+    macro_cache_id = "ds.us.macro.operational-cache"
+    assert objects[macro_cache_id]["mutable_alias"] == "cache_macro"
+    assert objects[macro_cache_id]["file_count"] == 15
+    assert objects[macro_cache_id]["size_bytes"] == 634224
+    assert mapped[macro_cache_id]["mutable_alias"] == "cache_macro"
+    assert mapped[macro_cache_id]["status"] == "BLOCKED_NO_IMMUTABLE_SOURCE"
+    assert "cache_macro" in baseline_daily
     feature_aliases = {
         f"feature_store/{name}"
         for name in (
@@ -319,6 +326,10 @@ def test_paper_heads_use_the_baseline_writer_namespace() -> None:
         assert re.fullmatch(r"[0-9a-f]{64}", head)
         assert suffix == expected_suffixes[object_id]
         assert bool(separator) == bool(expected_suffixes[object_id])
+        assert row["mutable_alias"] == (
+            "paper_archive/run287_daily_simulated_fill_ledger/"
+            + expected_suffixes[object_id]
+        )
         paper_heads.add(head)
         assert row["writer_workflow"] == "daily_operating_selection_refresh.yml"
     assert paper_heads == {objects["state.us.paper.immutable-head"]["data_hash"]}
@@ -601,7 +612,7 @@ def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
 
     relative = "docs/run287_p0_4_artifact_inventory/source_inventory_snapshot.json"
     assert FROZEN_SOURCE_PUBLICATION_COMMIT == (
-        "a7660bf6e0cc36e73da8902abcbce4a8d4df292c"
+        "daf8dc2bb4f5e71293347cf4face3f139a15d0eb"
     )
     assert git("rev-parse", f"{FROZEN_SOURCE_PUBLICATION_COMMIT}:{relative}").strip() == (
         FROZEN_SOURCE_GIT_BLOB_SHA1
@@ -664,6 +675,7 @@ def test_pr_validation_checkout_supports_pinned_lineage_checks() -> None:
     assert 'git fetch --no-tags --filter=blob:none --deepen=64 origin "$GITHUB_REF"' in text
     assert 'while true; do' in text
     assert 'git rev-parse --is-shallow-repository' in text
+    assert "0f34de9a2747059b7bb808cb070a86261e119f95" in text
     assert 'git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha }}"' not in text
     assert 'git merge-base --is-ancestor "$base_sha" HEAD' in text
     assert FROZEN_PUBLICATION_COMMIT == (
@@ -963,6 +975,44 @@ def test_required_fixed_target_aliases_cannot_be_omitted(tmp_path: Path) -> None
     else:
         raise AssertionError("missing official paper archive was not rejected")
 
+    feature_id = "ds.us.features.latest-recommendations"
+    payload = source()
+    payload["datasets"] = [
+        row for row in payload["datasets"] if row["object_id"] != feature_id
+    ]
+    payload["latest_to_immutable"] = [
+        row
+        for row in payload["latest_to_immutable"]
+        if row["object_id"] != feature_id
+    ]
+    missing_feature = tmp_path / "missing-feature.json"
+    missing_feature.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(missing_feature, tmp_path / "missing-feature-output")
+    except InventoryError as exc:
+        assert str(exc) == f"required_feature_alias_missing:{feature_id}"
+    else:
+        raise AssertionError("missing censused feature file was not rejected")
+
+    macro_cache_id = "ds.us.macro.operational-cache"
+    payload = source()
+    payload["datasets"] = [
+        row for row in payload["datasets"] if row["object_id"] != macro_cache_id
+    ]
+    payload["latest_to_immutable"] = [
+        row
+        for row in payload["latest_to_immutable"]
+        if row["object_id"] != macro_cache_id
+    ]
+    missing_macro_cache = tmp_path / "missing-macro-cache.json"
+    missing_macro_cache.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(missing_macro_cache, tmp_path / "missing-macro-cache-output")
+    except InventoryError as exc:
+        assert str(exc) == f"required_operational_cache_missing:{macro_cache_id}"
+    else:
+        raise AssertionError("missing operational macro cache was not rejected")
+
 
 def test_alias_map_must_match_object_status_and_evidence(tmp_path: Path) -> None:
     from tools.build_p0_4_artifact_inventory import InventoryError, build
@@ -1147,6 +1197,25 @@ def test_compound_aliases_and_wrong_paper_head_namespaces_fail_closed(
         assert str(exc) == "paper_head_mixed_snapshots"
     else:
         raise AssertionError("mixed paper-head snapshots were not rejected")
+
+    payload = source()
+    object_id = "state.us.paper.main-account"
+    row = next(
+        row for row in payload["durable_states"] if row["object_id"] == object_id
+    )
+    mapping = next(
+        row for row in payload["latest_to_immutable"] if row["object_id"] == object_id
+    )
+    row["mutable_alias"] = "paper_archive/unrelated/account.json"
+    mapping["mutable_alias"] = row["mutable_alias"]
+    wrong_alias = tmp_path / "wrong-paper-alias.json"
+    wrong_alias.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(wrong_alias, tmp_path / "wrong-paper-alias-output")
+    except InventoryError as exc:
+        assert str(exc) == f"paper_head_mutable_alias_mismatch:{object_id}"
+    else:
+        raise AssertionError("paper head mutable alias drift was not rejected")
 
 
 def test_invalid_or_incomplete_sources_fail_closed(tmp_path: Path) -> None:

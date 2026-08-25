@@ -4296,14 +4296,15 @@ Expected contract:
 - Context: Issue #372 required a read-only inventory connecting US data,
   models, durable paper state, target outputs, and operational evidence at
   exact master `0f34de9a2747059b7bb808cb070a86261e119f95`.
-- Result: 23 dataset classes, four model objects, eight durable-state objects,
-  and 19 artifact/infrastructure objects were normalized into 54 hash- and
+- Result: 24 dataset classes, four model objects, eight durable-state objects,
+  and 19 artifact/infrastructure objects were normalized into 55 hash- and
   provenance-bearing Parquet rows. Mutable aliases are verified or explicitly
   blocked; four fixed recommendation/target paths and four mutable paper archive
   directories are required independently of the source object's declarations.
   The nine-file Drive feature folder is represented by nine concrete file
   aliases plus a non-mappable folder census object; the complete mutable paper
-  directory and risk-outcome accepted-head directory are also explicit aliases.
+  directory, risk-outcome accepted-head directory, and 15-file operational
+  macro cache are also explicit aliases.
 - Operational blocker: The latest three scheduled operating-selection runs
   stopped at `Restore verified risk-outcome accepted head`. Exact run/job IDs,
   terminal excerpt hashes, exit code 2, and skipped target/ledger/persistence
@@ -4329,9 +4330,17 @@ Expected contract:
   legacy folder name is not restoration provenance.
 - Reusable lesson: A group of objects that claims one atomic durable snapshot
   must extract and share the same immutable head hash, not merely a path prefix.
+  Each mutable child must also equal the expected path beneath the canonical
+  mutable root. A container census must independently require every declared
+  child and reconcile its file count and total size; deriving completeness only
+  from objects that remain in a supplied source lets omissions pass silently.
   Canonical regeneration must authenticate every copied input, including the
   dependency contract, require live-head lineage verification, and reject any
   output destination that is the repository or an ancestor of it.
+- Reusable lesson: Shallow CI history must deepen through every commit used by
+  verifier ancestry checks, including the oldest frozen inventory baseline;
+  stopping at a newer publication commit leaves a future boundary window where
+  the registered test fails despite the publication itself being reachable.
 - Caveat: Historical Russell membership remains not proven PIT-safe; the price
   cache view is incomplete; mutable macro, feature, and model objects lack
   complete immutable lineage; and the shared rclone Drive client is a 2026

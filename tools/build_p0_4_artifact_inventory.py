@@ -31,9 +31,9 @@ DEFAULT_SOURCE = ROOT / "docs" / "run287_p0_4_artifact_inventory" / "source_inve
 DEFAULT_OUTPUT = ROOT / "docs" / "run287_p0_4_artifact_inventory"
 SCHEMA_VERSION = "run287-p0-4-inventory-source-v1"
 REGISTRY_SCHEMA_VERSION = "run287-p0-4-registry-v1"
-FROZEN_SOURCE_PUBLICATION_COMMIT = "a7660bf6e0cc36e73da8902abcbce4a8d4df292c"
-FROZEN_SOURCE_GIT_BLOB_SHA1 = "d238755cc76fb2c7d553831d78acb7dbe6d182c8"
-FROZEN_SOURCE_SHA256 = "038ca1f49d698e84aee42e3c57e6b66e8cc12358a0838792a41b7143d7cc1b79"
+FROZEN_SOURCE_PUBLICATION_COMMIT = "daf8dc2bb4f5e71293347cf4face3f139a15d0eb"
+FROZEN_SOURCE_GIT_BLOB_SHA1 = "307b2ad241bac299aac5eece437379c5682b3ecd"
+FROZEN_SOURCE_SHA256 = "cb18ad7804154268df6e873d85b5ec45092290bdebdf8d833eb908dbb66e9e5d"
 FROZEN_PUBLICATION_COMMIT = "f7fadfa4e7814c6453bf96ebf3a1ff4d39eadfae"
 FROZEN_PROTECTED_PUBLICATION_COMMIT = "aa02cf63fa224681f059c41d533ba5a3d963bb08"
 GENERATOR_PATH = "tools/build_p0_4_artifact_inventory.py"
@@ -111,10 +111,38 @@ REQUIRED_DURABLE_ALIAS_OBJECTS = {
         "paper_archive/run287_risk_outcome_accepted_heads/"
     ),
 }
+REQUIRED_OPERATIONAL_CACHE_ALIAS_OBJECTS = {
+    "ds.us.macro.operational-cache": "cache_macro",
+}
+REQUIRED_FEATURE_ALIAS_OBJECTS = {
+    "ds.us.features.candidate-universe-latest": (
+        "feature_store/candidate_universe_latest.parquet"
+    ),
+    "ds.us.features.latest-recommendations": (
+        "feature_store/latest_recommendations.parquet"
+    ),
+    "ds.us.features.scored-oos-partial": "feature_store/scored_oos_partial.parquet",
+    "ds.us.features.scored-oos-latest": "feature_store/scored_oos_latest.parquet",
+    "ds.us.features.feature-store-latest": (
+        "feature_store/feature_store_latest.parquet"
+    ),
+    "ds.us.features.universe-monthly-latest": (
+        "feature_store/universe_monthly_latest.parquet"
+    ),
+    "ds.us.features.macro-regime-latest": (
+        "feature_store/macro_regime_latest.parquet"
+    ),
+    "ds.us.features.live-event-alert-latest": (
+        "feature_store/live_event_alert_latest.parquet"
+    ),
+    "ds.us.features.fund-panel-latest": "feature_store/fund_panel_latest.parquet",
+}
+FEATURE_DRIVE_CENSUS_OBJECT = "ds.us.features.drive-latest-family"
 OFFICIAL_TARGET_WORKFLOW = ".github/workflows/daily_operating_selection_refresh.yml"
 OFFICIAL_PAPER_HEAD_ROOT = (
     "paper_archive/run287_daily_simulated_fill_ledger_heads"
 )
+OFFICIAL_PAPER_MUTABLE_ROOT = "paper_archive/run287_daily_simulated_fill_ledger/"
 PAPER_HEAD_EXPECTED_SUFFIXES = {
     "state.us.paper.immutable-head": "",
     "state.us.paper.accepted-publication": "accepted_publication.json",
@@ -572,6 +600,9 @@ def validate_source(payload: dict[str, Any]) -> None:
             not separator and expected_suffix
         ):
             raise InventoryError(f"paper_head_object_path_mismatch:{object_id}")
+        expected_alias = OFFICIAL_PAPER_MUTABLE_ROOT + expected_suffix
+        if row.get("mutable_alias") != expected_alias:
+            raise InventoryError(f"paper_head_mutable_alias_mismatch:{object_id}")
         paper_heads.add(head_sha)
         if row.get("writer_workflow") != "daily_operating_selection_refresh.yml":
             raise InventoryError(f"paper_head_writer_workflow_mismatch:{object_id}")
@@ -611,6 +642,34 @@ def validate_source(payload: dict[str, Any]) -> None:
             raise InventoryError(f"required_durable_alias_mismatch:{object_id}")
         if object_id not in alias_ids:
             raise InventoryError(f"required_durable_alias_map_missing:{object_id}")
+    for object_id, alias in REQUIRED_OPERATIONAL_CACHE_ALIAS_OBJECTS.items():
+        if alias not in workflow_text:
+            raise InventoryError(f"operational_cache_not_in_baseline_workflow:{alias}")
+        row = object_index.get(object_id)
+        if row is None:
+            raise InventoryError(f"required_operational_cache_missing:{object_id}")
+        if row.get("mutable_alias") != alias:
+            raise InventoryError(f"required_operational_cache_mismatch:{object_id}")
+        if object_id not in alias_ids:
+            raise InventoryError(f"required_operational_cache_map_missing:{object_id}")
+    feature_rows: list[dict[str, Any]] = []
+    for object_id, alias in REQUIRED_FEATURE_ALIAS_OBJECTS.items():
+        row = object_index.get(object_id)
+        if row is None:
+            raise InventoryError(f"required_feature_alias_missing:{object_id}")
+        if row.get("mutable_alias") != alias:
+            raise InventoryError(f"required_feature_alias_mismatch:{object_id}")
+        if object_id not in alias_ids:
+            raise InventoryError(f"required_feature_alias_map_missing:{object_id}")
+        feature_rows.append(row)
+    feature_census = object_index.get(FEATURE_DRIVE_CENSUS_OBJECT)
+    if feature_census is None:
+        raise InventoryError("feature_drive_census_missing")
+    if feature_census.get("file_count") != len(feature_rows):
+        raise InventoryError("feature_drive_census_file_count_mismatch")
+    feature_size = sum(int(row.get("size_bytes") or 0) for row in feature_rows)
+    if feature_census.get("size_bytes") != feature_size:
+        raise InventoryError("feature_drive_census_size_mismatch")
     validate_failure_evidence(payload)
     if not isinstance(payload.get("migration_items"), list) or not payload["migration_items"]:
         raise InventoryError("migration_items_empty")
