@@ -3,7 +3,7 @@ source_schema_version: run287-p0-4-inventory-source-v1
 market: US
 baseline_code_sha: 0f34de9a2747059b7bb808cb070a86261e119f95
 observed_at_utc: '2026-08-25T12:06:47.159838+00:00'
-source_snapshot_sha256: d13b1cc3c3dc46026257fb116f5e4180d0c5bd4165aec9e920d0e9da596279f3
+source_snapshot_sha256: f8993f4971bfa03b9fbc58389ef40c8bd0a8dfddc9bdb57dcc9abdeb8a283a2f
 discovery_limits:
 - Google Drive folder listing returned only 100 direct cache_price children while the frozen manifest reports 1048 files;
   the provider view has no continuation token and remains incomplete.
@@ -184,12 +184,12 @@ datasets:
   object_id: ds.us.sec.companyfacts-bulk
 - schema_version: run287-replay-price-cache-manifest-v2
   market: US
-  logical_role: historical and exact-close price cache
+  logical_role: historical and exact-close price-cache directory
   producer: build_replay_price_cache.py via several workflows
   storage_kind: google_drive_folder
   exact_location: gdrive-id:1wdd4LWhjZzKZ56tEcj5dQKnqkGQUzGXQ
   immutable_location: ''
-  mutable_alias: cache_prices; cache_prices/replay_price_cache_manifest.json
+  mutable_alias: cache_prices
   as_of: '2026-08-24'
   available_from: '2026-08-24T23:54:55.278Z'
   created_at: ''
@@ -228,6 +228,52 @@ datasets:
   - free manifest exact_operating_universe is false
   - BLD observed only through 2026-06-30
   object_id: ds.us.prices.replay-cache
+- schema_version: run287-replay-price-cache-manifest-v2
+  market: US
+  logical_role: mutable manifest for the historical and exact-close price cache
+  producer: build_replay_price_cache.py via several workflows
+  storage_kind: google_drive_file_in_folder
+  exact_location: cache_prices/replay_price_cache_manifest.json
+  immutable_location: ''
+  mutable_alias: cache_prices/replay_price_cache_manifest.json
+  as_of: '2026-08-24'
+  available_from: '2026-08-24T23:54:55.278Z'
+  created_at: ''
+  decision_time_cutoff: EXACT_SESSION_ONLY_WHEN_DAILY_OPERATING_CONTRACT_REBUILDS_IT
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes:
+  - bbb94f82914ae4216188d473ff550aa32a5bb6d9dbd601f9537f0dabee20993a
+  size_bytes: null
+  row_count: null
+  file_count: 1
+  content_sha256: ''
+  manifest_sha256: bbb94f82914ae4216188d473ff550aa32a5bb6d9dbd601f9537f0dabee20993a
+  writer_workflow: free_data_daily_update.yml; daily_operating_selection_refresh.yml; earnings_estimates_daily.yml
+  writer_job: price-cache builders
+  write_authority: SCOPE_DEPENDENT_MULTIPLE_WRITERS
+  pit_classification: MANIFEST_DOES_NOT_BIND_AN_EXACT_OPERATING_UNIVERSE
+  survivorship_classification: TICKER_INPUT_DEPENDENT
+  corporate_action_classification: PROVIDER_AUTO_ADJUST_POLICY_REQUIRES_MANIFEST
+  license_classification: YFINANCE_PROVIDER_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: MUTABLE_LATEST_MANIFEST
+  downstream_consumers:
+  - price-cache restore
+  - daily market snapshot
+  - paper ledger
+  - backtests
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  discovery_status: MANIFEST_HASH_CAPTURED_TREE_ENUMERATION_INCOMPLETE
+  blockers:
+  - no immutable session manifest copy
+  - Drive enumeration truncated
+  - required_ticker_count is 0
+  - exact_operating_universe is false
+  object_id: ds.us.prices.replay-cache-manifest
 - schema_version: macro-daily-snapshot-unversioned
   market: US
   logical_role: current macro pulse and regime input

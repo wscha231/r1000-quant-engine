@@ -116,11 +116,11 @@ def test_tracked_bundle_exists_and_has_expected_counts() -> None:
         assert (INVENTORY / name).is_file(), name
     summary = json.loads((INVENTORY / "summary.json").read_text(encoding="utf-8"))
     assert summary["counts"] == {
-        "datasets": 14,
+        "datasets": 15,
         "models": 4,
         "durable_states": 8,
         "artifacts": 19,
-        "artifact_registry_rows": 45,
+        "artifact_registry_rows": 46,
     }
     assert summary["safety"]["mutations_performed"] == []
     assert summary["safety"]["live_trading_enabled"] is False
@@ -154,7 +154,7 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
         for key in ("datasets", "models", "durable_states", "artifacts")
         for row in payload[key]
     }
-    assert len(expected) == 45
+    assert len(expected) == 46
     frame = pd.read_parquet(INVENTORY / "artifact_registry.parquet")
     assert REQUIRED_COLUMNS == set(frame.columns)
     assert set(frame["object_id"]) == expected
@@ -162,10 +162,10 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
     assert frame["market"].eq("US").all()
     assert frame["baseline_code_sha"].eq(payload["baseline_code_sha"]).all()
     assert frame["source_snapshot_sha256"].eq(
-        "d13b1cc3c3dc46026257fb116f5e4180d0c5bd4165aec9e920d0e9da596279f3"
+        "f8993f4971bfa03b9fbc58389ef40c8bd0a8dfddc9bdb57dcc9abdeb8a283a2f"
     ).all()
     assert frame["source_publication_commit"].eq(
-        "5b6748fa4bd0ad5454eb2af4986324d724496bf8"
+        "f50ab211e3c4ec64a5a09387f72a65da255bc1f1"
     ).all()
     assert frame["exact_location"].astype(str).str.strip().ne("").all()
     assert frame["rollback_restore"].astype(str).str.strip().ne("").all()
@@ -197,11 +197,15 @@ def test_every_mutable_alias_is_verified_or_explicitly_blocked() -> None:
     for object_id, row in objects.items():
         if row.get("mutable_alias"):
             assert object_id in mapped_ids, object_id
+            assert ";" not in row["mutable_alias"], object_id
     for row in mappings:
         status = row["status"]
         assert status == "VERIFIED_IMMUTABLE" or status.startswith("BLOCKED_")
         if status == "VERIFIED_IMMUTABLE":
             assert row["immutable_source"]
+            assert row["immutable_source"] == objects[row["object_id"]][
+                "immutable_location"
+            ]
             assert not row["blockers"]
         else:
             assert row["blockers"]
@@ -244,6 +248,31 @@ def test_every_mutable_alias_is_verified_or_explicitly_blocked() -> None:
         assert mapped[object_id]["mutable_alias"] == alias
         assert mapped[object_id]["status"].startswith("BLOCKED_")
         assert alias in baseline_daily
+
+
+def test_paper_heads_use_the_baseline_writer_namespace() -> None:
+    payload = source()
+    objects = {
+        row["object_id"]: row
+        for key in ("datasets", "models", "durable_states", "artifacts")
+        for row in payload[key]
+    }
+    paper_ids = {
+        "state.us.paper.immutable-head",
+        "state.us.paper.accepted-publication",
+        "state.us.paper.main-account",
+        "state.us.paper.concentrated-account",
+        "state.us.paper.main-ledger-manifest",
+        "state.us.paper.concentrated-ledger-manifest",
+    }
+    root = "paper_archive/run287_daily_simulated_fill_ledger_heads/"
+    assert root.rstrip("/") in baseline_text(
+        ".github/workflows/daily_operating_selection_refresh.yml"
+    )
+    for object_id in paper_ids:
+        row = objects[object_id]
+        assert row["immutable_location"].startswith(root)
+        assert row["writer_workflow"] == "daily_operating_selection_refresh.yml"
 
 
 def test_frozen_repository_inventory_matches_baseline_tree() -> None:
@@ -474,7 +503,7 @@ def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
 
     relative = "docs/run287_p0_4_artifact_inventory/source_inventory_snapshot.json"
     assert FROZEN_SOURCE_PUBLICATION_COMMIT == (
-        "5b6748fa4bd0ad5454eb2af4986324d724496bf8"
+        "f50ab211e3c4ec64a5a09387f72a65da255bc1f1"
     )
     assert git("rev-parse", f"{FROZEN_SOURCE_PUBLICATION_COMMIT}:{relative}").strip() == (
         FROZEN_SOURCE_GIT_BLOB_SHA1
@@ -822,6 +851,21 @@ def test_alias_map_must_match_object_status_and_evidence(tmp_path: Path) -> None
         raise AssertionError("verified map without immutable evidence was not rejected")
 
     payload = source()
+    verified_id = "state.us.paper.main-account"
+    verified_map = next(
+        row for row in payload["latest_to_immutable"] if row["object_id"] == verified_id
+    )
+    verified_map["immutable_source"] = "invented/noncanonical/head.json"
+    mismatched_evidence = tmp_path / "mismatched-map-evidence.json"
+    mismatched_evidence.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(mismatched_evidence, tmp_path / "mismatched-map-evidence-output")
+    except InventoryError as exc:
+        assert str(exc) == f"latest_map_verified_source_mismatch:{verified_id}"
+    else:
+        raise AssertionError("verified map/object immutable locations were not bound")
+
+    payload = source()
     mutable_id = "artifact.drive.operating-main-target-book"
     mutable_object = next(
         row for row in payload["artifacts"] if row["object_id"] == mutable_id
@@ -848,6 +892,47 @@ def test_alias_map_must_match_object_status_and_evidence(tmp_path: Path) -> None
         raise AssertionError("mutable alias marked not-applicable was not rejected")
 
 
+def test_compound_aliases_and_wrong_paper_head_namespaces_fail_closed(
+    tmp_path: Path,
+) -> None:
+    from tools.build_p0_4_artifact_inventory import InventoryError, build
+
+    payload = source()
+    object_id = "ds.us.prices.replay-cache"
+    row = next(row for row in payload["datasets"] if row["object_id"] == object_id)
+    mapping = next(
+        row for row in payload["latest_to_immutable"] if row["object_id"] == object_id
+    )
+    row["mutable_alias"] = "cache_prices; cache_prices/replay_price_cache_manifest.json"
+    mapping["mutable_alias"] = row["mutable_alias"]
+    compound = tmp_path / "compound-alias.json"
+    compound.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(compound, tmp_path / "compound-alias-output")
+    except InventoryError as exc:
+        assert str(exc) == f"mutable_alias_not_atomic:{object_id}"
+    else:
+        raise AssertionError("compound mutable alias was not rejected")
+
+    payload = source()
+    object_id = "state.us.paper.immutable-head"
+    row = next(
+        row for row in payload["durable_states"] if row["object_id"] == object_id
+    )
+    row["immutable_location"] = row["immutable_location"].replace(
+        "run287_daily_simulated_fill_ledger_heads",
+        "run287_daily_simulated_fill_ledger_immutable",
+    )
+    wrong_namespace = tmp_path / "wrong-paper-head-namespace.json"
+    wrong_namespace.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(wrong_namespace, tmp_path / "wrong-paper-head-namespace-output")
+    except InventoryError as exc:
+        assert str(exc) == f"paper_head_writer_namespace_mismatch:{object_id}"
+    else:
+        raise AssertionError("paper head writer namespace drift was not rejected")
+
+
 def test_invalid_or_incomplete_sources_fail_closed(tmp_path: Path) -> None:
     from tools.build_p0_4_artifact_inventory import InventoryError, build
 
@@ -870,6 +955,7 @@ def main() -> int:
         test_generator_is_byte_stable(Path(temp_dir))
     test_registries_and_parquet_cover_every_object_once()
     test_every_mutable_alias_is_verified_or_explicitly_blocked()
+    test_paper_heads_use_the_baseline_writer_namespace()
     test_frozen_repository_inventory_matches_baseline_tree()
     test_latest_global_alias_diverges_in_exactly_scored_file()
     test_latest_r1000_adr_alias_is_exact_tree_match()
@@ -891,8 +977,9 @@ def main() -> int:
         test_safety_authority_flags_fail_closed(temp_path)
         test_required_fixed_target_aliases_cannot_be_omitted(temp_path)
         test_alias_map_must_match_object_status_and_evidence(temp_path)
+        test_compound_aliases_and_wrong_paper_head_namespaces_fail_closed(temp_path)
         test_invalid_or_incomplete_sources_fail_closed(temp_path)
-    print("P0-4 artifact inventory smoke: 24 passed")
+    print("P0-4 artifact inventory smoke: 26 passed")
     return 0
 
 

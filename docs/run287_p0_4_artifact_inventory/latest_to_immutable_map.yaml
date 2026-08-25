@@ -2,11 +2,11 @@ schema_version: run287-p0-4-latest-map-v1
 market: US
 baseline_code_sha: 0f34de9a2747059b7bb808cb070a86261e119f95
 observed_at_utc: '2026-08-25T12:06:47.159838+00:00'
-source_snapshot_sha256: d13b1cc3c3dc46026257fb116f5e4180d0c5bd4165aec9e920d0e9da596279f3
+source_snapshot_sha256: f8993f4971bfa03b9fbc58389ef40c8bd0a8dfddc9bdb57dcc9abdeb8a283a2f
 status_counts:
   BLOCKED_DIVERGENT: 2
   BLOCKED_MULTIPLE_WRITERS: 1
-  BLOCKED_NO_IMMUTABLE_SOURCE: 26
+  BLOCKED_NO_IMMUTABLE_SOURCE: 27
   VERIFIED_IMMUTABLE: 6
 mappings:
 - object_id: ds.us.universe.historical-auto
@@ -64,31 +64,31 @@ mappings:
   - revision signal not bound to one dated archive manifest
 - object_id: state.us.paper.accepted-publication
   mutable_alias: paper_archive/run287_daily_simulated_fill_ledger/accepted_publication.json
-  immutable_source: paper_archive/run287_daily_simulated_fill_ledger_immutable/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/accepted_publication.json
+  immutable_source: paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/accepted_publication.json
   status: VERIFIED_IMMUTABLE
   verification: content SHA-256 1f2941e7... and immutable head topology
   blockers: []
 - object_id: state.us.paper.main-account
   mutable_alias: paper_archive/run287_daily_simulated_fill_ledger/main/account_state_latest.json
-  immutable_source: immutable head 65fa6f5b.../main/account_state_latest.json
+  immutable_source: paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/main/account_state_latest.json
   status: VERIFIED_IMMUTABLE
   verification: accepted publication account state SHA-256 f959556e...
   blockers: []
 - object_id: state.us.paper.concentrated-account
   mutable_alias: paper_archive/run287_daily_simulated_fill_ledger/concentrated/account_state_latest.json
-  immutable_source: immutable head 65fa6f5b.../concentrated/account_state_latest.json
+  immutable_source: paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/concentrated/account_state_latest.json
   status: VERIFIED_IMMUTABLE
   verification: accepted publication account state SHA-256 8253abe8...
   blockers: []
 - object_id: state.us.paper.main-ledger-manifest
   mutable_alias: paper_archive/run287_daily_simulated_fill_ledger/main/manifest.json
-  immutable_source: immutable head 65fa6f5b.../main/manifest.json
+  immutable_source: paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/main/manifest.json
   status: VERIFIED_IMMUTABLE
   verification: manifest SHA-256 43f348b7...
   blockers: []
 - object_id: state.us.paper.concentrated-ledger-manifest
   mutable_alias: paper_archive/run287_daily_simulated_fill_ledger/concentrated/manifest.json
-  immutable_source: immutable head 65fa6f5b.../concentrated/manifest.json
+  immutable_source: paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/concentrated/manifest.json
   status: VERIFIED_IMMUTABLE
   verification: manifest SHA-256 78fc4887...
   blockers: []
@@ -173,12 +173,20 @@ mappings:
   blockers:
   - content differs
 - object_id: ds.us.prices.replay-cache
-  mutable_alias: cache_prices; cache_prices/replay_price_cache_manifest.json
+  mutable_alias: cache_prices
   immutable_source: ''
   status: BLOCKED_NO_IMMUTABLE_SOURCE
-  verification: manifest hash captured; full 1048-file Drive enumeration incomplete
+  verification: folder is independently represented; full 1048-file Drive enumeration incomplete
   blockers:
   - no complete immutable session tree
+  - provider listing truncated
+- object_id: ds.us.prices.replay-cache-manifest
+  mutable_alias: cache_prices/replay_price_cache_manifest.json
+  immutable_source: ''
+  status: BLOCKED_NO_IMMUTABLE_SOURCE
+  verification: manifest SHA-256 bbb94f82... captured independently from the mutable cache directory
+  blockers:
+  - no immutable session manifest copy
   - provider listing truncated
 - object_id: ds.us.macro.daily-snapshot
   mutable_alias: data_raw/free/macro/daily_snapshot/latest.json

@@ -31,9 +31,9 @@ DEFAULT_SOURCE = ROOT / "docs" / "run287_p0_4_artifact_inventory" / "source_inve
 DEFAULT_OUTPUT = ROOT / "docs" / "run287_p0_4_artifact_inventory"
 SCHEMA_VERSION = "run287-p0-4-inventory-source-v1"
 REGISTRY_SCHEMA_VERSION = "run287-p0-4-registry-v1"
-FROZEN_SOURCE_PUBLICATION_COMMIT = "5b6748fa4bd0ad5454eb2af4986324d724496bf8"
-FROZEN_SOURCE_GIT_BLOB_SHA1 = "0b2037328b3a4d77231e0600c4829a549d99bc89"
-FROZEN_SOURCE_SHA256 = "d13b1cc3c3dc46026257fb116f5e4180d0c5bd4165aec9e920d0e9da596279f3"
+FROZEN_SOURCE_PUBLICATION_COMMIT = "f50ab211e3c4ec64a5a09387f72a65da255bc1f1"
+FROZEN_SOURCE_GIT_BLOB_SHA1 = "2c7431c527b7401e64413c9b29d7dc583cd154ce"
+FROZEN_SOURCE_SHA256 = "f8993f4971bfa03b9fbc58389ef40c8bd0a8dfddc9bdb57dcc9abdeb8a283a2f"
 FROZEN_PUBLICATION_COMMIT = "f7fadfa4e7814c6453bf96ebf3a1ff4d39eadfae"
 FROZEN_PROTECTED_PUBLICATION_COMMIT = "3ddc485b3fb8fe32362add9dc7e0cb1e9be5b915"
 GENERATOR_PATH = "tools/build_p0_4_artifact_inventory.py"
@@ -100,6 +100,17 @@ REQUIRED_MUTABLE_ARCHIVE_OBJECTS = {
     ),
 }
 OFFICIAL_TARGET_WORKFLOW = ".github/workflows/daily_operating_selection_refresh.yml"
+OFFICIAL_PAPER_HEAD_ROOT = (
+    "paper_archive/run287_daily_simulated_fill_ledger_heads"
+)
+PAPER_HEAD_BOUND_OBJECTS = {
+    "state.us.paper.immutable-head",
+    "state.us.paper.accepted-publication",
+    "state.us.paper.main-account",
+    "state.us.paper.concentrated-account",
+    "state.us.paper.main-ledger-manifest",
+    "state.us.paper.concentrated-ledger-manifest",
+}
 PINNED_PUBLICATION_FILE_SHA256 = {
     ".github/workflows/pr_validation.yml": (
         "cbefba4c7362b3ca7c14e058d1e95831ff06c18fb85341e24245ae61c61bd17f"
@@ -325,6 +336,14 @@ def validate_object(row: dict[str, Any], *, object_class: str) -> None:
             raise InventoryError(f"object_field_not_list:{object_id}:{field}")
     if row.get("mapping_status") not in ALIAS_STATUSES:
         raise InventoryError(f"mapping_status_invalid:{object_id}")
+    mutable_alias = row.get("mutable_alias")
+    if mutable_alias and (
+        not isinstance(mutable_alias, str)
+        or ";" in mutable_alias
+        or "\n" in mutable_alias
+        or "\r" in mutable_alias
+    ):
+        raise InventoryError(f"mutable_alias_not_atomic:{object_id}")
     if row.get("mutable_alias") and row.get("mapping_status") == "NOT_APPLICABLE":
         raise InventoryError(f"mutable_alias_not_applicable:{object_id}")
     blocked = str(row.get("mapping_status")).startswith("BLOCKED_")
@@ -491,6 +510,12 @@ def validate_source(payload: dict[str, Any]) -> None:
                 raise InventoryError(
                     f"latest_map_verified_without_immutable_source:{object_id}"
                 )
+            if row.get("immutable_source") != object_row.get(
+                "immutable_location"
+            ):
+                raise InventoryError(
+                    f"latest_map_verified_source_mismatch:{object_id}"
+                )
             if blockers:
                 raise InventoryError(f"latest_map_verified_with_blockers:{object_id}")
     mutable_ids = {
@@ -503,6 +528,17 @@ def validate_source(payload: dict[str, Any]) -> None:
     if missing_aliases:
         raise InventoryError("latest_map_missing_aliases:" + ",".join(missing_aliases))
     workflow_text = baseline_workflow_text(baseline)
+    if OFFICIAL_PAPER_HEAD_ROOT not in workflow_text:
+        raise InventoryError("official_paper_head_root_not_in_baseline_workflow")
+    for object_id in PAPER_HEAD_BOUND_OBJECTS:
+        row = object_index.get(object_id)
+        if row is None:
+            raise InventoryError(f"paper_head_object_missing:{object_id}")
+        immutable_location = str(row.get("immutable_location") or "")
+        if not immutable_location.startswith(OFFICIAL_PAPER_HEAD_ROOT + "/"):
+            raise InventoryError(f"paper_head_writer_namespace_mismatch:{object_id}")
+        if row.get("writer_workflow") != "daily_operating_selection_refresh.yml":
+            raise InventoryError(f"paper_head_writer_workflow_mismatch:{object_id}")
     for object_id, alias in REQUIRED_FIXED_ALIAS_OBJECTS.items():
         if alias not in workflow_text:
             raise InventoryError(f"fixed_alias_not_in_baseline_workflow:{alias}")

@@ -3,7 +3,7 @@ source_schema_version: run287-p0-4-inventory-source-v1
 market: US
 baseline_code_sha: 0f34de9a2747059b7bb808cb070a86261e119f95
 observed_at_utc: '2026-08-25T12:06:47.159838+00:00'
-source_snapshot_sha256: d13b1cc3c3dc46026257fb116f5e4180d0c5bd4165aec9e920d0e9da596279f3
+source_snapshot_sha256: f8993f4971bfa03b9fbc58389ef40c8bd0a8dfddc9bdb57dcc9abdeb8a283a2f
 discovery_limits:
 - Google Drive folder listing returned only 100 direct cache_price children while the frozen manifest reports 1048 files;
   the provider view has no continuation token and remains incomplete.
@@ -20,7 +20,7 @@ durable_states:
   producer: daily_operating_selection_refresh.yml
   storage_kind: google_drive_folder
   exact_location: gdrive-id:1ZBfSgjBFl0oRtQkS-eSleEOT2podcXz1
-  immutable_location: paper_archive/run287_daily_simulated_fill_ledger_immutable/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7
+  immutable_location: paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7
   mutable_alias: ''
   as_of: '2026-07-24'
   available_from: '2026-08-05T04:58:54.261Z'
@@ -60,7 +60,7 @@ durable_states:
   producer: build_run287_accepted_publication_manifest.py
   storage_kind: google_drive_file
   exact_location: gdrive-id:1MiAcwCj_TAYBa16Q8bN2hCmny6VqXnnr
-  immutable_location: paper_archive/run287_daily_simulated_fill_ledger_immutable/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/accepted_publication.json
+  immutable_location: paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/accepted_publication.json
   mutable_alias: paper_archive/run287_daily_simulated_fill_ledger/accepted_publication.json
   as_of: '2026-07-24'
   available_from: '2026-08-05T04:58:54.261Z'
@@ -99,7 +99,7 @@ durable_states:
   producer: run_daily_simulated_fill_ledger.py
   storage_kind: google_drive_file_in_head
   exact_location: paper_archive/run287_daily_simulated_fill_ledger/main/account_state_latest.json
-  immutable_location: paper_archive/run287_daily_simulated_fill_ledger_immutable/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/main/account_state_latest.json
+  immutable_location: paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/main/account_state_latest.json
   mutable_alias: paper_archive/run287_daily_simulated_fill_ledger/main/account_state_latest.json
   as_of: '2026-07-24'
   available_from: ''
@@ -139,7 +139,7 @@ durable_states:
   producer: run_daily_simulated_fill_ledger.py
   storage_kind: google_drive_file_in_head
   exact_location: paper_archive/run287_daily_simulated_fill_ledger/concentrated/account_state_latest.json
-  immutable_location: paper_archive/run287_daily_simulated_fill_ledger_immutable/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/concentrated/account_state_latest.json
+  immutable_location: paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/concentrated/account_state_latest.json
   mutable_alias: paper_archive/run287_daily_simulated_fill_ledger/concentrated/account_state_latest.json
   as_of: '2026-07-24'
   available_from: ''
@@ -179,7 +179,7 @@ durable_states:
   producer: run_daily_simulated_fill_ledger.py
   storage_kind: google_drive_file_in_head
   exact_location: paper_archive/run287_daily_simulated_fill_ledger/main/manifest.json
-  immutable_location: paper_archive/run287_daily_simulated_fill_ledger_immutable/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/main/manifest.json
+  immutable_location: paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/main/manifest.json
   mutable_alias: paper_archive/run287_daily_simulated_fill_ledger/main/manifest.json
   as_of: '2026-07-24'
   available_from: ''
@@ -218,7 +218,7 @@ durable_states:
   producer: run_daily_simulated_fill_ledger.py
   storage_kind: google_drive_file_in_head
   exact_location: paper_archive/run287_daily_simulated_fill_ledger/concentrated/manifest.json
-  immutable_location: paper_archive/run287_daily_simulated_fill_ledger_immutable/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/concentrated/manifest.json
+  immutable_location: paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/concentrated/manifest.json
   mutable_alias: paper_archive/run287_daily_simulated_fill_ledger/concentrated/manifest.json
   as_of: '2026-07-24'
   available_from: ''
