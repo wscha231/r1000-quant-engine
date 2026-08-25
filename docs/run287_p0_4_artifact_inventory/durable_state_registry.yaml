@@ -3,7 +3,7 @@ source_schema_version: run287-p0-4-inventory-source-v1
 market: US
 baseline_code_sha: 0f34de9a2747059b7bb808cb070a86261e119f95
 observed_at_utc: '2026-08-25T12:06:47.159838+00:00'
-source_snapshot_sha256: 55f226c85d15aedd3292f718950551056ed8af04d0d514dfa07672789af5b1d4
+source_snapshot_sha256: 0ff952be63c5ec3bdcd49ac63b8c7e3f484843bf1747cf5a144badd64879e3b4
 discovery_limits:
 - Google Drive folder listing returned only 100 direct cache_price children while the frozen manifest reports 1048 files;
   the provider view has no continuation token and remains incomplete.
@@ -18,6 +18,7 @@ durable_states:
   market: US
   logical_role: canonical immutable paper-ledger head
   producer: daily_operating_selection_refresh.yml
+  provider: google_drive_accepted_head
   storage_kind: google_drive_folder
   exact_location: gdrive-id:1ZBfSgjBFl0oRtQkS-eSleEOT2podcXz1
   immutable_location: paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7
@@ -58,6 +59,7 @@ durable_states:
   market: US
   logical_role: atomic accepted paper publication marker
   producer: build_run287_accepted_publication_manifest.py
+  provider: google_drive_file
   storage_kind: google_drive_file
   exact_location: gdrive-id:1MiAcwCj_TAYBa16Q8bN2hCmny6VqXnnr
   immutable_location: paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/accepted_publication.json
@@ -97,6 +99,7 @@ durable_states:
   market: US
   logical_role: main paper account state
   producer: run_daily_simulated_fill_ledger.py
+  provider: google_drive_accepted_head_child
   storage_kind: google_drive_file_in_head
   exact_location: paper_archive/run287_daily_simulated_fill_ledger/main/account_state_latest.json
   immutable_location: paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/main/account_state_latest.json
@@ -137,6 +140,7 @@ durable_states:
   market: US
   logical_role: concentrated paper account state
   producer: run_daily_simulated_fill_ledger.py
+  provider: google_drive_accepted_head_child
   storage_kind: google_drive_file_in_head
   exact_location: paper_archive/run287_daily_simulated_fill_ledger/concentrated/account_state_latest.json
   immutable_location: paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/concentrated/account_state_latest.json
@@ -177,6 +181,7 @@ durable_states:
   market: US
   logical_role: main simulated-fill ledger manifest
   producer: run_daily_simulated_fill_ledger.py
+  provider: google_drive_accepted_head_child
   storage_kind: google_drive_file_in_head
   exact_location: paper_archive/run287_daily_simulated_fill_ledger/main/manifest.json
   immutable_location: paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/main/manifest.json
@@ -216,6 +221,7 @@ durable_states:
   market: US
   logical_role: concentrated simulated-fill ledger manifest
   producer: run_daily_simulated_fill_ledger.py
+  provider: google_drive_accepted_head_child
   storage_kind: google_drive_file_in_head
   exact_location: paper_archive/run287_daily_simulated_fill_ledger/concentrated/manifest.json
   immutable_location: paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/concentrated/manifest.json
@@ -255,6 +261,7 @@ durable_states:
   market: US
   logical_role: verified outcome parent required before current-session paper processing
   producer: manage_run287_risk_outcome_accepted_heads.py
+  provider: UNRESOLVED
   storage_kind: google_drive_expected_folder
   exact_location: paper_archive/run287_risk_outcome_accepted_heads
   immutable_location: ''
@@ -298,6 +305,7 @@ durable_states:
   market: US
   logical_role: hysteresis state for advisory crisis monitor
   producer: daily_crisis_monitor.yml
+  provider: UNRESOLVED
   storage_kind: google_drive_mutable_output
   exact_location: daily_crisis_monitor/state_history.json
   immutable_location: ''

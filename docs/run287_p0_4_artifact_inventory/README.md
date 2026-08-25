@@ -7,8 +7,8 @@ This is the read-only inventory required by Issue #372, frozen at `2026-08-25T12
 - Dataset classes: `24`
 - Model objects: `4`
 - Durable-state objects: `8`
-- Infrastructure/artifact objects: `30`
-- Total normalized Parquet rows: `66`
+- Infrastructure/artifact objects: `32`
+- Total normalized Parquet rows: `68`
 - Latest aliases verified: `7`
 - Latest aliases blocked: `38`
 
@@ -94,11 +94,16 @@ if ($LASTEXITCODE -ne 0) { throw 'unreviewed requirements.txt index bytes' }
 $P0_4RequirementsTemp = New-TemporaryFile
 try {
   python -c "import hashlib,pathlib,subprocess,sys; p='docs/run287_p0_4_artifact_inventory/requirements.txt'; c=subprocess.check_output(['git','show','HEAD:'+p]); w=pathlib.Path(p).read_bytes().replace(b'\r\n',b'\n'); sys.exit('unreviewed requirements.txt') if w != c or hashlib.sha256(c).hexdigest() != '9a32746dec8900d8663ba5f6a2f47ec8f9a817eb7fb051fde772a0e7af5c0a4e' else pathlib.Path(sys.argv[1]).write_bytes(c)" $P0_4RequirementsTemp
+  if ($LASTEXITCODE -ne 0) { throw 'authenticated requirements capture failed' }
   python -m venv .venv-p0-4
+  if ($LASTEXITCODE -ne 0) { throw 'virtual environment creation failed' }
   $P0_4Python = '.\.venv-p0-4\Scripts\python.exe'
   & $P0_4Python -m pip install --requirement $P0_4RequirementsTemp
+  if ($LASTEXITCODE -ne 0) { throw 'pinned dependency installation failed' }
   & $P0_4Python tools/build_p0_4_artifact_inventory.py --verify-live-head
+  if ($LASTEXITCODE -ne 0) { throw 'artifact inventory regeneration failed' }
   & $P0_4Python tests/test_p0_4_artifact_inventory.py
+  if ($LASTEXITCODE -ne 0) { throw 'artifact inventory smoke failed' }
 } finally {
   Remove-Item -LiteralPath $P0_4RequirementsTemp -Force -ErrorAction SilentlyContinue
 }

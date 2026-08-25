@@ -3,7 +3,7 @@ source_schema_version: run287-p0-4-inventory-source-v1
 market: US
 baseline_code_sha: 0f34de9a2747059b7bb808cb070a86261e119f95
 observed_at_utc: '2026-08-25T12:06:47.159838+00:00'
-source_snapshot_sha256: 55f226c85d15aedd3292f718950551056ed8af04d0d514dfa07672789af5b1d4
+source_snapshot_sha256: 0ff952be63c5ec3bdcd49ac63b8c7e3f484843bf1747cf5a144badd64879e3b4
 discovery_limits:
 - Google Drive folder listing returned only 100 direct cache_price children while the frozen manifest reports 1048 files;
   the provider view has no continuation token and remains incomplete.
@@ -18,6 +18,7 @@ models:
   market: US
   logical_role: phase4 ensemble bundle and linear feature weights
   producer: legacy phase4 training
+  provider: UNRESOLVED
   storage_kind: google_drive_file
   exact_location: gdrive-id:1N79QGqJ7meD4nUWRwHKqWQSYMdyJz-YG
   immutable_location: ''
@@ -59,6 +60,7 @@ models:
   market: US
   logical_role: phase4 regression model
   producer: legacy phase4 training
+  provider: UNRESOLVED
   storage_kind: google_drive_file
   exact_location: gdrive-id:1YFLygG-vm_pLYCOxz2IpmbzqKQtQ3hl5
   immutable_location: ''
@@ -99,6 +101,7 @@ models:
   market: US
   logical_role: phase4 classification model
   producer: legacy phase4 training
+  provider: UNRESOLVED
   storage_kind: google_drive_file
   exact_location: gdrive-id:1C-XlS52MAV6RMVKiqjqoNGu-1G5SwlKV
   immutable_location: ''
@@ -139,6 +142,7 @@ models:
   market: US
   logical_role: phase4 model scoring metadata
   producer: legacy phase4 training
+  provider: UNRESOLVED
   storage_kind: google_drive_file
   exact_location: gdrive-id:1g-YQIcaqNJeNmLomKHdi3lUlNq5TOjSN
   immutable_location: ''
