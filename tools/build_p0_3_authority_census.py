@@ -1809,7 +1809,16 @@ def main() -> int:
     if not audit_sha:
         raise SystemExit("audit SHA must be exact")
     require_audit_commit(repo_root, audit_sha)
-    source_bytes = document_bytes(args.source_census)
+    source_archive_bytes = (
+        args.source_census.read_bytes()
+        if args.source_census.suffix.lower() == ".gz"
+        else None
+    )
+    source_bytes = (
+        gzip.decompress(source_archive_bytes)
+        if source_archive_bytes is not None
+        else args.source_census.read_bytes()
+    )
     require_bytes_sha256(
         source_bytes, FROZEN_U0_UNCOMPRESSED_SHA256, "frozen U0 source"
     )
@@ -1871,6 +1880,7 @@ def main() -> int:
     frozen_supplement_by_number: dict[int, dict[str, Any]] | None = None
     frozen_pr_supplement_document: dict[str, Any] | None = None
     frozen_pr_supplement_bytes: bytes | None = None
+    frozen_pr_archive_bytes: bytes | None = None
     frozen_branch_by_name: dict[str, dict[str, Any]] | None = None
     frozen_branch_supplement_document: dict[str, Any] | None = None
     frozen_branch_source_bytes: bytes | None = None
@@ -1931,7 +1941,16 @@ def main() -> int:
         frozen_path = args.source_pr_supplement or args.source_census.with_name(
             "source_pr_supplement.json.gz"
         )
-        frozen_pr_input_bytes = document_bytes(frozen_path)
+        frozen_pr_input_archive_bytes = (
+            frozen_path.read_bytes()
+            if frozen_path.suffix.lower() == ".gz"
+            else None
+        )
+        frozen_pr_input_bytes = (
+            gzip.decompress(frozen_pr_input_archive_bytes)
+            if frozen_pr_input_archive_bytes is not None
+            else frozen_path.read_bytes()
+        )
         frozen_pr_supplement_document = json.loads(
             frozen_pr_input_bytes.decode("utf-8")
         )
@@ -1968,6 +1987,7 @@ def main() -> int:
                 FROZEN_PR_SUPPLEMENT_V3_UNCOMPRESSED_SHA256,
                 "frozen PR supplement v3",
             )
+            frozen_pr_archive_bytes = frozen_pr_input_archive_bytes
         if legacy_pr_supplement:
             for row in frozen_pr_supplement_document.get("rows") or []:
                 migrated_checks = []
@@ -2276,7 +2296,10 @@ def main() -> int:
     write_parquet(branch_path, branch_rows)
     write_parquet(pr_path, pr_rows)
     write_registry(registry_path, registry)
-    write_gzip(source_artifact_path, source_bytes)
+    if source_archive_bytes is None:
+        write_gzip(source_artifact_path, source_bytes)
+    else:
+        source_artifact_path.write_bytes(source_archive_bytes)
     if frozen_pr_supplement_bytes is None:
         frozen_pr_supplement_bytes = (
             json.dumps(
@@ -2287,7 +2310,10 @@ def main() -> int:
             )
             + "\n"
         ).encode("utf-8")
-    write_gzip(source_pr_supplement_path, frozen_pr_supplement_bytes)
+    if frozen_pr_archive_bytes is None:
+        write_gzip(source_pr_supplement_path, frozen_pr_supplement_bytes)
+    else:
+        source_pr_supplement_path.write_bytes(frozen_pr_archive_bytes)
     if frozen_branch_source_bytes is None:
         write_branch_supplement(
             source_branch_supplement_path, frozen_branch_supplement_document

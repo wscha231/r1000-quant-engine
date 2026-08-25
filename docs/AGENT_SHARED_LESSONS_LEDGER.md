@@ -4266,6 +4266,11 @@ Expected contract:
   status contexts or provider-less historical rollups explicitly unverified;
   otherwise an unrelated producer can silently upgrade a blocked PR's
   disposition.
+- Reusable lesson: A frozen compressed source is already an immutable artifact.
+  Validate its decompressed canonical hash, but copy its authenticated archive
+  bytes during regeneration instead of recompressing them; zlib implementation
+  differences can otherwise change gzip hashes across operating systems even
+  when the JSON content and Python package pins are identical.
 - Next action: Merge the reviewed P0-3 census, then begin P0-4 artifact inventory
   without deleting branches, dispatching workflows, or mutating durable state.
 - Fullrun executed: false. Target/order/ledger mutation executed: false.
