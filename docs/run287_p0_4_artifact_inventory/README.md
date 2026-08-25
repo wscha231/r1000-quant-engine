@@ -7,8 +7,8 @@ This is the read-only inventory required by Issue #372, frozen at `2026-08-25T12
 - Dataset classes: `24`
 - Model objects: `4`
 - Durable-state objects: `8`
-- Infrastructure/artifact objects: `24`
-- Total normalized Parquet rows: `60`
+- Infrastructure/artifact objects: `30`
+- Total normalized Parquet rows: `66`
 - Latest aliases verified: `7`
 - Latest aliases blocked: `38`
 
@@ -83,5 +83,25 @@ python -m venv .venv-p0-4
 .venv-p0-4/bin/python tests/test_p0_4_artifact_inventory.py
 ```
 
-On Windows PowerShell, use `.\.venv-p0-4\Scripts\python.exe` in place of `.venv-p0-4/bin/python`. The exact dependency pins are part of the frozen bundle.
+PowerShell rebuild (the dependency bytes are captured from the authenticated Git blob before installation):
+
+```powershell
+$P0_4RequirementsPath = 'docs/run287_p0_4_artifact_inventory/requirements.txt'
+git diff --quiet -- $P0_4RequirementsPath
+if ($LASTEXITCODE -ne 0) { throw 'unreviewed requirements.txt worktree bytes' }
+git diff --cached --quiet -- $P0_4RequirementsPath
+if ($LASTEXITCODE -ne 0) { throw 'unreviewed requirements.txt index bytes' }
+$P0_4RequirementsTemp = New-TemporaryFile
+try {
+  python -c "import hashlib,pathlib,subprocess,sys; p='docs/run287_p0_4_artifact_inventory/requirements.txt'; c=subprocess.check_output(['git','show','HEAD:'+p]); w=pathlib.Path(p).read_bytes().replace(b'\r\n',b'\n'); sys.exit('unreviewed requirements.txt') if w != c or hashlib.sha256(c).hexdigest() != '9a32746dec8900d8663ba5f6a2f47ec8f9a817eb7fb051fde772a0e7af5c0a4e' else pathlib.Path(sys.argv[1]).write_bytes(c)" $P0_4RequirementsTemp
+  python -m venv .venv-p0-4
+  $P0_4Python = '.\.venv-p0-4\Scripts\python.exe'
+  & $P0_4Python -m pip install --requirement $P0_4RequirementsTemp
+  & $P0_4Python tools/build_p0_4_artifact_inventory.py --verify-live-head
+  & $P0_4Python tests/test_p0_4_artifact_inventory.py
+} finally {
+  Remove-Item -LiteralPath $P0_4RequirementsTemp -Force -ErrorAction SilentlyContinue
+}
+```
+
 The protected-publication constant is verifier code: advancing it requires an explicit verifier diff and a new external exact-head Codex review plus the repository review-complete gate; regeneration alone grants no trust.
