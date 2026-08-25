@@ -704,7 +704,7 @@ def test_rebuild_uses_the_pinned_dependency_contract() -> None:
         "pyarrow==23.0.1",
     ]
     readme = (INVENTORY / "README.md").read_text(encoding="utf-8")
-    assert "python -m venv .venv-p0-4" in readme
+    assert readme.count("python -m venv --clear .venv-p0-4") == 2
     assert readme.index("set -euo pipefail") < readme.index(
         "git diff --quiet -- docs/run287_p0_4_artifact_inventory/requirements.txt"
     )
@@ -1272,6 +1272,14 @@ def test_output_destination_cannot_contain_repository() -> None:
             assert str(exc) == "output_contains_repository"
         else:
             raise AssertionError(f"repository-containing output was accepted: {output}")
+    for output in (ROOT / "docs", ROOT / "tools", ROOT / "new-p0-4-bundle"):
+        try:
+            builder.validate_output_destination(output)
+        except builder.InventoryError as exc:
+            assert str(exc) == "in_repository_output_not_canonical"
+        else:
+            raise AssertionError(f"unrelated in-repository output was accepted: {output}")
+    builder.validate_output_destination(INVENTORY)
     try:
         builder.build(SOURCE, INVENTORY)
     except builder.InventoryError as exc:

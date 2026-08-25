@@ -1571,7 +1571,7 @@ def render_readme(payload: dict[str, Any], row_count: int) -> str:
                 "else pathlib.Path(sys.argv[1]).write_bytes(c)\" "
                 '"$P0_4_REQUIREMENTS"'
             ),
-            "python -m venv .venv-p0-4",
+            "python -m venv --clear .venv-p0-4",
             '.venv-p0-4/bin/python -m pip install --requirement "$P0_4_REQUIREMENTS"',
             ".venv-p0-4/bin/python tools/build_p0_4_artifact_inventory.py --verify-live-head",
             ".venv-p0-4/bin/python tests/test_p0_4_artifact_inventory.py",
@@ -1598,7 +1598,7 @@ def render_readme(payload: dict[str, Any], row_count: int) -> str:
                 "$P0_4RequirementsTemp"
             ),
             "  if ($LASTEXITCODE -ne 0) { throw 'authenticated requirements capture failed' }",
-            "  python -m venv .venv-p0-4",
+            "  python -m venv --clear .venv-p0-4",
             "  if ($LASTEXITCODE -ne 0) { throw 'virtual environment creation failed' }",
             "  $P0_4Python = '.\\.venv-p0-4\\Scripts\\python.exe'",
             "  & $P0_4Python -m pip install --requirement $P0_4RequirementsTemp",
@@ -1867,6 +1867,11 @@ def validate_output_destination(output: Path) -> None:
         resolved_output
     ):
         raise InventoryError("output_contains_repository")
+    if (
+        resolved_output.is_relative_to(resolved_root)
+        and resolved_output != DEFAULT_OUTPUT.resolve()
+    ):
+        raise InventoryError("in_repository_output_not_canonical")
 
 
 def publish_bundle_atomically(output: Path, render) -> None:

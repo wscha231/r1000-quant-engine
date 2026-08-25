@@ -4410,6 +4410,12 @@ Expected contract:
   When reproducibility pins intermediate publication commits by ancestry, the
   publication path is merge-commit-only. Use an expected-head merge call and
   prohibit squash/rebase so the source and protected commits remain ancestors.
+- Reusable lesson: Atomic directory replacement must reject every repository
+  descendant except the one canonical bundle path; otherwise a caller can turn
+  an unrelated source/docs directory into the replace-and-delete target. A
+  reproducible rebuild must also clear its dedicated virtual environment before
+  installing pinned requirements so stale modules and `sitecustomize.py` cannot
+  survive into generation or testing.
 - Caveat: Historical Russell membership remains not proven PIT-safe; the price
   cache view is incomplete; mutable macro, feature, and model objects lack
   complete immutable lineage; and the shared rclone Drive client is a 2026
