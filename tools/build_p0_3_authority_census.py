@@ -33,19 +33,11 @@ SCHEMA_VERSION = "run287-p0-3-authority-census-v1"
 POLICY_SCHEMA = "run287-p0-3-workflow-authority-policy-v1"
 U0_SCHEMA = "run287-u0-v2-github-census-v1"
 PR_SUPPLEMENT_SCHEMA = "run287-p0-3-frozen-pr-supplement-v3"
-LEGACY_PR_SUPPLEMENT_V2_SCHEMA = "run287-p0-3-frozen-pr-supplement-v2"
-LEGACY_PR_SUPPLEMENT_SCHEMA = "run287-p0-3-frozen-pr-supplement-v1"
-LEGACY_PR_SUPPLEMENT_SHA256 = (
-    "29bd41bcbd07a7a739856ccc870b91711491986c464efc4342a7081d391b554c"
-)
 FROZEN_U0_UNCOMPRESSED_SHA256 = (
     "5c9741b84fe9cfff74619322bc99402d92f25979974d42a405e30091ff461216"
 )
 FROZEN_U0_COMPRESSED_SHA256 = (
     "43037952f1464bd41cdb0d2eaba78503da60f17d66c410dea186b34e0b62ef2c"
-)
-LEGACY_PR_SUPPLEMENT_V2_UNCOMPRESSED_SHA256 = (
-    "362f0b7245ca05360ac206c122077a4c07b2111c748a2cd72e8b8af58244689a"
 )
 FROZEN_PR_SUPPLEMENT_V3_UNCOMPRESSED_SHA256 = (
     "259ba25f4353c38ffd62a47b1d094ff67b2277f8bcdd9b7a9c750ed97f18626b"
@@ -1170,7 +1162,10 @@ def live_check_run_provider_index(
             "Accept: application/vnd.github+json",
             "-H",
             "X-GitHub-Api-Version: 2022-11-28",
-            f"repos/{REPOSITORY}/commits/{head_sha}/check-runs?per_page=100",
+            (
+                f"repos/{REPOSITORY}/commits/{head_sha}/check-runs"
+                "?per_page=100&filter=all"
+            ),
         ],
         cwd=repo_root,
     )
@@ -1199,8 +1194,15 @@ def attach_check_run_providers(
         matches = providers.get(identity)
         if not matches or len(matches) != 1:
             raise RuntimeError("PR CheckRun provider identity is ambiguous")
-        item["app_id"] = matches[0]["app_id"]
-        item["app_slug"] = matches[0]["app_slug"]
+        evidence = matches[0]
+        rollup_status = str(item.get("status") or "").upper()
+        rollup_conclusion = str(item.get("conclusion") or "").upper()
+        rest_status = str(evidence.get("status") or "").upper()
+        rest_conclusion = str(evidence.get("conclusion") or "").upper()
+        if (rollup_status, rollup_conclusion) != (rest_status, rest_conclusion):
+            raise RuntimeError("PR CheckRun REST and rollup results disagree")
+        item["app_id"] = evidence["app_id"]
+        item["app_slug"] = evidence["app_slug"]
 
 
 def enrich_pr_check_providers(repo_root: Path, rows: list[dict[str, Any]]) -> None:
@@ -2123,56 +2125,21 @@ def main() -> int:
             frozen_pr_input_bytes.decode("utf-8")
         )
         frozen_schema = frozen_pr_supplement_document.get("schema_version")
-        legacy_pr_supplement = False
-        if frozen_schema == LEGACY_PR_SUPPLEMENT_SCHEMA:
-            if hashlib.sha256(frozen_pr_input_bytes).hexdigest() != (
-                LEGACY_PR_SUPPLEMENT_SHA256
-            ):
-                raise SystemExit("untrusted legacy frozen PR supplement")
-            for row in frozen_pr_supplement_document.get("rows") or []:
-                source_row = source_pr_by_number[int(row["number"])]
-                row.update(
-                    {
-                        "head_sha": source_row["head_sha"],
-                        "base_sha": source_row["base_sha"],
-                        "state": source_row["state"],
-                        "updated_at": source_row["updated_at"],
-                    }
-                )
-            legacy_pr_supplement = True
-        elif frozen_schema == LEGACY_PR_SUPPLEMENT_V2_SCHEMA:
-            require_bytes_sha256(
-                frozen_pr_input_bytes,
-                LEGACY_PR_SUPPLEMENT_V2_UNCOMPRESSED_SHA256,
-                "legacy frozen PR supplement v2",
+        if frozen_schema != PR_SUPPLEMENT_SCHEMA:
+            raise SystemExit(
+                "legacy PR supplement schemas are not accepted in frozen regeneration"
             )
-            legacy_pr_supplement = True
-        elif frozen_schema != PR_SUPPLEMENT_SCHEMA:
-            raise SystemExit("frozen PR supplement schema mismatch")
-        else:
-            require_bytes_sha256(
-                frozen_pr_input_bytes,
-                FROZEN_PR_SUPPLEMENT_V3_UNCOMPRESSED_SHA256,
-                "frozen PR supplement v3",
-            )
-            if frozen_pr_input_archive_bytes is not None:
-                require_bytes_sha256(
-                    frozen_pr_input_archive_bytes,
-                    FROZEN_PR_SUPPLEMENT_V3_COMPRESSED_SHA256,
-                    "frozen PR supplement v3 archive",
-                )
-            frozen_pr_archive_bytes = frozen_pr_input_archive_bytes
-        if legacy_pr_supplement:
-            for row in frozen_pr_supplement_document.get("rows") or []:
-                migrated_checks = []
-                for check in row.get("checks") or []:
-                    migrated = dict(check)
-                    migrated.setdefault("app_id", None)
-                    migrated.setdefault("app_slug", "")
-                    migrated_checks.append(migrated)
-                row["checks"] = migrated_checks
-                row["check_summary"] = check_summary(migrated_checks)
-            frozen_pr_supplement_document["schema_version"] = PR_SUPPLEMENT_SCHEMA
+        require_bytes_sha256(
+            frozen_pr_input_bytes,
+            FROZEN_PR_SUPPLEMENT_V3_UNCOMPRESSED_SHA256,
+            "frozen PR supplement v3",
+        )
+        require_bytes_sha256(
+            frozen_pr_input_archive_bytes,
+            FROZEN_PR_SUPPLEMENT_V3_COMPRESSED_SHA256,
+            "frozen PR supplement v3 archive",
+        )
+        frozen_pr_archive_bytes = frozen_pr_input_archive_bytes
         frozen_pr_supplement_bytes = (
             json.dumps(
                 frozen_pr_supplement_document,

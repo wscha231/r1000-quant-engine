@@ -413,6 +413,17 @@ def test_live_pr_mutable_evidence_detects_check_and_review_changes() -> None:
     normalized = [normalize_check(check) for check in rollup]
     assert check_summary(normalized)["required_success_observed"]
 
+    disagreeing_result = copy.deepcopy(providers)
+    disagreeing_result[
+        ("validate", "https://example.invalid/check/validate")
+    ][0]["conclusion"] = "failure"
+    try:
+        attach_check_run_providers(copy.deepcopy(rollup), disagreeing_result)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("REST/rollup CheckRun disagreement was accepted")
+
     ambiguous = copy.deepcopy(providers)
     ambiguous[("validate", "https://example.invalid/check/validate")].append(
         {
@@ -857,6 +868,46 @@ def test_frozen_regeneration_is_independent_of_staging_directory() -> None:
         assert rejected_plain_pr.returncode != 0
         assert "authenticated PR supplement gzip archive" in (
             rejected_plain_pr.stdout + rejected_plain_pr.stderr
+        )
+
+        legacy_pr_document = json.loads(
+            gzip.decompress(
+                (CENSUS / "source_pr_supplement.json.gz").read_bytes()
+            )
+        )
+        legacy_pr_document["schema_version"] = (
+            "run287-p0-3-frozen-pr-supplement-v2"
+        )
+        legacy_pr = Path(temporary) / "legacy_pr.json.gz"
+        legacy_pr.write_bytes(
+            gzip.compress(
+                (json.dumps(legacy_pr_document, sort_keys=True) + "\n").encode(
+                    "utf-8"
+                ),
+                mtime=0,
+            )
+        )
+        rejected_legacy_pr = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "tools" / "build_p0_3_authority_census.py"),
+                "--audit-sha",
+                AUDIT_SHA,
+                "--source-census",
+                str(CENSUS / "source_u0_github_census.json.gz"),
+                "--source-pr-supplement",
+                str(legacy_pr),
+                "--output-dir",
+                str(Path(temporary) / "rejected_legacy_pr"),
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert rejected_legacy_pr.returncode != 0
+        assert "legacy PR supplement schemas are not accepted" in (
+            rejected_legacy_pr.stdout + rejected_legacy_pr.stderr
         )
 
 
