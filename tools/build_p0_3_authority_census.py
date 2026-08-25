@@ -12,9 +12,9 @@ from __future__ import annotations
 import argparse
 import gzip
 import hashlib
+import io
 import json
 import re
-import shutil
 import subprocess
 from collections import Counter
 from datetime import datetime, timezone
@@ -30,7 +30,11 @@ REPOSITORY = "wscha231/r1000-quant-engine"
 SCHEMA_VERSION = "run287-p0-3-authority-census-v1"
 POLICY_SCHEMA = "run287-p0-3-workflow-authority-policy-v1"
 U0_SCHEMA = "run287-u0-v2-github-census-v1"
-PR_SUPPLEMENT_SCHEMA = "run287-p0-3-frozen-pr-supplement-v1"
+PR_SUPPLEMENT_SCHEMA = "run287-p0-3-frozen-pr-supplement-v2"
+LEGACY_PR_SUPPLEMENT_SCHEMA = "run287-p0-3-frozen-pr-supplement-v1"
+LEGACY_PR_SUPPLEMENT_SHA256 = (
+    "29bd41bcbd07a7a739856ccc870b91711491986c464efc4342a7081d391b554c"
+)
 BRANCH_SUPPLEMENT_SCHEMA = "run287-p0-3-frozen-branch-supplement-v1"
 GENERATOR_RUNTIME_VERSIONS = {
     "pandas": "2.3.3",
@@ -44,6 +48,28 @@ REQUIRED_OFFICIAL_AUTHORITY = {
     "accepted_state_store": "GOOGLE_DRIVE_CANONICAL_PAPER_STATE",
     "live_broker_writer_workflow": None,
 }
+REQUIRED_OFFICIAL_WORKFLOW_POLICY = {
+    "declared_role": "official_us_target_and_simulated_fill_paper_operation",
+    "decision": "KEEP",
+    "target_authority": "OFFICIAL_CURRENT_US_TARGET_WRITER",
+    "paper_ledger_authority": "OFFICIAL_SIMULATED_FILL_CONSUMER_AND_WRITER",
+    "durable_write_scope": "CANONICAL_PAPER_ACCEPTED_STATE_FAIL_CLOSED",
+    "human_approval_requirement": (
+        "SCHEDULE_FAIL_CLOSED; "
+        "LEGACY_PARENT_MIGRATION_REQUIRES_EXPLICIT_ONE_TIME_WORKFLOW_DISPATCH_AUTHORIZATION"
+    ),
+}
+REQUIRED_PROMOTION_BLOCKERS = [
+    "branch_only_experiment_candidates_require_recovery",
+    "duplicate_code_head_sha_groups_require_canonical_deduplication",
+    "experiment_candidates_require_canonical_mapping",
+    "historical_return_series_and_trial_deduplication_not_recovered",
+    "one_or_more_git_ancestry_results_are_unverified",
+    "one_or_more_pr_changed_path_lists_are_truncated",
+    "one_or_more_pr_check_metadata_sets_are_unresolved",
+    "one_or_more_pr_review_metadata_sets_are_unresolved",
+    "parameter_and_data_hash_duplicate_groups_not_yet_recovered",
+]
 REQUIRED_GLOBAL_GUARDS = {
     "live_broker_execution_enabled": False,
     "automatic_model_promotion_enabled": False,
@@ -164,11 +190,8 @@ def write_gzip(path: Path, content: bytes) -> None:
             gzip_handle.write(content)
 
 
-def write_canonical_text_copy(source: Path, destination: Path) -> None:
-    """Copy UTF-8 text with canonical LF bytes, including for in-place output."""
-    content = source.read_text(encoding="utf-8").encode("utf-8")
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_bytes(content)
+def canonical_text_bytes(path: Path) -> bytes:
+    return path.read_text(encoding="utf-8").encode("utf-8")
 
 
 def run(arguments: list[str], *, cwd: Path) -> str:
@@ -208,6 +231,11 @@ def validate_research_only_policy(policy: Mapping[str, Any], audit_sha: str) -> 
     if official != REQUIRED_OFFICIAL_AUTHORITY:
         raise SystemExit("workflow policy official authority mismatch")
     policy_rows = policy.get("workflows") or {}
+    if (
+        policy_rows.get(REQUIRED_OFFICIAL_AUTHORITY["us_target_writer_workflow"])
+        != REQUIRED_OFFICIAL_WORKFLOW_POLICY
+    ):
+        raise SystemExit("official workflow policy authority mismatch")
     if any(
         row.get("production_live_authority") == "AUTHORIZED"
         for row in policy_rows.values()
@@ -215,9 +243,9 @@ def validate_research_only_policy(policy: Mapping[str, Any], audit_sha: str) -> 
         raise SystemExit("workflow policy must not authorize production or live execution")
 
 
-def validate_runtime_requirements(path: Path) -> dict[str, str]:
+def validate_runtime_requirements_bytes(content: bytes) -> dict[str, str]:
     pins: dict[str, str] = {}
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
+    for raw_line in content.decode("utf-8").splitlines():
         line = raw_line.strip()
         if not line:
             continue
@@ -231,6 +259,28 @@ def validate_runtime_requirements(path: Path) -> dict[str, str]:
             f"expected={GENERATOR_RUNTIME_VERSIONS}, actual={pins}"
         )
     return pins
+
+
+def validate_runtime_requirements(path: Path) -> dict[str, str]:
+    return validate_runtime_requirements_bytes(canonical_text_bytes(path))
+
+
+def validate_u0_fail_closed_source(
+    source: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    summary = source.get("summary") or {}
+    blockers = source.get("promotion_blockers")
+    if blockers != REQUIRED_PROMOTION_BLOCKERS:
+        raise SystemExit("source promotion blockers do not match the frozen fail-closed set")
+    if summary.get("historical_experiment_census_complete") is not False:
+        raise SystemExit("source historical experiment census must remain incomplete")
+    if summary.get("historical_challenger_allowed") is not False:
+        raise SystemExit("source historical challenger authority must remain disabled")
+    unmapped = summary.get("unmapped_experiment_candidate_count")
+    candidates = source.get("experiment_candidates") or []
+    if type(unmapped) is not int or unmapped <= 0 or unmapped != len(candidates):
+        raise SystemExit("source experiment candidates must remain unmapped and blocked")
+    return dict(summary), list(blockers)
 
 
 def validate_generator_runtime() -> None:
@@ -816,8 +866,8 @@ def write_parquet(path: Path, rows: list[dict[str, Any]]) -> None:
         raise RuntimeError(f"parquet round-trip failed: {path}")
 
 
-def read_branch_supplement(path: Path) -> dict[str, Any]:
-    frame = pd.read_parquet(path)
+def read_branch_supplement_bytes(content: bytes) -> dict[str, Any]:
+    frame = pd.read_parquet(io.BytesIO(content))
     if frame.empty:
         raise ValueError("frozen branch supplement is empty")
     metadata_fields = (
@@ -847,6 +897,10 @@ def read_branch_supplement(path: Path) -> dict[str, Any]:
             row[field] = value
         rows.append(row)
     return {**metadata, "rows": rows}
+
+
+def read_branch_supplement(path: Path) -> dict[str, Any]:
+    return read_branch_supplement_bytes(path.read_bytes())
 
 
 def write_branch_supplement(path: Path, document: Mapping[str, Any]) -> None:
@@ -1022,19 +1076,15 @@ def main() -> int:
     runtime_requirements_input_path = (
         args.runtime_requirements or args.source_census.with_name("requirements.txt")
     )
-    policy = read_json(policy_input_path)
+    policy_input_bytes = canonical_text_bytes(policy_input_path)
+    runtime_requirements_input_bytes = canonical_text_bytes(
+        runtime_requirements_input_path
+    )
+    policy = json.loads(policy_input_bytes.decode("utf-8"))
     validate_research_only_policy(policy, audit_sha)
-    validate_runtime_requirements(runtime_requirements_input_path)
+    validate_runtime_requirements_bytes(runtime_requirements_input_bytes)
     validate_generator_runtime()
-
-    source_summary = source.get("summary") or {}
-    promotion_blockers = source.get("promotion_blockers")
-    if not isinstance(promotion_blockers, list) or not all(
-        isinstance(item, str) and item for item in promotion_blockers
-    ):
-        raise SystemExit("source promotion blockers are missing or invalid")
-    if type(source_summary.get("historical_experiment_census_complete")) is not bool:
-        raise SystemExit("source historical experiment completeness is missing")
+    source_summary, promotion_blockers = validate_u0_fail_closed_source(source)
 
     source_branches = source_branch_identity(source)
     source_prs = source_pr_identity(source)
@@ -1047,7 +1097,7 @@ def main() -> int:
     frozen_pr_supplement_document: dict[str, Any] | None = None
     frozen_branch_by_name: dict[str, dict[str, Any]] | None = None
     frozen_branch_supplement_document: dict[str, Any] | None = None
-    frozen_branch_source_path: Path | None = None
+    frozen_branch_source_bytes: bytes | None = None
 
     if args.verify_live_namespace:
         live_branches_before = live_branch_identity(repo_root)
@@ -1065,9 +1115,9 @@ def main() -> int:
         frozen_branch_path = args.source_branch_supplement or args.source_census.with_name(
             "source_branch_supplement.parquet"
         )
-        frozen_branch_source_path = frozen_branch_path
-        frozen_branch_supplement_document = read_branch_supplement(
-            frozen_branch_path
+        frozen_branch_source_bytes = frozen_branch_path.read_bytes()
+        frozen_branch_supplement_document = read_branch_supplement_bytes(
+            frozen_branch_source_bytes
         )
         if (
             frozen_branch_supplement_document.get("schema_version")
@@ -1098,8 +1148,28 @@ def main() -> int:
         frozen_path = args.source_pr_supplement or args.source_census.with_name(
             "source_pr_supplement.json.gz"
         )
-        frozen_pr_supplement_document = read_json(frozen_path)
-        if frozen_pr_supplement_document.get("schema_version") != PR_SUPPLEMENT_SCHEMA:
+        frozen_pr_input_bytes = document_bytes(frozen_path)
+        frozen_pr_supplement_document = json.loads(
+            frozen_pr_input_bytes.decode("utf-8")
+        )
+        frozen_schema = frozen_pr_supplement_document.get("schema_version")
+        if frozen_schema == LEGACY_PR_SUPPLEMENT_SCHEMA:
+            if hashlib.sha256(frozen_pr_input_bytes).hexdigest() != (
+                LEGACY_PR_SUPPLEMENT_SHA256
+            ):
+                raise SystemExit("untrusted legacy frozen PR supplement")
+            for row in frozen_pr_supplement_document.get("rows") or []:
+                source_row = source_pr_by_number[int(row["number"])]
+                row.update(
+                    {
+                        "head_sha": source_row["head_sha"],
+                        "base_sha": source_row["base_sha"],
+                        "state": source_row["state"],
+                        "updated_at": source_row["updated_at"],
+                    }
+                )
+            frozen_pr_supplement_document["schema_version"] = PR_SUPPLEMENT_SCHEMA
+        elif frozen_schema != PR_SUPPLEMENT_SCHEMA:
             raise SystemExit("frozen PR supplement schema mismatch")
         if clean_sha(frozen_pr_supplement_document.get("audit_master_sha")) != audit_sha:
             raise SystemExit("frozen PR supplement audit SHA mismatch")
@@ -1108,10 +1178,21 @@ def main() -> int:
         ) != canonical_sha256(source_prs):
             raise SystemExit("frozen PR supplement namespace hash mismatch")
         frozen_pr_rows = frozen_pr_supplement_document.get("rows") or []
-        frozen_supplement_by_number = {
-            int(row["number"]): row
-            for row in frozen_pr_rows
-        }
+        frozen_supplement_by_number = {}
+        frozen_supplement_identity: dict[
+            int, tuple[str, str, str, str]
+        ] = {}
+        for row in frozen_pr_rows:
+            number = row.get("number")
+            if type(number) is not int or number <= 0:
+                raise SystemExit("frozen PR supplement contains an invalid PR number")
+            frozen_supplement_by_number[number] = row
+            frozen_supplement_identity[number] = (
+                clean_sha(row.get("head_sha")),
+                clean_sha(row.get("base_sha")),
+                str(row.get("state") or "").upper(),
+                str(row.get("updated_at") or ""),
+            )
         if len(frozen_supplement_by_number) != len(frozen_pr_rows):
             raise SystemExit("frozen PR supplement contains duplicate PRs")
         require_exact_keys(
@@ -1119,6 +1200,8 @@ def main() -> int:
             (str(number) for number in source_prs),
             "frozen PR supplement coverage",
         )
+        if frozen_supplement_identity != source_prs:
+            raise SystemExit("frozen PR supplement mutable identity mismatch")
 
     issue_numbers_by_pr = {
         number: (
@@ -1243,6 +1326,10 @@ def main() -> int:
             "rows": [
                 {
                     "number": row["number"],
+                    "head_sha": row["head_sha"],
+                    "base_sha": row["base_sha"],
+                    "state": row["state"],
+                    "updated_at": row["updated_at"],
                     "associated_issue": row["associated_issue"],
                     "checks": row["checks"],
                     "check_summary": row["check_summary"],
@@ -1370,16 +1457,14 @@ def main() -> int:
         + "\n"
     ).encode("utf-8")
     write_gzip(source_pr_supplement_path, frozen_pr_supplement_bytes)
-    if frozen_branch_source_path is None:
+    if frozen_branch_source_bytes is None:
         write_branch_supplement(
             source_branch_supplement_path, frozen_branch_supplement_document
         )
-    elif frozen_branch_source_path.resolve() != source_branch_supplement_path.resolve():
-        shutil.copyfile(frozen_branch_source_path, source_branch_supplement_path)
-    write_canonical_text_copy(policy_input_path, source_policy_path)
-    write_canonical_text_copy(
-        runtime_requirements_input_path, runtime_requirements_path
-    )
+    else:
+        source_branch_supplement_path.write_bytes(frozen_branch_source_bytes)
+    source_policy_path.write_bytes(policy_input_bytes)
+    runtime_requirements_path.write_bytes(runtime_requirements_input_bytes)
     try:
         source_repository_path = source_artifact_path.relative_to(repo_root).as_posix()
         source_pr_supplement_repository_path = source_pr_supplement_path.relative_to(

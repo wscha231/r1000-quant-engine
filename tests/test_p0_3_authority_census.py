@@ -20,6 +20,7 @@ from tools.build_p0_3_authority_census import (  # noqa: E402
     GENERATOR_RUNTIME_VERSIONS,
     PR_SUPPLEMENT_SCHEMA,
     audited_workflow_paths,
+    canonical_text_bytes,
     check_summary,
     read_branch_supplement,
     require_audit_commit,
@@ -27,7 +28,7 @@ from tools.build_p0_3_authority_census import (  # noqa: E402
     validated_frozen_checks,
     validate_runtime_requirements,
     validate_research_only_policy,
-    write_canonical_text_copy,
+    validate_u0_fail_closed_source,
 )
 
 
@@ -123,8 +124,21 @@ def test_census_is_hash_bound_and_read_only() -> None:
     assert pr_source["audit_master_sha"] == AUDIT_SHA
     assert pr_source["generated_at_utc"] == summary["generated_at_utc"]
     assert len(pr_source["rows"]) == summary["counts"]["pull_requests"]
+    source_pr_by_number = {row["number"]: row for row in source["pull_requests"]}
     for row in pr_source["rows"]:
         assert check_summary(row["checks"]) == row["check_summary"]
+        source_pr = source_pr_by_number[row["number"]]
+        assert (
+            row["head_sha"],
+            row["base_sha"],
+            row["state"],
+            row["updated_at"],
+        ) == (
+            source_pr["head_sha"],
+            source_pr["base_sha"],
+            source_pr["state"],
+            source_pr["updated_at"],
+        )
     branch_source_artifact = summary["source_branch_supplement_artifact"]
     branch_source_path = ROOT / branch_source_artifact["repository_path"]
     assert sha256(branch_source_path) == branch_source_artifact["sha256"]
@@ -285,10 +299,8 @@ def test_generator_requirements_require_exact_pins() -> None:
     )
     with tempfile.TemporaryDirectory() as directory:
         unsafe = Path(directory) / "requirements.txt"
-        canonical = Path(directory) / "canonical.txt"
         unsafe.write_bytes(b"pandas==2.3.3\r\npyarrow==23.0.1\r\nPyYAML==6.0.3\r\n")
-        write_canonical_text_copy(unsafe, canonical)
-        assert canonical.read_bytes() == (
+        assert canonical_text_bytes(unsafe) == (
             b"pandas==2.3.3\npyarrow==23.0.1\nPyYAML==6.0.3\n"
         )
         unsafe.write_text("pandas>=2.3\npyarrow==23.0.1\nPyYAML==6.0.3\n")
@@ -297,6 +309,32 @@ def test_generator_requirements_require_exact_pins() -> None:
         except SystemExit:
             return
     raise AssertionError("non-exact generator requirements were not rejected")
+
+
+def test_u0_fail_closed_source_cannot_be_made_promotion_ready() -> None:
+    source = json.loads(
+        gzip.decompress((CENSUS / "source_u0_github_census.json.gz").read_bytes())
+    )
+    validate_u0_fail_closed_source(source)
+
+    def assert_rejected(unsafe: dict) -> None:
+        try:
+            validate_u0_fail_closed_source(unsafe)
+        except SystemExit:
+            return
+        raise AssertionError("promotion-ready U0 source was not rejected")
+
+    unsafe = copy.deepcopy(source)
+    unsafe["promotion_blockers"] = []
+    assert_rejected(unsafe)
+    for key, unsafe_value in (
+        ("historical_experiment_census_complete", True),
+        ("historical_challenger_allowed", True),
+        ("unmapped_experiment_candidate_count", 0),
+    ):
+        unsafe = copy.deepcopy(source)
+        unsafe["summary"][key] = unsafe_value
+        assert_rejected(unsafe)
 
 
 def test_workflow_registry_has_singular_official_authority_and_blocks_legacy_names() -> None:
@@ -393,6 +431,11 @@ def test_workflow_policy_drift_fails_closed() -> None:
         unsafe["official_authority"][key] = unsafe_value
         assert_rejected(unsafe)
     unsafe = copy.deepcopy(policy)
+    unsafe["workflows"]["daily_operating_selection_refresh.yml"][
+        "durable_write_scope"
+    ] = "LOCAL_MUTABLE_STATE"
+    assert_rejected(unsafe)
+    unsafe = copy.deepcopy(policy)
     unsafe["workflows"]["after_close_daily.yml"][
         "production_live_authority"
     ] = "AUTHORIZED"
@@ -444,6 +487,7 @@ def main() -> int:
     test_frozen_pr_check_summary_is_derived_and_corruption_fails_closed()
     test_live_pr_mutable_evidence_detects_check_and_review_changes()
     test_generator_requirements_require_exact_pins()
+    test_u0_fail_closed_source_cannot_be_made_promotion_ready()
     test_workflow_registry_has_singular_official_authority_and_blocks_legacy_names()
     test_workflow_policy_drift_fails_closed()
     test_frozen_audit_commit_is_resolved_independently_of_current_head()
