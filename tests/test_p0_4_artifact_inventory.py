@@ -754,6 +754,39 @@ def test_generated_destination_symlink_is_rejected(tmp_path: Path) -> None:
     assert external.read_bytes() == b"outside-must-not-change\n"
 
 
+def test_cli_output_directory_symlink_is_rejected(tmp_path: Path) -> None:
+    from tools import build_p0_4_artifact_inventory as builder
+
+    external = tmp_path / "external-bundle"
+    external.mkdir()
+    sentinel = external / "README.md"
+    sentinel.write_bytes(b"outside-must-not-change\n")
+    output = tmp_path / "symlink-bundle"
+    try:
+        output.symlink_to(external, target_is_directory=True)
+    except OSError:
+        return
+    with mock.patch.object(
+        sys,
+        "argv",
+        [
+            "build_p0_4_artifact_inventory.py",
+            "--source",
+            str(SOURCE),
+            "--output-dir",
+            str(output),
+        ],
+    ):
+        try:
+            builder.main()
+        except builder.InventoryError as exc:
+            assert str(exc) == "output_directory_symlink_rejected"
+        else:
+            raise AssertionError("CLI output-directory symlink was accepted")
+    assert sentinel.read_bytes() == b"outside-must-not-change\n"
+    assert sorted(path.name for path in external.iterdir()) == ["README.md"]
+
+
 def test_safety_authority_flags_fail_closed(tmp_path: Path) -> None:
     from tools.build_p0_4_artifact_inventory import InventoryError, build
 
@@ -974,12 +1007,13 @@ def main() -> int:
         test_post_publication_protected_changes_are_rejected(temp_path)
         test_failed_render_keeps_the_existing_bundle_intact(temp_path)
         test_generated_destination_symlink_is_rejected(temp_path)
+        test_cli_output_directory_symlink_is_rejected(temp_path)
         test_safety_authority_flags_fail_closed(temp_path)
         test_required_fixed_target_aliases_cannot_be_omitted(temp_path)
         test_alias_map_must_match_object_status_and_evidence(temp_path)
         test_compound_aliases_and_wrong_paper_head_namespaces_fail_closed(temp_path)
         test_invalid_or_incomplete_sources_fail_closed(temp_path)
-    print("P0-4 artifact inventory smoke: 26 passed")
+    print("P0-4 artifact inventory smoke: 27 passed")
     return 0
 
 

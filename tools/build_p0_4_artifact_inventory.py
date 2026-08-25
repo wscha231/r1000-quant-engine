@@ -1048,7 +1048,9 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    build(args.source.resolve(), args.output_dir.resolve(), verify_live_head=args.verify_live_head)
+    # Keep the caller-supplied output path unresolved so the publisher can
+    # reject a symlink at that exact boundary before writing any bundle file.
+    build(args.source.resolve(), args.output_dir, verify_live_head=args.verify_live_head)
     print(f"[p0-4-inventory] wrote {args.output_dir}")
     return 0
 
