@@ -110,10 +110,10 @@
     "F": 101
   },
   "branch_protection_contract_artifact": {
-    "bytes": 2522,
+    "bytes": 2606,
     "media_type": "application/json",
-    "repository_path": "data_static/run287_review_complete_gate_contract.json",
-    "sha256": "5c278cbf8854f747d9ca6cf854661e47288bb52528b91ab83e4367cc59d1fe74"
+    "repository_path": "docs/run287_p0_3_authority_census/source_branch_protection_contract.json",
+    "sha256": "c315e1b01d92248610d0417bbda4311e1f8fc51ee3a8a07986f4022f2e804af6"
   },
   "completeness": {
     "all_pr_changed_paths_complete": false,
@@ -156,15 +156,16 @@
     "pyarrow": "23.0.1"
   },
   "output_hashes": {
-    "README.md": "b2ddd77bc27df4c79a38a4b2fc3d16b533c9e9ea642be41149e1ecd250d17358",
+    "README.md": "aaa37c4717cf1fbf5b3aa64a0193da84bf0cc3e5a8ac3f0c26dbb4d649042b39",
     "branch_census.parquet": "98701ad208b92bc9c21506d8a322cb7258050998e2f46ba9d6760f0ea134d773",
     "pr_census.parquet": "b0a00792b3b61bdc7a559c0a62b91af17c07b07130c8acc64b152500daa8ef68",
     "requirements.txt": "8c74d7c2c73e36c06bee51001a8ffc2579ea71555bb392cfb89a6ce0e05047ca",
+    "source_branch_protection_contract.json": "c315e1b01d92248610d0417bbda4311e1f8fc51ee3a8a07986f4022f2e804af6",
     "source_branch_supplement.parquet": "12ea17046e062707437b995b95cc610ccf2ef0398dbdf9ff05c0011ff810f530",
     "source_pr_supplement.json.gz": "c61d10cd3408b1a9910e6a40fba317894ba82b1c8506abcc704de7df3ea89516",
     "source_u0_github_census.json.gz": "43037952f1464bd41cdb0d2eaba78503da60f17d66c410dea186b34e0b62ef2c",
     "source_workflow_authority_policy.json": "01977fda9c76c2513244b07d118cbb8bae620e6db03c0d6c3060763e36b9d3f7",
-    "workflow_registry.yaml": "da0e1306984bc53ebb0a2c7eb52627b21b0f324a54fe08f4b2249acd490de446"
+    "workflow_registry.yaml": "92820c5be6dc999372a625fe40c9d5995573776208a59a711f1ed179764e3f9c"
   },
   "pr_disposition_counts": {
     "CLOSED_UNMERGED_QUARANTINE": 23,
@@ -210,7 +211,7 @@
   },
   "source_hashes": {
     "branch_namespace_sha256": "e70683436b46b133d93b66b47acde2565c6889bc654edce01e60182eb6afc126",
-    "branch_protection_contract_sha256": "5c278cbf8854f747d9ca6cf854661e47288bb52528b91ab83e4367cc59d1fe74",
+    "branch_protection_contract_sha256": "c315e1b01d92248610d0417bbda4311e1f8fc51ee3a8a07986f4022f2e804af6",
     "generator_runtime_requirements_sha256": "8c74d7c2c73e36c06bee51001a8ffc2579ea71555bb392cfb89a6ce0e05047ca",
     "pull_request_namespace_sha256": "639d708c707dbc48a1f02cc8eeb15a1c28837226f545b2ea8f84fb6b3313937c",
     "source_branch_supplement_sha256": "12ea17046e062707437b995b95cc610ccf2ef0398dbdf9ff05c0011ff810f530",

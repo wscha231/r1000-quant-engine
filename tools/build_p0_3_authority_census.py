@@ -53,10 +53,7 @@ FROZEN_RUNTIME_REQUIREMENTS_SHA256 = (
     "8c74d7c2c73e36c06bee51001a8ffc2579ea71555bb392cfb89a6ce0e05047ca"
 )
 FROZEN_BRANCH_PROTECTION_CONTRACT_SHA256 = (
-    "5c278cbf8854f747d9ca6cf854661e47288bb52528b91ab83e4367cc59d1fe74"
-)
-BRANCH_PROTECTION_CONTRACT_REPOSITORY_PATH = Path(
-    "data_static/run287_review_complete_gate_contract.json"
+    "c315e1b01d92248610d0417bbda4311e1f8fc51ee3a8a07986f4022f2e804af6"
 )
 BRANCH_SUPPLEMENT_SCHEMA = "run287-p0-3-frozen-branch-supplement-v1"
 GENERATOR_RUNTIME_VERSIONS = {
@@ -552,6 +549,32 @@ def normalize_classic_branch_protection(value: Any) -> dict[str, Any] | None:
             ),
         }
 
+    def actor_allowances(item: Any) -> dict[str, list[dict[str, Any]]] | None:
+        if item is None:
+            return None
+        if not isinstance(item, Mapping):
+            raise RuntimeError("invalid branch protection actor allowances")
+        result: dict[str, list[dict[str, Any]]] = {}
+        identity_fields = {
+            "users": "login",
+            "teams": "slug",
+            "apps": "slug",
+        }
+        for category, identity_field in identity_fields.items():
+            identities = []
+            for actor in item.get(category) or []:
+                if not isinstance(actor, Mapping):
+                    raise RuntimeError("invalid branch protection actor identity")
+                identity = str(actor.get(identity_field) or "")
+                if not identity:
+                    raise RuntimeError("missing branch protection actor identity")
+                identities.append({"id": actor.get("id"), identity_field: identity})
+            result[category] = sorted(
+                identities,
+                key=lambda row: (str(row[identity_field]), str(row["id"])),
+            )
+        return result
+
     normalized_reviews = None
     if isinstance(reviews, Mapping):
         normalized_reviews = {
@@ -564,6 +587,12 @@ def normalize_classic_branch_protection(value: Any) -> dict[str, Any] | None:
             ),
             "required_approving_review_count": int(
                 reviews.get("required_approving_review_count") or 0
+            ),
+            "dismissal_restrictions": actor_allowances(
+                reviews.get("dismissal_restrictions")
+            ),
+            "bypass_pull_request_allowances": actor_allowances(
+                reviews.get("bypass_pull_request_allowances")
             ),
         }
 
@@ -1490,6 +1519,11 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="Pinned generator requirements; defaults beside source census.",
     )
+    parser.add_argument(
+        "--branch-protection-contract",
+        type=Path,
+        help="Frozen normalized protection/ruleset policy; defaults beside source census.",
+    )
     parser.add_argument("--output-dir", type=Path, required=True)
     return parser.parse_args()
 
@@ -1519,7 +1553,8 @@ def main() -> int:
         args.runtime_requirements or args.source_census.with_name("requirements.txt")
     )
     protection_contract_input_path = (
-        repo_root / BRANCH_PROTECTION_CONTRACT_REPOSITORY_PATH
+        args.branch_protection_contract
+        or args.source_census.with_name("source_branch_protection_contract.json")
     )
     policy_input_bytes = canonical_text_bytes(policy_input_path)
     runtime_requirements_input_bytes = canonical_text_bytes(
@@ -1938,6 +1973,9 @@ def main() -> int:
     source_pr_supplement_path = args.output_dir / "source_pr_supplement.json.gz"
     source_branch_supplement_path = args.output_dir / "source_branch_supplement.parquet"
     source_policy_path = args.output_dir / "source_workflow_authority_policy.json"
+    source_protection_contract_path = (
+        args.output_dir / "source_branch_protection_contract.json"
+    )
     runtime_requirements_path = args.output_dir / "requirements.txt"
     write_parquet(branch_path, branch_rows)
     write_parquet(pr_path, pr_rows)
@@ -1961,6 +1999,7 @@ def main() -> int:
     else:
         source_branch_supplement_path.write_bytes(frozen_branch_source_bytes)
     source_policy_path.write_bytes(policy_input_bytes)
+    source_protection_contract_path.write_bytes(protection_contract_input_bytes)
     runtime_requirements_path.write_bytes(runtime_requirements_input_bytes)
     source_repository_path = (
         CENSUS_REPOSITORY_DIR / source_artifact_path.name
@@ -1973,6 +2012,9 @@ def main() -> int:
     ).as_posix()
     source_policy_repository_path = (
         CENSUS_REPOSITORY_DIR / source_policy_path.name
+    ).as_posix()
+    source_protection_contract_repository_path = (
+        CENSUS_REPOSITORY_DIR / source_protection_contract_path.name
     ).as_posix()
     runtime_requirements_repository_path = (
         CENSUS_REPOSITORY_DIR / runtime_requirements_path.name
@@ -2015,12 +2057,10 @@ def main() -> int:
             "sha256": file_sha256(source_policy_path),
         },
         "branch_protection_contract_artifact": {
-            "repository_path": BRANCH_PROTECTION_CONTRACT_REPOSITORY_PATH.as_posix(),
+            "repository_path": source_protection_contract_repository_path,
             "media_type": "application/json",
-            "bytes": len(protection_contract_input_bytes),
-            "sha256": hashlib.sha256(
-                protection_contract_input_bytes
-            ).hexdigest(),
+            "bytes": source_protection_contract_path.stat().st_size,
+            "sha256": file_sha256(source_protection_contract_path),
         },
         "generator_runtime_requirements_artifact": {
             "repository_path": runtime_requirements_repository_path,
@@ -2139,6 +2179,9 @@ def main() -> int:
             ),
             "source_workflow_authority_policy.json": file_sha256(
                 source_policy_path
+            ),
+            "source_branch_protection_contract.json": file_sha256(
+                source_protection_contract_path
             ),
             "requirements.txt": file_sha256(runtime_requirements_path),
         },

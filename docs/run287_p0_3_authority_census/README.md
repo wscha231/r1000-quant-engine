@@ -28,8 +28,8 @@ Frozen branch ancestry/path evidence is tracked as
 The frozen workflow authority policy is tracked as
 `docs/run287_p0_3_authority_census/source_workflow_authority_policy.json` (SHA-256 `01977fda9c76c2513244b07d118cbb8bae620e6db03c0d6c3060763e36b9d3f7`).
 The normalized full branch-protection and ruleset policy is tracked as
-`data_static/run287_review_complete_gate_contract.json` (SHA-256
-`5c278cbf8854f747d9ca6cf854661e47288bb52528b91ab83e4367cc59d1fe74`). By default regeneration uses these frozen
+`docs/run287_p0_3_authority_census/source_branch_protection_contract.json` (SHA-256
+`c315e1b01d92248610d0417bbda4311e1f8fc51ee3a8a07986f4022f2e804af6`). By default regeneration uses these frozen
 sources;
 `--verify-live-namespace` is reserved for the original generation-time
 equality guard.

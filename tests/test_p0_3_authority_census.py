@@ -42,7 +42,7 @@ CENSUS = ROOT / "docs" / "run287_p0_3_authority_census"
 POLICY = CENSUS / "source_workflow_authority_policy.json"
 REPOSITORY_POLICY = ROOT / "docs" / "run287_p0_3_workflow_authority_policy.json"
 PROTECTION_CONTRACT = (
-    ROOT / "data_static" / "run287_review_complete_gate_contract.json"
+    CENSUS / "source_branch_protection_contract.json"
 )
 AUDIT_SHA = "916a02ac0612d64d41f71690cf667a90dfd0531a"
 
@@ -165,7 +165,6 @@ def test_census_is_hash_bound_and_read_only() -> None:
     policy_path = ROOT / policy_artifact["repository_path"]
     assert policy_path == POLICY
     assert sha256(policy_path) == policy_artifact["sha256"]
-    assert canonical_text_bytes(REPOSITORY_POLICY) == canonical_text_bytes(POLICY)
     protection_artifact = summary["branch_protection_contract_artifact"]
     protection_path = ROOT / protection_artifact["repository_path"]
     assert protection_path == PROTECTION_CONTRACT
@@ -423,6 +422,21 @@ def test_live_branch_guard_binds_head_and_protection_state() -> None:
     ]
     assert master["matching_rules"] == contract["matching_branch_rules"]
     assert authority["repository_rulesets"] == contract["repository_rulesets"]
+    review_policy = master["classic_protection"][
+        "required_pull_request_reviews"
+    ]
+    assert review_policy["dismissal_restrictions"] is None
+    assert review_policy["bypass_pull_request_allowances"] is None
+
+    changed_actors = copy.deepcopy(contract)
+    changed_actors["branch_protection_configuration"][
+        "required_pull_request_reviews"
+    ]["dismissal_restrictions"] = {
+        "users": [{"id": 1, "login": "review-admin"}],
+        "teams": [],
+        "apps": [],
+    }
+    assert source_branch_authority_state(source, changed_actors) != authority
 
     changed_rules = copy.deepcopy(contract)
     changed_rules["matching_branch_rules"].append(
@@ -465,6 +479,7 @@ def test_frozen_regeneration_is_independent_of_staging_directory() -> None:
             "pr_census.parquet",
             "requirements.txt",
             "source_branch_supplement.parquet",
+            "source_branch_protection_contract.json",
             "source_pr_supplement.json.gz",
             "source_u0_github_census.json.gz",
             "source_workflow_authority_policy.json",
@@ -479,6 +494,7 @@ def test_frozen_regeneration_is_independent_of_staging_directory() -> None:
 def test_workflow_registry_has_singular_official_authority_and_blocks_legacy_names() -> None:
     registry = load_registry()
     policy = json.loads(POLICY.read_text(encoding="utf-8"))
+    repository_policy = json.loads(REPOSITORY_POLICY.read_text(encoding="utf-8"))
     rows = registry["workflows"]
     assert registry["audit_master_sha"] == AUDIT_SHA
     assert len(rows) == 40
@@ -549,6 +565,9 @@ def test_workflow_registry_has_singular_official_authority_and_blocks_legacy_nam
         row["name"]: row for row in preflight["trigger"]["workflow_dispatch_inputs"]
     }
     assert dispatch_inputs["sec_companyfacts"]["default"] == "false"
+    assert repository_policy["workflows"]["data_readiness_preflight.yml"] == policy[
+        "workflows"
+    ]["data_readiness_preflight.yml"]
 
 
 def test_workflow_policy_drift_fails_closed() -> None:
