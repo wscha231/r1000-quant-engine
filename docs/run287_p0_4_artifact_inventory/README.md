@@ -7,8 +7,8 @@ This is the read-only inventory required by Issue #372, frozen at `2026-08-25T12
 - Dataset classes: `24`
 - Model objects: `4`
 - Durable-state objects: `8`
-- Infrastructure/artifact objects: `19`
-- Total normalized Parquet rows: `55`
+- Infrastructure/artifact objects: `20`
+- Total normalized Parquet rows: `56`
 - Latest aliases verified: `7`
 - Latest aliases blocked: `38`
 
@@ -72,6 +72,9 @@ The latest three operating runs `32801137546, 32545955145, 32440400556` all fail
 ## Rebuild
 
 ```bash
+git diff --quiet -- docs/run287_p0_4_artifact_inventory/requirements.txt
+git diff --cached --quiet -- docs/run287_p0_4_artifact_inventory/requirements.txt
+python -c "import hashlib,pathlib,subprocess,sys; p='docs/run287_p0_4_artifact_inventory/requirements.txt'; c=subprocess.check_output(['git','show','HEAD:'+p]); w=pathlib.Path(p).read_bytes().replace(b'\r\n',b'\n'); sys.exit('unreviewed requirements.txt') if w != c or hashlib.sha256(c).hexdigest() != '9a32746dec8900d8663ba5f6a2f47ec8f9a817eb7fb051fde772a0e7af5c0a4e' else None"
 python -m venv .venv-p0-4
 .venv-p0-4/bin/python -m pip install --requirement docs/run287_p0_4_artifact_inventory/requirements.txt
 .venv-p0-4/bin/python tools/build_p0_4_artifact_inventory.py --verify-live-head
