@@ -4377,6 +4377,26 @@ Expected contract:
   verifier ancestry checks, including the oldest frozen inventory baseline;
   stopping at a newer publication commit leaves a future boundary window where
   the registered test fails despite the publication itself being reachable.
+- Reusable lesson: On pull-request CI, a synthetic merge commit can make the
+  baseline reachable through the base parent and a publication reachable
+  through the PR parent while their direct ancestry is still absent. A shallow
+  history gate must verify every ancestry edge consumed by the validator, not
+  merely that each endpoint is independently an ancestor of `HEAD`.
+- Reusable lesson: A 64-hex string is not authenticated provider evidence.
+  Every `VERIFIED_IMMUTABLE` object must be registered independently with its
+  provider kind, exact provider location, immutable location, digest field, and
+  expected digest; custom sources cannot create new verified identities.
+- Reusable lesson: Provider copies are separate census objects. The immutable
+  research-static ZIP, its Drive path, and its evictable Actions cache are three
+  different authorities; the accepted GitHub transaction artifact is distinct
+  from its manifest-last Drive publication; and the always-run diagnostic
+  artifact is distinct from a best-effort, possibly partial Drive copy.
+- Reusable lesson: Atomic regeneration must start from an empty staging
+  directory. Copying the previous output tree into staging preserves obsolete
+  evidence files after schema changes even when all current files render
+  successfully. Document a native PowerShell rebuild when Windows is claimed
+  as supported; changing only the interpreter path does not translate POSIX
+  temporary-file, trap, quoting, or variable semantics.
 - Caveat: Historical Russell membership remains not proven PIT-safe; the price
   cache view is incomplete; mutable macro, feature, and model objects lack
   complete immutable lineage; and the shared rclone Drive client is a 2026

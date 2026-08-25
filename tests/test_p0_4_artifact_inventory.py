@@ -121,8 +121,8 @@ def test_tracked_bundle_exists_and_has_expected_counts() -> None:
         "datasets": 24,
         "models": 4,
         "durable_states": 8,
-        "artifacts": 24,
-        "artifact_registry_rows": 60,
+        "artifacts": 30,
+        "artifact_registry_rows": 66,
     }
     assert summary["safety"]["mutations_performed"] == []
     assert summary["safety"]["live_trading_enabled"] is False
@@ -130,7 +130,7 @@ def test_tracked_bundle_exists_and_has_expected_counts() -> None:
 
 
 def test_generator_is_byte_stable(tmp_path: Path) -> None:
-    subprocess.run(
+    result = subprocess.run(
         [
             sys.executable,
             str(ROOT / "tools" / "build_p0_4_artifact_inventory.py"),
@@ -141,10 +141,16 @@ def test_generator_is_byte_stable(tmp_path: Path) -> None:
             "--verify-live-head",
         ],
         cwd=ROOT,
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
     )
+    if result.returncode != 0:
+        raise AssertionError(
+            "generator subprocess failed\n"
+            f"stdout:\n{result.stdout}\n"
+            f"stderr:\n{result.stderr}"
+        )
     for name in OUTPUT_FILES:
         assert (tmp_path / name).read_bytes() == (INVENTORY / name).read_bytes(), name
 
@@ -388,6 +394,39 @@ def test_every_mutable_alias_is_verified_or_explicitly_blocked() -> None:
     assert folder_manifests["cache_macro"]["manifest_sha256"] == (
         "96db5506b8b3f5b5eeebf5c49ce5ceff39a53b91e84710901cc82adaa24d92d1"
     )
+
+
+def test_distinct_provider_publications_are_complete() -> None:
+    from tools import build_p0_4_artifact_inventory as builder
+
+    payload = source()
+    objects = {row["object_id"]: row for row in payload["artifacts"]}
+    workflow = builder.baseline_workflow_text(payload["baseline_code_sha"])
+    builder.validate_provider_publications(objects, workflow)
+    archive = objects["artifact.input.run287-research-static-archive"]
+    assert archive["content_sha256"] == builder.RESEARCH_STATIC_SHA256
+    assert archive["exact_location"] == builder.RESEARCH_STATIC_PATH
+    assert objects["artifact.drive.run287-research-static-archive"][
+        "exact_location"
+    ] == builder.RESEARCH_STATIC_DRIVE_LOCATION
+    cache = objects["artifact.github.run287-research-static-actions-cache"]
+    assert cache["cache_key"] == builder.RESEARCH_STATIC_CACHE_KEY
+    assert cache["provider_paths"] == [builder.RESEARCH_STATIC_PATH]
+    accepted = objects["artifact.github.accepted-paper-transaction-publication"]
+    assert accepted["retention_days"] == 45
+    assert "outputs/run287_accepted_publication/" in accepted["provider_paths"]
+    assert "NO_DRIVE_OR_LEDGER_AUTHORITY" in accepted["write_authority"]
+    daily_github = objects["artifact.github.daily-operating-evidence-publication"]
+    daily_drive = objects["artifact.drive.daily-operating-evidence-publication"]
+    assert daily_github["retention_days"] == 45
+    assert "outputs/daily_market_snapshot/" in daily_github["provider_paths"]
+    assert daily_drive["exact_location"] == (
+        builder.OFFICIAL_DAILY_OPERATING_DRIVE_LOCATION
+    )
+    assert "cache_prices/replay_price_cache_manifest.json" in daily_drive[
+        "provider_files"
+    ]
+    assert any("partial" in item.lower() for item in daily_drive["blockers"])
 
 
 def test_paper_heads_use_the_baseline_writer_namespace() -> None:
@@ -658,6 +697,11 @@ def test_rebuild_uses_the_pinned_dependency_contract() -> None:
     assert "git diff --cached --quiet -- docs/run287_p0_4_artifact_inventory/requirements.txt" in readme
     assert "9a32746dec8900d8663ba5f6a2f47ec8f9a817eb7fb051fde772a0e7af5c0a4e" in readme
     assert readme.index("write_bytes(c)") < readme.index("pip install")
+    assert "```powershell" in readme
+    assert "$P0_4RequirementsTemp = New-TemporaryFile" in readme
+    assert "$P0_4Python = '.\\.venv-p0-4\\Scripts\\python.exe'" in readme
+    assert "& $P0_4Python -m pip install --requirement $P0_4RequirementsTemp" in readme
+    assert "Remove-Item -LiteralPath $P0_4RequirementsTemp" in readme
 
 
 def test_requirements_publication_is_authenticated(tmp_path: Path) -> None:
@@ -722,7 +766,7 @@ def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
 
     relative = "docs/run287_p0_4_artifact_inventory/source_inventory_snapshot.json"
     assert FROZEN_SOURCE_PUBLICATION_COMMIT == (
-        "02637f0bc592d843eb6ce94cccea87374d169c51"
+        "7b1ca6452a2457b0180af40ffb176284857aa35a"
     )
     assert git("rev-parse", f"{FROZEN_SOURCE_PUBLICATION_COMMIT}:{relative}").strip() == (
         FROZEN_SOURCE_GIT_BLOB_SHA1
@@ -829,6 +873,7 @@ def test_pr_validation_checkout_supports_pinned_lineage_checks() -> None:
     assert 'git fetch --no-tags --filter=blob:none --deepen=64 origin "$GITHUB_REF"' in text
     assert 'while true; do' in text
     assert 'git rev-parse --is-shallow-repository' in text
+    assert 'git merge-base --is-ancestor "${frozen[0]}" "${frozen[2]}"' in text
     assert "0f34de9a2747059b7bb808cb070a86261e119f95" in text
     assert 'git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha }}"' not in text
     assert 'git merge-base --is-ancestor "$base_sha" HEAD' in text
@@ -1090,6 +1135,18 @@ def test_failed_render_keeps_the_existing_bundle_intact(tmp_path: Path) -> None:
     assert sorted(path.name for path in output.iterdir()) == ["existing.txt"]
     assert not list(tmp_path.glob(".bundle.stage-*"))
     assert not list(tmp_path.glob(".bundle.backup-*"))
+
+
+def test_successful_rebuild_discards_stale_bundle_files(tmp_path: Path) -> None:
+    from tools import build_p0_4_artifact_inventory as builder
+
+    output = tmp_path / "stale-bundle"
+    output.mkdir()
+    stale = output / "obsolete_registry.json"
+    stale.write_bytes(b'{"obsolete":true}\n')
+    builder.build(SOURCE, output)
+    assert not stale.exists()
+    assert {path.name for path in output.iterdir()} == builder.BUNDLE_FILENAMES
 
 
 def test_post_commit_backup_cleanup_failure_is_reported(tmp_path: Path) -> None:
@@ -1369,6 +1426,31 @@ def test_required_fixed_target_aliases_cannot_be_omitted(tmp_path: Path) -> None
         assert str(exc) == "accepted_paper_transaction_object_missing"
     else:
         raise AssertionError("missing accepted paper transaction was not rejected")
+
+    required_provider_objects = {
+        "artifact.input.run287-research-static-archive": (
+            "research_static_provider_objects_missing"
+        ),
+        "artifact.github.accepted-paper-transaction-publication": (
+            "accepted_github_transaction_object_missing"
+        ),
+        "artifact.drive.daily-operating-evidence-publication": (
+            "daily_operating_evidence_provider_objects_missing"
+        ),
+    }
+    for object_id, expected_error in required_provider_objects.items():
+        payload = source()
+        payload["artifacts"] = [
+            row for row in payload["artifacts"] if row["object_id"] != object_id
+        ]
+        missing_provider = tmp_path / f"missing-{object_id}.json"
+        missing_provider.write_text(json.dumps(payload), encoding="utf-8")
+        try:
+            build(missing_provider, tmp_path / f"missing-{object_id}-output")
+        except InventoryError as exc:
+            assert str(exc) == expected_error
+        else:
+            raise AssertionError(f"missing provider object was accepted: {object_id}")
 
 
 def test_alias_map_must_match_object_status_and_evidence(tmp_path: Path) -> None:
@@ -1722,6 +1804,23 @@ def test_invalid_or_incomplete_sources_fail_closed(tmp_path: Path) -> None:
     else:
         raise AssertionError("unhashed VERIFIED_IMMUTABLE object was accepted")
 
+    payload = source()
+    object_id = "ds.us.universe.monthly-snapshots"
+    invented = next(
+        row for row in payload["datasets"] if row["object_id"] == object_id
+    )
+    invented["mapping_status"] = "VERIFIED_IMMUTABLE"
+    invented["immutable_location"] = "invented://provider/object"
+    invented["data_hash"] = "0" * 64
+    forged_verified = tmp_path / "forged-provider-evidence.json"
+    forged_verified.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(forged_verified, tmp_path / "forged-provider-evidence-output")
+    except InventoryError as exc:
+        assert str(exc) == f"verified_object_not_registered:{object_id}"
+    else:
+        raise AssertionError("syntactic digest without provider evidence was accepted")
+
 
 def main() -> int:
     test_tracked_bundle_exists_and_has_expected_counts()
@@ -1729,6 +1828,7 @@ def main() -> int:
         test_generator_is_byte_stable(Path(temp_dir))
     test_registries_and_parquet_cover_every_object_once()
     test_every_mutable_alias_is_verified_or_explicitly_blocked()
+    test_distinct_provider_publications_are_complete()
     test_paper_heads_use_the_baseline_writer_namespace()
     test_frozen_repository_inventory_matches_baseline_tree()
     test_latest_global_alias_diverges_in_exactly_scored_file()
@@ -1752,6 +1852,7 @@ def main() -> int:
         test_post_publication_protected_changes_are_rejected(temp_path)
         test_protected_generator_allows_only_pin_delta(temp_path)
         test_failed_render_keeps_the_existing_bundle_intact(temp_path)
+        test_successful_rebuild_discards_stale_bundle_files(temp_path)
         test_post_commit_backup_cleanup_failure_is_reported(temp_path)
         test_generated_destination_symlink_is_rejected(temp_path)
         test_cli_output_directory_symlink_is_rejected(temp_path)
@@ -1761,7 +1862,7 @@ def main() -> int:
         test_compound_aliases_and_wrong_paper_head_namespaces_fail_closed(temp_path)
         test_folder_child_manifests_are_pinned_and_bound(temp_path)
         test_invalid_or_incomplete_sources_fail_closed(temp_path)
-    print("P0-4 artifact inventory smoke: 33 passed")
+    print("P0-4 artifact inventory smoke: 35 passed")
     return 0
 
 

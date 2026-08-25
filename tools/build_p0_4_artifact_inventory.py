@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -32,9 +33,9 @@ DEFAULT_SOURCE = ROOT / "docs" / "run287_p0_4_artifact_inventory" / "source_inve
 DEFAULT_OUTPUT = ROOT / "docs" / "run287_p0_4_artifact_inventory"
 SCHEMA_VERSION = "run287-p0-4-inventory-source-v1"
 REGISTRY_SCHEMA_VERSION = "run287-p0-4-registry-v1"
-FROZEN_SOURCE_PUBLICATION_COMMIT = "02637f0bc592d843eb6ce94cccea87374d169c51"
-FROZEN_SOURCE_GIT_BLOB_SHA1 = "c077aa3ae5de847a82695dcc7229f2b7e4addd7f"
-FROZEN_SOURCE_SHA256 = "8cd51434f7d8ad578a27d16f6c87f0111ce2189e1aaef08913f75d55a91c1ae4"
+FROZEN_SOURCE_PUBLICATION_COMMIT = "7b1ca6452a2457b0180af40ffb176284857aa35a"
+FROZEN_SOURCE_GIT_BLOB_SHA1 = "f12f4fb61cc46ebd6adbc9a8d74b5529948e1fb5"
+FROZEN_SOURCE_SHA256 = "55f226c85d15aedd3292f718950551056ed8af04d0d514dfa07672789af5b1d4"
 FROZEN_PUBLICATION_COMMIT = "f7fadfa4e7814c6453bf96ebf3a1ff4d39eadfae"
 FROZEN_PROTECTED_PUBLICATION_COMMIT = "c952801a0d4a1f541f75d0ec516990d71d86ce87"
 GENERATOR_PATH = "tools/build_p0_4_artifact_inventory.py"
@@ -74,6 +75,117 @@ GENERATED_FILENAMES = {
 BUNDLE_FILENAMES = GENERATED_FILENAMES | {
     "source_inventory_snapshot.json",
     "requirements.txt",
+}
+VERIFIED_OBJECT_EVIDENCE = {
+    "state.us.paper.immutable-head": {
+        "provider": "google_drive_accepted_head",
+        "storage_kind": "google_drive_folder",
+        "exact_location": "gdrive-id:1ZBfSgjBFl0oRtQkS-eSleEOT2podcXz1",
+        "immutable_location": (
+            "paper_archive/run287_daily_simulated_fill_ledger_heads/"
+            "65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7"
+        ),
+        "hash_field": "data_hash",
+        "hash_value": "65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7",
+    },
+    "state.us.paper.accepted-publication": {
+        "provider": "google_drive_file",
+        "storage_kind": "google_drive_file",
+        "exact_location": "gdrive-id:1MiAcwCj_TAYBa16Q8bN2hCmny6VqXnnr",
+        "immutable_location": (
+            "paper_archive/run287_daily_simulated_fill_ledger_heads/"
+            "65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/"
+            "accepted_publication.json"
+        ),
+        "hash_field": "content_sha256",
+        "hash_value": "1f2941e71e4590bf1e0fc5912d65ce54d364a379f0d5bf2370e54276d8a07b5d",
+    },
+    "state.us.paper.main-account": {
+        "provider": "google_drive_accepted_head_child",
+        "storage_kind": "google_drive_file_in_head",
+        "exact_location": (
+            "paper_archive/run287_daily_simulated_fill_ledger/main/"
+            "account_state_latest.json"
+        ),
+        "immutable_location": (
+            "paper_archive/run287_daily_simulated_fill_ledger_heads/"
+            "65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/"
+            "main/account_state_latest.json"
+        ),
+        "hash_field": "data_hash",
+        "hash_value": "f959556ef266765b21380c025831de9df020ad9d411a4284d7afa95cc678e6d8",
+    },
+    "state.us.paper.concentrated-account": {
+        "provider": "google_drive_accepted_head_child",
+        "storage_kind": "google_drive_file_in_head",
+        "exact_location": (
+            "paper_archive/run287_daily_simulated_fill_ledger/concentrated/"
+            "account_state_latest.json"
+        ),
+        "immutable_location": (
+            "paper_archive/run287_daily_simulated_fill_ledger_heads/"
+            "65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/"
+            "concentrated/account_state_latest.json"
+        ),
+        "hash_field": "data_hash",
+        "hash_value": "8253abe8b949be5d7e1d4e304c07cc1459b6e7fb2b6c20a95daf70af6bcc1ff6",
+    },
+    "state.us.paper.main-ledger-manifest": {
+        "provider": "google_drive_accepted_head_child",
+        "storage_kind": "google_drive_file_in_head",
+        "exact_location": "paper_archive/run287_daily_simulated_fill_ledger/main/manifest.json",
+        "immutable_location": (
+            "paper_archive/run287_daily_simulated_fill_ledger_heads/"
+            "65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/"
+            "main/manifest.json"
+        ),
+        "hash_field": "manifest_sha256",
+        "hash_value": "43f348b7a44c2f0212865cc318225e4b75b4cef9b76ccc0ff52fe19cd15f41a1",
+    },
+    "state.us.paper.concentrated-ledger-manifest": {
+        "provider": "google_drive_accepted_head_child",
+        "storage_kind": "google_drive_file_in_head",
+        "exact_location": (
+            "paper_archive/run287_daily_simulated_fill_ledger/concentrated/manifest.json"
+        ),
+        "immutable_location": (
+            "paper_archive/run287_daily_simulated_fill_ledger_heads/"
+            "65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/"
+            "concentrated/manifest.json"
+        ),
+        "hash_field": "manifest_sha256",
+        "hash_value": "78fc4887bc50c0782f1b1935bb033e588f4f9e65c0f5a37686e3f086c188f453",
+    },
+    "artifact.repo.full-rebuild-history": {
+        "provider": "git_tree_at_baseline",
+        "storage_kind": "git_tree",
+        "exact_location": "cloud_results/full_rebuild",
+        "immutable_location": "Git commit 0f34de9a2747059b7bb808cb070a86261e119f95",
+        "hash_field": "manifest_sha256",
+        "hash_value": "d6628a71d3e1066afc5afbb92a3368c1ed9b0aaca076cc91459bb3afd06b1ac1",
+    },
+    "artifact.repo.latest-r1000-adr-alias": {
+        "provider": "git_tree_at_baseline",
+        "storage_kind": "git_tree",
+        "exact_location": "cloud_results/full_rebuild/latest_r1000+adr",
+        "immutable_location": "cloud_results/full_rebuild/20260428_r1000+adr",
+        "hash_field": "manifest_sha256",
+        "hash_value": "a8e75bc778087efdfbb3dd7d84cfbafde2efaf216e3c3503ca2a9bca497db9da",
+    },
+    "artifact.drive.paper-price-evidence": {
+        "provider": "github_artifact_plus_drive_accepted_head",
+        "storage_kind": "github_actions_artifact_plus_drive_publication",
+        "exact_location": "github-run:30146363501/artifact:8616372163",
+        "immutable_location": (
+            "paper immutable head replay_price_evidence/2026-07-24 plus pinned "
+            "GitHub artifact digest"
+        ),
+        "hash_field": "content_sha256",
+        "hash_value": "fb04a523cdcb38110ed4ebf2a8d61c05506e95109bf77da77e5d98f70226eba7",
+        "source_artifact_hash": (
+            "fb04a523cdcb38110ed4ebf2a8d61c05506e95109bf77da77e5d98f70226eba7"
+        ),
+    },
 }
 SAFETY_FALSE_FIELDS = (
     "live_trading_enabled",
@@ -226,6 +338,33 @@ REQUIRED_PAPER_ACTIONS_CACHE_OBJECTS = {
 }
 REQUIRED_ACCEPTED_PAPER_TRANSACTION_OBJECT = (
     "artifact.drive.accepted-paper-transaction-publication"
+)
+RESEARCH_STATIC_SHA256 = (
+    "66ca4b6a6a61cb7e9a3a47e2f6d26aa42f30a9b96a25d07699c6cdeb8faf1d84"
+)
+RESEARCH_STATIC_PATH = "run287_static_archive/run287_exact_static_archive_v1.zip"
+RESEARCH_STATIC_CACHE_KEY = (
+    "run287-research-static-${{ runner.os }}-66ca4b6a6a61cb7e-v1"
+)
+RESEARCH_STATIC_DRIVE_LOCATION = (
+    "gdrive-root:1qcRMJCxDXsca5SmHFUu30yMAZdRLaxPA/"
+    "research_static/run287_exact_static_archive_v1.zip"
+)
+REQUIRED_RESEARCH_STATIC_OBJECTS = {
+    "archive": "artifact.input.run287-research-static-archive",
+    "drive": "artifact.drive.run287-research-static-archive",
+    "cache": "artifact.github.run287-research-static-actions-cache",
+}
+REQUIRED_ACCEPTED_GITHUB_TRANSACTION_OBJECT = (
+    "artifact.github.accepted-paper-transaction-publication"
+)
+REQUIRED_DAILY_OPERATING_EVIDENCE_OBJECTS = {
+    "github": "artifact.github.daily-operating-evidence-publication",
+    "drive": "artifact.drive.daily-operating-evidence-publication",
+}
+OFFICIAL_DAILY_OPERATING_DRIVE_LOCATION = (
+    "gdrive-root:1qcRMJCxDXsca5SmHFUu30yMAZdRLaxPA/research_runs/"
+    "${SAFE_BRANCH}/${GITHUB_RUN_ID}/daily_operating_selection_refresh/"
 )
 OFFICIAL_ACCEPTED_PAPER_TRANSACTION_LOCATION = (
     "gdrive-root:1qcRMJCxDXsca5SmHFUu30yMAZdRLaxPA/research_runs/"
@@ -556,6 +695,42 @@ def validate_object(row: dict[str, Any], *, object_class: str) -> None:
         raise InventoryError(f"verified_git_tree_without_manifest_sha256:{object_id}")
 
 
+def validate_registered_verified_evidence(
+    object_index: dict[str, dict[str, Any]],
+) -> None:
+    verified_ids = {
+        object_id
+        for object_id, row in object_index.items()
+        if row.get("mapping_status") == "VERIFIED_IMMUTABLE"
+    }
+    registered_ids = set(VERIFIED_OBJECT_EVIDENCE)
+    unexpected = sorted(verified_ids - registered_ids)
+    if unexpected:
+        raise InventoryError("verified_object_not_registered:" + ",".join(unexpected))
+    missing = sorted(registered_ids - verified_ids)
+    if missing:
+        raise InventoryError("registered_verified_object_missing:" + ",".join(missing))
+    for object_id, evidence in VERIFIED_OBJECT_EVIDENCE.items():
+        row = object_index[object_id]
+        for field in ("storage_kind", "exact_location", "immutable_location"):
+            if row.get(field) != evidence[field]:
+                raise InventoryError(
+                    f"verified_provider_evidence_mismatch:{object_id}:{field}"
+                )
+        hash_field = str(evidence["hash_field"])
+        if row.get(hash_field) != evidence["hash_value"]:
+            raise InventoryError(
+                f"verified_provider_evidence_mismatch:{object_id}:{hash_field}"
+            )
+        source_hash = evidence.get("source_artifact_hash")
+        if source_hash is not None and source_hash not in row.get(
+            "source_artifact_hashes", []
+        ):
+            raise InventoryError(
+                f"verified_provider_evidence_mismatch:{object_id}:source_artifact_hashes"
+            )
+
+
 def baseline_workflow_text(baseline: str) -> str:
     try:
         return subprocess.check_output(
@@ -566,6 +741,141 @@ def baseline_workflow_text(baseline: str) -> str:
         )
     except (OSError, subprocess.CalledProcessError) as exc:
         raise InventoryError("official_target_workflow_not_available_at_baseline") from exc
+
+
+def baseline_workflow_step(workflow_text: str, name: str) -> dict[str, Any]:
+    try:
+        document = yaml.safe_load(workflow_text)
+        steps = document["jobs"]["refresh"]["steps"]
+    except Exception as exc:
+        raise InventoryError("official_target_workflow_steps_invalid") from exc
+    matches = [step for step in steps if isinstance(step, dict) and step.get("name") == name]
+    if len(matches) != 1:
+        raise InventoryError(f"official_target_workflow_step_count:{name}:{len(matches)}")
+    return matches[0]
+
+
+def workflow_multiline_paths(step: dict[str, Any]) -> list[str]:
+    value = step.get("with", {}).get("path")
+    if not isinstance(value, str):
+        raise InventoryError(f"official_target_workflow_step_paths:{step.get('name')}")
+    return [line.strip() for line in value.splitlines() if line.strip()]
+
+
+def validate_provider_publications(
+    object_index: dict[str, dict[str, Any]], workflow_text: str
+) -> None:
+    archive = object_index.get(REQUIRED_RESEARCH_STATIC_OBJECTS["archive"])
+    drive_archive = object_index.get(REQUIRED_RESEARCH_STATIC_OBJECTS["drive"])
+    cache_archive = object_index.get(REQUIRED_RESEARCH_STATIC_OBJECTS["cache"])
+    if archive is None or drive_archive is None or cache_archive is None:
+        raise InventoryError("research_static_provider_objects_missing")
+    if (
+        archive.get("exact_location") != RESEARCH_STATIC_PATH
+        or archive.get("immutable_location") != f"sha256:{RESEARCH_STATIC_SHA256}"
+        or archive.get("content_sha256") != RESEARCH_STATIC_SHA256
+        or archive.get("mapping_status") != "NOT_APPLICABLE"
+    ):
+        raise InventoryError("research_static_archive_evidence_mismatch")
+    if (
+        drive_archive.get("exact_location") != RESEARCH_STATIC_DRIVE_LOCATION
+        or drive_archive.get("source_artifact_hashes") != [RESEARCH_STATIC_SHA256]
+        or drive_archive.get("write_authority")
+        != "DRIVE_WRITER_UNRESOLVED_DAILY_WORKFLOW_READ_ONLY_RESTORE"
+    ):
+        raise InventoryError("research_static_drive_evidence_mismatch")
+    restore_cache = baseline_workflow_step(
+        workflow_text, "Restore Run287 research-static archive cache"
+    )
+    save_cache = baseline_workflow_step(
+        workflow_text, "Save Run287 research-static archive cache"
+    )
+    for step in (restore_cache, save_cache):
+        if (
+            workflow_multiline_paths(step) != [RESEARCH_STATIC_PATH]
+            or step.get("with", {}).get("key") != RESEARCH_STATIC_CACHE_KEY
+        ):
+            raise InventoryError("research_static_cache_not_in_baseline_workflow")
+    if (
+        cache_archive.get("cache_key") != RESEARCH_STATIC_CACHE_KEY
+        or cache_archive.get("provider_paths") != [RESEARCH_STATIC_PATH]
+        or cache_archive.get("source_artifact_hashes") != [RESEARCH_STATIC_SHA256]
+        or cache_archive.get("write_authority")
+        != "GITHUB_ACTIONS_CACHE_ONLY_NOT_CANONICAL_DRIVE_OR_RESEARCH_AUTHORITY"
+    ):
+        raise InventoryError("research_static_cache_evidence_mismatch")
+    for token in (
+        "research_static/run287_exact_static_archive_v1.zip",
+        f"--expected-archive-sha256 {RESEARCH_STATIC_SHA256}",
+    ):
+        if token not in workflow_text:
+            raise InventoryError("research_static_drive_or_hash_not_in_baseline")
+
+    accepted_github = object_index.get(REQUIRED_ACCEPTED_GITHUB_TRANSACTION_OBJECT)
+    if accepted_github is None:
+        raise InventoryError("accepted_github_transaction_object_missing")
+    accepted_step = baseline_workflow_step(
+        workflow_text, "Upload accepted paper transaction artifact"
+    )
+    accepted_with = accepted_step.get("with", {})
+    accepted_paths = workflow_multiline_paths(accepted_step)
+    if (
+        accepted_with.get("name") != "accepted-paper-transaction-${{ github.run_id }}"
+        or accepted_with.get("retention-days") != 45
+        or accepted_github.get("artifact_name") != accepted_with.get("name")
+        or accepted_github.get("retention_days") != accepted_with.get("retention-days")
+        or accepted_github.get("provider_paths") != accepted_paths
+        or accepted_github.get("write_authority")
+        != "GITHUB_ARTIFACT_NONCANONICAL_TRANSACTION_EVIDENCE_NO_DRIVE_OR_LEDGER_AUTHORITY"
+    ):
+        raise InventoryError("accepted_github_transaction_evidence_mismatch")
+
+    daily_github = object_index.get(REQUIRED_DAILY_OPERATING_EVIDENCE_OBJECTS["github"])
+    daily_drive = object_index.get(REQUIRED_DAILY_OPERATING_EVIDENCE_OBJECTS["drive"])
+    if daily_github is None or daily_drive is None:
+        raise InventoryError("daily_operating_evidence_provider_objects_missing")
+    daily_step = baseline_workflow_step(
+        workflow_text, "Upload daily operating evidence artifact"
+    )
+    daily_with = daily_step.get("with", {})
+    if (
+        daily_with.get("name") != "daily-operating-selection-refresh-${{ github.run_id }}"
+        or daily_with.get("retention-days") != 45
+        or daily_github.get("artifact_name") != daily_with.get("name")
+        or daily_github.get("retention_days") != daily_with.get("retention-days")
+        or daily_github.get("provider_paths") != workflow_multiline_paths(daily_step)
+        or daily_github.get("write_authority")
+        != "DIAGNOSTIC_GITHUB_ARTIFACT_ONLY_NO_TARGET_LEDGER_DRIVE_OR_ACCEPTANCE_AUTHORITY"
+    ):
+        raise InventoryError("daily_operating_github_evidence_mismatch")
+    drive_step = baseline_workflow_step(
+        workflow_text, "Sync daily operating artifact to Google Drive"
+    )
+    drive_script = drive_step.get("run")
+    if not isinstance(drive_script, str):
+        raise InventoryError("daily_operating_drive_step_script_missing")
+    directory_match = re.search(r"^\s*for d in (.+); do\s*$", drive_script, re.MULTILINE)
+    file_match = re.search(
+        r"^\s*for f in \\\n(?P<body>.*?)^\s*if \[ -s \"\$f\" \]; then\s*$",
+        drive_script,
+        re.MULTILINE | re.DOTALL,
+    )
+    if directory_match is None or file_match is None:
+        raise InventoryError("daily_operating_drive_path_loop_missing")
+    expected_directories = shlex.split(directory_match.group(1))
+    file_body = file_match.group("body").replace("\\\n", " ")
+    file_body = re.sub(r";\s*do\s*$", "", file_body)
+    expected_files = shlex.split(file_body)
+    expected_files.append("cache_prices/replay_price_cache_manifest.json")
+    if (
+        daily_drive.get("exact_location") != OFFICIAL_DAILY_OPERATING_DRIVE_LOCATION
+        or daily_drive.get("provider_directories") != expected_directories
+        or daily_drive.get("provider_files") != expected_files
+        or daily_drive.get("write_authority")
+        != "BEST_EFFORT_DIAGNOSTIC_DRIVE_COPY_ONLY_NO_ACCEPTED_TRANSACTION_OR_LEDGER_AUTHORITY"
+        or "|| true" not in drive_script
+    ):
+        raise InventoryError("daily_operating_drive_evidence_mismatch")
 
 
 def validate_failure_evidence(payload: dict[str, Any]) -> None:
@@ -746,6 +1056,7 @@ def validate_source(payload: dict[str, Any]) -> None:
     if missing_aliases:
         raise InventoryError("latest_map_missing_aliases:" + ",".join(missing_aliases))
     workflow_text = baseline_workflow_text(baseline)
+    validate_provider_publications(object_index, workflow_text)
     if OFFICIAL_PAPER_HEAD_ROOT not in workflow_text:
         raise InventoryError("official_paper_head_root_not_in_baseline_workflow")
     paper_heads: set[str] = set()
@@ -972,6 +1283,7 @@ def validate_source(payload: dict[str, Any]) -> None:
         "manifest_sha256"
     ):
         raise InventoryError("feature_drive_census_manifest_hash_mismatch")
+    validate_registered_verified_evidence(object_index)
     validate_failure_evidence(payload)
     if not isinstance(payload.get("migration_items"), list) or not payload["migration_items"]:
         raise InventoryError("migration_items_empty")
@@ -1179,7 +1491,36 @@ def render_readme(payload: dict[str, Any], row_count: int) -> str:
             ".venv-p0-4/bin/python tests/test_p0_4_artifact_inventory.py",
             "```",
             "",
-            "On Windows PowerShell, use `.\\.venv-p0-4\\Scripts\\python.exe` in place of `.venv-p0-4/bin/python`. The exact dependency pins are part of the frozen bundle.",
+            "PowerShell rebuild (the dependency bytes are captured from the authenticated Git blob before installation):",
+            "",
+            "```powershell",
+            "$P0_4RequirementsPath = 'docs/run287_p0_4_artifact_inventory/requirements.txt'",
+            "git diff --quiet -- $P0_4RequirementsPath",
+            "if ($LASTEXITCODE -ne 0) { throw 'unreviewed requirements.txt worktree bytes' }",
+            "git diff --cached --quiet -- $P0_4RequirementsPath",
+            "if ($LASTEXITCODE -ne 0) { throw 'unreviewed requirements.txt index bytes' }",
+            "$P0_4RequirementsTemp = New-TemporaryFile",
+            "try {",
+            (
+                "  python -c \"import hashlib,pathlib,subprocess,sys; "
+                "p='docs/run287_p0_4_artifact_inventory/requirements.txt'; "
+                "c=subprocess.check_output(['git','show','HEAD:'+p]); "
+                "w=pathlib.Path(p).read_bytes().replace(b'\\r\\n',b'\\n'); "
+                "sys.exit('unreviewed requirements.txt') if w != c or "
+                f"hashlib.sha256(c).hexdigest() != '{FROZEN_REQUIREMENTS_SHA256}' "
+                "else pathlib.Path(sys.argv[1]).write_bytes(c)\" "
+                "$P0_4RequirementsTemp"
+            ),
+            "  python -m venv .venv-p0-4",
+            "  $P0_4Python = '.\\.venv-p0-4\\Scripts\\python.exe'",
+            "  & $P0_4Python -m pip install --requirement $P0_4RequirementsTemp",
+            "  & $P0_4Python tools/build_p0_4_artifact_inventory.py --verify-live-head",
+            "  & $P0_4Python tests/test_p0_4_artifact_inventory.py",
+            "} finally {",
+            "  Remove-Item -LiteralPath $P0_4RequirementsTemp -Force -ErrorAction SilentlyContinue",
+            "}",
+            "```",
+            "",
             "The protected-publication constant is verifier code: advancing it requires an explicit verifier diff and a new external exact-head Codex review plus the repository review-complete gate; regeneration alone grants no trust.",
             "",
         ]
@@ -1440,20 +1781,18 @@ def validate_output_destination(output: Path) -> None:
 def publish_bundle_atomically(output: Path, render) -> None:
     validate_output_destination(output)
     output.parent.mkdir(parents=True, exist_ok=True)
+    if output.exists() and not output.is_dir():
+        raise InventoryError("output_path_not_directory")
+    linked = sorted(
+        name for name in BUNDLE_FILENAMES if output.exists() and (output / name).is_symlink()
+    )
+    if linked:
+        raise InventoryError("staged_bundle_symlink:" + ",".join(linked))
     staging = Path(
         tempfile.mkdtemp(prefix=f".{output.name}.stage-", dir=str(output.parent))
     )
     backup: Path | None = None
     try:
-        if output.exists():
-            if not output.is_dir():
-                raise InventoryError("output_path_not_directory")
-            shutil.copytree(output, staging, dirs_exist_ok=True, symlinks=True)
-        linked = sorted(
-            name for name in BUNDLE_FILENAMES if (staging / name).is_symlink()
-        )
-        if linked:
-            raise InventoryError("staged_bundle_symlink:" + ",".join(linked))
         render(staging)
         missing = sorted(name for name in BUNDLE_FILENAMES if not (staging / name).is_file())
         if missing:

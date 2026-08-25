@@ -84,6 +84,13 @@ jobs:
                 connected=no
               fi
             done
+            # On pull_request events HEAD is a synthetic merge commit. The
+            # baseline may be reachable through its base parent while the
+            # publication is reachable only through the PR parent, without
+            # their direct ancestry being present in a shallow clone.
+            if ! git merge-base --is-ancestor "${frozen[0]}" "${frozen[2]}" 2>/dev/null; then
+              connected=no
+            fi
             [ "$connected" = yes ] && break
             if [ "$(git rev-parse --is-shallow-repository)" != "true" ]; then
               echo "frozen P0-4 audit lineage is not an ancestor of HEAD" >&2
