@@ -1,0 +1,121 @@
+{
+  "baseline_code_sha": "0f34de9a2747059b7bb808cb070a86261e119f95",
+  "counts": {
+    "artifact_registry_rows": 37,
+    "artifacts": 11,
+    "datasets": 14,
+    "durable_states": 8,
+    "models": 4
+  },
+  "discovery_status_counts": {
+    "COMPLETE_DIRECT_LIST_HASHES_NOT_COLLECTED": 1,
+    "DIRTY_READ_ONLY_OBSERVATION": 1,
+    "FROZEN_BOUNDED_METADATA": 33,
+    "INCOMPLETE_100_OF_MANIFEST_1048_DIRECT_CHILDREN": 1,
+    "PROVEN_ABSENT_IN_LATEST_GITHUB_JOB": 1
+  },
+  "finding_ids": [
+    "F001",
+    "F002",
+    "F003",
+    "F004",
+    "F005",
+    "F006",
+    "F007",
+    "F008",
+    "F009",
+    "F010",
+    "F011",
+    "F012"
+  ],
+  "mapping_status_counts": {
+    "BLOCKED_DIVERGENT": 2,
+    "BLOCKED_MULTIPLE_WRITERS": 1,
+    "BLOCKED_NO_IMMUTABLE_SOURCE": 19,
+    "NOT_APPLICABLE": 6,
+    "VERIFIED_IMMUTABLE": 9
+  },
+  "market": "US",
+  "observed_at_utc": "2026-08-25T12:06:47.159838+00:00",
+  "pipeline_health": {
+    "daily_operating_failed_step": "Restore verified risk-outcome accepted head",
+    "daily_operating_recent_conclusions": [
+      "failure",
+      "failure",
+      "failure"
+    ],
+    "daily_operating_recent_run_ids": [
+      32801137546,
+      32545955145,
+      32440400556
+    ],
+    "latest_failure_live_trading_enabled": false,
+    "latest_failure_market_session": "2026-08-24",
+    "latest_failure_terminal_reason": "legacy outcome parent requires explicit one-time workflow_dispatch authorization",
+    "latest_runs": {
+      "after_close_daily": {
+        "conclusion": "success",
+        "head_sha": "86ff31f3528ce62b6ebcf327d260e76ee6a872bb",
+        "run_id": 32787344765
+      },
+      "daily_autolearning_scan": {
+        "conclusion": "success",
+        "head_sha": "86ff31f3528ce62b6ebcf327d260e76ee6a872bb",
+        "run_id": 32786909397
+      },
+      "daily_crisis_monitor": {
+        "conclusion": "success",
+        "head_sha": "86ff31f3528ce62b6ebcf327d260e76ee6a872bb",
+        "run_id": 32786627480
+      },
+      "daily_operating_selection_refresh": {
+        "conclusion": "failure",
+        "head_sha": "86ff31f3528ce62b6ebcf327d260e76ee6a872bb",
+        "run_id": 32801137546
+      },
+      "data_readiness_preflight": {
+        "conclusion": "success",
+        "head_sha": "86ff31f3528ce62b6ebcf327d260e76ee6a872bb",
+        "run_id": 32799038044
+      },
+      "earnings_estimates_daily": {
+        "conclusion": "success",
+        "head_sha": "86ff31f3528ce62b6ebcf327d260e76ee6a872bb",
+        "run_id": 32800051525
+      },
+      "free_data_daily_update": {
+        "conclusion": "success",
+        "head_sha": "86ff31f3528ce62b6ebcf327d260e76ee6a872bb",
+        "run_id": 32790972658
+      },
+      "sec_13f_quarterly_refresh": {
+        "conclusion": "success",
+        "head_sha": "86ff31f3528ce62b6ebcf327d260e76ee6a872bb",
+        "run_id": 32791423669
+      },
+      "sec_form4_daily_refresh": {
+        "conclusion": "success",
+        "head_sha": "86ff31f3528ce62b6ebcf327d260e76ee6a872bb",
+        "run_id": 32790365089
+      },
+      "smart_money_top30_refresh": {
+        "conclusion": "success",
+        "head_sha": "86ff31f3528ce62b6ebcf327d260e76ee6a872bb",
+        "run_id": 32793736567
+      }
+    },
+    "source": "GitHub Actions read-only metadata and job-step evidence"
+  },
+  "safety": {
+    "drive_mode": "READ_ONLY_METADATA_AND_REPRESENTATIVE_HASHES",
+    "github_mode": "READ_ONLY_RUN_JOB_ARTIFACT_METADATA",
+    "live_trading_enabled": false,
+    "local_mode": "READ_ONLY_CENSUS_EXCEPT_NEW_P0_4_BRANCH_FILES",
+    "model_promotion": false,
+    "mutations_performed": [],
+    "production_activation_allowed": false,
+    "target_order_ledger_mutation": false
+  },
+  "schema_version": "run287-p0-4-inventory-summary-v1",
+  "source_snapshot_sha256": "14cf3f4183bc43ad0f064c26b60416ae4ca272287f8117e01377c5ce856dacd4"
+}

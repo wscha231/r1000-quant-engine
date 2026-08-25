@@ -1,0 +1,336 @@
+schema_version: run287-p0-4-registry-v1
+source_schema_version: run287-p0-4-inventory-source-v1
+market: US
+baseline_code_sha: 0f34de9a2747059b7bb808cb070a86261e119f95
+observed_at_utc: '2026-08-25T12:06:47.159838+00:00'
+source_snapshot_sha256: 14cf3f4183bc43ad0f064c26b60416ae4ca272287f8117e01377c5ce856dacd4
+discovery_limits:
+- Google Drive folder listing returned only 100 direct cache_price children while the frozen manifest reports 1048 files;
+  the provider view has no continuation token and remains incomplete.
+- Google Drive metadata did not expose provider checksums for most large binaries; blank hashes are not verified hashes.
+- GitHub workflow health is a bounded latest-run snapshot, not a complete historical artifact census.
+- The local H:/r1000-quant-engine worktree is dirty and user-owned; it was observed read-only and is not canonical evidence.
+- Same-name Drive folders outside the canonical root were not treated as canonical by name alone.
+- No secret, token, service-account, broker-account, or personally identifying value was collected. Presence classifications
+  only are recorded.
+durable_states:
+- schema_version: run287-paper-ledger-snapshot-integrity-v2
+  market: US
+  logical_role: canonical immutable paper-ledger head
+  producer: daily_operating_selection_refresh.yml
+  storage_kind: google_drive_folder
+  exact_location: gdrive-id:1ZBfSgjBFl0oRtQkS-eSleEOT2podcXz1
+  immutable_location: paper_archive/run287_daily_simulated_fill_ledger_immutable/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7
+  mutable_alias: ''
+  as_of: '2026-07-24'
+  available_from: '2026-08-05T04:58:54.261Z'
+  created_at: ''
+  decision_time_cutoff: 2026-07-24_MARK_ONLY
+  code_sha: ''
+  config_hash: ''
+  data_hash: 65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7
+  universe_hash: ''
+  source_artifact_hashes: &id001 []
+  size_bytes: null
+  row_count: null
+  file_count: 243
+  content_sha256: ''
+  manifest_sha256: ''
+  writer_workflow: daily_operating_selection_refresh.yml
+  writer_job: refresh accepted publication
+  write_authority: OFFICIAL_SIMULATED_PAPER_LEDGER_WRITER
+  pit_classification: HASH_CHAINED_SESSION_STATE
+  survivorship_classification: SOURCE_TARGET_UNIVERSE_HASHED_IN_PUBLICATION
+  corporate_action_classification: PRICE_AND_TARGET_EVIDENCE_BOUND
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: IMMUTABLE_HEAD_CHAIN
+  downstream_consumers:
+  - paper continuation
+  - target revaluation
+  - risk outcome resolution
+  rollback_restore: select a verified ancestor head only after manifest and full snapshot integrity verification
+  mapping_status: VERIFIED_IMMUTABLE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers: &id002 []
+  object_id: state.us.paper.immutable-head
+- schema_version: run287-paper-accepted-publication-v1
+  market: US
+  logical_role: atomic accepted paper publication marker
+  producer: build_run287_accepted_publication_manifest.py
+  storage_kind: google_drive_file
+  exact_location: gdrive-id:1MiAcwCj_TAYBa16Q8bN2hCmny6VqXnnr
+  immutable_location: paper_archive/run287_daily_simulated_fill_ledger_immutable/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/accepted_publication.json
+  mutable_alias: paper_archive/run287_daily_simulated_fill_ledger/accepted_publication.json
+  as_of: '2026-07-24'
+  available_from: '2026-08-05T04:58:54.261Z'
+  created_at: ''
+  decision_time_cutoff: 2026-07-24_MARK_ONLY
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: 1825
+  row_count: null
+  file_count: 1
+  content_sha256: 1f2941e71e4590bf1e0fc5912d65ce54d364a379f0d5bf2370e54276d8a07b5d
+  manifest_sha256: ''
+  writer_workflow: daily_operating_selection_refresh.yml
+  writer_job: ''
+  write_authority: OFFICIAL_ACCEPTED_PUBLICATION_WRITER
+  pit_classification: ATOMIC_HASH_BOUND_PUBLICATION
+  survivorship_classification: TARGET_HASH_BOUND
+  corporate_action_classification: PRICE_EVIDENCE_BOUND
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: MUTABLE_ALIAS_PLUS_IMMUTABLE_COPY
+  downstream_consumers:
+  - paper state restore
+  - publication verification
+  rollback_restore: restore exact immutable head and require accepted publication hash equality
+  mapping_status: VERIFIED_IMMUTABLE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers: *id002
+  object_id: state.us.paper.accepted-publication
+- schema_version: run287-paper-account-state-provider-defined
+  market: US
+  logical_role: main paper account state
+  producer: run_daily_simulated_fill_ledger.py
+  storage_kind: google_drive_file_in_head
+  exact_location: paper_archive/run287_daily_simulated_fill_ledger/main/account_state_latest.json
+  immutable_location: paper_archive/run287_daily_simulated_fill_ledger_immutable/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/main/account_state_latest.json
+  mutable_alias: paper_archive/run287_daily_simulated_fill_ledger/main/account_state_latest.json
+  as_of: '2026-07-24'
+  available_from: ''
+  created_at: ''
+  decision_time_cutoff: ''
+  code_sha: ''
+  config_hash: ''
+  data_hash: f959556ef266765b21380c025831de9df020ad9d411a4284d7afa95cc678e6d8
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: null
+  row_count: null
+  file_count: null
+  content_sha256: ''
+  manifest_sha256: ''
+  writer_workflow: daily_operating_selection_refresh.yml
+  writer_job: ''
+  write_authority: OFFICIAL_SIMULATED_PAPER_LEDGER_WRITER
+  pit_classification: HASH_CHAINED_ACCOUNT_STATE
+  survivorship_classification: TARGET_HASH_BOUND
+  corporate_action_classification: SIMULATED_MARK_ONLY
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: MUTABLE_ALIAS_PLUS_IMMUTABLE_HEAD
+  downstream_consumers:
+  - main fills
+  - current reports
+  - risk outcome
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: VERIFIED_IMMUTABLE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers: *id002
+  object_id: state.us.paper.main-account
+- schema_version: run287-paper-account-state-provider-defined
+  market: US
+  logical_role: concentrated paper account state
+  producer: run_daily_simulated_fill_ledger.py
+  storage_kind: google_drive_file_in_head
+  exact_location: paper_archive/run287_daily_simulated_fill_ledger/concentrated/account_state_latest.json
+  immutable_location: paper_archive/run287_daily_simulated_fill_ledger_immutable/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/concentrated/account_state_latest.json
+  mutable_alias: paper_archive/run287_daily_simulated_fill_ledger/concentrated/account_state_latest.json
+  as_of: '2026-07-24'
+  available_from: ''
+  created_at: ''
+  decision_time_cutoff: ''
+  code_sha: ''
+  config_hash: ''
+  data_hash: 8253abe8b949be5d7e1d4e304c07cc1459b6e7fb2b6c20a95daf70af6bcc1ff6
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: null
+  row_count: null
+  file_count: null
+  content_sha256: ''
+  manifest_sha256: ''
+  writer_workflow: daily_operating_selection_refresh.yml
+  writer_job: ''
+  write_authority: OFFICIAL_SIMULATED_PAPER_LEDGER_WRITER
+  pit_classification: HASH_CHAINED_ACCOUNT_STATE
+  survivorship_classification: TARGET_HASH_BOUND
+  corporate_action_classification: SIMULATED_MARK_ONLY
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: MUTABLE_ALIAS_PLUS_IMMUTABLE_HEAD
+  downstream_consumers:
+  - concentrated fills
+  - current reports
+  - risk outcome
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: VERIFIED_IMMUTABLE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers: *id002
+  object_id: state.us.paper.concentrated-account
+- schema_version: run287-paper-ledger-manifest-provider-defined
+  market: US
+  logical_role: main simulated-fill ledger manifest
+  producer: run_daily_simulated_fill_ledger.py
+  storage_kind: google_drive_file_in_head
+  exact_location: paper_archive/run287_daily_simulated_fill_ledger/main/manifest.json
+  immutable_location: paper_archive/run287_daily_simulated_fill_ledger_immutable/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/main/manifest.json
+  mutable_alias: paper_archive/run287_daily_simulated_fill_ledger/main/manifest.json
+  as_of: '2026-07-24'
+  available_from: ''
+  created_at: ''
+  decision_time_cutoff: ''
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: null
+  row_count: null
+  file_count: null
+  content_sha256: ''
+  manifest_sha256: 43f348b7a44c2f0212865cc318225e4b75b4cef9b76ccc0ff52fe19cd15f41a1
+  writer_workflow: daily_operating_selection_refresh.yml
+  writer_job: ''
+  write_authority: OFFICIAL_SIMULATED_PAPER_LEDGER_WRITER
+  pit_classification: HASH_CHAINED_LEDGER
+  survivorship_classification: TARGET_HASH_BOUND
+  corporate_action_classification: SIMULATED_MARK_ONLY
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: IMMUTABLE_HEAD_CHAIN
+  downstream_consumers:
+  - paper integrity
+  - accepted publication
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: VERIFIED_IMMUTABLE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers: *id002
+  object_id: state.us.paper.main-ledger-manifest
+- schema_version: run287-paper-ledger-manifest-provider-defined
+  market: US
+  logical_role: concentrated simulated-fill ledger manifest
+  producer: run_daily_simulated_fill_ledger.py
+  storage_kind: google_drive_file_in_head
+  exact_location: paper_archive/run287_daily_simulated_fill_ledger/concentrated/manifest.json
+  immutable_location: paper_archive/run287_daily_simulated_fill_ledger_immutable/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/concentrated/manifest.json
+  mutable_alias: paper_archive/run287_daily_simulated_fill_ledger/concentrated/manifest.json
+  as_of: '2026-07-24'
+  available_from: ''
+  created_at: ''
+  decision_time_cutoff: ''
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: null
+  row_count: null
+  file_count: null
+  content_sha256: ''
+  manifest_sha256: 78fc4887bc50c0782f1b1935bb033e588f4f9e65c0f5a37686e3f086c188f453
+  writer_workflow: daily_operating_selection_refresh.yml
+  writer_job: ''
+  write_authority: OFFICIAL_SIMULATED_PAPER_LEDGER_WRITER
+  pit_classification: HASH_CHAINED_LEDGER
+  survivorship_classification: TARGET_HASH_BOUND
+  corporate_action_classification: SIMULATED_MARK_ONLY
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: IMMUTABLE_HEAD_CHAIN
+  downstream_consumers:
+  - paper integrity
+  - accepted publication
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: VERIFIED_IMMUTABLE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers: *id002
+  object_id: state.us.paper.concentrated-ledger-manifest
+- schema_version: run287-risk-outcome-accepted-head-provider-defined
+  market: US
+  logical_role: verified outcome parent required before current-session paper processing
+  producer: manage_run287_risk_outcome_accepted_heads.py
+  storage_kind: google_drive_expected_folder
+  exact_location: paper_archive/run287_risk_outcome_accepted_heads
+  immutable_location: ''
+  mutable_alias: verified accepted risk-outcome parent selection
+  as_of: ABSENT_AT_OBSERVATION
+  available_from: ''
+  created_at: ''
+  decision_time_cutoff: MUST_PRECEDE_CURRENT_PAPER_SESSION
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: null
+  row_count: null
+  file_count: null
+  content_sha256: ''
+  manifest_sha256: ''
+  writer_workflow: daily_operating_selection_refresh.yml
+  writer_job: ''
+  write_authority: ONE_TIME_EXPLICIT_OWNER_AUTHORIZATION_REQUIRED_FOR_LEGACY_MIGRATION
+  pit_classification: MISSING_CHAIN_ROOT
+  survivorship_classification: NOT_APPLICABLE
+  corporate_action_classification: NOT_APPLICABLE
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: EXPECTED_IMMUTABLE_HEAD_CHAIN
+  downstream_consumers:
+  - daily operating refresh
+  - risk outcome resolution
+  - promotion gate
+  rollback_restore: do not synthesize; follow P0-5 legacy parent acceptance with exact evidence and explicit authorization
+  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  discovery_status: PROVEN_ABSENT_IN_LATEST_GITHUB_JOB
+  blockers:
+  - recent three operating runs fail at accepted-head restore
+  - legacy archive exists but is quarantined
+  - workflow dispatch authorization is intentionally absent
+  object_id: state.us.risk-outcome.accepted-heads
+- schema_version: daily-crisis-monitor-state-history-unversioned
+  market: US
+  logical_role: hysteresis state for advisory crisis monitor
+  producer: daily_crisis_monitor.yml
+  storage_kind: google_drive_mutable_output
+  exact_location: daily_crisis_monitor/state_history.json
+  immutable_location: ''
+  mutable_alias: outputs/daily_crisis_monitor/state_history.json
+  as_of: LATEST_WORKFLOW_RUNTIME
+  available_from: ''
+  created_at: ''
+  decision_time_cutoff: NOT_HASH_BOUND_TO_INPUT_FEATURE_SESSION
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: null
+  row_count: null
+  file_count: null
+  content_sha256: ''
+  manifest_sha256: ''
+  writer_workflow: daily_crisis_monitor.yml
+  writer_job: ''
+  write_authority: RESEARCH_ONLY_PAPER_ACTION_ADVISORY
+  pit_classification: HISTORY_PRESENT_BUT_INPUT_AGE_NOT_ENFORCED
+  survivorship_classification: NOT_APPLICABLE
+  corporate_action_classification: NOT_APPLICABLE
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: MUTABLE_SINGLE_HISTORY
+  downstream_consumers:
+  - daily crisis monitor hysteresis
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers:
+  - history is mutable
+  - input feature freshness is not tied to current decision time
+  object_id: state.us.crisis.monitor-history

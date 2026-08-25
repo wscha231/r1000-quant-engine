@@ -1,0 +1,177 @@
+schema_version: run287-p0-4-registry-v1
+source_schema_version: run287-p0-4-inventory-source-v1
+market: US
+baseline_code_sha: 0f34de9a2747059b7bb808cb070a86261e119f95
+observed_at_utc: '2026-08-25T12:06:47.159838+00:00'
+source_snapshot_sha256: 14cf3f4183bc43ad0f064c26b60416ae4ca272287f8117e01377c5ce856dacd4
+discovery_limits:
+- Google Drive folder listing returned only 100 direct cache_price children while the frozen manifest reports 1048 files;
+  the provider view has no continuation token and remains incomplete.
+- Google Drive metadata did not expose provider checksums for most large binaries; blank hashes are not verified hashes.
+- GitHub workflow health is a bounded latest-run snapshot, not a complete historical artifact census.
+- The local H:/r1000-quant-engine worktree is dirty and user-owned; it was observed read-only and is not canonical evidence.
+- Same-name Drive folders outside the canonical root were not treated as canonical by name alone.
+- No secret, token, service-account, broker-account, or personally identifying value was collected. Presence classifications
+  only are recorded.
+models:
+- schema_version: legacy-json-unversioned
+  market: US
+  logical_role: phase4 ensemble bundle and linear feature weights
+  producer: legacy phase4 training
+  storage_kind: google_drive_file
+  exact_location: gdrive-id:1N79QGqJ7meD4nUWRwHKqWQSYMdyJz-YG
+  immutable_location: ''
+  mutable_alias: models/model_bundle_latest.json
+  as_of: '2026-04-23'
+  available_from: '2026-04-23T03:33:17.701Z'
+  created_at: ''
+  decision_time_cutoff: NOT_BOUND
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: &id001 []
+  size_bytes: 13878
+  row_count: null
+  file_count: 1
+  content_sha256: 8d7679267f59c3a50ebe749a78807dfc1f3041b12f560a52c9840eb523a609c2
+  manifest_sha256: ''
+  writer_workflow: ''
+  writer_job: ''
+  write_authority: RESEARCH_OR_LEGACY_NO_AUTO_PROMOTION
+  pit_classification: TRAINING_SPLIT_METADATA_INCOMPLETE
+  survivorship_classification: TRAINING_UNIVERSE_HASH_ABSENT
+  corporate_action_classification: NOT_VERIFIED
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: LATEST_ONLY
+  downstream_consumers:
+  - phase4 scoring
+  - full rebuild
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers:
+  - no code/config/data/universe hash bundle
+  - no immutable model version
+  object_id: model.us.phase4.bundle-latest
+- schema_version: catboost-cbm-provider-defined
+  market: US
+  logical_role: phase4 regression model
+  producer: legacy phase4 training
+  storage_kind: google_drive_file
+  exact_location: gdrive-id:1YFLygG-vm_pLYCOxz2IpmbzqKQtQ3hl5
+  immutable_location: ''
+  mutable_alias: models/phase4_latest_cat_reg.cbm
+  as_of: '2026-04-23'
+  available_from: '2026-04-23T03:33:25.870Z'
+  created_at: ''
+  decision_time_cutoff: NOT_BOUND
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: 237536
+  row_count: null
+  file_count: 1
+  content_sha256: ''
+  manifest_sha256: ''
+  writer_workflow: ''
+  writer_job: ''
+  write_authority: RESEARCH_OR_LEGACY_NO_AUTO_PROMOTION
+  pit_classification: TRAINING_LINEAGE_UNRESOLVED
+  survivorship_classification: TRAINING_UNIVERSE_HASH_ABSENT
+  corporate_action_classification: NOT_VERIFIED
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: LATEST_ONLY
+  downstream_consumers:
+  - phase4 scoring
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers:
+  - binary content hash unavailable from metadata
+  - immutable training bundle absent
+  object_id: model.us.phase4.cat-reg-latest
+- schema_version: catboost-cbm-provider-defined
+  market: US
+  logical_role: phase4 classification model
+  producer: legacy phase4 training
+  storage_kind: google_drive_file
+  exact_location: gdrive-id:1C-XlS52MAV6RMVKiqjqoNGu-1G5SwlKV
+  immutable_location: ''
+  mutable_alias: models/phase4_latest_cat_cls.cbm
+  as_of: '2026-04-23'
+  available_from: '2026-04-23T03:33:28.477Z'
+  created_at: ''
+  decision_time_cutoff: NOT_BOUND
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: 238744
+  row_count: null
+  file_count: 1
+  content_sha256: ''
+  manifest_sha256: ''
+  writer_workflow: ''
+  writer_job: ''
+  write_authority: RESEARCH_OR_LEGACY_NO_AUTO_PROMOTION
+  pit_classification: TRAINING_LINEAGE_UNRESOLVED
+  survivorship_classification: TRAINING_UNIVERSE_HASH_ABSENT
+  corporate_action_classification: NOT_VERIFIED
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: LATEST_ONLY
+  downstream_consumers:
+  - phase4 scoring
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers:
+  - binary content hash unavailable from metadata
+  - immutable training bundle absent
+  object_id: model.us.phase4.cat-cls-latest
+- schema_version: legacy-non-strict-json
+  market: US
+  logical_role: phase4 model scoring metadata
+  producer: legacy phase4 training
+  storage_kind: google_drive_file
+  exact_location: gdrive-id:1g-YQIcaqNJeNmLomKHdi3lUlNq5TOjSN
+  immutable_location: ''
+  mutable_alias: models/phase4_latest_scoring_meta.json
+  as_of: '2026-04-23'
+  available_from: '2026-04-23T03:33:25.882Z'
+  created_at: ''
+  decision_time_cutoff: NOT_BOUND
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: 71969
+  row_count: null
+  file_count: 1
+  content_sha256: ebc0dee36c0838027b807e8673d798d190097e993fa9a73bd0acf0bf42d00e4c
+  manifest_sha256: ''
+  writer_workflow: ''
+  writer_job: ''
+  write_authority: RESEARCH_OR_LEGACY_NO_AUTO_PROMOTION
+  pit_classification: TRAINING_LINEAGE_UNRESOLVED
+  survivorship_classification: TRAINING_UNIVERSE_HASH_ABSENT
+  corporate_action_classification: NOT_VERIFIED
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: LATEST_ONLY
+  downstream_consumers:
+  - phase4 scoring diagnostics
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers:
+  - file contains NaN token and is not strict JSON
+  - no immutable model bundle binding
+  object_id: model.us.phase4.scoring-meta-latest

@@ -1,0 +1,606 @@
+schema_version: run287-p0-4-registry-v1
+source_schema_version: run287-p0-4-inventory-source-v1
+market: US
+baseline_code_sha: 0f34de9a2747059b7bb808cb070a86261e119f95
+observed_at_utc: '2026-08-25T12:06:47.159838+00:00'
+source_snapshot_sha256: 14cf3f4183bc43ad0f064c26b60416ae4ca272287f8117e01377c5ce856dacd4
+discovery_limits:
+- Google Drive folder listing returned only 100 direct cache_price children while the frozen manifest reports 1048 files;
+  the provider view has no continuation token and remains incomplete.
+- Google Drive metadata did not expose provider checksums for most large binaries; blank hashes are not verified hashes.
+- GitHub workflow health is a bounded latest-run snapshot, not a complete historical artifact census.
+- The local H:/r1000-quant-engine worktree is dirty and user-owned; it was observed read-only and is not canonical evidence.
+- Same-name Drive folders outside the canonical root were not treated as canonical by name alone.
+- No secret, token, service-account, broker-account, or personally identifying value was collected. Presence classifications
+  only are recorded.
+datasets:
+- schema_version: legacy-csv-unversioned
+  market: US
+  logical_role: historical US membership proxy
+  producer: legacy universe membership collector
+  storage_kind: google_drive_file
+  exact_location: gdrive-id:1Nabjd-UcvSVnYaZyrbOarSgj-pCFSJin
+  immutable_location: ''
+  mutable_alias: data_raw/historical_universe_membership_auto.csv
+  as_of: '2026-04-26'
+  available_from: '2026-04-26T17:18:57.077Z'
+  created_at: ''
+  decision_time_cutoff: NOT_BOUND
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: &id001 []
+  size_bytes: 1496050
+  row_count: null
+  file_count: 1
+  content_sha256: 08f1aed8000d7521f4f2d7362c65d1b530d30520f242ce48984bb6156f901353
+  manifest_sha256: ''
+  writer_workflow: ''
+  writer_job: ''
+  write_authority: READ_ONLY_OR_UNRESOLVED
+  pit_classification: NOT_PIT_SAFE_PROXY
+  survivorship_classification: SURVIVORSHIP_COVERAGE_NOT_CLAIMED
+  corporate_action_classification: MEMBERSHIP_ONLY_NO_ACTION_CONTRACT
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: MUTABLE_SINGLE_COPY
+  downstream_consumers:
+  - monthly/full rebuild universe
+  - candidate selection
+  - backtests
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers:
+  - historical Russell 1000 membership is explicitly not proven PIT-safe
+  - no immutable source manifest or universe hash
+  object_id: ds.us.universe.historical-auto
+- schema_version: legacy-monthly-csv-unversioned
+  market: US
+  logical_role: month-named universe membership snapshots
+  producer: legacy universe membership collector
+  storage_kind: google_drive_folder
+  exact_location: gdrive-id:1DGRPzKkXN1s2X0mrOz-gTXhT3friNeAR
+  immutable_location: data_raw/universe_membership_snapshots/historical_universe_membership_YYYY_MM.csv
+  mutable_alias: ''
+  as_of: 2026-04
+  available_from: '2026-04-26T17:18:57.120Z'
+  created_at: ''
+  decision_time_cutoff: MONTH_END_UNPROVEN
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: 120774
+  row_count: null
+  file_count: 2
+  content_sha256: ''
+  manifest_sha256: ''
+  writer_workflow: ''
+  writer_job: ''
+  write_authority: READ_ONLY_OR_UNRESOLVED
+  pit_classification: DATE_NAMED_ONLY_NOT_HASH_BOUND
+  survivorship_classification: ONLY_2026-03_AND_2026-04_OBSERVED
+  corporate_action_classification: NOT_VERIFIED
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: PARTIAL_MONTHLY_HISTORY
+  downstream_consumers:
+  - universe audit
+  - historical selection
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: NOT_APPLICABLE
+  discovery_status: COMPLETE_DIRECT_LIST_HASHES_NOT_COLLECTED
+  blockers:
+  - only March and April 2026 snapshots observed
+  - per-file content hashes not collected
+  object_id: ds.us.universe.monthly-snapshots
+- schema_version: legacy-parquet-unversioned
+  market: US
+  logical_role: SEC company ticker identity map
+  producer: SEC company ticker collector
+  storage_kind: google_drive_file
+  exact_location: gdrive-id:1nRcmYkvoTi5soaRNKY_TTWz9OkKVxBce
+  immutable_location: ''
+  mutable_alias: data_raw/sec_company_tickers.parquet
+  as_of: '2026-03-06'
+  available_from: '2026-03-06T04:04:21.654Z'
+  created_at: ''
+  decision_time_cutoff: NOT_BOUND
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: 294289
+  row_count: null
+  file_count: 1
+  content_sha256: e45736216dc6a2924026e46360a9490e2bebd7b374ae11dcc790fbc286634f66
+  manifest_sha256: ''
+  writer_workflow: ''
+  writer_job: ''
+  write_authority: READ_ONLY_OR_UNRESOLVED
+  pit_classification: CURRENT_IDENTITY_MAP_NOT_HISTORICAL
+  survivorship_classification: CURRENT_LISTING_BIAS_POSSIBLE
+  corporate_action_classification: TICKER_CHANGES_NOT_VERSIONED
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: UNRESOLVED
+  downstream_consumers:
+  - SEC mapping
+  - 13F CUSIP mapping
+  - universe normalization
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers:
+  - single mutable current map
+  - no dated identity history
+  object_id: ds.us.sec.company-tickers
+- schema_version: sec-companyfacts-zip-provider-defined
+  market: US
+  logical_role: bulk SEC fundamentals source
+  producer: data_readiness_preflight.yml and free_data_daily_update.yml
+  storage_kind: google_drive_file
+  exact_location: gdrive-id:1KrxPNjif10ReXWq1onzKWvs8OU5OnbOB
+  immutable_location: ''
+  mutable_alias: data_raw/free/sec/companyfacts.zip
+  as_of: '2026-06-16'
+  available_from: '2026-06-16T00:00:00Z'
+  created_at: ''
+  decision_time_cutoff: THREE_DAY_FRESHNESS_REQUIRED_BY_PREFLIGHT
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: 1386346668
+  row_count: null
+  file_count: 1
+  content_sha256: ''
+  manifest_sha256: ''
+  writer_workflow: data_readiness_preflight.yml; free_data_daily_update.yml
+  writer_job: preflight/bootstrap
+  write_authority: MULTIPLE_RESTORE_AND_REFRESH_PATHS
+  pit_classification: RAW_DISCLOSURE_ARCHIVE_REQUIRES_AVAILABLE_FROM_NORMALIZATION
+  survivorship_classification: SEC_FILERS_ONLY
+  corporate_action_classification: CIK_ENTITY_HISTORY_REQUIRED_DOWNSTREAM
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: MUTABLE_BULK_ARCHIVE
+  downstream_consumers:
+  - fundamental features
+  - data readiness
+  - full rebuild
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers:
+  - Drive file modified 2026-06-16
+  - content hash unavailable
+  - mutable zip has no session snapshot
+  object_id: ds.us.sec.companyfacts-bulk
+- schema_version: run287-replay-price-cache-manifest-v2
+  market: US
+  logical_role: historical and exact-close price cache
+  producer: build_replay_price_cache.py via several workflows
+  storage_kind: google_drive_folder
+  exact_location: gdrive-id:1wdd4LWhjZzKZ56tEcj5dQKnqkGQUzGXQ
+  immutable_location: ''
+  mutable_alias: cache_prices; cache_prices/replay_price_cache_manifest.json
+  as_of: '2026-08-24'
+  available_from: '2026-08-24T23:54:55.278Z'
+  created_at: ''
+  decision_time_cutoff: EXACT_SESSION_ONLY_WHEN_DAILY_OPERATING_CONTRACT_REBUILDS_IT
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes:
+  - bbb94f82914ae4216188d473ff550aa32a5bb6d9dbd601f9537f0dabee20993a
+  size_bytes: 148476631
+  row_count: null
+  file_count: 1048
+  content_sha256: ''
+  manifest_sha256: bbb94f82914ae4216188d473ff550aa32a5bb6d9dbd601f9537f0dabee20993a
+  writer_workflow: free_data_daily_update.yml; daily_operating_selection_refresh.yml; earnings_estimates_daily.yml
+  writer_job: price-cache builders
+  write_authority: SCOPE_DEPENDENT_MULTIPLE_WRITERS
+  pit_classification: BAR_DATES_PRESENT_BUT_FREE_MANIFEST_NOT_EXACT_OPERATING_UNIVERSE
+  survivorship_classification: TICKER_INPUT_DEPENDENT
+  corporate_action_classification: PROVIDER_AUTO_ADJUST_POLICY_REQUIRES_MANIFEST
+  license_classification: YFINANCE_PROVIDER_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: MUTABLE_CACHE_WITH_GITHUB_AND_DRIVE_COPIES
+  downstream_consumers:
+  - daily market snapshot
+  - target revaluation
+  - paper ledger
+  - backtests
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  discovery_status: INCOMPLETE_100_OF_MANIFEST_1048_DIRECT_CHILDREN
+  blockers:
+  - Drive enumeration truncated
+  - free manifest required_ticker_count is 0
+  - free manifest exact_operating_universe is false
+  - BLD observed only through 2026-06-30
+  object_id: ds.us.prices.replay-cache
+- schema_version: macro-daily-snapshot-unversioned
+  market: US
+  logical_role: current macro pulse and regime input
+  producer: macro_daily_snapshot.py
+  storage_kind: google_drive_folder_and_workflow_cache
+  exact_location: data_raw/free/macro/daily_snapshot
+  immutable_location: data_raw/free/macro/daily_snapshot/snapshot_YYYY-MM-DD.json
+  mutable_alias: data_raw/free/macro/daily_snapshot/latest.json
+  as_of: '2026-08-24'
+  available_from: WORKFLOW_RUNTIME_NOT_HASH_BOUND
+  created_at: ''
+  decision_time_cutoff: NOT_RECORDED_PER_SOURCE_COMPONENT
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: 12826
+  row_count: null
+  file_count: 28
+  content_sha256: ''
+  manifest_sha256: ''
+  writer_workflow: after_close_daily.yml; free_data_daily_update.yml; daily_operating_selection_refresh.yml
+  writer_job: macro snapshot steps
+  write_authority: CONFLICTING_SAME_PATH_WRITERS
+  pit_classification: SAME_DATE_FILE_CAN_BE_OVERWRITTEN
+  survivorship_classification: NOT_APPLICABLE
+  corporate_action_classification: NOT_APPLICABLE
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: DATE_NAMED_PLUS_MUTABLE_LATEST
+  downstream_consumers:
+  - freshness contract
+  - selector
+  - macro reports
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_MULTIPLE_WRITERS
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers:
+  - three workflows write the same date and latest files
+  - writes are non-atomic
+  - provider/version/available_from hashes are absent
+  object_id: ds.us.macro.daily-snapshot
+- schema_version: legacy-parquet-unversioned
+  market: US
+  logical_role: long-crisis learned daily features
+  producer: run_long_crisis_dataset_builder.py
+  storage_kind: google_drive_file
+  exact_location: gdrive-id:1qR7VGVsyR837Yk55q5UAKDlzRRxKYAi6
+  immutable_location: ''
+  mutable_alias: data_pit/macro/long_crisis_daily_features.parquet
+  as_of: NO_LATER_THAN_2026-05-26_BUILD
+  available_from: '2026-05-26T14:11:39.943Z'
+  created_at: ''
+  decision_time_cutoff: RUNTIME_DOES_NOT_COMPARE_LATEST_FEATURE_DATE_TO_CURRENT_SESSION
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: 1044569
+  row_count: null
+  file_count: 1
+  content_sha256: 5b460618944303c65b97caa20323f498a266fe97005b6733ec75efd8acb3c519
+  manifest_sha256: ''
+  writer_workflow: research sidecars/manual builders
+  writer_job: ''
+  write_authority: RESEARCH_ONLY
+  pit_classification: FUTURE_LABELS_STRIPPED_BUT_RUNTIME_AGE_NOT_ENFORCED
+  survivorship_classification: SOURCE_UNIVERSE_NOT_HASH_BOUND
+  corporate_action_classification: NOT_VERIFIED
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: MUTABLE_SINGLE_FILE
+  downstream_consumers:
+  - daily_crisis_monitor
+  - integrated crisis replay
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers:
+  - single file last modified 2026-05-26
+  - daily monitor treats feature date as both decision_time and available_from
+  - no maximum-age contract
+  object_id: ds.us.macro.long-crisis-features
+- schema_version: sec-form4-merge-shards-v1
+  market: US
+  logical_role: Form 4 transactions and insider signals
+  producer: sec_form4_daily_refresh.yml
+  storage_kind: google_drive_files
+  exact_location: data_pit/sec/form4_transactions.parquet; data_pit/sec/sec_ownership_signals.parquet; data_pit/sec/sec_form4_merge_manifest.json
+  immutable_location: ''
+  mutable_alias: outputs/sec_ownership_signals/form4_latest.csv
+  as_of: '2026-08-17'
+  available_from: '2026-08-17T23:48:13.447Z'
+  created_at: ''
+  decision_time_cutoff: SEC_FILING_AVAILABLE_FROM_EXPECTED_DOWNSTREAM
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: 11663241
+  row_count: 220674
+  file_count: 3
+  content_sha256: ''
+  manifest_sha256: 788cbf4539f5d31201dbaf256c15afb2497774bc5227fb31271ac56676661cc4
+  writer_workflow: sec_form4_daily_refresh.yml
+  writer_job: sec_form4_daily
+  write_authority: CANONICAL_SEC_FORM4_DATASET_WRITER
+  pit_classification: AVAILABLE_FROM_FIELDS_EXPECTED
+  survivorship_classification: SEC_FILER_COVERAGE
+  corporate_action_classification: ISSUER_TICKER_MAPPING_CAN_CHANGE
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: MUTABLE_CANONICAL_PLUS_SHARDS
+  downstream_consumers:
+  - smart money
+  - SEC enriched selection
+  - research sidecars
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers:
+  - canonical output is mutable
+  - 36 of 40 numbered shard folders observed and merge manifest reports 38 source files; reconciliation is not explicit
+  object_id: ds.us.sec.form4-canonical
+- schema_version: institutional-13f-legacy-summary
+  market: US
+  logical_role: institutional 13F holdings and derived signals
+  producer: sec_13f_quarterly_refresh.yml
+  storage_kind: google_drive_files
+  exact_location: data_pit/sec/institutional_13f_holdings.csv; data_pit/sec/institutional_13f_holdings.parquet; summary.json
+  immutable_location: ''
+  mutable_alias: outputs/sec_institutional_signals/13f_latest.csv
+  as_of: '2026-08-25'
+  available_from: '2026-08-25T00:41:47.609Z'
+  created_at: ''
+  decision_time_cutoff: FILING_AVAILABLE_FROM_AND_REPORT_PERIOD_REQUIRED
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: 587777380
+  row_count: 1800038
+  file_count: 3
+  content_sha256: ''
+  manifest_sha256: 171736193f3c4b537dcfb344ff49ea1899250328e4e2488fe1908eccaa823421
+  writer_workflow: sec_13f_quarterly_refresh.yml
+  writer_job: sec_13f_quarterly
+  write_authority: CANONICAL_13F_DATASET_WRITER
+  pit_classification: AVAILABLE_FROM_EXPECTED_AND_FRESHNESS_AUDITED
+  survivorship_classification: 32_MANAGER_SELECTED_UNIVERSE
+  corporate_action_classification: CUSIP_TICKER_MAP_REQUIRED
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: MUTABLE_CANONICAL_WITH_FILING_INDEX
+  downstream_consumers:
+  - smart_money_top30
+  - SEC enriched candidate replay
+  - post-disclosure research
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers:
+  - summary has no schema_version or source hashes
+  - canonical latest files lack immutable session binding
+  object_id: ds.us.sec.13f-canonical
+- schema_version: legacy-parquet-unversioned
+  market: US
+  logical_role: ETF holdings, N-PORT history, and thematic signals
+  producer: ETF holdings refresh paths
+  storage_kind: google_drive_folder
+  exact_location: gdrive-id:1cZ9PGz_arkjBJdiDMDI7_Dh54E1xtmwN
+  immutable_location: ''
+  mutable_alias: data_pit/etf_holdings/etf_holdings.parquet
+  as_of: '2026-08-25'
+  available_from: '2026-08-25T00:41:47.920Z'
+  created_at: ''
+  decision_time_cutoff: DISCLOSURE_AVAILABLE_FROM_REQUIRED
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: 99545
+  row_count: null
+  file_count: 5
+  content_sha256: be399f2fa7cc3a2cf888027225054766a1a47e07a096310b51861bcd4ff8d27b
+  manifest_sha256: ''
+  writer_workflow: ''
+  writer_job: ''
+  write_authority: READ_ONLY_OR_UNRESOLVED
+  pit_classification: NPORT_HISTORY_PRESENT_BUT_LATEST_ALIAS_MUTABLE
+  survivorship_classification: ETF_UNIVERSE_NOT_HASH_BOUND
+  corporate_action_classification: HOLDING_IDENTIFIERS_REQUIRE_MAPPING
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: UNRESOLVED
+  downstream_consumers:
+  - thematic signals
+  - SEC evidence sidecars
+  - candidate scoring
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers:
+  - representative file hashed but folder has no immutable session manifest
+  object_id: ds.us.etf.holdings
+- schema_version: earnings-estimate-archive-provider-defined
+  market: US
+  logical_role: daily earnings estimates and revision signals
+  producer: earnings_estimates_daily.yml
+  storage_kind: google_drive_folder_and_file
+  exact_location: data_pit/events/earnings_estimates/estimates_YYYYMMDD.parquet; earnings_revision_signals.parquet
+  immutable_location: data_pit/events/earnings_estimates/estimates_YYYYMMDD.parquet
+  mutable_alias: data_pit/events/earnings_revision_signals.parquet
+  as_of: '2026-08-25'
+  available_from: '2026-08-25T02:10:59.737Z'
+  created_at: ''
+  decision_time_cutoff: DAILY_ARCHIVE_AVAILABLE_FROM_REQUIRED
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: null
+  row_count: null
+  file_count: 37
+  content_sha256: 8045b79dc8fabae5360085b6d2be2107be375eb40a96322c6184bce49ff19b2b
+  manifest_sha256: ''
+  writer_workflow: earnings_estimates_daily.yml
+  writer_job: earnings estimates archive
+  write_authority: CANONICAL_EARNINGS_ARCHIVE_WRITER
+  pit_classification: DATE_ARCHIVE_PRESENT
+  survivorship_classification: COLLECTION_UNIVERSE_MANIFEST_REQUIRED
+  corporate_action_classification: TICKER_IDENTITY_MAP_REQUIRED
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: DATED_ARCHIVE_PLUS_MUTABLE_SIGNAL
+  downstream_consumers:
+  - revision scoring
+  - free data overlay
+  - forward paper ledger
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers:
+  - dated estimates exist but mutable revision signal is not bound to one archive manifest
+  object_id: ds.us.events.earnings-estimates
+- schema_version: mixed-parquet-legacy
+  market: US
+  logical_role: feature store, OOS scores, recommendations, macro regime, events, and fund panel
+  producer: full rebuild and feature builders
+  storage_kind: google_drive_folder
+  exact_location: gdrive-id:1sFgZ9AZpLm7alwSq7Vgt6uzPXR7iAkKA
+  immutable_location: ''
+  mutable_alias: feature_store/*latest*.parquet
+  as_of: 2026-06-23_MAX_MODIFIED; MOST_FILES_2026-04-22_TO_2026-04-23
+  available_from: NOT_BOUND
+  created_at: ''
+  decision_time_cutoff: NOT_BOUND
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: 255758613
+  row_count: null
+  file_count: 9
+  content_sha256: ''
+  manifest_sha256: ''
+  writer_workflow: legacy full rebuild paths
+  writer_job: ''
+  write_authority: RESEARCH_OR_LEGACY
+  pit_classification: MIXED_AND_NOT_MANIFEST_BOUND
+  survivorship_classification: UNIVERSE_SOURCE_NOT_HASH_BOUND
+  corporate_action_classification: SOURCE_SPECIFIC_UNRESOLVED
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: LATEST_ONLY_FOLDER
+  downstream_consumers:
+  - model scoring
+  - research sidecars
+  - full rebuild
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers:
+  - all nine top-level files are latest/partial aliases
+  - no immutable run folder or manifest observed
+  - most files are four months old
+  object_id: ds.us.features.drive-latest-family
+- schema_version: legacy-parquet-unversioned
+  market: US
+  logical_role: candidate universe input
+  producer: legacy full rebuild
+  storage_kind: google_drive_file
+  exact_location: gdrive-id:1vFZ2szAa0mImuYLJasI92ftObtKGtLXT
+  immutable_location: ''
+  mutable_alias: feature_store/candidate_universe_latest.parquet
+  as_of: '2026-06-23'
+  available_from: '2026-06-23T08:32:15.546Z'
+  created_at: ''
+  decision_time_cutoff: NOT_BOUND
+  code_sha: ''
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: 32628
+  row_count: null
+  file_count: 1
+  content_sha256: 42f96e6289915910272b0ca96929a41175f4595736a41f5c496bccfbbd812698
+  manifest_sha256: ''
+  writer_workflow: ''
+  writer_job: ''
+  write_authority: READ_ONLY_OR_UNRESOLVED
+  pit_classification: CURRENT_CANDIDATE_SET
+  survivorship_classification: UNIVERSE_HASH_ABSENT
+  corporate_action_classification: NOT_VERIFIED
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: UNRESOLVED
+  downstream_consumers:
+  - selection
+  - research sidecars
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_NO_IMMUTABLE_SOURCE
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers:
+  - latest alias has no immutable run/session source
+  object_id: ds.us.features.candidate-universe-latest
+- schema_version: legacy-csv-unversioned
+  market: US
+  logical_role: static scored universe used by free-data and selection paths
+  producer: legacy full rebuild then repository publication
+  storage_kind: git_blob
+  exact_location: cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv
+  immutable_location: cloud_results/full_rebuild/20260624_28074476465_global_alpha_universe/scored_latest.csv
+  mutable_alias: cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv
+  as_of: 2026-06-24_ALIAS_LINEAGE_WITH_LATER_DIVERGENCE
+  available_from: GIT_COMMIT_BOUND
+  created_at: ''
+  decision_time_cutoff: STATIC_BASELINE_ONLY
+  code_sha: 0f34de9a2747059b7bb808cb070a86261e119f95
+  config_hash: ''
+  data_hash: ''
+  universe_hash: ''
+  source_artifact_hashes: *id001
+  size_bytes: 7479599
+  row_count: 989
+  file_count: 1
+  content_sha256: 4fe7860960518240e55e6d61492bf823067928b37984ae88022f3bb3d166e25f
+  manifest_sha256: ''
+  writer_workflow: legacy full rebuild/repository commits
+  writer_job: ''
+  write_authority: LEGACY_STATIC_NOT_OFFICIAL_DAILY_TARGET_WRITER
+  pit_classification: SCORING_INPUTS_NOT_FULLY_BOUND
+  survivorship_classification: UNIVERSE_HASH_ABSENT
+  corporate_action_classification: UPSTREAM_PRICE_POLICY_UNRESOLVED
+  license_classification: SOURCE_TERMS_APPLY
+  secret_pii_classification: NO_SECRET_VALUES_COLLECTED
+  retention_classification: GIT_TRACKED_LARGE_ARTIFACT
+  downstream_consumers:
+  - free data price target selection
+  - SEC enriched replay
+  - research sidecars
+  rollback_restore: RESTORE_FROM_HASH_BOUND_IMMUTABLE_SOURCE_OR_BLOCK
+  mapping_status: BLOCKED_DIVERGENT
+  discovery_status: FROZEN_BOUNDED_METADATA
+  blockers:
+  - nearest immutable directory differs in exactly scored_latest.csv
+  - latest SHA-256 4fe786... differs from immutable SHA-256 04f79d...
+  object_id: ds.us.selector.scored-latest-repo
