@@ -4397,6 +4397,14 @@ Expected contract:
   successfully. Document a native PowerShell rebuild when Windows is claimed
   as supported; changing only the interpreter path does not translate POSIX
   temporary-file, trap, quoting, or variable semantics.
+- Reusable lesson: A native PowerShell process returning nonzero does not throw
+  automatically; check `$LASTEXITCODE` after every dependency capture,
+  environment creation, install, build, and test command so a later successful
+  command cannot hide an earlier failure. A provider allowlist must compare its
+  declared provider identity as well as locations and hashes. Outcome-specific
+  publications also require separate objects: census both the accepted and the
+  blocked chronological catch-up artifacts with their exact conditions, path
+  sets, missing-file policy, retention, and noncanonical authority.
 - Caveat: Historical Russell membership remains not proven PIT-safe; the price
   cache view is incomplete; mutable macro, feature, and model objects lack
   complete immutable lineage; and the shared rclone Drive client is a 2026

@@ -33,9 +33,9 @@ DEFAULT_SOURCE = ROOT / "docs" / "run287_p0_4_artifact_inventory" / "source_inve
 DEFAULT_OUTPUT = ROOT / "docs" / "run287_p0_4_artifact_inventory"
 SCHEMA_VERSION = "run287-p0-4-inventory-source-v1"
 REGISTRY_SCHEMA_VERSION = "run287-p0-4-registry-v1"
-FROZEN_SOURCE_PUBLICATION_COMMIT = "7b1ca6452a2457b0180af40ffb176284857aa35a"
-FROZEN_SOURCE_GIT_BLOB_SHA1 = "f12f4fb61cc46ebd6adbc9a8d74b5529948e1fb5"
-FROZEN_SOURCE_SHA256 = "55f226c85d15aedd3292f718950551056ed8af04d0d514dfa07672789af5b1d4"
+FROZEN_SOURCE_PUBLICATION_COMMIT = "e2be7ff35adac270d655397f8cb9502c9aef09fe"
+FROZEN_SOURCE_GIT_BLOB_SHA1 = "c4fa2a19a1368970cca0bceea44e3d6ceef9bcff"
+FROZEN_SOURCE_SHA256 = "0ff952be63c5ec3bdcd49ac63b8c7e3f484843bf1747cf5a144badd64879e3b4"
 FROZEN_PUBLICATION_COMMIT = "f7fadfa4e7814c6453bf96ebf3a1ff4d39eadfae"
 FROZEN_PROTECTED_PUBLICATION_COMMIT = "b033240f5848de86cd25526bb44eeefed50b0725"
 GENERATOR_PATH = "tools/build_p0_4_artifact_inventory.py"
@@ -361,6 +361,48 @@ REQUIRED_ACCEPTED_GITHUB_TRANSACTION_OBJECT = (
 REQUIRED_DAILY_OPERATING_EVIDENCE_OBJECTS = {
     "github": "artifact.github.daily-operating-evidence-publication",
     "drive": "artifact.drive.daily-operating-evidence-publication",
+}
+REQUIRED_CATCHUP_ARTIFACT_OBJECTS = {
+    "accepted": {
+        "object_id": "artifact.github.accepted-paper-catchup-publication",
+        "step_name": "Upload accepted chronological catch-up artifact",
+        "artifact_name": (
+            "accepted-paper-catchup-${{ env.LAST_NYSE_SESSION_DATE }}-"
+            "${{ github.run_id }}"
+        ),
+        "condition": (
+            "success() && steps.market.outputs.ready == 'yes' && "
+            "steps.market.outputs.catchup_mode == 'yes' && "
+            "steps.paper_transaction.outcome == 'success' && "
+            "steps.paper_integrity.outcome == 'success' && "
+            "steps.paper_persist.outcome == 'success' && "
+            "steps.default_head_publication_gate.outcome == 'success'"
+        ),
+        "if_no_files_found": "error",
+        "write_authority": (
+            "GITHUB_ARTIFACT_NONCANONICAL_CATCHUP_EVIDENCE_"
+            "NO_DRIVE_LEDGER_OR_ACCEPTANCE_AUTHORITY"
+        ),
+    },
+    "blocked": {
+        "object_id": "artifact.github.blocked-paper-catchup-publication",
+        "step_name": "Upload chronological catch-up diagnostics",
+        "artifact_name": (
+            "blocked-paper-catchup-${{ env.LAST_NYSE_SESSION_DATE }}-"
+            "${{ github.run_id }}"
+        ),
+        "condition": (
+            "always() && steps.market.outputs.ready == 'yes' && "
+            "steps.market.outputs.catchup_mode == 'yes' && "
+            "(steps.paper_persist.outcome != 'success' || "
+            "steps.default_head_publication_gate.outcome != 'success')"
+        ),
+        "if_no_files_found": "warn",
+        "write_authority": (
+            "GITHUB_ARTIFACT_BLOCKED_CATCHUP_DIAGNOSTICS_ONLY_"
+            "NO_DRIVE_LEDGER_OR_ACCEPTANCE_AUTHORITY"
+        ),
+    },
 }
 OFFICIAL_DAILY_OPERATING_DRIVE_LOCATION = (
     "gdrive-root:1qcRMJCxDXsca5SmHFUu30yMAZdRLaxPA/research_runs/"
@@ -712,7 +754,12 @@ def validate_registered_verified_evidence(
         raise InventoryError("registered_verified_object_missing:" + ",".join(missing))
     for object_id, evidence in VERIFIED_OBJECT_EVIDENCE.items():
         row = object_index[object_id]
-        for field in ("storage_kind", "exact_location", "immutable_location"):
+        for field in (
+            "provider",
+            "storage_kind",
+            "exact_location",
+            "immutable_location",
+        ):
             if row.get(field) != evidence[field]:
                 raise InventoryError(
                     f"verified_provider_evidence_mismatch:{object_id}:{field}"
@@ -829,6 +876,39 @@ def validate_provider_publications(
         != "GITHUB_ARTIFACT_NONCANONICAL_TRANSACTION_EVIDENCE_NO_DRIVE_OR_LEDGER_AUTHORITY"
     ):
         raise InventoryError("accepted_github_transaction_evidence_mismatch")
+
+    for outcome, expected in REQUIRED_CATCHUP_ARTIFACT_OBJECTS.items():
+        catchup_object = object_index.get(str(expected["object_id"]))
+        if catchup_object is None:
+            raise InventoryError(f"catchup_provider_object_missing:{outcome}")
+        catchup_step = baseline_workflow_step(
+            workflow_text, str(expected["step_name"])
+        )
+        catchup_with = catchup_step.get("with", {})
+        artifact_name = str(expected["artifact_name"])
+        if (
+            catchup_step.get("if") != expected["condition"]
+            or catchup_with.get("name") != artifact_name
+            or catchup_with.get("retention-days") != 45
+            or catchup_with.get("if-no-files-found")
+            != expected["if_no_files_found"]
+            or catchup_object.get("provider") != "github_actions_artifact"
+            or catchup_object.get("storage_kind") != "github_actions_artifact"
+            or catchup_object.get("exact_location")
+            != f"github-actions-artifact:{artifact_name}"
+            or catchup_object.get("artifact_name") != artifact_name
+            or catchup_object.get("publication_condition")
+            != expected["condition"]
+            or catchup_object.get("retention_days") != 45
+            or catchup_object.get("if_no_files_found")
+            != expected["if_no_files_found"]
+            or catchup_object.get("provider_paths")
+            != workflow_multiline_paths(catchup_step)
+            or catchup_object.get("write_authority")
+            != expected["write_authority"]
+            or catchup_object.get("mapping_status") != "NOT_APPLICABLE"
+        ):
+            raise InventoryError(f"catchup_provider_evidence_mismatch:{outcome}")
 
     daily_github = object_index.get(REQUIRED_DAILY_OPERATING_EVIDENCE_OBJECTS["github"])
     daily_drive = object_index.get(REQUIRED_DAILY_OPERATING_EVIDENCE_OBJECTS["drive"])
@@ -1511,11 +1591,16 @@ def render_readme(payload: dict[str, Any], row_count: int) -> str:
                 "else pathlib.Path(sys.argv[1]).write_bytes(c)\" "
                 "$P0_4RequirementsTemp"
             ),
+            "  if ($LASTEXITCODE -ne 0) { throw 'authenticated requirements capture failed' }",
             "  python -m venv .venv-p0-4",
+            "  if ($LASTEXITCODE -ne 0) { throw 'virtual environment creation failed' }",
             "  $P0_4Python = '.\\.venv-p0-4\\Scripts\\python.exe'",
             "  & $P0_4Python -m pip install --requirement $P0_4RequirementsTemp",
+            "  if ($LASTEXITCODE -ne 0) { throw 'pinned dependency installation failed' }",
             "  & $P0_4Python tools/build_p0_4_artifact_inventory.py --verify-live-head",
+            "  if ($LASTEXITCODE -ne 0) { throw 'artifact inventory regeneration failed' }",
             "  & $P0_4Python tests/test_p0_4_artifact_inventory.py",
+            "  if ($LASTEXITCODE -ne 0) { throw 'artifact inventory smoke failed' }",
             "} finally {",
             "  Remove-Item -LiteralPath $P0_4RequirementsTemp -Force -ErrorAction SilentlyContinue",
             "}",

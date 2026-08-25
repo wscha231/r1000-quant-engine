@@ -37,6 +37,7 @@ REQUIRED_COLUMNS = {
     "object_class",
     "logical_role",
     "producer",
+    "provider",
     "storage_kind",
     "exact_location",
     "immutable_location",
@@ -121,8 +122,8 @@ def test_tracked_bundle_exists_and_has_expected_counts() -> None:
         "datasets": 24,
         "models": 4,
         "durable_states": 8,
-        "artifacts": 30,
-        "artifact_registry_rows": 66,
+        "artifacts": 32,
+        "artifact_registry_rows": 68,
     }
     assert summary["safety"]["mutations_performed"] == []
     assert summary["safety"]["live_trading_enabled"] is False
@@ -162,7 +163,7 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
         for key in ("datasets", "models", "durable_states", "artifacts")
         for row in payload[key]
     }
-    assert len(expected) == 66
+    assert len(expected) == 68
     frame = pd.read_parquet(INVENTORY / "artifact_registry.parquet")
     assert REQUIRED_COLUMNS == set(frame.columns)
     assert set(frame["object_id"]) == expected
@@ -170,10 +171,10 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
     assert frame["market"].eq("US").all()
     assert frame["baseline_code_sha"].eq(payload["baseline_code_sha"]).all()
     assert frame["source_snapshot_sha256"].eq(
-        "55f226c85d15aedd3292f718950551056ed8af04d0d514dfa07672789af5b1d4"
+        "0ff952be63c5ec3bdcd49ac63b8c7e3f484843bf1747cf5a144badd64879e3b4"
     ).all()
     assert frame["source_publication_commit"].eq(
-        "7b1ca6452a2457b0180af40ffb176284857aa35a"
+        "e2be7ff35adac270d655397f8cb9502c9aef09fe"
     ).all()
     assert frame["exact_location"].astype(str).str.strip().ne("").all()
     assert frame["rollback_restore"].astype(str).str.strip().ne("").all()
@@ -416,6 +417,24 @@ def test_distinct_provider_publications_are_complete() -> None:
     assert accepted["retention_days"] == 45
     assert "outputs/run287_accepted_publication/" in accepted["provider_paths"]
     assert "NO_DRIVE_OR_LEDGER_AUTHORITY" in accepted["write_authority"]
+    for outcome, expected in builder.REQUIRED_CATCHUP_ARTIFACT_OBJECTS.items():
+        catchup = objects[expected["object_id"]]
+        assert catchup["provider"] == "github_actions_artifact"
+        assert catchup["artifact_name"] == expected["artifact_name"]
+        assert catchup["publication_condition"] == expected["condition"]
+        assert catchup["retention_days"] == 45
+        assert catchup["if_no_files_found"] == expected["if_no_files_found"]
+        assert catchup["mapping_status"] == "NOT_APPLICABLE"
+        assert catchup["write_authority"] == expected["write_authority"]
+        assert "${{ runner.temp }}/run287_durable_scope_initial.json" in catchup[
+            "provider_paths"
+        ]
+        if outcome == "accepted":
+            assert "outputs/daily_simulated_fill_ledger/" in catchup[
+                "provider_paths"
+            ]
+        else:
+            assert any("partial" in item.lower() for item in catchup["blockers"])
     daily_github = objects["artifact.github.daily-operating-evidence-publication"]
     daily_drive = objects["artifact.drive.daily-operating-evidence-publication"]
     assert daily_github["retention_days"] == 45
@@ -701,6 +720,14 @@ def test_rebuild_uses_the_pinned_dependency_contract() -> None:
     assert "$P0_4RequirementsTemp = New-TemporaryFile" in readme
     assert "$P0_4Python = '.\\.venv-p0-4\\Scripts\\python.exe'" in readme
     assert "& $P0_4Python -m pip install --requirement $P0_4RequirementsTemp" in readme
+    for failure in (
+        "authenticated requirements capture failed",
+        "virtual environment creation failed",
+        "pinned dependency installation failed",
+        "artifact inventory regeneration failed",
+        "artifact inventory smoke failed",
+    ):
+        assert f"if ($LASTEXITCODE -ne 0) {{ throw '{failure}' }}" in readme
     assert "Remove-Item -LiteralPath $P0_4RequirementsTemp" in readme
 
 
@@ -766,7 +793,7 @@ def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
 
     relative = "docs/run287_p0_4_artifact_inventory/source_inventory_snapshot.json"
     assert FROZEN_SOURCE_PUBLICATION_COMMIT == (
-        "7b1ca6452a2457b0180af40ffb176284857aa35a"
+        "e2be7ff35adac270d655397f8cb9502c9aef09fe"
     )
     assert git("rev-parse", f"{FROZEN_SOURCE_PUBLICATION_COMMIT}:{relative}").strip() == (
         FROZEN_SOURCE_GIT_BLOB_SHA1
@@ -1434,6 +1461,12 @@ def test_required_fixed_target_aliases_cannot_be_omitted(tmp_path: Path) -> None
         "artifact.github.accepted-paper-transaction-publication": (
             "accepted_github_transaction_object_missing"
         ),
+        "artifact.github.accepted-paper-catchup-publication": (
+            "catchup_provider_object_missing:accepted"
+        ),
+        "artifact.github.blocked-paper-catchup-publication": (
+            "catchup_provider_object_missing:blocked"
+        ),
         "artifact.drive.daily-operating-evidence-publication": (
             "daily_operating_evidence_provider_objects_missing"
         ),
@@ -1742,6 +1775,28 @@ def test_folder_child_manifests_are_pinned_and_bound(tmp_path: Path) -> None:
 def test_invalid_or_incomplete_sources_fail_closed(tmp_path: Path) -> None:
     from tools.build_p0_4_artifact_inventory import InventoryError, build
 
+    for field, replacement in (
+        ("publication_condition", "always()"),
+        ("provider_paths", ["outputs/incomplete-catchup-evidence/"]),
+        ("if_no_files_found", "ignore"),
+    ):
+        payload = source()
+        catchup = next(
+            row
+            for row in payload["artifacts"]
+            if row["object_id"]
+            == "artifact.github.accepted-paper-catchup-publication"
+        )
+        catchup[field] = replacement
+        drift = tmp_path / f"catchup-{field}-drift.json"
+        drift.write_text(json.dumps(payload), encoding="utf-8")
+        try:
+            build(drift, tmp_path / f"catchup-{field}-drift-output")
+        except InventoryError as exc:
+            assert str(exc) == "catchup_provider_evidence_mismatch:accepted"
+        else:
+            raise AssertionError(f"catch-up {field} drift was accepted")
+
     payload = source()
     payload["datasets"][0]["mapping_status"] = "VERIFIED_IMMUTABLE"
     payload["datasets"][0]["immutable_location"] = ""
@@ -1803,6 +1858,23 @@ def test_invalid_or_incomplete_sources_fail_closed(tmp_path: Path) -> None:
         assert str(exc) == f"verified_without_authenticated_hash:{object_id}"
     else:
         raise AssertionError("unhashed VERIFIED_IMMUTABLE object was accepted")
+
+    payload = source()
+    object_id = "state.us.paper.immutable-head"
+    provider_drift = next(
+        row for row in payload["durable_states"] if row["object_id"] == object_id
+    )
+    provider_drift["provider"] = "local_unverified"
+    wrong_provider = tmp_path / "wrong-verified-provider.json"
+    wrong_provider.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(wrong_provider, tmp_path / "wrong-verified-provider-output")
+    except InventoryError as exc:
+        assert str(exc) == (
+            f"verified_provider_evidence_mismatch:{object_id}:provider"
+        )
+    else:
+        raise AssertionError("verified object with conflicting provider was accepted")
 
     payload = source()
     object_id = "ds.us.universe.monthly-snapshots"
