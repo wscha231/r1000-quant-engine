@@ -1,8 +1,8 @@
 {
   "baseline_code_sha": "0f34de9a2747059b7bb808cb070a86261e119f95",
   "counts": {
-    "artifact_registry_rows": 37,
-    "artifacts": 11,
+    "artifact_registry_rows": 39,
+    "artifacts": 13,
     "datasets": 14,
     "durable_states": 8,
     "models": 4
@@ -10,6 +10,7 @@
   "discovery_status_counts": {
     "COMPLETE_DIRECT_LIST_HASHES_NOT_COLLECTED": 1,
     "DIRTY_READ_ONLY_OBSERVATION": 1,
+    "FIXED_PATH_CENSUS_FROM_BASELINE_WORKFLOW": 2,
     "FROZEN_BOUNDED_METADATA": 33,
     "INCOMPLETE_100_OF_MANIFEST_1048_DIRECT_CHILDREN": 1,
     "PROVEN_ABSENT_IN_LATEST_GITHUB_JOB": 1
@@ -31,7 +32,7 @@
   "mapping_status_counts": {
     "BLOCKED_DIVERGENT": 2,
     "BLOCKED_MULTIPLE_WRITERS": 1,
-    "BLOCKED_NO_IMMUTABLE_SOURCE": 19,
+    "BLOCKED_NO_IMMUTABLE_SOURCE": 21,
     "NOT_APPLICABLE": 6,
     "VERIFIED_IMMUTABLE": 9
   },
@@ -39,6 +40,110 @@
   "observed_at_utc": "2026-08-25T12:06:47.159838+00:00",
   "pipeline_health": {
     "daily_operating_failed_step": "Restore verified risk-outcome accepted head",
+    "daily_operating_failure_evidence": [
+      {
+        "conclusion": "failure",
+        "downstream_skipped_steps": [
+          {
+            "conclusion": "skipped",
+            "name": "Build operating target books",
+            "step_number": 26
+          },
+          {
+            "conclusion": "skipped",
+            "name": "Run transactional paper ledger and same-close selector",
+            "step_number": 34
+          },
+          {
+            "conclusion": "skipped",
+            "name": "Persist validated forward paper ledger state",
+            "step_number": 46
+          }
+        ],
+        "event": "schedule",
+        "exit_code": 2,
+        "failed_step": "Restore verified risk-outcome accepted head",
+        "failed_step_number": 19,
+        "head_sha": "86ff31f3528ce62b6ebcf327d260e76ee6a872bb",
+        "job_id": 97662011776,
+        "job_url": "https://github.com/wscha231/r1000-quant-engine/actions/runs/32801137546/job/97662011776",
+        "run_id": 32801137546,
+        "run_url": "https://github.com/wscha231/r1000-quant-engine/actions/runs/32801137546",
+        "terminal_excerpt_lines": [
+          "refresh\tUNKNOWN STEP\t2026-08-25T02:51:56.3159144Z [risk-outcome] BLOCKED: legacy outcome parent requires explicit one-time workflow_dispatch authorization",
+          "refresh\tUNKNOWN STEP\t2026-08-25T02:51:56.3174574Z ##[error]Process completed with exit code 2."
+        ],
+        "terminal_excerpt_sha256": "78376e97c5e435d1ae8f7977a489286f0f3a29b2bfeae471b57c36dc76f512e8"
+      },
+      {
+        "conclusion": "failure",
+        "downstream_skipped_steps": [
+          {
+            "conclusion": "skipped",
+            "name": "Build operating target books",
+            "step_number": 26
+          },
+          {
+            "conclusion": "skipped",
+            "name": "Run transactional paper ledger and same-close selector",
+            "step_number": 34
+          },
+          {
+            "conclusion": "skipped",
+            "name": "Persist validated forward paper ledger state",
+            "step_number": 46
+          }
+        ],
+        "event": "schedule",
+        "exit_code": 2,
+        "failed_step": "Restore verified risk-outcome accepted head",
+        "failed_step_number": 19,
+        "head_sha": "8790af4dc520fa7962e7375390d7f42219896c40",
+        "job_id": 96964279012,
+        "job_url": "https://github.com/wscha231/r1000-quant-engine/actions/runs/32545955145/job/96964279012",
+        "run_id": 32545955145,
+        "run_url": "https://github.com/wscha231/r1000-quant-engine/actions/runs/32545955145",
+        "terminal_excerpt_lines": [
+          "refresh\tUNKNOWN STEP\t2026-08-22T02:46:39.7801548Z [risk-outcome] BLOCKED: legacy outcome parent requires explicit one-time workflow_dispatch authorization",
+          "refresh\tUNKNOWN STEP\t2026-08-22T02:46:39.7817185Z ##[error]Process completed with exit code 2."
+        ],
+        "terminal_excerpt_sha256": "b91d29b39b4f8acb4fd40f000f0c033b7e71190a830a26a5f04e51df917511b1"
+      },
+      {
+        "conclusion": "failure",
+        "downstream_skipped_steps": [
+          {
+            "conclusion": "skipped",
+            "name": "Build operating target books",
+            "step_number": 26
+          },
+          {
+            "conclusion": "skipped",
+            "name": "Run transactional paper ledger and same-close selector",
+            "step_number": 34
+          },
+          {
+            "conclusion": "skipped",
+            "name": "Persist validated forward paper ledger state",
+            "step_number": 46
+          }
+        ],
+        "event": "schedule",
+        "exit_code": 2,
+        "failed_step": "Restore verified risk-outcome accepted head",
+        "failed_step_number": 19,
+        "head_sha": "8790af4dc520fa7962e7375390d7f42219896c40",
+        "job_id": 96649802798,
+        "job_url": "https://github.com/wscha231/r1000-quant-engine/actions/runs/32440400556/job/96649802798",
+        "run_id": 32440400556,
+        "run_url": "https://github.com/wscha231/r1000-quant-engine/actions/runs/32440400556",
+        "terminal_excerpt_lines": [
+          "refresh\tUNKNOWN STEP\t2026-08-21T03:10:58.2928804Z [risk-outcome] BLOCKED: legacy outcome parent requires explicit one-time workflow_dispatch authorization",
+          "refresh\tUNKNOWN STEP\t2026-08-21T03:10:58.2943801Z ##[error]Process completed with exit code 2."
+        ],
+        "terminal_excerpt_sha256": "941f9246f4fb2ffb68c63052082b157951043b8d26879ec7a9020de6bb951e02"
+      }
+    ],
     "daily_operating_recent_conclusions": [
       "failure",
       "failure",
@@ -117,5 +222,5 @@
     "target_order_ledger_mutation": false
   },
   "schema_version": "run287-p0-4-inventory-summary-v1",
-  "source_snapshot_sha256": "14cf3f4183bc43ad0f064c26b60416ae4ca272287f8117e01377c5ce856dacd4"
+  "source_snapshot_sha256": "d81e702b68db941d0107d88b1cec3c6681499808b468b4f811db7ea1516148c6"
 }

@@ -81,6 +81,74 @@
     },
     "daily_operating_recent_run_ids": [32801137546, 32545955145, 32440400556],
     "daily_operating_recent_conclusions": ["failure", "failure", "failure"],
+    "daily_operating_failure_evidence": [
+      {
+        "run_id": 32801137546,
+        "job_id": 97662011776,
+        "run_url": "https://github.com/wscha231/r1000-quant-engine/actions/runs/32801137546",
+        "job_url": "https://github.com/wscha231/r1000-quant-engine/actions/runs/32801137546/job/97662011776",
+        "event": "schedule",
+        "head_sha": "86ff31f3528ce62b6ebcf327d260e76ee6a872bb",
+        "conclusion": "failure",
+        "failed_step": "Restore verified risk-outcome accepted head",
+        "failed_step_number": 19,
+        "exit_code": 2,
+        "terminal_excerpt_lines": [
+          "refresh\tUNKNOWN STEP\t2026-08-25T02:51:56.3159144Z [risk-outcome] BLOCKED: legacy outcome parent requires explicit one-time workflow_dispatch authorization",
+          "refresh\tUNKNOWN STEP\t2026-08-25T02:51:56.3174574Z ##[error]Process completed with exit code 2."
+        ],
+        "terminal_excerpt_sha256": "78376e97c5e435d1ae8f7977a489286f0f3a29b2bfeae471b57c36dc76f512e8",
+        "downstream_skipped_steps": [
+          {"step_number": 26, "name": "Build operating target books", "conclusion": "skipped"},
+          {"step_number": 34, "name": "Run transactional paper ledger and same-close selector", "conclusion": "skipped"},
+          {"step_number": 46, "name": "Persist validated forward paper ledger state", "conclusion": "skipped"}
+        ]
+      },
+      {
+        "run_id": 32545955145,
+        "job_id": 96964279012,
+        "run_url": "https://github.com/wscha231/r1000-quant-engine/actions/runs/32545955145",
+        "job_url": "https://github.com/wscha231/r1000-quant-engine/actions/runs/32545955145/job/96964279012",
+        "event": "schedule",
+        "head_sha": "8790af4dc520fa7962e7375390d7f42219896c40",
+        "conclusion": "failure",
+        "failed_step": "Restore verified risk-outcome accepted head",
+        "failed_step_number": 19,
+        "exit_code": 2,
+        "terminal_excerpt_lines": [
+          "refresh\tUNKNOWN STEP\t2026-08-22T02:46:39.7801548Z [risk-outcome] BLOCKED: legacy outcome parent requires explicit one-time workflow_dispatch authorization",
+          "refresh\tUNKNOWN STEP\t2026-08-22T02:46:39.7817185Z ##[error]Process completed with exit code 2."
+        ],
+        "terminal_excerpt_sha256": "b91d29b39b4f8acb4fd40f000f0c033b7e71190a830a26a5f04e51df917511b1",
+        "downstream_skipped_steps": [
+          {"step_number": 26, "name": "Build operating target books", "conclusion": "skipped"},
+          {"step_number": 34, "name": "Run transactional paper ledger and same-close selector", "conclusion": "skipped"},
+          {"step_number": 46, "name": "Persist validated forward paper ledger state", "conclusion": "skipped"}
+        ]
+      },
+      {
+        "run_id": 32440400556,
+        "job_id": 96649802798,
+        "run_url": "https://github.com/wscha231/r1000-quant-engine/actions/runs/32440400556",
+        "job_url": "https://github.com/wscha231/r1000-quant-engine/actions/runs/32440400556/job/96649802798",
+        "event": "schedule",
+        "head_sha": "8790af4dc520fa7962e7375390d7f42219896c40",
+        "conclusion": "failure",
+        "failed_step": "Restore verified risk-outcome accepted head",
+        "failed_step_number": 19,
+        "exit_code": 2,
+        "terminal_excerpt_lines": [
+          "refresh\tUNKNOWN STEP\t2026-08-21T03:10:58.2928804Z [risk-outcome] BLOCKED: legacy outcome parent requires explicit one-time workflow_dispatch authorization",
+          "refresh\tUNKNOWN STEP\t2026-08-21T03:10:58.2943801Z ##[error]Process completed with exit code 2."
+        ],
+        "terminal_excerpt_sha256": "941f9246f4fb2ffb68c63052082b157951043b8d26879ec7a9020de6bb951e02",
+        "downstream_skipped_steps": [
+          {"step_number": 26, "name": "Build operating target books", "conclusion": "skipped"},
+          {"step_number": 34, "name": "Run transactional paper ledger and same-close selector", "conclusion": "skipped"},
+          {"step_number": 46, "name": "Persist validated forward paper ledger state", "conclusion": "skipped"}
+        ]
+      }
+    ],
     "daily_operating_failed_step": "Restore verified risk-outcome accepted head",
     "latest_failure_terminal_reason": "legacy outcome parent requires explicit one-time workflow_dispatch authorization",
     "latest_failure_market_session": "2026-08-24",
@@ -758,6 +826,7 @@
       "code_sha": "0f34de9a2747059b7bb808cb070a86261e119f95",
       "size_bytes": 4708854,
       "file_count": 11,
+      "manifest_sha256": "a8e75bc778087efdfbb3dd7d84cfbafde2efaf216e3c3503ca2a9bca497db9da",
       "write_authority": "LEGACY_RESEARCH",
       "pit_classification": "MIXED",
       "survivorship_classification": "UNIVERSE_HASH_ABSENT",
@@ -817,25 +886,80 @@
       "blockers": ["source workflow conclusion was failure, but code intentionally permits failure only for digest-bound exact price replay; no target or ledger authority is inherited"]
     },
     {
+      "object_id": "artifact.drive.operating-main-target-book",
+      "schema_version": "operating-target-book-csv-unversioned",
+      "logical_role": "official US main operating target output",
+      "producer": "daily_operating_selection_refresh.yml",
+      "storage_kind": "workflow_output_and_google_drive_file",
+      "exact_location": "outputs/reports/operating_main_target_book.csv",
+      "mutable_alias": "outputs/reports/operating_main_target_book.csv",
+      "as_of": "RESTORED_CURRENT_TARGET_NOT_HASH_BOUND",
+      "available_from": "WORKFLOW_RUNTIME_ONLY",
+      "decision_time_cutoff": "OFFICIAL_WORKFLOW_SESSION_BOUND_ONLY_AFTER_ACCEPTED_PUBLICATION",
+      "file_count": 1,
+      "writer_workflow": "daily_operating_selection_refresh.yml",
+      "writer_job": "Build operating target books; transactional publication",
+      "write_authority": "OFFICIAL_US_TARGET_WRITER_MUTABLE_OUTPUT",
+      "pit_classification": "TARGET_SESSION_AND_INPUT_HASHES_NOT_BOUND_IN_MUTABLE_ALIAS",
+      "survivorship_classification": "OPERATING_UNIVERSE_LINEAGE_REQUIRED",
+      "corporate_action_classification": "TARGET_TICKERS_REQUIRE_VERSIONED_IDENTITY_INPUT",
+      "retention_classification": "MUTABLE_CANONICAL_TARGET",
+      "downstream_consumers": ["daily market snapshot", "main paper ledger", "accepted publication"],
+      "rollback_restore": "restore only from a verified accepted publication manifest with the exact main target hash",
+      "mapping_status": "BLOCKED_NO_IMMUTABLE_SOURCE",
+      "discovery_status": "FIXED_PATH_CENSUS_FROM_BASELINE_WORKFLOW",
+      "blockers": ["fixed-path canonical target is mutable", "no immutable target hash was available in the bounded inventory view"]
+    },
+    {
+      "object_id": "artifact.drive.operating-concentrated-target-book",
+      "schema_version": "operating-target-book-csv-unversioned",
+      "logical_role": "official US concentrated operating target output",
+      "producer": "daily_operating_selection_refresh.yml",
+      "storage_kind": "workflow_output_and_google_drive_file",
+      "exact_location": "outputs/reports/operating_concentrated_target_book.csv",
+      "mutable_alias": "outputs/reports/operating_concentrated_target_book.csv",
+      "as_of": "RESTORED_CURRENT_TARGET_NOT_HASH_BOUND",
+      "available_from": "WORKFLOW_RUNTIME_ONLY",
+      "decision_time_cutoff": "OFFICIAL_WORKFLOW_SESSION_BOUND_ONLY_AFTER_ACCEPTED_PUBLICATION",
+      "file_count": 1,
+      "writer_workflow": "daily_operating_selection_refresh.yml",
+      "writer_job": "Build operating target books; transactional publication",
+      "write_authority": "OFFICIAL_US_TARGET_WRITER_MUTABLE_OUTPUT",
+      "pit_classification": "TARGET_SESSION_AND_INPUT_HASHES_NOT_BOUND_IN_MUTABLE_ALIAS",
+      "survivorship_classification": "OPERATING_UNIVERSE_LINEAGE_REQUIRED",
+      "corporate_action_classification": "TARGET_TICKERS_REQUIRE_VERSIONED_IDENTITY_INPUT",
+      "retention_classification": "MUTABLE_CANONICAL_TARGET",
+      "downstream_consumers": ["daily market snapshot", "concentrated paper ledger", "accepted publication"],
+      "rollback_restore": "restore only from a verified accepted publication manifest with the exact concentrated target hash",
+      "mapping_status": "BLOCKED_NO_IMMUTABLE_SOURCE",
+      "discovery_status": "FIXED_PATH_CENSUS_FROM_BASELINE_WORKFLOW",
+      "blockers": ["fixed-path canonical target is mutable", "no immutable target hash was available in the bounded inventory view"]
+    },
+    {
       "object_id": "artifact.github.operating-run-health",
-      "schema_version": "github-actions-run-metadata-v1",
+      "schema_version": "github-actions-run-job-excerpt-v2",
       "logical_role": "latest operating pipeline health evidence",
       "producer": "GitHub Actions",
-      "storage_kind": "github_actions_metadata",
-      "exact_location": "runs 32801137546, 32545955145, 32440400556",
+      "storage_kind": "frozen_github_actions_run_job_metadata_and_log_excerpts",
+      "exact_location": "runs/jobs 32801137546/97662011776, 32545955145/96964279012, 32440400556/96649802798",
       "as_of": "2026-08-25",
       "available_from": "2026-08-25T02:55:02Z_LATEST_COMPLETION",
       "decision_time_cutoff": "LATEST_THREE_SCHEDULED_RUNS",
+      "source_artifact_hashes": [
+        "78376e97c5e435d1ae8f7977a489286f0f3a29b2bfeae471b57c36dc76f512e8",
+        "b91d29b39b4f8acb4fd40f000f0c033b7e71190a830a26a5f04e51df917511b1",
+        "941f9246f4fb2ffb68c63052082b157951043b8d26879ec7a9020de6bb951e02"
+      ],
       "file_count": 3,
       "writer_workflow": "daily_operating_selection_refresh.yml",
-      "writer_job": "refresh",
+      "writer_job": "refresh jobs 97662011776, 96964279012, 96649802798",
       "write_authority": "OBSERVATION_ONLY",
       "pit_classification": "RUN_ID_AND_HEAD_SHA_BOUND",
       "survivorship_classification": "NOT_APPLICABLE",
       "corporate_action_classification": "NOT_APPLICABLE",
-      "retention_classification": "GITHUB_RUN_METADATA",
+      "retention_classification": "DURABLE_EXCERPTS_IN_FROZEN_SOURCE; ORIGINAL_GITHUB_LOGS_MAY_EXPIRE",
       "downstream_consumers": ["operations", "P0-5 planning"],
-      "rollback_restore": "no rerun performed; inspect exact failed step and logs",
+      "rollback_restore": "no rerun performed; verify stored excerpt hashes and exact job URLs before any authorized recovery",
       "mapping_status": "NOT_APPLICABLE",
       "blockers": ["all three runs failed at Restore verified risk-outcome accepted head"]
     },
@@ -1044,6 +1168,22 @@
       "status": "VERIFIED_IMMUTABLE",
       "verification": "identical Git tree SHA-1 932c5a407be56790cea3ff486a9fb7791ce7ef4c",
       "blockers": []
+    },
+    {
+      "object_id": "artifact.drive.operating-main-target-book",
+      "mutable_alias": "outputs/reports/operating_main_target_book.csv",
+      "immutable_source": "",
+      "status": "BLOCKED_NO_IMMUTABLE_SOURCE",
+      "verification": "fixed path observed in the frozen official target-writer workflow",
+      "blockers": ["mutable canonical target has no hash-bound accepted publication in the bounded inventory view"]
+    },
+    {
+      "object_id": "artifact.drive.operating-concentrated-target-book",
+      "mutable_alias": "outputs/reports/operating_concentrated_target_book.csv",
+      "immutable_source": "",
+      "status": "BLOCKED_NO_IMMUTABLE_SOURCE",
+      "verification": "fixed path observed in the frozen official target-writer workflow",
+      "blockers": ["mutable canonical target has no hash-bound accepted publication in the bounded inventory view"]
     },
     {
       "object_id": "artifact.repo.latest-global-alias",

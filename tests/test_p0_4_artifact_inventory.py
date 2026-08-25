@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from unittest import mock
 
 import pandas as pd
 import yaml
@@ -104,8 +105,8 @@ def test_tracked_bundle_exists_and_has_expected_counts() -> None:
         "datasets": 14,
         "models": 4,
         "durable_states": 8,
-        "artifacts": 11,
-        "artifact_registry_rows": 37,
+        "artifacts": 13,
+        "artifact_registry_rows": 39,
     }
     assert summary["safety"]["mutations_performed"] == []
     assert summary["safety"]["live_trading_enabled"] is False
@@ -139,7 +140,7 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
         for key in ("datasets", "models", "durable_states", "artifacts")
         for row in payload[key]
     }
-    assert len(expected) == 37
+    assert len(expected) == 39
     frame = pd.read_parquet(INVENTORY / "artifact_registry.parquet")
     assert REQUIRED_COLUMNS == set(frame.columns)
     assert set(frame["object_id"]) == expected
@@ -183,6 +184,19 @@ def test_every_mutable_alias_is_verified_or_explicitly_blocked() -> None:
             assert not row["blockers"]
         else:
             assert row["blockers"]
+    required_targets = {
+        "artifact.drive.operating-main-target-book": (
+            "outputs/reports/operating_main_target_book.csv"
+        ),
+        "artifact.drive.operating-concentrated-target-book": (
+            "outputs/reports/operating_concentrated_target_book.csv"
+        ),
+    }
+    mapped = {row["object_id"]: row for row in mappings}
+    for object_id, alias in required_targets.items():
+        assert objects[object_id]["mutable_alias"] == alias
+        assert mapped[object_id]["mutable_alias"] == alias
+        assert mapped[object_id]["status"].startswith("BLOCKED_")
 
 
 def test_frozen_repository_inventory_matches_baseline_tree() -> None:
@@ -220,9 +234,20 @@ def test_latest_global_alias_diverges_in_exactly_scored_file() -> None:
 
 
 def test_latest_r1000_adr_alias_is_exact_tree_match() -> None:
-    assert relative_tree("cloud_results/full_rebuild/latest_r1000+adr") == relative_tree(
-        "cloud_results/full_rebuild/20260428_r1000+adr"
+    current = relative_tree("cloud_results/full_rebuild/latest_r1000+adr")
+    assert current == relative_tree("cloud_results/full_rebuild/20260428_r1000+adr")
+    canonical = "\n".join(
+        f"{path}\t{sha}\t{size}"
+        for path, (sha, size) in sorted(current.items())
     )
+    manifest_sha256 = hashlib.sha256(canonical.encode()).hexdigest()
+    assert manifest_sha256 == "a8e75bc778087efdfbb3dd7d84cfbafde2efaf216e3c3503ca2a9bca497db9da"
+    frame = pd.read_parquet(INVENTORY / "artifact_registry.parquet").set_index(
+        "object_id"
+    )
+    assert frame.loc[
+        "artifact.repo.latest-r1000-adr-alias", "manifest_sha256"
+    ] == manifest_sha256
 
 
 def test_pipeline_blocker_is_bound_to_exact_github_runs() -> None:
@@ -238,6 +263,30 @@ def test_pipeline_blocker_is_bound_to_exact_github_runs() -> None:
         "legacy outcome parent requires explicit one-time workflow_dispatch authorization"
     )
     assert health["latest_failure_live_trading_enabled"] is False
+    evidence = health["daily_operating_failure_evidence"]
+    assert [row["run_id"] for row in evidence] == health[
+        "daily_operating_recent_run_ids"
+    ]
+    assert [row["job_id"] for row in evidence] == [
+        97662011776,
+        96964279012,
+        96649802798,
+    ]
+    for row in evidence:
+        excerpt = ("\n".join(row["terminal_excerpt_lines"]) + "\n").encode()
+        assert hashlib.sha256(excerpt).hexdigest() == row[
+            "terminal_excerpt_sha256"
+        ]
+        assert row["failed_step_number"] == 19
+        assert row["exit_code"] == 2
+        assert {
+            (item["step_number"], item["name"], item["conclusion"])
+            for item in row["downstream_skipped_steps"]
+        } == {
+            (26, "Build operating target books", "skipped"),
+            (34, "Run transactional paper ledger and same-close selector", "skipped"),
+            (46, "Persist validated forward paper ledger state", "skipped"),
+        }
 
 
 def test_authority_aligns_with_p0_3_census() -> None:
@@ -324,6 +373,85 @@ def test_no_secret_values_are_embedded() -> None:
     assert payload["safety"]["mutations_performed"] == []
 
 
+def test_rebuild_uses_the_pinned_dependency_contract() -> None:
+    requirements = (INVENTORY / "requirements.txt").read_text(encoding="utf-8")
+    assert requirements.splitlines() == [
+        "PyYAML==6.0.3",
+        "pandas==2.3.3",
+        "pyarrow==23.0.1",
+    ]
+    readme = (INVENTORY / "README.md").read_text(encoding="utf-8")
+    assert "python -m venv .venv-p0-4" in readme
+    assert "--requirement docs/run287_p0_4_artifact_inventory/requirements.txt" in readme
+    assert "tests/test_p0_4_artifact_inventory.py" in readme
+
+
+def test_failed_render_keeps_the_existing_bundle_intact(tmp_path: Path) -> None:
+    from tools import build_p0_4_artifact_inventory as builder
+
+    output = tmp_path / "bundle"
+    output.mkdir()
+    sentinel = output / "existing.txt"
+    sentinel.write_bytes(b"reviewed-old-bundle\n")
+    with mock.patch.object(
+        builder.pd.DataFrame,
+        "to_parquet",
+        side_effect=RuntimeError("injected parquet failure"),
+    ):
+        try:
+            builder.build(SOURCE, output)
+        except RuntimeError as exc:
+            assert "injected parquet failure" in str(exc)
+        else:
+            raise AssertionError("injected render failure was not propagated")
+    assert sentinel.read_bytes() == b"reviewed-old-bundle\n"
+    assert sorted(path.name for path in output.iterdir()) == ["existing.txt"]
+    assert not list(tmp_path.glob(".bundle.stage-*"))
+    assert not list(tmp_path.glob(".bundle.backup-*"))
+
+
+def test_safety_authority_flags_fail_closed(tmp_path: Path) -> None:
+    from tools.build_p0_4_artifact_inventory import InventoryError, build
+
+    for field in (
+        "live_trading_enabled",
+        "production_activation_allowed",
+        "target_order_ledger_mutation",
+        "model_promotion",
+    ):
+        payload = source()
+        payload["safety"][field] = True
+        invalid = tmp_path / f"invalid-{field}.json"
+        invalid.write_text(json.dumps(payload), encoding="utf-8")
+        try:
+            build(invalid, tmp_path / f"output-{field}")
+        except InventoryError as exc:
+            assert str(exc) == f"source_claims_authority:{field}"
+        else:
+            raise AssertionError(f"unsafe authority flag was not rejected: {field}")
+
+
+def test_required_fixed_target_aliases_cannot_be_omitted(tmp_path: Path) -> None:
+    from tools.build_p0_4_artifact_inventory import InventoryError, build
+
+    object_id = "artifact.drive.operating-main-target-book"
+    payload = source()
+    payload["artifacts"] = [
+        row for row in payload["artifacts"] if row["object_id"] != object_id
+    ]
+    payload["latest_to_immutable"] = [
+        row for row in payload["latest_to_immutable"] if row["object_id"] != object_id
+    ]
+    invalid = tmp_path / "missing-target.json"
+    invalid.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(invalid, tmp_path / "output")
+    except InventoryError as exc:
+        assert str(exc) == f"required_fixed_alias_object_missing:{object_id}"
+    else:
+        raise AssertionError("missing official target alias was not rejected")
+
+
 def test_invalid_or_incomplete_sources_fail_closed(tmp_path: Path) -> None:
     from tools.build_p0_4_artifact_inventory import InventoryError, build
 
@@ -355,9 +483,14 @@ def main() -> int:
     test_macro_freshness_gap_is_evidence_backed()
     test_incomplete_drive_views_fail_closed()
     test_no_secret_values_are_embedded()
+    test_rebuild_uses_the_pinned_dependency_contract()
     with tempfile.TemporaryDirectory() as temp_dir:
-        test_invalid_or_incomplete_sources_fail_closed(Path(temp_dir))
-    print("P0-4 artifact inventory smoke: 14 passed")
+        temp_path = Path(temp_dir)
+        test_failed_render_keeps_the_existing_bundle_intact(temp_path)
+        test_safety_authority_flags_fail_closed(temp_path)
+        test_required_fixed_target_aliases_cannot_be_omitted(temp_path)
+        test_invalid_or_incomplete_sources_fail_closed(temp_path)
+    print("P0-4 artifact inventory smoke: 18 passed")
     return 0
 
 

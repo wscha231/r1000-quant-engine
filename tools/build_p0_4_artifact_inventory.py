@@ -2,18 +2,23 @@
 """Build the frozen, read-only Run287 P0-4 artifact inventory.
 
 The collector inputs are intentionally frozen in the repository.  This tool
-does not contact GitHub or Google Drive and never writes outside the requested
-output directory.  Live enumeration is a separate, bounded evidence-gathering
-step; incomplete provider views must be recorded as blocked in the source
-snapshot rather than silently refreshed here.
+does not contact GitHub or Google Drive.  It renders to an ephemeral sibling
+directory and swaps the complete requested bundle only after every output has
+been written.  Live enumeration is a separate, bounded evidence-gathering step;
+incomplete provider views must be recorded as blocked in the source snapshot
+rather than silently refreshed here.
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
+import os
 import re
+import shutil
 import subprocess
+import tempfile
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +40,37 @@ ALIAS_STATUSES = {
     "BLOCKED_NO_IMMUTABLE_SOURCE",
     "BLOCKED_MULTIPLE_WRITERS",
     "NOT_APPLICABLE",
+}
+GENERATED_FILENAMES = {
+    "README.md",
+    "summary.json",
+    "dataset_registry.yaml",
+    "model_registry.yaml",
+    "artifact_registry.parquet",
+    "durable_state_registry.yaml",
+    "latest_to_immutable_map.yaml",
+    "migration_map.md",
+}
+SAFETY_FALSE_FIELDS = (
+    "live_trading_enabled",
+    "production_activation_allowed",
+    "target_order_ledger_mutation",
+    "model_promotion",
+)
+REQUIRED_FIXED_ALIAS_OBJECTS = {
+    "artifact.drive.operating-main-target-book": (
+        "outputs/reports/operating_main_target_book.csv"
+    ),
+    "artifact.drive.operating-concentrated-target-book": (
+        "outputs/reports/operating_concentrated_target_book.csv"
+    ),
+}
+OFFICIAL_TARGET_WORKFLOW = ".github/workflows/daily_operating_selection_refresh.yml"
+RISK_OUTCOME_FAILED_STEP = "Restore verified risk-outcome accepted head"
+RISK_OUTCOME_SKIPPED_STEPS = {
+    26: "Build operating target books",
+    34: "Run transactional paper ledger and same-close selector",
+    46: "Persist validated forward paper ledger state",
 }
 REQUIRED_OBJECT_FIELDS = {
     "object_id",
@@ -205,6 +241,82 @@ def validate_object(row: dict[str, Any], *, object_class: str) -> None:
         row.get("immutable_location") or blocked
     ):
         raise InventoryError(f"mutable_alias_not_bound_or_blocked:{object_id}")
+    if (
+        row.get("mapping_status") == "VERIFIED_IMMUTABLE"
+        and row.get("storage_kind") == "git_tree"
+        and row.get("mutable_alias")
+        and not row.get("manifest_sha256")
+    ):
+        raise InventoryError(f"verified_git_tree_without_manifest_sha256:{object_id}")
+
+
+def baseline_workflow_text(baseline: str) -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "show", f"{baseline}:{OFFICIAL_TARGET_WORKFLOW}"],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise InventoryError("official_target_workflow_not_available_at_baseline") from exc
+
+
+def validate_failure_evidence(payload: dict[str, Any]) -> None:
+    health = payload.get("pipeline_health")
+    if not isinstance(health, dict):
+        raise InventoryError("pipeline_health_missing")
+    run_ids = health.get("daily_operating_recent_run_ids")
+    evidence = health.get("daily_operating_failure_evidence")
+    if not isinstance(run_ids, list) or not isinstance(evidence, list):
+        raise InventoryError("risk_outcome_failure_evidence_missing")
+    if [row.get("run_id") for row in evidence if isinstance(row, dict)] != run_ids:
+        raise InventoryError("risk_outcome_failure_evidence_run_order")
+    if len(evidence) != 3 or len(set(run_ids)) != 3:
+        raise InventoryError("risk_outcome_failure_evidence_count")
+    for row in evidence:
+        if not isinstance(row, dict):
+            raise InventoryError("risk_outcome_failure_evidence_not_object")
+        run_id = row.get("run_id")
+        if not isinstance(run_id, int) or run_id <= 0:
+            raise InventoryError("risk_outcome_failure_evidence_run_id")
+        if not isinstance(row.get("job_id"), int) or row["job_id"] <= 0:
+            raise InventoryError(f"risk_outcome_failure_evidence_job_id:{run_id}")
+        if row.get("event") != "schedule" or row.get("conclusion") != "failure":
+            raise InventoryError(f"risk_outcome_failure_evidence_run_state:{run_id}")
+        if row.get("failed_step") != RISK_OUTCOME_FAILED_STEP:
+            raise InventoryError(f"risk_outcome_failure_evidence_step:{run_id}")
+        if row.get("failed_step_number") != 19 or row.get("exit_code") != 2:
+            raise InventoryError(f"risk_outcome_failure_evidence_exit:{run_id}")
+        head_sha = str(row.get("head_sha") or "")
+        if not SHA1_RE.fullmatch(head_sha):
+            raise InventoryError(f"risk_outcome_failure_evidence_head:{run_id}")
+        excerpt = row.get("terminal_excerpt_lines")
+        if (
+            not isinstance(excerpt, list)
+            or len(excerpt) != 2
+            or not all(nonblank(line) for line in excerpt)
+        ):
+            raise InventoryError(f"risk_outcome_failure_evidence_excerpt:{run_id}")
+        canonical = ("\n".join(excerpt) + "\n").encode("utf-8")
+        if hashlib.sha256(canonical).hexdigest() != row.get(
+            "terminal_excerpt_sha256"
+        ):
+            raise InventoryError(f"risk_outcome_failure_evidence_excerpt_hash:{run_id}")
+        skipped = row.get("downstream_skipped_steps")
+        if not isinstance(skipped, list):
+            raise InventoryError(f"risk_outcome_failure_evidence_skips:{run_id}")
+        normalized = {
+            item.get("step_number"): (item.get("name"), item.get("conclusion"))
+            for item in skipped
+            if isinstance(item, dict)
+        }
+        expected = {
+            number: (name, "skipped")
+            for number, name in RISK_OUTCOME_SKIPPED_STEPS.items()
+        }
+        if normalized != expected:
+            raise InventoryError(f"risk_outcome_failure_evidence_skips:{run_id}")
 
 
 def validate_source(payload: dict[str, Any]) -> None:
@@ -215,8 +327,14 @@ def validate_source(payload: dict[str, Any]) -> None:
     baseline = str(payload.get("baseline_code_sha") or "")
     if not SHA1_RE.fullmatch(baseline):
         raise InventoryError("baseline_code_sha")
-    if payload.get("safety", {}).get("mutations_performed") != []:
+    safety = payload.get("safety")
+    if not isinstance(safety, dict):
+        raise InventoryError("source_safety_missing")
+    if safety.get("mutations_performed") != []:
         raise InventoryError("source_claims_mutations")
+    for field in SAFETY_FALSE_FIELDS:
+        if safety.get(field) is not False:
+            raise InventoryError(f"source_claims_authority:{field}")
     defaults = payload.get("object_defaults")
     if not isinstance(defaults, dict):
         raise InventoryError("object_defaults_missing")
@@ -268,6 +386,23 @@ def validate_source(payload: dict[str, Any]) -> None:
     missing_aliases = sorted(mutable_ids - alias_ids)
     if missing_aliases:
         raise InventoryError("latest_map_missing_aliases:" + ",".join(missing_aliases))
+    workflow_text = baseline_workflow_text(baseline)
+    object_index = {
+        row["object_id"]: row
+        for collection in ("datasets", "models", "durable_states", "artifacts")
+        for row in payload[collection]
+    }
+    for object_id, alias in REQUIRED_FIXED_ALIAS_OBJECTS.items():
+        if alias not in workflow_text:
+            raise InventoryError(f"fixed_alias_not_in_baseline_workflow:{alias}")
+        row = object_index.get(object_id)
+        if row is None:
+            raise InventoryError(f"required_fixed_alias_object_missing:{object_id}")
+        if row.get("mutable_alias") != alias:
+            raise InventoryError(f"required_fixed_alias_mismatch:{object_id}")
+        if object_id not in alias_ids:
+            raise InventoryError(f"required_fixed_alias_map_missing:{object_id}")
+    validate_failure_evidence(payload)
     if not isinstance(payload.get("migration_items"), list) or not payload["migration_items"]:
         raise InventoryError("migration_items_empty")
     if not isinstance(payload.get("findings"), list) or not payload["findings"]:
@@ -449,9 +584,13 @@ def render_readme(payload: dict[str, Any], row_count: int) -> str:
             "## Rebuild",
             "",
             "```bash",
-            "python tools/build_p0_4_artifact_inventory.py",
-            "pytest -q tests/test_p0_4_artifact_inventory.py",
+            "python -m venv .venv-p0-4",
+            ".venv-p0-4/bin/python -m pip install --requirement docs/run287_p0_4_artifact_inventory/requirements.txt",
+            ".venv-p0-4/bin/python tools/build_p0_4_artifact_inventory.py --verify-live-head",
+            ".venv-p0-4/bin/python tests/test_p0_4_artifact_inventory.py",
             "```",
+            "",
+            "On Windows PowerShell, use `.\\.venv-p0-4\\Scripts\\python.exe` in place of `.venv-p0-4/bin/python`. The exact dependency pins are part of the frozen bundle.",
             "",
         ]
     )
@@ -527,6 +666,61 @@ def verify_live_publication_lineage(baseline: str) -> None:
         )
 
 
+def render_bundle(staging: Path, payload: dict[str, Any], rows: list[dict[str, Any]]) -> None:
+    write_yaml(staging / "dataset_registry.yaml", registry_document(payload, "datasets"))
+    write_yaml(staging / "model_registry.yaml", registry_document(payload, "models"))
+    write_yaml(
+        staging / "durable_state_registry.yaml",
+        registry_document(payload, "durable_states"),
+    )
+    write_yaml(staging / "latest_to_immutable_map.yaml", render_latest_map(payload))
+    write_parquet(staging / "artifact_registry.parquet", rows)
+    (staging / "migration_map.md").write_text(
+        render_migration(payload), encoding="utf-8", newline="\n"
+    )
+    (staging / "README.md").write_text(
+        render_readme(payload, len(rows)), encoding="utf-8", newline="\n"
+    )
+    write_json(staging / "summary.json", render_summary(payload, rows))
+
+
+def publish_bundle_atomically(output: Path, render) -> None:
+    if output.is_symlink():
+        raise InventoryError("output_directory_symlink_rejected")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(
+        tempfile.mkdtemp(prefix=f".{output.name}.stage-", dir=str(output.parent))
+    )
+    backup: Path | None = None
+    try:
+        if output.exists():
+            if not output.is_dir():
+                raise InventoryError("output_path_not_directory")
+            shutil.copytree(output, staging, dirs_exist_ok=True, symlinks=True)
+        render(staging)
+        missing = sorted(name for name in GENERATED_FILENAMES if not (staging / name).is_file())
+        if missing:
+            raise InventoryError("staged_bundle_incomplete:" + ",".join(missing))
+        if output.exists():
+            backup = output.parent / f".{output.name}.backup-{uuid.uuid4().hex}"
+            os.replace(output, backup)
+        try:
+            os.replace(staging, output)
+        except Exception:
+            if backup is not None and backup.exists() and not output.exists():
+                os.replace(backup, output)
+                backup = None
+            raise
+        if backup is not None:
+            shutil.rmtree(backup)
+            backup = None
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)
+        if backup is not None and backup.exists() and not output.exists():
+            os.replace(backup, output)
+
+
 def build(source: Path, output: Path, *, verify_live_head: bool = False) -> None:
     source_bytes = source.read_bytes()
     payload = read_source(source)
@@ -534,23 +728,11 @@ def build(source: Path, output: Path, *, verify_live_head: bool = False) -> None
     validate_source(payload)
     if verify_live_head:
         verify_live_publication_lineage(payload["baseline_code_sha"])
-    output.mkdir(parents=True, exist_ok=True)
     rows = artifact_rows(payload)
-    write_yaml(output / "dataset_registry.yaml", registry_document(payload, "datasets"))
-    write_yaml(output / "model_registry.yaml", registry_document(payload, "models"))
-    write_yaml(
-        output / "durable_state_registry.yaml",
-        registry_document(payload, "durable_states"),
+    publish_bundle_atomically(
+        output,
+        lambda staging: render_bundle(staging, payload, rows),
     )
-    write_yaml(output / "latest_to_immutable_map.yaml", render_latest_map(payload))
-    write_parquet(output / "artifact_registry.parquet", rows)
-    (output / "migration_map.md").write_text(
-        render_migration(payload), encoding="utf-8", newline="\n"
-    )
-    (output / "README.md").write_text(
-        render_readme(payload, len(rows)), encoding="utf-8", newline="\n"
-    )
-    write_json(output / "summary.json", render_summary(payload, rows))
 
 
 def parse_args() -> argparse.Namespace:

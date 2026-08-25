@@ -7,10 +7,10 @@ This is the read-only inventory required by Issue #372, frozen at `2026-08-25T12
 - Dataset classes: `14`
 - Model objects: `4`
 - Durable-state objects: `8`
-- Infrastructure/artifact objects: `11`
-- Total normalized Parquet rows: `37`
+- Infrastructure/artifact objects: `13`
+- Total normalized Parquet rows: `39`
 - Latest aliases verified: `6`
-- Latest aliases blocked: `21`
+- Latest aliases blocked: `23`
 
 ## Current pipeline connection
 
@@ -72,6 +72,10 @@ The latest three operating runs `32801137546, 32545955145, 32440400556` all fail
 ## Rebuild
 
 ```bash
-python tools/build_p0_4_artifact_inventory.py
-pytest -q tests/test_p0_4_artifact_inventory.py
+python -m venv .venv-p0-4
+.venv-p0-4/bin/python -m pip install --requirement docs/run287_p0_4_artifact_inventory/requirements.txt
+.venv-p0-4/bin/python tools/build_p0_4_artifact_inventory.py --verify-live-head
+.venv-p0-4/bin/python tests/test_p0_4_artifact_inventory.py
 ```
+
+On Windows PowerShell, use `.\.venv-p0-4\Scripts\python.exe` in place of `.venv-p0-4/bin/python`. The exact dependency pins are part of the frozen bundle.
