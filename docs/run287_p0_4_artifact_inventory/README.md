@@ -80,6 +80,10 @@ git diff --cached --quiet -- docs/run287_p0_4_artifact_inventory/requirements.tx
 P0_4_REQUIREMENTS="$(mktemp)"
 trap 'rm -f "$P0_4_REQUIREMENTS"' EXIT
 python -c "import hashlib,pathlib,subprocess,sys; p='docs/run287_p0_4_artifact_inventory/requirements.txt'; c=subprocess.check_output(['git','show','HEAD:'+p]); w=pathlib.Path(p).read_bytes().replace(b'\r\n',b'\n'); sys.exit('unreviewed requirements.txt') if w != c or hashlib.sha256(c).hexdigest() != '9a32746dec8900d8663ba5f6a2f47ec8f9a817eb7fb051fde772a0e7af5c0a4e' else pathlib.Path(sys.argv[1]).write_bytes(c)" "$P0_4_REQUIREMENTS"
+if [ -L .venv-p0-4 ]; then
+  echo 'refusing symlinked .venv-p0-4' >&2
+  exit 1
+fi
 python -m venv --clear .venv-p0-4
 .venv-p0-4/bin/python -m pip install --requirement "$P0_4_REQUIREMENTS"
 .venv-p0-4/bin/python tools/build_p0_4_artifact_inventory.py --verify-live-head
@@ -98,6 +102,10 @@ $P0_4RequirementsTemp = New-TemporaryFile
 try {
   python -c "import hashlib,pathlib,subprocess,sys; p='docs/run287_p0_4_artifact_inventory/requirements.txt'; c=subprocess.check_output(['git','show','HEAD:'+p]); w=pathlib.Path(p).read_bytes().replace(b'\r\n',b'\n'); sys.exit('unreviewed requirements.txt') if w != c or hashlib.sha256(c).hexdigest() != '9a32746dec8900d8663ba5f6a2f47ec8f9a817eb7fb051fde772a0e7af5c0a4e' else pathlib.Path(sys.argv[1]).write_bytes(c)" $P0_4RequirementsTemp
   if ($LASTEXITCODE -ne 0) { throw 'authenticated requirements capture failed' }
+  if (Test-Path -LiteralPath '.venv-p0-4') {
+    $P0_4VenvItem = Get-Item -LiteralPath '.venv-p0-4' -Force
+    if (($P0_4VenvItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'refusing linked .venv-p0-4' }
+  }
   python -m venv --clear .venv-p0-4
   if ($LASTEXITCODE -ne 0) { throw 'virtual environment creation failed' }
   $P0_4Python = '.\.venv-p0-4\Scripts\python.exe'
