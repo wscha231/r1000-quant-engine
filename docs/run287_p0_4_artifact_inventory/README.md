@@ -67,6 +67,7 @@ The latest three operating runs `32801137546, 32545955145, 32440400556` all fail
 - Same-name Drive folders outside the canonical root were not treated as canonical by name alone.
 - No secret, token, service-account, broker-account, or personally identifying value was collected. Presence classifications only are recorded.
 - No Drive upload/move/delete, local cleanup, workflow dispatch, fullrun, target/order/ledger mutation, champion change, production enablement, or live trading occurred.
+- Known storage kinds use the canonical provider map; `UNRESOLVED` is reserved for storage whose provider is actually unknown.
 - A blank hash means it was not available from the bounded provider view; it is never interpreted as verified.
 
 ## Rebuild

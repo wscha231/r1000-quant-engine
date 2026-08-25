@@ -261,7 +261,7 @@ durable_states:
   market: US
   logical_role: verified outcome parent required before current-session paper processing
   producer: manage_run287_risk_outcome_accepted_heads.py
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_expected_folder
   exact_location: paper_archive/run287_risk_outcome_accepted_heads
   immutable_location: ''
@@ -305,7 +305,7 @@ durable_states:
   market: US
   logical_role: hysteresis state for advisory crisis monitor
   producer: daily_crisis_monitor.yml
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_mutable_output
   exact_location: daily_crisis_monitor/state_history.json
   immutable_location: ''

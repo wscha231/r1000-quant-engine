@@ -18,7 +18,7 @@ datasets:
   market: US
   logical_role: historical US membership proxy
   producer: legacy universe membership collector
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_file
   exact_location: gdrive-id:1Nabjd-UcvSVnYaZyrbOarSgj-pCFSJin
   immutable_location: ''
@@ -61,7 +61,7 @@ datasets:
   market: US
   logical_role: month-named universe membership snapshots
   producer: legacy universe membership collector
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_folder
   exact_location: gdrive-id:1DGRPzKkXN1s2X0mrOz-gTXhT3friNeAR
   immutable_location: data_raw/universe_membership_snapshots/historical_universe_membership_YYYY_MM.csv
@@ -103,7 +103,7 @@ datasets:
   market: US
   logical_role: SEC company ticker identity map
   producer: SEC company ticker collector
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_file
   exact_location: gdrive-id:1nRcmYkvoTi5soaRNKY_TTWz9OkKVxBce
   immutable_location: ''
@@ -146,7 +146,7 @@ datasets:
   market: US
   logical_role: bulk SEC fundamentals source
   producer: data_readiness_preflight.yml and free_data_daily_update.yml
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_file
   exact_location: gdrive-id:1KrxPNjif10ReXWq1onzKWvs8OU5OnbOB
   immutable_location: ''
@@ -190,7 +190,7 @@ datasets:
   market: US
   logical_role: historical and exact-close price-cache directory
   producer: build_replay_price_cache.py via several workflows
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_folder
   exact_location: gdrive-id:1wdd4LWhjZzKZ56tEcj5dQKnqkGQUzGXQ
   immutable_location: ''
@@ -237,7 +237,7 @@ datasets:
   market: US
   logical_role: mutable manifest for the historical and exact-close price cache
   producer: build_replay_price_cache.py via several workflows
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_file_in_folder
   exact_location: cache_prices/replay_price_cache_manifest.json
   immutable_location: ''
@@ -284,7 +284,7 @@ datasets:
   market: US
   logical_role: mutable Drive macro series cache restored read-only by the operating workflow
   producer: UNRESOLVED_LEGACY_DRIVE_WRITER
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_folder
   exact_location: gdrive-id:1daFnhx94BIRWV5PItrdSCjj4b6khaR6h
   immutable_location: ''
@@ -329,7 +329,7 @@ datasets:
   market: US
   logical_role: current macro pulse and regime input
   producer: macro_daily_snapshot.py
-  provider: UNRESOLVED
+  provider: google_drive_and_github_actions_cache
   storage_kind: google_drive_folder_and_workflow_cache
   exact_location: data_raw/free/macro/daily_snapshot
   immutable_location: data_raw/free/macro/daily_snapshot/snapshot_YYYY-MM-DD.json
@@ -373,7 +373,7 @@ datasets:
   market: US
   logical_role: long-crisis learned daily features
   producer: run_long_crisis_dataset_builder.py
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_file
   exact_location: gdrive-id:1qR7VGVsyR837Yk55q5UAKDlzRRxKYAi6
   immutable_location: ''
@@ -416,7 +416,7 @@ datasets:
   market: US
   logical_role: Form 4 transactions and insider signals
   producer: sec_form4_daily_refresh.yml
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_files
   exact_location: data_pit/sec/form4_transactions.parquet; data_pit/sec/sec_ownership_signals.parquet; data_pit/sec/sec_form4_merge_manifest.json
   immutable_location: ''
@@ -459,7 +459,7 @@ datasets:
   market: US
   logical_role: institutional 13F holdings and derived signals
   producer: sec_13f_quarterly_refresh.yml
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_files
   exact_location: data_pit/sec/institutional_13f_holdings.csv; data_pit/sec/institutional_13f_holdings.parquet; summary.json
   immutable_location: ''
@@ -502,7 +502,7 @@ datasets:
   market: US
   logical_role: ETF holdings, N-PORT history, and thematic signals
   producer: ETF holdings refresh paths
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_folder
   exact_location: gdrive-id:1cZ9PGz_arkjBJdiDMDI7_Dh54E1xtmwN
   immutable_location: ''
@@ -544,7 +544,7 @@ datasets:
   market: US
   logical_role: daily earnings estimates and revision signals
   producer: earnings_estimates_daily.yml
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_folder_and_file
   exact_location: data_pit/events/earnings_estimates/estimates_YYYYMMDD.parquet; earnings_revision_signals.parquet
   immutable_location: data_pit/events/earnings_estimates/estimates_YYYYMMDD.parquet
@@ -586,7 +586,7 @@ datasets:
   market: US
   logical_role: bounded census container for feature store, OOS scores, recommendations, macro regime, events, and fund panel
   producer: full rebuild and feature builders
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_folder
   exact_location: gdrive-id:1sFgZ9AZpLm7alwSq7Vgt6uzPXR7iAkKA
   immutable_location: ''
@@ -630,7 +630,7 @@ datasets:
   market: US
   logical_role: candidate universe input
   producer: legacy full rebuild
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_file
   exact_location: gdrive-id:1vFZ2szAa0mImuYLJasI92ftObtKGtLXT
   immutable_location: ''
@@ -671,7 +671,7 @@ datasets:
   market: US
   logical_role: latest recommendation output
   producer: legacy full rebuild
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_file
   exact_location: gdrive-id:1YEoAicCMEdvh9FJ4LM-x-QkE09EmrodQ
   immutable_location: ''
@@ -712,7 +712,7 @@ datasets:
   market: US
   logical_role: partial out-of-sample scoring output
   producer: legacy full rebuild
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_file
   exact_location: gdrive-id:1pGxm_U6VpQ3NT4yVhuMq8x8yCp9HNSMw
   immutable_location: ''
@@ -753,7 +753,7 @@ datasets:
   market: US
   logical_role: latest out-of-sample scoring output
   producer: legacy full rebuild
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_file
   exact_location: gdrive-id:12xTMQH4th5hdiWl_ohbHJJXpto_FCvG1
   immutable_location: ''
@@ -794,7 +794,7 @@ datasets:
   market: US
   logical_role: latest feature matrix
   producer: legacy full rebuild
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_file
   exact_location: gdrive-id:1HqiUXTPqMZMEn3bAdfLWuuLiFHQdFO69
   immutable_location: ''
@@ -836,7 +836,7 @@ datasets:
   market: US
   logical_role: latest monthly universe panel
   producer: legacy full rebuild
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_file
   exact_location: gdrive-id:1iKzOdW36E1mlPlag0_VJJ2fitSTbYgrt
   immutable_location: ''
@@ -877,7 +877,7 @@ datasets:
   market: US
   logical_role: latest macro regime panel
   producer: legacy full rebuild
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_file
   exact_location: gdrive-id:12WY5Wf96y8_jF-nRIaF6doKKfN0GJgjm
   immutable_location: ''
@@ -918,7 +918,7 @@ datasets:
   market: US
   logical_role: latest live event alert panel
   producer: legacy feature builder
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_file
   exact_location: gdrive-id:1_lYuzrAVtCcOuudt2zsoWCroIud4U781
   immutable_location: ''
@@ -959,7 +959,7 @@ datasets:
   market: US
   logical_role: latest fund panel
   producer: legacy feature builder
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_file
   exact_location: gdrive-id:1lssy0Y5RwhOBJAWyOeSJDUA0J2gmElIF
   immutable_location: ''
@@ -1000,7 +1000,7 @@ datasets:
   market: US
   logical_role: static scored universe used by free-data and selection paths
   producer: legacy full rebuild then repository publication
-  provider: UNRESOLVED
+  provider: git_repository
   storage_kind: git_blob
   exact_location: cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv
   immutable_location: cloud_results/full_rebuild/20260624_28074476465_global_alpha_universe/scored_latest.csv

@@ -18,7 +18,7 @@ models:
   market: US
   logical_role: phase4 ensemble bundle and linear feature weights
   producer: legacy phase4 training
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_file
   exact_location: gdrive-id:1N79QGqJ7meD4nUWRwHKqWQSYMdyJz-YG
   immutable_location: ''
@@ -60,7 +60,7 @@ models:
   market: US
   logical_role: phase4 regression model
   producer: legacy phase4 training
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_file
   exact_location: gdrive-id:1YFLygG-vm_pLYCOxz2IpmbzqKQtQ3hl5
   immutable_location: ''
@@ -101,7 +101,7 @@ models:
   market: US
   logical_role: phase4 classification model
   producer: legacy phase4 training
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_file
   exact_location: gdrive-id:1C-XlS52MAV6RMVKiqjqoNGu-1G5SwlKV
   immutable_location: ''
@@ -142,7 +142,7 @@ models:
   market: US
   logical_role: phase4 model scoring metadata
   producer: legacy phase4 training
-  provider: UNRESOLVED
+  provider: google_drive
   storage_kind: google_drive_file
   exact_location: gdrive-id:1g-YQIcaqNJeNmLomKHdi3lUlNq5TOjSN
   immutable_location: ''
