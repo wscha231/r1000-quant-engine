@@ -6,6 +6,7 @@ import hashlib
 import json
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pandas as pd
@@ -22,22 +23,21 @@ from tools.build_p0_3_authority_census import (  # noqa: E402
     check_summary,
     read_branch_supplement,
     require_audit_commit,
+    supplement_pr_mutable_evidence,
     validated_frozen_checks,
+    validate_runtime_requirements,
     validate_research_only_policy,
+    write_canonical_text_copy,
 )
 
 
 CENSUS = ROOT / "docs" / "run287_p0_3_authority_census"
 POLICY = CENSUS / "source_workflow_authority_policy.json"
 AUDIT_SHA = "916a02ac0612d64d41f71690cf667a90dfd0531a"
-TEXT_SUFFIXES = {".json", ".yaml", ".yml", ".md", ".py", ".txt", ".csv"}
 
 
 def sha256(path: Path) -> str:
-    content = path.read_bytes()
-    if path.suffix.lower() in TEXT_SUFFIXES:
-        content = content.replace(b"\r\n", b"\n")
-    return hashlib.sha256(content).hexdigest()
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def load_summary() -> dict:
@@ -94,6 +94,19 @@ def test_census_is_hash_bound_and_read_only() -> None:
     source = json.loads(source_bytes.decode("utf-8"))
     assert len(source["branches"]) == summary["counts"]["branches"]
     assert len(source["pull_requests"]) == summary["counts"]["pull_requests"]
+    assert summary["source_promotion_blockers"] == source["promotion_blockers"]
+    assert summary["source_experiment_completeness"] == {
+        "historical_challenger_allowed": source["summary"][
+            "historical_challenger_allowed"
+        ],
+        "historical_experiment_census_complete": source["summary"][
+            "historical_experiment_census_complete"
+        ],
+        "unmapped_experiment_candidate_count": source["summary"][
+            "unmapped_experiment_candidate_count"
+        ],
+    }
+    assert summary["completeness"]["historical_experiment_census_complete"] is False
     pr_source_artifact = summary["source_pr_supplement_artifact"]
     pr_source_path = ROOT / pr_source_artifact["repository_path"]
     pr_source_bytes = gzip.decompress(pr_source_path.read_bytes())
@@ -146,6 +159,14 @@ def test_census_is_hash_bound_and_read_only() -> None:
     }
     assert pinned_versions == GENERATOR_RUNTIME_VERSIONS
     assert summary["generator_runtime_versions"] == GENERATOR_RUNTIME_VERSIONS
+    for text_name in (
+        "README.md",
+        "requirements.txt",
+        "summary.json",
+        "workflow_registry.yaml",
+        "source_workflow_authority_policy.json",
+    ):
+        assert b"\r\n" not in (CENSUS / text_name).read_bytes()
 
 
 def test_every_branch_has_required_issue_371_fields_and_fail_closed_disposition() -> None:
@@ -224,6 +245,58 @@ def test_frozen_pr_check_summary_is_derived_and_corruption_fails_closed() -> Non
     except SystemExit:
         return
     raise AssertionError("corrupt frozen PR check summary was not rejected")
+
+
+def test_live_pr_mutable_evidence_detects_check_and_review_changes() -> None:
+    row = {
+        "number": 1,
+        "statusCheckRollup": [
+            {
+                "__typename": "CheckRun",
+                "name": "validate",
+                "workflowName": "PR Validation (Fast)",
+                "status": "COMPLETED",
+                "conclusion": "SUCCESS",
+                "detailsUrl": "https://example.invalid/check",
+            }
+        ],
+        "reviewDecision": "",
+        "latestReviews": [],
+        "closingIssuesReferences": [],
+    }
+    before = supplement_pr_mutable_evidence([row])
+    changed_check = copy.deepcopy(row)
+    changed_check["statusCheckRollup"][0]["conclusion"] = "FAILURE"
+    assert supplement_pr_mutable_evidence([changed_check]) != before
+    changed_review = copy.deepcopy(row)
+    changed_review["latestReviews"] = [
+        {
+            "author": {"login": "reviewer"},
+            "state": "APPROVED",
+            "submittedAt": "2026-08-25T00:00:00Z",
+        }
+    ]
+    assert supplement_pr_mutable_evidence([changed_review]) != before
+
+
+def test_generator_requirements_require_exact_pins() -> None:
+    assert validate_runtime_requirements(CENSUS / "requirements.txt") == (
+        GENERATOR_RUNTIME_VERSIONS
+    )
+    with tempfile.TemporaryDirectory() as directory:
+        unsafe = Path(directory) / "requirements.txt"
+        canonical = Path(directory) / "canonical.txt"
+        unsafe.write_bytes(b"pandas==2.3.3\r\npyarrow==23.0.1\r\nPyYAML==6.0.3\r\n")
+        write_canonical_text_copy(unsafe, canonical)
+        assert canonical.read_bytes() == (
+            b"pandas==2.3.3\npyarrow==23.0.1\nPyYAML==6.0.3\n"
+        )
+        unsafe.write_text("pandas>=2.3\npyarrow==23.0.1\nPyYAML==6.0.3\n")
+        try:
+            validate_runtime_requirements(unsafe)
+        except SystemExit:
+            return
+    raise AssertionError("non-exact generator requirements were not rejected")
 
 
 def test_workflow_registry_has_singular_official_authority_and_blocks_legacy_names() -> None:
@@ -312,6 +385,13 @@ def test_workflow_policy_drift_fails_closed() -> None:
     unsafe = copy.deepcopy(policy)
     unsafe["official_authority"]["live_broker_writer_workflow"] = "live.yml"
     assert_rejected(unsafe)
+    for key, unsafe_value in (
+        ("paper_ledger_mode", "BROKER_EXECUTION"),
+        ("accepted_state_store", "LOCAL_MUTABLE_STATE"),
+    ):
+        unsafe = copy.deepcopy(policy)
+        unsafe["official_authority"][key] = unsafe_value
+        assert_rejected(unsafe)
     unsafe = copy.deepcopy(policy)
     unsafe["workflows"]["after_close_daily.yml"][
         "production_live_authority"
@@ -362,6 +442,8 @@ def main() -> int:
     test_every_branch_has_required_issue_371_fields_and_fail_closed_disposition()
     test_every_pr_has_exact_identity_checks_review_state_and_disposition()
     test_frozen_pr_check_summary_is_derived_and_corruption_fails_closed()
+    test_live_pr_mutable_evidence_detects_check_and_review_changes()
+    test_generator_requirements_require_exact_pins()
     test_workflow_registry_has_singular_official_authority_and_blocks_legacy_names()
     test_workflow_policy_drift_fails_closed()
     test_frozen_audit_commit_is_resolved_independently_of_current_head()

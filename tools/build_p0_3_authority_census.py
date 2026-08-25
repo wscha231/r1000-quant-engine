@@ -37,6 +37,13 @@ GENERATOR_RUNTIME_VERSIONS = {
     "pyarrow": "23.0.1",
     "PyYAML": "6.0.3",
 }
+REQUIRED_OFFICIAL_AUTHORITY = {
+    "us_target_writer_workflow": "daily_operating_selection_refresh.yml",
+    "paper_ledger_consumer_workflow": "daily_operating_selection_refresh.yml",
+    "paper_ledger_mode": "SIMULATED_FILL_ONLY",
+    "accepted_state_store": "GOOGLE_DRIVE_CANONICAL_PAPER_STATE",
+    "live_broker_writer_workflow": None,
+}
 REQUIRED_GLOBAL_GUARDS = {
     "live_broker_execution_enabled": False,
     "automatic_model_promotion_enabled": False,
@@ -128,12 +135,6 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def portable_text_sha256(path: Path) -> str:
-    """Hash text with Git's canonical LF newline representation."""
-    content = path.read_bytes().replace(b"\r\n", b"\n")
-    return hashlib.sha256(content).hexdigest()
-
-
 def document_bytes(path: Path) -> bytes:
     content = path.read_bytes()
     return gzip.decompress(content) if path.suffix.lower() == ".gz" else content
@@ -161,6 +162,13 @@ def write_gzip(path: Path, content: bytes) -> None:
             mtime=0,
         ) as gzip_handle:
             gzip_handle.write(content)
+
+
+def write_canonical_text_copy(source: Path, destination: Path) -> None:
+    """Copy UTF-8 text with canonical LF bytes, including for in-place output."""
+    content = source.read_text(encoding="utf-8").encode("utf-8")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(content)
 
 
 def run(arguments: list[str], *, cwd: Path) -> str:
@@ -197,14 +205,32 @@ def validate_research_only_policy(policy: Mapping[str, Any], audit_sha: str) -> 
     if policy.get("global_guards") != REQUIRED_GLOBAL_GUARDS:
         raise SystemExit("workflow policy research-only guards mismatch")
     official = policy.get("official_authority") or {}
-    if official.get("live_broker_writer_workflow") is not None:
-        raise SystemExit("workflow policy must not authorize a live broker writer")
+    if official != REQUIRED_OFFICIAL_AUTHORITY:
+        raise SystemExit("workflow policy official authority mismatch")
     policy_rows = policy.get("workflows") or {}
     if any(
         row.get("production_live_authority") == "AUTHORIZED"
         for row in policy_rows.values()
     ):
         raise SystemExit("workflow policy must not authorize production or live execution")
+
+
+def validate_runtime_requirements(path: Path) -> dict[str, str]:
+    pins: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        match = re.fullmatch(r"([A-Za-z0-9_.-]+)==([^\s#]+)", line)
+        if not match or match.group(1) in pins:
+            raise SystemExit("generator requirements must contain unique exact pins")
+        pins[match.group(1)] = match.group(2)
+    if pins != GENERATOR_RUNTIME_VERSIONS:
+        raise SystemExit(
+            "generator requirements mismatch: "
+            f"expected={GENERATOR_RUNTIME_VERSIONS}, actual={pins}"
+        )
+    return pins
 
 
 def validate_generator_runtime() -> None:
@@ -377,16 +403,6 @@ def git_branch_evidence(
     }
 
 
-def issues_from_pr(row: Mapping[str, Any], supplement: Mapping[str, Any]) -> list[int]:
-    values = {
-        int(item.get("number"))
-        for item in supplement.get("closingIssuesReferences") or []
-        if type(item.get("number")) is int and int(item.get("number")) > 0
-    }
-    values.update(int(value) for value in ISSUE_RE.findall(str(row.get("title") or "")))
-    return sorted(values)
-
-
 def classify_branch(
     *,
     branch: str,
@@ -504,6 +520,13 @@ def review_summary(row: Mapping[str, Any]) -> dict[str, Any]:
                 "submitted_at": str(item.get("submittedAt") or ""),
             }
         )
+    reviews.sort(
+        key=lambda item: (
+            item["author"],
+            item["state"],
+            item["submitted_at"],
+        )
+    )
     states = Counter(item["state"] for item in reviews)
     return {
         "review_decision": str(row.get("reviewDecision") or "UNSPECIFIED"),
@@ -512,6 +535,34 @@ def review_summary(row: Mapping[str, Any]) -> dict[str, Any]:
         "latest_reviews": reviews,
         "unresolved_thread_state": "NOT_COLLECTED_FAIL_CLOSED",
     }
+
+
+def supplement_pr_mutable_evidence(
+    rows: Iterable[Mapping[str, Any]],
+) -> dict[int, dict[str, Any]]:
+    result: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        number = row.get("number")
+        if type(number) is not int or number <= 0 or number in result:
+            raise ValueError("PR supplement evidence identity is invalid")
+        checks = sorted(
+            (
+                normalize_check(item)
+                for item in row.get("statusCheckRollup") or []
+            ),
+            key=canonical_json,
+        )
+        result[number] = {
+            "checks": checks,
+            "check_summary": check_summary(checks),
+            "review_state": review_summary(row),
+            "closing_issue_numbers": sorted(
+                int(item["number"])
+                for item in row.get("closingIssuesReferences") or []
+                if type(item.get("number")) is int and int(item["number"]) > 0
+            ),
+        }
+    return result
 
 
 def pr_disposition(row: Mapping[str, Any], checks: Mapping[str, Any]) -> str:
@@ -833,6 +884,8 @@ def write_readme(path: Path, summary: Mapping[str, Any]) -> None:
     source_branch_supplement = summary["source_branch_supplement_artifact"]
     source_policy = summary["source_workflow_policy_artifact"]
     runtime_requirements = summary["generator_runtime_requirements_artifact"]
+    source_experiment = summary["source_experiment_completeness"]
+    promotion_blockers = summary["source_promotion_blockers"]
     incomplete_pr_changed_paths = summary["evidence_limitations"][
         "incomplete_changed_path_prs"
     ]
@@ -880,6 +933,13 @@ Changed-path collection is incomplete for PRs
 `{canonical_json(incomplete_pr_changed_paths)}`. Their rows remain useful for
 identity and disposition evidence, but they are not complete recovery-path
 inventories and grant no merge or promotion authority.
+
+The frozen U0 source reports historical experiment census completeness as
+`{str(source_experiment['historical_experiment_census_complete']).lower()}` and
+declares these promotion blockers:
+`{canonical_json(promotion_blockers)}`. This authority census preserves those
+blockers and does not replace experiment recovery, ancestry verification,
+trial deduplication, or historical return evidence.
 
 The publication branch and its PR did not exist in the captured namespace.  Their
 creation is the expected publication-only delta and does not authorize cleanup,
@@ -964,14 +1024,25 @@ def main() -> int:
     )
     policy = read_json(policy_input_path)
     validate_research_only_policy(policy, audit_sha)
+    validate_runtime_requirements(runtime_requirements_input_path)
     validate_generator_runtime()
+
+    source_summary = source.get("summary") or {}
+    promotion_blockers = source.get("promotion_blockers")
+    if not isinstance(promotion_blockers, list) or not all(
+        isinstance(item, str) and item for item in promotion_blockers
+    ):
+        raise SystemExit("source promotion blockers are missing or invalid")
+    if type(source_summary.get("historical_experiment_census_complete")) is not bool:
+        raise SystemExit("source historical experiment completeness is missing")
 
     source_branches = source_branch_identity(source)
     source_prs = source_pr_identity(source)
     source_pr_by_number = {int(row["number"]): row for row in source["pull_requests"]}
     live_branches_before: dict[str, str] | None = None
     supplement_before_identity: dict[int, tuple[str, str, str, str]] | None = None
-    live_supplement_by_number: dict[int, dict[str, Any]] | None = None
+    supplement_before_evidence: dict[int, dict[str, Any]] | None = None
+    live_evidence_by_number: dict[int, dict[str, Any]] | None = None
     frozen_supplement_by_number: dict[int, dict[str, Any]] | None = None
     frozen_pr_supplement_document: dict[str, Any] | None = None
     frozen_branch_by_name: dict[str, dict[str, Any]] | None = None
@@ -986,9 +1057,10 @@ def main() -> int:
         supplement_before_identity = supplement_pr_identity(pr_supplement_before)
         if source_prs != supplement_before_identity:
             raise SystemExit("PR namespace or mutable identity moved after U0 collection")
-        live_supplement_by_number = {
-            int(row["number"]): row for row in pr_supplement_before
-        }
+        supplement_before_evidence = supplement_pr_mutable_evidence(
+            pr_supplement_before
+        )
+        live_evidence_by_number = supplement_before_evidence
     else:
         frozen_branch_path = args.source_branch_supplement or args.source_census.with_name(
             "source_branch_supplement.parquet"
@@ -1052,8 +1124,14 @@ def main() -> int:
         number: (
             list(frozen_supplement_by_number[number]["associated_issue"])
             if frozen_supplement_by_number is not None
-            else issues_from_pr(
-                source_pr_by_number[number], live_supplement_by_number[number]
+            else sorted(
+                set(live_evidence_by_number[number]["closing_issue_numbers"])
+                | {
+                    int(value)
+                    for value in ISSUE_RE.findall(
+                        str(source_pr_by_number[number].get("title") or "")
+                    )
+                }
             )
         )
         for number in source_pr_by_number
@@ -1126,13 +1204,10 @@ def main() -> int:
             checks, checks_summary = validated_frozen_checks(supplement, number)
             reviews = dict(supplement["review_state"])
         else:
-            supplement = live_supplement_by_number[number]
-            checks = [
-                normalize_check(item)
-                for item in supplement.get("statusCheckRollup") or []
-            ]
-            checks_summary = check_summary(checks)
-            reviews = review_summary(supplement)
+            evidence = live_evidence_by_number[number]
+            checks = [dict(item) for item in evidence["checks"]]
+            checks_summary = dict(evidence["check_summary"])
+            reviews = dict(evidence["review_state"])
         issues = issue_numbers_by_pr[number]
         row = {
             "number": number,
@@ -1217,6 +1292,11 @@ def main() -> int:
         pr_supplement_after = collect_pr_supplement(repo_root)
         if supplement_pr_identity(pr_supplement_after) != supplement_before_identity:
             raise SystemExit("PR namespace or mutable identity moved during P0-3 collection")
+        if (
+            supplement_pr_mutable_evidence(pr_supplement_after)
+            != supplement_before_evidence
+        ):
+            raise SystemExit("PR check, review, or issue evidence moved during P0-3 collection")
         remote_master = run(
             [
                 "git",
@@ -1296,10 +1376,10 @@ def main() -> int:
         )
     elif frozen_branch_source_path.resolve() != source_branch_supplement_path.resolve():
         shutil.copyfile(frozen_branch_source_path, source_branch_supplement_path)
-    if policy_input_path.resolve() != source_policy_path.resolve():
-        shutil.copyfile(policy_input_path, source_policy_path)
-    if runtime_requirements_input_path.resolve() != runtime_requirements_path.resolve():
-        shutil.copyfile(runtime_requirements_input_path, runtime_requirements_path)
+    write_canonical_text_copy(policy_input_path, source_policy_path)
+    write_canonical_text_copy(
+        runtime_requirements_input_path, runtime_requirements_path
+    )
     try:
         source_repository_path = source_artifact_path.relative_to(repo_root).as_posix()
         source_pr_supplement_repository_path = source_pr_supplement_path.relative_to(
@@ -1357,15 +1437,27 @@ def main() -> int:
             "repository_path": source_policy_repository_path,
             "media_type": "application/json",
             "bytes": source_policy_path.stat().st_size,
-            "sha256": portable_text_sha256(source_policy_path),
+            "sha256": file_sha256(source_policy_path),
         },
         "generator_runtime_requirements_artifact": {
             "repository_path": runtime_requirements_repository_path,
             "media_type": "text/plain",
             "bytes": runtime_requirements_path.stat().st_size,
-            "sha256": portable_text_sha256(runtime_requirements_path),
+            "sha256": file_sha256(runtime_requirements_path),
         },
         "generator_runtime_versions": GENERATOR_RUNTIME_VERSIONS,
+        "source_experiment_completeness": {
+            "historical_experiment_census_complete": source_summary[
+                "historical_experiment_census_complete"
+            ],
+            "historical_challenger_allowed": source_summary.get(
+                "historical_challenger_allowed"
+            ),
+            "unmapped_experiment_candidate_count": source_summary.get(
+                "unmapped_experiment_candidate_count"
+            ),
+        },
+        "source_promotion_blockers": list(promotion_blockers),
         "counts": {
             "branches": len(branch_rows),
             "pull_requests": len(pr_rows),
@@ -1443,9 +1535,9 @@ def main() -> int:
             "source_branch_supplement_sha256": file_sha256(
                 source_branch_supplement_path
             ),
-            "workflow_policy_sha256": portable_text_sha256(policy_input_path),
-            "generator_runtime_requirements_sha256": portable_text_sha256(
-                runtime_requirements_input_path
+            "workflow_policy_sha256": file_sha256(source_policy_path),
+            "generator_runtime_requirements_sha256": file_sha256(
+                runtime_requirements_path
             ),
             "branch_namespace_sha256": canonical_sha256(source_branches),
             "pull_request_namespace_sha256": canonical_sha256(source_prs),
@@ -1453,16 +1545,16 @@ def main() -> int:
         "output_hashes": {
             "branch_census.parquet": file_sha256(branch_path),
             "pr_census.parquet": file_sha256(pr_path),
-            "workflow_registry.yaml": portable_text_sha256(registry_path),
+            "workflow_registry.yaml": file_sha256(registry_path),
             "source_u0_github_census.json.gz": file_sha256(source_artifact_path),
             "source_pr_supplement.json.gz": file_sha256(source_pr_supplement_path),
             "source_branch_supplement.parquet": file_sha256(
                 source_branch_supplement_path
             ),
-            "source_workflow_authority_policy.json": portable_text_sha256(
+            "source_workflow_authority_policy.json": file_sha256(
                 source_policy_path
             ),
-            "requirements.txt": portable_text_sha256(runtime_requirements_path),
+            "requirements.txt": file_sha256(runtime_requirements_path),
         },
         "safety": {
             "metadata_only": True,
@@ -1481,10 +1573,13 @@ def main() -> int:
             "open_pr_review_threads_bulk_collected": False,
             "unknown_lineage_fail_closed": True,
             "publication_branch_and_pr_expected_delta": True,
+            "historical_experiment_census_complete": source_summary[
+                "historical_experiment_census_complete"
+            ],
         },
     }
     write_readme(args.output_dir / "README.md", summary)
-    summary["output_hashes"]["README.md"] = portable_text_sha256(
+    summary["output_hashes"]["README.md"] = file_sha256(
         args.output_dir / "README.md"
     )
     write_json(args.output_dir / "summary.json", summary)

@@ -114,6 +114,7 @@
     "every_visible_branch_classified": true,
     "every_visible_pr_dispositioned": true,
     "every_workflow_profiled": true,
+    "historical_experiment_census_complete": false,
     "open_pr_review_threads_bulk_collected": false,
     "publication_branch_and_pr_expected_delta": true,
     "unknown_lineage_fail_closed": true
@@ -149,7 +150,7 @@
     "pyarrow": "23.0.1"
   },
   "output_hashes": {
-    "README.md": "97e8c7b6a59b76fc144aa20822dc7b5e88787469f838a6d27344c492316c36bd",
+    "README.md": "227a6383028b1cb30681f4065d57c0594ef8a256d357474c26373f9273601a48",
     "branch_census.parquet": "98701ad208b92bc9c21506d8a322cb7258050998e2f46ba9d6760f0ea134d773",
     "pr_census.parquet": "b0a00792b3b61bdc7a559c0a62b91af17c07b07130c8acc64b152500daa8ef68",
     "requirements.txt": "8c74d7c2c73e36c06bee51001a8ffc2579ea71555bb392cfb89a6ce0e05047ca",
@@ -196,6 +197,11 @@
     "rows": 297,
     "sha256": "12ea17046e062707437b995b95cc610ccf2ef0398dbdf9ff05c0011ff810f530"
   },
+  "source_experiment_completeness": {
+    "historical_challenger_allowed": false,
+    "historical_experiment_census_complete": false,
+    "unmapped_experiment_candidate_count": 372
+  },
   "source_hashes": {
     "branch_namespace_sha256": "e70683436b46b133d93b66b47acde2565c6889bc654edce01e60182eb6afc126",
     "generator_runtime_requirements_sha256": "8c74d7c2c73e36c06bee51001a8ffc2579ea71555bb392cfb89a6ce0e05047ca",
@@ -213,6 +219,17 @@
     "uncompressed_bytes": 636613,
     "uncompressed_sha256": "29bd41bcbd07a7a739856ccc870b91711491986c464efc4342a7081d391b554c"
   },
+  "source_promotion_blockers": [
+    "branch_only_experiment_candidates_require_recovery",
+    "duplicate_code_head_sha_groups_require_canonical_deduplication",
+    "experiment_candidates_require_canonical_mapping",
+    "historical_return_series_and_trial_deduplication_not_recovered",
+    "one_or_more_git_ancestry_results_are_unverified",
+    "one_or_more_pr_changed_path_lists_are_truncated",
+    "one_or_more_pr_check_metadata_sets_are_unresolved",
+    "one_or_more_pr_review_metadata_sets_are_unresolved",
+    "parameter_and_data_hash_duplicate_groups_not_yet_recovered"
+  ],
   "source_workflow_policy_artifact": {
     "bytes": 15588,
     "media_type": "application/json",

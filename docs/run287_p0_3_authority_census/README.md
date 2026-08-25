@@ -43,6 +43,13 @@ Changed-path collection is incomplete for PRs
 identity and disposition evidence, but they are not complete recovery-path
 inventories and grant no merge or promotion authority.
 
+The frozen U0 source reports historical experiment census completeness as
+`false` and
+declares these promotion blockers:
+`["branch_only_experiment_candidates_require_recovery","duplicate_code_head_sha_groups_require_canonical_deduplication","experiment_candidates_require_canonical_mapping","historical_return_series_and_trial_deduplication_not_recovered","one_or_more_git_ancestry_results_are_unverified","one_or_more_pr_changed_path_lists_are_truncated","one_or_more_pr_check_metadata_sets_are_unresolved","one_or_more_pr_review_metadata_sets_are_unresolved","parameter_and_data_hash_duplicate_groups_not_yet_recovered"]`. This authority census preserves those
+blockers and does not replace experiment recovery, ancestry verification,
+trial deduplication, or historical return evidence.
+
 The publication branch and its PR did not exist in the captured namespace.  Their
 creation is the expected publication-only delta and does not authorize cleanup,
 workflow dispatch, a target/ledger mutation, fullrun, promotion, production, or
