@@ -1,0 +1,5032 @@
+schema_version: run287-p0-3-authority-census-v1
+generated_at_utc: '2026-08-25T05:19:23.469377+00:00'
+repository: wscha231/r1000-quant-engine
+audit_master_sha: 916a02ac0612d64d41f71690cf667a90dfd0531a
+namespace_binding:
+  branch_count: 297
+  branch_identity_sha256: e70683436b46b133d93b66b47acde2565c6889bc654edce01e60182eb6afc126
+  pull_request_count: 372
+  pull_request_identity_sha256: 639d708c707dbc48a1f02cc8eeb15a1c28837226f545b2ea8f84fb6b3313937c
+  workflow_count: 40
+  workflow_identity_sha256: 0b30a8fdae27e12029a3b23e85198d3ff05691c21f6c860e0987a89723766874
+  publication_delta: THIS_CENSUS_BRANCH_AND_PR_ABSENT_AT_SNAPSHOT_EXPECTED
+global_guards:
+  live_broker_execution_enabled: false
+  automatic_model_promotion_enabled: false
+  production_authority_default: NONE_RESEARCH_ONLY
+  model_promotion_authority_default: NONE_AUTOMATIC_DISABLED
+  unlisted_workflow_policy: FAIL_CLOSED
+official_authority:
+  us_target_writer_workflow: daily_operating_selection_refresh.yml
+  paper_ledger_consumer_workflow: daily_operating_selection_refresh.yml
+  paper_ledger_mode: SIMULATED_FILL_ONLY
+  accepted_state_store: GOOGLE_DRIVE_CANONICAL_PAPER_STATE
+  live_broker_writer_workflow: null
+workflows:
+- file: adr_candidate_monthly.yml
+  path: .github/workflows/adr_candidate_monthly.yml
+  display_name: ADR Candidate Monthly
+  workflow_blob_sha: bb77c3e949d3015710d40ea04d78deccd0adfc26
+  workflow_sha256: 24bf6d4de57c0ccacfe74445fd7a3bac54d96b8acb420def1f50ab07d6cc6484
+  trigger:
+    events:
+    - schedule
+    - workflow_dispatch
+    schedules:
+    - 20 9 2 * *
+    workflow_dispatch_inputs:
+    - name: candidate_csv
+      type: string
+      required: false
+      default: ''
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+    jobs: {}
+  secrets: []
+  variables: []
+  actions:
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: adr-candidate-review-${{ github.run_id }}
+    path: outputs/adr_candidates/
+  declared_output_paths:
+  - outputs/adr_candidates
+  authority_command_evidence: []
+  static_authority_references:
+    target: false
+    paper_ledger: false
+    broker_or_live_named: false
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: false
+    rclone_write: false
+  declared_role: monthly_adr_candidate_research
+  decision: KEEP
+  target_authority: RESEARCH_ARTIFACT_ONLY
+  paper_ledger_authority: NONE
+  durable_write_scope: RESEARCH_OR_DATASET_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: SCHEDULED_RESEARCH_ONLY
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: after_close_daily.yml
+  path: .github/workflows/after_close_daily.yml
+  display_name: After-Close Daily Automation
+  workflow_blob_sha: abe54a056da248e73923161400c1d05656655be0
+  workflow_sha256: 98ede7ba7a78161471a52f33a19ea1e7d65c2a58715900d11dbe9555193feff9
+  trigger:
+    events:
+    - schedule
+    - workflow_dispatch
+    schedules:
+    - 45 22 * * 1-5
+    - 0 6 * * 6
+    workflow_dispatch_inputs:
+    - name: advisor
+      type: choice
+      required: false
+      default: concentrated
+    - name: execute
+      type: boolean
+      required: false
+      default: 'false'
+    - name: override_regime_halt
+      type: boolean
+      required: false
+      default: 'false'
+    - name: allow_legacy_execute
+      type: boolean
+      required: false
+      default: 'false'
+    - name: scanner_top
+      type: string
+      required: false
+      default: '25'
+    - name: scanner_min_score
+      type: string
+      required: false
+      default: '70'
+    - name: scored_path
+      type: string
+      required: false
+      default: ''
+    - name: top_n
+      type: string
+      required: false
+      default: '10'
+    - name: entry_threshold
+      type: string
+      required: false
+      default: '0.65'
+    - name: reset_seen
+      type: boolean
+      required: false
+      default: 'false'
+  job_count: 1
+  permissions:
+    workflow:
+      contents: write
+    jobs: {}
+  secrets:
+  - ALPACA_API_KEY
+  - ALPACA_API_SECRET
+  - FINNHUB_API_KEY
+  - FRED_API_KEY
+  - TELEGRAM_BOT_TOKEN
+  - TELEGRAM_CHAT_ID
+  variables: []
+  actions:
+  - actions/cache@v4
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: after-close-daily-${{ github.run_id }}
+    path: 'aggressive/state/scanner/latest.json
+
+      cloud_results/scanner/
+
+      cloud_results/macro_daily/
+
+      cloud_results/etf_leadership/
+
+      cloud_results/theme_leadership_tape/
+
+      cloud_results/explosive_movers/
+
+      cloud_results/tactical_alpha/
+
+      outputs/tactical_alpha/
+
+      outputs/paper_runs/
+
+      outputs/regime_snapshot.txt
+
+      '
+  declared_output_paths:
+  - cloud_results/theme_leadership_tape
+  authority_command_evidence:
+  - if git push; then
+  static_authority_references:
+    target: false
+    paper_ledger: false
+    broker_or_live_named: true
+    broker_execution_command: true
+    promotion_or_champion: false
+    contents_write: true
+    rclone_write: false
+  declared_role: after_close_macro_regime_advisory
+  decision: CONSOLIDATE
+  target_authority: NONE
+  paper_ledger_authority: NONCANONICAL_ALPACA_PAPER_EXECUTOR_BLOCKED
+  durable_write_scope: VERSIONED_RESEARCH_REPORT_ONLY
+  production_live_authority: NONCANONICAL_ALPACA_PAPER_EXECUTION_PATH_BLOCKED
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: SCHEDULED_ADVISORY_ONLY; EXECUTE_AND_ALLOW_LEGACY_EXECUTE_INPUTS_GRANT_NO CANONICAL AUTHORITY
+  platform_validation_blockers: []
+  authority_blockers:
+  - LEGACY_ALPACA_PAPER_EXECUTOR_BYPASSES_CANONICAL_ACCOUNT_LEDGER
+  long_expression_blocks: []
+- file: agent_board_manual.yml
+  path: .github/workflows/agent_board_manual.yml
+  display_name: Agent Board (Manual / Scheduled)
+  workflow_blob_sha: af595830276949c214c36c7d2bf71b3a5beaebcb
+  workflow_sha256: 117765c8f39a078134dd94a6b6997ad7940249908a8fe0df7f34a7d778af1422
+  trigger:
+    events:
+    - schedule
+    - workflow_dispatch
+    schedules:
+    - 30 22 * * 0-4
+    workflow_dispatch_inputs:
+    - name: source_run_id
+      type: string
+      required: false
+      default: null
+    - name: latest_run
+      type: string
+      required: false
+      default: cloud_results/full_rebuild/latest_global_alpha_universe
+    - name: run_url
+      type: string
+      required: false
+      default: null
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+      actions: read
+    jobs: {}
+  secrets: []
+  variables: []
+  actions:
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: agent-board-${{ github.run_id }}
+    path: 'outputs/agent_board/
+
+      outputs/full_rebuild_logs/agent_board.log
+
+      '
+  declared_output_paths:
+  - outputs/agent_board
+  authority_command_evidence: []
+  static_authority_references:
+    target: false
+    paper_ledger: false
+    broker_or_live_named: false
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: false
+    rclone_write: false
+  declared_role: agent_and_issue_status_board
+  decision: KEEP
+  target_authority: NONE
+  paper_ledger_authority: NONE
+  durable_write_scope: ISSUE_AND_REPORT_METADATA_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: MANUAL_OR_SCHEDULED_METADATA_ONLY
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: aggressive_lab_manual.yml
+  path: .github/workflows/aggressive_lab_manual.yml
+  display_name: Aggressive Lab (Manual / Report-Only)
+  workflow_blob_sha: 7e6249bfc6061268117dcfbe300c7495ea0d8e19
+  workflow_sha256: aa0ad78bb3f98cf3bab91b817b1d82497188abc95619c9735cf4a5015103dab6
+  trigger:
+    events:
+    - workflow_dispatch
+    schedules: []
+    workflow_dispatch_inputs:
+    - name: experiment_ids
+      type: string
+      required: false
+      default: E0_baseline_latest
+    - name: baseline_run
+      type: string
+      required: false
+      default: cloud_results/full_rebuild/latest_global_alpha_universe
+    - name: run_regression_attribution
+      type: boolean
+      required: false
+      default: 'true'
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+    jobs: {}
+  secrets: []
+  variables: []
+  actions:
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: aggressive-lab-${{ github.run_id }}
+    path: 'outputs/experiments/
+
+      reports/regression_attribution_20260430_vs_latest.md
+
+      reports/regression_attribution_20260430_vs_latest.json
+
+      '
+  declared_output_paths: []
+  authority_command_evidence: []
+  static_authority_references:
+    target: false
+    paper_ledger: false
+    broker_or_live_named: false
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: false
+    rclone_write: false
+  declared_role: manual_aggressive_challenger_research
+  decision: KEEP
+  target_authority: RESEARCH_ARTIFACT_ONLY
+  paper_ledger_authority: RESEARCH_REPLAY_ONLY
+  durable_write_scope: RESEARCH_ARTIFACT_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: WORKFLOW_DISPATCH_RESEARCH_ONLY
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: alphaops_replay_sidecars_manual.yml
+  path: .github/workflows/alphaops_replay_sidecars_manual.yml
+  display_name: AlphaOps Replay Sidecars (Manual / Fast)
+  workflow_blob_sha: 3cce68c580388424b07057035f8004b0a51e256b
+  workflow_sha256: d3d1614e6e8dbabea57272556d5a2552cae142cbdeebafb64e06f322fa189a10
+  trigger:
+    events:
+    - workflow_dispatch
+    schedules: []
+    workflow_dispatch_inputs:
+    - name: source_run_id
+      type: string
+      required: true
+      default: null
+    - name: decision_time_utc
+      type: string
+      required: true
+      default: null
+    - name: cost_bps
+      type: string
+      required: false
+      default: '25'
+    - name: theme_cost_bps
+      type: string
+      required: false
+      default: '50'
+    - name: theme_top_n
+      type: string
+      required: false
+      default: '3'
+    - name: theme_single_name_cap
+      type: string
+      required: false
+      default: '0.50'
+    - name: max_fill_lag_days
+      type: string
+      required: false
+      default: '7'
+    - name: portfolio_policy
+      type: choice
+      required: false
+      default: alphaops_vnext_production
+    - name: sync_replay_to_gdrive
+      type: boolean
+      required: false
+      default: 'false'
+    - name: run_extended_research_sidecars
+      type: boolean
+      required: false
+      default: 'false'
+    - name: leader_gate_enabled
+      type: boolean
+      required: false
+      default: 'false'
+    - name: cycle_leadership_mask_enabled
+      type: boolean
+      required: false
+      default: 'false'
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+      actions: read
+    jobs: {}
+  secrets:
+  - GDRIVE_ROOT_FOLDER_ID
+  - GOOGLE_SERVICE_ACCOUNT_KEY
+  - RCLONE_CONFIG_GDRIVE
+  variables:
+  - GDRIVE_ROOT_FOLDER_ID
+  actions:
+  - actions/cache@v4
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: alphaops-replay-sidecars-${{ inputs.source_run_id }}-${{ github.run_id }}
+    path: 'outputs/reports/operating_*_target_book.csv
+
+      outputs/reports/operating_target_books_*
+
+      outputs/reports/operating_*_target_book_macro*.csv
+
+      outputs/reports/operating_*_target_book_regime_capacity*.csv
+
+      outputs/reports/dataset_coverage_audit.*
+
+      outputs/reports/event_*_target_book.csv
+
+      outputs/reports/weekly_leader_*_target_book.csv
+
+      outputs/alphaops_vnext/
+
+      !outputs/alphaops_vnext/lane_scores_history.csv
+
+      !outputs/alphaops_vnext/rejected_by_reason.csv
+
+      outputs/target_snapshots/
+
+      outputs/data_readiness/
+
+      outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv
+
+      outputs/sec_enriched_candidate_replay/summary.json
+
+      outputs/sec_enriched_candidate_replay/report.md
+
+      outputs/position_risk_weekly_validation/
+
+      outputs/broker_replay/
+
+      outputs/legacy_monthly_broker_replay/
+
+      outputs/event_target_books/
+
+      outputs/event_broker_replay/
+
+      outputs/weekly_leader_snapshots/
+
+      outputs/weekly_leader_broker_replay/
+
+      outputs/cost_sensitivity/
+
+      outputs/execution_cost_capacity/
+
+      outputs/trade_attribution/
+
+      outputs/churn_filter/
+
+      outputs/churn_filtered_broker_replay/
+
+      outputs/macro_circuit_filter/
+
+      outputs/macro_circuit_broker_replay/
+
+      outputs/regime_capacity_filter/
+
+      outputs/regime_capacity_broker_replay/
+
+      outputs/broker_position_risk_replay/
+
+      outputs/broker_parabolic_risk_replay/
+
+      outputs/broker_execution_policy_replay/
+
+      outputs/operating_event_backtest/
+
+      outputs/broker_gap_attribution/
+
+      outputs/cash_contract/
+
+      outputs/fast_full_drift_audit/
+
+      outputs/broker_trade_journal/
+
+      outputs/account_ledger_preview/
+
+      outputs/live_trading_safety/
+
+      outputs/live_trading_risk_controls/
+
+      outputs/monster_recommendations/
+
+      outputs/operating_snapshot/
+
+      outputs/operator_review/
+
+      outputs/user_portfolio_reports/
+
+      outputs/user_current/
+
+      outputs/weekly_evaluation/
+
+      outputs/theme_leadership_tape/
+
+      outputs/theme_concentration_challenger/
+
+      outputs/concentrated_policy_replay/
+
+      outputs/portfolio_goal_search/
+
+      outputs/account_evaluation/
+
+      outputs/metric_hygiene/
+
+      outputs/full_rebuild_logs/cash_contract.log
+
+      outputs/full_rebuild_logs/fast_full_drift_audit.log
+
+      outputs/portfolio_system_guard/
+
+      outputs/baseline_lock/
+
+      outputs/patch_application_manifest.json
+
+      outputs/replay_integrity/patch_application_manifest.json
+
+      outputs/full_rebuild_logs/
+
+      '
+  - name: alphaops-replay-research-${{ inputs.source_run_id }}-${{ github.run_id }}
+    path: 'outputs/sec_enriched_candidate_replay/
+
+      outputs/superperformance_trader_replay/
+
+      outputs/integrated_theme_leader_crisis_replay/
+
+      outputs/strategy_logic_ledger/
+
+      '
+  declared_output_paths:
+  - cache_prices
+  - outputs/account_evaluation
+  - outputs/account_ledger_preview/concentrated
+  - outputs/account_ledger_preview/main
+  - outputs/alphaops_vnext
+  - outputs/baseline_lock
+  - outputs/broker_execution_policy_replay/concentrated
+  - outputs/broker_execution_policy_replay/main
+  - outputs/broker_gap_attribution
+  - outputs/broker_parabolic_risk_replay/concentrated
+  - outputs/broker_parabolic_risk_replay/main
+  - outputs/broker_position_risk_replay/concentrated
+  - outputs/broker_position_risk_replay/main
+  - outputs/broker_replay/concentrated
+  - outputs/broker_replay/main
+  - outputs/broker_trade_journal
+  - outputs/cash_contract
+  - outputs/churn_filtered_broker_replay/main
+  - outputs/concentrated_policy_replay
+  - outputs/cost_sensitivity/concentrated
+  - outputs/cost_sensitivity/main
+  - outputs/data_readiness
+  - outputs/event_broker_replay/concentrated
+  - outputs/event_broker_replay/main
+  - outputs/event_target_books
+  - outputs/execution_cost_capacity/concentrated
+  - outputs/execution_cost_capacity/main
+  - outputs/fast_full_drift_audit
+  - outputs/integrated_theme_leader_crisis_replay
+  - outputs/legacy_monthly_broker_replay/concentrated
+  - outputs/legacy_monthly_broker_replay/main
+  - outputs/live_trading_risk_controls
+  - outputs/live_trading_safety
+  - outputs/macro_circuit_broker_replay/concentrated
+  - outputs/macro_circuit_broker_replay/main
+  - outputs/macro_circuit_broker_replay/main_factor00
+  - outputs/macro_circuit_broker_replay/main_factor25
+  - outputs/metric_hygiene
+  - outputs/monster_recommendations
+  - outputs/operating_event_backtest
+  - outputs/operating_snapshot
+  - outputs/operator_review
+  - outputs/patch_application_manifest.json
+  - outputs/portfolio_system_guard
+  - outputs/position_risk_weekly_validation/concentrated
+  - outputs/position_risk_weekly_validation/main
+  - outputs/position_risk_weekly_validation/main_v2
+  - outputs/regime_capacity_broker_replay/concentrated
+  - outputs/regime_capacity_broker_replay/concentrated_neutral90
+  - outputs/regime_capacity_broker_replay/main
+  - outputs/reports
+  - outputs/sec_enriched_candidate_replay
+  - outputs/strategy_logic_ledger
+  - outputs/superperformance_trader_replay
+  - outputs/target_snapshots
+  - outputs/theme_concentration_challenger
+  - outputs/theme_leadership_tape
+  - outputs/trade_attribution
+  - outputs/user_current
+  - outputs/user_portfolio_reports
+  - outputs/weekly_evaluation
+  - outputs/weekly_leader_broker_replay/concentrated
+  - outputs/weekly_leader_broker_replay/main
+  - outputs/weekly_leader_snapshots
+  authority_command_evidence:
+  - \( -name '*.json' -o -name '*.md' -o -name '*target_book.csv' -o -path 'outputs/user_current/*' -o -path 'outputs/alphaops_vnext/regime_capacity_overlay_audit.csv'
+    \) \
+  - cp outputs/alphaops_vnext/official_concentrated_target_book.csv outputs/replay_integrity/source_vnext_official_concentrated_target_book.csv
+    2>/dev/null || true
+  - cp outputs/alphaops_vnext/official_main_target_book.csv outputs/replay_integrity/source_vnext_official_main_target_book.csv
+    2>/dev/null || true
+  - cp outputs/replay_integrity/source_vnext_official_concentrated_target_book.csv outputs/reports/operating_concentrated_target_book.csv
+  - cp outputs/replay_integrity/source_vnext_official_main_target_book.csv outputs/reports/operating_main_target_book.csv
+  - elif [ -s outputs/replay_integrity/source_vnext_official_main_target_book.csv ] && [ -s outputs/replay_integrity/source_vnext_official_concentrated_target_book.csv
+    ]; then
+  - for tool in tools/build_replay_price_cache.py tools/build_operating_target_books.py tools/run_alphaops_vnext_policy_replay.py
+    tools/build_event_target_books.py tools/build_weekly_leader_target_books.py tools/archive_target_snapshots.py tools/audit_data_readiness.py
+    tools/run_dataset_coverage_audit.py tools/run_position_risk_weekly_validation.py tools/run_broker_ledger_replay.py tools/execution_cost_model.py
+    tools/run_execution_cost_capacity_sidecar.py tools/run_broker_position_risk_replay.py tools/run_broker_execution_policy_replay.py
+    tools/run_operating_event_backtest.py tools/run_broker_gap_attribution.py tools/validate_target_book_cash_contract.py
+    tools/run_fast_full_drift_audit.py tools/run_broker_trade_journal.py tools/run_account_order_preview.py tools/run_live_trading_safety_audit.py
+    tools/run_live_trading_risk_controls.py tools/run_monster_recommendation_bridge.py tools/run_operating_snapshot.py tools/run_user_portfolio_reports.py
+    tools/run_user_current_report.py tools/run_position_cleanup_review.py tools/run_patch_application_manifest.py tools/run_theme_leadership_tape.py
+    tools/run_theme_concentration_challenger.py tools/run_concentrated_policy_replay.py tools/run_portfolio_goal_search.py
+    tools/run_account_evaluation.py tools/run_metric_hygiene_report.py tools/run_portfolio_system_guard.py tools/create_healthy_baseline_lock.py
+    tools/run_sec_enriched_candidate_replay.py tools/run_superperformance_trader_replay.py tools/run_integrated_theme_leader_crisis_replay.py
+    tools/run_strategy_logic_ledger.py; do
+  - if [ -s outputs/reports/event_concentrated_target_book.csv ]; then
+  - if [ -s outputs/reports/event_main_target_book.csv ]; then
+  - if [ -s outputs/reports/operating_concentrated_target_book.csv ]; then
+  - if [ -s outputs/reports/operating_concentrated_target_book_macro_filtered.csv ]; then
+  - if [ -s outputs/reports/operating_concentrated_target_book_regime_capacity_filtered.csv ]; then
+  - if [ -s outputs/reports/operating_concentrated_target_book_regime_capacity_neutral90.csv ]; then
+  - if [ -s outputs/reports/operating_main_target_book.csv ]; then
+  - if [ -s outputs/reports/operating_main_target_book_churn_filtered.csv ]; then
+  - if [ -s outputs/reports/operating_main_target_book_macro_factor00.csv ]; then
+  - if [ -s outputs/reports/operating_main_target_book_macro_factor25.csv ]; then
+  - if [ -s outputs/reports/operating_main_target_book_macro_filtered.csv ]; then
+  - if [ -s outputs/reports/operating_main_target_book_regime_capacity_filtered.csv ]; then
+  - if [ -s outputs/reports/weekly_leader_concentrated_target_book.csv ]; then
+  - if [ -s outputs/reports/weekly_leader_main_target_book.csv ]; then
+  - if timeout 5m rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line; then
+  - python tools/build_event_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/event_target_books
+    --reports-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/event_target_books.log || true
+  - python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports
+    2>&1 | tee outputs/full_rebuild_logs/operating_target_books.log
+  - python tools/build_weekly_leader_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/weekly_leader_snapshots
+    --reports-dir outputs/reports 2>&1 | tee outputs/full_rebuild_logs/weekly_leader_target_books.log || true
+  - python tools/run_account_order_preview.py --account-state outputs/broker_replay/concentrated/account_state_latest.json
+    --target outputs/reports/operating_concentrated_target_book.csv --price-cache cache_prices --portfolio-kind concentrated
+    --output-dir outputs/account_ledger_preview/concentrated --cost-bps "$COST_BPS" --security-lifecycle-events data_static/run287_exact_packet/security_lifecycle_events.csv
+    --decision-time-utc "${{ inputs.decision_time_utc }}" 2>&1 | tee outputs/full_rebuild_logs/account_order_preview_concentrated.log
+  - python tools/run_account_order_preview.py --account-state outputs/broker_replay/main/account_state_latest.json --target
+    outputs/reports/operating_main_target_book.csv --price-cache cache_prices --portfolio-kind main --output-dir outputs/account_ledger_preview/main
+    --cost-bps "$COST_BPS" --security-lifecycle-events data_static/run287_exact_packet/security_lifecycle_events.csv --decision-time-utc
+    "${{ inputs.decision_time_utc }}" 2>&1 | tee outputs/full_rebuild_logs/account_order_preview_main.log
+  - python tools/run_broker_execution_policy_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv
+    --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/broker_execution_policy_replay/concentrated
+    --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" --buy-band 0.04 --sell-band 0.06
+    --winner-overweight-band 0.15 --new-entry-scale 0.85 2>&1 | tee outputs/full_rebuild_logs/broker_execution_policy_replay_concentrated.log
+    || true
+  - python tools/run_broker_execution_policy_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache
+    cache_prices --portfolio-kind main --output-dir outputs/broker_execution_policy_replay/main --fill-mode next_close --cost-bps
+    "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/broker_execution_policy_replay_main.log
+    || true
+  - python tools/run_broker_ledger_replay.py --target-book outputs/reports/event_concentrated_target_book.csv --price-cache
+    cache_prices --portfolio-kind concentrated --output-dir outputs/event_broker_replay/concentrated --fill-mode next_close
+    --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/event_broker_replay_concentrated.log
+    || true
+  - python tools/run_broker_ledger_replay.py --target-book outputs/reports/event_main_target_book.csv --price-cache cache_prices
+    --portfolio-kind main --output-dir outputs/event_broker_replay/main --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days
+    "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/event_broker_replay_main.log || true
+  - python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache
+    cache_prices --portfolio-kind concentrated --output-dir outputs/broker_replay/concentrated --fill-mode next_close --cost-bps
+    "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_concentrated.log
+  - python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_concentrated_target_book_macro_filtered.csv
+    --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/macro_circuit_broker_replay/concentrated
+    --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/macro_circuit_broker_replay_concentrated.log
+    || true
+  - python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_concentrated_target_book_regime_capacity_filtered.csv
+    --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/regime_capacity_broker_replay/concentrated
+    --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/regime_capacity_broker_replay_concentrated.log
+    || true
+  - python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_concentrated_target_book_regime_capacity_neutral90.csv
+    --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/regime_capacity_broker_replay/concentrated_neutral90
+    --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/regime_capacity_broker_replay_concentrated_neutral90.log
+    || true
+  - python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache cache_prices
+    --portfolio-kind main --output-dir outputs/broker_replay/main --fill-mode next_close --cost-bps "$COST_BPS" --max-fill-lag-days
+    "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/broker_ledger_replay_main.log
+  - python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book_churn_filtered.csv --price-cache
+    cache_prices --portfolio-kind main --output-dir outputs/churn_filtered_broker_replay/main --fill-mode next_close --cost-bps
+    "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/churn_filtered_broker_replay_main.log
+    || true
+  - python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book_macro_factor00.csv --price-cache
+    cache_prices --portfolio-kind main --output-dir outputs/macro_circuit_broker_replay/main_factor00 --fill-mode next_close
+    --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/macro_circuit_broker_replay_main_factor00.log
+    || true
+  - python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book_macro_factor25.csv --price-cache
+    cache_prices --portfolio-kind main --output-dir outputs/macro_circuit_broker_replay/main_factor25 --fill-mode next_close
+    --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/macro_circuit_broker_replay_main_factor25.log
+    || true
+  - python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book_macro_filtered.csv --price-cache
+    cache_prices --portfolio-kind main --output-dir outputs/macro_circuit_broker_replay/main --fill-mode next_close --cost-bps
+    "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/macro_circuit_broker_replay_main.log
+    || true
+  - python tools/run_broker_ledger_replay.py --target-book outputs/reports/operating_main_target_book_regime_capacity_filtered.csv
+    --price-cache cache_prices --portfolio-kind main --output-dir outputs/regime_capacity_broker_replay/main --fill-mode next_close
+    --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/regime_capacity_broker_replay_main.log
+    || true
+  - python tools/run_broker_ledger_replay.py --target-book outputs/reports/weekly_leader_concentrated_target_book.csv --price-cache
+    cache_prices --portfolio-kind concentrated --output-dir outputs/weekly_leader_broker_replay/concentrated --fill-mode next_close
+    --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/weekly_leader_broker_replay_concentrated.log
+    || true
+  - python tools/run_broker_ledger_replay.py --target-book outputs/reports/weekly_leader_main_target_book.csv --price-cache
+    cache_prices --portfolio-kind main --output-dir outputs/weekly_leader_broker_replay/main --fill-mode next_close --cost-bps
+    "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/weekly_leader_broker_replay_main.log
+    || true
+  - python tools/run_broker_position_risk_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache
+    cache_prices --portfolio-kind concentrated --output-dir outputs/broker_parabolic_risk_replay/concentrated --fill-mode
+    next_close --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" --hard-stop -9 --relative-trim-threshold -9
+    --relative-exit-threshold -9 --disable-distribution-exit --candidate-id concentrated_broker_parabolic_risk_replay --trailing-activation
+    0.50 --trailing-stop -0.20 2>&1 | tee outputs/full_rebuild_logs/broker_parabolic_risk_replay_concentrated.log || true
+  - python tools/run_broker_position_risk_replay.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache
+    cache_prices --portfolio-kind concentrated --output-dir outputs/broker_position_risk_replay/concentrated --fill-mode next_close
+    --cost-bps "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/broker_position_risk_replay_concentrated.log
+    || true
+  - python tools/run_broker_position_risk_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache
+    cache_prices --portfolio-kind main --output-dir outputs/broker_parabolic_risk_replay/main --fill-mode next_close --cost-bps
+    "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" --hard-stop -9 --relative-trim-threshold -9 --relative-exit-threshold
+    -9 --disable-distribution-exit --candidate-id main_broker_parabolic_risk_replay --trailing-activation 0.50 --trailing-stop
+    -0.20 2>&1 | tee outputs/full_rebuild_logs/broker_parabolic_risk_replay_main.log || true
+  - python tools/run_broker_position_risk_replay.py --target-book outputs/reports/operating_main_target_book.csv --price-cache
+    cache_prices --portfolio-kind main --output-dir outputs/broker_position_risk_replay/main --fill-mode next_close --cost-bps
+    "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" 2>&1 | tee outputs/full_rebuild_logs/broker_position_risk_replay_main.log
+    || true
+  - python tools/run_cost_sensitivity_sidecar.py --target-book outputs/reports/operating_concentrated_target_book.csv --price-cache
+    cache_prices --portfolio-kind concentrated --output-dir outputs/cost_sensitivity/concentrated --cost-bps-list 25 50 75
+    100 --baseline-cost-bps 25 2>&1 | tee outputs/full_rebuild_logs/cost_sensitivity_concentrated.log || true
+  - python tools/run_cost_sensitivity_sidecar.py --target-book outputs/reports/operating_main_target_book.csv --price-cache
+    cache_prices --portfolio-kind main --output-dir outputs/cost_sensitivity/main --cost-bps-list 25 50 75 100 --baseline-cost-bps
+    25 2>&1 | tee outputs/full_rebuild_logs/cost_sensitivity_main.log || true
+  - python tools/run_execution_cost_capacity_sidecar.py --target-book outputs/reports/operating_concentrated_target_book.csv
+    --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/execution_cost_capacity/concentrated --base-cost-bps
+    "$COST_BPS" --max-fill-lag-days "$MAX_FILL_LAG_DAYS" --capacity-participation-rates 0.001 0.005 0.01 2>&1 | tee outputs/full_rebuild_logs/execution_cost_capacity_concentrated.log
+    || true
+  - python tools/run_execution_cost_capacity_sidecar.py --target-book outputs/reports/operating_main_target_book.csv --price-cache
+    cache_prices --portfolio-kind main --output-dir outputs/execution_cost_capacity/main --base-cost-bps "$COST_BPS" --max-fill-lag-days
+    "$MAX_FILL_LAG_DAYS" --capacity-participation-rates 0.001 0.005 0.01 2>&1 | tee outputs/full_rebuild_logs/execution_cost_capacity_main.log
+    || true
+  - python tools/run_live_trading_risk_controls.py --latest-run outputs --price-cache cache_prices --output-dir outputs/live_trading_risk_controls
+    --account-mode simulated 2>&1 | tee outputs/full_rebuild_logs/live_trading_risk_controls.log || true
+  - python tools/run_live_trading_safety_audit.py --latest-run outputs --output-dir outputs/live_trading_safety 2>&1 | tee
+    outputs/full_rebuild_logs/live_trading_safety_audit.log || true
+  - python tools/run_macro_circuit_breaker_filter.py --input-book outputs/reports/operating_concentrated_target_book.csv --output-book
+    outputs/reports/operating_concentrated_target_book_macro_filtered.csv --diagnostics outputs/macro_circuit_filter/concentrated/diagnostics.json
+    --price-cache cache_prices --ma-window 200 --confirm-days 3 --halve-factor 0.5 2>&1 | tee outputs/full_rebuild_logs/macro_circuit_filter_concentrated.log
+    || true
+  - python tools/run_macro_circuit_breaker_filter.py --input-book outputs/reports/operating_main_target_book.csv --output-book
+    outputs/reports/operating_main_target_book_macro_factor00.csv --diagnostics outputs/macro_circuit_filter/main_factor00/diagnostics.json
+    --price-cache cache_prices --ma-window 200 --confirm-days 3 --halve-factor 0.00 2>&1 | tee outputs/full_rebuild_logs/macro_circuit_filter_main_factor00.log
+    || true
+  - python tools/run_macro_circuit_breaker_filter.py --input-book outputs/reports/operating_main_target_book.csv --output-book
+    outputs/reports/operating_main_target_book_macro_factor25.csv --diagnostics outputs/macro_circuit_filter/main_factor25/diagnostics.json
+    --price-cache cache_prices --ma-window 200 --confirm-days 3 --halve-factor 0.25 2>&1 | tee outputs/full_rebuild_logs/macro_circuit_filter_main_factor25.log
+    || true
+  - python tools/run_macro_circuit_breaker_filter.py --input-book outputs/reports/operating_main_target_book.csv --output-book
+    outputs/reports/operating_main_target_book_macro_filtered.csv --diagnostics outputs/macro_circuit_filter/main/diagnostics.json
+    --price-cache cache_prices --ma-window 200 --confirm-days 3 --halve-factor 0.5 2>&1 | tee outputs/full_rebuild_logs/macro_circuit_filter_main.log
+    || true
+  - python tools/run_neutral_regime_churn_filter.py --input-book outputs/reports/operating_main_target_book.csv --output-book
+    outputs/reports/operating_main_target_book_churn_filtered.csv --diagnostics outputs/churn_filter/main/diagnostics.json
+    --swap-threshold 2 --window-months 6 --target-regimes neutral 2>&1 | tee outputs/full_rebuild_logs/churn_filter_main.log
+    || true
+  - python tools/run_regime_capacity_filter.py --input-book outputs/reports/operating_concentrated_target_book.csv --output-book
+    outputs/reports/operating_concentrated_target_book_regime_capacity_filtered.csv --diagnostics outputs/regime_capacity_filter/concentrated/diagnostics.json
+    --multipliers "bear=0.5,deep_bear=0.25,neutral=0.85" --regime-source-book outputs/reports/operating_main_target_book.csv
+    2>&1 | tee outputs/full_rebuild_logs/regime_capacity_filter_concentrated.log || true
+  - python tools/run_regime_capacity_filter.py --input-book outputs/reports/operating_concentrated_target_book.csv --output-book
+    outputs/reports/operating_concentrated_target_book_regime_capacity_neutral90.csv --diagnostics outputs/regime_capacity_filter/concentrated_neutral90/diagnostics.json
+    --multipliers "bear=0.5,deep_bear=0.25,neutral=0.90" --regime-source-book outputs/reports/operating_main_target_book.csv
+    2>&1 | tee outputs/full_rebuild_logs/regime_capacity_filter_concentrated_neutral90.log || true
+  - python tools/run_regime_capacity_filter.py --input-book outputs/reports/operating_main_target_book.csv --output-book outputs/reports/operating_main_target_book_regime_capacity_filtered.csv
+    --diagnostics outputs/regime_capacity_filter/main/diagnostics.json --multipliers "bear=0.5,deep_bear=0.25" 2>&1 | tee
+    outputs/full_rebuild_logs/regime_capacity_filter_main.log || true
+  - python tools/validate_target_book_cash_contract.py --latest-run outputs --output-dir outputs/cash_contract 2>&1 | tee
+    outputs/full_rebuild_logs/cash_contract.log || true
+  - rclone copy "$SYNC_ROOT/outputs" "$DEST/"
+  - rclone copy outputs/replay_gdrive_manifest.json "$DEST/"
+  - rclone copyto outputs/patch_application_manifest.json "$DEST/patch_application_manifest.json"
+  static_authority_references:
+    target: true
+    paper_ledger: false
+    broker_or_live_named: true
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: false
+    rclone_write: true
+  declared_role: manual_fast_research_replay
+  decision: KEEP
+  target_authority: RESEARCH_ARTIFACT_ONLY
+  paper_ledger_authority: RESEARCH_REPLAY_ONLY
+  durable_write_scope: RESEARCH_OR_DATASET_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: WORKFLOW_DISPATCH_RESEARCH_ONLY
+  platform_validation_blockers:
+  - INVALID_WORKFLOW_EXCEEDED_MAX_EXPRESSION_LENGTH_21000
+  - STATIC_LONG_EXPRESSION_SCALAR_EXCEEDS_21000
+  authority_blockers: []
+  long_expression_blocks:
+  - length: 31252
+    expression_count: 2
+- file: daily_autolearning_scan.yml
+  path: .github/workflows/daily_autolearning_scan.yml
+  display_name: Daily AutoLearning Scan
+  workflow_blob_sha: dd693d37583793d40ff33ef679e6b5a9c206b451
+  workflow_sha256: ceb62612e4839a6a828816ab32e65965f1fa61d9b09167ad456792f5259391b7
+  trigger:
+    events:
+    - schedule
+    - workflow_dispatch
+    schedules:
+    - 30 22 * * 1-5
+    workflow_dispatch_inputs:
+    - name: latest_run
+      type: string
+      required: false
+      default: cloud_results/full_rebuild/latest_global_alpha_universe
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+    jobs: {}
+  secrets: []
+  variables: []
+  actions:
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: daily-autolearning-scan-${{ github.run_id }}
+    path: 'outputs/winner_lifecycle/
+
+      outputs/winner_onset_study/
+
+      outputs/shakeout_breakdown_study/
+
+      outputs/main_cash_drag_replay/
+
+      outputs/main_v2_backtest/
+
+      outputs/concentrated_policy_replay/
+
+      outputs/alpha_sprint_backtest/
+
+      outputs/position_aware_risk_replay/
+
+      outputs/monster_lifecycle_replay/
+
+      outputs/lifecycle_review_overlay_main/
+
+      outputs/monster_lifecycle_review_main/
+
+      outputs/monster_lifecycle_review_concentrated/
+
+      outputs/historical_trade_journey/
+
+      outputs/autolearning_winner_challenger/
+
+      '
+  declared_output_paths:
+  - outputs/alpha_sprint_backtest
+  - outputs/autolearning_winner_challenger
+  - outputs/concentrated_policy_replay
+  - outputs/historical_trade_journey
+  - outputs/lifecycle_review_overlay_main
+  - outputs/main_cash_drag_replay
+  - outputs/main_v2_backtest
+  - outputs/monster_lifecycle_replay
+  - outputs/monster_lifecycle_review_concentrated
+  - outputs/monster_lifecycle_review_main
+  - outputs/position_aware_risk_replay
+  - outputs/shakeout_breakdown_study
+  - outputs/winner_lifecycle
+  - outputs/winner_onset_study
+  authority_command_evidence: []
+  static_authority_references:
+    target: false
+    paper_ledger: false
+    broker_or_live_named: false
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: false
+    rclone_write: false
+  declared_role: daily_challenger_proposal_scan
+  decision: KEEP
+  target_authority: NONE
+  paper_ledger_authority: NONE
+  durable_write_scope: PROPOSAL_ARTIFACT_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: NO_AUTOMATIC_ACTIVATION
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: daily_crisis_monitor.yml
+  path: .github/workflows/daily_crisis_monitor.yml
+  display_name: Daily Crisis Monitor
+  workflow_blob_sha: 2e39af1046007af7f4e6ea075370762be20787ff
+  workflow_sha256: 9bed2efb00169cce5b5f7936ddda5792b9d3404dcad367e17f735e35b88c08ed
+  trigger:
+    events:
+    - schedule
+    - workflow_dispatch
+    schedules:
+    - 30 22 * * 1-5
+    workflow_dispatch_inputs: []
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+    jobs: {}
+  secrets:
+  - GDRIVE_ROOT_FOLDER_ID
+  - GOOGLE_SERVICE_ACCOUNT_KEY
+  - RCLONE_CONFIG_GDRIVE
+  variables:
+  - GDRIVE_ROOT_FOLDER_ID
+  actions:
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: daily-crisis-monitor-${{ github.run_id }}
+    path: outputs/daily_crisis_monitor/
+  declared_output_paths:
+  - outputs/daily_crisis_monitor
+  authority_command_evidence:
+  - for d in outputs/user_current outputs/operating_snapshot outputs/live_trading_safety outputs/live_trading_risk_controls
+    outputs/macro_policy_engine outputs/long_crisis_learning data_pit/macro; do
+  - mkdir -p outputs/user_current outputs/operating_snapshot outputs/live_trading_safety outputs/live_trading_risk_controls
+    outputs/macro_policy_engine outputs/long_crisis_learning data_pit/macro
+  - rclone copy outputs/daily_crisis_monitor "$DEST/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
+  - timeout 5m rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
+  static_authority_references:
+    target: false
+    paper_ledger: false
+    broker_or_live_named: true
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: false
+    rclone_write: true
+  declared_role: daily_crisis_advisory_monitor
+  decision: CONSOLIDATE
+  target_authority: NONE
+  paper_ledger_authority: NONE
+  durable_write_scope: ADVISORY_RESEARCH_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: NO_TARGET_MUTATION_AUTHORITY
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: daily_operating_selection_refresh.yml
+  path: .github/workflows/daily_operating_selection_refresh.yml
+  display_name: Daily Operating Selection Refresh
+  workflow_blob_sha: b058cc27b80cd3f7cd162313a68ca320160e2925
+  workflow_sha256: 2641bac359df70a72a981171b8c2aa8ebd186353722139927fa2e8f5297cd851
+  trigger:
+    events:
+    - schedule
+    - workflow_dispatch
+    schedules:
+    - 15 1 * * 2-6
+    workflow_dispatch_inputs:
+    - name: force_run
+      type: boolean
+      required: false
+      default: 'false'
+    - name: session_date
+      type: string
+      required: false
+      default: ''
+    - name: catchup_price_evidence_run_id
+      type: string
+      required: false
+      default: ''
+    - name: catchup_price_evidence_artifact_digest
+      type: string
+      required: false
+      default: ''
+    - name: catchup_secret_scope_attestation_comment_id
+      type: string
+      required: false
+      default: ''
+    - name: latest_run
+      type: string
+      required: false
+      default: outputs
+    - name: strict_selection
+      type: boolean
+      required: false
+      default: 'true'
+    - name: allow_risk_outcome_genesis_bootstrap
+      type: boolean
+      required: false
+      default: 'false'
+    - name: allow_quarantined_legacy_outcome_parent
+      type: boolean
+      required: false
+      default: 'false'
+    - name: allow_verified_paper_canonical_head_bootstrap
+      type: boolean
+      required: false
+      default: 'false'
+  job_count: 1
+  permissions:
+    workflow:
+      actions: read
+      contents: read
+      issues: write
+    jobs: {}
+  secrets:
+  - GDRIVE_ROOT_FOLDER_ID
+  - RUN287_DURABLE_ENVIRONMENT_ATTESTATION
+  - RUN287_DURABLE_GOOGLE_SERVICE_ACCOUNT_KEY
+  - RUN287_DURABLE_RCLONE_CONFIG_GDRIVE
+  variables:
+  - GDRIVE_ROOT_FOLDER_ID
+  actions:
+  - actions/cache/restore@v4
+  - actions/cache/save@v4
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: daily-operating-selection-refresh-${{ github.run_id }}
+    path: 'outputs/data_freshness_contract/
+
+      outputs/daily_market_snapshot/
+
+      outputs/daily_market_session_gate/
+
+      outputs/daily_operating_selection_refresh/
+
+      outputs/data_readiness/
+
+      outputs/reports/operating_target_books_*
+
+      outputs/holding_risk_watch/
+
+      outputs/run287_exact_packet_upstream/
+
+      outputs/run287_exact_packet_input_sources/
+
+      outputs/run287_exact_packet_input_registry/
+
+      outputs/run287_exact_packet_producer/
+
+      outputs/run287_same_close_decision/*/status.json
+
+      outputs/run287_current_selector_no_write_exact_close_*/
+
+      outputs/run287_candidate_risk_watch_exact_close_*/
+
+      outputs/run287_ohlcv_location_timing_exact_close_*/
+
+      outputs/run287_decision_observation_archive/
+
+      outputs/run287_risk_outcome_parent_accepted/
+
+      outputs/run287_risk_outcome_parent_anchor/
+
+      outputs/run287_risk_outcome_accepted_head_bundles/
+
+      outputs/run287_risk_outcome_accepted_head_manifests/
+
+      outputs/run287_risk_outcome_archive/
+
+      outputs/run287_risk_outcome_price_cache/replay_price_cache_manifest.json
+
+      outputs/run287_operating_scorecard/
+
+      outputs/run287_promotion_gate/
+
+      outputs/run287_accepted_publication/
+
+      outputs/sec_enriched_candidate_replay/
+
+      outputs/portfolio_latest.csv
+
+      outputs/concentrated_portfolio_latest.csv
+
+      data_pit/macro/latest.json
+
+      data_raw/free/macro/daily_snapshot/latest.json
+
+      outputs/full_rebuild_logs/daily_*.log
+
+      outputs/full_rebuild_logs/daily_operating_price_cache_refresh.log
+
+      outputs/full_rebuild_logs/daily_operating_price_cache_refresh_attempt.json
+
+      outputs/full_rebuild_logs/daily_operating_initial_price_cache_refresh_attempt.json
+
+      outputs/full_rebuild_logs/daily_operating_price_cache_refresh_prior_manifest.json
+
+      cache_prices/replay_price_cache_transaction.json
+
+      outputs/full_rebuild_logs/daily_paper_legacy_drive_migration.json
+
+      data_pit/free/market_snapshot/
+
+      data_raw/free/market_snapshot/
+
+      outputs/full_rebuild_logs/daily_user_current_contract.log
+
+      outputs/full_rebuild_logs/daily_paper_bootstrap.log
+
+      outputs/full_rebuild_logs/daily_simulated_fill_ledger_mark_only.log
+
+      outputs/full_rebuild_logs/daily_holding_risk_watch.log
+
+      outputs/full_rebuild_logs/daily_run287_exact_packet_upstream.log
+
+      outputs/full_rebuild_logs/daily_run287_exact_packet_input_registry.log
+
+      outputs/full_rebuild_logs/daily_run287_exact_packet_producer.log
+
+      outputs/full_rebuild_logs/daily_run287_ohlcv_location_timing_challenger.log
+
+      outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log
+
+      outputs/full_rebuild_logs/daily_run287_same_close_target_books.log
+
+      outputs/full_rebuild_logs/daily_run287_decision_observation_archive.log
+
+      outputs/full_rebuild_logs/daily_run287_risk_outcome_parent_anchor.log
+
+      outputs/full_rebuild_logs/daily_run287_risk_outcomes.log
+
+      outputs/full_rebuild_logs/daily_run287_*outcome_head*.json
+
+      outputs/full_rebuild_logs/daily_run287_outcome_parent_paper_continuity.json
+
+      outputs/full_rebuild_logs/daily_run287_operating_scorecard.log
+
+      outputs/full_rebuild_logs/daily_run287_promotion_gate.log
+
+      outputs/full_rebuild_logs/daily_accepted_publication_manifest.log
+
+      outputs/full_rebuild_logs/data_freshness_contract.log
+
+      cache_prices/replay_price_cache_manifest.json
+
+      '
+  - name: accepted-paper-transaction-${{ github.run_id }}
+    path: 'outputs/reports/operating_*_target_book.csv
+
+      outputs/operating_snapshot/
+
+      outputs/user_current/
+
+      outputs/user_portfolio_reports/
+
+      outputs/account_ledger_preview/
+
+      outputs/daily_simulated_fill_ledger/
+
+      outputs/run287_paper_immutable_head_bundles/
+
+      outputs/run287_same_close_decision/
+
+      outputs/run287_decision_observation_archive/
+
+      outputs/run287_risk_outcome_parent_accepted/
+
+      outputs/run287_risk_outcome_parent_anchor/
+
+      outputs/run287_risk_outcome_accepted_head_bundles/
+
+      outputs/run287_risk_outcome_accepted_head_manifests/
+
+      outputs/run287_risk_outcome_archive/
+
+      outputs/run287_risk_outcome_price_cache/
+
+      outputs/run287_operating_scorecard/
+
+      outputs/run287_promotion_gate/
+
+      outputs/run287_accepted_publication/
+
+      outputs/full_rebuild_logs/daily_paper_snapshot_integrity.json
+
+      outputs/full_rebuild_logs/daily_paper_legacy_drive_migration.json
+
+      outputs/full_rebuild_logs/daily_run287_outcome_parent_paper_continuity.json
+
+      '
+  - name: accepted-paper-catchup-${{ env.LAST_NYSE_SESSION_DATE }}-${{ github.run_id }}
+    path: 'outputs/daily_market_session_gate/session.json
+
+      outputs/daily_operating_selection_refresh/summary.json
+
+      outputs/run287_catchup_price_evidence/status.json
+
+      outputs/run287_catchup_price_evidence/github_artifact_metadata.json
+
+      outputs/run287_catchup_price_cache/
+
+      outputs/run287_catchup_target_evidence_status.json
+
+      outputs/run287_catchup_target_evidence/
+
+      outputs/run287_catchup_target_source/
+
+      outputs/run287_ohlcv_location_timing_exact_close_*/
+
+      outputs/run287_decision_observation_archive/
+
+      outputs/daily_simulated_fill_ledger/
+
+      outputs/run287_paper_immutable_head_bundles/
+
+      outputs/account_ledger_preview/
+
+      outputs/run287_same_close_decision/*/status.json
+
+      ${{ runner.temp }}/run287_durable_scope_initial.json
+
+      ${{ runner.temp }}/run287_durable_scope_final.json
+
+      ${{ runner.temp }}/run287_durable_scope_persist.json
+
+      ${{ runner.temp }}/run287_durable_scope_consumption_record.json
+
+      ${{ runner.temp }}/run287_durable_scope_consumption_initial.json
+
+      ${{ runner.temp }}/run287_durable_scope_consumption_final.json
+
+      ${{ runner.temp }}/run287_durable_scope_consumption_persist.json
+
+      outputs/full_rebuild_logs/daily_paper_snapshot_integrity.json
+
+      outputs/full_rebuild_logs/daily_paper_legacy_drive_migration.json
+
+      outputs/full_rebuild_logs/daily_simulated_fill_ledger_mark_only.log
+
+      outputs/full_rebuild_logs/daily_run287_ohlcv_location_timing_challenger.log
+
+      outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log
+
+      '
+  - name: blocked-paper-catchup-${{ env.LAST_NYSE_SESSION_DATE }}-${{ github.run_id }}
+    path: 'outputs/daily_market_session_gate/session.json
+
+      outputs/daily_operating_selection_refresh/summary.json
+
+      outputs/run287_catchup_price_evidence/status.json
+
+      outputs/run287_catchup_price_evidence/github_artifact_metadata.json
+
+      outputs/run287_catchup_price_cache/
+
+      outputs/run287_catchup_target_evidence_status.json
+
+      outputs/run287_catchup_target_evidence/
+
+      outputs/run287_catchup_target_source/
+
+      ${{ runner.temp }}/run287_durable_scope_initial.json
+
+      ${{ runner.temp }}/run287_durable_scope_final.json
+
+      ${{ runner.temp }}/run287_durable_scope_persist.json
+
+      ${{ runner.temp }}/run287_durable_scope_consumption_record.json
+
+      ${{ runner.temp }}/run287_durable_scope_consumption_initial.json
+
+      ${{ runner.temp }}/run287_durable_scope_consumption_final.json
+
+      ${{ runner.temp }}/run287_durable_scope_consumption_persist.json
+
+      outputs/full_rebuild_logs/daily_paper_legacy_drive_migration.json
+
+      outputs/full_rebuild_logs/daily_simulated_fill_ledger_mark_only.log
+
+      outputs/full_rebuild_logs/daily_run287_ohlcv_location_timing_challenger.log
+
+      outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log
+
+      outputs/full_rebuild_logs/daily_paper_snapshot_integrity.json
+
+      '
+  declared_output_paths:
+  - $CONSUMPTION_FINAL
+  - $CONSUMPTION_PRE_PERSIST
+  - $CONSUMPTION_RECEIPT
+  - $OHLCV_TIMING_DIR
+  - $OUTCOME_HEAD_STAGING
+  - $PAPER_HEAD_CACHE_SELECTION
+  - $PAPER_IMMUTABLE_SELECTION
+  - $PATTERN_CATCHUP_TIMING_DIR
+  - $PRICE_REFRESH_ATTEMPT
+  - $RUNNER_TEMP/daily_market_session_gate.json
+  - $RUNNER_TEMP/run287_current_paper_integrity.json
+  - $SAME_CLOSE_DIR
+  - $SCOPE_EVIDENCE
+  - $SCOPE_FINAL
+  - $SCOPE_PRE_PERSIST
+  - $output
+  - cache_prices
+  - outputs/daily_market_session_gate/close_price_coverage.json
+  - outputs/daily_market_snapshot
+  - outputs/data_freshness_contract
+  - outputs/data_readiness
+  - outputs/full_rebuild_logs/daily_paper_legacy_drive_migration.json
+  - outputs/full_rebuild_logs/daily_paper_snapshot_integrity.json
+  - outputs/full_rebuild_logs/daily_run287_cached_outcome_head_verification.json;
+  - outputs/full_rebuild_logs/daily_run287_outcome_head_selection.json
+  - outputs/full_rebuild_logs/daily_run287_outcome_head_stage.json
+  - outputs/full_rebuild_logs/daily_run287_outcome_head_verification.json
+  - outputs/holding_risk_watch
+  - outputs/operating_snapshot
+  - outputs/reports
+  - outputs/run287_accepted_publication/manifest.json
+  - outputs/run287_decision_observation_archive
+  - outputs/run287_decision_observation_archive/ohlcv_pattern_memory
+  - outputs/run287_exact_packet_input_registry
+  - outputs/run287_exact_packet_producer
+  - outputs/run287_exact_static_restore/status.json
+  - outputs/run287_operating_scorecard
+  - outputs/run287_promotion_gate
+  - outputs/run287_risk_outcome_accepted_head_bundles/$ACCEPTED_OUTCOME_HEAD_SHA
+  - outputs/run287_risk_outcome_archive
+  - outputs/run287_risk_outcome_parent_anchor/anchor.json
+  - outputs/run287_risk_outcome_price_cache
+  - outputs/sec_enriched_candidate_replay
+  - outputs/user_current
+  - outputs/user_portfolio_reports
+  authority_command_evidence:
+  - '"$RUNNER_TEMP/run287_daily_simulated_fill_ledger_heads_cas.json"'
+  - '"$RUNNER_TEMP/run287_daily_simulated_fill_ledger_heads_preflight.json"'
+  - '"$SAME_CLOSE_DIR/same_close_concentrated_target_book.csv" <<''PY'''
+  - '"$SAME_CLOSE_DIR/same_close_main_target_book.csv" \'
+  - '"${BASE}paper_archive/recovery/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/untrusted_mutable_canonical/" \'
+  - '"${BASE}paper_archive/run287_risk_outcome_archive/" \'
+  - '"${PROMOTION_ANCHORS[@]}" \'
+  - '"- live_trading_enabled: `false`\n"'
+  - '"advanced promotion state lacks an approved multiple-testing bundle"'
+  - '"forward_promotion_eligible": False,'
+  - '"live_trading_enabled": False,'
+  - '"outputs/daily_simulated_fill_ledger/snapshot_integrity.json"'
+  - '"promotion_allowed": False,'
+  - '"promotion_allowed": bool(status.get("promotion_allowed", False)),'
+  - '"promotion_state_snapshot_path",'
+  - '- live_trading_enabled: `false`'
+  - --account outputs/daily_simulated_fill_ledger/bootstrap/concentrated_account.json \
+  - --account outputs/daily_simulated_fill_ledger/bootstrap/main_account.json \
+  - --add-head-source outputs/daily_simulated_fill_ledger
+  - --concentrated-account outputs/daily_simulated_fill_ledger/concentrated/account_state_latest.json \
+  - --concentrated-bootstrap-account outputs/daily_simulated_fill_ledger/bootstrap/concentrated_account.json \
+  - --concentrated-publish-target outputs/reports/operating_concentrated_target_book.csv \
+  - --concentrated-target "$SAME_CLOSE_DIR/same_close_concentrated_target_book.csv" \
+  - --concentrated-target outputs/reports/operating_concentrated_target_book.csv \
+  - --contract data_static/run287_promotion_gate_contract.json \
+  - --evidence data_static/run287_promotion_evidence_current.json \
+  - --expected-promotion-gate-sha256 "${{ steps.promotion_gate.outputs.promotion_gate_sha256 }}" \
+  - --install-source outputs/daily_simulated_fill_ledger \
+  - --main-account outputs/daily_simulated_fill_ledger/main/account_state_latest.json \
+  - --main-bootstrap-account outputs/daily_simulated_fill_ledger/bootstrap/main_account.json \
+  - --main-publish-target outputs/reports/operating_main_target_book.csv \
+  - --main-target "$SAME_CLOSE_DIR/same_close_main_target_book.csv" \
+  - --main-target outputs/reports/operating_main_target_book.csv \
+  - --multiple-testing-promotion-state-snapshot "${MULTIPLE_TESTING_POINTER[6]}"
+  - --output-dir outputs/run287_promotion_gate \
+  - --state data_static/run287_promotion_state.json \
+  - --state-dir outputs/daily_simulated_fill_ledger \
+  - 2>&1 | tee outputs/full_rebuild_logs/daily_operating_target_books.log || \
+  - 2>&1 | tee outputs/full_rebuild_logs/daily_run287_promotion_gate.log
+  - 2>&1 | tee outputs/full_rebuild_logs/daily_run287_same_close_target_books.log; then
+  - 2>&1 | tee outputs/full_rebuild_logs/daily_simulated_fill_ledger.log
+  - 2>&1 | tee outputs/full_rebuild_logs/daily_simulated_fill_ledger_mark_only.log
+  - ': > "$PAPER_ARCHIVE_DIRS"'
+  - ANCHOR_SNAPSHOT_HASH="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("previous_snapshot_hash",
+    ""))' outputs/daily_simulated_fill_ledger/snapshot_integrity.json)"
+  - CACHED_LEDGER_HASH="$(python -c 'import json; print(json.load(open("outputs/daily_simulated_fill_ledger/snapshot_integrity.json",
+    encoding="utf-8"))["snapshot_hash"])')"
+  - CANONICAL="${BASE}paper_archive/run287_daily_simulated_fill_ledger"
+  - CLOSE_CONCENTRATED_TARGET="outputs/daily_simulated_fill_ledger/concentrated/effective_target_latest.csv"
+  - CLOSE_CONCENTRATED_TARGET="outputs/reports/operating_concentrated_target_book.csv"
+  - CLOSE_MAIN_TARGET="outputs/daily_simulated_fill_ledger/main/effective_target_latest.csv"
+  - CLOSE_MAIN_TARGET="outputs/reports/operating_main_target_book.csv"
+  - DURABLE_TARGET_SOURCE_DIR="outputs/daily_simulated_fill_ledger/replay_target_source/${PAPER_AS_OF}"
+  - HEADS="${BASE}paper_archive/run287_daily_simulated_fill_ledger_heads"
+  - LOCAL_SNAPSHOT_HASH="$(python -c 'import json; print(json.load(open("outputs/daily_simulated_fill_ledger/snapshot_integrity.json",
+    encoding="utf-8"))["snapshot_hash"])')"
+  - OUTCOME_REMOTE_HEADS="${BASE}paper_archive/run287_risk_outcome_accepted_heads"
+  - PAPER_ARCHIVE_DIRS="$RUNNER_TEMP/run287_paper_archive_dirs.txt"
+  - PAPER_ARCHIVE_DIRS="$RUNNER_TEMP/run287_risk_outcome_paper_archive_dirs.txt"
+  - PAPER_CACHE_ANCHOR="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_cache_anchor"
+  - PAPER_CONCENTRATED_TARGET="outputs/reports/operating_concentrated_target_book.csv"
+  - PAPER_HEAD_CANDIDATE="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_head_${PAPER_REMOTE_SNAPSHOT_HASH}"
+  - PAPER_HEAD_DIR_LIST="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_head_dirs.txt"
+  - PAPER_HEAD_FILES="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_head_${PAPER_HEAD_HASH}_files.txt"
+  - PAPER_HEAD_LIST="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_heads.txt"
+  - PAPER_HEAD_LIST_RAW="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_heads_raw.txt"
+  - PAPER_IMMUTABLE_HEADS_LOCAL="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_immutable_heads"
+  - PAPER_IMMUTABLE_SELECTION="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_immutable_selection.json"
+  - PAPER_LOCAL_RECOVERY="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_pre_remote"
+  - PAPER_MAIN_TARGET="outputs/reports/operating_main_target_book.csv"
+  - PAPER_PROSPECTIVE_HEADS="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_heads_prospective"
+  - PAPER_PROSPECTIVE_SELECTION="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_heads_prospective.json"
+  - PAPER_REMOTE_CANDIDATE="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_remote"
+  - PAPER_REMOTE_CAS_CHECK="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_cas_check"
+  - PAPER_REMOTE_HEADS="${BASE}paper_archive/run287_daily_simulated_fill_ledger_heads"
+  - PAPER_REMOTE_HEADS_CAS="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_heads_cas"
+  - PAPER_REMOTE_HEADS_POSTCOMMIT="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_heads_postcommit"
+  - PAPER_REMOTE_HEADS_POSTMIRROR="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_heads_postmirror"
+  - PAPER_REMOTE_HEADS_PREFLIGHT="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_heads_preflight"
+  - PAPER_REMOTE_PERSIST_ANCHOR="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_persist_anchor"
+  - PAPER_REMOTE_POSTCHECK="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_postcheck"
+  - PAPER_STATE_AS_OF="$(python -c 'import json; print(json.load(open("outputs/daily_simulated_fill_ledger/summary.json",
+    encoding="utf-8"))["as_of_date"])')"
+  - PAPER_UNTRUSTED_CANONICAL="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_untrusted_canonical"
+  - POSTCOMMIT_SELECTION="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_heads_postcommit.json"
+  - POSTMIRROR_SELECTION="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_heads_postmirror.json"
+  - PROMOTION_ANCHORS+=(
+  - PROMOTION_ANCHORS=(
+  - Path("data_static/run287_promotion_state.json").read_text(
+  - RECOVERY="${BASE}paper_archive/recovery/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/run287_daily_simulated_fill_ledger"
+  - REMOTE_HEADS="${BASE}paper_archive/run287_risk_outcome_accepted_heads"
+  - SOURCE_CONCENTRATED_TARGET="outputs/daily_simulated_fill_ledger/concentrated/effective_target_latest.csv"
+  - SOURCE_MAIN_TARGET="outputs/daily_simulated_fill_ledger/main/effective_target_latest.csv"
+  - '[ -f "$PAPER_ARCHIVE_DIRS" ]; then'
+  - '[ -s outputs/daily_simulated_fill_ledger/snapshot_integrity.json ] && \'
+  - '[ -s outputs/reports/operating_concentrated_target_book.csv ] && BOOKS+=(--book outputs/reports/operating_concentrated_target_book.csv)'
+  - '[ -s outputs/reports/operating_main_target_book.csv ] && BOOKS+=(--book outputs/reports/operating_main_target_book.csv)'
+  - assert_legacy_drive_source_matches "$RUNNER_TEMP/run287_daily_simulated_fill_ledger_remote"
+  - canonical production output without a separate user-approved promotion.
+  - cp -a "$PAPER_CACHE_ANCHOR" outputs/daily_simulated_fill_ledger
+  - cp -a "$PAPER_REMOTE_CANDIDATE" outputs/daily_simulated_fill_ledger
+  - cp -a outputs/daily_simulated_fill_ledger "$PAPER_CACHE_ANCHOR"
+  - cp -a outputs/daily_simulated_fill_ledger "$PAPER_LOCAL_RECOVERY"
+  - echo "[daily-operating] operating target book build failed or timed out; freshness contract will block selection" | tee
+    -a outputs/full_rebuild_logs/daily_operating_target_books.log
+  - echo "concentrated_target=outputs/run287_catchup_target_evidence/operating_concentrated_target_book.csv" >> "$GITHUB_OUTPUT"
+  - echo "integrity_sha256=$(sha256sum outputs/daily_simulated_fill_ledger/snapshot_integrity.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+  - echo "main_target=outputs/run287_catchup_target_evidence/operating_main_target_book.csv" >> "$GITHUB_OUTPUT"
+  - echo "promotion_gate_sha256=$(sha256sum outputs/run287_promotion_gate/promotion_gate.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+  - elif [ -e outputs/daily_simulated_fill_ledger ]; then
+  - elif [ -s outputs/daily_simulated_fill_ledger/snapshot_integrity.json ] && \
+  - 'f"promotion state missing pointer policy: {promotion_state}"'
+  - for d in outputs/data_freshness_contract outputs/daily_market_snapshot outputs/daily_operating_selection_refresh outputs/data_readiness
+    outputs/holding_risk_watch outputs/run287_exact_packet_upstream outputs/run287_exact_packet_input_sources outputs/run287_exact_packet_input_registry
+    outputs/run287_exact_packet_producer outputs/run287_ohlcv_location_timing_exact_close_* outputs/run287_decision_observation_archive
+    outputs/run287_risk_outcome_parent_accepted outputs/run287_risk_outcome_parent_anchor outputs/run287_risk_outcome_accepted_head_manifests
+    outputs/run287_risk_outcome_archive outputs/run287_operating_scorecard outputs/run287_promotion_gate outputs/sec_enriched_candidate_replay
+    data_pit/free/market_snapshot data_raw/free/market_snapshot data_pit/macro data_raw/free/macro/daily_snapshot; do
+  - for d in outputs/operating_snapshot outputs/user_current outputs/user_portfolio_reports outputs/account_ledger_preview
+    outputs/daily_simulated_fill_ledger outputs/run287_same_close_decision outputs/run287_decision_observation_archive outputs/run287_risk_outcome_parent_anchor
+    outputs/run287_risk_outcome_accepted_head_manifests outputs/run287_risk_outcome_archive outputs/run287_risk_outcome_price_cache
+    outputs/run287_operating_scorecard outputs/run287_promotion_gate; do
+  - for f in outputs/reports/operating_main_target_book.csv outputs/reports/operating_concentrated_target_book.csv; do
+  - from tools.build_run287_same_close_target_books import (
+  - from tools.build_run287_same_close_target_books import blocked_payload
+  - from tools.run_daily_simulated_fill_ledger import (
+  - if ! grep -Fx "paper_archive/" "$base_dirs" >/dev/null; then
+  - if ! rclone copy \
+  - if ! rclone copyto \
+  - if ! rclone lsf "${BASE}paper_archive/" --dirs-only > "$PAPER_ARCHIVE_DIRS"; then
+  - if ! rclone lsf "${BASE}paper_archive/" --dirs-only > "$archive_dirs"; then
+  - if ! rclone lsf "${BASE}paper_archive/run287_risk_outcome_archive/" --recursive --files-only > "$REMOTE_LEGACY_FILES";
+    then
+  - if [ -d outputs/daily_simulated_fill_ledger ]; then
+  - if [ -s outputs/daily_simulated_fill_ledger/snapshot_integrity.json ] && \
+  - if [ -s outputs/daily_simulated_fill_ledger/snapshot_integrity.json ]; then
+  - if grep -Fx "paper_archive/" "$BASE_ROOT_DIRS" >/dev/null; then
+  - if grep -Fx "paper_archive/" "$OUTCOME_BASE_ROOT_DIRS" >/dev/null; then
+  - if grep -Fx "run287_daily_simulated_fill_ledger/" "$PAPER_ARCHIVE_DIRS" >/dev/null; then
+  - if grep -Fx "run287_daily_simulated_fill_ledger/" "$archive_dirs" >/dev/null; then
+  - if grep -Fx "run287_daily_simulated_fill_ledger_heads/" "$PAPER_ARCHIVE_DIRS" >/dev/null; then
+  - if grep -Fx "run287_daily_simulated_fill_ledger_heads/" "$archive_dirs" >/dev/null; then
+  - if grep -Fx "run287_risk_outcome_accepted_heads/" "$PAPER_ARCHIVE_DIRS" >/dev/null; then
+  - if grep -Fx "run287_risk_outcome_archive/" "$PAPER_ARCHIVE_DIRS" >/dev/null; then
+  - 'if promotion_state == "RESEARCH_ONLY":'
+  - 'if promotion_state not in required_states:'
+  - if python tools/build_run287_same_close_target_books.py \
+  - if rclone lsf "${BASE}paper_archive/" --dirs-only > "$archive_dirs" 2>/dev/null; then
+  - install_prospective_head outputs/daily_simulated_fill_ledger
+  - live_trading_enabled=False,
+  - or evidence.get("forward_promotion_eligible") is not False
+  - or evidence.get("live_trading_enabled") is not False
+  - or status.get("target_book_file_written") is not True
+  - or summary.get("live_trading_enabled") is not False
+  - outputs/reports/operating_concentrated_target_book.csv \
+  - outputs/reports/operating_main_target_book.csv \
+  - promotion_state = str(state.get("promotion_state") or "")
+  - python tools/run_daily_simulated_fill_ledger.py \
+  - python tools/run_run287_promotion_gate.py \
+  - rclone check outputs/daily_simulated_fill_ledger "$CANONICAL/" --checksum
+  - rclone check outputs/daily_simulated_fill_ledger "$RECOVERY/" --checksum --one-way
+  - rclone copy "$CANONICAL/" "$PAPER_REMOTE_CAS_CHECK/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+  - rclone copy "$CANONICAL/" "$PAPER_REMOTE_PERSIST_ANCHOR/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+  - rclone copy "$CANONICAL/" "$PAPER_REMOTE_POSTCHECK/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+  - rclone copy "$CANONICAL/" "$PAPER_UNTRUSTED_CANONICAL/" --transfers 2 --checkers 4 --stats 30s --stats-one-line || true
+  - rclone copy "$PAPER_REMOTE_HEADS/$PAPER_REMOTE_SNAPSHOT_HASH/" "$PAPER_HEAD_CANDIDATE/" --transfers 2 --checkers 4 --stats
+    30s --stats-one-line
+  - rclone copy "$PAPER_REMOTE_PERSIST_ANCHOR/" "$RECOVERY/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+  - rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line
+  - rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
+  - rclone copy \
+  - rclone copy outputs/daily_simulated_fill_ledger "$RECOVERY/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+  - rclone copy outputs/holding_risk_watch "${BASE}paper_archive/run287_holding_risk_watch/" --transfers 2 --checkers 4 --stats
+    30s --stats-one-line
+  - rclone copy outputs/run287_accepted_publication "$DEST/outputs/run287_accepted_publication/" --transfers 2 --checkers
+    4 --stats 30s --stats-one-line
+  - rclone copy outputs/run287_decision_observation_archive "${BASE}paper_archive/run287_decision_observation_archive/" --transfers
+    2 --checkers 4 --stats 30s --stats-one-line
+  - rclone copy outputs/run287_risk_outcome_archive "${BASE}paper_archive/run287_risk_outcome_archive/" --transfers 2 --checkers
+    4 --stats 30s --stats-one-line
+  - rclone copy outputs/run287_risk_outcome_price_cache "${BASE}paper_archive/run287_risk_outcome_price_cache/" --transfers
+    2 --checkers 4 --stats 30s --stats-one-line
+  - rclone copyto "$f" "$DEST/$f"
+  - rclone copyto "$f" "$DEST/$f" || true
+  - rclone copyto \
+  - rclone copyto cache_prices/replay_price_cache_manifest.json "$DEST/cache_prices/replay_price_cache_manifest.json" || true
+  - rclone sync \
+  - rclone sync outputs/daily_simulated_fill_ledger "$CANONICAL/" --transfers 2 --checkers 4 --stats 30s --stats-one-line
+  - record = outputs.get(f"{portfolio}_target_book") or {}
+  - required_states = pointer.get("required_for_promotion_states") or []
+  - restore_dir outputs outputs "daily_simulated_fill_ledger/**"
+  - restore_dir paper_archive/run287_daily_simulated_fill_ledger "$PAPER_REMOTE_CANDIDATE"
+  - restore_dir paper_archive/run287_decision_observation_archive outputs/run287_decision_observation_archive
+  - restore_dir paper_archive/run287_holding_risk_watch outputs/holding_risk_watch
+  - restore_dir paper_archive/run287_risk_outcome_archive outputs/run287_risk_outcome_archive
+  - restore_dir paper_archive/run287_risk_outcome_price_cache outputs/run287_risk_outcome_price_cache
+  - rm -rf outputs/daily_simulated_fill_ledger
+  - rm -rf outputs/run287_promotion_gate
+  - root = Path("outputs/daily_simulated_fill_ledger")
+  - state = Path("outputs/daily_simulated_fill_ledger")
+  - test -s outputs/daily_simulated_fill_ledger/snapshot_integrity.json
+  - test -s outputs/daily_simulated_fill_ledger/summary.json
+  - test -s outputs/run287_promotion_gate/promotion_gate.json
+  - timeout 12m rclone copy "$BASE$remote" "$local_dir/" "${filter_args[@]}" --transfers 6 --checkers 12 --stats 30s --stats-one-line
+    || true
+  - timeout 3m python tools/build_operating_target_books.py \
+  - timeout 6m rclone copyto "$BASE$remote" "$local_file" --stats 30s --stats-one-line || true
+  - timeout 8m rclone copyto \
+  static_authority_references:
+    target: true
+    paper_ledger: true
+    broker_or_live_named: true
+    broker_execution_command: false
+    promotion_or_champion: true
+    contents_write: false
+    rclone_write: true
+  declared_role: official_us_target_and_simulated_fill_paper_operation
+  decision: KEEP
+  target_authority: OFFICIAL_CURRENT_US_TARGET_WRITER
+  paper_ledger_authority: OFFICIAL_SIMULATED_FILL_CONSUMER_AND_WRITER
+  durable_write_scope: CANONICAL_PAPER_ACCEPTED_STATE_FAIL_CLOSED
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: SCHEDULE_FAIL_CLOSED; LEGACY_PARENT_MIGRATION_REQUIRES_EXPLICIT_ONE_TIME_WORKFLOW_DISPATCH_AUTHORIZATION
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: data_readiness_preflight.yml
+  path: .github/workflows/data_readiness_preflight.yml
+  display_name: Data Readiness Preflight
+  workflow_blob_sha: 78a396715052d31db2edb0c1854a0afe60507875
+  workflow_sha256: 1a745cfc7826f6a7ec147228c85e5003bc29df4070124233caa7f0176062611e
+  trigger:
+    events:
+    - schedule
+    - workflow_dispatch
+    schedules:
+    - 15 0 * * 2-6
+    workflow_dispatch_inputs:
+    - name: latest_run
+      type: string
+      required: false
+      default: cloud_results/full_rebuild/latest_global_alpha_universe
+    - name: strict
+      type: choice
+      required: false
+      default: 'false'
+    - name: sec_companyfacts
+      type: boolean
+      required: false
+      default: 'false'
+    - name: sec_max_age_days
+      type: string
+      required: false
+      default: '3'
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+    jobs: {}
+  secrets:
+  - GDRIVE_ROOT_FOLDER_ID
+  - GOOGLE_SERVICE_ACCOUNT_KEY
+  - RCLONE_CONFIG_GDRIVE
+  variables:
+  - GDRIVE_ROOT_FOLDER_ID
+  actions:
+  - actions/cache/restore@v4
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: data-readiness-preflight-${{ github.run_id }}
+    path: 'outputs/data_readiness/
+
+      outputs/full_rebuild_logs/data_readiness.log
+
+      outputs/full_rebuild_logs/sec_companyfacts_refresh.log
+
+      '
+  declared_output_paths:
+  - outputs/data_readiness
+  authority_command_evidence:
+  - rclone copy "$BASE$remote" "$local_dir" --drive-acknowledge-abuse --transfers 8 --checkers 16
+  - rclone copy data_raw/free/sec "$BASE"data_raw/free/sec/ --include companyfacts.zip
+  - rclone copy outputs/data_readiness "$DEST/"
+  - rclone copyto "$BASE"companyfacts.zip data_raw/free/sec/companyfacts.zip
+  - rclone copyto data_raw/free/sec/companyfacts.zip "$BASE"companyfacts.zip
+  static_authority_references:
+    target: false
+    paper_ledger: false
+    broker_or_live_named: false
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: false
+    rclone_write: true
+  declared_role: read_only_data_readiness_preflight
+  decision: KEEP
+  target_authority: NONE
+  paper_ledger_authority: NONE
+  durable_write_scope: DIAGNOSTIC_ARTIFACT_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: NO_MUTATION_AUTHORITY
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: earnings_estimates_daily.yml
+  path: .github/workflows/earnings_estimates_daily.yml
+  display_name: Earnings Estimates Daily Archive
+  workflow_blob_sha: e0e6aa7a0fdd794bfe5ef0384ae2130bdc6d639c
+  workflow_sha256: 4971188616bf94117b31be3eef98260b01c9c43d669c6562623e9e6c6515481c
+  trigger:
+    events:
+    - schedule
+    - workflow_dispatch
+    schedules:
+    - 35 0 * * 2-6
+    workflow_dispatch_inputs:
+    - name: tickers
+      type: string
+      required: false
+      default: AAPL,MSFT,NVDA,AMD,AVGO,MU,PLTR,TSLA,GOOGL,META,AMZN,MSFT,ASML,TSM,ARM,SMH,SOXX
+    - name: universe_file
+      type: string
+      required: false
+      default: ''
+    - name: universe_shard_file
+      type: string
+      required: false
+      default: ''
+    - name: auto_universe_shard
+      type: boolean
+      required: false
+      default: 'false'
+    - name: catchup_all_universe_shards
+      type: boolean
+      required: false
+      default: 'false'
+    - name: incremental_universe_addons
+      type: boolean
+      required: false
+      default: 'false'
+    - name: collection_universe_file
+      type: string
+      required: false
+      default: outputs/free_historical_data_coverage/universe_coverage.csv
+    - name: collection_stale_after_days
+      type: string
+      required: false
+      default: '7'
+    - name: max_new_universe_tickers
+      type: string
+      required: false
+      default: '100'
+    - name: max_missing_universe_tickers
+      type: string
+      required: false
+      default: '100'
+    - name: max_known_covered_tickers
+      type: string
+      required: false
+      default: '300'
+    - name: max_uncovered_retry_tickers
+      type: string
+      required: false
+      default: '50'
+    - name: ticker_limit
+      type: string
+      required: false
+      default: '0'
+    - name: collector_max_errors
+      type: string
+      required: false
+      default: ''
+    - name: fetch_date
+      type: string
+      required: false
+      default: ''
+    - name: vendor_order
+      type: string
+      required: false
+      default: fmp,finnhub
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+      actions: read
+    jobs: {}
+  secrets:
+  - ALPHAVANTAGE_API_KEY
+  - FINNHUB_API_KEY
+  - FMP_API_KEY
+  - GDRIVE_ROOT_FOLDER_ID
+  - GOOGLE_SERVICE_ACCOUNT_KEY
+  - RCLONE_CONFIG_GDRIVE
+  variables:
+  - GDRIVE_ROOT_FOLDER_ID
+  actions:
+  - actions/cache/restore@v4
+  - actions/cache/save@v4
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: earnings-estimates-daily-${{ github.run_id }}
+    path: 'data_pit/events/earnings_estimates/
+
+      data_pit/events/earnings_revision_signals.parquet
+
+      outputs/earnings_estimates_daily/
+
+      outputs/free_data_selection_overlay/
+
+      outputs/free_data_forward_paper_ledger/
+
+      cache_prices_forward_paper/replay_price_cache_manifest.json
+
+      '
+  declared_output_paths:
+  - cache_prices_forward_paper
+  - outputs/earnings_estimates_daily/catchup_all_shards_universe.csv
+  - outputs/earnings_estimates_daily/incremental_universe.csv
+  - outputs/free_data_forward_paper_ledger
+  - outputs/free_data_forward_paper_ledger/market_session_gate.json
+  - outputs/free_data_forward_paper_ledger/price_universe.csv
+  - outputs/free_data_selection_overlay
+  authority_command_evidence:
+  - timeout 2m rclone copyto "$BASE""data_pit/events/earnings_calendar_history.parquet" \
+  - timeout 2m rclone copyto "$BASE""data_pit/free/av_listing_status.parquet" \
+  - timeout 3m rclone copy "$BASE""research_state/free_data_forward_paper_ledger" \
+  - timeout 3m rclone copy "$BASE""research_state/free_data_selection_overlay" \
+  - timeout 3m rclone copy outputs/earnings_estimates_daily "$BASE""outputs/earnings_estimates_daily/" \
+  - timeout 3m rclone copy outputs/free_data_forward_paper_ledger \
+  - timeout 3m rclone copy outputs/free_data_selection_overlay \
+  - timeout 3m rclone copyto "$BASE""data_pit/events/earnings_revision_signals.parquet" \
+  - timeout 3m rclone copyto data_pit/events/earnings_revision_signals.parquet \
+  - timeout 5m rclone copy "$BASE""research_state/free_data_forward_paper_price_cache" \
+  - timeout 5m rclone copy cache_prices_forward_paper \
+  - timeout 8m rclone copy "$BASE""data_pit/events/earnings_estimates" data_pit/events/earnings_estimates/ \
+  - timeout 8m rclone copy data_pit/events/earnings_estimates "$BASE""data_pit/events/earnings_estimates/" \
+  static_authority_references:
+    target: false
+    paper_ledger: true
+    broker_or_live_named: false
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: false
+    rclone_write: true
+  declared_role: forward_only_earnings_estimate_collection
+  decision: KEEP
+  target_authority: RESEARCH_OVERLAY_ONLY
+  paper_ledger_authority: FORWARD_RESEARCH_LEDGER_ONLY
+  durable_write_scope: RESEARCH_OR_DATASET_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: NO_HISTORICAL_BACKTEST_OR_PRODUCTION_ACCEPTANCE
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: etf_holdings_monthly_refresh.yml
+  path: .github/workflows/etf_holdings_monthly_refresh.yml
+  display_name: ETF Holdings Monthly Refresh
+  workflow_blob_sha: 5ec2c27f28f3605b0fbf35f3677789f7811c720b
+  workflow_sha256: dbc132b1a85dcd9463209539e9c1462187cc1b6b84b0e7e9860eb035219e854c
+  trigger:
+    events:
+    - schedule
+    - workflow_dispatch
+    schedules:
+    - 55 23 1 * *
+    workflow_dispatch_inputs:
+    - name: max_holdings
+      type: string
+      required: false
+      default: '25'
+    - name: sleep_seconds
+      type: string
+      required: false
+      default: '0.25'
+    - name: max_filings_per_etf
+      type: string
+      required: false
+      default: '24'
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+      actions: read
+    jobs: {}
+  secrets:
+  - GDRIVE_ROOT_FOLDER_ID
+  - GOOGLE_SERVICE_ACCOUNT_KEY
+  - RCLONE_CONFIG_GDRIVE
+  variables:
+  - GDRIVE_ROOT_FOLDER_ID
+  actions:
+  - actions/cache@v4
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: etf-holdings-monthly-${{ github.run_id }}
+    path: 'data_pit/etf_holdings/
+
+      outputs/etf_thematic_signals/
+
+      outputs/full_rebuild_logs/etf_holdings_refresh.log
+
+      '
+  declared_output_paths: []
+  authority_command_evidence:
+  - rclone copy "$BASE$d" "$d/"
+  - rclone copy "$d" "$BASE$d" --transfers 4 --checkers 8 --stats 30s --stats-one-line
+  static_authority_references:
+    target: false
+    paper_ledger: false
+    broker_or_live_named: false
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: false
+    rclone_write: true
+  declared_role: monthly_etf_holdings_collection
+  decision: KEEP
+  target_authority: NONE
+  paper_ledger_authority: NONE
+  durable_write_scope: DATASET_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: NO_TARGET_MUTATION_AUTHORITY
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: free_data_daily_update.yml
+  path: .github/workflows/free_data_daily_update.yml
+  display_name: Free Data Daily Update
+  workflow_blob_sha: 900e2a2f9ef8fc17cee9c38ae79bf99ab0ec2481
+  workflow_sha256: 50f851f34c13f8e7ef96ca75da91ba59f52e8eb38f8567ab35a1b254d1740ca4
+  trigger:
+    events:
+    - schedule
+    - workflow_dispatch
+    schedules:
+    - 30 23 * * 1-5
+    workflow_dispatch_inputs:
+    - name: force_run
+      type: boolean
+      required: false
+      default: 'false'
+    - name: max_price_tickers
+      type: string
+      required: false
+      default: '80'
+    - name: sec_companyfacts
+      type: boolean
+      required: false
+      default: 'false'
+    - name: sec_max_age_days
+      type: string
+      required: false
+      default: '3'
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+    jobs: {}
+  secrets:
+  - FRED_API_KEY
+  - GDRIVE_ROOT_FOLDER_ID
+  - GOOGLE_SERVICE_ACCOUNT_KEY
+  - RCLONE_CONFIG_GDRIVE
+  variables:
+  - GDRIVE_ROOT_FOLDER_ID
+  actions:
+  - actions/cache@v4
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: free-data-daily-update-${{ github.run_id }}
+    path: 'free_data_daily_bootstrap.log
+
+      outputs/free_data_lake_bootstrap/
+
+      outputs/free_historical_data_coverage/
+
+      outputs/free_data_proxy_backtest/
+
+      outputs/free_data_engine_validation/
+
+      outputs/ten_year_backtest_readiness/
+
+      outputs/full_rebuild_logs/free_data_*.log
+
+      outputs/full_rebuild_logs/ten_year_backtest_readiness.log
+
+      data_pit/free/coverage_audit.json
+
+      data/catalog.json
+
+      manifests/free_data/latest_manifest.json
+
+      '
+  declared_output_paths:
+  - data/catalog.json
+  - outputs/free_data_proxy_backtest/concentrated
+  - outputs/free_data_proxy_backtest/main
+  - outputs/free_historical_data_coverage
+  authority_command_evidence:
+  - --price-mode target_books
+  - rclone copy "$BASE""data_pit/events" data_pit/events/
+  - rclone copy "$BASE$d" "$d/"
+  - rclone copy "$d" "$BASE$d/"
+  - rclone copy outputs/free_data_engine_validation "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_engine_validation/"
+  - rclone copy outputs/free_data_proxy_backtest "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_proxy_backtest/"
+  - rclone copy outputs/free_historical_data_coverage "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_historical_data_coverage/"
+  - rclone copy outputs/ten_year_backtest_readiness "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/ten_year_backtest_readiness/"
+  - rclone copyto "$BASE"companyfacts.zip data_raw/free/sec/companyfacts.zip
+  static_authority_references:
+    target: true
+    paper_ledger: false
+    broker_or_live_named: true
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: false
+    rclone_write: true
+  declared_role: daily_free_data_collection_and_proxy_validation
+  decision: KEEP
+  target_authority: NONE
+  paper_ledger_authority: NONE
+  durable_write_scope: DATASET_AND_RESEARCH_VALIDATION_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: NO_PRODUCTION_PROMOTION_AUTHORITY
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: free_data_lake_bootstrap.yml
+  path: .github/workflows/free_data_lake_bootstrap.yml
+  display_name: Free Data Lake Bootstrap
+  workflow_blob_sha: 108a0bc5c8a92c81643bd593033bdd34398cb3e0
+  workflow_sha256: 5d47b61e4f46e05e245b26569ca55e51857d493f1f5465bc0b3553195ebced25
+  trigger:
+    events:
+    - workflow_dispatch
+    schedules: []
+    workflow_dispatch_inputs:
+    - name: latest_run
+      type: string
+      required: false
+      default: cloud_results/full_rebuild/latest_global_alpha_universe
+    - name: sec_companyfacts
+      type: boolean
+      required: false
+      default: 'false'
+    - name: listing_status
+      type: boolean
+      required: false
+      default: 'false'
+    - name: fmp_earnings_calendar
+      type: boolean
+      required: false
+      default: 'false'
+    - name: fmp_earnings_start
+      type: string
+      required: false
+      default: '2016-01-01'
+    - name: fmp_earnings_end
+      type: string
+      required: false
+      default: ''
+    - name: fmp_max_chunks
+      type: string
+      required: false
+      default: '0'
+    - name: price_mode
+      type: choice
+      required: false
+      default: dry_run
+    - name: max_price_tickers
+      type: string
+      required: false
+      default: '80'
+    - name: run_proxy_replay
+      type: boolean
+      required: false
+      default: 'true'
+    - name: sync_to_gdrive
+      type: boolean
+      required: false
+      default: 'true'
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+    jobs: {}
+  secrets:
+  - ALPHAVANTAGE_API_KEY
+  - FMP_API_KEY
+  - FRED_API_KEY
+  - GDRIVE_ROOT_FOLDER_ID
+  - GOOGLE_SERVICE_ACCOUNT_KEY
+  - RCLONE_CONFIG_GDRIVE
+  variables:
+  - GDRIVE_ROOT_FOLDER_ID
+  actions:
+  - actions/cache@v4
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: free-data-lake-bootstrap-${{ github.run_id }}
+    path: 'free_data_lake_bootstrap.log
+
+      outputs/free_data_lake_bootstrap/
+
+      outputs/free_historical_data_coverage/
+
+      outputs/free_data_proxy_backtest/
+
+      outputs/free_data_engine_validation/
+
+      outputs/ten_year_backtest_readiness/
+
+      outputs/full_rebuild_logs/free_data_proxy_replay_*.log
+
+      outputs/full_rebuild_logs/free_data_engine_validation.log
+
+      outputs/full_rebuild_logs/ten_year_backtest_readiness.log
+
+      data_pit/free/coverage_audit.json
+
+      data/catalog.json
+
+      manifests/free_data/latest_manifest.json
+
+      data_raw/free/prices/replay_price_cache_manifest.json
+
+      '
+  declared_output_paths:
+  - data/catalog.json
+  - outputs/free_data_proxy_backtest/concentrated
+  - outputs/free_data_proxy_backtest/main
+  - outputs/free_historical_data_coverage
+  authority_command_evidence:
+  - rclone copy "$BASE$remote" "$local_dir/"
+  - rclone copy "$local_dir" "$BASE$remote/"
+  - rclone copyto "$BASE"companyfacts.zip data_raw/free/sec/companyfacts.zip
+  static_authority_references:
+    target: true
+    paper_ledger: false
+    broker_or_live_named: true
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: false
+    rclone_write: true
+  declared_role: manual_free_data_lake_bootstrap
+  decision: KEEP
+  target_authority: NONE
+  paper_ledger_authority: NONE
+  durable_write_scope: DATASET_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: WORKFLOW_DISPATCH_DATASET_ONLY
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: free_historical_data_backfill.yml
+  path: .github/workflows/free_historical_data_backfill.yml
+  display_name: Free Historical Data Backfill
+  workflow_blob_sha: 6536a6aad2f7592759022f544cd8f8300ff32946
+  workflow_sha256: c3abf84457d430379b07cb82bf98a30373f5eca308743aacf05017fdce0c7e6f
+  trigger:
+    events:
+    - workflow_dispatch
+    schedules: []
+    workflow_dispatch_inputs:
+    - name: listing_status
+      type: boolean
+      required: false
+      default: 'true'
+    - name: fmp_earnings_calendar
+      type: boolean
+      required: false
+      default: 'false'
+    - name: fmp_earnings_start
+      type: string
+      required: false
+      default: '2016-01-01'
+    - name: fmp_earnings_end
+      type: string
+      required: false
+      default: ''
+    - name: fmp_max_chunks
+      type: string
+      required: false
+      default: '0'
+    - name: universe_file
+      type: string
+      required: false
+      default: ''
+    - name: latest_run
+      type: string
+      required: false
+      default: cloud_results/full_rebuild/latest_global_alpha_universe
+    - name: sync_to_gdrive
+      type: boolean
+      required: false
+      default: 'true'
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+    jobs: {}
+  secrets:
+  - ALPHAVANTAGE_API_KEY
+  - FMP_API_KEY
+  - GDRIVE_ROOT_FOLDER_ID
+  - GOOGLE_SERVICE_ACCOUNT_KEY
+  - RCLONE_CONFIG_GDRIVE
+  variables:
+  - GDRIVE_ROOT_FOLDER_ID
+  actions:
+  - actions/cache@v4
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: free-historical-data-backfill-${{ github.run_id }}
+    path: 'outputs/free_historical_data_backfill/
+
+      outputs/free_historical_data_coverage/
+
+      outputs/free_data_selection_overlay/
+
+      outputs/free_data_forward_paper_ledger/
+
+      data/catalog.json
+
+      data_raw/free/sec/company_tickers.json
+
+      data_raw/free/sec/company_tickers_manifest.json
+
+      data_pit/free/av_listing_status.parquet
+
+      data_pit/free/sec_company_tickers.parquet
+
+      data_pit/events/earnings_calendar_history.parquet
+
+      '
+  declared_output_paths:
+  - data/catalog.json
+  - data_pit/events/earnings_calendar_history.parquet
+  - data_pit/free/av_listing_status.parquet
+  - outputs/free_data_forward_paper_ledger
+  - outputs/free_data_selection_overlay
+  - outputs/free_historical_data_coverage)
+  authority_command_evidence:
+  - rclone copy "$BASE$d" "$d/"
+  - rclone copy "$LEDGER_REMOTE" outputs/free_data_forward_paper_ledger/
+  - rclone copy "$d" "$BASE$d/"
+  - rclone copy outputs/free_data_forward_paper_ledger "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_forward_paper_ledger/"
+  - rclone copy outputs/free_data_forward_paper_ledger "${BASE}research_state/${SAFE_BRANCH}/free_data_forward_paper_ledger/"
+  - rclone copy outputs/free_data_selection_overlay "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_selection_overlay/"
+  - rclone copy outputs/free_historical_data_backfill "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_historical_data_backfill/"
+  - rclone copy outputs/free_historical_data_coverage "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_historical_data_coverage/"
+  static_authority_references:
+    target: false
+    paper_ledger: true
+    broker_or_live_named: false
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: false
+    rclone_write: true
+  declared_role: manual_free_historical_data_backfill
+  decision: KEEP
+  target_authority: NONE
+  paper_ledger_authority: NONE
+  durable_write_scope: DATASET_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: WORKFLOW_DISPATCH_DATASET_ONLY
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: full_rebuild_manual.yml
+  path: .github/workflows/full_rebuild_manual.yml
+  display_name: Full Rebuild (Manual / Long-Run)
+  workflow_blob_sha: f087adeeb8fd4ecc8c9e515979020560eb72c01b
+  workflow_sha256: 8eaff104b1941eae5da9f0bea0a0607eb06d65439893c19d23dcfac0aec3c08b
+  trigger:
+    events:
+    - workflow_dispatch
+    schedules: []
+    workflow_dispatch_inputs:
+    - name: approval_token
+      type: string
+      required: true
+      default: null
+    - name: approved_commit_sha
+      type: string
+      required: true
+      default: null
+    - name: approved_source_manifest_sha256
+      type: string
+      required: true
+      default: null
+    - name: approved_source_manifest_path
+      type: string
+      required: true
+      default: null
+    - name: expected_cost_minutes
+      type: string
+      required: true
+      default: null
+    - name: universe_mode
+      type: choice
+      required: false
+      default: global_alpha_universe
+    - name: decision_time_utc
+      type: string
+      required: true
+      default: null
+    - name: backtest_years
+      type: choice
+      required: false
+      default: '7'
+    - name: pit_universe_label_clean
+      type: boolean
+      required: false
+      default: 'false'
+    - name: skip_collector
+      type: boolean
+      required: false
+      default: 'true'
+    - name: fast_mode
+      type: boolean
+      required: false
+      default: 'true'
+    - name: leader_rescue_mode
+      type: choice
+      required: false
+      default: latest_only
+    - name: cache_key_suffix
+      type: string
+      required: false
+      default: ''
+    - name: phase11_multibagger_enabled
+      type: boolean
+      required: false
+      default: 'false'
+    - name: phase11_episodes_source
+      type: choice
+      required: false
+      default: v2
+    - name: sidecar_profile
+      type: choice
+      required: false
+      default: operating_minimal
+    - name: artifact_profile
+      type: choice
+      required: false
+      default: minimal
+    - name: gdrive_sync_mode
+      type: choice
+      required: false
+      default: minimal
+    - name: portfolio_policy
+      type: choice
+      required: false
+      default: integrated_shadow
+    - name: approved_target_policy_path
+      type: string
+      required: false
+      default: outputs/promotion_review/approved_target_policy.json
+    - name: experiment_env_json
+      type: string
+      required: false
+      default: ''
+  job_count: 1
+  permissions:
+    workflow:
+      contents: write
+    jobs: {}
+  secrets:
+  - ALPACA_API_KEY
+  - ALPACA_API_SECRET
+  - ALPHA_VANTAGE_API_KEY
+  - FINNHUB_API_KEY
+  - FRED_API_KEY
+  - GDRIVE_ROOT_FOLDER_ID
+  - GOOGLE_SERVICE_ACCOUNT_KEY
+  - RCLONE_CONFIG_GDRIVE
+  - TELEGRAM_BOT_TOKEN
+  - TELEGRAM_CHAT_ID
+  variables:
+  - GDRIVE_ROOT_FOLDER_ID
+  actions:
+  - actions/cache@v4
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: user-operating-minimal-${{ inputs.universe_mode }}-${{ github.run_id }}
+    path: 'outputs/user_current/
+
+      outputs/patch_application_manifest.json
+
+      outputs/fullrun_market_session_gate.json
+
+      outputs/fullrun_approved_source_manifest.json
+
+      outputs/fullrun_source_manifest_preflight.json
+
+      outputs/fullrun_source_manifest_verification.json
+
+      outputs/fullrun_resolved_dependencies.json
+
+      outputs/fullrun_runtime_source_manifest.json
+
+      outputs/fullrun_runtime_operating_source_manifest.json
+
+      outputs/fullrun_latest_cross_section_preflight/
+
+      outputs/clean7y_window_preflight_source/
+
+      outputs/clean7y_window_preflight/
+
+      outputs/replay_integrity/patch_application_manifest.json
+
+      outputs/daily_crisis_monitor/
+
+      outputs/crisis_paper_order_bridge/
+
+      outputs/decision_cadence/
+
+      outputs/operator_review/dust_positions_report.csv
+
+      outputs/operator_review/dust_cleanup_orders.csv
+
+      outputs/operator_review/projected_holdings_after_ready_orders.csv
+
+      outputs/operator_review/projected_holdings_after_integrated_target.csv
+
+      outputs/operator_review/projected_orders_from_integrated_target.csv
+
+      outputs/operator_review/sidecar_vs_current_diff.csv
+
+      outputs/operator_review/position_cleanup_review.json
+
+      outputs/operator_review/position_cleanup_review.md
+
+      outputs/shadow_operating/
+
+      outputs/promotion_review/
+
+      outputs/promotion_review/era_aware_approved_target_policy_candidate.json
+
+      outputs/alphaops_vnext/summary.json
+
+      outputs/alphaops_vnext/production_activation.json
+
+      outputs/alphaops_vnext/crisis_state_audit.csv
+
+      outputs/alphaops_vnext/crisis_window_detection_report.csv
+
+      outputs/alphaops_vnext/daily_crisis_state.csv
+
+      outputs/alphaops_vnext/selected_latest.csv
+
+      outputs/alphaops_vnext/official_*_target_book.csv
+
+      outputs/alphaops_vnext/variants/*_target_book.csv
+
+      outputs/mdd_cash_overlay_research/
+
+      outputs/account_evaluation/official_metrics.json
+
+      outputs/oos_lock/
+
+      outputs/eight_year_backtest_readiness/
+
+      outputs/universe_health/
+
+      outputs/era_aware_scoring_challenger/
+
+      outputs/metric_hygiene/
+
+      outputs/cash_contract/
+
+      outputs/stock_selection_quality/
+
+      outputs/entry_exit_timing_audit/
+
+      outputs/cash_reentry_quality/
+
+      outputs/alpha_plane_measurement_status.json
+
+      outputs/alpha_beta_attribution/
+
+      outputs/fusion_candidate_review/
+
+      outputs/cagr_walkforward/
+
+      outputs/daily_market_snapshot/
+
+      outputs/broker_replay/main/metrics.json
+
+      outputs/broker_replay/main/account_state_latest.json
+
+      outputs/broker_replay/main/positions_latest.csv
+
+      outputs/broker_replay/main/trades.csv
+
+      outputs/broker_replay/main/cash_ledger.csv
+
+      outputs/broker_replay/main/equity_curve.csv
+
+      outputs/broker_replay/main/target_vs_actual_weights.csv
+
+      outputs/broker_replay/concentrated/metrics.json
+
+      outputs/broker_replay/concentrated/account_state_latest.json
+
+      outputs/broker_replay/concentrated/positions_latest.csv
+
+      outputs/broker_replay/concentrated/trades.csv
+
+      outputs/broker_replay/concentrated/cash_ledger.csv
+
+      outputs/broker_replay/concentrated/equity_curve.csv
+
+      outputs/broker_replay/concentrated/target_vs_actual_weights.csv
+
+      outputs/cost_sensitivity/
+
+      outputs/backtest_metrics.json
+
+      outputs/concentrated_backtest_metrics.json
+
+      outputs/portfolio_latest.csv
+
+      outputs/concentrated_portfolio_latest.csv
+
+      outputs/scored_latest.csv
+
+      outputs/reports/main_monthly_weights.csv
+
+      outputs/reports/concentrated_strategy_holdings.csv
+
+      outputs/reports/regime_by_month.csv
+
+      outputs/reports/operating_*_target_book.csv
+
+      outputs/reports/operating_*_target_book_macro*.csv
+
+      outputs/reports/operating_*_target_book_regime_capacity*.csv
+
+      outputs/reports/operating_target_books_*
+
+      outputs/reports/candidate_replay_book.csv
+
+      outputs/reports/dataset_coverage_audit.*
+
+      cache_prices/replay_price_cache_manifest.json
+
+      outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv
+
+      outputs/sec_enriched_candidate_replay/summary.json
+
+      outputs/sec_enriched_candidate_replay/report.md
+
+      outputs/data_readiness/
+
+      outputs/data_freshness_contract/
+
+      outputs/adr_candidates/
+
+      data_pit/free/market_snapshot/
+
+      data_raw/free/market_snapshot/yf_market_info_cache.csv
+
+      data/catalog.json
+
+      outputs/coverage_gate.json
+
+      outputs/operating_snapshot/current_operating_holdings_latest.csv
+
+      outputs/operating_snapshot/current_portfolio_snapshot_summary.json
+
+      outputs/portfolio_system_guard/
+
+      outputs/system_acceptance_audit/
+
+      outputs/review_dispatcher/
+
+      outputs/review_dispatcher_self_correction/
+
+      outputs/self_correction_queue/
+
+      outputs/ab_result_verifier/
+
+      outputs/full_rebuild_logs/sec_evidence_restore_manifest.json
+
+      outputs/full_rebuild_logs/fullrun_latest_cross_section_preflight.log
+
+      outputs/full_rebuild_logs/clean7y_window_preflight_source.log
+
+      outputs/full_rebuild_logs/clean7y_window_preflight.log
+
+      outputs/full_rebuild_logs/data_freshness_contract.log
+
+      outputs/full_rebuild_logs/data_readiness_pre_broker.log
+
+      outputs/full_rebuild_logs/user_current_report.log
+
+      outputs/full_rebuild_logs/cash_contract.log
+
+      outputs/full_rebuild_logs/daily_crisis_monitor.log
+
+      outputs/full_rebuild_logs/crisis_paper_order_bridge.log
+
+      outputs/full_rebuild_logs/decision_cadence_review.log
+
+      outputs/full_rebuild_logs/alphaops_vnext_policy_replay.log
+
+      outputs/full_rebuild_logs/mdd_cash_overlay_research.log
+
+      outputs/full_rebuild_logs/metric_hygiene_report.log
+
+      outputs/full_rebuild_logs/stock_selection_quality_audit.log
+
+      outputs/full_rebuild_logs/entry_exit_timing_audit.log
+
+      outputs/full_rebuild_logs/cash_reentry_quality_audit.log
+
+      outputs/full_rebuild_logs/alpha_beta_attribution.log
+
+      outputs/full_rebuild_logs/fusion_candidate_review.log
+
+      outputs/full_rebuild_logs/cagr_walkforward.log
+
+      outputs/full_rebuild_logs/daily_market_snapshot.log
+
+      outputs/full_rebuild_logs/adr_candidate_scanner.log
+
+      outputs/full_rebuild_logs/oos_lock.log
+
+      outputs/full_rebuild_logs/replay_price_cache_refresh.log
+
+      outputs/full_rebuild_logs/eight_year_backtest_readiness.log
+
+      outputs/full_rebuild_logs/universe_health_audit.log
+
+      outputs/full_rebuild_logs/era_aware_scoring_challenger.log
+
+      outputs/full_rebuild_logs/system_acceptance_audit.log
+
+      outputs/full_rebuild_logs/review_dispatcher.log
+
+      outputs/full_rebuild_logs/review_dispatcher_self_correction.log
+
+      '
+  - name: official-broker-ledger-${{ inputs.universe_mode }}-${{ github.run_id }}
+    path: 'outputs/account_evaluation/
+
+      outputs/fullrun_market_session_gate.json
+
+      outputs/fullrun_approved_source_manifest.json
+
+      outputs/fullrun_source_manifest_preflight.json
+
+      outputs/fullrun_source_manifest_verification.json
+
+      outputs/fullrun_resolved_dependencies.json
+
+      outputs/fullrun_runtime_source_manifest.json
+
+      outputs/fullrun_runtime_operating_source_manifest.json
+
+      outputs/fullrun_latest_cross_section_preflight/
+
+      outputs/clean7y_window_preflight_source/
+
+      outputs/clean7y_window_preflight/
+
+      outputs/oos_lock/
+
+      outputs/eight_year_backtest_readiness/
+
+      outputs/universe_health/
+
+      outputs/data_freshness_contract/
+
+      outputs/broker_replay/
+
+      outputs/cost_sensitivity/
+
+      outputs/legacy_monthly_broker_replay/
+
+      outputs/operating_snapshot/
+
+      outputs/account_ledger_preview/
+
+      outputs/broker_position_risk_replay/
+
+      outputs/broker_position_risk_grid_wide_trailing/
+
+      outputs/broker_parabolic_risk_replay/
+
+      outputs/broker_execution_policy_replay/
+
+      outputs/mdd_cash_overlay_research/
+
+      outputs/operator_review/
+
+      outputs/shadow_operating/
+
+      outputs/promotion_review/
+
+      outputs/self_correction_queue/
+
+      outputs/ab_result_verifier/
+
+      outputs/stock_selection_quality/
+
+      outputs/entry_exit_timing_audit/
+
+      outputs/cash_reentry_quality/
+
+      outputs/alpha_plane_measurement_status.json
+
+      outputs/alpha_beta_attribution/
+
+      outputs/fusion_candidate_review/
+
+      outputs/cagr_walkforward/
+
+      outputs/daily_market_snapshot/
+
+      data_pit/free/market_snapshot/
+
+      data_raw/free/market_snapshot/yf_market_info_cache.csv
+
+      outputs/alphaops_vnext/summary.json
+
+      outputs/alphaops_vnext/production_activation.json
+
+      outputs/alphaops_vnext/crisis_state_audit.csv
+
+      outputs/alphaops_vnext/crisis_window_detection_report.csv
+
+      outputs/alphaops_vnext/daily_crisis_state.csv
+
+      outputs/alphaops_vnext/selected_latest.csv
+
+      outputs/alphaops_vnext/official_*_target_book.csv
+
+      outputs/alphaops_vnext/variants/*_target_book.csv
+
+      outputs/patch_application_manifest.json
+
+      outputs/replay_integrity/patch_application_manifest.json
+
+      outputs/reports/candidate_replay_book.csv
+
+      cache_prices/replay_price_cache_manifest.json
+
+      outputs/baseline_lock/
+
+      outputs/market_leader_challenger/
+
+      outputs/integrated_leader_crisis_replay/
+
+      outputs/latest_price_date_audit.json
+
+      outputs/crisis_signals/
+
+      outputs/long_crisis_learning/best_thresholds.json
+
+      outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv
+
+      outputs/sec_enriched_candidate_replay/summary.json
+
+      outputs/sec_enriched_candidate_replay/report.md
+
+      outputs/superperformance_trader_replay/summary.json
+
+      outputs/superperformance_trader_replay/superperformance_report.md
+
+      outputs/superperformance_trader_replay/entry_events.csv
+
+      outputs/superperformance_trader_replay/exit_events.csv
+
+      outputs/superperformance_trader_replay/entry_exit_events.csv
+
+      outputs/superperformance_trader_replay/*target_book.csv
+
+      outputs/integrated_theme_leader_crisis_replay/
+
+      outputs/strategy_logic_ledger/
+
+      outputs/live_trading_safety/
+
+      outputs/live_trading_risk_controls/
+
+      outputs/portfolio_system_guard/
+
+      outputs/metric_hygiene/
+
+      outputs/cash_contract/
+
+      outputs/decision_cadence/
+
+      outputs/stock_selection_quality/
+
+      outputs/entry_exit_timing_audit/
+
+      outputs/cash_reentry_quality/
+
+      outputs/alpha_plane_measurement_status.json
+
+      outputs/alpha_beta_attribution/
+
+      outputs/fusion_candidate_review/
+
+      outputs/full_rebuild_logs/universe_health_audit.log
+
+      outputs/full_rebuild_logs/fullrun_latest_cross_section_preflight.log
+
+      outputs/full_rebuild_logs/clean7y_window_preflight_source.log
+
+      outputs/full_rebuild_logs/clean7y_window_preflight.log
+
+      outputs/full_rebuild_logs/alpha_beta_attribution.log
+
+      outputs/full_rebuild_logs/fusion_candidate_review.log
+
+      outputs/full_rebuild_logs/cagr_walkforward.log
+
+      outputs/full_rebuild_logs/daily_market_snapshot.log
+
+      '
+  - name: research-full-${{ inputs.universe_mode }}-${{ github.run_id }}
+    path: 'outputs/full_rebuild_logs/
+
+      outputs/fullrun_approved_source_manifest.json
+
+      outputs/fullrun_source_manifest_preflight.json
+
+      outputs/fullrun_source_manifest_verification.json
+
+      outputs/fullrun_resolved_dependencies.json
+
+      outputs/fullrun_runtime_source_manifest.json
+
+      outputs/fullrun_runtime_operating_source_manifest.json
+
+      outputs/fullrun_latest_cross_section_preflight/
+
+      outputs/patch_application_manifest.json
+
+      outputs/replay_integrity/patch_application_manifest.json
+
+      outputs/decision_cadence/
+
+      outputs/scored_*.csv
+
+      outputs/backtest_metrics.json
+
+      outputs/concentrated_backtest_metrics.json
+
+      outputs/equity_curve.csv
+
+      outputs/portfolio_latest.csv
+
+      outputs/concentrated_portfolio_latest.csv
+
+      outputs/run_summary.json
+
+      outputs/orchestrator/
+
+      outputs/reports/baseline_registry.*
+
+      outputs/reports/config_audit.*
+
+      outputs/reports/backtest_window_comparison.csv
+
+      outputs/reports/global_alpha_sleeve_audit_*.csv
+
+      outputs/reports/concentrated_strategy_*.csv
+
+      outputs/reports/main_monthly_weights.csv
+
+      outputs/reports/operating_*_target_book.csv
+
+      outputs/reports/operating_target_books_*
+
+      outputs/alphaops_vnext/
+
+      outputs/reports/event_*_target_book.csv
+
+      outputs/reports/weekly_leader_*_target_book.csv
+
+      outputs/target_snapshots/
+
+      outputs/data_readiness/
+
+      outputs/universe_health/
+
+      outputs/adr_candidates/
+
+      outputs/crisis_paper_order_bridge/
+
+      data/catalog.json
+
+      outputs/coverage_gate.json
+
+      outputs/reports/tactical_monthly_weights.csv
+
+      outputs/reports/alpha_sprint_monthly_weights.csv
+
+      outputs/reports/regime_by_month.csv
+
+      outputs/reports/sleeve_returns_by_month.csv
+
+      outputs/reports/candidate_replay_book.csv
+
+      cache_prices/replay_price_cache_manifest.json
+
+      outputs/sec_enriched_candidate_replay/
+
+      outputs/reports/leader_drop_diagnostics_*.csv
+
+      outputs/reports/leader_drop_diagnostics_summary.json
+
+      outputs/reports/leader_drop_diagnostics_report.md
+
+      outputs/reports/leader_rescue_backtest_filter_summary.json
+
+      outputs/reports/dataset_coverage_audit.*
+
+      outputs/trade_journal/
+
+      outputs/concentrated_trade_journal/
+
+      outputs/auto_learning/
+
+      outputs/orchestrator_replay/
+
+      outputs/portfolio_goal_search/
+
+      outputs/main_v2_backtest/
+
+      outputs/concentrated_policy_replay/
+
+      outputs/concentrated_position_risk_replay/
+
+      outputs/alpha_sprint_backtest/
+
+      outputs/position_aware_risk_replay/
+
+      outputs/position_risk_weekly_validation/
+
+      outputs/broker_replay/
+
+      outputs/event_target_books/
+
+      outputs/event_broker_replay/
+
+      outputs/legacy_monthly_broker_replay/
+
+      outputs/weekly_leader_snapshots/
+
+      outputs/weekly_leader_broker_replay/
+
+      outputs/cost_sensitivity/
+
+      outputs/execution_cost_capacity/
+
+      outputs/trade_attribution/
+
+      outputs/churn_filter/
+
+      outputs/churn_filtered_broker_replay/
+
+      outputs/macro_circuit_filter/
+
+      outputs/macro_circuit_broker_replay/
+
+      outputs/regime_capacity_filter/
+
+      outputs/regime_capacity_broker_replay/
+
+      outputs/broker_position_risk_replay/
+
+      outputs/broker_position_risk_grid_wide_trailing/
+
+      outputs/broker_parabolic_risk_replay/
+
+      outputs/broker_execution_policy_replay/
+
+      outputs/operating_event_backtest/
+
+      outputs/broker_gap_attribution/
+
+      outputs/broker_trade_journal/
+
+      outputs/account_ledger_preview/
+
+      outputs/live_trading_safety/
+
+      outputs/live_trading_risk_controls/
+
+      outputs/monster_recommendations/
+
+      outputs/operating_snapshot/
+
+      outputs/user_portfolio_reports/
+
+      outputs/operator_review/
+
+      outputs/shadow_operating/
+
+      outputs/promotion_review/
+
+      outputs/portfolio_system_guard/
+
+      outputs/account_evaluation/
+
+      outputs/oos_lock/
+
+      outputs/metric_hygiene/
+
+      outputs/cash_contract/
+
+      outputs/governance_catalyst/
+
+      outputs/style_regime_report/
+
+      outputs/macro_policy_engine/
+
+      outputs/cash_policy/
+
+      outputs/stock_selection_quality/
+
+      outputs/entry_exit_timing_audit/
+
+      outputs/cash_reentry_quality/
+
+      outputs/alpha_plane_measurement_status.json
+
+      outputs/alpha_beta_attribution/
+
+      outputs/fusion_candidate_review/
+
+      outputs/main_cash_drag_replay/
+
+      outputs/crisis_reentry_replay/
+
+      outputs/broker_crisis_reentry_replay/
+
+      outputs/monster_lifecycle_replay/
+
+      outputs/lifecycle_review_overlay_main/
+
+      outputs/monster_lifecycle_review_main/
+
+      outputs/monster_lifecycle_review_concentrated/
+
+      outputs/historical_trade_journey/
+
+      outputs/selection_audit/
+
+      outputs/eight_year_backtest_readiness/
+
+      outputs/ten_year_backtest_readiness/
+
+      outputs/weekly_evaluation/
+
+      outputs/theme_leadership_tape/
+
+      outputs/theme_concentration_challenger/
+
+      outputs/baseline_lock/
+
+      outputs/market_leader_challenger/
+
+      outputs/integrated_leader_crisis_replay/
+
+      outputs/latest_price_date_audit.json
+
+      outputs/crisis_signals/
+
+      outputs/long_crisis_learning/
+
+      outputs/superperformance_trader_replay/
+
+      outputs/integrated_theme_leader_crisis_replay/
+
+      outputs/strategy_logic_ledger/
+
+      outputs/auto_learning_v2/
+
+      outputs/winner_lifecycle/
+
+      outputs/winner_onset_study/
+
+      outputs/shakeout_breakdown_study/
+
+      outputs/shakeout_disclosure_reversal_study/
+
+      outputs/pit_top_manager_follow_study/
+
+      outputs/autolearning_winner_challenger/
+
+      outputs/policy_fusion/
+
+      '
+  declared_output_paths:
+  - data/catalog.json
+  - outputs/clean7y_window_preflight
+  - outputs/clean7y_window_preflight_source
+  - outputs/concentrated_trade_journal
+  - outputs/coverage_gate.json
+  - outputs/fullrun_latest_cross_section_preflight
+  - outputs/fullrun_market_session_gate.json
+  - outputs/fullrun_runtime_source_manifest.json
+  - outputs/fullrun_source_manifest_preflight.json
+  - outputs/fullrun_source_manifest_verification.json
+  - outputs/reports
+  authority_command_evidence:
+  - '"outputs/promotion_review"'
+  - --approved-target-policy-path "${APPROVED_TARGET_POLICY_PATH:-outputs/promotion_review/approved_target_policy.json}" \
+  - 2>&1 | tee outputs/full_rebuild_logs/operating_target_books_pre_sidecar.log
+  - UNIVERSE_HEALTHY="$(python -c 'import csv,json; from pathlib import Path; audit=Path("outputs/universe_health/universe_source_audit.json");
+    p=Path("outputs/scored_latest.csv"); rows=list(csv.DictReader(p.open())) if p.exists() else []; healthy=(json.loads(audit.read_text(encoding="utf-8")).get("promotion_allowed")
+    is True) if audit.exists() else (bool(rows) and "universe_source" in rows[0] and sum(1 for r in rows if "current_constituents_proxy"
+    in str(r.get("universe_source","")) or "historical_membership_file" in str(r.get("universe_source",""))) >= 400); print("yes"
+    if healthy else "no")' 2>/dev/null || echo no)"
+  - copy_dir_clean outputs/event_target_books "$DEST/event_target_books"
+  - copy_dir_clean outputs/live_trading_risk_controls "$DEST/live_trading_risk_controls"
+  - copy_dir_clean outputs/live_trading_safety "$DEST/live_trading_safety"
+  - copy_dir_clean outputs/promotion_review "$DEST/promotion_review"
+  - cp "$src"/official_*_target_book.csv "$dst"/ 2>/dev/null || true
+  - cp "$src"/variants/*_target_book.csv "$dst/variants"/ 2>/dev/null || true
+  - cp outputs/reports/event_*_target_book.csv "$DEST/reports/" 2>/dev/null || true
+  - cp outputs/reports/operating_*_target_book.csv "$DEST/reports/" 2>/dev/null || true
+  - cp outputs/reports/operating_target_books_* "$DEST/reports/" 2>/dev/null || true
+  - cp outputs/reports/weekly_leader_*_target_book.csv "$DEST/reports/" 2>/dev/null || true
+  - 'f.write(json.dumps({"source": "$src", "skipped": False, "copied": False, "failed": True, "error": "optional rclone copyto
+    failed"}) + "\n")'
+  - 'f.write(json.dumps({"source": "$src", "skipped": False, "copied": False, "failed": True, "error": "rclone copyto failed"})
+    + "\n")'
+  - if git push origin "HEAD:$RESULT_BRANCH" 2>&1; then
+  - if rclone copyto "$src" "$DEST/$rel" --transfers 4 --checkers 8 --stats 30s --stats-one-line; then
+  - if timeout 8m rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line; then
+  - python tools/auto_learning_promote.py --dry-run --candidate-gates "$CANDIDATE_GATES" --active-gates research/auto_feature_gates.yaml
+    2>&1 | tee outputs/auto_learning/promotion_decision.log || true
+  - python tools/auto_policy_promote.py --candidate-policy outputs/auto_learning/auto_learning_policy_candidate.yaml --challenger-decision
+    outputs/auto_learning/challenger/challenger_decision.json --out-dir outputs/auto_learning/promotion 2>&1 | tee outputs/auto_learning/auto_policy_promotion.log
+    || true
+  - python tools/build_operating_target_books.py \
+  - rclone copyto outputs/gdrive_sync_manifest.json "$DEST/gdrive_sync_manifest.json"
+  static_authority_references:
+    target: true
+    paper_ledger: false
+    broker_or_live_named: true
+    broker_execution_command: false
+    promotion_or_champion: true
+    contents_write: true
+    rclone_write: true
+  declared_role: manual_full_rebuild_research
+  decision: KEEP
+  target_authority: RESEARCH_ARTIFACT_ONLY
+  paper_ledger_authority: RESEARCH_REPLAY_ONLY
+  durable_write_scope: RESEARCH_ARTIFACT_AND_VERSIONED_RESULT_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: EXPLICIT_FULLRUN_APPROVAL_REQUIRED; CURRENTLY_NOT_AUTHORIZED
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: gate_ablation_study_manual.yml
+  path: .github/workflows/gate_ablation_study_manual.yml
+  display_name: Gate Ablation Study (Manual)
+  workflow_blob_sha: 29612b5cfd4bd8d3d4936472ccbecdf5ea3bcb7e
+  workflow_sha256: 4489f0bf101cabb796c011bd86761eebb36477a690366d0a3f6259827c5f6d68
+  trigger:
+    events:
+    - workflow_dispatch
+    schedules: []
+    workflow_dispatch_inputs:
+    - name: source_run_id
+      type: string
+      required: true
+      default: null
+    - name: portfolio_kind
+      type: choice
+      required: false
+      default: concentrated
+    - name: cost_bps
+      type: string
+      required: false
+      default: '25'
+    - name: workers
+      type: string
+      required: false
+      default: '3'
+    - name: include_all_restore
+      type: choice
+      required: false
+      default: 'true'
+    - name: concentrated_target_stock_n
+      type: string
+      required: false
+      default: '0'
+    - name: concentrated_weighting_mode
+      type: string
+      required: false
+      default: ''
+    - name: concentrated_rebalance_interval_months
+      type: string
+      required: false
+      default: '0'
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+      actions: read
+    jobs: {}
+  secrets: []
+  variables: []
+  actions:
+  - actions/cache@v4
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: gate-ablation-${{ inputs.portfolio_kind }}-${{ inputs.source_run_id }}-${{ github.run_id }}
+    path: 'outputs/gate_ablation_study/
+
+      outputs/gate_ablation_study_run.log
+
+      '
+  declared_output_paths:
+  - cache_prices
+  - outputs/gate_ablation_study
+  authority_command_evidence:
+  - --books "outputs/reports/operating_${{ inputs.portfolio_kind }}_target_book.csv" \
+  - test -s "outputs/reports/operating_${{ inputs.portfolio_kind }}_target_book.csv"
+  static_authority_references:
+    target: true
+    paper_ledger: false
+    broker_or_live_named: true
+    broker_execution_command: false
+    promotion_or_champion: true
+    contents_write: false
+    rclone_write: false
+  declared_role: manual_gate_ablation_research
+  decision: KEEP
+  target_authority: RESEARCH_ARTIFACT_ONLY
+  paper_ledger_authority: NONE
+  durable_write_scope: RESEARCH_ARTIFACT_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: WORKFLOW_DISPATCH_RESEARCH_ONLY
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: gdrive_smoke_test.yml
+  path: .github/workflows/gdrive_smoke_test.yml
+  display_name: Google Drive Sync Smoke Test
+  workflow_blob_sha: c688a95a553ca99d5fee9a06840f3d3e251660ef
+  workflow_sha256: c3bf4678f6a5a1976cc83da1c9a0310cad630dd37fed30a0cf16ff2c5cf2d01b
+  trigger:
+    events:
+    - workflow_dispatch
+    schedules: []
+    workflow_dispatch_inputs: []
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+    jobs: {}
+  secrets:
+  - GDRIVE_ROOT_FOLDER_ID
+  - GOOGLE_SERVICE_ACCOUNT_KEY
+  - RCLONE_CONFIG_GDRIVE
+  variables:
+  - GDRIVE_ROOT_FOLDER_ID
+  actions: []
+  artifact_uploads: []
+  declared_output_paths: []
+  authority_command_evidence:
+  - rclone copyto "/tmp/$MARKER" "$DEST/$MARKER"
+  static_authority_references:
+    target: false
+    paper_ledger: false
+    broker_or_live_named: false
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: false
+    rclone_write: true
+  declared_role: google_drive_connectivity_diagnostic
+  decision: KEEP
+  target_authority: NONE
+  paper_ledger_authority: NONE
+  durable_write_scope: DIAGNOSTIC_TEST_OBJECT_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: WORKFLOW_DISPATCH_DIAGNOSTIC_ONLY
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: layer4_monthly_swap.yml
+  path: .github/workflows/layer4_monthly_swap.yml
+  display_name: Layer 4 Monthly Swap Proposal
+  workflow_blob_sha: bb345ac584d890658a06d13876e5a2022821a25c
+  workflow_sha256: 5c5e9dcb2c8550bf878a27240e887b5391ca66004ad3b831892158e12286295b
+  trigger:
+    events:
+    - schedule
+    - workflow_dispatch
+    schedules:
+    - 45 22 5 * *
+    workflow_dispatch_inputs:
+    - name: execute
+      type: boolean
+      required: false
+      default: 'false'
+    - name: no_throttle
+      type: boolean
+      required: false
+      default: 'false'
+  job_count: 1
+  permissions:
+    workflow:
+      contents: write
+    jobs: {}
+  secrets:
+  - ALPACA_API_KEY
+  - ALPACA_API_SECRET
+  - TELEGRAM_BOT_TOKEN
+  - TELEGRAM_CHAT_ID
+  variables: []
+  actions:
+  - actions/cache@v4
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: layer4-${{ github.run_id }}
+    path: 'outputs/layer4_logs/
+
+      outputs/layer4_swap_history.json
+
+      '
+  declared_output_paths: []
+  authority_command_evidence:
+  - git push || true
+  static_authority_references:
+    target: false
+    paper_ledger: false
+    broker_or_live_named: true
+    broker_execution_command: true
+    promotion_or_champion: false
+    contents_write: true
+    rclone_write: false
+  declared_role: monthly_layer4_research_swap
+  decision: CONSOLIDATE
+  target_authority: RESEARCH_ARTIFACT_ONLY
+  paper_ledger_authority: NONCANONICAL_ALPACA_PAPER_EXECUTOR_BLOCKED
+  durable_write_scope: VERSIONED_RESEARCH_RESULT_ONLY
+  production_live_authority: NONCANONICAL_ALPACA_PAPER_EXECUTION_PATH_BLOCKED
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: SCHEDULED_PROPOSAL_ONLY; EXECUTE INPUT GRANTS NO CANONICAL AUTHORITY
+  platform_validation_blockers: []
+  authority_blockers:
+  - LEGACY_ALPACA_PAPER_SWAP_BYPASSES_CANONICAL_ACCOUNT_LEDGER
+  long_expression_blocks: []
+- file: live_extension_daily.yml
+  path: .github/workflows/live_extension_daily.yml
+  display_name: Live Extension Daily
+  workflow_blob_sha: 00e15a473dc38275a65a989e41ab569d767a6998
+  workflow_sha256: 8a25d1490d46a6a764933e7fb34cdc119c9e7f17a7bbfe894470a268ba843959
+  trigger:
+    events:
+    - schedule
+    - workflow_dispatch
+    schedules:
+    - 0 23 * * 1-5
+    workflow_dispatch_inputs:
+    - name: latest_run
+      type: string
+      required: false
+      default: cloud_results/full_rebuild/latest_global_alpha_universe
+    - name: hard_stop
+      type: string
+      required: false
+      default: '-0.08'
+    - name: trailing_stop
+      type: string
+      required: false
+      default: '-0.15'
+    - name: top_signals
+      type: string
+      required: false
+      default: '10'
+  job_count: 1
+  permissions:
+    workflow:
+      contents: write
+    jobs: {}
+  secrets:
+  - TELEGRAM_BOT_TOKEN
+  - TELEGRAM_CHAT_ID
+  variables: []
+  actions:
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: live-extension-${{ github.run_id }}
+    path: outputs/live_extension/
+  declared_output_paths: []
+  authority_command_evidence:
+  - if git push; then
+  static_authority_references:
+    target: false
+    paper_ledger: false
+    broker_or_live_named: true
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: true
+    rclone_write: false
+  declared_role: legacy_named_daily_extension_report
+  decision: UNKNOWN
+  target_authority: NONE
+  paper_ledger_authority: NONE
+  durable_write_scope: NONCANONICAL_VERSIONED_REPORT_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: NAME_DOES_NOT_GRANT_LIVE_AUTHORITY; SEPARATE APPROVAL REQUIRED
+  platform_validation_blockers: []
+  authority_blockers:
+  - LIVE_NAMED_CONTENTS_WRITER_NONCANONICAL_BLOCKED
+  long_expression_blocks: []
+- file: monthly_research.yml
+  path: .github/workflows/monthly_research.yml
+  display_name: Monthly Research and Universe Maintenance
+  workflow_blob_sha: f1e1a2c3c22ed1b204df45882314e92546c77eec
+  workflow_sha256: 05b79ba6ae6da11746f5e18a2b65c4efb7a79ea7eca1229e02e7e366d5f917f3
+  trigger:
+    events:
+    - schedule
+    - workflow_dispatch
+    schedules:
+    - 45 22 15 * *
+    workflow_dispatch_inputs:
+    - name: countries_filter
+      type: string
+      required: false
+      default: ''
+    - name: windows
+      type: string
+      required: false
+      default: 30,60,90
+    - name: tactical_top_n
+      type: string
+      required: false
+      default: '5'
+    - name: tactical_start
+      type: string
+      required: false
+      default: ''
+    - name: history_path
+      type: string
+      required: false
+      default: ''
+    - name: explosion_years
+      type: string
+      required: false
+      default: '8'
+    - name: explosion_limit
+      type: string
+      required: false
+      default: '0'
+    - name: neg_per_pos
+      type: string
+      required: false
+      default: '4'
+  job_count: 1
+  permissions:
+    workflow:
+      contents: write
+    jobs: {}
+  secrets:
+  - ALPACA_API_KEY
+  - ALPACA_API_SECRET
+  - FRED_API_KEY
+  - TELEGRAM_BOT_TOKEN
+  - TELEGRAM_CHAT_ID
+  variables: []
+  actions:
+  - actions/cache@v4
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: monthly-research-${{ github.run_id }}
+    path: 'refresh_cycle_play.log
+
+      cycle_play_universe.yaml
+
+      cloud_results/ic_monitor/
+
+      outputs/tactical_backtest/
+
+      outputs/explosive_pattern_db/
+
+      '
+  declared_output_paths: []
+  authority_command_evidence:
+  - if git push; then
+  static_authority_references:
+    target: false
+    paper_ledger: false
+    broker_or_live_named: true
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: true
+    rclone_write: false
+  declared_role: monthly_research_pipeline
+  decision: CONSOLIDATE
+  target_authority: RESEARCH_ARTIFACT_ONLY
+  paper_ledger_authority: RESEARCH_REPLAY_ONLY
+  durable_write_scope: VERSIONED_RESEARCH_RESULT_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: NO_PRODUCTION_PROMOTION_AUTHORITY
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: overlay_combination_search_manual.yml
+  path: .github/workflows/overlay_combination_search_manual.yml
+  display_name: Overlay Combination Search (Manual)
+  workflow_blob_sha: 45d9e7d1cfed7be90d42e88385f68460ef98fc33
+  workflow_sha256: a97b155b80c60b5ed312a604f8ac31cd34a022767941728d88ad39d8d8457c88
+  trigger:
+    events:
+    - workflow_dispatch
+    schedules: []
+    workflow_dispatch_inputs:
+    - name: source_run_id
+      type: string
+      required: true
+      default: null
+    - name: portfolio_kind
+      type: choice
+      required: false
+      default: concentrated
+    - name: max_combos
+      type: string
+      required: false
+      default: '160'
+    - name: workers
+      type: string
+      required: false
+      default: '3'
+    - name: primary_cost_bps
+      type: string
+      required: false
+      default: '25'
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+      actions: read
+    jobs: {}
+  secrets: []
+  variables: []
+  actions:
+  - actions/cache@v4
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: overlay-combination-search-${{ inputs.source_run_id }}-${{ github.run_id }}
+    path: 'outputs/overlay_combination_search/
+
+      outputs/overlay_combination_search_run.log
+
+      '
+  declared_output_paths:
+  - cache_prices
+  - outputs/overlay_combination_search
+  authority_command_evidence:
+  - --books outputs/reports/operating_main_target_book.csv outputs/reports/operating_concentrated_target_book.csv \
+  - cat outputs/overlay_combination_search/champion.json
+  - echo "===== champion.json ====="
+  - echo "[overlay-search] no champion.json produced — check the run log."
+  - if [ -s outputs/overlay_combination_search/champion.json ]; then
+  - test -s outputs/reports/operating_concentrated_target_book.csv
+  - test -s outputs/reports/operating_main_target_book.csv
+  static_authority_references:
+    target: true
+    paper_ledger: false
+    broker_or_live_named: true
+    broker_execution_command: false
+    promotion_or_champion: true
+    contents_write: false
+    rclone_write: false
+  declared_role: manual_overlay_combination_research
+  decision: KEEP
+  target_authority: RESEARCH_ARTIFACT_ONLY
+  paper_ledger_authority: NONE
+  durable_write_scope: RESEARCH_ARTIFACT_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: WORKFLOW_DISPATCH_RESEARCH_ONLY
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: pages_deploy.yml
+  path: .github/workflows/pages_deploy.yml
+  display_name: Deploy Run287 Portfolio Dashboard
+  workflow_blob_sha: 3fb26c09d9e773918f1a6a9ea2fb223ef5a8a590
+  workflow_sha256: 9bd9e5bcc4a79e497f244ccca482dcdc85dc0119f297d31f51812b53c74d3c48
+  trigger:
+    events:
+    - push
+    - workflow_dispatch
+    - workflow_run
+    schedules: []
+    workflow_dispatch_inputs: []
+  job_count: 2
+  permissions:
+    workflow:
+      contents: read
+      actions: read
+      pages: write
+      id-token: write
+    jobs:
+      deploy:
+        pages: write
+        id-token: write
+  secrets: []
+  variables: []
+  actions:
+  - actions/checkout@v4
+  - actions/configure-pages@v5
+  - actions/deploy-pages@v4
+  - actions/download-artifact@v4
+  - actions/github-script@v7
+  - actions/setup-python@v5
+  - actions/upload-pages-artifact@v4
+  artifact_uploads: []
+  declared_output_paths:
+  - docs/public/data/dashboard.json
+  authority_command_evidence: []
+  static_authority_references:
+    target: false
+    paper_ledger: false
+    broker_or_live_named: false
+    broker_execution_command: false
+    promotion_or_champion: true
+    contents_write: false
+    rclone_write: false
+  declared_role: research_dashboard_publication
+  decision: KEEP
+  target_authority: NONE
+  paper_ledger_authority: NONE
+  durable_write_scope: GITHUB_PAGES_PUBLICATION_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: UPSTREAM_SUCCESS_REQUIRED
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: phase_ab_quick_rescore_manual.yml
+  path: .github/workflows/phase_ab_quick_rescore_manual.yml
+  display_name: Phase A/B QUICK Rescore (Manual / Fast)
+  workflow_blob_sha: b55a109568689c076015829ad1bce4785670de88
+  workflow_sha256: 5cfc5cf3c938d015c17f1c9501e6eff31a8827b940ac106a08b11f95c49af1d8
+  trigger:
+    events:
+    - workflow_dispatch
+    schedules: []
+    workflow_dispatch_inputs:
+    - name: ref
+      type: string
+      required: false
+      default: claude/analyze-updated-code-OfEbu
+    - name: phase_env_overrides
+      type: string
+      required: false
+      default: ''
+    - name: arm_label
+      type: string
+      required: false
+      default: quick-rescore
+    - name: source_run_id
+      type: string
+      required: false
+      default: ''
+    - name: decision_time_utc
+      type: string
+      required: true
+      default: null
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+      actions: read
+    jobs: {}
+  secrets: []
+  variables: []
+  actions:
+  - actions/cache/restore@v4
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: phase-ab-quick-${{ inputs.arm_label }}-${{ github.run_id }}
+    path: 'outputs/broker_replay
+
+      outputs/leader_lifecycle_audit
+
+      outputs/subdaily_exit_compare
+
+      outputs/position_risk_weekly_validation
+
+      outputs/backtest_metrics.json
+
+      outputs/concentrated_backtest_metrics.json
+
+      outputs/full_rebuild_logs
+
+      outputs/verdict.log
+
+      '
+  declared_output_paths: []
+  authority_command_evidence: []
+  static_authority_references:
+    target: false
+    paper_ledger: false
+    broker_or_live_named: true
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: false
+    rclone_write: false
+  declared_role: manual_phase_ab_quick_rescore_research
+  decision: KEEP
+  target_authority: RESEARCH_ARTIFACT_ONLY
+  paper_ledger_authority: NONE
+  durable_write_scope: RESEARCH_ARTIFACT_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: WORKFLOW_DISPATCH_RESEARCH_ONLY
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: phase_g_crisis_evidence_liquidity_replay.yml
+  path: .github/workflows/phase_g_crisis_evidence_liquidity_replay.yml
+  display_name: Phase G Crisis Evidence Liquidity Replay
+  workflow_blob_sha: 5d0db478b8c65ecfa319b8f903a233e33ceae44e
+  workflow_sha256: 46d24c43ad1860f5c3e67af1885ce14d624ce8fddab548b886afe466f2572fa3
+  trigger:
+    events:
+    - workflow_dispatch
+    schedules: []
+    workflow_dispatch_inputs:
+    - name: source_run_id
+      type: string
+      required: true
+      default: null
+    - name: portfolio_kind
+      type: choice
+      required: false
+      default: both
+    - name: governor_mode
+      type: choice
+      required: false
+      default: learned
+    - name: run_post_disclosure_overlay
+      type: boolean
+      required: false
+      default: 'true'
+    - name: run_long_crisis_learning
+      type: boolean
+      required: false
+      default: 'true'
+    - name: run_cost_sensitivity
+      type: boolean
+      required: false
+      default: 'true'
+    - name: cost_bps
+      type: string
+      required: false
+      default: '25'
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+      actions: read
+    jobs: {}
+  secrets:
+  - GDRIVE_ROOT_FOLDER_ID
+  - GOOGLE_SERVICE_ACCOUNT_KEY
+  - RCLONE_CONFIG_GDRIVE
+  variables:
+  - GDRIVE_ROOT_FOLDER_ID
+  actions:
+  - actions/cache@v4
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: phase-g-crisis-evidence-liquidity-skipped-${{ github.run_id }}
+    path: outputs/phase_g_crisis_evidence_liquidity/overlap_summary.json
+  - name: phase-g-crisis-evidence-liquidity-${{ inputs.source_run_id }}-${{ github.run_id }}
+    path: 'outputs/phase_g_crisis_evidence_liquidity/
+
+      outputs/long_crisis_learning/
+
+      data_pit/macro/long_crisis_daily_features.parquet
+
+      outputs/post_disclosure_alpha_pipeline/
+
+      outputs/reports/crisis_governed_*_target_book.csv
+
+      outputs/full_rebuild_logs/
+
+      '
+  declared_output_paths:
+  - cache_prices
+  - outputs/phase_g_crisis_evidence_liquidity
+  - outputs/phase_g_crisis_evidence_liquidity/cost_sensitivity/concentrated
+  - outputs/phase_g_crisis_evidence_liquidity/cost_sensitivity/main
+  - outputs/post_disclosure_alpha_pipeline
+  - outputs/reports
+  authority_command_evidence:
+  - --candidate-book outputs/reports/operating_main_target_book.csv \
+  - 2>&1 | tee outputs/full_rebuild_logs/crisis_governed_target_books_phase_g.log
+  - if [ -s outputs/reports/crisis_governed_concentrated_target_book.csv ]; then
+  - if [ -s outputs/reports/crisis_governed_main_target_book.csv ]; then
+  - python tools/build_crisis_governed_target_books.py \
+  - python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports
+    2>&1 | tee outputs/full_rebuild_logs/operating_target_books_before_post_disclosure.log || true
+  - python tools/build_operating_target_books.py --latest-run outputs --price-cache cache_prices --output-dir outputs/reports
+    2>&1 | tee outputs/full_rebuild_logs/operating_target_books_phase_g.log
+  - python tools/run_cost_sensitivity_sidecar.py --target-book outputs/reports/crisis_governed_concentrated_target_book.csv
+    --price-cache cache_prices --portfolio-kind concentrated --output-dir outputs/phase_g_crisis_evidence_liquidity/cost_sensitivity/concentrated
+    --cost-bps-list 25 50 75 100 --baseline-cost-bps "${{ inputs.cost_bps }}" || true
+  - python tools/run_cost_sensitivity_sidecar.py --target-book outputs/reports/crisis_governed_main_target_book.csv --price-cache
+    cache_prices --portfolio-kind main --output-dir outputs/phase_g_crisis_evidence_liquidity/cost_sensitivity/main --cost-bps-list
+    25 50 75 100 --baseline-cost-bps "${{ inputs.cost_bps }}" || true
+  - rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
+  - rclone copy data_pit/macro "$DEST/data_pit/macro/" --include "long_crisis_daily_features.parquet" || true
+  - rclone copy data_pit/macro "${CANONICAL_BASE}data_pit/macro/" --include "long_crisis_daily_features.parquet" --transfers
+    4 --checkers 8 --stats 30s --stats-one-line || true
+  - rclone copy outputs/long_crisis_learning "${CANONICAL_BASE}outputs/long_crisis_learning/" --transfers 4 --checkers 8 --stats
+    30s --stats-one-line || true
+  - timeout 8m rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
+  static_authority_references:
+    target: true
+    paper_ledger: false
+    broker_or_live_named: true
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: false
+    rclone_write: true
+  declared_role: manual_crisis_and_liquidity_replay_research
+  decision: KEEP
+  target_authority: RESEARCH_ARTIFACT_ONLY
+  paper_ledger_authority: RESEARCH_REPLAY_ONLY
+  durable_write_scope: RESEARCH_ARTIFACT_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: WORKFLOW_DISPATCH_RESEARCH_ONLY
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: portfolio_system_guard.yml
+  path: .github/workflows/portfolio_system_guard.yml
+  display_name: Portfolio System Guard
+  workflow_blob_sha: c2fd4d619bb06b1f36a0665e04fdc88634c14ad0
+  workflow_sha256: 727db624da4374e286f8e3df8177224153a8e48c441e5e793f83717a3fd6c86d
+  trigger:
+    events:
+    - pull_request
+    - workflow_dispatch
+    schedules: []
+    workflow_dispatch_inputs:
+    - name: latest_run
+      type: string
+      required: false
+      default: tests/fixtures/run287_canonical_baseline
+    - name: strict_targets
+      type: boolean
+      required: false
+      default: 'false'
+    - name: refresh_auto_learning_v2
+      type: boolean
+      required: false
+      default: 'true'
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+    jobs: {}
+  secrets: []
+  variables: []
+  actions:
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: portfolio-system-guard-${{ github.run_id }}
+    path: 'outputs/portfolio_system_guard/
+
+      outputs/orchestrator_replay/
+
+      outputs/portfolio_goal_search/
+
+      outputs/auto_learning_v2/
+
+      research/auto_learning_v2/
+
+      '
+  declared_output_paths:
+  - /tmp/run287_baseline_resolution.json
+  authority_command_evidence:
+  - BOOK="$RUN287_LATEST_RUN/reports/operating_${KIND}_target_book.csv"
+  static_authority_references:
+    target: true
+    paper_ledger: false
+    broker_or_live_named: false
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: false
+    rclone_write: false
+  declared_role: pull_request_portfolio_contract_guard
+  decision: KEEP
+  target_authority: NONE
+  paper_ledger_authority: NONE
+  durable_write_scope: CI_STATUS_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: REQUIRED_CHECK
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: post_disclosure_alpha_pipeline.yml
+  path: .github/workflows/post_disclosure_alpha_pipeline.yml
+  display_name: Post-Disclosure Alpha Pipeline
+  workflow_blob_sha: 31574f0a2728084b5c7caad6d27be869e3b2dc2b
+  workflow_sha256: e370f65c4e199c468c9bc8a559220dc8d6edf4d97e916bde9a497e01e26f46df
+  trigger:
+    events:
+    - workflow_dispatch
+    - workflow_run
+    schedules: []
+    workflow_dispatch_inputs:
+    - name: lookback_days
+      type: string
+      required: false
+      default: '180'
+    - name: top_n
+      type: string
+      required: false
+      default: '30'
+    - name: run_overlay_challenger
+      type: boolean
+      required: false
+      default: 'false'
+    - name: run_broker_grid
+      type: boolean
+      required: false
+      default: 'false'
+    - name: cost_bps
+      type: string
+      required: false
+      default: '25'
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+      actions: read
+    jobs: {}
+  secrets:
+  - GDRIVE_ROOT_FOLDER_ID
+  - GOOGLE_SERVICE_ACCOUNT_KEY
+  - RCLONE_CONFIG_GDRIVE
+  variables:
+  - GDRIVE_ROOT_FOLDER_ID
+  actions:
+  - actions/cache@v4
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: post-disclosure-alpha-${{ github.run_id }}
+    path: 'data_pit/sec/13f_position_events.*
+
+      data_pit/sec/form4_transaction_events.*
+
+      data_pit/sec/post_disclosure_events_all.*
+
+      data_pit/sec/post_disclosure_alpha_labels.*
+
+      data_pit/sec/manager_disclosure_alpha_scores.*
+
+      data_pit/sec/pit_top_manager_cohorts.*
+
+      data_pit/sec/top_manager_13f_follow_events.*
+
+      data_pit/etf_holdings/etf_holding_events.*
+
+      outputs/post_disclosure_alpha_pipeline/
+
+      outputs/pit_top_manager_follow_study/
+
+      outputs/full_rebuild_logs/post_disclosure_*.log
+
+      outputs/full_rebuild_logs/post_disclosure_13f_freshness.*
+
+      outputs/full_rebuild_logs/pit_top_manager_follow_study.log
+
+      outputs/full_rebuild_logs/post_disclosure_price_cache_*
+
+      outputs/full_rebuild_logs/smart_upstream_publication_verification.json
+
+      '
+  declared_output_paths:
+  - outputs/full_rebuild_logs/smart_upstream_publication_verification.json
+  - outputs/pit_top_manager_follow_study
+  - outputs/post_disclosure_alpha_pipeline
+  - outputs/post_disclosure_alpha_pipeline/13f_position_events
+  - outputs/post_disclosure_alpha_pipeline/etf_holding_events
+  - outputs/post_disclosure_alpha_pipeline/form4_transaction_events
+  authority_command_evidence:
+  - timeout 8m rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line
+  - timeout 8m rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
+  - timeout 8m rclone copy "$d" "$BASE$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line
+  - timeout 8m rclone copy "${BASE}cache_prices" cache_prices/ \
+  static_authority_references:
+    target: false
+    paper_ledger: false
+    broker_or_live_named: true
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: false
+    rclone_write: true
+  declared_role: post_disclosure_research_signal_derivation
+  decision: KEEP
+  target_authority: RESEARCH_OVERLAY_ONLY
+  paper_ledger_authority: NONE
+  durable_write_scope: RESEARCH_OR_DATASET_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: UPSTREAM_DISCLOSURE_SUCCESS_REQUIRED
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: pr_validation.yml
+  path: .github/workflows/pr_validation.yml
+  display_name: PR Validation (Fast)
+  workflow_blob_sha: f0239f603b95e3d4dd40448b8d5e6d3d34205c26
+  workflow_sha256: 68e8a3f93a8a725f59ddae5af83af1a7fa87562a43f38951dd87176be72439f7
+  trigger:
+    events:
+    - pull_request
+    - workflow_dispatch
+    schedules: []
+    workflow_dispatch_inputs: []
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+    jobs: {}
+  secrets: []
+  variables: []
+  actions:
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  artifact_uploads: []
+  declared_output_paths: []
+  authority_command_evidence: []
+  static_authority_references:
+    target: false
+    paper_ledger: false
+    broker_or_live_named: false
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: false
+    rclone_write: false
+  declared_role: pull_request_fast_validation
+  decision: KEEP
+  target_authority: NONE
+  paper_ledger_authority: NONE
+  durable_write_scope: CI_STATUS_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: REQUIRED_CHECK
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: quarterly_auto_learning.yml
+  path: .github/workflows/quarterly_auto_learning.yml
+  display_name: Quarterly Auto-Learning Review
+  workflow_blob_sha: 2ca836436b4d83e3e54bebaa52d3929386181479
+  workflow_sha256: ab11bd95742b560cbaa7f543c43279fa2c717baf8ca1de88002a20e1b00d9b75
+  trigger:
+    events:
+    - schedule
+    - workflow_dispatch
+    schedules:
+    - 0 5 1 1,4,7,10 *
+    workflow_dispatch_inputs:
+    - name: trades_path
+      type: string
+      required: false
+      default: ''
+    - name: clusters
+      type: string
+      required: false
+      default: '8'
+    - name: dry_run
+      type: boolean
+      required: false
+      default: 'true'
+    - name: open_proposal_pr
+      type: boolean
+      required: false
+      default: 'false'
+    - name: ic_disable
+      type: string
+      required: false
+      default: '-0.05'
+    - name: ic_amplify
+      type: string
+      required: false
+      default: '0.10'
+    - name: ic_min_n
+      type: string
+      required: false
+      default: '25'
+    - name: cluster_winrate_max
+      type: string
+      required: false
+      default: '0.30'
+  job_count: 1
+  permissions:
+    workflow:
+      contents: write
+      pull-requests: write
+    jobs: {}
+  secrets:
+  - GITHUB_TOKEN
+  variables: []
+  actions:
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: quarterly-auto-learning-${{ github.run_id }}
+    path: 'outputs/trade_journal/insights/
+
+      outputs/concentrated_trade_journal/
+
+      outputs/auto_learning/
+
+      proposal_output.txt
+
+      auto_learning_promote_output.txt
+
+      research/auto_feature_gates.yaml
+
+      '
+  declared_output_paths:
+  - outputs/concentrated_trade_journal
+  authority_command_evidence:
+  - if git push -u origin "$BRANCH"; then
+  - if git push; then
+  static_authority_references:
+    target: false
+    paper_ledger: false
+    broker_or_live_named: false
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: true
+    rclone_write: false
+  declared_role: quarterly_challenger_research_review
+  decision: CONSOLIDATE
+  target_authority: NONE
+  paper_ledger_authority: NONE
+  durable_write_scope: VERSIONED_RESEARCH_PROPOSAL_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: NO_AUTOMATIC_ACTIVATION
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: review_complete_gate.yml
+  path: .github/workflows/review_complete_gate.yml
+  display_name: Review Complete Gate
+  workflow_blob_sha: d9cdefe1b353467214a0c88b4d4330c12981dd2c
+  workflow_sha256: 05201ac2ef6beb792ea25e0a1d9c35c0ceda678def40eefc703213617de17dcc
+  trigger:
+    events:
+    - issue_comment
+    - pull_request_target
+    - workflow_dispatch
+    schedules: []
+    workflow_dispatch_inputs:
+    - name: pr_number
+      type: string
+      required: true
+      default: null
+    - name: head_sha
+      type: string
+      required: true
+      default: null
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+      pull-requests: read
+      issues: read
+      checks: write
+    jobs: {}
+  secrets: []
+  variables: []
+  actions:
+  - actions/checkout@v4
+  artifact_uploads: []
+  declared_output_paths:
+  - $ROOT/result.json
+  authority_command_evidence: []
+  static_authority_references:
+    target: false
+    paper_ledger: false
+    broker_or_live_named: false
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: false
+    rclone_write: false
+  declared_role: exact_head_review_completion_gate
+  decision: KEEP
+  target_authority: NONE
+  paper_ledger_authority: NONE
+  durable_write_scope: CI_STATUS_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: REQUIRED_CHECK
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: run287_sector_leadership_research.yml
+  path: .github/workflows/run287_sector_leadership_research.yml
+  display_name: Run287 Sector Leadership Research
+  workflow_blob_sha: d835b86bcc1c4d4107389005d507a28e1a5883df
+  workflow_sha256: 34d3ec8e10e7a3c51bf6982d435063e0f2460f7fa0a65ccef27f9331e896cfe5
+  trigger:
+    events:
+    - workflow_dispatch
+    - workflow_run
+    schedules: []
+    workflow_dispatch_inputs:
+    - name: source_run_id
+      type: string
+      required: true
+      default: null
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+      actions: read
+    jobs: {}
+  secrets: []
+  variables: []
+  actions:
+  - actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+  - actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+  - actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+  - actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+  artifact_uploads:
+  - name: run287-sector-leadership-research-${{ steps.source.outputs.run_id }}
+    path: outputs/run287_sector_leadership_research
+  declared_output_paths:
+  - outputs/run287_sector_leadership_research
+  authority_command_evidence:
+  - '"automatic_champion_replacement_allowed",'
+  - '"automatic_promotion_allowed",'
+  - '"live_trading_enabled",'
+  - '"live_trading_enabled": False,'
+  - '"target_book_generation_executed",'
+  - '"target_books_mutated",'
+  - accepted_outputs / "daily_simulated_fill_ledger/summary.json"
+  - and (path / "daily_simulated_fill_ledger/summary.json").is_file()
+  - or accepted_manifest.get("automatic_champion_replacement_allowed")
+  - or accepted_manifest.get("live_trading_enabled") is not False
+  - or ledger_summary.get("live_trading_enabled") is not False
+  - or payload.get("champion_changed") is not False
+  static_authority_references:
+    target: true
+    paper_ledger: true
+    broker_or_live_named: true
+    broker_execution_command: false
+    promotion_or_champion: true
+    contents_write: false
+    rclone_write: false
+  declared_role: post_operating_sector_leadership_research
+  decision: KEEP
+  target_authority: RESEARCH_ARTIFACT_ONLY
+  paper_ledger_authority: NONE
+  durable_write_scope: RESEARCH_ARTIFACT_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: UPSTREAM_OPERATING_SUCCESS_REQUIRED
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: run287_u0_acceptance.yml
+  path: .github/workflows/run287_u0_acceptance.yml
+  display_name: Run287 U0 Acceptance
+  workflow_blob_sha: b294485955d000564ea283969cba526ba49232f9
+  workflow_sha256: 55a595546b3545c812c0ef5a209a85dc91d16c5c12df9d622219550f05f89163
+  trigger:
+    events:
+    - workflow_dispatch
+    schedules: []
+    workflow_dispatch_inputs: []
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+      pull-requests: read
+      actions: read
+    jobs: {}
+  secrets: []
+  variables: []
+  actions:
+  - actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+  - actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+  - actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+  artifact_uploads:
+  - name: run287-u0-census-diagnostic
+    path: '${{ runner.temp }}/run287-u0/github_census.json
+
+      ${{ runner.temp }}/run287-u0/github_census_summary.json
+
+      ${{ runner.temp }}/run287-u0/experiment_candidates.csv
+
+      ${{ runner.temp }}/run287-u0/github_recovery_census.json
+
+      ${{ runner.temp }}/run287-u0/github_recovery_census_summary.json
+
+      ${{ runner.temp }}/run287-u0/recovered_experiment_candidates.csv
+
+      '
+  - name: run287-u0-accepted-evidence
+    path: '${{ runner.temp }}/run287-u0/github_census.json
+
+      ${{ runner.temp }}/run287-u0/github_recovery_census.json
+
+      ${{ runner.temp }}/run287-u0/u0_accepted_evidence.json
+
+      '
+  declared_output_paths:
+  - $RUNNER_TEMP/run287-u0
+  - $RUNNER_TEMP/run287-u0/u0_accepted_evidence.json
+  authority_command_evidence: []
+  static_authority_references:
+    target: false
+    paper_ledger: false
+    broker_or_live_named: false
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: false
+    rclone_write: false
+  declared_role: u0_evidence_acceptance_guard
+  decision: KEEP
+  target_authority: NONE
+  paper_ledger_authority: NONE
+  durable_write_scope: CI_STATUS_AND_AUDIT_ARTIFACT_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: REQUIRED_ACCEPTANCE_CHECK
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: sec_13f_manager_reselection.yml
+  path: .github/workflows/sec_13f_manager_reselection.yml
+  display_name: SEC 13F Manager Reselection
+  workflow_blob_sha: 1fbb296fc07418de483c568ea1717b15107477d2
+  workflow_sha256: a640e78f1c47cd351f5deb1c58dbf953bd2274f607711edffc9156cc759a9a01
+  trigger:
+    events:
+    - schedule
+    - workflow_dispatch
+    schedules:
+    - 0 5 5 6,12 *
+    workflow_dispatch_inputs:
+    - name: min_observations
+      type: string
+      required: false
+      default: '10'
+    - name: max_managers
+      type: string
+      required: false
+      default: '40'
+    - name: review_interval_days
+      type: string
+      required: false
+      default: '183'
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+      actions: read
+    jobs: {}
+  secrets:
+  - GDRIVE_ROOT_FOLDER_ID
+  - GOOGLE_SERVICE_ACCOUNT_KEY
+  - RCLONE_CONFIG_GDRIVE
+  variables:
+  - GDRIVE_ROOT_FOLDER_ID
+  actions:
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: sec-13f-manager-reselection-${{ github.run_id }}
+    path: 'outputs/sec_institutional_signals/manager_reselection_*
+
+      research/sec_13f_manager_universe_20260519/managers_candidate.csv
+
+      outputs/full_rebuild_logs/sec_13f_manager_reselection.log
+
+      '
+  declared_output_paths:
+  - outputs/sec_institutional_signals
+  authority_command_evidence:
+  - if ! timeout 8m rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line; then
+  - timeout 8m rclone copy outputs/sec_institutional_signals "$BASEoutputs/sec_institutional_signals/" --transfers 4 --checkers
+    8 || true
+  - timeout 8m rclone copy research/sec_13f_manager_universe_20260519 "$BASEresearch/sec_13f_manager_universe_20260519/" --include
+    managers_candidate.csv || true
+  static_authority_references:
+    target: false
+    paper_ledger: false
+    broker_or_live_named: false
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: false
+    rclone_write: true
+  declared_role: quarterly_13f_manager_cohort_research
+  decision: KEEP
+  target_authority: RESEARCH_OVERLAY_ONLY
+  paper_ledger_authority: NONE
+  durable_write_scope: RESEARCH_OR_DATASET_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: NO_OFFICIAL_TARGET_AUTHORITY
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: sec_13f_quarterly_refresh.yml
+  path: .github/workflows/sec_13f_quarterly_refresh.yml
+  display_name: SEC 13F Quarterly Refresh
+  workflow_blob_sha: 82732d4c9204194a7d5e5d5386bad2ae48964577
+  workflow_sha256: eab860d8bb9ebbac4ddec2a4bcf017bcb13d424a6e9a8b29214206bffe8c1264
+  trigger:
+    events:
+    - schedule
+    - workflow_dispatch
+    schedules:
+    - 40 23 * 2,5,8,11 *
+    - 10 0 * 1,3,4,6,7,9,10,12 1
+    workflow_dispatch_inputs:
+    - name: manager_ciks
+      type: string
+      required: false
+      default: ''
+    - name: max_filings
+      type: string
+      required: false
+      default: '1500'
+    - name: history_start
+      type: string
+      required: false
+      default: '2018-01-01'
+    - name: safety_delay_hours
+      type: string
+      required: false
+      default: '0'
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+      actions: read
+    jobs: {}
+  secrets:
+  - GDRIVE_ROOT_FOLDER_ID
+  - GOOGLE_SERVICE_ACCOUNT_KEY
+  - RCLONE_CONFIG_GDRIVE
+  - SEC_USER_AGENT
+  variables:
+  - GDRIVE_ROOT_FOLDER_ID
+  actions:
+  - actions/cache@v4
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: sec-13f-quarterly-${{ github.run_id }}
+    path: 'data_pit/sec/sec_filings_index.*
+
+      data_pit/sec/13f_latest/sec_filings_index.*
+
+      data_pit/sec/cusip_ticker_map.*
+
+      data_pit/sec/institutional_13f_holdings.*
+
+      data_pit/sec/*13f*summary.json
+
+      data_pit/etf_holdings/
+
+      outputs/sec_institutional_signals/
+
+      outputs/sec_ownership_signals/
+
+      outputs/etf_thematic_signals/
+
+      outputs/full_rebuild_logs/sec_13f_*.log
+
+      '
+  declared_output_paths:
+  - data_pit/sec
+  - data_pit/sec/13f_latest
+  - data_pit/sec/cusip_ticker_map.parquet
+  - outputs/sec_institutional_signals
+  authority_command_evidence:
+  - timeout "$limit" rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line
+  - timeout 8m rclone copy "$src" "$dst" --transfers 4 --checkers 8 --stats 30s --stats-one-line
+  static_authority_references:
+    target: false
+    paper_ledger: false
+    broker_or_live_named: false
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: false
+    rclone_write: true
+  declared_role: quarterly_13f_collection
+  decision: KEEP
+  target_authority: NONE
+  paper_ledger_authority: NONE
+  durable_write_scope: DATASET_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: NO_TARGET_MUTATION_AUTHORITY
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: sec_evidence_learning_manual.yml
+  path: .github/workflows/sec_evidence_learning_manual.yml
+  display_name: SEC Evidence Learning (Manual)
+  workflow_blob_sha: 09a8846da5f47e86d39ff4989f172e6c7b880079
+  workflow_sha256: fab66075af9661861e91509f3e620d40f5add779f22e11e13827bd2ecc1a11a1
+  trigger:
+    events:
+    - workflow_dispatch
+    schedules: []
+    workflow_dispatch_inputs:
+    - name: source_run_id
+      type: string
+      required: false
+      default: null
+    - name: latest_run
+      type: string
+      required: false
+      default: cloud_results/full_rebuild/latest_global_alpha_universe
+    - name: run_broker_grid
+      type: boolean
+      required: false
+      default: 'false'
+    - name: cost_bps
+      type: string
+      required: false
+      default: '25'
+    - name: max_variants
+      type: string
+      required: false
+      default: '36'
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+      actions: read
+    jobs: {}
+  secrets:
+  - GDRIVE_ROOT_FOLDER_ID
+  - GOOGLE_SERVICE_ACCOUNT_KEY
+  - RCLONE_CONFIG_GDRIVE
+  variables:
+  - GDRIVE_ROOT_FOLDER_ID
+  actions:
+  - actions/cache@v4
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: sec-evidence-learning-${{ github.run_id }}
+    path: 'outputs/sec_evidence_learning/
+
+      outputs/full_rebuild_logs/sec_evidence_learning.log
+
+      outputs/full_rebuild_logs/sec_learning_price_cache_*
+
+      '
+  declared_output_paths:
+  - outputs/sec_evidence_learning
+  authority_command_evidence:
+  - if ! timeout "$limit" rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line; then
+  - if ! timeout 10m rclone copy "${BASE}cache_prices" cache_prices/ \
+  - if ! timeout 6m rclone copy "$src" "$dst" --transfers 4 --checkers 8 --stats 30s --stats-one-line; then
+  static_authority_references:
+    target: false
+    paper_ledger: false
+    broker_or_live_named: true
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: false
+    rclone_write: true
+  declared_role: manual_sec_evidence_research
+  decision: KEEP
+  target_authority: RESEARCH_ARTIFACT_ONLY
+  paper_ledger_authority: NONE
+  durable_write_scope: RESEARCH_ARTIFACT_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: WORKFLOW_DISPATCH_RESEARCH_ONLY
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: sec_form4_daily_refresh.yml
+  path: .github/workflows/sec_form4_daily_refresh.yml
+  display_name: SEC Form 4 Daily Refresh
+  workflow_blob_sha: d724b2fd55215ed1381b885350e552a26a565dde
+  workflow_sha256: e83e059b37b65de5624167b3d2500309734fb5190f034635905fa2722f17d26b
+  trigger:
+    events:
+    - schedule
+    - workflow_dispatch
+    schedules:
+    - 20 23 * * 1-5
+    workflow_dispatch_inputs:
+    - name: tickers
+      type: string
+      required: false
+      default: AAPL,MSFT,NVDA,AMD,INTC,ARM,ASML,MU,TSM,AVGO,PLTR,TSLA,IONQ,RGTI,QBTS,ACHR,ASTS,RKLB,OKLO,SMR
+    - name: max_filings
+      type: string
+      required: false
+      default: '500'
+    - name: safety_delay_hours
+      type: string
+      required: false
+      default: '0'
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+      actions: read
+    jobs: {}
+  secrets:
+  - GDRIVE_ROOT_FOLDER_ID
+  - GOOGLE_SERVICE_ACCOUNT_KEY
+  - RCLONE_CONFIG_GDRIVE
+  - SEC_USER_AGENT
+  variables:
+  - GDRIVE_ROOT_FOLDER_ID
+  actions:
+  - actions/cache@v4
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: sec-form4-daily-${{ github.run_id }}
+    path: 'data_pit/sec/sec_filings_index.*
+
+      data_pit/sec/form4_transactions.*
+
+      data_pit/sec/*summary.json
+
+      outputs/sec_ownership_signals/
+
+      outputs/full_rebuild_logs/sec_form4_*.log
+
+      '
+  declared_output_paths:
+  - data_pit/sec/shards/daily_latest
+  - outputs/sec_ownership_signals
+  authority_command_evidence:
+  - if ! timeout "$limit" rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line; then
+  - if ! timeout 8m rclone copy "$src" "$dst" --transfers 4 --checkers 8 --stats 30s --stats-one-line; then
+  static_authority_references:
+    target: false
+    paper_ledger: false
+    broker_or_live_named: false
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: false
+    rclone_write: true
+  declared_role: daily_sec_form4_collection
+  decision: KEEP
+  target_authority: NONE
+  paper_ledger_authority: NONE
+  durable_write_scope: DATASET_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: NO_TARGET_MUTATION_AUTHORITY
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: sidecar_only_verify.yml
+  path: .github/workflows/sidecar_only_verify.yml
+  display_name: Sidecar-Only Re-Verify (Fast Loop)
+  workflow_blob_sha: f3597b98c096c71a1b9fdc3a320b15e681deabae
+  workflow_sha256: 6d09553665ad2cc3098a241fafc41bb3e2b87f50b1095a15f7ace3d45f26d647
+  trigger:
+    events:
+    - workflow_dispatch
+    schedules: []
+    workflow_dispatch_inputs:
+    - name: source_run_id
+      type: string
+      required: true
+      default: null
+    - name: ref
+      type: string
+      required: false
+      default: claude/analyze-updated-code-OfEbu
+    - name: rerun_long_crisis_learning
+      type: boolean
+      required: false
+      default: 'true'
+  job_count: 1
+  permissions:
+    workflow:
+      contents: write
+      actions: read
+    jobs: {}
+  secrets:
+  - GITHUB_TOKEN
+  variables: []
+  actions:
+  - actions/cache/restore@v4
+  - actions/checkout@v4
+  - actions/download-artifact@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: sidecar-only-verify-${{ inputs.source_run_id }}-${{ github.run_id }}
+    path: 'outputs/integrated_leader_crisis_replay_fixed/
+
+      outputs/sidecar_only_verify/
+
+      outputs/long_crisis_learning/best_thresholds.json
+
+      outputs/full_rebuild_logs/integrated_leader_crisis_replay_fixed.log
+
+      outputs/full_rebuild_logs/verdict_fixed.log
+
+      outputs/full_rebuild_logs/sidecar_only_delta_report.log
+
+      outputs/full_rebuild_logs/crisis_diagnosis.log
+
+      outputs/full_rebuild_logs/crisis_diagnosis_fixed.log
+
+      outputs/full_rebuild_logs/crisis_signal_builder_fixed.log
+
+      outputs/full_rebuild_logs/long_crisis_*.log
+
+      '
+  declared_output_paths:
+  - outputs/integrated_leader_crisis_replay_fixed
+  - outputs/sidecar_only_verify/crisis_features_diagnosis.json
+  - outputs/sidecar_only_verify/crisis_features_diagnosis_fixed.json
+  - outputs/sidecar_only_verify/delta_report.md
+  authority_command_evidence:
+  - for csv in operating_main_target_book.csv operating_concentrated_target_book.csv \
+  - live_trading_safety live_trading_risk_controls portfolio_system_guard; do
+  static_authority_references:
+    target: true
+    paper_ledger: false
+    broker_or_live_named: true
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: true
+    rclone_write: false
+  declared_role: manual_sidecar_verification_and_versioned_report
+  decision: UNKNOWN
+  target_authority: RESEARCH_ARTIFACT_ONLY
+  paper_ledger_authority: RESEARCH_REPLAY_ONLY
+  durable_write_scope: VERSIONED_RESEARCH_RESULT_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: WORKFLOW_DISPATCH_RESEARCH_ONLY; CONTENTS_WRITE_REQUIRES_REVIEW
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: smart_money_top30_refresh.yml
+  path: .github/workflows/smart_money_top30_refresh.yml
+  display_name: Smart Money Top 30 Refresh
+  workflow_blob_sha: 372e6d290ad78d193b6bdbfd6426f1e0638ce487
+  workflow_sha256: 8d89eb5a5d9203255b741d17e3b04c3d3c8994b82eafb77b35b0228fde479de7
+  trigger:
+    events:
+    - schedule
+    - workflow_dispatch
+    - workflow_run
+    schedules:
+    - 20 0 * 1,3,4,6,7,9,10,12 2-6
+    workflow_dispatch_inputs:
+    - name: top_n
+      type: string
+      required: false
+      default: '30'
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+      actions: read
+    jobs: {}
+  secrets:
+  - GDRIVE_ROOT_FOLDER_ID
+  - GOOGLE_SERVICE_ACCOUNT_KEY
+  - RCLONE_CONFIG_GDRIVE
+  variables:
+  - GDRIVE_ROOT_FOLDER_ID
+  actions:
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: smart-money-top30-${{ github.run_id }}
+    path: 'outputs/smart_money/
+
+      data_pit/sec/
+
+      data_pit/etf_holdings/
+
+      outputs/sec_institutional_signals/
+
+      outputs/sec_ownership_signals/
+
+      outputs/etf_thematic_signals/
+
+      outputs/full_rebuild_logs/smart_money_top30.log
+
+      outputs/full_rebuild_logs/smart_money_13f_freshness.*
+
+      outputs/full_rebuild_logs/smart_money_13f_signals.log
+
+      outputs/full_rebuild_logs/sec_upstream_publication_verification.json
+
+      '
+  declared_output_paths:
+  - outputs/full_rebuild_logs/sec_upstream_publication_verification.json
+  - outputs/sec_institutional_signals
+  authority_command_evidence:
+  - rclone copy "$BASE$d" "$d/"
+  - rclone copy outputs/smart_money "${BASE}outputs/smart_money/" --transfers 4 --checkers 8 --stats 30s --stats-one-line
+  static_authority_references:
+    target: false
+    paper_ledger: false
+    broker_or_live_named: false
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: false
+    rclone_write: true
+  declared_role: derived_smart_money_research_signal_refresh
+  decision: KEEP
+  target_authority: RESEARCH_OVERLAY_ONLY
+  paper_ledger_authority: NONE
+  durable_write_scope: RESEARCH_OR_DATASET_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: UPSTREAM_SEC_SUCCESS_REQUIRED
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: subdaily_exit_grid_sweep_manual.yml
+  path: .github/workflows/subdaily_exit_grid_sweep_manual.yml
+  display_name: Sub-Monthly Exit Grid Sweep (Manual / Fast)
+  workflow_blob_sha: 2a485de643145acbde30acdf1fea3e398155bc94
+  workflow_sha256: e7ee6860ace3682c626f74b21559df8234e925eb3989abd99a59c4327cc78591
+  trigger:
+    events:
+    - workflow_dispatch
+    schedules: []
+    workflow_dispatch_inputs:
+    - name: source_run_id
+      type: string
+      required: true
+      default: null
+    - name: ref
+      type: string
+      required: false
+      default: claude/analyze-updated-code-OfEbu
+    - name: portfolio_kind
+      type: choice
+      required: false
+      default: both
+    - name: hard_stop_grid
+      type: string
+      required: false
+      default: -0.08,-0.10,-0.12,-0.15,disabled
+    - name: trailing_stop_grid
+      type: string
+      required: false
+      default: -0.15,-0.18,-0.22
+    - name: trailing_activation
+      type: string
+      required: false
+      default: '0.15'
+  job_count: 1
+  permissions:
+    workflow:
+      contents: read
+      actions: read
+    jobs: {}
+  secrets:
+  - GITHUB_TOKEN
+  variables: []
+  actions:
+  - actions/cache/restore@v4
+  - actions/checkout@v4
+  - actions/download-artifact@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: subdaily-exit-grid-sweep-${{ inputs.source_run_id }}
+    path: outputs/subdaily_exit_grid_sweep
+  declared_output_paths:
+  - outputs/subdaily_exit_grid_sweep
+  authority_command_evidence: []
+  static_authority_references:
+    target: false
+    paper_ledger: false
+    broker_or_live_named: true
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: false
+    rclone_write: false
+  declared_role: manual_subdaily_exit_grid_research
+  decision: KEEP
+  target_authority: RESEARCH_ARTIFACT_ONLY
+  paper_ledger_authority: NONE
+  durable_write_scope: RESEARCH_ARTIFACT_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: WORKFLOW_DISPATCH_RESEARCH_ONLY
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: unified_monthly.yml
+  path: .github/workflows/unified_monthly.yml
+  display_name: Unified Universe Monthly Rebuild
+  workflow_blob_sha: a4bf16fc5d732110c6c9b4cce1745b542819ff59
+  workflow_sha256: ae18482df06e6e8ae6b4c768c3bf960d2d41be82879566bd422864bbb6d15671
+  trigger:
+    events:
+    - schedule
+    - workflow_dispatch
+    schedules:
+    - 45 22 1,15 * *
+    workflow_dispatch_inputs:
+    - name: force_rebuild
+      type: string
+      required: false
+      default: 'false'
+  job_count: 1
+  permissions:
+    workflow:
+      contents: write
+    jobs: {}
+  secrets:
+  - ALPACA_API_KEY
+  - ALPACA_API_SECRET
+  - FINNHUB_API_KEY
+  - TELEGRAM_BOT_TOKEN
+  - TELEGRAM_CHAT_ID
+  variables: []
+  actions:
+  - actions/cache@v4
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: scored-unified-${{ github.run_id }}
+    path: outputs/scored_unified.csv
+  declared_output_paths: []
+  authority_command_evidence:
+  - git push || true
+  static_authority_references:
+    target: false
+    paper_ledger: false
+    broker_or_live_named: true
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: true
+    rclone_write: false
+  declared_role: legacy_unified_monthly_research_pipeline
+  decision: CONSOLIDATE
+  target_authority: RESEARCH_ARTIFACT_ONLY
+  paper_ledger_authority: RESEARCH_REPLAY_ONLY
+  durable_write_scope: VERSIONED_RESEARCH_RESULT_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: NO_OFFICIAL_TARGET_AUTHORITY
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []
+- file: weekly_data_refresh.yml
+  path: .github/workflows/weekly_data_refresh.yml
+  display_name: Weekly Data Refresh
+  workflow_blob_sha: 3ffb77770d8a1e41b1e798e1cd7c3116879075cf
+  workflow_sha256: 20bf9b061857968162ea41b31b603d629eb7e07e4a69a17191db74c0f59576ba
+  trigger:
+    events:
+    - schedule
+    - workflow_dispatch
+    schedules:
+    - 30 13 * * 1
+    workflow_dispatch_inputs:
+    - name: theme_lookback_days
+      type: string
+      required: false
+      default: '90'
+    - name: min_unknown_ratio
+      type: string
+      required: false
+      default: '0.50'
+  job_count: 1
+  permissions:
+    workflow:
+      contents: write
+    jobs: {}
+  secrets:
+  - ALPACA_API_KEY
+  - ALPACA_API_SECRET
+  - FINNHUB_API_KEY
+  - TELEGRAM_BOT_TOKEN
+  - TELEGRAM_CHAT_ID
+  variables: []
+  actions:
+  - actions/cache@v4
+  - actions/checkout@v4
+  - actions/setup-python@v5
+  - actions/upload-artifact@v4
+  artifact_uploads:
+  - name: weekly-data-refresh-${{ github.run_id }}
+    path: 'aggressive/state/finnhub/r1000_features.parquet
+
+      aggressive/state/theme_discovery/latest.json
+
+      '
+  declared_output_paths: []
+  authority_command_evidence:
+  - if git push; then
+  static_authority_references:
+    target: false
+    paper_ledger: false
+    broker_or_live_named: true
+    broker_execution_command: false
+    promotion_or_champion: false
+    contents_write: true
+    rclone_write: false
+  declared_role: weekly_dataset_refresh_and_versioned_snapshot
+  decision: KEEP
+  target_authority: NONE
+  paper_ledger_authority: NONE
+  durable_write_scope: DATASET_AND_VERSIONED_SNAPSHOT_ONLY
+  production_live_authority: NONE_RESEARCH_ONLY
+  model_promotion_authority: NONE_AUTOMATIC_DISABLED
+  human_approval_requirement: NO_TARGET_MUTATION_AUTHORITY
+  platform_validation_blockers: []
+  authority_blockers: []
+  long_expression_blocks: []

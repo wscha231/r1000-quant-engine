@@ -1,0 +1,164 @@
+{
+  "audit_master_sha": "916a02ac0612d64d41f71690cf667a90dfd0531a",
+  "authority_findings": {
+    "authority_blocked_workflows": [
+      "after_close_daily.yml",
+      "layer4_monthly_swap.yml",
+      "live_extension_daily.yml"
+    ],
+    "automatic_model_promotion_writers": [],
+    "broker_or_live_named_workflows": [
+      "after_close_daily.yml",
+      "alphaops_replay_sidecars_manual.yml",
+      "daily_crisis_monitor.yml",
+      "daily_operating_selection_refresh.yml",
+      "free_data_daily_update.yml",
+      "free_data_lake_bootstrap.yml",
+      "full_rebuild_manual.yml",
+      "gate_ablation_study_manual.yml",
+      "layer4_monthly_swap.yml",
+      "live_extension_daily.yml",
+      "monthly_research.yml",
+      "overlay_combination_search_manual.yml",
+      "phase_ab_quick_rescore_manual.yml",
+      "phase_g_crisis_evidence_liquidity_replay.yml",
+      "post_disclosure_alpha_pipeline.yml",
+      "run287_sector_leadership_research.yml",
+      "sec_evidence_learning_manual.yml",
+      "sidecar_only_verify.yml",
+      "subdaily_exit_grid_sweep_manual.yml",
+      "unified_monthly.yml",
+      "weekly_data_refresh.yml"
+    ],
+    "contents_write_workflows": [
+      "after_close_daily.yml",
+      "full_rebuild_manual.yml",
+      "layer4_monthly_swap.yml",
+      "live_extension_daily.yml",
+      "monthly_research.yml",
+      "quarterly_auto_learning.yml",
+      "sidecar_only_verify.yml",
+      "unified_monthly.yml",
+      "weekly_data_refresh.yml"
+    ],
+    "live_broker_writers": [],
+    "noncanonical_broker_execution_paths": [
+      "after_close_daily.yml",
+      "layer4_monthly_swap.yml"
+    ],
+    "noncanonical_or_research_target_references": [
+      "alphaops_replay_sidecars_manual.yml",
+      "free_data_daily_update.yml",
+      "free_data_lake_bootstrap.yml",
+      "full_rebuild_manual.yml",
+      "gate_ablation_study_manual.yml",
+      "overlay_combination_search_manual.yml",
+      "phase_g_crisis_evidence_liquidity_replay.yml",
+      "portfolio_system_guard.yml",
+      "run287_sector_leadership_research.yml",
+      "sidecar_only_verify.yml"
+    ],
+    "nonofficial_paper_ledger_references": [
+      "earnings_estimates_daily.yml",
+      "free_historical_data_backfill.yml",
+      "run287_sector_leadership_research.yml"
+    ],
+    "official_paper_ledger_consumers": [
+      "daily_operating_selection_refresh.yml"
+    ],
+    "official_target_writers": [
+      "daily_operating_selection_refresh.yml"
+    ],
+    "platform_blocked_workflows": [
+      "alphaops_replay_sidecars_manual.yml"
+    ],
+    "promotion_or_champion_reference_workflows": [
+      "daily_operating_selection_refresh.yml",
+      "full_rebuild_manual.yml",
+      "gate_ablation_study_manual.yml",
+      "overlay_combination_search_manual.yml",
+      "pages_deploy.yml",
+      "run287_sector_leadership_research.yml"
+    ],
+    "rclone_write_workflows": [
+      "alphaops_replay_sidecars_manual.yml",
+      "daily_crisis_monitor.yml",
+      "daily_operating_selection_refresh.yml",
+      "data_readiness_preflight.yml",
+      "earnings_estimates_daily.yml",
+      "etf_holdings_monthly_refresh.yml",
+      "free_data_daily_update.yml",
+      "free_data_lake_bootstrap.yml",
+      "free_historical_data_backfill.yml",
+      "full_rebuild_manual.yml",
+      "gdrive_smoke_test.yml",
+      "phase_g_crisis_evidence_liquidity_replay.yml",
+      "post_disclosure_alpha_pipeline.yml",
+      "sec_13f_manager_reselection.yml",
+      "sec_13f_quarterly_refresh.yml",
+      "sec_evidence_learning_manual.yml",
+      "sec_form4_daily_refresh.yml",
+      "smart_money_top30_refresh.yml"
+    ]
+  },
+  "branch_classification_counts": {
+    "A": 67,
+    "B": 24,
+    "C": 74,
+    "D": 27,
+    "E": 4,
+    "F": 101
+  },
+  "completeness": {
+    "every_visible_branch_classified": true,
+    "every_visible_pr_dispositioned": true,
+    "every_workflow_profiled": true,
+    "open_pr_review_threads_bulk_collected": false,
+    "publication_branch_and_pr_expected_delta": true,
+    "unknown_lineage_fail_closed": true
+  },
+  "counts": {
+    "branches": 297,
+    "pull_requests": 372,
+    "workflows": 40
+  },
+  "generated_at_utc": "2026-08-25T05:19:23.469377+00:00",
+  "output_hashes": {
+    "branch_census.parquet": "98701ad208b92bc9c21506d8a322cb7258050998e2f46ba9d6760f0ea134d773",
+    "pr_census.parquet": "b0a00792b3b61bdc7a559c0a62b91af17c07b07130c8acc64b152500daa8ef68",
+    "workflow_registry.yaml": "629a599ae31d60a2a8254f4afea58fa409d42b86b8f026c59413a259bbfe51cc"
+  },
+  "pr_disposition_counts": {
+    "CLOSED_UNMERGED_QUARANTINE": 23,
+    "INTEGRATED_NO_FURTHER_MERGE": 242,
+    "OPEN_BLOCKED_CHECKS_OR_REVIEW_REQUIRED": 4,
+    "OPEN_DRAFT_REVIEW_REQUIRED": 103
+  },
+  "pr_state_counts": {
+    "CLOSED": 23,
+    "MERGED": 242,
+    "OPEN": 107
+  },
+  "repository": "wscha231/r1000-quant-engine",
+  "safety": {
+    "branch_merge_delete_or_history_rewrite": false,
+    "champion_or_production_changed": false,
+    "fullrun_executed": false,
+    "live_trading_enabled": false,
+    "metadata_only": true,
+    "target_order_or_ledger_mutated": false,
+    "workflow_dispatched": false
+  },
+  "schema_version": "run287-p0-3-authority-census-v1",
+  "source_hashes": {
+    "branch_namespace_sha256": "e70683436b46b133d93b66b47acde2565c6889bc654edce01e60182eb6afc126",
+    "pull_request_namespace_sha256": "639d708c707dbc48a1f02cc8eeb15a1c28837226f545b2ea8f84fb6b3313937c",
+    "source_u0_census_sha256": "5c9741b84fe9cfff74619322bc99402d92f25979974d42a405e30091ff461216",
+    "workflow_policy_sha256": "e8c79fba9f44fc16a7170bc576488d6f62d31ca632d295c9d10180b8b9b7bd6e"
+  },
+  "workflow_decision_counts": {
+    "CONSOLIDATE": 6,
+    "KEEP": 32,
+    "UNKNOWN": 2
+  }
+}

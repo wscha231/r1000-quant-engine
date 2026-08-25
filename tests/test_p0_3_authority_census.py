@@ -1,0 +1,211 @@
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+
+import pandas as pd
+import yaml
+
+
+ROOT = Path(__file__).resolve().parents[1]
+CENSUS = ROOT / "docs" / "run287_p0_3_authority_census"
+POLICY = ROOT / "docs" / "run287_p0_3_workflow_authority_policy.json"
+AUDIT_SHA = "916a02ac0612d64d41f71690cf667a90dfd0531a"
+
+
+def sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def load_summary() -> dict:
+    return json.loads((CENSUS / "summary.json").read_text(encoding="utf-8"))
+
+
+def load_registry() -> dict:
+    return yaml.safe_load((CENSUS / "workflow_registry.yaml").read_text(encoding="utf-8"))
+
+
+def test_census_is_hash_bound_and_read_only() -> None:
+    summary = load_summary()
+    assert summary["schema_version"] == "run287-p0-3-authority-census-v1"
+    assert summary["audit_master_sha"] == AUDIT_SHA
+    assert summary["counts"] == {
+        "branches": 297,
+        "pull_requests": 372,
+        "workflows": 40,
+    }
+    assert all(summary["completeness"][key] for key in (
+        "every_visible_branch_classified",
+        "every_visible_pr_dispositioned",
+        "every_workflow_profiled",
+        "unknown_lineage_fail_closed",
+        "publication_branch_and_pr_expected_delta",
+    ))
+    assert summary["completeness"]["open_pr_review_threads_bulk_collected"] is False
+    assert summary["safety"] == {
+        "branch_merge_delete_or_history_rewrite": False,
+        "champion_or_production_changed": False,
+        "fullrun_executed": False,
+        "live_trading_enabled": False,
+        "metadata_only": True,
+        "target_order_or_ledger_mutated": False,
+        "workflow_dispatched": False,
+    }
+    for name, expected in summary["output_hashes"].items():
+        assert sha256(CENSUS / name) == expected
+    assert sha256(POLICY) == summary["source_hashes"]["workflow_policy_sha256"]
+
+
+def test_every_branch_has_required_issue_371_fields_and_fail_closed_disposition() -> None:
+    frame = pd.read_parquet(CENSUS / "branch_census.parquet")
+    required = {
+        "branch",
+        "tip_sha",
+        "merge_base_sha",
+        "ahead_count",
+        "behind_count",
+        "last_commit_at",
+        "author_or_agent",
+        "associated_pr",
+        "associated_issue",
+        "changed_paths",
+        "workflow_changes",
+        "data_or_model_changes",
+        "test_changes",
+        "artifact_references",
+        "classification",
+        "recommended_action",
+    }
+    assert required.issubset(frame.columns)
+    assert len(frame) == 297
+    assert frame["branch"].is_unique
+    assert set(frame["classification"]) <= set("ABCDEF")
+    master = frame.loc[frame["branch"] == "master"].iloc[0]
+    assert master["tip_sha"] == AUDIT_SHA
+    assert master["classification"] == "A"
+    assert master["ahead_count"] == 0
+    assert (
+        frame.loc[frame["classification"] == "F", "recommended_action"]
+        .str.contains("NEVER AUTO-MERGE")
+        .all()
+    )
+
+
+def test_every_pr_has_exact_identity_checks_review_state_and_disposition() -> None:
+    frame = pd.read_parquet(CENSUS / "pr_census.parquet")
+    required = {
+        "number",
+        "title",
+        "state",
+        "head_branch",
+        "head_sha",
+        "base_branch",
+        "base_sha",
+        "associated_issue",
+        "checks",
+        "check_summary",
+        "review_state",
+        "disposition",
+    }
+    assert required.issubset(frame.columns)
+    assert len(frame) == 372
+    assert frame["number"].is_unique
+    assert set(frame["state"]) == {"OPEN", "CLOSED", "MERGED"}
+    assert frame["head_sha"].str.fullmatch(r"[0-9a-f]{40}").all()
+    assert frame["base_sha"].str.fullmatch(r"[0-9a-f]{40}").all()
+    assert frame["disposition"].str.len().gt(0).all()
+    assert frame.loc[frame["state"] == "OPEN", "disposition"].str.contains(
+        "REVIEW_REQUIRED|BLOCKED"
+    ).all()
+
+
+def test_workflow_registry_has_singular_official_authority_and_blocks_legacy_names() -> None:
+    registry = load_registry()
+    policy = json.loads(POLICY.read_text(encoding="utf-8"))
+    rows = registry["workflows"]
+    assert registry["audit_master_sha"] == AUDIT_SHA
+    assert len(rows) == 40
+    assert {row["file"] for row in rows} == set(policy["workflows"])
+    assert {row["decision"] for row in rows} <= {"KEEP", "CONSOLIDATE", "RETIRE", "UNKNOWN"}
+    target_writers = [
+        row["file"]
+        for row in rows
+        if row["target_authority"] == "OFFICIAL_CURRENT_US_TARGET_WRITER"
+    ]
+    ledger_writers = [
+        row["file"]
+        for row in rows
+        if row["paper_ledger_authority"] == "OFFICIAL_SIMULATED_FILL_CONSUMER_AND_WRITER"
+    ]
+    assert target_writers == ["daily_operating_selection_refresh.yml"]
+    assert ledger_writers == ["daily_operating_selection_refresh.yml"]
+    assert all(row["production_live_authority"] != "AUTHORIZED" for row in rows)
+    assert all(row["model_promotion_authority"] == "NONE_AUTOMATIC_DISABLED" for row in rows)
+
+    by_file = {row["file"]: row for row in rows}
+    alphaops = by_file["alphaops_replay_sidecars_manual.yml"]
+    assert "INVALID_WORKFLOW_EXCEEDED_MAX_EXPRESSION_LENGTH_21000" in alphaops[
+        "platform_validation_blockers"
+    ]
+    assert alphaops["long_expression_blocks"][0]["length"] > 21_000
+    after_close = by_file["after_close_daily.yml"]
+    assert after_close["static_authority_references"]["broker_execution_command"] is True
+    assert after_close["paper_ledger_authority"] == "NONCANONICAL_ALPACA_PAPER_EXECUTOR_BLOCKED"
+    assert after_close["production_live_authority"] == "NONCANONICAL_ALPACA_PAPER_EXECUTION_PATH_BLOCKED"
+    assert after_close["authority_blockers"] == [
+        "LEGACY_ALPACA_PAPER_EXECUTOR_BYPASSES_CANONICAL_ACCOUNT_LEDGER"
+    ]
+    live_extension = by_file["live_extension_daily.yml"]
+    assert live_extension["platform_validation_blockers"] == []
+    assert live_extension["authority_blockers"] == [
+        "LIVE_NAMED_CONTENTS_WRITER_NONCANONICAL_BLOCKED"
+    ]
+    layer4 = by_file["layer4_monthly_swap.yml"]
+    assert layer4["static_authority_references"]["broker_execution_command"] is True
+    assert layer4["authority_blockers"] == [
+        "LEGACY_ALPACA_PAPER_SWAP_BYPASSES_CANONICAL_ACCOUNT_LEDGER"
+    ]
+
+
+def test_summary_exposes_ambiguous_and_duplicate_writer_surfaces() -> None:
+    findings = load_summary()["authority_findings"]
+    assert findings["official_target_writers"] == [
+        "daily_operating_selection_refresh.yml"
+    ]
+    assert findings["official_paper_ledger_consumers"] == [
+        "daily_operating_selection_refresh.yml"
+    ]
+    assert findings["live_broker_writers"] == []
+    assert findings["automatic_model_promotion_writers"] == []
+    assert findings["platform_blocked_workflows"] == [
+        "alphaops_replay_sidecars_manual.yml"
+    ]
+    assert findings["authority_blocked_workflows"] == [
+        "after_close_daily.yml",
+        "layer4_monthly_swap.yml",
+        "live_extension_daily.yml",
+    ]
+    assert findings["noncanonical_broker_execution_paths"] == [
+        "after_close_daily.yml",
+        "layer4_monthly_swap.yml",
+    ]
+    assert len(findings["contents_write_workflows"]) == 9
+    assert findings["noncanonical_or_research_target_references"]
+    assert findings["nonofficial_paper_ledger_references"]
+    assert findings["broker_or_live_named_workflows"]
+    assert findings["promotion_or_champion_reference_workflows"]
+
+
+def main() -> int:
+    test_census_is_hash_bound_and_read_only()
+    test_every_branch_has_required_issue_371_fields_and_fail_closed_disposition()
+    test_every_pr_has_exact_identity_checks_review_state_and_disposition()
+    test_workflow_registry_has_singular_official_authority_and_blocks_legacy_names()
+    test_summary_exposes_ambiguous_and_duplicate_writer_surfaces()
+    print("P0-3 authority census smoke: PASS")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
