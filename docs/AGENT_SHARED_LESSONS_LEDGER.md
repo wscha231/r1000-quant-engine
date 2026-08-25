@@ -4405,6 +4405,11 @@ Expected contract:
   publications also require separate objects: census both the accepted and the
   blocked chronological catch-up artifacts with their exact conditions, path
   sets, missing-file policy, retention, and noncanonical authority.
+- Reusable lesson: A documented POSIX rebuild must enable fail-fast behavior
+  before its first check; otherwise a later smoke can hide a rejected build.
+  When reproducibility pins intermediate publication commits by ancestry, the
+  publication path is merge-commit-only. Use an expected-head merge call and
+  prohibit squash/rebase so the source and protected commits remain ancestors.
 - Caveat: Historical Russell membership remains not proven PIT-safe; the price
   cache view is incomplete; mutable macro, feature, and model objects lack
   complete immutable lineage; and the shared rclone Drive client is a 2026

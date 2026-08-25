@@ -705,6 +705,13 @@ def test_rebuild_uses_the_pinned_dependency_contract() -> None:
     ]
     readme = (INVENTORY / "README.md").read_text(encoding="utf-8")
     assert "python -m venv .venv-p0-4" in readme
+    assert readme.index("set -euo pipefail") < readme.index(
+        "git diff --quiet -- docs/run287_p0_4_artifact_inventory/requirements.txt"
+    )
+    assert (
+        "merge this PR only with an expected-head merge commit; squash and rebase "
+        "are prohibited"
+    ) in readme
     assert 'P0_4_REQUIREMENTS="$(mktemp)"' in readme
     assert 'pathlib.Path(sys.argv[1]).write_bytes(c)' in readme
     assert '--requirement "$P0_4_REQUIREMENTS"' in readme
