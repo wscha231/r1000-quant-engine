@@ -1152,7 +1152,7 @@ def test_failed_render_keeps_the_existing_bundle_intact(tmp_path: Path) -> None:
 
     output = tmp_path / "bundle"
     output.mkdir()
-    sentinel = output / "existing.txt"
+    sentinel = output / "README.md"
     sentinel.write_bytes(b"reviewed-old-bundle\n")
     with mock.patch.object(
         builder.pd.DataFrame,
@@ -1166,20 +1166,20 @@ def test_failed_render_keeps_the_existing_bundle_intact(tmp_path: Path) -> None:
         else:
             raise AssertionError("injected render failure was not propagated")
     assert sentinel.read_bytes() == b"reviewed-old-bundle\n"
-    assert sorted(path.name for path in output.iterdir()) == ["existing.txt"]
+    assert sorted(path.name for path in output.iterdir()) == ["README.md"]
     assert not list(tmp_path.glob(".bundle.stage-*"))
     assert not list(tmp_path.glob(".bundle.backup-*"))
 
 
-def test_successful_rebuild_discards_stale_bundle_files(tmp_path: Path) -> None:
+def test_successful_rebuild_replaces_a_partial_bundle(tmp_path: Path) -> None:
     from tools import build_p0_4_artifact_inventory as builder
 
-    output = tmp_path / "stale-bundle"
+    output = tmp_path / "partial-bundle"
     output.mkdir()
-    stale = output / "obsolete_registry.json"
-    stale.write_bytes(b'{"obsolete":true}\n')
+    stale = output / "README.md"
+    stale.write_bytes(b"reviewed-old-bundle\n")
     builder.build(SOURCE, output)
-    assert not stale.exists()
+    assert stale.read_bytes() != b"reviewed-old-bundle\n"
     assert {path.name for path in output.iterdir()} == builder.BUNDLE_FILENAMES
 
 
@@ -1188,7 +1188,7 @@ def test_post_commit_backup_cleanup_failure_is_reported(tmp_path: Path) -> None:
 
     output = tmp_path / "cleanup-bundle"
     output.mkdir()
-    (output / "existing.txt").write_bytes(b"reviewed-old-bundle\n")
+    (output / "README.md").write_bytes(b"reviewed-old-bundle\n")
     real_rmtree = builder.shutil.rmtree
 
     def fail_backup_cleanup(path, *args, **kwargs):
@@ -1205,7 +1205,7 @@ def test_post_commit_backup_cleanup_failure_is_reported(tmp_path: Path) -> None:
     assert "publication succeeded but backup cleanup failed" in warning.getvalue()
     backups = list(tmp_path.glob(".cleanup-bundle.backup-*"))
     assert len(backups) == 1
-    assert (backups[0] / "existing.txt").read_bytes() == b"reviewed-old-bundle\n"
+    assert (backups[0] / "README.md").read_bytes() == b"reviewed-old-bundle\n"
     real_rmtree(backups[0])
 
 
@@ -1286,6 +1286,35 @@ def test_output_destination_cannot_contain_repository() -> None:
         assert str(exc) == "canonical_output_requires_live_head_verification"
     else:
         raise AssertionError("canonical bundle rebuild skipped live-head verification")
+
+
+def test_existing_external_output_must_be_a_dedicated_bundle(tmp_path: Path) -> None:
+    from tools import build_p0_4_artifact_inventory as builder
+
+    output = tmp_path / "unrelated-directory"
+    output.mkdir()
+    sentinel = output / "unrelated.txt"
+    sentinel.write_bytes(b"outside-must-not-change\n")
+    try:
+        builder.build(SOURCE, output)
+    except builder.InventoryError as exc:
+        assert str(exc) == "external_output_not_dedicated:unrelated.txt"
+    else:
+        raise AssertionError("existing external non-bundle directory was accepted")
+    assert sentinel.read_bytes() == b"outside-must-not-change\n"
+    assert sorted(path.name for path in output.iterdir()) == ["unrelated.txt"]
+    assert not list(tmp_path.glob(".unrelated-directory.stage-*"))
+    assert not list(tmp_path.glob(".unrelated-directory.backup-*"))
+
+    malformed = tmp_path / "malformed-bundle"
+    malformed.mkdir()
+    (malformed / "README.md").mkdir()
+    try:
+        builder.validate_output_destination(malformed)
+    except builder.InventoryError as exc:
+        assert str(exc) == "external_output_has_non_file_entries:README.md"
+    else:
+        raise AssertionError("external bundle with a directory entry was accepted")
 
 
 def test_safety_authority_flags_fail_closed(tmp_path: Path) -> None:
@@ -1939,17 +1968,18 @@ def main() -> int:
         test_post_publication_protected_changes_are_rejected(temp_path)
         test_protected_generator_allows_only_pin_delta(temp_path)
         test_failed_render_keeps_the_existing_bundle_intact(temp_path)
-        test_successful_rebuild_discards_stale_bundle_files(temp_path)
+        test_successful_rebuild_replaces_a_partial_bundle(temp_path)
         test_post_commit_backup_cleanup_failure_is_reported(temp_path)
         test_generated_destination_symlink_is_rejected(temp_path)
         test_cli_output_directory_symlink_is_rejected(temp_path)
+        test_existing_external_output_must_be_a_dedicated_bundle(temp_path)
         test_safety_authority_flags_fail_closed(temp_path)
         test_required_fixed_target_aliases_cannot_be_omitted(temp_path)
         test_alias_map_must_match_object_status_and_evidence(temp_path)
         test_compound_aliases_and_wrong_paper_head_namespaces_fail_closed(temp_path)
         test_folder_child_manifests_are_pinned_and_bound(temp_path)
         test_invalid_or_incomplete_sources_fail_closed(temp_path)
-    print("P0-4 artifact inventory smoke: 35 passed")
+    print("P0-4 artifact inventory smoke: 36 passed")
     return 0
 
 

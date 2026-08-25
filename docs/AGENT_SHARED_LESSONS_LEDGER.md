@@ -4416,6 +4416,10 @@ Expected contract:
   reproducible rebuild must also clear its dedicated virtual environment before
   installing pinned requirements so stale modules and `sitecustomize.py` cannot
   survive into generation or testing.
+- Reusable lesson: Repository-boundary checks do not protect user-owned
+  directories elsewhere. An existing external regeneration destination must be
+  empty or contain only recognized bundle file names, with no directory or
+  special-file entries, before atomic replacement may rename and delete it.
 - Caveat: Historical Russell membership remains not proven PIT-safe; the price
   cache view is incomplete; mutable macro, feature, and model objects lack
   complete immutable lineage; and the shared rclone Drive client is a 2026

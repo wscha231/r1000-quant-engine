@@ -1872,13 +1872,33 @@ def validate_output_destination(output: Path) -> None:
         and resolved_output != DEFAULT_OUTPUT.resolve()
     ):
         raise InventoryError("in_repository_output_not_canonical")
+    if not output.exists():
+        return
+    if not output.is_dir():
+        raise InventoryError("output_path_not_directory")
+    if resolved_output == DEFAULT_OUTPUT.resolve():
+        return
+    unexpected = sorted(
+        entry.name for entry in output.iterdir() if entry.name not in BUNDLE_FILENAMES
+    )
+    if unexpected:
+        raise InventoryError(
+            "external_output_not_dedicated:" + ",".join(unexpected)
+        )
+    non_files = sorted(
+        entry.name
+        for entry in output.iterdir()
+        if not entry.is_file() and not entry.is_symlink()
+    )
+    if non_files:
+        raise InventoryError(
+            "external_output_has_non_file_entries:" + ",".join(non_files)
+        )
 
 
 def publish_bundle_atomically(output: Path, render) -> None:
     validate_output_destination(output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    if output.exists() and not output.is_dir():
-        raise InventoryError("output_path_not_directory")
     linked = sorted(
         name for name in BUNDLE_FILENAMES if output.exists() and (output / name).is_symlink()
     )
