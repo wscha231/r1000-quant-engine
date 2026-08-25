@@ -386,6 +386,44 @@ def test_rebuild_uses_the_pinned_dependency_contract() -> None:
     assert "tests/test_p0_4_artifact_inventory.py" in readme
 
 
+def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
+    from tools.build_p0_4_artifact_inventory import (
+        FROZEN_SOURCE_GIT_BLOB_SHA1,
+        FROZEN_SOURCE_PUBLICATION_COMMIT,
+        FROZEN_SOURCE_SHA256,
+        InventoryError,
+        build,
+        verify_frozen_source_publication,
+    )
+
+    relative = "docs/run287_p0_4_artifact_inventory/source_inventory_snapshot.json"
+    assert FROZEN_SOURCE_PUBLICATION_COMMIT == (
+        "9f024c97f5d8b92e847b0165f7d577fbf3951413"
+    )
+    assert git("rev-parse", f"{FROZEN_SOURCE_PUBLICATION_COMMIT}:{relative}").strip() == (
+        FROZEN_SOURCE_GIT_BLOB_SHA1
+    )
+    publication = git(
+        "show", f"{FROZEN_SOURCE_PUBLICATION_COMMIT}:{relative}", binary=True
+    )
+    assert hashlib.sha256(publication).hexdigest() == FROZEN_SOURCE_SHA256
+    verify_frozen_source_publication(SOURCE.read_bytes())
+    try:
+        verify_frozen_source_publication(publication + b"\n")
+    except InventoryError as exc:
+        assert str(exc) == "canonical_source_differs_from_frozen_publication"
+    else:
+        raise AssertionError("replacement source was not rejected")
+    custom = tmp_path / "custom-source.json"
+    custom.write_bytes(publication)
+    try:
+        build(custom, tmp_path / "custom-output", verify_live_head=True)
+    except InventoryError as exc:
+        assert str(exc) == "verify_live_head_requires_canonical_source"
+    else:
+        raise AssertionError("live-head verification accepted a custom source")
+
+
 def test_failed_render_keeps_the_existing_bundle_intact(tmp_path: Path) -> None:
     from tools import build_p0_4_artifact_inventory as builder
 
@@ -486,11 +524,12 @@ def main() -> int:
     test_rebuild_uses_the_pinned_dependency_contract()
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir)
+        test_source_snapshot_is_bound_to_publication_commit(temp_path)
         test_failed_render_keeps_the_existing_bundle_intact(temp_path)
         test_safety_authority_flags_fail_closed(temp_path)
         test_required_fixed_target_aliases_cannot_be_omitted(temp_path)
         test_invalid_or_incomplete_sources_fail_closed(temp_path)
-    print("P0-4 artifact inventory smoke: 18 passed")
+    print("P0-4 artifact inventory smoke: 19 passed")
     return 0
 
 

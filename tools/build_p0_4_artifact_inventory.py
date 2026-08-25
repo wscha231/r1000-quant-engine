@@ -31,6 +31,9 @@ DEFAULT_SOURCE = ROOT / "docs" / "run287_p0_4_artifact_inventory" / "source_inve
 DEFAULT_OUTPUT = ROOT / "docs" / "run287_p0_4_artifact_inventory"
 SCHEMA_VERSION = "run287-p0-4-inventory-source-v1"
 REGISTRY_SCHEMA_VERSION = "run287-p0-4-registry-v1"
+FROZEN_SOURCE_PUBLICATION_COMMIT = "9f024c97f5d8b92e847b0165f7d577fbf3951413"
+FROZEN_SOURCE_GIT_BLOB_SHA1 = "59c350c0d210dafc149063d309cfb6b58296e70e"
+FROZEN_SOURCE_SHA256 = "d81e702b68db941d0107d88b1cec3c6681499808b468b4f811db7ea1516148c6"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
 OBJECT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]+$")
@@ -155,6 +158,55 @@ ARTIFACT_COLUMNS = [
 
 class InventoryError(ValueError):
     """Stable fail-closed inventory validation error."""
+
+
+def canonical_source_bytes(value: bytes) -> bytes:
+    return value.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+
+
+def verify_frozen_source_publication(source_bytes: bytes) -> None:
+    relative_source = DEFAULT_SOURCE.relative_to(ROOT).as_posix()
+    ancestor = subprocess.run(
+        [
+            "git",
+            "merge-base",
+            "--is-ancestor",
+            FROZEN_SOURCE_PUBLICATION_COMMIT,
+            "HEAD",
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+    )
+    if ancestor.returncode != 0:
+        raise InventoryError("frozen_source_publication_is_not_head_ancestor")
+    try:
+        blob_sha = subprocess.check_output(
+            [
+                "git",
+                "rev-parse",
+                f"{FROZEN_SOURCE_PUBLICATION_COMMIT}:{relative_source}",
+            ],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+        ).strip()
+        publication_bytes = subprocess.check_output(
+            [
+                "git",
+                "show",
+                f"{FROZEN_SOURCE_PUBLICATION_COMMIT}:{relative_source}",
+            ],
+            cwd=ROOT,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise InventoryError("frozen_source_publication_unavailable") from exc
+    if blob_sha != FROZEN_SOURCE_GIT_BLOB_SHA1:
+        raise InventoryError("frozen_source_publication_blob_mismatch")
+    if hashlib.sha256(publication_bytes).hexdigest() != FROZEN_SOURCE_SHA256:
+        raise InventoryError("frozen_source_publication_sha256_mismatch")
+    if canonical_source_bytes(source_bytes) != publication_bytes:
+        raise InventoryError("canonical_source_differs_from_frozen_publication")
 
 
 def read_source(path: Path) -> dict[str, Any]:
@@ -722,7 +774,12 @@ def publish_bundle_atomically(output: Path, render) -> None:
 
 
 def build(source: Path, output: Path, *, verify_live_head: bool = False) -> None:
-    source_bytes = source.read_bytes()
+    source_bytes = canonical_source_bytes(source.read_bytes())
+    is_canonical_source = source.resolve() == DEFAULT_SOURCE.resolve()
+    if is_canonical_source:
+        verify_frozen_source_publication(source_bytes)
+    elif verify_live_head:
+        raise InventoryError("verify_live_head_requires_canonical_source")
     payload = read_source(source)
     payload["_source_sha256"] = hashlib.sha256(source_bytes).hexdigest()
     validate_source(payload)
