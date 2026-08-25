@@ -3,7 +3,9 @@ tests/fixtures/run287_canonical_baseline/** -text
 data_static/run287_promotion_gate_contract.json text eol=lf
 data_static/run287_promotion_state.json text eol=lf
 data_static/run287_promotion_evidence_current.json text eol=lf
+data_static/run287_review_complete_gate_contract.json text eol=lf
 data_static/run287_operating_scorecard_sources_v1/** text eol=lf
+docs/run287_p0_3_workflow_authority_policy.json text eol=lf
 docs/run287_p0_3_authority_census/README.md text eol=lf
 docs/run287_p0_3_authority_census/requirements.txt text eol=lf
 docs/run287_p0_3_authority_census/summary.json text eol=lf

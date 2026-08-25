@@ -1,6 +1,48 @@
 {
   "schema_version": "run287-review-complete-gate-contract-v2",
   "protected_branch": "master",
+  "branch_protection_configuration": {
+    "required_status_checks": {
+      "strict": true,
+      "contexts": [
+        "portfolio_guard",
+        "review_complete",
+        "validate"
+      ],
+      "checks": [
+        {
+          "context": "portfolio_guard",
+          "app_id": 15368
+        },
+        {
+          "context": "review_complete",
+          "app_id": 15368
+        },
+        {
+          "context": "validate",
+          "app_id": 15368
+        }
+      ]
+    },
+    "required_pull_request_reviews": {
+      "dismiss_stale_reviews": true,
+      "require_code_owner_reviews": false,
+      "require_last_push_approval": false,
+      "required_approving_review_count": 0
+    },
+    "required_signatures": false,
+    "enforce_admins": true,
+    "required_linear_history": false,
+    "allow_force_pushes": false,
+    "allow_deletions": false,
+    "block_creations": false,
+    "required_conversation_resolution": true,
+    "lock_branch": false,
+    "allow_fork_syncing": false,
+    "restrictions": null
+  },
+  "matching_branch_rules": [],
+  "repository_rulesets": [],
   "required_status_checks": [
     "validate",
     "portfolio_guard",

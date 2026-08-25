@@ -26,18 +26,24 @@ from tools.build_p0_3_authority_census import (  # noqa: E402
     read_branch_supplement,
     require_audit_commit,
     resolve_generation_timestamp,
+    source_branch_authority_state,
     source_branch_live_identity,
     source_pr_identity,
     supplement_pr_mutable_evidence,
     validated_frozen_checks,
     validate_runtime_requirements,
     validate_research_only_policy,
+    validate_branch_protection_contract,
     validate_u0_fail_closed_source,
 )
 
 
 CENSUS = ROOT / "docs" / "run287_p0_3_authority_census"
 POLICY = CENSUS / "source_workflow_authority_policy.json"
+REPOSITORY_POLICY = ROOT / "docs" / "run287_p0_3_workflow_authority_policy.json"
+PROTECTION_CONTRACT = (
+    ROOT / "data_static" / "run287_review_complete_gate_contract.json"
+)
 AUDIT_SHA = "916a02ac0612d64d41f71690cf667a90dfd0531a"
 
 
@@ -159,6 +165,16 @@ def test_census_is_hash_bound_and_read_only() -> None:
     policy_path = ROOT / policy_artifact["repository_path"]
     assert policy_path == POLICY
     assert sha256(policy_path) == policy_artifact["sha256"]
+    assert canonical_text_bytes(REPOSITORY_POLICY) == canonical_text_bytes(POLICY)
+    protection_artifact = summary["branch_protection_contract_artifact"]
+    protection_path = ROOT / protection_artifact["repository_path"]
+    assert protection_path == PROTECTION_CONTRACT
+    assert hashlib.sha256(canonical_text_bytes(protection_path)).hexdigest() == (
+        protection_artifact["sha256"]
+    )
+    assert protection_artifact["sha256"] == summary["source_hashes"][
+        "branch_protection_contract_sha256"
+    ]
     assert policy_artifact["sha256"] == summary["source_hashes"][
         "workflow_policy_sha256"
     ]
@@ -397,6 +413,31 @@ def test_live_branch_guard_binds_head_and_protection_state() -> None:
     assert branch_live_identity_from_rows(paginated) == expected
     rows[0]["protected"] = not rows[0]["protected"]
     assert branch_live_identity_from_rows(paginated) != expected
+
+    contract = json.loads(PROTECTION_CONTRACT.read_text(encoding="utf-8"))
+    validate_branch_protection_contract(contract)
+    authority = source_branch_authority_state(source, contract)
+    master = authority["branches"]["master"]
+    assert master["classic_protection"] == contract[
+        "branch_protection_configuration"
+    ]
+    assert master["matching_rules"] == contract["matching_branch_rules"]
+    assert authority["repository_rulesets"] == contract["repository_rulesets"]
+
+    changed_rules = copy.deepcopy(contract)
+    changed_rules["matching_branch_rules"].append(
+        {"type": "required_status_checks", "ruleset_id": 1}
+    )
+    assert source_branch_authority_state(source, changed_rules) != authority
+
+    conflicting = copy.deepcopy(contract)
+    conflicting["branch_protection_configuration"]["enforce_admins"] = False
+    try:
+        validate_branch_protection_contract(conflicting)
+    except SystemExit:
+        pass
+    else:
+        raise AssertionError("conflicting branch protection contract was accepted")
 
 
 def test_frozen_regeneration_is_independent_of_staging_directory() -> None:

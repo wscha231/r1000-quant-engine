@@ -20,6 +20,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
+from urllib.parse import quote
 
 import pandas as pd
 import pyarrow as pa
@@ -50,6 +51,12 @@ FROZEN_WORKFLOW_POLICY_SHA256 = (
 )
 FROZEN_RUNTIME_REQUIREMENTS_SHA256 = (
     "8c74d7c2c73e36c06bee51001a8ffc2579ea71555bb392cfb89a6ce0e05047ca"
+)
+FROZEN_BRANCH_PROTECTION_CONTRACT_SHA256 = (
+    "5c278cbf8854f747d9ca6cf854661e47288bb52528b91ab83e4367cc59d1fe74"
+)
+BRANCH_PROTECTION_CONTRACT_REPOSITORY_PATH = Path(
+    "data_static/run287_review_complete_gate_contract.json"
 )
 BRANCH_SUPPLEMENT_SCHEMA = "run287-p0-3-frozen-branch-supplement-v1"
 GENERATOR_RUNTIME_VERSIONS = {
@@ -232,6 +239,25 @@ def run(arguments: list[str], *, cwd: Path) -> str:
 
 def run_json(arguments: list[str], *, cwd: Path) -> Any:
     return json.loads(run(arguments, cwd=cwd))
+
+
+def run_json_optional(arguments: list[str], *, cwd: Path) -> Any | None:
+    completed = subprocess.run(
+        arguments,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    if completed.returncode != 0:
+        if "HTTP 404" in completed.stderr:
+            return None
+        command = " ".join(arguments[:4])
+        raise RuntimeError(
+            f"read-only command failed: {command}: {completed.stderr.strip()}"
+        )
+    return json.loads(completed.stdout)
 
 
 def clean_sha(value: Any) -> str:
@@ -469,7 +495,143 @@ def branch_live_identity_from_rows(value: Any) -> dict[str, tuple[str, bool]]:
     return result
 
 
-def live_branch_identity(repo_root: Path) -> dict[str, tuple[str, bool]]:
+IGNORED_AUTHORITY_API_FIELDS = {
+    "_links",
+    "created_at",
+    "current_user_can_bypass",
+    "html_url",
+    "node_id",
+    "updated_at",
+    "url",
+}
+
+
+def normalize_authority_api_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {
+            str(key): normalize_authority_api_value(item)
+            for key, item in sorted(value.items())
+            if str(key) not in IGNORED_AUTHORITY_API_FIELDS
+        }
+    if isinstance(value, list):
+        normalized = [normalize_authority_api_value(item) for item in value]
+        return sorted(
+            normalized,
+            key=lambda item: json.dumps(
+                item, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            ),
+        )
+    return value
+
+
+def normalize_classic_branch_protection(value: Any) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise RuntimeError("invalid classic branch protection payload")
+    status = value.get("required_status_checks")
+    reviews = value.get("required_pull_request_reviews")
+
+    normalized_status = None
+    if isinstance(status, Mapping):
+        contexts = sorted(str(item) for item in status.get("contexts") or [])
+        checks = [
+            {
+                "context": str(item.get("context") or ""),
+                "app_id": item.get("app_id"),
+            }
+            for item in status.get("checks") or []
+            if isinstance(item, Mapping)
+        ]
+        normalized_status = {
+            "strict": bool(status.get("strict")),
+            "contexts": contexts,
+            "checks": sorted(
+                checks,
+                key=lambda item: (item["context"], str(item["app_id"])),
+            ),
+        }
+
+    normalized_reviews = None
+    if isinstance(reviews, Mapping):
+        normalized_reviews = {
+            "dismiss_stale_reviews": bool(reviews.get("dismiss_stale_reviews")),
+            "require_code_owner_reviews": bool(
+                reviews.get("require_code_owner_reviews")
+            ),
+            "require_last_push_approval": bool(
+                reviews.get("require_last_push_approval")
+            ),
+            "required_approving_review_count": int(
+                reviews.get("required_approving_review_count") or 0
+            ),
+        }
+
+    def enabled(field: str) -> bool:
+        item = value.get(field)
+        return bool(item.get("enabled")) if isinstance(item, Mapping) else False
+
+    return {
+        "required_status_checks": normalized_status,
+        "required_pull_request_reviews": normalized_reviews,
+        "required_signatures": enabled("required_signatures"),
+        "enforce_admins": enabled("enforce_admins"),
+        "required_linear_history": enabled("required_linear_history"),
+        "allow_force_pushes": enabled("allow_force_pushes"),
+        "allow_deletions": enabled("allow_deletions"),
+        "block_creations": enabled("block_creations"),
+        "required_conversation_resolution": enabled(
+            "required_conversation_resolution"
+        ),
+        "lock_branch": enabled("lock_branch"),
+        "allow_fork_syncing": enabled("allow_fork_syncing"),
+        "restrictions": normalize_authority_api_value(value.get("restrictions")),
+    }
+
+
+def paginated_mapping_rows(value: Any, label: str) -> list[Mapping[str, Any]]:
+    rows: list[Mapping[str, Any]] = []
+
+    def collect(item: Any) -> None:
+        if isinstance(item, list):
+            for child in item:
+                collect(child)
+        elif isinstance(item, Mapping):
+            rows.append(item)
+        else:
+            raise RuntimeError(f"invalid {label} payload")
+
+    collect(value)
+    return rows
+
+
+def live_repository_rulesets(repo_root: Path) -> list[Any]:
+    pages = run_json(
+        [
+            "gh",
+            "api",
+            "--paginate",
+            "--slurp",
+            f"repos/{REPOSITORY}/rulesets?includes_parents=true&per_page=100",
+        ],
+        cwd=repo_root,
+    )
+    summaries = paginated_mapping_rows(pages, "repository ruleset")
+    details = []
+    for summary in summaries:
+        ruleset_id = summary.get("id")
+        if type(ruleset_id) is not int or ruleset_id <= 0:
+            raise RuntimeError("invalid repository ruleset identity")
+        details.append(
+            run_json(
+                ["gh", "api", f"repos/{REPOSITORY}/rulesets/{ruleset_id}"],
+                cwd=repo_root,
+            )
+        )
+    return normalize_authority_api_value(details)
+
+
+def live_branch_identity(repo_root: Path) -> dict[str, Any]:
     pages = run_json(
         [
             "gh",
@@ -480,7 +642,40 @@ def live_branch_identity(repo_root: Path) -> dict[str, tuple[str, bool]]:
         ],
         cwd=repo_root,
     )
-    return branch_live_identity_from_rows(pages)
+    basics = branch_live_identity_from_rows(pages)
+    branches: dict[str, dict[str, Any]] = {}
+    for name, (head_sha, protected) in sorted(basics.items()):
+        classic_protection = None
+        matching_rules: Any = []
+        if protected:
+            encoded = quote(name, safe="")
+            classic_protection = normalize_classic_branch_protection(
+                run_json_optional(
+                    [
+                        "gh",
+                        "api",
+                        f"repos/{REPOSITORY}/branches/{encoded}/protection",
+                    ],
+                    cwd=repo_root,
+                )
+            )
+            matching_rules_payload = run_json_optional(
+                ["gh", "api", f"repos/{REPOSITORY}/rules/branches/{encoded}"],
+                cwd=repo_root,
+            )
+            matching_rules = normalize_authority_api_value(
+                matching_rules_payload if matching_rules_payload is not None else []
+            )
+        branches[name] = {
+            "head_sha": head_sha,
+            "protected": protected,
+            "classic_protection": classic_protection,
+            "matching_rules": matching_rules,
+        }
+    return {
+        "branches": branches,
+        "repository_rulesets": live_repository_rulesets(repo_root),
+    }
 
 
 def source_branch_identity(census: Mapping[str, Any]) -> dict[str, str]:
@@ -511,6 +706,76 @@ def source_branch_live_identity(
             raise ValueError("source branch live identity is invalid")
         result[name] = (sha, protected)
     return result
+
+
+def validate_branch_protection_contract(contract: Mapping[str, Any]) -> None:
+    if contract.get("schema_version") != "run287-review-complete-gate-contract-v2":
+        raise SystemExit("branch protection contract schema mismatch")
+    protected_branch = str(contract.get("protected_branch") or "")
+    configuration = contract.get("branch_protection_configuration")
+    if not protected_branch or not isinstance(configuration, Mapping):
+        raise SystemExit("branch protection contract is incomplete")
+    status = configuration.get("required_status_checks")
+    reviews = configuration.get("required_pull_request_reviews")
+    if not isinstance(status, Mapping) or not isinstance(reviews, Mapping):
+        raise SystemExit("branch protection contract review gates are incomplete")
+    if sorted(status.get("contexts") or []) != sorted(
+        contract.get("required_status_checks") or []
+    ):
+        raise SystemExit("branch protection contract status checks conflict")
+    mirrored = {
+        "strict_status_checks": status.get("strict"),
+        "dismiss_stale_reviews": reviews.get("dismiss_stale_reviews"),
+        "required_approving_review_count": reviews.get(
+            "required_approving_review_count"
+        ),
+        "enforce_admins": configuration.get("enforce_admins"),
+        "allow_force_pushes": configuration.get("allow_force_pushes"),
+        "allow_deletions": configuration.get("allow_deletions"),
+        "required_linear_history": configuration.get("required_linear_history"),
+        "required_conversation_resolution": configuration.get(
+            "required_conversation_resolution"
+        ),
+    }
+    if any(contract.get(key) != value for key, value in mirrored.items()):
+        raise SystemExit("branch protection contract duplicated fields conflict")
+    if not isinstance(contract.get("matching_branch_rules"), list) or not isinstance(
+        contract.get("repository_rulesets"), list
+    ):
+        raise SystemExit("branch protection contract ruleset evidence is incomplete")
+
+
+def source_branch_authority_state(
+    census: Mapping[str, Any], contract: Mapping[str, Any]
+) -> dict[str, Any]:
+    protected_branch = str(contract["protected_branch"])
+    basics = source_branch_live_identity(census)
+    branches: dict[str, dict[str, Any]] = {}
+    for name, (head_sha, protected) in sorted(basics.items()):
+        if protected and name != protected_branch:
+            raise SystemExit(
+                f"protected source branch lacks a full policy contract: {name}"
+            )
+        branches[name] = {
+            "head_sha": head_sha,
+            "protected": protected,
+            "classic_protection": (
+                dict(contract["branch_protection_configuration"])
+                if protected
+                else None
+            ),
+            "matching_rules": (
+                normalize_authority_api_value(contract["matching_branch_rules"])
+                if protected
+                else []
+            ),
+        }
+    return {
+        "branches": branches,
+        "repository_rulesets": normalize_authority_api_value(
+            contract["repository_rulesets"]
+        ),
+    }
 
 
 def source_pr_identity(census: Mapping[str, Any]) -> dict[int, tuple[str, str, str, str]]:
@@ -1107,6 +1372,7 @@ def write_readme(path: Path, summary: Mapping[str, Any]) -> None:
     source_pr_supplement = summary["source_pr_supplement_artifact"]
     source_branch_supplement = summary["source_branch_supplement_artifact"]
     source_policy = summary["source_workflow_policy_artifact"]
+    protection_contract = summary["branch_protection_contract_artifact"]
     runtime_requirements = summary["generator_runtime_requirements_artifact"]
     source_experiment = summary["source_experiment_completeness"]
     promotion_blockers = summary["source_promotion_blockers"]
@@ -1142,7 +1408,10 @@ Frozen branch ancestry/path evidence is tracked as
 `{source_branch_supplement['sha256']}`).
 The frozen workflow authority policy is tracked as
 `{source_policy['repository_path']}` (SHA-256 `{source_policy['sha256']}`).
-By default regeneration uses these four frozen sources;
+The normalized full branch-protection and ruleset policy is tracked as
+`{protection_contract['repository_path']}` (SHA-256
+`{protection_contract['sha256']}`). By default regeneration uses these frozen
+sources;
 `--verify-live-namespace` is reserved for the original generation-time
 equality guard.
 
@@ -1249,9 +1518,15 @@ def main() -> int:
     runtime_requirements_input_path = (
         args.runtime_requirements or args.source_census.with_name("requirements.txt")
     )
+    protection_contract_input_path = (
+        repo_root / BRANCH_PROTECTION_CONTRACT_REPOSITORY_PATH
+    )
     policy_input_bytes = canonical_text_bytes(policy_input_path)
     runtime_requirements_input_bytes = canonical_text_bytes(
         runtime_requirements_input_path
+    )
+    protection_contract_input_bytes = canonical_text_bytes(
+        protection_contract_input_path
     )
     require_bytes_sha256(
         policy_input_bytes, FROZEN_WORKFLOW_POLICY_SHA256, "frozen workflow policy"
@@ -1261,17 +1536,26 @@ def main() -> int:
         FROZEN_RUNTIME_REQUIREMENTS_SHA256,
         "frozen runtime requirements",
     )
+    require_bytes_sha256(
+        protection_contract_input_bytes,
+        FROZEN_BRANCH_PROTECTION_CONTRACT_SHA256,
+        "frozen branch protection contract",
+    )
     policy = json.loads(policy_input_bytes.decode("utf-8"))
+    protection_contract = json.loads(protection_contract_input_bytes.decode("utf-8"))
     validate_research_only_policy(policy, audit_sha)
+    validate_branch_protection_contract(protection_contract)
     validate_runtime_requirements_bytes(runtime_requirements_input_bytes)
     validate_generator_runtime()
     source_summary, promotion_blockers = validate_u0_fail_closed_source(source)
 
     source_branches = source_branch_identity(source)
-    source_live_branches = source_branch_live_identity(source)
+    source_branch_authority = source_branch_authority_state(
+        source, protection_contract
+    )
     source_prs = source_pr_identity(source)
     source_pr_by_number = {int(row["number"]): row for row in source["pull_requests"]}
-    live_branches_before: dict[str, tuple[str, bool]] | None = None
+    live_branches_before: dict[str, Any] | None = None
     supplement_before_identity: dict[int, tuple[str, str, str, str]] | None = None
     supplement_before_evidence: dict[int, dict[str, Any]] | None = None
     live_evidence_by_number: dict[int, dict[str, Any]] | None = None
@@ -1284,9 +1568,9 @@ def main() -> int:
 
     if args.verify_live_namespace:
         live_branches_before = live_branch_identity(repo_root)
-        if source_live_branches != live_branches_before:
+        if source_branch_authority != live_branches_before:
             raise SystemExit(
-                "branch namespace, head, or protection state moved after U0 collection"
+                "branch namespace, head, protection, or rulesets moved after U0 collection"
             )
         pr_supplement_before = collect_pr_supplement(repo_root)
         supplement_before_identity = supplement_pr_identity(pr_supplement_before)
@@ -1588,7 +1872,7 @@ def main() -> int:
         live_branches_after = live_branch_identity(repo_root)
         if live_branches_after != live_branches_before:
             raise SystemExit(
-                "branch namespace, head, or protection state moved during P0-3 collection"
+                "branch namespace, head, protection, or rulesets moved during P0-3 collection"
             )
         pr_supplement_after = collect_pr_supplement(repo_root)
         if supplement_pr_identity(pr_supplement_after) != supplement_before_identity:
@@ -1623,6 +1907,9 @@ def main() -> int:
         "namespace_binding": {
             "branch_count": len(source_branches),
             "branch_identity_sha256": canonical_sha256(source_branches),
+            "branch_authority_state_sha256": canonical_sha256(
+                source_branch_authority
+            ),
             "pull_request_count": len(source_prs),
             "pull_request_identity_sha256": canonical_sha256(source_prs),
             "workflow_count": len(workflows),
@@ -1727,6 +2014,14 @@ def main() -> int:
             "bytes": source_policy_path.stat().st_size,
             "sha256": file_sha256(source_policy_path),
         },
+        "branch_protection_contract_artifact": {
+            "repository_path": BRANCH_PROTECTION_CONTRACT_REPOSITORY_PATH.as_posix(),
+            "media_type": "application/json",
+            "bytes": len(protection_contract_input_bytes),
+            "sha256": hashlib.sha256(
+                protection_contract_input_bytes
+            ).hexdigest(),
+        },
         "generator_runtime_requirements_artifact": {
             "repository_path": runtime_requirements_repository_path,
             "media_type": "text/plain",
@@ -1824,6 +2119,9 @@ def main() -> int:
                 source_branch_supplement_path
             ),
             "workflow_policy_sha256": file_sha256(source_policy_path),
+            "branch_protection_contract_sha256": hashlib.sha256(
+                protection_contract_input_bytes
+            ).hexdigest(),
             "generator_runtime_requirements_sha256": file_sha256(
                 runtime_requirements_path
             ),

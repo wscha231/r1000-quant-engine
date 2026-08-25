@@ -4250,8 +4250,9 @@ Expected contract:
   not path-complete. Bind workflow analysis to the audited Git blobs, retain the
   exact compressed source, and fetch the frozen audit commit explicitly in
   shallow CI before validating historical hashes.
-- Reusable lesson: Live namespace guards must bind branch protection state as
-  well as name and head SHA. Generated evidence must record canonical repository
+- Reusable lesson: Live namespace guards must bind the normalized full branch
+  protection and matching-ruleset configuration as well as name and head SHA.
+  Generated evidence must record canonical repository
   paths independently of temporary staging locations. A diagnostic workflow
   with a conditional canonical dataset upload must disclose that write scope
   and its exact manual-dispatch condition even when it has no target or ledger

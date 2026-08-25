@@ -5,6 +5,7 @@ audit_master_sha: 916a02ac0612d64d41f71690cf667a90dfd0531a
 namespace_binding:
   branch_count: 297
   branch_identity_sha256: e70683436b46b133d93b66b47acde2565c6889bc654edce01e60182eb6afc126
+  branch_authority_state_sha256: 8d2d0f2c862de80c4c47c4f6c215e7b61cf66414f154c7d55f93b06e448486b8
   pull_request_count: 372
   pull_request_identity_sha256: 639d708c707dbc48a1f02cc8eeb15a1c28837226f545b2ea8f84fb6b3313937c
   workflow_count: 40
