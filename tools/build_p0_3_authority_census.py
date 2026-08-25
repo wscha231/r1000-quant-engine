@@ -40,10 +40,10 @@ FROZEN_U0_COMPRESSED_SHA256 = (
     "43037952f1464bd41cdb0d2eaba78503da60f17d66c410dea186b34e0b62ef2c"
 )
 FROZEN_PR_SUPPLEMENT_V3_UNCOMPRESSED_SHA256 = (
-    "259ba25f4353c38ffd62a47b1d094ff67b2277f8bcdd9b7a9c750ed97f18626b"
+    "26d73139a95334a0b954dd6c943dc4f24ed38df4afd5f870f7117546cb002c99"
 )
 FROZEN_PR_SUPPLEMENT_V3_COMPRESSED_SHA256 = (
-    "6202be24bb8f7dd1c79c9559cf12433ba206ccb316442d12ae693f044479857e"
+    "78a5a6be1bf25c6b4b07bd3cf5f7ff390779e6d5583a5035a10a0872ef33872e"
 )
 FROZEN_BRANCH_SUPPLEMENT_SHA256 = (
     "12ea17046e062707437b995b95cc610ccf2ef0398dbdf9ff05c0011ff810f530"
@@ -1205,6 +1205,57 @@ def attach_check_run_providers(
         item["app_slug"] = evidence["app_slug"]
 
 
+def normalized_check_run_provider_evidence(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        raise RuntimeError("CheckRun provider evidence is invalid")
+    required_fields = {
+        "run_id",
+        "name",
+        "details_url",
+        "app_id",
+        "app_slug",
+        "status",
+        "conclusion",
+    }
+    rows: list[dict[str, Any]] = []
+    run_ids: set[int] = set()
+    for item in value:
+        if not isinstance(item, Mapping) or set(item) != required_fields:
+            raise RuntimeError("CheckRun provider evidence row is invalid")
+        run_id = item["run_id"]
+        app_id = item["app_id"]
+        app_slug = item["app_slug"]
+        if (
+            type(run_id) is not int
+            or run_id <= 0
+            or run_id in run_ids
+            or not isinstance(item["name"], str)
+            or not item["name"]
+            or not isinstance(item["details_url"], str)
+            or (app_id is not None and (type(app_id) is not int or app_id <= 0))
+            or not isinstance(app_slug, str)
+            or (app_id is not None and not app_slug)
+            or (app_id is None and app_slug)
+            or not isinstance(item["status"], str)
+            or not isinstance(item["conclusion"], str)
+        ):
+            raise RuntimeError("CheckRun provider evidence identity is incomplete")
+        run_ids.add(run_id)
+        rows.append({field: item[field] for field in sorted(required_fields)})
+    return sorted(rows, key=canonical_json)
+
+
+def provider_evidence_from_index(
+    providers: Mapping[tuple[str, str], list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    rows = [
+        {"name": name, "details_url": details_url, **dict(evidence)}
+        for (name, details_url), matches in providers.items()
+        for evidence in matches
+    ]
+    return normalized_check_run_provider_evidence(rows)
+
+
 def enrich_pr_check_providers(repo_root: Path, rows: list[dict[str, Any]]) -> None:
     provider_cache: dict[
         str, dict[tuple[str, str], list[dict[str, Any]]]
@@ -1213,15 +1264,6 @@ def enrich_pr_check_providers(repo_root: Path, rows: list[dict[str, Any]]) -> No
         rollup = row.get("statusCheckRollup") or []
         if not isinstance(rollup, list):
             raise RuntimeError("PR status-check rollup is invalid")
-        if not any(
-            isinstance(item, Mapping)
-            and not (
-                item.get("__typename") == "StatusContext"
-                or ("context" in item and "name" not in item)
-            )
-            for item in rollup
-        ):
-            continue
         head_sha = clean_sha(row.get("headRefOid"))
         if not head_sha:
             raise RuntimeError("PR head is missing for check-provider collection")
@@ -1229,7 +1271,10 @@ def enrich_pr_check_providers(repo_root: Path, rows: list[dict[str, Any]]) -> No
             provider_cache[head_sha] = live_check_run_provider_index(
                 repo_root, head_sha
             )
-        attach_check_run_providers(rollup, provider_cache[head_sha])
+        providers = provider_cache[head_sha]
+        attach_check_run_providers(rollup, providers)
+        row["checkRunProviderEvidenceState"] = "COLLECTED_COMPLETE"
+        row["checkRunProviderEvidence"] = provider_evidence_from_index(providers)
 
 
 def collect_pr_supplement(repo_root: Path) -> list[dict[str, Any]]:
@@ -1453,6 +1498,58 @@ def validated_frozen_checks(
     return checks, summary
 
 
+def validated_frozen_check_run_provider_evidence(
+    supplement: Mapping[str, Any], checks: list[dict[str, Any]], number: int
+) -> tuple[str, list[dict[str, Any]]]:
+    state = supplement.get("check_run_provider_evidence_state")
+    if state not in {"COLLECTED_COMPLETE", "NOT_COLLECTED_FAIL_CLOSED"}:
+        raise SystemExit(f"frozen PR CheckRun provider state is invalid: #{number}")
+    try:
+        evidence = normalized_check_run_provider_evidence(
+            supplement.get("check_run_provider_evidence")
+        )
+    except RuntimeError as error:
+        raise SystemExit(
+            f"frozen PR CheckRun provider evidence is invalid: #{number}"
+        ) from error
+    if state == "NOT_COLLECTED_FAIL_CLOSED":
+        if evidence or any(check.get("app_id") is not None for check in checks):
+            raise SystemExit(
+                f"frozen PR provider-less evidence claims an App identity: #{number}"
+            )
+        return state, evidence
+
+    providers: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    required_run_counts: Counter[tuple[str, int]] = Counter()
+    for item in evidence:
+        identity = (item["name"], item["details_url"])
+        providers.setdefault(identity, []).append(item)
+        if (
+            item["name"] in REQUIRED_CHECK_APP_IDS
+            and item["app_id"] == REQUIRED_CHECK_APP_IDS[item["name"]]
+        ):
+            required_run_counts[(item["name"], item["app_id"])] += 1
+    if any(count != 1 for count in required_run_counts.values()):
+        raise SystemExit(f"frozen PR required CheckRuns are ambiguous: #{number}")
+    for check in checks:
+        if check.get("type") != "CHECK_RUN":
+            continue
+        matches = providers.get((check["name"], check["details_url"]))
+        if not matches or len(matches) != 1:
+            raise SystemExit(f"frozen PR CheckRun binding is ambiguous: #{number}")
+        match = matches[0]
+        if (
+            check.get("app_id") != match["app_id"]
+            or check.get("app_slug") != match["app_slug"]
+            or str(check.get("status") or "").upper()
+            != str(match["status"] or "").upper()
+            or str(check.get("conclusion") or "").upper()
+            != str(match["conclusion"] or "").upper()
+        ):
+            raise SystemExit(f"frozen PR CheckRun binding disagrees: #{number}")
+    return state, evidence
+
+
 def review_summary(row: Mapping[str, Any]) -> dict[str, Any]:
     reviews = []
     for item in row.get("latestReviews") or []:
@@ -1499,6 +1596,12 @@ def supplement_pr_mutable_evidence(
         result[number] = {
             "checks": checks,
             "check_summary": check_summary(checks),
+            "check_run_provider_evidence_state": row.get(
+                "checkRunProviderEvidenceState"
+            ),
+            "check_run_provider_evidence": normalized_check_run_provider_evidence(
+                row.get("checkRunProviderEvidence")
+            ),
             "review_state": review_summary(row),
             "closing_issue_numbers": sorted(
                 int(item["number"])
@@ -1838,6 +1941,9 @@ def write_readme(path: Path, summary: Mapping[str, Any]) -> None:
     incomplete_pr_changed_paths = summary["evidence_limitations"][
         "incomplete_changed_path_prs"
     ]
+    provider_evidence_states = summary["evidence_limitations"][
+        "pr_check_run_provider_evidence_state_counts"
+    ]
     text = f"""# Run287 P0-3 authority census
 
 This directory is the read-only census required by Issue #371.  The snapshot is
@@ -1887,6 +1993,11 @@ Changed-path collection is incomplete for PRs
 `{canonical_json(incomplete_pr_changed_paths)}`. Their rows remain useful for
 identity and disposition evidence, but they are not complete recovery-path
 inventories and grant no merge or promotion authority.
+
+Historical complete REST CheckRun provider sets were not collected for this
+snapshot. Provider evidence states are
+`{canonical_json(provider_evidence_states)}`; provider-less check histories
+remain fail-closed and grant no successful required-check claim.
 
 The frozen U0 source reports historical experiment census completeness as
 `{str(source_experiment['historical_experiment_census_complete']).lower()}` and
@@ -2116,11 +2227,12 @@ def main() -> int:
             raise SystemExit(
                 "frozen regeneration requires an authenticated PR supplement gzip archive"
             )
-        frozen_pr_input_bytes = (
-            gzip.decompress(frozen_pr_input_archive_bytes)
-            if frozen_pr_input_archive_bytes is not None
-            else frozen_path.read_bytes()
+        require_bytes_sha256(
+            frozen_pr_input_archive_bytes,
+            FROZEN_PR_SUPPLEMENT_V3_COMPRESSED_SHA256,
+            "frozen PR supplement v3 archive",
         )
+        frozen_pr_input_bytes = gzip.decompress(frozen_pr_input_archive_bytes)
         frozen_pr_supplement_document = json.loads(
             frozen_pr_input_bytes.decode("utf-8")
         )
@@ -2133,11 +2245,6 @@ def main() -> int:
             frozen_pr_input_bytes,
             FROZEN_PR_SUPPLEMENT_V3_UNCOMPRESSED_SHA256,
             "frozen PR supplement v3",
-        )
-        require_bytes_sha256(
-            frozen_pr_input_archive_bytes,
-            FROZEN_PR_SUPPLEMENT_V3_COMPRESSED_SHA256,
-            "frozen PR supplement v3 archive",
         )
         frozen_pr_archive_bytes = frozen_pr_input_archive_bytes
         frozen_pr_supplement_bytes = (
@@ -2270,11 +2377,23 @@ def main() -> int:
         if frozen_supplement_by_number is not None:
             supplement = frozen_supplement_by_number[number]
             checks, checks_summary = validated_frozen_checks(supplement, number)
+            (
+                check_run_provider_evidence_state,
+                check_run_provider_evidence,
+            ) = validated_frozen_check_run_provider_evidence(
+                supplement, checks, number
+            )
             reviews = dict(supplement["review_state"])
         else:
             evidence = live_evidence_by_number[number]
             checks = [dict(item) for item in evidence["checks"]]
             checks_summary = dict(evidence["check_summary"])
+            check_run_provider_evidence_state = str(
+                evidence["check_run_provider_evidence_state"]
+            )
+            check_run_provider_evidence = [
+                dict(item) for item in evidence["check_run_provider_evidence"]
+            ]
             reviews = dict(evidence["review_state"])
         issues = issue_numbers_by_pr[number]
         row = {
@@ -2297,6 +2416,10 @@ def main() -> int:
             "changed_paths_complete": bool(source_row.get("changed_paths_complete")),
             "checks": checks,
             "check_summary": checks_summary,
+            "check_run_provider_evidence_state": (
+                check_run_provider_evidence_state
+            ),
+            "check_run_provider_evidence": check_run_provider_evidence,
             "review_state": reviews,
             "disposition": pr_disposition(source_row, checks_summary),
             "url": str(source_row.get("url") or ""),
@@ -2318,6 +2441,12 @@ def main() -> int:
                     "associated_issue": row["associated_issue"],
                     "checks": row["checks"],
                     "check_summary": row["check_summary"],
+                    "check_run_provider_evidence_state": row[
+                        "check_run_provider_evidence_state"
+                    ],
+                    "check_run_provider_evidence": row[
+                        "check_run_provider_evidence"
+                    ],
                     "review_state": row["review_state"],
                 }
                 for row in pr_rows
@@ -2558,6 +2687,13 @@ def main() -> int:
         "evidence_limitations": {
             "all_pr_changed_paths_complete": not incomplete_pr_changed_paths,
             "incomplete_changed_path_prs": incomplete_pr_changed_paths,
+            "pr_check_run_provider_evidence_state_counts": dict(
+                sorted(
+                    Counter(
+                        row["check_run_provider_evidence_state"] for row in pr_rows
+                    ).items()
+                )
+            ),
         },
         "branch_classification_counts": dict(
             sorted(Counter(row["classification"] for row in branch_rows).items())
@@ -2667,6 +2803,10 @@ def main() -> int:
             "every_visible_branch_classified": len(branch_rows) == len(source_branches),
             "every_visible_pr_dispositioned": len(pr_rows) == len(source_prs),
             "all_pr_changed_paths_complete": not incomplete_pr_changed_paths,
+            "all_pr_check_run_provider_evidence_collected": all(
+                row["check_run_provider_evidence_state"] == "COLLECTED_COMPLETE"
+                for row in pr_rows
+            ),
             "every_workflow_profiled": len(workflows) == len(policy_rows),
             "open_pr_review_threads_bulk_collected": False,
             "unknown_lineage_fail_closed": True,

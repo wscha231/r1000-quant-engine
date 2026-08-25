@@ -36,6 +36,7 @@ from tools.build_p0_3_authority_census import (  # noqa: E402
     source_pr_identity,
     supplement_pr_mutable_evidence,
     validated_frozen_checks,
+    validated_frozen_check_run_provider_evidence,
     validate_runtime_requirements,
     validate_research_only_policy,
     validate_branch_protection_contract,
@@ -82,9 +83,16 @@ def test_census_is_hash_bound_and_read_only() -> None:
     ))
     assert summary["completeness"]["open_pr_review_threads_bulk_collected"] is False
     assert summary["completeness"]["all_pr_changed_paths_complete"] is False
+    assert (
+        summary["completeness"]["all_pr_check_run_provider_evidence_collected"]
+        is False
+    )
     assert summary["evidence_limitations"] == {
         "all_pr_changed_paths_complete": False,
         "incomplete_changed_path_prs": [5, 6, 11, 16, 49, 62, 147, 212],
+        "pr_check_run_provider_evidence_state_counts": {
+            "NOT_COLLECTED_FAIL_CLOSED": 372
+        },
     }
     assert summary["safety"] == {
         "branch_merge_delete_or_history_rewrite": False,
@@ -142,6 +150,10 @@ def test_census_is_hash_bound_and_read_only() -> None:
     source_pr_by_number = {row["number"]: row for row in source["pull_requests"]}
     for row in pr_source["rows"]:
         assert check_summary(row["checks"]) == row["check_summary"]
+        assert row["check_run_provider_evidence_state"] == (
+            "NOT_COLLECTED_FAIL_CLOSED"
+        )
+        assert row["check_run_provider_evidence"] == []
         source_pr = source_pr_by_number[row["number"]]
         assert (
             row["head_sha"],
@@ -287,6 +299,13 @@ def test_frozen_pr_check_summary_is_derived_and_corruption_fails_closed() -> Non
     row = copy.deepcopy(source["rows"][0])
     checks, summary = validated_frozen_checks(row, int(row["number"]))
     assert summary == check_summary(checks)
+    provider_state, provider_evidence = (
+        validated_frozen_check_run_provider_evidence(
+            row, checks, int(row["number"])
+        )
+    )
+    assert provider_state == "NOT_COLLECTED_FAIL_CLOSED"
+    assert provider_evidence == []
 
     providerless_successes = [
         {
@@ -356,6 +375,20 @@ def test_live_pr_mutable_evidence_detects_check_and_review_changes() -> None:
                 "status": "COMPLETED",
                 "conclusion": "SUCCESS",
                 "detailsUrl": "https://example.invalid/check",
+                "app_id": 15368,
+                "app_slug": "github-actions",
+            }
+        ],
+        "checkRunProviderEvidenceState": "COLLECTED_COMPLETE",
+        "checkRunProviderEvidence": [
+            {
+                "run_id": 1,
+                "name": "validate",
+                "details_url": "https://example.invalid/check",
+                "app_id": 15368,
+                "app_slug": "github-actions",
+                "status": "COMPLETED",
+                "conclusion": "SUCCESS",
             }
         ],
         "reviewDecision": "",
@@ -375,6 +408,19 @@ def test_live_pr_mutable_evidence_detects_check_and_review_changes() -> None:
         }
     ]
     assert supplement_pr_mutable_evidence([changed_review]) != before
+    changed_unused_rest_run = copy.deepcopy(row)
+    changed_unused_rest_run["checkRunProviderEvidence"].append(
+        {
+            "run_id": 2,
+            "name": "diagnostic",
+            "details_url": "https://example.invalid/check/diagnostic",
+            "app_id": 15368,
+            "app_slug": "github-actions",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+        }
+    )
+    assert supplement_pr_mutable_evidence([changed_unused_rest_run]) != before
 
     provider_pages = [
         {
@@ -906,7 +952,7 @@ def test_frozen_regeneration_is_independent_of_staging_directory() -> None:
             text=True,
         )
         assert rejected_legacy_pr.returncode != 0
-        assert "legacy PR supplement schemas are not accepted" in (
+        assert "frozen PR supplement v3 archive SHA-256 mismatch" in (
             rejected_legacy_pr.stdout + rejected_legacy_pr.stderr
         )
 

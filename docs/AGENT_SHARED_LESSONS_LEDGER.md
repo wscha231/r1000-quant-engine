@@ -4267,9 +4267,11 @@ Expected contract:
   and collect the Check Suite App separately when the primary PR rollup omits
   it. Request `filter=all`, preserve each REST run ID, status, and conclusion,
   and require REST/rollup result agreement before matching; never collapse
-  multiple runs into a provider set. Keep legacy status contexts or
-  provider-less historical rollups explicitly unverified; otherwise an
-  unrelated producer can silently upgrade a blocked PR's disposition.
+  multiple runs into a provider set or discard runs omitted from the rollup.
+  Serialize the complete REST set into before/after evidence. Keep legacy
+  status contexts or provider-less historical rollups explicitly unverified;
+  otherwise an unrelated producer can silently upgrade a blocked PR's
+  disposition.
 - Reusable lesson: A frozen compressed source is already an immutable artifact.
   Validate its decompressed canonical hash, but copy its authenticated archive
   bytes during regeneration instead of recompressing them; zlib implementation
@@ -4277,7 +4279,7 @@ Expected contract:
   when the JSON content and Python package pins are identical. Frozen replay
   must reject uncompressed substitutes even when their JSON hash matches, and
   must reject legacy archive schemas that lack an authenticated compressed
-  digest.
+  digest. Authenticate compressed bytes before decompression.
 - Next action: Merge the reviewed P0-3 census, then begin P0-4 artifact inventory
   without deleting branches, dispatching workflows, or mutating durable state.
 - Fullrun executed: false. Target/order/ledger mutation executed: false.

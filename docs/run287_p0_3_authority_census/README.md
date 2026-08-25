@@ -21,7 +21,7 @@ file directly; its decompressed SHA-256 is
 `5c9741b84fe9cfff74619322bc99402d92f25979974d42a405e30091ff461216`.
 Frozen normalized PR check/review metadata is tracked separately as
 `docs/run287_p0_3_authority_census/source_pr_supplement.json.gz` (SHA-256
-`6202be24bb8f7dd1c79c9559cf12433ba206ccb316442d12ae693f044479857e`).
+`78a5a6be1bf25c6b4b07bd3cf5f7ff390779e6d5583a5035a10a0872ef33872e`).
 Frozen branch ancestry/path evidence is tracked as
 `docs/run287_p0_3_authority_census/source_branch_supplement.parquet` (SHA-256
 `12ea17046e062707437b995b95cc610ccf2ef0398dbdf9ff05c0011ff810f530`).
@@ -47,6 +47,11 @@ Changed-path collection is incomplete for PRs
 `[5,6,11,16,49,62,147,212]`. Their rows remain useful for
 identity and disposition evidence, but they are not complete recovery-path
 inventories and grant no merge or promotion authority.
+
+Historical complete REST CheckRun provider sets were not collected for this
+snapshot. Provider evidence states are
+`{"NOT_COLLECTED_FAIL_CLOSED":372}`; provider-less check histories
+remain fail-closed and grant no successful required-check claim.
 
 The frozen U0 source reports historical experiment census completeness as
 `false` and
