@@ -41,11 +41,17 @@ LEGACY_PR_SUPPLEMENT_SHA256 = (
 FROZEN_U0_UNCOMPRESSED_SHA256 = (
     "5c9741b84fe9cfff74619322bc99402d92f25979974d42a405e30091ff461216"
 )
+FROZEN_U0_COMPRESSED_SHA256 = (
+    "43037952f1464bd41cdb0d2eaba78503da60f17d66c410dea186b34e0b62ef2c"
+)
 LEGACY_PR_SUPPLEMENT_V2_UNCOMPRESSED_SHA256 = (
     "362f0b7245ca05360ac206c122077a4c07b2111c748a2cd72e8b8af58244689a"
 )
 FROZEN_PR_SUPPLEMENT_V3_UNCOMPRESSED_SHA256 = (
     "259ba25f4353c38ffd62a47b1d094ff67b2277f8bcdd9b7a9c750ed97f18626b"
+)
+FROZEN_PR_SUPPLEMENT_V3_COMPRESSED_SHA256 = (
+    "6202be24bb8f7dd1c79c9559cf12433ba206ccb316442d12ae693f044479857e"
 )
 FROZEN_BRANCH_SUPPLEMENT_SHA256 = (
     "12ea17046e062707437b995b95cc610ccf2ef0398dbdf9ff05c0011ff810f530"
@@ -972,11 +978,15 @@ def validate_branch_protection_contract(contract: Mapping[str, Any]) -> None:
         raise SystemExit("frozen branch protection configuration is invalid") from error
     if normalized_configuration != configuration:
         raise SystemExit("frozen branch protection configuration is not canonical")
-    contract_check_apps = {
-        row["context"]: row["app_id"]
-        for row in normalized_configuration["required_status_checks"]["checks"]
-    }
-    if contract_check_apps != REQUIRED_CHECK_APP_IDS:
+    contract_checks = normalized_configuration["required_status_checks"]["checks"]
+    expected_contract_checks = sorted(
+        (
+            {"context": context, "app_id": app_id}
+            for context, app_id in REQUIRED_CHECK_APP_IDS.items()
+        ),
+        key=lambda item: (item["context"], str(item["app_id"])),
+    )
+    if contract_checks != expected_contract_checks:
         raise SystemExit("branch protection required check apps conflict")
     try:
         for field in (
@@ -1083,6 +1093,131 @@ PR_FIELDS = (
 )
 
 
+def check_run_provider_index(
+    payload: Any,
+) -> dict[tuple[str, str], set[tuple[int | None, str]]]:
+    pages = payload if isinstance(payload, list) else [payload]
+    if not pages:
+        raise RuntimeError("check-run provider response is empty")
+    total_counts: set[int] = set()
+    runs_by_id: dict[int, Mapping[str, Any]] = {}
+    for page in pages:
+        if not isinstance(page, Mapping):
+            raise RuntimeError("check-run provider page is invalid")
+        total_count = page.get("total_count")
+        check_runs = page.get("check_runs")
+        if type(total_count) is not int or total_count < 0 or not isinstance(
+            check_runs, list
+        ):
+            raise RuntimeError("check-run provider page is incomplete")
+        total_counts.add(total_count)
+        for run_row in check_runs:
+            if not isinstance(run_row, Mapping):
+                raise RuntimeError("check-run provider row is invalid")
+            run_id = run_row.get("id")
+            if type(run_id) is not int or run_id <= 0 or run_id in runs_by_id:
+                raise RuntimeError("check-run provider identity is invalid")
+            runs_by_id[run_id] = run_row
+    if len(total_counts) != 1 or len(runs_by_id) != next(iter(total_counts)):
+        raise RuntimeError("check-run provider pagination is incomplete")
+
+    result: dict[tuple[str, str], set[tuple[int | None, str]]] = {}
+    for run_row in runs_by_id.values():
+        name = str(run_row.get("name") or "")
+        details_url = str(run_row.get("details_url") or "")
+        if not name:
+            raise RuntimeError("check-run provider name is missing")
+        app = run_row.get("app")
+        if app is None:
+            provider = (None, "")
+        elif isinstance(app, Mapping):
+            app_id = app.get("id")
+            app_slug = app.get("slug")
+            if type(app_id) is not int or app_id <= 0 or not isinstance(
+                app_slug, str
+            ) or not app_slug:
+                raise RuntimeError("check-run App identity is incomplete")
+            provider = (app_id, app_slug)
+        else:
+            raise RuntimeError("check-run App identity is invalid")
+        result.setdefault((name, details_url), set()).add(provider)
+    return result
+
+
+def live_check_run_provider_index(
+    repo_root: Path, head_sha: str
+) -> dict[tuple[str, str], set[tuple[int | None, str]]]:
+    payload = run_json(
+        [
+            "gh",
+            "api",
+            "--paginate",
+            "--slurp",
+            "-H",
+            "Accept: application/vnd.github+json",
+            "-H",
+            "X-GitHub-Api-Version: 2022-11-28",
+            f"repos/{REPOSITORY}/commits/{head_sha}/check-runs?per_page=100",
+        ],
+        cwd=repo_root,
+    )
+    return check_run_provider_index(payload)
+
+
+def attach_check_run_providers(
+    rollup: Any,
+    providers: Mapping[tuple[str, str], set[tuple[int | None, str]]],
+) -> None:
+    if not isinstance(rollup, list):
+        raise RuntimeError("PR status-check rollup is invalid")
+    for item in rollup:
+        if not isinstance(item, dict):
+            raise RuntimeError("PR status-check row is invalid")
+        if item.get("__typename") == "StatusContext" or (
+            "context" in item and "name" not in item
+        ):
+            continue
+        identity = (
+            str(item.get("name") or ""),
+            str(item.get("detailsUrl") or ""),
+        )
+        if not identity[0]:
+            raise RuntimeError("PR CheckRun identity is incomplete")
+        matches = providers.get(identity)
+        if not matches or len(matches) != 1:
+            raise RuntimeError("PR CheckRun provider identity is ambiguous")
+        app_id, app_slug = next(iter(matches))
+        item["app_id"] = app_id
+        item["app_slug"] = app_slug
+
+
+def enrich_pr_check_providers(repo_root: Path, rows: list[dict[str, Any]]) -> None:
+    provider_cache: dict[
+        str, dict[tuple[str, str], set[tuple[int | None, str]]]
+    ] = {}
+    for row in rows:
+        rollup = row.get("statusCheckRollup") or []
+        if not isinstance(rollup, list):
+            raise RuntimeError("PR status-check rollup is invalid")
+        if not any(
+            isinstance(item, Mapping)
+            and not (
+                item.get("__typename") == "StatusContext"
+                or ("context" in item and "name" not in item)
+            )
+            for item in rollup
+        ):
+            continue
+        head_sha = clean_sha(row.get("headRefOid"))
+        if not head_sha:
+            raise RuntimeError("PR head is missing for check-provider collection")
+        if head_sha not in provider_cache:
+            provider_cache[head_sha] = live_check_run_provider_index(
+                repo_root, head_sha
+            )
+        attach_check_run_providers(rollup, provider_cache[head_sha])
+
+
 def collect_pr_supplement(repo_root: Path) -> list[dict[str, Any]]:
     rows = run_json(
         [
@@ -1102,6 +1237,7 @@ def collect_pr_supplement(repo_root: Path) -> list[dict[str, Any]]:
     )
     if not isinstance(rows, list) or len(rows) >= 1000:
         raise RuntimeError("PR supplement is missing or limit-capped")
+    enrich_pr_check_providers(repo_root, rows)
     return rows
 
 
@@ -1814,6 +1950,12 @@ def main() -> int:
         if args.source_census.suffix.lower() == ".gz"
         else None
     )
+    if source_archive_bytes is not None:
+        require_bytes_sha256(
+            source_archive_bytes,
+            FROZEN_U0_COMPRESSED_SHA256,
+            "frozen U0 source archive",
+        )
     source_bytes = (
         gzip.decompress(source_archive_bytes)
         if source_archive_bytes is not None
@@ -1987,6 +2129,12 @@ def main() -> int:
                 FROZEN_PR_SUPPLEMENT_V3_UNCOMPRESSED_SHA256,
                 "frozen PR supplement v3",
             )
+            if frozen_pr_input_archive_bytes is not None:
+                require_bytes_sha256(
+                    frozen_pr_input_archive_bytes,
+                    FROZEN_PR_SUPPLEMENT_V3_COMPRESSED_SHA256,
+                    "frozen PR supplement v3 archive",
+                )
             frozen_pr_archive_bytes = frozen_pr_input_archive_bytes
         if legacy_pr_supplement:
             for row in frozen_pr_supplement_document.get("rows") or []:

@@ -20,11 +20,14 @@ from tools.build_p0_3_authority_census import (  # noqa: E402
     GENERATOR_RUNTIME_VERSIONS,
     PR_SUPPLEMENT_SCHEMA,
     REQUIRED_CHECK_APP_IDS,
+    attach_check_run_providers,
     audited_workflow_paths,
     branch_live_identity_from_rows,
     canonical_text_bytes,
+    check_run_provider_index,
     check_summary,
     normalize_classic_branch_protection,
+    normalize_check,
     read_branch_supplement,
     require_audit_commit,
     resolve_generation_timestamp,
@@ -360,6 +363,58 @@ def test_live_pr_mutable_evidence_detects_check_and_review_changes() -> None:
     ]
     assert supplement_pr_mutable_evidence([changed_review]) != before
 
+    provider_pages = [
+        {
+            "total_count": len(REQUIRED_CHECK_APP_IDS),
+            "check_runs": [
+                {
+                    "id": index,
+                    "name": name,
+                    "details_url": f"https://example.invalid/check/{name}",
+                    "app": {"id": app_id, "slug": "github-actions"},
+                }
+                for index, (name, app_id) in enumerate(
+                    REQUIRED_CHECK_APP_IDS.items(), start=1
+                )
+            ],
+        }
+    ]
+    providers = check_run_provider_index(provider_pages)
+    rollup = [
+        {
+            "__typename": "CheckRun",
+            "name": name,
+            "workflowName": "",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": f"https://example.invalid/check/{name}",
+        }
+        for name in REQUIRED_CHECK_APP_IDS
+    ]
+    attach_check_run_providers(rollup, providers)
+    normalized = [normalize_check(check) for check in rollup]
+    assert check_summary(normalized)["required_success_observed"]
+
+    ambiguous = copy.deepcopy(providers)
+    ambiguous[("validate", "https://example.invalid/check/validate")].add(
+        (1, "untrusted")
+    )
+    try:
+        attach_check_run_providers(copy.deepcopy(rollup), ambiguous)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("ambiguous CheckRun provider was accepted")
+
+    incomplete_pages = copy.deepcopy(provider_pages)
+    incomplete_pages[0]["total_count"] += 1
+    try:
+        check_run_provider_index(incomplete_pages)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("incomplete CheckRun provider pagination was accepted")
+
 
 def test_generator_requirements_require_exact_pins() -> None:
     assert validate_runtime_requirements(CENSUS / "requirements.txt") == (
@@ -591,6 +646,20 @@ def test_live_branch_guard_binds_head_and_protection_state() -> None:
     else:
         raise AssertionError("mistyped frozen protection scalar was accepted")
 
+    duplicate_check = copy.deepcopy(contract)
+    duplicate_check["branch_protection_configuration"][
+        "required_status_checks"
+    ]["checks"].append({"context": "validate", "app_id": 1})
+    duplicate_check["branch_protection_configuration"][
+        "required_status_checks"
+    ]["checks"].sort(key=lambda item: (item["context"], str(item["app_id"])))
+    try:
+        validate_branch_protection_contract(duplicate_check)
+    except SystemExit:
+        pass
+    else:
+        raise AssertionError("duplicate frozen required-check context was accepted")
+
 
 def test_frozen_regeneration_is_independent_of_staging_directory() -> None:
     with tempfile.TemporaryDirectory() as temporary:
@@ -631,6 +700,62 @@ def test_frozen_regeneration_is_independent_of_staging_directory() -> None:
             assert (output_dir / name).read_bytes() == (
                 CENSUS / name
             ).read_bytes(), name
+
+        tampered_u0 = Path(temporary) / "tampered_u0.json.gz"
+        tampered_u0_bytes = bytearray(
+            (CENSUS / "source_u0_github_census.json.gz").read_bytes()
+        )
+        tampered_u0_bytes[4] ^= 1
+        tampered_u0.write_bytes(tampered_u0_bytes)
+        rejected_u0 = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "tools" / "build_p0_3_authority_census.py"),
+                "--audit-sha",
+                AUDIT_SHA,
+                "--source-census",
+                str(tampered_u0),
+                "--output-dir",
+                str(Path(temporary) / "rejected_u0"),
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert rejected_u0.returncode != 0
+        assert "frozen U0 source archive SHA-256 mismatch" in (
+            rejected_u0.stdout + rejected_u0.stderr
+        )
+
+        tampered_pr = Path(temporary) / "tampered_pr.json.gz"
+        tampered_pr_bytes = bytearray(
+            (CENSUS / "source_pr_supplement.json.gz").read_bytes()
+        )
+        tampered_pr_bytes[4] ^= 1
+        tampered_pr.write_bytes(tampered_pr_bytes)
+        rejected_pr = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "tools" / "build_p0_3_authority_census.py"),
+                "--audit-sha",
+                AUDIT_SHA,
+                "--source-census",
+                str(CENSUS / "source_u0_github_census.json.gz"),
+                "--source-pr-supplement",
+                str(tampered_pr),
+                "--output-dir",
+                str(Path(temporary) / "rejected_pr"),
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert rejected_pr.returncode != 0
+        assert "frozen PR supplement v3 archive SHA-256 mismatch" in (
+            rejected_pr.stdout + rejected_pr.stderr
+        )
 
 
 def test_workflow_registry_has_singular_official_authority_and_blocks_legacy_names() -> None:
