@@ -170,10 +170,10 @@ def test_registries_and_parquet_cover_every_object_once() -> None:
     assert frame["market"].eq("US").all()
     assert frame["baseline_code_sha"].eq(payload["baseline_code_sha"]).all()
     assert frame["source_snapshot_sha256"].eq(
-        "8cd51434f7d8ad578a27d16f6c87f0111ce2189e1aaef08913f75d55a91c1ae4"
+        "55f226c85d15aedd3292f718950551056ed8af04d0d514dfa07672789af5b1d4"
     ).all()
     assert frame["source_publication_commit"].eq(
-        "02637f0bc592d843eb6ce94cccea87374d169c51"
+        "7b1ca6452a2457b0180af40ffb176284857aa35a"
     ).all()
     assert frame["exact_location"].astype(str).str.strip().ne("").all()
     assert frame["rollback_restore"].astype(str).str.strip().ne("").all()
