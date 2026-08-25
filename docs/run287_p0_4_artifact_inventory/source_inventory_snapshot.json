@@ -261,11 +261,11 @@
     {
       "object_id": "ds.us.prices.replay-cache",
       "schema_version": "run287-replay-price-cache-manifest-v2",
-      "logical_role": "historical and exact-close price cache",
+      "logical_role": "historical and exact-close price-cache directory",
       "producer": "build_replay_price_cache.py via several workflows",
       "storage_kind": "google_drive_folder",
       "exact_location": "gdrive-id:1wdd4LWhjZzKZ56tEcj5dQKnqkGQUzGXQ",
-      "mutable_alias": "cache_prices; cache_prices/replay_price_cache_manifest.json",
+      "mutable_alias": "cache_prices",
       "as_of": "2026-08-24",
       "available_from": "2026-08-24T23:54:55.278Z",
       "decision_time_cutoff": "EXACT_SESSION_ONLY_WHEN_DAILY_OPERATING_CONTRACT_REBUILDS_IT",
@@ -285,6 +285,33 @@
       "mapping_status": "BLOCKED_NO_IMMUTABLE_SOURCE",
       "discovery_status": "INCOMPLETE_100_OF_MANIFEST_1048_DIRECT_CHILDREN",
       "blockers": ["Drive enumeration truncated", "free manifest required_ticker_count is 0", "free manifest exact_operating_universe is false", "BLD observed only through 2026-06-30"]
+    },
+    {
+      "object_id": "ds.us.prices.replay-cache-manifest",
+      "schema_version": "run287-replay-price-cache-manifest-v2",
+      "logical_role": "mutable manifest for the historical and exact-close price cache",
+      "producer": "build_replay_price_cache.py via several workflows",
+      "storage_kind": "google_drive_file_in_folder",
+      "exact_location": "cache_prices/replay_price_cache_manifest.json",
+      "mutable_alias": "cache_prices/replay_price_cache_manifest.json",
+      "as_of": "2026-08-24",
+      "available_from": "2026-08-24T23:54:55.278Z",
+      "decision_time_cutoff": "EXACT_SESSION_ONLY_WHEN_DAILY_OPERATING_CONTRACT_REBUILDS_IT",
+      "source_artifact_hashes": ["bbb94f82914ae4216188d473ff550aa32a5bb6d9dbd601f9537f0dabee20993a"],
+      "file_count": 1,
+      "manifest_sha256": "bbb94f82914ae4216188d473ff550aa32a5bb6d9dbd601f9537f0dabee20993a",
+      "writer_workflow": "free_data_daily_update.yml; daily_operating_selection_refresh.yml; earnings_estimates_daily.yml",
+      "writer_job": "price-cache builders",
+      "write_authority": "SCOPE_DEPENDENT_MULTIPLE_WRITERS",
+      "pit_classification": "MANIFEST_DOES_NOT_BIND_AN_EXACT_OPERATING_UNIVERSE",
+      "survivorship_classification": "TICKER_INPUT_DEPENDENT",
+      "corporate_action_classification": "PROVIDER_AUTO_ADJUST_POLICY_REQUIRES_MANIFEST",
+      "license_classification": "YFINANCE_PROVIDER_TERMS_APPLY",
+      "retention_classification": "MUTABLE_LATEST_MANIFEST",
+      "downstream_consumers": ["price-cache restore", "daily market snapshot", "paper ledger", "backtests"],
+      "mapping_status": "BLOCKED_NO_IMMUTABLE_SOURCE",
+      "discovery_status": "MANIFEST_HASH_CAPTURED_TREE_ENUMERATION_INCOMPLETE",
+      "blockers": ["no immutable session manifest copy", "Drive enumeration truncated", "required_ticker_count is 0", "exact_operating_universe is false"]
     },
     {
       "object_id": "ds.us.macro.daily-snapshot",
@@ -599,7 +626,7 @@
       "producer": "daily_operating_selection_refresh.yml",
       "storage_kind": "google_drive_folder",
       "exact_location": "gdrive-id:1ZBfSgjBFl0oRtQkS-eSleEOT2podcXz1",
-      "immutable_location": "paper_archive/run287_daily_simulated_fill_ledger_immutable/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7",
+      "immutable_location": "paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7",
       "as_of": "2026-07-24",
       "available_from": "2026-08-05T04:58:54.261Z",
       "decision_time_cutoff": "2026-07-24_MARK_ONLY",
@@ -623,7 +650,7 @@
       "producer": "build_run287_accepted_publication_manifest.py",
       "storage_kind": "google_drive_file",
       "exact_location": "gdrive-id:1MiAcwCj_TAYBa16Q8bN2hCmny6VqXnnr",
-      "immutable_location": "paper_archive/run287_daily_simulated_fill_ledger_immutable/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/accepted_publication.json",
+      "immutable_location": "paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/accepted_publication.json",
       "mutable_alias": "paper_archive/run287_daily_simulated_fill_ledger/accepted_publication.json",
       "as_of": "2026-07-24",
       "available_from": "2026-08-05T04:58:54.261Z",
@@ -648,7 +675,7 @@
       "producer": "run_daily_simulated_fill_ledger.py",
       "storage_kind": "google_drive_file_in_head",
       "exact_location": "paper_archive/run287_daily_simulated_fill_ledger/main/account_state_latest.json",
-      "immutable_location": "paper_archive/run287_daily_simulated_fill_ledger_immutable/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/main/account_state_latest.json",
+      "immutable_location": "paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/main/account_state_latest.json",
       "mutable_alias": "paper_archive/run287_daily_simulated_fill_ledger/main/account_state_latest.json",
       "as_of": "2026-07-24",
       "data_hash": "f959556ef266765b21380c025831de9df020ad9d411a4284d7afa95cc678e6d8",
@@ -668,7 +695,7 @@
       "producer": "run_daily_simulated_fill_ledger.py",
       "storage_kind": "google_drive_file_in_head",
       "exact_location": "paper_archive/run287_daily_simulated_fill_ledger/concentrated/account_state_latest.json",
-      "immutable_location": "paper_archive/run287_daily_simulated_fill_ledger_immutable/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/concentrated/account_state_latest.json",
+      "immutable_location": "paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/concentrated/account_state_latest.json",
       "mutable_alias": "paper_archive/run287_daily_simulated_fill_ledger/concentrated/account_state_latest.json",
       "as_of": "2026-07-24",
       "data_hash": "8253abe8b949be5d7e1d4e304c07cc1459b6e7fb2b6c20a95daf70af6bcc1ff6",
@@ -688,7 +715,7 @@
       "producer": "run_daily_simulated_fill_ledger.py",
       "storage_kind": "google_drive_file_in_head",
       "exact_location": "paper_archive/run287_daily_simulated_fill_ledger/main/manifest.json",
-      "immutable_location": "paper_archive/run287_daily_simulated_fill_ledger_immutable/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/main/manifest.json",
+      "immutable_location": "paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/main/manifest.json",
       "mutable_alias": "paper_archive/run287_daily_simulated_fill_ledger/main/manifest.json",
       "as_of": "2026-07-24",
       "manifest_sha256": "43f348b7a44c2f0212865cc318225e4b75b4cef9b76ccc0ff52fe19cd15f41a1",
@@ -708,7 +735,7 @@
       "producer": "run_daily_simulated_fill_ledger.py",
       "storage_kind": "google_drive_file_in_head",
       "exact_location": "paper_archive/run287_daily_simulated_fill_ledger/concentrated/manifest.json",
-      "immutable_location": "paper_archive/run287_daily_simulated_fill_ledger_immutable/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/concentrated/manifest.json",
+      "immutable_location": "paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/concentrated/manifest.json",
       "mutable_alias": "paper_archive/run287_daily_simulated_fill_ledger/concentrated/manifest.json",
       "as_of": "2026-07-24",
       "manifest_sha256": "78fc4887bc50c0782f1b1935bb033e588f4f9e65c0f5a37686e3f086c188f453",
@@ -1270,7 +1297,7 @@
     {
       "object_id": "state.us.paper.accepted-publication",
       "mutable_alias": "paper_archive/run287_daily_simulated_fill_ledger/accepted_publication.json",
-      "immutable_source": "paper_archive/run287_daily_simulated_fill_ledger_immutable/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/accepted_publication.json",
+      "immutable_source": "paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/accepted_publication.json",
       "status": "VERIFIED_IMMUTABLE",
       "verification": "content SHA-256 1f2941e7... and immutable head topology",
       "blockers": []
@@ -1278,7 +1305,7 @@
     {
       "object_id": "state.us.paper.main-account",
       "mutable_alias": "paper_archive/run287_daily_simulated_fill_ledger/main/account_state_latest.json",
-      "immutable_source": "immutable head 65fa6f5b.../main/account_state_latest.json",
+      "immutable_source": "paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/main/account_state_latest.json",
       "status": "VERIFIED_IMMUTABLE",
       "verification": "accepted publication account state SHA-256 f959556e...",
       "blockers": []
@@ -1286,7 +1313,7 @@
     {
       "object_id": "state.us.paper.concentrated-account",
       "mutable_alias": "paper_archive/run287_daily_simulated_fill_ledger/concentrated/account_state_latest.json",
-      "immutable_source": "immutable head 65fa6f5b.../concentrated/account_state_latest.json",
+      "immutable_source": "paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/concentrated/account_state_latest.json",
       "status": "VERIFIED_IMMUTABLE",
       "verification": "accepted publication account state SHA-256 8253abe8...",
       "blockers": []
@@ -1294,7 +1321,7 @@
     {
       "object_id": "state.us.paper.main-ledger-manifest",
       "mutable_alias": "paper_archive/run287_daily_simulated_fill_ledger/main/manifest.json",
-      "immutable_source": "immutable head 65fa6f5b.../main/manifest.json",
+      "immutable_source": "paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/main/manifest.json",
       "status": "VERIFIED_IMMUTABLE",
       "verification": "manifest SHA-256 43f348b7...",
       "blockers": []
@@ -1302,7 +1329,7 @@
     {
       "object_id": "state.us.paper.concentrated-ledger-manifest",
       "mutable_alias": "paper_archive/run287_daily_simulated_fill_ledger/concentrated/manifest.json",
-      "immutable_source": "immutable head 65fa6f5b.../concentrated/manifest.json",
+      "immutable_source": "paper_archive/run287_daily_simulated_fill_ledger_heads/65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7/concentrated/manifest.json",
       "status": "VERIFIED_IMMUTABLE",
       "verification": "manifest SHA-256 78fc4887...",
       "blockers": []
@@ -1397,11 +1424,19 @@
     },
     {
       "object_id": "ds.us.prices.replay-cache",
-      "mutable_alias": "cache_prices; cache_prices/replay_price_cache_manifest.json",
+      "mutable_alias": "cache_prices",
       "immutable_source": "",
       "status": "BLOCKED_NO_IMMUTABLE_SOURCE",
-      "verification": "manifest hash captured; full 1048-file Drive enumeration incomplete",
+      "verification": "folder is independently represented; full 1048-file Drive enumeration incomplete",
       "blockers": ["no complete immutable session tree", "provider listing truncated"]
+    },
+    {
+      "object_id": "ds.us.prices.replay-cache-manifest",
+      "mutable_alias": "cache_prices/replay_price_cache_manifest.json",
+      "immutable_source": "",
+      "status": "BLOCKED_NO_IMMUTABLE_SOURCE",
+      "verification": "manifest SHA-256 bbb94f82... captured independently from the mutable cache directory",
+      "blockers": ["no immutable session manifest copy", "provider listing truncated"]
     },
     {
       "object_id": "ds.us.macro.daily-snapshot",
