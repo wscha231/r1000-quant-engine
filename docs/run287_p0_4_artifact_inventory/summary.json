@@ -222,5 +222,5 @@
     "target_order_ledger_mutation": false
   },
   "schema_version": "run287-p0-4-inventory-summary-v1",
-  "source_snapshot_sha256": "d81e702b68db941d0107d88b1cec3c6681499808b468b4f811db7ea1516148c6"
+  "source_snapshot_sha256": "bf67523d85e70a1ce80703fcc6f500a765c5b7c47a00faa7e1576eabbb4860d7"
 }

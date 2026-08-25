@@ -2,7 +2,7 @@ schema_version: run287-p0-4-latest-map-v1
 market: US
 baseline_code_sha: 0f34de9a2747059b7bb808cb070a86261e119f95
 observed_at_utc: '2026-08-25T12:06:47.159838+00:00'
-source_snapshot_sha256: d81e702b68db941d0107d88b1cec3c6681499808b468b4f811db7ea1516148c6
+source_snapshot_sha256: bf67523d85e70a1ce80703fcc6f500a765c5b7c47a00faa7e1576eabbb4860d7
 status_counts:
   BLOCKED_DIVERGENT: 2
   BLOCKED_MULTIPLE_WRITERS: 1
@@ -127,7 +127,7 @@ mappings:
   blockers:
   - content differs
 - object_id: ds.us.prices.replay-cache
-  mutable_alias: cache_prices and replay_price_cache_manifest.json
+  mutable_alias: cache_prices; cache_prices/replay_price_cache_manifest.json
   immutable_source: ''
   status: BLOCKED_NO_IMMUTABLE_SOURCE
   verification: manifest hash captured; full 1048-file Drive enumeration incomplete
@@ -135,7 +135,7 @@ mappings:
   - no complete immutable session tree
   - provider listing truncated
 - object_id: ds.us.macro.daily-snapshot
-  mutable_alias: data_raw/free/macro/daily_snapshot/latest.json and same-date snapshot
+  mutable_alias: data_raw/free/macro/daily_snapshot/latest.json
   immutable_source: ''
   status: BLOCKED_MULTIPLE_WRITERS
   verification: three workflow call sites invoke the same writer

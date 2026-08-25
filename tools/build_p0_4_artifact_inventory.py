@@ -31,9 +31,9 @@ DEFAULT_SOURCE = ROOT / "docs" / "run287_p0_4_artifact_inventory" / "source_inve
 DEFAULT_OUTPUT = ROOT / "docs" / "run287_p0_4_artifact_inventory"
 SCHEMA_VERSION = "run287-p0-4-inventory-source-v1"
 REGISTRY_SCHEMA_VERSION = "run287-p0-4-registry-v1"
-FROZEN_SOURCE_PUBLICATION_COMMIT = "9f024c97f5d8b92e847b0165f7d577fbf3951413"
-FROZEN_SOURCE_GIT_BLOB_SHA1 = "59c350c0d210dafc149063d309cfb6b58296e70e"
-FROZEN_SOURCE_SHA256 = "d81e702b68db941d0107d88b1cec3c6681499808b468b4f811db7ea1516148c6"
+FROZEN_SOURCE_PUBLICATION_COMMIT = "1e5ce4a2e428a6c264577053a8719636fb9cabdd"
+FROZEN_SOURCE_GIT_BLOB_SHA1 = "8ece611a29ec731a84eb2fec349cbfbf5592d8f1"
+FROZEN_SOURCE_SHA256 = "bf67523d85e70a1ce80703fcc6f500a765c5b7c47a00faa7e1576eabbb4860d7"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
 OBJECT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]+$")
@@ -69,6 +69,11 @@ REQUIRED_FIXED_ALIAS_OBJECTS = {
     ),
 }
 OFFICIAL_TARGET_WORKFLOW = ".github/workflows/daily_operating_selection_refresh.yml"
+PINNED_PUBLICATION_FILE_SHA256 = {
+    ".github/workflows/pr_validation.yml": (
+        "55d2be9e6a24b6af76215059e25f7340ec8d5c8729bf67c666fe296dfdc2093b"
+    )
+}
 RISK_OUTCOME_FAILED_STEP = "Restore verified risk-outcome accepted head"
 RISK_OUTCOME_SKIPPED_STEPS = {
     26: "Build operating target books",
@@ -412,6 +417,11 @@ def validate_source(payload: dict[str, Any]) -> None:
             objects_seen.add(object_id)
             normalized_rows.append(normalized)
         payload[collection] = normalized_rows
+    object_index = {
+        row["object_id"]: row
+        for collection in ("datasets", "models", "durable_states", "artifacts")
+        for row in payload[collection]
+    }
     aliases = payload.get("latest_to_immutable")
     if not isinstance(aliases, list) or not aliases:
         raise InventoryError("latest_map_empty")
@@ -425,10 +435,26 @@ def validate_source(payload: dict[str, Any]) -> None:
         if object_id in alias_ids:
             raise InventoryError(f"latest_map_duplicate:{object_id}")
         alias_ids.add(object_id)
-        if row.get("status") not in ALIAS_STATUSES:
+        status = row.get("status")
+        if status not in ALIAS_STATUSES:
             raise InventoryError(f"latest_map_status:{object_id}")
-        if str(row.get("status")).startswith("BLOCKED_") and not row.get("blockers"):
+        object_row = object_index[object_id]
+        if row.get("mutable_alias") != object_row.get("mutable_alias"):
+            raise InventoryError(f"latest_map_alias_mismatch:{object_id}")
+        if status != object_row.get("mapping_status"):
+            raise InventoryError(f"latest_map_object_status_mismatch:{object_id}")
+        blockers = row.get("blockers")
+        if not isinstance(blockers, list):
+            raise InventoryError(f"latest_map_blockers_not_list:{object_id}")
+        if str(status).startswith("BLOCKED_") and not blockers:
             raise InventoryError(f"latest_map_blocked_without_reason:{object_id}")
+        if status == "VERIFIED_IMMUTABLE":
+            if not nonblank(row.get("immutable_source")):
+                raise InventoryError(
+                    f"latest_map_verified_without_immutable_source:{object_id}"
+                )
+            if blockers:
+                raise InventoryError(f"latest_map_verified_with_blockers:{object_id}")
     mutable_ids = {
         row["object_id"]
         for collection in ("datasets", "models", "durable_states", "artifacts")
@@ -439,11 +465,6 @@ def validate_source(payload: dict[str, Any]) -> None:
     if missing_aliases:
         raise InventoryError("latest_map_missing_aliases:" + ",".join(missing_aliases))
     workflow_text = baseline_workflow_text(baseline)
-    object_index = {
-        row["object_id"]: row
-        for collection in ("datasets", "models", "durable_states", "artifacts")
-        for row in payload[collection]
-    }
     for object_id, alias in REQUIRED_FIXED_ALIAS_OBJECTS.items():
         if alias not in workflow_text:
             raise InventoryError(f"fixed_alias_not_in_baseline_workflow:{alias}")
@@ -702,6 +723,7 @@ def verify_live_publication_lineage(baseline: str) -> None:
         encoding="utf-8",
     ).splitlines()
     allowed_exact = {
+        ".github/workflows/pr_validation.yml",
         "tests/test_p0_4_artifact_inventory.py",
         "tools/build_p0_4_artifact_inventory.py",
         "tools/run_pr_validation.py",
@@ -716,6 +738,12 @@ def verify_live_publication_lineage(baseline: str) -> None:
         raise InventoryError(
             "live_head_has_nonpublication_delta:" + ",".join(unexpected)
         )
+    for path, expected_sha256 in PINNED_PUBLICATION_FILE_SHA256.items():
+        if path not in changed:
+            continue
+        actual = canonical_source_bytes((ROOT / path).read_bytes())
+        if hashlib.sha256(actual).hexdigest() != expected_sha256:
+            raise InventoryError(f"pinned_publication_file_mismatch:{path}")
 
 
 def render_bundle(staging: Path, payload: dict[str, Any], rows: list[dict[str, Any]]) -> None:

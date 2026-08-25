@@ -45,7 +45,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          # P0-4 verifies that its frozen baseline and publication commits are
+          # ancestors of the exact PR head. Keep enough traversable history for
+          # that fail-closed check without fetching the repository's full history.
+          fetch-depth: 64
           # Historical/runtime artifacts are not Tier-1 inputs. The small
           # checksum-locked fixture under tests/ is the canonical baseline.
           sparse-checkout: |

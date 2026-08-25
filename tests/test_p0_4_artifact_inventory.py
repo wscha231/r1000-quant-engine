@@ -398,7 +398,7 @@ def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
 
     relative = "docs/run287_p0_4_artifact_inventory/source_inventory_snapshot.json"
     assert FROZEN_SOURCE_PUBLICATION_COMMIT == (
-        "9f024c97f5d8b92e847b0165f7d577fbf3951413"
+        "1e5ce4a2e428a6c264577053a8719636fb9cabdd"
     )
     assert git("rev-parse", f"{FROZEN_SOURCE_PUBLICATION_COMMIT}:{relative}").strip() == (
         FROZEN_SOURCE_GIT_BLOB_SHA1
@@ -422,6 +422,24 @@ def test_source_snapshot_is_bound_to_publication_commit(tmp_path: Path) -> None:
         assert str(exc) == "verify_live_head_requires_canonical_source"
     else:
         raise AssertionError("live-head verification accepted a custom source")
+
+
+def test_pr_validation_checkout_supports_pinned_lineage_checks() -> None:
+    from tools.build_p0_4_artifact_inventory import (
+        PINNED_PUBLICATION_FILE_SHA256,
+        canonical_source_bytes,
+        verify_live_publication_lineage,
+    )
+
+    relative = ".github/workflows/pr_validation.yml"
+    workflow = ROOT / relative
+    text = workflow.read_text(encoding="utf-8")
+    assert "fetch-depth: 64" in text
+    assert "fetch-depth: 1" not in text
+    assert hashlib.sha256(
+        canonical_source_bytes(workflow.read_bytes())
+    ).hexdigest() == PINNED_PUBLICATION_FILE_SHA256[relative]
+    verify_live_publication_lineage(source()["baseline_code_sha"])
 
 
 def test_failed_render_keeps_the_existing_bundle_intact(tmp_path: Path) -> None:
@@ -490,6 +508,42 @@ def test_required_fixed_target_aliases_cannot_be_omitted(tmp_path: Path) -> None
         raise AssertionError("missing official target alias was not rejected")
 
 
+def test_alias_map_must_match_object_status_and_evidence(tmp_path: Path) -> None:
+    from tools.build_p0_4_artifact_inventory import InventoryError, build
+
+    payload = source()
+    blocked_id = "artifact.drive.operating-main-target-book"
+    blocked_map = next(
+        row for row in payload["latest_to_immutable"] if row["object_id"] == blocked_id
+    )
+    blocked_map["status"] = "VERIFIED_IMMUTABLE"
+    blocked_map["immutable_source"] = ""
+    blocked_map["blockers"] = []
+    invalid_status = tmp_path / "invalid-map-status.json"
+    invalid_status.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(invalid_status, tmp_path / "invalid-map-status-output")
+    except InventoryError as exc:
+        assert str(exc) == f"latest_map_object_status_mismatch:{blocked_id}"
+    else:
+        raise AssertionError("map/object status mismatch was not rejected")
+
+    payload = source()
+    verified_id = "artifact.repo.latest-r1000-adr-alias"
+    verified_map = next(
+        row for row in payload["latest_to_immutable"] if row["object_id"] == verified_id
+    )
+    verified_map["immutable_source"] = ""
+    invalid_evidence = tmp_path / "invalid-map-evidence.json"
+    invalid_evidence.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        build(invalid_evidence, tmp_path / "invalid-map-evidence-output")
+    except InventoryError as exc:
+        assert str(exc) == f"latest_map_verified_without_immutable_source:{verified_id}"
+    else:
+        raise AssertionError("verified map without immutable evidence was not rejected")
+
+
 def test_invalid_or_incomplete_sources_fail_closed(tmp_path: Path) -> None:
     from tools.build_p0_4_artifact_inventory import InventoryError, build
 
@@ -522,14 +576,16 @@ def main() -> int:
     test_incomplete_drive_views_fail_closed()
     test_no_secret_values_are_embedded()
     test_rebuild_uses_the_pinned_dependency_contract()
+    test_pr_validation_checkout_supports_pinned_lineage_checks()
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir)
         test_source_snapshot_is_bound_to_publication_commit(temp_path)
         test_failed_render_keeps_the_existing_bundle_intact(temp_path)
         test_safety_authority_flags_fail_closed(temp_path)
         test_required_fixed_target_aliases_cannot_be_omitted(temp_path)
+        test_alias_map_must_match_object_status_and_evidence(temp_path)
         test_invalid_or_incomplete_sources_fail_closed(temp_path)
-    print("P0-4 artifact inventory smoke: 19 passed")
+    print("P0-4 artifact inventory smoke: 21 passed")
     return 0
 
 
