@@ -1,8 +1,8 @@
 {
   "baseline_code_sha": "0f34de9a2747059b7bb808cb070a86261e119f95",
   "counts": {
-    "artifact_registry_rows": 57,
-    "artifacts": 21,
+    "artifact_registry_rows": 60,
+    "artifacts": 24,
     "datasets": 24,
     "durable_states": 8,
     "models": 4
@@ -16,6 +16,9 @@
     "FIXED_PATH_CENSUS_FROM_BASELINE_P0_3_AND_DAILY_WORKFLOW": 3,
     "FIXED_PATH_CENSUS_FROM_BASELINE_WORKFLOW": 2,
     "FROZEN_BASELINE_WORKFLOW_ACTIONS_CACHE_SAVE": 1,
+    "FROZEN_BASELINE_WORKFLOW_DAILY_PAPER_CONTINUITY_CACHE": 1,
+    "FROZEN_BASELINE_WORKFLOW_DAILY_PAPER_LEDGER_CACHE": 1,
+    "FROZEN_BASELINE_WORKFLOW_MANIFEST_LAST_ACCEPTED_PUBLICATION_CONTENTS_NOT_ENUMERATED": 1,
     "FROZEN_BASELINE_WORKFLOW_RECOVERY_PATHS_CONTENTS_NOT_ENUMERATED": 1,
     "FROZEN_BOUNDED_METADATA": 41,
     "INCOMPLETE_100_OF_MANIFEST_1048_DIRECT_CHILDREN": 1,
@@ -40,7 +43,7 @@
     "BLOCKED_DIVERGENT": 2,
     "BLOCKED_MULTIPLE_WRITERS": 1,
     "BLOCKED_NO_IMMUTABLE_SOURCE": 36,
-    "NOT_APPLICABLE": 9,
+    "NOT_APPLICABLE": 12,
     "VERIFIED_IMMUTABLE": 9
   },
   "market": "US",
@@ -229,5 +232,5 @@
     "target_order_ledger_mutation": false
   },
   "schema_version": "run287-p0-4-inventory-summary-v1",
-  "source_snapshot_sha256": "797080a23a10299f6268335b762fd74c1b9ac9d96fc3294d03cf4d7e358cf142"
+  "source_snapshot_sha256": "8cd51434f7d8ad578a27d16f6c87f0111ce2189e1aaef08913f75d55a91c1ae4"
 }
