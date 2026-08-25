@@ -493,10 +493,38 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     )
 
 
-def git_head() -> str:
-    return subprocess.check_output(
-        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True, encoding="utf-8"
-    ).strip()
+def verify_live_publication_lineage(baseline: str) -> None:
+    ancestor = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", baseline, "HEAD"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    if ancestor.returncode != 0:
+        raise InventoryError("frozen_baseline_is_not_live_head_ancestor")
+    changed = subprocess.check_output(
+        ["git", "diff", "--name-only", f"{baseline}..HEAD"],
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+    ).splitlines()
+    allowed_exact = {
+        "tests/test_p0_4_artifact_inventory.py",
+        "tools/build_p0_4_artifact_inventory.py",
+        "tools/run_pr_validation.py",
+    }
+    unexpected = sorted(
+        path
+        for path in changed
+        if not path.startswith("docs/run287_p0_4_artifact_inventory/")
+        and path not in allowed_exact
+    )
+    if unexpected:
+        raise InventoryError(
+            "live_head_has_nonpublication_delta:" + ",".join(unexpected)
+        )
 
 
 def build(source: Path, output: Path, *, verify_live_head: bool = False) -> None:
@@ -504,8 +532,8 @@ def build(source: Path, output: Path, *, verify_live_head: bool = False) -> None
     payload = read_source(source)
     payload["_source_sha256"] = hashlib.sha256(source_bytes).hexdigest()
     validate_source(payload)
-    if verify_live_head and git_head() != payload["baseline_code_sha"]:
-        raise InventoryError("live_head_differs_from_frozen_baseline")
+    if verify_live_head:
+        verify_live_publication_lineage(payload["baseline_code_sha"])
     output.mkdir(parents=True, exist_ok=True)
     rows = artifact_rows(payload)
     write_yaml(output / "dataset_registry.yaml", registry_document(payload, "datasets"))
