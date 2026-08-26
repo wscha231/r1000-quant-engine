@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT))
 INVENTORY = ROOT / "docs" / "run287_p0_4_artifact_inventory"
 SOURCE = INVENTORY / "source_inventory_snapshot.json"
 FROZEN_PROTECTED_PUBLICATION_COMMIT = "bb8569e0111e8ac2fbfadbc3772f7f33bb99ec48"
+FROZEN_FULL_REBUILD_TREE_SHA1 = "af900d05a16402361ddd03d3d228f67f91ed8c60"
 OUTPUT_FILES = (
     "README.md",
     "summary.json",
@@ -556,13 +557,29 @@ def test_paper_heads_use_the_baseline_writer_namespace() -> None:
 
 def test_frozen_repository_inventory_matches_baseline_tree() -> None:
     payload = source()["repository_inventory"]
-    rows = tree_rows("cloud_results/full_rebuild")
-    canonical = "\n".join(f"{path}\t{sha}\t{size}" for path, sha, size in rows)
-    assert len(rows) == payload["cloud_results_full_rebuild_file_count"] == 10460
-    assert sum(size for _path, _sha, size in rows) == payload["cloud_results_full_rebuild_blob_bytes"]
-    assert hashlib.sha256(canonical.encode()).hexdigest() == payload[
-        "cloud_results_full_rebuild_inventory_sha256"
-    ]
+    tree_sha = git(
+        "rev-parse",
+        f"{baseline_sha()}:cloud_results/full_rebuild",
+    ).strip()
+    paths = git(
+        "ls-tree",
+        "-r",
+        "--name-only",
+        baseline_sha(),
+        "cloud_results/full_rebuild",
+    ).splitlines()
+    # The recursive Git tree SHA authenticates every path, mode, child tree,
+    # and blob identity without forcing a blob-size lookup.  `ls-tree -l`
+    # lazily downloaded the 6.8 GB frozen history in CI's blobless checkout
+    # merely to reproduce redundant byte counts, exhausting the 90-minute
+    # Tier-1 budget.  Keep the published size/inventory facts pinned while
+    # using the stronger native tree commitment for live identity.
+    assert tree_sha == FROZEN_FULL_REBUILD_TREE_SHA1
+    assert len(paths) == payload["cloud_results_full_rebuild_file_count"] == 10460
+    assert payload["cloud_results_full_rebuild_blob_bytes"] == 6806634607
+    assert payload["cloud_results_full_rebuild_inventory_sha256"] == (
+        "d6628a71d3e1066afc5afbb92a3368c1ed9b0aaca076cc91459bb3afd06b1ac1"
+    )
 
 
 def test_latest_global_alias_diverges_in_exactly_scored_file() -> None:
