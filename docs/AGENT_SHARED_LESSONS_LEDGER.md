@@ -4466,3 +4466,57 @@ Expected contract:
 - Fullrun executed: false. Target/order/ledger mutation executed: false.
   Production enabled: false. Live trading enabled: false. Automatic promotion
   enabled: false.
+
+## 2026-08-26 - A one-time state authorization needs a durable preflight receipt
+
+- Agent: Codex GPT-5.6.
+- Branch: `codex/p0-5-risk-outcome-preflight-20260826`.
+- Context: Issue #357 originally suspected remote review/comment drift, but the
+  retained failed-job log and read-only Drive evidence proved that the daily
+  operating workflow stopped at the intentional legacy risk-outcome-parent
+  authorization boundary.
+- Result: Failed run/job `31071342439` / `92519747130` had zero committed
+  remote risk-outcome heads, exact legacy summary SHA-256
+  `5a57e4becef19668dce45803eb77185bc6c60bcf9b58522df939e9a48a56654c`,
+  and a separate verified paper terminal
+  `65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7`.
+  The schedule correctly exited `2` because
+  `allow_quarantined_legacy_outcome_parent` was not explicitly authorized.
+- Attempt: Added a read-only preflight that validates authoritative accepted-
+  head absence, the byte-exact registered legacy summary or true genesis
+  absence, verified paper integrity, mutually exclusive bootstrap modes, and
+  the matching `workflow_dispatch` input. It writes an atomic diagnostic
+  receipt before returning READY or BLOCKED.
+- Reusable lesson: A Boolean workflow input is not sufficient migration
+  evidence. Bind the event type, source commit/run/attempt/job/session, exact
+  remote absence, exact legacy bytes, current durable-paper identity, requested
+  mode, blocker, and complete false safety envelope in a run-addressed receipt
+  before any stateful parent-anchor step.
+- Reusable lesson: Observability must not widen authority. The preflight may
+  authorize continuation only to the existing one-time parent-anchor boundary;
+  it must not create an accepted head, genesis, target, order, ledger event, or
+  promotion state itself. Scheduled execution remains fail-closed.
+- Reusable lesson: A paper-ledger head and a risk-outcome accepted head are
+  separate chains. A valid paper terminal cannot substitute for the missing
+  outcome root, and a legacy outcome summary cannot inherit paper authority.
+- Validation: parent-preflight fixtures `7/7`, focused boundary regression
+  `9/9` test files, workflow artifact/order smoke, Python compilation,
+  workflow YAML parse, and `git diff --check` passed. Complete registered PR
+  validation passed `222/224` test files in `754.71s`; the only failures were
+  the same two pre-existing Windows CRLF OHLCV contract-hash tests recorded on
+  `2026-08-23`. The LF Git blob still matches pinned SHA-256 `30c1e172...`,
+  while the translated worktree is `dd8b9a79...`; P0-5 changes neither path.
+- Next action: Finish complete validation and exact-head review of the isolated
+  P0-5 change. Migration remains separately user-authorized; chronological
+  catch-up is a later, separate one-session-at-a-time approval.
+- Do-not-repeat: Do not add a scheduled fallback, infer authorization from the
+  existence of the legacy summary, use true genesis while legacy bytes exist,
+  or blindly rerun the transactional workflow.
+- Evidence files:
+  - `tools/build_run287_risk_outcome_parent_preflight.py`
+  - `tests/run287_risk_outcome_parent_preflight_smoke.py`
+  - `docs/CODEX_RUN287_P0_5_RISK_OUTCOME_PARENT_PREFLIGHT_RESULT_20260826.md`
+  - `docs/CODEX_R1000_END_TO_END_CONNECTION_AND_BOTTLENECK_PLAN_20260826.md`
+- Fullrun executed: false. Workflow dispatched or rerun: false. Drive,
+  target, order, and ledger mutation executed: false. Production enabled:
+  false. Live trading enabled: false. Automatic promotion enabled: false.

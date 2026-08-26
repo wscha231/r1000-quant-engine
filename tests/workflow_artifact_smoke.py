@@ -1159,6 +1159,15 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "outputs/run287_risk_outcome_parent_accepted/manifest.json",
         "outputs/run287_risk_outcome_accepted_head_bundles",
         "outputs/run287_risk_outcome_accepted_head_manifests",
+        "tools/build_run287_risk_outcome_parent_preflight.py",
+        "outputs/run287_risk_outcome_parent_preflight/receipt.json",
+        "daily_run287_risk_outcome_parent_preflight.log",
+        "--remote-head-discovery-confirmed",
+        '--remote-committed-head-count "${REMOTE_COMMITTED_HEAD_COUNT}"',
+        '--remote-legacy-outcome-state "${REMOTE_LEGACY_OUTCOME_STATE}"',
+        '--event-name "${GITHUB_EVENT_NAME}"',
+        '--source-run-attempt "${GITHUB_RUN_ATTEMPT}"',
+        '--source-job-key "${GITHUB_JOB}"',
         "quarantined invalid GitHub-cache accepted head",
         "transient paper-archive discovery failure",
         "authoritative configured-base absence confirmed; first bootstrap may create it",
@@ -1179,8 +1188,8 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "cached accepted-publication marker is absent from the complete verified cache/remote union",
         "authoritative legacy outcome archive could not be fetched exactly",
         "outcome genesis requires proven absence of authoritative legacy state",
-        "legacy outcome parent requires explicit one-time workflow_dispatch authorization",
-        "outcome genesis requires explicit one-time workflow_dispatch authorization",
+        'PREFLIGHT_EXIT="${PIPESTATUS[0]}"',
+        'exit "$PREFLIGHT_EXIT"',
         "genesis and legacy-quarantine bootstrap authorizations are mutually exclusive",
         "allow_verified_paper_canonical_head_bootstrap",
         "ALLOW_VERIFIED_PAPER_CANONICAL_HEAD_BOOTSTRAP",
@@ -1581,6 +1590,9 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     accepted_parent_restore_idx = text.index(
         "- name: Restore verified risk-outcome accepted head"
     )
+    outcome_parent_preflight_idx = text.index(
+        "python tools/build_run287_risk_outcome_parent_preflight.py"
+    )
     holding_risk_idx = text.index("python tools/build_run287_holding_risk_watch.py")
     exact_upstream_idx = text.index("python tools/run_run287_exact_packet_upstream.py")
     input_registry_idx = text.index("python tools/build_run287_exact_packet_input_registry.py")
@@ -1625,7 +1637,7 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     assert durable_catchup_drive_idx < paper_idx, (
         "catch-up must prove durable Drive availability before any paper-ledger mutation"
     )
-    assert accepted_parent_restore_idx < paper_idx < snapshot_idx, "the immutable prior outcome head must be restored before the paper account is advanced"
+    assert accepted_parent_restore_idx < outcome_parent_preflight_idx < paper_idx < snapshot_idx, "the immutable prior outcome head or a durable fail-closed preflight receipt must be established before the paper account is advanced"
     assert paper_idx < holding_risk_idx < snapshot_idx, "holding risk must use the marked paper account before reports"
     assert holding_risk_idx < exact_upstream_idx < input_registry_idx < exact_packet_idx < same_close_idx < selected_paper_idx < integrity_idx < parent_clear_idx < parent_idx < decision_archive_idx < outcome_idx < scorecard_idx < promotion_idx < snapshot_idx < accepted_idx, "paper ledger must verify integrity and freeze the restored outcome parent before outcomes; scorecard, promotion, and reports must be hash-bound before accepted publication"
     assert text.count(
@@ -1668,6 +1680,11 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
             "post-gate operating report failures must block accepted publication"
         )
     assert text.count("steps.accepted_publication.outcome == 'success'") >= 5
+    diagnostic_upload = text[
+        text.index("- name: Upload daily operating evidence artifact"):
+        text.index("- name: Reverify accepted publication before GitHub publication")
+    ]
+    assert "outputs/run287_risk_outcome_parent_preflight/" in diagnostic_upload
     accepted_upload = text[
         text.index("- name: Upload accepted paper transaction artifact"):
         text.index("- name: Save validated forward paper state cache")
@@ -1736,6 +1753,7 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     assert "--verify-manifest" not in diagnostic_drive, (
         "always-on diagnostic publication must not require an accepted manifest"
     )
+    assert "outputs/run287_risk_outcome_parent_preflight" in diagnostic_drive
     assert "outputs/run287_risk_outcome_parent_anchor" in diagnostic_drive
     assert "outputs/run287_risk_outcome_parent_accepted" in diagnostic_drive
     assert "outputs/run287_risk_outcome_accepted_head_manifests" in diagnostic_drive
