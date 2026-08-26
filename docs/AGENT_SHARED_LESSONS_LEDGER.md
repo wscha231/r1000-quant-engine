@@ -4520,3 +4520,14 @@ Expected contract:
 - Fullrun executed: false. Workflow dispatched or rerun: false. Drive,
   target, order, and ledger mutation executed: false. Production enabled:
   false. Live trading enabled: false. Automatic promotion enabled: false.
+- PR follow-up: Draft PR `#386` exact head `bb8569e0...` passed the new
+  preflight test and every P0-5-adjacent Linux CI test, but the first Tier-1
+  run `32921956857` finished `223/224` because P0-4 correctly rejected the
+  registered-test change as
+  `post_publication_protected_delta:tools/run_pr_validation.py`. Do not remove
+  a new critical test from the fast registry to bypass this guard. Preserve
+  the protected-publication protocol: commit and review the causal protected
+  path change first, then advance only
+  `FROZEN_PROTECTED_PUBLICATION_COMMIT` to that exact ancestor in a follow-up
+  verifier commit. Regeneration, a synthetic merge SHA, or an uncommitted
+  worktree hash grants no trust.
