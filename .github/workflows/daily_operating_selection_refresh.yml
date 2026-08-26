@@ -1480,22 +1480,47 @@ jobs:
               fi
             fi
             if [ -s outputs/run287_risk_outcome_archive/summary.json ]; then
-              if [ "${ALLOW_QUARANTINED_LEGACY_OUTCOME_PARENT:-false}" != "true" ]; then
-                echo "[risk-outcome] BLOCKED: legacy outcome parent requires explicit one-time workflow_dispatch authorization"
-                exit 2
-              fi
-              echo "parent_mode=legacy_quarantine" >> "$GITHUB_OUTPUT"
+              PREFLIGHT_PARENT_MODE=legacy_quarantine
+            elif [ "$REMOTE_LEGACY_OUTCOME_STATE" = "PROVEN_ABSENT" ]; then
+              PREFLIGHT_PARENT_MODE=genesis
+            else
+              echo "[risk-outcome] BLOCKED: outcome genesis requires proven absence of authoritative legacy state"
+              exit 2
+            fi
+            PREFLIGHT_ARGS=(
+              --event-name "${GITHUB_EVENT_NAME}"
+              --source-commit-sha "${GITHUB_SHA}"
+              --source-run-id "${GITHUB_RUN_ID}"
+              --source-run-attempt "${GITHUB_RUN_ATTEMPT}"
+              --source-job-key "${GITHUB_JOB}"
+              --session-date "${LAST_NYSE_SESSION_DATE}"
+              --remote-head-discovery-confirmed
+              --remote-committed-head-count "${REMOTE_COMMITTED_HEAD_COUNT}"
+              --remote-legacy-outcome-state "${REMOTE_LEGACY_OUTCOME_STATE}"
+              --paper-integrity outputs/daily_simulated_fill_ledger/snapshot_integrity.json
+              --output outputs/run287_risk_outcome_parent_preflight/receipt.json
+            )
+            if [ "${ALLOW_RISK_OUTCOME_GENESIS_BOOTSTRAP:-false}" = "true" ]; then
+              PREFLIGHT_ARGS+=(--allow-risk-outcome-genesis-bootstrap)
+            fi
+            if [ "${ALLOW_QUARANTINED_LEGACY_OUTCOME_PARENT:-false}" = "true" ]; then
+              PREFLIGHT_ARGS+=(--allow-quarantined-legacy-outcome-parent)
+            fi
+            set +e
+            python tools/build_run287_risk_outcome_parent_preflight.py \
+              "${PREFLIGHT_ARGS[@]}" \
+              2>&1 | tee outputs/full_rebuild_logs/daily_run287_risk_outcome_parent_preflight.log
+            PREFLIGHT_EXIT="${PIPESTATUS[0]}"
+            set -e
+            echo "preflight_receipt=outputs/run287_risk_outcome_parent_preflight/receipt.json" >> "$GITHUB_OUTPUT"
+            echo "preflight_receipt_sha256=$(sha256sum outputs/run287_risk_outcome_parent_preflight/receipt.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+            if [ "$PREFLIGHT_EXIT" -ne 0 ]; then
+              exit "$PREFLIGHT_EXIT"
+            fi
+            echo "parent_mode=$PREFLIGHT_PARENT_MODE" >> "$GITHUB_OUTPUT"
+            if [ "$PREFLIGHT_PARENT_MODE" = "legacy_quarantine" ]; then
               echo "[risk-outcome] authoritative absence confirmed; existing legacy prefix will be quarantined once"
             else
-              if [ "$REMOTE_LEGACY_OUTCOME_STATE" != "PROVEN_ABSENT" ]; then
-                echo "[risk-outcome] BLOCKED: outcome genesis requires proven absence of authoritative legacy state"
-                exit 2
-              fi
-              if [ "${ALLOW_RISK_OUTCOME_GENESIS_BOOTSTRAP:-false}" != "true" ]; then
-                echo "[risk-outcome] BLOCKED: outcome genesis requires explicit one-time workflow_dispatch authorization"
-                exit 2
-              fi
-              echo "parent_mode=genesis" >> "$GITHUB_OUTPUT"
               echo "[risk-outcome] authoritative absence confirmed; use explicitly authorized true genesis"
             fi
             echo "accepted_manifest_sha256=" >> "$GITHUB_OUTPUT"
@@ -3395,6 +3420,7 @@ jobs:
             outputs/run287_candidate_risk_watch_exact_close_*/
             outputs/run287_ohlcv_location_timing_exact_close_*/
             outputs/run287_decision_observation_archive/
+            outputs/run287_risk_outcome_parent_preflight/
             outputs/run287_risk_outcome_parent_accepted/
             outputs/run287_risk_outcome_parent_anchor/
             outputs/run287_risk_outcome_accepted_head_bundles/
@@ -3469,7 +3495,7 @@ jobs:
           fi
           SAFE_BRANCH="$(printf '%s' "${GITHUB_REF_NAME:-daily}" | tr '/:@ ' '____' | tr -cd 'A-Za-z0-9._-')"
           DEST="${BASE}research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/daily_operating_selection_refresh"
-          for d in outputs/data_freshness_contract outputs/daily_market_snapshot outputs/daily_operating_selection_refresh outputs/data_readiness outputs/holding_risk_watch outputs/run287_exact_packet_upstream outputs/run287_exact_packet_input_sources outputs/run287_exact_packet_input_registry outputs/run287_exact_packet_producer outputs/run287_ohlcv_location_timing_exact_close_* outputs/run287_decision_observation_archive outputs/run287_risk_outcome_parent_accepted outputs/run287_risk_outcome_parent_anchor outputs/run287_risk_outcome_accepted_head_manifests outputs/run287_risk_outcome_archive outputs/run287_operating_scorecard outputs/run287_promotion_gate outputs/sec_enriched_candidate_replay data_pit/free/market_snapshot data_raw/free/market_snapshot data_pit/macro data_raw/free/macro/daily_snapshot; do
+          for d in outputs/data_freshness_contract outputs/daily_market_snapshot outputs/daily_operating_selection_refresh outputs/data_readiness outputs/holding_risk_watch outputs/run287_exact_packet_upstream outputs/run287_exact_packet_input_sources outputs/run287_exact_packet_input_registry outputs/run287_exact_packet_producer outputs/run287_ohlcv_location_timing_exact_close_* outputs/run287_decision_observation_archive outputs/run287_risk_outcome_parent_preflight outputs/run287_risk_outcome_parent_accepted outputs/run287_risk_outcome_parent_anchor outputs/run287_risk_outcome_accepted_head_manifests outputs/run287_risk_outcome_archive outputs/run287_operating_scorecard outputs/run287_promotion_gate outputs/sec_enriched_candidate_replay data_pit/free/market_snapshot data_raw/free/market_snapshot data_pit/macro data_raw/free/macro/daily_snapshot; do
             if [ -d "$d" ]; then
               rclone copy "$d" "$DEST/$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
             fi
