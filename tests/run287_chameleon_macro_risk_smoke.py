@@ -681,6 +681,40 @@ def test_build_is_deterministic_report_only_and_future_data_hard_fails() -> None
         )
         assert race_truth["metric_input"]["sha256"] == verified_race_hash
 
+        code_race_metrics_path = root / "code_race_metrics.csv"
+        metric_fixture(dates, calendar_hash=calendar_hash).to_csv(
+            code_race_metrics_path,
+            index=False,
+        )
+        builder_path = Path(risk.__file__).resolve()
+        builder_fingerprint_calls = 0
+
+        def changing_code_fingerprint(path: Path) -> dict:
+            nonlocal builder_fingerprint_calls
+            result = original_fingerprint(path)
+            if Path(path).resolve() == builder_path:
+                builder_fingerprint_calls += 1
+                if builder_fingerprint_calls == 2:
+                    result = {**result, "sha256": "f" * 64}
+            return result
+
+        risk.fingerprint = changing_code_fingerprint
+        try:
+            code_race = risk.build(
+                build_args(
+                    root,
+                    calendar_path,
+                    code_race_metrics_path,
+                    context_path,
+                    "code-identity-race",
+                )
+            )
+        finally:
+            risk.fingerprint = original_fingerprint
+        assert code_race["status"] == risk.BLOCKED_STATUS
+        assert code_race["blockers"] == ["code_identity_mutated_during_build"]
+        assert not (root / "code-identity-race" / "backtest_truth_manifest.json").exists()
+
         short_dates = dates[:20]
         short_calendar_path = root / "short_xnys_calendar.csv"
         calendar_fixture(short_dates).to_csv(short_calendar_path, index=False)

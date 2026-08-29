@@ -1002,6 +1002,10 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         raise FileExistsError(f"output directory already exists: {output_dir}")
     output_dir.mkdir(parents=True)
     try:
+        code_identity_before = {
+            "git_head": git_head(),
+            "builder": fingerprint(Path(__file__).resolve()),
+        }
         if not contract_path.is_file():
             raise ContractError(f"contract_input_missing:{contract_path}")
         if not calendar_path.is_file():
@@ -1135,7 +1139,14 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             input_fingerprints_after["context"] = fingerprint(context_path)
         if input_fingerprints_before != input_fingerprints_after:
             raise ContractError("source_input_mutated_during_build")
+        code_identity_after = {
+            "git_head": git_head(),
+            "builder": fingerprint(Path(__file__).resolve()),
+        }
+        if code_identity_before != code_identity_after:
+            raise ContractError("code_identity_mutated_during_build")
         verified_inputs = input_fingerprints_after
+        verified_code = code_identity_after
         truth_payload = {
             "schema_version": "BacktestTruthManifest-v1",
             "decision_date": latest_date.date().isoformat(),
@@ -1144,7 +1155,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "metric_input": verified_inputs["metrics"],
             "context_input": verified_inputs.get("context"),
             "contract": verified_inputs["contract"],
-            "code": {"git_head": git_head(), "builder": fingerprint(Path(__file__).resolve())},
+            "code": verified_code,
             "cost_model": "NOT_APPLICABLE_REPORT_ONLY",
             "execution_model": "NOT_APPLICABLE_REPORT_ONLY",
             "integer_share_rule": "NOT_APPLICABLE_REPORT_ONLY",
@@ -1191,7 +1202,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 "contract": verified_inputs["contract"],
             },
             "outputs": outputs,
-            "code": {"git_head": git_head(), "builder": fingerprint(Path(__file__).resolve())},
+            "code": verified_code,
             **_safety_payload(contract),
         }
         write_json(output_dir / "manifest.json", payload)
