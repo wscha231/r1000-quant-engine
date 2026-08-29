@@ -44,15 +44,21 @@ def write_source_bundle(root: Path, as_of: str) -> tuple[Path, list[Path]]:
 
     for offset, symbol in enumerate(("VIX", "VIX3M", "VVIX")):
         path = bundle / "cboe" / f"{symbol}.csv"
-        pd.DataFrame(
-            {
-                "DATE": [date.strftime("%m/%d/%Y") for date in dates],
-                "OPEN": 20.0 + offset,
-                "HIGH": 21.0 + offset,
-                "LOW": 19.0 + offset,
-                "CLOSE": np.linspace(18.0 + offset, 24.0 + offset, len(dates)),
-            }
-        ).to_csv(path, index=False)
+        payload = {
+            "DATE": [date.strftime("%m/%d/%Y") for date in dates],
+            "CLOSE": np.linspace(18.0 + offset, 24.0 + offset, len(dates)),
+        }
+        if symbol == "VVIX":
+            payload["VVIX"] = payload.pop("CLOSE")
+        else:
+            payload.update(
+                {
+                    "OPEN": 20.0 + offset,
+                    "HIGH": 21.0 + offset,
+                    "LOW": 19.0 + offset,
+                }
+            )
+        pd.DataFrame(payload).to_csv(path, index=False)
         source_files.append(path)
 
     contract = json.loads(inputs.DEFAULT_CONTRACT.read_text(encoding="utf-8"))

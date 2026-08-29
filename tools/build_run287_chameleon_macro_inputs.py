@@ -216,6 +216,12 @@ def normalize_cboe(raw: bytes) -> pd.DataFrame:
     columns = {str(column).replace("\ufeff", "").strip().upper(): column for column in frame.columns}
     date_column = columns.get("DATE")
     close_column = columns.get("CLOSE")
+    if close_column is None and date_column is not None:
+        value_candidates = [
+            column for column in frame.columns if column != date_column
+        ]
+        if len(value_candidates) == 1:
+            close_column = value_candidates[0]
     if date_column is None or close_column is None:
         raise InputContractError("cboe_date_or_close_column_missing")
     output = pd.DataFrame(
@@ -691,6 +697,9 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
 
         universe_close = pd.DataFrame(index=pd.DatetimeIndex(dates))
         universe_volume = pd.DataFrame(index=pd.DatetimeIndex(dates))
+        universe_loaded_count = 0
+        breadth_symbol_count_as_of = 0
+        breadth_latest_ready_date = ""
         sector_by_ticker: dict[str, str] = {}
         universe_path = repo_path(args.universe_file) if args.universe_file else None
         if universe_path is not None and universe_path.is_file():
@@ -744,6 +753,16 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                     volume_columns,
                     index=pd.DatetimeIndex(dates),
                 )
+                universe_loaded_count = int(loaded)
+                universe_coverage = universe_close.notna().sum(axis=1)
+                breadth_symbol_count_as_of = int(universe_coverage.iloc[-1])
+                ready_dates = universe_coverage[
+                    universe_coverage
+                    >= int(contract["history"]["minimum_breadth_symbols"])
+                ].index
+                breadth_latest_ready_date = (
+                    ready_dates[-1].date().isoformat() if len(ready_dates) else ""
+                )
             source_rows.append(
                 source_record(
                     name="universe_daily_bars",
@@ -754,7 +773,12 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                     row_count=loaded,
                     first_date=universe_close.dropna(how="all").index.min() if loaded else None,
                     last_date=universe_close.dropna(how="all").index.max() if loaded else None,
-                    note=f"loaded_tickers={loaded}; minimum_breadth_symbols={contract['history']['minimum_breadth_symbols']}",
+                    note=(
+                        f"loaded_tickers={loaded}; "
+                        f"as_of_coverage={breadth_symbol_count_as_of}; "
+                        f"latest_ready_date={breadth_latest_ready_date}; "
+                        f"minimum_breadth_symbols={contract['history']['minimum_breadth_symbols']}"
+                    ),
                     source_sha256_override=universe_sha,
                 )
             )
@@ -1057,6 +1081,9 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "historical_ab_allowed": False,
             "source_ready_count": int(source_audit["status"].eq("ready").sum()),
             "source_total_count": int(len(source_audit)),
+            "universe_loaded_count": int(universe_loaded_count),
+            "breadth_symbol_count_as_of": int(breadth_symbol_count_as_of),
+            "breadth_latest_ready_date": breadth_latest_ready_date or None,
             "metric_row_count": int(len(metrics)),
             "metric_component_count": int(metrics["component"].nunique()),
             "context_row_count": int(len(context)),
