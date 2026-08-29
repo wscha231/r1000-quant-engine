@@ -717,6 +717,8 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                     for _, row in universe.iterrows()
                 }
             loaded = 0
+            close_columns: dict[str, pd.Series] = {}
+            volume_columns: dict[str, pd.Series] = {}
             for ticker in tickers:
                 path = resolve_price_path(ticker, source_bundle, price_cache)
                 if path is None:
@@ -726,9 +728,22 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 except Exception:
                     continue
                 consumed_inputs[str(path.resolve())] = stable_sha
-                universe_close[ticker] = frame["close"].reindex(universe_close.index)
-                universe_volume[ticker] = frame["volume"].reindex(universe_volume.index)
+                close_columns[ticker] = frame["close"].reindex(
+                    pd.DatetimeIndex(dates)
+                )
+                volume_columns[ticker] = frame["volume"].reindex(
+                    pd.DatetimeIndex(dates)
+                )
                 loaded += 1
+            if close_columns:
+                universe_close = pd.DataFrame(
+                    close_columns,
+                    index=pd.DatetimeIndex(dates),
+                )
+                universe_volume = pd.DataFrame(
+                    volume_columns,
+                    index=pd.DatetimeIndex(dates),
+                )
             source_rows.append(
                 source_record(
                     name="universe_daily_bars",
