@@ -246,12 +246,14 @@ def normalize_fred(raw: bytes, expected_series_id: str) -> pd.DataFrame:
         )
     output = pd.DataFrame(
         {
-            "observation_date": pd.to_datetime(frame[date_column], errors="coerce"),
+            "observation_date": parse_daily_observation_dates(
+                frame[date_column],
+                source="fred",
+                duplicate_error="fred_duplicate_observation_date",
+            ),
             "value": pd.to_numeric(frame[value_column], errors="coerce"),
         }
     ).dropna(subset=["observation_date", "value"])
-    if output["observation_date"].duplicated(keep=False).any():
-        raise InputContractError("fred_duplicate_observation_date")
     return output.sort_values("observation_date").reset_index(drop=True)
 
 
@@ -266,13 +268,41 @@ def normalize_cboe(raw: bytes, expected_symbol: str) -> pd.DataFrame:
         raise InputContractError("cboe_date_or_close_column_missing")
     output = pd.DataFrame(
         {
-            "date": pd.to_datetime(frame[date_column], errors="coerce"),
+            "date": parse_daily_observation_dates(
+                frame[date_column],
+                source="cboe",
+                duplicate_error="cboe_duplicate_observation_date",
+            ),
             "value": pd.to_numeric(frame[close_column], errors="coerce"),
         }
     ).dropna(subset=["date", "value"])
-    if output["date"].duplicated(keep=False).any():
-        raise InputContractError("cboe_duplicate_observation_date")
     return output.sort_values("date").reset_index(drop=True)
+
+
+def parse_daily_observation_dates(
+    values: pd.Series,
+    *,
+    source: str,
+    duplicate_error: str,
+) -> pd.Series:
+    """Normalize daily macro dates before checking for conflicting observations."""
+    parsed: list[pd.Timestamp] = []
+    for value in values:
+        try:
+            timestamp = pd.Timestamp(value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise InputContractError(f"{source}_invalid_observation_date") from exc
+        if pd.isna(timestamp):
+            raise InputContractError(f"{source}_invalid_observation_date")
+        if timestamp.tzinfo is not None:
+            raise InputContractError(f"{source}_timezone_aware_observation_date")
+        if timestamp != timestamp.normalize():
+            raise InputContractError(f"{source}_non_midnight_observation_date")
+        parsed.append(timestamp.normalize())
+    result = pd.Series(parsed, index=values.index, dtype="datetime64[ns]")
+    if result.duplicated(keep=False).any():
+        raise InputContractError(duplicate_error)
+    return result
 
 
 def copy_or_fetch(
@@ -399,6 +429,8 @@ def normalize_price_frame(frame: pd.DataFrame) -> pd.DataFrame:
         if volume_column is not None
         else np.nan
     )
+    if normalized["volume"].lt(0).any():
+        raise InputContractError("negative_price_volume")
     return (
         normalized.dropna(subset=["date", "close"])
         .query("close > 0")
@@ -459,6 +491,37 @@ def normalize_universe_tickers(
             f"observed={len(tickers)}:maximum={maximum_symbols}"
         )
     return tickers
+
+
+def normalize_universe_sectors(
+    universe: pd.DataFrame,
+    ticker_column: Any,
+    sector_column: Any,
+) -> dict[str, str]:
+    """Build an order-independent sector map and reject conflicting assignments."""
+    sectors: dict[str, tuple[str, str]] = {}
+    for ticker_value, sector_value in universe[[ticker_column, sector_column]].itertuples(
+        index=False,
+        name=None,
+    ):
+        ticker = str(ticker_value).strip().upper()
+        sector = str(sector_value).strip()
+        if (
+            not ticker
+            or ticker.lower() == "nan"
+            or ticker in NON_EQUITY_PLACEHOLDERS
+            or not sector
+            or sector.lower() == "nan"
+        ):
+            continue
+        sector_key = sector.casefold()
+        prior = sectors.get(ticker)
+        if prior is not None and prior[0] != sector_key:
+            raise InputContractError(
+                f"universe_conflicting_sector_assignment:{ticker}"
+            )
+        sectors[ticker] = (sector_key, sector_key)
+    return {ticker: value for ticker, (_, value) in sectors.items()}
 
 
 def daily_aligned(
@@ -527,7 +590,9 @@ def compute_universe_components(
 
     returns = close.pct_change(fill_method=None)
     dollar_volume = close * volume
-    valid_dollar_volume = returns.notna() & dollar_volume.notna()
+    valid_dollar_volume = (
+        returns.notna() & dollar_volume.notna() & (dollar_volume >= 0)
+    )
     dollar_volume_count = valid_dollar_volume.sum(axis=1)
     advancing = dollar_volume.where(valid_dollar_volume & (returns > 0)).sum(
         axis=1, min_count=1
@@ -902,10 +967,11 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 maximum_symbols,
             )
             if sector_column is not None:
-                sector_by_ticker = {
-                    str(row[ticker_column]).strip().upper(): str(row[sector_column]).strip()
-                    for _, row in universe.iterrows()
-                }
+                sector_by_ticker = normalize_universe_sectors(
+                    universe,
+                    ticker_column,
+                    sector_column,
+                )
             loaded = 0
             close_columns: dict[str, pd.Series] = {}
             volume_columns: dict[str, pd.Series] = {}

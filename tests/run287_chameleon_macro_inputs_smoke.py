@@ -177,6 +177,25 @@ def test_normalizer_is_free_proxy_report_only_and_fail_closed() -> None:
 
 
 def test_source_identity_date_and_cross_section_guards() -> None:
+    evidence = json.loads(
+        (
+            ROOT
+            / "docs"
+            / "run287_chameleon_macro_input_shadow_evidence_20260829.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert evidence["historical_ab_allowed"] is False
+    assert evidence["report_only"] is True
+    assert [run["artifact_id"] for run in evidence["runs"]] == [
+        "run287_chameleon_macro_input_shadow_20260622_20260829_v4",
+        "run287_chameleon_macro_input_shadow_20260702_20260829_v5",
+    ]
+    for run in evidence["runs"]:
+        assert all(
+            len(digest) == 64 and set(digest) <= set("0123456789abcdef")
+            for digest in run["sha256"].values()
+        )
+
     fred = b"observation_date,WRONG\n2025-01-02,1.5\n"
     try:
         inputs.normalize_fred(fred, "EXPECTED")
@@ -193,6 +212,24 @@ def test_source_identity_date_and_cross_section_guards() -> None:
         assert str(exc) == "fred_duplicate_observation_date"
     else:
         raise AssertionError("duplicate FRED observations were accepted")
+    try:
+        inputs.normalize_fred(
+            b"observation_date,EXPECTED\n2025-01-02,1.0\n2025-01-02 00:00:00,2.0\n",
+            "EXPECTED",
+        )
+    except inputs.InputContractError as exc:
+        assert str(exc) == "fred_duplicate_observation_date"
+    else:
+        raise AssertionError("normalized duplicate FRED observations were accepted")
+    try:
+        inputs.normalize_fred(
+            b"observation_date,EXPECTED\n2025-01-02 12:00:00,1.0\n",
+            "EXPECTED",
+        )
+    except inputs.InputContractError as exc:
+        assert str(exc) == "fred_non_midnight_observation_date"
+    else:
+        raise AssertionError("intraday FRED observation was accepted")
 
     try:
         inputs.normalize_cboe(
@@ -212,6 +249,24 @@ def test_source_identity_date_and_cross_section_guards() -> None:
         assert str(exc) == "cboe_duplicate_observation_date"
     else:
         raise AssertionError("duplicate Cboe observations were accepted")
+    try:
+        inputs.normalize_cboe(
+            b"DATE,CLOSE\n01/02/2025,18.0\n2025-01-02 00:00:00,19.0\n",
+            "VIX",
+        )
+    except inputs.InputContractError as exc:
+        assert str(exc) == "cboe_duplicate_observation_date"
+    else:
+        raise AssertionError("normalized duplicate Cboe observations were accepted")
+    try:
+        inputs.normalize_cboe(
+            b"DATE,CLOSE\n2025-01-02 12:00:00,18.0\n",
+            "VIX",
+        )
+    except inputs.InputContractError as exc:
+        assert str(exc) == "cboe_non_midnight_observation_date"
+    else:
+        raise AssertionError("intraday Cboe observation was accepted")
     vvix = inputs.normalize_cboe(
         b"DATE,VVIX\n01/02/2025,90.0\n",
         "VVIX",
@@ -228,6 +283,31 @@ def test_source_identity_date_and_cross_section_guards() -> None:
         pd.Series(["MSFT", "CASH", "__CASH__", "AAPL"]),
         1_200,
     ) == ["AAPL", "MSFT"]
+    assert inputs.normalize_universe_sectors(
+        pd.DataFrame(
+            {
+                "ticker": ["AAPL", "aapl", "CASH"],
+                "sector": ["Technology", "technology", "Cash"],
+            }
+        ),
+        "ticker",
+        "sector",
+    ) == {"AAPL": "technology"}
+    try:
+        inputs.normalize_universe_sectors(
+            pd.DataFrame(
+                {
+                    "ticker": ["AAPL", "aapl"],
+                    "sector": ["Technology", "Energy"],
+                }
+            ),
+            "ticker",
+            "sector",
+        )
+    except inputs.InputContractError as exc:
+        assert str(exc) == "universe_conflicting_sector_assignment:AAPL"
+    else:
+        raise AssertionError("conflicting sector assignments were accepted")
 
     consumed: dict[str, str] = {}
     repeated_path = Path("repeated-price.parquet")
@@ -251,6 +331,20 @@ def test_source_identity_date_and_cross_section_guards() -> None:
         )
     )
     assert prices["close"].tolist() == [90.0, 91.0]
+    try:
+        inputs.normalize_price_frame(
+            pd.DataFrame(
+                {
+                    "Date": ["2025-01-02"],
+                    "Close": [100.0],
+                    "Volume": [-1.0],
+                }
+            )
+        )
+    except inputs.InputContractError as exc:
+        assert str(exc) == "negative_price_volume"
+    else:
+        raise AssertionError("negative price volume was accepted")
 
     for bad_dates, expected in (
         (["2025-01-02T00:00:00-05:00"], "timezone_aware_daily_price_date"),

@@ -42,6 +42,12 @@ index, VIX, or current snapshot.
 
 ## Real-data shadows
 
+The exact run IDs, top-level and shadow-engine manifest hashes, and normalized
+artifact hashes for both retained runs are committed in
+`docs/run287_chameleon_macro_input_shadow_evidence_20260829.json`. The index
+binds the quantitative claims below to the locally retained artifact bytes; it
+does not upgrade their `FREE_PROXY` truth class or authorize historical A/B.
+
 ### 2026-07-02 requested date
 
 Artifact:
