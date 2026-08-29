@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pandas_market_calendars as mcal
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +19,18 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools import build_run287_chameleon_macro_risk as risk  # noqa: E402
+
+
+def xnys_dates(start: str | pd.Timestamp, periods: int) -> pd.DatetimeIndex:
+    first = pd.Timestamp(start).normalize()
+    end = first + pd.Timedelta(days=max(30, periods * 2))
+    schedule = mcal.get_calendar("NYSE").schedule(
+        start_date=first.date().isoformat(),
+        end_date=end.date().isoformat(),
+    )
+    if len(schedule) < periods:
+        raise AssertionError("fixture XNYS range is too short")
+    return pd.DatetimeIndex(schedule.index[:periods]).tz_localize(None).normalize()
 
 
 def sha(path: Path) -> str:
@@ -186,7 +199,7 @@ def test_contract_freezes_exact_axes_weights_and_nonexecution() -> None:
 
 def test_percentiles_are_trailing_only_under_future_outlier() -> None:
     cfg = contract()
-    dates = pd.bdate_range("2024-01-02", periods=260)
+    dates = xnys_dates("2024-01-02", periods=260)
     base_raw = metric_fixture(dates)
     mask = base_raw["component"].eq("vix_level")
     base_raw.loc[mask, "raw_value"] = np.linspace(10.0, 20.0, mask.sum())
@@ -194,7 +207,7 @@ def test_percentiles_are_trailing_only_under_future_outlier() -> None:
     base = risk.validate_metrics(base_raw, cfg, dates[-1], base_calendar)
     base_scores = risk.compute_component_percentiles(base, cfg)
 
-    future_date = dates[-1] + pd.offsets.BDay(1)
+    future_date = xnys_dates(dates[-1] + pd.Timedelta(days=1), periods=1)[0]
     future = metric_fixture(pd.DatetimeIndex([future_date]), ordinal_start=len(dates))
     future.loc[future["component"].eq("vix_level"), "raw_value"] = 10_000.0
     combined_raw = pd.concat([base_raw, future], ignore_index=True)
@@ -214,8 +227,46 @@ def test_percentiles_are_trailing_only_under_future_outlier() -> None:
 
 def test_calendar_gaps_and_current_vintage_pit_claims_fail_closed() -> None:
     cfg = contract()
-    dates = pd.bdate_range("2025-01-02", periods=5)
+    dates = xnys_dates("2025-01-02", periods=5)
     calendar = risk.validate_calendar(calendar_fixture(dates), "c" * 64)
+
+    try:
+        risk.validate_calendar(calendar_fixture(dates).iloc[0:0], "c" * 64)
+        raise AssertionError("empty calendar was accepted")
+    except risk.ContractError as exc:
+        assert str(exc) == "calendar_empty"
+
+    unknown_offset_calendar = calendar_fixture(dates)
+    unknown_offset_calendar.loc[
+        unknown_offset_calendar.index[0],
+        "decision_time_utc",
+    ] = f"{dates[0].date().isoformat()}T22:00:00-00:00"
+    try:
+        risk.validate_calendar(unknown_offset_calendar, "c" * 64)
+        raise AssertionError("unknown calendar decision offset was accepted")
+    except risk.ContractError as exc:
+        assert str(exc) == "invalid_calendar_decision_time_timestamp"
+
+    fabricated_weekend = pd.DatetimeIndex(
+        [pd.Timestamp("2026-08-28"), pd.Timestamp("2026-08-29")]
+    )
+    try:
+        risk.validate_calendar(calendar_fixture(fabricated_weekend), "c" * 64)
+        raise AssertionError("fabricated weekend session was accepted")
+    except risk.ContractError as exc:
+        assert str(exc) == "calendar_xnys_session_coverage_mismatch"
+
+    unknown_offset_metric = metric_fixture(dates)
+    unknown_offset_metric.loc[
+        unknown_offset_metric["decision_date"].eq(dates[-1].date().isoformat()),
+        "decision_time_utc",
+    ] = f"{dates[-1].date().isoformat()}T22:00:00-00:00"
+    try:
+        risk.validate_metrics(unknown_offset_metric, cfg, dates[-1], calendar)
+        raise AssertionError("unknown metric decision offset was accepted")
+    except risk.ContractError as exc:
+        assert str(exc) == "invalid_decision_time_timestamp"
+
     calendar_gap = metric_fixture(dates)
     calendar_gap.loc[calendar_gap["decision_date"].eq(dates[-1].date().isoformat()), "nyse_session_ordinal"] += 1
     try:
@@ -305,7 +356,7 @@ def test_calendar_gaps_and_current_vintage_pit_claims_fail_closed() -> None:
 
 def test_core_readiness_and_single_vix_cannot_create_defense() -> None:
     cfg = contract()
-    dates = pd.bdate_range("2026-01-05", periods=3)
+    dates = xnys_dates("2026-01-05", periods=3)
     scores = {axis: 50.0 for axis in cfg["axes"]}
     scores["volatility"] = 100.0
     state = risk.build_daily_risk(axis_fixture(dates, scores), empty_context(), cfg)
@@ -340,7 +391,7 @@ def test_core_readiness_and_single_vix_cannot_create_defense() -> None:
 
 def test_market_state_requires_two_entry_and_five_release_sessions() -> None:
     cfg = contract()
-    dates = pd.bdate_range("2026-02-02", periods=11)
+    dates = xnys_dates("2026-02-02", periods=11)
     observed = ["NORMAL", "NORMAL", "RISK_DEFENSE", "RISK_DEFENSE"] + ["NORMAL"] * 7
     daily = pd.DataFrame(
         {
@@ -380,7 +431,7 @@ def test_market_state_requires_two_entry_and_five_release_sessions() -> None:
 
 def test_extreme_greed_and_fear_recovery_use_frozen_confirmation() -> None:
     cfg = contract()
-    dates = list(pd.bdate_range("2026-03-02", periods=10))
+    dates = list(xnys_dates("2026-03-02", periods=10))
     market = pd.DataFrame(
         {
             "decision_date": dates,
@@ -419,7 +470,7 @@ def test_extreme_greed_and_fear_recovery_use_frozen_confirmation() -> None:
     assert greed.iloc[4]["sentiment_overlay"] == "EXTREME_GREED"
     assert not bool(greed.iloc[9]["extreme_greed_active"])
 
-    alternating_dates = list(pd.bdate_range("2026-05-01", periods=15))
+    alternating_dates = list(xnys_dates("2026-05-01", periods=15))
     alternating_market = pd.DataFrame(
         {
             "decision_date": alternating_dates,
@@ -461,7 +512,7 @@ def test_extreme_greed_and_fear_recovery_use_frozen_confirmation() -> None:
     )
     assert bool(alternating_greed.iloc[-1]["extreme_greed_active"])
 
-    fear_dates = list(pd.bdate_range("2026-04-01", periods=8))
+    fear_dates = list(xnys_dates("2026-04-01", periods=8))
     fear_market = pd.DataFrame(
         {
             "decision_date": fear_dates,
@@ -495,7 +546,7 @@ def test_extreme_greed_and_fear_recovery_use_frozen_confirmation() -> None:
     assert int(fear.iloc[7]["fear_recovery_stage"]) == 3
     assert int(fear["fear_recovery_stage_changed"].sum()) == 3
 
-    reset_dates = list(pd.bdate_range("2026-06-01", periods=4))
+    reset_dates = list(xnys_dates("2026-06-01", periods=4))
     reset_market = pd.DataFrame(
         {
             "decision_date": reset_dates,
@@ -527,7 +578,7 @@ def test_extreme_greed_and_fear_recovery_use_frozen_confirmation() -> None:
     assert int(reset.iloc[2]["fear_recovery_stage"]) == 0
     assert reset.iloc[3]["sentiment_overlay"] == "NONE"
 
-    renewed_dates = list(pd.bdate_range("2026-07-01", periods=7))
+    renewed_dates = list(xnys_dates("2026-07-01", periods=7))
     renewed_market = pd.DataFrame(
         {
             "decision_date": renewed_dates,
@@ -567,7 +618,7 @@ def test_extreme_greed_and_fear_recovery_use_frozen_confirmation() -> None:
     assert int(renewed.iloc[6]["fear_recovery_stage"]) == 0
     assert renewed.iloc[6]["sentiment_overlay"] == "NONE"
 
-    paused_dates = list(pd.bdate_range("2026-08-03", periods=9))
+    paused_dates = list(xnys_dates("2026-08-03", periods=9))
     paused_market = pd.DataFrame(
         {
             "decision_date": paused_dates,
@@ -641,7 +692,7 @@ def build_args(
 def test_build_is_deterministic_report_only_and_future_data_hard_fails() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        dates = pd.bdate_range("2024-01-02", periods=260)
+        dates = xnys_dates("2024-01-02", periods=260)
         calendar_path = root / "xnys_calendar.csv"
         calendar_fixture(dates).to_csv(calendar_path, index=False)
         calendar_hash = sha(calendar_path)

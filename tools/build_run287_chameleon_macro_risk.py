@@ -362,8 +362,13 @@ def validate_calendar(frame: pd.DataFrame, source_sha256: str) -> pd.DataFrame:
     if not SHA256_RE.fullmatch(source_hash):
         raise ContractError("invalid_calendar_artifact_sha256")
     output = frame[list(CALENDAR_REQUIRED_COLUMNS)].copy()
+    if output.empty:
+        raise ContractError("calendar_empty")
     output["decision_date"] = parse_date_only(output["decision_date"], "calendar_decision_date")
-    output["decision_time_utc"] = pd.to_datetime(output["decision_time_utc"], errors="coerce", utc=True)
+    output["decision_time_utc"] = parse_explicit_offset_timestamp(
+        output["decision_time_utc"],
+        "calendar_decision_time_timestamp",
+    )
     output["nyse_session_ordinal"] = pd.to_numeric(output["nyse_session_ordinal"], errors="coerce")
     if output[["decision_date", "decision_time_utc", "nyse_session_ordinal"]].isna().any().any():
         raise ContractError("invalid_calendar_row")
@@ -384,6 +389,21 @@ def validate_calendar(frame: pd.DataFrame, source_sha256: str) -> pd.DataFrame:
     )
     if not local_session_dates.equals(output["decision_date"]):
         raise ContractError("calendar_decision_timestamp_date_mismatch")
+    try:
+        import pandas_market_calendars as mcal
+
+        schedule = mcal.get_calendar("NYSE").schedule(
+            start_date=output["decision_date"].iloc[0].date().isoformat(),
+            end_date=output["decision_date"].iloc[-1].date().isoformat(),
+        )
+    except ImportError as exc:
+        raise ContractError("xnys_calendar_validator_unavailable") from exc
+    except Exception as exc:
+        raise ContractError("xnys_calendar_validation_failed") from exc
+    expected_dates = pd.DatetimeIndex(schedule.index).tz_localize(None).normalize()
+    observed_dates = pd.DatetimeIndex(output["decision_date"])
+    if not observed_dates.equals(expected_dates):
+        raise ContractError("calendar_xnys_session_coverage_mismatch")
     output.attrs["source_sha256"] = source_hash
     return output
 
@@ -434,7 +454,10 @@ def _normalize_dates(frame: pd.DataFrame, *, context: bool = False) -> pd.DataFr
     if missing:
         raise ContractError(f"missing_columns:{','.join(missing)}")
     output["decision_date"] = parse_date_only(output["decision_date"], "decision_date")
-    output["decision_time_utc"] = pd.to_datetime(output["decision_time_utc"], errors="coerce", utc=True)
+    output["decision_time_utc"] = parse_explicit_offset_timestamp(
+        output["decision_time_utc"],
+        "decision_time_timestamp",
+    )
     output["available_from"] = parse_explicit_offset_timestamp(
         output["available_from"],
         "available_from_timestamp",
