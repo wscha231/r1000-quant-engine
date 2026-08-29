@@ -85,6 +85,20 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def record_consumed_input(
+    consumed_inputs: dict[str, str],
+    path: Path,
+    digest: str,
+) -> None:
+    resolved = str(path.resolve())
+    prior = consumed_inputs.get(resolved)
+    if prior is not None and prior != digest:
+        raise InputContractError(
+            f"source_changed_between_repeated_reads:{resolved}"
+        )
+    consumed_inputs[resolved] = digest
+
+
 def semantic_sha256(payload: Any) -> str:
     raw = json.dumps(
         json_safe(payload),
@@ -235,13 +249,10 @@ def normalize_fred(raw: bytes, expected_series_id: str) -> pd.DataFrame:
             "observation_date": pd.to_datetime(frame[date_column], errors="coerce"),
             "value": pd.to_numeric(frame[value_column], errors="coerce"),
         }
-    )
-    return (
-        output.dropna(subset=["observation_date", "value"])
-        .sort_values("observation_date")
-        .drop_duplicates("observation_date", keep="last")
-        .reset_index(drop=True)
-    )
+    ).dropna(subset=["observation_date", "value"])
+    if output["observation_date"].duplicated(keep=False).any():
+        raise InputContractError("fred_duplicate_observation_date")
+    return output.sort_values("observation_date").reset_index(drop=True)
 
 
 def normalize_cboe(raw: bytes, expected_symbol: str) -> pd.DataFrame:
@@ -258,13 +269,10 @@ def normalize_cboe(raw: bytes, expected_symbol: str) -> pd.DataFrame:
             "date": pd.to_datetime(frame[date_column], errors="coerce"),
             "value": pd.to_numeric(frame[close_column], errors="coerce"),
         }
-    )
-    return (
-        output.dropna(subset=["date", "value"])
-        .sort_values("date")
-        .drop_duplicates("date", keep="last")
-        .reset_index(drop=True)
-    )
+    ).dropna(subset=["date", "value"])
+    if output["date"].duplicated(keep=False).any():
+        raise InputContractError("cboe_duplicate_observation_date")
+    return output.sort_values("date").reset_index(drop=True)
 
 
 def copy_or_fetch(
@@ -840,7 +848,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 continue
             try:
                 frame, stable_sha = read_price_stable(path)
-                consumed_inputs[str(path.resolve())] = stable_sha
+                record_consumed_input(consumed_inputs, path, stable_sha)
                 price_frames[ticker] = frame
                 aligned[f"price_{ticker}"] = daily_aligned(calendar, frame["close"])
                 source_rows.append(
@@ -882,7 +890,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             universe = pd.read_csv(universe_path, low_memory=False)
             if sha256_file(universe_path) != universe_sha:
                 raise InputContractError("universe_file_changed_during_read")
-            consumed_inputs[str(universe_path.resolve())] = universe_sha
+            record_consumed_input(consumed_inputs, universe_path, universe_sha)
             columns = {str(column).strip().lower(): column for column in universe.columns}
             ticker_column = columns.get("ticker") or columns.get("symbol")
             sector_column = columns.get("sector") or columns.get("gics_sector")
@@ -909,7 +917,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                     frame, stable_sha = read_price_stable(path)
                 except Exception:
                     continue
-                consumed_inputs[str(path.resolve())] = stable_sha
+                record_consumed_input(consumed_inputs, path, stable_sha)
                 close_columns[ticker] = frame["close"].reindex(
                     pd.DatetimeIndex(dates)
                 )

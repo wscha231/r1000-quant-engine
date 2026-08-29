@@ -184,6 +184,15 @@ def test_source_identity_date_and_cross_section_guards() -> None:
         assert str(exc) == "fred_expected_series_column_missing:EXPECTED"
     else:
         raise AssertionError("mislabeled FRED series was accepted")
+    try:
+        inputs.normalize_fred(
+            b"observation_date,EXPECTED\n2025-01-02,1.0\n2025-01-02,2.0\n",
+            "EXPECTED",
+        )
+    except inputs.InputContractError as exc:
+        assert str(exc) == "fred_duplicate_observation_date"
+    else:
+        raise AssertionError("duplicate FRED observations were accepted")
 
     try:
         inputs.normalize_cboe(
@@ -194,6 +203,15 @@ def test_source_identity_date_and_cross_section_guards() -> None:
         assert str(exc) == "cboe_date_or_close_column_missing"
     else:
         raise AssertionError("mislabeled Cboe series was accepted")
+    try:
+        inputs.normalize_cboe(
+            b"DATE,CLOSE\n01/02/2025,18.0\n01/02/2025,19.0\n",
+            "VIX",
+        )
+    except inputs.InputContractError as exc:
+        assert str(exc) == "cboe_duplicate_observation_date"
+    else:
+        raise AssertionError("duplicate Cboe observations were accepted")
     vvix = inputs.normalize_cboe(
         b"DATE,VVIX\n01/02/2025,90.0\n",
         "VVIX",
@@ -210,6 +228,17 @@ def test_source_identity_date_and_cross_section_guards() -> None:
         pd.Series(["MSFT", "CASH", "__CASH__", "AAPL"]),
         1_200,
     ) == ["AAPL", "MSFT"]
+
+    consumed: dict[str, str] = {}
+    repeated_path = Path("repeated-price.parquet")
+    inputs.record_consumed_input(consumed, repeated_path, "a" * 64)
+    inputs.record_consumed_input(consumed, repeated_path, "a" * 64)
+    try:
+        inputs.record_consumed_input(consumed, repeated_path, "b" * 64)
+    except inputs.InputContractError as exc:
+        assert str(exc).startswith("source_changed_between_repeated_reads:")
+    else:
+        raise AssertionError("conflicting repeated-read digest was accepted")
 
     prices = inputs.normalize_price_frame(
         pd.DataFrame(
