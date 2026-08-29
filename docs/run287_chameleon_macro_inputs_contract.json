@@ -1,0 +1,66 @@
+{
+  "schema_version": "run287-chameleon-macro-inputs-contract-v1",
+  "causal_family": "provenance_complete_macro_input_normalizer_report_only",
+  "mode": "RESEARCH_ONLY_REPORT_ONLY",
+  "history": {
+    "calendar_years": 6,
+    "decision_delay_after_xnys_close_minutes": 15,
+    "minimum_breadth_symbols": 500,
+    "maximum_universe_symbols": 1200
+  },
+  "truth_policy": {
+    "historical_outputs": "FREE_PROXY",
+    "fred_graph_current_vintage_may_be_pit_verified": false,
+    "historical_close_without_archived_publication_time_may_be_pit_verified": false,
+    "missing_source_policy": "OMIT_COMPONENT_DO_NOT_CARRY_OR_IMPUTE",
+    "historical_ab_allowed": false
+  },
+  "cboe": {
+    "VIX": "https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv",
+    "VIX3M": "https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX3M_History.csv",
+    "VVIX": "https://cdn.cboe.com/api/global/us_indices/daily_prices/VVIX_History.csv"
+  },
+  "fred": {
+    "hy_oas": {"series_id": "BAMLH0A0HYM2", "availability": "NEXT_BUSINESS_DAY_END_UTC"},
+    "ig_oas": {"series_id": "BAMLC0A0CM", "availability": "NEXT_BUSINESS_DAY_END_UTC"},
+    "dgs2": {"series_id": "DGS2", "availability": "NEXT_BUSINESS_DAY_END_UTC"},
+    "dgs10": {"series_id": "DGS10", "availability": "NEXT_BUSINESS_DAY_END_UTC"},
+    "dgs3mo": {"series_id": "DGS3MO", "availability": "NEXT_BUSINESS_DAY_END_UTC"},
+    "real10": {"series_id": "DFII10", "availability": "NEXT_BUSINESS_DAY_END_UTC"},
+    "fed_assets": {"series_id": "WALCL", "availability": "NEXT_BUSINESS_DAY_END_UTC"},
+    "tga": {"series_id": "WDTGAL", "availability": "NEXT_BUSINESS_DAY_END_UTC"},
+    "reverse_repo": {"series_id": "RRPTSYD", "availability": "NEXT_BUSINESS_DAY_END_UTC"},
+    "initial_claims": {"series_id": "ICSA", "availability": "NEXT_BUSINESS_DAY_END_UTC"},
+    "nfci": {"series_id": "NFCI", "availability": "NEXT_BUSINESS_DAY_END_UTC"},
+    "unrate": {"series_id": "UNRATE", "availability": "OBSERVATION_MONTH_END_PLUS_35_DAYS_END_UTC"},
+    "payems": {"series_id": "PAYEMS", "availability": "OBSERVATION_MONTH_END_PLUS_35_DAYS_END_UTC"}
+  },
+  "prices": {
+    "SPY": "trend_drawdown_and_context",
+    "HYG": "credit_and_cross_asset",
+    "LQD": "credit",
+    "TLT": "cross_asset",
+    "UUP": "cross_asset",
+    "GLD": "cross_asset"
+  },
+  "unsupported_without_explicit_archive": [
+    "equity_put_call",
+    "index_put_call",
+    "put_call_change",
+    "leadership_breadth_confirmed",
+    "portfolio_fundamental_weak_ratio"
+  ],
+  "safety": {
+    "report_only": true,
+    "selector_execution_allowed": false,
+    "target_book_write_allowed": false,
+    "trade_intent_write_allowed": false,
+    "order_generation_allowed": false,
+    "ledger_mutation_allowed": false,
+    "backtest_allowed": false,
+    "fullrun_allowed": false,
+    "production_activation_allowed": false,
+    "live_trading_allowed": false,
+    "automatic_promotion_allowed": false
+  }
+}
