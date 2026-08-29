@@ -104,6 +104,15 @@ def fingerprint(path: Path) -> dict[str, Any]:
     }
 
 
+def capture_input_fingerprint(path: Path, label: str) -> dict[str, Any]:
+    try:
+        return fingerprint(path)
+    except OSError as exc:
+        raise ContractError(
+            f"input_fingerprint_unreadable:{label}:{path}:{type(exc).__name__}"
+        ) from exc
+
+
 def git_head() -> str:
     result = subprocess.run(
         ["git", "rev-parse", "HEAD"],
@@ -848,8 +857,12 @@ def build_sentiment_history(
                 fear_peak = risk_score
                 recovery_stage = 0
                 recovery_stage_started_position = None
-            elif math.isfinite(risk_score):
-                fear_peak = max(fear_peak, risk_score) if math.isfinite(fear_peak) else risk_score
+            else:
+                if math.isfinite(risk_score):
+                    fear_peak = max(fear_peak, risk_score) if math.isfinite(fear_peak) else risk_score
+                if recovery_stage > 0:
+                    recovery_stage = 0
+                    recovery_stage_started_position = None
         elif effective == "NORMAL" and fear_episode:
             fear_episode = False
             fear_peak = math.nan
@@ -968,7 +981,9 @@ def blocked_payload(
 ) -> dict[str, Any]:
     contract: dict[str, Any] = {}
     try:
-        contract = json.loads(contract_path.read_text(encoding="utf-8"))
+        loaded_contract = json.loads(contract_path.read_text(encoding="utf-8"))
+        if isinstance(loaded_contract, dict):
+            contract = loaded_contract
     except Exception:
         pass
     safety = _safety_payload(contract) if contract.get("safety") else {
@@ -1032,12 +1047,15 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         if context_path is not None and not context_path.is_file():
             raise ContractError(f"context_input_missing:{context_path}")
         input_fingerprints_before = {
-            "contract": fingerprint(contract_path),
-            "calendar": fingerprint(calendar_path),
-            "metrics": fingerprint(input_path),
+            "contract": capture_input_fingerprint(contract_path, "contract"),
+            "calendar": capture_input_fingerprint(calendar_path, "calendar"),
+            "metrics": capture_input_fingerprint(input_path, "metrics"),
         }
         if context_path is not None:
-            input_fingerprints_before["context"] = fingerprint(context_path)
+            input_fingerprints_before["context"] = capture_input_fingerprint(
+                context_path,
+                "context",
+            )
         contract = load_contract(contract_path)
         raw_metrics = read_table(input_path)
         missing_metric_columns = [
@@ -1148,12 +1166,15 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         write_json(output_dir / "sentiment_overlay.json", sentiment_payload)
         outputs["sentiment_overlay"] = fingerprint(output_dir / "sentiment_overlay.json")
         input_fingerprints_after = {
-            "contract": fingerprint(contract_path),
-            "calendar": fingerprint(calendar_path),
-            "metrics": fingerprint(input_path),
+            "contract": capture_input_fingerprint(contract_path, "contract"),
+            "calendar": capture_input_fingerprint(calendar_path, "calendar"),
+            "metrics": capture_input_fingerprint(input_path, "metrics"),
         }
         if context_path is not None:
-            input_fingerprints_after["context"] = fingerprint(context_path)
+            input_fingerprints_after["context"] = capture_input_fingerprint(
+                context_path,
+                "context",
+            )
         if input_fingerprints_before != input_fingerprints_after:
             raise ContractError("source_input_mutated_during_build")
         code_identity_after = capture_code_identity()

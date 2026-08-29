@@ -527,6 +527,46 @@ def test_extreme_greed_and_fear_recovery_use_frozen_confirmation() -> None:
     assert int(reset.iloc[2]["fear_recovery_stage"]) == 0
     assert reset.iloc[3]["sentiment_overlay"] == "NONE"
 
+    renewed_dates = list(pd.bdate_range("2026-07-01", periods=7))
+    renewed_market = pd.DataFrame(
+        {
+            "decision_date": renewed_dates,
+            "risk_score": [95.0, 88.0, 87.0, 86.0, 84.0, 96.0, 90.0],
+            "effective_state": [
+                "EXTREME_FEAR",
+                "RISK_DEFENSE",
+                "RISK_DEFENSE",
+                "RISK_DEFENSE",
+                "RISK_DEFENSE",
+                "EXTREME_FEAR",
+                "RISK_DEFENSE",
+            ],
+        }
+    )
+    renewed_context = pd.DataFrame(
+        {
+            "decision_date": renewed_dates,
+            "spy_close": [90.0, 101.0, 102.0, 103.0, 104.0, 90.0, 91.0],
+            "spy_prior_2d_high": [100.0] * 7,
+            "spy_ma20": [110.0] * 7,
+            "breadth_improving": [False, False, True, True, True, False, False],
+            "hy_spread_widening": [False] * 7,
+            "leadership_breadth_confirmed": [False] * 7,
+            "market_new_low": [False] * 7,
+            "index_new_high_breadth_narrowing": [False] * 7,
+        }
+    )
+    renewed = risk.build_sentiment_history(
+        renewed_market,
+        pd.DataFrame(columns=["decision_date", "component", "raw_percentile", "component_ready"]),
+        renewed_context,
+        cfg,
+    )
+    assert int(renewed.iloc[4]["fear_recovery_stage"]) == 2
+    assert int(renewed.iloc[5]["fear_recovery_stage"]) == 0
+    assert int(renewed.iloc[6]["fear_recovery_stage"]) == 0
+    assert renewed.iloc[6]["sentiment_overlay"] == "NONE"
+
 
 def build_args(
     root: Path,
@@ -748,6 +788,47 @@ def test_build_is_deterministic_report_only_and_future_data_hard_fails() -> None
         assert unreadable["blockers"][0].startswith("input_table_unreadable:")
         assert unreadable["blockers"][0].endswith(":EmptyDataError")
         assert (root / "unreadable-metrics" / "manifest.json").is_file()
+
+        def denied_metric_fingerprint(path: Path) -> dict:
+            if Path(path) == metrics_path:
+                raise PermissionError("fixture denied")
+            return original_fingerprint(path)
+
+        risk.fingerprint = denied_metric_fingerprint
+        try:
+            denied = risk.build(
+                build_args(
+                    root,
+                    calendar_path,
+                    metrics_path,
+                    context_path,
+                    "denied-metric-fingerprint",
+                )
+            )
+        finally:
+            risk.fingerprint = original_fingerprint
+        assert denied["status"] == risk.BLOCKED_STATUS
+        assert denied["blockers"][0].startswith(
+            "input_fingerprint_unreadable:metrics:"
+        )
+        assert denied["blockers"][0].endswith(":PermissionError")
+        assert (root / "denied-metric-fingerprint" / "manifest.json").is_file()
+
+        non_object_contract = root / "non_object_contract.json"
+        non_object_contract.write_text("[]\n", encoding="utf-8")
+        non_object_output = root / "non-object-contract-blocked"
+        non_object_output.mkdir()
+        non_object = risk.blocked_payload(
+            non_object_output,
+            non_object_contract,
+            calendar_path,
+            metrics_path,
+            context_path,
+            "contract_root_not_object",
+        )
+        assert non_object["status"] == risk.BLOCKED_STATUS
+        assert non_object["blockers"] == ["contract_root_not_object"]
+        assert (non_object_output / "manifest.json").is_file()
 
         short_dates = dates[:20]
         short_calendar_path = root / "short_xnys_calendar.csv"
