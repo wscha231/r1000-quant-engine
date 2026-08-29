@@ -157,9 +157,49 @@ def test_watch_preserves_winner_and_reentry_changes_actual_gross() -> None:
     assert watch_summary["policy"]["block_new_buys"] is True
 
 
+def test_incremental_reentry_releases_only_crisis_created_cash() -> None:
+    weights = pd.DataFrame(
+        [{"ticker": "LEADER", "weight": 0.80}, {"ticker": "CASH", "weight": 0.20}]
+    )
+    expected = {
+        "REENTRY_STAGE_1": (0.575, 0.225, 0.075),
+        "REENTRY_STAGE_2": (0.680, 0.120, 0.180),
+        "REENTRY_STAGE_3": (0.800, 0.000, 0.300),
+    }
+    for state, (target_equity, pending, released) in expected.items():
+        final, _actions, summary = apply_selective_defense(
+            weights,
+            state=state,
+            portfolio_kind="main",
+            incremental_crisis_reentry=True,
+        )
+        equity = float(final.loc[final["ticker"].ne("CASH"), "weight"].sum())
+        assert abs(equity - target_equity) < 1e-12
+        assert abs(summary["reserve_reasons"]["capacity_unallocated"] - 0.20) < 1e-12
+        assert abs(summary["reserve_reasons"]["reentry_pending"] - pending) < 1e-12
+        assert abs(summary["episode_incremental_crisis_reserve_weight"] - 0.30) < 1e-12
+        assert abs(summary["released_crisis_reserve_weight"] - released) < 1e-12
+        assert summary["incremental_crisis_reentry_enabled"] is True
+
+    capacity_limited = pd.DataFrame(
+        [{"ticker": "LEADER", "weight": 0.40}, {"ticker": "CASH", "weight": 0.60}]
+    )
+    final, actions, summary = apply_selective_defense(
+        capacity_limited,
+        state="REENTRY_STAGE_1",
+        portfolio_kind="main",
+        incremental_crisis_reentry=True,
+    )
+    assert actions == []
+    assert abs(float(final.loc[final["ticker"].ne("CASH"), "weight"].sum()) - 0.40) < 1e-12
+    assert summary["episode_incremental_crisis_reserve_weight"] == 0.0
+    assert summary["reserve_reasons"]["capacity_unallocated"] == 0.60
+
+
 if __name__ == "__main__":
     test_future_columns_removed_and_degraded_is_explicit()
     test_boolean_sources_are_strict_and_reentry_does_not_regress_silently()
     test_selective_sell_priority_and_reserve_reconcile()
     test_watch_preserves_winner_and_reentry_changes_actual_gross()
+    test_incremental_reentry_releases_only_crisis_created_cash()
     print("run287_crisis_policy_smoke: PASS")

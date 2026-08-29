@@ -58,6 +58,9 @@ REENTRY_GROSS_MULTIPLIERS = {
     "REENTRY_STAGE_2": 0.60,
     "REENTRY_STAGE_3": 1.00,
 }
+INCREMENTAL_CRISIS_REENTRY_POLICY_ID = (
+    "run287-incremental-crisis-reserve-reentry-v1"
+)
 TRUE_BOOLEAN_VALUES = {"1", "true", "yes", "y"}
 FALSE_BOOLEAN_VALUES = {"0", "false", "no", "n", "", "none", "nan"}
 
@@ -361,7 +364,34 @@ def transition_state(
     )
 
 
-def exposure_policy(state: Any, normal_equity_weight: float, portfolio_kind: str) -> ExposurePolicy:
+def incremental_crisis_reentry_target(
+    normal_equity_weight: float,
+    portfolio_kind: str,
+    reentry_multiplier: float,
+) -> tuple[float, float, float]:
+    """Release only cash created by the crisis overlay.
+
+    Returns target equity, episode incremental crisis reserve, and the amount
+    of that reserve released at the requested re-entry multiplier. Normal
+    capacity cash is outside this calculation and remains untouched.
+    """
+    normal = float(np.clip(normal_equity_weight, 0.0, 1.0))
+    multiplier = float(np.clip(reentry_multiplier, 0.0, 1.0))
+    core_floor = 0.40 if str(portfolio_kind).lower() == "main" else 0.30
+    crisis_equity = min(normal, max(core_floor, 0.50))
+    episode_incremental = max(0.0, normal - crisis_equity)
+    released = episode_incremental * multiplier
+    target = crisis_equity + released
+    return float(target), float(episode_incremental), float(released)
+
+
+def exposure_policy(
+    state: Any,
+    normal_equity_weight: float,
+    portfolio_kind: str,
+    *,
+    incremental_crisis_reentry: bool = False,
+) -> ExposurePolicy:
     canonical = canonical_state(state)
     normal = float(np.clip(normal_equity_weight, 0.0, 1.0))
     core_floor = 0.40 if str(portfolio_kind).lower() == "main" else 0.30
@@ -382,7 +412,14 @@ def exposure_policy(state: Any, normal_equity_weight: float, portfolio_kind: str
         block, selective, multiplier = True, target < normal - 1e-12, target / normal if normal else 0.0
     else:
         multiplier = REENTRY_GROSS_MULTIPLIERS[canonical]
-        target = normal * multiplier
+        if incremental_crisis_reentry:
+            target, _episode_incremental, _released = (
+                incremental_crisis_reentry_target(
+                    normal, portfolio_kind, multiplier
+                )
+            )
+        else:
+            target = normal * multiplier
         block = canonical != "REENTRY_STAGE_3"
         selective = target < normal - 1e-12
     return ExposurePolicy(
@@ -450,6 +487,7 @@ def apply_selective_defense(
     state: Any,
     portfolio_kind: str,
     evidence: pd.DataFrame | None = None,
+    incremental_crisis_reentry: bool = False,
 ) -> tuple[pd.DataFrame, list[dict[str, Any]], dict[str, Any]]:
     """Apply the canonical policy without default uniform non-cash scaling."""
     if not {"ticker", "weight"}.issubset(weights.columns):
@@ -467,7 +505,12 @@ def apply_selective_defense(
         cash_mask = out["ticker"].eq("CASH")
     base_cash = float(out.loc[cash_mask, "weight"].sum())
     base_equity = 1.0 - base_cash
-    policy = exposure_policy(state, base_equity, portfolio_kind)
+    policy = exposure_policy(
+        state,
+        base_equity,
+        portfolio_kind,
+        incremental_crisis_reentry=incremental_crisis_reentry,
+    )
     required = max(0.0, base_equity - policy.target_equity_weight)
     evidence_map = _evidence_by_ticker(evidence)
     candidates: list[tuple[int, float, str, int, float]] = []
@@ -533,12 +576,37 @@ def apply_selective_defense(
     out = out.loc[out["weight"].gt(1e-12)].sort_values(
         ["weight", "ticker"], ascending=[False, True]
     ).reset_index(drop=True)
+    episode_incremental_crisis_reserve = 0.0
+    released_crisis_reserve = 0.0
+    if incremental_crisis_reentry and policy.state.startswith("REENTRY_STAGE_"):
+        (
+            _target,
+            episode_incremental_crisis_reserve,
+            released_crisis_reserve,
+        ) = incremental_crisis_reentry_target(
+            base_equity,
+            portfolio_kind,
+            policy.reentry_multiplier,
+        )
     summary = {
         "schema_version": SCHEMA_VERSION,
         "policy": asdict(policy),
+        "reentry_policy_id": (
+            INCREMENTAL_CRISIS_REENTRY_POLICY_ID
+            if incremental_crisis_reentry
+            else "canonical_normal_gross_multiplier"
+        ),
+        "incremental_crisis_reentry_enabled": bool(
+            incremental_crisis_reentry
+        ),
         "base_cash_weight": base_cash,
         "final_cash_weight": final_cash,
         "incremental_policy_reserve": incremental,
+        "episode_incremental_crisis_reserve_weight": (
+            episode_incremental_crisis_reserve
+        ),
+        "released_crisis_reserve_weight": released_crisis_reserve,
+        "preserved_normal_capacity_cash_weight": base_cash,
         "reserve_reasons": reserve,
         "selective_sell_count": len(actions),
         "selective_sell_counts_by_reason": {

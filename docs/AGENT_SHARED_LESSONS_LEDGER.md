@@ -90,6 +90,42 @@ Expected contract:
 
 ## Ledger
 
+### 2026-08-14 - Re-entry must release only crisis-created Reserve
+
+- Agent: Codex GPT-5.6
+- Branch/PR/run: `codex/run287-incremental-crisis-reentry-20260814`; source
+  run `30682637459`, artifacts `8816483823` and `8816480816`
+- Context: The rejected canonical arm multiplied all normal equity by the
+  re-entry stage, trapping pre-existing capacity cash and causing severe CAGR
+  drag.
+- Attempt: Added a default-off research challenger that computes the Reserve
+  created by the CRISIS overlay and releases only that amount at the existing
+  0.25/0.60/1.00 stage multipliers.
+- Result: Focused policy and historical target-builder integration tests pass;
+  normal capacity cash remains unchanged and operating defaults are unchanged.
+  On the 100-snapshot bounded target replay, the challenger changed exactly 24
+  re-entry snapshots and worsened none. Mean cash fell by 5.15 percentage
+  points for both portfolios; re-entry mean cash fell from 46.31% to 24.85%
+  for Main and 42.92% to 21.46% for Concentrated. Maximum cash fell from
+  85%/75% to 50%/50%.
+- Failure or caveat: No historical broker-ledger CAGR/MDD verdict has been run
+  for this challenger because the official artifacts include the validated
+  517-ticker cache manifest but not the price parquet files. Also, 53 of 100
+  snapshots are `DEGRADED_DATA`, a separate remaining source of cash drag.
+- Root cause: Applying a gross multiplier to the entire normal equity target
+  conflated strategic/capacity cash with crisis-created Reserve.
+- Reusable lesson: Re-entry policy needs origin-aware cash accounting; only
+  Reserve attributable to the active crisis episode should be staged back in.
+- Next action: Run the bounded historical builder and 25 bps next-close broker
+  replay for Main and Concentrated, then compare CAGR, MDD, Sharpe, turnover,
+  cash trap duration, and crisis-window behavior with the unchanged baseline.
+- Do-not-repeat: Do not enable the challenger by default, mutate operating
+  targets, run a fullrun, or promote it before historical and forward gates.
+- Evidence files: `tools/run287_crisis_policy.py`,
+  `tools/build_crisis_governed_target_books.py`,
+  `tests/run287_crisis_policy_smoke.py`,
+  `tests/crisis_governed_target_books_smoke.py`
+
 ### 2026-07-10 - SEC identity coverage repaired and forward-only queue/ledger hardened
 
 - Agent: Codex GPT-5.6

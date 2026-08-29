@@ -30,6 +30,7 @@ if str(REPO_ROOT) not in sys.path:
 from r1000_crisis_governor import evaluate_exposure_target  # noqa: E402
 from r1000_long_crisis_liquidity import cash_raise_decision  # noqa: E402
 from tools.run287_crisis_policy import (  # noqa: E402
+    INCREMENTAL_CRISIS_REENTRY_POLICY_ID,
     RESERVE_REASONS,
     apply_selective_defense,
     component_availability,
@@ -347,6 +348,7 @@ def build_governed_book(
     allow_normal_cash_deploy: bool = False,
     cash_hard_gate: bool = False,
     thresholds_json: Path | None = None,
+    incremental_crisis_reentry: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
     """Return governed target book, schedule audit, and summary metadata."""
     if mode not in GOVERNOR_MODES:
@@ -429,6 +431,7 @@ def build_governed_book(
                 state=state_decision.state,
                 portfolio_kind=portfolio_kind,
                 evidence=period,
+                incremental_crisis_reentry=incremental_crisis_reentry,
             )
             adjusted = adjusted_frame.set_index("ticker")["weight"]
         else:
@@ -517,6 +520,17 @@ def build_governed_book(
                 "uniform_noncash_scaling_used": bool(
                     policy_summary.get("uniform_noncash_scaling_used", False)
                 ),
+                "incremental_crisis_reentry_enabled": bool(
+                    incremental_crisis_reentry
+                ),
+                "episode_incremental_crisis_reserve_weight": float(
+                    policy_summary.get(
+                        "episode_incremental_crisis_reserve_weight", 0.0
+                    )
+                ),
+                "released_crisis_reserve_weight": float(
+                    policy_summary.get("released_crisis_reserve_weight", 0.0)
+                ),
                 **{k: v for k, v in gate_meta.items() if k != "effective_crisis_score"},
             }
         )
@@ -531,6 +545,14 @@ def build_governed_book(
         "thresholds": thresholds,
         "thresholds_json": str(thresholds_json) if thresholds_json else "",
         "cash_hard_gate": bool(cash_hard_gate),
+        "incremental_crisis_reentry_enabled": bool(
+            incremental_crisis_reentry
+        ),
+        "reentry_policy_id": (
+            INCREMENTAL_CRISIS_REENTRY_POLICY_ID
+            if incremental_crisis_reentry
+            else "canonical_normal_gross_multiplier"
+        ),
         "research_only": True,
         "valid_for_production": False,
         "official_metric_required": "broker_ledger_next_close",
@@ -724,6 +746,9 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "mode": args.mode,
         "crisis_features": str(crisis_features),
         "cash_hard_gate": bool(args.cash_hard_gate),
+        "incremental_crisis_reentry_enabled": bool(
+            getattr(args, "incremental_crisis_reentry", False)
+        ),
         "thresholds_json": str(repo_path(args.thresholds_json)) if args.thresholds_json else "",
         "portfolios": {},
     }
@@ -754,6 +779,9 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             allow_normal_cash_deploy=bool(args.allow_normal_cash_deploy),
             cash_hard_gate=bool(args.cash_hard_gate),
             thresholds_json=thresholds_path,
+            incremental_crisis_reentry=bool(
+                getattr(args, "incremental_crisis_reentry", False)
+            ),
         )
         book_path = reports_dir / f"crisis_governed_{portfolio_kind}_target_book.csv"
         audit_path = output_dir / f"{portfolio_kind}_schedule_audit.csv"
@@ -794,6 +822,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mode", choices=sorted(GOVERNOR_MODES), default="conservative")
     parser.add_argument("--allow-normal-cash-deploy", action="store_true")
     parser.add_argument("--cash-hard-gate", action="store_true", help="Require liquidity/trend/credit confirmation before defense/crisis cash raises")
+    parser.add_argument(
+        "--incremental-crisis-reentry",
+        action="store_true",
+        help=(
+            "Research-only challenger: re-enter only the reserve created by "
+            "the crisis overlay while preserving normal capacity cash"
+        ),
+    )
     parser.add_argument("--thresholds-json", default="", help="Optional best_thresholds.json from long crisis learning")
     parser.add_argument("--require-learned-thresholds", action="store_true", help="Block learned mode when long-crisis best_thresholds.json is unavailable")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)

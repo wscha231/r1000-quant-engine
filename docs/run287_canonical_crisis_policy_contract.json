@@ -46,6 +46,20 @@
     "downstream_state_names_are_canonical_only": true,
     "reentry_stage_regression_requires_a_new_worsening_risk_state": true
   },
+  "research_challengers": {
+    "run287-incremental-crisis-reserve-reentry-v1": {
+      "default_enabled": false,
+      "activation_flag": "--incremental-crisis-reentry",
+      "normal_capacity_cash_is_preserved": true,
+      "episode_incremental_crisis_reserve": "normal_equity_weight - crisis_equity_weight",
+      "target_equity_weight": "crisis_equity_weight + reentry_multiplier * episode_incremental_crisis_reserve",
+      "historical_broker_replay_required": true,
+      "operating_target_mutation_allowed": false,
+      "automatic_promotion_allowed": false,
+      "production_enabled": false,
+      "live_trading_enabled": false
+    }
+  },
   "integration": {
     "state_machine": "tools/run287_crisis_policy.py",
     "legacy_input_adapter": "tools.run287_crisis_policy.adapt_crisis_state",
