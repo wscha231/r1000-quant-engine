@@ -230,6 +230,24 @@ def test_source_identity_date_and_cross_section_guards() -> None:
         assert str(exc) == "fred_non_midnight_observation_date"
     else:
         raise AssertionError("intraday FRED observation was accepted")
+    try:
+        inputs.normalize_fred(
+            b"observation_date,DGS10,dgs10\n2025-01-02,1.0,2.0\n",
+            "DGS10",
+        )
+    except inputs.InputContractError as exc:
+        assert str(exc) == "fred_colliding_normalized_columns:dgs10"
+    else:
+        raise AssertionError("colliding FRED columns were accepted")
+    try:
+        inputs.normalize_fred(
+            b"observation_date,DGS10\n2025-01-02,inf\n",
+            "DGS10",
+        )
+    except inputs.InputContractError as exc:
+        assert str(exc) == "fred_non_finite_value"
+    else:
+        raise AssertionError("non-finite FRED value was accepted")
 
     try:
         inputs.normalize_cboe(
@@ -267,6 +285,33 @@ def test_source_identity_date_and_cross_section_guards() -> None:
         assert str(exc) == "cboe_non_midnight_observation_date"
     else:
         raise AssertionError("intraday Cboe observation was accepted")
+    try:
+        inputs.normalize_cboe(
+            b"DATE,CLOSE,close\n01/02/2025,18.0,19.0\n",
+            "VIX",
+        )
+    except inputs.InputContractError as exc:
+        assert str(exc) == "cboe_colliding_normalized_columns:CLOSE"
+    else:
+        raise AssertionError("colliding Cboe columns were accepted")
+    try:
+        inputs.normalize_cboe(
+            b"DATE,CLOSE,VIX\n01/02/2025,18.0,19.0\n",
+            "VIX",
+        )
+    except inputs.InputContractError as exc:
+        assert str(exc) == "cboe_ambiguous_value_column"
+    else:
+        raise AssertionError("ambiguous Cboe value columns were accepted")
+    try:
+        inputs.normalize_cboe(
+            b"DATE,CLOSE\n01/02/2025,inf\n",
+            "VIX",
+        )
+    except inputs.InputContractError as exc:
+        assert str(exc) == "cboe_non_finite_value"
+    else:
+        raise AssertionError("non-finite Cboe value was accepted")
     vvix = inputs.normalize_cboe(
         b"DATE,VVIX\n01/02/2025,90.0\n",
         "VVIX",
@@ -331,6 +376,7 @@ def test_source_identity_date_and_cross_section_guards() -> None:
         )
     )
     assert prices["close"].tolist() == [90.0, 91.0]
+    assert prices["raw_close"].tolist() == [100.0, 101.0]
     try:
         inputs.normalize_price_frame(
             pd.DataFrame(
@@ -345,6 +391,46 @@ def test_source_identity_date_and_cross_section_guards() -> None:
         assert str(exc) == "negative_price_volume"
     else:
         raise AssertionError("negative price volume was accepted")
+    for column, value, expected in (
+        ("Close", np.inf, "non_finite_price_close"),
+        ("Volume", np.inf, "non_finite_price_volume"),
+    ):
+        payload = {"Date": ["2025-01-02"], "Close": [100.0], "Volume": [1.0]}
+        payload[column] = [value]
+        try:
+            inputs.normalize_price_frame(pd.DataFrame(payload))
+        except inputs.InputContractError as exc:
+            assert str(exc) == expected
+        else:
+            raise AssertionError(f"non-finite {column} was accepted")
+    try:
+        inputs.normalize_price_frame(
+            pd.DataFrame(columns=["Date", "Close", "Volume"])
+        )
+    except inputs.InputContractError as exc:
+        assert str(exc) == "empty_normalized_price_frame"
+    else:
+        raise AssertionError("empty price frame was accepted")
+    try:
+        inputs.normalize_price_frame(
+            pd.DataFrame(
+                [["2025-01-02", 100.0, 101.0]],
+                columns=["Date", "Close", "close"],
+            )
+        )
+    except inputs.InputContractError as exc:
+        assert str(exc) == "price_colliding_normalized_columns:close"
+    else:
+        raise AssertionError("colliding price columns were accepted")
+
+    with tempfile.TemporaryDirectory() as raw_tmp:
+        destination = Path(raw_tmp) / "raw.csv"
+        raw = b"DATE,CLOSE\n01/02/2025,18.0\n"
+        destination.write_bytes(raw)
+        bound_inputs: dict[str, str] = {}
+        digest = inputs.bind_raw_copy(raw, destination, bound_inputs)
+        assert digest == sha(destination)
+        assert bound_inputs[str(destination.resolve())] == digest
 
     for bad_dates, expected in (
         (["2025-01-02T00:00:00-05:00"], "timezone_aware_daily_price_date"),
@@ -369,6 +455,27 @@ def test_source_identity_date_and_cross_section_guards() -> None:
     assert int(close.iloc[-1].notna().sum()) == 500
     assert int(counts["pct_above_ma200"].iloc[-1]) == 499
     assert pd.isna(components["pct_above_ma200"].iloc[-1])
+
+    turnover_dates = pd.date_range("2025-01-01", periods=2, freq="B")
+    adjusted = pd.DataFrame(
+        {"UP": [100.0, 110.0], "DOWN": [100.0, 90.0]},
+        index=turnover_dates,
+    )
+    raw_close = pd.DataFrame(
+        {"UP": [100.0, 220.0], "DOWN": [100.0, 45.0]},
+        index=turnover_dates,
+    )
+    turnover_volume = pd.DataFrame(1.0, index=turnover_dates, columns=adjusted.columns)
+    turnover_components, _ = inputs.compute_universe_components(
+        adjusted,
+        turnover_volume,
+        1,
+        raw_close,
+    )
+    assert np.isclose(
+        turnover_components["adv_decl_dollar_volume_ratio"].iloc[-1],
+        220.0 / 45.0,
+    )
 
     stale = pd.Series([0.4, 0.5, np.nan], index=pd.date_range("2025-01-01", periods=3))
     assert inputs.current_observed_history(stale, stale.index[-1]).empty

@@ -10,6 +10,7 @@ backtest/fullrun, or promote a policy.
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import io
 import json
@@ -231,12 +232,18 @@ def build_calendar(as_of: pd.Timestamp, contract: Mapping[str, Any]) -> pd.DataF
 
 
 def normalize_fred(raw: bytes, expected_series_id: str) -> pd.DataFrame:
+    validate_csv_header_identity(raw, source="fred", uppercase=False)
     frame = pd.read_csv(io.BytesIO(raw))
     columns = {
         str(column).replace("\ufeff", "").strip().lower(): column
         for column in frame.columns
     }
-    date_column = columns.get("observation_date") or columns.get("date")
+    date_candidates = [
+        columns[key] for key in ("observation_date", "date") if key in columns
+    ]
+    if len(date_candidates) > 1:
+        raise InputContractError("fred_ambiguous_observation_date_column")
+    date_column = date_candidates[0] if date_candidates else None
     value_column = columns.get(str(expected_series_id).strip().lower())
     if date_column is None:
         raise InputContractError("fred_observation_date_column_missing")
@@ -244,6 +251,9 @@ def normalize_fred(raw: bytes, expected_series_id: str) -> pd.DataFrame:
         raise InputContractError(
             f"fred_expected_series_column_missing:{expected_series_id}"
         )
+    values = pd.to_numeric(frame[value_column], errors="coerce")
+    if (values.notna() & ~np.isfinite(values)).any():
+        raise InputContractError("fred_non_finite_value")
     output = pd.DataFrame(
         {
             "observation_date": parse_daily_observation_dates(
@@ -251,21 +261,30 @@ def normalize_fred(raw: bytes, expected_series_id: str) -> pd.DataFrame:
                 source="fred",
                 duplicate_error="fred_duplicate_observation_date",
             ),
-            "value": pd.to_numeric(frame[value_column], errors="coerce"),
+            "value": values,
         }
     ).dropna(subset=["observation_date", "value"])
     return output.sort_values("observation_date").reset_index(drop=True)
 
 
 def normalize_cboe(raw: bytes, expected_symbol: str) -> pd.DataFrame:
+    validate_csv_header_identity(raw, source="cboe", uppercase=True)
     frame = pd.read_csv(io.BytesIO(raw))
     columns = {str(column).replace("\ufeff", "").strip().upper(): column for column in frame.columns}
     date_column = columns.get("DATE")
-    close_column = columns.get("CLOSE")
-    if close_column is None:
-        close_column = columns.get(str(expected_symbol).strip().upper())
+    value_candidates = [
+        columns[key]
+        for key in {"CLOSE", str(expected_symbol).strip().upper()}
+        if key in columns
+    ]
+    if len(value_candidates) > 1:
+        raise InputContractError("cboe_ambiguous_value_column")
+    close_column = value_candidates[0] if value_candidates else None
     if date_column is None or close_column is None:
         raise InputContractError("cboe_date_or_close_column_missing")
+    values = pd.to_numeric(frame[close_column], errors="coerce")
+    if (values.notna() & ~np.isfinite(values)).any():
+        raise InputContractError("cboe_non_finite_value")
     output = pd.DataFrame(
         {
             "date": parse_daily_observation_dates(
@@ -273,10 +292,47 @@ def normalize_cboe(raw: bytes, expected_symbol: str) -> pd.DataFrame:
                 source="cboe",
                 duplicate_error="cboe_duplicate_observation_date",
             ),
-            "value": pd.to_numeric(frame[close_column], errors="coerce"),
+            "value": values,
         }
     ).dropna(subset=["date", "value"])
     return output.sort_values("date").reset_index(drop=True)
+
+
+def validate_csv_header_identity(
+    raw: bytes,
+    *,
+    source: str,
+    uppercase: bool,
+) -> None:
+    """Reject raw CSV headers that collide after provider normalization."""
+    try:
+        text = raw.decode("utf-8-sig")
+        header = next(csv.reader(io.StringIO(text)))
+    except (UnicodeDecodeError, csv.Error, StopIteration) as exc:
+        raise InputContractError(f"{source}_csv_header_unreadable") from exc
+    normalized = [str(value).strip() for value in header]
+    normalized = [value.upper() if uppercase else value.lower() for value in normalized]
+    collisions = sorted(
+        value for value in set(normalized) if value and normalized.count(value) > 1
+    )
+    if collisions:
+        raise InputContractError(
+            f"{source}_colliding_normalized_columns:{','.join(collisions)}"
+        )
+
+
+def validate_frame_column_identity(frame: pd.DataFrame, *, source: str) -> None:
+    normalized = [
+        str(value).replace("\ufeff", "").strip().lower()
+        for value in frame.columns
+    ]
+    collisions = sorted(
+        value for value in set(normalized) if value and normalized.count(value) > 1
+    )
+    if collisions:
+        raise InputContractError(
+            f"{source}_colliding_normalized_columns:{','.join(collisions)}"
+        )
 
 
 def parse_daily_observation_dates(
@@ -330,6 +386,19 @@ def copy_or_fetch(
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_bytes(raw)
     return raw, "official_network_download"
+
+
+def bind_raw_copy(
+    raw: bytes,
+    destination: Path,
+    consumed_inputs: dict[str, str],
+) -> str:
+    """Bind parsed response bytes to the copied source and final immutability check."""
+    digest = sha256_bytes(raw)
+    if not destination.is_file() or sha256_file(destination) != digest:
+        raise InputContractError(f"raw_copy_digest_mismatch:{destination}")
+    record_consumed_input(consumed_inputs, destination, digest)
+    return digest
 
 
 def fred_available_from(
@@ -407,36 +476,67 @@ def normalize_price_frame(frame: pd.DataFrame) -> pd.DataFrame:
     output = frame.copy()
     if isinstance(output.index, pd.DatetimeIndex):
         output = output.reset_index().rename(columns={output.index.name or "index": "date"})
+    validate_frame_column_identity(output, source="price")
     columns = {str(column).strip().lower(): column for column in output.columns}
-    date_column = columns.get("date") or columns.get("datetime") or columns.get("timestamp")
+    date_candidates = [
+        columns[key] for key in ("date", "datetime", "timestamp") if key in columns
+    ]
+    if len(date_candidates) > 1:
+        raise InputContractError("price_ambiguous_date_column")
+    date_column = date_candidates[0] if date_candidates else None
+    adjusted_candidates = [
+        columns[key]
+        for key in ("adj close", "adj_close", "adjusted close")
+        if key in columns
+    ]
+    if len(adjusted_candidates) > 1:
+        raise InputContractError("price_ambiguous_adjusted_close_column")
     close_column = (
-        columns.get("adj close")
-        or columns.get("adj_close")
-        or columns.get("adjusted close")
-        or columns.get("close")
+        adjusted_candidates[0] if adjusted_candidates else columns.get("close")
     )
     if date_column is None or close_column is None:
         raise InputContractError("price_date_or_close_column_missing")
+    close = pd.to_numeric(output[close_column], errors="coerce")
+    raw_close_column = columns.get("close")
+    raw_close = (
+        pd.to_numeric(output[raw_close_column], errors="coerce")
+        if raw_close_column is not None
+        else pd.Series(np.nan, index=output.index, dtype=float)
+    )
+    volume_column = columns.get("volume")
+    volume = (
+        pd.to_numeric(output[volume_column], errors="coerce")
+        if volume_column is not None
+        else pd.Series(np.nan, index=output.index, dtype=float)
+    )
+    if (close.notna() & ~np.isfinite(close)).any():
+        raise InputContractError("non_finite_price_close")
+    if close.dropna().le(0).any():
+        raise InputContractError("non_positive_price_close")
+    if (raw_close.notna() & ~np.isfinite(raw_close)).any():
+        raise InputContractError("non_finite_raw_price_close")
+    if raw_close.dropna().le(0).any():
+        raise InputContractError("non_positive_raw_price_close")
+    if (volume.notna() & ~np.isfinite(volume)).any():
+        raise InputContractError("non_finite_price_volume")
+    if volume.lt(0).any():
+        raise InputContractError("negative_price_volume")
     normalized = pd.DataFrame(
         {
             "date": parse_daily_price_dates(output[date_column]),
-            "close": pd.to_numeric(output[close_column], errors="coerce"),
+            "close": close,
+            "raw_close": raw_close,
+            "volume": volume,
         }
     )
-    volume_column = columns.get("volume")
-    normalized["volume"] = (
-        pd.to_numeric(output[volume_column], errors="coerce")
-        if volume_column is not None
-        else np.nan
-    )
-    if normalized["volume"].lt(0).any():
-        raise InputContractError("negative_price_volume")
-    return (
+    result = (
         normalized.dropna(subset=["date", "close"])
-        .query("close > 0")
         .sort_values("date")
         .set_index("date")
     )
+    if result.empty:
+        raise InputContractError("empty_normalized_price_frame")
+    return result
 
 
 def read_price(path: Path) -> pd.DataFrame:
@@ -558,6 +658,7 @@ def compute_universe_components(
     close: pd.DataFrame,
     volume: pd.DataFrame,
     minimum_symbols: int,
+    turnover_close: pd.DataFrame | None = None,
 ) -> tuple[dict[str, pd.Series], dict[str, pd.Series]]:
     """Compute cross-sectional signals with a valid-history denominator per signal."""
     values: dict[str, pd.Series] = {}
@@ -589,9 +690,15 @@ def compute_universe_components(
     counts["new_high_minus_new_low"] = high_low_count
 
     returns = close.pct_change(fill_method=None)
-    dollar_volume = close * volume
+    turnover = close if turnover_close is None else turnover_close.reindex_like(close)
+    dollar_volume = turnover * volume
     valid_dollar_volume = (
-        returns.notna() & dollar_volume.notna() & (dollar_volume >= 0)
+        returns.notna()
+        & np.isfinite(turnover)
+        & (turnover > 0)
+        & np.isfinite(volume)
+        & (volume >= 0)
+        & np.isfinite(dollar_volume)
     )
     dollar_volume_count = valid_dollar_volume.sum(axis=1)
     advancing = dollar_volume.where(valid_dollar_volume & (returns > 0)).sum(
@@ -625,7 +732,7 @@ def compute_universe_components(
     )
     counts["stock_correlation"] = correlation_count
 
-    valid_concentration = dollar_volume.notna() & (dollar_volume >= 0)
+    valid_concentration = np.isfinite(dollar_volume) & (dollar_volume >= 0)
     concentration_count = valid_concentration.sum(axis=1)
     valid_dollar_values = dollar_volume.where(valid_concentration)
     dollar_total = valid_dollar_values.sum(axis=1, min_count=1)
@@ -808,6 +915,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                         )
                     )
                     continue
+                raw_sha = bind_raw_copy(raw, destination, consumed_inputs)
                 observations = normalize_fred(raw, series_id)
                 aligned[name] = align_releases(
                     calendar,
@@ -825,6 +933,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                         first_date=observations["observation_date"].min(),
                         last_date=observations["observation_date"].max(),
                         note="current vintage; historical use is FREE_PROXY only",
+                        source_sha256_override=raw_sha,
                     )
                 )
             except Exception as exc:
@@ -868,6 +977,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                         )
                     )
                     continue
+                raw_sha = bind_raw_copy(raw, destination, consumed_inputs)
                 observations = normalize_cboe(raw, symbol)
                 series = observations.set_index("date")["value"]
                 aligned[key] = daily_aligned(calendar, series)
@@ -882,6 +992,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                         first_date=observations["date"].min(),
                         last_date=observations["date"].max(),
                         note="historical publication time not archived; FREE_PROXY only",
+                        source_sha256_override=raw_sha,
                     )
                 )
             except Exception as exc:
@@ -913,6 +1024,8 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 continue
             try:
                 frame, stable_sha = read_price_stable(path)
+                if frame.empty:
+                    raise InputContractError("empty_normalized_price_frame")
                 record_consumed_input(consumed_inputs, path, stable_sha)
                 price_frames[ticker] = frame
                 aligned[f"price_{ticker}"] = daily_aligned(calendar, frame["close"])
@@ -944,6 +1057,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 )
 
         universe_close = pd.DataFrame(index=pd.DatetimeIndex(dates))
+        universe_raw_close = pd.DataFrame(index=pd.DatetimeIndex(dates))
         universe_volume = pd.DataFrame(index=pd.DatetimeIndex(dates))
         universe_loaded_count = 0
         breadth_symbol_count_as_of = 0
@@ -956,9 +1070,20 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             if sha256_file(universe_path) != universe_sha:
                 raise InputContractError("universe_file_changed_during_read")
             record_consumed_input(consumed_inputs, universe_path, universe_sha)
+            validate_frame_column_identity(universe, source="universe")
             columns = {str(column).strip().lower(): column for column in universe.columns}
-            ticker_column = columns.get("ticker") or columns.get("symbol")
-            sector_column = columns.get("sector") or columns.get("gics_sector")
+            ticker_candidates = [
+                columns[key] for key in ("ticker", "symbol") if key in columns
+            ]
+            if len(ticker_candidates) > 1:
+                raise InputContractError("universe_ambiguous_ticker_column")
+            ticker_column = ticker_candidates[0] if ticker_candidates else None
+            sector_candidates = [
+                columns[key] for key in ("sector", "gics_sector") if key in columns
+            ]
+            if len(sector_candidates) > 1:
+                raise InputContractError("universe_ambiguous_sector_column")
+            sector_column = sector_candidates[0] if sector_candidates else None
             if ticker_column is None:
                 raise InputContractError("universe_ticker_column_missing")
             maximum_symbols = int(contract["history"]["maximum_universe_symbols"])
@@ -974,6 +1099,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 )
             loaded = 0
             close_columns: dict[str, pd.Series] = {}
+            raw_close_columns: dict[str, pd.Series] = {}
             volume_columns: dict[str, pd.Series] = {}
             for ticker in tickers:
                 path = resolve_price_path(ticker, source_bundle, price_cache)
@@ -981,10 +1107,15 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                     continue
                 try:
                     frame, stable_sha = read_price_stable(path)
+                    if frame.empty:
+                        raise InputContractError("empty_normalized_price_frame")
                 except Exception:
                     continue
                 record_consumed_input(consumed_inputs, path, stable_sha)
                 close_columns[ticker] = frame["close"].reindex(
+                    pd.DatetimeIndex(dates)
+                )
+                raw_close_columns[ticker] = frame["raw_close"].reindex(
                     pd.DatetimeIndex(dates)
                 )
                 volume_columns[ticker] = frame["volume"].reindex(
@@ -994,6 +1125,10 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             if close_columns:
                 universe_close = pd.DataFrame(
                     close_columns,
+                    index=pd.DatetimeIndex(dates),
+                )
+                universe_raw_close = pd.DataFrame(
+                    raw_close_columns,
                     index=pd.DatetimeIndex(dates),
                 )
                 universe_volume = pd.DataFrame(
@@ -1179,6 +1314,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                     universe_close,
                     universe_volume,
                     minimum_breadth,
+                    universe_raw_close,
                 )
             )
             breadth_values = {
