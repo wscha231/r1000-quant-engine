@@ -1,0 +1,77 @@
+{
+  "schema_version": "run287-chameleon-macro-input-shadow-evidence-v1",
+  "evidence_scope": "manifest-level durable index for locally retained FREE_PROXY shadow artifacts",
+  "historical_ab_allowed": false,
+  "producer_git_head": "eb10a197dedf6d4cf32715a8612d81d488c2e888",
+  "normalizer_builder_sha256": "3f3a46d0a7d03a8ceec4721236da9d055a80377a3d881acbe8b32ab071d81812",
+  "report_only": true,
+  "runs": [
+    {
+      "artifact_id": "run287_chameleon_macro_input_shadow_20260622_20260829_v6",
+      "artifact_root": "outputs/run287_chameleon_macro_input_shadow_20260622_20260829_v6",
+      "claims": {
+        "breadth_latest_ready_date": "2026-06-22",
+        "breadth_symbol_count_as_of": 634,
+        "context_row_count": 1507,
+        "effective_state": "NORMAL",
+        "engine_status": "READY_CHAMELEON_MACRO_RISK_REPORT_ONLY",
+        "metric_component_count": 34,
+        "metric_row_count": 45744,
+        "observed_state": "NORMAL",
+        "ready_axis_count": 8,
+        "red_axis_count": 0,
+        "requested_as_of": "2026-06-22",
+        "required_axes_ready": true,
+        "risk_score": 40.47082607862556,
+        "sentiment_overlay": "NONE",
+        "source_ready_count": 19,
+        "source_total_count": 23,
+        "universe_loaded_count": 955
+      },
+      "sha256": {
+        "input_context.csv": "05473688e2e689e58373cc44ac0549ea59bf25368369540127fb40126daa52ac",
+        "input_metrics.csv": "34bc02e8b5ce22378804ac89b5fd9a3934fcce77e95363ede9f95bd8d00059a1",
+        "manifest.json": "5fa991877826ac5e543a5273b0a62a248f654aa3c3ce2baad47cd18289624f07",
+        "shadow_engine/manifest.json": "571a9095d42262739ff1c4473b31a621184e6ec90eaa813a64abfcdf473660ae",
+        "source_audit.csv": "08033955cb0c5c39eb84b367903108d7bfdec34a9dfa980e25939705fe748600",
+        "source_lineage.json": "b29fcd52394ca761ee09da328ac6b2bb6122eda79ae47853d4d4c2f63d199bab",
+        "xnys_calendar.csv": "3a214e2e5ec45188b2702e8c16c1b07ed140f589276d291f896e229711d6a0dd"
+      },
+      "truth_class": "FREE_PROXY"
+    },
+    {
+      "artifact_id": "run287_chameleon_macro_input_shadow_20260702_20260829_v7",
+      "artifact_root": "outputs/run287_chameleon_macro_input_shadow_20260702_20260829_v7",
+      "claims": {
+        "breadth_latest_ready_date": "2026-06-22",
+        "breadth_symbol_count_as_of": 297,
+        "context_row_count": 1507,
+        "effective_state": "NORMAL",
+        "engine_status": "READY_CHAMELEON_MACRO_RISK_REPORT_ONLY_DATA_INSUFFICIENT",
+        "metric_component_count": 34,
+        "metric_row_count": 45733,
+        "new_buys_frozen": true,
+        "observed_state": "DATA_INSUFFICIENT",
+        "ready_axis_count": 6,
+        "red_axis_count": 0,
+        "requested_as_of": "2026-07-02",
+        "required_axes_ready": false,
+        "risk_score": null,
+        "sentiment_overlay": "NONE",
+        "source_ready_count": 19,
+        "source_total_count": 23,
+        "universe_loaded_count": 955
+      },
+      "sha256": {
+        "input_context.csv": "b8636e3a53ed8cb97c5f63f95a12959fd9903c399867f175602482e7ce668c89",
+        "input_metrics.csv": "980949d3814368ab4c7b23a1e1ffd34837b2efbeb20001c770ce5e46def089b5",
+        "manifest.json": "5dfa5c670f28db2e1fc7665a2b05d7146029f58489fb34f5ee3f896a0a87aa6c",
+        "shadow_engine/manifest.json": "be92d84943fd134994f981d136bdbb571629fd60d9599cb34c178e4a0535711d",
+        "source_audit.csv": "a1dc3c22599dbbbe02a35d8cddfa3f3da780f5177fb3b04e2e64499fe0630e15",
+        "source_lineage.json": "0906c879f0c4a0f03c4710f8b06be41275d71e3c733eb05b7877a7c03b89ba61",
+        "xnys_calendar.csv": "d110f723d1c83b378b676489b41be56eea598a8cac68e6d041fa3af15b420db5"
+      },
+      "truth_class": "FREE_PROXY"
+    }
+  ]
+}

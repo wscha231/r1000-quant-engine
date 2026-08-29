@@ -1,0 +1,1562 @@
+#!/usr/bin/env python3
+"""Normalize official/free macro sources for the Chameleon report-only engine.
+
+Historical FRED graph, Cboe close, and local daily-bar inputs are deliberately
+classified FREE_PROXY because their archived publication timestamps or
+vintages are not proven. Missing sources remain missing. This tool cannot
+select securities, write targets, create orders, mutate ledgers, run a
+backtest/fullrun, or promote a policy.
+"""
+from __future__ import annotations
+
+import argparse
+import csv
+import hashlib
+import io
+import json
+import math
+import re
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any, Mapping
+
+import numpy as np
+import pandas as pd
+import pandas_market_calendars as mcal
+import requests
+from pandas.tseries.holiday import USFederalHolidayCalendar
+from pandas.tseries.offsets import CustomBusinessDay
+
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from r1000_helpers import px_cache_name  # noqa: E402
+from tools import build_run287_chameleon_macro_risk as risk_engine  # noqa: E402
+
+
+SCHEMA_VERSION = "run287-chameleon-macro-inputs-v1"
+DEFAULT_CONTRACT = ROOT / "docs" / "run287_chameleon_macro_inputs_contract.json"
+CANONICAL_CONTRACT_SEMANTIC_SHA256 = (
+    "b2eada9dcb7e8ec9e46fbad06a2ef1477f79545778167f4d1a9a0ae7c08c7da2"
+)
+FRED_GRAPH_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+USER_AGENT = "run287-chameleon-report-only/1.0 research-contact"
+BLOCKED_STATUS = "BLOCKED_CHAMELEON_MACRO_INPUT_NORMALIZER"
+READY_STATUS = "READY_CHAMELEON_MACRO_INPUTS_REPORT_ONLY"
+DEFAULT_PRICE_CACHE = "G:/내 드라이브/r1000_top30_institutional/cache_prices"
+NON_EQUITY_PLACEHOLDERS = frozenset({"CASH", "__CASH__"})
+US_FEDERAL_BUSINESS_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
+
+SAFETY = {
+    "report_only": True,
+    "selector_executed": False,
+    "target_books_mutated": False,
+    "trade_intents_written": False,
+    "orders_generated": False,
+    "ledger_mutated": False,
+    "backtest_executed": False,
+    "fullrun_executed": False,
+    "production_activation_allowed": False,
+    "live_trading_enabled": False,
+    "automatic_promotion_allowed": False,
+}
+
+
+class InputContractError(ValueError):
+    """Raised when a source or output could misstate provenance."""
+
+
+def repo_path(value: str | Path) -> Path:
+    path = Path(value)
+    return path if path.is_absolute() else ROOT / path
+
+
+def sha256_bytes(raw: bytes) -> str:
+    return hashlib.sha256(raw).hexdigest()
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def record_consumed_input(
+    consumed_inputs: dict[str, str],
+    path: Path,
+    digest: str,
+) -> None:
+    resolved = str(path.resolve())
+    prior = consumed_inputs.get(resolved)
+    if prior is not None and prior != digest:
+        raise InputContractError(
+            f"source_changed_between_repeated_reads:{resolved}"
+        )
+    consumed_inputs[resolved] = digest
+
+
+def semantic_sha256(payload: Any) -> str:
+    raw = json.dumps(
+        json_safe(payload),
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return sha256_bytes(raw)
+
+
+def json_safe(value: Any) -> Any:
+    if value is None or value is pd.NA or value is pd.NaT:
+        return None
+    if isinstance(value, Mapping):
+        return {str(key): json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [json_safe(item) for item in value]
+    if isinstance(value, pd.Timestamp):
+        return None if pd.isna(value) else value.isoformat()
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, (int, np.integer)):
+        return int(value)
+    if isinstance(value, (float, np.floating)):
+        numeric = float(value)
+        return numeric if math.isfinite(numeric) else None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, str):
+        return value
+    raise TypeError(f"not JSON serializable: {type(value).__name__}")
+
+
+def write_json(path: Path, payload: Mapping[str, Any]) -> None:
+    path.write_text(
+        json.dumps(json_safe(payload), indent=2, sort_keys=True, allow_nan=False)
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def git_head() -> str:
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    head = result.stdout.strip().lower()
+    if result.returncode != 0 or len(head) != 40:
+        raise InputContractError("git_head_unavailable_or_invalid")
+    return head
+
+
+def capture_builder_identity() -> dict[str, str]:
+    """Freeze the code identity that actually starts this build."""
+    return {
+        "git_head": git_head(),
+        "builder_sha256": sha256_file(Path(__file__).resolve()),
+    }
+
+
+def verify_builder_identity(expected: Mapping[str, str]) -> None:
+    observed = capture_builder_identity()
+    if observed != dict(expected):
+        raise InputContractError("builder_or_git_head_changed_during_build")
+
+
+def parse_as_of_date(value: Any) -> pd.Timestamp:
+    raw = str(value).strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw) is None:
+        raise InputContractError(f"invalid_as_of_date:{value}")
+    parsed = pd.to_datetime(raw, format="%Y-%m-%d", errors="coerce")
+    if pd.isna(parsed) or pd.Timestamp(parsed).strftime("%Y-%m-%d") != raw:
+        raise InputContractError(f"invalid_as_of_date:{value}")
+    return pd.Timestamp(parsed)
+
+
+def load_contract(path: Path) -> dict[str, Any]:
+    if path.resolve() != DEFAULT_CONTRACT.resolve():
+        raise InputContractError(f"noncanonical_contract_path:{path}")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise InputContractError(f"contract_unreadable:{path}") from exc
+    if not isinstance(payload, dict):
+        raise InputContractError("contract_root_not_object")
+    observed = semantic_sha256(payload)
+    if observed != CANONICAL_CONTRACT_SEMANTIC_SHA256:
+        raise InputContractError(
+            f"canonical_contract_semantic_hash_mismatch:{observed}"
+        )
+    if payload.get("mode") != "RESEARCH_ONLY_REPORT_ONLY":
+        raise InputContractError("contract_mode_not_report_only")
+    if payload.get("truth_policy", {}).get("historical_outputs") != "FREE_PROXY":
+        raise InputContractError("historical_truth_policy_not_free_proxy")
+    if any(value is not False for key, value in payload.get("safety", {}).items() if key != "report_only"):
+        raise InputContractError("unsafe_contract_permission")
+    if payload.get("safety", {}).get("report_only") is not True:
+        raise InputContractError("report_only_not_frozen")
+    return payload
+
+
+def build_calendar(as_of: pd.Timestamp, contract: Mapping[str, Any]) -> pd.DataFrame:
+    years = int(contract["history"]["calendar_years"])
+    buffer_minutes = int(
+        contract["history"]["decision_delay_after_xnys_close_minutes"]
+    )
+    schedule = mcal.get_calendar("NYSE").schedule(
+        start_date=(as_of - pd.DateOffset(years=years)).date().isoformat(),
+        end_date=as_of.date().isoformat(),
+    )
+    if schedule.empty:
+        raise InputContractError("no_xnys_sessions_on_or_before_as_of")
+    dates = pd.DatetimeIndex(schedule.index).tz_localize(None).normalize()
+    decision_times = pd.to_datetime(schedule["market_close"], utc=True) + pd.Timedelta(
+        minutes=buffer_minutes
+    )
+    return pd.DataFrame(
+        {
+            "decision_date": dates.date.astype(str),
+            "decision_time_utc": [value.isoformat() for value in decision_times],
+            "nyse_session_ordinal": np.arange(len(dates), dtype=int),
+        }
+    )
+
+
+def normalize_fred(raw: bytes, expected_series_id: str) -> pd.DataFrame:
+    validate_csv_header_identity(raw, source="fred", uppercase=False)
+    frame = pd.read_csv(io.BytesIO(raw))
+    columns = {
+        str(column).replace("\ufeff", "").strip().lower(): column
+        for column in frame.columns
+    }
+    date_candidates = [
+        columns[key] for key in ("observation_date", "date") if key in columns
+    ]
+    if len(date_candidates) > 1:
+        raise InputContractError("fred_ambiguous_observation_date_column")
+    date_column = date_candidates[0] if date_candidates else None
+    value_column = columns.get(str(expected_series_id).strip().lower())
+    if date_column is None:
+        raise InputContractError("fred_observation_date_column_missing")
+    if value_column is None:
+        raise InputContractError(
+            f"fred_expected_series_column_missing:{expected_series_id}"
+        )
+    values = pd.to_numeric(frame[value_column], errors="coerce")
+    if (values.notna() & ~np.isfinite(values)).any():
+        raise InputContractError("fred_non_finite_value")
+    output = pd.DataFrame(
+        {
+            "observation_date": parse_daily_observation_dates(
+                frame[date_column],
+                source="fred",
+                duplicate_error="fred_duplicate_observation_date",
+            ),
+            "value": values,
+        }
+    ).dropna(subset=["observation_date", "value"])
+    return output.sort_values("observation_date").reset_index(drop=True)
+
+
+def normalize_cboe(raw: bytes, expected_symbol: str) -> pd.DataFrame:
+    validate_csv_header_identity(raw, source="cboe", uppercase=True)
+    frame = pd.read_csv(io.BytesIO(raw))
+    columns = {str(column).replace("\ufeff", "").strip().upper(): column for column in frame.columns}
+    date_column = columns.get("DATE")
+    value_candidates = [
+        columns[key]
+        for key in {"CLOSE", str(expected_symbol).strip().upper()}
+        if key in columns
+    ]
+    if len(value_candidates) > 1:
+        raise InputContractError("cboe_ambiguous_value_column")
+    close_column = value_candidates[0] if value_candidates else None
+    if date_column is None or close_column is None:
+        raise InputContractError("cboe_date_or_close_column_missing")
+    values = pd.to_numeric(frame[close_column], errors="coerce")
+    if (values.notna() & ~np.isfinite(values)).any():
+        raise InputContractError("cboe_non_finite_value")
+    output = pd.DataFrame(
+        {
+            "date": parse_daily_observation_dates(
+                frame[date_column],
+                source="cboe",
+                duplicate_error="cboe_duplicate_observation_date",
+            ),
+            "value": values,
+        }
+    ).dropna(subset=["date", "value"])
+    return output.sort_values("date").reset_index(drop=True)
+
+
+def validate_csv_header_identity(
+    raw: bytes,
+    *,
+    source: str,
+    uppercase: bool,
+) -> None:
+    """Reject raw CSV headers that collide after provider normalization."""
+    try:
+        text = raw.decode("utf-8-sig")
+        header = next(csv.reader(io.StringIO(text)))
+    except (UnicodeDecodeError, csv.Error, StopIteration) as exc:
+        raise InputContractError(f"{source}_csv_header_unreadable") from exc
+    normalized = [str(value).strip() for value in header]
+    normalized = [value.upper() if uppercase else value.lower() for value in normalized]
+    collisions = sorted(
+        value for value in set(normalized) if value and normalized.count(value) > 1
+    )
+    if collisions:
+        raise InputContractError(
+            f"{source}_colliding_normalized_columns:{','.join(collisions)}"
+        )
+
+
+def validate_frame_column_identity(frame: pd.DataFrame, *, source: str) -> None:
+    normalized = [
+        str(value).replace("\ufeff", "").strip().lower()
+        for value in frame.columns
+    ]
+    collisions = sorted(
+        value for value in set(normalized) if value and normalized.count(value) > 1
+    )
+    if collisions:
+        raise InputContractError(
+            f"{source}_colliding_normalized_columns:{','.join(collisions)}"
+        )
+
+
+def parse_daily_observation_dates(
+    values: pd.Series,
+    *,
+    source: str,
+    duplicate_error: str,
+) -> pd.Series:
+    """Normalize daily macro dates before checking for conflicting observations."""
+    parsed: list[pd.Timestamp] = []
+    for value in values:
+        try:
+            timestamp = pd.Timestamp(value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise InputContractError(f"{source}_invalid_observation_date") from exc
+        if pd.isna(timestamp):
+            raise InputContractError(f"{source}_invalid_observation_date")
+        if timestamp.tzinfo is not None:
+            raise InputContractError(f"{source}_timezone_aware_observation_date")
+        if timestamp != timestamp.normalize():
+            raise InputContractError(f"{source}_non_midnight_observation_date")
+        parsed.append(timestamp.normalize())
+    result = pd.Series(parsed, index=values.index, dtype="datetime64[ns]")
+    if result.duplicated(keep=False).any():
+        raise InputContractError(duplicate_error)
+    return result
+
+
+def copy_or_fetch(
+    *,
+    fixture: Path | None,
+    url: str,
+    destination: Path,
+    allow_network: bool,
+    timeout_seconds: int,
+) -> tuple[bytes | None, str]:
+    if fixture is not None and fixture.is_file():
+        raw = fixture.read_bytes()
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(raw)
+        return raw, "provided_source_bundle"
+    if not allow_network:
+        return None, "missing_network_disabled"
+    response = requests.get(
+        url,
+        headers={"User-Agent": USER_AGENT},
+        timeout=int(timeout_seconds),
+    )
+    response.raise_for_status()
+    raw = response.content
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(raw)
+    return raw, "official_network_download"
+
+
+def bind_raw_copy(
+    raw: bytes,
+    destination: Path,
+    consumed_inputs: dict[str, str],
+) -> str:
+    """Bind parsed response bytes to the copied source and final immutability check."""
+    digest = sha256_bytes(raw)
+    if not destination.is_file() or sha256_file(destination) != digest:
+        raise InputContractError(f"raw_copy_digest_mismatch:{destination}")
+    record_consumed_input(consumed_inputs, destination, digest)
+    return digest
+
+
+def fred_available_from(
+    observations: pd.Series,
+    policy: str,
+) -> pd.Series:
+    normalized = pd.to_datetime(observations, errors="coerce").dt.normalize()
+    if policy == "NEXT_BUSINESS_DAY_END_UTC":
+        dates = normalized.map(
+            lambda value: value + US_FEDERAL_BUSINESS_DAY
+            if pd.notna(value)
+            else pd.NaT
+        )
+    elif policy == "OBSERVATION_MONTH_END_PLUS_35_DAYS_END_UTC":
+        dates = normalized + pd.offsets.MonthEnd(0) + pd.Timedelta(days=35)
+    else:
+        raise InputContractError(f"unknown_fred_availability_policy:{policy}")
+    return pd.to_datetime(dates, utc=True) + pd.Timedelta(
+        hours=23, minutes=59, seconds=59
+    )
+
+
+def align_releases(
+    calendar: pd.DataFrame,
+    observations: pd.DataFrame,
+    available_from: pd.Series,
+) -> pd.DataFrame:
+    left = calendar[["decision_date", "decision_time_utc"]].copy()
+    left["decision_date"] = pd.to_datetime(left["decision_date"])
+    left["decision_time_utc"] = pd.to_datetime(left["decision_time_utc"], utc=True)
+    right = observations[["observation_date", "value"]].copy()
+    right["available_from"] = pd.to_datetime(available_from, utc=True)
+    right = right.dropna().sort_values("available_from")
+    if right.empty:
+        return pd.DataFrame(
+            index=pd.DatetimeIndex(left["decision_date"]),
+            columns=["value", "source_observation_date", "available_from"],
+        )
+    merged = pd.merge_asof(
+        left.sort_values("decision_time_utc"),
+        right,
+        left_on="decision_time_utc",
+        right_on="available_from",
+        direction="backward",
+        allow_exact_matches=True,
+    )
+    merged = merged.set_index("decision_date")
+    return merged.rename(columns={"observation_date": "source_observation_date"})[
+        ["value", "source_observation_date", "available_from"]
+    ]
+
+
+def parse_daily_price_dates(values: pd.Series) -> pd.Series:
+    """Accept only date-only values or naive midnight timestamps."""
+    parsed: list[pd.Timestamp] = []
+    for value in values:
+        try:
+            timestamp = pd.Timestamp(value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise InputContractError("invalid_daily_price_date") from exc
+        if pd.isna(timestamp):
+            raise InputContractError("invalid_daily_price_date")
+        if timestamp.tzinfo is not None:
+            raise InputContractError("timezone_aware_daily_price_date")
+        if timestamp != timestamp.normalize():
+            raise InputContractError("non_midnight_daily_price_timestamp")
+        parsed.append(timestamp.normalize())
+    result = pd.Series(parsed, index=values.index, dtype="datetime64[ns]")
+    if result.duplicated().any():
+        raise InputContractError("duplicate_daily_price_date")
+    return result
+
+
+def normalize_price_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    output = frame.copy()
+    if isinstance(output.index, pd.DatetimeIndex):
+        output = output.reset_index().rename(columns={output.index.name or "index": "date"})
+    validate_frame_column_identity(output, source="price")
+    columns = {str(column).strip().lower(): column for column in output.columns}
+    date_candidates = [
+        columns[key] for key in ("date", "datetime", "timestamp") if key in columns
+    ]
+    if len(date_candidates) > 1:
+        raise InputContractError("price_ambiguous_date_column")
+    date_column = date_candidates[0] if date_candidates else None
+    adjusted_candidates = [
+        columns[key]
+        for key in ("adj close", "adj_close", "adjusted close")
+        if key in columns
+    ]
+    if len(adjusted_candidates) > 1:
+        raise InputContractError("price_ambiguous_adjusted_close_column")
+    close_column = (
+        adjusted_candidates[0] if adjusted_candidates else columns.get("close")
+    )
+    if date_column is None or close_column is None:
+        raise InputContractError("price_date_or_close_column_missing")
+    close = pd.to_numeric(output[close_column], errors="coerce")
+    raw_close_column = columns.get("close")
+    raw_close = (
+        pd.to_numeric(output[raw_close_column], errors="coerce")
+        if raw_close_column is not None
+        else pd.Series(np.nan, index=output.index, dtype=float)
+    )
+    volume_column = columns.get("volume")
+    volume = (
+        pd.to_numeric(output[volume_column], errors="coerce")
+        if volume_column is not None
+        else pd.Series(np.nan, index=output.index, dtype=float)
+    )
+    if (close.notna() & ~np.isfinite(close)).any():
+        raise InputContractError("non_finite_price_close")
+    if close.dropna().le(0).any():
+        raise InputContractError("non_positive_price_close")
+    if (raw_close.notna() & ~np.isfinite(raw_close)).any():
+        raise InputContractError("non_finite_raw_price_close")
+    if raw_close.dropna().le(0).any():
+        raise InputContractError("non_positive_raw_price_close")
+    if (volume.notna() & ~np.isfinite(volume)).any():
+        raise InputContractError("non_finite_price_volume")
+    if volume.lt(0).any():
+        raise InputContractError("negative_price_volume")
+    normalized = pd.DataFrame(
+        {
+            "date": parse_daily_price_dates(output[date_column]),
+            "close": close,
+            "raw_close": raw_close,
+            "volume": volume,
+        }
+    )
+    result = (
+        normalized.dropna(subset=["date", "close"])
+        .sort_values("date")
+        .set_index("date")
+    )
+    if result.empty:
+        raise InputContractError("empty_normalized_price_frame")
+    return result
+
+
+def read_price(path: Path) -> pd.DataFrame:
+    if path.suffix.lower() in {".parquet", ".pq"}:
+        return normalize_price_frame(pd.read_parquet(path))
+    return normalize_price_frame(pd.read_csv(path))
+
+
+def read_price_stable(path: Path) -> tuple[pd.DataFrame, str]:
+    before = sha256_file(path)
+    frame = read_price(path)
+    after = sha256_file(path)
+    if after != before:
+        raise InputContractError(f"price_source_changed_during_read:{path}")
+    return frame, before
+
+
+def resolve_price_path(
+    ticker: str,
+    source_bundle: Path | None,
+    price_cache: Path | None,
+) -> Path | None:
+    candidates: list[Path] = []
+    if source_bundle is not None:
+        candidates.extend(
+            [
+                source_bundle / "prices" / f"{ticker}.parquet",
+                source_bundle / "prices" / f"{ticker}.csv",
+            ]
+        )
+    if price_cache is not None:
+        candidates.append(price_cache / px_cache_name(ticker))
+    return next((path for path in candidates if path.is_file()), None)
+
+
+def normalize_universe_tickers(
+    values: pd.Series,
+    maximum_symbols: int,
+) -> list[str]:
+    tickers = sorted(
+        {
+            str(value).strip().upper()
+            for value in values
+            if str(value).strip()
+            and str(value).lower() != "nan"
+            and str(value).strip().upper() not in NON_EQUITY_PLACEHOLDERS
+        }
+    )
+    if len(tickers) > maximum_symbols:
+        raise InputContractError(
+            "universe_symbol_count_exceeds_maximum:"
+            f"observed={len(tickers)}:maximum={maximum_symbols}"
+        )
+    return tickers
+
+
+def normalize_universe_sectors(
+    universe: pd.DataFrame,
+    ticker_column: Any,
+    sector_column: Any,
+) -> dict[str, str]:
+    """Build an order-independent sector map and reject conflicting assignments."""
+    sectors: dict[str, tuple[str, str]] = {}
+    for ticker_value, sector_value in universe[[ticker_column, sector_column]].itertuples(
+        index=False,
+        name=None,
+    ):
+        ticker = str(ticker_value).strip().upper()
+        sector = str(sector_value).strip()
+        if (
+            not ticker
+            or ticker.lower() == "nan"
+            or ticker in NON_EQUITY_PLACEHOLDERS
+            or not sector
+            or sector.lower() == "nan"
+        ):
+            continue
+        sector_key = sector.casefold()
+        prior = sectors.get(ticker)
+        if prior is not None and prior[0] != sector_key:
+            raise InputContractError(
+                f"universe_conflicting_sector_assignment:{ticker}"
+            )
+        sectors[ticker] = (sector_key, sector_key)
+    return {ticker: value for ticker, (_, value) in sectors.items()}
+
+
+def daily_aligned(
+    calendar: pd.DataFrame,
+    values: pd.Series,
+) -> pd.DataFrame:
+    dates = pd.to_datetime(calendar["decision_date"])
+    decision_time = pd.Series(
+        pd.to_datetime(calendar["decision_time_utc"], utc=True).to_numpy(),
+        index=pd.DatetimeIndex(dates),
+    )
+    aligned_values = values.reindex(pd.DatetimeIndex(dates))
+    return pd.DataFrame(
+        {
+            "value": aligned_values,
+            "source_observation_date": pd.DatetimeIndex(dates),
+            "available_from": decision_time,
+        },
+        index=pd.DatetimeIndex(dates),
+    )
+
+
+def _cross_section_fraction(
+    condition: pd.DataFrame,
+    valid: pd.DataFrame,
+    minimum_symbols: int,
+) -> tuple[pd.Series, pd.Series]:
+    counts = valid.sum(axis=1)
+    fraction = (condition & valid).sum(axis=1).div(counts.replace(0, np.nan))
+    return fraction.where(counts >= minimum_symbols), counts
+
+
+def compute_universe_components(
+    close: pd.DataFrame,
+    volume: pd.DataFrame,
+    minimum_symbols: int,
+    turnover_close: pd.DataFrame | None = None,
+) -> tuple[dict[str, pd.Series], dict[str, pd.Series]]:
+    """Compute cross-sectional signals with a valid-history denominator per signal."""
+    values: dict[str, pd.Series] = {}
+    counts: dict[str, pd.Series] = {}
+
+    ma50 = close.rolling(50, min_periods=50).mean()
+    valid50 = close.notna() & ma50.notna()
+    values["pct_above_ma50"], counts["pct_above_ma50"] = _cross_section_fraction(
+        close > ma50, valid50, minimum_symbols
+    )
+
+    ma200 = close.rolling(200, min_periods=200).mean()
+    valid200 = close.notna() & ma200.notna()
+    values["pct_above_ma200"], counts["pct_above_ma200"] = _cross_section_fraction(
+        close > ma200, valid200, minimum_symbols
+    )
+
+    high252 = close.rolling(252, min_periods=200).max()
+    low252 = close.rolling(252, min_periods=200).min()
+    valid_high_low = close.notna() & high252.notna() & low252.notna()
+    high_low_count = valid_high_low.sum(axis=1)
+    high_low = (
+        ((close >= high252) & valid_high_low).sum(axis=1)
+        - ((close <= low252) & valid_high_low).sum(axis=1)
+    ).div(high_low_count.replace(0, np.nan))
+    values["new_high_minus_new_low"] = high_low.where(
+        high_low_count >= minimum_symbols
+    )
+    counts["new_high_minus_new_low"] = high_low_count
+
+    returns = close.pct_change(fill_method=None)
+    turnover = close if turnover_close is None else turnover_close.reindex_like(close)
+    dollar_volume = turnover * volume
+    valid_dollar_volume = (
+        returns.notna()
+        & np.isfinite(turnover)
+        & (turnover > 0)
+        & np.isfinite(volume)
+        & (volume >= 0)
+        & np.isfinite(dollar_volume)
+    )
+    dollar_volume_count = valid_dollar_volume.sum(axis=1)
+    advancing = dollar_volume.where(valid_dollar_volume & (returns > 0)).sum(
+        axis=1, min_count=1
+    )
+    declining = dollar_volume.where(valid_dollar_volume & (returns < 0)).sum(
+        axis=1, min_count=1
+    )
+    values["adv_decl_dollar_volume_ratio"] = (
+        advancing.div(declining.replace(0.0, np.nan))
+    ).where(dollar_volume_count >= minimum_symbols)
+    counts["adv_decl_dollar_volume_ratio"] = dollar_volume_count
+
+    vol20 = returns.rolling(20, min_periods=15).std()
+    vol63 = returns.rolling(63, min_periods=40).std()
+    valid_volatility = vol20.notna() & vol63.notna()
+    values["volatility_spike_breadth"], counts["volatility_spike_breadth"] = (
+        _cross_section_fraction(
+            vol20 > vol63, valid_volatility, minimum_symbols
+        )
+    )
+
+    market_return = returns.mean(axis=1)
+    per_stock_correlation = returns.rolling(63, min_periods=40).corr(
+        market_return,
+        pairwise=False,
+    )
+    correlation_count = per_stock_correlation.notna().sum(axis=1)
+    values["stock_correlation"] = per_stock_correlation.mean(axis=1).where(
+        correlation_count >= minimum_symbols
+    )
+    counts["stock_correlation"] = correlation_count
+
+    valid_concentration = np.isfinite(dollar_volume) & (dollar_volume >= 0)
+    concentration_count = valid_concentration.sum(axis=1)
+    valid_dollar_values = dollar_volume.where(valid_concentration)
+    dollar_total = valid_dollar_values.sum(axis=1, min_count=1)
+    top10 = valid_dollar_values.apply(lambda row: row.nlargest(10).sum(), axis=1)
+    values["index_concentration"] = top10.div(dollar_total).where(
+        concentration_count >= minimum_symbols
+    )
+    counts["index_concentration"] = concentration_count
+
+    return values, counts
+
+
+def trailing_midrank(series: pd.Series, window: int = 63, minimum: int = 20) -> pd.Series:
+    def percentile(values: np.ndarray) -> float:
+        current = values[-1]
+        finite = values[np.isfinite(values)]
+        if not math.isfinite(current) or len(finite) < minimum:
+            return math.nan
+        return float(
+            100.0
+            * (np.sum(finite < current) + 0.5 * np.sum(finite == current))
+            / len(finite)
+        )
+
+    return series.rolling(window, min_periods=minimum).apply(percentile, raw=True)
+
+
+def current_observed_history(series: pd.Series, date: pd.Timestamp) -> pd.Series:
+    """Return history only when the requested session itself has an observation."""
+    if date not in series.index or pd.isna(series.loc[date]):
+        return pd.Series(dtype=float)
+    return series.loc[:date].dropna()
+
+
+def combine_meta(*frames: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
+    observations = pd.concat(
+        [pd.to_datetime(frame["source_observation_date"]) for frame in frames],
+        axis=1,
+    ).max(axis=1)
+    available = pd.concat(
+        [pd.to_datetime(frame["available_from"], utc=True) for frame in frames],
+        axis=1,
+    ).max(axis=1)
+    return observations, available
+
+
+def add_component(
+    rows: list[dict[str, Any]],
+    calendar_map: pd.DataFrame,
+    *,
+    axis: str,
+    component: str,
+    direction: str,
+    value: pd.Series,
+    observation: pd.Series,
+    available: pd.Series,
+    source_kind: str,
+    source_sha256: str,
+    calendar_sha256: str,
+) -> None:
+    frame = pd.DataFrame(
+        {
+            "raw_value": pd.to_numeric(value, errors="coerce"),
+            "source_observation_date": pd.to_datetime(observation, errors="coerce"),
+            "available_from": pd.to_datetime(available, errors="coerce", utc=True),
+        }
+    ).join(calendar_map, how="inner")
+    frame = frame[
+        np.isfinite(frame["raw_value"])
+        & frame["source_observation_date"].notna()
+        & frame["available_from"].notna()
+    ]
+    for date, row in frame.iterrows():
+        rows.append(
+            {
+                "decision_date": date.date().isoformat(),
+                "decision_time_utc": pd.Timestamp(row["decision_time_utc"]).isoformat(),
+                "nyse_session_ordinal": int(row["nyse_session_ordinal"]),
+                "calendar_source_sha256": calendar_sha256,
+                "axis": axis,
+                "component": component,
+                "raw_value": float(row["raw_value"]),
+                "risk_direction": direction,
+                "source_observation_date": row["source_observation_date"].date().isoformat(),
+                "available_from": pd.Timestamp(row["available_from"]).isoformat(),
+                "source_kind": source_kind,
+                "source_sha256": source_sha256,
+                "truth_class": "FREE_PROXY",
+            }
+        )
+
+
+def source_record(
+    *,
+    name: str,
+    provider: str,
+    status: str,
+    mode: str,
+    path: Path | None,
+    row_count: int,
+    first_date: Any = None,
+    last_date: Any = None,
+    note: str = "",
+    source_sha256_override: str = "",
+) -> dict[str, Any]:
+    return {
+        "name": name,
+        "provider": provider,
+        "status": status,
+        "source_mode": mode,
+        "source_path": str(path or ""),
+        "source_sha256": source_sha256_override
+        or (sha256_file(path) if path is not None and path.is_file() else ""),
+        "row_count": int(row_count),
+        "first_observation_date": "" if first_date is None or pd.isna(first_date) else pd.Timestamp(first_date).date().isoformat(),
+        "last_observation_date": "" if last_date is None or pd.isna(last_date) else pd.Timestamp(last_date).date().isoformat(),
+        "truth_class": "FREE_PROXY",
+        "note": note,
+    }
+
+
+def build(args: argparse.Namespace) -> dict[str, Any]:
+    output_dir = repo_path(args.output_dir)
+    if output_dir.exists():
+        raise InputContractError(f"output_dir_already_exists:{output_dir}")
+    output_dir.mkdir(parents=True)
+    raw_dir = output_dir / "raw"
+    raw_dir.mkdir()
+    try:
+        builder_identity = capture_builder_identity()
+        contract_path = repo_path(args.contract)
+        contract = load_contract(contract_path)
+        requested_as_of = parse_as_of_date(args.as_of)
+        calendar = build_calendar(requested_as_of, contract)
+        resolved_as_of = pd.Timestamp(calendar["decision_date"].iloc[-1])
+        calendar_path = output_dir / "xnys_calendar.csv"
+        calendar.to_csv(calendar_path, index=False)
+        calendar_sha = sha256_file(calendar_path)
+        dates = pd.to_datetime(calendar["decision_date"])
+        calendar_map = calendar.copy()
+        calendar_map["decision_date"] = dates
+        calendar_map["decision_time_utc"] = pd.to_datetime(
+            calendar_map["decision_time_utc"], utc=True
+        )
+        calendar_map = calendar_map.set_index("decision_date")
+
+        source_bundle = repo_path(args.source_bundle) if args.source_bundle else None
+        price_cache = repo_path(args.price_cache) if args.price_cache else None
+        source_rows: list[dict[str, Any]] = []
+        consumed_inputs: dict[str, str] = {}
+        aligned: dict[str, pd.DataFrame] = {}
+        price_frames: dict[str, pd.DataFrame] = {}
+
+        for name, spec in contract["fred"].items():
+            series_id = spec["series_id"]
+            fixture = (
+                source_bundle / "fred" / f"{series_id}.csv"
+                if source_bundle is not None
+                else None
+            )
+            destination = raw_dir / "fred" / f"{series_id}.csv"
+            try:
+                raw, mode = copy_or_fetch(
+                    fixture=fixture,
+                    url=FRED_GRAPH_URL.format(series_id=series_id),
+                    destination=destination,
+                    allow_network=bool(args.allow_network),
+                    timeout_seconds=int(args.http_timeout_seconds),
+                )
+                if raw is None:
+                    source_rows.append(
+                        source_record(
+                            name=name,
+                            provider="FRED",
+                            status="missing",
+                            mode=mode,
+                            path=None,
+                            row_count=0,
+                            note="component omitted; no carry or imputation",
+                        )
+                    )
+                    continue
+                raw_sha = bind_raw_copy(raw, destination, consumed_inputs)
+                observations = normalize_fred(raw, series_id)
+                aligned[name] = align_releases(
+                    calendar,
+                    observations,
+                    fred_available_from(observations["observation_date"], spec["availability"]),
+                )
+                source_rows.append(
+                    source_record(
+                        name=name,
+                        provider="FRED graph current vintage",
+                        status="ready" if not observations.empty else "empty",
+                        mode=mode,
+                        path=destination,
+                        row_count=len(observations),
+                        first_date=observations["observation_date"].min(),
+                        last_date=observations["observation_date"].max(),
+                        note="current vintage; historical use is FREE_PROXY only",
+                        source_sha256_override=raw_sha,
+                    )
+                )
+            except Exception as exc:
+                source_rows.append(
+                    source_record(
+                        name=name,
+                        provider="FRED",
+                        status="invalid_or_unavailable",
+                        mode="error",
+                        path=destination if destination.is_file() else None,
+                        row_count=0,
+                        note=f"{type(exc).__name__}; component omitted",
+                    )
+                )
+
+        for symbol, url in contract["cboe"].items():
+            fixture = (
+                source_bundle / "cboe" / f"{symbol}.csv"
+                if source_bundle is not None
+                else None
+            )
+            destination = raw_dir / "cboe" / f"{symbol}.csv"
+            key = symbol.lower()
+            try:
+                raw, mode = copy_or_fetch(
+                    fixture=fixture,
+                    url=url,
+                    destination=destination,
+                    allow_network=bool(args.allow_network),
+                    timeout_seconds=int(args.http_timeout_seconds),
+                )
+                if raw is None:
+                    source_rows.append(
+                        source_record(
+                            name=key,
+                            provider="Cboe",
+                            status="missing",
+                            mode=mode,
+                            path=None,
+                            row_count=0,
+                        )
+                    )
+                    continue
+                raw_sha = bind_raw_copy(raw, destination, consumed_inputs)
+                observations = normalize_cboe(raw, symbol)
+                series = observations.set_index("date")["value"]
+                aligned[key] = daily_aligned(calendar, series)
+                source_rows.append(
+                    source_record(
+                        name=key,
+                        provider="Cboe historical index close",
+                        status="ready" if not observations.empty else "empty",
+                        mode=mode,
+                        path=destination,
+                        row_count=len(observations),
+                        first_date=observations["date"].min(),
+                        last_date=observations["date"].max(),
+                        note="historical publication time not archived; FREE_PROXY only",
+                        source_sha256_override=raw_sha,
+                    )
+                )
+            except Exception as exc:
+                source_rows.append(
+                    source_record(
+                        name=key,
+                        provider="Cboe",
+                        status="invalid_or_unavailable",
+                        mode="error",
+                        path=destination if destination.is_file() else None,
+                        row_count=0,
+                        note=f"{type(exc).__name__}; component omitted",
+                    )
+                )
+
+        for ticker in contract["prices"]:
+            path = resolve_price_path(ticker, source_bundle, price_cache)
+            if path is None:
+                source_rows.append(
+                    source_record(
+                        name=f"price_{ticker}",
+                        provider="local daily-bar cache",
+                        status="missing",
+                        mode="missing",
+                        path=None,
+                        row_count=0,
+                    )
+                )
+                continue
+            try:
+                frame, stable_sha = read_price_stable(path)
+                if frame.empty:
+                    raise InputContractError("empty_normalized_price_frame")
+                record_consumed_input(consumed_inputs, path, stable_sha)
+                price_frames[ticker] = frame
+                aligned[f"price_{ticker}"] = daily_aligned(calendar, frame["close"])
+                source_rows.append(
+                    source_record(
+                        name=f"price_{ticker}",
+                        provider="local daily-bar cache",
+                        status="ready",
+                        mode="provided_or_existing_cache",
+                        path=path,
+                        row_count=len(frame),
+                        first_date=frame.index.min(),
+                        last_date=frame.index.max(),
+                        note="publication time not archived; FREE_PROXY only",
+                        source_sha256_override=stable_sha,
+                    )
+                )
+            except Exception as exc:
+                source_rows.append(
+                    source_record(
+                        name=f"price_{ticker}",
+                        provider="local daily-bar cache",
+                        status="invalid",
+                        mode="error",
+                        path=path,
+                        row_count=0,
+                        note=f"{type(exc).__name__}; component omitted",
+                    )
+                )
+
+        universe_close = pd.DataFrame(index=pd.DatetimeIndex(dates))
+        universe_raw_close = pd.DataFrame(index=pd.DatetimeIndex(dates))
+        universe_volume = pd.DataFrame(index=pd.DatetimeIndex(dates))
+        universe_loaded_count = 0
+        breadth_symbol_count_as_of = 0
+        breadth_latest_ready_date = ""
+        sector_by_ticker: dict[str, str] = {}
+        universe_path = repo_path(args.universe_file) if args.universe_file else None
+        if universe_path is not None and universe_path.is_file():
+            universe_sha = sha256_file(universe_path)
+            universe = pd.read_csv(universe_path, low_memory=False)
+            if sha256_file(universe_path) != universe_sha:
+                raise InputContractError("universe_file_changed_during_read")
+            record_consumed_input(consumed_inputs, universe_path, universe_sha)
+            validate_frame_column_identity(universe, source="universe")
+            columns = {str(column).strip().lower(): column for column in universe.columns}
+            ticker_candidates = [
+                columns[key] for key in ("ticker", "symbol") if key in columns
+            ]
+            if len(ticker_candidates) > 1:
+                raise InputContractError("universe_ambiguous_ticker_column")
+            ticker_column = ticker_candidates[0] if ticker_candidates else None
+            sector_candidates = [
+                columns[key] for key in ("sector", "gics_sector") if key in columns
+            ]
+            if len(sector_candidates) > 1:
+                raise InputContractError("universe_ambiguous_sector_column")
+            sector_column = sector_candidates[0] if sector_candidates else None
+            if ticker_column is None:
+                raise InputContractError("universe_ticker_column_missing")
+            maximum_symbols = int(contract["history"]["maximum_universe_symbols"])
+            tickers = normalize_universe_tickers(
+                universe[ticker_column],
+                maximum_symbols,
+            )
+            if sector_column is not None:
+                sector_by_ticker = normalize_universe_sectors(
+                    universe,
+                    ticker_column,
+                    sector_column,
+                )
+            loaded = 0
+            close_columns: dict[str, pd.Series] = {}
+            raw_close_columns: dict[str, pd.Series] = {}
+            volume_columns: dict[str, pd.Series] = {}
+            for ticker in tickers:
+                path = resolve_price_path(ticker, source_bundle, price_cache)
+                if path is None:
+                    continue
+                try:
+                    frame, stable_sha = read_price_stable(path)
+                    if frame.empty:
+                        raise InputContractError("empty_normalized_price_frame")
+                except Exception:
+                    continue
+                record_consumed_input(consumed_inputs, path, stable_sha)
+                close_columns[ticker] = frame["close"].reindex(
+                    pd.DatetimeIndex(dates)
+                )
+                raw_close_columns[ticker] = frame["raw_close"].reindex(
+                    pd.DatetimeIndex(dates)
+                )
+                volume_columns[ticker] = frame["volume"].reindex(
+                    pd.DatetimeIndex(dates)
+                )
+                loaded += 1
+            if close_columns:
+                universe_close = pd.DataFrame(
+                    close_columns,
+                    index=pd.DatetimeIndex(dates),
+                )
+                universe_raw_close = pd.DataFrame(
+                    raw_close_columns,
+                    index=pd.DatetimeIndex(dates),
+                )
+                universe_volume = pd.DataFrame(
+                    volume_columns,
+                    index=pd.DatetimeIndex(dates),
+                )
+                universe_loaded_count = int(loaded)
+                history_valid = (
+                    universe_close.notna()
+                    & universe_close.rolling(200, min_periods=200).mean().notna()
+                )
+                history_valid_count = history_valid.sum(axis=1)
+                breadth_symbol_count_as_of = int(history_valid_count.iloc[-1])
+                ready_dates = history_valid_count[
+                    history_valid_count
+                    >= int(contract["history"]["minimum_breadth_symbols"])
+                ].index
+                breadth_latest_ready_date = (
+                    ready_dates[-1].date().isoformat() if len(ready_dates) else ""
+                )
+            source_rows.append(
+                source_record(
+                    name="universe_daily_bars",
+                    provider="explicit hashed universe and local daily-bar cache",
+                    status="ready" if loaded else "missing",
+                    mode="bounded_explicit_universe",
+                    path=universe_path,
+                    row_count=loaded,
+                    first_date=universe_close.dropna(how="all").index.min() if loaded else None,
+                    last_date=universe_close.dropna(how="all").index.max() if loaded else None,
+                    note=(
+                        f"loaded_tickers={loaded}; "
+                        f"as_of_history_valid_coverage={breadth_symbol_count_as_of}; "
+                        f"latest_ready_date={breadth_latest_ready_date}; "
+                        f"minimum_breadth_symbols={contract['history']['minimum_breadth_symbols']}"
+                    ),
+                    source_sha256_override=universe_sha,
+                )
+            )
+        else:
+            source_rows.append(
+                source_record(
+                    name="universe_daily_bars",
+                    provider="explicit universe",
+                    status="missing",
+                    mode="missing",
+                    path=universe_path,
+                    row_count=0,
+                    note="market breadth and correlation components omitted",
+                )
+            )
+
+        source_audit = pd.DataFrame(source_rows).sort_values("name").reset_index(drop=True)
+        source_audit_path = output_dir / "source_audit.csv"
+        source_audit.to_csv(source_audit_path, index=False)
+        lineage = {
+            "schema_version": "run287-chameleon-source-lineage-v1",
+            "contract_semantic_sha256": CANONICAL_CONTRACT_SEMANTIC_SHA256,
+            "calendar_sha256": calendar_sha,
+            "requested_as_of": pd.Timestamp(requested_as_of).date().isoformat(),
+            "resolved_as_of": resolved_as_of.date().isoformat(),
+            "truth_class": "FREE_PROXY",
+            "historical_ab_allowed": False,
+            "sources": source_rows,
+            "consumed_external_inputs": [
+                {"path": path, "sha256": digest}
+                for path, digest in sorted(consumed_inputs.items())
+            ],
+        }
+        lineage_path = output_dir / "source_lineage.json"
+        write_json(lineage_path, lineage)
+        lineage_sha = sha256_file(lineage_path)
+
+        metric_rows: list[dict[str, Any]] = []
+
+        def emit(
+            axis: str,
+            component: str,
+            direction: str,
+            value: pd.Series,
+            frames: tuple[pd.DataFrame, ...],
+            kind: str,
+        ) -> None:
+            observation, available = combine_meta(*frames)
+            add_component(
+                metric_rows,
+                calendar_map,
+                axis=axis,
+                component=component,
+                direction=direction,
+                value=value,
+                observation=observation,
+                available=available,
+                source_kind=kind,
+                source_sha256=lineage_sha,
+                calendar_sha256=calendar_sha,
+            )
+
+        spy = aligned.get("price_SPY")
+        if spy is not None:
+            close = spy["value"]
+            ma200 = close.rolling(200, min_periods=200).mean()
+            emit("trend_drawdown", "spy_return_5d", "LOW", close.pct_change(5, fill_method=None), (spy,), "LOCAL_DAILY_CLOSE_FREE_PROXY")
+            emit("trend_drawdown", "spy_return_20d", "LOW", close.pct_change(20, fill_method=None), (spy,), "LOCAL_DAILY_CLOSE_FREE_PROXY")
+            emit("trend_drawdown", "spy_return_63d", "LOW", close.pct_change(63, fill_method=None), (spy,), "LOCAL_DAILY_CLOSE_FREE_PROXY")
+            emit("trend_drawdown", "spy_above_ma200", "LOW", (close >= ma200).where(ma200.notna()).astype(float), (spy,), "LOCAL_DAILY_CLOSE_FREE_PROXY")
+            emit("trend_drawdown", "spy_ma200_distance", "LOW", close / ma200 - 1.0, (spy,), "LOCAL_DAILY_CLOSE_FREE_PROXY")
+            emit("trend_drawdown", "drawdown_velocity", "HIGH", -(close / close.rolling(20, min_periods=20).max() - 1.0), (spy,), "LOCAL_DAILY_CLOSE_FREE_PROXY")
+
+        vix = aligned.get("vix")
+        if vix is not None:
+            emit("volatility", "vix_level", "HIGH", vix["value"], (vix,), "CBOE_HISTORICAL_CLOSE_FREE_PROXY")
+            emit("volatility", "vix_change_5d", "HIGH", vix["value"].pct_change(5, fill_method=None), (vix,), "CBOE_HISTORICAL_CLOSE_FREE_PROXY")
+            emit("volatility", "vix_percentile_63d", "HIGH", trailing_midrank(vix["value"]), (vix,), "CBOE_HISTORICAL_CLOSE_FREE_PROXY")
+        vix3m = aligned.get("vix3m")
+        if vix is not None and vix3m is not None:
+            emit("volatility_structure", "vix_vix3m_inversion", "HIGH", vix["value"] / vix3m["value"] - 1.0, (vix, vix3m), "CBOE_COMPOSITE_HISTORICAL_CLOSE_FREE_PROXY")
+        vvix = aligned.get("vvix")
+        if vvix is not None:
+            emit("volatility_structure", "vvix_level", "HIGH", vvix["value"], (vvix,), "CBOE_HISTORICAL_CLOSE_FREE_PROXY")
+
+        hy = aligned.get("hy_oas")
+        ig = aligned.get("ig_oas")
+        if hy is not None:
+            emit("credit", "hy_oas_level", "HIGH", hy["value"], (hy,), "FRED_GRAPH_CURRENT_VINTAGE_FREE_PROXY")
+            emit("credit", "hy_oas_change_5d", "HIGH", hy["value"].diff(5), (hy,), "FRED_GRAPH_CURRENT_VINTAGE_FREE_PROXY")
+            emit("credit", "hy_oas_change_20d", "HIGH", hy["value"].diff(20), (hy,), "FRED_GRAPH_CURRENT_VINTAGE_FREE_PROXY")
+        if ig is not None:
+            emit("credit", "ig_oas_level", "HIGH", ig["value"], (ig,), "FRED_GRAPH_CURRENT_VINTAGE_FREE_PROXY")
+            emit("credit", "ig_oas_change_20d", "HIGH", ig["value"].diff(20), (ig,), "FRED_GRAPH_CURRENT_VINTAGE_FREE_PROXY")
+        hyg = aligned.get("price_HYG")
+        lqd = aligned.get("price_LQD")
+        if hyg is not None and lqd is not None:
+            emit("credit", "hyg_lqd_weakness", "HIGH", -(hyg["value"] / lqd["value"]).pct_change(20, fill_method=None), (hyg, lqd), "LOCAL_DAILY_CLOSE_COMPOSITE_FREE_PROXY")
+
+        dgs2, dgs10, dgs3mo = aligned.get("dgs2"), aligned.get("dgs10"), aligned.get("dgs3mo")
+        if dgs2 is not None and dgs10 is not None:
+            emit("rates_liquidity", "curve_2y10y_stress", "HIGH", dgs2["value"] - dgs10["value"], (dgs2, dgs10), "FRED_GRAPH_CURRENT_VINTAGE_COMPOSITE_FREE_PROXY")
+        if dgs3mo is not None and dgs10 is not None:
+            emit("rates_liquidity", "curve_3m10y_stress", "HIGH", dgs3mo["value"] - dgs10["value"], (dgs3mo, dgs10), "FRED_GRAPH_CURRENT_VINTAGE_COMPOSITE_FREE_PROXY")
+        real10 = aligned.get("real10")
+        if real10 is not None:
+            emit("rates_liquidity", "real_yield_shock", "HIGH", real10["value"].diff(20), (real10,), "FRED_GRAPH_CURRENT_VINTAGE_FREE_PROXY")
+        fed_assets, tga, reverse_repo = aligned.get("fed_assets"), aligned.get("tga"), aligned.get("reverse_repo")
+        if fed_assets is not None:
+            emit("rates_liquidity", "fed_assets_contraction", "HIGH", -fed_assets["value"].pct_change(20, fill_method=None), (fed_assets,), "FRED_GRAPH_CURRENT_VINTAGE_FREE_PROXY")
+        if tga is not None:
+            emit("rates_liquidity", "tga_drain", "HIGH", tga["value"].pct_change(20, fill_method=None), (tga,), "FRED_GRAPH_CURRENT_VINTAGE_FREE_PROXY")
+        if fed_assets is not None and tga is not None and reverse_repo is not None:
+            net_contraction = (
+                -fed_assets["value"].pct_change(20, fill_method=None)
+                + tga["value"].pct_change(20, fill_method=None)
+                + reverse_repo["value"].pct_change(20, fill_method=None)
+            )
+            emit("rates_liquidity", "net_liquidity_contraction", "HIGH", net_contraction, (fed_assets, tga, reverse_repo), "FRED_GRAPH_CURRENT_VINTAGE_COMPOSITE_FREE_PROXY")
+
+        if spy is not None:
+            for ticker, component, formula in (
+                ("TLT", "treasury_risk_off_rotation", lambda asset: asset.pct_change(20, fill_method=None) - spy["value"].pct_change(20, fill_method=None)),
+                ("UUP", "dollar_risk_off_rotation", lambda asset: asset.pct_change(20, fill_method=None)),
+                ("GLD", "gold_risk_off_rotation", lambda asset: asset.pct_change(20, fill_method=None) - spy["value"].pct_change(20, fill_method=None)),
+                ("HYG", "high_yield_risk_off_rotation", lambda asset: -(asset.pct_change(20, fill_method=None) - spy["value"].pct_change(20, fill_method=None))),
+            ):
+                asset = aligned.get(f"price_{ticker}")
+                if asset is not None:
+                    emit("cross_asset", component, "HIGH", formula(asset["value"]), (asset, spy), "LOCAL_DAILY_CLOSE_COMPOSITE_FREE_PROXY")
+
+        for source_name, component, transform in (
+            ("initial_claims", "initial_claims_stress", lambda value: value.pct_change(20, fill_method=None)),
+            ("nfci", "nfci_stress", lambda value: value),
+            ("unrate", "employment_stress", lambda value: value.diff(63)),
+            ("payems", "economic_diffusion_stress", lambda value: -value.pct_change(63, fill_method=None)),
+        ):
+            source = aligned.get(source_name)
+            if source is not None:
+                emit("economic_stress", component, "HIGH", transform(source["value"]), (source,), "FRED_GRAPH_CURRENT_VINTAGE_FREE_PROXY")
+
+        minimum_breadth = int(contract["history"]["minimum_breadth_symbols"])
+        breadth_values: dict[str, pd.Series] = {}
+        if not universe_close.empty:
+            universe_components, _ = (
+                compute_universe_components(
+                    universe_close,
+                    universe_volume,
+                    minimum_breadth,
+                    universe_raw_close,
+                )
+            )
+            breadth_values = {
+                component: universe_components[component]
+                for component in (
+                    "pct_above_ma50",
+                    "pct_above_ma200",
+                    "new_high_minus_new_low",
+                    "adv_decl_dollar_volume_ratio",
+                )
+            }
+            meta = daily_aligned(calendar, universe_close.mean(axis=1))
+            for component, value in breadth_values.items():
+                emit(
+                    "market_breadth",
+                    component,
+                    "LOW",
+                    value,
+                    (meta,),
+                    "EXPLICIT_UNIVERSE_DAILY_BARS_FREE_PROXY",
+                )
+            for axis, component in (
+                ("volatility_structure", "volatility_spike_breadth"),
+                ("correlation_dispersion", "stock_correlation"),
+                ("correlation_dispersion", "index_concentration"),
+            ):
+                emit(
+                    axis,
+                    component,
+                    "HIGH",
+                    universe_components[component],
+                    (meta,),
+                    "EXPLICIT_UNIVERSE_DAILY_BARS_FREE_PROXY",
+                )
+            if sector_by_ticker:
+                returns20 = universe_close.pct_change(20, fill_method=None)
+                sectors = pd.Series(sector_by_ticker)
+                common = [column for column in returns20.columns if column in sectors.index and sectors[column] not in {"", "nan"}]
+                if common:
+                    sector_returns = returns20[common].T.groupby(sectors[common]).mean().T
+                    sector_valid_count = returns20[common].notna().sum(axis=1)
+                    emit(
+                        "correlation_dispersion",
+                        "sector_return_dispersion",
+                        "HIGH",
+                        sector_returns.std(axis=1).where(
+                            sector_valid_count >= minimum_breadth
+                        ),
+                        (meta,),
+                        "EXPLICIT_UNIVERSE_DAILY_BARS_FREE_PROXY",
+                    )
+
+        metrics = pd.DataFrame(metric_rows)
+        if metrics.empty:
+            raise InputContractError("no_normalized_metric_rows")
+        metrics = metrics.sort_values(["decision_date", "axis", "component"]).reset_index(drop=True)
+        metrics_path = output_dir / "input_metrics.csv"
+        metrics.to_csv(metrics_path, index=False)
+
+        context_rows: list[dict[str, Any]] = []
+        context_dates = sorted(pd.to_datetime(metrics["decision_date"].unique()))
+        for date in context_dates:
+            row: dict[str, Any] = {
+                "decision_date": date.date().isoformat(),
+                "decision_time_utc": calendar_map.loc[date, "decision_time_utc"].isoformat(),
+                "nyse_session_ordinal": int(calendar_map.loc[date, "nyse_session_ordinal"]),
+                "calendar_source_sha256": calendar_sha,
+                "source_kind": "COMPOSITE_CURRENT_VINTAGE_FREE_PROXY",
+                "source_sha256": lineage_sha,
+                "truth_class": "FREE_PROXY",
+            }
+            context_observations: list[pd.Timestamp] = []
+            context_availability: list[pd.Timestamp] = []
+            if spy is not None and date in spy.index and pd.notna(spy.loc[date, "value"]):
+                spy_close = spy["value"]
+                context_observations.append(pd.Timestamp(spy.loc[date, "source_observation_date"]))
+                context_availability.append(pd.Timestamp(spy.loc[date, "available_from"]))
+                row["spy_close"] = float(spy_close.loc[date])
+                prior = spy_close.loc[:date].iloc[:-1].tail(2)
+                if len(prior) == 2 and prior.notna().all():
+                    row["spy_prior_2d_high"] = float(prior.max())
+                ma20_value = spy_close.rolling(20, min_periods=20).mean().loc[date]
+                if pd.notna(ma20_value):
+                    row["spy_ma20"] = float(ma20_value)
+                rolling_low = spy_close.rolling(252, min_periods=200).min().loc[date]
+                if pd.notna(rolling_low):
+                    row["market_new_low"] = bool(spy_close.loc[date] <= rolling_low)
+            if hy is not None and date in hy.index:
+                hy_history = hy.loc[:date].dropna(subset=["value", "source_observation_date"])
+                if len(hy_history) >= 2:
+                    latest = hy_history.iloc[-1]
+                    prior = hy_history.iloc[-2]
+                    if pd.Timestamp(latest["source_observation_date"]) != pd.Timestamp(
+                        prior["source_observation_date"]
+                    ):
+                        row["hy_spread_widening"] = bool(latest["value"] > prior["value"])
+                        context_observations.append(pd.Timestamp(latest["source_observation_date"]))
+                        context_availability.append(pd.Timestamp(latest["available_from"]))
+            breadth50 = breadth_values.get("pct_above_ma50")
+            if (
+                breadth50 is not None
+                and date in breadth50.index
+                and pd.notna(breadth50.loc[date])
+            ):
+                history = current_observed_history(breadth50, date)
+                if len(history) >= 2:
+                    row["breadth_improving"] = bool(history.iloc[-1] > history.iloc[-2])
+                    context_observations.append(date)
+                    context_availability.append(
+                        pd.Timestamp(calendar_map.loc[date, "decision_time_utc"])
+                    )
+                if spy is not None:
+                    spy_history = spy["value"].loc[:date].dropna()
+                    if len(spy_history) >= 252 and len(history) >= 20:
+                        row["index_new_high_breadth_narrowing"] = bool(
+                            spy_history.iloc[-1] >= spy_history.tail(252).max()
+                            and history.iloc[-1] < history.tail(20).max()
+                        )
+            optional_columns = set(row) - {
+                "decision_date",
+                "decision_time_utc",
+                "nyse_session_ordinal",
+                "calendar_source_sha256",
+                "source_kind",
+                "source_sha256",
+                "truth_class",
+            }
+            if not optional_columns or not context_observations or not context_availability:
+                continue
+            row["source_observation_date"] = max(context_observations).date().isoformat()
+            row["available_from"] = max(context_availability).isoformat()
+            context_rows.append(row)
+        context_columns = list(risk_engine.CONTEXT_REQUIRED_COLUMNS) + [
+            "spy_close",
+            "spy_prior_2d_high",
+            "spy_ma20",
+            "portfolio_fundamental_weak_ratio",
+            "breadth_improving",
+            "hy_spread_widening",
+            "leadership_breadth_confirmed",
+            "market_new_low",
+            "index_new_high_breadth_narrowing",
+        ]
+        context = pd.DataFrame(context_rows).reindex(columns=context_columns)
+        context_path = output_dir / "input_context.csv"
+        context.to_csv(context_path, index=False)
+
+        engine_result: dict[str, Any] | None = None
+        if bool(args.run_engine):
+            engine_result = risk_engine.build(
+                argparse.Namespace(
+                    calendar=str(calendar_path),
+                    input_metrics=str(metrics_path),
+                    input_context=str(context_path),
+                    as_of=resolved_as_of.date().isoformat(),
+                    contract=str(risk_engine.DEFAULT_CONTRACT),
+                    output_dir=str(output_dir / "shadow_engine"),
+                )
+            )
+            engine_status = str(engine_result.get("status", ""))
+            if not engine_status.startswith("READY_"):
+                raise InputContractError(
+                    f"shadow_engine_not_ready:{engine_status or 'missing_status'}"
+                )
+
+        changed_inputs = [
+            path
+            for path, expected_sha in consumed_inputs.items()
+            if not Path(path).is_file() or sha256_file(Path(path)) != expected_sha
+        ]
+        if changed_inputs:
+            raise InputContractError(
+                "consumed_input_changed_after_read:" + ",".join(changed_inputs)
+            )
+        verify_builder_identity(builder_identity)
+
+        manifest = {
+            "schema_version": SCHEMA_VERSION,
+            "status": READY_STATUS,
+            "requested_as_of": pd.Timestamp(requested_as_of).date().isoformat(),
+            "resolved_as_of": resolved_as_of.date().isoformat(),
+            "git_head": builder_identity["git_head"],
+            "builder_sha256": builder_identity["builder_sha256"],
+            "contract_semantic_sha256": CANONICAL_CONTRACT_SEMANTIC_SHA256,
+            "truth_class": "FREE_PROXY",
+            "historical_ab_allowed": False,
+            "source_ready_count": int(source_audit["status"].eq("ready").sum()),
+            "source_total_count": int(len(source_audit)),
+            "universe_loaded_count": int(universe_loaded_count),
+            "breadth_symbol_count_as_of": int(breadth_symbol_count_as_of),
+            "breadth_latest_ready_date": breadth_latest_ready_date or None,
+            "metric_row_count": int(len(metrics)),
+            "metric_component_count": int(metrics["component"].nunique()),
+            "context_row_count": int(len(context)),
+            "engine_status": None if engine_result is None else engine_result.get("status"),
+            "outputs": {
+                "calendar": {"path": str(calendar_path), "sha256": calendar_sha},
+                "source_audit": {"path": str(source_audit_path), "sha256": sha256_file(source_audit_path)},
+                "source_lineage": {"path": str(lineage_path), "sha256": lineage_sha},
+                "metrics": {"path": str(metrics_path), "sha256": sha256_file(metrics_path)},
+                "context": {"path": str(context_path), "sha256": sha256_file(context_path)},
+                "shadow_engine_manifest": None
+                if engine_result is None
+                else {
+                    "path": str(output_dir / "shadow_engine" / "manifest.json"),
+                    "sha256": sha256_file(output_dir / "shadow_engine" / "manifest.json"),
+                },
+            },
+            **SAFETY,
+        }
+        write_json(output_dir / "manifest.json", manifest)
+        return manifest
+    except Exception as exc:
+        blocked = {
+            "schema_version": SCHEMA_VERSION,
+            "status": BLOCKED_STATUS,
+            "blockers": [f"{type(exc).__name__}:{exc}"],
+            **SAFETY,
+        }
+        write_json(output_dir / "manifest.json", blocked)
+        return blocked
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(description=__doc__)
+    result.add_argument("--as-of", required=True)
+    result.add_argument("--output-dir", required=True)
+    result.add_argument("--contract", default=str(DEFAULT_CONTRACT))
+    result.add_argument("--source-bundle", default="")
+    result.add_argument("--price-cache", default=DEFAULT_PRICE_CACHE)
+    result.add_argument("--universe-file", default="")
+    result.add_argument("--allow-network", action="store_true")
+    result.add_argument("--http-timeout-seconds", type=int, default=30)
+    result.add_argument("--run-engine", action=argparse.BooleanOptionalAction, default=True)
+    return result
+
+
+def main() -> int:
+    manifest = build(parser().parse_args())
+    print(json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False))
+    return 0 if manifest.get("status") == READY_STATUS else 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
