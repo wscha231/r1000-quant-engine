@@ -219,7 +219,10 @@ def parse_explicit_offset_timestamp(values: pd.Series, label: str) -> pd.Series:
         try:
             if isinstance(value, str):
                 text = value.strip()
-                if not EXPLICIT_OFFSET_TIMESTAMP_RE.fullmatch(text):
+                if (
+                    not EXPLICIT_OFFSET_TIMESTAMP_RE.fullmatch(text)
+                    or text.endswith("-00:00")
+                ):
                     raise ContractError(f"invalid_{label}")
                 parsed = pd.Timestamp(text)
             else:
