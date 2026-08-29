@@ -185,6 +185,32 @@ def test_source_identity_date_and_cross_section_guards() -> None:
     else:
         raise AssertionError("mislabeled FRED series was accepted")
 
+    try:
+        inputs.normalize_cboe(
+            b"DATE,WRONG\n01/02/2025,18.0\n",
+            "VIX",
+        )
+    except inputs.InputContractError as exc:
+        assert str(exc) == "cboe_date_or_close_column_missing"
+    else:
+        raise AssertionError("mislabeled Cboe series was accepted")
+    vvix = inputs.normalize_cboe(
+        b"DATE,VVIX\n01/02/2025,90.0\n",
+        "VVIX",
+    )
+    assert vvix["value"].tolist() == [90.0]
+
+    holiday_release = inputs.fred_available_from(
+        pd.Series(pd.to_datetime(["2025-07-03"])),
+        "NEXT_BUSINESS_DAY_END_UTC",
+    )
+    assert holiday_release.iloc[0] == pd.Timestamp("2025-07-07T23:59:59Z")
+
+    assert inputs.normalize_universe_tickers(
+        pd.Series(["MSFT", "CASH", "__CASH__", "AAPL"]),
+        1_200,
+    ) == ["AAPL", "MSFT"]
+
     prices = inputs.normalize_price_frame(
         pd.DataFrame(
             {
@@ -220,6 +246,45 @@ def test_source_identity_date_and_cross_section_guards() -> None:
     assert int(close.iloc[-1].notna().sum()) == 500
     assert int(counts["pct_above_ma200"].iloc[-1]) == 499
     assert pd.isna(components["pct_above_ma200"].iloc[-1])
+
+    stale = pd.Series([0.4, 0.5, np.nan], index=pd.date_range("2025-01-01", periods=3))
+    assert inputs.current_observed_history(stale, stale.index[-1]).empty
+
+    correlation_dates = pd.date_range("2024-01-01", periods=80, freq="B")
+    base_returns = pd.DataFrame(
+        {
+            "A": np.linspace(-0.02, 0.03, len(correlation_dates)),
+            "B": np.sin(np.arange(len(correlation_dates)) / 5.0) / 100.0,
+            "C": np.cos(np.arange(len(correlation_dates)) / 7.0) / 100.0,
+        },
+        index=correlation_dates,
+    )
+    correlation_close = 100.0 * (1.0 + base_returns).cumprod()
+    correlation_close.loc[correlation_dates[10:26], "A"] = np.nan
+    correlation_volume = pd.DataFrame(
+        1_000_000.0,
+        index=correlation_dates,
+        columns=correlation_close.columns,
+    )
+    correlation_components, _ = inputs.compute_universe_components(
+        correlation_close,
+        correlation_volume,
+        1,
+    )
+    realized_returns = correlation_close.pct_change(fill_method=None)
+    market_return = realized_returns.mean(axis=1)
+    expected_correlations = []
+    for column in realized_returns.columns:
+        pairs = pd.concat(
+            [realized_returns[column], market_return],
+            axis=1,
+        ).tail(63).dropna()
+        if len(pairs) >= 40:
+            expected_correlations.append(pairs.iloc[:, 0].corr(pairs.iloc[:, 1]))
+    assert np.isclose(
+        correlation_components["stock_correlation"].iloc[-1],
+        np.mean(expected_correlations),
+    )
 
 
 def test_empty_context_header_engine_propagation_and_input_limits() -> None:

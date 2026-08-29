@@ -24,6 +24,8 @@ import numpy as np
 import pandas as pd
 import pandas_market_calendars as mcal
 import requests
+from pandas.tseries.holiday import USFederalHolidayCalendar
+from pandas.tseries.offsets import CustomBusinessDay
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,6 +46,8 @@ USER_AGENT = "run287-chameleon-report-only/1.0 research-contact"
 BLOCKED_STATUS = "BLOCKED_CHAMELEON_MACRO_INPUT_NORMALIZER"
 READY_STATUS = "READY_CHAMELEON_MACRO_INPUTS_REPORT_ONLY"
 DEFAULT_PRICE_CACHE = "G:/내 드라이브/r1000_top30_institutional/cache_prices"
+NON_EQUITY_PLACEHOLDERS = frozenset({"CASH", "__CASH__"})
+US_FEDERAL_BUSINESS_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
 
 SAFETY = {
     "report_only": True,
@@ -240,17 +244,13 @@ def normalize_fred(raw: bytes, expected_series_id: str) -> pd.DataFrame:
     )
 
 
-def normalize_cboe(raw: bytes) -> pd.DataFrame:
+def normalize_cboe(raw: bytes, expected_symbol: str) -> pd.DataFrame:
     frame = pd.read_csv(io.BytesIO(raw))
     columns = {str(column).replace("\ufeff", "").strip().upper(): column for column in frame.columns}
     date_column = columns.get("DATE")
     close_column = columns.get("CLOSE")
-    if close_column is None and date_column is not None:
-        value_candidates = [
-            column for column in frame.columns if column != date_column
-        ]
-        if len(value_candidates) == 1:
-            close_column = value_candidates[0]
+    if close_column is None:
+        close_column = columns.get(str(expected_symbol).strip().upper())
     if date_column is None or close_column is None:
         raise InputContractError("cboe_date_or_close_column_missing")
     output = pd.DataFrame(
@@ -300,7 +300,11 @@ def fred_available_from(
 ) -> pd.Series:
     normalized = pd.to_datetime(observations, errors="coerce").dt.normalize()
     if policy == "NEXT_BUSINESS_DAY_END_UTC":
-        dates = normalized + pd.offsets.BDay(1)
+        dates = normalized.map(
+            lambda value: value + US_FEDERAL_BUSINESS_DAY
+            if pd.notna(value)
+            else pd.NaT
+        )
     elif policy == "OBSERVATION_MONTH_END_PLUS_35_DAYS_END_UTC":
         dates = normalized + pd.offsets.MonthEnd(0) + pd.Timedelta(days=35)
     else:
@@ -428,6 +432,27 @@ def resolve_price_path(
     return next((path for path in candidates if path.is_file()), None)
 
 
+def normalize_universe_tickers(
+    values: pd.Series,
+    maximum_symbols: int,
+) -> list[str]:
+    tickers = sorted(
+        {
+            str(value).strip().upper()
+            for value in values
+            if str(value).strip()
+            and str(value).lower() != "nan"
+            and str(value).strip().upper() not in NON_EQUITY_PLACEHOLDERS
+        }
+    )
+    if len(tickers) > maximum_symbols:
+        raise InputContractError(
+            "universe_symbol_count_exceeds_maximum:"
+            f"observed={len(tickers)}:maximum={maximum_symbols}"
+        )
+    return tickers
+
+
 def daily_aligned(
     calendar: pd.DataFrame,
     values: pd.Series,
@@ -517,18 +542,9 @@ def compute_universe_components(
     )
 
     market_return = returns.mean(axis=1)
-    mean_stock = returns.rolling(63, min_periods=40).mean()
-    mean_market = market_return.rolling(63, min_periods=40).mean()
-    covariance = (
-        returns.mul(market_return, axis=0)
-        .rolling(63, min_periods=40)
-        .mean()
-        - mean_stock.mul(mean_market, axis=0)
-    )
-    per_stock_correlation = covariance.div(
-        returns.rolling(63, min_periods=40)
-        .std()
-        .mul(market_return.rolling(63, min_periods=40).std(), axis=0)
+    per_stock_correlation = returns.rolling(63, min_periods=40).corr(
+        market_return,
+        pairwise=False,
     )
     correlation_count = per_stock_correlation.notna().sum(axis=1)
     values["stock_correlation"] = per_stock_correlation.mean(axis=1).where(
@@ -562,6 +578,13 @@ def trailing_midrank(series: pd.Series, window: int = 63, minimum: int = 20) -> 
         )
 
     return series.rolling(window, min_periods=minimum).apply(percentile, raw=True)
+
+
+def current_observed_history(series: pd.Series, date: pd.Timestamp) -> pd.Series:
+    """Return history only when the requested session itself has an observation."""
+    if date not in series.index or pd.isna(series.loc[date]):
+        return pd.Series(dtype=float)
+    return series.loc[:date].dropna()
 
 
 def combine_meta(*frames: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
@@ -772,7 +795,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                         )
                     )
                     continue
-                observations = normalize_cboe(raw)
+                observations = normalize_cboe(raw, symbol)
                 series = observations.set_index("date")["value"]
                 aligned[key] = daily_aligned(calendar, series)
                 source_rows.append(
@@ -865,19 +888,11 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             sector_column = columns.get("sector") or columns.get("gics_sector")
             if ticker_column is None:
                 raise InputContractError("universe_ticker_column_missing")
-            tickers = sorted(
-                {
-                    str(value).strip().upper()
-                    for value in universe[ticker_column]
-                    if str(value).strip() and str(value).lower() != "nan"
-                }
-            )
             maximum_symbols = int(contract["history"]["maximum_universe_symbols"])
-            if len(tickers) > maximum_symbols:
-                raise InputContractError(
-                    "universe_symbol_count_exceeds_maximum:"
-                    f"observed={len(tickers)}:maximum={maximum_symbols}"
-                )
+            tickers = normalize_universe_tickers(
+                universe[ticker_column],
+                maximum_symbols,
+            )
             if sector_column is not None:
                 sector_by_ticker = {
                     str(row[ticker_column]).strip().upper(): str(row[sector_column]).strip()
@@ -1189,8 +1204,12 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                         context_observations.append(pd.Timestamp(latest["source_observation_date"]))
                         context_availability.append(pd.Timestamp(latest["available_from"]))
             breadth50 = breadth_values.get("pct_above_ma50")
-            if breadth50 is not None and date in breadth50.index:
-                history = breadth50.loc[:date].dropna()
+            if (
+                breadth50 is not None
+                and date in breadth50.index
+                and pd.notna(breadth50.loc[date])
+            ):
+                history = current_observed_history(breadth50, date)
                 if len(history) >= 2:
                     row["breadth_improving"] = bool(history.iloc[-1] > history.iloc[-2])
                     context_observations.append(date)
