@@ -28,11 +28,29 @@ def contract() -> dict:
     return risk.load_contract()
 
 
+def calendar_fixture(
+    dates: pd.DatetimeIndex,
+    *,
+    ordinal_start: int = 0,
+) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "decision_date": [date.date().isoformat() for date in dates],
+            "decision_time_utc": [
+                (pd.Timestamp(date).tz_localize("UTC") + pd.Timedelta(hours=22)).isoformat()
+                for date in dates
+            ],
+            "nyse_session_ordinal": [ordinal_start + position for position in range(len(dates))],
+        }
+    )
+
+
 def metric_fixture(
     dates: pd.DatetimeIndex,
     *,
     future_available: bool = False,
     ordinal_start: int = 0,
+    calendar_hash: str = "c" * 64,
 ) -> pd.DataFrame:
     cfg = contract()
     rows: list[dict] = []
@@ -49,7 +67,7 @@ def metric_fixture(
                         "decision_date": date.date().isoformat(),
                         "decision_time_utc": decision_time.isoformat(),
                         "nyse_session_ordinal": ordinal_start + date_position,
-                        "calendar_source_sha256": "c" * 64,
+                        "calendar_source_sha256": calendar_hash,
                         "axis": axis,
                         "component": component,
                         "raw_value": value,
@@ -64,7 +82,12 @@ def metric_fixture(
     return pd.DataFrame(rows)
 
 
-def context_fixture(dates: pd.DatetimeIndex) -> pd.DataFrame:
+def context_fixture(
+    dates: pd.DatetimeIndex,
+    *,
+    ordinal_start: int = 0,
+    calendar_hash: str = "c" * 64,
+) -> pd.DataFrame:
     rows = []
     for position, date in enumerate(dates):
         decision_time = pd.Timestamp(date).tz_localize("UTC") + pd.Timedelta(hours=22)
@@ -72,9 +95,11 @@ def context_fixture(dates: pd.DatetimeIndex) -> pd.DataFrame:
             {
                 "decision_date": date.date().isoformat(),
                 "decision_time_utc": decision_time.isoformat(),
-                "nyse_session_ordinal": position,
-                "calendar_source_sha256": "c" * 64,
+                "nyse_session_ordinal": ordinal_start + position,
+                "calendar_source_sha256": calendar_hash,
+                "source_observation_date": date.date().isoformat(),
                 "available_from": decision_time.isoformat(),
+                "source_kind": "SYNTHETIC_PIT_FIXTURE",
                 "source_sha256": "b" * 64,
                 "truth_class": "PIT_VERIFIED",
                 "spy_close": 100.0,
@@ -134,10 +159,29 @@ def test_contract_freezes_exact_axes_weights_and_nonexecution() -> None:
     assert cfg["readiness"]["minimum_ready_axes"] == 8
     assert set(cfg["readiness"]["required_axes"]) == {"market_breadth", "volatility", "credit"}
     assert cfg["percentile"]["red_percentile"] == 80.0
+    assert cfg["calendar_artifact"]["metric_dates_must_equal_contiguous_calendar_slice"] is True
+    assert cfg["calendar_artifact"]["caller_supplied_hash_without_artifact_is_valid"] is False
+    assert cfg["context_columns"]["required_provenance"] == [
+        "source_observation_date",
+        "available_from",
+        "source_kind",
+        "source_sha256",
+        "truth_class",
+    ]
     assert cfg["safety"]["report_only"] is True
     for field, value in cfg["safety"].items():
         if field != "report_only":
             assert value is False, field
+    with tempfile.TemporaryDirectory() as tmp:
+        alternate = Path(tmp) / "modified_contract.json"
+        modified = json.loads(json.dumps(cfg))
+        modified["percentile"]["red_percentile"] = 99.0
+        alternate.write_text(json.dumps(modified), encoding="utf-8")
+        try:
+            risk.load_contract(alternate)
+            raise AssertionError("alternate contract path was accepted")
+        except risk.ContractError as exc:
+            assert str(exc).startswith("noncanonical_contract_path:")
 
 
 def test_percentiles_are_trailing_only_under_future_outlier() -> None:
@@ -146,14 +190,19 @@ def test_percentiles_are_trailing_only_under_future_outlier() -> None:
     base_raw = metric_fixture(dates)
     mask = base_raw["component"].eq("vix_level")
     base_raw.loc[mask, "raw_value"] = np.linspace(10.0, 20.0, mask.sum())
-    base = risk.validate_metrics(base_raw, cfg, dates[-1])
+    base_calendar = risk.validate_calendar(calendar_fixture(dates), "c" * 64)
+    base = risk.validate_metrics(base_raw, cfg, dates[-1], base_calendar)
     base_scores = risk.compute_component_percentiles(base, cfg)
 
     future_date = dates[-1] + pd.offsets.BDay(1)
     future = metric_fixture(pd.DatetimeIndex([future_date]), ordinal_start=len(dates))
     future.loc[future["component"].eq("vix_level"), "raw_value"] = 10_000.0
     combined_raw = pd.concat([base_raw, future], ignore_index=True)
-    combined = risk.validate_metrics(combined_raw, cfg, future_date)
+    combined_calendar = risk.validate_calendar(
+        calendar_fixture(dates.append(pd.DatetimeIndex([future_date]))),
+        "c" * 64,
+    )
+    combined = risk.validate_metrics(combined_raw, cfg, future_date, combined_calendar)
     combined_scores = risk.compute_component_percentiles(combined, cfg)
 
     selector = (base_scores["decision_date"] == dates[-1]) & base_scores["component"].eq("vix_level")
@@ -166,21 +215,69 @@ def test_percentiles_are_trailing_only_under_future_outlier() -> None:
 def test_calendar_gaps_and_current_vintage_pit_claims_fail_closed() -> None:
     cfg = contract()
     dates = pd.bdate_range("2025-01-02", periods=5)
+    calendar = risk.validate_calendar(calendar_fixture(dates), "c" * 64)
     calendar_gap = metric_fixture(dates)
     calendar_gap.loc[calendar_gap["decision_date"].eq(dates[-1].date().isoformat()), "nyse_session_ordinal"] += 1
     try:
-        risk.validate_metrics(calendar_gap, cfg, dates[-1])
+        risk.validate_metrics(calendar_gap, cfg, dates[-1], calendar)
         raise AssertionError("calendar gap was accepted")
     except risk.ContractError as exc:
-        assert str(exc) == "noncontiguous_nyse_session_ordinal"
+        assert str(exc).startswith("metric_calendar_session_mismatch:")
+
+    omitted = metric_fixture(dates.delete(2))
+    omitted.loc[omitted["decision_date"].gt(dates[2].date().isoformat()), "nyse_session_ordinal"] += 1
+    try:
+        risk.validate_metrics(omitted, cfg, dates[-1], calendar)
+        raise AssertionError("omitted NYSE session was accepted")
+    except risk.ContractError as exc:
+        assert str(exc) == "metric_calendar_session_coverage_mismatch"
+
+    wrong_timestamp = metric_fixture(dates)
+    target = wrong_timestamp["decision_date"].eq(dates[-1].date().isoformat())
+    wrong_timestamp.loc[target, "decision_time_utc"] = (
+        pd.Timestamp(dates[-1]).tz_localize("UTC") + pd.Timedelta(days=1, hours=22)
+    ).isoformat()
+    wrong_timestamp.loc[target, "available_from"] = wrong_timestamp.loc[target, "decision_time_utc"]
+    try:
+        risk.validate_metrics(wrong_timestamp, cfg, dates[-1], calendar)
+        raise AssertionError("decision timestamp from another session was accepted")
+    except risk.ContractError as exc:
+        assert str(exc).startswith("metric_calendar_session_mismatch:")
 
     current_vintage = metric_fixture(dates)
     current_vintage.loc[current_vintage["component"].eq("vix_level"), "source_kind"] = "FRED_CURRENT_VINTAGE"
     try:
-        risk.validate_metrics(current_vintage, cfg, dates[-1])
+        risk.validate_metrics(current_vintage, cfg, dates[-1], calendar)
         raise AssertionError("current-vintage PIT claim was accepted")
     except risk.ContractError as exc:
         assert str(exc) == "current_vintage_source_cannot_be_pit_verified"
+
+    valid_metrics = risk.validate_metrics(metric_fixture(dates), cfg, dates[-1], calendar)
+    decision_times = {
+        date: group["decision_time_utc"].iloc[0]
+        for date, group in valid_metrics.groupby("decision_date")
+    }
+    sessions = {
+        date: (
+            int(group["nyse_session_ordinal"].iloc[0]),
+            str(group["calendar_source_sha256"].iloc[0]),
+        )
+        for date, group in valid_metrics.groupby("decision_date")
+    }
+    current_context = context_fixture(dates)
+    current_context["source_kind"] = "LATEST_SNAPSHOT"
+    try:
+        risk.validate_context(
+            current_context,
+            cfg,
+            dates[-1],
+            decision_times,
+            sessions,
+            calendar,
+        )
+        raise AssertionError("current-vintage context PIT claim was accepted")
+    except risk.ContractError as exc:
+        assert str(exc) == "current_vintage_context_cannot_be_pit_verified"
 
 
 def test_core_readiness_and_single_vix_cannot_create_defense() -> None:
@@ -247,6 +344,16 @@ def test_market_state_requires_two_entry_and_five_release_sessions() -> None:
     assert result.iloc[7]["effective_state"] == "RISK_DEFENSE"
     assert result.iloc[8]["effective_state"] == "NORMAL"
 
+    alternating = daily.iloc[:4].copy()
+    alternating["observed_state"] = [
+        "NORMAL",
+        "NORMAL",
+        "RISK_ALERT",
+        "RISK_DEFENSE",
+    ]
+    alternating_result = risk.apply_state_hysteresis(alternating, cfg)
+    assert alternating_result.iloc[-1]["effective_state"] == "RISK_ALERT"
+
 
 def test_extreme_greed_and_fear_recovery_use_frozen_confirmation() -> None:
     cfg = contract()
@@ -289,6 +396,48 @@ def test_extreme_greed_and_fear_recovery_use_frozen_confirmation() -> None:
     assert greed.iloc[4]["sentiment_overlay"] == "EXTREME_GREED"
     assert not bool(greed.iloc[9]["extreme_greed_active"])
 
+    alternating_dates = list(pd.bdate_range("2026-05-01", periods=15))
+    alternating_market = pd.DataFrame(
+        {
+            "decision_date": alternating_dates,
+            "risk_score": [50.0] * 15,
+            "effective_state": ["NORMAL"] * 15,
+        }
+    )
+    alternating_rows = []
+    for position, date in enumerate(alternating_dates):
+        entry = position < 5
+        two_conditions = position >= 5 and position % 2 == 1
+        spread_low = entry or (position >= 5 and not two_conditions)
+        for component, percentile in {
+            "vix_level": 5.0,
+            "hy_oas_level": 5.0 if spread_low else 50.0,
+            "ig_oas_level": 5.0 if spread_low else 50.0,
+            "spy_ma200_distance": 95.0 if entry else 50.0,
+            "equity_put_call": 5.0 if entry else 50.0,
+        }.items():
+            alternating_rows.append(
+                {
+                    "decision_date": date,
+                    "component": component,
+                    "raw_percentile": percentile,
+                    "component_ready": True,
+                }
+            )
+    alternating_context = pd.DataFrame(
+        {
+            "decision_date": alternating_dates,
+            "index_new_high_breadth_narrowing": [True] * 15,
+        }
+    )
+    alternating_greed = risk.build_sentiment_history(
+        alternating_market,
+        pd.DataFrame(alternating_rows),
+        alternating_context,
+        cfg,
+    )
+    assert bool(alternating_greed.iloc[-1]["extreme_greed_active"])
+
     fear_dates = list(pd.bdate_range("2026-04-01", periods=8))
     fear_market = pd.DataFrame(
         {
@@ -322,11 +471,20 @@ def test_extreme_greed_and_fear_recovery_use_frozen_confirmation() -> None:
     assert int(fear["fear_recovery_stage_changed"].sum()) == 3
 
 
-def build_args(root: Path, metrics: Path, context: Path, output_name: str) -> argparse.Namespace:
+def build_args(
+    root: Path,
+    calendar: Path,
+    metrics: Path,
+    context: Path,
+    output_name: str,
+    *,
+    as_of: str = "",
+) -> argparse.Namespace:
     return argparse.Namespace(
+        calendar=str(calendar),
         input_metrics=str(metrics),
         input_context=str(context),
-        as_of="",
+        as_of=as_of,
         contract=str(risk.DEFAULT_CONTRACT),
         output_dir=str(root / output_name),
     )
@@ -336,13 +494,20 @@ def test_build_is_deterministic_report_only_and_future_data_hard_fails() -> None
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         dates = pd.bdate_range("2024-01-02", periods=260)
+        calendar_path = root / "xnys_calendar.csv"
+        calendar_fixture(dates).to_csv(calendar_path, index=False)
+        calendar_hash = sha(calendar_path)
         metrics_path = root / "metrics.csv"
         context_path = root / "context.csv"
-        metric_fixture(dates).to_csv(metrics_path, index=False)
-        context_fixture(dates).to_csv(context_path, index=False)
-        before = {"metrics": sha(metrics_path), "context": sha(context_path)}
-        first = risk.build(build_args(root, metrics_path, context_path, "first"))
-        second = risk.build(build_args(root, metrics_path, context_path, "second"))
+        metric_fixture(dates, calendar_hash=calendar_hash).to_csv(metrics_path, index=False)
+        context_fixture(dates, calendar_hash=calendar_hash).to_csv(context_path, index=False)
+        before = {
+            "calendar": sha(calendar_path),
+            "metrics": sha(metrics_path),
+            "context": sha(context_path),
+        }
+        first = risk.build(build_args(root, calendar_path, metrics_path, context_path, "first"))
+        second = risk.build(build_args(root, calendar_path, metrics_path, context_path, "second"))
         assert first["status"] == "READY_CHAMELEON_MACRO_RISK_REPORT_ONLY"
         assert first["latest"]["effective_state"] == "NORMAL"
         assert first["latest"]["state_change_allowed"] is True
@@ -354,7 +519,11 @@ def test_build_is_deterministic_report_only_and_future_data_hard_fails() -> None
         assert first["ledger_mutated"] is False
         assert first["fullrun_executed"] is False
         assert first["live_trading_enabled"] is False
-        assert before == {"metrics": sha(metrics_path), "context": sha(context_path)}
+        assert before == {
+            "calendar": sha(calendar_path),
+            "metrics": sha(metrics_path),
+            "context": sha(context_path),
+        }
         for filename in (
             "component_percentiles.csv",
             "macro_risk_axes.csv",
@@ -366,14 +535,61 @@ def test_build_is_deterministic_report_only_and_future_data_hard_fails() -> None
         ):
             assert sha(root / "first" / filename) == sha(root / "second" / filename), filename
         assert json.loads((root / "first" / "market_state.json").read_text(encoding="utf-8"))["target_weights"] is None
+        sentiment_json = json.loads((root / "first" / "sentiment_overlay.json").read_text(encoding="utf-8"))
+        assert sentiment_json["decision_date"] == dates[-1].date().isoformat()
 
         future_path = root / "future.csv"
-        metric_fixture(dates, future_available=True).to_csv(future_path, index=False)
-        blocked = risk.build(build_args(root, future_path, context_path, "blocked"))
+        metric_fixture(
+            dates,
+            future_available=True,
+            calendar_hash=calendar_hash,
+        ).to_csv(future_path, index=False)
+        blocked = risk.build(
+            build_args(root, calendar_path, future_path, context_path, "blocked")
+        )
         assert blocked["status"] == risk.BLOCKED_STATUS
         assert blocked["blockers"] == ["future_available_from_metric_row"]
         assert blocked["target_books_mutated"] is False
         assert not (root / "blocked" / "market_state.json").exists()
+
+        invalid_as_of = risk.build(
+            build_args(
+                root,
+                calendar_path,
+                metrics_path,
+                context_path,
+                "invalid-as-of",
+                as_of="2026-99-99",
+            )
+        )
+        assert invalid_as_of["status"] == risk.BLOCKED_STATUS
+        assert invalid_as_of["blockers"] == ["invalid_explicit_as_of:2026-99-99"]
+
+        short_dates = dates[:20]
+        short_calendar_path = root / "short_xnys_calendar.csv"
+        calendar_fixture(short_dates).to_csv(short_calendar_path, index=False)
+        short_hash = sha(short_calendar_path)
+        short_metrics_path = root / "short_metrics.csv"
+        short_context_path = root / "short_context.csv"
+        metric_fixture(short_dates, calendar_hash=short_hash).to_csv(short_metrics_path, index=False)
+        context_fixture(short_dates, calendar_hash=short_hash).to_csv(short_context_path, index=False)
+        insufficient = risk.build(
+            build_args(
+                root,
+                short_calendar_path,
+                short_metrics_path,
+                short_context_path,
+                "insufficient",
+            )
+        )
+        assert insufficient["status"] == "READY_CHAMELEON_MACRO_RISK_REPORT_ONLY_DATA_INSUFFICIENT"
+        for path in (root / "insufficient").glob("*.json"):
+            json.loads(
+                path.read_text(encoding="utf-8"),
+                parse_constant=lambda value: (_ for _ in ()).throw(
+                    AssertionError(f"non-standard JSON constant: {value}")
+                ),
+            )
 
 
 def main() -> int:

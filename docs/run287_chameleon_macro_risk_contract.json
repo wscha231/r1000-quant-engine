@@ -92,7 +92,18 @@
       "FRED_GRAPH",
       "LATEST_SNAPSHOT"
     ],
-    "calendar_contract": "NYSE_SESSION_ORDINAL_MUST_BE_CONTIGUOUS_AND_HASH_BOUND"
+    "calendar_contract": "DECISION_ROWS_MUST_MATCH_HASHED_XNYS_DATE_TIME_ORDINAL_ARTIFACT"
+  },
+  "calendar_artifact": {
+    "required_columns": [
+      "decision_date",
+      "decision_time_utc",
+      "nyse_session_ordinal"
+    ],
+    "decision_date_timezone": "America/New_York",
+    "metric_dates_must_equal_contiguous_calendar_slice": true,
+    "context_rows_must_match_calendar_mapping": true,
+    "caller_supplied_hash_without_artifact_is_valid": false
   },
   "axes": {
     "market_breadth": {
@@ -209,6 +220,13 @@
     }
   },
   "context_columns": {
+    "required_provenance": [
+      "source_observation_date",
+      "available_from",
+      "source_kind",
+      "source_sha256",
+      "truth_class"
+    ],
     "optional_numeric": [
       "spy_close",
       "spy_prior_2d_high",

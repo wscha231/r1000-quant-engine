@@ -32,7 +32,13 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONTRACT = ROOT / "docs" / "run287_chameleon_macro_risk_contract.json"
 SCHEMA_VERSION = "run287-chameleon-macro-risk-report-v1"
+CANONICAL_CONTRACT_SEMANTIC_SHA256 = "5cbd1915a12bba77e8114cab00e281cb4956a2e46af1c21612d4bd637c26ebef"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+CALENDAR_REQUIRED_COLUMNS = (
+    "decision_date",
+    "decision_time_utc",
+    "nyse_session_ordinal",
+)
 METRIC_REQUIRED_COLUMNS = (
     "decision_date",
     "decision_time_utc",
@@ -53,7 +59,9 @@ CONTEXT_REQUIRED_COLUMNS = (
     "decision_time_utc",
     "nyse_session_ordinal",
     "calendar_source_sha256",
+    "source_observation_date",
     "available_from",
+    "source_kind",
     "source_sha256",
     "truth_class",
 )
@@ -78,7 +86,12 @@ def sha256_file(path: Path) -> str:
 
 
 def sha256_json(payload: Any) -> str:
-    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=json_default).encode("utf-8")
+    raw = json.dumps(
+        json_safe(payload),
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
 
 
@@ -101,21 +114,37 @@ def git_head() -> str:
     return result.stdout.strip() if result.returncode == 0 else "UNAVAILABLE"
 
 
-def json_default(value: Any) -> Any:
+def json_safe(value: Any) -> Any:
+    """Recursively normalize pandas/NumPy missing values to strict JSON."""
+
+    if value is None or value is pd.NaT or value is pd.NA:
+        return None
+    if isinstance(value, Mapping):
+        return {str(key): json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [json_safe(item) for item in value]
     if isinstance(value, (pd.Timestamp,)):
-        return value.isoformat()
-    if isinstance(value, (np.bool_,)):
+        return None if pd.isna(value) else value.isoformat()
+    if isinstance(value, (np.bool_, bool)):
         return bool(value)
     if isinstance(value, (np.integer,)):
         return int(value)
-    if isinstance(value, (np.floating,)):
-        return None if not np.isfinite(value) else float(value)
+    if isinstance(value, (np.floating, float)):
+        numeric = float(value)
+        return numeric if math.isfinite(numeric) else None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, (str, int)):
+        return value
     raise TypeError(f"not JSON serializable: {type(value).__name__}")
 
 
 def write_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True, default=json_default) + "\n",
+        json.dumps(json_safe(payload), indent=2, sort_keys=True, allow_nan=False) + "\n",
         encoding="utf-8",
     )
 
@@ -132,12 +161,20 @@ def read_table(path: Path) -> pd.DataFrame:
 
 
 def load_contract(path: Path = DEFAULT_CONTRACT) -> dict[str, Any]:
+    if path.resolve() != DEFAULT_CONTRACT.resolve():
+        raise ContractError(f"noncanonical_contract_path:{path}")
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ContractError(f"contract_unreadable:{path}:{exc}") from exc
     if not isinstance(payload, dict):
         raise ContractError("contract_root_not_object")
+    semantic_hash = sha256_json(payload)
+    if semantic_hash != CANONICAL_CONTRACT_SEMANTIC_SHA256:
+        raise ContractError(
+            "canonical_contract_semantic_hash_mismatch:"
+            f"{semantic_hash}!={CANONICAL_CONTRACT_SEMANTIC_SHA256}"
+        )
     validate_contract(payload)
     return payload
 
@@ -212,6 +249,79 @@ def _parse_bool(value: Any, *, label: str) -> bool | None:
     raise ContractError(f"invalid_boolean:{label}:{value}")
 
 
+def validate_calendar(frame: pd.DataFrame, source_sha256: str) -> pd.DataFrame:
+    missing = [column for column in CALENDAR_REQUIRED_COLUMNS if column not in frame.columns]
+    if missing:
+        raise ContractError(f"calendar_missing_columns:{','.join(missing)}")
+    source_hash = str(source_sha256 or "").strip().lower()
+    if not SHA256_RE.fullmatch(source_hash):
+        raise ContractError("invalid_calendar_artifact_sha256")
+    output = frame[list(CALENDAR_REQUIRED_COLUMNS)].copy()
+    output["decision_date"] = pd.to_datetime(output["decision_date"], errors="coerce").dt.normalize()
+    output["decision_time_utc"] = pd.to_datetime(output["decision_time_utc"], errors="coerce", utc=True)
+    output["nyse_session_ordinal"] = pd.to_numeric(output["nyse_session_ordinal"], errors="coerce")
+    if output[["decision_date", "decision_time_utc", "nyse_session_ordinal"]].isna().any().any():
+        raise ContractError("invalid_calendar_row")
+    ordinal_values = output["nyse_session_ordinal"].to_numpy(dtype=float)
+    if not np.equal(ordinal_values, np.floor(ordinal_values)).all():
+        raise ContractError("invalid_calendar_session_ordinal")
+    output["nyse_session_ordinal"] = output["nyse_session_ordinal"].astype(int)
+    if output.duplicated(["decision_date"]).any() or output.duplicated(["nyse_session_ordinal"]).any():
+        raise ContractError("duplicate_calendar_session")
+    output = output.sort_values("decision_date").reset_index(drop=True)
+    if len(output) > 1 and not (output["nyse_session_ordinal"].diff().dropna() == 1).all():
+        raise ContractError("noncontiguous_calendar_session_ordinal")
+    local_session_dates = (
+        output["decision_time_utc"]
+        .dt.tz_convert("America/New_York")
+        .dt.tz_localize(None)
+        .dt.normalize()
+    )
+    if not local_session_dates.equals(output["decision_date"]):
+        raise ContractError("calendar_decision_timestamp_date_mismatch")
+    output.attrs["source_sha256"] = source_hash
+    return output
+
+
+def validate_session_binding(
+    frame: pd.DataFrame,
+    calendar: pd.DataFrame,
+    *,
+    label: str,
+    require_contiguous_slice: bool,
+) -> None:
+    if calendar.empty:
+        raise ContractError("calendar_empty")
+    expected_hash = str(calendar.attrs.get("source_sha256") or "")
+    if not expected_hash or not frame["calendar_source_sha256"].eq(expected_hash).all():
+        raise ContractError(f"{label}_calendar_artifact_hash_mismatch")
+    expected = calendar.set_index("decision_date")
+    observed_sessions = frame[
+        ["decision_date", "decision_time_utc", "nyse_session_ordinal"]
+    ].drop_duplicates()
+    if observed_sessions.duplicated(["decision_date"]).any():
+        raise ContractError(f"multiple_{label}_session_bindings")
+    for row in observed_sessions.itertuples(index=False):
+        if row.decision_date not in expected.index:
+            raise ContractError(f"{label}_decision_date_not_in_calendar:{row.decision_date.date()}")
+        calendar_row = expected.loc[row.decision_date]
+        if (
+            pd.Timestamp(row.decision_time_utc) != pd.Timestamp(calendar_row["decision_time_utc"])
+            or int(row.nyse_session_ordinal) != int(calendar_row["nyse_session_ordinal"])
+        ):
+            raise ContractError(f"{label}_calendar_session_mismatch:{row.decision_date.date()}")
+    if require_contiguous_slice and not observed_sessions.empty:
+        observed_dates = list(observed_sessions.sort_values("decision_date")["decision_date"])
+        expected_dates = list(
+            calendar.loc[
+                calendar["decision_date"].between(observed_dates[0], observed_dates[-1]),
+                "decision_date",
+            ]
+        )
+        if observed_dates != expected_dates:
+            raise ContractError(f"{label}_calendar_session_coverage_mismatch")
+
+
 def _normalize_dates(frame: pd.DataFrame, *, context: bool = False) -> pd.DataFrame:
     output = frame.copy()
     required = CONTEXT_REQUIRED_COLUMNS if context else METRIC_REQUIRED_COLUMNS
@@ -223,16 +333,20 @@ def _normalize_dates(frame: pd.DataFrame, *, context: bool = False) -> pd.DataFr
     output["available_from"] = pd.to_datetime(output["available_from"], errors="coerce", utc=True)
     if output[["decision_date", "decision_time_utc", "available_from"]].isna().any().any():
         raise ContractError("invalid_decision_or_availability_timestamp")
-    if not context:
-        output["source_observation_date"] = pd.to_datetime(
-            output["source_observation_date"], errors="coerce"
-        ).dt.normalize()
-        if output["source_observation_date"].isna().any():
-            raise ContractError("invalid_source_observation_date")
+    output["source_observation_date"] = pd.to_datetime(
+        output["source_observation_date"], errors="coerce"
+    ).dt.normalize()
+    if output["source_observation_date"].isna().any():
+        raise ContractError("invalid_source_observation_date")
     return output
 
 
-def validate_metrics(frame: pd.DataFrame, contract: Mapping[str, Any], as_of: pd.Timestamp) -> pd.DataFrame:
+def validate_metrics(
+    frame: pd.DataFrame,
+    contract: Mapping[str, Any],
+    as_of: pd.Timestamp,
+    calendar: pd.DataFrame,
+) -> pd.DataFrame:
     output = _normalize_dates(frame)
     output = output[output["decision_date"] <= as_of].copy()
     if output.empty:
@@ -290,12 +404,12 @@ def validate_metrics(frame: pd.DataFrame, contract: Mapping[str, Any], as_of: pd
     time_counts = output.groupby("decision_date")["decision_time_utc"].nunique()
     if (time_counts != 1).any():
         raise ContractError("multiple_decision_times_for_metric_date")
-    session_rows = output[["decision_date", "nyse_session_ordinal"]].drop_duplicates()
-    if session_rows.duplicated(["decision_date"]).any() or session_rows.duplicated(["nyse_session_ordinal"]).any():
-        raise ContractError("nonunique_nyse_session_mapping")
-    session_rows = session_rows.sort_values("decision_date")
-    if len(session_rows) > 1 and not (session_rows["nyse_session_ordinal"].diff().dropna() == 1).all():
-        raise ContractError("noncontiguous_nyse_session_ordinal")
+    validate_session_binding(
+        output,
+        calendar,
+        label="metric",
+        require_contiguous_slice=True,
+    )
     return output.sort_values(["decision_date", "axis", "component"]).reset_index(drop=True)
 
 
@@ -305,6 +419,7 @@ def validate_context(
     as_of: pd.Timestamp,
     metric_decision_times: Mapping[pd.Timestamp, pd.Timestamp],
     metric_sessions: Mapping[pd.Timestamp, tuple[int, str]],
+    calendar: pd.DataFrame,
 ) -> pd.DataFrame:
     if frame is None or frame.empty:
         return pd.DataFrame(columns=list(CONTEXT_REQUIRED_COLUMNS))
@@ -314,6 +429,9 @@ def validate_context(
         raise ContractError("duplicate_context_decision_date")
     if (output["available_from"] > output["decision_time_utc"]).any():
         raise ContractError("future_available_from_context_row")
+    if (output["source_observation_date"] > output["decision_date"]).any():
+        raise ContractError("future_source_observation_date_context_row")
+    output["source_kind"] = output["source_kind"].astype(str).str.strip()
     output["source_sha256"] = output["source_sha256"].astype(str).str.strip().str.lower()
     output["calendar_source_sha256"] = output["calendar_source_sha256"].astype(str).str.strip().str.lower()
     output["truth_class"] = output["truth_class"].astype(str).str.strip().str.upper()
@@ -328,6 +446,20 @@ def validate_context(
         raise ContractError("invalid_context_calendar_source_sha256")
     if not set(output["truth_class"]).issubset(set(contract["truth_classes_in_quality_order"])):
         raise ContractError("invalid_context_truth_class")
+    forbidden_tokens = contract.get("source_truth_rules", {}).get(
+        "pit_verified_forbidden_source_kind_tokens", []
+    )
+    forbidden_pit = output["truth_class"].eq("PIT_VERIFIED") & output["source_kind"].str.upper().map(
+        lambda value: any(str(token).upper() in value for token in forbidden_tokens)
+    )
+    if forbidden_pit.any():
+        raise ContractError("current_vintage_context_cannot_be_pit_verified")
+    validate_session_binding(
+        output,
+        calendar,
+        label="context",
+        require_contiguous_slice=False,
+    )
     for row in output[["decision_date", "decision_time_utc"]].itertuples(index=False):
         expected = metric_decision_times.get(row.decision_date)
         if expected is not None and pd.Timestamp(expected) != pd.Timestamp(row.decision_time_utc):
@@ -541,9 +673,8 @@ def apply_state_hysteresis(daily: pd.DataFrame, contract: Mapping[str, Any]) -> 
     entry_required = int(contract["state_machine"]["entry_confirmation_sessions"])
     release_required = int(contract["state_machine"]["release_confirmation_sessions"])
     current = "DATA_INSUFFICIENT"
-    entry_candidate: str | None = None
-    entry_count = 0
-    release_count = 0
+    entry_window: list[int] = []
+    release_window: list[int] = []
     effective: list[str] = []
     entry_counts: list[int] = []
     release_counts: list[int] = []
@@ -553,44 +684,36 @@ def apply_state_hysteresis(daily: pd.DataFrame, contract: Mapping[str, Any]) -> 
         previous = current
         observed = str(row.observed_state)
         if not bool(row.state_change_allowed) or observed == "DATA_INSUFFICIENT":
-            entry_candidate = None
-            entry_count = 0
-            release_count = 0
-        elif current == "DATA_INSUFFICIENT":
-            if entry_candidate == observed:
-                entry_count += 1
-            else:
-                entry_candidate = observed
-                entry_count = 1
-            if entry_count >= entry_required:
-                current = observed
-                entry_candidate = None
-                entry_count = 0
-        elif severity[observed] > severity[current]:
-            release_count = 0
-            if entry_candidate == observed:
-                entry_count += 1
-            else:
-                entry_candidate = observed
-                entry_count = 1
-            if entry_count >= entry_required:
-                current = observed
-                entry_candidate = None
-                entry_count = 0
-        elif severity[observed] < severity[current]:
-            entry_candidate = None
-            entry_count = 0
-            release_count += 1
-            if release_count >= release_required:
-                current = observed
-                release_count = 0
+            entry_window = []
+            release_window = []
         else:
-            entry_candidate = None
-            entry_count = 0
-            release_count = 0
+            current_severity = severity.get(current, -1)
+            observed_severity = severity[observed]
+            if observed_severity > current_severity:
+                release_window = []
+                entry_window.append(observed_severity)
+                entry_window = entry_window[-entry_required:]
+                if len(entry_window) >= entry_required:
+                    # Enter the lowest boundary sustained by every session in
+                    # the confirmation window. Alert/defense alternation must
+                    # therefore confirm at least alert instead of resetting.
+                    current = order[min(entry_window)]
+                    entry_window = []
+            elif observed_severity < current_severity:
+                entry_window = []
+                release_window.append(observed_severity)
+                release_window = release_window[-release_required:]
+                if len(release_window) >= release_required:
+                    # Release only to the highest severity that remained
+                    # breached throughout the full confirmation window.
+                    current = order[max(release_window)]
+                    release_window = []
+            else:
+                entry_window = []
+                release_window = []
         effective.append(current)
-        entry_counts.append(entry_count)
-        release_counts.append(release_count)
+        entry_counts.append(len(entry_window))
+        release_counts.append(len(release_window))
         changed.append(current != previous)
         if bool(row.portfolio_fragility) and current in severity:
             confidence_states.append(order[min(severity[current] + 1, len(order) - 1)])
@@ -678,7 +801,7 @@ def build_sentiment_history(
             else:
                 if greed_count < int(greed_contract["release_below_condition_count"]):
                     greed_release += 1
-                elif greed_count >= int(greed_contract["minimum_true_conditions"]):
+                else:
                     greed_release = 0
                 if greed_release >= int(greed_contract["release_confirmation_sessions"]):
                     greed_active = False
@@ -802,6 +925,7 @@ def _safety_payload(contract: Mapping[str, Any]) -> dict[str, Any]:
 def blocked_payload(
     output_dir: Path,
     contract_path: Path,
+    calendar_path: Path,
     input_path: Path,
     context_path: Path | None,
     error: str,
@@ -829,6 +953,7 @@ def blocked_payload(
         "schema_version": SCHEMA_VERSION,
         "status": BLOCKED_STATUS,
         "blockers": [error],
+        "calendar_path": str(calendar_path),
         "input_metric_path": str(input_path),
         "input_context_path": str(context_path) if context_path else None,
         **safety,
@@ -853,6 +978,7 @@ def cleanup_blocked_outputs(output_dir: Path) -> None:
 
 def build(args: argparse.Namespace) -> dict[str, Any]:
     contract_path = repo_path(args.contract)
+    calendar_path = repo_path(args.calendar)
     input_path = repo_path(args.input_metrics)
     context_path = repo_path(args.input_context) if str(args.input_context or "").strip() else None
     output_dir = repo_path(args.output_dir)
@@ -861,23 +987,35 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     output_dir.mkdir(parents=True)
     try:
         contract = load_contract(contract_path)
+        if not calendar_path.is_file():
+            raise ContractError(f"calendar_input_missing:{calendar_path}")
         if not input_path.is_file():
             raise ContractError(f"metric_input_missing:{input_path}")
         if context_path is not None and not context_path.is_file():
             raise ContractError(f"context_input_missing:{context_path}")
-        before = {"metrics": sha256_file(input_path)}
+        before = {
+            "calendar": sha256_file(calendar_path),
+            "metrics": sha256_file(input_path),
+        }
         if context_path is not None:
             before["context"] = sha256_file(context_path)
         raw_metrics = read_table(input_path)
-        requested_as_of = pd.to_datetime(args.as_of, errors="coerce").normalize() if str(args.as_of or "").strip() else None
-        if requested_as_of is None or pd.isna(requested_as_of):
+        calendar = validate_calendar(read_table(calendar_path), before["calendar"])
+        as_of_text = str(args.as_of or "").strip()
+        requested_as_of = pd.to_datetime(as_of_text, errors="coerce") if as_of_text else None
+        if as_of_text and pd.isna(requested_as_of):
+            raise ContractError(f"invalid_explicit_as_of:{as_of_text}")
+        if requested_as_of is None:
             parsed_dates = pd.to_datetime(raw_metrics.get("decision_date"), errors="coerce")
             if parsed_dates.isna().all():
                 raise ContractError("metric_decision_dates_invalid")
             as_of = parsed_dates.max().normalize()
         else:
-            as_of = requested_as_of
-        metrics = validate_metrics(raw_metrics, contract, as_of)
+            requested_timestamp = pd.Timestamp(requested_as_of)
+            if requested_timestamp.tzinfo is not None:
+                requested_timestamp = requested_timestamp.tz_convert("UTC").tz_localize(None)
+            as_of = requested_timestamp.normalize()
+        metrics = validate_metrics(raw_metrics, contract, as_of, calendar)
         decision_times = {
             date: group["decision_time_utc"].iloc[0]
             for date, group in metrics.groupby("decision_date")
@@ -896,6 +1034,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             as_of,
             decision_times,
             metric_sessions,
+            calendar,
         )
         component_scores = compute_component_percentiles(metrics, contract)
         axis_scores = aggregate_axes(component_scores, contract)
@@ -949,8 +1088,12 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         outputs["market_state"] = fingerprint(output_dir / "market_state.json")
         sentiment_payload = {
             "schema_version": "SentimentOverlay-v1",
+            **{
+                key: value
+                for key, value in latest_sentiment.items()
+                if key != "decision_date"
+            },
             "decision_date": latest_date.date().isoformat(),
-            **latest_sentiment,
             "advisory_only": True,
             "trade_intent_generated": False,
         }
@@ -960,6 +1103,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "schema_version": "BacktestTruthManifest-v1",
             "decision_date": latest_date.date().isoformat(),
             "truth_class": truth_class,
+            "calendar_input": fingerprint(calendar_path),
             "metric_input": fingerprint(input_path),
             "context_input": fingerprint(context_path) if context_path is not None else None,
             "contract": fingerprint(contract_path),
@@ -974,7 +1118,10 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         }
         write_json(output_dir / "backtest_truth_manifest.json", truth_payload)
         outputs["backtest_truth_manifest"] = fingerprint(output_dir / "backtest_truth_manifest.json")
-        after = {"metrics": sha256_file(input_path)}
+        after = {
+            "calendar": sha256_file(calendar_path),
+            "metrics": sha256_file(input_path),
+        }
         if context_path is not None:
             after["context"] = sha256_file(context_path)
         if before != after:
@@ -1011,6 +1158,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "inputs": {
                 "metrics": fingerprint(input_path),
                 "context": fingerprint(context_path) if context_path is not None else None,
+                "calendar": fingerprint(calendar_path),
                 "contract": fingerprint(contract_path),
             },
             "outputs": outputs,
@@ -1022,7 +1170,14 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         return payload
     except ContractError as exc:
         cleanup_blocked_outputs(output_dir)
-        return blocked_payload(output_dir, contract_path, input_path, context_path, str(exc))
+        return blocked_payload(
+            output_dir,
+            contract_path,
+            calendar_path,
+            input_path,
+            context_path,
+            str(exc),
+        )
 
 
 def render_report(payload: Mapping[str, Any]) -> str:
@@ -1051,6 +1206,7 @@ def render_report(payload: Mapping[str, Any]) -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--calendar", required=True)
     parser.add_argument("--input-metrics", required=True)
     parser.add_argument("--input-context", default="")
     parser.add_argument("--as-of", default="")
@@ -1061,7 +1217,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     payload = build(parse_args())
-    print(json.dumps(payload, indent=2, sort_keys=True, default=json_default))
+    print(json.dumps(json_safe(payload), indent=2, sort_keys=True, allow_nan=False))
     return 0 if str(payload.get("status", "")).startswith("READY_") else 2
 
 

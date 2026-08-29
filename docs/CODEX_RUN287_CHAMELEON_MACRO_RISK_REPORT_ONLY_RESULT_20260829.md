@@ -35,8 +35,12 @@ any real outcome test and may not be tuned from a favored crisis episode.
 
 ## Input contracts
 
-The metric ledger is long-form, one row per decision date and component. Every
-row requires:
+The metric ledger is long-form, one row per decision date and component. A
+separate hashed XNYS calendar artifact supplies the canonical
+`decision_date` / `decision_time_utc` / `nyse_session_ordinal` mapping. Metric
+dates must equal the complete calendar slice between their first and last
+decision; renumbering after an omitted session cannot pass. Every metric row
+requires:
 
 - `decision_date` and one common `decision_time_utc` for that date;
 - a contiguous NYSE session ordinal and immutable calendar-source hash, so
@@ -50,7 +54,10 @@ row requires:
 The optional daily context table carries SPY recovery levels, breadth and HY
 confirmation, market-new-low and breadth-narrowing flags, and the portfolio
 fundamental-weakness ratio. Context availability must not exceed the decision
-time and must match the metric decision timestamp.
+time and must match both the metric decision timestamp and hashed calendar
+mapping. Context rows require the same observation date, source kind, source
+hash, and truth class as metric rows; current-vintage context cannot claim
+`PIT_VERIFIED`.
 
 The engine performs no network collection. FRED/ALFRED, Cboe, breadth, credit,
 options, and cross-asset source normalization is a separate data-producer
@@ -90,6 +97,24 @@ hard blocked artifact.
 - five-session greed entry/release and ordered fear-recovery stages;
 - deterministic semantic outputs, source immutability, null target weights,
   and future-availability hard failure.
+
+## Exact-head review follow-up
+
+The first exact-head Codex review found nine valid fail-closed gaps. The final
+implementation now:
+
+- binds every decision row to the bytes and exact mapping of a supplied XNYS
+  calendar artifact;
+- rejects decision timestamps that belong to another New York session date;
+- applies metric-equivalent observation/source/truth rules to context rows;
+- confirms elevated and released severity boundaries across alternating
+  observed labels instead of resetting on every label change;
+- requires five consecutive below-three-condition sessions to release greed;
+- blocks invalid explicit `--as-of` values;
+- accepts only the canonical contract path and frozen semantic hash;
+- serializes every missing/non-finite pandas or NumPy scalar as strict JSON
+  `null`; and
+- preserves date-only `decision_date` in the sentiment snapshot.
 
 ## Remaining gates
 

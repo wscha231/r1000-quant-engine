@@ -4551,6 +4551,15 @@ Expected contract:
   accumulate report-only evidence before any cash, hedge, target, or order
   A/B, and current-vintage macro data cannot become historical PIT evidence by
   labeling.
+- Exact-head review follow-up: Caller-supplied session ordinals and a hash
+  string are not a calendar contract. The engine now consumes the hashed XNYS
+  artifact itself and validates the complete date/time/ordinal slice. Context
+  evidence now carries the same observation/source/truth provenance as metric
+  evidence. Alternating severity labels confirm the lowest continuously
+  breached entry boundary, while greed release resets unless the below-three
+  condition is consecutive. Strict JSON null normalization, canonical
+  contract semantic pinning, explicit-as-of failure, and date-only snapshot
+  schemas close the remaining audit gaps.
 - Next action: Build a separate provenance-complete FRED/ALFRED, Cboe,
   breadth, credit, options, and cross-asset normalizer, then collect shadow
   states. Portfolio routing, holding exits, and 13F/Form 4 discovery remain
