@@ -1,0 +1,257 @@
+{
+  "schema_version": "run287-chameleon-macro-risk-contract-v1",
+  "causal_family": "pit_ten_axis_macro_risk_report_only",
+  "mode": "RESEARCH_ONLY_REPORT_ONLY",
+  "description": "Decision-time PIT market-risk observation contract. It may classify market and sentiment state but may not select securities, size positions, write targets, create orders, mutate ledgers, or promote a policy.",
+  "percentile": {
+    "window_years": 5,
+    "maximum_sessions": 1260,
+    "minimum_observations": 252,
+    "method": "empirical_midrank_including_current_decision_observation",
+    "red_percentile": 80.0,
+    "greed_tail_percentile": 10.0
+  },
+  "readiness": {
+    "minimum_ready_axes": 8,
+    "required_axes": [
+      "market_breadth",
+      "volatility",
+      "credit"
+    ],
+    "missing_policy": "NO_SCORE_CARRY_FORWARD_KEEP_EFFECTIVE_STATE_FREEZE_NEW_BUYS",
+    "composite_method": "AVAILABLE_AXIS_WEIGHT_NORMALIZED_ONLY_AFTER_READINESS_GATE"
+  },
+  "state_machine": {
+    "entry_confirmation_sessions": 2,
+    "release_confirmation_sessions": 5,
+    "states_in_severity_order": [
+      "NORMAL",
+      "RISK_ALERT",
+      "RISK_DEFENSE",
+      "EXTREME_FEAR"
+    ],
+    "normal": {
+      "maximum_score_exclusive": 60.0,
+      "maximum_red_axes_exclusive": 4
+    },
+    "risk_alert": {
+      "minimum_score": 60.0,
+      "minimum_red_axes": 4,
+      "logic": "OR"
+    },
+    "risk_defense": {
+      "minimum_score": 75.0,
+      "minimum_red_axes": 5,
+      "logic": "AND"
+    },
+    "extreme_fear": {
+      "minimum_score": 90.0,
+      "minimum_red_axes": 7,
+      "minimum_red_domains": 4,
+      "logic": "AND"
+    },
+    "portfolio_fragility_threshold": 0.30,
+    "portfolio_fragility_effect": "REPORT_DEFENSE_CONFIDENCE_ONE_LEVEL_HIGHER_ONLY"
+  },
+  "sentiment_overlay": {
+    "states": [
+      "NONE",
+      "EXTREME_FEAR",
+      "FEAR_RECOVERY",
+      "EXTREME_GREED"
+    ],
+    "extreme_greed": {
+      "minimum_true_conditions": 4,
+      "entry_confirmation_sessions": 5,
+      "release_below_condition_count": 3,
+      "release_confirmation_sessions": 5,
+      "conditions": [
+        "vix_lower_10pct",
+        "hy_and_ig_spreads_lower_10pct",
+        "spy_ma200_distance_upper_10pct",
+        "equity_put_call_lower_10pct",
+        "index_high_breadth_narrowing"
+      ]
+    },
+    "fear_recovery": {
+      "stage_1": "risk_score_peak_drop_at_least_5_and_spy_recovers_prior_2d_high",
+      "stage_2": "breadth_improves_3_sessions_and_hy_spread_widening_stops",
+      "stage_3": "spy_recovers_ma20_or_leadership_breadth_confirms_2_sessions",
+      "pause": "hy_spread_widens_or_market_makes_new_low",
+      "same_session_multi_stage_advance_allowed": false
+    }
+  },
+  "truth_classes_in_quality_order": [
+    "FREE_PROXY",
+    "FORWARD_PIT",
+    "PIT_VERIFIED"
+  ],
+  "source_truth_rules": {
+    "pit_verified_forbidden_source_kind_tokens": [
+      "CURRENT_VINTAGE",
+      "FRED_GRAPH",
+      "LATEST_SNAPSHOT"
+    ],
+    "calendar_contract": "DECISION_ROWS_MUST_MATCH_HASHED_XNYS_DATE_TIME_ORDINAL_ARTIFACT"
+  },
+  "calendar_artifact": {
+    "required_columns": [
+      "decision_date",
+      "decision_time_utc",
+      "nyse_session_ordinal"
+    ],
+    "decision_date_timezone": "America/New_York",
+    "metric_dates_must_equal_contiguous_calendar_slice": true,
+    "context_rows_must_match_calendar_mapping": true,
+    "caller_supplied_hash_without_artifact_is_valid": false
+  },
+  "axes": {
+    "market_breadth": {
+      "weight": 0.15,
+      "red_domain": "equity_internal",
+      "minimum_ready_components": 2,
+      "components": {
+        "pct_above_ma50": "LOW",
+        "pct_above_ma200": "LOW",
+        "new_high_minus_new_low": "LOW",
+        "adv_decl_dollar_volume_ratio": "LOW"
+      }
+    },
+    "trend_drawdown": {
+      "weight": 0.15,
+      "red_domain": "equity_internal",
+      "minimum_ready_components": 3,
+      "components": {
+        "spy_return_5d": "LOW",
+        "spy_return_20d": "LOW",
+        "spy_return_63d": "LOW",
+        "spy_above_ma200": "LOW",
+        "spy_ma200_distance": "LOW",
+        "drawdown_velocity": "HIGH"
+      }
+    },
+    "volatility": {
+      "weight": 0.10,
+      "red_domain": "volatility",
+      "minimum_ready_components": 2,
+      "components": {
+        "vix_level": "HIGH",
+        "vix_change_5d": "HIGH",
+        "vix_percentile_63d": "HIGH"
+      }
+    },
+    "volatility_structure": {
+      "weight": 0.10,
+      "red_domain": "volatility",
+      "minimum_ready_components": 2,
+      "components": {
+        "vix_vix3m_inversion": "HIGH",
+        "vvix_level": "HIGH",
+        "volatility_spike_breadth": "HIGH"
+      }
+    },
+    "credit": {
+      "weight": 0.15,
+      "red_domain": "credit_liquidity",
+      "minimum_ready_components": 3,
+      "components": {
+        "hy_oas_level": "HIGH",
+        "hy_oas_change_5d": "HIGH",
+        "hy_oas_change_20d": "HIGH",
+        "ig_oas_level": "HIGH",
+        "ig_oas_change_20d": "HIGH",
+        "hyg_lqd_weakness": "HIGH"
+      }
+    },
+    "rates_liquidity": {
+      "weight": 0.10,
+      "red_domain": "credit_liquidity",
+      "minimum_ready_components": 3,
+      "components": {
+        "curve_2y10y_stress": "HIGH",
+        "curve_3m10y_stress": "HIGH",
+        "real_yield_shock": "HIGH",
+        "fed_assets_contraction": "HIGH",
+        "tga_drain": "HIGH",
+        "net_liquidity_contraction": "HIGH"
+      }
+    },
+    "options_sentiment": {
+      "weight": 0.05,
+      "red_domain": "sentiment",
+      "minimum_ready_components": 2,
+      "components": {
+        "equity_put_call": "HIGH",
+        "index_put_call": "HIGH",
+        "put_call_change": "HIGH"
+      }
+    },
+    "cross_asset": {
+      "weight": 0.05,
+      "red_domain": "cross_asset",
+      "minimum_ready_components": 2,
+      "components": {
+        "treasury_risk_off_rotation": "HIGH",
+        "dollar_risk_off_rotation": "HIGH",
+        "gold_risk_off_rotation": "HIGH",
+        "high_yield_risk_off_rotation": "HIGH"
+      }
+    },
+    "correlation_dispersion": {
+      "weight": 0.05,
+      "red_domain": "equity_internal",
+      "minimum_ready_components": 2,
+      "components": {
+        "stock_correlation": "HIGH",
+        "sector_return_dispersion": "HIGH",
+        "index_concentration": "HIGH"
+      }
+    },
+    "economic_stress": {
+      "weight": 0.10,
+      "red_domain": "economic",
+      "minimum_ready_components": 2,
+      "components": {
+        "initial_claims_stress": "HIGH",
+        "nfci_stress": "HIGH",
+        "employment_stress": "HIGH",
+        "economic_diffusion_stress": "HIGH"
+      }
+    }
+  },
+  "context_columns": {
+    "required_provenance": [
+      "source_observation_date",
+      "available_from",
+      "source_kind",
+      "source_sha256",
+      "truth_class"
+    ],
+    "optional_numeric": [
+      "spy_close",
+      "spy_prior_2d_high",
+      "spy_ma20",
+      "portfolio_fundamental_weak_ratio"
+    ],
+    "optional_boolean": [
+      "breadth_improving",
+      "hy_spread_widening",
+      "leadership_breadth_confirmed",
+      "market_new_low",
+      "index_new_high_breadth_narrowing"
+    ]
+  },
+  "safety": {
+    "report_only": true,
+    "stock_alpha_allowed": false,
+    "selector_execution_allowed": false,
+    "target_book_write_allowed": false,
+    "trade_intent_write_allowed": false,
+    "order_generation_allowed": false,
+    "ledger_mutation_allowed": false,
+    "fullrun_allowed": false,
+    "production_activation_allowed": false,
+    "live_trading_allowed": false,
+    "automatic_promotion_allowed": false
+  }
+}

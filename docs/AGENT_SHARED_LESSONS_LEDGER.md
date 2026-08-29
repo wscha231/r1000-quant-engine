@@ -4531,3 +4531,48 @@ Expected contract:
   `FROZEN_PROTECTED_PUBLICATION_COMMIT` to that exact ancestor in a follow-up
   verifier commit. Regeneration, a synthetic merge SHA, or an uncommitted
   worktree hash grants no trust.
+
+## 2026-08-29 - Ten-axis macro diagnosis must remain separate from portfolio policy
+
+- Agent: Codex GPT-5.6.
+- Branch: `codex/chameleon-macro-risk-v2-20260829`.
+- Context: Chameleon Engine v2 requires ten-axis risk, extreme fear recovery,
+  and extreme greed detection, while earlier fixed VIX/cash floors and the
+  canonical crisis/re-entry policy lost substantial OOS CAGR.
+- Result: Added a decision-time PIT, five-year trailing-percentile,
+  report-only engine with exact 10-axis weights, an 8/10 plus breadth/VIX/
+  credit readiness gate, two-session entry, five-session release, ordered
+  fear recovery, greed hysteresis, immutable source hashes, truth classes, and
+  a complete nonexecution safety envelope. The omitted red-axis definition is
+  preregistered at risk percentile 80 before real outcome inspection.
+- Reusable lesson: Diagnosis and action are different causal families. Missing
+  axes may freeze new buys for review but must not fabricate or carry a risk
+  score; a single VIX event cannot create defense. A new multi-axis state must
+  accumulate report-only evidence before any cash, hedge, target, or order
+  A/B, and current-vintage macro data cannot become historical PIT evidence by
+  labeling.
+- Exact-head review follow-up: Caller-supplied session ordinals and a hash
+  string are not a calendar contract. The engine now consumes the hashed XNYS
+  artifact itself and validates the complete date/time/ordinal slice. Context
+  evidence now carries the same observation/source/truth provenance as metric
+  evidence. Alternating severity labels confirm the lowest continuously
+  breached entry boundary, while greed release resets unless the below-three
+  condition is consecutive. Strict JSON null normalization, canonical
+  contract semantic pinning, explicit-as-of failure, and date-only snapshot
+  schemas close the remaining audit gaps.
+- Next action: Build a separate provenance-complete FRED/ALFRED, Cboe,
+  breadth, credit, options, and cross-asset normalizer, then collect shadow
+  states. Portfolio routing, holding exits, and 13F/Form 4 discovery remain
+  separate one-family changes.
+- Do-not-repeat: Do not connect the new state directly to fixed VIX cash
+  floors, broad gross floors, the rejected crisis/re-entry policy, stock-alpha
+  scores, target books, orders, or ledgers. Do not tune red or state thresholds
+  after inspecting 2020/2022 outcomes.
+- Evidence files:
+  - `docs/run287_chameleon_macro_risk_contract.json`
+  - `tools/build_run287_chameleon_macro_risk.py`
+  - `tests/run287_chameleon_macro_risk_smoke.py`
+  - `docs/CODEX_RUN287_CHAMELEON_MACRO_RISK_REPORT_ONLY_RESULT_20260829.md`
+- Fullrun executed: false. Workflow dispatched or rerun: false. Target, order,
+  TradeIntent, ledger, accepted-head, production, live trading, and automatic
+  promotion state mutated: false.
