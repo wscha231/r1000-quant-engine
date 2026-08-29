@@ -38,7 +38,8 @@ GIT_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 DATE_ONLY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 EXPLICIT_OFFSET_TIMESTAMP_RE = re.compile(
     r"^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}"
-    r"(?::\d{2}(?:\.\d{1,9})?)?(?:[Zz]|[+-]\d{2}:\d{2})$"
+    r"(?::\d{2}(?:\.\d{1,9})?)?"
+    r"(?:[Zz]|(?P<offset_sign>[+-])(?P<offset_hour>\d{2}):(?P<offset_minute>\d{2}))$"
 )
 CALENDAR_REQUIRED_COLUMNS = (
     "decision_date",
@@ -219,11 +220,22 @@ def parse_explicit_offset_timestamp(values: pd.Series, label: str) -> pd.Series:
         try:
             if isinstance(value, str):
                 text = value.strip()
-                if (
-                    not EXPLICIT_OFFSET_TIMESTAMP_RE.fullmatch(text)
-                    or text.endswith("-00:00")
-                ):
+                match = EXPLICIT_OFFSET_TIMESTAMP_RE.fullmatch(text)
+                if match is None:
                     raise ContractError(f"invalid_{label}")
+                if match.group("offset_hour") is not None:
+                    offset_hour = int(match.group("offset_hour"))
+                    offset_minute = int(match.group("offset_minute"))
+                    if (
+                        offset_hour > 23
+                        or offset_minute > 59
+                        or (
+                            match.group("offset_sign") == "-"
+                            and offset_hour == 0
+                            and offset_minute == 0
+                        )
+                    ):
+                        raise ContractError(f"invalid_{label}")
                 parsed = pd.Timestamp(text)
             else:
                 parsed = pd.Timestamp(value)

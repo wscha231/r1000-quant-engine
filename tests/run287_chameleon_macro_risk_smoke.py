@@ -814,6 +814,26 @@ def test_build_is_deterministic_report_only_and_future_data_hard_fails() -> None
             "invalid_available_from_timestamp"
         ]
 
+        invalid_offset_path = root / "invalid_offset.csv"
+        invalid_offset = metric_fixture(dates, calendar_hash=calendar_hash)
+        invalid_offset.loc[
+            invalid_offset.index[-1],
+            "available_from",
+        ] = f"{dates[-1].date().isoformat()}T19:00:00+05:99"
+        invalid_offset.to_csv(invalid_offset_path, index=False)
+        invalid_offset_result = risk.build(
+            build_args(
+                root,
+                calendar_path,
+                invalid_offset_path,
+                context_path,
+                "invalid-offset-available",
+            )
+        )
+        assert invalid_offset_result["blockers"] == [
+            "invalid_available_from_timestamp"
+        ]
+
         invalid_as_of = risk.build(
             build_args(
                 root,
