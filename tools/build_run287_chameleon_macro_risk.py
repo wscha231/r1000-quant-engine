@@ -357,6 +357,8 @@ def validate_metrics(
     output["component"] = output["component"].astype(str).str.strip()
     output["risk_direction"] = output["risk_direction"].astype(str).str.strip().str.upper()
     output["source_kind"] = output["source_kind"].astype(str).str.strip()
+    if output["source_kind"].str.lower().isin({"", "nan", "none", "null", "nat", "<na>"}).any():
+        raise ContractError("missing_metric_source_kind")
     output["source_sha256"] = output["source_sha256"].astype(str).str.strip().str.lower()
     output["calendar_source_sha256"] = output["calendar_source_sha256"].astype(str).str.strip().str.lower()
     output["truth_class"] = output["truth_class"].astype(str).str.strip().str.upper()
@@ -432,6 +434,8 @@ def validate_context(
     if (output["source_observation_date"] > output["decision_date"]).any():
         raise ContractError("future_source_observation_date_context_row")
     output["source_kind"] = output["source_kind"].astype(str).str.strip()
+    if output["source_kind"].str.lower().isin({"", "nan", "none", "null", "nat", "<na>"}).any():
+        raise ContractError("missing_context_source_kind")
     output["source_sha256"] = output["source_sha256"].astype(str).str.strip().str.lower()
     output["calendar_source_sha256"] = output["calendar_source_sha256"].astype(str).str.strip().str.lower()
     output["truth_class"] = output["truth_class"].astype(str).str.strip().str.upper()
@@ -749,8 +753,12 @@ def _trailing_context_true(
     position: int,
     count: int,
     predicate,
+    *,
+    after_position: int | None = None,
 ) -> bool:
     if position + 1 < count:
+        return False
+    if after_position is not None and position - after_position < count:
         return False
     window = dates[position - count + 1 : position + 1]
     return all(bool(predicate(date)) for date in window)
@@ -773,6 +781,7 @@ def build_sentiment_history(
     fear_episode = False
     fear_peak = math.nan
     recovery_stage = 0
+    recovery_stage_started_position: int | None = None
     rows: list[dict[str, Any]] = []
     for position, state_row in enumerate(market_states.sort_values("decision_date").itertuples(index=False)):
         date = state_row.decision_date
@@ -818,8 +827,14 @@ def build_sentiment_history(
                 fear_episode = True
                 fear_peak = risk_score
                 recovery_stage = 0
+                recovery_stage_started_position = None
             elif math.isfinite(risk_score):
                 fear_peak = max(fear_peak, risk_score) if math.isfinite(fear_peak) else risk_score
+        elif effective == "NORMAL" and fear_episode:
+            fear_episode = False
+            fear_peak = math.nan
+            recovery_stage = 0
+            recovery_stage_started_position = None
         paused = bool(
             _context_value(context_by_date, date, "hy_spread_widening") is True
             or _context_value(context_by_date, date, "market_new_low") is True
@@ -831,6 +846,7 @@ def build_sentiment_history(
                 prior_high = _context_value(context_by_date, date, "spy_prior_2d_high")
                 if spy is not None and prior_high is not None and fear_peak - risk_score >= 5.0 and float(spy) >= float(prior_high):
                     recovery_stage = 1
+                    recovery_stage_started_position = position
                     stage_changed = True
             elif recovery_stage == 1:
                 breadth_three = _trailing_context_true(
@@ -838,10 +854,12 @@ def build_sentiment_history(
                     position,
                     3,
                     lambda item: _context_value(context_by_date, item, "breadth_improving") is True,
+                    after_position=recovery_stage_started_position,
                 )
                 hy_widening = _context_value(context_by_date, date, "hy_spread_widening")
                 if breadth_three and hy_widening is False:
                     recovery_stage = 2
+                    recovery_stage_started_position = position
                     stage_changed = True
             elif recovery_stage == 2:
                 recovered_two = _trailing_context_true(
@@ -857,9 +875,11 @@ def build_sentiment_history(
                             >= float(_context_value(context_by_date, item, "spy_ma20"))
                         )
                     ),
+                    after_position=recovery_stage_started_position,
                 )
                 if recovered_two:
                     recovery_stage = 3
+                    recovery_stage_started_position = position
                     stage_changed = True
 
         if effective == "EXTREME_FEAR":
@@ -887,10 +907,6 @@ def build_sentiment_history(
                 **greed_values,
             }
         )
-        if fear_episode and recovery_stage == 3 and effective == "NORMAL":
-            fear_episode = False
-            fear_peak = math.nan
-            recovery_stage = 0
     return pd.DataFrame(rows)
 
 
@@ -986,27 +1002,38 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         raise FileExistsError(f"output directory already exists: {output_dir}")
     output_dir.mkdir(parents=True)
     try:
-        contract = load_contract(contract_path)
+        if not contract_path.is_file():
+            raise ContractError(f"contract_input_missing:{contract_path}")
         if not calendar_path.is_file():
             raise ContractError(f"calendar_input_missing:{calendar_path}")
         if not input_path.is_file():
             raise ContractError(f"metric_input_missing:{input_path}")
         if context_path is not None and not context_path.is_file():
             raise ContractError(f"context_input_missing:{context_path}")
-        before = {
-            "calendar": sha256_file(calendar_path),
-            "metrics": sha256_file(input_path),
+        input_fingerprints_before = {
+            "contract": fingerprint(contract_path),
+            "calendar": fingerprint(calendar_path),
+            "metrics": fingerprint(input_path),
         }
         if context_path is not None:
-            before["context"] = sha256_file(context_path)
+            input_fingerprints_before["context"] = fingerprint(context_path)
+        contract = load_contract(contract_path)
         raw_metrics = read_table(input_path)
-        calendar = validate_calendar(read_table(calendar_path), before["calendar"])
+        missing_metric_columns = [
+            column for column in METRIC_REQUIRED_COLUMNS if column not in raw_metrics.columns
+        ]
+        if missing_metric_columns:
+            raise ContractError(f"missing_columns:{','.join(missing_metric_columns)}")
+        calendar = validate_calendar(
+            read_table(calendar_path),
+            input_fingerprints_before["calendar"]["sha256"],
+        )
         as_of_text = str(args.as_of or "").strip()
         requested_as_of = pd.to_datetime(as_of_text, errors="coerce") if as_of_text else None
         if as_of_text and pd.isna(requested_as_of):
             raise ContractError(f"invalid_explicit_as_of:{as_of_text}")
         if requested_as_of is None:
-            parsed_dates = pd.to_datetime(raw_metrics.get("decision_date"), errors="coerce")
+            parsed_dates = pd.to_datetime(raw_metrics["decision_date"], errors="coerce")
             if parsed_dates.isna().all():
                 raise ContractError("metric_decision_dates_invalid")
             as_of = parsed_dates.max().normalize()
@@ -1099,14 +1126,24 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         }
         write_json(output_dir / "sentiment_overlay.json", sentiment_payload)
         outputs["sentiment_overlay"] = fingerprint(output_dir / "sentiment_overlay.json")
+        input_fingerprints_after = {
+            "contract": fingerprint(contract_path),
+            "calendar": fingerprint(calendar_path),
+            "metrics": fingerprint(input_path),
+        }
+        if context_path is not None:
+            input_fingerprints_after["context"] = fingerprint(context_path)
+        if input_fingerprints_before != input_fingerprints_after:
+            raise ContractError("source_input_mutated_during_build")
+        verified_inputs = input_fingerprints_after
         truth_payload = {
             "schema_version": "BacktestTruthManifest-v1",
             "decision_date": latest_date.date().isoformat(),
             "truth_class": truth_class,
-            "calendar_input": fingerprint(calendar_path),
-            "metric_input": fingerprint(input_path),
-            "context_input": fingerprint(context_path) if context_path is not None else None,
-            "contract": fingerprint(contract_path),
+            "calendar_input": verified_inputs["calendar"],
+            "metric_input": verified_inputs["metrics"],
+            "context_input": verified_inputs.get("context"),
+            "contract": verified_inputs["contract"],
             "code": {"git_head": git_head(), "builder": fingerprint(Path(__file__).resolve())},
             "cost_model": "NOT_APPLICABLE_REPORT_ONLY",
             "execution_model": "NOT_APPLICABLE_REPORT_ONLY",
@@ -1118,14 +1155,6 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         }
         write_json(output_dir / "backtest_truth_manifest.json", truth_payload)
         outputs["backtest_truth_manifest"] = fingerprint(output_dir / "backtest_truth_manifest.json")
-        after = {
-            "calendar": sha256_file(calendar_path),
-            "metrics": sha256_file(input_path),
-        }
-        if context_path is not None:
-            after["context"] = sha256_file(context_path)
-        if before != after:
-            raise ContractError("source_input_mutated_during_build")
         status = (
             "READY_CHAMELEON_MACRO_RISK_REPORT_ONLY"
             if bool(latest_state["state_change_allowed"])
@@ -1137,7 +1166,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "blockers": [],
             "decision_date": latest_date.date().isoformat(),
             "truth_class": truth_class,
-            "source_inputs_unchanged": before == after,
+            "source_inputs_unchanged": True,
             "network_requests_executed": 0,
             "latest": {
                 "risk_score": latest_state["risk_score"],
@@ -1156,10 +1185,10 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 "red_domain_count": latest_state["red_domain_count"],
             },
             "inputs": {
-                "metrics": fingerprint(input_path),
-                "context": fingerprint(context_path) if context_path is not None else None,
-                "calendar": fingerprint(calendar_path),
-                "contract": fingerprint(contract_path),
+                "metrics": verified_inputs["metrics"],
+                "context": verified_inputs.get("context"),
+                "calendar": verified_inputs["calendar"],
+                "contract": verified_inputs["contract"],
             },
             "outputs": outputs,
             "code": {"git_head": git_head(), "builder": fingerprint(Path(__file__).resolve())},

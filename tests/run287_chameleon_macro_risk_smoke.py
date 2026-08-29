@@ -252,6 +252,14 @@ def test_calendar_gaps_and_current_vintage_pit_claims_fail_closed() -> None:
     except risk.ContractError as exc:
         assert str(exc) == "current_vintage_source_cannot_be_pit_verified"
 
+    blank_source = metric_fixture(dates)
+    blank_source.loc[blank_source.index[0], "source_kind"] = np.nan
+    try:
+        risk.validate_metrics(blank_source, cfg, dates[-1], calendar)
+        raise AssertionError("blank metric source kind was accepted")
+    except risk.ContractError as exc:
+        assert str(exc) == "missing_metric_source_kind"
+
     valid_metrics = risk.validate_metrics(metric_fixture(dates), cfg, dates[-1], calendar)
     decision_times = {
         date: group["decision_time_utc"].iloc[0]
@@ -278,6 +286,21 @@ def test_calendar_gaps_and_current_vintage_pit_claims_fail_closed() -> None:
         raise AssertionError("current-vintage context PIT claim was accepted")
     except risk.ContractError as exc:
         assert str(exc) == "current_vintage_context_cannot_be_pit_verified"
+
+    blank_context = context_fixture(dates)
+    blank_context.loc[blank_context.index[0], "source_kind"] = np.nan
+    try:
+        risk.validate_context(
+            blank_context,
+            cfg,
+            dates[-1],
+            decision_times,
+            sessions,
+            calendar,
+        )
+        raise AssertionError("blank context source kind was accepted")
+    except risk.ContractError as exc:
+        assert str(exc) == "missing_context_source_kind"
 
 
 def test_core_readiness_and_single_vix_cannot_create_defense() -> None:
@@ -466,9 +489,43 @@ def test_extreme_greed_and_fear_recovery_use_frozen_confirmation() -> None:
         cfg,
     )
     assert int(fear.iloc[2]["fear_recovery_stage"]) == 1
-    assert int(fear.iloc[4]["fear_recovery_stage"]) == 2
-    assert int(fear.iloc[6]["fear_recovery_stage"]) == 3
+    assert int(fear.iloc[4]["fear_recovery_stage"]) == 1
+    assert int(fear.iloc[5]["fear_recovery_stage"]) == 2
+    assert int(fear.iloc[6]["fear_recovery_stage"]) == 2
+    assert int(fear.iloc[7]["fear_recovery_stage"]) == 3
     assert int(fear["fear_recovery_stage_changed"].sum()) == 3
+
+    reset_dates = list(pd.bdate_range("2026-06-01", periods=4))
+    reset_market = pd.DataFrame(
+        {
+            "decision_date": reset_dates,
+            "risk_score": [95.0, 88.0, 50.0, 86.0],
+            "effective_state": ["EXTREME_FEAR", "RISK_DEFENSE", "NORMAL", "RISK_ALERT"],
+        }
+    )
+    reset_context = pd.DataFrame(
+        {
+            "decision_date": reset_dates,
+            "spy_close": [90.0, 101.0, 102.0, 103.0],
+            "spy_prior_2d_high": [100.0] * 4,
+            "spy_ma20": [110.0] * 4,
+            "breadth_improving": [False] * 4,
+            "hy_spread_widening": [False] * 4,
+            "leadership_breadth_confirmed": [False] * 4,
+            "market_new_low": [False] * 4,
+            "index_new_high_breadth_narrowing": [False] * 4,
+        }
+    )
+    reset = risk.build_sentiment_history(
+        reset_market,
+        pd.DataFrame(columns=["decision_date", "component", "raw_percentile", "component_ready"]),
+        reset_context,
+        cfg,
+    )
+    assert int(reset.iloc[1]["fear_recovery_stage"]) == 1
+    assert not bool(reset.iloc[2]["fear_episode_active"])
+    assert int(reset.iloc[2]["fear_recovery_stage"]) == 0
+    assert reset.iloc[3]["sentiment_overlay"] == "NONE"
 
 
 def build_args(
@@ -564,6 +621,65 @@ def test_build_is_deterministic_report_only_and_future_data_hard_fails() -> None
         )
         assert invalid_as_of["status"] == risk.BLOCKED_STATUS
         assert invalid_as_of["blockers"] == ["invalid_explicit_as_of:2026-99-99"]
+
+        missing_date_path = root / "missing_decision_date.csv"
+        metric_fixture(dates, calendar_hash=calendar_hash).drop(columns=["decision_date"]).to_csv(
+            missing_date_path,
+            index=False,
+        )
+        missing_date = risk.build(
+            build_args(
+                root,
+                calendar_path,
+                missing_date_path,
+                context_path,
+                "missing-decision-date",
+            )
+        )
+        assert missing_date["status"] == risk.BLOCKED_STATUS
+        assert missing_date["blockers"] == ["missing_columns:decision_date"]
+        assert (root / "missing-decision-date" / "manifest.json").is_file()
+
+        race_metrics_path = root / "race_metrics.csv"
+        metric_fixture(dates, calendar_hash=calendar_hash).to_csv(race_metrics_path, index=False)
+        verified_race_hash = sha(race_metrics_path)
+        original_fingerprint = risk.fingerprint
+        race_metric_fingerprint_calls = 0
+
+        def racing_fingerprint(path: Path) -> dict:
+            nonlocal race_metric_fingerprint_calls
+            result = original_fingerprint(path)
+            if Path(path) == race_metrics_path:
+                race_metric_fingerprint_calls += 1
+                if race_metric_fingerprint_calls == 2:
+                    race_metrics_path.write_text(
+                        race_metrics_path.read_text(encoding="utf-8") + "\n",
+                        encoding="utf-8",
+                    )
+            return result
+
+        risk.fingerprint = racing_fingerprint
+        try:
+            race_payload = risk.build(
+                build_args(
+                    root,
+                    calendar_path,
+                    race_metrics_path,
+                    context_path,
+                    "fingerprint-race",
+                )
+            )
+        finally:
+            risk.fingerprint = original_fingerprint
+        assert race_payload["status"] == "READY_CHAMELEON_MACRO_RISK_REPORT_ONLY"
+        assert race_payload["inputs"]["metrics"]["sha256"] == verified_race_hash
+        assert sha(race_metrics_path) != verified_race_hash
+        race_truth = json.loads(
+            (root / "fingerprint-race" / "backtest_truth_manifest.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert race_truth["metric_input"]["sha256"] == verified_race_hash
 
         short_dates = dates[:20]
         short_calendar_path = root / "short_xnys_calendar.csv"
