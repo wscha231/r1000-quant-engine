@@ -35,6 +35,7 @@ SCHEMA_VERSION = "run287-chameleon-macro-risk-report-v1"
 CANONICAL_CONTRACT_SEMANTIC_SHA256 = "5cbd1915a12bba77e8114cab00e281cb4956a2e46af1c21612d4bd637c26ebef"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 GIT_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+DATE_ONLY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 CALENDAR_REQUIRED_COLUMNS = (
     "decision_date",
     "decision_time_utc",
@@ -189,6 +190,22 @@ def read_table(path: Path) -> pd.DataFrame:
     raise ContractError(f"unsupported_input_format:{path.suffix}")
 
 
+def parse_date_only(values: pd.Series, label: str) -> pd.Series:
+    try:
+        text_values = values[values.notna()].astype(str).str.strip()
+        if not text_values.map(lambda value: bool(DATE_ONLY_RE.fullmatch(value))).all():
+            raise ContractError(f"invalid_{label}")
+        parsed = pd.to_datetime(values, errors="coerce")
+        timezone = parsed.dt.tz
+        if timezone is not None:
+            raise ContractError(f"invalid_{label}")
+        return parsed.dt.normalize()
+    except ContractError:
+        raise
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ContractError(f"invalid_{label}") from exc
+
+
 def load_contract(path: Path = DEFAULT_CONTRACT) -> dict[str, Any]:
     if path.resolve() != DEFAULT_CONTRACT.resolve():
         raise ContractError(f"noncanonical_contract_path:{path}")
@@ -286,7 +303,7 @@ def validate_calendar(frame: pd.DataFrame, source_sha256: str) -> pd.DataFrame:
     if not SHA256_RE.fullmatch(source_hash):
         raise ContractError("invalid_calendar_artifact_sha256")
     output = frame[list(CALENDAR_REQUIRED_COLUMNS)].copy()
-    output["decision_date"] = pd.to_datetime(output["decision_date"], errors="coerce").dt.normalize()
+    output["decision_date"] = parse_date_only(output["decision_date"], "calendar_decision_date")
     output["decision_time_utc"] = pd.to_datetime(output["decision_time_utc"], errors="coerce", utc=True)
     output["nyse_session_ordinal"] = pd.to_numeric(output["nyse_session_ordinal"], errors="coerce")
     if output[["decision_date", "decision_time_utc", "nyse_session_ordinal"]].isna().any().any():
@@ -357,14 +374,15 @@ def _normalize_dates(frame: pd.DataFrame, *, context: bool = False) -> pd.DataFr
     missing = [column for column in required if column not in output.columns]
     if missing:
         raise ContractError(f"missing_columns:{','.join(missing)}")
-    output["decision_date"] = pd.to_datetime(output["decision_date"], errors="coerce").dt.normalize()
+    output["decision_date"] = parse_date_only(output["decision_date"], "decision_date")
     output["decision_time_utc"] = pd.to_datetime(output["decision_time_utc"], errors="coerce", utc=True)
     output["available_from"] = pd.to_datetime(output["available_from"], errors="coerce", utc=True)
     if output[["decision_date", "decision_time_utc", "available_from"]].isna().any().any():
         raise ContractError("invalid_decision_or_availability_timestamp")
-    output["source_observation_date"] = pd.to_datetime(
-        output["source_observation_date"], errors="coerce"
-    ).dt.normalize()
+    output["source_observation_date"] = parse_date_only(
+        output["source_observation_date"],
+        "source_observation_date",
+    )
     if output["source_observation_date"].isna().any():
         raise ContractError("invalid_source_observation_date")
     return output
@@ -873,7 +891,13 @@ def build_sentiment_history(
             or _context_value(context_by_date, date, "market_new_low") is True
         )
         stage_changed = False
-        if fear_episode and not paused and math.isfinite(fear_peak) and math.isfinite(risk_score):
+        if (
+            effective != "EXTREME_FEAR"
+            and fear_episode
+            and not paused
+            and math.isfinite(fear_peak)
+            and math.isfinite(risk_score)
+        ):
             if recovery_stage == 0:
                 spy = _context_value(context_by_date, date, "spy_close")
                 prior_high = _context_value(context_by_date, date, "spy_prior_2d_high")

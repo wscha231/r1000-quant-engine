@@ -531,7 +531,7 @@ def test_extreme_greed_and_fear_recovery_use_frozen_confirmation() -> None:
     renewed_market = pd.DataFrame(
         {
             "decision_date": renewed_dates,
-            "risk_score": [95.0, 88.0, 87.0, 86.0, 84.0, 96.0, 90.0],
+            "risk_score": [100.0, 88.0, 87.0, 86.0, 84.0, 92.0, 90.0],
             "effective_state": [
                 "EXTREME_FEAR",
                 "RISK_DEFENSE",
@@ -546,7 +546,7 @@ def test_extreme_greed_and_fear_recovery_use_frozen_confirmation() -> None:
     renewed_context = pd.DataFrame(
         {
             "decision_date": renewed_dates,
-            "spy_close": [90.0, 101.0, 102.0, 103.0, 104.0, 90.0, 91.0],
+            "spy_close": [90.0, 101.0, 102.0, 103.0, 104.0, 101.0, 91.0],
             "spy_prior_2d_high": [100.0] * 7,
             "spy_ma20": [110.0] * 7,
             "breadth_improving": [False, False, True, True, True, False, False],
@@ -788,6 +788,30 @@ def test_build_is_deterministic_report_only_and_future_data_hard_fails() -> None
         assert unreadable["blockers"][0].startswith("input_table_unreadable:")
         assert unreadable["blockers"][0].endswith(":EmptyDataError")
         assert (root / "unreadable-metrics" / "manifest.json").is_file()
+
+        mixed_timezone_path = root / "mixed_timezone_metrics.csv"
+        mixed_timezone = metric_fixture(dates, calendar_hash=calendar_hash)
+        mixed_timezone.loc[mixed_timezone.index[0], "source_observation_date"] = (
+            "2024-01-02T00:00:00+00:00"
+        )
+        mixed_timezone.loc[mixed_timezone.index[1], "source_observation_date"] = (
+            "2024-01-02T00:00:00-05:00"
+        )
+        mixed_timezone.to_csv(mixed_timezone_path, index=False)
+        mixed_timezone_result = risk.build(
+            build_args(
+                root,
+                calendar_path,
+                mixed_timezone_path,
+                context_path,
+                "mixed-timezone-provenance",
+            )
+        )
+        assert mixed_timezone_result["status"] == risk.BLOCKED_STATUS
+        assert mixed_timezone_result["blockers"] == [
+            "invalid_source_observation_date"
+        ]
+        assert (root / "mixed-timezone-provenance" / "manifest.json").is_file()
 
         def denied_metric_fingerprint(path: Path) -> dict:
             if Path(path) == metrics_path:
