@@ -4576,3 +4576,40 @@ Expected contract:
 - Fullrun executed: false. Workflow dispatched or rerun: false. Target, order,
   TradeIntent, ledger, accepted-head, production, live trading, and automatic
   promotion state mutated: false.
+
+## 2026-08-29 - Chameleon macro inputs are FREE_PROXY until PIT publication evidence exists
+
+- Agent: Codex GPT-5.6.
+- Branch: `codex/chameleon-macro-input-shadow-20260829`.
+- Context: The report-only ten-axis engine needed reproducible source
+  normalization before any portfolio-policy experiment.
+- Result: Added an isolated FRED current-vintage, official Cboe history,
+  explicit-universe breadth, and local daily-bar normalizer with immutable
+  raw/source/calendar hashes, source lineage, strict missing-data omission,
+  and a report-only shadow-engine handoff.
+- Reusable lesson: FRED graph history and free close caches remain
+  `FREE_PROXY`; they do not prove the publication-time vintage needed for a
+  historical A/B. Each breadth component needs its own valid-history
+  denominator. Same-day closes from 500 symbols do not make a 200-day breadth
+  signal ready when fewer than 500 symbols have the required lookback.
+- Shadow evidence: The `2026-06-22` common-coverage run reached report-only
+  readiness with 8/10 axes and all mandatory axes, while options sentiment and
+  the complete cross-asset set remained unavailable. The later `2026-07-02`
+  request correctly exposed stale broad-universe coverage rather than carrying
+  a prior breadth state forward.
+- Next action: Acquire archived options inputs and provenance-complete
+  point-in-time macro vintages before historical evaluation. Keep market-state
+  routing, holding exits, fear/greed allocation, and ownership discovery in
+  separate causal changes.
+- Do-not-repeat: Do not alphabetically truncate an oversized universe, accept
+  mislabeled FRED columns, collapse timezone-aware bars into another NY date,
+  use current-vintage history as PIT, or allow a blocked shadow engine to
+  publish a READY normalizer manifest.
+- Evidence files:
+  - `docs/run287_chameleon_macro_inputs_contract.json`
+  - `tools/build_run287_chameleon_macro_inputs.py`
+  - `tests/run287_chameleon_macro_inputs_smoke.py`
+  - `docs/CODEX_RUN287_CHAMELEON_MACRO_INPUT_SHADOW_RESULT_20260829.md`
+- Fullrun executed: false. Workflow dispatched or rerun: false. Target, order,
+  TradeIntent, ledger, accepted-head, production, live trading, and automatic
+  promotion state mutated: false.

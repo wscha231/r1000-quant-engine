@@ -14,6 +14,7 @@ import hashlib
 import io
 import json
 import math
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -138,6 +139,30 @@ def git_head() -> str:
     return head
 
 
+def capture_builder_identity() -> dict[str, str]:
+    """Freeze the code identity that actually starts this build."""
+    return {
+        "git_head": git_head(),
+        "builder_sha256": sha256_file(Path(__file__).resolve()),
+    }
+
+
+def verify_builder_identity(expected: Mapping[str, str]) -> None:
+    observed = capture_builder_identity()
+    if observed != dict(expected):
+        raise InputContractError("builder_or_git_head_changed_during_build")
+
+
+def parse_as_of_date(value: Any) -> pd.Timestamp:
+    raw = str(value).strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw) is None:
+        raise InputContractError(f"invalid_as_of_date:{value}")
+    parsed = pd.to_datetime(raw, format="%Y-%m-%d", errors="coerce")
+    if pd.isna(parsed) or pd.Timestamp(parsed).strftime("%Y-%m-%d") != raw:
+        raise InputContractError(f"invalid_as_of_date:{value}")
+    return pd.Timestamp(parsed)
+
+
 def load_contract(path: Path) -> dict[str, Any]:
     if path.resolve() != DEFAULT_CONTRACT.resolve():
         raise InputContractError(f"noncanonical_contract_path:{path}")
@@ -187,16 +212,20 @@ def build_calendar(as_of: pd.Timestamp, contract: Mapping[str, Any]) -> pd.DataF
     )
 
 
-def normalize_fred(raw: bytes) -> pd.DataFrame:
+def normalize_fred(raw: bytes, expected_series_id: str) -> pd.DataFrame:
     frame = pd.read_csv(io.BytesIO(raw))
-    if frame.empty:
-        return pd.DataFrame(columns=["observation_date", "value"])
-    columns = {str(column).strip().lower(): column for column in frame.columns}
-    date_column = columns.get("observation_date") or columns.get("date") or frame.columns[0]
-    value_candidates = [column for column in frame.columns if column != date_column]
-    if not value_candidates:
-        raise InputContractError("fred_value_column_missing")
-    value_column = columns.get("value") or value_candidates[0]
+    columns = {
+        str(column).replace("\ufeff", "").strip().lower(): column
+        for column in frame.columns
+    }
+    date_column = columns.get("observation_date") or columns.get("date")
+    value_column = columns.get(str(expected_series_id).strip().lower())
+    if date_column is None:
+        raise InputContractError("fred_observation_date_column_missing")
+    if value_column is None:
+        raise InputContractError(
+            f"fred_expected_series_column_missing:{expected_series_id}"
+        )
     output = pd.DataFrame(
         {
             "observation_date": pd.to_datetime(frame[date_column], errors="coerce"),
@@ -311,20 +340,44 @@ def align_releases(
     ]
 
 
+def parse_daily_price_dates(values: pd.Series) -> pd.Series:
+    """Accept only date-only values or naive midnight timestamps."""
+    parsed: list[pd.Timestamp] = []
+    for value in values:
+        try:
+            timestamp = pd.Timestamp(value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise InputContractError("invalid_daily_price_date") from exc
+        if pd.isna(timestamp):
+            raise InputContractError("invalid_daily_price_date")
+        if timestamp.tzinfo is not None:
+            raise InputContractError("timezone_aware_daily_price_date")
+        if timestamp != timestamp.normalize():
+            raise InputContractError("non_midnight_daily_price_timestamp")
+        parsed.append(timestamp.normalize())
+    result = pd.Series(parsed, index=values.index, dtype="datetime64[ns]")
+    if result.duplicated().any():
+        raise InputContractError("duplicate_daily_price_date")
+    return result
+
+
 def normalize_price_frame(frame: pd.DataFrame) -> pd.DataFrame:
     output = frame.copy()
     if isinstance(output.index, pd.DatetimeIndex):
         output = output.reset_index().rename(columns={output.index.name or "index": "date"})
     columns = {str(column).strip().lower(): column for column in output.columns}
     date_column = columns.get("date") or columns.get("datetime") or columns.get("timestamp")
-    close_column = columns.get("close") or columns.get("adj close") or columns.get("adj_close")
+    close_column = (
+        columns.get("adj close")
+        or columns.get("adj_close")
+        or columns.get("adjusted close")
+        or columns.get("close")
+    )
     if date_column is None or close_column is None:
         raise InputContractError("price_date_or_close_column_missing")
     normalized = pd.DataFrame(
         {
-            "date": pd.to_datetime(output[date_column], errors="coerce", utc=True)
-            .dt.tz_localize(None)
-            .dt.normalize(),
+            "date": parse_daily_price_dates(output[date_column]),
             "close": pd.to_numeric(output[close_column], errors="coerce"),
         }
     )
@@ -338,7 +391,6 @@ def normalize_price_frame(frame: pd.DataFrame) -> pd.DataFrame:
         normalized.dropna(subset=["date", "close"])
         .query("close > 0")
         .sort_values("date")
-        .drop_duplicates("date", keep="last")
         .set_index("date")
     )
 
@@ -394,6 +446,107 @@ def daily_aligned(
         },
         index=pd.DatetimeIndex(dates),
     )
+
+
+def _cross_section_fraction(
+    condition: pd.DataFrame,
+    valid: pd.DataFrame,
+    minimum_symbols: int,
+) -> tuple[pd.Series, pd.Series]:
+    counts = valid.sum(axis=1)
+    fraction = (condition & valid).sum(axis=1).div(counts.replace(0, np.nan))
+    return fraction.where(counts >= minimum_symbols), counts
+
+
+def compute_universe_components(
+    close: pd.DataFrame,
+    volume: pd.DataFrame,
+    minimum_symbols: int,
+) -> tuple[dict[str, pd.Series], dict[str, pd.Series]]:
+    """Compute cross-sectional signals with a valid-history denominator per signal."""
+    values: dict[str, pd.Series] = {}
+    counts: dict[str, pd.Series] = {}
+
+    ma50 = close.rolling(50, min_periods=50).mean()
+    valid50 = close.notna() & ma50.notna()
+    values["pct_above_ma50"], counts["pct_above_ma50"] = _cross_section_fraction(
+        close > ma50, valid50, minimum_symbols
+    )
+
+    ma200 = close.rolling(200, min_periods=200).mean()
+    valid200 = close.notna() & ma200.notna()
+    values["pct_above_ma200"], counts["pct_above_ma200"] = _cross_section_fraction(
+        close > ma200, valid200, minimum_symbols
+    )
+
+    high252 = close.rolling(252, min_periods=200).max()
+    low252 = close.rolling(252, min_periods=200).min()
+    valid_high_low = close.notna() & high252.notna() & low252.notna()
+    high_low_count = valid_high_low.sum(axis=1)
+    high_low = (
+        ((close >= high252) & valid_high_low).sum(axis=1)
+        - ((close <= low252) & valid_high_low).sum(axis=1)
+    ).div(high_low_count.replace(0, np.nan))
+    values["new_high_minus_new_low"] = high_low.where(
+        high_low_count >= minimum_symbols
+    )
+    counts["new_high_minus_new_low"] = high_low_count
+
+    returns = close.pct_change(fill_method=None)
+    dollar_volume = close * volume
+    valid_dollar_volume = returns.notna() & dollar_volume.notna()
+    dollar_volume_count = valid_dollar_volume.sum(axis=1)
+    advancing = dollar_volume.where(valid_dollar_volume & (returns > 0)).sum(
+        axis=1, min_count=1
+    )
+    declining = dollar_volume.where(valid_dollar_volume & (returns < 0)).sum(
+        axis=1, min_count=1
+    )
+    values["adv_decl_dollar_volume_ratio"] = (
+        advancing.div(declining.replace(0.0, np.nan))
+    ).where(dollar_volume_count >= minimum_symbols)
+    counts["adv_decl_dollar_volume_ratio"] = dollar_volume_count
+
+    vol20 = returns.rolling(20, min_periods=15).std()
+    vol63 = returns.rolling(63, min_periods=40).std()
+    valid_volatility = vol20.notna() & vol63.notna()
+    values["volatility_spike_breadth"], counts["volatility_spike_breadth"] = (
+        _cross_section_fraction(
+            vol20 > vol63, valid_volatility, minimum_symbols
+        )
+    )
+
+    market_return = returns.mean(axis=1)
+    mean_stock = returns.rolling(63, min_periods=40).mean()
+    mean_market = market_return.rolling(63, min_periods=40).mean()
+    covariance = (
+        returns.mul(market_return, axis=0)
+        .rolling(63, min_periods=40)
+        .mean()
+        - mean_stock.mul(mean_market, axis=0)
+    )
+    per_stock_correlation = covariance.div(
+        returns.rolling(63, min_periods=40)
+        .std()
+        .mul(market_return.rolling(63, min_periods=40).std(), axis=0)
+    )
+    correlation_count = per_stock_correlation.notna().sum(axis=1)
+    values["stock_correlation"] = per_stock_correlation.mean(axis=1).where(
+        correlation_count >= minimum_symbols
+    )
+    counts["stock_correlation"] = correlation_count
+
+    valid_concentration = dollar_volume.notna() & (dollar_volume >= 0)
+    concentration_count = valid_concentration.sum(axis=1)
+    valid_dollar_values = dollar_volume.where(valid_concentration)
+    dollar_total = valid_dollar_values.sum(axis=1, min_count=1)
+    top10 = valid_dollar_values.apply(lambda row: row.nlargest(10).sum(), axis=1)
+    values["index_concentration"] = top10.div(dollar_total).where(
+        concentration_count >= minimum_symbols
+    )
+    counts["index_concentration"] = concentration_count
+
+    return values, counts
 
 
 def trailing_midrank(series: pd.Series, window: int = 63, minimum: int = 20) -> pd.Series:
@@ -506,12 +659,11 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     raw_dir = output_dir / "raw"
     raw_dir.mkdir()
     try:
+        builder_identity = capture_builder_identity()
         contract_path = repo_path(args.contract)
         contract = load_contract(contract_path)
-        requested_as_of = pd.to_datetime(str(args.as_of).strip(), errors="coerce")
-        if pd.isna(requested_as_of):
-            raise InputContractError(f"invalid_as_of:{args.as_of}")
-        calendar = build_calendar(pd.Timestamp(requested_as_of), contract)
+        requested_as_of = parse_as_of_date(args.as_of)
+        calendar = build_calendar(requested_as_of, contract)
         resolved_as_of = pd.Timestamp(calendar["decision_date"].iloc[-1])
         calendar_path = output_dir / "xnys_calendar.csv"
         calendar.to_csv(calendar_path, index=False)
@@ -560,7 +712,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                         )
                     )
                     continue
-                observations = normalize_fred(raw)
+                observations = normalize_fred(raw, series_id)
                 aligned[name] = align_releases(
                     calendar,
                     observations,
@@ -719,7 +871,13 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                     for value in universe[ticker_column]
                     if str(value).strip() and str(value).lower() != "nan"
                 }
-            )[: int(contract["history"]["maximum_universe_symbols"])]
+            )
+            maximum_symbols = int(contract["history"]["maximum_universe_symbols"])
+            if len(tickers) > maximum_symbols:
+                raise InputContractError(
+                    "universe_symbol_count_exceeds_maximum:"
+                    f"observed={len(tickers)}:maximum={maximum_symbols}"
+                )
             if sector_column is not None:
                 sector_by_ticker = {
                     str(row[ticker_column]).strip().upper(): str(row[sector_column]).strip()
@@ -754,10 +912,14 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                     index=pd.DatetimeIndex(dates),
                 )
                 universe_loaded_count = int(loaded)
-                universe_coverage = universe_close.notna().sum(axis=1)
-                breadth_symbol_count_as_of = int(universe_coverage.iloc[-1])
-                ready_dates = universe_coverage[
-                    universe_coverage
+                history_valid = (
+                    universe_close.notna()
+                    & universe_close.rolling(200, min_periods=200).mean().notna()
+                )
+                history_valid_count = history_valid.sum(axis=1)
+                breadth_symbol_count_as_of = int(history_valid_count.iloc[-1])
+                ready_dates = history_valid_count[
+                    history_valid_count
                     >= int(contract["history"]["minimum_breadth_symbols"])
                 ].index
                 breadth_latest_ready_date = (
@@ -775,7 +937,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                     last_date=universe_close.dropna(how="all").index.max() if loaded else None,
                     note=(
                         f"loaded_tickers={loaded}; "
-                        f"as_of_coverage={breadth_symbol_count_as_of}; "
+                        f"as_of_history_valid_coverage={breadth_symbol_count_as_of}; "
                         f"latest_ready_date={breadth_latest_ready_date}; "
                         f"minimum_breadth_symbols={contract['history']['minimum_breadth_symbols']}"
                     ),
@@ -923,48 +1085,62 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         minimum_breadth = int(contract["history"]["minimum_breadth_symbols"])
         breadth_values: dict[str, pd.Series] = {}
         if not universe_close.empty:
-            coverage = universe_close.notna().sum(axis=1)
-            eligible = coverage >= minimum_breadth
-            ma50 = universe_close.rolling(50, min_periods=50).mean()
-            ma200 = universe_close.rolling(200, min_periods=200).mean()
-            breadth_values["pct_above_ma50"] = ((universe_close > ma50).sum(axis=1) / coverage).where(eligible)
-            breadth_values["pct_above_ma200"] = ((universe_close > ma200).sum(axis=1) / coverage).where(eligible)
-            high252 = universe_close.rolling(252, min_periods=200).max()
-            low252 = universe_close.rolling(252, min_periods=200).min()
-            breadth_values["new_high_minus_new_low"] = ((
-                (universe_close >= high252).sum(axis=1)
-                - (universe_close <= low252).sum(axis=1)
-            ) / coverage).where(eligible)
-            returns = universe_close.pct_change(fill_method=None)
-            dollar_volume = universe_close * universe_volume
-            advancing = dollar_volume.where(returns > 0).sum(axis=1, min_count=1)
-            declining = dollar_volume.where(returns < 0).sum(axis=1, min_count=1)
-            breadth_values["adv_decl_dollar_volume_ratio"] = (
-                advancing / declining.replace(0.0, np.nan)
-            ).where(eligible)
+            universe_components, _ = (
+                compute_universe_components(
+                    universe_close,
+                    universe_volume,
+                    minimum_breadth,
+                )
+            )
+            breadth_values = {
+                component: universe_components[component]
+                for component in (
+                    "pct_above_ma50",
+                    "pct_above_ma200",
+                    "new_high_minus_new_low",
+                    "adv_decl_dollar_volume_ratio",
+                )
+            }
             meta = daily_aligned(calendar, universe_close.mean(axis=1))
             for component, value in breadth_values.items():
-                emit("market_breadth", component, "LOW", value, (meta,), "EXPLICIT_UNIVERSE_DAILY_BARS_FREE_PROXY")
-            vol20 = returns.rolling(20, min_periods=15).std()
-            vol63 = returns.rolling(63, min_periods=40).std()
-            vol_breadth = (vol20 > vol63).sum(axis=1) / coverage
-            emit("volatility_structure", "volatility_spike_breadth", "HIGH", vol_breadth.where(eligible), (meta,), "EXPLICIT_UNIVERSE_DAILY_BARS_FREE_PROXY")
-            market_return = returns.mean(axis=1)
-            mean_stock = returns.rolling(63, min_periods=40).mean()
-            mean_market = market_return.rolling(63, min_periods=40).mean()
-            covariance = returns.mul(market_return, axis=0).rolling(63, min_periods=40).mean() - mean_stock.mul(mean_market, axis=0)
-            correlation = covariance.div(returns.rolling(63, min_periods=40).std().mul(market_return.rolling(63, min_periods=40).std(), axis=0)).mean(axis=1)
-            emit("correlation_dispersion", "stock_correlation", "HIGH", correlation.where(eligible), (meta,), "EXPLICIT_UNIVERSE_DAILY_BARS_FREE_PROXY")
-            dollar_total = dollar_volume.sum(axis=1, min_count=1)
-            top10 = dollar_volume.apply(lambda row: row.nlargest(10).sum(), axis=1)
-            emit("correlation_dispersion", "index_concentration", "HIGH", (top10 / dollar_total).where(eligible), (meta,), "EXPLICIT_UNIVERSE_DAILY_BARS_FREE_PROXY")
+                emit(
+                    "market_breadth",
+                    component,
+                    "LOW",
+                    value,
+                    (meta,),
+                    "EXPLICIT_UNIVERSE_DAILY_BARS_FREE_PROXY",
+                )
+            for axis, component in (
+                ("volatility_structure", "volatility_spike_breadth"),
+                ("correlation_dispersion", "stock_correlation"),
+                ("correlation_dispersion", "index_concentration"),
+            ):
+                emit(
+                    axis,
+                    component,
+                    "HIGH",
+                    universe_components[component],
+                    (meta,),
+                    "EXPLICIT_UNIVERSE_DAILY_BARS_FREE_PROXY",
+                )
             if sector_by_ticker:
                 returns20 = universe_close.pct_change(20, fill_method=None)
                 sectors = pd.Series(sector_by_ticker)
                 common = [column for column in returns20.columns if column in sectors.index and sectors[column] not in {"", "nan"}]
                 if common:
                     sector_returns = returns20[common].T.groupby(sectors[common]).mean().T
-                    emit("correlation_dispersion", "sector_return_dispersion", "HIGH", sector_returns.std(axis=1).where(eligible), (meta,), "EXPLICIT_UNIVERSE_DAILY_BARS_FREE_PROXY")
+                    sector_valid_count = returns20[common].notna().sum(axis=1)
+                    emit(
+                        "correlation_dispersion",
+                        "sector_return_dispersion",
+                        "HIGH",
+                        sector_returns.std(axis=1).where(
+                            sector_valid_count >= minimum_breadth
+                        ),
+                        (meta,),
+                        "EXPLICIT_UNIVERSE_DAILY_BARS_FREE_PROXY",
+                    )
 
         metrics = pd.DataFrame(metric_rows)
         if metrics.empty:
@@ -1042,7 +1218,18 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             row["source_observation_date"] = max(context_observations).date().isoformat()
             row["available_from"] = max(context_availability).isoformat()
             context_rows.append(row)
-        context = pd.DataFrame(context_rows)
+        context_columns = list(risk_engine.CONTEXT_REQUIRED_COLUMNS) + [
+            "spy_close",
+            "spy_prior_2d_high",
+            "spy_ma20",
+            "portfolio_fundamental_weak_ratio",
+            "breadth_improving",
+            "hy_spread_widening",
+            "leadership_breadth_confirmed",
+            "market_new_low",
+            "index_new_high_breadth_narrowing",
+        ]
+        context = pd.DataFrame(context_rows).reindex(columns=context_columns)
         context_path = output_dir / "input_context.csv"
         context.to_csv(context_path, index=False)
 
@@ -1058,6 +1245,11 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                     output_dir=str(output_dir / "shadow_engine"),
                 )
             )
+            engine_status = str(engine_result.get("status", ""))
+            if not engine_status.startswith("READY_"):
+                raise InputContractError(
+                    f"shadow_engine_not_ready:{engine_status or 'missing_status'}"
+                )
 
         changed_inputs = [
             path
@@ -1068,14 +1260,15 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             raise InputContractError(
                 "consumed_input_changed_after_read:" + ",".join(changed_inputs)
             )
+        verify_builder_identity(builder_identity)
 
         manifest = {
             "schema_version": SCHEMA_VERSION,
             "status": READY_STATUS,
             "requested_as_of": pd.Timestamp(requested_as_of).date().isoformat(),
             "resolved_as_of": resolved_as_of.date().isoformat(),
-            "git_head": git_head(),
-            "builder_sha256": sha256_file(Path(__file__).resolve()),
+            "git_head": builder_identity["git_head"],
+            "builder_sha256": builder_identity["builder_sha256"],
             "contract_semantic_sha256": CANONICAL_CONTRACT_SEMANTIC_SHA256,
             "truth_class": "FREE_PROXY",
             "historical_ab_allowed": False,

@@ -122,6 +122,7 @@ def test_normalizer_is_free_proxy_report_only_and_fail_closed() -> None:
         assert result["production_activation_allowed"] is False
         assert result["live_trading_enabled"] is False
         assert result["automatic_promotion_allowed"] is False
+        assert result["builder_sha256"] == sha(Path(inputs.__file__).resolve())
         assert result["engine_status"] == (
             "READY_CHAMELEON_MACRO_RISK_REPORT_ONLY_DATA_INSUFFICIENT"
         ), result
@@ -175,8 +176,117 @@ def test_normalizer_is_free_proxy_report_only_and_fail_closed() -> None:
         )
 
 
+def test_source_identity_date_and_cross_section_guards() -> None:
+    fred = b"observation_date,WRONG\n2025-01-02,1.5\n"
+    try:
+        inputs.normalize_fred(fred, "EXPECTED")
+    except inputs.InputContractError as exc:
+        assert str(exc) == "fred_expected_series_column_missing:EXPECTED"
+    else:
+        raise AssertionError("mislabeled FRED series was accepted")
+
+    prices = inputs.normalize_price_frame(
+        pd.DataFrame(
+            {
+                "Date": ["2025-01-02", "2025-01-03"],
+                "Close": [100.0, 101.0],
+                "Adj Close": [90.0, 91.0],
+                "Volume": [1_000, 1_100],
+            }
+        )
+    )
+    assert prices["close"].tolist() == [90.0, 91.0]
+
+    for bad_dates, expected in (
+        (["2025-01-02T00:00:00-05:00"], "timezone_aware_daily_price_date"),
+        (["2025-01-02 16:00:00"], "non_midnight_daily_price_timestamp"),
+        (["2025-01-02", "2025-01-02"], "duplicate_daily_price_date"),
+    ):
+        try:
+            inputs.normalize_price_frame(
+                pd.DataFrame({"Date": bad_dates, "Close": [100.0] * len(bad_dates)})
+            )
+        except inputs.InputContractError as exc:
+            assert str(exc) == expected
+        else:
+            raise AssertionError(f"invalid daily dates accepted: {bad_dates}")
+
+    dates = pd.date_range("2024-01-01", periods=200, freq="B")
+    columns = [f"S{number:03d}" for number in range(500)]
+    close = pd.DataFrame(100.0, index=dates, columns=columns)
+    close.iloc[0, -1] = np.nan
+    volume = pd.DataFrame(1_000_000.0, index=dates, columns=columns)
+    components, counts = inputs.compute_universe_components(close, volume, 500)
+    assert int(close.iloc[-1].notna().sum()) == 500
+    assert int(counts["pct_above_ma200"].iloc[-1]) == 499
+    assert pd.isna(components["pct_above_ma200"].iloc[-1])
+
+
+def test_empty_context_header_engine_propagation_and_input_limits() -> None:
+    as_of = "2025-12-31"
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        bundle, _ = write_source_bundle(root, as_of)
+
+        timestamp_args = build_args(
+            root, bundle, "timestamp_as_of", "2025-12-31T12:00:00-05:00"
+        )
+        timestamp_result = inputs.build(timestamp_args)
+        assert timestamp_result["status"] == inputs.BLOCKED_STATUS
+        assert timestamp_result["blockers"] == [
+            "InputContractError:invalid_as_of_date:2025-12-31T12:00:00-05:00"
+        ]
+
+        maximum = json.loads(
+            inputs.DEFAULT_CONTRACT.read_text(encoding="utf-8")
+        )["history"]["maximum_universe_symbols"]
+        universe_path = root / "oversized_universe.csv"
+        pd.DataFrame(
+            {"ticker": [f"S{number:04d}" for number in range(maximum + 1)]}
+        ).to_csv(universe_path, index=False)
+        oversized_args = build_args(root, bundle, "oversized", as_of)
+        oversized_args.universe_file = str(universe_path)
+        oversized_args.run_engine = False
+        oversized = inputs.build(oversized_args)
+        assert oversized["status"] == inputs.BLOCKED_STATUS
+        assert "universe_symbol_count_exceeds_maximum" in oversized["blockers"][0]
+
+        minimal = root / "minimal"
+        (minimal / "cboe").mkdir(parents=True)
+        dates = fixture_dates(as_of)
+        pd.DataFrame(
+            {
+                "DATE": [date.strftime("%m/%d/%Y") for date in dates],
+                "CLOSE": np.linspace(18.0, 24.0, len(dates)),
+            }
+        ).to_csv(minimal / "cboe" / "VIX.csv", index=False)
+        header_only = inputs.build(build_args(root, minimal, "header_only", as_of))
+        assert header_only["status"] == inputs.READY_STATUS, header_only
+        context = pd.read_csv(root / "header_only" / "input_context.csv")
+        assert context.empty
+        assert set(inputs.risk_engine.CONTEXT_REQUIRED_COLUMNS).issubset(context.columns)
+
+        original_build = inputs.risk_engine.build
+        try:
+            inputs.risk_engine.build = lambda _: {
+                "status": inputs.risk_engine.BLOCKED_STATUS
+            }
+            propagated = inputs.build(
+                build_args(root, minimal, "engine_blocked", as_of)
+            )
+        finally:
+            inputs.risk_engine.build = original_build
+        assert propagated["status"] == inputs.BLOCKED_STATUS
+        assert propagated["blockers"] == [
+            "InputContractError:shadow_engine_not_ready:"
+            + inputs.risk_engine.BLOCKED_STATUS
+        ]
+
+
 def main() -> int:
     test_normalizer_is_free_proxy_report_only_and_fail_closed()
+    test_source_identity_date_and_cross_section_guards()
+    test_empty_context_header_engine_propagation_and_input_limits()
     print("run287_chameleon_macro_inputs_smoke: PASS")
     return 0
 
