@@ -922,6 +922,26 @@ def test_build_is_deterministic_report_only_and_future_data_hard_fails() -> None
             "invalid_context_numeric_range:portfolio_fundamental_weak_ratio"
         ]
 
+        boolean_numeric_context_path = root / "boolean_numeric_context.parquet"
+        boolean_numeric_context = context_fixture(
+            dates,
+            calendar_hash=calendar_hash,
+        )
+        boolean_numeric_context["spy_close"] = True
+        boolean_numeric_context.to_parquet(boolean_numeric_context_path, index=False)
+        boolean_numeric_context_result = risk.build(
+            build_args(
+                root,
+                calendar_path,
+                metrics_path,
+                boolean_numeric_context_path,
+                "boolean-context-numeric",
+            )
+        )
+        assert boolean_numeric_context_result["blockers"] == [
+            "invalid_context_numeric:spy_close:boolean"
+        ]
+
         def denied_metric_fingerprint(path: Path) -> dict:
             if Path(path) == metrics_path:
                 raise PermissionError("fixture denied")

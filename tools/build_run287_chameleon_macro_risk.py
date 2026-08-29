@@ -305,6 +305,8 @@ def _parse_bool(value: Any, *, label: str) -> bool | None:
 def _parse_optional_numeric(value: Any, *, label: str) -> float:
     if value is None or value is pd.NA or value is pd.NaT:
         return math.nan
+    if isinstance(value, (bool, np.bool_)):
+        raise ContractError(f"invalid_context_numeric:{label}:boolean")
     if not np.isscalar(value):
         raise ContractError(f"invalid_context_numeric:{label}:non_scalar")
     try:
