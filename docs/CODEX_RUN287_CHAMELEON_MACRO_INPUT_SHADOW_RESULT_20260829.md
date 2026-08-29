@@ -53,9 +53,9 @@ Artifact:
 - universe files loaded: 955;
 - 200-session-valid breadth symbols at as-of: 297;
 - result: `READY_CHAMELEON_MACRO_RISK_REPORT_ONLY_DATA_INSUFFICIENT`;
-- reason: fewer than 500 universe symbols had simultaneous bars after
-  2026-06-22, so market breadth and correlation were intentionally unavailable
-  on 2026-07-02;
+- reason: fewer than 500 universe symbols had the component-required valid
+  history after 2026-06-22, so market breadth and correlation were
+  intentionally unavailable on 2026-07-02;
 - no new buys were authorized by the engine (`new_buys_frozen=true`), and no
   portfolio action surface existed.
 
