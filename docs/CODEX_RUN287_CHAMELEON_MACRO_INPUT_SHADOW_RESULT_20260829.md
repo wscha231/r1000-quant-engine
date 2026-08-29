@@ -45,12 +45,13 @@ index, VIX, or current snapshot.
 ### 2026-07-02 requested date
 
 Artifact:
-`outputs/run287_chameleon_macro_input_shadow_20260702_20260829_v2`
+`outputs/run287_chameleon_macro_input_shadow_20260702_20260829_v5`
 
-- source-ready count: 18 / 23;
-- normalized metrics: 44,696 rows and 33 components;
+- source-ready count: 19 / 23;
+- normalized metrics: 45,733 rows and 34 components;
 - context: 1,507 XNYS sessions;
 - universe files loaded: 955;
+- 200-session-valid breadth symbols at as-of: 297;
 - result: `READY_CHAMELEON_MACRO_RISK_REPORT_ONLY_DATA_INSUFFICIENT`;
 - reason: fewer than 500 universe symbols had simultaneous bars after
   2026-06-22, so market breadth and correlation were intentionally unavailable
@@ -65,16 +66,16 @@ This run exposed a real data-update bottleneck: the benchmark SPY cache reached
 ### 2026-06-22 common-coverage date
 
 Artifact:
-`outputs/run287_chameleon_macro_input_shadow_20260622_20260829_v3`
+`outputs/run287_chameleon_macro_input_shadow_20260622_20260829_v4`
 
 - source-ready count: 19 / 23;
-- normalized metrics: 46,227 rows and 34 components;
+- normalized metrics: 45,744 rows and 34 components;
 - context: 1,507 XNYS sessions;
 - universe files loaded: 955;
-- simultaneous breadth symbols at as-of: 635;
+- 200-session-valid breadth symbols at as-of: 634;
 - ready axes: 8 / 10;
 - required market-breadth, volatility, and credit axes: all ready;
-- FREE_PROXY risk score: 40.7572265581;
+- FREE_PROXY risk score: 40.3369172694;
 - red axes: 0;
 - observed/effective state: `NORMAL` / `NORMAL`;
 - sentiment overlay: `NONE`, with greed readiness false because options data
