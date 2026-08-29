@@ -567,6 +567,40 @@ def test_extreme_greed_and_fear_recovery_use_frozen_confirmation() -> None:
     assert int(renewed.iloc[6]["fear_recovery_stage"]) == 0
     assert renewed.iloc[6]["sentiment_overlay"] == "NONE"
 
+    paused_dates = list(pd.bdate_range("2026-08-03", periods=9))
+    paused_market = pd.DataFrame(
+        {
+            "decision_date": paused_dates,
+            "risk_score": [100.0, 90.0, 89.0, 88.0, 87.0, 86.0, 85.0, 84.0, 83.0],
+            "effective_state": ["EXTREME_FEAR"] + ["RISK_DEFENSE"] * 8,
+        }
+    )
+    paused_context = pd.DataFrame(
+        {
+            "decision_date": paused_dates,
+            "spy_close": [90.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0],
+            "spy_prior_2d_high": [100.0] * 9,
+            "spy_ma20": [110.0] * 6 + [100.0] * 3,
+            "breadth_improving": [False, False] + [True] * 7,
+            "hy_spread_widening": [False, False, True] + [False] * 6,
+            "leadership_breadth_confirmed": [False] * 9,
+            "market_new_low": [False] * 6 + [True, False, False],
+            "index_new_high_breadth_narrowing": [False] * 9,
+        }
+    )
+    paused_recovery = risk.build_sentiment_history(
+        paused_market,
+        pd.DataFrame(columns=["decision_date", "component", "raw_percentile", "component_ready"]),
+        paused_context,
+        cfg,
+    )
+    assert int(paused_recovery.iloc[1]["fear_recovery_stage"]) == 1
+    assert int(paused_recovery.iloc[4]["fear_recovery_stage"]) == 1
+    assert int(paused_recovery.iloc[5]["fear_recovery_stage"]) == 2
+    assert bool(paused_recovery.iloc[6]["fear_recovery_paused"])
+    assert int(paused_recovery.iloc[7]["fear_recovery_stage"]) == 2
+    assert int(paused_recovery.iloc[8]["fear_recovery_stage"]) == 3
+
 
 def build_args(
     root: Path,

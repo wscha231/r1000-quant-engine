@@ -890,6 +890,8 @@ def build_sentiment_history(
             _context_value(context_by_date, date, "hy_spread_widening") is True
             or _context_value(context_by_date, date, "market_new_low") is True
         )
+        if fear_episode and paused and recovery_stage in {1, 2}:
+            recovery_stage_started_position = position
         stage_changed = False
         if (
             effective != "EXTREME_FEAR"
