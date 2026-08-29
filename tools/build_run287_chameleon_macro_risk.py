@@ -36,6 +36,10 @@ CANONICAL_CONTRACT_SEMANTIC_SHA256 = "5cbd1915a12bba77e8114cab00e281cb4956a2e46a
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 GIT_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 DATE_ONLY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+EXPLICIT_OFFSET_TIMESTAMP_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}"
+    r"(?::\d{2}(?:\.\d{1,9})?)?(?:[Zz]|[+-]\d{2}:\d{2})$"
+)
 CALENDAR_REQUIRED_COLUMNS = (
     "decision_date",
     "decision_time_utc",
@@ -204,6 +208,33 @@ def parse_date_only(values: pd.Series, label: str) -> pd.Series:
         raise
     except (AttributeError, TypeError, ValueError) as exc:
         raise ContractError(f"invalid_{label}") from exc
+
+
+def parse_explicit_offset_timestamp(values: pd.Series, label: str) -> pd.Series:
+    parsed_values: list[pd.Timestamp] = []
+    for value in values:
+        if value is None or value is pd.NA or value is pd.NaT:
+            parsed_values.append(pd.NaT)
+            continue
+        try:
+            if isinstance(value, str):
+                text = value.strip()
+                if not EXPLICIT_OFFSET_TIMESTAMP_RE.fullmatch(text):
+                    raise ContractError(f"invalid_{label}")
+                parsed = pd.Timestamp(text)
+            else:
+                parsed = pd.Timestamp(value)
+            if pd.isna(parsed):
+                parsed_values.append(pd.NaT)
+                continue
+            if parsed.tzinfo is None or parsed.utcoffset() is None:
+                raise ContractError(f"invalid_{label}")
+            parsed_values.append(parsed.tz_convert("UTC"))
+        except ContractError:
+            raise
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ContractError(f"invalid_{label}") from exc
+    return pd.Series(parsed_values, index=values.index, dtype="datetime64[ns, UTC]")
 
 
 def load_contract(path: Path = DEFAULT_CONTRACT) -> dict[str, Any]:
@@ -401,7 +432,10 @@ def _normalize_dates(frame: pd.DataFrame, *, context: bool = False) -> pd.DataFr
         raise ContractError(f"missing_columns:{','.join(missing)}")
     output["decision_date"] = parse_date_only(output["decision_date"], "decision_date")
     output["decision_time_utc"] = pd.to_datetime(output["decision_time_utc"], errors="coerce", utc=True)
-    output["available_from"] = pd.to_datetime(output["available_from"], errors="coerce", utc=True)
+    output["available_from"] = parse_explicit_offset_timestamp(
+        output["available_from"],
+        "available_from_timestamp",
+    )
     if output[["decision_date", "decision_time_utc", "available_from"]].isna().any().any():
         raise ContractError("invalid_decision_or_availability_timestamp")
     output["source_observation_date"] = parse_date_only(

@@ -700,6 +700,49 @@ def test_build_is_deterministic_report_only_and_future_data_hard_fails() -> None
         assert blocked["target_books_mutated"] is False
         assert not (root / "blocked" / "market_state.json").exists()
 
+        date_only_available_path = root / "date_only_available.csv"
+        date_only_available = metric_fixture(dates, calendar_hash=calendar_hash)
+        date_only_available.loc[
+            date_only_available.index[-1],
+            "available_from",
+        ] = dates[-1].date().isoformat()
+        date_only_available.to_csv(date_only_available_path, index=False)
+        date_only_available_result = risk.build(
+            build_args(
+                root,
+                calendar_path,
+                date_only_available_path,
+                context_path,
+                "date-only-available",
+            )
+        )
+        assert date_only_available_result["blockers"] == [
+            "invalid_available_from_timestamp"
+        ]
+
+        naive_available_context_path = root / "naive_available_context.csv"
+        naive_available_context = context_fixture(
+            dates,
+            calendar_hash=calendar_hash,
+        )
+        naive_available_context.loc[
+            naive_available_context.index[-1],
+            "available_from",
+        ] = f"{dates[-1].date().isoformat()}T19:00:00"
+        naive_available_context.to_csv(naive_available_context_path, index=False)
+        naive_available_context_result = risk.build(
+            build_args(
+                root,
+                calendar_path,
+                metrics_path,
+                naive_available_context_path,
+                "naive-context-available",
+            )
+        )
+        assert naive_available_context_result["blockers"] == [
+            "invalid_available_from_timestamp"
+        ]
+
         invalid_as_of = risk.build(
             build_args(
                 root,
