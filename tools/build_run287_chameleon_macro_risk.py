@@ -283,8 +283,15 @@ def validate_contract(contract: Mapping[str, Any]) -> None:
 
 
 def _parse_bool(value: Any, *, label: str) -> bool | None:
-    if value is None or (isinstance(value, float) and math.isnan(value)) or pd.isna(value):
+    if value is None or value is pd.NA or value is pd.NaT:
         return None
+    if not np.isscalar(value):
+        raise ContractError(f"invalid_boolean:{label}:non_scalar")
+    try:
+        if bool(pd.isna(value)):
+            return None
+    except (TypeError, ValueError) as exc:
+        raise ContractError(f"invalid_boolean:{label}:non_scalar") from exc
     if isinstance(value, (bool, np.bool_)):
         return bool(value)
     normalized = str(value).strip().lower()
@@ -293,6 +300,22 @@ def _parse_bool(value: Any, *, label: str) -> bool | None:
     if normalized in {"0", "false", "no", "n"}:
         return False
     raise ContractError(f"invalid_boolean:{label}:{value}")
+
+
+def _parse_optional_numeric(value: Any, *, label: str) -> float:
+    if value is None or value is pd.NA or value is pd.NaT:
+        return math.nan
+    if not np.isscalar(value):
+        raise ContractError(f"invalid_context_numeric:{label}:non_scalar")
+    try:
+        if bool(pd.isna(value)):
+            return math.nan
+        numeric = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ContractError(f"invalid_context_numeric:{label}") from exc
+    if not math.isfinite(numeric):
+        raise ContractError(f"invalid_context_numeric:{label}")
+    return numeric
 
 
 def validate_calendar(frame: pd.DataFrame, source_sha256: str) -> pd.DataFrame:
@@ -522,11 +545,21 @@ def validate_context(
     columns = contract.get("context_columns") or {}
     for column in columns.get("optional_numeric") or []:
         if column in output.columns:
-            numeric = pd.to_numeric(output[column], errors="coerce")
-            invalid = output[column].notna() & ~np.isfinite(numeric.to_numpy(dtype=float))
-            if invalid.any():
-                raise ContractError(f"invalid_context_numeric:{column}")
-            output[column] = numeric
+            output[column] = [
+                _parse_optional_numeric(value, label=column)
+                for value in output[column]
+            ]
+    for column in ("spy_close", "spy_prior_2d_high", "spy_ma20"):
+        if column in output.columns:
+            present = output[column].notna()
+            if (output.loc[present, column] <= 0.0).any():
+                raise ContractError(f"invalid_context_numeric_range:{column}")
+    ratio_column = "portfolio_fundamental_weak_ratio"
+    if ratio_column in output.columns:
+        present = output[ratio_column].notna()
+        ratio = output.loc[present, ratio_column]
+        if ((ratio < 0.0) | (ratio > 1.0)).any():
+            raise ContractError(f"invalid_context_numeric_range:{ratio_column}")
     for column in columns.get("optional_boolean") or []:
         if column in output.columns:
             output[column] = [_parse_bool(value, label=column) for value in output[column]]
@@ -886,17 +919,18 @@ def build_sentiment_history(
             fear_peak = math.nan
             recovery_stage = 0
             recovery_stage_started_position = None
-        paused = bool(
-            _context_value(context_by_date, date, "hy_spread_widening") is True
-            or _context_value(context_by_date, date, "market_new_low") is True
-        )
-        if fear_episode and paused and recovery_stage in {1, 2}:
+        hy_pause_guard = _context_value(context_by_date, date, "hy_spread_widening")
+        low_pause_guard = _context_value(context_by_date, date, "market_new_low")
+        pause_guards_ready = hy_pause_guard is not None and low_pause_guard is not None
+        paused = bool(hy_pause_guard is True or low_pause_guard is True)
+        recovery_blocked = paused or not pause_guards_ready
+        if fear_episode and recovery_blocked and recovery_stage in {1, 2}:
             recovery_stage_started_position = position
         stage_changed = False
         if (
             effective != "EXTREME_FEAR"
             and fear_episode
-            and not paused
+            and not recovery_blocked
             and math.isfinite(fear_peak)
             and math.isfinite(risk_score)
         ):
@@ -963,6 +997,7 @@ def build_sentiment_history(
                 "fear_recovery_stage": int(recovery_stage),
                 "fear_recovery_stage_changed": bool(stage_changed),
                 "fear_recovery_paused": bool(paused),
+                "fear_recovery_pause_guards_ready": bool(pause_guards_ready),
                 **greed_values,
             }
         )

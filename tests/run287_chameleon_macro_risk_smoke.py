@@ -601,6 +601,23 @@ def test_extreme_greed_and_fear_recovery_use_frozen_confirmation() -> None:
     assert int(paused_recovery.iloc[7]["fear_recovery_stage"]) == 2
     assert int(paused_recovery.iloc[8]["fear_recovery_stage"]) == 3
 
+    unknown_guard_context = paused_context.copy()
+    unknown_guard_context[["hy_spread_widening", "market_new_low"]] = (
+        unknown_guard_context[["hy_spread_widening", "market_new_low"]].astype(object)
+    )
+    unknown_guard_context.loc[6:, ["hy_spread_widening", "market_new_low"]] = np.nan
+    unknown_guard_recovery = risk.build_sentiment_history(
+        paused_market,
+        pd.DataFrame(columns=["decision_date", "component", "raw_percentile", "component_ready"]),
+        unknown_guard_context,
+        cfg,
+    )
+    assert int(unknown_guard_recovery.iloc[5]["fear_recovery_stage"]) == 2
+    assert not bool(
+        unknown_guard_recovery.iloc[6]["fear_recovery_pause_guards_ready"]
+    )
+    assert int(unknown_guard_recovery.iloc[8]["fear_recovery_stage"]) == 2
+
 
 def build_args(
     root: Path,
@@ -846,6 +863,64 @@ def test_build_is_deterministic_report_only_and_future_data_hard_fails() -> None
             "invalid_source_observation_date"
         ]
         assert (root / "mixed-timezone-provenance" / "manifest.json").is_file()
+
+        array_context_path = root / "array_context.parquet"
+        array_context = context_fixture(dates, calendar_hash=calendar_hash)
+        array_context["market_new_low"] = [
+            [False, False] if row_number == 0 else [False]
+            for row_number in range(len(array_context))
+        ]
+        array_context.to_parquet(array_context_path, index=False)
+        array_context_result = risk.build(
+            build_args(
+                root,
+                calendar_path,
+                metrics_path,
+                array_context_path,
+                "array-context-boolean",
+            )
+        )
+        assert array_context_result["status"] == risk.BLOCKED_STATUS
+        assert array_context_result["blockers"] == [
+            "invalid_boolean:market_new_low:non_scalar"
+        ], array_context_result
+
+        negative_context_path = root / "negative_context.csv"
+        negative_context = context_fixture(dates, calendar_hash=calendar_hash)
+        negative_context.loc[negative_context.index[-1], "spy_close"] = -1.0
+        negative_context.to_csv(negative_context_path, index=False)
+        negative_context_result = risk.build(
+            build_args(
+                root,
+                calendar_path,
+                metrics_path,
+                negative_context_path,
+                "negative-context-price",
+            )
+        )
+        assert negative_context_result["blockers"] == [
+            "invalid_context_numeric_range:spy_close"
+        ]
+
+        ratio_context_path = root / "ratio_context.csv"
+        ratio_context = context_fixture(dates, calendar_hash=calendar_hash)
+        ratio_context.loc[
+            ratio_context.index[-1],
+            "portfolio_fundamental_weak_ratio",
+        ] = 2.0
+        ratio_context.to_csv(ratio_context_path, index=False)
+        ratio_context_result = risk.build(
+            build_args(
+                root,
+                calendar_path,
+                metrics_path,
+                ratio_context_path,
+                "invalid-context-ratio",
+            )
+        )
+        assert ratio_context_result["blockers"] == [
+            "invalid_context_numeric_range:portfolio_fundamental_weak_ratio"
+        ]
 
         def denied_metric_fingerprint(path: Path) -> dict:
             if Path(path) == metrics_path:
