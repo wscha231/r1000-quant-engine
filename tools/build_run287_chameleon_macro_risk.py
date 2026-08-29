@@ -34,6 +34,7 @@ DEFAULT_CONTRACT = ROOT / "docs" / "run287_chameleon_macro_risk_contract.json"
 SCHEMA_VERSION = "run287-chameleon-macro-risk-report-v1"
 CANONICAL_CONTRACT_SEMANTIC_SHA256 = "5cbd1915a12bba77e8114cab00e281cb4956a2e46af1c21612d4bd637c26ebef"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+GIT_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 CALENDAR_REQUIRED_COLUMNS = (
     "decision_date",
     "decision_time_utc",
@@ -114,6 +115,20 @@ def git_head() -> str:
     return result.stdout.strip() if result.returncode == 0 else "UNAVAILABLE"
 
 
+def capture_code_identity() -> dict[str, Any]:
+    head = git_head().strip().lower()
+    if not GIT_COMMIT_RE.fullmatch(head):
+        raise ContractError("git_head_unavailable_or_invalid")
+    builder_path = Path(__file__).resolve()
+    try:
+        builder = fingerprint(builder_path)
+    except OSError as exc:
+        raise ContractError(
+            f"builder_source_unreadable:{builder_path}:{type(exc).__name__}"
+        ) from exc
+    return {"git_head": head, "builder": builder}
+
+
 def json_safe(value: Any) -> Any:
     """Recursively normalize pandas/NumPy missing values to strict JSON."""
 
@@ -151,12 +166,17 @@ def write_json(path: Path, payload: Mapping[str, Any]) -> None:
 
 def read_table(path: Path) -> pd.DataFrame:
     suffix = path.suffix.lower()
-    if suffix == ".csv":
-        return pd.read_csv(path, low_memory=False)
-    if suffix in {".parquet", ".pq"}:
-        return pd.read_parquet(path)
-    if suffix in {".jsonl", ".ndjson"}:
-        return pd.read_json(path, lines=True)
+    try:
+        if suffix == ".csv":
+            return pd.read_csv(path, low_memory=False)
+        if suffix in {".parquet", ".pq"}:
+            return pd.read_parquet(path)
+        if suffix in {".jsonl", ".ndjson"}:
+            return pd.read_json(path, lines=True)
+    except Exception as exc:
+        raise ContractError(
+            f"input_table_unreadable:{path}:{type(exc).__name__}"
+        ) from exc
     raise ContractError(f"unsupported_input_format:{path.suffix}")
 
 
@@ -1002,10 +1022,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         raise FileExistsError(f"output directory already exists: {output_dir}")
     output_dir.mkdir(parents=True)
     try:
-        code_identity_before = {
-            "git_head": git_head(),
-            "builder": fingerprint(Path(__file__).resolve()),
-        }
+        code_identity_before = capture_code_identity()
         if not contract_path.is_file():
             raise ContractError(f"contract_input_missing:{contract_path}")
         if not calendar_path.is_file():
@@ -1139,10 +1156,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             input_fingerprints_after["context"] = fingerprint(context_path)
         if input_fingerprints_before != input_fingerprints_after:
             raise ContractError("source_input_mutated_during_build")
-        code_identity_after = {
-            "git_head": git_head(),
-            "builder": fingerprint(Path(__file__).resolve()),
-        }
+        code_identity_after = capture_code_identity()
         if code_identity_before != code_identity_after:
             raise ContractError("code_identity_mutated_during_build")
         verified_inputs = input_fingerprints_after

@@ -715,6 +715,40 @@ def test_build_is_deterministic_report_only_and_future_data_hard_fails() -> None
         assert code_race["blockers"] == ["code_identity_mutated_during_build"]
         assert not (root / "code-identity-race" / "backtest_truth_manifest.json").exists()
 
+        original_git_head = risk.git_head
+        risk.git_head = lambda: "UNAVAILABLE"
+        try:
+            missing_git = risk.build(
+                build_args(
+                    root,
+                    calendar_path,
+                    metrics_path,
+                    context_path,
+                    "missing-git-identity",
+                )
+            )
+        finally:
+            risk.git_head = original_git_head
+        assert missing_git["status"] == risk.BLOCKED_STATUS
+        assert missing_git["blockers"] == ["git_head_unavailable_or_invalid"]
+        assert (root / "missing-git-identity" / "manifest.json").is_file()
+
+        empty_metrics_path = root / "empty_metrics.csv"
+        empty_metrics_path.write_bytes(b"")
+        unreadable = risk.build(
+            build_args(
+                root,
+                calendar_path,
+                empty_metrics_path,
+                context_path,
+                "unreadable-metrics",
+            )
+        )
+        assert unreadable["status"] == risk.BLOCKED_STATUS
+        assert unreadable["blockers"][0].startswith("input_table_unreadable:")
+        assert unreadable["blockers"][0].endswith(":EmptyDataError")
+        assert (root / "unreadable-metrics" / "manifest.json").is_file()
+
         short_dates = dates[:20]
         short_calendar_path = root / "short_xnys_calendar.csv"
         calendar_fixture(short_dates).to_csv(short_calendar_path, index=False)
