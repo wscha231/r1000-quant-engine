@@ -2,13 +2,13 @@
   "schema_version": "run287-chameleon-macro-input-shadow-evidence-v1",
   "evidence_scope": "manifest-level durable index for locally retained FREE_PROXY shadow artifacts",
   "historical_ab_allowed": false,
-  "producer_git_head": "c47168130df396bc0d1e0574aa1effac90bdb8d8",
-  "normalizer_builder_sha256": "0b2543385dacfca9e72b5124623fe37b0858f20c6b261121a6b50d6928a8ff67",
+  "producer_git_head": "eb10a197dedf6d4cf32715a8612d81d488c2e888",
+  "normalizer_builder_sha256": "3f3a46d0a7d03a8ceec4721236da9d055a80377a3d881acbe8b32ab071d81812",
   "report_only": true,
   "runs": [
     {
-      "artifact_id": "run287_chameleon_macro_input_shadow_20260622_20260829_v4",
-      "artifact_root": "outputs/run287_chameleon_macro_input_shadow_20260622_20260829_v4",
+      "artifact_id": "run287_chameleon_macro_input_shadow_20260622_20260829_v6",
+      "artifact_root": "outputs/run287_chameleon_macro_input_shadow_20260622_20260829_v6",
       "claims": {
         "breadth_latest_ready_date": "2026-06-22",
         "breadth_symbol_count_as_of": 634,
@@ -22,26 +22,26 @@
         "red_axis_count": 0,
         "requested_as_of": "2026-06-22",
         "required_axes_ready": true,
-        "risk_score": 40.33691726941793,
+        "risk_score": 40.47082607862556,
         "sentiment_overlay": "NONE",
         "source_ready_count": 19,
         "source_total_count": 23,
         "universe_loaded_count": 955
       },
       "sha256": {
-        "input_context.csv": "9d487366bd3f2f79a33dccbf402fc2b842af4989f524026b291e294ced075711",
-        "input_metrics.csv": "8d40861cc031bd8aa8489d1aa1bf10bfca320feccac9d5265086e96d57fde4e7",
-        "manifest.json": "7b89a527e7f1d7a2b21f67b2e37b218389d54c29f6f52aa9bf4e97eeebece558",
-        "shadow_engine/manifest.json": "1d45c771c9976e39c01f4b2b2a0275501290ffa1d3852a86ef059229ec87a3d0",
-        "source_audit.csv": "2e7baaa156d4ffa6b4b463e74d853808fbda8441ec38aac9fccb28cbb8363629",
-        "source_lineage.json": "461543d7f7e51ba59b193f19d3bc82ee178d0f05cbde0383ff26de55a7ed1b9a",
+        "input_context.csv": "05473688e2e689e58373cc44ac0549ea59bf25368369540127fb40126daa52ac",
+        "input_metrics.csv": "34bc02e8b5ce22378804ac89b5fd9a3934fcce77e95363ede9f95bd8d00059a1",
+        "manifest.json": "5fa991877826ac5e543a5273b0a62a248f654aa3c3ce2baad47cd18289624f07",
+        "shadow_engine/manifest.json": "571a9095d42262739ff1c4473b31a621184e6ec90eaa813a64abfcdf473660ae",
+        "source_audit.csv": "08033955cb0c5c39eb84b367903108d7bfdec34a9dfa980e25939705fe748600",
+        "source_lineage.json": "b29fcd52394ca761ee09da328ac6b2bb6122eda79ae47853d4d4c2f63d199bab",
         "xnys_calendar.csv": "3a214e2e5ec45188b2702e8c16c1b07ed140f589276d291f896e229711d6a0dd"
       },
       "truth_class": "FREE_PROXY"
     },
     {
-      "artifact_id": "run287_chameleon_macro_input_shadow_20260702_20260829_v5",
-      "artifact_root": "outputs/run287_chameleon_macro_input_shadow_20260702_20260829_v5",
+      "artifact_id": "run287_chameleon_macro_input_shadow_20260702_20260829_v7",
+      "artifact_root": "outputs/run287_chameleon_macro_input_shadow_20260702_20260829_v7",
       "claims": {
         "breadth_latest_ready_date": "2026-06-22",
         "breadth_symbol_count_as_of": 297,
@@ -63,12 +63,12 @@
         "universe_loaded_count": 955
       },
       "sha256": {
-        "input_context.csv": "1a001a75f8704cf2c7e50c3331281331a931e134fdb3b26a23ecc056e3f169ce",
-        "input_metrics.csv": "ac413c893363725b276e7a742c6b16864124de106c487594ae1ec9ab09b33d0e",
-        "manifest.json": "d083b13d48827be154d8518e9673a7523e45ede86262bac8ef47e396c5183850",
-        "shadow_engine/manifest.json": "16dd74b86920b4e2bd4705e8aab5dc7b62185bb51f482f66989beddc4fd20f7c",
-        "source_audit.csv": "9789d24412aa788b9b7dff252b50d78fd539160520368d9fd4b9505d391a7b3d",
-        "source_lineage.json": "daa406fb91b4a12f08b525b175e5fef61650b16c9aeffdc58e1538c589ff0e85",
+        "input_context.csv": "b8636e3a53ed8cb97c5f63f95a12959fd9903c399867f175602482e7ce668c89",
+        "input_metrics.csv": "980949d3814368ab4c7b23a1e1ffd34837b2efbeb20001c770ce5e46def089b5",
+        "manifest.json": "5dfa5c670f28db2e1fc7665a2b05d7146029f58489fb34f5ee3f896a0a87aa6c",
+        "shadow_engine/manifest.json": "be92d84943fd134994f981d136bdbb571629fd60d9599cb34c178e4a0535711d",
+        "source_audit.csv": "a1dc3c22599dbbbe02a35d8cddfa3f3da780f5177fb3b04e2e64499fe0630e15",
+        "source_lineage.json": "0906c879f0c4a0f03c4710f8b06be41275d71e3c733eb05b7877a7c03b89ba61",
         "xnys_calendar.csv": "d110f723d1c83b378b676489b41be56eea598a8cac68e6d041fa3af15b420db5"
       },
       "truth_class": "FREE_PROXY"

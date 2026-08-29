@@ -187,8 +187,8 @@ def test_source_identity_date_and_cross_section_guards() -> None:
     assert evidence["historical_ab_allowed"] is False
     assert evidence["report_only"] is True
     assert [run["artifact_id"] for run in evidence["runs"]] == [
-        "run287_chameleon_macro_input_shadow_20260622_20260829_v4",
-        "run287_chameleon_macro_input_shadow_20260702_20260829_v5",
+        "run287_chameleon_macro_input_shadow_20260622_20260829_v6",
+        "run287_chameleon_macro_input_shadow_20260702_20260829_v7",
     ]
     for run in evidence["runs"]:
         assert all(

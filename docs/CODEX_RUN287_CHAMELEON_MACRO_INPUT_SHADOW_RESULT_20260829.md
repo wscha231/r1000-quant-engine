@@ -51,7 +51,7 @@ does not upgrade their `FREE_PROXY` truth class or authorize historical A/B.
 ### 2026-07-02 requested date
 
 Artifact:
-`outputs/run287_chameleon_macro_input_shadow_20260702_20260829_v5`
+`outputs/run287_chameleon_macro_input_shadow_20260702_20260829_v7`
 
 - source-ready count: 19 / 23;
 - normalized metrics: 45,733 rows and 34 components;
@@ -72,7 +72,7 @@ This run exposed a real data-update bottleneck: the benchmark SPY cache reached
 ### 2026-06-22 common-coverage date
 
 Artifact:
-`outputs/run287_chameleon_macro_input_shadow_20260622_20260829_v4`
+`outputs/run287_chameleon_macro_input_shadow_20260622_20260829_v6`
 
 - source-ready count: 19 / 23;
 - normalized metrics: 45,744 rows and 34 components;
@@ -81,7 +81,7 @@ Artifact:
 - 200-session-valid breadth symbols at as-of: 634;
 - ready axes: 8 / 10;
 - required market-breadth, volatility, and credit axes: all ready;
-- FREE_PROXY risk score: 40.3369172694;
+- FREE_PROXY risk score: 40.4708260786;
 - red axes: 0;
 - observed/effective state: `NORMAL` / `NORMAL`;
 - sentiment overlay: `NONE`, with greed readiness false because options data
