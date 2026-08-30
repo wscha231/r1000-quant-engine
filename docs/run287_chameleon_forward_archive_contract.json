@@ -1,0 +1,126 @@
+{
+  "schema_version": "run287-chameleon-forward-archive-contract-v1",
+  "causal_family": "forward_pit_macro_options_observation_archive_report_only",
+  "mode": "RESEARCH_ONLY_REPORT_ONLY",
+  "launch_not_before_utc": "2026-08-30T00:00:00Z",
+  "collection": {
+    "normal_collected_at_source": "RUNTIME_UTC_AFTER_EACH_RESPONSE",
+    "caller_timestamp_allowed_only_in_fixture_mode": true,
+    "fred_api_key_environment_variable": "FRED_API_KEY",
+    "request_timeout_seconds": 30,
+    "fred_observation_history_years": 7,
+    "maximum_raw_bytes_per_source": 104857600
+  },
+  "archive": {
+    "layout": "CONTENT_ADDRESSED_RAW_AND_NORMALIZED_OBJECTS_PLUS_ATOMIC_IMMUTABLE_SNAPSHOT",
+    "index": "archive_index.jsonl",
+    "same_collection_time_policy": "IDENTICAL_SNAPSHOT_IDEMPOTENT_CHANGED_PAYLOAD_FAIL_CLOSED",
+    "out_of_order_collection_allowed": false,
+    "source_bytes_must_remain_unchanged_during_fixture_capture": true,
+    "missing_source_policy": "RECORD_MISSING_DO_NOT_CARRY_OR_IMPUTE",
+    "invalid_present_source_policy": "BLOCK_WHOLE_SNAPSHOT"
+  },
+  "truth_policy": {
+    "official_network_capture": "FORWARD_PIT",
+    "fixture_or_supplied_file_capture": "FREE_PROXY",
+    "pit_verified_emitted_by_this_collector": false,
+    "available_from": "EXACT_SOURCE_CAPTURE_TIME_UTC",
+    "rows_observed_before_first_capture_may_be_used_before_capture": false,
+    "historical_ab_allowed": false
+  },
+  "fred": {
+    "endpoint": "https://api.stlouisfed.org/fred/series/observations",
+    "series": {
+      "hy_oas": "BAMLH0A0HYM2",
+      "ig_oas": "BAMLC0A0CM",
+      "dgs2": "DGS2",
+      "dgs10": "DGS10",
+      "dgs3mo": "DGS3MO",
+      "real10": "DFII10",
+      "fed_assets": "WALCL",
+      "tga": "WDTGAL",
+      "reverse_repo": "RRPTSYD",
+      "initial_claims": "ICSA",
+      "nfci": "NFCI",
+      "unrate": "UNRATE",
+      "payems": "PAYEMS"
+    },
+    "required_response_fields": [
+      "realtime_start",
+      "realtime_end",
+      "observation_start",
+      "observation_end",
+      "limit",
+      "offset",
+      "sort_order",
+      "count",
+      "observations"
+    ],
+    "missing_value_token": "."
+  },
+  "cboe": {
+    "sources": {
+      "vix": {
+        "kind": "INDEX_HISTORY",
+        "url": "https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv",
+        "fixture_path": "cboe/vix.csv"
+      },
+      "vix3m": {
+        "kind": "INDEX_HISTORY",
+        "url": "https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX3M_History.csv",
+        "fixture_path": "cboe/vix3m.csv"
+      },
+      "vvix": {
+        "kind": "INDEX_HISTORY",
+        "url": "https://cdn.cboe.com/api/global/us_indices/daily_prices/VVIX_History.csv",
+        "fixture_path": "cboe/vvix.csv"
+      },
+      "daily_put_call": {
+        "kind": "DAILY_OPTIONS_PAGE",
+        "url": "https://www.cboe.com/markets/us/options/market-statistics/daily",
+        "fixture_path": "cboe/daily_put_call.html"
+      }
+    },
+    "equity_and_index_put_call_may_be_substituted": false,
+    "legacy_archive_endpoints_may_supply_current_options_sentiment": false
+  },
+  "cross_asset": {
+    "required_tickers": [
+      "SPY",
+      "HYG",
+      "LQD",
+      "TLT",
+      "UUP",
+      "GLD"
+    ],
+    "fixture_path": "cross_asset/daily.csv",
+    "network_provider_configured": false,
+    "truth_class_until_trusted_network_provider_is_registered": "FREE_PROXY",
+    "allowed_price_basis": [
+      "raw_close",
+      "split_adjusted_close",
+      "split_and_dividend_adjusted_close"
+    ],
+    "missing_ticker_policy": "RECORD_PARTIAL_DO_NOT_SYNTHESIZE"
+  },
+  "downstream": {
+    "macro_engine_handoff": "REPORT_ONLY_ADAPTER_REQUIRED_SEPARATE_CAUSAL_CHANGE",
+    "historical_backtest_handoff": "BLOCKED",
+    "portfolio_policy_handoff": "BLOCKED"
+  },
+  "safety": {
+    "report_only": true,
+    "selector_execution_allowed": false,
+    "target_book_write_allowed": false,
+    "trade_intent_write_allowed": false,
+    "order_generation_allowed": false,
+    "portfolio_ledger_mutation_allowed": false,
+    "accepted_head_mutation_allowed": false,
+    "backtest_allowed": false,
+    "fullrun_allowed": false,
+    "workflow_dispatch_allowed": false,
+    "production_activation_allowed": false,
+    "live_trading_allowed": false,
+    "automatic_promotion_allowed": false
+  }
+}

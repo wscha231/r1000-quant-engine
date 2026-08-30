@@ -4613,3 +4613,52 @@ Expected contract:
 - Fullrun executed: false. Workflow dispatched or rerun: false. Target, order,
   TradeIntent, ledger, accepted-head, production, live trading, and automatic
   promotion state mutated: false.
+
+## 2026-08-30 - Forward PIT begins at capture time, not at a historical row date
+
+- Agent: Codex GPT-5.6.
+- Branch: codex/chameleon-forward-pit-archive-20260830.
+- Context: The report-only ten-axis Chameleon engine needed a sustainable
+  observation archive before its macro inputs could be treated as forward PIT.
+- Result: Added a content-addressed, append-only FRED/ALFRED and Cboe collector
+  with exact per-source capture time, raw and normalized SHA-256, immutable
+  snapshots, a chained index, same-time idempotence, out-of-order rejection,
+  source-byte stability, secret exclusion, and a complete nonexecution safety
+  envelope. Fixture and supplied-file data remain FREE_PROXY; only official
+  runtime network captures become FORWARD_PIT, with available_from equal to
+  the exact capture time.
+- Source correction: The initially inspected Cboe equity and index put-call
+  archive links ended in 2012 and were not suitable for current sentiment.
+  The collector now captures the official Daily Market Statistics response,
+  separates equity and index ratios, binds the selected trading date, and
+  cross-checks each ratio against call, put, and total volume.
+- Network proof: A local 2026-08-30 capture archived VIX, VIX3M, VVIX, and two
+  current 2026-08-28 put-call rows as FORWARD_PIT. Thirteen FRED/ALFRED series
+  remained explicitly missing because FRED_API_KEY was absent; cross-asset
+  closes remained missing because no trusted network provider is registered.
+  The proof was not published as canonical durable state.
+- Reusable lesson: A historical row inside a file fetched today does not
+  inherit its row date as availability. Preserve the complete raw response but
+  make every row unusable before the actual capture time. A page labelled
+  archive may be materially stale; validate the last observation date and use
+  the provider's current-data surface for forward monitoring.
+- Reusable lesson: Missing transport entitlement and missing signal coverage
+  are distinct from archive integrity. Record each separately, never carry or
+  synthesize the absent component, and keep downstream state changes blocked.
+- Next action: In a separate causal change, build a hash-verifying report-only
+  adapter from the archive to the macro normalizer. Configure a durable
+  publication destination and FRED secret only under separate approval before
+  scheduling.
+- Do-not-repeat: Do not backdate FORWARD_PIT to the source observation date,
+  use the legacy Cboe put-call archive as current options sentiment, accept a
+  caller-supplied network timestamp, persist an API key, or connect the archive
+  directly to portfolio policy.
+- Evidence files:
+  - docs/run287_chameleon_forward_archive_contract.json
+  - tools/collect_run287_chameleon_forward_archive.py
+  - tests/run287_chameleon_forward_archive_smoke.py
+  - docs/run287_chameleon_forward_archive_network_evidence_20260830.json
+  - docs/CODEX_RUN287_CHAMELEON_FORWARD_ARCHIVE_RESULT_20260830.md
+- Fullrun executed: false. Workflow dispatched or rerun: false. Target, order,
+  TradeIntent, portfolio ledger, accepted-head, production, live trading, and
+  automatic promotion state mutated: false.
