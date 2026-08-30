@@ -3,15 +3,15 @@
   "classification": "LOCAL_NETWORK_PROOF_REPORT_ONLY",
   "canonical_durable_archive_published": false,
   "status": "READY_CHAMELEON_FORWARD_ARCHIVE_REPORT_ONLY_WITH_MISSING_SOURCES",
-  "collected_at_utc": "2026-08-30T02:33:08Z",
-  "git_head": "2056dcc13687dff55a9c71bea23c74ec47032ad9",
-  "builder_sha256": "ba64a6575b54239744de916c0b64d8ae3553c5741e6e9e3c55c5aa56c62260d4",
-  "contract_semantic_sha256": "f2840321095fd3ef49f3c0eed8b70c60eb3d1ae7c73873e347baf9c077c90bb4",
+  "collected_at_utc": "2026-08-30T03:11:51Z",
+  "git_head": "1c7822c949aba902cee77b7c563c414c913ff2d8",
+  "builder_sha256": "54f32734b6179708f906610955b2227f104868e38060351dc917d9549dc44d00",
+  "contract_semantic_sha256": "86a44099e61575fffaab811d5c5d9750dc728e4bf934f01a92bb8e953afa653a",
   "snapshot": {
-    "snapshot_id": "20260830T023308Z-b167c4de9014dcd9",
-    "snapshot_identity_sha256": "b167c4de9014dcd98c150d7255f6b441cee12708a01410ef67cf6d6a9dd0a982",
-    "snapshot_manifest_sha256": "ab040f4599772eed9afd1170430b093145cae1c1bd21aaf9209bc378448b99c6",
-    "archive_index_entry_sha256": "761d031475b8149dc6b3419cd52049df9a57cf2df054bf211e65ebfee36cb0e5"
+    "snapshot_id": "20260830T031151Z-6513f4752570c6f9",
+    "snapshot_identity_sha256": "6513f4752570c6f92ea476391c8e80933e6bfee32d4ddbf732a52fead7ea6cb2",
+    "snapshot_manifest_sha256": "320ef4f027c534cacf91077cde32b44e88a9d19f3d3af5d9979e27b5bb3a497e",
+    "archive_index_entry_sha256": "518e373f6c66a83582ee006ea22365078a2b61539ded26cea4ecce0c785c8c8a"
   },
   "coverage": {
     "expected_sources": 18,
@@ -25,39 +25,39 @@
   "captured_sources": [
     {
       "source_id": "cboe.daily_put_call",
-      "captured_at_utc": "2026-08-30T02:33:05Z",
+      "captured_at_utc": "2026-08-30T03:11:47Z",
       "first_observation_date": "2026-08-28",
       "last_observation_date": "2026-08-28",
       "normalized_row_count": 2,
-      "raw_sha256": "d15abb3bb592f4b6ead5ffad2bab9a2607c9f428a7d1bcb1f92d595f2f8cab77",
-      "normalized_sha256": "64fd8267ac3588deb57aac132c5b9510dd39b4990f88e2c1109bfc05c19a5dd5"
+      "raw_sha256": "ed01c72166183f60699b884057bb7346b81d0a6d281cb7f5faa182f5fbba8e77",
+      "normalized_sha256": "a2a4d400902e8da9627bfe954d902977369eeea5da2fb502a1f3b1a334732ab4"
     },
     {
       "source_id": "cboe.vix",
-      "captured_at_utc": "2026-08-30T02:33:06Z",
+      "captured_at_utc": "2026-08-30T03:11:48Z",
       "first_observation_date": "1990-01-02",
       "last_observation_date": "2026-08-28",
       "normalized_row_count": 9261,
       "raw_sha256": "64708533b190bf36070e96682388922339bfb10c9df680349b824dc9489e55f9",
-      "normalized_sha256": "d1443d283b464e9d6ad47c02291538cf2439be6147be787ee34d77f153a2c31a"
+      "normalized_sha256": "3c2980e6dd998965f34c14ef22b21f8d8615a904cbbd6f10f0bb381d51941b2d"
     },
     {
       "source_id": "cboe.vix3m",
-      "captured_at_utc": "2026-08-30T02:33:07Z",
+      "captured_at_utc": "2026-08-30T03:11:49Z",
       "first_observation_date": "2009-09-18",
       "last_observation_date": "2026-08-28",
       "normalized_row_count": 4262,
       "raw_sha256": "c95bca84a372df899187e39408ea922b9c30be1d97e8b81bda233446e2f029aa",
-      "normalized_sha256": "15b46d8eaa71daf52d50573c7b21e3b497f6062aad54b931922a29ea66f50f38"
+      "normalized_sha256": "1c45f83638c0c14496eed4b99369e291aa2474b7200b18ee9552eeb37d7baed6"
     },
     {
       "source_id": "cboe.vvix",
-      "captured_at_utc": "2026-08-30T02:33:08Z",
+      "captured_at_utc": "2026-08-30T03:11:50Z",
       "first_observation_date": "2006-03-06",
       "last_observation_date": "2026-08-28",
       "normalized_row_count": 5093,
       "raw_sha256": "044e8fb06a4f9cb20613e2c264b955518cecb374b1e1eb61e991d1e0cece7a9f",
-      "normalized_sha256": "952a5955b7f1d7a39bba80b0de9f2dc4b69c09834714b1b145b741064fff3493"
+      "normalized_sha256": "f60593273add588bb0d9abec2fdb7f96d473ea0578f77dcb3cc1b2ce532e8311"
     }
   ],
   "legacy_options_archive_endpoint_used_for_current_sentiment": false,

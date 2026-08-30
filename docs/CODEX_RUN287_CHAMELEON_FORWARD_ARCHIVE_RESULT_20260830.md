@@ -21,7 +21,8 @@ historical A/B.
 - VIX, VIX3M, and VVIX use the official Cboe history sources.
 - Current equity and index put/call ratios are extracted separately from the
   official Cboe Daily Market Statistics response and cross-checked against
-  their corresponding call, put, and total volume.
+  their corresponding call, put, and total volume. The selected date must be
+  no more than one holiday-aware completed NYSE session behind the capture.
 - Cross-asset daily closes have a strict source-bundle schema but remain
   FREE_PROXY until a trusted network provider is registered.
 
@@ -50,8 +51,16 @@ ratios separately.
 - Every raw and normalized object is content addressed by SHA-256.
 - Existing snapshot, index-chain, or content-object tampering blocks the next
   collection before a new snapshot is created.
+- One complete snapshot left unindexed by an interruption is revalidated down
+  to its identity, safety envelope, source counters, and content objects before
+  its missing index entry is recovered. Multiple or invalid orphans block.
 - A present but invalid source blocks the complete snapshot. A missing source
   is recorded as missing and is never carried or imputed.
+- Official responses are streamed through the 100 MiB bound, and every
+  redirect hop must remain on the approved HTTPS origin. Only a query-free
+  sanitized final URL is persisted.
+- Cross-asset provenance URLs containing userinfo, query parameters, or
+  fragments are rejected before any raw object is written.
 - FRED response-level and row-level vintage dates must match the requested
   vintage date.
 - Equity and index put-call components cannot substitute for one another.
@@ -62,7 +71,7 @@ ratios separately.
 
 ## Local official-network proof
 
-At 2026-08-30T02:33:08Z, a local report-only network proof archived four
+At 2026-08-30T03:11:51Z, a local report-only network proof archived four
 official Cboe sources and 18,618 normalized rows:
 
 - cboe.daily_put_call: two rows for 2026-08-28.
@@ -71,10 +80,10 @@ official Cboe sources and 18,618 normalized rows:
 - cboe.vvix: 5,093 rows, latest 2026-08-28.
 
 Snapshot ID:
-20260830T023308Z-b167c4de9014dcd9
+20260830T031151Z-6513f4752570c6f9
 
 Snapshot manifest SHA-256:
-ab040f4599772eed9afd1170430b093145cae1c1bd21aaf9209bc378448b99c6
+320ef4f027c534cacf91077cde32b44e88a9d19f3d3af5d9979e27b5bb3a497e
 
 This proof is local and is not a canonical durable publication. Thirteen
 FRED/ALFRED series remained missing because no FRED_API_KEY was present.
@@ -93,7 +102,9 @@ The dedicated smoke covers:
 - FRED vintage and duplicate-date rejection;
 - Cboe equity/index separation;
 - missing cross-asset neutrality;
-- existing-object tamper detection; and
+- existing-object tamper detection;
+- credential-bearing provenance, oversized response, redirect-origin, empty
+  response, stale options session, and interrupted-index recovery guards;
 - pre-launch and caller-injected network time rejection.
 
 The dedicated smoke and Python compilation passed. The official Cboe network

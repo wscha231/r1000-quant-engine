@@ -9,7 +9,9 @@
     "fred_api_key_environment_variable": "FRED_API_KEY",
     "request_timeout_seconds": 30,
     "fred_observation_history_years": 7,
-    "maximum_raw_bytes_per_source": 104857600
+    "maximum_raw_bytes_per_source": 104857600,
+    "network_redirect_policy": "HTTPS_SAME_ORIGIN_EVERY_HOP",
+    "network_response_read_policy": "CONTENT_LENGTH_PREFLIGHT_PLUS_BOUNDED_STREAM"
   },
   "archive": {
     "layout": "CONTENT_ADDRESSED_RAW_AND_NORMALIZED_OBJECTS_PLUS_ATOMIC_IMMUTABLE_SNAPSHOT",
@@ -18,7 +20,8 @@
     "out_of_order_collection_allowed": false,
     "source_bytes_must_remain_unchanged_during_fixture_capture": true,
     "missing_source_policy": "RECORD_MISSING_DO_NOT_CARRY_OR_IMPUTE",
-    "invalid_present_source_policy": "BLOCK_WHOLE_SNAPSHOT"
+    "invalid_present_source_policy": "BLOCK_WHOLE_SNAPSHOT",
+    "verified_unindexed_snapshot_policy": "RECOVER_SINGLE_EXACT_ORPHAN_BEFORE_NEXT_CAPTURE"
   },
   "truth_policy": {
     "official_network_capture": "FORWARD_PIT",
@@ -82,7 +85,8 @@
       }
     },
     "equity_and_index_put_call_may_be_substituted": false,
-    "legacy_archive_endpoints_may_supply_current_options_sentiment": false
+    "legacy_archive_endpoints_may_supply_current_options_sentiment": false,
+    "daily_options_max_completed_nyse_session_lag": 1
   },
   "cross_asset": {
     "required_tickers": [
@@ -101,7 +105,8 @@
       "split_adjusted_close",
       "split_and_dividend_adjusted_close"
     ],
-    "missing_ticker_policy": "RECORD_PARTIAL_DO_NOT_SYNTHESIZE"
+    "missing_ticker_policy": "RECORD_PARTIAL_DO_NOT_SYNTHESIZE",
+    "provenance_url_policy": "PUBLIC_HTTPS_WITHOUT_USERINFO_QUERY_PARAMS_OR_FRAGMENT"
   },
   "downstream": {
     "macro_engine_handoff": "REPORT_ONLY_ADAPTER_REQUIRED_SEPARATE_CAUSAL_CHANGE",

@@ -4632,6 +4632,15 @@ Expected contract:
   The collector now captures the official Daily Market Statistics response,
   separates equity and index ratios, binds the selected trading date, and
   cross-checks each ratio against call, put, and total volume.
+- Exact-head review correction: The first implementation could persist a
+  credential-bearing cross-asset provenance URL, buffer an oversized network
+  response before enforcing its cap, follow an unverified redirect, accept an
+  empty or stale options capture, and leave a valid snapshot permanently
+  unindexed after interruption. The corrected collector rejects userinfo,
+  query, and fragment provenance; bounds response streaming; verifies every
+  redirect hop and persists only a sanitized final URL; requires nonempty and
+  holiday-aware current observations; and recovers exactly one fully verified
+  orphan snapshot before the next capture.
 - Network proof: A local 2026-08-30 capture archived VIX, VIX3M, VVIX, and two
   current 2026-08-28 put-call rows as FORWARD_PIT. Thirteen FRED/ALFRED series
   remained explicitly missing because FRED_API_KEY was absent; cross-asset
@@ -4645,14 +4654,20 @@ Expected contract:
 - Reusable lesson: Missing transport entitlement and missing signal coverage
   are distinct from archive integrity. Record each separately, never carry or
   synthesize the absent component, and keep downstream state changes blocked.
+- Reusable lesson: Content addressing is not enough for operational
+  durability. The snapshot-directory and index boundary needs a deterministic
+  crash-recovery transaction, and URL provenance must be treated as potential
+  secret material even when the transport scheme is HTTPS.
 - Next action: In a separate causal change, build a hash-verifying report-only
   adapter from the archive to the macro normalizer. Configure a durable
   publication destination and FRED secret only under separate approval before
   scheduling.
 - Do-not-repeat: Do not backdate FORWARD_PIT to the source observation date,
   use the legacy Cboe put-call archive as current options sentiment, accept a
-  caller-supplied network timestamp, persist an API key, or connect the archive
-  directly to portfolio policy.
+  caller-supplied network timestamp, persist an API key or signed provenance
+  URL, trust a redirected or unbounded response, mark an empty/stale source
+  ready, leave a verified orphan unrecoverable, or connect the archive directly
+  to portfolio policy.
 - Evidence files:
   - docs/run287_chameleon_forward_archive_contract.json
   - tools/collect_run287_chameleon_forward_archive.py

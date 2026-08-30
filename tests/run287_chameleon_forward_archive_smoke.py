@@ -9,6 +9,7 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -292,7 +293,7 @@ def test_official_network_capture_is_forward_only_and_secret_free() -> None:
             params: dict | None,
             timeout_seconds: int,
             maximum_bytes: int,
-        ) -> tuple[bytes | None, str, datetime | None]:
+        ) -> tuple[bytes | None, str, datetime | None, str]:
             del timeout_seconds, maximum_bytes
             if "stlouisfed.org" in url:
                 assert params is not None
@@ -302,7 +303,7 @@ def test_official_network_capture_is_forward_only_and_secret_free() -> None:
                     / "fred"
                     / f"{params['series_id']}.json"
                 ).read_bytes()
-                return raw, "", fixed_time
+                return raw, "", fixed_time, url
             path_by_url = {
                 item["url"]: item["fixture_path"]
                 for item in contract()["cboe"]["sources"].values()
@@ -311,6 +312,7 @@ def test_official_network_capture_is_forward_only_and_secret_free() -> None:
                 (fixture_bundle / path_by_url[url]).read_bytes(),
                 "",
                 fixed_time,
+                url,
             )
 
         try:
@@ -454,6 +456,173 @@ def test_existing_content_tamper_is_detected_before_new_capture() -> None:
         assert len(index_rows(archive_root)) == 1
 
 
+def test_cross_asset_provenance_rejects_credentials_before_persistence() -> None:
+    for replacement in (
+        "https://user:password@example.test/SPY",
+        "https://example.test/SPY?token=secret",
+    ):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundle = build_source_bundle(root)
+            target = bundle / "cross_asset" / "daily.csv"
+            text = target.read_text(encoding="utf-8")
+            target.write_text(
+                text.replace("https://example.test/SPY", replacement),
+                encoding="utf-8",
+            )
+            archive_root = root / "archive"
+            blocked = archive.build(args(archive_root, bundle))
+            assert blocked["status"] == archive.BLOCKED_STATUS
+            assert "credential_bearing_or_nonpublic_url" in blocked["blockers"][0]
+            assert index_rows(archive_root) == []
+            assert not list((archive_root / "objects" / "raw").glob("*"))
+
+
+def test_present_source_with_no_rows_blocks_snapshot() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        (bundle / "cboe" / "vix.csv").write_text(
+            "DATE,OPEN,HIGH,LOW,CLOSE\n", encoding="utf-8"
+        )
+        archive_root = root / "archive"
+        blocked = archive.build(args(archive_root, bundle))
+        assert blocked["status"] == archive.BLOCKED_STATUS
+        assert "cboe.vix_no_usable_observations" in blocked["blockers"][0]
+        assert index_rows(archive_root) == []
+
+
+def test_verified_snapshot_is_recovered_after_index_interruption() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        archive_root = root / "archive"
+        original_write_index = archive.write_index
+        calls = 0
+
+        def fail_first_index(path: Path, entries: object) -> None:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise OSError("simulated_index_interruption")
+            original_write_index(path, entries)
+
+        try:
+            archive.write_index = fail_first_index
+            first = archive.build(args(archive_root, bundle))
+        finally:
+            archive.write_index = original_write_index
+        assert first["status"] == archive.BLOCKED_STATUS
+        assert not (archive_root / "archive_index.jsonl").exists()
+        assert len(list((archive_root / "snapshots").iterdir())) == 1
+
+        recovered = archive.build(args(archive_root, bundle))
+        assert recovered["status"] == archive.READY_STATUS
+        assert recovered["idempotent_reuse"] is True
+        assert len(index_rows(archive_root)) == 1
+
+
+def test_network_fetch_is_bounded_and_restricts_redirect_origins() -> None:
+    original_get = archive.requests.get
+
+    class FakeResponse:
+        def __init__(
+            self,
+            *,
+            url: str,
+            chunks: list[bytes],
+            content_length: str = "",
+            history: list[str] | None = None,
+        ) -> None:
+            self.url = url
+            self._chunks = chunks
+            self.headers = {"Content-Length": content_length} if content_length else {}
+            self.history = [SimpleNamespace(url=item) for item in (history or [])]
+
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def iter_content(self, *, chunk_size: int) -> list[bytes]:
+            assert chunk_size == 1024 * 1024
+            return self._chunks
+
+    requested = "https://api.stlouisfed.org/fred/series/observations"
+    try:
+        archive.requests.get = lambda *_args, **_kwargs: FakeResponse(
+            url=requested,
+            chunks=[b"small"],
+            content_length="1000",
+        )
+        try:
+            archive.network_fetch(
+                url=requested, params=None, timeout_seconds=1, maximum_bytes=5
+            )
+            raise AssertionError("oversized Content-Length was accepted")
+        except archive.ArchiveContractError as exc:
+            assert "official_network_response_too_large" in str(exc)
+
+        archive.requests.get = lambda *_args, **_kwargs: FakeResponse(
+            url=requested,
+            chunks=[b"123", b"456"],
+        )
+        try:
+            archive.network_fetch(
+                url=requested, params=None, timeout_seconds=1, maximum_bytes=5
+            )
+            raise AssertionError("oversized streamed response was accepted")
+        except archive.ArchiveContractError as exc:
+            assert "official_network_response_too_large" in str(exc)
+
+        archive.requests.get = lambda *_args, **_kwargs: FakeResponse(
+            url="https://evil.example/payload",
+            history=[requested],
+            chunks=[b"payload"],
+        )
+        try:
+            archive.network_fetch(
+                url=requested, params=None, timeout_seconds=1, maximum_bytes=100
+            )
+            raise AssertionError("cross-origin redirect was accepted")
+        except archive.ArchiveContractError as exc:
+            assert "network_redirect_origin_mismatch" in str(exc)
+
+        archive.requests.get = lambda *_args, **_kwargs: FakeResponse(
+            url=requested + "?api_key=must-not-persist",
+            chunks=[b"payload"],
+        )
+        raw, error, captured_at, resolved_url = archive.network_fetch(
+            url=requested, params=None, timeout_seconds=1, maximum_bytes=100
+        )
+        assert raw == b"payload" and error == "" and captured_at is not None
+        assert resolved_url == requested
+        assert "api_key" not in resolved_url
+    finally:
+        archive.requests.get = original_get
+
+
+def test_stale_daily_options_session_blocks_snapshot() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        daily = bundle / "cboe" / "daily_put_call.html"
+        daily.write_text(
+            daily.read_text(encoding="utf-8").replace(
+                'selectedDate\\\":\\\"2026-08-28',
+                'selectedDate\\\":\\\"2026-08-25',
+            ),
+            encoding="utf-8",
+        )
+        blocked = archive.build(args(root / "archive", bundle))
+        assert blocked["status"] == archive.BLOCKED_STATUS
+        assert "stale_selected_date" in blocked["blockers"][0]
+
+
 def test_prelaunch_collection_is_rejected() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -480,5 +649,10 @@ if __name__ == "__main__":
     test_equity_and_index_put_call_are_not_substitutable()
     test_missing_cross_asset_stays_missing_without_carry_or_imputation()
     test_existing_content_tamper_is_detected_before_new_capture()
+    test_cross_asset_provenance_rejects_credentials_before_persistence()
+    test_present_source_with_no_rows_blocks_snapshot()
+    test_verified_snapshot_is_recovered_after_index_interruption()
+    test_network_fetch_is_bounded_and_restricts_redirect_origins()
+    test_stale_daily_options_session_blocks_snapshot()
     test_prelaunch_collection_is_rejected()
     print("run287_chameleon_forward_archive_smoke: PASS")
