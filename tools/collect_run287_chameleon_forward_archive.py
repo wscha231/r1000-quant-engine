@@ -67,6 +67,61 @@ SAFETY = {
     "automatic_promotion_allowed": False,
 }
 
+SNAPSHOT_MANIFEST_FIELDS = frozenset(
+    {
+        "schema_version",
+        "status",
+        "archive_passed",
+        "snapshot_id",
+        "snapshot_identity_sha256",
+        "collected_at_utc",
+        "git_head",
+        "builder_sha256",
+        "builder_git_blob_sha256",
+        "contract_semantic_sha256",
+        "fixture_mode",
+        "source_expected_count",
+        "source_captured_count",
+        "source_missing_count",
+        "source_partial_count",
+        "source_truth_class_counts",
+        "normalized_row_truth_class_counts",
+        "sources",
+        "historical_ab_allowed",
+        "pit_verified_emitted",
+        "downstream_handoff",
+        *SAFETY,
+    }
+)
+MISSING_SOURCE_AUDIT_FIELDS = frozenset(
+    {
+        "source_id",
+        "provider",
+        "source_kind",
+        "status",
+        "mode",
+        "public_url",
+        "resolved_url",
+        "public_request_params",
+        "reason",
+        "truth_class",
+        "captured_at_utc",
+        "raw_sha256",
+        "raw_object",
+        "normalized_sha256",
+        "normalized_object",
+        "normalized_row_count",
+        "excluded_non_session_row_count",
+        "excluded_non_session_dates",
+    }
+)
+PRESENT_SOURCE_AUDIT_FIELDS = MISSING_SOURCE_AUDIT_FIELDS | {
+    "first_observation_date",
+    "last_observation_date",
+    "missing_value_count",
+    "missing_tickers",
+}
+
 
 class ArchiveContractError(ValueError):
     """Raised when an archive attempt could misstate provenance or chronology."""
@@ -819,15 +874,23 @@ def recover_abandoned_staging(root: Path) -> list[str]:
     return recovered
 
 
-def validate_object_path(root: Path, relative: str, digest: str) -> Path:
+def validate_object_path(
+    root: Path,
+    relative: str,
+    digest: str,
+    *,
+    role: str,
+) -> Path:
     if HEX64.fullmatch(digest) is None:
         raise ArchiveContractError("invalid_object_digest")
-    expected = {
-        f"objects/raw/{digest}",
-        f"objects/normalized/{digest}.jsonl",
+    expected_by_role = {
+        "raw": f"objects/raw/{digest}",
+        "normalized": f"objects/normalized/{digest}.jsonl",
     }
+    if role not in expected_by_role:
+        raise ArchiveContractError("object_role_invalid")
     normalized = str(Path(relative)).replace("\\", "/")
-    if normalized not in expected:
+    if normalized != expected_by_role[role]:
         raise ArchiveContractError("object_path_not_content_addressed")
     path = root / Path(normalized)
     if path.is_symlink() or not path.is_file() or sha256_file(path) != digest:
@@ -847,6 +910,7 @@ def validate_normalized_object_rows(
         root,
         str(source.get("normalized_object") or ""),
         str(source.get("normalized_sha256") or ""),
+        role="normalized",
     )
     raw = path.read_bytes()
     if not raw or not raw.endswith(b"\n"):
@@ -1233,6 +1297,7 @@ def validate_recovered_raw_normalization(
         root,
         str(source.get("raw_object") or ""),
         str(source.get("raw_sha256") or ""),
+        role="raw",
     )
     maximum_bytes = int(contract["collection"]["maximum_raw_bytes_per_source"])
     if raw_path.stat().st_size > maximum_bytes:
@@ -1575,6 +1640,68 @@ def validate_fixture_source_mode_alignment(
             )
 
 
+def validate_source_audit_schema(
+    source: Mapping[str, Any],
+    *,
+    snapshot_id: str,
+) -> None:
+    source_id = str(source.get("source_id") or "")
+    status = source.get("status")
+    expected_fields = (
+        MISSING_SOURCE_AUDIT_FIELDS
+        if status == "missing_or_unavailable"
+        else PRESENT_SOURCE_AUDIT_FIELDS
+    )
+    if set(source) != expected_fields:
+        raise ArchiveContractError(
+            f"orphan_snapshot_source_schema_mismatch:{snapshot_id}:{source_id}"
+        )
+    if status == "missing_or_unavailable":
+        return
+    request = source.get("public_request_params")
+    missing_count = source.get("missing_value_count")
+    missing_tickers = source.get("missing_tickers")
+    if (
+        source.get("reason") != ""
+        or not isinstance(request, dict)
+        or type(missing_count) is not int
+        or missing_count < 0
+        or not isinstance(missing_tickers, list)
+        or any(not isinstance(item, str) for item in missing_tickers)
+        or missing_tickers != sorted(set(missing_tickers))
+    ):
+        raise ArchiveContractError(
+            f"orphan_snapshot_source_audit_metadata_invalid:{snapshot_id}:{source_id}"
+        )
+    if source_id.startswith("fred."):
+        canonical = (
+            missing_tickers == []
+            and source.get("excluded_non_session_row_count") == 0
+            and source.get("excluded_non_session_dates") == []
+        )
+    elif source_id.startswith("cboe."):
+        canonical = request == {} and missing_count == 0 and missing_tickers == []
+        if source_id == "cboe.daily_put_call":
+            canonical = (
+                canonical
+                and source.get("excluded_non_session_row_count") == 0
+                and source.get("excluded_non_session_dates") == []
+            )
+    elif source_id == "cross_asset.daily_close":
+        canonical = (
+            request == {}
+            and missing_count == 0
+            and source.get("excluded_non_session_row_count") == 0
+            and source.get("excluded_non_session_dates") == []
+        )
+    else:
+        canonical = False
+    if not canonical:
+        raise ArchiveContractError(
+            f"orphan_snapshot_source_audit_metadata_invalid:{snapshot_id}:{source_id}"
+        )
+
+
 def verify_recoverable_snapshot(
     root: Path,
     snapshot_id: str,
@@ -1604,6 +1731,10 @@ def verify_recoverable_snapshot(
     ):
         raise ArchiveContractError(
             f"snapshot_manifest_contains_api_key:{snapshot_id}"
+        )
+    if set(manifest) != SNAPSHOT_MANIFEST_FIELDS:
+        raise ArchiveContractError(
+            f"orphan_snapshot_manifest_schema_mismatch:{snapshot_id}"
         )
     if manifest.get("schema_version") != SCHEMA_VERSION:
         raise ArchiveContractError(f"orphan_snapshot_schema_mismatch:{snapshot_id}")
@@ -1668,6 +1799,7 @@ def verify_recoverable_snapshot(
     for source in sources:
         if not isinstance(source, dict):
             raise ArchiveContractError(f"orphan_snapshot_source_not_object:{snapshot_id}")
+        validate_source_audit_schema(source, snapshot_id=snapshot_id)
         source_id = str(source.get("source_id") or "")
         if source_id in seen_source_ids:
             raise ArchiveContractError(f"orphan_snapshot_source_id_invalid:{snapshot_id}")
@@ -1763,11 +1895,13 @@ def verify_recoverable_snapshot(
             root,
             str(source.get("raw_object") or ""),
             str(source.get("raw_sha256") or ""),
+            role="raw",
         )
         validate_object_path(
             root,
             str(source.get("normalized_object") or ""),
             str(source.get("normalized_sha256") or ""),
+            role="normalized",
         )
         normalized_rows = validate_normalized_object_rows(
             root,

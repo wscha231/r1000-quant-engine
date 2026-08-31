@@ -4710,6 +4710,11 @@ Expected contract:
   cannot exceed the verification clock, and both raw manifest bytes and
   recursively decoded manifest values are scanned for the active key before
   snapshot authority is accepted.
+- Role-and-authority correction: Recovered raw and normalized object references
+  must remain in their canonical namespaces, every source audit record must
+  match its exact status-dependent schema, non-FRED request and missing-value
+  metadata must retain canonical values, and the snapshot manifest rejects all
+  unknown top-level fields including authority-shaped additions.
 - Network proof: A local 2026-08-31 capture archived VIX, VIX3M, VVIX, and two
   current 2026-08-28 put-call rows as FORWARD_PIT. Thirteen FRED/ALFRED series
   remained explicitly missing because FRED_API_KEY was absent; cross-asset
@@ -4784,6 +4789,10 @@ Expected contract:
 - Reusable lesson: Temporal causality needs both lower and upper bounds, and a
   secret can leak through authority metadata even when every source object is
   clean. Scan the manifest as evidence, not merely as control flow.
+- Reusable lesson: A digest does not assign an evidence role, and a recomputed
+  identity does not make invented authority safe. Bind each digest to its raw
+  or normalized namespace and validate complete source and manifest schemas so
+  unrecognized permission fields and forged audit metadata fail closed.
 - Next action: In a separate causal change, build a hash-verifying report-only
   adapter from the archive to the macro normalizer. Configure a durable
   publication destination and FRED secret only under separate approval before
@@ -4819,7 +4828,9 @@ Expected contract:
   present sources, recover pre-launch or time-reversed evidence, or scan only
   one source family during raw replay.
   Do not recover future timestamps or accept an active key hidden in manifest
-  metadata.
+  metadata. Do not swap raw and normalized object namespaces, retain
+  noncanonical request or missing-value audit metadata, or accept unknown
+  top-level manifest authority fields.
 - Evidence files:
   - docs/run287_chameleon_forward_archive_contract.json
   - tools/collect_run287_chameleon_forward_archive.py

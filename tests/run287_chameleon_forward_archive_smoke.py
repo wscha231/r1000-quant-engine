@@ -1331,6 +1331,93 @@ def test_recovered_snapshot_reapplies_launch_and_capture_chronology() -> None:
             assert "snapshot_collection_in_future" in str(exc)
 
 
+def test_recovered_object_paths_are_bound_to_evidence_roles() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        archive_root = root / "archive"
+        payload = archive.build(args(archive_root, bundle))
+        manifest_path = (
+            archive_root / "snapshots" / payload["snapshot_id"] / "manifest.json"
+        )
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        source = next(item for item in manifest["sources"] if item["status"] == "ready")
+        raw_sha = source["raw_sha256"]
+        normalized_sha = source["normalized_sha256"]
+        raw = (archive_root / source["raw_object"]).read_bytes()
+        normalized = (archive_root / source["normalized_object"]).read_bytes()
+        wrong_raw = archive_root / "objects" / "normalized" / f"{raw_sha}.jsonl"
+        wrong_normalized = archive_root / "objects" / "raw" / normalized_sha
+        wrong_raw.write_bytes(raw)
+        wrong_normalized.write_bytes(normalized)
+        source["raw_object"] = f"objects/normalized/{raw_sha}.jsonl"
+        source["normalized_object"] = f"objects/raw/{normalized_sha}"
+        manifest_path.write_bytes(archive.pretty_json_bytes(manifest))
+        try:
+            archive.verify_recoverable_snapshot(
+                archive_root, payload["snapshot_id"], contract()
+            )
+            raise AssertionError("raw and normalized object namespaces were swapped")
+        except archive.ArchiveContractError as exc:
+            assert "object_path_not_content_addressed" in str(exc)
+
+
+def test_recovered_non_fred_audit_metadata_is_canonical() -> None:
+    mutations = (
+        ("cboe.vix", "missing_value_count", 1),
+        ("cboe.daily_put_call", "public_request_params", {"page": "forged"}),
+        ("cross_asset.daily_close", "public_request_params", {"vendor": "forged"}),
+    )
+    for source_id, field, value in mutations:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundle = build_source_bundle(root)
+            archive_root = root / "archive"
+            payload = archive.build(args(archive_root, bundle))
+            manifest_path = (
+                archive_root
+                / "snapshots"
+                / payload["snapshot_id"]
+                / "manifest.json"
+            )
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            source = next(
+                item for item in manifest["sources"] if item["source_id"] == source_id
+            )
+            source[field] = value
+            manifest_path.write_bytes(archive.pretty_json_bytes(manifest))
+            try:
+                archive.verify_recoverable_snapshot(
+                    archive_root, payload["snapshot_id"], contract()
+                )
+                raise AssertionError(
+                    f"noncanonical recovered audit metadata was accepted: {source_id}"
+                )
+            except archive.ArchiveContractError as exc:
+                assert "source_audit_metadata_invalid" in str(exc)
+
+
+def test_recovered_manifest_rejects_unknown_authority_fields() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        archive_root = root / "archive"
+        payload = archive.build(args(archive_root, bundle))
+        manifest_path = (
+            archive_root / "snapshots" / payload["snapshot_id"] / "manifest.json"
+        )
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["live_trading_allowed"] = True
+        manifest_path.write_bytes(archive.pretty_json_bytes(manifest))
+        try:
+            archive.verify_recoverable_snapshot(
+                archive_root, payload["snapshot_id"], contract()
+            )
+            raise AssertionError("an unknown manifest authority field was accepted")
+        except archive.ArchiveContractError as exc:
+            assert "manifest_schema_mismatch" in str(exc)
+
+
 def test_recovered_manifest_is_scanned_for_the_active_fred_key() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -1882,6 +1969,9 @@ if __name__ == "__main__":
     test_snapshot_directories_reject_windows_junctions()
     test_fixture_mode_must_align_with_every_present_source()
     test_recovered_snapshot_reapplies_launch_and_capture_chronology()
+    test_recovered_object_paths_are_bound_to_evidence_roles()
+    test_recovered_non_fred_audit_metadata_is_canonical()
+    test_recovered_manifest_rejects_unknown_authority_fields()
     test_recovered_manifest_is_scanned_for_the_active_fred_key()
     test_recorded_network_builder_blob_must_exist_and_match()
     test_no_orphan_path_reuses_the_validated_index_entries()
