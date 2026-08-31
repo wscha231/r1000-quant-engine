@@ -4724,6 +4724,10 @@ Expected contract:
   whitespace and Unicode control rule before persistence as recovery, and a
   recorded 40-hex `git_head` must resolve to an actual commit object before its
   collector blob can establish builder provenance.
+- Canonical-input correction: Commit-object validation now also precedes the
+  fixture-only builder-hash exemption, malformed nonempty FRED credentials
+  block the run instead of disabling common secret scans, and persisted UTC
+  fields reject leading or trailing whitespace before exact-format parsing.
 - Network proof: A local 2026-08-31 capture archived VIX, VIX3M, VVIX, and two
   current 2026-08-28 put-call rows as FORWARD_PIT. Thirteen FRED/ALFRED series
   remained explicitly missing because FRED_API_KEY was absent; cross-asset
@@ -4809,6 +4813,10 @@ Expected contract:
 - Reusable lesson: Post-commit validation cannot repair an invalid immutable
   append, and Git syntax does not establish object type. Apply the full text
   rule before publication and verify commit type before resolving a path blob.
+- Reusable lesson: An exemption may relax hash equality but must not relax
+  provenance existence or type. Invalid credential configuration must fail
+  closed, and canonical evidence parsers must validate original bytes rather
+  than a stripped convenience representation.
 - Next action: In a separate causal change, build a hash-verifying report-only
   adapter from the archive to the macro normalizer. Configure a durable
   publication destination and FRED secret only under separate approval before
@@ -4852,6 +4860,8 @@ Expected contract:
   weekend, holiday, or pre-close cross-asset dates as completed closes.
   Do not defer provider-control rejection until after index commit or accept a
   tree/tag/blob SHA as a commit merely because `<sha>:<path>` resolves.
+  Do not let fixture mode bypass commit-object validation, turn a malformed
+  configured secret into an empty scanner key, or accept padded persisted UTC.
 - Evidence files:
   - docs/run287_chameleon_forward_archive_contract.json
   - tools/collect_run287_chameleon_forward_archive.py

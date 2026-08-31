@@ -209,7 +209,7 @@ def git_head() -> str:
     return head
 
 
-def git_blob_bytes(head: str, relative_path: str) -> bytes:
+def require_git_commit_object(head: str) -> None:
     object_type = subprocess.run(
         ["git", "cat-file", "-t", head],
         cwd=ROOT,
@@ -219,6 +219,10 @@ def git_blob_bytes(head: str, relative_path: str) -> bytes:
     )
     if object_type.returncode != 0 or object_type.stdout.strip() != "commit":
         raise ArchiveContractError("builder_git_head_not_commit")
+
+
+def git_blob_bytes(head: str, relative_path: str) -> bytes:
+    require_git_commit_object(head)
     result = subprocess.run(
         ["git", "cat-file", "blob", f"{head}:{relative_path}"],
         cwd=ROOT,
@@ -273,6 +277,7 @@ def validate_recorded_builder_identity(
         raise ArchiveContractError(
             f"orphan_snapshot_builder_identity_invalid:{snapshot_id}"
         )
+    require_git_commit_object(git_commit)
     if fixture_mode:
         return
     try:
@@ -284,8 +289,8 @@ def validate_recorded_builder_identity(
 
 
 def parse_utc(value: Any, *, field: str) -> datetime:
-    raw = str(value or "").strip()
-    if UTC_EXACT.fullmatch(raw) is None:
+    raw = str(value or "")
+    if raw.strip() != raw or UTC_EXACT.fullmatch(raw) is None:
         raise ArchiveContractError(f"{field}_not_exact_utc")
     parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
     if parsed.tzinfo is None or parsed.utcoffset() is None:
@@ -378,7 +383,7 @@ def active_fred_api_key(contract: Mapping[str, Any]) -> str:
     if secret and (
         secret.strip() != secret or any(character in secret for character in "\r\n")
     ):
-        return ""
+        raise ArchiveContractError("fred_api_key_malformed")
     return secret
 
 

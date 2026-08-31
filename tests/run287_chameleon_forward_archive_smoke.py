@@ -1578,7 +1578,7 @@ def test_recorded_network_builder_blob_must_exist_and_match() -> None:
     try:
         archive.git_blob_bytes = lambda _head, _relative: b"different-builder"
         archive.validate_recorded_builder_identity(
-            git_commit="a" * 40,
+            git_commit=archive.git_head(),
             builder_sha="b" * 64,
             builder_git_blob_sha="b" * 64,
             fixture_mode=False,
@@ -1598,17 +1598,47 @@ def test_recorded_git_head_must_be_a_commit_object() -> None:
         text=True,
     ).strip()
     assert len(tree) == 40
-    try:
-        archive.validate_recorded_builder_identity(
-            git_commit=tree,
-            builder_sha="b" * 64,
-            builder_git_blob_sha="b" * 64,
-            fixture_mode=False,
-            snapshot_id="tree-object-builder-fixture",
-        )
-        raise AssertionError("a tree object was accepted as git_head")
-    except archive.ArchiveContractError as exc:
-        assert "builder_git_head_not_commit" in str(exc)
+    for fixture_mode in (False, True):
+        try:
+            archive.validate_recorded_builder_identity(
+                git_commit=tree,
+                builder_sha="b" * 64,
+                builder_git_blob_sha="b" * 64,
+                fixture_mode=fixture_mode,
+                snapshot_id="tree-object-builder-fixture",
+            )
+            raise AssertionError("a tree object was accepted as git_head")
+        except archive.ArchiveContractError as exc:
+            assert "builder_git_head_not_commit" in str(exc)
+
+
+def test_malformed_configured_fred_key_fails_closed() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        archive_root = root / "archive"
+        original_key = os.environ.get("FRED_API_KEY")
+        try:
+            os.environ["FRED_API_KEY"] = " malformed-key\n"
+            blocked = archive.build(args(archive_root, bundle))
+        finally:
+            if original_key is None:
+                os.environ.pop("FRED_API_KEY", None)
+            else:
+                os.environ["FRED_API_KEY"] = original_key
+        assert blocked["status"] == archive.BLOCKED_STATUS
+        assert "fred_api_key_malformed" in blocked["blockers"][0]
+        assert index_rows(archive_root) == []
+        assert not list((archive_root / "objects" / "raw").glob("*"))
+
+
+def test_persisted_utc_timestamps_reject_surrounding_whitespace() -> None:
+    for padded in (f" {COLLECTED_AT}", f"{COLLECTED_AT} "):
+        try:
+            archive.parse_utc(padded, field="persisted_timestamp")
+            raise AssertionError("a whitespace-padded persisted UTC value was accepted")
+        except archive.ArchiveContractError as exc:
+            assert "persisted_timestamp_not_exact_utc" in str(exc)
 
 
 def test_no_orphan_path_reuses_the_validated_index_entries() -> None:
@@ -2121,6 +2151,8 @@ if __name__ == "__main__":
     test_recovered_manifest_is_scanned_for_the_active_fred_key()
     test_recorded_network_builder_blob_must_exist_and_match()
     test_recorded_git_head_must_be_a_commit_object()
+    test_malformed_configured_fred_key_fails_closed()
+    test_persisted_utc_timestamps_reject_surrounding_whitespace()
     test_no_orphan_path_reuses_the_validated_index_entries()
     test_abandoned_pre_rename_staging_is_recovered_under_lock()
     test_network_fetch_is_bounded_and_restricts_redirect_origins()
