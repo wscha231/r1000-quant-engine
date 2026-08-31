@@ -4693,6 +4693,10 @@ Expected contract:
   FRED recovery also rechecks unique ordered dates and the exact seven-year
   capture window, Cboe recovery rechecks freshness, and indexed manifests
   cannot claim that this forward-only collector emitted PIT_VERIFIED evidence.
+- Indexed-state correction: Normal index loading now shares the complete
+  manifest/source/counter/object/identity verifier with orphan recovery;
+  archive-index and manifest JSON reject duplicate keys, and raw replay checks
+  the size cap before reading plus scans against the currently active FRED key.
 - Network proof: A local 2026-08-31 capture archived VIX, VIX3M, VVIX, and two
   current 2026-08-28 put-call rows as FORWARD_PIT. Thirteen FRED/ALFRED series
   remained explicitly missing because FRED_API_KEY was absent; cross-asset
@@ -4752,6 +4756,10 @@ Expected contract:
   recovery must deterministically replay parsing and normalization, including
   source freshness and request-window invariants, before granting authority to
   an unindexed snapshot.
+- Reusable lesson: Indexed state and crash-recovery state must not have separate
+  trust envelopes. Share the verifier, parse provenance containers without
+  ambiguous duplicate keys, and apply capture-time secret and resource bounds
+  again whenever raw evidence is replayed.
 - Next action: In a separate causal change, build a hash-verifying report-only
   adapter from the archive to the macro normalizer. Configure a durable
   publication destination and FRED secret only under separate approval before
@@ -4776,7 +4784,9 @@ Expected contract:
   schema, accept a modified downstream handoff, or reread an unchanged archive
   twice before fetching the next source, recover duplicate or stale rows,
   accept a noncanonical FRED window, relabel an indexed manifest PIT_VERIFIED,
-  or bind normalized observations to unrelated raw bytes.
+  bind normalized observations to unrelated raw bytes, replay an oversized or
+  active-key-bearing raw object, accept duplicate index keys, or trust weaker
+  identity/source rules merely because a snapshot already has an index entry.
 - Evidence files:
   - docs/run287_chameleon_forward_archive_contract.json
   - tools/collect_run287_chameleon_forward_archive.py

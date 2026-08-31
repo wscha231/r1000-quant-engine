@@ -116,10 +116,16 @@ ratios separately.
 - Both orphan and already-indexed manifests must keep
   `pit_verified_emitted=false`; this forward-only collector cannot be upgraded
   to PIT_VERIFIED by recomputing local hashes.
+- Indexed snapshots reuse the same complete manifest, source-state, counter,
+  object, and snapshot-identity verification as orphan recovery. Archive-index
+  and manifest JSON reject duplicate keys.
+- Raw replay enforces the configured size cap before reading and scans with the
+  currently active FRED key, so recovery cannot authorize oversized or
+  credential-bearing evidence that normal capture would reject.
 
 ## Local official-network proof
 
-At 2026-08-31T04:52:22.382284Z, a local report-only network proof archived four
+At 2026-08-31T05:08:44.557436Z, a local report-only network proof archived four
 official Cboe sources and 18,585 normalized NYSE-session rows:
 
 - cboe.daily_put_call: two rows for 2026-08-28.
@@ -130,10 +136,10 @@ official Cboe sources and 18,585 normalized NYSE-session rows:
 - cboe.vvix: 5,093 rows, latest 2026-08-28.
 
 Snapshot ID:
-20260831T045222Z-9ed9b7bb39e06c54
+20260831T050844Z-270ed4b1954ed886
 
 Snapshot manifest SHA-256:
-83eae4f19188b15ca592259bddf3863fbbcf662d61ba99ac9b80647d49ad566f
+6b2532b22ed01cb5ad1cefabc4bc75dc9f4df7c410881c2ecedfd0c971ac5652
 
 This proof is local and is not a canonical durable publication. Thirteen
 FRED/ALFRED series remained missing because no FRED_API_KEY was present.
@@ -174,6 +180,8 @@ The dedicated smoke covers:
   validation, and single-pass no-orphan index reuse;
 - exact raw-to-normalized recovery replay, duplicate/ordered/canonical-window
   FRED recovery, Cboe recovery freshness, and indexed PIT-upgrade rejection;
+- active-key and raw-size recovery guards, duplicate-key archive-index parsing,
+  and shared full identity/source-state validation for indexed snapshots;
 - pre-launch and caller-injected network time rejection.
 
 The dedicated smoke and Python compilation passed. The official Cboe network
