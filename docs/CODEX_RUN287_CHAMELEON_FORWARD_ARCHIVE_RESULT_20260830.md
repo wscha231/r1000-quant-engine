@@ -157,11 +157,14 @@ ratios separately.
   object or index entry is committed.
 - A recorded 40-hex `git_head` must resolve to a Git commit object before the
   collector blob at that revision can establish builder identity; a tree or
-  other Git object is not accepted as a commit.
+  other Git object is not accepted as a commit, including in fixture recovery.
+- A nonempty malformed `FRED_API_KEY` blocks the run instead of becoming an
+  empty scanner key, and persisted collection/capture UTC fields reject
+  leading or trailing whitespace before exact RFC3339 parsing.
 
 ## Local official-network proof
 
-At 2026-08-31T11:41:03.340032Z, a local report-only network proof archived four
+At 2026-08-31T12:03:32.274629Z, a local report-only network proof archived four
 official Cboe sources and 18,585 normalized NYSE-session rows:
 
 - cboe.daily_put_call: two rows for 2026-08-28.
@@ -172,10 +175,10 @@ official Cboe sources and 18,585 normalized NYSE-session rows:
 - cboe.vvix: 5,093 rows, latest 2026-08-28.
 
 Snapshot ID:
-20260831T114103Z-a0a921cbf712f21a
+20260831T120332Z-3b7823424e3c8677
 
 Snapshot manifest SHA-256:
-92c5a72b87ab4a2e834864d72cb5dfbd0dd083c7d7912afe6db3ba6d8a60ecfb
+c10c2fd0dccbb6695fa2d20df16153fc62cfbc4c1ccffee400777b6ee89c32da
 
 This proof is local and is not a canonical durable publication. Thirteen
 FRED/ALFRED series remained missing because no FRED_API_KEY was present.
@@ -230,6 +233,8 @@ The dedicated smoke covers:
   pinned calendar identity, and completed-session cross-asset close checks;
 - pre-persistence provider-control rejection and recorded Git commit-object
   verification;
+- fixture commit-object verification, malformed-key fail-closed behavior, and
+  canonical unpadded persisted UTC parsing;
 - pre-launch and caller-injected network time rejection.
 
 The dedicated smoke and Python compilation passed. The official Cboe network
