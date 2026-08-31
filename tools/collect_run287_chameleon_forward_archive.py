@@ -25,6 +25,7 @@ import unicodedata
 import uuid
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 from urllib.parse import quote, unquote, urlsplit, urlunsplit
@@ -35,7 +36,7 @@ import requests
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONTRACT = ROOT / "docs" / "run287_chameleon_forward_archive_contract.json"
 CANONICAL_CONTRACT_SEMANTIC_SHA256 = (
-    "f9dd1d739373ed59015f7922d5b073134ccdabccb193436c182be2bad56eea63"
+    "867a44087e2759e2a75441e32683aa1819815c52877a0d8385385695b87052ee"
 )
 SCHEMA_VERSION = "run287-chameleon-forward-archive-v1"
 READY_STATUS = "READY_CHAMELEON_FORWARD_ARCHIVE_REPORT_ONLY"
@@ -477,12 +478,24 @@ def load_contract(path: Path) -> dict[str, Any]:
         != "EXECUTED_BUILDER_BYTES_EQUAL_HEAD_TRACKED_BLOB"
     ):
         raise ArchiveContractError("official_network_builder_policy_changed")
+    if collection.get("network_response_status_policy") != "HTTP_200_ONLY":
+        raise ArchiveContractError("network_response_status_policy_changed")
+    if (
+        collection.get("fixture_timestamp_policy")
+        != "CALLER_TIME_MUST_NOT_EXCEED_RUNTIME_UTC"
+    ):
+        raise ArchiveContractError("fixture_timestamp_policy_changed")
     archive = payload.get("archive") or {}
     if (
         archive.get("verified_unindexed_snapshot_policy")
         != "RECOVER_SINGLE_EXACT_ORPHAN_BEFORE_NEXT_CAPTURE"
     ):
         raise ArchiveContractError("orphan_recovery_policy_changed")
+    if (
+        archive.get("orphan_source_contract_policy")
+        != "EXACT_CANONICAL_SOURCE_SET_PROVIDER_KIND_AND_PUBLIC_URL"
+    ):
+        raise ArchiveContractError("orphan_source_contract_policy_changed")
     if (
         archive.get("abandoned_staging_policy")
         != "DELETE_EXACT_LOCAL_UNMOUNTED_STAGING_DIRECTORIES_UNDER_WRITER_LOCK"
@@ -530,6 +543,11 @@ def load_contract(path: Path) -> dict[str, Any]:
         != "REQUIRE_COMPLETED_NYSE_SESSION"
     ):
         raise ArchiveContractError("cboe_index_close_session_policy_changed")
+    if (
+        cboe.get("index_history_row_date_policy")
+        != "EVERY_ROW_MUST_BE_NYSE_SESSION"
+    ):
+        raise ArchiveContractError("cboe_index_row_session_policy_changed")
     if int(cboe.get("daily_options_max_completed_nyse_session_lag", -1)) != 1:
         raise ArchiveContractError("daily_options_freshness_policy_changed")
     if int(cboe.get("index_history_max_completed_nyse_session_lag", -1)) != 1:
@@ -748,10 +766,11 @@ def index_hash(payload: Mapping[str, Any]) -> str:
 
 def load_archive_index(
     root: Path,
-    contract_sha256: str,
+    contract: Mapping[str, Any],
     *,
     allow_unindexed_snapshots: bool = False,
 ) -> list[dict[str, Any]]:
+    contract_sha256 = semantic_sha256(contract)
     index_path = root / "archive_index.jsonl"
     snapshots_root = root / "snapshots"
     snapshot_dirs: list[Path] = []
@@ -856,7 +875,14 @@ def load_archive_index(
             for key, expected in SAFETY.items()
         ):
             raise ArchiveContractError(f"snapshot_safety_drift:{snapshot_id}")
-        for source in manifest.get("sources") or []:
+        sources = manifest.get("sources")
+        validate_orphan_source_contract(
+            sources,
+            contract=contract,
+            snapshot_id=snapshot_id,
+        )
+        assert isinstance(sources, list)
+        for source in sources:
             if not isinstance(source, dict):
                 raise ArchiveContractError(
                     f"snapshot_source_not_object:{snapshot_id}"
@@ -890,11 +916,85 @@ def load_archive_index(
     return entries
 
 
+def canonical_source_definitions(
+    contract: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
+    definitions: dict[str, dict[str, Any]] = {}
+    fred_url = public_https_url(contract["fred"]["endpoint"], field="fred_endpoint")
+    for name in contract["fred"]["series"]:
+        definitions[f"fred.{name}"] = {
+            "providers": {"FRED_ALFRED_API"},
+            "source_kind": "FRED_SERIES_OBSERVATIONS",
+            "public_url": fred_url,
+        }
+    for name, spec in contract["cboe"]["sources"].items():
+        definitions[f"cboe.{name}"] = {
+            "providers": {"CBOE"},
+            "source_kind": str(spec["kind"]),
+            "public_url": public_https_url(
+                spec["url"], field=f"cboe.{name}_public_url"
+            ),
+        }
+    definitions["cross_asset.daily_close"] = {
+        "providers": {"SOURCE_BUNDLE_DECLARED_PROVIDER", "UNCONFIGURED"},
+        "source_kind": "CROSS_ASSET_DAILY_CLOSE",
+        "public_url": "",
+    }
+    return definitions
+
+
+def validate_orphan_source_contract(
+    sources: Any,
+    *,
+    contract: Mapping[str, Any],
+    snapshot_id: str,
+) -> set[str]:
+    if not isinstance(sources, list) or not sources:
+        raise ArchiveContractError(f"orphan_snapshot_sources_invalid:{snapshot_id}")
+    definitions = canonical_source_definitions(contract)
+    observed: set[str] = set()
+    for source in sources:
+        if not isinstance(source, dict):
+            raise ArchiveContractError(f"orphan_snapshot_source_not_object:{snapshot_id}")
+        source_id = str(source.get("source_id") or "")
+        if not source_id or source_id in observed:
+            raise ArchiveContractError(f"orphan_snapshot_source_id_invalid:{snapshot_id}")
+        observed.add(source_id)
+        definition = definitions.get(source_id)
+        if definition is None:
+            raise ArchiveContractError(f"orphan_snapshot_unknown_source:{source_id}")
+        if (
+            str(source.get("provider") or "") not in definition["providers"]
+            or str(source.get("source_kind") or "") != definition["source_kind"]
+            or str(source.get("public_url") or "") != definition["public_url"]
+        ):
+            raise ArchiveContractError(
+                f"orphan_snapshot_source_definition_mismatch:{source_id}"
+            )
+        if source_id == "cross_asset.daily_close":
+            expected_provider = (
+                "UNCONFIGURED"
+                if source.get("status") == "missing_or_unavailable"
+                else "SOURCE_BUNDLE_DECLARED_PROVIDER"
+            )
+            if source.get("provider") != expected_provider:
+                raise ArchiveContractError(
+                    f"orphan_snapshot_source_definition_mismatch:{source_id}"
+                )
+    expected = set(definitions)
+    if observed != expected:
+        raise ArchiveContractError(
+            f"orphan_snapshot_source_set_mismatch:{snapshot_id}"
+        )
+    return observed
+
+
 def verify_recoverable_snapshot(
     root: Path,
     snapshot_id: str,
-    contract_sha256: str,
+    contract: Mapping[str, Any],
 ) -> tuple[dict[str, Any], str]:
+    contract_sha256 = semantic_sha256(contract)
     snapshot_dir = root / "snapshots" / snapshot_id
     manifest_path = snapshot_dir / "manifest.json"
     if snapshot_dir.is_symlink() or manifest_path.is_symlink() or not manifest_path.is_file():
@@ -942,9 +1042,13 @@ def verify_recoverable_snapshot(
         raise ArchiveContractError(f"orphan_snapshot_builder_identity_invalid:{snapshot_id}")
 
     sources = manifest.get("sources")
-    if not isinstance(sources, list) or not sources:
-        raise ArchiveContractError(f"orphan_snapshot_sources_invalid:{snapshot_id}")
-    source_ids: set[str] = set()
+    validate_orphan_source_contract(
+        sources,
+        contract=contract,
+        snapshot_id=snapshot_id,
+    )
+    assert isinstance(sources, list)
+    seen_source_ids: set[str] = set()
     missing_count = 0
     partial_count = 0
     captured_count = 0
@@ -954,9 +1058,9 @@ def verify_recoverable_snapshot(
         if not isinstance(source, dict):
             raise ArchiveContractError(f"orphan_snapshot_source_not_object:{snapshot_id}")
         source_id = str(source.get("source_id") or "")
-        if not source_id or source_id in source_ids:
+        if source_id in seen_source_ids:
             raise ArchiveContractError(f"orphan_snapshot_source_id_invalid:{snapshot_id}")
-        source_ids.add(source_id)
+        seen_source_ids.add(source_id)
         status = str(source.get("status") or "")
         mode = str(source.get("mode") or "")
         truth = source.get("truth_class")
@@ -1036,11 +1140,11 @@ def verify_recoverable_snapshot(
 
 
 def recover_verified_unindexed_snapshot(
-    root: Path, contract_sha256: str
+    root: Path, contract: Mapping[str, Any]
 ) -> list[dict[str, Any]]:
     entries = load_archive_index(
         root,
-        contract_sha256,
+        contract,
         allow_unindexed_snapshots=True,
     )
     snapshots_root = root / "snapshots"
@@ -1056,14 +1160,14 @@ def recover_verified_unindexed_snapshot(
     indexed_ids = {str(entry["snapshot_id"]) for entry in entries}
     orphan_ids = sorted(directory_ids - indexed_ids)
     if not orphan_ids:
-        return load_archive_index(root, contract_sha256)
+        return load_archive_index(root, contract)
     if len(orphan_ids) != 1:
         raise ArchiveContractError(
             "multiple_unindexed_snapshots:" + ",".join(orphan_ids)
         )
     snapshot_id = orphan_ids[0]
     manifest, manifest_sha = verify_recoverable_snapshot(
-        root, snapshot_id, contract_sha256
+        root, snapshot_id, contract
     )
     collected_at = parse_utc(
         manifest["collected_at_utc"], field="orphan_collected_at"
@@ -1087,7 +1191,7 @@ def recover_verified_unindexed_snapshot(
     }
     entry["entry_sha256"] = index_hash(entry)
     write_index(root / "archive_index.jsonl", [*entries, entry])
-    return load_archive_index(root, contract_sha256)
+    return load_archive_index(root, contract)
 
 
 def stable_read(path: Path, consumed: dict[str, str]) -> bytes:
@@ -1372,10 +1476,25 @@ def normalize_cboe_index(
         )
     output.sort(key=lambda row: row["source_observation_date"])
     if output:
-        newest = strict_iso_date(
-            output[-1]["source_observation_date"],
-            field=f"{source_id}_latest_observation",
+        observed_dates = [
+            strict_iso_date(
+                item["source_observation_date"],
+                field=f"{source_id}_observation_session",
+            )
+            for item in output
+        ]
+        valid_sessions = nyse_session_dates(
+            observed_dates[0], latest_completed_session
         )
+        invalid_session = next(
+            (item for item in observed_dates if item not in valid_sessions),
+            None,
+        )
+        if invalid_session is not None:
+            raise ArchiveContractError(
+                f"{source_id}_observation_not_nyse_session:{invalid_session.isoformat()}"
+            )
+        newest = observed_dates[-1]
         threshold_position = min(
             maximum_completed_session_lag + 1, len(completed_sessions)
         )
@@ -1429,6 +1548,25 @@ def completed_nyse_sessions(captured_at: datetime) -> list[date]:
     if not sessions:
         raise ArchiveContractError("no_completed_nyse_session_for_capture")
     return sessions
+
+
+@lru_cache(maxsize=64)
+def nyse_session_dates(start_date: date, end_date: date) -> frozenset[date]:
+    """Return every official NYSE session label in an inclusive date range."""
+    if start_date > end_date:
+        raise ArchiveContractError("nyse_session_range_invalid")
+    try:
+        import pandas_market_calendars as mcal
+    except ImportError as exc:
+        raise ArchiveContractError("nyse_calendar_dependency_unavailable") from exc
+    try:
+        schedule = mcal.get_calendar("NYSE").schedule(
+            start_date=start_date.isoformat(),
+            end_date=end_date.isoformat(),
+        )
+    except Exception as exc:
+        raise ArchiveContractError("nyse_calendar_resolution_failed") from exc
+    return frozenset(session_label.date() for session_label in schedule.index)
 
 
 def normalize_cboe_daily_options_page(
@@ -1614,6 +1752,10 @@ def network_fetch(
             timeout=int(timeout_seconds),
             stream=True,
         ) as response:
+            if type(response.status_code) is not int or response.status_code != 200:
+                raise ArchiveContractError(
+                    f"official_network_http_status_invalid:{response.status_code}"
+                )
             response.raise_for_status()
             hop_urls = [
                 str(item.url or "") for item in list(response.history)
@@ -2126,6 +2268,8 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             if not source_bundle.is_dir() or source_bundle.is_symlink():
                 raise ArchiveContractError("source_bundle_not_regular_directory")
             fixture_time = parse_utc(args.collected_at, field="fixture_collected_at")
+            if fixture_time > utc_now():
+                raise ArchiveContractError("fixture_collected_at_in_future")
             if allow_network:
                 raise ArchiveContractError("fixture_mode_network_forbidden")
         else:
@@ -2144,9 +2288,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             float(contract["collection"]["writer_lock_timeout_seconds"]),
         )
         recover_abandoned_staging(output_root)
-        existing_entries = recover_verified_unindexed_snapshot(
-            output_root, CANONICAL_CONTRACT_SEMANTIC_SHA256
-        )
+        existing_entries = recover_verified_unindexed_snapshot(output_root, contract)
         captures, missing_audits, consumed = collect_sources(
             contract=contract,
             source_bundle=source_bundle,
@@ -2331,7 +2473,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         all_entries = [*existing_entries, entry]
         write_index(output_root / "archive_index.jsonl", all_entries)
         verified_entries = load_archive_index(
-            output_root, CANONICAL_CONTRACT_SEMANTIC_SHA256
+            output_root, contract
         )
         if verified_entries != all_entries:
             raise ArchiveContractError("post_commit_archive_verification_mismatch")

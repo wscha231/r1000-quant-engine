@@ -15,6 +15,8 @@
     "source_text_encoding_policy": "STRICT_UTF8_OPTIONAL_BOM_AND_RFC_QUOTE_VALIDATED_CSV",
     "network_redirect_policy": "HTTPS_SAME_ORIGIN_EVERY_HOP",
     "network_response_read_policy": "CONTENT_LENGTH_PREFLIGHT_PLUS_BOUNDED_STREAM",
+    "network_response_status_policy": "HTTP_200_ONLY",
+    "fixture_timestamp_policy": "CALLER_TIME_MUST_NOT_EXCEED_RUNTIME_UTC",
     "writer_policy": "OS_ADVISORY_SINGLE_WRITER_ACROSS_RECOVERY_CAPTURE_AND_COMMIT"
   },
   "archive": {
@@ -26,6 +28,7 @@
     "missing_source_policy": "RECORD_MISSING_DO_NOT_CARRY_OR_IMPUTE",
     "invalid_present_source_policy": "BLOCK_WHOLE_SNAPSHOT",
     "verified_unindexed_snapshot_policy": "RECOVER_SINGLE_EXACT_ORPHAN_BEFORE_NEXT_CAPTURE",
+    "orphan_source_contract_policy": "EXACT_CANONICAL_SOURCE_SET_PROVIDER_KIND_AND_PUBLIC_URL",
     "abandoned_staging_policy": "DELETE_EXACT_LOCAL_UNMOUNTED_STAGING_DIRECTORIES_UNDER_WRITER_LOCK",
     "fixture_orphan_builder_policy": "ALLOW_RECORDED_RUNTIME_AND_HEAD_BLOB_HASH_DIFFERENCE",
     "committed_receipt_failure_policy": "RETURN_VERIFIED_SUCCESS_WITH_RECEIPT_FAILURE_DETAIL",
@@ -75,6 +78,7 @@
   },
   "cboe": {
     "index_close_current_date_policy": "REQUIRE_COMPLETED_NYSE_SESSION",
+    "index_history_row_date_policy": "EVERY_ROW_MUST_BE_NYSE_SESSION",
     "index_history_max_completed_nyse_session_lag": 1,
     "sources": {
       "vix": {

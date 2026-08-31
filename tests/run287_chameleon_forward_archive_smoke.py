@@ -237,13 +237,13 @@ def test_identical_same_time_is_idempotent_and_changed_payload_blocks() -> None:
 def test_out_of_order_collection_blocks_without_append() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
-        bundle = build_source_bundle(root, vintage="2026-08-31")
+        bundle = build_source_bundle(root, vintage="2026-08-30")
         archive_root = root / "archive"
         first = archive.build(
             args(
                 archive_root,
                 bundle,
-                collected_at="2026-08-31T12:00:00Z",
+                collected_at="2026-08-30T23:00:00Z",
             )
         )
         assert first["status"] == archive.READY_STATUS
@@ -576,12 +576,12 @@ def test_existing_content_tamper_is_detected_before_new_capture() -> None:
         )
         with (archive_root / raw_object).open("ab") as handle:
             handle.write(b"tamper")
-        later_bundle = build_source_bundle(root / "later", vintage="2026-08-31")
+        later_bundle = build_source_bundle(root / "later", vintage="2026-08-30")
         blocked = archive.build(
             args(
                 archive_root,
                 later_bundle,
-                collected_at="2026-08-31T12:00:00Z",
+                collected_at="2026-08-30T18:00:00Z",
             )
         )
         assert blocked["status"] == archive.BLOCKED_STATUS
@@ -670,6 +670,51 @@ def test_verified_snapshot_is_recovered_after_index_interruption() -> None:
         assert len(index_rows(archive_root)) == 1
 
 
+def test_orphan_recovery_requires_the_canonical_source_contract() -> None:
+    spec = contract()
+    definitions = archive.canonical_source_definitions(spec)
+    sources = []
+    for source_id, definition in definitions.items():
+        is_cross_asset = source_id == "cross_asset.daily_close"
+        sources.append(
+            {
+                "source_id": source_id,
+                "provider": (
+                    "UNCONFIGURED"
+                    if is_cross_asset
+                    else next(iter(definition["providers"]))
+                ),
+                "source_kind": definition["source_kind"],
+                "public_url": definition["public_url"],
+                "status": "missing_or_unavailable" if is_cross_asset else "ready",
+            }
+        )
+    archive.validate_orphan_source_contract(
+        sources,
+        contract=spec,
+        snapshot_id="canonical-fixture",
+    )
+    try:
+        archive.validate_orphan_source_contract(
+            sources[:-1],
+            contract=spec,
+            snapshot_id="missing-source-fixture",
+        )
+        raise AssertionError("incomplete orphan source set was accepted")
+    except archive.ArchiveContractError as exc:
+        assert "source_set_mismatch" in str(exc)
+    sources[0]["provider"] = "ARBITRARY_PROVIDER"
+    try:
+        archive.validate_orphan_source_contract(
+            sources,
+            contract=spec,
+            snapshot_id="wrong-definition-fixture",
+        )
+        raise AssertionError("orphan source definition drift was accepted")
+    except archive.ArchiveContractError as exc:
+        assert "source_definition_mismatch" in str(exc)
+
+
 def test_abandoned_pre_rename_staging_is_recovered_under_lock() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -717,11 +762,13 @@ def test_network_fetch_is_bounded_and_restricts_redirect_origins() -> None:
             chunks: list[bytes],
             content_length: str = "",
             history: list[str] | None = None,
+            status_code: int = 200,
         ) -> None:
             self.url = url
             self._chunks = chunks
             self.headers = {"Content-Length": content_length} if content_length else {}
             self.history = [SimpleNamespace(url=item) for item in (history or [])]
+            self.status_code = status_code
 
         def __enter__(self) -> "FakeResponse":
             return self
@@ -738,6 +785,19 @@ def test_network_fetch_is_bounded_and_restricts_redirect_origins() -> None:
 
     requested = "https://api.stlouisfed.org/fred/series/observations"
     try:
+        archive.requests.get = lambda *_args, **_kwargs: FakeResponse(
+            url=requested,
+            chunks=[b"partial"],
+            status_code=206,
+        )
+        try:
+            archive.network_fetch(
+                url=requested, params=None, timeout_seconds=1, maximum_bytes=100
+            )
+            raise AssertionError("partial HTTP response was accepted")
+        except archive.ArchiveContractError as exc:
+            assert "official_network_http_status_invalid:206" in str(exc)
+
         archive.requests.get = lambda *_args, **_kwargs: FakeResponse(
             url=requested,
             chunks=[b"small"],
@@ -959,6 +1019,44 @@ def test_cboe_index_history_requires_a_fresh_completed_session() -> None:
         assert "stale_index_history" in str(exc)
 
 
+def test_every_cboe_index_date_must_be_an_exchange_session() -> None:
+    malformed = b"DATE,CLOSE\n08/23/2026,13.0\n08/28/2026,14.0\n"
+    captured_at = datetime(2026, 8, 28, 21, 0, tzinfo=timezone.utc)
+    try:
+        archive.normalize_cboe_index(
+            malformed,
+            source_id="cboe.vix",
+            symbol="vix",
+            captured_at=captured_at,
+            maximum_completed_session_lag=1,
+        )
+        raise AssertionError("weekend-dated Cboe close was accepted")
+    except archive.ArchiveContractError as exc:
+        assert "observation_not_nyse_session:2026-08-23" in str(exc)
+
+
+def test_fixture_collection_time_cannot_be_in_the_future() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        original_now = archive.utc_now
+        try:
+            archive.utc_now = lambda: datetime(
+                2026, 8, 30, 12, 0, tzinfo=timezone.utc
+            )
+            blocked = archive.build(
+                args(
+                    root / "archive",
+                    bundle,
+                    collected_at="2026-08-30T12:00:00.000001Z",
+                )
+            )
+        finally:
+            archive.utc_now = original_now
+        assert blocked["status"] == archive.BLOCKED_STATUS
+        assert "fixture_collected_at_in_future" in blocked["blockers"][0]
+
+
 def test_verified_commit_survives_last_attempt_receipt_failure() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -1022,6 +1120,7 @@ if __name__ == "__main__":
     test_cross_asset_provenance_rejects_credentials_before_persistence()
     test_present_source_with_no_rows_blocks_snapshot()
     test_verified_snapshot_is_recovered_after_index_interruption()
+    test_orphan_recovery_requires_the_canonical_source_contract()
     test_abandoned_pre_rename_staging_is_recovered_under_lock()
     test_network_fetch_is_bounded_and_restricts_redirect_origins()
     test_runtime_clock_preserves_subsecond_capture_time()
@@ -1030,6 +1129,8 @@ if __name__ == "__main__":
     test_stale_daily_options_session_blocks_snapshot()
     test_cboe_current_date_close_requires_completed_session()
     test_cboe_index_history_requires_a_fresh_completed_session()
+    test_every_cboe_index_date_must_be_an_exchange_session()
+    test_fixture_collection_time_cannot_be_in_the_future()
     test_verified_commit_survives_last_attempt_receipt_failure()
     test_prelaunch_collection_is_rejected()
     print("run287_chameleon_forward_archive_smoke: PASS")

@@ -93,6 +93,9 @@ ratios separately.
 - Staging cleanup rejects mount points before traversal, provenance URLs reject
   whitespace and controls before component parsing, and every Cboe index
   history must contain a close no more than one completed NYSE session old.
+- Orphan recovery requires the exact canonical source set and definitions;
+  every Cboe close date must be an NYSE session, future fixture timestamps are
+  rejected, and official network bodies are accepted only with HTTP 200.
 
 ## Local official-network proof
 
@@ -141,6 +144,8 @@ The dedicated smoke covers:
 - final percent-decode inspection and locked abandoned-staging recovery;
 - mount-boundary cleanup rejection, provenance URL whitespace/control
   rejection, and completed-session freshness for Cboe index histories;
+- canonical orphan-source topology, all-row exchange-session validation,
+  future-fixture rejection, and exact HTTP-200 transport completeness;
 - pre-launch and caller-injected network time rejection.
 
 The dedicated smoke and Python compilation passed. The official Cboe network

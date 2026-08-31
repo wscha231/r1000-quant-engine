@@ -4670,6 +4670,10 @@ Expected contract:
   root or any descendant that is a mount point, provenance URLs reject every
   whitespace/control character before parsing, and Cboe index histories must
   end within one completed NYSE session of capture.
+- Recovery and transport correction: A recoverable orphan must contain the
+  exact canonical 18-source set with matching provider, kind, and public URL;
+  every Cboe close row must be an NYSE session; fixture times cannot exceed the
+  runtime clock; and official source bodies are consumed only after HTTP 200.
 - Network proof: A local 2026-08-31 capture archived VIX, VIX3M, VVIX, and two
   current 2026-08-28 put-call rows as FORWARD_PIT. Thirteen FRED/ALFRED series
   remained explicitly missing because FRED_API_KEY was absent; cross-asset
@@ -4712,6 +4716,10 @@ Expected contract:
   through a bind mount, so destructive cleanup must verify mount topology before
   traversal. Likewise, a valid historical file is not a current observation
   unless its newest row passes an explicit completed-session freshness bound.
+- Reusable lesson: Self-consistent hashes do not prove that recovered content
+  belongs to the current contract. Revalidate the complete source topology and
+  transport completeness, and prevent simulated future availability from
+  poisoning the chronological head of an archive shared with real captures.
 - Next action: In a separate causal change, build a hash-verifying report-only
   adapter from the archive to the macro normalizer. Configure a durable
   publication destination and FRED secret only under separate approval before
@@ -4727,8 +4735,9 @@ Expected contract:
   closes, capture official data from a dirty builder, reject a valid dirty
   fixture orphan, relabel a verified commit because its mutable receipt failed,
   traverse a mount during staging cleanup, accept whitespace/control-bearing
-  provenance or stale index history, or connect the archive directly to
-  portfolio policy.
+  provenance or stale/non-session index history, recover a contract-incomplete
+  orphan, archive a partial HTTP response, let fixture time advance beyond the
+  runtime clock, or connect the archive directly to portfolio policy.
 - Evidence files:
   - docs/run287_chameleon_forward_archive_contract.json
   - tools/collect_run287_chameleon_forward_archive.py
