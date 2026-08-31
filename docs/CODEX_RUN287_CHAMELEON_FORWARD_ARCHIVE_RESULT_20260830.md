@@ -152,10 +152,16 @@ ratios separately.
   `pandas_market_calendars==5.3.2` NYSE engine is pinned and included in the
   snapshot identity, and cross-asset close dates must be completed NYSE
   sessions at capture time.
+- Cross-asset provider provenance rejects leading/trailing whitespace and all
+  Unicode control, format, and surrogate characters before any immutable
+  object or index entry is committed.
+- A recorded 40-hex `git_head` must resolve to a Git commit object before the
+  collector blob at that revision can establish builder identity; a tree or
+  other Git object is not accepted as a commit.
 
 ## Local official-network proof
 
-At 2026-08-31T11:15:31.927642Z, a local report-only network proof archived four
+At 2026-08-31T11:41:03.340032Z, a local report-only network proof archived four
 official Cboe sources and 18,585 normalized NYSE-session rows:
 
 - cboe.daily_put_call: two rows for 2026-08-28.
@@ -166,10 +172,10 @@ official Cboe sources and 18,585 normalized NYSE-session rows:
 - cboe.vvix: 5,093 rows, latest 2026-08-28.
 
 Snapshot ID:
-20260831T111531Z-b1a96acafc107dae
+20260831T114103Z-a0a921cbf712f21a
 
 Snapshot manifest SHA-256:
-2f90ad57fa8397169024292c99fb8482a93e8258fb243037435bcf769fa347e1
+92c5a72b87ab4a2e834864d72cb5dfbd0dd083c7d7912afe6db3ba6d8a60ecfb
 
 This proof is local and is not a canonical durable publication. Thirteen
 FRED/ALFRED series remained missing because no FRED_API_KEY was present.
@@ -222,6 +228,8 @@ The dedicated smoke covers:
   canonical non-FRED audit metadata, and unknown manifest-field rejection;
 - recursively decoded all-source secret scans, fixture pre-read size bounds,
   pinned calendar identity, and completed-session cross-asset close checks;
+- pre-persistence provider-control rejection and recorded Git commit-object
+  verification;
 - pre-launch and caller-injected network time rejection.
 
 The dedicated smoke and Python compilation passed. The official Cboe network
