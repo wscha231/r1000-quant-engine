@@ -267,6 +267,36 @@ def test_same_time_reuse_reverifies_manifest_after_source_collection() -> None:
         assert len(index_rows(archive_root)) == 1
 
 
+def test_same_time_reuse_rechecks_fixtures_after_manifest_verification() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        archive_root = root / "archive"
+        first = archive.build(args(archive_root, bundle))
+        assert first["status"] == archive.READY_STATUS
+        target = bundle / "fred" / "DGS2.json"
+        original_verify = archive.verify_recoverable_snapshot
+        verify_calls = 0
+
+        def verify_then_mutate(*verify_args, **verify_kwargs):
+            nonlocal verify_calls
+            verified = original_verify(*verify_args, **verify_kwargs)
+            verify_calls += 1
+            if verify_calls == 2:
+                target.write_bytes(target.read_bytes() + b" ")
+            return verified
+
+        try:
+            archive.verify_recoverable_snapshot = verify_then_mutate
+            blocked = archive.build(args(archive_root, bundle))
+        finally:
+            archive.verify_recoverable_snapshot = original_verify
+        assert verify_calls == 2
+        assert blocked["status"] == archive.BLOCKED_STATUS
+        assert "fixture_changed_during_collection" in blocked["blockers"][0]
+        assert len(index_rows(archive_root)) == 1
+
+
 def test_out_of_order_collection_blocks_without_append() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -1099,17 +1129,29 @@ def test_recovery_replays_raw_source_normalization() -> None:
 
         tiny_contract = contract()
         tiny_contract["collection"]["maximum_raw_bytes_per_source"] = 1
+        fred_raw_path = archive_root / fred["raw_object"]
+        original_sha256_file = archive.sha256_file
+
+        def reject_prelimit_hash(path: Path) -> str:
+            if path == fred_raw_path:
+                raise AssertionError("oversized recovered raw was hashed before stat")
+            return original_sha256_file(path)
+
         try:
-            archive.validate_recovered_raw_normalization(
-                archive_root,
-                fred,
-                rows,
-                contract=tiny_contract,
-                snapshot_id="oversized-recovered-raw-fixture",
-            )
-            raise AssertionError("oversized recovered raw evidence was read")
-        except archive.ArchiveContractError as exc:
-            assert "recovered_raw_object_too_large" in str(exc)
+            archive.sha256_file = reject_prelimit_hash
+            try:
+                archive.validate_recovered_raw_normalization(
+                    archive_root,
+                    fred,
+                    rows,
+                    contract=tiny_contract,
+                    snapshot_id="oversized-recovered-raw-fixture",
+                )
+                raise AssertionError("oversized recovered raw evidence was read")
+            except archive.ArchiveContractError as exc:
+                assert "recovered_raw_object_too_large" in str(exc)
+        finally:
+            archive.sha256_file = original_sha256_file
 
 
 def test_orphan_recovery_requires_canonical_downstream_handoff() -> None:
@@ -2460,6 +2502,16 @@ def test_snapshot_and_index_publication_use_durability_barriers() -> None:
         index_start = next(
             index for index, event in enumerate(events) if event[0] == "index_start"
         )
+        for directory in (
+            archive_root.resolve(),
+            (archive_root / "objects").resolve(),
+            (archive_root / "objects" / "raw").resolve(),
+            (archive_root / "objects" / "normalized").resolve(),
+        ):
+            assert any(
+                event[0] == "sync" and event[1] == directory
+                for event in events[:index_start]
+            )
         staging_path = events[snapshot_start][1]
         snapshots_root = (archive_root / "snapshots").resolve()
         assert any(
@@ -2506,6 +2558,7 @@ if __name__ == "__main__":
     test_complete_fixture_is_free_proxy_and_nonexecuting()
     test_identical_same_time_is_idempotent_and_changed_payload_blocks()
     test_same_time_reuse_reverifies_manifest_after_source_collection()
+    test_same_time_reuse_rechecks_fixtures_after_manifest_verification()
     test_out_of_order_collection_blocks_without_append()
     test_fixture_cannot_claim_forward_pit_and_network_time_cannot_be_injected()
     test_official_network_capture_is_forward_only_and_secret_free()

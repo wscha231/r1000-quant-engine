@@ -268,8 +268,50 @@ def durable_replace(source: Path, destination: Path) -> None:
         fsync_directory(destination.parent)
 
 
+def durable_mkdir(path: Path) -> None:
+    """Create every missing directory and persist each new parent entry."""
+    missing: list[Path] = []
+    cursor = path
+    while not cursor.exists():
+        missing.append(cursor)
+        parent = cursor.parent
+        if parent == cursor:
+            raise ArchiveContractError(f"directory_parent_unavailable:{path}")
+        cursor = parent
+    if not cursor.is_dir():
+        raise ArchiveContractError(f"directory_parent_not_directory:{cursor}")
+    for directory in reversed(missing):
+        temporary = directory.parent / f".{directory.name}.{uuid.uuid4().hex}.mkdir"
+        try:
+            temporary.mkdir()
+            try:
+                durable_replace(temporary, directory)
+            except OSError:
+                if (
+                    not directory.is_dir()
+                    or directory.is_symlink()
+                    or bool(getattr(directory, "is_junction", lambda: False)())
+                ):
+                    raise
+        finally:
+            if temporary.exists():
+                temporary.rmdir()
+        if (
+            not directory.is_dir()
+            or directory.is_symlink()
+            or bool(getattr(directory, "is_junction", lambda: False)())
+        ):
+            raise ArchiveContractError(f"directory_creation_conflict:{directory}")
+        else:
+            # durable_replace fsyncs the parent on POSIX and uses a write-through
+            # directory move on Windows; the explicit calls retain the ordering
+            # contract and cover filesystems that support directory fsync.
+            fsync_directory(directory)
+            fsync_directory(directory.parent)
+
+
 def atomic_write_bytes(path: Path, raw: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    durable_mkdir(path.parent)
     temporary = path.parent / f".{path.name}.{uuid.uuid4().hex}.tmp"
     try:
         with temporary.open("xb") as handle:
@@ -841,7 +883,7 @@ def validate_archive_root(root: Path) -> None:
         root.is_symlink() or bool(getattr(root, "is_junction", lambda: False)())
     ):
         raise ArchiveContractError("archive_root_link_forbidden")
-    root.mkdir(parents=True, exist_ok=True)
+    durable_mkdir(root)
     for relative in (
         Path("objects"),
         Path("objects/raw"),
@@ -855,6 +897,7 @@ def validate_archive_root(root: Path) -> None:
         ):
             label = str(relative).replace("\\", "_").replace("/", "_")
             raise ArchiveContractError(f"archive_{label}_link_forbidden")
+        durable_mkdir(child)
 
 
 def acquire_archive_writer_lock(root: Path, timeout_seconds: float) -> Any:
@@ -1019,6 +1062,8 @@ def validate_object_path(
     digest: str,
     *,
     role: str,
+    maximum_bytes: int | None = None,
+    too_large_error: str = "",
 ) -> Path:
     if HEX64.fullmatch(digest) is None:
         raise ArchiveContractError("invalid_object_digest")
@@ -1032,7 +1077,13 @@ def validate_object_path(
     if normalized != expected_by_role[role]:
         raise ArchiveContractError("object_path_not_content_addressed")
     path = root / Path(normalized)
-    if path.is_symlink() or not path.is_file() or sha256_file(path) != digest:
+    if path.is_symlink() or not path.is_file():
+        raise ArchiveContractError(f"object_hash_mismatch:{normalized}")
+    if maximum_bytes is not None and path.stat().st_size > maximum_bytes:
+        raise ArchiveContractError(
+            too_large_error or f"object_too_large:{normalized}"
+        )
+    if sha256_file(path) != digest:
         raise ArchiveContractError(f"object_hash_mismatch:{normalized}")
     return path
 
@@ -1443,17 +1494,17 @@ def validate_recovered_raw_normalization(
 ) -> None:
     """Re-normalize an orphan's raw evidence and require an exact row match."""
     source_id = str(source.get("source_id") or "")
+    maximum_bytes = int(contract["collection"]["maximum_raw_bytes_per_source"])
     raw_path = validate_object_path(
         root,
         str(source.get("raw_object") or ""),
         str(source.get("raw_sha256") or ""),
         role="raw",
-    )
-    maximum_bytes = int(contract["collection"]["maximum_raw_bytes_per_source"])
-    if raw_path.stat().st_size > maximum_bytes:
-        raise ArchiveContractError(
+        maximum_bytes=maximum_bytes,
+        too_large_error=(
             f"recovered_raw_object_too_large:{snapshot_id}:{source_id}"
-        )
+        ),
+    )
     raw = raw_path.read_bytes()
     if raw_contains_secret(raw, active_fred_api_key(contract)):
         raise ArchiveContractError(
@@ -2101,6 +2152,12 @@ def verify_recoverable_snapshot(
             str(source.get("raw_object") or ""),
             str(source.get("raw_sha256") or ""),
             role="raw",
+            maximum_bytes=int(
+                contract["collection"]["maximum_raw_bytes_per_source"]
+            ),
+            too_large_error=(
+                f"recovered_raw_object_too_large:{snapshot_id}:{source_id}"
+            ),
         )
         validate_object_path(
             root,
@@ -3610,6 +3667,8 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 raise ArchiveContractError(
                     f"snapshot_manifest_hash_mismatch:{snapshot_id}"
                 )
+            verify_consumed_inputs(consumed)
+            verify_builder_identity(identity, require_head_match=not fixture_mode)
             result = {
                 **manifest,
                 "status": (
@@ -3683,7 +3742,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             )
 
         snapshots_root = output_root / "snapshots"
-        snapshots_root.mkdir(parents=True, exist_ok=True)
+        durable_mkdir(snapshots_root)
         staging = snapshots_root / f".staging-{uuid.uuid4().hex}"
         final_snapshot = snapshots_root / snapshot_id
         if final_snapshot.exists():
