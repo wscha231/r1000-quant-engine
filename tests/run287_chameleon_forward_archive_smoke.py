@@ -993,7 +993,7 @@ def test_cboe_current_date_close_requires_completed_session() -> None:
         raise AssertionError("in-session Cboe close was accepted")
     except archive.ArchiveContractError as exc:
         assert "current_date_close_session_incomplete" in str(exc)
-    rows = archive.normalize_cboe_index(
+    rows, excluded = archive.normalize_cboe_index(
         raw,
         source_id="cboe.vix",
         symbol="vix",
@@ -1001,6 +1001,7 @@ def test_cboe_current_date_close_requires_completed_session() -> None:
         maximum_completed_session_lag=1,
     )
     assert rows[-1]["source_observation_date"] == "2026-08-28"
+    assert excluded == []
 
 
 def test_cboe_index_history_requires_a_fresh_completed_session() -> None:
@@ -1022,17 +1023,15 @@ def test_cboe_index_history_requires_a_fresh_completed_session() -> None:
 def test_every_cboe_index_date_must_be_an_exchange_session() -> None:
     malformed = b"DATE,CLOSE\n08/23/2026,13.0\n08/28/2026,14.0\n"
     captured_at = datetime(2026, 8, 28, 21, 0, tzinfo=timezone.utc)
-    try:
-        archive.normalize_cboe_index(
-            malformed,
-            source_id="cboe.vix",
-            symbol="vix",
-            captured_at=captured_at,
-            maximum_completed_session_lag=1,
-        )
-        raise AssertionError("weekend-dated Cboe close was accepted")
-    except archive.ArchiveContractError as exc:
-        assert "observation_not_nyse_session:2026-08-23" in str(exc)
+    rows, excluded = archive.normalize_cboe_index(
+        malformed,
+        source_id="cboe.vix",
+        symbol="vix",
+        captured_at=captured_at,
+        maximum_completed_session_lag=1,
+    )
+    assert [row["source_observation_date"] for row in rows] == ["2026-08-28"]
+    assert excluded == ["2026-08-23"]
 
 
 def test_fixture_collection_time_cannot_be_in_the_future() -> None:

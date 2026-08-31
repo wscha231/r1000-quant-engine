@@ -4672,7 +4672,8 @@ Expected contract:
   end within one completed NYSE session of capture.
 - Recovery and transport correction: A recoverable orphan must contain the
   exact canonical 18-source set with matching provider, kind, and public URL;
-  every Cboe close row must be an NYSE session; fixture times cannot exceed the
+  only NYSE-session Cboe closes enter normalized rows while provider-supplied
+  non-session rows remain raw and are counted; fixture times cannot exceed the
   runtime clock; and official source bodies are consumed only after HTTP 200.
 - Network proof: A local 2026-08-31 capture archived VIX, VIX3M, VVIX, and two
   current 2026-08-28 put-call rows as FORWARD_PIT. Thirteen FRED/ALFRED series
@@ -4735,9 +4736,10 @@ Expected contract:
   closes, capture official data from a dirty builder, reject a valid dirty
   fixture orphan, relabel a verified commit because its mutable receipt failed,
   traverse a mount during staging cleanup, accept whitespace/control-bearing
-  provenance or stale/non-session index history, recover a contract-incomplete
-  orphan, archive a partial HTTP response, let fixture time advance beyond the
-  runtime clock, or connect the archive directly to portfolio policy.
+  provenance or normalize stale/non-session index history, recover a
+  contract-incomplete orphan, archive a partial HTTP response, let fixture time
+  advance beyond the runtime clock, or connect the archive directly to
+  portfolio policy.
 - Evidence files:
   - docs/run287_chameleon_forward_archive_contract.json
   - tools/collect_run287_chameleon_forward_archive.py

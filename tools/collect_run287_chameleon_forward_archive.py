@@ -36,7 +36,7 @@ import requests
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONTRACT = ROOT / "docs" / "run287_chameleon_forward_archive_contract.json"
 CANONICAL_CONTRACT_SEMANTIC_SHA256 = (
-    "867a44087e2759e2a75441e32683aa1819815c52877a0d8385385695b87052ee"
+    "11011cda3dcc4d49897d5b729069f245240c0d505af1f957d0f7f229c48fdf8f"
 )
 SCHEMA_VERSION = "run287-chameleon-forward-archive-v1"
 READY_STATUS = "READY_CHAMELEON_FORWARD_ARCHIVE_REPORT_ONLY"
@@ -545,7 +545,7 @@ def load_contract(path: Path) -> dict[str, Any]:
         raise ArchiveContractError("cboe_index_close_session_policy_changed")
     if (
         cboe.get("index_history_row_date_policy")
-        != "EVERY_ROW_MUST_BE_NYSE_SESSION"
+        != "NORMALIZE_ONLY_NYSE_SESSIONS_AND_COUNT_EXCLUDED_ROWS"
     ):
         raise ArchiveContractError("cboe_index_row_session_policy_changed")
     if int(cboe.get("daily_options_max_completed_nyse_session_lag", -1)) != 1:
@@ -1064,6 +1064,33 @@ def verify_recoverable_snapshot(
         status = str(source.get("status") or "")
         mode = str(source.get("mode") or "")
         truth = source.get("truth_class")
+        excluded_dates = source.get("excluded_non_session_dates")
+        excluded_count = source.get("excluded_non_session_row_count")
+        if (
+            not isinstance(excluded_dates, list)
+            or type(excluded_count) is not int
+            or excluded_count != len(excluded_dates)
+            or excluded_dates != sorted(set(excluded_dates))
+        ):
+            raise ArchiveContractError(
+                f"orphan_snapshot_excluded_session_metadata_invalid:{source_id}"
+            )
+        parsed_excluded = [
+            strict_iso_date(item, field=f"orphan_{source_id}_excluded_session")
+            for item in excluded_dates
+        ]
+        if excluded_dates and source.get("source_kind") != "INDEX_HISTORY":
+            raise ArchiveContractError(
+                f"orphan_snapshot_excluded_session_source_invalid:{source_id}"
+            )
+        if parsed_excluded:
+            valid_excluded_range = nyse_session_dates(
+                parsed_excluded[0], parsed_excluded[-1]
+            )
+            if any(item in valid_excluded_range for item in parsed_excluded):
+                raise ArchiveContractError(
+                    f"orphan_snapshot_excluded_session_date_invalid:{source_id}"
+                )
         if status == "missing_or_unavailable":
             missing_count += 1
             if mode != "missing" or truth is not None:
@@ -1411,7 +1438,7 @@ def normalize_cboe_index(
     symbol: str,
     captured_at: datetime,
     maximum_completed_session_lag: int,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[str]]:
     rows = decode_csv(raw, source_id=source_id)
     candidates: list[tuple[int, list[str], str]] = []
     symbol_column = str(symbol).strip().lower()
@@ -1486,15 +1513,22 @@ def normalize_cboe_index(
         valid_sessions = nyse_session_dates(
             observed_dates[0], latest_completed_session
         )
-        invalid_session = next(
-            (item for item in observed_dates if item not in valid_sessions),
-            None,
+        excluded_non_session_dates = [
+            item.isoformat() for item in observed_dates if item not in valid_sessions
+        ]
+        if excluded_non_session_dates:
+            excluded = set(excluded_non_session_dates)
+            output = [
+                item
+                for item in output
+                if item["source_observation_date"] not in excluded
+            ]
+        if not output:
+            return output, excluded_non_session_dates
+        newest = strict_iso_date(
+            output[-1]["source_observation_date"],
+            field=f"{source_id}_latest_observation",
         )
-        if invalid_session is not None:
-            raise ArchiveContractError(
-                f"{source_id}_observation_not_nyse_session:{invalid_session.isoformat()}"
-            )
-        newest = observed_dates[-1]
         threshold_position = min(
             maximum_completed_session_lag + 1, len(completed_sessions)
         )
@@ -1512,7 +1546,8 @@ def normalize_cboe_index(
             raise ArchiveContractError(
                 f"{source_id}_stale_index_history:lag={session_lag}"
             )
-    return output
+        return output, excluded_non_session_dates
+    return output, []
 
 
 def one_regex_match(
@@ -1816,6 +1851,8 @@ def missing_audit(
         "normalized_sha256": None,
         "normalized_object": None,
         "normalized_row_count": 0,
+        "excluded_non_session_row_count": 0,
+        "excluded_non_session_dates": [],
     }
 
 
@@ -2044,7 +2081,7 @@ def collect_sources(
         if len(raw) > maximum_bytes:
             raise ArchiveContractError(f"{source_id}_raw_too_large")
         if kind == "INDEX_HISTORY":
-            normalized = normalize_cboe_index(
+            normalized, excluded_non_session_dates = normalize_cboe_index(
                 raw,
                 source_id=source_id,
                 symbol=name,
@@ -2062,6 +2099,7 @@ def collect_sources(
                     contract["cboe"]["daily_options_max_completed_nyse_session_lag"]
                 ),
             )
+            excluded_non_session_dates = []
         else:
             raise ArchiveContractError(f"{source_id}_unknown_source_kind")
         captures.append(
@@ -2080,6 +2118,7 @@ def collect_sources(
                 "raw": raw,
                 "rows": normalized,
                 "missing_value_count": 0,
+                "excluded_non_session_dates": excluded_non_session_dates,
                 "status": "ready" if normalized else "empty",
             }
         )
@@ -2214,6 +2253,12 @@ def materialize_sources(
             "last_observation_date": max(observations) if observations else None,
             "missing_value_count": int(capture.get("missing_value_count") or 0),
             "missing_tickers": list(capture.get("missing_tickers") or []),
+            "excluded_non_session_row_count": len(
+                capture.get("excluded_non_session_dates") or []
+            ),
+            "excluded_non_session_dates": list(
+                capture.get("excluded_non_session_dates") or []
+            ),
         }
         if capture["mode"] != "official_network" and audit["truth_class"] != "FREE_PROXY":
             raise ArchiveContractError("nonnetwork_capture_claimed_forward_pit")

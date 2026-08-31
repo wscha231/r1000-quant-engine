@@ -78,7 +78,7 @@
   },
   "cboe": {
     "index_close_current_date_policy": "REQUIRE_COMPLETED_NYSE_SESSION",
-    "index_history_row_date_policy": "EVERY_ROW_MUST_BE_NYSE_SESSION",
+    "index_history_row_date_policy": "NORMALIZE_ONLY_NYSE_SESSIONS_AND_COUNT_EXCLUDED_ROWS",
     "index_history_max_completed_nyse_session_lag": 1,
     "sources": {
       "vix": {
