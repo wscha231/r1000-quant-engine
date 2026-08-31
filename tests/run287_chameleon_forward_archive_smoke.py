@@ -782,11 +782,12 @@ def test_recovery_revalidates_source_specific_row_contracts() -> None:
             item for item in payload["sources"] if item["source_id"] == "fred.hy_oas"
         )
         original_path = archive_root / source["normalized_object"]
-        rows = [
+        original_rows = [
             json.loads(line)
             for line in original_path.read_text(encoding="utf-8").splitlines()
             if line
         ]
+        rows = [dict(row) for row in original_rows]
         rows[0]["series_id"] = "DGS10"
         forged_raw = b"".join(
             archive.canonical_json_bytes(row) + b"\n" for row in rows
@@ -812,6 +813,122 @@ def test_recovery_revalidates_source_specific_row_contracts() -> None:
         except archive.ArchiveContractError as exc:
             assert "fred_row_mismatch" in str(exc)
 
+        duplicate_rows = [dict(original_rows[0]), dict(original_rows[0])]
+        duplicate_rows[1]["value"] = float(duplicate_rows[1]["value"]) + 1.0
+        duplicate_raw = b"".join(
+            archive.canonical_json_bytes(row) + b"\n" for row in duplicate_rows
+        )
+        duplicate_sha = hashlib.sha256(duplicate_raw).hexdigest()
+        (
+            archive_root
+            / "objects"
+            / "normalized"
+            / f"{duplicate_sha}.jsonl"
+        ).write_bytes(duplicate_raw)
+        duplicate_source = {
+            **source,
+            "normalized_sha256": duplicate_sha,
+            "normalized_object": f"objects/normalized/{duplicate_sha}.jsonl",
+            "normalized_row_count": 2,
+        }
+        try:
+            archive.validate_normalized_object_rows(
+                archive_root,
+                duplicate_source,
+                snapshot_id="duplicate-fred-date-fixture",
+                contract=contract(),
+            )
+            raise AssertionError("duplicate FRED dates with different values were accepted")
+        except archive.ArchiveContractError as exc:
+            assert "fred_row_mismatch" in str(exc)
+
+        wrong_window = {
+            **source,
+            "public_request_params": {
+                **source["public_request_params"],
+                "observation_start": "2020-01-01",
+            },
+        }
+        try:
+            archive.validate_normalized_object_rows(
+                archive_root,
+                wrong_window,
+                snapshot_id="noncanonical-fred-window-fixture",
+                contract=contract(),
+            )
+            raise AssertionError("a noncanonical FRED request window was accepted")
+        except archive.ArchiveContractError as exc:
+            assert "fred_request_window_invalid" in str(exc)
+
+        vix = next(
+            item for item in payload["sources"] if item["source_id"] == "cboe.vix"
+        )
+        vix_rows = normalized_rows(archive_root, {"sources": [vix]})
+        stale_row = dict(vix_rows[0])
+        stale_row["source_observation_date"] = "2026-08-26"
+        stale_raw = archive.canonical_json_bytes(stale_row) + b"\n"
+        stale_sha = hashlib.sha256(stale_raw).hexdigest()
+        (
+            archive_root / "objects" / "normalized" / f"{stale_sha}.jsonl"
+        ).write_bytes(stale_raw)
+        stale_source = {
+            **vix,
+            "normalized_sha256": stale_sha,
+            "normalized_object": f"objects/normalized/{stale_sha}.jsonl",
+            "normalized_row_count": 1,
+            "first_observation_date": "2026-08-26",
+            "last_observation_date": "2026-08-26",
+        }
+        try:
+            archive.validate_normalized_object_rows(
+                archive_root,
+                stale_source,
+                snapshot_id="stale-recovered-vix-fixture",
+                contract=contract(),
+            )
+            raise AssertionError("stale recovered VIX history was accepted")
+        except archive.ArchiveContractError as exc:
+            assert "cboe_index_stale" in str(exc)
+
+
+def test_recovery_replays_raw_source_normalization() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        archive_root = root / "archive"
+        payload = archive.build(args(archive_root, bundle))
+        fred = next(
+            item for item in payload["sources"] if item["source_id"] == "fred.hy_oas"
+        )
+        vix = next(
+            item for item in payload["sources"] if item["source_id"] == "cboe.vix"
+        )
+        rows = archive.validate_normalized_object_rows(
+            archive_root,
+            fred,
+            snapshot_id="raw-replay-control",
+            contract=contract(),
+        )
+        forged = {
+            **fred,
+            "raw_sha256": vix["raw_sha256"],
+            "raw_object": vix["raw_object"],
+        }
+        forged_rows = [
+            {**row, "raw_sha256": vix["raw_sha256"]} for row in rows
+        ]
+        try:
+            archive.validate_recovered_raw_normalization(
+                archive_root,
+                forged,
+                forged_rows,
+                contract=contract(),
+                snapshot_id="unrelated-raw-object-fixture",
+            )
+            raise AssertionError("unrelated raw evidence supported recovered FRED rows")
+        except archive.ArchiveContractError as exc:
+            assert "json_unreadable" in str(exc)
+
 
 def test_orphan_recovery_requires_canonical_downstream_handoff() -> None:
     with tempfile.TemporaryDirectory() as temporary:
@@ -831,6 +948,32 @@ def test_orphan_recovery_requires_canonical_downstream_handoff() -> None:
             raise AssertionError("an orphan with an enabled backtest handoff was recovered")
         except archive.ArchiveContractError as exc:
             assert "downstream_handoff_drift" in str(exc)
+
+
+def test_indexed_manifest_cannot_claim_pit_verified() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        archive_root = root / "archive"
+        payload = archive.build(args(archive_root, bundle))
+        manifest_path = (
+            archive_root / "snapshots" / payload["snapshot_id"] / "manifest.json"
+        )
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["pit_verified_emitted"] = True
+        manifest_raw = archive.pretty_json_bytes(manifest)
+        manifest_path.write_bytes(manifest_raw)
+        entries = index_rows(archive_root)
+        entries[0]["snapshot_manifest_sha256"] = hashlib.sha256(
+            manifest_raw
+        ).hexdigest()
+        entries[0]["entry_sha256"] = archive.index_hash(entries[0])
+        archive.write_index(archive_root / "archive_index.jsonl", entries)
+        try:
+            archive.load_archive_index(archive_root, contract())
+            raise AssertionError("an indexed manifest claimed PIT_VERIFIED")
+        except archive.ArchiveContractError as exc:
+            assert "snapshot_pit_verified" in str(exc)
 
 
 def test_no_orphan_path_reuses_the_validated_index_entries() -> None:
@@ -1319,7 +1462,9 @@ if __name__ == "__main__":
     test_orphan_recovery_requires_the_canonical_source_contract()
     test_recovery_revalidates_normalized_jsonl_contents()
     test_recovery_revalidates_source_specific_row_contracts()
+    test_recovery_replays_raw_source_normalization()
     test_orphan_recovery_requires_canonical_downstream_handoff()
+    test_indexed_manifest_cannot_claim_pit_verified()
     test_no_orphan_path_reuses_the_validated_index_entries()
     test_abandoned_pre_rename_staging_is_recovered_under_lock()
     test_network_fetch_is_bounded_and_restricts_redirect_origins()

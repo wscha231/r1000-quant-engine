@@ -797,7 +797,7 @@ def validate_normalized_object_rows(
     *,
     snapshot_id: str,
     contract: Mapping[str, Any],
-) -> None:
+) -> list[dict[str, Any]]:
     source_id = str(source.get("source_id") or "")
     path = validate_object_path(
         root,
@@ -887,6 +887,7 @@ def validate_normalized_object_rows(
         snapshot_id=snapshot_id,
         captured_at=captured_at,
     )
+    return rows
 
 
 def validate_normalized_source_specific_rows(
@@ -966,11 +967,19 @@ def validate_normalized_source_specific_rows(
         )
         vintage = strict_iso_date(
             request["realtime_start"], field="snapshot_fred_vintage"
-        ).isoformat()
-        if observation_start > observation_end or observation_end > captured_at.date():
+        )
+        history_years = int(contract["collection"]["fred_observation_history_years"])
+        if (
+            observation_start != subtract_years(vintage, history_years)
+            or observation_end != vintage
+            or vintage != captured_at.date()
+        ):
             raise ArchiveContractError(
                 f"snapshot_normalized_fred_request_window_invalid:{snapshot_id}:{source_id}"
             )
+        vintage_text = vintage.isoformat()
+        seen_dates: set[date] = set()
+        previous_observed: date | None = None
         for row in rows:
             require_fields(row, {"series_id", "vintage_start", "vintage_end"})
             observed = strict_iso_date(
@@ -978,13 +987,17 @@ def validate_normalized_source_specific_rows(
             )
             if (
                 row.get("series_id") != expected_series
-                or row.get("vintage_start") != vintage
-                or row.get("vintage_end") != vintage
+                or row.get("vintage_start") != vintage_text
+                or row.get("vintage_end") != vintage_text
                 or not observation_start <= observed <= observation_end
+                or observed in seen_dates
+                or (previous_observed is not None and observed <= previous_observed)
             ):
                 raise ArchiveContractError(
                     f"snapshot_normalized_fred_row_mismatch:{snapshot_id}:{source_id}"
                 )
+            seen_dates.add(observed)
+            previous_observed = observed
             number(row.get("value"), field="fred_value")
         return
 
@@ -1008,6 +1021,17 @@ def validate_normalized_source_specific_rows(
         if any(observed not in sessions for observed in observed_dates):
             raise ArchiveContractError(
                 f"snapshot_normalized_cboe_index_session_mismatch:{snapshot_id}:{source_id}"
+            )
+        completed = completed_nyse_sessions(captured_at)
+        latest = observed_dates[-1]
+        lag = sum(session > latest for session in completed)
+        if (
+            latest not in completed
+            or lag
+            > int(contract["cboe"]["index_history_max_completed_nyse_session_lag"])
+        ):
+            raise ArchiveContractError(
+                f"snapshot_normalized_cboe_index_stale:{snapshot_id}:{source_id}"
             )
         return
 
@@ -1064,7 +1088,14 @@ def validate_normalized_source_specific_rows(
             raise ArchiveContractError(
                 f"snapshot_normalized_cboe_options_topology_mismatch:{snapshot_id}:{source_id}"
             )
-        if not dates.issubset(set(completed_nyse_sessions(captured_at))):
+        completed = completed_nyse_sessions(captured_at)
+        latest = next(iter(dates))
+        lag = sum(session > latest for session in completed)
+        if (
+            latest not in completed
+            or lag
+            > int(contract["cboe"]["daily_options_max_completed_nyse_session_lag"])
+        ):
             raise ArchiveContractError(
                 f"snapshot_normalized_cboe_options_session_mismatch:{snapshot_id}:{source_id}"
             )
@@ -1142,6 +1173,106 @@ def validate_downstream_handoff(
     expected = contract.get("downstream")
     if not isinstance(expected, dict) or manifest.get("downstream_handoff") != expected:
         raise ArchiveContractError(f"snapshot_downstream_handoff_drift:{snapshot_id}")
+
+
+def validate_recovered_raw_normalization(
+    root: Path,
+    source: Mapping[str, Any],
+    normalized_rows: list[dict[str, Any]],
+    *,
+    contract: Mapping[str, Any],
+    snapshot_id: str,
+) -> None:
+    """Re-normalize an orphan's raw evidence and require an exact row match."""
+    source_id = str(source.get("source_id") or "")
+    raw_path = validate_object_path(
+        root,
+        str(source.get("raw_object") or ""),
+        str(source.get("raw_sha256") or ""),
+    )
+    raw = raw_path.read_bytes()
+    capture_time = parse_utc(
+        source.get("captured_at_utc"), field="recovered_source_captured_at"
+    )
+    envelope = {
+        "schema_version",
+        "source_id",
+        "provider",
+        "source_kind",
+        "available_from",
+        "collected_at_utc",
+        "raw_sha256",
+        "truth_class",
+        "historical_ab_allowed",
+    }
+    archived_rows = [
+        {key: value for key, value in row.items() if key not in envelope}
+        for row in normalized_rows
+    ]
+
+    if source_id.startswith("fred."):
+        name = source_id.removeprefix("fred.")
+        series_id = str(contract["fred"]["series"][name])
+        request = source.get("public_request_params")
+        if not isinstance(request, dict):
+            raise ArchiveContractError(
+                f"recovered_raw_request_invalid:{snapshot_id}:{source_id}"
+            )
+        reparsed, missing_count = normalize_fred(
+            raw,
+            source_id=source_id,
+            series_id=series_id,
+            requested_vintage_date=str(request.get("realtime_start") or ""),
+            requested_observation_start=str(request.get("observation_start") or ""),
+            requested_observation_end=str(request.get("observation_end") or ""),
+            missing_token=str(contract["fred"]["missing_value_token"]),
+        )
+        if missing_count != source.get("missing_value_count"):
+            raise ArchiveContractError(
+                f"recovered_raw_missing_count_mismatch:{snapshot_id}:{source_id}"
+            )
+    elif source_id in {"cboe.vix", "cboe.vix3m", "cboe.vvix"}:
+        reparsed, excluded_dates = normalize_cboe_index(
+            raw,
+            source_id=source_id,
+            symbol=source_id.removeprefix("cboe."),
+            captured_at=capture_time,
+            maximum_completed_session_lag=int(
+                contract["cboe"]["index_history_max_completed_nyse_session_lag"]
+            ),
+        )
+        if excluded_dates != source.get("excluded_non_session_dates"):
+            raise ArchiveContractError(
+                f"recovered_raw_excluded_dates_mismatch:{snapshot_id}:{source_id}"
+            )
+    elif source_id == "cboe.daily_put_call":
+        reparsed = normalize_cboe_daily_options_page(
+            raw,
+            source_id=source_id,
+            captured_at=capture_time,
+            maximum_completed_session_lag=int(
+                contract["cboe"]["daily_options_max_completed_nyse_session_lag"]
+            ),
+        )
+    elif source_id == "cross_asset.daily_close":
+        reparsed, missing_tickers = normalize_cross_asset(
+            raw,
+            source_id=source_id,
+            required_tickers=contract["cross_asset"]["required_tickers"],
+            allowed_price_basis=contract["cross_asset"]["allowed_price_basis"],
+        )
+        if missing_tickers != source.get("missing_tickers"):
+            raise ArchiveContractError(
+                f"recovered_raw_missing_tickers_mismatch:{snapshot_id}:{source_id}"
+            )
+    else:
+        raise ArchiveContractError(
+            f"recovered_raw_unknown_source:{snapshot_id}:{source_id}"
+        )
+    if reparsed != archived_rows:
+        raise ArchiveContractError(
+            f"recovered_raw_normalization_mismatch:{snapshot_id}:{source_id}"
+        )
 
 
 def index_hash(payload: Mapping[str, Any]) -> str:
@@ -1256,6 +1387,8 @@ def load_archive_index(
             raise ArchiveContractError(f"snapshot_contract_drift:{snapshot_id}")
         if manifest.get("historical_ab_allowed") is not False:
             raise ArchiveContractError(f"snapshot_historical_ab_enabled:{snapshot_id}")
+        if manifest.get("pit_verified_emitted") is not False:
+            raise ArchiveContractError(f"snapshot_pit_verified:{snapshot_id}")
         if any(
             manifest.get(key) is not expected
             for key, expected in SAFETY.items()
@@ -1527,11 +1660,18 @@ def verify_recoverable_snapshot(
             str(source.get("normalized_object") or ""),
             str(source.get("normalized_sha256") or ""),
         )
-        validate_normalized_object_rows(
+        normalized_rows = validate_normalized_object_rows(
             root,
             source,
             snapshot_id=snapshot_id,
             contract=contract,
+        )
+        validate_recovered_raw_normalization(
+            root,
+            source,
+            normalized_rows,
+            contract=contract,
+            snapshot_id=snapshot_id,
         )
 
     expected_status = (
@@ -2413,6 +2553,14 @@ def collect_sources(
             )
             continue
         assert raw is not None and captured_at is not None
+        expected_vintage = captured_at.date().isoformat()
+        if (
+            vintage_date != expected_vintage
+            or observation_end != expected_vintage
+            or observation_start
+            != subtract_years(captured_at.date(), history_years).isoformat()
+        ):
+            raise ArchiveContractError(f"{source_id}_capture_window_mismatch")
         if raw_contains_secret(raw, fred_key):
             raise ArchiveContractError(f"{source_id}_raw_response_contains_api_key")
         if len(raw) > maximum_bytes:
