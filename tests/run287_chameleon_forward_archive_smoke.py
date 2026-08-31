@@ -344,7 +344,7 @@ def test_official_network_capture_is_forward_only_and_secret_free() -> None:
             else:
                 os.environ["FRED_API_KEY"] = original_key
 
-        assert payload["status"] == archive.READY_PARTIAL_STATUS
+        assert payload["status"] == archive.READY_PARTIAL_STATUS, payload
         assert payload["source_captured_count"] == 17
         assert payload["source_missing_count"] == 1
         assert payload["source_truth_class_counts"] == {"FORWARD_PIT": 17}
@@ -765,10 +765,97 @@ def test_recovery_revalidates_normalized_jsonl_contents() -> None:
                 archive_root,
                 forged,
                 snapshot_id="self-consistent-forgery",
+                contract=contract(),
             )
             raise AssertionError("empty normalized object was accepted as one row")
         except archive.ArchiveContractError as exc:
             assert "normalized_jsonl_invalid" in str(exc)
+
+
+def test_recovery_revalidates_source_specific_row_contracts() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        archive_root = root / "archive"
+        payload = archive.build(args(archive_root, bundle))
+        source = next(
+            item for item in payload["sources"] if item["source_id"] == "fred.hy_oas"
+        )
+        original_path = archive_root / source["normalized_object"]
+        rows = [
+            json.loads(line)
+            for line in original_path.read_text(encoding="utf-8").splitlines()
+            if line
+        ]
+        rows[0]["series_id"] = "DGS10"
+        forged_raw = b"".join(
+            archive.canonical_json_bytes(row) + b"\n" for row in rows
+        )
+        forged_sha = hashlib.sha256(forged_raw).hexdigest()
+        forged_path = (
+            archive_root / "objects" / "normalized" / f"{forged_sha}.jsonl"
+        )
+        forged_path.write_bytes(forged_raw)
+        forged = {
+            **source,
+            "normalized_sha256": forged_sha,
+            "normalized_object": f"objects/normalized/{forged_sha}.jsonl",
+        }
+        try:
+            archive.validate_normalized_object_rows(
+                archive_root,
+                forged,
+                snapshot_id="wrong-fred-series-fixture",
+                contract=contract(),
+            )
+            raise AssertionError("a FRED row assigned to the wrong series was accepted")
+        except archive.ArchiveContractError as exc:
+            assert "fred_row_mismatch" in str(exc)
+
+
+def test_orphan_recovery_requires_canonical_downstream_handoff() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        archive_root = root / "archive"
+        payload = archive.build(args(archive_root, bundle))
+        (archive_root / "archive_index.jsonl").unlink()
+        manifest_path = (
+            archive_root / "snapshots" / payload["snapshot_id"] / "manifest.json"
+        )
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["downstream_handoff"]["historical_backtest_handoff"] = "READY"
+        manifest_path.write_bytes(archive.pretty_json_bytes(manifest))
+        try:
+            archive.recover_verified_unindexed_snapshot(archive_root, contract())
+            raise AssertionError("an orphan with an enabled backtest handoff was recovered")
+        except archive.ArchiveContractError as exc:
+            assert "downstream_handoff_drift" in str(exc)
+
+
+def test_no_orphan_path_reuses_the_validated_index_entries() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        archive_root = root / "archive"
+        archive.build(args(archive_root, bundle))
+        original_load = archive.load_archive_index
+        calls = 0
+
+        def counted_load(*load_args: object, **load_kwargs: object) -> list[dict]:
+            nonlocal calls
+            calls += 1
+            return original_load(*load_args, **load_kwargs)
+
+        try:
+            archive.load_archive_index = counted_load
+            entries = archive.recover_verified_unindexed_snapshot(
+                archive_root, contract()
+            )
+        finally:
+            archive.load_archive_index = original_load
+        assert len(entries) == 1
+        assert calls == 1
 
 
 def test_abandoned_pre_rename_staging_is_recovered_under_lock() -> None:
@@ -1231,6 +1318,9 @@ if __name__ == "__main__":
     test_verified_snapshot_is_recovered_after_index_interruption()
     test_orphan_recovery_requires_the_canonical_source_contract()
     test_recovery_revalidates_normalized_jsonl_contents()
+    test_recovery_revalidates_source_specific_row_contracts()
+    test_orphan_recovery_requires_canonical_downstream_handoff()
+    test_no_orphan_path_reuses_the_validated_index_entries()
     test_abandoned_pre_rename_staging_is_recovered_under_lock()
     test_network_fetch_is_bounded_and_restricts_redirect_origins()
     test_runtime_clock_preserves_subsecond_capture_time()

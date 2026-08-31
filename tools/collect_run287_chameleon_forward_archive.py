@@ -796,6 +796,7 @@ def validate_normalized_object_rows(
     source: Mapping[str, Any],
     *,
     snapshot_id: str,
+    contract: Mapping[str, Any],
 ) -> None:
     source_id = str(source.get("source_id") or "")
     path = validate_object_path(
@@ -879,6 +880,268 @@ def validate_normalized_object_rows(
         raise ArchiveContractError(
             f"snapshot_normalized_observation_bounds_mismatch:{snapshot_id}:{source_id}"
         )
+    validate_normalized_source_specific_rows(
+        rows,
+        source=source,
+        contract=contract,
+        snapshot_id=snapshot_id,
+        captured_at=captured_at,
+    )
+
+
+def validate_normalized_source_specific_rows(
+    rows: list[dict[str, Any]],
+    *,
+    source: Mapping[str, Any],
+    contract: Mapping[str, Any],
+    snapshot_id: str,
+    captured_at: datetime,
+) -> None:
+    """Replay each source normalizer's canonical row contract on recovery."""
+    source_id = str(source.get("source_id") or "")
+    common_fields = {
+        "schema_version",
+        "source_id",
+        "provider",
+        "source_kind",
+        "source_observation_date",
+        "value",
+        "available_from",
+        "collected_at_utc",
+        "raw_sha256",
+        "truth_class",
+        "historical_ab_allowed",
+    }
+
+    def require_fields(row: Mapping[str, Any], specific: set[str]) -> None:
+        if set(row) != common_fields | specific:
+            raise ArchiveContractError(
+                f"snapshot_normalized_source_schema_mismatch:{snapshot_id}:{source_id}"
+            )
+
+    def number(value: Any, *, field: str, positive: bool = False) -> float:
+        if type(value) not in {int, float}:
+            raise ArchiveContractError(
+                f"snapshot_normalized_{field}_type_invalid:{snapshot_id}:{source_id}"
+            )
+        parsed = float(value)
+        if not math.isfinite(parsed) or (positive and parsed <= 0):
+            raise ArchiveContractError(
+                f"snapshot_normalized_{field}_invalid:{snapshot_id}:{source_id}"
+            )
+        return parsed
+
+    if source_id.startswith("fred."):
+        name = source_id.removeprefix("fred.")
+        expected_series = str(
+            (contract.get("fred") or {}).get("series", {}).get(name) or ""
+        )
+        request = source.get("public_request_params")
+        if not expected_series or not isinstance(request, dict):
+            raise ArchiveContractError(
+                f"snapshot_normalized_fred_contract_invalid:{snapshot_id}:{source_id}"
+            )
+        expected_request = {
+            "series_id": expected_series,
+            "file_type": "json",
+            "realtime_start": request.get("realtime_start"),
+            "realtime_end": request.get("realtime_end"),
+            "observation_start": request.get("observation_start"),
+            "observation_end": request.get("observation_end"),
+            "sort_order": "asc",
+            "limit": 100000,
+        }
+        if (
+            request != expected_request
+            or request["realtime_start"] != request["realtime_end"]
+        ):
+            raise ArchiveContractError(
+                f"snapshot_normalized_fred_request_mismatch:{snapshot_id}:{source_id}"
+            )
+        observation_start = strict_iso_date(
+            request["observation_start"], field="snapshot_fred_observation_start"
+        )
+        observation_end = strict_iso_date(
+            request["observation_end"], field="snapshot_fred_observation_end"
+        )
+        vintage = strict_iso_date(
+            request["realtime_start"], field="snapshot_fred_vintage"
+        ).isoformat()
+        if observation_start > observation_end or observation_end > captured_at.date():
+            raise ArchiveContractError(
+                f"snapshot_normalized_fred_request_window_invalid:{snapshot_id}:{source_id}"
+            )
+        for row in rows:
+            require_fields(row, {"series_id", "vintage_start", "vintage_end"})
+            observed = strict_iso_date(
+                row["source_observation_date"], field="snapshot_fred_observation"
+            )
+            if (
+                row.get("series_id") != expected_series
+                or row.get("vintage_start") != vintage
+                or row.get("vintage_end") != vintage
+                or not observation_start <= observed <= observation_end
+            ):
+                raise ArchiveContractError(
+                    f"snapshot_normalized_fred_row_mismatch:{snapshot_id}:{source_id}"
+                )
+            number(row.get("value"), field="fred_value")
+        return
+
+    if source_id in {"cboe.vix", "cboe.vix3m", "cboe.vvix"}:
+        instrument = source_id.removeprefix("cboe.").upper()
+        observed_dates: list[date] = []
+        for row in rows:
+            require_fields(row, {"instrument", "value_field"})
+            if row.get("instrument") != instrument or row.get("value_field") != "close":
+                raise ArchiveContractError(
+                    f"snapshot_normalized_cboe_index_row_mismatch:{snapshot_id}:{source_id}"
+                )
+            number(row.get("value"), field="cboe_index_value", positive=True)
+            observed_dates.append(
+                strict_iso_date(
+                    row["source_observation_date"],
+                    field="snapshot_cboe_index_observation",
+                )
+            )
+        sessions = nyse_session_dates(min(observed_dates), max(observed_dates))
+        if any(observed not in sessions for observed in observed_dates):
+            raise ArchiveContractError(
+                f"snapshot_normalized_cboe_index_session_mismatch:{snapshot_id}:{source_id}"
+            )
+        return
+
+    if source_id == "cboe.daily_put_call":
+        instruments: set[str] = set()
+        dates: set[date] = set()
+        for row in rows:
+            require_fields(
+                row,
+                {
+                    "instrument",
+                    "value_field",
+                    "call_volume",
+                    "put_volume",
+                    "total_volume",
+                },
+            )
+            instrument = str(row.get("instrument") or "")
+            if instrument not in {"EQUITY", "INDEX"} or instrument in instruments:
+                raise ArchiveContractError(
+                    f"snapshot_normalized_cboe_options_instrument_mismatch:{snapshot_id}:{source_id}"
+                )
+            instruments.add(instrument)
+            if row.get("value_field") != "put_call_ratio":
+                raise ArchiveContractError(
+                    f"snapshot_normalized_cboe_options_row_mismatch:{snapshot_id}:{source_id}"
+                )
+            call = row.get("call_volume")
+            put = row.get("put_volume")
+            total = row.get("total_volume")
+            if (
+                type(call) is not int
+                or type(put) is not int
+                or type(total) is not int
+                or call <= 0
+                or put < 0
+                or total != call + put
+            ):
+                raise ArchiveContractError(
+                    f"snapshot_normalized_cboe_options_volume_mismatch:{snapshot_id}:{source_id}"
+                )
+            ratio = number(row.get("value"), field="cboe_options_value")
+            if abs(ratio - put / call) > 0.02:
+                raise ArchiveContractError(
+                    f"snapshot_normalized_cboe_options_ratio_mismatch:{snapshot_id}:{source_id}"
+                )
+            dates.add(
+                strict_iso_date(
+                    row["source_observation_date"],
+                    field="snapshot_cboe_options_observation",
+                )
+            )
+        if instruments != {"EQUITY", "INDEX"} or len(dates) != 1:
+            raise ArchiveContractError(
+                f"snapshot_normalized_cboe_options_topology_mismatch:{snapshot_id}:{source_id}"
+            )
+        if not dates.issubset(set(completed_nyse_sessions(captured_at))):
+            raise ArchiveContractError(
+                f"snapshot_normalized_cboe_options_session_mismatch:{snapshot_id}:{source_id}"
+            )
+        return
+
+    if source_id == "cross_asset.daily_close":
+        cross = contract.get("cross_asset") or {}
+        required = {str(item).upper() for item in cross.get("required_tickers", [])}
+        allowed_basis = {str(item) for item in cross.get("allowed_price_basis", [])}
+        observed_tickers: set[str] = set()
+        seen: set[tuple[str, str]] = set()
+        for row in rows:
+            require_fields(
+                row,
+                {
+                    "instrument",
+                    "value_field",
+                    "price_basis",
+                    "upstream_provider",
+                    "upstream_source_url",
+                },
+            )
+            ticker = str(row.get("instrument") or "")
+            observed = str(row.get("source_observation_date") or "")
+            if ticker not in required or (ticker, observed) in seen:
+                raise ArchiveContractError(
+                    f"snapshot_normalized_cross_asset_identity_mismatch:{snapshot_id}:{source_id}"
+                )
+            seen.add((ticker, observed))
+            observed_tickers.add(ticker)
+            if (
+                row.get("value_field") != "close"
+                or row.get("price_basis") not in allowed_basis
+            ):
+                raise ArchiveContractError(
+                    f"snapshot_normalized_cross_asset_row_mismatch:{snapshot_id}:{source_id}"
+                )
+            number(row.get("value"), field="cross_asset_value", positive=True)
+            provider = str(row.get("upstream_provider") or "")
+            if (
+                not provider
+                or provider != provider.strip()
+                or any(
+                    unicodedata.category(character) in {"Cc", "Cf", "Cs"}
+                    for character in provider
+                )
+            ):
+                raise ArchiveContractError(
+                    f"snapshot_normalized_cross_asset_provider_invalid:{snapshot_id}:{source_id}"
+                )
+            public_https_url(
+                row.get("upstream_source_url"),
+                field="snapshot_cross_asset_source_url",
+            )
+        missing = sorted(required - observed_tickers)
+        if source.get("missing_tickers") != missing or source.get("status") != (
+            "partial" if missing else "ready"
+        ):
+            raise ArchiveContractError(
+                f"snapshot_normalized_cross_asset_coverage_mismatch:{snapshot_id}:{source_id}"
+            )
+        return
+
+    raise ArchiveContractError(
+        f"snapshot_normalized_unknown_source:{snapshot_id}:{source_id}"
+    )
+
+
+def validate_downstream_handoff(
+    manifest: Mapping[str, Any],
+    contract: Mapping[str, Any],
+    *,
+    snapshot_id: str,
+) -> None:
+    expected = contract.get("downstream")
+    if not isinstance(expected, dict) or manifest.get("downstream_handoff") != expected:
+        raise ArchiveContractError(f"snapshot_downstream_handoff_drift:{snapshot_id}")
 
 
 def index_hash(payload: Mapping[str, Any]) -> str:
@@ -998,6 +1261,7 @@ def load_archive_index(
             for key, expected in SAFETY.items()
         ):
             raise ArchiveContractError(f"snapshot_safety_drift:{snapshot_id}")
+        validate_downstream_handoff(manifest, contract, snapshot_id=snapshot_id)
         sources = manifest.get("sources")
         validate_orphan_source_contract(
             sources,
@@ -1025,6 +1289,7 @@ def load_archive_index(
                     root,
                     source,
                     snapshot_id=snapshot_id,
+                    contract=contract,
                 )
         entries.append(entry)
         seen_ids.add(snapshot_id)
@@ -1156,6 +1421,7 @@ def verify_recoverable_snapshot(
         raise ArchiveContractError(f"orphan_snapshot_pit_verified:{snapshot_id}")
     if any(manifest.get(key) is not expected for key, expected in SAFETY.items()):
         raise ArchiveContractError(f"orphan_snapshot_safety_drift:{snapshot_id}")
+    validate_downstream_handoff(manifest, contract, snapshot_id=snapshot_id)
     git_commit = str(manifest.get("git_head") or "")
     builder_sha = str(manifest.get("builder_sha256") or "")
     builder_git_blob_sha = str(manifest.get("builder_git_blob_sha256") or "")
@@ -1265,6 +1531,7 @@ def verify_recoverable_snapshot(
             root,
             source,
             snapshot_id=snapshot_id,
+            contract=contract,
         )
 
     expected_status = (
@@ -1320,7 +1587,7 @@ def recover_verified_unindexed_snapshot(
     indexed_ids = {str(entry["snapshot_id"]) for entry in entries}
     orphan_ids = sorted(directory_ids - indexed_ids)
     if not orphan_ids:
-        return load_archive_index(root, contract)
+        return entries
     if len(orphan_ids) != 1:
         raise ArchiveContractError(
             "multiple_unindexed_snapshots:" + ",".join(orphan_ids)
