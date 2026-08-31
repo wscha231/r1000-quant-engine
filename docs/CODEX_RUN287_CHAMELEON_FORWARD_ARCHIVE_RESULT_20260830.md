@@ -90,6 +90,9 @@ ratios separately.
 - Percent-decoding scans every decoded depth including the final pass and
   rejects excessive nesting; abandoned exact local staging directories are
   removed only while the single-writer lock is held.
+- Staging cleanup rejects mount points before traversal, provenance URLs reject
+  whitespace and controls before component parsing, and every Cboe index
+  history must contain a close no more than one completed NYSE session old.
 
 ## Local official-network proof
 
@@ -136,6 +139,8 @@ The dedicated smoke covers:
   dirty-fixture orphan recovery, completed-session close enforcement, and
   post-commit receipt-failure semantics;
 - final percent-decode inspection and locked abandoned-staging recovery;
+- mount-boundary cleanup rejection, provenance URL whitespace/control
+  rejection, and completed-session freshness for Cboe index histories;
 - pre-launch and caller-injected network time rejection.
 
 The dedicated smoke and Python compilation passed. The official Cboe network

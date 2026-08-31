@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import time
+import unicodedata
 import uuid
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
@@ -34,7 +35,7 @@ import requests
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONTRACT = ROOT / "docs" / "run287_chameleon_forward_archive_contract.json"
 CANONICAL_CONTRACT_SEMANTIC_SHA256 = (
-    "59ca2178da28f98b31c0a58773169c88a7dfb229fc4e941e0c52d8e5abb2a31d"
+    "f9dd1d739373ed59015f7922d5b073134ccdabccb193436c182be2bad56eea63"
 )
 SCHEMA_VERSION = "run287-chameleon-forward-archive-v1"
 READY_STATUS = "READY_CHAMELEON_FORWARD_ARCHIVE_REPORT_ONLY"
@@ -359,9 +360,25 @@ def exact_json_integer(value: Any, *, source_id: str, field: str) -> int:
     return value
 
 
+def valid_url_text(value: Any, *, field: str) -> str:
+    """Reject URL text whose parser-visible form differs from its evidence."""
+    raw = str(value or "")
+    if (
+        not raw
+        or raw != raw.strip()
+        or any(
+            character.isspace()
+            or unicodedata.category(character) in {"Cc", "Cf", "Cs"}
+            for character in raw
+        )
+    ):
+        raise ArchiveContractError(f"{field}_invalid_url")
+    return raw
+
+
 def public_https_url(value: Any, *, field: str) -> str:
     """Return a credential-free public HTTPS URL or fail closed."""
-    raw = str(value or "").strip()
+    raw = valid_url_text(value, field=field)
     try:
         parsed = urlsplit(raw)
         port = parsed.port
@@ -377,14 +394,12 @@ def public_https_url(value: Any, *, field: str) -> str:
         or parsed.fragment
     ):
         raise ArchiveContractError(f"{field}_credential_bearing_or_nonpublic_url")
-    if any(character in raw for character in "\r\n"):
-        raise ArchiveContractError(f"{field}_invalid_url")
     return raw
 
 
 def network_origin(value: Any, *, field: str) -> tuple[str, int]:
     """Validate a network hop without ever returning its query string."""
-    raw = str(value or "").strip()
+    raw = valid_url_text(value, field=field)
     try:
         parsed = urlsplit(raw)
         port = parsed.port or 443
@@ -395,7 +410,6 @@ def network_origin(value: Any, *, field: str) -> tuple[str, int]:
         or not parsed.hostname
         or parsed.username is not None
         or parsed.password is not None
-        or any(character in raw for character in "\r\n")
     ):
         raise ArchiveContractError(f"{field}_unapproved_origin")
     return parsed.hostname.lower().rstrip("."), port
@@ -403,7 +417,7 @@ def network_origin(value: Any, *, field: str) -> tuple[str, int]:
 
 def sanitized_network_url(value: Any, *, field: str) -> str:
     """Bind a final URL while stripping secret-bearing query material."""
-    raw = str(value or "").strip()
+    raw = valid_url_text(value, field=field)
     network_origin(raw, field=field)
     parsed = urlsplit(raw)
     hostname = str(parsed.hostname or "").lower().rstrip(".")
@@ -471,7 +485,7 @@ def load_contract(path: Path) -> dict[str, Any]:
         raise ArchiveContractError("orphan_recovery_policy_changed")
     if (
         archive.get("abandoned_staging_policy")
-        != "DELETE_EXACT_LOCAL_STAGING_DIRECTORIES_UNDER_WRITER_LOCK"
+        != "DELETE_EXACT_LOCAL_UNMOUNTED_STAGING_DIRECTORIES_UNDER_WRITER_LOCK"
     ):
         raise ArchiveContractError("abandoned_staging_policy_changed")
     if (
@@ -518,10 +532,12 @@ def load_contract(path: Path) -> dict[str, Any]:
         raise ArchiveContractError("cboe_index_close_session_policy_changed")
     if int(cboe.get("daily_options_max_completed_nyse_session_lag", -1)) != 1:
         raise ArchiveContractError("daily_options_freshness_policy_changed")
+    if int(cboe.get("index_history_max_completed_nyse_session_lag", -1)) != 1:
+        raise ArchiveContractError("index_history_freshness_policy_changed")
     cross_asset = payload.get("cross_asset") or {}
     if (
         cross_asset.get("provenance_url_policy")
-        != "PUBLIC_HTTPS_WITHOUT_USERINFO_QUERY_PARAMS_OR_FRAGMENT"
+        != "PUBLIC_HTTPS_WITHOUT_USERINFO_QUERY_PARAMS_FRAGMENT_WHITESPACE_OR_CONTROLS"
     ):
         raise ArchiveContractError("cross_asset_provenance_url_policy_changed")
     safety = payload.get("safety") or {}
@@ -613,6 +629,47 @@ def release_archive_writer_lock(handle: Any) -> None:
         handle.close()
 
 
+def linux_mount_points() -> set[Path]:
+    """Read Linux mount points, including same-device bind mounts."""
+    mountinfo = Path("/proc/self/mountinfo")
+    if os.name == "nt" or not mountinfo.is_file():
+        return set()
+    try:
+        lines = mountinfo.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError) as exc:
+        raise ArchiveContractError("mount_table_unreadable") from exc
+    mounts: set[Path] = set()
+    for line in lines:
+        fields = line.split(" - ", 1)[0].split()
+        if len(fields) < 5:
+            raise ArchiveContractError("mount_table_malformed")
+        encoded = fields[4]
+        decoded = re.sub(
+            r"\\([0-7]{3})",
+            lambda match: chr(int(match.group(1), 8)),
+            encoded,
+        )
+        mounts.add(Path(decoded).absolute())
+    return mounts
+
+
+def path_contains_mount(path: Path, *, known_mounts: set[Path]) -> bool:
+    """Return true when path itself or any lexical descendant is mounted."""
+    absolute = path.absolute()
+    try:
+        if os.path.ismount(absolute):
+            return True
+    except OSError as exc:
+        raise ArchiveContractError("mount_point_check_failed") from exc
+    for mounted in known_mounts:
+        try:
+            mounted.relative_to(absolute)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
 def recover_abandoned_staging(root: Path) -> list[str]:
     """Discard only exact, local pre-rename staging under the writer lock."""
     snapshots_root = root / "snapshots"
@@ -621,6 +678,7 @@ def recover_abandoned_staging(root: Path) -> list[str]:
     if snapshots_root.is_symlink() or not snapshots_root.is_dir():
         raise ArchiveContractError("archive_snapshots_root_invalid")
     resolved_root = snapshots_root.resolve()
+    known_mounts = linux_mount_points()
     recovered: list[str] = []
     for candidate in sorted(snapshots_root.iterdir(), key=lambda path: path.name):
         if not candidate.name.startswith(".staging-"):
@@ -635,18 +693,28 @@ def recover_abandoned_staging(root: Path) -> list[str]:
             or not candidate.is_dir()
             or candidate.parent.resolve() != resolved_root
             or candidate.resolve().parent != resolved_root
+            or path_contains_mount(candidate, known_mounts=known_mounts)
         ):
             raise ArchiveContractError(
                 f"unsafe_abandoned_snapshot_staging:{candidate.name}"
             )
-        for descendant in candidate.rglob("*"):
-            descendant_is_junction = bool(
-                getattr(descendant, "is_junction", lambda: False)()
-            )
-            if descendant.is_symlink() or descendant_is_junction:
-                raise ArchiveContractError(
-                    f"linked_abandoned_snapshot_staging:{candidate.name}"
+        for current, directories, files in os.walk(
+            candidate, topdown=True, followlinks=False
+        ):
+            current_path = Path(current)
+            for name in [*directories, *files]:
+                descendant = current_path / name
+                descendant_is_junction = bool(
+                    getattr(descendant, "is_junction", lambda: False)()
                 )
+                if (
+                    descendant.is_symlink()
+                    or descendant_is_junction
+                    or path_contains_mount(descendant, known_mounts=known_mounts)
+                ):
+                    raise ArchiveContractError(
+                        f"linked_abandoned_snapshot_staging:{candidate.name}"
+                    )
         shutil.rmtree(candidate)
         if candidate.exists():
             raise ArchiveContractError(
@@ -1238,7 +1306,7 @@ def normalize_cboe_index(
     source_id: str,
     symbol: str,
     captured_at: datetime,
-    require_completed_current_date: bool,
+    maximum_completed_session_lag: int,
 ) -> list[dict[str, Any]]:
     rows = decode_csv(raw, source_id=source_id)
     candidates: list[tuple[int, list[str], str]] = []
@@ -1267,11 +1335,10 @@ def normalize_cboe_index(
     columns = {name: position for position, name in enumerate(header)}
     output: list[dict[str, Any]] = []
     seen_dates: set[str] = set()
-    latest_completed_session = (
-        completed_nyse_sessions(captured_at)[-1]
-        if require_completed_current_date
-        else None
-    )
+    if maximum_completed_session_lag < 0:
+        raise ArchiveContractError(f"{source_id}_invalid_freshness_lag")
+    completed_sessions = completed_nyse_sessions(captured_at)
+    latest_completed_session = completed_sessions[-1]
     for row in rows[header_index + 1 :]:
         if not any(str(value).strip() for value in row):
             continue
@@ -1304,6 +1371,28 @@ def normalize_cboe_index(
             }
         )
     output.sort(key=lambda row: row["source_observation_date"])
+    if output:
+        newest = strict_iso_date(
+            output[-1]["source_observation_date"],
+            field=f"{source_id}_latest_observation",
+        )
+        threshold_position = min(
+            maximum_completed_session_lag + 1, len(completed_sessions)
+        )
+        oldest_acceptable = completed_sessions[-threshold_position]
+        if newest < oldest_acceptable:
+            raise ArchiveContractError(
+                f"{source_id}_stale_index_history"
+            )
+        if newest not in completed_sessions:
+            raise ArchiveContractError(
+                f"{source_id}_latest_observation_not_completed_session"
+            )
+        session_lag = sum(session > newest for session in completed_sessions)
+        if session_lag > maximum_completed_session_lag:
+            raise ArchiveContractError(
+                f"{source_id}_stale_index_history:lag={session_lag}"
+            )
     return output
 
 
@@ -1818,7 +1907,9 @@ def collect_sources(
                 source_id=source_id,
                 symbol=name,
                 captured_at=captured_at,
-                require_completed_current_date=mode == "official_network",
+                maximum_completed_session_lag=int(
+                    contract["cboe"]["index_history_max_completed_nyse_session_lag"]
+                ),
             )
         elif kind == "DAILY_OPTIONS_PAGE":
             normalized = normalize_cboe_daily_options_page(

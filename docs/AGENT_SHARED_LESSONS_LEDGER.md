@@ -4666,6 +4666,10 @@ Expected contract:
   decoding, with excessive nesting rejected, and exact local `.staging-*`
   directories left by process termination are removed only under the archive's
   writer lock before index/orphan validation.
+- Exact-head safety correction: Abandoned staging cleanup rejects the staging
+  root or any descendant that is a mount point, provenance URLs reject every
+  whitespace/control character before parsing, and Cboe index histories must
+  end within one completed NYSE session of capture.
 - Network proof: A local 2026-08-31 capture archived VIX, VIX3M, VVIX, and two
   current 2026-08-28 put-call rows as FORWARD_PIT. Thirteen FRED/ALFRED series
   remained explicitly missing because FRED_API_KEY was absent; cross-asset
@@ -4704,6 +4708,10 @@ Expected contract:
   Verified post-rename orphans can be indexed, while pre-rename staging is
   non-authoritative and may be discarded only after exact-path validation under
   the same single-writer lock.
+- Reusable lesson: A lexically local path can still cross a filesystem boundary
+  through a bind mount, so destructive cleanup must verify mount topology before
+  traversal. Likewise, a valid historical file is not a current observation
+  unless its newest row passes an explicit completed-session freshness bound.
 - Next action: In a separate causal change, build a hash-verifying report-only
   adapter from the archive to the macro normalizer. Configure a durable
   publication destination and FRED secret only under separate approval before
@@ -4718,7 +4726,9 @@ Expected contract:
   into integer metadata, accept non-finite constants or provisional Cboe
   closes, capture official data from a dirty builder, reject a valid dirty
   fixture orphan, relabel a verified commit because its mutable receipt failed,
-  or connect the archive directly to portfolio policy.
+  traverse a mount during staging cleanup, accept whitespace/control-bearing
+  provenance or stale index history, or connect the archive directly to
+  portfolio policy.
 - Evidence files:
   - docs/run287_chameleon_forward_archive_contract.json
   - tools/collect_run287_chameleon_forward_archive.py

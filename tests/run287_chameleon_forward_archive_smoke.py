@@ -590,9 +590,18 @@ def test_existing_content_tamper_is_detected_before_new_capture() -> None:
 
 
 def test_cross_asset_provenance_rejects_credentials_before_persistence() -> None:
-    for replacement in (
-        "https://user:password@example.test/SPY",
-        "https://example.test/SPY?token=secret",
+    for replacement, expected_error in (
+        (
+            "https://user:password@example.test/SPY",
+            "credential_bearing_or_nonpublic_url",
+        ),
+        (
+            "https://example.test/SPY?token=secret",
+            "credential_bearing_or_nonpublic_url",
+        ),
+        ("https://example.test/SP Y", "invalid_url"),
+        ("https://example.test/SP\tY", "invalid_url"),
+        ("https://example.test/SP\u007fY", "invalid_url"),
     ):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -606,7 +615,7 @@ def test_cross_asset_provenance_rejects_credentials_before_persistence() -> None
             archive_root = root / "archive"
             blocked = archive.build(args(archive_root, bundle))
             assert blocked["status"] == archive.BLOCKED_STATUS
-            assert "credential_bearing_or_nonpublic_url" in blocked["blockers"][0]
+            assert expected_error in blocked["blockers"][0]
             assert index_rows(archive_root) == []
             assert not list((archive_root / "objects" / "raw").glob("*"))
 
@@ -681,6 +690,20 @@ def test_abandoned_pre_rename_staging_is_recovered_under_lock() -> None:
         assert blocked["status"] == archive.BLOCKED_STATUS
         assert "unsafe_abandoned_snapshot_staging" in blocked["blockers"][0]
         assert unsafe.exists()
+
+        mounted_root = root / "mounted_archive"
+        mounted = mounted_root / "snapshots" / f".staging-{'b' * 32}"
+        mounted.mkdir(parents=True)
+        (mounted / "external-data").write_text("must survive", encoding="utf-8")
+        original_mount_points = archive.linux_mount_points
+        try:
+            archive.linux_mount_points = lambda: {mounted.absolute()}
+            mount_blocked = archive.build(args(mounted_root, bundle))
+        finally:
+            archive.linux_mount_points = original_mount_points
+        assert mount_blocked["status"] == archive.BLOCKED_STATUS
+        assert "unsafe_abandoned_snapshot_staging" in mount_blocked["blockers"][0]
+        assert (mounted / "external-data").read_text(encoding="utf-8") == "must survive"
 
 
 def test_network_fetch_is_bounded_and_restricts_redirect_origins() -> None:
@@ -905,7 +928,7 @@ def test_cboe_current_date_close_requires_completed_session() -> None:
             source_id="cboe.vix",
             symbol="vix",
             captured_at=before_close,
-            require_completed_current_date=True,
+            maximum_completed_session_lag=1,
         )
         raise AssertionError("in-session Cboe close was accepted")
     except archive.ArchiveContractError as exc:
@@ -915,9 +938,25 @@ def test_cboe_current_date_close_requires_completed_session() -> None:
         source_id="cboe.vix",
         symbol="vix",
         captured_at=after_close,
-        require_completed_current_date=True,
+        maximum_completed_session_lag=1,
     )
     assert rows[-1]["source_observation_date"] == "2026-08-28"
+
+
+def test_cboe_index_history_requires_a_fresh_completed_session() -> None:
+    stale = b"DATE,CLOSE\n08/25/2026,13.0\n08/26/2026,14.0\n"
+    captured_at = datetime(2026, 8, 28, 21, 0, tzinfo=timezone.utc)
+    try:
+        archive.normalize_cboe_index(
+            stale,
+            source_id="cboe.vix",
+            symbol="vix",
+            captured_at=captured_at,
+            maximum_completed_session_lag=1,
+        )
+        raise AssertionError("stale Cboe index history was accepted")
+    except archive.ArchiveContractError as exc:
+        assert "stale_index_history" in str(exc)
 
 
 def test_verified_commit_survives_last_attempt_receipt_failure() -> None:
@@ -990,6 +1029,7 @@ if __name__ == "__main__":
     test_fred_response_echoing_api_key_is_rejected_before_archive_write()
     test_stale_daily_options_session_blocks_snapshot()
     test_cboe_current_date_close_requires_completed_session()
+    test_cboe_index_history_requires_a_fresh_completed_session()
     test_verified_commit_survives_last_attempt_receipt_failure()
     test_prelaunch_collection_is_rejected()
     print("run287_chameleon_forward_archive_smoke: PASS")

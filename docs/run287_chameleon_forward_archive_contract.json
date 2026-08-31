@@ -26,7 +26,7 @@
     "missing_source_policy": "RECORD_MISSING_DO_NOT_CARRY_OR_IMPUTE",
     "invalid_present_source_policy": "BLOCK_WHOLE_SNAPSHOT",
     "verified_unindexed_snapshot_policy": "RECOVER_SINGLE_EXACT_ORPHAN_BEFORE_NEXT_CAPTURE",
-    "abandoned_staging_policy": "DELETE_EXACT_LOCAL_STAGING_DIRECTORIES_UNDER_WRITER_LOCK",
+    "abandoned_staging_policy": "DELETE_EXACT_LOCAL_UNMOUNTED_STAGING_DIRECTORIES_UNDER_WRITER_LOCK",
     "fixture_orphan_builder_policy": "ALLOW_RECORDED_RUNTIME_AND_HEAD_BLOB_HASH_DIFFERENCE",
     "committed_receipt_failure_policy": "RETURN_VERIFIED_SUCCESS_WITH_RECEIPT_FAILURE_DETAIL",
     "idempotent_receipt_policy": "PRESERVE_MANIFEST_AND_INDEX_ENTRY_HASHES"
@@ -75,6 +75,7 @@
   },
   "cboe": {
     "index_close_current_date_policy": "REQUIRE_COMPLETED_NYSE_SESSION",
+    "index_history_max_completed_nyse_session_lag": 1,
     "sources": {
       "vix": {
         "kind": "INDEX_HISTORY",
@@ -119,7 +120,7 @@
       "split_and_dividend_adjusted_close"
     ],
     "missing_ticker_policy": "RECORD_PARTIAL_DO_NOT_SYNTHESIZE",
-    "provenance_url_policy": "PUBLIC_HTTPS_WITHOUT_USERINFO_QUERY_PARAMS_OR_FRAGMENT"
+    "provenance_url_policy": "PUBLIC_HTTPS_WITHOUT_USERINFO_QUERY_PARAMS_FRAGMENT_WHITESPACE_OR_CONTROLS"
   },
   "downstream": {
     "macro_engine_handoff": "REPORT_ONLY_ADAPTER_REQUIRED_SEPARATE_CAUSAL_CHANGE",
