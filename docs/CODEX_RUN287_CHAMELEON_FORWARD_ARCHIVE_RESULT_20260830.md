@@ -39,7 +39,7 @@ Official references:
 The initially inspected Cboe equity/index put-call archive endpoints ended in
 2012 and therefore could not represent current options sentiment. The
 collector does not use those legacy endpoints for the current signal. It uses
-the Cboe Daily Market Statistics page, whose captured 2026-08-30 response
+the Cboe Daily Market Statistics page, whose captured 2026-08-31 response
 identified the completed 2026-08-28 session and exposed equity and index
 ratios separately.
 
@@ -139,10 +139,16 @@ ratios separately.
 - Recovery also rejects collection or source capture timestamps later than its
   runtime clock, and scans both raw manifest bytes and recursively decoded
   manifest values for the active key before accepting any snapshot authority.
+- Recovered object references are role-bound: raw digests must remain under
+  `objects/raw` and normalized digests under `objects/normalized`.
+- Every recovered source audit record must match its exact status-dependent
+  schema. Cboe and cross-asset request metadata and missing-value counters must
+  retain their canonical values, and unknown top-level manifest fields are
+  rejected so a recomputed hash cannot invent new authority.
 
 ## Local official-network proof
 
-At 2026-08-31T06:04:30.790164Z, a local report-only network proof archived four
+At 2026-08-31T10:42:55.367441Z, a local report-only network proof archived four
 official Cboe sources and 18,585 normalized NYSE-session rows:
 
 - cboe.daily_put_call: two rows for 2026-08-28.
@@ -153,10 +159,10 @@ official Cboe sources and 18,585 normalized NYSE-session rows:
 - cboe.vvix: 5,093 rows, latest 2026-08-28.
 
 Snapshot ID:
-20260831T060430Z-4a89813ab070e77d
+20260831T104255Z-0ff5f80d645dbed1
 
 Snapshot manifest SHA-256:
-08a907b163d86d4cf8ae06baa07466db9927996d43fe35dabfc4cf4ca3c0ad87
+2f1c1343852f70265c09a0df30d7f9069f854ef2f52f0b330b887b3db1478769
 
 This proof is local and is not a canonical durable publication. Thirteen
 FRED/ALFRED series remained missing because no FRED_API_KEY was present.
@@ -205,6 +211,8 @@ The dedicated smoke covers:
 - per-snapshot junction rejection, fixture/source-mode alignment, launch and
   capture chronology replay, and all-source recovery secret scanning;
 - recovery-time future bounds and raw/decoded manifest secret scanning;
+- raw/normalized namespace role binding, exact source-audit schemas,
+  canonical non-FRED audit metadata, and unknown manifest-field rejection;
 - pre-launch and caller-injected network time rejection.
 
 The dedicated smoke and Python compilation passed. The official Cboe network
