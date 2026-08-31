@@ -4662,6 +4662,10 @@ Expected contract:
   quotes; dirty fixture orphans remain recoverable; Cboe closes cannot exceed
   the latest completed NYSE session; and failure of the mutable last-attempt
   receipt cannot relabel a verified immutable index commit as blocked.
+- Final recovery correction: Every percent-decoding depth is inspected after
+  decoding, with excessive nesting rejected, and exact local `.staging-*`
+  directories left by process termination are removed only under the archive's
+  writer lock before index/orphan validation.
 - Network proof: A local 2026-08-31 capture archived VIX, VIX3M, VVIX, and two
   current 2026-08-28 put-call rows as FORWARD_PIT. Thirteen FRED/ALFRED series
   remained explicitly missing because FRED_API_KEY was absent; cross-asset
@@ -4696,6 +4700,10 @@ Expected contract:
   receipt. After the index is revalidated, report receipt persistence failure
   without denying the committed snapshot; otherwise retries can create false
   duplicate captures and obscure the actual archive state.
+- Reusable lesson: Crash recovery must cover both sides of the atomic rename.
+  Verified post-rename orphans can be indexed, while pre-rename staging is
+  non-authoritative and may be discarded only after exact-path validation under
+  the same single-writer lock.
 - Next action: In a separate causal change, build a hash-verifying report-only
   adapter from the archive to the macro normalizer. Configure a durable
   publication destination and FRED secret only under separate approval before

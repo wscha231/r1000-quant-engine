@@ -26,6 +26,7 @@
     "missing_source_policy": "RECORD_MISSING_DO_NOT_CARRY_OR_IMPUTE",
     "invalid_present_source_policy": "BLOCK_WHOLE_SNAPSHOT",
     "verified_unindexed_snapshot_policy": "RECOVER_SINGLE_EXACT_ORPHAN_BEFORE_NEXT_CAPTURE",
+    "abandoned_staging_policy": "DELETE_EXACT_LOCAL_STAGING_DIRECTORIES_UNDER_WRITER_LOCK",
     "fixture_orphan_builder_policy": "ALLOW_RECORDED_RUNTIME_AND_HEAD_BLOB_HASH_DIFFERENCE",
     "committed_receipt_failure_policy": "RETURN_VERIFIED_SUCCESS_WITH_RECEIPT_FAILURE_DETAIL",
     "idempotent_receipt_policy": "PRESERVE_MANIFEST_AND_INDEX_ENTRY_HASHES"

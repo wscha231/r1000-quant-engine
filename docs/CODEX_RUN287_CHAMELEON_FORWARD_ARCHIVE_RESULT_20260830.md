@@ -87,6 +87,9 @@ ratios separately.
   rejected rather than being labelled a close.
 - Once the snapshot/index commit revalidates, a failed mutable last-attempt
   receipt is reported as receipt failure without relabelling the commit blocked.
+- Percent-decoding scans every decoded depth including the final pass and
+  rejects excessive nesting; abandoned exact local staging directories are
+  removed only while the single-writer lock is held.
 
 ## Local official-network proof
 
@@ -132,6 +135,7 @@ The dedicated smoke covers:
 - recursive percent-decoding, non-finite JSON rejection, bare-quote detection,
   dirty-fixture orphan recovery, completed-session close enforcement, and
   post-commit receipt-failure semantics;
+- final percent-decode inspection and locked abandoned-staging recovery;
 - pre-launch and caller-injected network time rejection.
 
 The dedicated smoke and Python compilation passed. The official Cboe network

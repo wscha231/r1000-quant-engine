@@ -34,7 +34,7 @@ import requests
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONTRACT = ROOT / "docs" / "run287_chameleon_forward_archive_contract.json"
 CANONICAL_CONTRACT_SEMANTIC_SHA256 = (
-    "78d15a1eb38b4fca2a1566f33af8b6091077bac5b34dad6266d6a704b695e958"
+    "59ca2178da28f98b31c0a58773169c88a7dfb229fc4e941e0c52d8e5abb2a31d"
 )
 SCHEMA_VERSION = "run287-chameleon-forward-archive-v1"
 READY_STATUS = "READY_CHAMELEON_FORWARD_ARCHIVE_REPORT_ONLY"
@@ -294,14 +294,16 @@ def decoded_value_contains_secret(value: Any, secret: str) -> bool:
     variants = {secret, quote(secret, safe="")}
     if isinstance(value, str):
         candidate_value = value
-        for _ in range(4):
+        for _ in range(8):
             if any(candidate in candidate_value for candidate in variants if candidate):
                 return True
             decoded = unquote(candidate_value)
             if decoded == candidate_value:
-                break
+                return False
             candidate_value = decoded
-        return False
+        if any(candidate in candidate_value for candidate in variants if candidate):
+            return True
+        raise ArchiveContractError("percent_encoding_nesting_exceeded")
     if isinstance(value, Mapping):
         return any(
             decoded_value_contains_secret(key, secret)
@@ -468,6 +470,11 @@ def load_contract(path: Path) -> dict[str, Any]:
     ):
         raise ArchiveContractError("orphan_recovery_policy_changed")
     if (
+        archive.get("abandoned_staging_policy")
+        != "DELETE_EXACT_LOCAL_STAGING_DIRECTORIES_UNDER_WRITER_LOCK"
+    ):
+        raise ArchiveContractError("abandoned_staging_policy_changed")
+    if (
         archive.get("idempotent_receipt_policy")
         != "PRESERVE_MANIFEST_AND_INDEX_ENTRY_HASHES"
     ):
@@ -604,6 +611,49 @@ def release_archive_writer_lock(handle: Any) -> None:
             pass
     finally:
         handle.close()
+
+
+def recover_abandoned_staging(root: Path) -> list[str]:
+    """Discard only exact, local pre-rename staging under the writer lock."""
+    snapshots_root = root / "snapshots"
+    if not snapshots_root.exists():
+        return []
+    if snapshots_root.is_symlink() or not snapshots_root.is_dir():
+        raise ArchiveContractError("archive_snapshots_root_invalid")
+    resolved_root = snapshots_root.resolve()
+    recovered: list[str] = []
+    for candidate in sorted(snapshots_root.iterdir(), key=lambda path: path.name):
+        if not candidate.name.startswith(".staging-"):
+            continue
+        is_junction = bool(
+            getattr(candidate, "is_junction", lambda: False)()
+        )
+        if (
+            re.fullmatch(r"\.staging-[0-9a-f]{32}", candidate.name) is None
+            or candidate.is_symlink()
+            or is_junction
+            or not candidate.is_dir()
+            or candidate.parent.resolve() != resolved_root
+            or candidate.resolve().parent != resolved_root
+        ):
+            raise ArchiveContractError(
+                f"unsafe_abandoned_snapshot_staging:{candidate.name}"
+            )
+        for descendant in candidate.rglob("*"):
+            descendant_is_junction = bool(
+                getattr(descendant, "is_junction", lambda: False)()
+            )
+            if descendant.is_symlink() or descendant_is_junction:
+                raise ArchiveContractError(
+                    f"linked_abandoned_snapshot_staging:{candidate.name}"
+                )
+        shutil.rmtree(candidate)
+        if candidate.exists():
+            raise ArchiveContractError(
+                f"abandoned_snapshot_staging_remove_failed:{candidate.name}"
+            )
+        recovered.append(candidate.name)
+    return recovered
 
 
 def validate_object_path(root: Path, relative: str, digest: str) -> Path:
@@ -2002,6 +2052,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             output_root,
             float(contract["collection"]["writer_lock_timeout_seconds"]),
         )
+        recover_abandoned_staging(output_root)
         existing_entries = recover_verified_unindexed_snapshot(
             output_root, CANONICAL_CONTRACT_SEMANTIC_SHA256
         )

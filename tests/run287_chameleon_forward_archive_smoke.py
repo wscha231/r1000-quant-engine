@@ -661,6 +661,28 @@ def test_verified_snapshot_is_recovered_after_index_interruption() -> None:
         assert len(index_rows(archive_root)) == 1
 
 
+def test_abandoned_pre_rename_staging_is_recovered_under_lock() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        archive_root = root / "archive"
+        staging = archive_root / "snapshots" / f".staging-{'a' * 32}"
+        staging.mkdir(parents=True)
+        (staging / "partial-manifest.json").write_text("{", encoding="utf-8")
+        recovered = archive.build(args(archive_root, bundle))
+        assert recovered["status"] == archive.READY_STATUS
+        assert not staging.exists()
+        assert len(index_rows(archive_root)) == 1
+
+        unsafe_root = root / "unsafe_archive"
+        unsafe = unsafe_root / "snapshots" / ".staging-not-an-exact-id"
+        unsafe.mkdir(parents=True)
+        blocked = archive.build(args(unsafe_root, bundle))
+        assert blocked["status"] == archive.BLOCKED_STATUS
+        assert "unsafe_abandoned_snapshot_staging" in blocked["blockers"][0]
+        assert unsafe.exists()
+
+
 def test_network_fetch_is_bounded_and_restricts_redirect_origins() -> None:
     original_get = archive.requests.get
 
@@ -787,11 +809,15 @@ def test_fred_response_echoing_api_key_is_rejected_before_archive_write() -> Non
         original_now = archive.utc_now
         original_key = os.environ.get("FRED_API_KEY")
         secret = "echoed-secret-that-must-not-be-archived"
+        nested_percent = "".join(f"%{byte:02x}" for byte in secret.encode("utf-8"))
+        for _ in range(3):
+            nested_percent = nested_percent.replace("%", "%25")
         encoded_variants = {
             "json_escape": "".join(
                 f"\\u{ord(character):04x}" for character in secret
             ),
             "percent_escape": f"%{ord(secret[0]):02x}{secret[1:]}",
+            "percent_nested_four": nested_percent,
         }
 
         try:
@@ -957,6 +983,7 @@ if __name__ == "__main__":
     test_cross_asset_provenance_rejects_credentials_before_persistence()
     test_present_source_with_no_rows_blocks_snapshot()
     test_verified_snapshot_is_recovered_after_index_interruption()
+    test_abandoned_pre_rename_staging_is_recovered_under_lock()
     test_network_fetch_is_bounded_and_restricts_redirect_origins()
     test_runtime_clock_preserves_subsecond_capture_time()
     test_archive_writer_lock_rejects_a_concurrent_writer()
