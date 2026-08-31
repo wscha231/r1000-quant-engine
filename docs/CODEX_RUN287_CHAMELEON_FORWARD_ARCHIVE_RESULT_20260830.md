@@ -185,10 +185,18 @@ ratios separately.
   and durably renamed. The snapshots directory is then synced before the
   atomically replaced and parent-synced archive index becomes authoritative;
   Windows uses write-through replacements for the equivalent boundary.
+- A fresh archive creates each layout directory through a durable rename and
+  syncs both the directory and its parent, so `objects/raw` and
+  `objects/normalized` cannot disappear behind an already durable index.
+- Same-time reuse performs one final consumed-input and builder-identity check
+  after full snapshot verification and before writing the idempotent receipt.
+- Recovered raw objects are stat-bounded by the contract before their first
+  complete hash pass, preventing oversized corruption from monopolizing the
+  archive-wide writer lock.
 
 ## Local official-network proof
 
-At 2026-08-31T14:22:30.946225Z, a local report-only network proof archived four
+At 2026-08-31T15:01:03.407090Z, a local report-only network proof archived four
 official Cboe sources and 18,585 normalized NYSE-session rows:
 
 - cboe.daily_put_call: two rows for 2026-08-28.
@@ -199,10 +207,10 @@ official Cboe sources and 18,585 normalized NYSE-session rows:
 - cboe.vvix: 5,093 rows, latest 2026-08-28.
 
 Snapshot ID:
-20260831T142230Z-c1fe126449a1e384
+20260831T150103Z-cf380d58f2ba2fc2
 
 Snapshot manifest SHA-256:
-50a2697c8c9011debbcdac59fd1091055b9f2a70012bfbf1d43fd6ea1e182b36
+87cfda1aec83a17fcaef60a9b2ad3276f6dda4e2bdc4238953a23760484d1d91
 
 This proof is local and is not a canonical durable publication. Thirteen
 FRED/ALFRED series remained missing because no FRED_API_KEY was present.
@@ -269,6 +277,8 @@ The dedicated smoke covers:
   during consumed-input checks;
 - complete IANA special-use subtree rejection, post-collection same-time
   manifest re-verification, and staged snapshot/index durability ordering;
+- durable creation of every fresh archive-layout ancestor, final fixture
+  recheck on same-time reuse, and pre-hash recovered-raw size rejection;
 - pre-launch and caller-injected network time rejection.
 
 The dedicated smoke and Python compilation passed. The official Cboe network
