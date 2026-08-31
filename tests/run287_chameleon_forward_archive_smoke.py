@@ -1359,27 +1359,31 @@ def test_percent_encoded_fixture_secrets_are_rejected_for_every_source() -> None
 def test_json_unicode_escaped_fixture_secrets_are_rejected_before_persistence() -> None:
     secret = "fixture-key-must-not-be-json-escaped"
     encoded = "".join(f"\\u{ord(character):04x}" for character in secret)
-    with tempfile.TemporaryDirectory() as temporary:
-        root = Path(temporary)
-        bundle = build_source_bundle(root)
-        target = bundle / "cross_asset" / "daily.csv"
-        lines = target.read_text(encoding="utf-8").splitlines()
-        lines[0] += ",unused"
-        lines[1] += f",{encoded}"
-        target.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        original_key = os.environ.get("FRED_API_KEY")
-        try:
-            os.environ["FRED_API_KEY"] = secret
-            archive_root = root / "archive"
-            blocked = archive.build(args(archive_root, bundle))
-        finally:
-            if original_key is None:
-                os.environ.pop("FRED_API_KEY", None)
-            else:
-                os.environ["FRED_API_KEY"] = original_key
-        assert blocked["status"] == archive.BLOCKED_STATUS
-        assert "raw_response_contains_api_key" in blocked["blockers"][0]
-        assert not list((archive_root / "objects" / "raw").glob("*"))
+    for escape_layers in range(1, 4):
+        if escape_layers > 1:
+            encoded = encoded.replace("\\", "\\\\")
+        assert archive.raw_contains_secret(encoded.encode("ascii"), secret)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundle = build_source_bundle(root)
+            target = bundle / "cross_asset" / "daily.csv"
+            lines = target.read_text(encoding="utf-8").splitlines()
+            lines[0] += ",unused"
+            lines[1] += f",{encoded}"
+            target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            original_key = os.environ.get("FRED_API_KEY")
+            try:
+                os.environ["FRED_API_KEY"] = secret
+                archive_root = root / "archive"
+                blocked = archive.build(args(archive_root, bundle))
+            finally:
+                if original_key is None:
+                    os.environ.pop("FRED_API_KEY", None)
+                else:
+                    os.environ["FRED_API_KEY"] = original_key
+            assert blocked["status"] == archive.BLOCKED_STATUS
+            assert "raw_response_contains_api_key" in blocked["blockers"][0]
+            assert not list((archive_root / "objects" / "raw").glob("*"))
 
 
 def test_encoded_secrets_are_scanned_before_raw_derived_blockers() -> None:
@@ -1664,6 +1668,62 @@ def test_snapshot_directories_reject_windows_junctions() -> None:
                 delattr(Path, "is_junction")
             else:
                 Path.is_junction = original_is_junction
+
+
+def test_snapshot_directories_reject_undeclared_entries() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        archive_root = root / "archive"
+        payload = archive.build(args(archive_root, bundle))
+        snapshot_dir = archive_root / "snapshots" / payload["snapshot_id"]
+        (snapshot_dir / "undeclared-authority.json").write_text(
+            '{"live_trading_enabled":true}', encoding="utf-8"
+        )
+        try:
+            archive.load_archive_index(archive_root, contract())
+            raise AssertionError("an undeclared snapshot entry was accepted")
+        except archive.ArchiveContractError as exc:
+            assert "snapshot_unexpected_entries" in str(exc)
+
+
+def test_archive_authority_files_reject_hard_links() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        archive_root = root / "archive"
+        payload = archive.build(args(archive_root, bundle))
+        ready_source = next(
+            source for source in payload["sources"] if source["status"] == "ready"
+        )
+        authority_paths = (
+            (
+                archive_root / ready_source["raw_object"],
+                "object_hardlink_forbidden",
+            ),
+            (
+                archive_root / ready_source["normalized_object"],
+                "object_hardlink_forbidden",
+            ),
+            (
+                archive_root
+                / "snapshots"
+                / payload["snapshot_id"]
+                / "manifest.json",
+                "manifest_hardlink_forbidden",
+            ),
+            (archive_root / "archive_index.jsonl", "archive_index_hardlink_forbidden"),
+        )
+        for position, (authority_path, expected_error) in enumerate(authority_paths):
+            external_link = root / f"external-hardlink-{position}"
+            os.link(authority_path, external_link)
+            try:
+                archive.load_archive_index(archive_root, contract())
+                raise AssertionError(f"a hard-linked authority file was accepted: {position}")
+            except archive.ArchiveContractError as exc:
+                assert expected_error in str(exc)
+            finally:
+                external_link.unlink()
 
 
 def test_fixture_mode_must_align_with_every_present_source() -> None:
@@ -2599,6 +2659,8 @@ if __name__ == "__main__":
     test_contract_index_and_manifest_authority_use_strict_json()
     test_archive_layout_rejects_windows_junctions()
     test_snapshot_directories_reject_windows_junctions()
+    test_snapshot_directories_reject_undeclared_entries()
+    test_archive_authority_files_reject_hard_links()
     test_fixture_mode_must_align_with_every_present_source()
     test_recovered_snapshot_reapplies_launch_and_capture_chronology()
     test_recovered_object_paths_are_bound_to_evidence_roles()

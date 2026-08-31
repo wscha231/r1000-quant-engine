@@ -536,6 +536,59 @@ def committed_result_with_receipt(
         }
 
 
+def json_unescape_bytes_once(raw: bytes) -> bytes:
+    """Remove exactly one JSON string-escape layer without parsing the source."""
+    simple = {
+        ord('"'): b'"',
+        ord("\\"): b"\\",
+        ord("/"): b"/",
+        ord("b"): b"\b",
+        ord("f"): b"\f",
+        ord("n"): b"\n",
+        ord("r"): b"\r",
+        ord("t"): b"\t",
+    }
+    output = bytearray()
+    cursor = 0
+    while cursor < len(raw):
+        if raw[cursor] != ord("\\") or cursor + 1 >= len(raw):
+            output.append(raw[cursor])
+            cursor += 1
+            continue
+        escape = raw[cursor + 1]
+        if escape in simple:
+            output.extend(simple[escape])
+            cursor += 2
+            continue
+        if escape == ord("u") and cursor + 6 <= len(raw):
+            token = raw[cursor + 2 : cursor + 6]
+            if re.fullmatch(rb"[0-9a-fA-F]{4}", token):
+                codepoint = int(token, 16)
+                consumed = 6
+                if 0xD800 <= codepoint <= 0xDBFF and cursor + 12 <= len(raw):
+                    low_prefix = raw[cursor + 6 : cursor + 8]
+                    low_token = raw[cursor + 8 : cursor + 12]
+                    if (
+                        low_prefix == b"\\u"
+                        and re.fullmatch(rb"[0-9a-fA-F]{4}", low_token)
+                    ):
+                        low = int(low_token, 16)
+                        if 0xDC00 <= low <= 0xDFFF:
+                            codepoint = (
+                                0x10000
+                                + ((codepoint - 0xD800) << 10)
+                                + (low - 0xDC00)
+                            )
+                            consumed = 12
+                if not 0xD800 <= codepoint <= 0xDFFF:
+                    output.extend(chr(codepoint).encode("utf-8"))
+                    cursor += consumed
+                    continue
+        output.append(raw[cursor])
+        cursor += 1
+    return bytes(output)
+
+
 def raw_contains_secret(raw: bytes, secret: str) -> bool:
     if not secret:
         return False
@@ -544,16 +597,7 @@ def raw_contains_secret(raw: bytes, secret: str) -> bool:
     for _ in range(8):
         if secret_bytes in candidate:
             return True
-        decoded = unquote_to_bytes(candidate)
-        decoded = re.sub(
-            rb"\\u([0-9a-fA-F]{4})",
-            lambda match: (
-                chr(int(match.group(1), 16)).encode("utf-8")
-                if not 0xD800 <= int(match.group(1), 16) <= 0xDFFF
-                else match.group(0)
-            ),
-            decoded,
-        )
+        decoded = json_unescape_bytes_once(unquote_to_bytes(candidate))
         if decoded == candidate:
             return False
         candidate = decoded
@@ -1079,7 +1123,10 @@ def validate_object_path(
     path = root / Path(normalized)
     if path.is_symlink() or not path.is_file():
         raise ArchiveContractError(f"object_hash_mismatch:{normalized}")
-    if maximum_bytes is not None and path.stat().st_size > maximum_bytes:
+    metadata = path.stat()
+    if getattr(metadata, "st_nlink", 1) != 1:
+        raise ArchiveContractError(f"object_hardlink_forbidden:{normalized}")
+    if maximum_bytes is not None and metadata.st_size > maximum_bytes:
         raise ArchiveContractError(
             too_large_error or f"object_too_large:{normalized}"
         )
@@ -1646,6 +1693,10 @@ def load_archive_index(
         return []
     if index_path.is_symlink():
         raise ArchiveContractError("archive_index_symlink_forbidden")
+    if not index_path.is_file():
+        raise ArchiveContractError("archive_index_not_regular_file")
+    if getattr(index_path.stat(), "st_nlink", 1) != 1:
+        raise ArchiveContractError("archive_index_hardlink_forbidden")
 
     entries: list[dict[str, Any]] = []
     previous = ""
@@ -1957,10 +2008,25 @@ def verify_recoverable_snapshot(
     if (
         snapshot_dir.is_symlink()
         or bool(getattr(snapshot_dir, "is_junction", lambda: False)())
+        or not snapshot_dir.is_dir()
         or manifest_path.is_symlink()
         or not manifest_path.is_file()
     ):
         raise ArchiveContractError(f"orphan_snapshot_manifest_missing:{snapshot_id}")
+    try:
+        snapshot_entries = sorted(path.name for path in snapshot_dir.iterdir())
+    except OSError as exc:
+        raise ArchiveContractError(
+            f"orphan_snapshot_directory_unreadable:{snapshot_id}"
+        ) from exc
+    if snapshot_entries != ["manifest.json"]:
+        raise ArchiveContractError(
+            f"orphan_snapshot_unexpected_entries:{snapshot_id}"
+        )
+    if getattr(manifest_path.stat(), "st_nlink", 1) != 1:
+        raise ArchiveContractError(
+            f"orphan_snapshot_manifest_hardlink_forbidden:{snapshot_id}"
+        )
     raw = manifest_path.read_bytes()
     manifest = strict_json_payload(
         raw, source_id=f"snapshot_manifest_{snapshot_id}"
@@ -3525,7 +3591,12 @@ def write_content_object(path: Path, raw: bytes, expected_sha256: str) -> None:
     if sha256_bytes(raw) != expected_sha256:
         raise ArchiveContractError("content_object_input_hash_mismatch")
     if path.exists():
-        if not path.is_file() or path.is_symlink() or sha256_file(path) != expected_sha256:
+        if (
+            not path.is_file()
+            or path.is_symlink()
+            or getattr(path.stat(), "st_nlink", 1) != 1
+            or sha256_file(path) != expected_sha256
+        ):
             raise ArchiveContractError(f"existing_content_object_conflict:{path.name}")
         return
     atomic_write_bytes(path, raw)
