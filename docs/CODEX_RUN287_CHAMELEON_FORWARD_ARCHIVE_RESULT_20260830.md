@@ -103,10 +103,16 @@ ratios separately.
 - Recovery reparses canonical normalized JSONL and verifies row count, source,
   truth class, raw hash, capture timestamps, bounds, and excluded-session
   separation before a snapshot can be indexed.
+- Recovery also replays each source's exact schema: FRED series and vintage,
+  Cboe instrument/value/volume fields, and cross-asset ticker, price basis, and
+  public provenance. The complete downstream handoff must still equal the
+  report-only contract, so an orphan cannot enable backtests or portfolio use.
+- When no orphan exists, the recovery path reuses the index entries it just
+  fully validated instead of rereading every historical object a second time.
 
 ## Local official-network proof
 
-At 2026-08-31T04:10:35.783756Z, a local report-only network proof archived four
+At 2026-08-31T04:34:27.895100Z, a local report-only network proof archived four
 official Cboe sources and 18,585 normalized NYSE-session rows:
 
 - cboe.daily_put_call: two rows for 2026-08-28.
@@ -117,10 +123,10 @@ official Cboe sources and 18,585 normalized NYSE-session rows:
 - cboe.vvix: 5,093 rows, latest 2026-08-28.
 
 Snapshot ID:
-20260831T041035Z-fa5b14558a99174b
+20260831T043427Z-59de9d1464bbd847
 
 Snapshot manifest SHA-256:
-c3a1197fa783af57c5f76b7a2846634576a7f9e2f1977c9d9f74ea83872c7ba9
+a6cfc54994535d26611d14380061fadbdde96c278005467dd0ede9732069cca2
 
 This proof is local and is not a canonical durable publication. Thirteen
 FRED/ALFRED series remained missing because no FRED_API_KEY was present.
@@ -157,6 +163,8 @@ The dedicated smoke covers:
   future-fixture rejection, and exact HTTP-200 transport completeness;
 - preflight redirect validation, public-host provenance, Unicode-control
   rejection, and normalized-object semantic recovery validation;
+- source-specific normalized-row replay, exact downstream-handoff recovery
+  validation, and single-pass no-orphan index reuse;
 - pre-launch and caller-injected network time rejection.
 
 The dedicated smoke and Python compilation passed. The official Cboe network

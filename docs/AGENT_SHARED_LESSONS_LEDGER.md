@@ -4683,6 +4683,11 @@ Expected contract:
 - Session-edge correction: A same-day weekend or holiday Cboe row is retained
   only in raw evidence and counted as excluded, while a real exchange session
   whose close has not completed still blocks the entire source.
+- Recovery-schema correction: Recovered normalized rows are replayed against
+  their exact source schema (FRED series/vintage, Cboe instrument/volume, and
+  cross-asset ticker/basis/provenance), the complete report-only downstream
+  handoff must match the canonical contract, and a no-orphan append reuses the
+  index entries already fully validated during that transaction.
 - Network proof: A local 2026-08-31 capture archived VIX, VIX3M, VVIX, and two
   current 2026-08-28 put-call rows as FORWARD_PIT. Thirteen FRED/ALFRED series
   remained explicitly missing because FRED_API_KEY was absent; cross-asset
@@ -4733,6 +4738,10 @@ Expected contract:
   not reconstructed from response history. Content-addressed normalized files
   also require semantic replay during recovery; digest equality alone cannot
   prove that manifest counters describe the stored rows.
+- Reusable lesson: Generic row envelopes are insufficient for recovered market
+  data. Revalidate signal identity and source-specific fields, bind every
+  downstream authority flag to the canonical contract, and avoid redundant
+  full-archive scans once the same transaction has already validated them.
 - Next action: In a separate causal change, build a hash-verifying report-only
   adapter from the archive to the macro normalizer. Configure a durable
   publication destination and FRED secret only under separate approval before
@@ -4753,7 +4762,9 @@ Expected contract:
   advance beyond the runtime clock, auto-follow a credential-bearing redirect,
   strip URL evidence before validation, accept a private provenance host or
   Unicode CSV control, recover unchecked normalized JSONL, or connect the
-  archive directly to portfolio policy.
+  archive directly to portfolio policy, recover a row under the wrong source
+  schema, accept a modified downstream handoff, or reread an unchanged archive
+  twice before fetching the next source.
 - Evidence files:
   - docs/run287_chameleon_forward_archive_contract.json
   - tools/collect_run287_chameleon_forward_archive.py
