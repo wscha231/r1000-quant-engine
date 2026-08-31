@@ -4688,6 +4688,11 @@ Expected contract:
   cross-asset ticker/basis/provenance), the complete report-only downstream
   handoff must match the canonical contract, and a no-orphan append reuses the
   index entries already fully validated during that transaction.
+- Raw-evidence correction: Orphan recovery now re-runs the canonical source
+  normalizer over every raw object and requires exact normalized-row equality;
+  FRED recovery also rechecks unique ordered dates and the exact seven-year
+  capture window, Cboe recovery rechecks freshness, and indexed manifests
+  cannot claim that this forward-only collector emitted PIT_VERIFIED evidence.
 - Network proof: A local 2026-08-31 capture archived VIX, VIX3M, VVIX, and two
   current 2026-08-28 put-call rows as FORWARD_PIT. Thirteen FRED/ALFRED series
   remained explicitly missing because FRED_API_KEY was absent; cross-asset
@@ -4742,6 +4747,11 @@ Expected contract:
   data. Revalidate signal identity and source-specific fields, bind every
   downstream authority flag to the canonical contract, and avoid redundant
   full-archive scans once the same transaction has already validated them.
+- Reusable lesson: A raw object's content hash proves only which bytes were
+  stored, not that those bytes produced the normalized observations. Crash
+  recovery must deterministically replay parsing and normalization, including
+  source freshness and request-window invariants, before granting authority to
+  an unindexed snapshot.
 - Next action: In a separate causal change, build a hash-verifying report-only
   adapter from the archive to the macro normalizer. Configure a durable
   publication destination and FRED secret only under separate approval before
@@ -4764,7 +4774,9 @@ Expected contract:
   Unicode CSV control, recover unchecked normalized JSONL, or connect the
   archive directly to portfolio policy, recover a row under the wrong source
   schema, accept a modified downstream handoff, or reread an unchanged archive
-  twice before fetching the next source.
+  twice before fetching the next source, recover duplicate or stale rows,
+  accept a noncanonical FRED window, relabel an indexed manifest PIT_VERIFIED,
+  or bind normalized observations to unrelated raw bytes.
 - Evidence files:
   - docs/run287_chameleon_forward_archive_contract.json
   - tools/collect_run287_chameleon_forward_archive.py

@@ -109,10 +109,17 @@ ratios separately.
   report-only contract, so an orphan cannot enable backtests or portfolio use.
 - When no orphan exists, the recovery path reuses the index entries it just
   fully validated instead of rereading every historical object a second time.
+- Orphan recovery re-runs the source normalizer against every content-addressed
+  raw object and requires an exact match with the archived normalized rows.
+  Recovered FRED rows also retain strict order, unique dates, and the exact
+  seven-year window ending on capture; recovered Cboe data must remain fresh.
+- Both orphan and already-indexed manifests must keep
+  `pit_verified_emitted=false`; this forward-only collector cannot be upgraded
+  to PIT_VERIFIED by recomputing local hashes.
 
 ## Local official-network proof
 
-At 2026-08-31T04:34:27.895100Z, a local report-only network proof archived four
+At 2026-08-31T04:52:22.382284Z, a local report-only network proof archived four
 official Cboe sources and 18,585 normalized NYSE-session rows:
 
 - cboe.daily_put_call: two rows for 2026-08-28.
@@ -123,10 +130,10 @@ official Cboe sources and 18,585 normalized NYSE-session rows:
 - cboe.vvix: 5,093 rows, latest 2026-08-28.
 
 Snapshot ID:
-20260831T043427Z-59de9d1464bbd847
+20260831T045222Z-9ed9b7bb39e06c54
 
 Snapshot manifest SHA-256:
-a6cfc54994535d26611d14380061fadbdde96c278005467dd0ede9732069cca2
+83eae4f19188b15ca592259bddf3863fbbcf662d61ba99ac9b80647d49ad566f
 
 This proof is local and is not a canonical durable publication. Thirteen
 FRED/ALFRED series remained missing because no FRED_API_KEY was present.
@@ -165,6 +172,8 @@ The dedicated smoke covers:
   rejection, and normalized-object semantic recovery validation;
 - source-specific normalized-row replay, exact downstream-handoff recovery
   validation, and single-pass no-orphan index reuse;
+- exact raw-to-normalized recovery replay, duplicate/ordered/canonical-window
+  FRED recovery, Cboe recovery freshness, and indexed PIT-upgrade rejection;
 - pre-launch and caller-injected network time rejection.
 
 The dedicated smoke and Python compilation passed. The official Cboe network
