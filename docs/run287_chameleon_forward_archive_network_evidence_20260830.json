@@ -3,10 +3,10 @@
   "classification": "LOCAL_NETWORK_PROOF_REPORT_ONLY",
   "canonical_durable_archive_published": false,
   "status": "READY_CHAMELEON_FORWARD_ARCHIVE_REPORT_ONLY_WITH_MISSING_SOURCES",
-  "collected_at_utc": "2026-08-31T15:01:03.407090Z",
-  "git_head": "0b997d79c9943964d06436ec11c29ea57d083909",
-  "builder_sha256": "7ccad368b68fb44de75126dcfd70b3a09dd274425192e409b201a49cb46cf75b",
-  "builder_git_blob_sha256": "7ccad368b68fb44de75126dcfd70b3a09dd274425192e409b201a49cb46cf75b",
+  "collected_at_utc": "2026-08-31T15:34:28.681327Z",
+  "git_head": "20f7cce92b2646790b6d48203f31d3d29b741bae",
+  "builder_sha256": "7144422f00c3d926b214b98773ebaf7f603bc398a6e01127044def633b8ceafa",
+  "builder_git_blob_sha256": "7144422f00c3d926b214b98773ebaf7f603bc398a6e01127044def633b8ceafa",
   "calendar_engine": {
     "calendar": "NYSE",
     "package": "pandas_market_calendars",
@@ -14,10 +14,10 @@
   },
   "contract_semantic_sha256": "b0f8a2af5d79f63d2a56079ca01392b9c1f2032de70a65cd8f03b9491475efcc",
   "snapshot": {
-    "snapshot_id": "20260831T150103Z-cf380d58f2ba2fc2",
-    "snapshot_identity_sha256": "cf380d58f2ba2fc2789b1c73169186a95a863f8872fca80362d5e3c117344801",
-    "snapshot_manifest_sha256": "87cfda1aec83a17fcaef60a9b2ad3276f6dda4e2bdc4238953a23760484d1d91",
-    "archive_index_entry_sha256": "04df27253ad8ebe51a82db16b00091c195c10f4d9d0cf396d437b3cefa7648d6"
+    "snapshot_id": "20260831T153428Z-717031e0b1018448",
+    "snapshot_identity_sha256": "717031e0b10184480cae4ff937d0cd82872eafb7ccffec9fcb8edfb0e6bb2cbe",
+    "snapshot_manifest_sha256": "86d7ee96e8b14878a4ab1c94af9f428938a5f1963ae472d9801be23a78364fa5",
+    "archive_index_entry_sha256": "6e61e190a6d4704538f327b86a99652d15df97cf332baa0a6a28ff549e317ae7"
   },
   "coverage": {
     "expected_sources": 18,
@@ -33,43 +33,43 @@
   "captured_sources": [
     {
       "source_id": "cboe.daily_put_call",
-      "captured_at_utc": "2026-08-31T15:00:57.924367Z",
+      "captured_at_utc": "2026-08-31T15:34:22.765920Z",
       "first_observation_date": "2026-08-28",
       "last_observation_date": "2026-08-28",
       "normalized_row_count": 2,
       "excluded_non_session_row_count": 0,
-      "raw_sha256": "938b3247482e321b24a3dc5a729b47426540804e2ea5f82d5683f7bd4a5ff5c3",
-      "normalized_sha256": "0bf57ffef16842ed31383f459dfa9b10e7e493415bd7aa6957cb3045cc5420b0"
+      "raw_sha256": "4de97df549cfbbdb14d8f2bc93d625233dbaab02f23e44b76394649c9a903d3d",
+      "normalized_sha256": "35cf5215ad7cbdcc74faadbe64ffe3fa3702352d9d1a08e8dfbb9cc216a9b5c3"
     },
     {
       "source_id": "cboe.vix",
-      "captured_at_utc": "2026-08-31T15:00:59.258830Z",
+      "captured_at_utc": "2026-08-31T15:34:24.467859Z",
       "first_observation_date": "1990-01-02",
       "last_observation_date": "2026-08-28",
       "normalized_row_count": 9228,
       "excluded_non_session_row_count": 33,
       "raw_sha256": "64708533b190bf36070e96682388922339bfb10c9df680349b824dc9489e55f9",
-      "normalized_sha256": "67116462ffb2ebb7bbc0e479385b1e8ccc022add01fefc72f3461a87282912b0"
+      "normalized_sha256": "21e5ff5bfd49d95d26d6fc42f366124f82860f1d4878138de50aa85cb7239307"
     },
     {
       "source_id": "cboe.vix3m",
-      "captured_at_utc": "2026-08-31T15:01:00.926669Z",
+      "captured_at_utc": "2026-08-31T15:34:26.070730Z",
       "first_observation_date": "2009-09-18",
       "last_observation_date": "2026-08-28",
       "normalized_row_count": 4262,
       "excluded_non_session_row_count": 0,
       "raw_sha256": "c95bca84a372df899187e39408ea922b9c30be1d97e8b81bda233446e2f029aa",
-      "normalized_sha256": "d4f25e04dcd8dfcc5ada75d14d5a6a82f53a04a55840717cbb6d80781f87209c"
+      "normalized_sha256": "d0170d0eeb43ab42c22eada169cceae0604b257b26eb983e1bfeb05a1169bf2f"
     },
     {
       "source_id": "cboe.vvix",
-      "captured_at_utc": "2026-08-31T15:01:02.305538Z",
+      "captured_at_utc": "2026-08-31T15:34:27.480030Z",
       "first_observation_date": "2006-03-06",
       "last_observation_date": "2026-08-28",
       "normalized_row_count": 5093,
       "excluded_non_session_row_count": 0,
       "raw_sha256": "044e8fb06a4f9cb20613e2c264b955518cecb374b1e1eb61e991d1e0cece7a9f",
-      "normalized_sha256": "5b78ef826836216274c5145738b8876737d390f505a581bcc0d437a2d6236521"
+      "normalized_sha256": "370fb5f4676794502f4b43b09ac138c021c1bd70da25dee1b3a514e77b120eb8"
     }
   ],
   "legacy_options_archive_endpoint_used_for_current_sentiment": false,

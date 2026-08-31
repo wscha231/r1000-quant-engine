@@ -193,10 +193,18 @@ ratios separately.
 - Recovered raw objects are stat-bounded by the contract before their first
   complete hash pass, preventing oversized corruption from monopolizing the
   archive-wide writer lock.
+- Common raw-secret scanning removes complete JSON string-escape layers
+  recursively, so multiply escaped Unicode representations of the active key
+  cannot reach content-addressed storage.
+- An accepted snapshot directory must contain exactly one regular
+  `manifest.json`; undeclared files, directories, or links are rejected.
+- Content-addressed objects, snapshot manifests, and the archive index must
+  each have exactly one filesystem link, preventing an external pathname from
+  mutating accepted evidence outside the archive lock.
 
 ## Local official-network proof
 
-At 2026-08-31T15:01:03.407090Z, a local report-only network proof archived four
+At 2026-08-31T15:34:28.681327Z, a local report-only network proof archived four
 official Cboe sources and 18,585 normalized NYSE-session rows:
 
 - cboe.daily_put_call: two rows for 2026-08-28.
@@ -207,10 +215,10 @@ official Cboe sources and 18,585 normalized NYSE-session rows:
 - cboe.vvix: 5,093 rows, latest 2026-08-28.
 
 Snapshot ID:
-20260831T150103Z-cf380d58f2ba2fc2
+20260831T153428Z-717031e0b1018448
 
 Snapshot manifest SHA-256:
-87cfda1aec83a17fcaef60a9b2ad3276f6dda4e2bdc4238953a23760484d1d91
+86d7ee96e8b14878a4ab1c94af9f428938a5f1963ae472d9801be23a78364fa5
 
 This proof is local and is not a canonical durable publication. Thirteen
 FRED/ALFRED series remained missing because no FRED_API_KEY was present.
@@ -279,6 +287,8 @@ The dedicated smoke covers:
   manifest re-verification, and staged snapshot/index durability ordering;
 - durable creation of every fresh archive-layout ancestor, final fixture
   recheck on same-time reuse, and pre-hash recovered-raw size rejection;
+- recursive full JSON-unescape secret scanning, exact snapshot-directory
+  contents, and single-link authority-file enforcement;
 - pre-launch and caller-injected network time rejection.
 
 The dedicated smoke and Python compilation passed. The official Cboe network
