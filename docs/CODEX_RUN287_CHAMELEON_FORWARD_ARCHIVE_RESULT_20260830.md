@@ -172,10 +172,13 @@ ratios separately.
   must remain beneath the selected bundle root. Recovered official-network
   `resolved_url` values must already equal their query/fragment-free canonical
   form, and special-use/private DNS suffixes are rejected as non-public.
+- Both consumed-input rechecks also revalidate the selected root and reuse the
+  original per-source size cap, so a swapped root or oversized replacement
+  cannot obtain a new allowance from mutable filesystem state.
 
 ## Local official-network proof
 
-At 2026-08-31T13:40:05.574445Z, a local report-only network proof archived four
+At 2026-08-31T13:56:12.906858Z, a local report-only network proof archived four
 official Cboe sources and 18,585 normalized NYSE-session rows:
 
 - cboe.daily_put_call: two rows for 2026-08-28.
@@ -186,10 +189,10 @@ official Cboe sources and 18,585 normalized NYSE-session rows:
 - cboe.vvix: 5,093 rows, latest 2026-08-28.
 
 Snapshot ID:
-20260831T134005Z-222449ddff6f2b0c
+20260831T135612Z-aba11cba030feb71
 
 Snapshot manifest SHA-256:
-cc434b5d19c6327d1b48c11620cc73145b10ebd09de3bddb71c61485d4ee7dad
+ff7dfa52c40092807e1b4adfeea5ce141d69af3b015fa75145c436377e5cff38
 
 This proof is local and is not a canonical durable publication. Thirteen
 FRED/ALFRED series remained missing because no FRED_API_KEY was present.
@@ -252,6 +255,8 @@ The dedicated smoke covers:
   receipts, plus fail-closed present non-regular fixture entries;
 - linked fixture-ancestor/root containment, canonical persisted resolved URLs,
   and reserved/private DNS-suffix rejection;
+- repeated bundle-root validation and reuse of the original fixture-size cap
+  during consumed-input checks;
 - pre-launch and caller-injected network time rejection.
 
 The dedicated smoke and Python compilation passed. The official Cboe network
