@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 INVENTORY = ROOT / "docs" / "run287_p0_4_artifact_inventory"
 SOURCE = INVENTORY / "source_inventory_snapshot.json"
-FROZEN_PROTECTED_PUBLICATION_COMMIT = "46624e388dc4c1fff8c066c0483c940cc0f6a105"
+FROZEN_PROTECTED_PUBLICATION_COMMIT = "f2edcfd1b569c4dd3993cf0559b19e88de8ccaa7"
 FROZEN_FULL_REBUILD_TREE_SHA1 = "af900d05a16402361ddd03d3d228f67f91ed8c60"
 OUTPUT_FILES = (
     "README.md",
