@@ -93,7 +93,7 @@ ratios separately.
 
 ## Local official-network proof
 
-At 2026-08-31T02:27:30.971282Z, a local report-only network proof archived four
+At 2026-08-31T02:43:11.229226Z, a local report-only network proof archived four
 official Cboe sources and 18,618 normalized rows:
 
 - cboe.daily_put_call: two rows for 2026-08-28.
@@ -102,10 +102,10 @@ official Cboe sources and 18,618 normalized rows:
 - cboe.vvix: 5,093 rows, latest 2026-08-28.
 
 Snapshot ID:
-20260831T022730Z-a5493b3ccec560de
+20260831T024311Z-a7d92f4fa3c84528
 
 Snapshot manifest SHA-256:
-9df9a8752a0c2cc87888124bacc74df95612fdea46c6654f876df647eaac20d8
+bd95ebf93d652f2df04b6fc1adc88aa1f748e88af80235dd24a8144257e0489b
 
 This proof is local and is not a canonical durable publication. Thirteen
 FRED/ALFRED series remained missing because no FRED_API_KEY was present.
