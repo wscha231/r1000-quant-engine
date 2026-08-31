@@ -168,10 +168,14 @@ ratios separately.
 - Every bounded raw source is secret-scanned before parsing can derive a
   durable blocker, and a present directory, link, junction, or other
   non-regular fixture entry blocks instead of being recorded as missing.
+- Every fixture ancestor must be an ordinary directory and its resolved leaf
+  must remain beneath the selected bundle root. Recovered official-network
+  `resolved_url` values must already equal their query/fragment-free canonical
+  form, and special-use/private DNS suffixes are rejected as non-public.
 
 ## Local official-network proof
 
-At 2026-08-31T13:07:31.252141Z, a local report-only network proof archived four
+At 2026-08-31T13:40:05.574445Z, a local report-only network proof archived four
 official Cboe sources and 18,585 normalized NYSE-session rows:
 
 - cboe.daily_put_call: two rows for 2026-08-28.
@@ -182,10 +186,10 @@ official Cboe sources and 18,585 normalized NYSE-session rows:
 - cboe.vvix: 5,093 rows, latest 2026-08-28.
 
 Snapshot ID:
-20260831T130731Z-5ba3def4c45ba21c
+20260831T134005Z-222449ddff6f2b0c
 
 Snapshot manifest SHA-256:
-9c9e599dda7a055a433ed2b9d6238e1191c303ac4c03713022d6076b156dfcce
+cc434b5d19c6327d1b48c11620cc73145b10ebd09de3bddb71c61485d4ee7dad
 
 This proof is local and is not a canonical durable publication. Thirteen
 FRED/ALFRED series remained missing because no FRED_API_KEY was present.
@@ -246,6 +250,8 @@ The dedicated smoke covers:
   zero/empty metadata plus source/mode-compatible failure reasons;
 - pre-parser secret rejection that keeps encoded raw values out of failure
   receipts, plus fail-closed present non-regular fixture entries;
+- linked fixture-ancestor/root containment, canonical persisted resolved URLs,
+  and reserved/private DNS-suffix rejection;
 - pre-launch and caller-injected network time rejection.
 
 The dedicated smoke and Python compilation passed. The official Cboe network
