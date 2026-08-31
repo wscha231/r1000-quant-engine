@@ -114,7 +114,7 @@ def build_source_bundle(
             lines.append(
                 f"{ticker},2026-08-28,{100 + offset},"
                 "split_and_dividend_adjusted_close,fixture-provider,"
-                f"https://prices.example.com/{ticker}"
+                f"https://www.cboe.com/market-data/{ticker}"
             )
         (cross_dir / "daily.csv").write_text(
             "\n".join(lines) + "\n", encoding="utf-8"
@@ -234,6 +234,36 @@ def test_identical_same_time_is_idempotent_and_changed_payload_blocks() -> None:
         blocked = archive.build(args(archive_root, bundle))
         assert blocked["status"] == archive.BLOCKED_STATUS
         assert "same_collection_time_payload_conflict" in blocked["blockers"][0]
+        assert len(index_rows(archive_root)) == 1
+
+
+def test_same_time_reuse_reverifies_manifest_after_source_collection() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        archive_root = root / "archive"
+        first = archive.build(args(archive_root, bundle))
+        assert first["status"] == archive.READY_STATUS
+        manifest_path = (
+            archive_root / "snapshots" / first["snapshot_id"] / "manifest.json"
+        )
+        original_collect_sources = archive.collect_sources
+
+        def collect_then_mutate(**kwargs):
+            collected = original_collect_sources(**kwargs)
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["live_trading_enabled"] = True
+            manifest_path.write_bytes(archive.pretty_json_bytes(manifest))
+            return collected
+
+        try:
+            archive.collect_sources = collect_then_mutate
+            blocked = archive.build(args(archive_root, bundle))
+        finally:
+            archive.collect_sources = original_collect_sources
+        assert blocked["status"] == archive.BLOCKED_STATUS
+        assert "safety_drift" in blocked["blockers"][0]
+        assert blocked["live_trading_enabled"] is False
         assert len(index_rows(archive_root)) == 1
 
 
@@ -618,18 +648,18 @@ def test_existing_content_tamper_is_detected_before_new_capture() -> None:
 def test_cross_asset_provenance_rejects_credentials_before_persistence() -> None:
     for replacement, expected_error in (
         (
-            "https://user:password@prices.example.com/SPY",
+            "https://user:password@www.cboe.com/market-data/SPY",
             "credential_bearing_or_nonpublic_url",
         ),
         (
-            "https://prices.example.com/SPY?token=secret",
+            "https://www.cboe.com/market-data/SPY?token=secret",
             "credential_bearing_or_nonpublic_url",
         ),
-        ("https://prices.example.com/SP Y", "invalid_url"),
-        ("https://prices.example.com/SP\tY", "invalid_url"),
-        ("https://prices.example.com/SP\u007fY", "csv_control_character_invalid"),
-        (" https://prices.example.com/SPY", "invalid_url"),
-        ("https://prices.example.com/SPY ", "invalid_url"),
+        ("https://www.cboe.com/market data/SPY", "invalid_url"),
+        ("https://www.cboe.com/market-data/SP\tY", "invalid_url"),
+        ("https://www.cboe.com/market-data/SP\u007fY", "csv_control_character_invalid"),
+        (" https://www.cboe.com/market-data/SPY", "invalid_url"),
+        ("https://www.cboe.com/market-data/SPY ", "invalid_url"),
         ("https://127.0.0.1/SPY", "credential_bearing_or_nonpublic_url"),
         ("https://10.0.0.1/SPY", "credential_bearing_or_nonpublic_url"),
         ("https://localhost/SPY", "credential_bearing_or_nonpublic_url"),
@@ -639,6 +669,12 @@ def test_cross_asset_provenance_rejects_credentials_before_persistence() -> None
         ("https://prices.mail/SPY", "credential_bearing_or_nonpublic_url"),
         ("https://prices.example.test/SPY", "credential_bearing_or_nonpublic_url"),
         ("https://prices.home.arpa/SPY", "credential_bearing_or_nonpublic_url"),
+        ("https://prices.example.com/SPY", "credential_bearing_or_nonpublic_url"),
+        ("https://prices.example.net/SPY", "credential_bearing_or_nonpublic_url"),
+        ("https://prices.example.org/SPY", "credential_bearing_or_nonpublic_url"),
+        ("https://cache.resolver.arpa/SPY", "credential_bearing_or_nonpublic_url"),
+        ("https://host.10.in-addr.arpa/SPY", "credential_bearing_or_nonpublic_url"),
+        ("https://node.6tisch.arpa/SPY", "credential_bearing_or_nonpublic_url"),
     ):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -646,7 +682,9 @@ def test_cross_asset_provenance_rejects_credentials_before_persistence() -> None
             target = bundle / "cross_asset" / "daily.csv"
             text = target.read_text(encoding="utf-8")
             target.write_text(
-                text.replace("https://prices.example.com/SPY", replacement),
+                text.replace(
+                    "https://www.cboe.com/market-data/SPY", replacement
+                ),
                 encoding="utf-8",
             )
             archive_root = root / "archive"
@@ -655,6 +693,48 @@ def test_cross_asset_provenance_rejects_credentials_before_persistence() -> None
             assert expected_error in blocked["blockers"][0]
             assert index_rows(archive_root) == []
             assert not list((archive_root / "objects" / "raw").glob("*"))
+
+
+def test_every_iana_special_use_domain_subtree_is_nonpublic() -> None:
+    expected = {
+        "alt",
+        "6tisch.arpa",
+        "eap.arpa",
+        "eap-noob.arpa",
+        "home.arpa",
+        "10.in-addr.arpa",
+        "254.169.in-addr.arpa",
+        *(f"{octet}.172.in-addr.arpa" for octet in range(16, 32)),
+        "170.0.0.192.in-addr.arpa",
+        "171.0.0.192.in-addr.arpa",
+        "168.192.in-addr.arpa",
+        "8.e.f.ip6.arpa",
+        "9.e.f.ip6.arpa",
+        "a.e.f.ip6.arpa",
+        "b.e.f.ip6.arpa",
+        "ipv4only.arpa",
+        "resolver.arpa",
+        "service.arpa",
+        "example",
+        "example.com",
+        "example.net",
+        "example.org",
+        "invalid",
+        "local",
+        "localhost",
+        "onion",
+        "test",
+    }
+    assert archive.IANA_SPECIAL_USE_REGISTRY_LAST_UPDATED == "2026-05-22"
+    assert archive.IANA_SPECIAL_USE_DOMAIN_SUBTREES == expected
+    for suffix in expected:
+        try:
+            archive.public_https_url(
+                f"https://probe.{suffix}/data", field="special_use_probe"
+            )
+            raise AssertionError(f"special-use subtree was accepted: {suffix}")
+        except archive.ArchiveContractError as exc:
+            assert "credential_bearing_or_nonpublic_url" in str(exc)
 
 
 def test_present_source_with_no_rows_blocks_snapshot() -> None:
@@ -2329,6 +2409,83 @@ def test_verified_commit_survives_last_attempt_receipt_failure() -> None:
         assert len(index_rows(archive_root)) == 1
 
 
+def test_snapshot_and_index_publication_use_durability_barriers() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        archive_root = root / "archive"
+        events: list[tuple[str, Path, Path | None]] = []
+        original_sync = archive.fsync_directory
+        original_replace = archive.durable_replace
+        original_write_index = archive.write_index
+
+        def record_sync(path: Path) -> None:
+            events.append(("sync", path.resolve(), None))
+            original_sync(path)
+
+        def record_replace(source: Path, destination: Path) -> None:
+            events.append(("replace_start", source.resolve(), destination.resolve()))
+            original_replace(source, destination)
+            events.append(("replace_end", source.resolve(), destination.resolve()))
+
+        def record_index(path: Path, entries) -> None:
+            events.append(("index_start", path.resolve(), None))
+            original_write_index(path, entries)
+            events.append(("index_end", path.resolve(), None))
+
+        try:
+            archive.fsync_directory = record_sync
+            archive.durable_replace = record_replace
+            archive.write_index = record_index
+            payload = archive.build(args(archive_root, bundle))
+        finally:
+            archive.fsync_directory = original_sync
+            archive.durable_replace = original_replace
+            archive.write_index = original_write_index
+        assert payload["status"] == archive.READY_STATUS, payload
+
+        snapshot_destination = (
+            archive_root / "snapshots" / payload["snapshot_id"]
+        ).resolve()
+        snapshot_start = next(
+            index
+            for index, event in enumerate(events)
+            if event[0] == "replace_start" and event[2] == snapshot_destination
+        )
+        snapshot_end = next(
+            index
+            for index, event in enumerate(events)
+            if event[0] == "replace_end" and event[2] == snapshot_destination
+        )
+        index_start = next(
+            index for index, event in enumerate(events) if event[0] == "index_start"
+        )
+        staging_path = events[snapshot_start][1]
+        snapshots_root = (archive_root / "snapshots").resolve()
+        assert any(
+            event[0] == "sync" and event[1] == staging_path
+            for event in events[:snapshot_start]
+        )
+        assert any(
+            event[0] == "sync" and event[1] == snapshots_root
+            for event in events[snapshot_end + 1 : index_start]
+        )
+
+        index_destination = (archive_root / "archive_index.jsonl").resolve()
+        index_replace_end = next(
+            index
+            for index, event in enumerate(events)
+            if event[0] == "replace_end" and event[2] == index_destination
+        )
+        index_end = next(
+            index for index, event in enumerate(events) if event[0] == "index_end"
+        )
+        assert any(
+            event[0] == "sync" and event[1] == archive_root.resolve()
+            for event in events[index_replace_end + 1 : index_end]
+        )
+
+
 def test_prelaunch_collection_is_rejected() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -2348,6 +2505,7 @@ def test_prelaunch_collection_is_rejected() -> None:
 if __name__ == "__main__":
     test_complete_fixture_is_free_proxy_and_nonexecuting()
     test_identical_same_time_is_idempotent_and_changed_payload_blocks()
+    test_same_time_reuse_reverifies_manifest_after_source_collection()
     test_out_of_order_collection_blocks_without_append()
     test_fixture_cannot_claim_forward_pit_and_network_time_cannot_be_injected()
     test_official_network_capture_is_forward_only_and_secret_free()
@@ -2361,6 +2519,7 @@ if __name__ == "__main__":
     test_missing_cross_asset_stays_missing_without_carry_or_imputation()
     test_existing_content_tamper_is_detected_before_new_capture()
     test_cross_asset_provenance_rejects_credentials_before_persistence()
+    test_every_iana_special_use_domain_subtree_is_nonpublic()
     test_present_source_with_no_rows_blocks_snapshot()
     test_verified_snapshot_is_recovered_after_index_interruption()
     test_orphan_recovery_requires_the_canonical_source_contract()
@@ -2411,5 +2570,6 @@ if __name__ == "__main__":
     test_every_cboe_index_date_must_be_an_exchange_session()
     test_fixture_collection_time_cannot_be_in_the_future()
     test_verified_commit_survives_last_attempt_receipt_failure()
+    test_snapshot_and_index_publication_use_durability_barriers()
     test_prelaunch_collection_is_rejected()
     print("run287_chameleon_forward_archive_smoke: PASS")

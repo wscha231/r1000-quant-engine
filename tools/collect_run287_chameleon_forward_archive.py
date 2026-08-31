@@ -64,6 +64,57 @@ NYSE_CALENDAR_ENGINE = {
     "calendar": "NYSE",
 }
 
+# Frozen from the IANA Special-Use Domain Names registry, last updated
+# 2026-05-22.  IANA specifies that each designation applies to the listed
+# domain and every subdomain below it.
+IANA_SPECIAL_USE_REGISTRY_LAST_UPDATED = "2026-05-22"
+IANA_SPECIAL_USE_DOMAIN_SUBTREES = frozenset(
+    {
+        "alt",
+        "6tisch.arpa",
+        "eap.arpa",
+        "eap-noob.arpa",
+        "home.arpa",
+        "10.in-addr.arpa",
+        "254.169.in-addr.arpa",
+        *(f"{octet}.172.in-addr.arpa" for octet in range(16, 32)),
+        "170.0.0.192.in-addr.arpa",
+        "171.0.0.192.in-addr.arpa",
+        "168.192.in-addr.arpa",
+        "8.e.f.ip6.arpa",
+        "9.e.f.ip6.arpa",
+        "a.e.f.ip6.arpa",
+        "b.e.f.ip6.arpa",
+        "ipv4only.arpa",
+        "resolver.arpa",
+        "service.arpa",
+        "example",
+        "example.com",
+        "example.net",
+        "example.org",
+        "invalid",
+        "local",
+        "localhost",
+        "onion",
+        "test",
+    }
+)
+NONPUBLIC_ADMINISTRATIVE_SUFFIXES = frozenset(
+    {
+        "corp",
+        "home",
+        "internal",
+        "intranet",
+        "lan",
+        "localdomain",
+        "mail",
+        "private",
+    }
+)
+NONPUBLIC_DOMAIN_SUBTREES = (
+    IANA_SPECIAL_USE_DOMAIN_SUBTREES | NONPUBLIC_ADMINISTRATIVE_SUFFIXES
+)
+
 SAFETY = {
     "report_only": True,
     "selector_executed": False,
@@ -177,6 +228,46 @@ def semantic_sha256(payload: Any) -> str:
     return sha256_bytes(canonical_json_bytes(payload))
 
 
+def fsync_directory(path: Path) -> None:
+    """Persist directory metadata where the host exposes POSIX directory fsync."""
+    if os.name == "nt":
+        # Windows directory handles do not support os.fsync.  durable_replace()
+        # uses MOVEFILE_WRITE_THROUGH on this platform instead.
+        return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    descriptor = os.open(path, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def durable_replace(source: Path, destination: Path) -> None:
+    """Atomically replace a path and make the containing rename durable."""
+    if os.name == "nt":
+        import ctypes
+
+        move_file_ex = ctypes.WinDLL("kernel32", use_last_error=True).MoveFileExW
+        move_file_ex.argtypes = [
+            ctypes.c_wchar_p,
+            ctypes.c_wchar_p,
+            ctypes.c_uint32,
+        ]
+        move_file_ex.restype = ctypes.c_int
+        movefile_replace_existing = 0x1
+        movefile_write_through = 0x8
+        if not move_file_ex(
+            str(source),
+            str(destination),
+            movefile_replace_existing | movefile_write_through,
+        ):
+            error_code = ctypes.get_last_error()
+            raise OSError(error_code, ctypes.FormatError(error_code))
+    else:
+        os.replace(source, destination)
+        fsync_directory(destination.parent)
+
+
 def atomic_write_bytes(path: Path, raw: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.parent / f".{path.name}.{uuid.uuid4().hex}.tmp"
@@ -185,7 +276,8 @@ def atomic_write_bytes(path: Path, raw: bytes) -> None:
             handle.write(raw)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary, path)
+        durable_replace(temporary, path)
+        fsync_directory(path.parent)
     finally:
         if temporary.exists():
             temporary.unlink()
@@ -534,27 +626,9 @@ def public_https_url(value: Any, *, field: str) -> str:
             except UnicodeError:
                 ascii_host = ""
             labels = ascii_host.split(".")
-            reserved_suffixes = {
-                "alt",
-                "corp",
-                "example",
-                "home",
-                "home.arpa",
-                "internal",
-                "intranet",
-                "invalid",
-                "lan",
-                "local",
-                "localdomain",
-                "localhost",
-                "mail",
-                "onion",
-                "private",
-                "test",
-            }
             reserved_host = any(
                 ascii_host == suffix or ascii_host.endswith(f".{suffix}")
-                for suffix in reserved_suffixes
+                for suffix in NONPUBLIC_DOMAIN_SUBTREES
             )
             public_host = (
                 len(labels) >= 2
@@ -3527,13 +3601,15 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         if same_time:
             if len(same_time) != 1 or same_time[0]["snapshot_id"] != snapshot_id:
                 raise ArchiveContractError("same_collection_time_payload_conflict")
-            existing_manifest = (
-                output_root
-                / "snapshots"
-                / snapshot_id
-                / "manifest.json"
+            manifest, verified_manifest_sha = verify_recoverable_snapshot(
+                output_root,
+                snapshot_id,
+                contract,
             )
-            manifest = json.loads(existing_manifest.read_text(encoding="utf-8"))
+            if verified_manifest_sha != same_time[0]["snapshot_manifest_sha256"]:
+                raise ArchiveContractError(
+                    f"snapshot_manifest_hash_mismatch:{snapshot_id}"
+                )
             result = {
                 **manifest,
                 "status": (
@@ -3614,12 +3690,14 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             raise ArchiveContractError("unindexed_snapshot_id_already_exists")
         staging.mkdir()
         try:
-            (staging / "manifest.json").write_bytes(snapshot_manifest_raw)
+            atomic_write_bytes(staging / "manifest.json", snapshot_manifest_raw)
             if sha256_file(staging / "manifest.json") != snapshot_manifest_sha:
                 raise ArchiveContractError("staged_snapshot_manifest_hash_mismatch")
             verify_consumed_inputs(consumed)
             verify_builder_identity(identity, require_head_match=not fixture_mode)
-            os.replace(staging, final_snapshot)
+            fsync_directory(staging)
+            durable_replace(staging, final_snapshot)
+            fsync_directory(snapshots_root)
         finally:
             if staging.exists():
                 shutil.rmtree(staging)
