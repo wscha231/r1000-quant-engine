@@ -2134,6 +2134,16 @@ def stable_read(
     return raw
 
 
+def fixture_entry_present(path: Path) -> bool:
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        raise ArchiveContractError(f"fixture_entry_unreadable:{path.name}") from exc
+    return True
+
+
 def verify_consumed_inputs(consumed: Mapping[str, str]) -> None:
     for raw_path, expected in consumed.items():
         path = Path(raw_path)
@@ -2880,7 +2890,7 @@ def collect_sources(
         error = ""
         resolved_url = ""
         if fixture_mode:
-            if fixture_path is not None and fixture_path.is_file():
+            if fixture_path is not None and fixture_entry_present(fixture_path):
                 raw = stable_read(
                     fixture_path,
                     consumed,
@@ -3028,7 +3038,7 @@ def collect_sources(
         error = ""
         resolved_url = ""
         if fixture_mode:
-            if fixture_path is not None and fixture_path.is_file():
+            if fixture_path is not None and fixture_entry_present(fixture_path):
                 raw = stable_read(
                     fixture_path,
                     consumed,
@@ -3083,6 +3093,8 @@ def collect_sources(
             )
             continue
         assert raw is not None and captured_at is not None
+        if raw_contains_secret(raw, fred_key):
+            raise ArchiveContractError(f"{source_id}_raw_response_contains_api_key")
         if len(raw) > maximum_bytes:
             raise ArchiveContractError(f"{source_id}_raw_too_large")
         if kind == "INDEX_HISTORY":
@@ -3135,12 +3147,20 @@ def collect_sources(
         if source_bundle is not None
         else None
     )
-    if fixture_mode and cross_fixture is not None and cross_fixture.is_file():
+    if (
+        fixture_mode
+        and cross_fixture is not None
+        and fixture_entry_present(cross_fixture)
+    ):
         raw = stable_read(
             cross_fixture,
             consumed,
             maximum_bytes=maximum_bytes,
         )
+        if raw_contains_secret(raw, fred_key):
+            raise ArchiveContractError(
+                f"{cross_source_id}_raw_response_contains_api_key"
+            )
         if len(raw) > maximum_bytes:
             raise ArchiveContractError(f"{cross_source_id}_raw_too_large")
         normalized, missing_tickers = normalize_cross_asset(

@@ -1254,6 +1254,59 @@ def test_json_unicode_escaped_fixture_secrets_are_rejected_before_persistence() 
         assert not list((archive_root / "objects" / "raw").glob("*"))
 
 
+def test_encoded_secrets_are_scanned_before_raw_derived_blockers() -> None:
+    secret = "fixture-key-must-not-enter-a-receipt"
+    variants = (
+        "".join(f"%{byte:02X}" for byte in secret.encode("utf-8")),
+        "".join(f"\\u{ord(character):04x}" for character in secret),
+    )
+    for encoded in variants:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundle = build_source_bundle(root)
+            target = bundle / "cross_asset" / "daily.csv"
+            target.write_text(
+                target.read_text(encoding="utf-8").replace("SPY,", f"{encoded},"),
+                encoding="utf-8",
+            )
+            original_key = os.environ.get("FRED_API_KEY")
+            try:
+                os.environ["FRED_API_KEY"] = secret
+                archive_root = root / "archive"
+                blocked = archive.build(args(archive_root, bundle))
+            finally:
+                if original_key is None:
+                    os.environ.pop("FRED_API_KEY", None)
+                else:
+                    os.environ["FRED_API_KEY"] = original_key
+            assert blocked["status"] == archive.BLOCKED_STATUS
+            assert "raw_response_contains_api_key" in blocked["blockers"][0]
+            receipt = (archive_root / "last_attempt.json").read_text(encoding="utf-8")
+            assert secret not in receipt
+            assert encoded not in receipt
+            assert not list((archive_root / "objects" / "raw").glob("*"))
+
+
+def test_present_non_regular_fixture_entries_block_the_snapshot() -> None:
+    fixture_paths = (
+        Path("fred") / "DGS2.json",
+        Path("cboe") / "vix.csv",
+        Path("cross_asset") / "daily.csv",
+    )
+    for relative in fixture_paths:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundle = build_source_bundle(root)
+            target = bundle / relative
+            target.unlink()
+            target.mkdir()
+            archive_root = root / "archive"
+            blocked = archive.build(args(archive_root, bundle))
+            assert blocked["status"] == archive.BLOCKED_STATUS
+            assert "fixture_not_regular_file" in blocked["blockers"][0]
+            assert index_rows(archive_root) == []
+
+
 def test_fixture_size_is_bounded_before_materialization() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         fixture = Path(temporary) / "oversized.csv"
@@ -2215,6 +2268,8 @@ if __name__ == "__main__":
     test_all_fixture_raw_bytes_are_scanned_for_the_active_fred_key()
     test_percent_encoded_fixture_secrets_are_rejected_for_every_source()
     test_json_unicode_escaped_fixture_secrets_are_rejected_before_persistence()
+    test_encoded_secrets_are_scanned_before_raw_derived_blockers()
+    test_present_non_regular_fixture_entries_block_the_snapshot()
     test_fixture_size_is_bounded_before_materialization()
     test_cross_asset_closes_require_completed_nyse_sessions()
     test_cross_asset_provider_controls_block_before_persistence()

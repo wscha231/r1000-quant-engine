@@ -4824,6 +4824,10 @@ Expected contract:
   downstream parsers, including JSON Unicode escapes as well as percent
   encoding. Missing evidence also has a canonical state: zero/empty audit
   counters and a source/mode-compatible reason are part of its authority.
+- Reusable lesson: A pre-persistence scan is still too late if parsing can
+  embed rejected raw values in a durable failure receipt. Scan bounded bytes
+  before any raw-derived exception, and distinguish an absent fixture from a
+  present non-regular entry so corruption cannot masquerade as unavailability.
 - Next action: In a separate causal change, build a hash-verifying report-only
   adapter from the archive to the macro normalizer. Configure a durable
   publication destination and FRED secret only under separate approval before
@@ -4871,6 +4875,8 @@ Expected contract:
   configured secret into an empty scanner key, or accept padded persisted UTC.
   Do not persist a key hidden behind JSON Unicode escapes or let a missing
   source advertise invented exclusion metadata or an incompatible reason.
+  Do not parse raw bytes before their common secret scan or treat a directory,
+  link, or other present non-regular fixture entry as an absent source.
 - Evidence files:
   - docs/run287_chameleon_forward_archive_contract.json
   - tools/collect_run287_chameleon_forward_archive.py
