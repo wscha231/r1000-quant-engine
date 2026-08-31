@@ -145,10 +145,17 @@ ratios separately.
   schema. Cboe and cross-asset request metadata and missing-value counters must
   retain their canonical values, and unknown top-level manifest fields are
   rejected so a recomputed hash cannot invent new authority.
+- Raw secret scanning recursively percent-decodes every source before initial
+  persistence and during recovery, so encoded active keys cannot hide in an
+  otherwise unused Cboe or cross-asset field.
+- Fixture files are size-checked before bounded reading. The exact
+  `pandas_market_calendars==5.3.2` NYSE engine is pinned and included in the
+  snapshot identity, and cross-asset close dates must be completed NYSE
+  sessions at capture time.
 
 ## Local official-network proof
 
-At 2026-08-31T10:42:55.367441Z, a local report-only network proof archived four
+At 2026-08-31T11:15:31.927642Z, a local report-only network proof archived four
 official Cboe sources and 18,585 normalized NYSE-session rows:
 
 - cboe.daily_put_call: two rows for 2026-08-28.
@@ -159,10 +166,10 @@ official Cboe sources and 18,585 normalized NYSE-session rows:
 - cboe.vvix: 5,093 rows, latest 2026-08-28.
 
 Snapshot ID:
-20260831T104255Z-0ff5f80d645dbed1
+20260831T111531Z-b1a96acafc107dae
 
 Snapshot manifest SHA-256:
-2f1c1343852f70265c09a0df30d7f9069f854ef2f52f0b330b887b3db1478769
+2f90ad57fa8397169024292c99fb8482a93e8258fb243037435bcf769fa347e1
 
 This proof is local and is not a canonical durable publication. Thirteen
 FRED/ALFRED series remained missing because no FRED_API_KEY was present.
@@ -213,6 +220,8 @@ The dedicated smoke covers:
 - recovery-time future bounds and raw/decoded manifest secret scanning;
 - raw/normalized namespace role binding, exact source-audit schemas,
   canonical non-FRED audit metadata, and unknown manifest-field rejection;
+- recursively decoded all-source secret scans, fixture pre-read size bounds,
+  pinned calendar identity, and completed-session cross-asset close checks;
 - pre-launch and caller-injected network time rejection.
 
 The dedicated smoke and Python compilation passed. The official Cboe network
