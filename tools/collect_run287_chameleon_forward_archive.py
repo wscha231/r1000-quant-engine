@@ -34,7 +34,7 @@ import requests
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONTRACT = ROOT / "docs" / "run287_chameleon_forward_archive_contract.json"
 CANONICAL_CONTRACT_SEMANTIC_SHA256 = (
-    "82028385a9edec144958175c9e32d43c973d16d8696d20bb83ed0f4006eaafe1"
+    "20702cef268459b596684f838e533c6586ad109eeaced1c47baccce488966371"
 )
 SCHEMA_VERSION = "run287-chameleon-forward-archive-v1"
 READY_STATUS = "READY_CHAMELEON_FORWARD_ARCHIVE_REPORT_ONLY"
@@ -342,6 +342,11 @@ def load_contract(path: Path) -> dict[str, Any]:
         raise ArchiveContractError("archive_writer_policy_changed")
     if int(collection.get("writer_lock_timeout_seconds", -1)) != 30:
         raise ArchiveContractError("archive_writer_timeout_changed")
+    if (
+        collection.get("source_text_encoding_policy")
+        != "STRICT_UTF8_WITH_OPTIONAL_BOM"
+    ):
+        raise ArchiveContractError("source_text_encoding_policy_changed")
     archive = payload.get("archive") or {}
     if (
         archive.get("verified_unindexed_snapshot_policy")
@@ -359,6 +364,11 @@ def load_contract(path: Path) -> dict[str, Any]:
     ):
         raise ArchiveContractError("available_from_precision_policy_changed")
     fred = payload.get("fred") or {}
+    if (
+        fred.get("observation_date_policy")
+        != "EVERY_ROW_INSIDE_INCLUSIVE_REQUEST_WINDOW"
+    ):
+        raise ArchiveContractError("fred_observation_date_policy_changed")
     if fred.get("response_secret_policy") != "REJECT_ACTIVE_API_KEY_IN_RAW_RESPONSE":
         raise ArchiveContractError("fred_response_secret_policy_changed")
     cboe = payload.get("cboe") or {}
@@ -836,9 +846,9 @@ def verify_consumed_inputs(consumed: Mapping[str, str]) -> None:
 
 def decode_csv(raw: bytes, *, source_id: str) -> list[list[str]]:
     try:
-        text = raw.decode("utf-8-sig", errors="replace")
+        text = raw.decode("utf-8-sig")
         return list(csv.reader(io.StringIO(text)))
-    except csv.Error as exc:
+    except (UnicodeDecodeError, csv.Error) as exc:
         raise ArchiveContractError(f"{source_id}_csv_unreadable") from exc
 
 
@@ -939,10 +949,21 @@ def normalize_fred(
         raise ArchiveContractError(f"{source_id}_count_invalid") from exc
     if count != len(observations):
         raise ArchiveContractError(f"{source_id}_response_is_paginated_or_truncated")
+    requested_start = strict_iso_date(
+        requested_observation_start,
+        field=f"{source_id}_requested_observation_start",
+    )
+    requested_end = strict_iso_date(
+        requested_observation_end,
+        field=f"{source_id}_requested_observation_end",
+    )
+    if requested_start > requested_end:
+        raise ArchiveContractError(f"{source_id}_observation_window_inverted")
 
     rows: list[dict[str, Any]] = []
     missing_count = 0
     seen_dates: set[str] = set()
+    previous_observed: date | None = None
     for observation in observations:
         if not isinstance(observation, dict):
             raise ArchiveContractError(f"{source_id}_observation_not_object")
@@ -950,12 +971,22 @@ def normalize_fred(
             raise ArchiveContractError(f"{source_id}_row_realtime_start_mismatch")
         if observation.get("realtime_end") != requested_vintage_date:
             raise ArchiveContractError(f"{source_id}_row_realtime_end_mismatch")
-        observed = strict_iso_date(
+        observed_date = strict_iso_date(
             observation.get("date"), field=f"{source_id}_observation"
-        ).isoformat()
+        )
+        if not requested_start <= observed_date <= requested_end:
+            raise ArchiveContractError(
+                f"{source_id}_observation_outside_requested_window"
+            )
+        observed = observed_date.isoformat()
         if observed in seen_dates:
             raise ArchiveContractError(f"{source_id}_duplicate_observation_date")
+        if previous_observed is not None and observed_date <= previous_observed:
+            raise ArchiveContractError(
+                f"{source_id}_observation_order_mismatch"
+            )
         seen_dates.add(observed)
+        previous_observed = observed_date
         raw_value = str(observation.get("value") or "").strip()
         if raw_value == missing_token:
             missing_count += 1

@@ -4648,6 +4648,10 @@ Expected contract:
   archive-index receipt hashes. A publication-pin warning against the review
   service's synthetic tree is handled by preserving commit ancestry with a
   regular merge and verifying the expected branch head.
+- Subsequent exact-head review correction: CSV inputs now decode as strict
+  UTF-8 with an optional BOM, and every FRED row must be inside the inclusive
+  requested observation window and in the declared ascending order. Malformed
+  provider bytes or contradictory response rows block before persistence.
 - Network proof: A local 2026-08-31 capture archived VIX, VIX3M, VVIX, and two
   current 2026-08-28 put-call rows as FORWARD_PIT. Thirteen FRED/ALFRED series
   remained explicitly missing because FRED_API_KEY was absent; cross-asset
@@ -4670,6 +4674,10 @@ Expected contract:
   for active secrets before persistence, and keep immutable receipt hashes on
   an idempotent retry. Each property is part of the evidence contract, not an
   implementation detail.
+- Reusable lesson: A syntactically recoverable decode is not necessarily valid
+  provenance. Do not replace malformed source bytes, and verify row-level
+  response semantics against the exact requested date bounds rather than
+  trusting response-level echoes.
 - Next action: In a separate causal change, build a hash-verifying report-only
   adapter from the archive to the macro normalizer. Configure a durable
   publication destination and FRED secret only under separate approval before
@@ -4679,8 +4687,9 @@ Expected contract:
   caller-supplied network timestamp, persist an API key or signed provenance
   URL, trust a redirected or unbounded response, mark an empty/stale source
   ready, floor a capture time, race multiple writers, drop receipt hashes on
-  retry, leave a verified orphan unrecoverable, or connect the archive directly
-  to portfolio policy.
+  retry, replace malformed UTF-8, accept an out-of-window FRED row, leave a
+  verified orphan unrecoverable, or connect the archive directly to portfolio
+  policy.
 - Evidence files:
   - docs/run287_chameleon_forward_archive_contract.json
   - tools/collect_run287_chameleon_forward_archive.py

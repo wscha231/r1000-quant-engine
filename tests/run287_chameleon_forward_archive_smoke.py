@@ -393,6 +393,59 @@ def test_invalid_fred_vintage_and_duplicate_observation_block_snapshot() -> None
         assert index_rows(root / "archive_paginated") == []
 
 
+def test_fred_observations_must_stay_inside_requested_window_and_order() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        for case, mutate, expected in (
+            (
+                "before",
+                lambda payload: payload["observations"][0].update(
+                    {"date": "2019-08-29"}
+                ),
+                "observation_outside_requested_window",
+            ),
+            (
+                "after",
+                lambda payload: payload["observations"][-1].update(
+                    {"date": "2026-08-31"}
+                ),
+                "observation_outside_requested_window",
+            ),
+            (
+                "unordered",
+                lambda payload: payload["observations"].reverse(),
+                "observation_order_mismatch",
+            ),
+        ):
+            bundle = build_source_bundle(root / case)
+            target = bundle / "fred" / "DGS2.json"
+            payload = json.loads(target.read_text(encoding="utf-8"))
+            mutate(payload)
+            target.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+            archive_root = root / f"archive_{case}"
+            blocked = archive.build(args(archive_root, bundle))
+            assert blocked["status"] == archive.BLOCKED_STATUS
+            assert expected in blocked["blockers"][0]
+            assert index_rows(archive_root) == []
+
+
+def test_csv_sources_reject_malformed_utf8() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        for case, relative in (
+            ("cboe", Path("cboe/vix.csv")),
+            ("cross_asset", Path("cross_asset/daily.csv")),
+        ):
+            bundle = build_source_bundle(root / case)
+            target = bundle / relative
+            target.write_bytes(target.read_bytes() + b"\xff")
+            archive_root = root / f"archive_{case}"
+            blocked = archive.build(args(archive_root, bundle))
+            assert blocked["status"] == archive.BLOCKED_STATUS
+            assert "csv_unreadable" in blocked["blockers"][0]
+            assert index_rows(archive_root) == []
+
+
 def test_equity_and_index_put_call_are_not_substitutable() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -742,6 +795,8 @@ if __name__ == "__main__":
     test_fixture_cannot_claim_forward_pit_and_network_time_cannot_be_injected()
     test_official_network_capture_is_forward_only_and_secret_free()
     test_invalid_fred_vintage_and_duplicate_observation_block_snapshot()
+    test_fred_observations_must_stay_inside_requested_window_and_order()
+    test_csv_sources_reject_malformed_utf8()
     test_equity_and_index_put_call_are_not_substitutable()
     test_missing_cross_asset_stays_missing_without_carry_or_imputation()
     test_existing_content_tamper_is_detected_before_new_capture()

@@ -73,10 +73,14 @@ ratios separately.
   commit, and index commit so concurrent processes cannot fork the chain.
 - A successful FRED response that contains the active API key, including its
   URL-encoded form, is rejected before any raw object is persisted.
+- Cboe and cross-asset text is decoded as strict UTF-8 with an optional BOM;
+  malformed bytes block the snapshot instead of becoming replacement text.
+- Every FRED observation must remain inside the inclusive requested window and
+  arrive in the declared strictly ascending order.
 
 ## Local official-network proof
 
-At 2026-08-31T01:18:47.525730Z, a local report-only network proof archived four
+At 2026-08-31T01:46:07.593125Z, a local report-only network proof archived four
 official Cboe sources and 18,618 normalized rows:
 
 - cboe.daily_put_call: two rows for 2026-08-28.
@@ -85,10 +89,10 @@ official Cboe sources and 18,618 normalized rows:
 - cboe.vvix: 5,093 rows, latest 2026-08-28.
 
 Snapshot ID:
-20260831T011847Z-3a2895fc48f8fd5d
+20260831T014607Z-527ba0547a085513
 
 Snapshot manifest SHA-256:
-1cbe7807c0e3702de3577ae56ffd34bd2734dd130db6c923725a0a8540f2612f
+7bdc27d38f837c077ac570663a835cb0c192bfb0489e69a914556f88b262b27b
 
 This proof is local and is not a canonical durable publication. Thirteen
 FRED/ALFRED series remained missing because no FRED_API_KEY was present.
@@ -112,6 +116,7 @@ The dedicated smoke covers:
   response, stale options session, and interrupted-index recovery guards;
 - runtime capture-time microsecond preservation, concurrent-writer rejection,
   FRED response secret-echo rejection, and idempotent receipt preservation;
+- malformed UTF-8 rejection and per-row FRED request-window/order enforcement;
 - pre-launch and caller-injected network time rejection.
 
 The dedicated smoke and Python compilation passed. The official Cboe network
