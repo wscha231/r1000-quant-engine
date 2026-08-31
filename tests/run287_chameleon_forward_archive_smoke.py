@@ -114,7 +114,7 @@ def build_source_bundle(
             lines.append(
                 f"{ticker},2026-08-28,{100 + offset},"
                 "split_and_dividend_adjusted_close,fixture-provider,"
-                f"https://example.test/{ticker}"
+                f"https://prices.example.com/{ticker}"
             )
         (cross_dir / "daily.csv").write_text(
             "\n".join(lines) + "\n", encoding="utf-8"
@@ -618,21 +618,25 @@ def test_existing_content_tamper_is_detected_before_new_capture() -> None:
 def test_cross_asset_provenance_rejects_credentials_before_persistence() -> None:
     for replacement, expected_error in (
         (
-            "https://user:password@example.test/SPY",
+            "https://user:password@prices.example.com/SPY",
             "credential_bearing_or_nonpublic_url",
         ),
         (
-            "https://example.test/SPY?token=secret",
+            "https://prices.example.com/SPY?token=secret",
             "credential_bearing_or_nonpublic_url",
         ),
-        ("https://example.test/SP Y", "invalid_url"),
-        ("https://example.test/SP\tY", "invalid_url"),
-        ("https://example.test/SP\u007fY", "csv_control_character_invalid"),
-        (" https://example.test/SPY", "invalid_url"),
-        ("https://example.test/SPY ", "invalid_url"),
+        ("https://prices.example.com/SP Y", "invalid_url"),
+        ("https://prices.example.com/SP\tY", "invalid_url"),
+        ("https://prices.example.com/SP\u007fY", "csv_control_character_invalid"),
+        (" https://prices.example.com/SPY", "invalid_url"),
+        ("https://prices.example.com/SPY ", "invalid_url"),
         ("https://127.0.0.1/SPY", "credential_bearing_or_nonpublic_url"),
         ("https://10.0.0.1/SPY", "credential_bearing_or_nonpublic_url"),
         ("https://localhost/SPY", "credential_bearing_or_nonpublic_url"),
+        ("https://prices.corp.local/SPY", "credential_bearing_or_nonpublic_url"),
+        ("https://prices.internal/SPY", "credential_bearing_or_nonpublic_url"),
+        ("https://prices.example.test/SPY", "credential_bearing_or_nonpublic_url"),
+        ("https://prices.home.arpa/SPY", "credential_bearing_or_nonpublic_url"),
     ):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -640,7 +644,7 @@ def test_cross_asset_provenance_rejects_credentials_before_persistence() -> None
             target = bundle / "cross_asset" / "daily.csv"
             text = target.read_text(encoding="utf-8")
             target.write_text(
-                text.replace("https://example.test/SPY", replacement),
+                text.replace("https://prices.example.com/SPY", replacement),
                 encoding="utf-8",
             )
             archive_root = root / "archive"
@@ -1311,13 +1315,44 @@ def test_fixture_size_is_bounded_before_materialization() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         fixture = Path(temporary) / "oversized.csv"
         fixture.write_bytes(b"ab")
-        consumed: dict[str, str] = {}
+        consumed: dict[str, tuple[str, str]] = {}
         try:
-            archive.stable_read(fixture, consumed, maximum_bytes=1)
+            archive.stable_read(
+                fixture,
+                consumed,
+                fixture_root=fixture.parent,
+                maximum_bytes=1,
+            )
             raise AssertionError("an oversized fixture was read")
         except archive.ArchiveContractError as exc:
             assert "fixture_too_large" in str(exc)
         assert consumed == {}
+
+
+def test_fixture_ancestors_cannot_be_links_or_escape_the_bundle() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        linked_parent = bundle / "fred"
+        original_is_junction = getattr(Path, "is_junction", None)
+
+        def fake_is_junction(path: Path) -> bool:
+            return path == linked_parent or (
+                original_is_junction is not None and original_is_junction(path)
+            )
+
+        try:
+            Path.is_junction = fake_is_junction
+            archive_root = root / "archive"
+            blocked = archive.build(args(archive_root, bundle))
+        finally:
+            if original_is_junction is None:
+                delattr(Path, "is_junction")
+            else:
+                Path.is_junction = original_is_junction
+        assert blocked["status"] == archive.BLOCKED_STATUS
+        assert "fixture_ancestor_link_or_directory_invalid" in blocked["blockers"][0]
+        assert index_rows(archive_root) == []
 
 
 def test_cross_asset_closes_require_completed_nyse_sessions() -> None:
@@ -1595,6 +1630,37 @@ def test_recovered_non_fred_audit_metadata_is_canonical() -> None:
                 )
             except archive.ArchiveContractError as exc:
                 assert "source_audit_metadata_invalid" in str(exc)
+
+
+def test_recovered_resolved_urls_must_already_be_sanitized() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        archive_root = root / "archive"
+        payload = archive.build(args(archive_root, bundle))
+        manifest_path = (
+            archive_root / "snapshots" / payload["snapshot_id"] / "manifest.json"
+        )
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        source = next(item for item in manifest["sources"] if item["status"] == "ready")
+        source["mode"] = "official_network"
+        source["truth_class"] = "FORWARD_PIT"
+        source["resolved_url"] = f"{source['public_url']}?token=secret"
+        manifest["fixture_mode"] = False
+        for item in manifest["sources"]:
+            if item["status"] == "ready":
+                item["mode"] = "official_network"
+                item["truth_class"] = "FORWARD_PIT"
+                item["resolved_url"] = item["public_url"]
+        source["resolved_url"] = f"{source['public_url']}?token=secret"
+        manifest_path.write_bytes(archive.pretty_json_bytes(manifest))
+        try:
+            archive.verify_recoverable_snapshot(
+                archive_root, payload["snapshot_id"], contract()
+            )
+            raise AssertionError("a noncanonical persisted resolved URL was accepted")
+        except archive.ArchiveContractError as exc:
+            assert "resolved_url_noncanonical" in str(exc)
 
 
 def test_missing_source_audits_require_canonical_metadata_and_reasons() -> None:
@@ -2271,6 +2337,7 @@ if __name__ == "__main__":
     test_encoded_secrets_are_scanned_before_raw_derived_blockers()
     test_present_non_regular_fixture_entries_block_the_snapshot()
     test_fixture_size_is_bounded_before_materialization()
+    test_fixture_ancestors_cannot_be_links_or_escape_the_bundle()
     test_cross_asset_closes_require_completed_nyse_sessions()
     test_cross_asset_provider_controls_block_before_persistence()
     test_snapshot_identity_binds_the_pinned_nyse_calendar()
@@ -2281,6 +2348,7 @@ if __name__ == "__main__":
     test_recovered_snapshot_reapplies_launch_and_capture_chronology()
     test_recovered_object_paths_are_bound_to_evidence_roles()
     test_recovered_non_fred_audit_metadata_is_canonical()
+    test_recovered_resolved_urls_must_already_be_sanitized()
     test_missing_source_audits_require_canonical_metadata_and_reasons()
     test_recovered_manifest_rejects_unknown_authority_fields()
     test_recovered_manifest_is_scanned_for_the_active_fred_key()

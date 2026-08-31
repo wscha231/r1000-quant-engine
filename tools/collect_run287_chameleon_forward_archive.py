@@ -534,6 +534,26 @@ def public_https_url(value: Any, *, field: str) -> str:
             except UnicodeError:
                 ascii_host = ""
             labels = ascii_host.split(".")
+            reserved_suffixes = {
+                "alt",
+                "example",
+                "home",
+                "home.arpa",
+                "internal",
+                "intranet",
+                "invalid",
+                "lan",
+                "local",
+                "localdomain",
+                "localhost",
+                "onion",
+                "private",
+                "test",
+            }
+            reserved_host = any(
+                ascii_host == suffix or ascii_host.endswith(f".{suffix}")
+                for suffix in reserved_suffixes
+            )
             public_host = (
                 len(labels) >= 2
                 and all(
@@ -542,8 +562,7 @@ def public_https_url(value: Any, *, field: str) -> str:
                     for label in labels
                 )
                 and not all(label.isdigit() for label in labels)
-                and ascii_host != "localhost"
-                and not ascii_host.endswith(".localhost")
+                and not reserved_host
             )
     if (
         parsed.scheme.lower() != "https"
@@ -1982,9 +2001,14 @@ def verify_recoverable_snapshot(
             requested = public_https_url(
                 source.get("public_url"), field=f"orphan_{source_id}_public_url"
             )
+            recorded_resolved = source.get("resolved_url")
             resolved = sanitized_network_url(
-                source.get("resolved_url"), field=f"orphan_{source_id}_resolved_url"
+                recorded_resolved, field=f"orphan_{source_id}_resolved_url"
             )
+            if recorded_resolved != resolved:
+                raise ArchiveContractError(
+                    f"orphan_snapshot_resolved_url_noncanonical:{source_id}"
+                )
             if network_origin(requested, field="orphan_requested_origin") != network_origin(
                 resolved, field="orphan_resolved_origin"
             ):
@@ -2113,24 +2137,50 @@ def recover_verified_unindexed_snapshot(
 
 def stable_read(
     path: Path,
-    consumed: dict[str, str],
+    consumed: dict[str, tuple[str, str]],
     *,
+    fixture_root: Path,
     maximum_bytes: int,
 ) -> bytes:
+    root = Path(os.path.abspath(fixture_root))
+    candidate = Path(os.path.abspath(path))
+    try:
+        relative = candidate.relative_to(root)
+    except ValueError as exc:
+        raise ArchiveContractError(f"fixture_outside_source_bundle:{path.name}") from exc
+    if not relative.parts:
+        raise ArchiveContractError(f"fixture_not_regular_file:{path.name}")
+    current = root
+    for component in relative.parts[:-1]:
+        current /= component
+        if (
+            not current.is_dir()
+            or current.is_symlink()
+            or bool(getattr(current, "is_junction", lambda: False)())
+        ):
+            raise ArchiveContractError(
+                f"fixture_ancestor_link_or_directory_invalid:{path.name}"
+            )
     if (
-        not path.is_file()
-        or path.is_symlink()
-        or bool(getattr(path, "is_junction", lambda: False)())
+        not candidate.is_file()
+        or candidate.is_symlink()
+        or bool(getattr(candidate, "is_junction", lambda: False)())
     ):
         raise ArchiveContractError(f"fixture_not_regular_file:{path.name}")
-    if maximum_bytes <= 0 or path.stat().st_size > maximum_bytes:
+    try:
+        resolved_root = root.resolve(strict=True)
+        resolved_candidate = candidate.resolve(strict=True)
+        resolved_candidate.relative_to(resolved_root)
+    except (OSError, ValueError) as exc:
+        raise ArchiveContractError(f"fixture_outside_source_bundle:{path.name}") from exc
+    if maximum_bytes <= 0 or candidate.stat().st_size > maximum_bytes:
         raise ArchiveContractError(f"fixture_too_large:{path.name}")
-    with path.open("rb") as handle:
+    with candidate.open("rb") as handle:
         raw = handle.read(maximum_bytes + 1)
     if len(raw) > maximum_bytes:
         raise ArchiveContractError(f"fixture_too_large:{path.name}")
     digest = sha256_bytes(raw)
-    consumed[str(path.resolve())] = digest
+    consumed[str(candidate)] = (digest, str(root))
     return raw
 
 
@@ -2144,10 +2194,23 @@ def fixture_entry_present(path: Path) -> bool:
     return True
 
 
-def verify_consumed_inputs(consumed: Mapping[str, str]) -> None:
-    for raw_path, expected in consumed.items():
+def verify_consumed_inputs(
+    consumed: Mapping[str, tuple[str, str]],
+) -> None:
+    for raw_path, (expected, fixture_root) in consumed.items():
         path = Path(raw_path)
-        if not path.is_file() or path.is_symlink() or sha256_file(path) != expected:
+        try:
+            stable_read(
+                path,
+                {},
+                fixture_root=Path(fixture_root),
+                maximum_bytes=path.stat().st_size,
+            )
+        except (ArchiveContractError, OSError) as exc:
+            raise ArchiveContractError(
+                f"fixture_changed_during_collection:{path.name}"
+            ) from exc
+        if sha256_file(path) != expected:
             raise ArchiveContractError(
                 f"fixture_changed_during_collection:{path.name}"
             )
@@ -2864,10 +2927,14 @@ def collect_sources(
     fixture_mode: bool,
     fixture_time: datetime | None,
     allow_network: bool,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, str]]:
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    dict[str, tuple[str, str]],
+]:
     captures: list[dict[str, Any]] = []
     audits: list[dict[str, Any]] = []
-    consumed: dict[str, str] = {}
+    consumed: dict[str, tuple[str, str]] = {}
     timeout = int(contract["collection"]["request_timeout_seconds"])
     maximum_bytes = int(contract["collection"]["maximum_raw_bytes_per_source"])
     missing_token = str(contract["fred"]["missing_value_token"])
@@ -2894,6 +2961,7 @@ def collect_sources(
                 raw = stable_read(
                     fixture_path,
                     consumed,
+                    fixture_root=source_bundle,
                     maximum_bytes=maximum_bytes,
                 )
                 captured_at = fixture_time
@@ -3042,6 +3110,7 @@ def collect_sources(
                 raw = stable_read(
                     fixture_path,
                     consumed,
+                    fixture_root=source_bundle,
                     maximum_bytes=maximum_bytes,
                 )
                 captured_at = fixture_time
@@ -3155,6 +3224,7 @@ def collect_sources(
         raw = stable_read(
             cross_fixture,
             consumed,
+            fixture_root=source_bundle,
             maximum_bytes=maximum_bytes,
         )
         if raw_contains_secret(raw, fred_key):
@@ -3346,7 +3416,11 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         if fixture_mode:
             if source_bundle is None:
                 raise ArchiveContractError("fixture_mode_requires_source_bundle")
-            if not source_bundle.is_dir() or source_bundle.is_symlink():
+            if (
+                not source_bundle.is_dir()
+                or source_bundle.is_symlink()
+                or bool(getattr(source_bundle, "is_junction", lambda: False)())
+            ):
                 raise ArchiveContractError("source_bundle_not_regular_directory")
             fixture_time = parse_utc(args.collected_at, field="fixture_collected_at")
             if fixture_time > utc_now():

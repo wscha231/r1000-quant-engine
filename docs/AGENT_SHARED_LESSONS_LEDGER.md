@@ -4828,6 +4828,10 @@ Expected contract:
   embed rejected raw values in a durable failure receipt. Scan bounded bytes
   before any raw-derived exception, and distinguish an absent fixture from a
   present non-regular entry so corruption cannot masquerade as unavailability.
+- Reusable lesson: Path safety is transitive across every ancestor, and a
+  sanitizer's return value is not evidence that persisted input was canonical.
+  Bind fixture resolution beneath its selected root, compare stored URLs to
+  their sanitized form, and reject special-use DNS suffixes as non-public.
 - Next action: In a separate causal change, build a hash-verifying report-only
   adapter from the archive to the macro normalizer. Configure a durable
   publication destination and FRED secret only under separate approval before
@@ -4877,6 +4881,8 @@ Expected contract:
   source advertise invented exclusion metadata or an incompatible reason.
   Do not parse raw bytes before their common secret scan or treat a directory,
   link, or other present non-regular fixture entry as an absent source.
+  Do not validate only a fixture leaf, accept a stored URL merely because its
+  locally stripped copy is safe, or infer public DNS from a multi-label name.
 - Evidence files:
   - docs/run287_chameleon_forward_archive_contract.json
   - tools/collect_run287_chameleon_forward_archive.py
