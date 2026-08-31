@@ -177,6 +177,34 @@ def verify_builder_identity(
         raise ArchiveContractError("builder_or_git_head_changed_during_collection")
 
 
+def validate_recorded_builder_identity(
+    *,
+    git_commit: str,
+    builder_sha: str,
+    builder_git_blob_sha: str,
+    fixture_mode: Any,
+    snapshot_id: str,
+) -> None:
+    if (
+        re.fullmatch(r"[0-9a-f]{40}", git_commit) is None
+        or HEX64.fullmatch(builder_sha) is None
+        or HEX64.fullmatch(builder_git_blob_sha) is None
+        or type(fixture_mode) is not bool
+        or (not fixture_mode and builder_sha != builder_git_blob_sha)
+    ):
+        raise ArchiveContractError(
+            f"orphan_snapshot_builder_identity_invalid:{snapshot_id}"
+        )
+    if fixture_mode:
+        return
+    try:
+        builder_relative = Path(__file__).resolve().relative_to(ROOT).as_posix()
+    except ValueError as exc:
+        raise ArchiveContractError("builder_outside_repository") from exc
+    if sha256_bytes(git_blob_bytes(git_commit, builder_relative)) != builder_git_blob_sha:
+        raise ArchiveContractError(f"snapshot_builder_git_blob_mismatch:{snapshot_id}")
+
+
 def parse_utc(value: Any, *, field: str) -> datetime:
     raw = str(value or "").strip()
     if UTC_EXACT.fullmatch(raw) is None:
@@ -264,6 +292,16 @@ def safe_blocker(exc: BaseException) -> str:
         text = text.replace(secret, "<redacted>")
     text = re.sub(r"(?i)(api_key=)[^&\s]+", r"\1<redacted>", text)
     return text[:1000]
+
+
+def active_fred_api_key(contract: Mapping[str, Any]) -> str:
+    key_name = str(contract["collection"]["fred_api_key_environment_variable"])
+    secret = os.environ.get(key_name, "")
+    if secret and (
+        secret.strip() != secret or any(character in secret for character in "\r\n")
+    ):
+        return ""
+    return secret
 
 
 def committed_result_with_receipt(
@@ -453,9 +491,10 @@ def load_contract(path: Path) -> dict[str, Any]:
     if path.resolve() != DEFAULT_CONTRACT.resolve():
         raise ArchiveContractError("noncanonical_contract_path")
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        raw = path.read_bytes()
+    except OSError as exc:
         raise ArchiveContractError("contract_unreadable") from exc
+    payload = strict_json_payload(raw, source_id="canonical_contract")
     if not isinstance(payload, dict):
         raise ArchiveContractError("contract_root_not_object")
     observed = semantic_sha256(payload)
@@ -604,8 +643,10 @@ def load_contract(path: Path) -> dict[str, Any]:
 
 
 def validate_archive_root(root: Path) -> None:
-    if root.exists() and root.is_symlink():
-        raise ArchiveContractError("archive_root_symlink_forbidden")
+    if root.exists() and (
+        root.is_symlink() or bool(getattr(root, "is_junction", lambda: False)())
+    ):
+        raise ArchiveContractError("archive_root_link_forbidden")
     root.mkdir(parents=True, exist_ok=True)
     for relative in (
         Path("objects"),
@@ -614,9 +655,12 @@ def validate_archive_root(root: Path) -> None:
         Path("snapshots"),
     ):
         child = root / relative
-        if child.exists() and child.is_symlink():
+        if child.exists() and (
+            child.is_symlink()
+            or bool(getattr(child, "is_junction", lambda: False)())
+        ):
             label = str(relative).replace("\\", "_").replace("/", "_")
-            raise ArchiveContractError(f"archive_{label}_symlink_forbidden")
+            raise ArchiveContractError(f"archive_{label}_link_forbidden")
 
 
 def acquire_archive_writer_lock(root: Path, timeout_seconds: float) -> Any:
@@ -1223,15 +1267,7 @@ def validate_recovered_raw_normalization(
             raise ArchiveContractError(
                 f"recovered_raw_request_invalid:{snapshot_id}:{source_id}"
             )
-        fred_key_name = str(
-            contract["collection"]["fred_api_key_environment_variable"]
-        )
-        active_secret = os.environ.get(fred_key_name, "")
-        if active_secret and (
-            active_secret.strip() != active_secret
-            or any(character in active_secret for character in "\r\n")
-        ):
-            active_secret = ""
+        active_secret = active_fred_api_key(contract)
         reparsed, missing_count = normalize_fred(
             raw,
             source_id=source_id,
@@ -1352,6 +1388,22 @@ def load_archive_index(
         )
         if not isinstance(entry, dict):
             raise ArchiveContractError(f"archive_index_row_not_object:{line_number}")
+        expected_index_fields = {
+            "schema_version",
+            "snapshot_id",
+            "collected_at_utc",
+            "snapshot_manifest_sha256",
+            "source_captured_count",
+            "source_missing_count",
+            "previous_entry_sha256",
+            "entry_sha256",
+        }
+        if (
+            set(entry) != expected_index_fields
+            or entry.get("schema_version")
+            != "run287-chameleon-forward-archive-index-v1"
+        ):
+            raise ArchiveContractError(f"archive_index_schema_mismatch:{line_number}")
         snapshot_id = str(entry.get("snapshot_id") or "")
         collected_at = str(entry.get("collected_at_utc") or "")
         if not snapshot_id or snapshot_id in seen_ids:
@@ -1381,7 +1433,7 @@ def load_archive_index(
             root,
             snapshot_id,
             contract,
-            replay_raw=False,
+            replay_raw=True,
         )
         if verified_manifest_sha != manifest_sha:
             raise ArchiveContractError(
@@ -1391,6 +1443,12 @@ def load_archive_index(
             raise ArchiveContractError(
                 f"snapshot_manifest_collection_time_mismatch:{snapshot_id}"
             )
+        for field in ("source_captured_count", "source_missing_count"):
+            value = entry.get(field)
+            if type(value) is not int or value < 0 or value != manifest.get(field):
+                raise ArchiveContractError(
+                    f"archive_index_manifest_counter_mismatch:{snapshot_id}:{field}"
+                )
         entries.append(entry)
         seen_ids.add(snapshot_id)
         seen_times.add(collected_at)
@@ -1525,14 +1583,13 @@ def verify_recoverable_snapshot(
     builder_sha = str(manifest.get("builder_sha256") or "")
     builder_git_blob_sha = str(manifest.get("builder_git_blob_sha256") or "")
     fixture_mode = manifest.get("fixture_mode")
-    if (
-        re.fullmatch(r"[0-9a-f]{40}", git_commit) is None
-        or HEX64.fullmatch(builder_sha) is None
-        or HEX64.fullmatch(builder_git_blob_sha) is None
-        or type(fixture_mode) is not bool
-        or (not fixture_mode and builder_sha != builder_git_blob_sha)
-    ):
-        raise ArchiveContractError(f"orphan_snapshot_builder_identity_invalid:{snapshot_id}")
+    validate_recorded_builder_identity(
+        git_commit=git_commit,
+        builder_sha=builder_sha,
+        builder_git_blob_sha=builder_git_blob_sha,
+        fixture_mode=fixture_mode,
+        snapshot_id=snapshot_id,
+    )
 
     sources = manifest.get("sources")
     validate_orphan_source_contract(
@@ -2432,15 +2489,7 @@ def collect_sources(
     fred_endpoint = public_https_url(
         contract["fred"]["endpoint"], field="fred_endpoint"
     )
-    fred_key_name = str(
-        contract["collection"]["fred_api_key_environment_variable"]
-    )
-    fred_key = os.environ.get(fred_key_name, "")
-    if fred_key and (
-        fred_key.strip() != fred_key
-        or any(character in fred_key for character in "\r\n")
-    ):
-        fred_key = ""
+    fred_key = active_fred_api_key(contract)
 
     for name, series_id in sorted(contract["fred"]["series"].items()):
         source_id = f"fred.{name}"
@@ -2787,6 +2836,8 @@ def normalized_bytes(
 def materialize_sources(
     captures: Iterable[Mapping[str, Any]],
     missing_audits: Iterable[Mapping[str, Any]],
+    *,
+    active_secret: str,
 ) -> tuple[list[dict[str, Any]], dict[str, bytes], dict[str, bytes]]:
     audits: list[dict[str, Any]] = [dict(item) for item in missing_audits]
     raw_objects: dict[str, bytes] = {}
@@ -2797,6 +2848,10 @@ def materialize_sources(
                 f"{capture.get('source_id')}_no_usable_observations"
             )
         raw = bytes(capture["raw"])
+        if raw_contains_secret(raw, active_secret):
+            raise ArchiveContractError(
+                f"{capture.get('source_id')}_raw_response_contains_api_key"
+            )
         raw_sha = sha256_bytes(raw)
         normalized_raw, normalized_rows = normalized_bytes(capture, raw_sha)
         normalized_sha = sha256_bytes(normalized_raw)
@@ -2919,7 +2974,9 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         verify_consumed_inputs(consumed)
         verify_builder_identity(identity, require_head_match=not fixture_mode)
         audits, raw_objects, normalized_objects = materialize_sources(
-            captures, missing_audits
+            captures,
+            missing_audits,
+            active_secret=active_fred_api_key(contract),
         )
         completed_at = fixture_time if fixture_mode else utc_now()
         assert completed_at is not None

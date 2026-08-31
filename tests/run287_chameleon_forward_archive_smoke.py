@@ -1088,6 +1088,131 @@ def test_indexed_manifests_reuse_full_identity_and_source_validation() -> None:
                 assert expected_error in str(exc)
 
 
+def test_index_coverage_counters_must_match_verified_manifest() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        archive_root = root / "archive"
+        archive.build(args(archive_root, bundle))
+        entries = index_rows(archive_root)
+        entries[0]["source_missing_count"] = 18
+        entries[0]["entry_sha256"] = archive.index_hash(entries[0])
+        archive.write_index(archive_root / "archive_index.jsonl", entries)
+        try:
+            archive.load_archive_index(archive_root, contract())
+            raise AssertionError("index coverage drift from the manifest was accepted")
+        except archive.ArchiveContractError as exc:
+            assert "archive_index_manifest_counter_mismatch" in str(exc)
+
+
+def test_indexed_snapshot_loading_replays_raw_evidence() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        archive_root = root / "archive"
+        payload = archive.build(args(archive_root, bundle))
+        original_replay = archive.validate_recovered_raw_normalization
+        calls = 0
+
+        def counted_replay(*replay_args: object, **replay_kwargs: object) -> None:
+            nonlocal calls
+            calls += 1
+            original_replay(*replay_args, **replay_kwargs)
+
+        try:
+            archive.validate_recovered_raw_normalization = counted_replay
+            archive.load_archive_index(archive_root, contract())
+        finally:
+            archive.validate_recovered_raw_normalization = original_replay
+        assert calls == payload["source_captured_count"] == 18
+
+
+def test_all_fixture_raw_bytes_are_scanned_for_the_active_fred_key() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        target = bundle / "cross_asset" / "daily.csv"
+        lines = target.read_text(encoding="utf-8").splitlines()
+        secret = "fixture-key-must-not-be-persisted"
+        lines[0] += ",unused"
+        lines[1] += f",{secret}"
+        target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        original_key = os.environ.get("FRED_API_KEY")
+        try:
+            os.environ["FRED_API_KEY"] = secret
+            archive_root = root / "archive"
+            blocked = archive.build(args(archive_root, bundle))
+        finally:
+            if original_key is None:
+                os.environ.pop("FRED_API_KEY", None)
+            else:
+                os.environ["FRED_API_KEY"] = original_key
+        assert blocked["status"] == archive.BLOCKED_STATUS
+        assert "raw_response_contains_api_key" in blocked["blockers"][0]
+        assert not list((archive_root / "objects" / "raw").glob("*"))
+
+
+def test_contract_index_and_manifest_authority_use_strict_json() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        duplicate_contract = root / "contract.json"
+        canonical = archive.DEFAULT_CONTRACT.read_text(encoding="utf-8").lstrip()
+        duplicate_contract.write_text(
+            '{"mode":"LIVE_TRADING",' + canonical[1:],
+            encoding="utf-8",
+        )
+        original_contract = archive.DEFAULT_CONTRACT
+        try:
+            archive.DEFAULT_CONTRACT = duplicate_contract
+            archive.load_contract(duplicate_contract)
+            raise AssertionError("duplicate canonical-contract keys were accepted")
+        except archive.ArchiveContractError as exc:
+            assert "canonical_contract_duplicate_json_key" in str(exc)
+        finally:
+            archive.DEFAULT_CONTRACT = original_contract
+
+
+def test_archive_layout_rejects_windows_junctions() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        archive_root = root / "archive"
+        archive_root.mkdir()
+        original_is_junction = getattr(Path, "is_junction", None)
+
+        def fake_is_junction(path: Path) -> bool:
+            return path == archive_root
+
+        try:
+            Path.is_junction = fake_is_junction
+            blocked = archive.build(args(archive_root, bundle))
+        finally:
+            if original_is_junction is None:
+                delattr(Path, "is_junction")
+            else:
+                Path.is_junction = original_is_junction
+        assert blocked["status"] == archive.BLOCKED_STATUS
+        assert "archive_root_link_forbidden" in blocked["blockers"][0]
+
+
+def test_recorded_network_builder_blob_must_exist_and_match() -> None:
+    original_git_blob_bytes = archive.git_blob_bytes
+    try:
+        archive.git_blob_bytes = lambda _head, _relative: b"different-builder"
+        archive.validate_recorded_builder_identity(
+            git_commit="a" * 40,
+            builder_sha="b" * 64,
+            builder_git_blob_sha="b" * 64,
+            fixture_mode=False,
+            snapshot_id="fabricated-network-builder-fixture",
+        )
+        raise AssertionError("a fabricated recorded builder blob was accepted")
+    except archive.ArchiveContractError as exc:
+        assert "snapshot_builder_git_blob_mismatch" in str(exc)
+    finally:
+        archive.git_blob_bytes = original_git_blob_bytes
+
+
 def test_no_orphan_path_reuses_the_validated_index_entries() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -1579,6 +1704,12 @@ if __name__ == "__main__":
     test_indexed_manifest_cannot_claim_pit_verified()
     test_archive_index_rejects_duplicate_json_keys()
     test_indexed_manifests_reuse_full_identity_and_source_validation()
+    test_index_coverage_counters_must_match_verified_manifest()
+    test_indexed_snapshot_loading_replays_raw_evidence()
+    test_all_fixture_raw_bytes_are_scanned_for_the_active_fred_key()
+    test_contract_index_and_manifest_authority_use_strict_json()
+    test_archive_layout_rejects_windows_junctions()
+    test_recorded_network_builder_blob_must_exist_and_match()
     test_no_orphan_path_reuses_the_validated_index_entries()
     test_abandoned_pre_rename_staging_is_recovered_under_lock()
     test_network_fetch_is_bounded_and_restricts_redirect_origins()
