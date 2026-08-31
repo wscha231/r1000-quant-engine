@@ -4728,6 +4728,9 @@ Expected contract:
   fixture-only builder-hash exemption, malformed nonempty FRED credentials
   block the run instead of disabling common secret scans, and persisted UTC
   fields reject leading or trailing whitespace before exact-format parsing.
+  The first full smoke correctly reached the earlier commit-object boundary for
+  its fabricated zero SHA; its stale expected error was updated without
+  weakening the new rejection.
 - Network proof: A local 2026-08-31 capture archived VIX, VIX3M, VVIX, and two
   current 2026-08-28 put-call rows as FORWARD_PIT. Thirteen FRED/ALFRED series
   remained explicitly missing because FRED_API_KEY was absent; cross-asset

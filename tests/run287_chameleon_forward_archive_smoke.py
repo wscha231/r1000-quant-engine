@@ -1093,7 +1093,7 @@ def test_archive_index_rejects_duplicate_json_keys() -> None:
 
 def test_indexed_manifests_reuse_full_identity_and_source_validation() -> None:
     for mutation, expected_error in (
-        ("identity", "identity_mismatch"),
+        ("identity", "git_head_not_commit"),
         ("ready_without_objects", "empty_source"),
     ):
         with tempfile.TemporaryDirectory() as temporary:
