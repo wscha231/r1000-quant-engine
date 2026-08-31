@@ -165,10 +165,13 @@ ratios separately.
 - Missing-source audits retain only their canonical zero/empty exclusion and
   object metadata, with a reason compatible with the source family and
   fixture/network mode.
+- Every bounded raw source is secret-scanned before parsing can derive a
+  durable blocker, and a present directory, link, junction, or other
+  non-regular fixture entry blocks instead of being recorded as missing.
 
 ## Local official-network proof
 
-At 2026-08-31T12:34:22.713741Z, a local report-only network proof archived four
+At 2026-08-31T13:07:31.252141Z, a local report-only network proof archived four
 official Cboe sources and 18,585 normalized NYSE-session rows:
 
 - cboe.daily_put_call: two rows for 2026-08-28.
@@ -179,10 +182,10 @@ official Cboe sources and 18,585 normalized NYSE-session rows:
 - cboe.vvix: 5,093 rows, latest 2026-08-28.
 
 Snapshot ID:
-20260831T123422Z-8457a43b38220a07
+20260831T130731Z-5ba3def4c45ba21c
 
 Snapshot manifest SHA-256:
-a7d23ab634f68bc3d2c6d837f8b110212ab1b979fc060a3a44ec1543cdc92774
+9c9e599dda7a055a433ed2b9d6238e1191c303ac4c03713022d6076b156dfcce
 
 This proof is local and is not a canonical durable publication. Thirteen
 FRED/ALFRED series remained missing because no FRED_API_KEY was present.
@@ -241,6 +244,8 @@ The dedicated smoke covers:
   canonical unpadded persisted UTC parsing;
 - all-source JSON Unicode-escape secret rejection and canonical missing-source
   zero/empty metadata plus source/mode-compatible failure reasons;
+- pre-parser secret rejection that keeps encoded raw values out of failure
+  receipts, plus fail-closed present non-regular fixture entries;
 - pre-launch and caller-injected network time rejection.
 
 The dedicated smoke and Python compilation passed. The official Cboe network
