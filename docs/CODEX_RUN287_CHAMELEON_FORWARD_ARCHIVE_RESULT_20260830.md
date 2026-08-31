@@ -136,10 +136,13 @@ ratios separately.
   in causal order.
 - Recovery scans every raw source type for the active key before normalization,
   matching the common pre-persistence secret boundary.
+- Recovery also rejects collection or source capture timestamps later than its
+  runtime clock, and scans both raw manifest bytes and recursively decoded
+  manifest values for the active key before accepting any snapshot authority.
 
 ## Local official-network proof
 
-At 2026-08-31T05:44:16.982060Z, a local report-only network proof archived four
+At 2026-08-31T06:04:30.790164Z, a local report-only network proof archived four
 official Cboe sources and 18,585 normalized NYSE-session rows:
 
 - cboe.daily_put_call: two rows for 2026-08-28.
@@ -150,10 +153,10 @@ official Cboe sources and 18,585 normalized NYSE-session rows:
 - cboe.vvix: 5,093 rows, latest 2026-08-28.
 
 Snapshot ID:
-20260831T054416Z-d11127e0541bc246
+20260831T060430Z-4a89813ab070e77d
 
 Snapshot manifest SHA-256:
-801ff261ee4bbf2db053e80b385cdd50d7706e873f82c53832ffa31dd0574c70
+08a907b163d86d4cf8ae06baa07466db9927996d43fe35dabfc4cf4ca3c0ad87
 
 This proof is local and is not a canonical durable publication. Thirteen
 FRED/ALFRED series remained missing because no FRED_API_KEY was present.
@@ -201,6 +204,7 @@ The dedicated smoke covers:
   verification;
 - per-snapshot junction rejection, fixture/source-mode alignment, launch and
   capture chronology replay, and all-source recovery secret scanning;
+- recovery-time future bounds and raw/decoded manifest secret scanning;
 - pre-launch and caller-injected network time rejection.
 
 The dedicated smoke and Python compilation passed. The official Cboe network

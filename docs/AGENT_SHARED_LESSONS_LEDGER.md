@@ -4706,6 +4706,10 @@ Expected contract:
   junctions, manifest fixture mode must align with every present source mode,
   launch/capture/collection chronology is replayed during verification, and
   every recovered raw source type is scanned for the active key.
+- Time-and-manifest correction: Recovered collection and capture timestamps
+  cannot exceed the verification clock, and both raw manifest bytes and
+  recursively decoded manifest values are scanned for the active key before
+  snapshot authority is accepted.
 - Network proof: A local 2026-08-31 capture archived VIX, VIX3M, VVIX, and two
   current 2026-08-28 put-call rows as FORWARD_PIT. Thirteen FRED/ALFRED series
   remained explicitly missing because FRED_API_KEY was absent; cross-asset
@@ -4777,6 +4781,9 @@ Expected contract:
   directories, and a manifest-level simulation flag cannot grant exemptions
   unless it agrees with the evidence beneath it. Replay temporal causality and
   secret checks together with content identity.
+- Reusable lesson: Temporal causality needs both lower and upper bounds, and a
+  secret can leak through authority metadata even when every source object is
+  clean. Scan the manifest as evidence, not merely as control flow.
 - Next action: In a separate causal change, build a hash-verifying report-only
   adapter from the archive to the macro normalizer. Configure a durable
   publication destination and FRED secret only under separate approval before
@@ -4811,6 +4818,8 @@ Expected contract:
   Do not follow a junction-backed snapshot, let fixture mode disagree with
   present sources, recover pre-launch or time-reversed evidence, or scan only
   one source family during raw replay.
+  Do not recover future timestamps or accept an active key hidden in manifest
+  metadata.
 - Evidence files:
   - docs/run287_chameleon_forward_archive_contract.json
   - tools/collect_run287_chameleon_forward_archive.py
