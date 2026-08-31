@@ -34,7 +34,7 @@ import requests
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONTRACT = ROOT / "docs" / "run287_chameleon_forward_archive_contract.json"
 CANONICAL_CONTRACT_SEMANTIC_SHA256 = (
-    "20702cef268459b596684f838e533c6586ad109eeaced1c47baccce488966371"
+    "11b7e37dd61088c3de522c10698cafb5f581082d2017bb638299f1093fea7592"
 )
 SCHEMA_VERSION = "run287-chameleon-forward-archive-v1"
 READY_STATUS = "READY_CHAMELEON_FORWARD_ARCHIVE_REPORT_ONLY"
@@ -137,15 +137,40 @@ def git_head() -> str:
     return head
 
 
-def builder_identity() -> dict[str, str]:
+def git_blob_bytes(head: str, relative_path: str) -> bytes:
+    result = subprocess.run(
+        ["git", "cat-file", "blob", f"{head}:{relative_path}"],
+        cwd=ROOT,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise ArchiveContractError("builder_git_blob_unavailable")
+    return bytes(result.stdout)
+
+
+def builder_identity(*, require_head_match: bool = False) -> dict[str, str]:
+    source_path = Path(__file__).resolve()
+    try:
+        relative_path = source_path.relative_to(ROOT).as_posix()
+    except ValueError as exc:
+        raise ArchiveContractError("builder_outside_repository") from exc
+    head = git_head()
+    runtime_bytes = source_path.read_bytes()
+    head_bytes = git_blob_bytes(head, relative_path)
+    if require_head_match and runtime_bytes != head_bytes:
+        raise ArchiveContractError("builder_source_differs_from_git_head")
     return {
-        "git_head": git_head(),
-        "builder_sha256": sha256_file(Path(__file__).resolve()),
+        "git_head": head,
+        "builder_sha256": sha256_bytes(runtime_bytes),
+        "builder_git_blob_sha256": sha256_bytes(head_bytes),
     }
 
 
-def verify_builder_identity(expected: Mapping[str, str]) -> None:
-    if builder_identity() != dict(expected):
+def verify_builder_identity(
+    expected: Mapping[str, str], *, require_head_match: bool = False
+) -> None:
+    if builder_identity(require_head_match=require_head_match) != dict(expected):
         raise ArchiveContractError("builder_or_git_head_changed_during_collection")
 
 
@@ -248,6 +273,46 @@ def raw_contains_secret(raw: bytes, secret: str) -> bool:
     return any(value.encode("utf-8") in raw for value in variants if value)
 
 
+def decoded_value_contains_secret(value: Any, secret: str) -> bool:
+    if not secret:
+        return False
+    variants = {secret, quote(secret, safe="")}
+    if isinstance(value, str):
+        return any(candidate in value for candidate in variants if candidate)
+    if isinstance(value, Mapping):
+        return any(
+            decoded_value_contains_secret(key, secret)
+            or decoded_value_contains_secret(item, secret)
+            for key, item in value.items()
+        )
+    if isinstance(value, (list, tuple)):
+        return any(decoded_value_contains_secret(item, secret) for item in value)
+    return False
+
+
+def strict_json_payload(raw: bytes, *, source_id: str) -> Any:
+    def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        output: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in output:
+                raise ArchiveContractError(f"{source_id}_duplicate_json_key")
+            output[key] = value
+        return output
+
+    try:
+        return json.loads(raw.decode("utf-8"), object_pairs_hook=unique_object)
+    except ArchiveContractError:
+        raise
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ArchiveContractError(f"{source_id}_json_unreadable") from exc
+
+
+def exact_json_integer(value: Any, *, source_id: str, field: str) -> int:
+    if type(value) is not int:
+        raise ArchiveContractError(f"{source_id}_{field}_invalid")
+    return value
+
+
 def public_https_url(value: Any, *, field: str) -> str:
     """Return a credential-free public HTTPS URL or fail closed."""
     raw = str(value or "").strip()
@@ -344,9 +409,14 @@ def load_contract(path: Path) -> dict[str, Any]:
         raise ArchiveContractError("archive_writer_timeout_changed")
     if (
         collection.get("source_text_encoding_policy")
-        != "STRICT_UTF8_WITH_OPTIONAL_BOM"
+        != "STRICT_UTF8_OPTIONAL_BOM_AND_STRICT_CSV"
     ):
         raise ArchiveContractError("source_text_encoding_policy_changed")
+    if (
+        collection.get("official_network_builder_policy")
+        != "EXECUTED_BUILDER_BYTES_EQUAL_HEAD_TRACKED_BLOB"
+    ):
+        raise ArchiveContractError("official_network_builder_policy_changed")
     archive = payload.get("archive") or {}
     if (
         archive.get("verified_unindexed_snapshot_policy")
@@ -369,7 +439,15 @@ def load_contract(path: Path) -> dict[str, Any]:
         != "EVERY_ROW_INSIDE_INCLUSIVE_REQUEST_WINDOW"
     ):
         raise ArchiveContractError("fred_observation_date_policy_changed")
-    if fred.get("response_secret_policy") != "REJECT_ACTIVE_API_KEY_IN_RAW_RESPONSE":
+    if (
+        fred.get("response_json_policy")
+        != "UTF8_NO_DUPLICATE_KEYS_EXACT_INTEGER_METADATA"
+    ):
+        raise ArchiveContractError("fred_response_json_policy_changed")
+    if (
+        fred.get("response_secret_policy")
+        != "REJECT_ACTIVE_API_KEY_IN_RAW_OR_DECODED_JSON_RESPONSE"
+    ):
         raise ArchiveContractError("fred_response_secret_policy_changed")
     cboe = payload.get("cboe") or {}
     if int(cboe.get("daily_options_max_completed_nyse_session_lag", -1)) != 1:
@@ -675,7 +753,13 @@ def verify_recoverable_snapshot(
         raise ArchiveContractError(f"orphan_snapshot_safety_drift:{snapshot_id}")
     git_commit = str(manifest.get("git_head") or "")
     builder_sha = str(manifest.get("builder_sha256") or "")
-    if re.fullmatch(r"[0-9a-f]{40}", git_commit) is None or HEX64.fullmatch(builder_sha) is None:
+    builder_git_blob_sha = str(manifest.get("builder_git_blob_sha256") or "")
+    if (
+        re.fullmatch(r"[0-9a-f]{40}", git_commit) is None
+        or HEX64.fullmatch(builder_sha) is None
+        or HEX64.fullmatch(builder_git_blob_sha) is None
+        or builder_sha != builder_git_blob_sha
+    ):
         raise ArchiveContractError(f"orphan_snapshot_builder_identity_invalid:{snapshot_id}")
 
     sources = manifest.get("sources")
@@ -759,6 +843,7 @@ def verify_recoverable_snapshot(
         "collected_at_utc": manifest["collected_at_utc"],
         "git_head": git_commit,
         "builder_sha256": builder_sha,
+        "builder_git_blob_sha256": builder_git_blob_sha,
         "contract_semantic_sha256": contract_sha256,
         "fixture_mode": manifest.get("fixture_mode"),
         "sources": sources,
@@ -847,7 +932,7 @@ def verify_consumed_inputs(consumed: Mapping[str, str]) -> None:
 def decode_csv(raw: bytes, *, source_id: str) -> list[list[str]]:
     try:
         text = raw.decode("utf-8-sig")
-        return list(csv.reader(io.StringIO(text)))
+        return list(csv.reader(io.StringIO(text), strict=True))
     except (UnicodeDecodeError, csv.Error) as exc:
         raise ArchiveContractError(f"{source_id}_csv_unreadable") from exc
 
@@ -903,11 +988,13 @@ def normalize_fred(
     requested_observation_start: str,
     requested_observation_end: str,
     missing_token: str,
+    active_secret: str = "",
 ) -> tuple[list[dict[str, Any]], int]:
-    try:
-        payload = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ArchiveContractError(f"{source_id}_json_unreadable") from exc
+    payload = strict_json_payload(raw, source_id=source_id)
+    if raw_contains_secret(raw, active_secret) or decoded_value_contains_secret(
+        payload, active_secret
+    ):
+        raise ArchiveContractError(f"{source_id}_raw_response_contains_api_key")
     if not isinstance(payload, dict):
         raise ArchiveContractError(f"{source_id}_root_not_object")
     for field in (
@@ -933,20 +1020,14 @@ def normalize_fred(
         raise ArchiveContractError(f"{source_id}_observation_end_mismatch")
     if payload["sort_order"] != "asc":
         raise ArchiveContractError(f"{source_id}_sort_order_mismatch")
-    try:
-        limit = int(payload["limit"])
-        offset = int(payload["offset"])
-    except (TypeError, ValueError) as exc:
-        raise ArchiveContractError(f"{source_id}_pagination_metadata_invalid") from exc
+    limit = exact_json_integer(payload["limit"], source_id=source_id, field="limit")
+    offset = exact_json_integer(payload["offset"], source_id=source_id, field="offset")
     if limit != 100000 or offset != 0:
         raise ArchiveContractError(f"{source_id}_unexpected_pagination")
     observations = payload["observations"]
     if not isinstance(observations, list):
         raise ArchiveContractError(f"{source_id}_observations_not_list")
-    try:
-        count = int(payload["count"])
-    except (TypeError, ValueError) as exc:
-        raise ArchiveContractError(f"{source_id}_count_invalid") from exc
+    count = exact_json_integer(payload["count"], source_id=source_id, field="count")
     if count != len(observations):
         raise ArchiveContractError(f"{source_id}_response_is_paginated_or_truncated")
     requested_start = strict_iso_date(
@@ -1473,6 +1554,7 @@ def collect_sources(
             requested_observation_start=observation_start,
             requested_observation_end=observation_end,
             missing_token=missing_token,
+            active_secret=fred_key,
         )
         captures.append(
             {
@@ -1772,7 +1854,6 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     writer_lock = None
     try:
         validate_archive_root(output_root)
-        identity = builder_identity()
         contract = load_contract(repo_path(args.contract))
         launch = parse_utc(
             contract["launch_not_before_utc"], field="launch_not_before"
@@ -1799,6 +1880,8 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             if not allow_network:
                 raise ArchiveContractError("normal_mode_requires_allow_network")
 
+        identity = builder_identity(require_head_match=not fixture_mode)
+
         writer_lock = acquire_archive_writer_lock(
             output_root,
             float(contract["collection"]["writer_lock_timeout_seconds"]),
@@ -1816,7 +1899,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         if not captures:
             raise ArchiveContractError("no_source_captured")
         verify_consumed_inputs(consumed)
-        verify_builder_identity(identity)
+        verify_builder_identity(identity, require_head_match=not fixture_mode)
         audits, raw_objects, normalized_objects = materialize_sources(
             captures, missing_audits
         )
@@ -1860,6 +1943,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "collected_at_utc": collected_at,
             "git_head": identity["git_head"],
             "builder_sha256": identity["builder_sha256"],
+            "builder_git_blob_sha256": identity["builder_git_blob_sha256"],
             "contract_semantic_sha256": CANONICAL_CONTRACT_SEMANTIC_SHA256,
             "fixture_mode": fixture_mode,
             "sources": audits,
@@ -1921,6 +2005,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "collected_at_utc": collected_at,
             "git_head": identity["git_head"],
             "builder_sha256": identity["builder_sha256"],
+            "builder_git_blob_sha256": identity["builder_git_blob_sha256"],
             "contract_semantic_sha256": CANONICAL_CONTRACT_SEMANTIC_SHA256,
             "fixture_mode": fixture_mode,
             "source_expected_count": len(audits),
@@ -1966,7 +2051,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             if sha256_file(staging / "manifest.json") != snapshot_manifest_sha:
                 raise ArchiveContractError("staged_snapshot_manifest_hash_mismatch")
             verify_consumed_inputs(consumed)
-            verify_builder_identity(identity)
+            verify_builder_identity(identity, require_head_match=not fixture_mode)
             os.replace(staging, final_snapshot)
         finally:
             if staging.exists():

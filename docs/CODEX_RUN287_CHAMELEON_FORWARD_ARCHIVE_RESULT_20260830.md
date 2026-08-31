@@ -72,11 +72,16 @@ ratios separately.
 - One OS-level advisory writer lock covers orphan recovery, capture, snapshot
   commit, and index commit so concurrent processes cannot fork the chain.
 - A successful FRED response that contains the active API key, including its
-  URL-encoded form, is rejected before any raw object is persisted.
+  URL-encoded or JSON-escaped form, is rejected before any raw object is
+  persisted.
 - Cboe and cross-asset text is decoded as strict UTF-8 with an optional BOM;
-  malformed bytes block the snapshot instead of becoming replacement text.
+  malformed bytes or CSV quoting block the snapshot instead of being repaired.
 - Every FRED observation must remain inside the inclusive requested window and
   arrive in the declared strictly ascending order.
+- FRED JSON rejects duplicate keys and requires true non-boolean integers for
+  count, limit, and offset metadata.
+- Official network collection requires the executed builder bytes to equal the
+  exact tracked builder blob at the recorded Git head.
 
 ## Local official-network proof
 
@@ -117,6 +122,8 @@ The dedicated smoke covers:
 - runtime capture-time microsecond preservation, concurrent-writer rejection,
   FRED response secret-echo rejection, and idempotent receipt preservation;
 - malformed UTF-8 rejection and per-row FRED request-window/order enforcement;
+- strict CSV quoting, duplicate-key and exact-integer JSON checks, decoded JSON
+  secret scanning, and builder-to-Git-head byte binding;
 - pre-launch and caller-injected network time rejection.
 
 The dedicated smoke and Python compilation passed. The official Cboe network

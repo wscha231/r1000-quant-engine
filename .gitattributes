@@ -12,3 +12,4 @@ docs/run287_p0_3_authority_census/summary.json text eol=lf
 docs/run287_p0_3_authority_census/workflow_registry.yaml text eol=lf
 docs/run287_p0_3_authority_census/source_workflow_authority_policy.json text eol=lf
 docs/run287_p0_3_authority_census/source_branch_protection_contract.json text eol=lf
+tools/collect_run287_chameleon_forward_archive.py text eol=lf

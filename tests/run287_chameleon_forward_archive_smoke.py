@@ -392,6 +392,33 @@ def test_invalid_fred_vintage_and_duplicate_observation_block_snapshot() -> None
         assert "unexpected_pagination" in blocked["blockers"][0]
         assert index_rows(root / "archive_paginated") == []
 
+        for case, invalid_count in (("boolean", True), ("fractional", 2.9)):
+            invalid = build_source_bundle(root / f"count_{case}")
+            target = invalid / "fred" / "DGS2.json"
+            payload = json.loads(target.read_text(encoding="utf-8"))
+            payload["count"] = invalid_count
+            target.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+            archive_root = root / f"archive_count_{case}"
+            blocked = archive.build(args(archive_root, invalid))
+            assert blocked["status"] == archive.BLOCKED_STATUS
+            assert "count_invalid" in blocked["blockers"][0]
+            assert index_rows(archive_root) == []
+
+        duplicate_key = build_source_bundle(root / "duplicate_key")
+        target = duplicate_key / "fred" / "DGS2.json"
+        raw = target.read_text(encoding="utf-8")
+        raw = raw.replace(
+            '"observation_end": "2026-08-30"',
+            '"observation_end": "1900-01-01", '
+            '"observation_end": "2026-08-30"',
+            1,
+        )
+        target.write_text(raw, encoding="utf-8")
+        blocked = archive.build(args(root / "archive_duplicate_key", duplicate_key))
+        assert blocked["status"] == archive.BLOCKED_STATUS
+        assert "duplicate_json_key" in blocked["blockers"][0]
+        assert index_rows(root / "archive_duplicate_key") == []
+
 
 def test_fred_observations_must_stay_inside_requested_window_and_order() -> None:
     with tempfile.TemporaryDirectory() as temporary:
@@ -444,6 +471,38 @@ def test_csv_sources_reject_malformed_utf8() -> None:
             assert blocked["status"] == archive.BLOCKED_STATUS
             assert "csv_unreadable" in blocked["blockers"][0]
             assert index_rows(archive_root) == []
+
+
+def test_csv_sources_reject_malformed_quoting() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        for case, relative in (
+            ("cboe", Path("cboe/vix.csv")),
+            ("cross_asset", Path("cross_asset/daily.csv")),
+        ):
+            bundle = build_source_bundle(root / case)
+            target = bundle / relative
+            target.write_bytes(target.read_bytes() + b',"unterminated')
+            archive_root = root / f"archive_{case}"
+            blocked = archive.build(args(archive_root, bundle))
+            assert blocked["status"] == archive.BLOCKED_STATUS
+            assert "csv_unreadable" in blocked["blockers"][0]
+            assert index_rows(archive_root) == []
+
+
+def test_official_network_requires_builder_bytes_from_recorded_head() -> None:
+    original_git_blob_bytes = archive.git_blob_bytes
+    try:
+        archive.git_blob_bytes = lambda head, relative: b"different-builder-bytes"
+        try:
+            archive.builder_identity(require_head_match=True)
+            raise AssertionError("dirty network builder was accepted")
+        except archive.ArchiveContractError as exc:
+            assert "builder_source_differs_from_git_head" in str(exc)
+        identity = archive.builder_identity(require_head_match=False)
+        assert identity["builder_sha256"] != identity["builder_git_blob_sha256"]
+    finally:
+        archive.git_blob_bytes = original_git_blob_bytes
 
 
 def test_equity_and_index_put_call_are_not_substitutable() -> None:
@@ -724,7 +783,17 @@ def test_fred_response_echoing_api_key_is_rejected_before_archive_write() -> Non
                     ).read_text(encoding="utf-8")
                 )
                 payload["request_url"] = f"{url}?api_key={secret}"
-                return json.dumps(payload).encode("utf-8"), "", fixed_time, url
+                serialized = json.dumps(payload)
+                escaped_secret = "".join(
+                    f"\\u{ord(character):04x}" for character in secret
+                )
+                assert secret in serialized
+                return (
+                    serialized.replace(secret, escaped_secret).encode("utf-8"),
+                    "",
+                    fixed_time,
+                    url,
+                )
             raise AssertionError("Cboe should not be reached after FRED secret echo")
 
         try:
@@ -797,6 +866,8 @@ if __name__ == "__main__":
     test_invalid_fred_vintage_and_duplicate_observation_block_snapshot()
     test_fred_observations_must_stay_inside_requested_window_and_order()
     test_csv_sources_reject_malformed_utf8()
+    test_csv_sources_reject_malformed_quoting()
+    test_official_network_requires_builder_bytes_from_recorded_head()
     test_equity_and_index_put_call_are_not_substitutable()
     test_missing_cross_asset_stays_missing_without_carry_or_imputation()
     test_existing_content_tamper_is_detected_before_new_capture()

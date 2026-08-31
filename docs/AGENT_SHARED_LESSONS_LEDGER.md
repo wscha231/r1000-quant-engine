@@ -4652,6 +4652,11 @@ Expected contract:
   UTF-8 with an optional BOM, and every FRED row must be inside the inclusive
   requested observation window and in the declared ascending order. Malformed
   provider bytes or contradictory response rows block before persistence.
+- Final parser and identity correction: Secret scanning now includes decoded
+  JSON keys and values so Unicode escapes cannot hide the active key; CSV uses
+  strict quoting; FRED JSON rejects duplicate keys and lossy integer coercion;
+  and official network capture requires the executed builder bytes to equal
+  the exact tracked blob at the recorded Git head.
 - Network proof: A local 2026-08-31 capture archived VIX, VIX3M, VVIX, and two
   current 2026-08-28 put-call rows as FORWARD_PIT. Thirteen FRED/ALFRED series
   remained explicitly missing because FRED_API_KEY was absent; cross-asset
@@ -4678,6 +4683,10 @@ Expected contract:
   provenance. Do not replace malformed source bytes, and verify row-level
   response semantics against the exact requested date bounds rather than
   trusting response-level echoes.
+- Reusable lesson: Provenance includes parser behavior and executable identity.
+  Scan decoded structured values for secrets, reject ambiguous duplicate keys
+  and lossy type coercion, use strict parsers, and never label a dirty builder's
+  network output with an unrelated reviewed Git head.
 - Next action: In a separate causal change, build a hash-verifying report-only
   adapter from the archive to the macro normalizer. Configure a durable
   publication destination and FRED secret only under separate approval before
@@ -4688,8 +4697,9 @@ Expected contract:
   URL, trust a redirected or unbounded response, mark an empty/stale source
   ready, floor a capture time, race multiple writers, drop receipt hashes on
   retry, replace malformed UTF-8, accept an out-of-window FRED row, leave a
-  verified orphan unrecoverable, or connect the archive directly to portfolio
-  policy.
+  malformed quote or duplicate JSON key recoverable, coerce booleans/fractions
+  into integer metadata, capture from a dirty builder, leave a verified orphan
+  unrecoverable, or connect the archive directly to portfolio policy.
 - Evidence files:
   - docs/run287_chameleon_forward_archive_contract.json
   - tools/collect_run287_chameleon_forward_archive.py
