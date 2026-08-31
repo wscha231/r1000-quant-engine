@@ -210,6 +210,15 @@ def git_head() -> str:
 
 
 def git_blob_bytes(head: str, relative_path: str) -> bytes:
+    object_type = subprocess.run(
+        ["git", "cat-file", "-t", head],
+        cwd=ROOT,
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    if object_type.returncode != 0 or object_type.stdout.strip() != "commit":
+        raise ArchiveContractError("builder_git_head_not_commit")
     result = subprocess.run(
         ["git", "cat-file", "blob", f"{head}:{relative_path}"],
         cwd=ROOT,
@@ -2622,13 +2631,18 @@ def normalize_cross_asset(
         ).strip()
         if price_basis not in allowed_basis:
             raise ArchiveContractError(f"{source_id}_invalid_price_basis")
-        provider = row_value(row, columns, "provider", source_id=source_id).strip()
+        raw_provider = row_value(row, columns, "provider", source_id=source_id)
+        provider = raw_provider.strip()
         source_url = row_value(
             row, columns, "source_url", source_id=source_id
         )
         if (
             not provider
-            or any(character in provider for character in "\r\n")
+            or provider != raw_provider
+            or any(
+                unicodedata.category(character) in {"Cc", "Cf", "Cs"}
+                for character in provider
+            )
         ):
             raise ArchiveContractError(f"{source_id}_invalid_provider_provenance")
         source_url = public_https_url(

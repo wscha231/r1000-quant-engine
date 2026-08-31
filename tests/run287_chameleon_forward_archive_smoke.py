@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import os
+import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -1273,6 +1274,25 @@ def test_cross_asset_closes_require_completed_nyse_sessions() -> None:
             assert expected_error in blocked["blockers"][0]
 
 
+def test_cross_asset_provider_controls_block_before_persistence() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        target = bundle / "cross_asset" / "daily.csv"
+        target.write_text(
+            target.read_text(encoding="utf-8").replace(
+                "fixture-provider", "fixture\tprovider"
+            ),
+            encoding="utf-8",
+        )
+        archive_root = root / "archive"
+        blocked = archive.build(args(archive_root, bundle))
+        assert blocked["status"] == archive.BLOCKED_STATUS
+        assert "invalid_provider_provenance" in blocked["blockers"][0]
+        assert index_rows(archive_root) == []
+        assert not list((archive_root / "objects" / "raw").glob("*"))
+
+
 def test_snapshot_identity_binds_the_pinned_nyse_calendar() -> None:
     requirements = (ROOT / "requirements_github.txt").read_text(encoding="utf-8")
     assert "pandas_market_calendars==5.3.2" in requirements
@@ -1569,6 +1589,26 @@ def test_recorded_network_builder_blob_must_exist_and_match() -> None:
         assert "snapshot_builder_git_blob_mismatch" in str(exc)
     finally:
         archive.git_blob_bytes = original_git_blob_bytes
+
+
+def test_recorded_git_head_must_be_a_commit_object() -> None:
+    tree = subprocess.check_output(
+        ["git", "rev-parse", "HEAD^{tree}"],
+        cwd=ROOT,
+        text=True,
+    ).strip()
+    assert len(tree) == 40
+    try:
+        archive.validate_recorded_builder_identity(
+            git_commit=tree,
+            builder_sha="b" * 64,
+            builder_git_blob_sha="b" * 64,
+            fixture_mode=False,
+            snapshot_id="tree-object-builder-fixture",
+        )
+        raise AssertionError("a tree object was accepted as git_head")
+    except archive.ArchiveContractError as exc:
+        assert "builder_git_head_not_commit" in str(exc)
 
 
 def test_no_orphan_path_reuses_the_validated_index_entries() -> None:
@@ -2068,6 +2108,7 @@ if __name__ == "__main__":
     test_percent_encoded_fixture_secrets_are_rejected_for_every_source()
     test_fixture_size_is_bounded_before_materialization()
     test_cross_asset_closes_require_completed_nyse_sessions()
+    test_cross_asset_provider_controls_block_before_persistence()
     test_snapshot_identity_binds_the_pinned_nyse_calendar()
     test_contract_index_and_manifest_authority_use_strict_json()
     test_archive_layout_rejects_windows_junctions()
@@ -2079,6 +2120,7 @@ if __name__ == "__main__":
     test_recovered_manifest_rejects_unknown_authority_fields()
     test_recovered_manifest_is_scanned_for_the_active_fred_key()
     test_recorded_network_builder_blob_must_exist_and_match()
+    test_recorded_git_head_must_be_a_commit_object()
     test_no_orphan_path_reuses_the_validated_index_entries()
     test_abandoned_pre_rename_staging_is_recovered_under_lock()
     test_network_fetch_is_bounded_and_restricts_redirect_origins()

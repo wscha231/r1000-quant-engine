@@ -4720,6 +4720,10 @@ Expected contract:
   materialization, the exact pandas-market-calendars version is pinned and
   recorded inside snapshot identity, and cross-asset closes must belong to a
   completed NYSE session at their capture time.
+- Precommit-provenance correction: Cross-asset provider text now uses the same
+  whitespace and Unicode control rule before persistence as recovery, and a
+  recorded 40-hex `git_head` must resolve to an actual commit object before its
+  collector blob can establish builder provenance.
 - Network proof: A local 2026-08-31 capture archived VIX, VIX3M, VVIX, and two
   current 2026-08-28 put-call rows as FORWARD_PIT. Thirteen FRED/ALFRED series
   remained explicitly missing because FRED_API_KEY was absent; cross-asset
@@ -4802,6 +4806,9 @@ Expected contract:
   and dependency identity. Decode before scanning, bound before reading, bind
   the calendar implementation into evidence, and never infer a valid ETF close
   from a syntactically valid date alone.
+- Reusable lesson: Post-commit validation cannot repair an invalid immutable
+  append, and Git syntax does not establish object type. Apply the full text
+  rule before publication and verify commit type before resolving a path blob.
 - Next action: In a separate causal change, build a hash-verifying report-only
   adapter from the archive to the macro normalizer. Configure a durable
   publication destination and FRED secret only under separate approval before
@@ -4843,6 +4850,8 @@ Expected contract:
   Do not scan only literal raw bytes, read an oversized fixture before its
   bound, replay session rules under an unrecorded calendar version, or archive
   weekend, holiday, or pre-close cross-asset dates as completed closes.
+  Do not defer provider-control rejection until after index commit or accept a
+  tree/tag/blob SHA as a commit merely because `<sha>:<path>` resolves.
 - Evidence files:
   - docs/run287_chameleon_forward_archive_contract.json
   - tools/collect_run287_chameleon_forward_archive.py
