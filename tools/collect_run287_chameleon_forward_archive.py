@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import ipaddress
 import io
 import json
 import math
@@ -28,7 +29,7 @@ from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Mapping
-from urllib.parse import quote, unquote, urlsplit, urlunsplit
+from urllib.parse import quote, unquote, urljoin, urlsplit, urlunsplit
 
 import requests
 
@@ -36,7 +37,7 @@ import requests
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONTRACT = ROOT / "docs" / "run287_chameleon_forward_archive_contract.json"
 CANONICAL_CONTRACT_SEMANTIC_SHA256 = (
-    "11011cda3dcc4d49897d5b729069f245240c0d505af1f957d0f7f229c48fdf8f"
+    "b0f8a2af5d79f63d2a56079ca01392b9c1f2032de70a65cd8f03b9491475efcc"
 )
 SCHEMA_VERSION = "run287-chameleon-forward-archive-v1"
 READY_STATUS = "READY_CHAMELEON_FORWARD_ARCHIVE_REPORT_ONLY"
@@ -385,9 +386,31 @@ def public_https_url(value: Any, *, field: str) -> str:
         port = parsed.port
     except ValueError as exc:
         raise ArchiveContractError(f"{field}_invalid_url") from exc
+    hostname = str(parsed.hostname or "").lower().rstrip(".")
+    public_host = False
+    if hostname:
+        try:
+            public_host = ipaddress.ip_address(hostname).is_global
+        except ValueError:
+            try:
+                ascii_host = hostname.encode("idna").decode("ascii")
+            except UnicodeError:
+                ascii_host = ""
+            labels = ascii_host.split(".")
+            public_host = (
+                len(labels) >= 2
+                and all(
+                    re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
+                    is not None
+                    for label in labels
+                )
+                and not all(label.isdigit() for label in labels)
+                and ascii_host != "localhost"
+                and not ascii_host.endswith(".localhost")
+            )
     if (
         parsed.scheme.lower() != "https"
-        or not parsed.hostname
+        or not public_host
         or parsed.username is not None
         or parsed.password is not None
         or port not in (None, 443)
@@ -454,8 +477,13 @@ def load_contract(path: Path) -> dict[str, Any]:
     if truth.get("historical_ab_allowed") is not False:
         raise ArchiveContractError("historical_ab_not_forbidden")
     collection = payload.get("collection") or {}
-    if collection.get("network_redirect_policy") != "HTTPS_SAME_ORIGIN_EVERY_HOP":
+    if (
+        collection.get("network_redirect_policy")
+        != "MANUAL_HTTPS_SAME_ORIGIN_PREVALIDATED_EVERY_HOP"
+    ):
         raise ArchiveContractError("network_redirect_policy_changed")
+    if int(collection.get("maximum_redirect_hops", -1)) != 5:
+        raise ArchiveContractError("network_redirect_limit_changed")
     if (
         collection.get("network_response_read_policy")
         != "CONTENT_LENGTH_PREFLIGHT_PLUS_BOUNDED_STREAM"
@@ -470,7 +498,7 @@ def load_contract(path: Path) -> dict[str, Any]:
         raise ArchiveContractError("archive_writer_timeout_changed")
     if (
         collection.get("source_text_encoding_policy")
-        != "STRICT_UTF8_OPTIONAL_BOM_AND_RFC_QUOTE_VALIDATED_CSV"
+        != "STRICT_UTF8_OPTIONAL_BOM_RFC_QUOTE_AND_UNICODE_CONTROL_VALIDATED_CSV"
     ):
         raise ArchiveContractError("source_text_encoding_policy_changed")
     if (
@@ -496,6 +524,11 @@ def load_contract(path: Path) -> dict[str, Any]:
         != "EXACT_CANONICAL_SOURCE_SET_PROVIDER_KIND_AND_PUBLIC_URL"
     ):
         raise ArchiveContractError("orphan_source_contract_policy_changed")
+    if (
+        archive.get("recovered_normalized_object_policy")
+        != "PARSE_CANONICAL_JSONL_AND_REVALIDATE_ROW_CONTRACT"
+    ):
+        raise ArchiveContractError("recovered_normalized_object_policy_changed")
     if (
         archive.get("abandoned_staging_policy")
         != "DELETE_EXACT_LOCAL_UNMOUNTED_STAGING_DIRECTORIES_UNDER_WRITER_LOCK"
@@ -555,7 +588,7 @@ def load_contract(path: Path) -> dict[str, Any]:
     cross_asset = payload.get("cross_asset") or {}
     if (
         cross_asset.get("provenance_url_policy")
-        != "PUBLIC_HTTPS_WITHOUT_USERINFO_QUERY_PARAMS_FRAGMENT_WHITESPACE_OR_CONTROLS"
+        != "PUBLIC_GLOBAL_HOST_HTTPS_WITHOUT_USERINFO_QUERY_PARAMS_FRAGMENT_WHITESPACE_OR_CONTROLS"
     ):
         raise ArchiveContractError("cross_asset_provenance_url_policy_changed")
     safety = payload.get("safety") or {}
@@ -758,6 +791,96 @@ def validate_object_path(root: Path, relative: str, digest: str) -> Path:
     return path
 
 
+def validate_normalized_object_rows(
+    root: Path,
+    source: Mapping[str, Any],
+    *,
+    snapshot_id: str,
+) -> None:
+    source_id = str(source.get("source_id") or "")
+    path = validate_object_path(
+        root,
+        str(source.get("normalized_object") or ""),
+        str(source.get("normalized_sha256") or ""),
+    )
+    raw = path.read_bytes()
+    if not raw or not raw.endswith(b"\n"):
+        raise ArchiveContractError(
+            f"snapshot_normalized_jsonl_invalid:{snapshot_id}:{source_id}"
+        )
+    lines = raw.splitlines()
+    if any(not line for line in lines):
+        raise ArchiveContractError(
+            f"snapshot_normalized_jsonl_invalid:{snapshot_id}:{source_id}"
+        )
+    rows: list[dict[str, Any]] = []
+    for line_number, line in enumerate(lines, 1):
+        payload = strict_json_payload(
+            line,
+            source_id=f"snapshot_{source_id}_normalized_{line_number}",
+        )
+        if not isinstance(payload, dict):
+            raise ArchiveContractError(
+                f"snapshot_normalized_row_not_object:{snapshot_id}:{source_id}"
+            )
+        rows.append(payload)
+    canonical = b"".join(canonical_json_bytes(row) + b"\n" for row in rows)
+    if canonical != raw:
+        raise ArchiveContractError(
+            f"snapshot_normalized_jsonl_noncanonical:{snapshot_id}:{source_id}"
+        )
+    row_count = source.get("normalized_row_count")
+    if type(row_count) is not int or row_count <= 0 or row_count != len(rows):
+        raise ArchiveContractError(
+            f"snapshot_normalized_row_count_mismatch:{snapshot_id}:{source_id}"
+        )
+    captured_at_text = str(source.get("captured_at_utc") or "")
+    captured_at = parse_utc(captured_at_text, field="snapshot_source_captured_at")
+    raw_sha = str(source.get("raw_sha256") or "")
+    truth = str(source.get("truth_class") or "")
+    expected = {
+        "schema_version": "run287-chameleon-forward-observation-v1",
+        "source_id": source_id,
+        "provider": source.get("provider"),
+        "source_kind": source.get("source_kind"),
+        "available_from": captured_at_text,
+        "collected_at_utc": captured_at_text,
+        "raw_sha256": raw_sha,
+        "truth_class": truth,
+        "historical_ab_allowed": False,
+    }
+    observation_dates: list[str] = []
+    seen_rows: set[str] = set()
+    excluded_dates = set(source.get("excluded_non_session_dates") or [])
+    for row in rows:
+        if any(row.get(key) != value for key, value in expected.items()):
+            raise ArchiveContractError(
+                f"snapshot_normalized_row_contract_mismatch:{snapshot_id}:{source_id}"
+            )
+        observation = strict_iso_date(
+            row.get("source_observation_date"),
+            field="snapshot_normalized_observation_date",
+        )
+        if observation > captured_at.date() or observation.isoformat() in excluded_dates:
+            raise ArchiveContractError(
+                f"snapshot_normalized_observation_invalid:{snapshot_id}:{source_id}"
+            )
+        observation_dates.append(observation.isoformat())
+        row_identity = semantic_sha256(row)
+        if row_identity in seen_rows:
+            raise ArchiveContractError(
+                f"snapshot_normalized_duplicate_row:{snapshot_id}:{source_id}"
+            )
+        seen_rows.add(row_identity)
+    if (
+        source.get("first_observation_date") != min(observation_dates)
+        or source.get("last_observation_date") != max(observation_dates)
+    ):
+        raise ArchiveContractError(
+            f"snapshot_normalized_observation_bounds_mismatch:{snapshot_id}:{source_id}"
+        )
+
+
 def index_hash(payload: Mapping[str, Any]) -> str:
     material = dict(payload)
     material.pop("entry_sha256", None)
@@ -898,6 +1021,11 @@ def load_archive_index(
             if raw_sha or normalized_sha or raw_path or normalized_path:
                 validate_object_path(root, raw_path, raw_sha)
                 validate_object_path(root, normalized_path, normalized_sha)
+                validate_normalized_object_rows(
+                    root,
+                    source,
+                    snapshot_id=snapshot_id,
+                )
         entries.append(entry)
         seen_ids.add(snapshot_id)
         seen_times.add(collected_at)
@@ -1133,6 +1261,11 @@ def verify_recoverable_snapshot(
             str(source.get("normalized_object") or ""),
             str(source.get("normalized_sha256") or ""),
         )
+        validate_normalized_object_rows(
+            root,
+            source,
+            snapshot_id=snapshot_id,
+        )
 
     expected_status = (
         READY_PARTIAL_STATUS if missing_count or partial_count else READY_STATUS
@@ -1243,7 +1376,10 @@ def validate_csv_quote_structure(text: str, *, source_id: str) -> None:
     """Reject quote placement that Python's otherwise strict reader repairs."""
     state = "field_start"
     for character in text:
-        if ord(character) < 32 and character not in "\t\r\n":
+        if (
+            unicodedata.category(character) in {"Cc", "Cf", "Cs"}
+            and character not in "\t\r\n"
+        ):
             raise ArchiveContractError(f"{source_id}_csv_control_character_invalid")
         if state == "field_start":
             if character == '"':
@@ -1477,13 +1613,6 @@ def normalize_cboe_index(
             row_value(row, columns, "date", source_id=source_id),
             field=f"{source_id}_observation",
         )
-        if (
-            latest_completed_session is not None
-            and observed_date > latest_completed_session
-        ):
-            raise ArchiveContractError(
-                f"{source_id}_current_date_close_session_incomplete"
-            )
         observed = observed_date.isoformat()
         if observed in seen_dates:
             raise ArchiveContractError(f"{source_id}_duplicate_observation_date")
@@ -1510,9 +1639,23 @@ def normalize_cboe_index(
             )
             for item in output
         ]
+        if any(item > captured_at.date() for item in observed_dates):
+            raise ArchiveContractError(f"{source_id}_future_observation_date")
         valid_sessions = nyse_session_dates(
-            observed_dates[0], latest_completed_session
+            observed_dates[0], max(observed_dates[-1], latest_completed_session)
         )
+        incomplete_session = next(
+            (
+                item
+                for item in observed_dates
+                if item > latest_completed_session and item in valid_sessions
+            ),
+            None,
+        )
+        if incomplete_session is not None:
+            raise ArchiveContractError(
+                f"{source_id}_current_date_close_session_incomplete"
+            )
         excluded_non_session_dates = [
             item.isoformat() for item in observed_dates if item not in valid_sessions
         ]
@@ -1739,7 +1882,7 @@ def normalize_cross_asset(
         provider = row_value(row, columns, "provider", source_id=source_id).strip()
         source_url = row_value(
             row, columns, "source_url", source_id=source_id
-        ).strip()
+        )
         if (
             not provider
             or any(character in provider for character in "\r\n")
@@ -1777,47 +1920,75 @@ def network_fetch(
     params: Mapping[str, Any] | None,
     timeout_seconds: int,
     maximum_bytes: int,
+    maximum_redirect_hops: int = 5,
 ) -> tuple[bytes | None, str, datetime | None, str]:
     expected_origin = network_origin(url, field="network_requested_url")
+    if maximum_redirect_hops < 0:
+        raise ArchiveContractError("network_redirect_limit_invalid")
+    redirect_statuses = {301, 302, 303, 307, 308}
+    request_url = url
+    request_params: Mapping[str, Any] | None = dict(params or {})
+    raw = b""
+    final_url = ""
     try:
-        with requests.get(
-            url,
-            params=dict(params or {}),
-            headers={"User-Agent": USER_AGENT},
-            timeout=int(timeout_seconds),
-            stream=True,
-        ) as response:
-            if type(response.status_code) is not int or response.status_code != 200:
-                raise ArchiveContractError(
-                    f"official_network_http_status_invalid:{response.status_code}"
-                )
-            response.raise_for_status()
-            hop_urls = [
-                str(item.url or "") for item in list(response.history)
-            ] + [str(response.url or "")]
-            if not hop_urls or any(
-                network_origin(hop, field="network_redirect_hop")
-                != expected_origin
-                for hop in hop_urls
-            ):
-                raise ArchiveContractError("network_redirect_origin_mismatch")
-            final_url = sanitized_network_url(
-                response.url, field="network_final_url"
-            )
-            content_length = str(response.headers.get("Content-Length") or "").strip()
-            if content_length:
-                if re.fullmatch(r"\d+", content_length) is None:
-                    raise ArchiveContractError("network_content_length_invalid")
-                if int(content_length) > maximum_bytes:
-                    raise ArchiveContractError("official_network_response_too_large")
-            chunks = bytearray()
-            for chunk in response.iter_content(chunk_size=1024 * 1024):
-                if not chunk:
+        for hop_number in range(maximum_redirect_hops + 1):
+            with requests.get(
+                request_url,
+                params=(dict(request_params) if request_params is not None else None),
+                headers={"User-Agent": USER_AGENT},
+                timeout=int(timeout_seconds),
+                stream=True,
+                allow_redirects=False,
+            ) as response:
+                status_code = response.status_code
+                if type(status_code) is not int:
+                    raise ArchiveContractError("official_network_http_status_invalid")
+                response_url = str(response.url or "")
+                if (
+                    network_origin(response_url, field="network_response_url")
+                    != expected_origin
+                ):
+                    raise ArchiveContractError("network_redirect_origin_mismatch")
+                if status_code in redirect_statuses:
+                    if hop_number >= maximum_redirect_hops:
+                        raise ArchiveContractError("network_redirect_limit_exceeded")
+                    location = valid_url_text(
+                        response.headers.get("Location"),
+                        field="network_redirect_location",
+                    )
+                    next_url = urljoin(response_url, location)
+                    if (
+                        network_origin(next_url, field="network_redirect_target")
+                        != expected_origin
+                    ):
+                        raise ArchiveContractError("network_redirect_origin_mismatch")
+                    request_url = next_url
+                    request_params = None
                     continue
-                if len(chunks) + len(chunk) > maximum_bytes:
-                    raise ArchiveContractError("official_network_response_too_large")
-                chunks.extend(chunk)
-            raw = bytes(chunks)
+                if status_code != 200:
+                    raise ArchiveContractError(
+                        f"official_network_http_status_invalid:{status_code}"
+                    )
+                final_url = sanitized_network_url(
+                    response_url, field="network_final_url"
+                )
+                content_length = str(
+                    response.headers.get("Content-Length") or ""
+                ).strip()
+                if content_length:
+                    if re.fullmatch(r"\d+", content_length) is None:
+                        raise ArchiveContractError("network_content_length_invalid")
+                    if int(content_length) > maximum_bytes:
+                        raise ArchiveContractError("official_network_response_too_large")
+                chunks = bytearray()
+                for chunk in response.iter_content(chunk_size=1024 * 1024):
+                    if not chunk:
+                        continue
+                    if len(chunks) + len(chunk) > maximum_bytes:
+                        raise ArchiveContractError("official_network_response_too_large")
+                    chunks.extend(chunk)
+                raw = bytes(chunks)
+                break
     except requests.RequestException as exc:
         return None, type(exc).__name__, None, ""
     captured_at = utc_now()
@@ -1940,6 +2111,9 @@ def collect_sources(
                 params=params,
                 timeout_seconds=timeout,
                 maximum_bytes=maximum_bytes,
+                maximum_redirect_hops=int(
+                    contract["collection"]["maximum_redirect_hops"]
+                ),
             )
             if raw is None or captured_at is None:
                 audits.append(
@@ -2052,6 +2226,9 @@ def collect_sources(
                 params=None,
                 timeout_seconds=timeout,
                 maximum_bytes=maximum_bytes,
+                maximum_redirect_hops=int(
+                    contract["collection"]["maximum_redirect_hops"]
+                ),
             )
             if raw is None or captured_at is None:
                 audits.append(

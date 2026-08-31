@@ -97,6 +97,12 @@ ratios separately.
   only NYSE-session Cboe closes are normalized while raw non-session rows are
   retained and counted, future fixture timestamps are rejected, and official
   network bodies are accepted only with HTTP 200.
+- Redirects are issued manually only after each next Location is validated as
+  same-origin HTTPS; cross-asset provenance rejects whitespace mutation,
+  localhost/non-global IPs, and Unicode controls in CSV evidence.
+- Recovery reparses canonical normalized JSONL and verifies row count, source,
+  truth class, raw hash, capture timestamps, bounds, and excluded-session
+  separation before a snapshot can be indexed.
 
 ## Local official-network proof
 
@@ -149,6 +155,8 @@ The dedicated smoke covers:
   rejection, and completed-session freshness for Cboe index histories;
 - canonical orphan-source topology, counted non-session row exclusion,
   future-fixture rejection, and exact HTTP-200 transport completeness;
+- preflight redirect validation, public-host provenance, Unicode-control
+  rejection, and normalized-object semantic recovery validation;
 - pre-launch and caller-injected network time rejection.
 
 The dedicated smoke and Python compilation passed. The official Cboe network

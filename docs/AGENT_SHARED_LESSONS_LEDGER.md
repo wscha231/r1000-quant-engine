@@ -4675,6 +4675,14 @@ Expected contract:
   only NYSE-session Cboe closes enter normalized rows while provider-supplied
   non-session rows remain raw and are counted; fixture times cannot exceed the
   runtime clock; and official source bodies are consumed only after HTTP 200.
+- Redirect and content correction: HTTP redirects are followed manually only
+  after the next Location passes same-origin HTTPS validation; provenance keeps
+  extraction whitespace until validation and rejects local/non-global hosts;
+  CSV rejects Unicode controls; and recovered normalized JSONL is reparsed and
+  matched row-by-row to source, truth, raw hash, and availability metadata.
+- Session-edge correction: A same-day weekend or holiday Cboe row is retained
+  only in raw evidence and counted as excluded, while a real exchange session
+  whose close has not completed still blocks the entire source.
 - Network proof: A local 2026-08-31 capture archived VIX, VIX3M, VVIX, and two
   current 2026-08-28 put-call rows as FORWARD_PIT. Thirteen FRED/ALFRED series
   remained explicitly missing because FRED_API_KEY was absent; cross-asset
@@ -4721,6 +4729,10 @@ Expected contract:
   belongs to the current contract. Revalidate the complete source topology and
   transport completeness, and prevent simulated future availability from
   poisoning the chronological head of an archive shared with real captures.
+- Reusable lesson: Redirect safety must be decided before network transmission,
+  not reconstructed from response history. Content-addressed normalized files
+  also require semantic replay during recovery; digest equality alone cannot
+  prove that manifest counters describe the stored rows.
 - Next action: In a separate causal change, build a hash-verifying report-only
   adapter from the archive to the macro normalizer. Configure a durable
   publication destination and FRED secret only under separate approval before
@@ -4738,8 +4750,10 @@ Expected contract:
   traverse a mount during staging cleanup, accept whitespace/control-bearing
   provenance or normalize stale/non-session index history, recover a
   contract-incomplete orphan, archive a partial HTTP response, let fixture time
-  advance beyond the runtime clock, or connect the archive directly to
-  portfolio policy.
+  advance beyond the runtime clock, auto-follow a credential-bearing redirect,
+  strip URL evidence before validation, accept a private provenance host or
+  Unicode CSV control, recover unchecked normalized JSONL, or connect the
+  archive directly to portfolio policy.
 - Evidence files:
   - docs/run287_chameleon_forward_archive_contract.json
   - tools/collect_run287_chameleon_forward_archive.py

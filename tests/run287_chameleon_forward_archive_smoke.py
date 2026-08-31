@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -297,8 +298,10 @@ def test_official_network_capture_is_forward_only_and_secret_free() -> None:
             params: dict | None,
             timeout_seconds: int,
             maximum_bytes: int,
+            maximum_redirect_hops: int,
         ) -> tuple[bytes | None, str, datetime | None, str]:
             del timeout_seconds, maximum_bytes
+            assert maximum_redirect_hops == 5
             if "stlouisfed.org" in url:
                 assert params is not None
                 assert params["api_key"] == secret
@@ -507,6 +510,27 @@ def test_csv_sources_reject_malformed_quoting() -> None:
             assert index_rows(archive_root) == []
 
 
+def test_csv_sources_reject_unicode_controls() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        for case, relative, suffix in (
+            ("cboe_del", Path("cboe/vix.csv"), b",unused\x7fcontrol\n"),
+            (
+                "cross_format",
+                Path("cross_asset/daily.csv"),
+                ",unused\u200bformat\n".encode("utf-8"),
+            ),
+        ):
+            bundle = build_source_bundle(root / case)
+            target = bundle / relative
+            target.write_bytes(target.read_bytes() + suffix)
+            archive_root = root / f"archive_{case}"
+            blocked = archive.build(args(archive_root, bundle))
+            assert blocked["status"] == archive.BLOCKED_STATUS
+            assert "csv_control_character_invalid" in blocked["blockers"][0]
+            assert index_rows(archive_root) == []
+
+
 def test_official_network_requires_builder_bytes_from_recorded_head() -> None:
     original_git_blob_bytes = archive.git_blob_bytes
     try:
@@ -601,7 +625,12 @@ def test_cross_asset_provenance_rejects_credentials_before_persistence() -> None
         ),
         ("https://example.test/SP Y", "invalid_url"),
         ("https://example.test/SP\tY", "invalid_url"),
-        ("https://example.test/SP\u007fY", "invalid_url"),
+        ("https://example.test/SP\u007fY", "csv_control_character_invalid"),
+        (" https://example.test/SPY", "invalid_url"),
+        ("https://example.test/SPY ", "invalid_url"),
+        ("https://127.0.0.1/SPY", "credential_bearing_or_nonpublic_url"),
+        ("https://10.0.0.1/SPY", "credential_bearing_or_nonpublic_url"),
+        ("https://localhost/SPY", "credential_bearing_or_nonpublic_url"),
     ):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -715,6 +744,33 @@ def test_orphan_recovery_requires_the_canonical_source_contract() -> None:
         assert "source_definition_mismatch" in str(exc)
 
 
+def test_recovery_revalidates_normalized_jsonl_contents() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        archive_root = root / "archive"
+        payload = archive.build(args(archive_root, bundle))
+        source = next(item for item in payload["sources"] if item["status"] == "ready")
+        forged = dict(source)
+        empty_sha = hashlib.sha256(b"").hexdigest()
+        empty_path = archive_root / "objects" / "normalized" / f"{empty_sha}.jsonl"
+        empty_path.write_bytes(b"")
+        forged["normalized_sha256"] = empty_sha
+        forged["normalized_object"] = (
+            f"objects/normalized/{empty_sha}.jsonl"
+        )
+        forged["normalized_row_count"] = 1
+        try:
+            archive.validate_normalized_object_rows(
+                archive_root,
+                forged,
+                snapshot_id="self-consistent-forgery",
+            )
+            raise AssertionError("empty normalized object was accepted as one row")
+        except archive.ArchiveContractError as exc:
+            assert "normalized_jsonl_invalid" in str(exc)
+
+
 def test_abandoned_pre_rename_staging_is_recovered_under_lock() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -763,10 +819,13 @@ def test_network_fetch_is_bounded_and_restricts_redirect_origins() -> None:
             content_length: str = "",
             history: list[str] | None = None,
             status_code: int = 200,
+            location: str = "",
         ) -> None:
             self.url = url
             self._chunks = chunks
             self.headers = {"Content-Length": content_length} if content_length else {}
+            if location:
+                self.headers["Location"] = location
             self.history = [SimpleNamespace(url=item) for item in (history or [])]
             self.status_code = status_code
 
@@ -823,11 +882,19 @@ def test_network_fetch_is_bounded_and_restricts_redirect_origins() -> None:
         except archive.ArchiveContractError as exc:
             assert "official_network_response_too_large" in str(exc)
 
-        archive.requests.get = lambda *_args, **_kwargs: FakeResponse(
-            url="https://evil.example/payload",
-            history=[requested],
-            chunks=[b"payload"],
-        )
+        redirect_calls: list[str] = []
+
+        def cross_origin_redirect(url: str, **kwargs: object) -> FakeResponse:
+            assert kwargs["allow_redirects"] is False
+            redirect_calls.append(url)
+            return FakeResponse(
+                url=requested,
+                status_code=302,
+                location="https://evil.example/payload?api_key=must-not-leak",
+                chunks=[],
+            )
+
+        archive.requests.get = cross_origin_redirect
         try:
             archive.network_fetch(
                 url=requested, params=None, timeout_seconds=1, maximum_bytes=100
@@ -835,6 +902,33 @@ def test_network_fetch_is_bounded_and_restricts_redirect_origins() -> None:
             raise AssertionError("cross-origin redirect was accepted")
         except archive.ArchiveContractError as exc:
             assert "network_redirect_origin_mismatch" in str(exc)
+        assert redirect_calls == [requested]
+
+        same_origin_calls: list[str] = []
+
+        def same_origin_redirect(url: str, **kwargs: object) -> FakeResponse:
+            assert kwargs["allow_redirects"] is False
+            same_origin_calls.append(url)
+            if len(same_origin_calls) == 1:
+                return FakeResponse(
+                    url=requested,
+                    status_code=302,
+                    location="/fred/final",
+                    chunks=[],
+                )
+            return FakeResponse(url=url, chunks=[b"redirected-payload"])
+
+        archive.requests.get = same_origin_redirect
+        redirected_raw, error, captured_at, resolved_url = archive.network_fetch(
+            url=requested, params=None, timeout_seconds=1, maximum_bytes=100
+        )
+        assert redirected_raw == b"redirected-payload" and error == ""
+        assert captured_at is not None
+        assert resolved_url == "https://api.stlouisfed.org/fred/final"
+        assert same_origin_calls == [
+            requested,
+            "https://api.stlouisfed.org/fred/final",
+        ]
 
         archive.requests.get = lambda *_args, **_kwargs: FakeResponse(
             url=requested + "?api_key=must-not-persist",
@@ -913,8 +1007,10 @@ def test_fred_response_echoing_api_key_is_rejected_before_archive_write() -> Non
                     params: dict | None,
                     timeout_seconds: int,
                     maximum_bytes: int,
+                    maximum_redirect_hops: int,
                 ) -> tuple[bytes | None, str, datetime | None, str]:
                     del timeout_seconds, maximum_bytes
+                    assert maximum_redirect_hops == 5
                     if "stlouisfed.org" in url:
                         assert params is not None
                         payload = json.loads(
@@ -1033,6 +1129,19 @@ def test_every_cboe_index_date_must_be_an_exchange_session() -> None:
     assert [row["source_observation_date"] for row in rows] == ["2026-08-28"]
     assert excluded == ["2026-08-23"]
 
+    weekend_latest = b"DATE,CLOSE\n08/28/2026,14.0\n08/30/2026,14.0\n"
+    weekend_rows, weekend_excluded = archive.normalize_cboe_index(
+        weekend_latest,
+        source_id="cboe.vix",
+        symbol="vix",
+        captured_at=datetime(2026, 8, 30, 12, 0, tzinfo=timezone.utc),
+        maximum_completed_session_lag=1,
+    )
+    assert [row["source_observation_date"] for row in weekend_rows] == [
+        "2026-08-28"
+    ]
+    assert weekend_excluded == ["2026-08-30"]
+
 
 def test_fixture_collection_time_cannot_be_in_the_future() -> None:
     with tempfile.TemporaryDirectory() as temporary:
@@ -1112,6 +1221,7 @@ if __name__ == "__main__":
     test_fred_observations_must_stay_inside_requested_window_and_order()
     test_csv_sources_reject_malformed_utf8()
     test_csv_sources_reject_malformed_quoting()
+    test_csv_sources_reject_unicode_controls()
     test_official_network_requires_builder_bytes_from_recorded_head()
     test_equity_and_index_put_call_are_not_substitutable()
     test_missing_cross_asset_stays_missing_without_carry_or_imputation()
@@ -1120,6 +1230,7 @@ if __name__ == "__main__":
     test_present_source_with_no_rows_blocks_snapshot()
     test_verified_snapshot_is_recovered_after_index_interruption()
     test_orphan_recovery_requires_the_canonical_source_contract()
+    test_recovery_revalidates_normalized_jsonl_contents()
     test_abandoned_pre_rename_staging_is_recovered_under_lock()
     test_network_fetch_is_bounded_and_restricts_redirect_origins()
     test_runtime_clock_preserves_subsecond_capture_time()
