@@ -218,6 +218,10 @@ def test_identical_same_time_is_idempotent_and_changed_payload_blocks() -> None:
         assert second["status"] == archive.READY_STATUS
         assert second["idempotent_reuse"] is True
         assert second["snapshot_id"] == first["snapshot_id"]
+        assert second["snapshot_manifest_sha256"] == first["snapshot_manifest_sha256"]
+        assert second["archive_index_entry_sha256"] == first[
+            "archive_index_entry_sha256"
+        ]
         assert len(index_rows(archive_root)) == 1
 
         target = bundle / "fred" / "DGS2.json"
@@ -606,6 +610,98 @@ def test_network_fetch_is_bounded_and_restricts_redirect_origins() -> None:
         archive.requests.get = original_get
 
 
+def test_runtime_clock_preserves_subsecond_capture_time() -> None:
+    fractional = datetime(2026, 8, 30, 12, 0, 0, 654321, tzinfo=timezone.utc)
+    original_datetime = archive.datetime
+
+    class FractionalDateTime:
+        @classmethod
+        def now(cls, tz: object) -> datetime:
+            assert tz is timezone.utc
+            return fractional
+
+    try:
+        archive.datetime = FractionalDateTime
+        assert archive.utc_now() == fractional
+        assert archive.utc_iso(archive.utc_now()) == "2026-08-30T12:00:00.654321Z"
+    finally:
+        archive.datetime = original_datetime
+
+
+def test_archive_writer_lock_rejects_a_concurrent_writer() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary) / "archive"
+        archive.validate_archive_root(root)
+        first = archive.acquire_archive_writer_lock(root, 0.1)
+        try:
+            try:
+                archive.acquire_archive_writer_lock(root, 0.05)
+                raise AssertionError("concurrent archive writer acquired the lock")
+            except archive.ArchiveContractError as exc:
+                assert "archive_writer_lock_timeout" in str(exc)
+        finally:
+            archive.release_archive_writer_lock(first)
+
+
+def test_fred_response_echoing_api_key_is_rejected_before_archive_write() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        fixture_bundle = build_source_bundle(root)
+        fixed_time = datetime(2026, 8, 30, 12, 0, 0, 123456, tzinfo=timezone.utc)
+        original_fetch = archive.network_fetch
+        original_now = archive.utc_now
+        original_key = os.environ.get("FRED_API_KEY")
+        secret = "echoed-secret-that-must-not-be-archived"
+
+        def fake_fetch(
+            *,
+            url: str,
+            params: dict | None,
+            timeout_seconds: int,
+            maximum_bytes: int,
+        ) -> tuple[bytes | None, str, datetime | None, str]:
+            del timeout_seconds, maximum_bytes
+            if "stlouisfed.org" in url:
+                assert params is not None
+                payload = json.loads(
+                    (
+                        fixture_bundle
+                        / "fred"
+                        / f"{params['series_id']}.json"
+                    ).read_text(encoding="utf-8")
+                )
+                payload["request_url"] = f"{url}?api_key={secret}"
+                return json.dumps(payload).encode("utf-8"), "", fixed_time, url
+            raise AssertionError("Cboe should not be reached after FRED secret echo")
+
+        try:
+            os.environ["FRED_API_KEY"] = secret
+            archive.network_fetch = fake_fetch
+            archive.utc_now = lambda: fixed_time
+            archive_root = root / "archive"
+            blocked = archive.build(
+                args(
+                    archive_root,
+                    None,
+                    fixture_mode=False,
+                    allow_network=True,
+                    collected_at="",
+                )
+            )
+        finally:
+            archive.network_fetch = original_fetch
+            archive.utc_now = original_now
+            if original_key is None:
+                os.environ.pop("FRED_API_KEY", None)
+            else:
+                os.environ["FRED_API_KEY"] = original_key
+
+        assert blocked["status"] == archive.BLOCKED_STATUS
+        assert "raw_response_contains_api_key" in blocked["blockers"][0]
+        assert secret not in json.dumps(blocked)
+        assert not list((archive_root / "objects" / "raw").glob("*"))
+
+
 def test_stale_daily_options_session_blocks_snapshot() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -653,6 +749,9 @@ if __name__ == "__main__":
     test_present_source_with_no_rows_blocks_snapshot()
     test_verified_snapshot_is_recovered_after_index_interruption()
     test_network_fetch_is_bounded_and_restricts_redirect_origins()
+    test_runtime_clock_preserves_subsecond_capture_time()
+    test_archive_writer_lock_rejects_a_concurrent_writer()
+    test_fred_response_echoing_api_key_is_rejected_before_archive_write()
     test_stale_daily_options_session_blocks_snapshot()
     test_prelaunch_collection_is_rejected()
     print("run287_chameleon_forward_archive_smoke: PASS")

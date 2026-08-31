@@ -20,12 +20,13 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import uuid
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
 import requests
 
@@ -33,7 +34,7 @@ import requests
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONTRACT = ROOT / "docs" / "run287_chameleon_forward_archive_contract.json"
 CANONICAL_CONTRACT_SEMANTIC_SHA256 = (
-    "86a44099e61575fffaab811d5c5d9750dc728e4bf934f01a92bb8e953afa653a"
+    "82028385a9edec144958175c9e32d43c973d16d8696d20bb83ed0f4006eaafe1"
 )
 SCHEMA_VERSION = "run287-chameleon-forward-archive-v1"
 READY_STATUS = "READY_CHAMELEON_FORWARD_ARCHIVE_REPORT_ONLY"
@@ -168,7 +169,7 @@ def utc_iso(value: datetime) -> str:
 
 
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc).replace(microsecond=0)
+    return datetime.now(timezone.utc)
 
 
 def strict_iso_date(value: Any, *, field: str) -> date:
@@ -235,6 +236,16 @@ def safe_blocker(exc: BaseException) -> str:
         text = text.replace(secret, "<redacted>")
     text = re.sub(r"(?i)(api_key=)[^&\s]+", r"\1<redacted>", text)
     return text[:1000]
+
+
+def raw_contains_secret(raw: bytes, secret: str) -> bool:
+    if not secret:
+        return False
+    variants = {
+        secret,
+        quote(secret, safe=""),
+    }
+    return any(value.encode("utf-8") in raw for value in variants if value)
 
 
 def public_https_url(value: Any, *, field: str) -> str:
@@ -324,12 +335,32 @@ def load_contract(path: Path) -> dict[str, Any]:
         != "CONTENT_LENGTH_PREFLIGHT_PLUS_BOUNDED_STREAM"
     ):
         raise ArchiveContractError("network_response_read_policy_changed")
+    if (
+        collection.get("writer_policy")
+        != "OS_ADVISORY_SINGLE_WRITER_ACROSS_RECOVERY_CAPTURE_AND_COMMIT"
+    ):
+        raise ArchiveContractError("archive_writer_policy_changed")
+    if int(collection.get("writer_lock_timeout_seconds", -1)) != 30:
+        raise ArchiveContractError("archive_writer_timeout_changed")
     archive = payload.get("archive") or {}
     if (
         archive.get("verified_unindexed_snapshot_policy")
         != "RECOVER_SINGLE_EXACT_ORPHAN_BEFORE_NEXT_CAPTURE"
     ):
         raise ArchiveContractError("orphan_recovery_policy_changed")
+    if (
+        archive.get("idempotent_receipt_policy")
+        != "PRESERVE_MANIFEST_AND_INDEX_ENTRY_HASHES"
+    ):
+        raise ArchiveContractError("idempotent_receipt_policy_changed")
+    if (
+        truth.get("available_from_precision")
+        != "PRESERVE_RUNTIME_MICROSECONDS_NO_FLOOR"
+    ):
+        raise ArchiveContractError("available_from_precision_policy_changed")
+    fred = payload.get("fred") or {}
+    if fred.get("response_secret_policy") != "REJECT_ACTIVE_API_KEY_IN_RAW_RESPONSE":
+        raise ArchiveContractError("fred_response_secret_policy_changed")
     cboe = payload.get("cboe") or {}
     if int(cboe.get("daily_options_max_completed_nyse_session_lag", -1)) != 1:
         raise ArchiveContractError("daily_options_freshness_policy_changed")
@@ -365,6 +396,67 @@ def validate_archive_root(root: Path) -> None:
         if child.exists() and child.is_symlink():
             label = str(relative).replace("\\", "_").replace("/", "_")
             raise ArchiveContractError(f"archive_{label}_symlink_forbidden")
+
+
+def acquire_archive_writer_lock(root: Path, timeout_seconds: float) -> Any:
+    """Hold one OS-released writer lock across recovery and publication."""
+    path = root / ".writer.lock"
+    if path.exists() and path.is_symlink():
+        raise ArchiveContractError("archive_writer_lock_symlink_forbidden")
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_BINARY", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags, 0o600)
+    except OSError as exc:
+        raise ArchiveContractError("archive_writer_lock_open_failed") from exc
+    handle = os.fdopen(descriptor, "r+b", buffering=0)
+    try:
+        if path.is_symlink():
+            raise ArchiveContractError("archive_writer_lock_symlink_forbidden")
+        handle.seek(0, os.SEEK_END)
+        if handle.tell() == 0:
+            handle.write(b"\0")
+            os.fsync(handle.fileno())
+        deadline = time.monotonic() + max(float(timeout_seconds), 0.0)
+        while True:
+            try:
+                handle.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return handle
+            except (BlockingIOError, OSError) as exc:
+                if time.monotonic() >= deadline:
+                    raise ArchiveContractError("archive_writer_lock_timeout") from exc
+                time.sleep(0.05)
+    except Exception:
+        handle.close()
+        raise
+
+
+def release_archive_writer_lock(handle: Any) -> None:
+    if handle is None or handle.closed:
+        return
+    try:
+        handle.seek(0)
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            pass
+    finally:
+        handle.close()
 
 
 def validate_object_path(root: Path, relative: str, digest: str) -> Path:
@@ -1338,6 +1430,8 @@ def collect_sources(
             )
             continue
         assert raw is not None and captured_at is not None
+        if raw_contains_secret(raw, fred_key):
+            raise ArchiveContractError(f"{source_id}_raw_response_contains_api_key")
         if len(raw) > maximum_bytes:
             raise ArchiveContractError(f"{source_id}_raw_too_large")
         normalized, missing_count = normalize_fred(
@@ -1644,6 +1738,7 @@ def write_index(path: Path, entries: Iterable[Mapping[str, Any]]) -> None:
 
 def build(args: argparse.Namespace) -> dict[str, Any]:
     output_root = repo_path(args.archive_root)
+    writer_lock = None
     try:
         validate_archive_root(output_root)
         identity = builder_identity()
@@ -1673,6 +1768,10 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             if not allow_network:
                 raise ArchiveContractError("normal_mode_requires_allow_network")
 
+        writer_lock = acquire_archive_writer_lock(
+            output_root,
+            float(contract["collection"]["writer_lock_timeout_seconds"]),
+        )
         existing_entries = recover_verified_unindexed_snapshot(
             output_root, CANONICAL_CONTRACT_SEMANTIC_SHA256
         )
@@ -1762,6 +1861,10 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 ),
                 "archive_passed": True,
                 "idempotent_reuse": True,
+                "snapshot_manifest_sha256": same_time[0][
+                    "snapshot_manifest_sha256"
+                ],
+                "archive_index_entry_sha256": same_time[0]["entry_sha256"],
                 "archive_index_entry_count": len(existing_entries),
             }
             atomic_write_json(output_root / "last_attempt.json", result)
@@ -1879,12 +1982,15 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "pit_verified_emitted": False,
             **SAFETY,
         }
-        try:
-            validate_archive_root(output_root)
-            atomic_write_json(output_root / "last_attempt.json", blocked)
-        except Exception:
-            pass
+        if writer_lock is not None:
+            try:
+                validate_archive_root(output_root)
+                atomic_write_json(output_root / "last_attempt.json", blocked)
+            except Exception:
+                pass
         return blocked
+    finally:
+        release_archive_writer_lock(writer_lock)
 
 
 def parser() -> argparse.ArgumentParser:

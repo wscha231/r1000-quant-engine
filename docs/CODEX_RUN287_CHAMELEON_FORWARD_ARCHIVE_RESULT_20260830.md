@@ -45,7 +45,8 @@ ratios separately.
 
 ## Archive invariants
 
-- Same collection time plus identical payload is idempotent.
+- Same collection time plus identical payload is idempotent and returns the
+  original manifest and archive-index receipt hashes.
 - Same collection time plus changed payload is blocked.
 - Older collection times are blocked.
 - Every raw and normalized object is content addressed by SHA-256.
@@ -67,11 +68,15 @@ ratios separately.
 - available_from equals the exact source capture timestamp. No observation
   may have a future source date.
 - Fixture time injection is allowed only in explicit fixture mode. Normal
-  network collection uses the runtime clock.
+  network collection uses the runtime clock and preserves its microseconds.
+- One OS-level advisory writer lock covers orphan recovery, capture, snapshot
+  commit, and index commit so concurrent processes cannot fork the chain.
+- A successful FRED response that contains the active API key, including its
+  URL-encoded form, is rejected before any raw object is persisted.
 
 ## Local official-network proof
 
-At 2026-08-30T03:11:51Z, a local report-only network proof archived four
+At 2026-08-31T01:18:47.525730Z, a local report-only network proof archived four
 official Cboe sources and 18,618 normalized rows:
 
 - cboe.daily_put_call: two rows for 2026-08-28.
@@ -80,10 +85,10 @@ official Cboe sources and 18,618 normalized rows:
 - cboe.vvix: 5,093 rows, latest 2026-08-28.
 
 Snapshot ID:
-20260830T031151Z-6513f4752570c6f9
+20260831T011847Z-3a2895fc48f8fd5d
 
 Snapshot manifest SHA-256:
-320ef4f027c534cacf91077cde32b44e88a9d19f3d3af5d9979e27b5bb3a497e
+1cbe7807c0e3702de3577ae56ffd34bd2734dd130db6c923725a0a8540f2612f
 
 This proof is local and is not a canonical durable publication. Thirteen
 FRED/ALFRED series remained missing because no FRED_API_KEY was present.
@@ -105,6 +110,8 @@ The dedicated smoke covers:
 - existing-object tamper detection;
 - credential-bearing provenance, oversized response, redirect-origin, empty
   response, stale options session, and interrupted-index recovery guards;
+- runtime capture-time microsecond preservation, concurrent-writer rejection,
+  FRED response secret-echo rejection, and idempotent receipt preservation;
 - pre-launch and caller-injected network time rejection.
 
 The dedicated smoke and Python compilation passed. The official Cboe network

@@ -8,10 +8,12 @@
     "caller_timestamp_allowed_only_in_fixture_mode": true,
     "fred_api_key_environment_variable": "FRED_API_KEY",
     "request_timeout_seconds": 30,
+    "writer_lock_timeout_seconds": 30,
     "fred_observation_history_years": 7,
     "maximum_raw_bytes_per_source": 104857600,
     "network_redirect_policy": "HTTPS_SAME_ORIGIN_EVERY_HOP",
-    "network_response_read_policy": "CONTENT_LENGTH_PREFLIGHT_PLUS_BOUNDED_STREAM"
+    "network_response_read_policy": "CONTENT_LENGTH_PREFLIGHT_PLUS_BOUNDED_STREAM",
+    "writer_policy": "OS_ADVISORY_SINGLE_WRITER_ACROSS_RECOVERY_CAPTURE_AND_COMMIT"
   },
   "archive": {
     "layout": "CONTENT_ADDRESSED_RAW_AND_NORMALIZED_OBJECTS_PLUS_ATOMIC_IMMUTABLE_SNAPSHOT",
@@ -21,13 +23,15 @@
     "source_bytes_must_remain_unchanged_during_fixture_capture": true,
     "missing_source_policy": "RECORD_MISSING_DO_NOT_CARRY_OR_IMPUTE",
     "invalid_present_source_policy": "BLOCK_WHOLE_SNAPSHOT",
-    "verified_unindexed_snapshot_policy": "RECOVER_SINGLE_EXACT_ORPHAN_BEFORE_NEXT_CAPTURE"
+    "verified_unindexed_snapshot_policy": "RECOVER_SINGLE_EXACT_ORPHAN_BEFORE_NEXT_CAPTURE",
+    "idempotent_receipt_policy": "PRESERVE_MANIFEST_AND_INDEX_ENTRY_HASHES"
   },
   "truth_policy": {
     "official_network_capture": "FORWARD_PIT",
     "fixture_or_supplied_file_capture": "FREE_PROXY",
     "pit_verified_emitted_by_this_collector": false,
     "available_from": "EXACT_SOURCE_CAPTURE_TIME_UTC",
+    "available_from_precision": "PRESERVE_RUNTIME_MICROSECONDS_NO_FLOOR",
     "rows_observed_before_first_capture_may_be_used_before_capture": false,
     "historical_ab_allowed": false
   },
@@ -59,7 +63,8 @@
       "count",
       "observations"
     ],
-    "missing_value_token": "."
+    "missing_value_token": ".",
+    "response_secret_policy": "REJECT_ACTIVE_API_KEY_IN_RAW_RESPONSE"
   },
   "cboe": {
     "sources": {

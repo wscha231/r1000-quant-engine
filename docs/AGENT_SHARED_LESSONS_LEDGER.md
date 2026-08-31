@@ -4641,7 +4641,14 @@ Expected contract:
   redirect hop and persists only a sanitized final URL; requires nonempty and
   holiday-aware current observations; and recovers exactly one fully verified
   orphan snapshot before the next capture.
-- Network proof: A local 2026-08-30 capture archived VIX, VIX3M, VVIX, and two
+- Final exact-head review correction: Capture timestamps now retain runtime
+  microseconds; one OS advisory lock covers the complete recovery/capture/
+  commit transaction; successful FRED response bytes are rejected if they echo
+  the active secret; and idempotent reuse returns the original manifest and
+  archive-index receipt hashes. A publication-pin warning against the review
+  service's synthetic tree is handled by preserving commit ancestry with a
+  regular merge and verifying the expected branch head.
+- Network proof: A local 2026-08-31 capture archived VIX, VIX3M, VVIX, and two
   current 2026-08-28 put-call rows as FORWARD_PIT. Thirteen FRED/ALFRED series
   remained explicitly missing because FRED_API_KEY was absent; cross-asset
   closes remained missing because no trusted network provider is registered.
@@ -4658,6 +4665,11 @@ Expected contract:
   durability. The snapshot-directory and index boundary needs a deterministic
   crash-recovery transaction, and URL provenance must be treated as potential
   secret material even when the transport scheme is HTTPS.
+- Reusable lesson: Preserve the actual subsecond availability time, serialize
+  the entire append transaction across processes, scan provider response bytes
+  for active secrets before persistence, and keep immutable receipt hashes on
+  an idempotent retry. Each property is part of the evidence contract, not an
+  implementation detail.
 - Next action: In a separate causal change, build a hash-verifying report-only
   adapter from the archive to the macro normalizer. Configure a durable
   publication destination and FRED secret only under separate approval before
@@ -4666,7 +4678,8 @@ Expected contract:
   use the legacy Cboe put-call archive as current options sentiment, accept a
   caller-supplied network timestamp, persist an API key or signed provenance
   URL, trust a redirected or unbounded response, mark an empty/stale source
-  ready, leave a verified orphan unrecoverable, or connect the archive directly
+  ready, floor a capture time, race multiple writers, drop receipt hashes on
+  retry, leave a verified orphan unrecoverable, or connect the archive directly
   to portfolio policy.
 - Evidence files:
   - docs/run287_chameleon_forward_archive_contract.json
