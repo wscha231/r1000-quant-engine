@@ -1228,6 +1228,32 @@ def test_percent_encoded_fixture_secrets_are_rejected_for_every_source() -> None
             assert not list((archive_root / "objects" / "raw").glob("*"))
 
 
+def test_json_unicode_escaped_fixture_secrets_are_rejected_before_persistence() -> None:
+    secret = "fixture-key-must-not-be-json-escaped"
+    encoded = "".join(f"\\u{ord(character):04x}" for character in secret)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        target = bundle / "cross_asset" / "daily.csv"
+        lines = target.read_text(encoding="utf-8").splitlines()
+        lines[0] += ",unused"
+        lines[1] += f",{encoded}"
+        target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        original_key = os.environ.get("FRED_API_KEY")
+        try:
+            os.environ["FRED_API_KEY"] = secret
+            archive_root = root / "archive"
+            blocked = archive.build(args(archive_root, bundle))
+        finally:
+            if original_key is None:
+                os.environ.pop("FRED_API_KEY", None)
+            else:
+                os.environ["FRED_API_KEY"] = original_key
+        assert blocked["status"] == archive.BLOCKED_STATUS
+        assert "raw_response_contains_api_key" in blocked["blockers"][0]
+        assert not list((archive_root / "objects" / "raw").glob("*"))
+
+
 def test_fixture_size_is_bounded_before_materialization() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         fixture = Path(temporary) / "oversized.csv"
@@ -1516,6 +1542,58 @@ def test_recovered_non_fred_audit_metadata_is_canonical() -> None:
                 )
             except archive.ArchiveContractError as exc:
                 assert "source_audit_metadata_invalid" in str(exc)
+
+
+def test_missing_source_audits_require_canonical_metadata_and_reasons() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root, include_cross_asset=False)
+        archive_root = root / "archive"
+        payload = archive.build(args(archive_root, bundle))
+        manifest_path = (
+            archive_root / "snapshots" / payload["snapshot_id"] / "manifest.json"
+        )
+        original = json.loads(manifest_path.read_text(encoding="utf-8"))
+        mutations = (
+            ("excluded_non_session_row_count", 1),
+            ("excluded_non_session_dates", ["2026-08-30"]),
+            ("reason", "trusted_network_provider_not_configured"),
+        )
+        for field, value in mutations:
+            manifest = json.loads(json.dumps(original))
+            missing = next(
+                item
+                for item in manifest["sources"]
+                if item["source_id"] == "cross_asset.daily_close"
+            )
+            missing[field] = value
+            manifest_path.write_bytes(archive.pretty_json_bytes(manifest))
+            try:
+                archive.verify_recoverable_snapshot(
+                    archive_root, payload["snapshot_id"], contract()
+                )
+                raise AssertionError(
+                    f"noncanonical missing-source audit was accepted: {field}"
+                )
+            except archive.ArchiveContractError as exc:
+                assert "missing_source_invalid" in str(exc)
+
+    incompatible = archive.missing_audit(
+        source_id="cboe.vix",
+        provider="CBOE",
+        source_kind="INDEX_HISTORY",
+        public_url="https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv",
+        reason="fred_api_key_unavailable",
+    )
+    try:
+        archive.validate_source_audit_schema(
+            incompatible,
+            fixture_mode=False,
+            snapshot_id="incompatible-network-reason",
+        )
+        raise AssertionError("a source-incompatible missing reason was accepted")
+    except archive.ArchiveContractError as exc:
+        assert "missing_source_invalid" in str(exc)
 
 
 def test_recovered_manifest_rejects_unknown_authority_fields() -> None:
@@ -2136,6 +2214,7 @@ if __name__ == "__main__":
     test_indexed_snapshot_loading_replays_raw_evidence()
     test_all_fixture_raw_bytes_are_scanned_for_the_active_fred_key()
     test_percent_encoded_fixture_secrets_are_rejected_for_every_source()
+    test_json_unicode_escaped_fixture_secrets_are_rejected_before_persistence()
     test_fixture_size_is_bounded_before_materialization()
     test_cross_asset_closes_require_completed_nyse_sessions()
     test_cross_asset_provider_controls_block_before_persistence()
@@ -2147,6 +2226,7 @@ if __name__ == "__main__":
     test_recovered_snapshot_reapplies_launch_and_capture_chronology()
     test_recovered_object_paths_are_bound_to_evidence_roles()
     test_recovered_non_fred_audit_metadata_is_canonical()
+    test_missing_source_audits_require_canonical_metadata_and_reasons()
     test_recovered_manifest_rejects_unknown_authority_fields()
     test_recovered_manifest_is_scanned_for_the_active_fred_key()
     test_recorded_network_builder_blob_must_exist_and_match()

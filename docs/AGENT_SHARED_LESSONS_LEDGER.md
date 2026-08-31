@@ -4820,6 +4820,10 @@ Expected contract:
   provenance existence or type. Invalid credential configuration must fail
   closed, and canonical evidence parsers must validate original bytes rather
   than a stripped convenience representation.
+- Reusable lesson: A common secret scan must decode every encoding accepted by
+  downstream parsers, including JSON Unicode escapes as well as percent
+  encoding. Missing evidence also has a canonical state: zero/empty audit
+  counters and a source/mode-compatible reason are part of its authority.
 - Next action: In a separate causal change, build a hash-verifying report-only
   adapter from the archive to the macro normalizer. Configure a durable
   publication destination and FRED secret only under separate approval before
@@ -4865,6 +4869,8 @@ Expected contract:
   tree/tag/blob SHA as a commit merely because `<sha>:<path>` resolves.
   Do not let fixture mode bypass commit-object validation, turn a malformed
   configured secret into an empty scanner key, or accept padded persisted UTC.
+  Do not persist a key hidden behind JSON Unicode escapes or let a missing
+  source advertise invented exclusion metadata or an incompatible reason.
 - Evidence files:
   - docs/run287_chameleon_forward_archive_contract.json
   - tools/collect_run287_chameleon_forward_archive.py

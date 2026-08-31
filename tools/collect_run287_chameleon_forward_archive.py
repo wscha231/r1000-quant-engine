@@ -411,6 +411,15 @@ def raw_contains_secret(raw: bytes, secret: str) -> bool:
         if secret_bytes in candidate:
             return True
         decoded = unquote_to_bytes(candidate)
+        decoded = re.sub(
+            rb"\\u([0-9a-fA-F]{4})",
+            lambda match: (
+                chr(int(match.group(1), 16)).encode("utf-8")
+                if not 0xD800 <= int(match.group(1), 16) <= 0xDFFF
+                else match.group(0)
+            ),
+            decoded,
+        )
         if decoded == candidate:
             return False
         candidate = decoded
@@ -1690,6 +1699,7 @@ def validate_fixture_source_mode_alignment(
 def validate_source_audit_schema(
     source: Mapping[str, Any],
     *,
+    fixture_mode: bool,
     snapshot_id: str,
 ) -> None:
     source_id = str(source.get("source_id") or "")
@@ -1704,6 +1714,45 @@ def validate_source_audit_schema(
             f"orphan_snapshot_source_schema_mismatch:{snapshot_id}:{source_id}"
         )
     if status == "missing_or_unavailable":
+        reason = source.get("reason")
+        network_failure = (
+            isinstance(reason, str)
+            and re.fullmatch(
+                r"network_unavailable:[A-Za-z][A-Za-z0-9_]{0,127}", reason
+            )
+            is not None
+        )
+        if fixture_mode:
+            reason_is_compatible = reason == "fixture_file_missing"
+        elif source_id.startswith("fred."):
+            reason_is_compatible = reason in {
+                "fred_api_key_unavailable",
+                "network_disabled",
+            } or network_failure
+        elif source_id.startswith("cboe."):
+            reason_is_compatible = reason == "network_disabled" or network_failure
+        elif source_id == "cross_asset.daily_close":
+            reason_is_compatible = reason == "trusted_network_provider_not_configured"
+        else:
+            reason_is_compatible = False
+        if (
+            source.get("mode") != "missing"
+            or source.get("resolved_url") is not None
+            or source.get("public_request_params") != {}
+            or not reason_is_compatible
+            or source.get("truth_class") is not None
+            or source.get("captured_at_utc") is not None
+            or source.get("raw_sha256") is not None
+            or source.get("raw_object") is not None
+            or source.get("normalized_sha256") is not None
+            or source.get("normalized_object") is not None
+            or source.get("normalized_row_count") != 0
+            or source.get("excluded_non_session_row_count") != 0
+            or source.get("excluded_non_session_dates") != []
+        ):
+            raise ArchiveContractError(
+                f"orphan_snapshot_missing_source_invalid:{snapshot_id}:{source_id}"
+            )
         return
     request = source.get("public_request_params")
     missing_count = source.get("missing_value_count")
@@ -1851,7 +1900,11 @@ def verify_recoverable_snapshot(
     for source in sources:
         if not isinstance(source, dict):
             raise ArchiveContractError(f"orphan_snapshot_source_not_object:{snapshot_id}")
-        validate_source_audit_schema(source, snapshot_id=snapshot_id)
+        validate_source_audit_schema(
+            source,
+            fixture_mode=fixture_mode,
+            snapshot_id=snapshot_id,
+        )
         source_id = str(source.get("source_id") or "")
         if source_id in seen_source_ids:
             raise ArchiveContractError(f"orphan_snapshot_source_id_invalid:{snapshot_id}")
