@@ -12,7 +12,7 @@
     "writer_lock_timeout_seconds": 30,
     "fred_observation_history_years": 7,
     "maximum_raw_bytes_per_source": 104857600,
-    "source_text_encoding_policy": "STRICT_UTF8_OPTIONAL_BOM_AND_STRICT_CSV",
+    "source_text_encoding_policy": "STRICT_UTF8_OPTIONAL_BOM_AND_RFC_QUOTE_VALIDATED_CSV",
     "network_redirect_policy": "HTTPS_SAME_ORIGIN_EVERY_HOP",
     "network_response_read_policy": "CONTENT_LENGTH_PREFLIGHT_PLUS_BOUNDED_STREAM",
     "writer_policy": "OS_ADVISORY_SINGLE_WRITER_ACROSS_RECOVERY_CAPTURE_AND_COMMIT"
@@ -26,6 +26,8 @@
     "missing_source_policy": "RECORD_MISSING_DO_NOT_CARRY_OR_IMPUTE",
     "invalid_present_source_policy": "BLOCK_WHOLE_SNAPSHOT",
     "verified_unindexed_snapshot_policy": "RECOVER_SINGLE_EXACT_ORPHAN_BEFORE_NEXT_CAPTURE",
+    "fixture_orphan_builder_policy": "ALLOW_RECORDED_RUNTIME_AND_HEAD_BLOB_HASH_DIFFERENCE",
+    "committed_receipt_failure_policy": "RETURN_VERIFIED_SUCCESS_WITH_RECEIPT_FAILURE_DETAIL",
     "idempotent_receipt_policy": "PRESERVE_MANIFEST_AND_INDEX_ENTRY_HASHES"
   },
   "truth_policy": {
@@ -67,10 +69,11 @@
     ],
     "missing_value_token": ".",
     "observation_date_policy": "EVERY_ROW_INSIDE_INCLUSIVE_REQUEST_WINDOW",
-    "response_json_policy": "UTF8_NO_DUPLICATE_KEYS_EXACT_INTEGER_METADATA",
-    "response_secret_policy": "REJECT_ACTIVE_API_KEY_IN_RAW_OR_DECODED_JSON_RESPONSE"
+    "response_json_policy": "RFC_JSON_NO_DUPLICATE_KEYS_NO_NONFINITE_NUMBERS_EXACT_INTEGER_METADATA",
+    "response_secret_policy": "REJECT_ACTIVE_API_KEY_IN_RAW_OR_RECURSIVELY_PERCENT_DECODED_JSON_RESPONSE"
   },
   "cboe": {
+    "index_close_current_date_policy": "REQUIRE_COMPLETED_NYSE_SESSION",
     "sources": {
       "vix": {
         "kind": "INDEX_HISTORY",

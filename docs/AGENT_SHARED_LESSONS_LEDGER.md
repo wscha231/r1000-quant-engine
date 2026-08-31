@@ -4657,6 +4657,11 @@ Expected contract:
   strict quoting; FRED JSON rejects duplicate keys and lossy integer coercion;
   and official network capture requires the executed builder bytes to equal
   the exact tracked blob at the recorded Git head.
+- Commit-boundary correction: Secret scanning now recursively percent-decodes
+  structured strings; JSON rejects non-finite numbers; CSV rejects bare
+  quotes; dirty fixture orphans remain recoverable; Cboe closes cannot exceed
+  the latest completed NYSE session; and failure of the mutable last-attempt
+  receipt cannot relabel a verified immutable index commit as blocked.
 - Network proof: A local 2026-08-31 capture archived VIX, VIX3M, VVIX, and two
   current 2026-08-28 put-call rows as FORWARD_PIT. Thirteen FRED/ALFRED series
   remained explicitly missing because FRED_API_KEY was absent; cross-asset
@@ -4687,6 +4692,10 @@ Expected contract:
   Scan decoded structured values for secrets, reject ambiguous duplicate keys
   and lossy type coercion, use strict parsers, and never label a dirty builder's
   network output with an unrelated reviewed Git head.
+- Reusable lesson: Separate immutable commit authority from a mutable operator
+  receipt. After the index is revalidated, report receipt persistence failure
+  without denying the committed snapshot; otherwise retries can create false
+  duplicate captures and obscure the actual archive state.
 - Next action: In a separate causal change, build a hash-verifying report-only
   adapter from the archive to the macro normalizer. Configure a durable
   publication destination and FRED secret only under separate approval before
@@ -4698,8 +4707,10 @@ Expected contract:
   ready, floor a capture time, race multiple writers, drop receipt hashes on
   retry, replace malformed UTF-8, accept an out-of-window FRED row, leave a
   malformed quote or duplicate JSON key recoverable, coerce booleans/fractions
-  into integer metadata, capture from a dirty builder, leave a verified orphan
-  unrecoverable, or connect the archive directly to portfolio policy.
+  into integer metadata, accept non-finite constants or provisional Cboe
+  closes, capture official data from a dirty builder, reject a valid dirty
+  fixture orphan, relabel a verified commit because its mutable receipt failed,
+  or connect the archive directly to portfolio policy.
 - Evidence files:
   - docs/run287_chameleon_forward_archive_contract.json
   - tools/collect_run287_chameleon_forward_archive.py

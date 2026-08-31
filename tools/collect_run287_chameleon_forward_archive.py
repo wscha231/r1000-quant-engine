@@ -26,7 +26,7 @@ from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
-from urllib.parse import quote, urlsplit, urlunsplit
+from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 import requests
 
@@ -34,7 +34,7 @@ import requests
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONTRACT = ROOT / "docs" / "run287_chameleon_forward_archive_contract.json"
 CANONICAL_CONTRACT_SEMANTIC_SHA256 = (
-    "11b7e37dd61088c3de522c10698cafb5f581082d2017bb638299f1093fea7592"
+    "78d15a1eb38b4fca2a1566f33af8b6091077bac5b34dad6266d6a704b695e958"
 )
 SCHEMA_VERSION = "run287-chameleon-forward-archive-v1"
 READY_STATUS = "READY_CHAMELEON_FORWARD_ARCHIVE_REPORT_ONLY"
@@ -263,6 +263,21 @@ def safe_blocker(exc: BaseException) -> str:
     return text[:1000]
 
 
+def committed_result_with_receipt(
+    output_root: Path, result: Mapping[str, Any]
+) -> dict[str, Any]:
+    persisted = {**dict(result), "last_attempt_receipt_written": True}
+    try:
+        atomic_write_json(output_root / "last_attempt.json", persisted)
+        return persisted
+    except Exception as exc:
+        return {
+            **dict(result),
+            "last_attempt_receipt_written": False,
+            "last_attempt_receipt_error": safe_blocker(exc),
+        }
+
+
 def raw_contains_secret(raw: bytes, secret: str) -> bool:
     if not secret:
         return False
@@ -278,7 +293,15 @@ def decoded_value_contains_secret(value: Any, secret: str) -> bool:
         return False
     variants = {secret, quote(secret, safe="")}
     if isinstance(value, str):
-        return any(candidate in value for candidate in variants if candidate)
+        candidate_value = value
+        for _ in range(4):
+            if any(candidate in candidate_value for candidate in variants if candidate):
+                return True
+            decoded = unquote(candidate_value)
+            if decoded == candidate_value:
+                break
+            candidate_value = decoded
+        return False
     if isinstance(value, Mapping):
         return any(
             decoded_value_contains_secret(key, secret)
@@ -299,12 +322,33 @@ def strict_json_payload(raw: bytes, *, source_id: str) -> Any:
             output[key] = value
         return output
 
+    def reject_constant(_value: str) -> Any:
+        raise ArchiveContractError(f"{source_id}_nonstandard_json_constant")
+
     try:
-        return json.loads(raw.decode("utf-8"), object_pairs_hook=unique_object)
+        payload = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=unique_object,
+            parse_constant=reject_constant,
+        )
     except ArchiveContractError:
         raise
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ArchiveContractError(f"{source_id}_json_unreadable") from exc
+
+    def reject_nonfinite(value: Any) -> None:
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ArchiveContractError(f"{source_id}_nonfinite_json_number")
+        if isinstance(value, Mapping):
+            for key, item in value.items():
+                reject_nonfinite(key)
+                reject_nonfinite(item)
+        elif isinstance(value, list):
+            for item in value:
+                reject_nonfinite(item)
+
+    reject_nonfinite(payload)
+    return payload
 
 
 def exact_json_integer(value: Any, *, source_id: str, field: str) -> int:
@@ -409,7 +453,7 @@ def load_contract(path: Path) -> dict[str, Any]:
         raise ArchiveContractError("archive_writer_timeout_changed")
     if (
         collection.get("source_text_encoding_policy")
-        != "STRICT_UTF8_OPTIONAL_BOM_AND_STRICT_CSV"
+        != "STRICT_UTF8_OPTIONAL_BOM_AND_RFC_QUOTE_VALIDATED_CSV"
     ):
         raise ArchiveContractError("source_text_encoding_policy_changed")
     if (
@@ -429,6 +473,16 @@ def load_contract(path: Path) -> dict[str, Any]:
     ):
         raise ArchiveContractError("idempotent_receipt_policy_changed")
     if (
+        archive.get("fixture_orphan_builder_policy")
+        != "ALLOW_RECORDED_RUNTIME_AND_HEAD_BLOB_HASH_DIFFERENCE"
+    ):
+        raise ArchiveContractError("fixture_orphan_builder_policy_changed")
+    if (
+        archive.get("committed_receipt_failure_policy")
+        != "RETURN_VERIFIED_SUCCESS_WITH_RECEIPT_FAILURE_DETAIL"
+    ):
+        raise ArchiveContractError("committed_receipt_failure_policy_changed")
+    if (
         truth.get("available_from_precision")
         != "PRESERVE_RUNTIME_MICROSECONDS_NO_FLOOR"
     ):
@@ -441,15 +495,20 @@ def load_contract(path: Path) -> dict[str, Any]:
         raise ArchiveContractError("fred_observation_date_policy_changed")
     if (
         fred.get("response_json_policy")
-        != "UTF8_NO_DUPLICATE_KEYS_EXACT_INTEGER_METADATA"
+        != "RFC_JSON_NO_DUPLICATE_KEYS_NO_NONFINITE_NUMBERS_EXACT_INTEGER_METADATA"
     ):
         raise ArchiveContractError("fred_response_json_policy_changed")
     if (
         fred.get("response_secret_policy")
-        != "REJECT_ACTIVE_API_KEY_IN_RAW_OR_DECODED_JSON_RESPONSE"
+        != "REJECT_ACTIVE_API_KEY_IN_RAW_OR_RECURSIVELY_PERCENT_DECODED_JSON_RESPONSE"
     ):
         raise ArchiveContractError("fred_response_secret_policy_changed")
     cboe = payload.get("cboe") or {}
+    if (
+        cboe.get("index_close_current_date_policy")
+        != "REQUIRE_COMPLETED_NYSE_SESSION"
+    ):
+        raise ArchiveContractError("cboe_index_close_session_policy_changed")
     if int(cboe.get("daily_options_max_completed_nyse_session_lag", -1)) != 1:
         raise ArchiveContractError("daily_options_freshness_policy_changed")
     cross_asset = payload.get("cross_asset") or {}
@@ -754,11 +813,13 @@ def verify_recoverable_snapshot(
     git_commit = str(manifest.get("git_head") or "")
     builder_sha = str(manifest.get("builder_sha256") or "")
     builder_git_blob_sha = str(manifest.get("builder_git_blob_sha256") or "")
+    fixture_mode = manifest.get("fixture_mode")
     if (
         re.fullmatch(r"[0-9a-f]{40}", git_commit) is None
         or HEX64.fullmatch(builder_sha) is None
         or HEX64.fullmatch(builder_git_blob_sha) is None
-        or builder_sha != builder_git_blob_sha
+        or type(fixture_mode) is not bool
+        or (not fixture_mode and builder_sha != builder_git_blob_sha)
     ):
         raise ArchiveContractError(f"orphan_snapshot_builder_identity_invalid:{snapshot_id}")
 
@@ -929,10 +990,43 @@ def verify_consumed_inputs(consumed: Mapping[str, str]) -> None:
             )
 
 
+def validate_csv_quote_structure(text: str, *, source_id: str) -> None:
+    """Reject quote placement that Python's otherwise strict reader repairs."""
+    state = "field_start"
+    for character in text:
+        if ord(character) < 32 and character not in "\t\r\n":
+            raise ArchiveContractError(f"{source_id}_csv_control_character_invalid")
+        if state == "field_start":
+            if character == '"':
+                state = "quoted"
+            elif character not in ",\r\n":
+                state = "unquoted"
+        elif state == "unquoted":
+            if character == '"':
+                raise ArchiveContractError(f"{source_id}_csv_quote_structure_invalid")
+            if character in ",\r\n":
+                state = "field_start"
+        elif state == "quoted":
+            if character == '"':
+                state = "after_quote"
+        elif state == "after_quote":
+            if character == '"':
+                state = "quoted"
+            elif character in ",\r\n":
+                state = "field_start"
+            else:
+                raise ArchiveContractError(f"{source_id}_csv_quote_structure_invalid")
+    if state == "quoted":
+        raise ArchiveContractError(f"{source_id}_csv_quote_structure_invalid")
+
+
 def decode_csv(raw: bytes, *, source_id: str) -> list[list[str]]:
     try:
         text = raw.decode("utf-8-sig")
+        validate_csv_quote_structure(text, source_id=source_id)
         return list(csv.reader(io.StringIO(text), strict=True))
+    except ArchiveContractError:
+        raise
     except (UnicodeDecodeError, csv.Error) as exc:
         raise ArchiveContractError(f"{source_id}_csv_unreadable") from exc
 
@@ -1089,7 +1183,12 @@ def normalize_fred(
 
 
 def normalize_cboe_index(
-    raw: bytes, *, source_id: str, symbol: str
+    raw: bytes,
+    *,
+    source_id: str,
+    symbol: str,
+    captured_at: datetime,
+    require_completed_current_date: bool,
 ) -> list[dict[str, Any]]:
     rows = decode_csv(raw, source_id=source_id)
     candidates: list[tuple[int, list[str], str]] = []
@@ -1118,13 +1217,26 @@ def normalize_cboe_index(
     columns = {name: position for position, name in enumerate(header)}
     output: list[dict[str, Any]] = []
     seen_dates: set[str] = set()
+    latest_completed_session = (
+        completed_nyse_sessions(captured_at)[-1]
+        if require_completed_current_date
+        else None
+    )
     for row in rows[header_index + 1 :]:
         if not any(str(value).strip() for value in row):
             continue
-        observed = parse_cboe_date(
+        observed_date = parse_cboe_date(
             row_value(row, columns, "date", source_id=source_id),
             field=f"{source_id}_observation",
-        ).isoformat()
+        )
+        if (
+            latest_completed_session is not None
+            and observed_date > latest_completed_session
+        ):
+            raise ArchiveContractError(
+                f"{source_id}_current_date_close_session_incomplete"
+            )
+        observed = observed_date.isoformat()
         if observed in seen_dates:
             raise ArchiveContractError(f"{source_id}_duplicate_observation_date")
         seen_dates.add(observed)
@@ -1652,7 +1764,11 @@ def collect_sources(
             raise ArchiveContractError(f"{source_id}_raw_too_large")
         if kind == "INDEX_HISTORY":
             normalized = normalize_cboe_index(
-                raw, source_id=source_id, symbol=name
+                raw,
+                source_id=source_id,
+                symbol=name,
+                captured_at=captured_at,
+                require_completed_current_date=mode == "official_network",
             )
         elif kind == "DAILY_OPTIONS_PAGE":
             normalized = normalize_cboe_daily_options_page(
@@ -1982,8 +2098,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 "archive_index_entry_sha256": same_time[0]["entry_sha256"],
                 "archive_index_entry_count": len(existing_entries),
             }
-            atomic_write_json(output_root / "last_attempt.json", result)
-            return result
+            return committed_result_with_receipt(output_root, result)
         if existing_entries:
             latest = parse_utc(
                 existing_entries[-1]["collected_at_utc"],
@@ -2086,8 +2201,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "archive_index_entry_sha256": entry["entry_sha256"],
             "archive_index_entry_count": len(all_entries),
         }
-        atomic_write_json(output_root / "last_attempt.json", result)
-        return result
+        return committed_result_with_receipt(output_root, result)
     except Exception as exc:
         blocked = {
             "schema_version": SCHEMA_VERSION,

@@ -72,16 +72,21 @@ ratios separately.
 - One OS-level advisory writer lock covers orphan recovery, capture, snapshot
   commit, and index commit so concurrent processes cannot fork the chain.
 - A successful FRED response that contains the active API key, including its
-  URL-encoded or JSON-escaped form, is rejected before any raw object is
-  persisted.
+  recursively percent-encoded or JSON-escaped form, is rejected before any raw
+  object is persisted.
 - Cboe and cross-asset text is decoded as strict UTF-8 with an optional BOM;
-  malformed bytes or CSV quoting block the snapshot instead of being repaired.
+  malformed bytes, unterminated quotes, or bare quotes inside unquoted fields
+  block the snapshot instead of being repaired.
 - Every FRED observation must remain inside the inclusive requested window and
   arrive in the declared strictly ascending order.
 - FRED JSON rejects duplicate keys and requires true non-boolean integers for
-  count, limit, and offset metadata.
+  count, limit, and offset metadata; every non-finite number is rejected.
 - Official network collection requires the executed builder bytes to equal the
   exact tracked builder blob at the recorded Git head.
+- An official Cboe index row newer than the latest completed NYSE session is
+  rejected rather than being labelled a close.
+- Once the snapshot/index commit revalidates, a failed mutable last-attempt
+  receipt is reported as receipt failure without relabelling the commit blocked.
 
 ## Local official-network proof
 
@@ -124,6 +129,9 @@ The dedicated smoke covers:
 - malformed UTF-8 rejection and per-row FRED request-window/order enforcement;
 - strict CSV quoting, duplicate-key and exact-integer JSON checks, decoded JSON
   secret scanning, and builder-to-Git-head byte binding;
+- recursive percent-decoding, non-finite JSON rejection, bare-quote detection,
+  dirty-fixture orphan recovery, completed-session close enforcement, and
+  post-commit receipt-failure semantics;
 - pre-launch and caller-injected network time rejection.
 
 The dedicated smoke and Python compilation passed. The official Cboe network

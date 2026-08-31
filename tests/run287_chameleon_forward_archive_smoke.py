@@ -419,6 +419,21 @@ def test_invalid_fred_vintage_and_duplicate_observation_block_snapshot() -> None
         assert "duplicate_json_key" in blocked["blockers"][0]
         assert index_rows(root / "archive_duplicate_key") == []
 
+        for case, value, expected in (
+            ("constant", "NaN", "nonstandard_json_constant"),
+            ("overflow", "1e999", "nonfinite_json_number"),
+        ):
+            nonfinite = build_source_bundle(root / f"nonfinite_{case}")
+            target = nonfinite / "fred" / "DGS2.json"
+            raw = target.read_text(encoding="utf-8")
+            raw = raw.replace("{", f'{{"ignored": {value},', 1)
+            target.write_text(raw, encoding="utf-8")
+            archive_root = root / f"archive_nonfinite_{case}"
+            blocked = archive.build(args(archive_root, nonfinite))
+            assert blocked["status"] == archive.BLOCKED_STATUS
+            assert expected in blocked["blockers"][0]
+            assert index_rows(archive_root) == []
+
 
 def test_fred_observations_must_stay_inside_requested_window_and_order() -> None:
     with tempfile.TemporaryDirectory() as temporary:
@@ -476,17 +491,19 @@ def test_csv_sources_reject_malformed_utf8() -> None:
 def test_csv_sources_reject_malformed_quoting() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
-        for case, relative in (
-            ("cboe", Path("cboe/vix.csv")),
-            ("cross_asset", Path("cross_asset/daily.csv")),
+        for case, relative, suffix in (
+            ("cboe_unterminated", Path("cboe/vix.csv"), b',"unterminated'),
+            ("cross_unterminated", Path("cross_asset/daily.csv"), b',"unterminated'),
+            ("cboe_bare", Path("cboe/vix.csv"), b',bare"quote'),
+            ("cross_bare", Path("cross_asset/daily.csv"), b',bare"quote'),
         ):
             bundle = build_source_bundle(root / case)
             target = bundle / relative
-            target.write_bytes(target.read_bytes() + b',"unterminated')
+            target.write_bytes(target.read_bytes() + suffix)
             archive_root = root / f"archive_{case}"
             blocked = archive.build(args(archive_root, bundle))
             assert blocked["status"] == archive.BLOCKED_STATUS
-            assert "csv_unreadable" in blocked["blockers"][0]
+            assert "csv_quote_structure_invalid" in blocked["blockers"][0]
             assert index_rows(archive_root) == []
 
 
@@ -614,6 +631,7 @@ def test_verified_snapshot_is_recovered_after_index_interruption() -> None:
         bundle = build_source_bundle(root)
         archive_root = root / "archive"
         original_write_index = archive.write_index
+        original_git_blob_bytes = archive.git_blob_bytes
         calls = 0
 
         def fail_first_index(path: Path, entries: object) -> None:
@@ -625,6 +643,7 @@ def test_verified_snapshot_is_recovered_after_index_interruption() -> None:
 
         try:
             archive.write_index = fail_first_index
+            archive.git_blob_bytes = lambda head, relative: b"dirty-fixture-head-blob"
             first = archive.build(args(archive_root, bundle))
         finally:
             archive.write_index = original_write_index
@@ -632,7 +651,11 @@ def test_verified_snapshot_is_recovered_after_index_interruption() -> None:
         assert not (archive_root / "archive_index.jsonl").exists()
         assert len(list((archive_root / "snapshots").iterdir())) == 1
 
-        recovered = archive.build(args(archive_root, bundle))
+        try:
+            archive.git_blob_bytes = lambda head, relative: b"dirty-fixture-head-blob"
+            recovered = archive.build(args(archive_root, bundle))
+        finally:
+            archive.git_blob_bytes = original_git_blob_bytes
         assert recovered["status"] == archive.READY_STATUS
         assert recovered["idempotent_reuse"] is True
         assert len(index_rows(archive_root)) == 1
@@ -764,52 +787,62 @@ def test_fred_response_echoing_api_key_is_rejected_before_archive_write() -> Non
         original_now = archive.utc_now
         original_key = os.environ.get("FRED_API_KEY")
         secret = "echoed-secret-that-must-not-be-archived"
-
-        def fake_fetch(
-            *,
-            url: str,
-            params: dict | None,
-            timeout_seconds: int,
-            maximum_bytes: int,
-        ) -> tuple[bytes | None, str, datetime | None, str]:
-            del timeout_seconds, maximum_bytes
-            if "stlouisfed.org" in url:
-                assert params is not None
-                payload = json.loads(
-                    (
-                        fixture_bundle
-                        / "fred"
-                        / f"{params['series_id']}.json"
-                    ).read_text(encoding="utf-8")
-                )
-                payload["request_url"] = f"{url}?api_key={secret}"
-                serialized = json.dumps(payload)
-                escaped_secret = "".join(
-                    f"\\u{ord(character):04x}" for character in secret
-                )
-                assert secret in serialized
-                return (
-                    serialized.replace(secret, escaped_secret).encode("utf-8"),
-                    "",
-                    fixed_time,
-                    url,
-                )
-            raise AssertionError("Cboe should not be reached after FRED secret echo")
+        encoded_variants = {
+            "json_escape": "".join(
+                f"\\u{ord(character):04x}" for character in secret
+            ),
+            "percent_escape": f"%{ord(secret[0]):02x}{secret[1:]}",
+        }
 
         try:
             os.environ["FRED_API_KEY"] = secret
-            archive.network_fetch = fake_fetch
             archive.utc_now = lambda: fixed_time
-            archive_root = root / "archive"
-            blocked = archive.build(
-                args(
-                    archive_root,
-                    None,
-                    fixture_mode=False,
-                    allow_network=True,
-                    collected_at="",
+            for case, encoded_secret in encoded_variants.items():
+                def fake_fetch(
+                    *,
+                    url: str,
+                    params: dict | None,
+                    timeout_seconds: int,
+                    maximum_bytes: int,
+                ) -> tuple[bytes | None, str, datetime | None, str]:
+                    del timeout_seconds, maximum_bytes
+                    if "stlouisfed.org" in url:
+                        assert params is not None
+                        payload = json.loads(
+                            (
+                                fixture_bundle
+                                / "fred"
+                                / f"{params['series_id']}.json"
+                            ).read_text(encoding="utf-8")
+                        )
+                        payload["request_url"] = f"{url}?api_key={secret}"
+                        serialized = json.dumps(payload)
+                        assert secret in serialized
+                        return (
+                            serialized.replace(secret, encoded_secret).encode("utf-8"),
+                            "",
+                            fixed_time,
+                            url,
+                        )
+                    raise AssertionError(
+                        "Cboe should not be reached after FRED secret echo"
+                    )
+
+                archive.network_fetch = fake_fetch
+                archive_root = root / f"archive_{case}"
+                blocked = archive.build(
+                    args(
+                        archive_root,
+                        None,
+                        fixture_mode=False,
+                        allow_network=True,
+                        collected_at="",
+                    )
                 )
-            )
+                assert blocked["status"] == archive.BLOCKED_STATUS
+                assert "raw_response_contains_api_key" in blocked["blockers"][0]
+                assert secret not in json.dumps(blocked)
+                assert not list((archive_root / "objects" / "raw").glob("*"))
         finally:
             archive.network_fetch = original_fetch
             archive.utc_now = original_now
@@ -817,11 +850,6 @@ def test_fred_response_echoing_api_key_is_rejected_before_archive_write() -> Non
                 os.environ.pop("FRED_API_KEY", None)
             else:
                 os.environ["FRED_API_KEY"] = original_key
-
-        assert blocked["status"] == archive.BLOCKED_STATUS
-        assert "raw_response_contains_api_key" in blocked["blockers"][0]
-        assert secret not in json.dumps(blocked)
-        assert not list((archive_root / "objects" / "raw").glob("*"))
 
 
 def test_stale_daily_options_session_blocks_snapshot() -> None:
@@ -839,6 +867,61 @@ def test_stale_daily_options_session_blocks_snapshot() -> None:
         blocked = archive.build(args(root / "archive", bundle))
         assert blocked["status"] == archive.BLOCKED_STATUS
         assert "stale_selected_date" in blocked["blockers"][0]
+
+
+def test_cboe_current_date_close_requires_completed_session() -> None:
+    raw = b"DATE,CLOSE\n08/27/2026,13.0\n08/28/2026,14.0\n"
+    before_close = datetime(2026, 8, 28, 18, 0, tzinfo=timezone.utc)
+    after_close = datetime(2026, 8, 28, 21, 0, tzinfo=timezone.utc)
+    try:
+        archive.normalize_cboe_index(
+            raw,
+            source_id="cboe.vix",
+            symbol="vix",
+            captured_at=before_close,
+            require_completed_current_date=True,
+        )
+        raise AssertionError("in-session Cboe close was accepted")
+    except archive.ArchiveContractError as exc:
+        assert "current_date_close_session_incomplete" in str(exc)
+    rows = archive.normalize_cboe_index(
+        raw,
+        source_id="cboe.vix",
+        symbol="vix",
+        captured_at=after_close,
+        require_completed_current_date=True,
+    )
+    assert rows[-1]["source_observation_date"] == "2026-08-28"
+
+
+def test_verified_commit_survives_last_attempt_receipt_failure() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        archive_root = root / "archive"
+        original_atomic_write_json = archive.atomic_write_json
+
+        def fail_receipt(path: Path, payload: dict) -> None:
+            if path.name == "last_attempt.json":
+                raise OSError("simulated_receipt_failure")
+            original_atomic_write_json(path, payload)
+
+        try:
+            archive.atomic_write_json = fail_receipt
+            published = archive.build(args(archive_root, bundle))
+        finally:
+            archive.atomic_write_json = original_atomic_write_json
+        assert published["status"] == archive.READY_STATUS
+        assert published["archive_passed"] is True
+        assert published["last_attempt_receipt_written"] is False
+        assert "simulated_receipt_failure" in published["last_attempt_receipt_error"]
+        assert len(index_rows(archive_root)) == 1
+
+        retried = archive.build(args(archive_root, bundle))
+        assert retried["status"] == archive.READY_STATUS
+        assert retried["idempotent_reuse"] is True
+        assert retried["last_attempt_receipt_written"] is True
+        assert len(index_rows(archive_root)) == 1
 
 
 def test_prelaunch_collection_is_rejected() -> None:
@@ -879,5 +962,7 @@ if __name__ == "__main__":
     test_archive_writer_lock_rejects_a_concurrent_writer()
     test_fred_response_echoing_api_key_is_rejected_before_archive_write()
     test_stale_daily_options_session_blocks_snapshot()
+    test_cboe_current_date_close_requires_completed_session()
+    test_verified_commit_survives_last_attempt_receipt_failure()
     test_prelaunch_collection_is_rejected()
     print("run287_chameleon_forward_archive_smoke: PASS")
