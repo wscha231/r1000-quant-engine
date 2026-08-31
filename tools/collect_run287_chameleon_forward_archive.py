@@ -536,6 +536,7 @@ def public_https_url(value: Any, *, field: str) -> str:
             labels = ascii_host.split(".")
             reserved_suffixes = {
                 "alt",
+                "corp",
                 "example",
                 "home",
                 "home.arpa",
@@ -546,6 +547,7 @@ def public_https_url(value: Any, *, field: str) -> str:
                 "local",
                 "localdomain",
                 "localhost",
+                "mail",
                 "onion",
                 "private",
                 "test",
@@ -2137,13 +2139,19 @@ def recover_verified_unindexed_snapshot(
 
 def stable_read(
     path: Path,
-    consumed: dict[str, tuple[str, str]],
+    consumed: dict[str, tuple[str, str, int]],
     *,
     fixture_root: Path,
     maximum_bytes: int,
 ) -> bytes:
     root = Path(os.path.abspath(fixture_root))
     candidate = Path(os.path.abspath(path))
+    if (
+        not root.is_dir()
+        or root.is_symlink()
+        or bool(getattr(root, "is_junction", lambda: False)())
+    ):
+        raise ArchiveContractError("source_bundle_not_regular_directory")
     try:
         relative = candidate.relative_to(root)
     except ValueError as exc:
@@ -2180,7 +2188,7 @@ def stable_read(
     if len(raw) > maximum_bytes:
         raise ArchiveContractError(f"fixture_too_large:{path.name}")
     digest = sha256_bytes(raw)
-    consumed[str(candidate)] = (digest, str(root))
+    consumed[str(candidate)] = (digest, str(root), maximum_bytes)
     return raw
 
 
@@ -2195,22 +2203,22 @@ def fixture_entry_present(path: Path) -> bool:
 
 
 def verify_consumed_inputs(
-    consumed: Mapping[str, tuple[str, str]],
+    consumed: Mapping[str, tuple[str, str, int]],
 ) -> None:
-    for raw_path, (expected, fixture_root) in consumed.items():
+    for raw_path, (expected, fixture_root, maximum_bytes) in consumed.items():
         path = Path(raw_path)
         try:
-            stable_read(
+            raw = stable_read(
                 path,
                 {},
                 fixture_root=Path(fixture_root),
-                maximum_bytes=path.stat().st_size,
+                maximum_bytes=maximum_bytes,
             )
         except (ArchiveContractError, OSError) as exc:
             raise ArchiveContractError(
                 f"fixture_changed_during_collection:{path.name}"
             ) from exc
-        if sha256_file(path) != expected:
+        if sha256_bytes(raw) != expected:
             raise ArchiveContractError(
                 f"fixture_changed_during_collection:{path.name}"
             )
@@ -2930,11 +2938,11 @@ def collect_sources(
 ) -> tuple[
     list[dict[str, Any]],
     list[dict[str, Any]],
-    dict[str, tuple[str, str]],
+    dict[str, tuple[str, str, int]],
 ]:
     captures: list[dict[str, Any]] = []
     audits: list[dict[str, Any]] = []
-    consumed: dict[str, tuple[str, str]] = {}
+    consumed: dict[str, tuple[str, str, int]] = {}
     timeout = int(contract["collection"]["request_timeout_seconds"])
     maximum_bytes = int(contract["collection"]["maximum_raw_bytes_per_source"])
     missing_token = str(contract["fred"]["missing_value_token"])

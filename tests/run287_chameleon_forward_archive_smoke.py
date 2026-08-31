@@ -635,6 +635,8 @@ def test_cross_asset_provenance_rejects_credentials_before_persistence() -> None
         ("https://localhost/SPY", "credential_bearing_or_nonpublic_url"),
         ("https://prices.corp.local/SPY", "credential_bearing_or_nonpublic_url"),
         ("https://prices.internal/SPY", "credential_bearing_or_nonpublic_url"),
+        ("https://prices.corp/SPY", "credential_bearing_or_nonpublic_url"),
+        ("https://prices.mail/SPY", "credential_bearing_or_nonpublic_url"),
         ("https://prices.example.test/SPY", "credential_bearing_or_nonpublic_url"),
         ("https://prices.home.arpa/SPY", "credential_bearing_or_nonpublic_url"),
     ):
@@ -1315,7 +1317,7 @@ def test_fixture_size_is_bounded_before_materialization() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         fixture = Path(temporary) / "oversized.csv"
         fixture.write_bytes(b"ab")
-        consumed: dict[str, tuple[str, str]] = {}
+        consumed: dict[str, tuple[str, str, int]] = {}
         try:
             archive.stable_read(
                 fixture,
@@ -1353,6 +1355,46 @@ def test_fixture_ancestors_cannot_be_links_or_escape_the_bundle() -> None:
         assert blocked["status"] == archive.BLOCKED_STATUS
         assert "fixture_ancestor_link_or_directory_invalid" in blocked["blockers"][0]
         assert index_rows(archive_root) == []
+
+
+def test_consumed_fixture_recheck_reuses_root_and_size_policy() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        fixture = root / "fixture.csv"
+        fixture.write_bytes(b"a")
+        consumed: dict[str, tuple[str, str, int]] = {}
+        archive.stable_read(
+            fixture,
+            consumed,
+            fixture_root=root,
+            maximum_bytes=1,
+        )
+        fixture.write_bytes(b"ab")
+        try:
+            archive.verify_consumed_inputs(consumed)
+            raise AssertionError("a fixture replaced above its original cap was accepted")
+        except archive.ArchiveContractError as exc:
+            assert "fixture_changed_during_collection" in str(exc)
+
+        fixture.write_bytes(b"a")
+        original_is_junction = getattr(Path, "is_junction", None)
+
+        def fake_is_junction(path: Path) -> bool:
+            return path == root or (
+                original_is_junction is not None and original_is_junction(path)
+            )
+
+        try:
+            Path.is_junction = fake_is_junction
+            archive.verify_consumed_inputs(consumed)
+            raise AssertionError("a source bundle changed to a junction was accepted")
+        except archive.ArchiveContractError as exc:
+            assert "fixture_changed_during_collection" in str(exc)
+        finally:
+            if original_is_junction is None:
+                delattr(Path, "is_junction")
+            else:
+                Path.is_junction = original_is_junction
 
 
 def test_cross_asset_closes_require_completed_nyse_sessions() -> None:
@@ -2338,6 +2380,7 @@ if __name__ == "__main__":
     test_present_non_regular_fixture_entries_block_the_snapshot()
     test_fixture_size_is_bounded_before_materialization()
     test_fixture_ancestors_cannot_be_links_or_escape_the_bundle()
+    test_consumed_fixture_recheck_reuses_root_and_size_policy()
     test_cross_asset_closes_require_completed_nyse_sessions()
     test_cross_asset_provider_controls_block_before_persistence()
     test_snapshot_identity_binds_the_pinned_nyse_calendar()
