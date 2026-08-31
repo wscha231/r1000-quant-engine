@@ -224,6 +224,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/run287_macro_sidecar_smoke.py", []),
     ("tests/run287_chameleon_macro_risk_smoke.py", []),
     ("tests/run287_chameleon_macro_inputs_smoke.py", []),
+    ("tests/run287_chameleon_forward_archive_smoke.py", []),
     ("tests/run287_benchmark_event_sidecar_smoke.py", []),
     ("tests/run287_recent_sec_delta_smoke.py", []),
     ("tests/run287_recent_companyfacts_smoke.py", []),

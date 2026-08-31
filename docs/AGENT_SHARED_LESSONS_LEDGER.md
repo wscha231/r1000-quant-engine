@@ -4613,3 +4613,288 @@ Expected contract:
 - Fullrun executed: false. Workflow dispatched or rerun: false. Target, order,
   TradeIntent, ledger, accepted-head, production, live trading, and automatic
   promotion state mutated: false.
+
+## 2026-08-30 - Forward PIT begins at capture time, not at a historical row date
+
+- Agent: Codex GPT-5.6.
+- Branch: codex/chameleon-forward-pit-archive-20260830.
+- Context: The report-only ten-axis Chameleon engine needed a sustainable
+  observation archive before its macro inputs could be treated as forward PIT.
+- Result: Added a content-addressed, append-only FRED/ALFRED and Cboe collector
+  with exact per-source capture time, raw and normalized SHA-256, immutable
+  snapshots, a chained index, same-time idempotence, out-of-order rejection,
+  source-byte stability, secret exclusion, and a complete nonexecution safety
+  envelope. Fixture and supplied-file data remain FREE_PROXY; only official
+  runtime network captures become FORWARD_PIT, with available_from equal to
+  the exact capture time.
+- Source correction: The initially inspected Cboe equity and index put-call
+  archive links ended in 2012 and were not suitable for current sentiment.
+  The collector now captures the official Daily Market Statistics response,
+  separates equity and index ratios, binds the selected trading date, and
+  cross-checks each ratio against call, put, and total volume.
+- Exact-head review correction: The first implementation could persist a
+  credential-bearing cross-asset provenance URL, buffer an oversized network
+  response before enforcing its cap, follow an unverified redirect, accept an
+  empty or stale options capture, and leave a valid snapshot permanently
+  unindexed after interruption. The corrected collector rejects userinfo,
+  query, and fragment provenance; bounds response streaming; verifies every
+  redirect hop and persists only a sanitized final URL; requires nonempty and
+  holiday-aware current observations; and recovers exactly one fully verified
+  orphan snapshot before the next capture.
+- Final exact-head review correction: Capture timestamps now retain runtime
+  microseconds; one OS advisory lock covers the complete recovery/capture/
+  commit transaction; successful FRED response bytes are rejected if they echo
+  the active secret; and idempotent reuse returns the original manifest and
+  archive-index receipt hashes. A publication-pin warning against the review
+  service's synthetic tree is handled by preserving commit ancestry with a
+  regular merge and verifying the expected branch head.
+- Subsequent exact-head review correction: CSV inputs now decode as strict
+  UTF-8 with an optional BOM, and every FRED row must be inside the inclusive
+  requested observation window and in the declared ascending order. Malformed
+  provider bytes or contradictory response rows block before persistence.
+- Final parser and identity correction: Secret scanning now includes decoded
+  JSON keys and values so Unicode escapes cannot hide the active key; CSV uses
+  strict quoting; FRED JSON rejects duplicate keys and lossy integer coercion;
+  and official network capture requires the executed builder bytes to equal
+  the exact tracked blob at the recorded Git head.
+- Commit-boundary correction: Secret scanning now recursively percent-decodes
+  structured strings; JSON rejects non-finite numbers; CSV rejects bare
+  quotes; dirty fixture orphans remain recoverable; Cboe closes cannot exceed
+  the latest completed NYSE session; and failure of the mutable last-attempt
+  receipt cannot relabel a verified immutable index commit as blocked.
+- Final recovery correction: Every percent-decoding depth is inspected after
+  decoding, with excessive nesting rejected, and exact local `.staging-*`
+  directories left by process termination are removed only under the archive's
+  writer lock before index/orphan validation.
+- Exact-head safety correction: Abandoned staging cleanup rejects the staging
+  root or any descendant that is a mount point, provenance URLs reject every
+  whitespace/control character before parsing, and Cboe index histories must
+  end within one completed NYSE session of capture.
+- Recovery and transport correction: A recoverable orphan must contain the
+  exact canonical 18-source set with matching provider, kind, and public URL;
+  only NYSE-session Cboe closes enter normalized rows while provider-supplied
+  non-session rows remain raw and are counted; fixture times cannot exceed the
+  runtime clock; and official source bodies are consumed only after HTTP 200.
+- Redirect and content correction: HTTP redirects are followed manually only
+  after the next Location passes same-origin HTTPS validation; provenance keeps
+  extraction whitespace until validation and rejects local/non-global hosts;
+  CSV rejects Unicode controls; and recovered normalized JSONL is reparsed and
+  matched row-by-row to source, truth, raw hash, and availability metadata.
+- Session-edge correction: A same-day weekend or holiday Cboe row is retained
+  only in raw evidence and counted as excluded, while a real exchange session
+  whose close has not completed still blocks the entire source.
+- Recovery-schema correction: Recovered normalized rows are replayed against
+  their exact source schema (FRED series/vintage, Cboe instrument/volume, and
+  cross-asset ticker/basis/provenance), the complete report-only downstream
+  handoff must match the canonical contract, and a no-orphan append reuses the
+  index entries already fully validated during that transaction.
+- Raw-evidence correction: Orphan recovery now re-runs the canonical source
+  normalizer over every raw object and requires exact normalized-row equality;
+  FRED recovery also rechecks unique ordered dates and the exact seven-year
+  capture window, Cboe recovery rechecks freshness, and indexed manifests
+  cannot claim that this forward-only collector emitted PIT_VERIFIED evidence.
+- Indexed-state correction: Normal index loading now shares the complete
+  manifest/source/counter/object/identity verifier with orphan recovery;
+  archive-index and manifest JSON reject duplicate keys, and raw replay checks
+  the size cap before reading plus scans against the currently active FRED key.
+- Authority-boundary correction: Every raw source is scanned for the active key
+  before persistence, indexed raw evidence is re-normalized and its coverage
+  counters bind to the manifest, the canonical contract rejects duplicate JSON
+  keys, durable archive paths reject Windows junctions, and a recorded network
+  builder hash must match the collector blob at its actual Git commit.
+- Snapshot-boundary correction: Individual snapshot directories reject
+  junctions, manifest fixture mode must align with every present source mode,
+  launch/capture/collection chronology is replayed during verification, and
+  every recovered raw source type is scanned for the active key.
+- Time-and-manifest correction: Recovered collection and capture timestamps
+  cannot exceed the verification clock, and both raw manifest bytes and
+  recursively decoded manifest values are scanned for the active key before
+  snapshot authority is accepted.
+- Role-and-authority correction: Recovered raw and normalized object references
+  must remain in their canonical namespaces, every source audit record must
+  match its exact status-dependent schema, non-FRED request and missing-value
+  metadata must retain canonical values, and the snapshot manifest rejects all
+  unknown top-level fields including authority-shaped additions.
+- Encoding-calendar-and-close correction: Common raw-source secret scanning now
+  recursively decodes percent encoding, fixture size is bounded before file
+  materialization, the exact pandas-market-calendars version is pinned and
+  recorded inside snapshot identity, and cross-asset closes must belong to a
+  completed NYSE session at their capture time.
+- Precommit-provenance correction: Cross-asset provider text now uses the same
+  whitespace and Unicode control rule before persistence as recovery, and a
+  recorded 40-hex `git_head` must resolve to an actual commit object before its
+  collector blob can establish builder provenance.
+- Canonical-input correction: Commit-object validation now also precedes the
+  fixture-only builder-hash exemption, malformed nonempty FRED credentials
+  block the run instead of disabling common secret scans, and persisted UTC
+  fields reject leading or trailing whitespace before exact-format parsing.
+  The first full smoke correctly reached the earlier commit-object boundary for
+  its fabricated zero SHA; its stale expected error was updated without
+  weakening the new rejection.
+- Network proof: A local 2026-08-31 capture archived VIX, VIX3M, VVIX, and two
+  current 2026-08-28 put-call rows as FORWARD_PIT. Thirteen FRED/ALFRED series
+  remained explicitly missing because FRED_API_KEY was absent; cross-asset
+  closes remained missing because no trusted network provider is registered.
+  The proof was not published as canonical durable state.
+- Reusable lesson: A historical row inside a file fetched today does not
+  inherit its row date as availability. Preserve the complete raw response but
+  make every row unusable before the actual capture time. A page labelled
+  archive may be materially stale; validate the last observation date and use
+  the provider's current-data surface for forward monitoring.
+- Reusable lesson: Missing transport entitlement and missing signal coverage
+  are distinct from archive integrity. Record each separately, never carry or
+  synthesize the absent component, and keep downstream state changes blocked.
+- Reusable lesson: Content addressing is not enough for operational
+  durability. The snapshot-directory and index boundary needs a deterministic
+  crash-recovery transaction, and URL provenance must be treated as potential
+  secret material even when the transport scheme is HTTPS.
+- Reusable lesson: Preserve the actual subsecond availability time, serialize
+  the entire append transaction across processes, scan provider response bytes
+  for active secrets before persistence, and keep immutable receipt hashes on
+  an idempotent retry. Each property is part of the evidence contract, not an
+  implementation detail.
+- Reusable lesson: A syntactically recoverable decode is not necessarily valid
+  provenance. Do not replace malformed source bytes, and verify row-level
+  response semantics against the exact requested date bounds rather than
+  trusting response-level echoes.
+- Reusable lesson: Provenance includes parser behavior and executable identity.
+  Scan decoded structured values for secrets, reject ambiguous duplicate keys
+  and lossy type coercion, use strict parsers, and never label a dirty builder's
+  network output with an unrelated reviewed Git head.
+- Reusable lesson: Separate immutable commit authority from a mutable operator
+  receipt. After the index is revalidated, report receipt persistence failure
+  without denying the committed snapshot; otherwise retries can create false
+  duplicate captures and obscure the actual archive state.
+- Reusable lesson: Crash recovery must cover both sides of the atomic rename.
+  Verified post-rename orphans can be indexed, while pre-rename staging is
+  non-authoritative and may be discarded only after exact-path validation under
+  the same single-writer lock.
+- Reusable lesson: A lexically local path can still cross a filesystem boundary
+  through a bind mount, so destructive cleanup must verify mount topology before
+  traversal. Likewise, a valid historical file is not a current observation
+  unless its newest row passes an explicit completed-session freshness bound.
+- Reusable lesson: Self-consistent hashes do not prove that recovered content
+  belongs to the current contract. Revalidate the complete source topology and
+  transport completeness, and prevent simulated future availability from
+  poisoning the chronological head of an archive shared with real captures.
+- Reusable lesson: Redirect safety must be decided before network transmission,
+  not reconstructed from response history. Content-addressed normalized files
+  also require semantic replay during recovery; digest equality alone cannot
+  prove that manifest counters describe the stored rows.
+- Reusable lesson: Generic row envelopes are insufficient for recovered market
+  data. Revalidate signal identity and source-specific fields, bind every
+  downstream authority flag to the canonical contract, and avoid redundant
+  full-archive scans once the same transaction has already validated them.
+- Reusable lesson: A raw object's content hash proves only which bytes were
+  stored, not that those bytes produced the normalized observations. Crash
+  recovery must deterministically replay parsing and normalization, including
+  source freshness and request-window invariants, before granting authority to
+  an unindexed snapshot.
+- Reusable lesson: Indexed state and crash-recovery state must not have separate
+  trust envelopes. Share the verifier, parse provenance containers without
+  ambiguous duplicate keys, and apply capture-time secret and resource bounds
+  again whenever raw evidence is replayed.
+- Reusable lesson: Secret scanning belongs at the common persistence boundary,
+  not only inside one source parser. Filesystem link checks must follow platform
+  semantics, and a recorded commit string becomes provenance only after the
+  referenced blob is resolved and hashed.
+- Reusable lesson: Container-path safety does not automatically protect child
+  directories, and a manifest-level simulation flag cannot grant exemptions
+  unless it agrees with the evidence beneath it. Replay temporal causality and
+  secret checks together with content identity.
+- Reusable lesson: Temporal causality needs both lower and upper bounds, and a
+  secret can leak through authority metadata even when every source object is
+  clean. Scan the manifest as evidence, not merely as control flow.
+- Reusable lesson: A digest does not assign an evidence role, and a recomputed
+  identity does not make invented authority safe. Bind each digest to its raw
+  or normalized namespace and validate complete source and manifest schemas so
+  unrecognized permission fields and forged audit metadata fail closed.
+- Reusable lesson: Security and exact-close provenance include preprocessing
+  and dependency identity. Decode before scanning, bound before reading, bind
+  the calendar implementation into evidence, and never infer a valid ETF close
+  from a syntactically valid date alone.
+- Reusable lesson: Post-commit validation cannot repair an invalid immutable
+  append, and Git syntax does not establish object type. Apply the full text
+  rule before publication and verify commit type before resolving a path blob.
+- Reusable lesson: An exemption may relax hash equality but must not relax
+  provenance existence or type. Invalid credential configuration must fail
+  closed, and canonical evidence parsers must validate original bytes rather
+  than a stripped convenience representation.
+- Reusable lesson: A common secret scan must decode every encoding accepted by
+  downstream parsers, including JSON Unicode escapes as well as percent
+  encoding. Missing evidence also has a canonical state: zero/empty audit
+  counters and a source/mode-compatible reason are part of its authority.
+- Reusable lesson: A pre-persistence scan is still too late if parsing can
+  embed rejected raw values in a durable failure receipt. Scan bounded bytes
+  before any raw-derived exception, and distinguish an absent fixture from a
+  present non-regular entry so corruption cannot masquerade as unavailability.
+- Reusable lesson: Path safety is transitive across every ancestor, and a
+  sanitizer's return value is not evidence that persisted input was canonical.
+  Bind fixture resolution beneath its selected root, compare stored URLs to
+  their sanitized form, and reject special-use DNS suffixes as non-public.
+- Reusable lesson: Rechecking a consumed input must replay the original root
+  and resource bound, not derive a new allowance from mutable filesystem
+  state. Otherwise a swapped root or oversized replacement can bypass the
+  policy that protected the first read.
+- Next action: In a separate causal change, build a hash-verifying report-only
+  adapter from the archive to the macro normalizer. Configure a durable
+  publication destination and FRED secret only under separate approval before
+  scheduling.
+- Do-not-repeat: Do not backdate FORWARD_PIT to the source observation date,
+  use the legacy Cboe put-call archive as current options sentiment, accept a
+  caller-supplied network timestamp, persist an API key or signed provenance
+  URL, trust a redirected or unbounded response, mark an empty/stale source
+  ready, floor a capture time, race multiple writers, drop receipt hashes on
+  retry, replace malformed UTF-8, accept an out-of-window FRED row, leave a
+  malformed quote or duplicate JSON key recoverable, coerce booleans/fractions
+  into integer metadata, accept non-finite constants or provisional Cboe
+  closes, capture official data from a dirty builder, reject a valid dirty
+  fixture orphan, relabel a verified commit because its mutable receipt failed,
+  traverse a mount during staging cleanup, accept whitespace/control-bearing
+  provenance or normalize stale/non-session index history, recover a
+  contract-incomplete orphan, archive a partial HTTP response, let fixture time
+  advance beyond the runtime clock, auto-follow a credential-bearing redirect,
+  strip URL evidence before validation, accept a private provenance host or
+  Unicode CSV control, recover unchecked normalized JSONL, or connect the
+  archive directly to portfolio policy, recover a row under the wrong source
+  schema, accept a modified downstream handoff, or reread an unchanged archive
+  twice before fetching the next source, recover duplicate or stale rows,
+  accept a noncanonical FRED window, relabel an indexed manifest PIT_VERIFIED,
+  bind normalized observations to unrelated raw bytes, replay an oversized or
+  active-key-bearing raw object, accept duplicate index keys, or trust weaker
+  identity/source rules merely because a snapshot already has an index entry.
+  Do not scan only FRED-shaped inputs, let index counters diverge from a
+  manifest, skip raw replay for indexed data, parse the authority contract
+  ambiguously, accept a junction-backed archive path, or trust a builder hash
+  without resolving its recorded Git blob.
+  Do not follow a junction-backed snapshot, let fixture mode disagree with
+  present sources, recover pre-launch or time-reversed evidence, or scan only
+  one source family during raw replay.
+  Do not recover future timestamps or accept an active key hidden in manifest
+  metadata. Do not swap raw and normalized object namespaces, retain
+  noncanonical request or missing-value audit metadata, or accept unknown
+  top-level manifest authority fields.
+  Do not scan only literal raw bytes, read an oversized fixture before its
+  bound, replay session rules under an unrecorded calendar version, or archive
+  weekend, holiday, or pre-close cross-asset dates as completed closes.
+  Do not defer provider-control rejection until after index commit or accept a
+  tree/tag/blob SHA as a commit merely because `<sha>:<path>` resolves.
+  Do not let fixture mode bypass commit-object validation, turn a malformed
+  configured secret into an empty scanner key, or accept padded persisted UTC.
+  Do not persist a key hidden behind JSON Unicode escapes or let a missing
+  source advertise invented exclusion metadata or an incompatible reason.
+  Do not parse raw bytes before their common secret scan or treat a directory,
+  link, or other present non-regular fixture entry as an absent source.
+  Do not validate only a fixture leaf, accept a stored URL merely because its
+  locally stripped copy is safe, or infer public DNS from a multi-label name.
+  Do not omit the selected root from repeated link checks or replace the
+  original fixture-size cap with the replacement file's current size.
+- Evidence files:
+  - docs/run287_chameleon_forward_archive_contract.json
+  - tools/collect_run287_chameleon_forward_archive.py
+  - tests/run287_chameleon_forward_archive_smoke.py
+  - docs/run287_chameleon_forward_archive_network_evidence_20260830.json
+  - docs/CODEX_RUN287_CHAMELEON_FORWARD_ARCHIVE_RESULT_20260830.md
+- Fullrun executed: false. Workflow dispatched or rerun: false. Target, order,
+  TradeIntent, portfolio ledger, accepted-head, production, live trading, and
+  automatic promotion state mutated: false.
