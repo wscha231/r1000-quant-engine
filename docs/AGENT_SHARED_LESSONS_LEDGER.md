@@ -4702,6 +4702,10 @@ Expected contract:
   counters bind to the manifest, the canonical contract rejects duplicate JSON
   keys, durable archive paths reject Windows junctions, and a recorded network
   builder hash must match the collector blob at its actual Git commit.
+- Snapshot-boundary correction: Individual snapshot directories reject
+  junctions, manifest fixture mode must align with every present source mode,
+  launch/capture/collection chronology is replayed during verification, and
+  every recovered raw source type is scanned for the active key.
 - Network proof: A local 2026-08-31 capture archived VIX, VIX3M, VVIX, and two
   current 2026-08-28 put-call rows as FORWARD_PIT. Thirteen FRED/ALFRED series
   remained explicitly missing because FRED_API_KEY was absent; cross-asset
@@ -4769,6 +4773,10 @@ Expected contract:
   not only inside one source parser. Filesystem link checks must follow platform
   semantics, and a recorded commit string becomes provenance only after the
   referenced blob is resolved and hashed.
+- Reusable lesson: Container-path safety does not automatically protect child
+  directories, and a manifest-level simulation flag cannot grant exemptions
+  unless it agrees with the evidence beneath it. Replay temporal causality and
+  secret checks together with content identity.
 - Next action: In a separate causal change, build a hash-verifying report-only
   adapter from the archive to the macro normalizer. Configure a durable
   publication destination and FRED secret only under separate approval before
@@ -4800,6 +4808,9 @@ Expected contract:
   manifest, skip raw replay for indexed data, parse the authority contract
   ambiguously, accept a junction-backed archive path, or trust a builder hash
   without resolving its recorded Git blob.
+  Do not follow a junction-backed snapshot, let fixture mode disagree with
+  present sources, recover pre-launch or time-reversed evidence, or scan only
+  one source family during raw replay.
 - Evidence files:
   - docs/run287_chameleon_forward_archive_contract.json
   - tools/collect_run287_chameleon_forward_archive.py

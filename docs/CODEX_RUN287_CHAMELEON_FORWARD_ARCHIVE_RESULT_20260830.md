@@ -130,10 +130,16 @@ ratios separately.
   durable subdirectories reject both symlinks and Windows junctions, while
   official-network snapshots must resolve the recorded collector blob from the
   recorded Git commit and match its SHA-256.
+- Individual snapshot directories also reject junctions. Manifest fixture mode
+  must agree with every present source mode before any builder exemption, and
+  recovered collection/source capture times must remain at or after launch and
+  in causal order.
+- Recovery scans every raw source type for the active key before normalization,
+  matching the common pre-persistence secret boundary.
 
 ## Local official-network proof
 
-At 2026-08-31T05:26:15.204816Z, a local report-only network proof archived four
+At 2026-08-31T05:44:16.982060Z, a local report-only network proof archived four
 official Cboe sources and 18,585 normalized NYSE-session rows:
 
 - cboe.daily_put_call: two rows for 2026-08-28.
@@ -144,10 +150,10 @@ official Cboe sources and 18,585 normalized NYSE-session rows:
 - cboe.vvix: 5,093 rows, latest 2026-08-28.
 
 Snapshot ID:
-20260831T052615Z-f791bf9f3e4ee88d
+20260831T054416Z-d11127e0541bc246
 
 Snapshot manifest SHA-256:
-d19f46c1f4d185d86b23683d805743896b8db666782f7e62a3730338cf2aa8cf
+801ff261ee4bbf2db053e80b385cdd50d7706e873f82c53832ffa31dd0574c70
 
 This proof is local and is not a canonical durable publication. Thirteen
 FRED/ALFRED series remained missing because no FRED_API_KEY was present.
@@ -193,6 +199,8 @@ The dedicated smoke covers:
 - all-source pre-persistence secret scanning, indexed raw replay and coverage
   binding, strict contract JSON, junction rejection, and recorded Git-blob
   verification;
+- per-snapshot junction rejection, fixture/source-mode alignment, launch and
+  capture chronology replay, and all-source recovery secret scanning;
 - pre-launch and caller-injected network time rejection.
 
 The dedicated smoke and Python compilation passed. The official Cboe network
