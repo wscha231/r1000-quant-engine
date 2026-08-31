@@ -1598,6 +1598,13 @@ def verify_recoverable_snapshot(
     )
     if not isinstance(manifest, dict):
         raise ArchiveContractError(f"orphan_snapshot_manifest_not_object:{snapshot_id}")
+    active_secret = active_fred_api_key(contract)
+    if raw_contains_secret(raw, active_secret) or decoded_value_contains_secret(
+        manifest, active_secret
+    ):
+        raise ArchiveContractError(
+            f"snapshot_manifest_contains_api_key:{snapshot_id}"
+        )
     if manifest.get("schema_version") != SCHEMA_VERSION:
         raise ArchiveContractError(f"orphan_snapshot_schema_mismatch:{snapshot_id}")
     if manifest.get("snapshot_id") != snapshot_id:
@@ -1608,10 +1615,13 @@ def verify_recoverable_snapshot(
     launch = parse_utc(
         contract.get("launch_not_before_utc"), field="launch_not_before"
     )
+    verification_now = utc_now()
     if collected_at < launch:
         raise ArchiveContractError(
             f"snapshot_collection_precedes_archive_launch:{snapshot_id}"
         )
+    if collected_at > verification_now:
+        raise ArchiveContractError(f"snapshot_collection_in_future:{snapshot_id}")
     timestamp_key = collected_at.strftime("%Y%m%dT%H%M%SZ")
     if not snapshot_id.startswith(f"{timestamp_key}-"):
         raise ArchiveContractError(f"orphan_snapshot_timestamp_mismatch:{snapshot_id}")
@@ -1716,7 +1726,11 @@ def verify_recoverable_snapshot(
         captured_at = parse_utc(
             source.get("captured_at_utc"), field=f"orphan_{source_id}_captured_at"
         )
-        if captured_at < launch or captured_at > collected_at:
+        if (
+            captured_at < launch
+            or captured_at > collected_at
+            or captured_at > verification_now
+        ):
             raise ArchiveContractError(
                 f"snapshot_source_capture_chronology_invalid:{source_id}"
             )

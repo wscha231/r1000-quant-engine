@@ -1316,6 +1316,54 @@ def test_recovered_snapshot_reapplies_launch_and_capture_chronology() -> None:
         except archive.ArchiveContractError as exc:
             assert "snapshot_source_capture_chronology_invalid" in str(exc)
 
+        future_manifest = json.loads(json.dumps(original_manifest))
+        future_manifest["collected_at_utc"] = "2999-01-01T00:00:00Z"
+        for item in future_manifest["sources"]:
+            if item.get("captured_at_utc"):
+                item["captured_at_utc"] = "2999-01-01T00:00:00Z"
+        manifest_path.write_bytes(archive.pretty_json_bytes(future_manifest))
+        try:
+            archive.verify_recoverable_snapshot(
+                archive_root, payload["snapshot_id"], contract()
+            )
+            raise AssertionError("a future recovered snapshot was accepted")
+        except archive.ArchiveContractError as exc:
+            assert "snapshot_collection_in_future" in str(exc)
+
+
+def test_recovered_manifest_is_scanned_for_the_active_fred_key() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root, include_cross_asset=False)
+        archive_root = root / "archive"
+        payload = archive.build(args(archive_root, bundle))
+        manifest_path = (
+            archive_root / "snapshots" / payload["snapshot_id"] / "manifest.json"
+        )
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        missing = next(
+            item
+            for item in manifest["sources"]
+            if item["status"] == "missing_or_unavailable"
+        )
+        secret = "manifest-secret-must-not-be-indexed"
+        missing["reason"] = f"provider_error:{secret}"
+        manifest_path.write_bytes(archive.pretty_json_bytes(manifest))
+        original_key = os.environ.get("FRED_API_KEY")
+        try:
+            os.environ["FRED_API_KEY"] = secret
+            archive.verify_recoverable_snapshot(
+                archive_root, payload["snapshot_id"], contract()
+            )
+            raise AssertionError("the active key in a recovered manifest was accepted")
+        except archive.ArchiveContractError as exc:
+            assert "snapshot_manifest_contains_api_key" in str(exc)
+        finally:
+            if original_key is None:
+                os.environ.pop("FRED_API_KEY", None)
+            else:
+                os.environ["FRED_API_KEY"] = original_key
+
 
 def test_recorded_network_builder_blob_must_exist_and_match() -> None:
     original_git_blob_bytes = archive.git_blob_bytes
@@ -1834,6 +1882,7 @@ if __name__ == "__main__":
     test_snapshot_directories_reject_windows_junctions()
     test_fixture_mode_must_align_with_every_present_source()
     test_recovered_snapshot_reapplies_launch_and_capture_chronology()
+    test_recovered_manifest_is_scanned_for_the_active_fred_key()
     test_recorded_network_builder_blob_must_exist_and_match()
     test_no_orphan_path_reuses_the_validated_index_entries()
     test_abandoned_pre_rename_staging_is_recovered_under_lock()
