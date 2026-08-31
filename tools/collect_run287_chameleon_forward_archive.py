@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import importlib.metadata
 import ipaddress
 import io
 import json
@@ -29,7 +30,14 @@ from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Mapping
-from urllib.parse import quote, unquote, urljoin, urlsplit, urlunsplit
+from urllib.parse import (
+    quote,
+    unquote,
+    unquote_to_bytes,
+    urljoin,
+    urlsplit,
+    urlunsplit,
+)
 
 import requests
 
@@ -50,6 +58,11 @@ UTC_EXACT = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|\+00:00)$"
 )
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
+NYSE_CALENDAR_ENGINE = {
+    "package": "pandas_market_calendars",
+    "version": "5.3.2",
+    "calendar": "NYSE",
+}
 
 SAFETY = {
     "report_only": True,
@@ -79,6 +92,7 @@ SNAPSHOT_MANIFEST_FIELDS = frozenset(
         "builder_sha256",
         "builder_git_blob_sha256",
         "contract_semantic_sha256",
+        "calendar_engine",
         "fixture_mode",
         "source_expected_count",
         "source_captured_count",
@@ -377,11 +391,18 @@ def committed_result_with_receipt(
 def raw_contains_secret(raw: bytes, secret: str) -> bool:
     if not secret:
         return False
-    variants = {
-        secret,
-        quote(secret, safe=""),
-    }
-    return any(value.encode("utf-8") in raw for value in variants if value)
+    secret_bytes = secret.encode("utf-8")
+    candidate = raw
+    for _ in range(8):
+        if secret_bytes in candidate:
+            return True
+        decoded = unquote_to_bytes(candidate)
+        if decoded == candidate:
+            return False
+        candidate = decoded
+    if secret_bytes in candidate:
+        return True
+    raise ArchiveContractError("percent_encoding_nesting_exceeded")
 
 
 def decoded_value_contains_secret(value: Any, secret: str) -> bool:
@@ -1215,6 +1236,7 @@ def validate_normalized_source_specific_rows(
         allowed_basis = {str(item) for item in cross.get("allowed_price_basis", [])}
         observed_tickers: set[str] = set()
         seen: set[tuple[str, str]] = set()
+        observed_dates: list[date] = []
         for row in rows:
             require_fields(
                 row,
@@ -1227,13 +1249,18 @@ def validate_normalized_source_specific_rows(
                 },
             )
             ticker = str(row.get("instrument") or "")
-            observed = str(row.get("source_observation_date") or "")
+            observed_date = strict_iso_date(
+                row.get("source_observation_date"),
+                field="snapshot_cross_asset_observation",
+            )
+            observed = observed_date.isoformat()
             if ticker not in required or (ticker, observed) in seen:
                 raise ArchiveContractError(
                     f"snapshot_normalized_cross_asset_identity_mismatch:{snapshot_id}:{source_id}"
                 )
             seen.add((ticker, observed))
             observed_tickers.add(ticker)
+            observed_dates.append(observed_date)
             if (
                 row.get("value_field") != "close"
                 or row.get("price_basis") not in allowed_basis
@@ -1258,6 +1285,11 @@ def validate_normalized_source_specific_rows(
                 row.get("upstream_source_url"),
                 field="snapshot_cross_asset_source_url",
             )
+        validate_cross_asset_close_sessions(
+            observed_dates,
+            captured_at=captured_at,
+            source_id=f"snapshot_{source_id}",
+        )
         missing = sorted(required - observed_tickers)
         if source.get("missing_tickers") != missing or source.get("status") != (
             "partial" if missing else "ready"
@@ -1380,6 +1412,7 @@ def validate_recovered_raw_normalization(
             source_id=source_id,
             required_tickers=contract["cross_asset"]["required_tickers"],
             allowed_price_basis=contract["cross_asset"]["allowed_price_basis"],
+            captured_at=capture_time,
         )
         if missing_tickers != source.get("missing_tickers"):
             raise ArchiveContractError(
@@ -1758,6 +1791,11 @@ def verify_recoverable_snapshot(
         raise ArchiveContractError(f"orphan_snapshot_timestamp_mismatch:{snapshot_id}")
     if manifest.get("contract_semantic_sha256") != contract_sha256:
         raise ArchiveContractError(f"orphan_snapshot_contract_drift:{snapshot_id}")
+    calendar_engine = nyse_calendar_engine_identity()
+    if manifest.get("calendar_engine") != calendar_engine:
+        raise ArchiveContractError(
+            f"orphan_snapshot_calendar_engine_drift:{snapshot_id}"
+        )
     if manifest.get("archive_passed") is not True:
         raise ArchiveContractError(f"orphan_snapshot_not_passed:{snapshot_id}")
     if manifest.get("historical_ab_allowed") is not False:
@@ -1939,6 +1977,7 @@ def verify_recoverable_snapshot(
         "builder_sha256": builder_sha,
         "builder_git_blob_sha256": builder_git_blob_sha,
         "contract_semantic_sha256": contract_sha256,
+        "calendar_engine": calendar_engine,
         "fixture_mode": manifest.get("fixture_mode"),
         "sources": sources,
     }
@@ -2005,10 +2044,24 @@ def recover_verified_unindexed_snapshot(
     return load_archive_index(root, contract)
 
 
-def stable_read(path: Path, consumed: dict[str, str]) -> bytes:
-    if not path.is_file() or path.is_symlink():
+def stable_read(
+    path: Path,
+    consumed: dict[str, str],
+    *,
+    maximum_bytes: int,
+) -> bytes:
+    if (
+        not path.is_file()
+        or path.is_symlink()
+        or bool(getattr(path, "is_junction", lambda: False)())
+    ):
         raise ArchiveContractError(f"fixture_not_regular_file:{path.name}")
-    raw = path.read_bytes()
+    if maximum_bytes <= 0 or path.stat().st_size > maximum_bytes:
+        raise ArchiveContractError(f"fixture_too_large:{path.name}")
+    with path.open("rb") as handle:
+        raw = handle.read(maximum_bytes + 1)
+    if len(raw) > maximum_bytes:
+        raise ArchiveContractError(f"fixture_too_large:{path.name}")
     digest = sha256_bytes(raw)
     consumed[str(path.resolve())] = digest
     return raw
@@ -2355,8 +2408,22 @@ def one_regex_match(
     return matches[0]
 
 
+def nyse_calendar_engine_identity() -> dict[str, str]:
+    try:
+        installed = importlib.metadata.version(NYSE_CALENDAR_ENGINE["package"])
+    except importlib.metadata.PackageNotFoundError as exc:
+        raise ArchiveContractError("nyse_calendar_dependency_unavailable") from exc
+    if installed != NYSE_CALENDAR_ENGINE["version"]:
+        raise ArchiveContractError(
+            "nyse_calendar_version_mismatch:"
+            f"expected={NYSE_CALENDAR_ENGINE['version']}:actual={installed}"
+        )
+    return dict(NYSE_CALENDAR_ENGINE)
+
+
 def completed_nyse_sessions(captured_at: datetime) -> list[date]:
     """Return holiday-aware NYSE sessions whose official close has passed."""
+    nyse_calendar_engine_identity()
     try:
         import pandas_market_calendars as mcal
     except ImportError as exc:
@@ -2384,6 +2451,7 @@ def nyse_session_dates(start_date: date, end_date: date) -> frozenset[date]:
     """Return every official NYSE session label in an inclusive date range."""
     if start_date > end_date:
         raise ArchiveContractError("nyse_session_range_invalid")
+    nyse_calendar_engine_identity()
     try:
         import pandas_market_calendars as mcal
     except ImportError as exc:
@@ -2396,6 +2464,26 @@ def nyse_session_dates(start_date: date, end_date: date) -> frozenset[date]:
     except Exception as exc:
         raise ArchiveContractError("nyse_calendar_resolution_failed") from exc
     return frozenset(session_label.date() for session_label in schedule.index)
+
+
+def validate_cross_asset_close_sessions(
+    observation_dates: Iterable[date],
+    *,
+    captured_at: datetime,
+    source_id: str,
+) -> None:
+    observed = list(observation_dates)
+    if not observed:
+        return
+    completed = completed_nyse_sessions(captured_at)
+    latest_completed = completed[-1]
+    sessions = nyse_session_dates(
+        min(observed), max(max(observed), latest_completed)
+    )
+    if any(item not in sessions for item in observed):
+        raise ArchiveContractError(f"{source_id}_observation_not_nyse_session")
+    if any(item > latest_completed for item in observed):
+        raise ArchiveContractError(f"{source_id}_close_session_incomplete")
 
 
 def normalize_cboe_daily_options_page(
@@ -2493,6 +2581,7 @@ def normalize_cross_asset(
     source_id: str,
     required_tickers: Iterable[str],
     allowed_price_basis: Iterable[str],
+    captured_at: datetime,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     rows = decode_csv(raw, source_id=source_id)
     required_columns = {
@@ -2511,20 +2600,23 @@ def normalize_cross_asset(
     output: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     observed_tickers: set[str] = set()
+    observed_dates: list[date] = []
     for row in rows[header_index + 1 :]:
         if not any(str(value).strip() for value in row):
             continue
         ticker = row_value(row, columns, "ticker", source_id=source_id).strip().upper()
         if ticker not in required:
             raise ArchiveContractError(f"{source_id}_unexpected_ticker:{ticker}")
-        observed = strict_iso_date(
+        observed_date = strict_iso_date(
             row_value(row, columns, "observation_date", source_id=source_id),
             field=f"{source_id}_observation",
-        ).isoformat()
+        )
+        observed = observed_date.isoformat()
         key = (ticker, observed)
         if key in seen:
             raise ArchiveContractError(f"{source_id}_duplicate_ticker_date")
         seen.add(key)
+        observed_dates.append(observed_date)
         price_basis = row_value(
             row, columns, "price_basis", source_id=source_id
         ).strip()
@@ -2559,6 +2651,11 @@ def normalize_cross_asset(
             }
         )
         observed_tickers.add(ticker)
+    validate_cross_asset_close_sessions(
+        observed_dates,
+        captured_at=captured_at,
+        source_id=source_id,
+    )
     output.sort(
         key=lambda item: (item["source_observation_date"], item["instrument"])
     )
@@ -2712,7 +2809,11 @@ def collect_sources(
         resolved_url = ""
         if fixture_mode:
             if fixture_path is not None and fixture_path.is_file():
-                raw = stable_read(fixture_path, consumed)
+                raw = stable_read(
+                    fixture_path,
+                    consumed,
+                    maximum_bytes=maximum_bytes,
+                )
                 captured_at = fixture_time
                 mode = "fixture"
                 truth_class = "FREE_PROXY"
@@ -2856,7 +2957,11 @@ def collect_sources(
         resolved_url = ""
         if fixture_mode:
             if fixture_path is not None and fixture_path.is_file():
-                raw = stable_read(fixture_path, consumed)
+                raw = stable_read(
+                    fixture_path,
+                    consumed,
+                    maximum_bytes=maximum_bytes,
+                )
                 captured_at = fixture_time
                 mode = "fixture"
                 truth_class = "FREE_PROXY"
@@ -2959,7 +3064,11 @@ def collect_sources(
         else None
     )
     if fixture_mode and cross_fixture is not None and cross_fixture.is_file():
-        raw = stable_read(cross_fixture, consumed)
+        raw = stable_read(
+            cross_fixture,
+            consumed,
+            maximum_bytes=maximum_bytes,
+        )
         if len(raw) > maximum_bytes:
             raise ArchiveContractError(f"{cross_source_id}_raw_too_large")
         normalized, missing_tickers = normalize_cross_asset(
@@ -2967,6 +3076,7 @@ def collect_sources(
             source_id=cross_source_id,
             required_tickers=cross_spec["required_tickers"],
             allowed_price_basis=cross_spec["allowed_price_basis"],
+            captured_at=fixture_time,
         )
         captures.append(
             {
@@ -3219,6 +3329,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             item["status"] == "missing_or_unavailable" for item in audits
         )
         partial_count = sum(item["status"] == "partial" for item in audits)
+        calendar_engine = nyse_calendar_engine_identity()
         snapshot_identity = {
             "schema_version": SCHEMA_VERSION,
             "collected_at_utc": collected_at,
@@ -3226,6 +3337,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "builder_sha256": identity["builder_sha256"],
             "builder_git_blob_sha256": identity["builder_git_blob_sha256"],
             "contract_semantic_sha256": CANONICAL_CONTRACT_SEMANTIC_SHA256,
+            "calendar_engine": calendar_engine,
             "fixture_mode": fixture_mode,
             "sources": audits,
         }
@@ -3287,6 +3399,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
             "builder_sha256": identity["builder_sha256"],
             "builder_git_blob_sha256": identity["builder_git_blob_sha256"],
             "contract_semantic_sha256": CANONICAL_CONTRACT_SEMANTIC_SHA256,
+            "calendar_engine": calendar_engine,
             "fixture_mode": fixture_mode,
             "source_expected_count": len(audits),
             "source_captured_count": len(captures),

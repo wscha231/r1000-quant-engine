@@ -177,6 +177,7 @@ def test_complete_fixture_is_free_proxy_and_nonexecuting() -> None:
         assert payload["source_missing_count"] == 0
         assert payload["source_partial_count"] == 0
         assert payload["source_truth_class_counts"] == {"FREE_PROXY": 18}
+        assert payload["calendar_engine"] == archive.NYSE_CALENDAR_ENGINE
         assert payload["pit_verified_emitted"] is False
         assert payload["historical_ab_allowed"] is False
         assert payload["report_only"] is True
@@ -1199,6 +1200,106 @@ def test_all_fixture_raw_bytes_are_scanned_for_the_active_fred_key() -> None:
         assert not list((archive_root / "objects" / "raw").glob("*"))
 
 
+def test_percent_encoded_fixture_secrets_are_rejected_for_every_source() -> None:
+    secret = "fixture-key-must-not-be-percent-encoded"
+    encoded = "".join(f"%{byte:02X}" for byte in secret.encode("utf-8"))
+    for persisted_value in (encoded, encoded.replace("%", "%25")):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundle = build_source_bundle(root)
+            target = bundle / "cross_asset" / "daily.csv"
+            lines = target.read_text(encoding="utf-8").splitlines()
+            lines[0] += ",unused"
+            lines[1] += f",{persisted_value}"
+            target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            original_key = os.environ.get("FRED_API_KEY")
+            try:
+                os.environ["FRED_API_KEY"] = secret
+                archive_root = root / "archive"
+                blocked = archive.build(args(archive_root, bundle))
+            finally:
+                if original_key is None:
+                    os.environ.pop("FRED_API_KEY", None)
+                else:
+                    os.environ["FRED_API_KEY"] = original_key
+            assert blocked["status"] == archive.BLOCKED_STATUS
+            assert "raw_response_contains_api_key" in blocked["blockers"][0]
+            assert not list((archive_root / "objects" / "raw").glob("*"))
+
+
+def test_fixture_size_is_bounded_before_materialization() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        fixture = Path(temporary) / "oversized.csv"
+        fixture.write_bytes(b"ab")
+        consumed: dict[str, str] = {}
+        try:
+            archive.stable_read(fixture, consumed, maximum_bytes=1)
+            raise AssertionError("an oversized fixture was read")
+        except archive.ArchiveContractError as exc:
+            assert "fixture_too_large" in str(exc)
+        assert consumed == {}
+
+
+def test_cross_asset_closes_require_completed_nyse_sessions() -> None:
+    scenarios = (
+        (
+            "2026-08-29",
+            "2026-08-30",
+            COLLECTED_AT,
+            "observation_not_nyse_session",
+        ),
+        (
+            "2026-08-31",
+            "2026-08-31",
+            "2026-08-31T10:00:00Z",
+            "close_session_incomplete",
+        ),
+    )
+    for observation_date, vintage, collected_at, expected_error in scenarios:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundle = build_source_bundle(root, vintage=vintage)
+            target = bundle / "cross_asset" / "daily.csv"
+            target.write_text(
+                target.read_text(encoding="utf-8").replace(
+                    "2026-08-28", observation_date
+                ),
+                encoding="utf-8",
+            )
+            blocked = archive.build(
+                args(root / "archive", bundle, collected_at=collected_at)
+            )
+            assert blocked["status"] == archive.BLOCKED_STATUS
+            assert expected_error in blocked["blockers"][0]
+
+
+def test_snapshot_identity_binds_the_pinned_nyse_calendar() -> None:
+    requirements = (ROOT / "requirements_github.txt").read_text(encoding="utf-8")
+    assert "pandas_market_calendars==5.3.2" in requirements
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        archive_root = root / "archive"
+        payload = archive.build(args(archive_root, bundle))
+        manifest_path = (
+            archive_root / "snapshots" / payload["snapshot_id"] / "manifest.json"
+        )
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        assert manifest["calendar_engine"] == archive.NYSE_CALENDAR_ENGINE
+        manifest["calendar_engine"] = {
+            **manifest["calendar_engine"],
+            "version": "5.3.3",
+        }
+        manifest_path.write_bytes(archive.pretty_json_bytes(manifest))
+        try:
+            archive.verify_recoverable_snapshot(
+                archive_root, payload["snapshot_id"], contract()
+            )
+            raise AssertionError("calendar engine drift was accepted")
+        except archive.ArchiveContractError as exc:
+            assert "calendar_engine_drift" in str(exc)
+
+
 def test_contract_index_and_manifest_authority_use_strict_json() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -1964,6 +2065,10 @@ if __name__ == "__main__":
     test_index_coverage_counters_must_match_verified_manifest()
     test_indexed_snapshot_loading_replays_raw_evidence()
     test_all_fixture_raw_bytes_are_scanned_for_the_active_fred_key()
+    test_percent_encoded_fixture_secrets_are_rejected_for_every_source()
+    test_fixture_size_is_bounded_before_materialization()
+    test_cross_asset_closes_require_completed_nyse_sessions()
+    test_snapshot_identity_binds_the_pinned_nyse_calendar()
     test_contract_index_and_manifest_authority_use_strict_json()
     test_archive_layout_rejects_windows_junctions()
     test_snapshot_directories_reject_windows_junctions()

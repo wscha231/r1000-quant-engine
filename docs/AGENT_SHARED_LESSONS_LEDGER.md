@@ -4715,6 +4715,11 @@ Expected contract:
   match its exact status-dependent schema, non-FRED request and missing-value
   metadata must retain canonical values, and the snapshot manifest rejects all
   unknown top-level fields including authority-shaped additions.
+- Encoding-calendar-and-close correction: Common raw-source secret scanning now
+  recursively decodes percent encoding, fixture size is bounded before file
+  materialization, the exact pandas-market-calendars version is pinned and
+  recorded inside snapshot identity, and cross-asset closes must belong to a
+  completed NYSE session at their capture time.
 - Network proof: A local 2026-08-31 capture archived VIX, VIX3M, VVIX, and two
   current 2026-08-28 put-call rows as FORWARD_PIT. Thirteen FRED/ALFRED series
   remained explicitly missing because FRED_API_KEY was absent; cross-asset
@@ -4793,6 +4798,10 @@ Expected contract:
   identity does not make invented authority safe. Bind each digest to its raw
   or normalized namespace and validate complete source and manifest schemas so
   unrecognized permission fields and forged audit metadata fail closed.
+- Reusable lesson: Security and exact-close provenance include preprocessing
+  and dependency identity. Decode before scanning, bound before reading, bind
+  the calendar implementation into evidence, and never infer a valid ETF close
+  from a syntactically valid date alone.
 - Next action: In a separate causal change, build a hash-verifying report-only
   adapter from the archive to the macro normalizer. Configure a durable
   publication destination and FRED secret only under separate approval before
@@ -4831,6 +4840,9 @@ Expected contract:
   metadata. Do not swap raw and normalized object namespaces, retain
   noncanonical request or missing-value audit metadata, or accept unknown
   top-level manifest authority fields.
+  Do not scan only literal raw bytes, read an oversized fixture before its
+  bound, replay session rules under an unrecorded calendar version, or archive
+  weekend, holiday, or pre-close cross-asset dates as completed closes.
 - Evidence files:
   - docs/run287_chameleon_forward_archive_contract.json
   - tools/collect_run287_chameleon_forward_archive.py
