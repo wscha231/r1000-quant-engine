@@ -146,8 +146,9 @@ ratios separately.
   retain their canonical values, and unknown top-level manifest fields are
   rejected so a recomputed hash cannot invent new authority.
 - Raw secret scanning recursively percent-decodes every source before initial
-  persistence and during recovery, so encoded active keys cannot hide in an
-  otherwise unused Cboe or cross-asset field.
+  persistence and during recovery, and also decodes JSON Unicode escapes, so
+  encoded active keys cannot hide in an otherwise unused Cboe or cross-asset
+  field.
 - Fixture files are size-checked before bounded reading. The exact
   `pandas_market_calendars==5.3.2` NYSE engine is pinned and included in the
   snapshot identity, and cross-asset close dates must be completed NYSE
@@ -161,10 +162,13 @@ ratios separately.
 - A nonempty malformed `FRED_API_KEY` blocks the run instead of becoming an
   empty scanner key, and persisted collection/capture UTC fields reject
   leading or trailing whitespace before exact RFC3339 parsing.
+- Missing-source audits retain only their canonical zero/empty exclusion and
+  object metadata, with a reason compatible with the source family and
+  fixture/network mode.
 
 ## Local official-network proof
 
-At 2026-08-31T12:03:32.274629Z, a local report-only network proof archived four
+At 2026-08-31T12:34:22.713741Z, a local report-only network proof archived four
 official Cboe sources and 18,585 normalized NYSE-session rows:
 
 - cboe.daily_put_call: two rows for 2026-08-28.
@@ -175,10 +179,10 @@ official Cboe sources and 18,585 normalized NYSE-session rows:
 - cboe.vvix: 5,093 rows, latest 2026-08-28.
 
 Snapshot ID:
-20260831T120332Z-3b7823424e3c8677
+20260831T123422Z-8457a43b38220a07
 
 Snapshot manifest SHA-256:
-c10c2fd0dccbb6695fa2d20df16153fc62cfbc4c1ccffee400777b6ee89c32da
+a7d23ab634f68bc3d2c6d837f8b110212ab1b979fc060a3a44ec1543cdc92774
 
 This proof is local and is not a canonical durable publication. Thirteen
 FRED/ALFRED series remained missing because no FRED_API_KEY was present.
@@ -235,6 +239,8 @@ The dedicated smoke covers:
   verification;
 - fixture commit-object verification, malformed-key fail-closed behavior, and
   canonical unpadded persisted UTC parsing;
+- all-source JSON Unicode-escape secret rejection and canonical missing-source
+  zero/empty metadata plus source/mode-compatible failure reasons;
 - pre-launch and caller-injected network time rejection.
 
 The dedicated smoke and Python compilation passed. The official Cboe network
