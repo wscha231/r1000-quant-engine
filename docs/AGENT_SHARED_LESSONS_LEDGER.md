@@ -4697,6 +4697,11 @@ Expected contract:
   manifest/source/counter/object/identity verifier with orphan recovery;
   archive-index and manifest JSON reject duplicate keys, and raw replay checks
   the size cap before reading plus scans against the currently active FRED key.
+- Authority-boundary correction: Every raw source is scanned for the active key
+  before persistence, indexed raw evidence is re-normalized and its coverage
+  counters bind to the manifest, the canonical contract rejects duplicate JSON
+  keys, durable archive paths reject Windows junctions, and a recorded network
+  builder hash must match the collector blob at its actual Git commit.
 - Network proof: A local 2026-08-31 capture archived VIX, VIX3M, VVIX, and two
   current 2026-08-28 put-call rows as FORWARD_PIT. Thirteen FRED/ALFRED series
   remained explicitly missing because FRED_API_KEY was absent; cross-asset
@@ -4760,6 +4765,10 @@ Expected contract:
   trust envelopes. Share the verifier, parse provenance containers without
   ambiguous duplicate keys, and apply capture-time secret and resource bounds
   again whenever raw evidence is replayed.
+- Reusable lesson: Secret scanning belongs at the common persistence boundary,
+  not only inside one source parser. Filesystem link checks must follow platform
+  semantics, and a recorded commit string becomes provenance only after the
+  referenced blob is resolved and hashed.
 - Next action: In a separate causal change, build a hash-verifying report-only
   adapter from the archive to the macro normalizer. Configure a durable
   publication destination and FRED secret only under separate approval before
@@ -4787,6 +4796,10 @@ Expected contract:
   bind normalized observations to unrelated raw bytes, replay an oversized or
   active-key-bearing raw object, accept duplicate index keys, or trust weaker
   identity/source rules merely because a snapshot already has an index entry.
+  Do not scan only FRED-shaped inputs, let index counters diverge from a
+  manifest, skip raw replay for indexed data, parse the authority contract
+  ambiguously, accept a junction-backed archive path, or trust a builder hash
+  without resolving its recorded Git blob.
 - Evidence files:
   - docs/run287_chameleon_forward_archive_contract.json
   - tools/collect_run287_chameleon_forward_archive.py

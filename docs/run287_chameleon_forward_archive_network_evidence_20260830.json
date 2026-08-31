@@ -3,16 +3,16 @@
   "classification": "LOCAL_NETWORK_PROOF_REPORT_ONLY",
   "canonical_durable_archive_published": false,
   "status": "READY_CHAMELEON_FORWARD_ARCHIVE_REPORT_ONLY_WITH_MISSING_SOURCES",
-  "collected_at_utc": "2026-08-31T05:08:44.557436Z",
-  "git_head": "7ba1ecc0a42ad54af6840d6d327796f49e6aeccc",
-  "builder_sha256": "fd72ad14ae674eeff44ad1f30310e2bec419fb222a2e3c9bde3cf3fc35e4cc8d",
-  "builder_git_blob_sha256": "fd72ad14ae674eeff44ad1f30310e2bec419fb222a2e3c9bde3cf3fc35e4cc8d",
+  "collected_at_utc": "2026-08-31T05:26:15.204816Z",
+  "git_head": "c7cba5db815fa9c796bba3d4cd656f7c120803ab",
+  "builder_sha256": "1468e7fd616cfeef1a13d74630cfa939729b7f211821630686671e9b4b5ce53b",
+  "builder_git_blob_sha256": "1468e7fd616cfeef1a13d74630cfa939729b7f211821630686671e9b4b5ce53b",
   "contract_semantic_sha256": "b0f8a2af5d79f63d2a56079ca01392b9c1f2032de70a65cd8f03b9491475efcc",
   "snapshot": {
-    "snapshot_id": "20260831T050844Z-270ed4b1954ed886",
-    "snapshot_identity_sha256": "270ed4b1954ed88603aaa355e25375115c8fef253f060bf6733e706c8fd49e6c",
-    "snapshot_manifest_sha256": "6b2532b22ed01cb5ad1cefabc4bc75dc9f4df7c410881c2ecedfd0c971ac5652",
-    "archive_index_entry_sha256": "9de49a02fb4066d74bba01c25082d256a5a67d271208bd6aa6bf96fbd3dd8923"
+    "snapshot_id": "20260831T052615Z-f791bf9f3e4ee88d",
+    "snapshot_identity_sha256": "f791bf9f3e4ee88df1a2ebc4bf6ee17effe96e0351c5cd5f32dc12474cf02a76",
+    "snapshot_manifest_sha256": "d19f46c1f4d185d86b23683d805743896b8db666782f7e62a3730338cf2aa8cf",
+    "archive_index_entry_sha256": "c6001caff4a61b644d66371bd34fe5a1037de80c74f2b08fd865daade64c3578"
   },
   "coverage": {
     "expected_sources": 18,
@@ -28,43 +28,43 @@
   "captured_sources": [
     {
       "source_id": "cboe.daily_put_call",
-      "captured_at_utc": "2026-08-31T05:08:39.100596Z",
+      "captured_at_utc": "2026-08-31T05:26:09.592854Z",
       "first_observation_date": "2026-08-28",
       "last_observation_date": "2026-08-28",
       "normalized_row_count": 2,
       "excluded_non_session_row_count": 0,
-      "raw_sha256": "408ff47d30f71b5512de1b1045c1227e9d4a946f7347d1b0e8735dd5c9f8ac1a",
-      "normalized_sha256": "745629a86c5d9b7dcf623b68e7a50af3011d8ada0a116025764e2d411d7002c0"
+      "raw_sha256": "c829f47d7b3cac662c140409e0658d71109b5200c7de0fe94f46ee29b9673795",
+      "normalized_sha256": "aeaa50067fcbf5f79718fdf1c1512f6dd120ddc130df389000740483e1678bd6"
     },
     {
       "source_id": "cboe.vix",
-      "captured_at_utc": "2026-08-31T05:08:40.828421Z",
+      "captured_at_utc": "2026-08-31T05:26:11.334236Z",
       "first_observation_date": "1990-01-02",
       "last_observation_date": "2026-08-28",
       "normalized_row_count": 9228,
       "excluded_non_session_row_count": 33,
       "raw_sha256": "64708533b190bf36070e96682388922339bfb10c9df680349b824dc9489e55f9",
-      "normalized_sha256": "86e1153523e837029b05fcd10cf9db3d1954d2c0031c184accaba72d0f4abd1e"
+      "normalized_sha256": "dfeda3a9f0f1d0f32e9cd6a554343a8f13858e7e5d8796cfe52c93e521dae229"
     },
     {
       "source_id": "cboe.vix3m",
-      "captured_at_utc": "2026-08-31T05:08:42.432848Z",
+      "captured_at_utc": "2026-08-31T05:26:12.954558Z",
       "first_observation_date": "2009-09-18",
       "last_observation_date": "2026-08-28",
       "normalized_row_count": 4262,
       "excluded_non_session_row_count": 0,
       "raw_sha256": "c95bca84a372df899187e39408ea922b9c30be1d97e8b81bda233446e2f029aa",
-      "normalized_sha256": "dbed8ae92e9cca4c194e6962286fc45356b2b4283de6b094293e909b44217b0f"
+      "normalized_sha256": "13178e0b648db077193fd2c2194c7aa0152984f78fbf0e1dae4d825c3ff64bd2"
     },
     {
       "source_id": "cboe.vvix",
-      "captured_at_utc": "2026-08-31T05:08:43.761058Z",
+      "captured_at_utc": "2026-08-31T05:26:14.333625Z",
       "first_observation_date": "2006-03-06",
       "last_observation_date": "2026-08-28",
       "normalized_row_count": 5093,
       "excluded_non_session_row_count": 0,
       "raw_sha256": "044e8fb06a4f9cb20613e2c264b955518cecb374b1e1eb61e991d1e0cece7a9f",
-      "normalized_sha256": "e1bc9e1ddb13340ef3e1592ce4ebaaee941ec7802df2ec460298fbca598a29e1"
+      "normalized_sha256": "f1d0394f33c62deb1603c712b822f7f56f98005f1d4d010bfd7e67bbf30e8a66"
     }
   ],
   "legacy_options_archive_endpoint_used_for_current_sentiment": false,

@@ -122,10 +122,18 @@ ratios separately.
 - Raw replay enforces the configured size cap before reading and scans with the
   currently active FRED key, so recovery cannot authorize oversized or
   credential-bearing evidence that normal capture would reject.
+- Every captured raw source, including Cboe and cross-asset fixtures, is scanned
+  for the active FRED key before any content object is written. Indexed source
+  bytes are re-normalized, and index coverage counters must equal the verified
+  manifest.
+- The canonical contract uses duplicate-key-rejecting JSON. Archive roots and
+  durable subdirectories reject both symlinks and Windows junctions, while
+  official-network snapshots must resolve the recorded collector blob from the
+  recorded Git commit and match its SHA-256.
 
 ## Local official-network proof
 
-At 2026-08-31T05:08:44.557436Z, a local report-only network proof archived four
+At 2026-08-31T05:26:15.204816Z, a local report-only network proof archived four
 official Cboe sources and 18,585 normalized NYSE-session rows:
 
 - cboe.daily_put_call: two rows for 2026-08-28.
@@ -136,10 +144,10 @@ official Cboe sources and 18,585 normalized NYSE-session rows:
 - cboe.vvix: 5,093 rows, latest 2026-08-28.
 
 Snapshot ID:
-20260831T050844Z-270ed4b1954ed886
+20260831T052615Z-f791bf9f3e4ee88d
 
 Snapshot manifest SHA-256:
-6b2532b22ed01cb5ad1cefabc4bc75dc9f4df7c410881c2ecedfd0c971ac5652
+d19f46c1f4d185d86b23683d805743896b8db666782f7e62a3730338cf2aa8cf
 
 This proof is local and is not a canonical durable publication. Thirteen
 FRED/ALFRED series remained missing because no FRED_API_KEY was present.
@@ -182,6 +190,9 @@ The dedicated smoke covers:
   FRED recovery, Cboe recovery freshness, and indexed PIT-upgrade rejection;
 - active-key and raw-size recovery guards, duplicate-key archive-index parsing,
   and shared full identity/source-state validation for indexed snapshots;
+- all-source pre-persistence secret scanning, indexed raw replay and coverage
+  binding, strict contract JSON, junction rejection, and recorded Git-blob
+  verification;
 - pre-launch and caller-injected network time rejection.
 
 The dedicated smoke and Python compilation passed. The official Cboe network
