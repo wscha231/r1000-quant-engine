@@ -955,7 +955,54 @@ def test_recovery_replays_raw_source_normalization() -> None:
             )
             raise AssertionError("active FRED key in recovered raw evidence was accepted")
         except archive.ArchiveContractError as exc:
-            assert "raw_response_contains_api_key" in str(exc)
+            assert "recovered_raw_contains_api_key" in str(exc)
+        finally:
+            if original_key is None:
+                os.environ.pop("FRED_API_KEY", None)
+            else:
+                os.environ["FRED_API_KEY"] = original_key
+
+        cross = next(
+            item
+            for item in payload["sources"]
+            if item["source_id"] == "cross_asset.daily_close"
+        )
+        cross_rows = archive.validate_normalized_object_rows(
+            archive_root,
+            cross,
+            snapshot_id="cross-raw-replay-control",
+            contract=contract(),
+        )
+        cross_lines = (bundle / "cross_asset" / "daily.csv").read_text(
+            encoding="utf-8"
+        ).splitlines()
+        cross_lines[0] += ",unused"
+        cross_lines[1] += f",{secret}"
+        cross_secret_raw = ("\n".join(cross_lines) + "\n").encode("utf-8")
+        cross_secret_sha = hashlib.sha256(cross_secret_raw).hexdigest()
+        (archive_root / "objects" / "raw" / cross_secret_sha).write_bytes(
+            cross_secret_raw
+        )
+        cross_secret_source = {
+            **cross,
+            "raw_sha256": cross_secret_sha,
+            "raw_object": f"objects/raw/{cross_secret_sha}",
+        }
+        cross_secret_rows = [
+            {**row, "raw_sha256": cross_secret_sha} for row in cross_rows
+        ]
+        try:
+            os.environ["FRED_API_KEY"] = secret
+            archive.validate_recovered_raw_normalization(
+                archive_root,
+                cross_secret_source,
+                cross_secret_rows,
+                contract=contract(),
+                snapshot_id="secret-bearing-recovered-cross-fixture",
+            )
+            raise AssertionError("active key in recovered cross-asset raw was accepted")
+        except archive.ArchiveContractError as exc:
+            assert "recovered_raw_contains_api_key" in str(exc)
         finally:
             if original_key is None:
                 os.environ.pop("FRED_API_KEY", None)
@@ -1193,6 +1240,81 @@ def test_archive_layout_rejects_windows_junctions() -> None:
                 Path.is_junction = original_is_junction
         assert blocked["status"] == archive.BLOCKED_STATUS
         assert "archive_root_link_forbidden" in blocked["blockers"][0]
+
+
+def test_snapshot_directories_reject_windows_junctions() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        archive_root = root / "archive"
+        payload = archive.build(args(archive_root, bundle))
+        snapshot_dir = archive_root / "snapshots" / payload["snapshot_id"]
+        original_is_junction = getattr(Path, "is_junction", None)
+
+        def fake_is_junction(path: Path) -> bool:
+            return path == snapshot_dir
+
+        try:
+            Path.is_junction = fake_is_junction
+            archive.load_archive_index(archive_root, contract())
+            raise AssertionError("a junction-backed snapshot was accepted")
+        except archive.ArchiveContractError as exc:
+            assert "snapshot_link_forbidden" in str(exc)
+        finally:
+            if original_is_junction is None:
+                delattr(Path, "is_junction")
+            else:
+                Path.is_junction = original_is_junction
+
+
+def test_fixture_mode_must_align_with_every_present_source() -> None:
+    for fixture_mode, mode in ((True, "official_network"), (False, "fixture")):
+        try:
+            archive.validate_fixture_source_mode_alignment(
+                [{"status": "ready", "mode": mode}],
+                fixture_mode,
+                snapshot_id="fixture-source-mode-drift",
+            )
+            raise AssertionError("manifest fixture mode diverged from source mode")
+        except archive.ArchiveContractError as exc:
+            assert "snapshot_fixture_source_mode_mismatch" in str(exc)
+
+
+def test_recovered_snapshot_reapplies_launch_and_capture_chronology() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        archive_root = root / "archive"
+        payload = archive.build(args(archive_root, bundle))
+        manifest_path = (
+            archive_root / "snapshots" / payload["snapshot_id"] / "manifest.json"
+        )
+        original_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+        before_launch = json.loads(json.dumps(original_manifest))
+        before_launch["collected_at_utc"] = "2026-08-29T23:59:59Z"
+        manifest_path.write_bytes(archive.pretty_json_bytes(before_launch))
+        try:
+            archive.verify_recoverable_snapshot(
+                archive_root, payload["snapshot_id"], contract()
+            )
+            raise AssertionError("a pre-launch recovered snapshot was accepted")
+        except archive.ArchiveContractError as exc:
+            assert "snapshot_collection_precedes_archive_launch" in str(exc)
+
+        reversed_capture = json.loads(json.dumps(original_manifest))
+        source = next(
+            item for item in reversed_capture["sources"] if item["status"] == "ready"
+        )
+        source["captured_at_utc"] = "2026-08-30T12:00:00.000001Z"
+        manifest_path.write_bytes(archive.pretty_json_bytes(reversed_capture))
+        try:
+            archive.verify_recoverable_snapshot(
+                archive_root, payload["snapshot_id"], contract()
+            )
+            raise AssertionError("a source captured after collection was accepted")
+        except archive.ArchiveContractError as exc:
+            assert "snapshot_source_capture_chronology_invalid" in str(exc)
 
 
 def test_recorded_network_builder_blob_must_exist_and_match() -> None:
@@ -1709,6 +1831,9 @@ if __name__ == "__main__":
     test_all_fixture_raw_bytes_are_scanned_for_the_active_fred_key()
     test_contract_index_and_manifest_authority_use_strict_json()
     test_archive_layout_rejects_windows_junctions()
+    test_snapshot_directories_reject_windows_junctions()
+    test_fixture_mode_must_align_with_every_present_source()
+    test_recovered_snapshot_reapplies_launch_and_capture_chronology()
     test_recorded_network_builder_blob_must_exist_and_match()
     test_no_orphan_path_reuses_the_validated_index_entries()
     test_abandoned_pre_rename_staging_is_recovered_under_lock()

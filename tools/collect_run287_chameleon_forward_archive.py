@@ -1240,6 +1240,10 @@ def validate_recovered_raw_normalization(
             f"recovered_raw_object_too_large:{snapshot_id}:{source_id}"
         )
     raw = raw_path.read_bytes()
+    if raw_contains_secret(raw, active_fred_api_key(contract)):
+        raise ArchiveContractError(
+            f"recovered_raw_contains_api_key:{snapshot_id}:{source_id}"
+        )
     capture_time = parse_utc(
         source.get("captured_at_utc"), field="recovered_source_captured_at"
     )
@@ -1343,11 +1347,14 @@ def load_archive_index(
     snapshot_dirs: list[Path] = []
     if snapshots_root.exists():
         linked_entries = sorted(
-            path.name for path in snapshots_root.iterdir() if path.is_symlink()
+            path.name
+            for path in snapshots_root.iterdir()
+            if path.is_symlink()
+            or bool(getattr(path, "is_junction", lambda: False)())
         )
         if linked_entries:
             raise ArchiveContractError(
-                "snapshot_symlink_forbidden:" + ",".join(linked_entries)
+                "snapshot_link_forbidden:" + ",".join(linked_entries)
             )
         snapshot_dirs = sorted(
             path for path in snapshots_root.iterdir() if path.is_dir()
@@ -1540,6 +1547,34 @@ def validate_orphan_source_contract(
     return observed
 
 
+def validate_fixture_source_mode_alignment(
+    sources: Any,
+    fixture_mode: Any,
+    *,
+    snapshot_id: str,
+) -> None:
+    if type(fixture_mode) is not bool or not isinstance(sources, list):
+        raise ArchiveContractError(
+            f"snapshot_fixture_source_mode_mismatch:{snapshot_id}"
+        )
+    expected_present_mode = "fixture" if fixture_mode else "official_network"
+    for source in sources:
+        if not isinstance(source, dict):
+            raise ArchiveContractError(
+                f"snapshot_fixture_source_mode_mismatch:{snapshot_id}"
+            )
+        status = source.get("status")
+        mode = source.get("mode")
+        if status in {"ready", "partial"} and mode != expected_present_mode:
+            raise ArchiveContractError(
+                f"snapshot_fixture_source_mode_mismatch:{snapshot_id}"
+            )
+        if status == "missing_or_unavailable" and mode != "missing":
+            raise ArchiveContractError(
+                f"snapshot_fixture_source_mode_mismatch:{snapshot_id}"
+            )
+
+
 def verify_recoverable_snapshot(
     root: Path,
     snapshot_id: str,
@@ -1550,7 +1585,12 @@ def verify_recoverable_snapshot(
     contract_sha256 = semantic_sha256(contract)
     snapshot_dir = root / "snapshots" / snapshot_id
     manifest_path = snapshot_dir / "manifest.json"
-    if snapshot_dir.is_symlink() or manifest_path.is_symlink() or not manifest_path.is_file():
+    if (
+        snapshot_dir.is_symlink()
+        or bool(getattr(snapshot_dir, "is_junction", lambda: False)())
+        or manifest_path.is_symlink()
+        or not manifest_path.is_file()
+    ):
         raise ArchiveContractError(f"orphan_snapshot_manifest_missing:{snapshot_id}")
     raw = manifest_path.read_bytes()
     manifest = strict_json_payload(
@@ -1565,6 +1605,13 @@ def verify_recoverable_snapshot(
     collected_at = parse_utc(
         manifest.get("collected_at_utc"), field="orphan_collected_at"
     )
+    launch = parse_utc(
+        contract.get("launch_not_before_utc"), field="launch_not_before"
+    )
+    if collected_at < launch:
+        raise ArchiveContractError(
+            f"snapshot_collection_precedes_archive_launch:{snapshot_id}"
+        )
     timestamp_key = collected_at.strftime("%Y%m%dT%H%M%SZ")
     if not snapshot_id.startswith(f"{timestamp_key}-"):
         raise ArchiveContractError(f"orphan_snapshot_timestamp_mismatch:{snapshot_id}")
@@ -1583,6 +1630,12 @@ def verify_recoverable_snapshot(
     builder_sha = str(manifest.get("builder_sha256") or "")
     builder_git_blob_sha = str(manifest.get("builder_git_blob_sha256") or "")
     fixture_mode = manifest.get("fixture_mode")
+    sources = manifest.get("sources")
+    validate_fixture_source_mode_alignment(
+        sources,
+        fixture_mode,
+        snapshot_id=snapshot_id,
+    )
     validate_recorded_builder_identity(
         git_commit=git_commit,
         builder_sha=builder_sha,
@@ -1590,8 +1643,6 @@ def verify_recoverable_snapshot(
         fixture_mode=fixture_mode,
         snapshot_id=snapshot_id,
     )
-
-    sources = manifest.get("sources")
     validate_orphan_source_contract(
         sources,
         contract=contract,
@@ -1662,6 +1713,13 @@ def verify_recoverable_snapshot(
             raise ArchiveContractError(f"orphan_snapshot_present_source_invalid:{source_id}")
         if status == "partial" and source_id != "cross_asset.daily_close":
             raise ArchiveContractError(f"orphan_snapshot_partial_source_invalid:{source_id}")
+        captured_at = parse_utc(
+            source.get("captured_at_utc"), field=f"orphan_{source_id}_captured_at"
+        )
+        if captured_at < launch or captured_at > collected_at:
+            raise ArchiveContractError(
+                f"snapshot_source_capture_chronology_invalid:{source_id}"
+            )
         captured_count += 1
         partial_count += status == "partial"
         row_count = int(source.get("normalized_row_count") or 0)
