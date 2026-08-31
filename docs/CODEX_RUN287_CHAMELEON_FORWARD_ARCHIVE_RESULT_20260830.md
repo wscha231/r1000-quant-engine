@@ -175,10 +175,20 @@ ratios separately.
 - Both consumed-input rechecks also revalidate the selected root and reuse the
   original per-source size cap, so a swapped root or oversized replacement
   cannot obtain a new allowance from mutable filesystem state.
+- Public provenance rejects every domain and descendant in the IANA
+  Special-Use Domain Names registry frozen at 2026-05-22, including the
+  example.com/net/org and registered ARPA subtrees.
+- Same-time idempotent reuse runs the complete snapshot verifier after source
+  collection and constructs its receipt only from the verified in-memory
+  manifest, so a concurrent manifest mutation cannot inject authority.
+- Snapshot manifests are file-synced before the staging directory is synced
+  and durably renamed. The snapshots directory is then synced before the
+  atomically replaced and parent-synced archive index becomes authoritative;
+  Windows uses write-through replacements for the equivalent boundary.
 
 ## Local official-network proof
 
-At 2026-08-31T13:56:12.906858Z, a local report-only network proof archived four
+At 2026-08-31T14:22:30.946225Z, a local report-only network proof archived four
 official Cboe sources and 18,585 normalized NYSE-session rows:
 
 - cboe.daily_put_call: two rows for 2026-08-28.
@@ -189,10 +199,10 @@ official Cboe sources and 18,585 normalized NYSE-session rows:
 - cboe.vvix: 5,093 rows, latest 2026-08-28.
 
 Snapshot ID:
-20260831T135612Z-aba11cba030feb71
+20260831T142230Z-c1fe126449a1e384
 
 Snapshot manifest SHA-256:
-ff7dfa52c40092807e1b4adfeea5ce141d69af3b015fa75145c436377e5cff38
+50a2697c8c9011debbcdac59fd1091055b9f2a70012bfbf1d43fd6ea1e182b36
 
 This proof is local and is not a canonical durable publication. Thirteen
 FRED/ALFRED series remained missing because no FRED_API_KEY was present.
@@ -257,6 +267,8 @@ The dedicated smoke covers:
   and reserved/private DNS-suffix rejection;
 - repeated bundle-root validation and reuse of the original fixture-size cap
   during consumed-input checks;
+- complete IANA special-use subtree rejection, post-collection same-time
+  manifest re-verification, and staged snapshot/index durability ordering;
 - pre-launch and caller-injected network time rejection.
 
 The dedicated smoke and Python compilation passed. The official Cboe network
