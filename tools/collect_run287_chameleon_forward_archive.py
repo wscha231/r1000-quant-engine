@@ -1190,6 +1190,11 @@ def validate_recovered_raw_normalization(
         str(source.get("raw_object") or ""),
         str(source.get("raw_sha256") or ""),
     )
+    maximum_bytes = int(contract["collection"]["maximum_raw_bytes_per_source"])
+    if raw_path.stat().st_size > maximum_bytes:
+        raise ArchiveContractError(
+            f"recovered_raw_object_too_large:{snapshot_id}:{source_id}"
+        )
     raw = raw_path.read_bytes()
     capture_time = parse_utc(
         source.get("captured_at_utc"), field="recovered_source_captured_at"
@@ -1218,6 +1223,15 @@ def validate_recovered_raw_normalization(
             raise ArchiveContractError(
                 f"recovered_raw_request_invalid:{snapshot_id}:{source_id}"
             )
+        fred_key_name = str(
+            contract["collection"]["fred_api_key_environment_variable"]
+        )
+        active_secret = os.environ.get(fred_key_name, "")
+        if active_secret and (
+            active_secret.strip() != active_secret
+            or any(character in active_secret for character in "\r\n")
+        ):
+            active_secret = ""
         reparsed, missing_count = normalize_fred(
             raw,
             source_id=source_id,
@@ -1226,6 +1240,7 @@ def validate_recovered_raw_normalization(
             requested_observation_start=str(request.get("observation_start") or ""),
             requested_observation_end=str(request.get("observation_end") or ""),
             missing_token=str(contract["fred"]["missing_value_token"]),
+            active_secret=active_secret,
         )
         if missing_count != source.get("missing_value_count"):
             raise ArchiveContractError(
@@ -1287,7 +1302,6 @@ def load_archive_index(
     *,
     allow_unindexed_snapshots: bool = False,
 ) -> list[dict[str, Any]]:
-    contract_sha256 = semantic_sha256(contract)
     index_path = root / "archive_index.jsonl"
     snapshots_root = root / "snapshots"
     snapshot_dirs: list[Path] = []
@@ -1333,12 +1347,9 @@ def load_archive_index(
     ):
         if not line.strip():
             raise ArchiveContractError(f"blank_archive_index_line:{line_number}")
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise ArchiveContractError(
-                f"invalid_archive_index_json:{line_number}"
-            ) from exc
+        entry = strict_json_payload(
+            line.encode("utf-8"), source_id=f"archive_index_{line_number}"
+        )
         if not isinstance(entry, dict):
             raise ArchiveContractError(f"archive_index_row_not_object:{line_number}")
         snapshot_id = str(entry.get("snapshot_id") or "")
@@ -1366,64 +1377,20 @@ def load_archive_index(
             raise ArchiveContractError(
                 f"snapshot_manifest_hash_mismatch:{snapshot_id}"
             )
-        try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+        manifest, verified_manifest_sha = verify_recoverable_snapshot(
+            root,
+            snapshot_id,
+            contract,
+            replay_raw=False,
+        )
+        if verified_manifest_sha != manifest_sha:
             raise ArchiveContractError(
-                f"snapshot_manifest_unreadable:{snapshot_id}"
-            ) from exc
-        if not isinstance(manifest, dict):
-            raise ArchiveContractError(f"snapshot_manifest_not_object:{snapshot_id}")
-        if manifest.get("snapshot_id") != snapshot_id:
-            raise ArchiveContractError(f"snapshot_manifest_id_mismatch:{snapshot_id}")
+                f"snapshot_manifest_hash_mismatch:{snapshot_id}"
+            )
         if manifest.get("collected_at_utc") != collected_at:
             raise ArchiveContractError(
                 f"snapshot_manifest_collection_time_mismatch:{snapshot_id}"
             )
-        if (
-            manifest.get("contract_semantic_sha256")
-            != contract_sha256
-        ):
-            raise ArchiveContractError(f"snapshot_contract_drift:{snapshot_id}")
-        if manifest.get("historical_ab_allowed") is not False:
-            raise ArchiveContractError(f"snapshot_historical_ab_enabled:{snapshot_id}")
-        if manifest.get("pit_verified_emitted") is not False:
-            raise ArchiveContractError(f"snapshot_pit_verified:{snapshot_id}")
-        if any(
-            manifest.get(key) is not expected
-            for key, expected in SAFETY.items()
-        ):
-            raise ArchiveContractError(f"snapshot_safety_drift:{snapshot_id}")
-        validate_downstream_handoff(manifest, contract, snapshot_id=snapshot_id)
-        sources = manifest.get("sources")
-        validate_orphan_source_contract(
-            sources,
-            contract=contract,
-            snapshot_id=snapshot_id,
-        )
-        assert isinstance(sources, list)
-        for source in sources:
-            if not isinstance(source, dict):
-                raise ArchiveContractError(
-                    f"snapshot_source_not_object:{snapshot_id}"
-                )
-            if source.get("truth_class") == "PIT_VERIFIED":
-                raise ArchiveContractError(
-                    f"snapshot_pit_verified_forbidden:{snapshot_id}"
-                )
-            raw_sha = str(source.get("raw_sha256") or "")
-            normalized_sha = str(source.get("normalized_sha256") or "")
-            raw_path = str(source.get("raw_object") or "")
-            normalized_path = str(source.get("normalized_object") or "")
-            if raw_sha or normalized_sha or raw_path or normalized_path:
-                validate_object_path(root, raw_path, raw_sha)
-                validate_object_path(root, normalized_path, normalized_sha)
-                validate_normalized_object_rows(
-                    root,
-                    source,
-                    snapshot_id=snapshot_id,
-                    contract=contract,
-                )
         entries.append(entry)
         seen_ids.add(snapshot_id)
         seen_times.add(collected_at)
@@ -1519,6 +1486,8 @@ def verify_recoverable_snapshot(
     root: Path,
     snapshot_id: str,
     contract: Mapping[str, Any],
+    *,
+    replay_raw: bool = True,
 ) -> tuple[dict[str, Any], str]:
     contract_sha256 = semantic_sha256(contract)
     snapshot_dir = root / "snapshots" / snapshot_id
@@ -1526,12 +1495,9 @@ def verify_recoverable_snapshot(
     if snapshot_dir.is_symlink() or manifest_path.is_symlink() or not manifest_path.is_file():
         raise ArchiveContractError(f"orphan_snapshot_manifest_missing:{snapshot_id}")
     raw = manifest_path.read_bytes()
-    try:
-        manifest = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ArchiveContractError(
-            f"orphan_snapshot_manifest_unreadable:{snapshot_id}"
-        ) from exc
+    manifest = strict_json_payload(
+        raw, source_id=f"snapshot_manifest_{snapshot_id}"
+    )
     if not isinstance(manifest, dict):
         raise ArchiveContractError(f"orphan_snapshot_manifest_not_object:{snapshot_id}")
     if manifest.get("schema_version") != SCHEMA_VERSION:
@@ -1620,11 +1586,25 @@ def verify_recoverable_snapshot(
                 )
         if status == "missing_or_unavailable":
             missing_count += 1
-            if mode != "missing" or truth is not None:
+            if (
+                mode != "missing"
+                or truth is not None
+                or source.get("captured_at_utc") is not None
+                or source.get("resolved_url") is not None
+                or source.get("public_request_params") != {}
+                or source.get("raw_sha256") is not None
+                or source.get("raw_object") is not None
+                or source.get("normalized_sha256") is not None
+                or source.get("normalized_object") is not None
+                or source.get("normalized_row_count") != 0
+                or not str(source.get("reason") or "")
+            ):
                 raise ArchiveContractError(f"orphan_snapshot_missing_source_invalid:{source_id}")
             continue
         if status not in {"ready", "partial"}:
             raise ArchiveContractError(f"orphan_snapshot_present_source_invalid:{source_id}")
+        if status == "partial" and source_id != "cross_asset.daily_close":
+            raise ArchiveContractError(f"orphan_snapshot_partial_source_invalid:{source_id}")
         captured_count += 1
         partial_count += status == "partial"
         row_count = int(source.get("normalized_row_count") or 0)
@@ -1666,13 +1646,14 @@ def verify_recoverable_snapshot(
             snapshot_id=snapshot_id,
             contract=contract,
         )
-        validate_recovered_raw_normalization(
-            root,
-            source,
-            normalized_rows,
-            contract=contract,
-            snapshot_id=snapshot_id,
-        )
+        if replay_raw:
+            validate_recovered_raw_normalization(
+                root,
+                source,
+                normalized_rows,
+                contract=contract,
+                snapshot_id=snapshot_id,
+            )
 
     expected_status = (
         READY_PARTIAL_STATUS if missing_count or partial_count else READY_STATUS

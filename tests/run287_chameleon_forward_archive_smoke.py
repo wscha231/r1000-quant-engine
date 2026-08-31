@@ -929,6 +929,53 @@ def test_recovery_replays_raw_source_normalization() -> None:
         except archive.ArchiveContractError as exc:
             assert "json_unreadable" in str(exc)
 
+        secret = "recovery-secret-must-not-be-indexed"
+        secret_payload = json.loads(
+            (bundle / "fred" / "BAMLH0A0HYM2.json").read_text(encoding="utf-8")
+        )
+        secret_payload["ignored_echo"] = secret
+        secret_raw = archive.canonical_json_bytes(secret_payload)
+        secret_sha = hashlib.sha256(secret_raw).hexdigest()
+        (archive_root / "objects" / "raw" / secret_sha).write_bytes(secret_raw)
+        secret_source = {
+            **fred,
+            "raw_sha256": secret_sha,
+            "raw_object": f"objects/raw/{secret_sha}",
+        }
+        secret_rows = [{**row, "raw_sha256": secret_sha} for row in rows]
+        original_key = os.environ.get("FRED_API_KEY")
+        try:
+            os.environ["FRED_API_KEY"] = secret
+            archive.validate_recovered_raw_normalization(
+                archive_root,
+                secret_source,
+                secret_rows,
+                contract=contract(),
+                snapshot_id="secret-bearing-recovered-raw-fixture",
+            )
+            raise AssertionError("active FRED key in recovered raw evidence was accepted")
+        except archive.ArchiveContractError as exc:
+            assert "raw_response_contains_api_key" in str(exc)
+        finally:
+            if original_key is None:
+                os.environ.pop("FRED_API_KEY", None)
+            else:
+                os.environ["FRED_API_KEY"] = original_key
+
+        tiny_contract = contract()
+        tiny_contract["collection"]["maximum_raw_bytes_per_source"] = 1
+        try:
+            archive.validate_recovered_raw_normalization(
+                archive_root,
+                fred,
+                rows,
+                contract=tiny_contract,
+                snapshot_id="oversized-recovered-raw-fixture",
+            )
+            raise AssertionError("oversized recovered raw evidence was read")
+        except archive.ArchiveContractError as exc:
+            assert "recovered_raw_object_too_large" in str(exc)
+
 
 def test_orphan_recovery_requires_canonical_downstream_handoff() -> None:
     with tempfile.TemporaryDirectory() as temporary:
@@ -974,6 +1021,71 @@ def test_indexed_manifest_cannot_claim_pit_verified() -> None:
             raise AssertionError("an indexed manifest claimed PIT_VERIFIED")
         except archive.ArchiveContractError as exc:
             assert "snapshot_pit_verified" in str(exc)
+
+
+def test_archive_index_rejects_duplicate_json_keys() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        bundle = build_source_bundle(root)
+        archive_root = root / "archive"
+        archive.build(args(archive_root, bundle))
+        index_path = archive_root / "archive_index.jsonl"
+        original = index_path.read_text(encoding="utf-8").strip()
+        index_path.write_text(
+            '{"snapshot_id":"first-key-conflict",' + original[1:] + "\n",
+            encoding="utf-8",
+        )
+        try:
+            archive.load_archive_index(archive_root, contract())
+            raise AssertionError("duplicate archive-index keys were accepted")
+        except archive.ArchiveContractError as exc:
+            assert "archive_index_1_duplicate_json_key" in str(exc)
+
+
+def test_indexed_manifests_reuse_full_identity_and_source_validation() -> None:
+    for mutation, expected_error in (
+        ("identity", "identity_mismatch"),
+        ("ready_without_objects", "empty_source"),
+    ):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundle = build_source_bundle(root)
+            archive_root = root / "archive"
+            payload = archive.build(args(archive_root, bundle))
+            manifest_path = (
+                archive_root
+                / "snapshots"
+                / payload["snapshot_id"]
+                / "manifest.json"
+            )
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if mutation == "identity":
+                manifest["git_head"] = "0" * 40
+            else:
+                source = next(
+                    item for item in manifest["sources"] if item["status"] == "ready"
+                )
+                for field in (
+                    "raw_sha256",
+                    "raw_object",
+                    "normalized_sha256",
+                    "normalized_object",
+                ):
+                    source[field] = None
+                source["normalized_row_count"] = 0
+            manifest_raw = archive.pretty_json_bytes(manifest)
+            manifest_path.write_bytes(manifest_raw)
+            entries = index_rows(archive_root)
+            entries[0]["snapshot_manifest_sha256"] = hashlib.sha256(
+                manifest_raw
+            ).hexdigest()
+            entries[0]["entry_sha256"] = archive.index_hash(entries[0])
+            archive.write_index(archive_root / "archive_index.jsonl", entries)
+            try:
+                archive.load_archive_index(archive_root, contract())
+                raise AssertionError(f"indexed manifest mutation was accepted: {mutation}")
+            except archive.ArchiveContractError as exc:
+                assert expected_error in str(exc)
 
 
 def test_no_orphan_path_reuses_the_validated_index_entries() -> None:
@@ -1465,6 +1577,8 @@ if __name__ == "__main__":
     test_recovery_replays_raw_source_normalization()
     test_orphan_recovery_requires_canonical_downstream_handoff()
     test_indexed_manifest_cannot_claim_pit_verified()
+    test_archive_index_rejects_duplicate_json_keys()
+    test_indexed_manifests_reuse_full_identity_and_source_validation()
     test_no_orphan_path_reuses_the_validated_index_entries()
     test_abandoned_pre_rename_staging_is_recovered_under_lock()
     test_network_fetch_is_bounded_and_restricts_redirect_origins()
