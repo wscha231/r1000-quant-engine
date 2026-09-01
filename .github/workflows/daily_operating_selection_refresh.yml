@@ -1491,18 +1491,69 @@ jobs:
               echo "[risk-outcome] BLOCKED: outcome genesis requires proven absence of authoritative legacy state"
               exit 2
             fi
+            PAPER_INTEGRITY_SOURCE="outputs/daily_simulated_fill_ledger/snapshot_integrity.json"
             PAPER_INTEGRITY_SELECTION_EVIDENCE="outputs/full_rebuild_logs/daily_paper_immutable_head_selection.json"
             PAPER_INTEGRITY_VERIFIER_RECEIPT="outputs/full_rebuild_logs/daily_paper_integrity_verifier_receipt.json"
-            rm -f "$PAPER_INTEGRITY_VERIFIER_RECEIPT"
+            PAPER_INTEGRITY_DIAGNOSTIC_COPY="outputs/full_rebuild_logs/daily_paper_preflight_snapshot_integrity.json"
+            PAPER_INTEGRITY_DIAGNOSTIC_TMP="${PAPER_INTEGRITY_DIAGNOSTIC_COPY}.tmp"
+            rm -f \
+              "$PAPER_INTEGRITY_VERIFIER_RECEIPT" \
+              "$PAPER_INTEGRITY_DIAGNOSTIC_COPY" \
+              "$PAPER_INTEGRITY_DIAGNOSTIC_TMP"
+            PAPER_INTEGRITY_SOURCE_SHA_BEFORE=""
+            PAPER_INTEGRITY_SOURCE_SHA_AFTER=""
+            PAPER_INTEGRITY_COPY_SHA=""
+            PAPER_INTEGRITY_COPY_EXIT=0
             set +e
-            python tools/run287_paper_ledger_integrity.py \
-              --state-dir outputs/daily_simulated_fill_ledger \
-              --require-integrity \
-              --immutable-head-selection "$PAPER_INTEGRITY_SELECTION_EVIDENCE" \
-              --verifier-receipt-output "$PAPER_INTEGRITY_VERIFIER_RECEIPT" \
-              2>&1 | tee outputs/full_rebuild_logs/daily_paper_integrity_verifier_receipt.log
-            PAPER_INTEGRITY_VERIFIER_EXIT="${PIPESTATUS[0]}"
+            PAPER_INTEGRITY_SOURCE_SHA_BEFORE="$(sha256sum "$PAPER_INTEGRITY_SOURCE" | awk 'NR == 1 { print $1 }')" && \
+              cp "$PAPER_INTEGRITY_SOURCE" "$PAPER_INTEGRITY_DIAGNOSTIC_TMP" && \
+              PAPER_INTEGRITY_SOURCE_SHA_AFTER="$(sha256sum "$PAPER_INTEGRITY_SOURCE" | awk 'NR == 1 { print $1 }')" && \
+              PAPER_INTEGRITY_COPY_SHA="$(sha256sum "$PAPER_INTEGRITY_DIAGNOSTIC_TMP" | awk 'NR == 1 { print $1 }')" && \
+              [ -n "$PAPER_INTEGRITY_SOURCE_SHA_BEFORE" ] && \
+              [ "$PAPER_INTEGRITY_SOURCE_SHA_BEFORE" = "$PAPER_INTEGRITY_SOURCE_SHA_AFTER" ] && \
+              [ "$PAPER_INTEGRITY_SOURCE_SHA_BEFORE" = "$PAPER_INTEGRITY_COPY_SHA" ] && \
+              cmp -s "$PAPER_INTEGRITY_SOURCE" "$PAPER_INTEGRITY_DIAGNOSTIC_TMP"
+            PAPER_INTEGRITY_COPY_EXIT=$?
             set -e
+            if [ "$PAPER_INTEGRITY_COPY_EXIT" -eq 0 ]; then
+              if ! mv "$PAPER_INTEGRITY_DIAGNOSTIC_TMP" "$PAPER_INTEGRITY_DIAGNOSTIC_COPY"; then
+                PAPER_INTEGRITY_COPY_EXIT=2
+              fi
+            fi
+            PAPER_INTEGRITY_VERIFIER_EXIT=2
+            if [ "$PAPER_INTEGRITY_COPY_EXIT" -ne 0 ]; then
+              rm -f \
+                "$PAPER_INTEGRITY_DIAGNOSTIC_COPY" \
+                "$PAPER_INTEGRITY_DIAGNOSTIC_TMP"
+              echo "[paper-integrity] BLOCKED: preflight manifest diagnostic copy is not byte-exact" \
+                | tee outputs/full_rebuild_logs/daily_paper_integrity_verifier_receipt.log
+            else
+              echo "[paper-integrity] preflight manifest diagnostic copy sha256=$PAPER_INTEGRITY_COPY_SHA"
+              set +e
+              python tools/run287_paper_ledger_integrity.py \
+                --state-dir outputs/daily_simulated_fill_ledger \
+                --require-integrity \
+                --immutable-head-selection "$PAPER_INTEGRITY_SELECTION_EVIDENCE" \
+                --verifier-receipt-output "$PAPER_INTEGRITY_VERIFIER_RECEIPT" \
+                2>&1 | tee outputs/full_rebuild_logs/daily_paper_integrity_verifier_receipt.log
+              PAPER_INTEGRITY_VERIFIER_EXIT="${PIPESTATUS[0]}"
+              set -e
+            fi
+            if [ "$PAPER_INTEGRITY_VERIFIER_EXIT" -eq 0 ]; then
+              PAPER_INTEGRITY_SOURCE_SHA_FINAL=""
+              set +e
+              PAPER_INTEGRITY_SOURCE_SHA_FINAL="$(sha256sum "$PAPER_INTEGRITY_SOURCE" | awk 'NR == 1 { print $1 }')"
+              PAPER_INTEGRITY_FINAL_HASH_EXIT=$?
+              set -e
+              if [ "$PAPER_INTEGRITY_FINAL_HASH_EXIT" -ne 0 ] || \
+                 [ "$PAPER_INTEGRITY_SOURCE_SHA_FINAL" != "$PAPER_INTEGRITY_COPY_SHA" ] || \
+                 ! cmp -s "$PAPER_INTEGRITY_SOURCE" "$PAPER_INTEGRITY_DIAGNOSTIC_COPY"; then
+                PAPER_INTEGRITY_VERIFIER_EXIT=2
+                rm -f "$PAPER_INTEGRITY_DIAGNOSTIC_COPY"
+                echo "[paper-integrity] BLOCKED: canonical manifest changed across verifier receipt generation" \
+                  | tee -a outputs/full_rebuild_logs/daily_paper_integrity_verifier_receipt.log
+              fi
+            fi
             if [ "$PAPER_INTEGRITY_VERIFIER_EXIT" -ne 0 ]; then
               rm -f "$PAPER_INTEGRITY_VERIFIER_RECEIPT"
             fi
@@ -3451,7 +3502,6 @@ jobs:
             outputs/run287_operating_scorecard/
             outputs/run287_promotion_gate/
             outputs/run287_accepted_publication/
-            outputs/daily_simulated_fill_ledger/snapshot_integrity.json
             outputs/sec_enriched_candidate_replay/
             outputs/portfolio_latest.csv
             outputs/concentrated_portfolio_latest.csv
@@ -3464,6 +3514,7 @@ jobs:
             outputs/full_rebuild_logs/daily_operating_price_cache_refresh_prior_manifest.json
             cache_prices/replay_price_cache_transaction.json
             outputs/full_rebuild_logs/daily_paper_legacy_drive_migration.json
+            outputs/full_rebuild_logs/daily_paper_preflight_snapshot_integrity.json
             outputs/full_rebuild_logs/daily_paper_immutable_head_selection.json
             outputs/full_rebuild_logs/daily_paper_integrity_verifier_receipt.json
             data_pit/free/market_snapshot/

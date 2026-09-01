@@ -1166,6 +1166,12 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "--verifier-receipt-output \"$PAPER_INTEGRITY_VERIFIER_RECEIPT\"",
         "--paper-integrity-verifier-receipt \"$PAPER_INTEGRITY_VERIFIER_RECEIPT\"",
         "--paper-immutable-head-selection \"$PAPER_INTEGRITY_SELECTION_EVIDENCE\"",
+        "--paper-integrity outputs/daily_simulated_fill_ledger/snapshot_integrity.json",
+        "daily_paper_preflight_snapshot_integrity.json",
+        "PAPER_INTEGRITY_SOURCE_SHA_BEFORE",
+        '"$PAPER_INTEGRITY_SOURCE_SHA_BEFORE" = "$PAPER_INTEGRITY_SOURCE_SHA_AFTER"',
+        '"$PAPER_INTEGRITY_SOURCE_SHA_FINAL" != "$PAPER_INTEGRITY_COPY_SHA"',
+        "preflight manifest diagnostic copy is not byte-exact",
         "--remote-head-discovery-confirmed",
         '--remote-committed-head-count "${REMOTE_COMMITTED_HEAD_COUNT}"',
         '--remote-legacy-outcome-state "${REMOTE_LEGACY_OUTCOME_STATE}"',
@@ -1600,6 +1606,22 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     paper_verifier_receipt_idx = text.index(
         '--verifier-receipt-output "$PAPER_INTEGRITY_VERIFIER_RECEIPT"'
     )
+    paper_diagnostic_copy_idx = text.index(
+        'cp "$PAPER_INTEGRITY_SOURCE" '
+        '"$PAPER_INTEGRITY_DIAGNOSTIC_TMP"'
+    )
+    paper_diagnostic_initial_compare_idx = text.index(
+        'cmp -s "$PAPER_INTEGRITY_SOURCE" '
+        '"$PAPER_INTEGRITY_DIAGNOSTIC_TMP"'
+    )
+    paper_diagnostic_publish_idx = text.index(
+        'mv "$PAPER_INTEGRITY_DIAGNOSTIC_TMP" '
+        '"$PAPER_INTEGRITY_DIAGNOSTIC_COPY"'
+    )
+    paper_diagnostic_final_compare_idx = text.index(
+        'cmp -s "$PAPER_INTEGRITY_SOURCE" '
+        '"$PAPER_INTEGRITY_DIAGNOSTIC_COPY"'
+    )
     paper_selection_evidence_idx = text.index(
         'cp "$PAPER_IMMUTABLE_SELECTION" '
         '"$PAPER_INTEGRITY_SELECTION_EVIDENCE"'
@@ -1634,6 +1656,9 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     accepted_idx = text.index(
         "python tools/build_run287_accepted_publication_manifest.py"
     )
+    diagnostic_upload_idx = text.index(
+        "- name: Upload daily operating evidence artifact"
+    )
     assert freshness_idx < paper_idx, "freshness must fail closed before any paper-ledger mutation"
     assert (
         persistent_restore_idx
@@ -1651,10 +1676,15 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     assert (
         paper_selection_evidence_idx
         < accepted_parent_restore_idx
+        < paper_diagnostic_copy_idx
+        < paper_diagnostic_initial_compare_idx
+        < paper_diagnostic_publish_idx
         < paper_verifier_receipt_idx
+        < paper_diagnostic_final_compare_idx
         < outcome_parent_preflight_idx
         < paper_idx
         < snapshot_idx
+        < diagnostic_upload_idx
     ), (
         "the immutable prior outcome head or a durable fail-closed preflight "
         "receipt must be established before the paper account is advanced"
@@ -1706,8 +1736,10 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         text.index("- name: Reverify accepted publication before GitHub publication")
     ]
     assert "outputs/run287_risk_outcome_parent_preflight/" in diagnostic_upload
+    assert "outputs/daily_simulated_fill_ledger/" not in diagnostic_upload
     assert (
-        "outputs/daily_simulated_fill_ledger/snapshot_integrity.json"
+        "outputs/full_rebuild_logs/"
+        "daily_paper_preflight_snapshot_integrity.json"
         in diagnostic_upload
     )
     assert (
@@ -1719,6 +1751,22 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "outputs/full_rebuild_logs/"
         "daily_paper_immutable_head_selection.json"
         in diagnostic_upload
+    )
+    risk_parent_restore_syntax = subprocess.run(
+        [bash_executable(), "-n"],
+        input=(
+            extract_yaml_literal_run(
+                text,
+                "Restore verified risk-outcome accepted head",
+            )
+            + "\n"
+        ),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert risk_parent_restore_syntax.returncode == 0, (
+        risk_parent_restore_syntax.stderr
     )
     accepted_upload = text[
         text.index("- name: Upload accepted paper transaction artifact"):

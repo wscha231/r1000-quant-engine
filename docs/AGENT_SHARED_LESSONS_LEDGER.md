@@ -4636,6 +4636,11 @@ Expected contract:
   blocked preflight receipt. Preserve the verifier log, remove any incomplete
   receipt, and let the preflight emit its fail-closed diagnostic before the job
   exits.
+- CI follow-up: Failed diagnostic artifacts must never include an accepted
+  paper-state directory or file directly. Copy the exact preflight manifest
+  bytes into a diagnostic-only path, verify source/copy SHA-256 and byte
+  equality before and after verifier receipt generation, and keep preflight
+  validation pointed at the canonical accepted-state source.
 - Validation: Real producer fixture with 243 files and a six-head lineage,
   missing/extra/changed-file checks, forbidden raw status, missing/forged/hash-
   mismatched receipt checks, parent/terminal/chain mismatches, deterministic
