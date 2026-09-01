@@ -651,6 +651,8 @@ jobs:
           PAPER_DURABLE_RESTORE_MODE=UNAVAILABLE
           echo "PAPER_DURABLE_RESTORE_MODE=$PAPER_DURABLE_RESTORE_MODE" >> "$GITHUB_ENV"
           mkdir -p outputs/full_rebuild_logs
+          PAPER_INTEGRITY_SELECTION_EVIDENCE="outputs/full_rebuild_logs/daily_paper_immutable_head_selection.json"
+          rm -f "$PAPER_INTEGRITY_SELECTION_EVIDENCE"
           PAPER_CACHE_ANCHOR="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_cache_anchor"
           rm -rf "$PAPER_CACHE_ANCHOR"
           PAPER_HEAD_CACHE="outputs/run287_paper_immutable_head_bundles"
@@ -659,6 +661,7 @@ jobs:
             python tools/run287_paper_ledger_integrity.py \
               --select-immutable-heads-root "$PAPER_HEAD_CACHE" \
               --output "$PAPER_HEAD_CACHE_SELECTION"
+            cp "$PAPER_HEAD_CACHE_SELECTION" "$PAPER_INTEGRITY_SELECTION_EVIDENCE"
             CACHED_TERMINAL_HASH="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["selected_snapshot_hash"])' "$PAPER_HEAD_CACHE_SELECTION")"
             if [ -s outputs/daily_simulated_fill_ledger/snapshot_integrity.json ]; then
               python tools/run287_paper_ledger_integrity.py \
@@ -940,6 +943,7 @@ jobs:
                 python tools/run287_paper_ledger_integrity.py \
                   --select-immutable-heads-root "$PAPER_IMMUTABLE_HEADS_LOCAL" \
                   --output "$PAPER_IMMUTABLE_SELECTION"
+                cp "$PAPER_IMMUTABLE_SELECTION" "$PAPER_INTEGRITY_SELECTION_EVIDENCE"
                 PAPER_IMMUTABLE_TERMINAL_HASH="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["selected_snapshot_hash"])' "$PAPER_IMMUTABLE_SELECTION")"
                 if ! [[ "$PAPER_IMMUTABLE_TERMINAL_HASH" =~ ^[0-9a-f]{64}$ ]]; then
                   echo "[paper-ledger] BLOCKED: selected immutable terminal hash is invalid"
@@ -1487,6 +1491,21 @@ jobs:
               echo "[risk-outcome] BLOCKED: outcome genesis requires proven absence of authoritative legacy state"
               exit 2
             fi
+            PAPER_INTEGRITY_SELECTION_EVIDENCE="outputs/full_rebuild_logs/daily_paper_immutable_head_selection.json"
+            PAPER_INTEGRITY_VERIFIER_RECEIPT="outputs/full_rebuild_logs/daily_paper_integrity_verifier_receipt.json"
+            rm -f "$PAPER_INTEGRITY_VERIFIER_RECEIPT"
+            set +e
+            python tools/run287_paper_ledger_integrity.py \
+              --state-dir outputs/daily_simulated_fill_ledger \
+              --require-integrity \
+              --immutable-head-selection "$PAPER_INTEGRITY_SELECTION_EVIDENCE" \
+              --verifier-receipt-output "$PAPER_INTEGRITY_VERIFIER_RECEIPT" \
+              2>&1 | tee outputs/full_rebuild_logs/daily_paper_integrity_verifier_receipt.log
+            PAPER_INTEGRITY_VERIFIER_EXIT="${PIPESTATUS[0]}"
+            set -e
+            if [ "$PAPER_INTEGRITY_VERIFIER_EXIT" -ne 0 ]; then
+              rm -f "$PAPER_INTEGRITY_VERIFIER_RECEIPT"
+            fi
             PREFLIGHT_ARGS=(
               --event-name "${GITHUB_EVENT_NAME}"
               --source-commit-sha "${GITHUB_SHA}"
@@ -1498,6 +1517,8 @@ jobs:
               --remote-committed-head-count "${REMOTE_COMMITTED_HEAD_COUNT}"
               --remote-legacy-outcome-state "${REMOTE_LEGACY_OUTCOME_STATE}"
               --paper-integrity outputs/daily_simulated_fill_ledger/snapshot_integrity.json
+              --paper-integrity-verifier-receipt "$PAPER_INTEGRITY_VERIFIER_RECEIPT"
+              --paper-immutable-head-selection "$PAPER_INTEGRITY_SELECTION_EVIDENCE"
               --output outputs/run287_risk_outcome_parent_preflight/receipt.json
             )
             if [ "${ALLOW_RISK_OUTCOME_GENESIS_BOOTSTRAP:-false}" = "true" ]; then
@@ -3430,6 +3451,7 @@ jobs:
             outputs/run287_operating_scorecard/
             outputs/run287_promotion_gate/
             outputs/run287_accepted_publication/
+            outputs/daily_simulated_fill_ledger/snapshot_integrity.json
             outputs/sec_enriched_candidate_replay/
             outputs/portfolio_latest.csv
             outputs/concentrated_portfolio_latest.csv
@@ -3442,6 +3464,8 @@ jobs:
             outputs/full_rebuild_logs/daily_operating_price_cache_refresh_prior_manifest.json
             cache_prices/replay_price_cache_transaction.json
             outputs/full_rebuild_logs/daily_paper_legacy_drive_migration.json
+            outputs/full_rebuild_logs/daily_paper_immutable_head_selection.json
+            outputs/full_rebuild_logs/daily_paper_integrity_verifier_receipt.json
             data_pit/free/market_snapshot/
             data_raw/free/market_snapshot/
             outputs/full_rebuild_logs/daily_user_current_contract.log

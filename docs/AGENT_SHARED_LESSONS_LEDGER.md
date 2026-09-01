@@ -4613,3 +4613,38 @@ Expected contract:
 - Fullrun executed: false. Workflow dispatched or rerun: false. Target, order,
   TradeIntent, ledger, accepted-head, production, live trading, and automatic
   promotion state mutated: false.
+
+## 2026-09-02 - Raw integrity manifests and verifier receipts are separate contracts
+
+- Agent: Codex GPT-5.6.
+- Branch: `codex/run287-paper-integrity-contract-h1-20260902`.
+- Context: Scheduled run `33476672130` restored the verified 243-file,
+  six-head paper terminal `65fa6f5b...e02a7` but the risk-outcome parent
+  preflight rejected it as `paper_integrity_contract_invalid`.
+- Root cause: The v2 producer correctly forbids extra raw-manifest keys while
+  the preflight incorrectly required raw `status == VERIFIED`. The existing
+  smoke fixture encoded the consumer bug by adding `status` and omitting the
+  producer-required file map/count.
+- Reusable lesson: A raw integrity manifest describes content identity; a
+  verifier receipt describes a successful validation event. Never insert a
+  verifier status into an exact-key raw schema or delete the status gate.
+  Recompute a separately typed receipt from the canonical verifier, bind it to
+  the raw byte hash, complete file-map hash/count, and verified immutable-head
+  selection receipt, then exact-compare its canonical bytes at the consumer
+  boundary.
+- Reusable lesson: Receipt generation failure must not suppress the durable
+  blocked preflight receipt. Preserve the verifier log, remove any incomplete
+  receipt, and let the preflight emit its fail-closed diagnostic before the job
+  exits.
+- Validation: Real producer fixture with 243 files and a six-head lineage,
+  missing/extra/changed-file checks, forbidden raw status, missing/forged/hash-
+  mismatched receipt checks, parent/terminal/chain mismatches, deterministic
+  receipt replay, workflow artifact/order smoke, Python compilation, YAML
+  parse, and `git diff --check` passed.
+- Next action: Merge H1 alone, confirm the scheduled/read-only preflight reaches
+  `BLOCKED_ONE_TIME_LEGACY_QUARANTINE_AUTHORIZATION_REQUIRED`, then design a
+  separately reviewed migration-only workflow and fresh exact-SHA approval
+  packet. Do not authorize migration through the ordinary daily workflow.
+- Fullrun executed: false. Workflow dispatched or rerun: false. Migration,
+  quarantine, Drive, target, order, ledger, accepted-head, production, live
+  trading, and automatic promotion state mutated: false.

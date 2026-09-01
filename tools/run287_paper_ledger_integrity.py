@@ -16,7 +16,7 @@ import shutil
 import tempfile
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Mapping
 
 
 INTEGRITY_FILE = "snapshot_integrity.json"
@@ -41,6 +41,24 @@ PAPER_IMMUTABLE_HEAD_SELECTION_SCHEMA = (
 )
 PAPER_IMMUTABLE_HEAD_SELECTION_STATUS = (
     "VERIFIED_LINEAR_IMMUTABLE_PAPER_HEAD_SELECTED"
+)
+PAPER_INTEGRITY_VERIFIER_RECEIPT_SCHEMA = (
+    "run287-paper-ledger-integrity-verifier-receipt-v1"
+)
+PAPER_INTEGRITY_VERIFIER_RECEIPT_STATUS = "VERIFIED"
+PAPER_IMMUTABLE_HEAD_SELECTION_KEYS = frozenset(
+    {
+        "schema_version",
+        "status",
+        "heads_root",
+        "immutable_head_count",
+        "root_snapshot_hash",
+        "terminal_snapshot_hash",
+        "selected_snapshot_hash",
+        "selected_head_dir",
+        "selected_as_of_date",
+        "chain_snapshot_hashes",
+    }
 )
 REPLAY_PRICE_EVIDENCE_PREFIX = "replay_price_evidence"
 REPLAY_TARGET_SOURCE_PREFIX = "replay_target_source"
@@ -314,6 +332,194 @@ def verify_integrity_manifest(root: Path, *, require: bool = True) -> dict[str, 
             "BLOCKED_INTEGRITY", "genesis identity hash mismatch"
         )
     return {**payload, "status": "VERIFIED"}
+
+
+def _strict_json_object(raw: bytes, *, label: str) -> dict[str, Any]:
+    def reject_duplicate_keys(
+        pairs: list[tuple[str, Any]],
+    ) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise PaperLedgerIntegrityError(
+                    "BLOCKED_INTEGRITY",
+                    f"{label} has duplicate JSON key: {key}",
+                )
+            result[key] = value
+        return result
+
+    try:
+        payload = json.loads(raw, object_pairs_hook=reject_duplicate_keys)
+    except PaperLedgerIntegrityError:
+        raise
+    except Exception as exc:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_INTEGRITY", f"{label} is unreadable: {exc}"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_INTEGRITY", f"{label} is not a JSON object"
+        )
+    return payload
+
+
+def _validate_immutable_head_selection_receipt(
+    *,
+    receipt: dict[str, Any],
+    verified_manifest: dict[str, Any],
+) -> list[str]:
+    if set(receipt) != PAPER_IMMUTABLE_HEAD_SELECTION_KEYS:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_INTEGRITY",
+            "immutable paper head selection receipt keys mismatch",
+        )
+    ancestors = list(verified_manifest["ancestor_snapshot_hashes"])
+    terminal = str(verified_manifest["snapshot_hash"])
+    expected_chain = [*reversed(ancestors), terminal]
+    expected_root = expected_chain[0]
+    heads_root = Path(str(receipt.get("heads_root") or ""))
+    selected_head = Path(str(receipt.get("selected_head_dir") or ""))
+    if (
+        receipt.get("schema_version")
+        != PAPER_IMMUTABLE_HEAD_SELECTION_SCHEMA
+        or receipt.get("status")
+        != PAPER_IMMUTABLE_HEAD_SELECTION_STATUS
+        or not heads_root.is_absolute()
+        or not selected_head.is_absolute()
+        or selected_head != heads_root / terminal
+        or receipt.get("immutable_head_count") != len(expected_chain)
+        or receipt.get("root_snapshot_hash") != expected_root
+        or receipt.get("terminal_snapshot_hash") != terminal
+        or receipt.get("selected_snapshot_hash") != terminal
+        or receipt.get("selected_as_of_date")
+        != verified_manifest["as_of_date"]
+        or receipt.get("chain_snapshot_hashes") != expected_chain
+    ):
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_INTEGRITY",
+            "immutable paper head selection receipt does not match the "
+            "verified canonical manifest lineage",
+        )
+    return expected_chain
+
+
+def build_integrity_verifier_receipt(
+    root: Path,
+    *,
+    immutable_head_selection: Path,
+) -> dict[str, Any]:
+    """Bind verified raw/file bytes to the immutable-head selection receipt."""
+    state_root = Path(root)
+    manifest_path = state_root / INTEGRITY_FILE
+    selection_path = Path(immutable_head_selection)
+    if manifest_path.is_symlink() or not manifest_path.is_file():
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_INTEGRITY", f"missing or unsafe {INTEGRITY_FILE}"
+        )
+    if selection_path.is_symlink() or not selection_path.is_file():
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_INTEGRITY",
+            "immutable paper head selection receipt is missing or unsafe",
+        )
+
+    manifest_raw_before = manifest_path.read_bytes()
+    verified = verify_integrity_manifest(state_root, require=True)
+    if (
+        verified.get("schema_version") != INTEGRITY_SCHEMA
+        or not valid_sha256(verified.get("genesis_identity_sha256"))
+    ):
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_INTEGRITY",
+            "paper integrity verifier receipt requires a v2 manifest "
+            "with a nonempty genesis identity",
+        )
+    manifest_raw_after = manifest_path.read_bytes()
+    if manifest_raw_before != manifest_raw_after:
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_INTEGRITY",
+            "paper integrity manifest changed during verification",
+        )
+    raw_manifest = _strict_json_object(
+        manifest_raw_before, label="raw paper integrity manifest"
+    )
+    verified_without_status = dict(verified)
+    if verified_without_status.pop("status", None) != "VERIFIED" or (
+        raw_manifest != verified_without_status
+    ):
+        raise PaperLedgerIntegrityError(
+            "BLOCKED_INTEGRITY",
+            "raw paper manifest and canonical verifier result differ",
+        )
+
+    selection_raw = selection_path.read_bytes()
+    selection = _strict_json_object(
+        selection_raw,
+        label="immutable paper head selection receipt",
+    )
+    chain = _validate_immutable_head_selection_receipt(
+        receipt=selection,
+        verified_manifest=verified,
+    )
+    return {
+        "schema_version": PAPER_INTEGRITY_VERIFIER_RECEIPT_SCHEMA,
+        "status": PAPER_INTEGRITY_VERIFIER_RECEIPT_STATUS,
+        "raw_manifest": {
+            "schema_version": verified["schema_version"],
+            "sha256": hashlib.sha256(manifest_raw_before).hexdigest(),
+            "bytes": len(manifest_raw_before),
+            "as_of_date": verified["as_of_date"],
+            "snapshot_hash": verified["snapshot_hash"],
+            "previous_snapshot_hash": verified[
+                "previous_snapshot_hash"
+            ],
+            "ancestor_snapshot_hashes": list(
+                verified["ancestor_snapshot_hashes"]
+            ),
+            "genesis_identity_sha256": verified[
+                "genesis_identity_sha256"
+            ],
+            "file_count": verified["file_count"],
+            "files_sha256": canonical_hash(verified["files"]),
+        },
+        "immutable_head_selection": {
+            "schema_version": selection["schema_version"],
+            "status": selection["status"],
+            "sha256": hashlib.sha256(selection_raw).hexdigest(),
+            "bytes": len(selection_raw),
+            "immutable_head_count": selection["immutable_head_count"],
+            "root_snapshot_hash": selection["root_snapshot_hash"],
+            "terminal_snapshot_hash": selection[
+                "terminal_snapshot_hash"
+            ],
+            "chain_snapshot_hashes": chain,
+        },
+    }
+
+
+def write_integrity_verifier_receipt(
+    path: Path,
+    payload: Mapping[str, Any],
+) -> None:
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    raw = integrity_verifier_receipt_bytes(payload)
+    temporary = output.with_name(f".{output.name}.tmp")
+    temporary.write_bytes(raw)
+    os.replace(temporary, output)
+
+
+def integrity_verifier_receipt_bytes(
+    payload: Mapping[str, Any],
+) -> bytes:
+    return (
+        json.dumps(
+            dict(payload),
+            indent=2,
+            sort_keys=True,
+            allow_nan=False,
+        )
+        + "\n"
+    ).encode("utf-8")
 
 
 def clone_directory(source: Path, parent: Path, prefix: str) -> Path:
@@ -1727,6 +1933,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--expected-terminal-hash", default="")
     parser.add_argument("--require-install-continuity", action="store_true")
     parser.add_argument("--require-state-descends-from", default="")
+    parser.add_argument("--immutable-head-selection", default="")
+    parser.add_argument("--verifier-receipt-output", default="")
     parser.add_argument("--output", default="")
     return parser.parse_args()
 
@@ -1734,6 +1942,18 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     try:
+        verifier_receipt_values = (
+            args.immutable_head_selection,
+            args.verifier_receipt_output,
+        )
+        if any(verifier_receipt_values) and not all(
+            verifier_receipt_values
+        ):
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_INTEGRITY",
+                "verifier receipt mode requires immutable-head selection "
+                "and output",
+            )
         modes = [
             bool(args.install_source),
             bool(args.install_immutable_heads_root),
@@ -1741,6 +1961,29 @@ def main() -> int:
             bool(args.reconcile_immutable_head_cache),
             bool(args.require_state_descends_from),
         ]
+        if args.verifier_receipt_output:
+            if (
+                any(modes)
+                or not args.state_dir
+                or not args.require_integrity
+                or args.output
+            ):
+                raise PaperLedgerIntegrityError(
+                    "BLOCKED_INTEGRITY",
+                    "verifier receipt mode requires only --state-dir, "
+                    "--require-integrity, and verifier receipt arguments",
+                )
+            result = build_integrity_verifier_receipt(
+                Path(args.state_dir),
+                immutable_head_selection=Path(
+                    args.immutable_head_selection
+                ),
+            )
+            write_integrity_verifier_receipt(
+                Path(args.verifier_receipt_output), result
+            )
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
         if sum(modes) > 1:
             raise PaperLedgerIntegrityError(
                 "BLOCKED_CONTINUITY",

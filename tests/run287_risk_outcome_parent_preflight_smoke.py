@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -19,20 +20,28 @@ from tools.build_run287_risk_outcome_parent_preflight import (  # noqa: E402
     sha256_bytes,
     write_receipt,
 )
+from tools.run287_paper_ledger_integrity import (  # noqa: E402
+    INTEGRITY_FILE,
+    PAPER_IMMUTABLE_HEAD_SELECTION_SCHEMA,
+    PAPER_IMMUTABLE_HEAD_SELECTION_STATUS,
+    build_integrity_verifier_receipt,
+    write_integrity_manifest,
+    write_integrity_verifier_receipt,
+)
 
 
 KNOWN_LEGACY_SUMMARY_SHA256 = (
     "5a57e4becef19668dce45803eb77185bc"
     "6c60bcf9b58522df939e9a48a56654c"
 )
-FAILED_RUN_SHA = "f28321d011d0705cf8fdd43f1f98647f85557d42"
-PAPER_TERMINAL = (
-    "65fa6f5b4b12729811b72a90661fc744"
-    "320826dfe868ec6da2632768b1ec02a7"
-)
-PAPER_GENESIS = (
-    "ef78e63c9e52607a6473ca4c07179cb"
-    "92a5f29a85eeb43031e8a47cd09b4f267"
+AUDITED_MASTER_SHA = "2056dcc13687dff55a9c71bea23c74ec47032ad9"
+PAPER_DATES = (
+    "2026-07-17",
+    "2026-07-20",
+    "2026-07-21",
+    "2026-07-22",
+    "2026-07-23",
+    "2026-07-24",
 )
 
 
@@ -73,46 +82,103 @@ def write_known_legacy_summary(path: Path) -> None:
     assert len(path.read_bytes()) == 668
 
 
-def write_paper_integrity(path: Path) -> None:
-    ancestors = ["a" * 64, "b" * 64, "c" * 64, "d" * 64, "e" * 64]
+def write_real_paper_fixture(root: Path) -> dict[str, object]:
+    """Write six real producer manifests over exactly 243 tracked files."""
+    paper = root / "paper"
+    heads = root / "heads"
+    paper.mkdir(parents=True)
+    heads.mkdir(parents=True)
     write_json(
-        path,
+        paper / "genesis_identity.json",
         {
-            "ancestor_snapshot_hashes": ancestors,
-            "as_of_date": "2026-07-24",
-            "generated_at_utc": "2026-08-05T04:58:54Z",
-            "genesis_identity_sha256": PAPER_GENESIS,
-            "previous_snapshot_hash": ancestors[0],
-            "schema_version": (
-                "run287-paper-ledger-snapshot-integrity-v2"
-            ),
-            "snapshot_hash": PAPER_TERMINAL,
-            "status": "VERIFIED",
+            "schema_version": "run287-paper-genesis-fixture-v1",
+            "account_ids": ["main", "concentrated"],
         },
     )
+    write_json(
+        paper / "state" / "session.json",
+        {"as_of_date": PAPER_DATES[0], "generation": 0},
+    )
+    for index in range(241):
+        write_json(
+            paper / "evidence" / f"file_{index:03d}.json",
+            {"fixture_file": index, "tamper_evident": True},
+        )
+
+    manifests: list[dict] = []
+    previous = ""
+    for index, as_of_date in enumerate(PAPER_DATES):
+        if index:
+            write_json(
+                paper / "state" / "session.json",
+                {"as_of_date": as_of_date, "generation": index},
+            )
+        manifest = write_integrity_manifest(
+            paper,
+            as_of_date=as_of_date,
+            previous_snapshot_hash=previous,
+        )
+        assert manifest["file_count"] == 243
+        assert "status" not in manifest
+        manifests.append(manifest)
+        previous = manifest["snapshot_hash"]
+
+    terminal = manifests[-1]
+    chain = [manifest["snapshot_hash"] for manifest in manifests]
+    selection_path = root / "evidence" / "paper_head_selection.json"
+    write_json(
+        selection_path,
+        {
+            "schema_version": PAPER_IMMUTABLE_HEAD_SELECTION_SCHEMA,
+            "status": PAPER_IMMUTABLE_HEAD_SELECTION_STATUS,
+            "heads_root": str(heads.resolve()),
+            "immutable_head_count": len(chain),
+            "root_snapshot_hash": chain[0],
+            "terminal_snapshot_hash": chain[-1],
+            "selected_snapshot_hash": chain[-1],
+            "selected_head_dir": str((heads / chain[-1]).resolve()),
+            "selected_as_of_date": terminal["as_of_date"],
+            "chain_snapshot_hashes": chain,
+        },
+    )
+    verifier_payload = build_integrity_verifier_receipt(
+        paper,
+        immutable_head_selection=selection_path,
+    )
+    verifier_path = root / "evidence" / "paper_verifier_receipt.json"
+    write_integrity_verifier_receipt(verifier_path, verifier_payload)
+    return {
+        "paper": paper,
+        "heads": heads,
+        "selection": selection_path,
+        "verifier": verifier_path,
+        "manifests": manifests,
+    }
 
 
 def base_kwargs(root: Path) -> dict:
     summary = root / "outcome" / "summary.json"
-    paper = root / "paper" / "snapshot_integrity.json"
     write_known_legacy_summary(summary)
-    write_paper_integrity(paper)
+    fixture = write_real_paper_fixture(root)
+    paper = Path(fixture["paper"])
     return {
         "event_name": "schedule",
-        "source_commit_sha": FAILED_RUN_SHA,
-        "source_run_id": "31071342439",
+        "source_commit_sha": AUDITED_MASTER_SHA,
+        "source_run_id": "33476672130",
         "source_run_attempt": "1",
         "source_job_key": "refresh",
-        "session_date": "2026-08-05",
+        "session_date": "2026-08-31",
         "remote_head_discovery_confirmed": True,
         "remote_committed_head_count": 0,
         "remote_legacy_outcome_state": "PRESENT_FETCHED",
         "legacy_summary_path": summary,
         "legacy_event_log_path": root / "outcome" / "events.jsonl",
-        "paper_integrity_path": paper,
+        "paper_integrity_path": paper / INTEGRITY_FILE,
+        "paper_integrity_verifier_receipt_path": fixture["verifier"],
+        "paper_immutable_head_selection_path": fixture["selection"],
         "allow_risk_outcome_genesis_bootstrap": False,
         "allow_quarantined_legacy_outcome_parent": False,
-        "generated_at_utc": "2026-08-26T00:00:00Z",
+        "generated_at_utc": "2026-09-02T00:00:00Z",
     }
 
 
@@ -122,9 +188,27 @@ def assert_safe(receipt: dict) -> None:
         assert receipt[field] is False
 
 
-def test_failed_schedule_receipt_is_exact_and_fail_closed() -> None:
+def expect_value_error(kwargs: dict, fragment: str) -> None:
+    try:
+        build_receipt(**kwargs)
+    except ValueError as exc:
+        assert fragment in str(exc), str(exc)
+    else:
+        raise AssertionError(f"expected ValueError containing {fragment!r}")
+
+
+def test_real_243_file_six_head_fixture_reaches_next_blocker() -> None:
     with tempfile.TemporaryDirectory() as td:
         kwargs = base_kwargs(Path(td))
+        raw_manifest = json.loads(
+            Path(kwargs["paper_integrity_path"]).read_text(
+                encoding="utf-8"
+            )
+        )
+        assert raw_manifest["file_count"] == 243
+        assert len(raw_manifest["ancestor_snapshot_hashes"]) == 5
+        assert "status" not in raw_manifest
+
         receipt, exit_code = build_receipt(**kwargs)
         assert exit_code == 2
         assert receipt["status"] == (
@@ -132,6 +216,15 @@ def test_failed_schedule_receipt_is_exact_and_fail_closed() -> None:
             "AUTHORIZATION_REQUIRED"
         )
         observed = receipt["observed_state"]
+        paper = observed["paper_ledger"]
+        assert paper["status"] == "VERIFIED"
+        assert paper["file_count"] == 243
+        assert paper["immutable_head_count"] == 6
+        assert paper["ancestor_snapshot_count"] == 5
+        assert (
+            paper["snapshot_hash"]
+            == paper["immutable_terminal_snapshot_hash"]
+        )
         assert observed["remote_committed_accepted_head_count"] == 0
         assert observed[
             "remote_committed_accepted_head_absence_proven"
@@ -140,12 +233,197 @@ def test_failed_schedule_receipt_is_exact_and_fail_closed() -> None:
         assert legacy["summary_sha256"] == KNOWN_LEGACY_SUMMARY_SHA256
         assert legacy["summary_bytes"] == 668
         assert legacy["byte_exact_allowlist_match"] is True
-        assert observed["paper_ledger"]["snapshot_hash"] == PAPER_TERMINAL
         assert receipt["authorization"]["satisfied"] is False
         assert receipt["blockers"] == [
             "explicit_workflow_dispatch_authorization_required"
         ]
         assert_safe(receipt)
+
+
+def test_raw_manifest_status_is_forbidden_and_missing_status_is_valid() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        kwargs = base_kwargs(Path(td))
+        manifest_path = Path(kwargs["paper_integrity_path"])
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        assert "status" not in manifest
+        build_receipt(**kwargs)
+
+        manifest["status"] = "VERIFIED"
+        write_json(manifest_path, manifest)
+        expect_value_error(
+            kwargs,
+            "paper_integrity_verification_failed:BLOCKED_INTEGRITY:"
+            "integrity manifest keys mismatch",
+        )
+
+    with tempfile.TemporaryDirectory() as td:
+        kwargs = base_kwargs(Path(td))
+        manifest_path = Path(kwargs["paper_integrity_path"])
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["schema_version"] = "unreviewed-paper-schema"
+        write_json(manifest_path, manifest)
+        expect_value_error(kwargs, "integrity manifest schema mismatch")
+
+
+def test_verifier_receipt_missing_forged_and_hash_mismatch_block() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        kwargs = base_kwargs(Path(td))
+        Path(kwargs["paper_integrity_verifier_receipt_path"]).unlink()
+        expect_value_error(
+            kwargs, "paper_integrity_verifier_receipt_missing"
+        )
+
+    with tempfile.TemporaryDirectory() as td:
+        kwargs = base_kwargs(Path(td))
+        receipt_path = Path(
+            kwargs["paper_integrity_verifier_receipt_path"]
+        )
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        receipt["forged_authority"] = True
+        write_json(receipt_path, receipt)
+        expect_value_error(
+            kwargs, "paper_integrity_verifier_receipt_mismatch"
+        )
+
+    with tempfile.TemporaryDirectory() as td:
+        kwargs = base_kwargs(Path(td))
+        receipt_path = Path(
+            kwargs["paper_integrity_verifier_receipt_path"]
+        )
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        receipt_path.write_text(
+            json.dumps(receipt, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        expect_value_error(
+            kwargs, "paper_integrity_verifier_receipt_mismatch"
+        )
+
+    with tempfile.TemporaryDirectory() as td:
+        kwargs = base_kwargs(Path(td))
+        receipt_path = Path(
+            kwargs["paper_integrity_verifier_receipt_path"]
+        )
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        receipt["raw_manifest"]["sha256"] = "0" * 64
+        write_json(receipt_path, receipt)
+        expect_value_error(
+            kwargs, "paper_integrity_verifier_receipt_mismatch"
+        )
+
+
+def test_missing_extra_and_changed_files_block() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        kwargs = base_kwargs(Path(td))
+        paper = Path(kwargs["paper_integrity_path"]).parent
+        (paper / "evidence" / "file_000.json").unlink()
+        expect_value_error(kwargs, "snapshot checksum mismatch missing=")
+
+    with tempfile.TemporaryDirectory() as td:
+        kwargs = base_kwargs(Path(td))
+        paper = Path(kwargs["paper_integrity_path"]).parent
+        write_json(paper / "unexpected.json", {"unexpected": True})
+        expect_value_error(kwargs, "snapshot checksum mismatch missing=[]")
+
+    with tempfile.TemporaryDirectory() as td:
+        kwargs = base_kwargs(Path(td))
+        paper = Path(kwargs["paper_integrity_path"]).parent
+        write_json(
+            paper / "evidence" / "file_001.json",
+            {"fixture_file": 1, "tampered": True},
+        )
+        expect_value_error(kwargs, "snapshot checksum mismatch missing=[]")
+
+
+def test_parent_terminal_and_six_head_chain_mismatches_block() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        kwargs = base_kwargs(Path(td))
+        manifest_path = Path(kwargs["paper_integrity_path"])
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["previous_snapshot_hash"] = "f" * 64
+        write_json(manifest_path, manifest)
+        expect_value_error(kwargs, "ancestor snapshot chain is invalid")
+
+    with tempfile.TemporaryDirectory() as td:
+        kwargs = base_kwargs(Path(td))
+        selection_path = Path(
+            kwargs["paper_immutable_head_selection_path"]
+        )
+        selection = json.loads(selection_path.read_text(encoding="utf-8"))
+        selection["terminal_snapshot_hash"] = "f" * 64
+        write_json(selection_path, selection)
+        expect_value_error(
+            kwargs,
+            "immutable paper head selection receipt does not match",
+        )
+
+    with tempfile.TemporaryDirectory() as td:
+        kwargs = base_kwargs(Path(td))
+        selection_path = Path(
+            kwargs["paper_immutable_head_selection_path"]
+        )
+        selection = json.loads(selection_path.read_text(encoding="utf-8"))
+        selection["immutable_head_count"] = 5
+        write_json(selection_path, selection)
+        expect_value_error(
+            kwargs,
+            "immutable paper head selection receipt does not match",
+        )
+
+
+def test_verifier_receipt_hash_is_deterministic_for_same_input() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        kwargs = base_kwargs(root)
+        first = build_integrity_verifier_receipt(
+            Path(kwargs["paper_integrity_path"]).parent,
+            immutable_head_selection=Path(
+                kwargs["paper_immutable_head_selection_path"]
+            ),
+        )
+        second = build_integrity_verifier_receipt(
+            Path(kwargs["paper_integrity_path"]).parent,
+            immutable_head_selection=Path(
+                kwargs["paper_immutable_head_selection_path"]
+            ),
+        )
+        assert first == second
+        first_path = root / "receipts" / "first.json"
+        second_path = root / "receipts" / "second.json"
+        write_integrity_verifier_receipt(first_path, first)
+        write_integrity_verifier_receipt(second_path, second)
+        assert first_path.read_bytes() == second_path.read_bytes()
+        assert sha256_bytes(first_path.read_bytes()) == sha256_bytes(
+            second_path.read_bytes()
+        )
+
+
+def test_verifier_receipt_cli_rebuilds_exact_expected_bytes() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        kwargs = base_kwargs(root)
+        output = root / "receipts" / "cli.json"
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "tools" / "run287_paper_ledger_integrity.py"),
+                "--state-dir",
+                str(Path(kwargs["paper_integrity_path"]).parent),
+                "--require-integrity",
+                "--immutable-head-selection",
+                str(kwargs["paper_immutable_head_selection_path"]),
+                "--verifier-receipt-output",
+                str(output),
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr or result.stdout
+        assert output.read_bytes() == Path(
+            kwargs["paper_integrity_verifier_receipt_path"]
+        ).read_bytes()
 
 
 def test_explicit_legacy_dispatch_opens_only_existing_boundary() -> None:
@@ -172,57 +450,26 @@ def test_unknown_legacy_bytes_never_receive_authority() -> None:
         kwargs["allow_quarantined_legacy_outcome_parent"] = True
         summary = Path(kwargs["legacy_summary_path"])
         summary.write_bytes(summary.read_bytes().rstrip(b"\n"))
-        try:
-            build_receipt(**kwargs)
-        except ValueError as exc:
-            assert "legacy_summary_sha256_not_allowlisted" in str(exc)
-        else:
-            raise AssertionError("unknown legacy bytes were accepted")
+        expect_value_error(kwargs, "legacy_summary_sha256_not_allowlisted")
 
 
 def test_remote_absence_and_paper_integrity_are_mandatory() -> None:
     with tempfile.TemporaryDirectory() as td:
         kwargs = base_kwargs(Path(td))
         kwargs["remote_head_discovery_confirmed"] = False
-        try:
-            build_receipt(**kwargs)
-        except ValueError as exc:
-            assert "remote_accepted_head_discovery_not_confirmed" in str(exc)
-        else:
-            raise AssertionError("unconfirmed remote absence was accepted")
+        expect_value_error(
+            kwargs, "remote_accepted_head_discovery_not_confirmed"
+        )
 
     with tempfile.TemporaryDirectory() as td:
         kwargs = base_kwargs(Path(td))
         kwargs["remote_committed_head_count"] = 1
-        try:
-            build_receipt(**kwargs)
-        except ValueError as exc:
-            assert "remote_accepted_head_absence_not_proven" in str(exc)
-        else:
-            raise AssertionError("existing accepted head was ignored")
+        expect_value_error(kwargs, "remote_accepted_head_absence_not_proven")
 
     with tempfile.TemporaryDirectory() as td:
         kwargs = base_kwargs(Path(td))
         Path(kwargs["paper_integrity_path"]).unlink()
-        try:
-            build_receipt(**kwargs)
-        except ValueError as exc:
-            assert "paper_integrity_missing" in str(exc)
-        else:
-            raise AssertionError("missing paper integrity was accepted")
-
-    with tempfile.TemporaryDirectory() as td:
-        kwargs = base_kwargs(Path(td))
-        paper_path = Path(kwargs["paper_integrity_path"])
-        paper = json.loads(paper_path.read_text(encoding="utf-8"))
-        paper["as_of_date"] = "2026-7-24"
-        write_json(paper_path, paper)
-        try:
-            build_receipt(**kwargs)
-        except ValueError as exc:
-            assert "paper_integrity_as_of_date_invalid" in str(exc)
-        else:
-            raise AssertionError("invalid paper as-of date was accepted")
+        expect_value_error(kwargs, "paper_integrity_missing")
 
 
 def test_genesis_requires_exact_absence_and_separate_dispatch() -> None:
@@ -287,7 +534,10 @@ def main() -> int:
     ]
     for test in tests:
         test()
-    print(f"run287_risk_outcome_parent_preflight_smoke: {len(tests)} passed")
+    print(
+        "run287_risk_outcome_parent_preflight_smoke: "
+        f"{len(tests)} passed"
+    )
     return 0
 
 

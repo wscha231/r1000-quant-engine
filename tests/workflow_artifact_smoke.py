@@ -1162,6 +1162,10 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "tools/build_run287_risk_outcome_parent_preflight.py",
         "outputs/run287_risk_outcome_parent_preflight/receipt.json",
         "daily_run287_risk_outcome_parent_preflight.log",
+        "--immutable-head-selection \"$PAPER_INTEGRITY_SELECTION_EVIDENCE\"",
+        "--verifier-receipt-output \"$PAPER_INTEGRITY_VERIFIER_RECEIPT\"",
+        "--paper-integrity-verifier-receipt \"$PAPER_INTEGRITY_VERIFIER_RECEIPT\"",
+        "--paper-immutable-head-selection \"$PAPER_INTEGRITY_SELECTION_EVIDENCE\"",
         "--remote-head-discovery-confirmed",
         '--remote-committed-head-count "${REMOTE_COMMITTED_HEAD_COUNT}"',
         '--remote-legacy-outcome-state "${REMOTE_LEGACY_OUTCOME_STATE}"',
@@ -1593,6 +1597,13 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     outcome_parent_preflight_idx = text.index(
         "python tools/build_run287_risk_outcome_parent_preflight.py"
     )
+    paper_verifier_receipt_idx = text.index(
+        '--verifier-receipt-output "$PAPER_INTEGRITY_VERIFIER_RECEIPT"'
+    )
+    paper_selection_evidence_idx = text.index(
+        'cp "$PAPER_IMMUTABLE_SELECTION" '
+        '"$PAPER_INTEGRITY_SELECTION_EVIDENCE"'
+    )
     holding_risk_idx = text.index("python tools/build_run287_holding_risk_watch.py")
     exact_upstream_idx = text.index("python tools/run_run287_exact_packet_upstream.py")
     input_registry_idx = text.index("python tools/build_run287_exact_packet_input_registry.py")
@@ -1637,7 +1648,17 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     assert durable_catchup_drive_idx < paper_idx, (
         "catch-up must prove durable Drive availability before any paper-ledger mutation"
     )
-    assert accepted_parent_restore_idx < outcome_parent_preflight_idx < paper_idx < snapshot_idx, "the immutable prior outcome head or a durable fail-closed preflight receipt must be established before the paper account is advanced"
+    assert (
+        paper_selection_evidence_idx
+        < accepted_parent_restore_idx
+        < paper_verifier_receipt_idx
+        < outcome_parent_preflight_idx
+        < paper_idx
+        < snapshot_idx
+    ), (
+        "the immutable prior outcome head or a durable fail-closed preflight "
+        "receipt must be established before the paper account is advanced"
+    )
     assert paper_idx < holding_risk_idx < snapshot_idx, "holding risk must use the marked paper account before reports"
     assert holding_risk_idx < exact_upstream_idx < input_registry_idx < exact_packet_idx < same_close_idx < selected_paper_idx < integrity_idx < parent_clear_idx < parent_idx < decision_archive_idx < outcome_idx < scorecard_idx < promotion_idx < snapshot_idx < accepted_idx, "paper ledger must verify integrity and freeze the restored outcome parent before outcomes; scorecard, promotion, and reports must be hash-bound before accepted publication"
     assert text.count(
@@ -1685,6 +1706,20 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         text.index("- name: Reverify accepted publication before GitHub publication")
     ]
     assert "outputs/run287_risk_outcome_parent_preflight/" in diagnostic_upload
+    assert (
+        "outputs/daily_simulated_fill_ledger/snapshot_integrity.json"
+        in diagnostic_upload
+    )
+    assert (
+        "outputs/full_rebuild_logs/"
+        "daily_paper_integrity_verifier_receipt.json"
+        in diagnostic_upload
+    )
+    assert (
+        "outputs/full_rebuild_logs/"
+        "daily_paper_immutable_head_selection.json"
+        in diagnostic_upload
+    )
     accepted_upload = text[
         text.index("- name: Upload accepted paper transaction artifact"):
         text.index("- name: Save validated forward paper state cache")
