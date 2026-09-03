@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -16,6 +17,12 @@ FREE_DATA_DAILY_WORKFLOW = ROOT / ".github" / "workflows" / "free_data_daily_upd
 DAILY_AUTOLEARNING_WORKFLOW = ROOT / ".github" / "workflows" / "daily_autolearning_scan.yml"
 DATA_PREFLIGHT_WORKFLOW = ROOT / ".github" / "workflows" / "data_readiness_preflight.yml"
 DAILY_OPERATING_WORKFLOW = ROOT / ".github" / "workflows" / "daily_operating_selection_refresh.yml"
+RUN287_RECOVERY_PREFLIGHT_WORKFLOW = (
+    ROOT
+    / ".github"
+    / "workflows"
+    / "run287_risk_outcome_recovery_preflight.yml"
+)
 PAGES_WORKFLOW = ROOT / ".github" / "workflows" / "pages_deploy.yml"
 PR_VALIDATION_WORKFLOW = ROOT / ".github" / "workflows" / "pr_validation.yml"
 PORTFOLIO_GUARD_WORKFLOW = ROOT / ".github" / "workflows" / "portfolio_system_guard.yml"
@@ -111,6 +118,123 @@ def test_workflow_yaml_files_parse() -> None:
             yaml.safe_load(path.read_text(encoding="utf-8"))
         except Exception as exc:
             raise AssertionError(f"{path.name} is not valid YAML: {exc}") from exc
+
+
+def test_run287_recovery_preflight_is_exact_head_and_read_only() -> None:
+    text = RUN287_RECOVERY_PREFLIGHT_WORKFLOW.read_text(encoding="utf-8")
+    for token in (
+        "workflow_dispatch:",
+        "expected_master_sha:",
+        "session_date:",
+        "permissions:\n  contents: read",
+        "group: daily-operating-selection-refresh",
+        "persist-credentials: false",
+        "Prove exact current master before secrets",
+        '"${GITHUB_SHA:-}" != "$EXPECTED_MASTER_SHA"',
+        "/git/ref/heads/${DEFAULT_BRANCH}",
+        'test "$(git rev-parse HEAD)" = "$EXPECTED_MASTER_SHA"',
+        "Prove exact latest completed NYSE session",
+        'gate.get("latest_completed_session_date") != expected',
+        "Configure temporary read-only rclone",
+        "scope = drive.readonly",
+        "RCLONE_CONFIG_GDRIVE_SCOPE=drive.readonly",
+        "export RCLONE_CONFIG=\"$RCLONE_CONFIG_PATH\"",
+        'RCLONE_CONFIG_PATH="$RUNNER_TEMP/run287-rclone.conf"',
+        "Download and checksum exact durable evidence",
+        '"$RCLONE_BIN" copy "$remote/" "$destination/"',
+        '"$RCLONE_BIN" check "$remote/" "$destination/"',
+        "--checksum --checkers 4",
+        "accepted-head namespace is not exactly empty",
+        "run287_daily_simulated_fill_ledger/",
+        "run287_daily_simulated_fill_ledger_heads/",
+        "run287_risk_outcome_archive/",
+        "--select-immutable-heads-root \"$RUN287_PAPER_HEADS_LOCAL\"",
+        "--safe-diagnostic-copy-source",
+        "--verifier-receipt-output \"$VERIFIER\"",
+        "build_run287_risk_outcome_parent_preflight.py",
+        "--remote-committed-head-count 0",
+        "--remote-legacy-outcome-state PRESENT_FETCHED",
+        "BLOCKED_ONE_TIME_LEGACY_QUARANTINE_AUTHORIZATION_REQUIRED",
+        "explicit_workflow_dispatch_authorization_required",
+        'if [ "$PREFLIGHT_EXIT" -ne 2 ]; then',
+        "PASS_READ_ONLY_RECOVERY_PREFLIGHT",
+        '"migration_authorized": False',
+        "Upload read-only recovery evidence",
+        "outputs/run287_risk_outcome_recovery_preflight/",
+        "Remove temporary credentials",
+    ):
+        assert token in text, token
+
+    assert text.count("workflow_dispatch:") == 1
+    assert "schedule:" not in text
+    assert "pull_request:" not in text
+    assert "push:" not in text
+    exact_head_idx = text.index("Prove exact current master before secrets")
+    session_idx = text.index("Prove exact latest completed NYSE session")
+    secret_idx = text.index("secrets.RUN287_DURABLE_GOOGLE_SERVICE_ACCOUNT_KEY")
+    drive_idx = text.index("Download and checksum exact durable evidence")
+    preflight_idx = text.index("build_run287_risk_outcome_parent_preflight.py")
+    result_idx = text.index("PASS_READ_ONLY_RECOVERY_PREFLIGHT")
+    upload_idx = text.index("Upload read-only recovery evidence")
+    assert exact_head_idx < session_idx < secret_idx < drive_idx < preflight_idx < result_idx < upload_idx
+
+    rclone_commands = [
+        line.strip()
+        for line in text.splitlines()
+        if line.lstrip().startswith('"$RCLONE_BIN" ')
+    ]
+    assert len(rclone_commands) == 6, rclone_commands
+    for command in rclone_commands:
+        assert re.match(
+            r'^"\$RCLONE_BIN" (?:lsd|lsf|copy|check)\b',
+            command,
+        ), command
+    assert sum('"$RCLONE_BIN" copy ' in command for command in rclone_commands) == 1
+    assert sum('"$RCLONE_BIN" check ' in command for command in rclone_commands) == 1
+
+    for step_name in (
+        "Prove exact current master before secrets",
+        "Install dependencies",
+        "Prove exact latest completed NYSE session",
+        "Configure temporary read-only rclone",
+        "Download and checksum exact durable evidence",
+        "Reverify paper chain and build diagnostic receipt",
+        "Require the exact next authorization blocker",
+        "Bind exact read-only current truth",
+        "Remove temporary credentials",
+    ):
+        syntax = subprocess.run(
+            [bash_executable(), "-n"],
+            input=extract_yaml_literal_run(text, step_name) + "\n",
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert syntax.returncode == 0, f"{step_name}: {syntax.stderr}"
+
+    for forbidden in (
+        "rclone sync",
+        "rclone copyto",
+        "rclone move",
+        "rclone moveto",
+        "rclone delete",
+        "rclone deletefile",
+        "rclone purge",
+        "rclone mkdir",
+        "rclone rmdir",
+        "rclone rmdirs",
+        "rclone touch",
+        "rclone rcat",
+        "manage_run287_risk_outcome_accepted_heads.py",
+        "build_run287_risk_outcome_parent_anchor.py",
+        "resolve_run287_risk_outcomes.py",
+        "run_daily_simulated_fill_ledger.py",
+        "run_local.py --full",
+        "allow-quarantined-legacy-outcome-parent",
+        "allow-risk-outcome-genesis-bootstrap",
+        "outputs/daily_simulated_fill_ledger/",
+    ):
+        assert forbidden not in text, forbidden
 
 
 def test_pr_workflows_sparse_checkout_only_required_rebuild_data() -> None:

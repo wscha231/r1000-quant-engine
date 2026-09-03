@@ -1,0 +1,530 @@
+name: Run287 Risk Outcome Recovery Read-Only Preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_master_sha:
+        description: 'Exact reviewed remote master SHA to inspect'
+        required: true
+        type: string
+      session_date:
+        description: 'Exact latest completed NYSE session (YYYY-MM-DD)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  # A read must not straddle a daily durable-state publication.
+  group: daily-operating-selection-refresh
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    environment: run287-paper-durable
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      EXPECTED_PAPER_MANIFEST_SHA256: 82ffee50ee262fef5bd16e2881eecb5b359b2b00702f8de24208dff2630b4900
+      EXPECTED_PAPER_TERMINAL_SHA256: 65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7
+      EXPECTED_PAPER_ROOT_SHA256: f904fa6bd1d4280f688f99b4562837e48ad196942f75a3b9ad0b2aeb917709a3
+      EXPECTED_PAPER_AS_OF_DATE: '2026-07-24'
+      EXPECTED_PAPER_FILE_COUNT: '243'
+      EXPECTED_PAPER_HEAD_COUNT: '6'
+      EXPECTED_LEGACY_SUMMARY_SHA256: 5a57e4becef19668dce45803eb77185bc6c60bcf9b58522df939e9a48a56654c
+
+    steps:
+      - name: Checkout exact dispatch ref without credentials
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove exact current master before secrets
+        env:
+          EXPECTED_MASTER_SHA: ${{ inputs.expected_master_sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME:-}" != "workflow_dispatch" ]; then
+            echo "[recovery-preflight] BLOCKED: workflow_dispatch is required"
+            exit 2
+          fi
+          if ! [[ "${EXPECTED_MASTER_SHA:-}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "[recovery-preflight] BLOCKED: expected master SHA is invalid"
+            exit 2
+          fi
+          if [ "${GITHUB_REF_TYPE:-}" != "branch" ] || \
+             [ "${GITHUB_REF_NAME:-}" != "${DEFAULT_BRANCH:-}" ] || \
+             [ "${GITHUB_SHA:-}" != "$EXPECTED_MASTER_SHA" ]; then
+            echo "[recovery-preflight] BLOCKED: dispatch ref is not the exact requested default-branch head"
+            exit 2
+          fi
+          REMOTE_REF="$RUNNER_TEMP/run287_remote_default_ref.json"
+          curl --fail --silent --show-error \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/git/ref/heads/${DEFAULT_BRANCH}" \
+            > "$REMOTE_REF"
+          python - "$REMOTE_REF" "$EXPECTED_MASTER_SHA" <<'PY'
+          import json
+          import sys
+
+          payload = json.load(open(sys.argv[1], encoding="utf-8"))
+          observed = str((payload.get("object") or {}).get("sha") or "")
+          if observed != sys.argv[2]:
+              raise SystemExit(
+                  "remote default branch moved before read-only preflight:"
+                  f" expected={sys.argv[2]} observed={observed}"
+              )
+          PY
+          test "$(git rev-parse HEAD)" = "$EXPECTED_MASTER_SHA"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+
+      - name: Prove exact latest completed NYSE session
+        id: market
+        env:
+          REQUESTED_SESSION_DATE: ${{ inputs.session_date }}
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/run287_risk_outcome_recovery_preflight
+          python tools/run_daily_market_session_gate.py \
+            --force \
+            --session-date "$REQUESTED_SESSION_DATE" \
+            --output outputs/run287_risk_outcome_recovery_preflight/market_session_gate.json
+          python - \
+            outputs/run287_risk_outcome_recovery_preflight/market_session_gate.json \
+            "$REQUESTED_SESSION_DATE" <<'PY'
+          import json
+          import sys
+
+          gate = json.load(open(sys.argv[1], encoding="utf-8"))
+          expected = sys.argv[2]
+          if (
+              gate.get("ready") is not True
+              or gate.get("session_date") != expected
+              or gate.get("latest_completed_session_date") != expected
+              or gate.get("calendar") != "NYSE"
+          ):
+              raise SystemExit(
+                  "requested session is not the exact latest completed NYSE session"
+              )
+          PY
+
+      - name: Configure temporary read-only rclone
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.RUN287_DURABLE_GOOGLE_SERVICE_ACCOUNT_KEY }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RUN287_DURABLE_RCLONE_CONFIG_GDRIVE }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: |
+          set -euo pipefail
+          umask 077
+          if [ -z "${RCLONE_CONFIG_GDRIVE:-}" ] && \
+             [ -z "${GOOGLE_SERVICE_ACCOUNT_KEY:-}" ]; then
+            echo "[recovery-preflight] BLOCKED: durable Drive read credential is unavailable"
+            exit 2
+          fi
+          RCLONE_INSTALL="$RUNNER_TEMP/run287-rclone"
+          RCLONE_ZIP="$RUNNER_TEMP/run287-rclone.zip"
+          RCLONE_CONFIG_PATH="$RUNNER_TEMP/run287-rclone.conf"
+          SERVICE_ACCOUNT_PATH="$RUNNER_TEMP/run287-service-account.json"
+          curl --fail --silent --show-error --location \
+            https://downloads.rclone.org/rclone-current-linux-amd64.zip \
+            --output "$RCLONE_ZIP"
+          mkdir -p "$RCLONE_INSTALL"
+          unzip -q "$RCLONE_ZIP" -d "$RCLONE_INSTALL"
+          RCLONE_BIN="$(find "$RCLONE_INSTALL" -type f -name rclone -print -quit)"
+          test -x "$RCLONE_BIN"
+          if [ -n "${RCLONE_CONFIG_GDRIVE:-}" ]; then
+            printf '%s' "$RCLONE_CONFIG_GDRIVE" > "$RCLONE_CONFIG_PATH"
+            grep -Eq '^\[gdrive\][[:space:]]*$' "$RCLONE_CONFIG_PATH"
+          else
+            printf '%s' "$GOOGLE_SERVICE_ACCOUNT_KEY" > "$SERVICE_ACCOUNT_PATH"
+            {
+              printf '%s\n' '[gdrive]' 'type = drive' 'scope = drive.readonly'
+              printf 'service_account_file = %s\n' "$SERVICE_ACCOUNT_PATH"
+              if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+                printf 'root_folder_id = %s\n' "$GDRIVE_ROOT_FOLDER_ID"
+              else
+                printf '%s\n' 'shared_with_me = true'
+              fi
+            } > "$RCLONE_CONFIG_PATH"
+          fi
+          chmod 600 "$RCLONE_CONFIG_PATH"
+          export RCLONE_BIN
+          export RCLONE_CONFIG="$RCLONE_CONFIG_PATH"
+          export RUN287_SERVICE_ACCOUNT_PATH="$SERVICE_ACCOUNT_PATH"
+          export RCLONE_CONFIG_GDRIVE_SCOPE=drive.readonly
+          {
+            echo "RCLONE_BIN=$RCLONE_BIN"
+            echo "RCLONE_CONFIG=$RCLONE_CONFIG_PATH"
+            echo "RUN287_SERVICE_ACCOUNT_PATH=$SERVICE_ACCOUNT_PATH"
+            echo "RCLONE_CONFIG_GDRIVE_SCOPE=drive.readonly"
+          } >> "$GITHUB_ENV"
+          "$RCLONE_BIN" lsd gdrive: >/dev/null
+
+      - name: Download and checksum exact durable evidence
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: |
+          set -euo pipefail
+          DIAGNOSTIC_ROOT="outputs/run287_risk_outcome_recovery_preflight"
+          LOCAL_ROOT="$RUNNER_TEMP/run287-recovery-readonly"
+          PAPER_CANONICAL_LOCAL="$LOCAL_ROOT/paper_canonical"
+          PAPER_HEADS_LOCAL="$LOCAL_ROOT/paper_heads"
+          LEGACY_LOCAL="$LOCAL_ROOT/legacy_outcome"
+          mkdir -p "$DIAGNOSTIC_ROOT" "$LOCAL_ROOT"
+          BASE="gdrive:r1000_top30_institutional/"
+          BASE_MODE="shared_with_me_named_root"
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+            BASE="gdrive:"
+            BASE_MODE="configured_root_folder_id"
+          fi
+          PAPER_ARCHIVE_REMOTE="${BASE}paper_archive/"
+          PAPER_CANONICAL_REMOTE="${PAPER_ARCHIVE_REMOTE}run287_daily_simulated_fill_ledger"
+          PAPER_HEADS_REMOTE="${PAPER_ARCHIVE_REMOTE}run287_daily_simulated_fill_ledger_heads"
+          LEGACY_REMOTE="${PAPER_ARCHIVE_REMOTE}run287_risk_outcome_archive"
+          ACCEPTED_REMOTE="${PAPER_ARCHIVE_REMOTE}run287_risk_outcome_accepted_heads"
+          PAPER_ARCHIVE_DIRS="$DIAGNOSTIC_ROOT/drive_paper_archive_directories.txt"
+          "$RCLONE_BIN" lsf "$PAPER_ARCHIVE_REMOTE" --dirs-only \
+            | LC_ALL=C sort -u > "$PAPER_ARCHIVE_DIRS"
+          for required in \
+            run287_daily_simulated_fill_ledger/ \
+            run287_daily_simulated_fill_ledger_heads/ \
+            run287_risk_outcome_archive/; do
+            if ! grep -Fx "$required" "$PAPER_ARCHIVE_DIRS" >/dev/null; then
+              echo "[recovery-preflight] BLOCKED: required Drive directory missing=$required"
+              exit 2
+            fi
+          done
+          ACCEPTED_INVENTORY="$DIAGNOSTIC_ROOT/drive_accepted_head_inventory.txt"
+          if grep -Fx "run287_risk_outcome_accepted_heads/" "$PAPER_ARCHIVE_DIRS" >/dev/null; then
+            "$RCLONE_BIN" lsf "$ACCEPTED_REMOTE/" --recursive \
+              | LC_ALL=C sort -u > "$ACCEPTED_INVENTORY"
+            if [ -s "$ACCEPTED_INVENTORY" ]; then
+              echo "[recovery-preflight] BLOCKED: accepted-head namespace is not exactly empty"
+              exit 2
+            fi
+            ACCEPTED_STATE="PRESENT_EMPTY"
+          else
+            : > "$ACCEPTED_INVENTORY"
+            ACCEPTED_STATE="PROVEN_ABSENT"
+          fi
+
+          copy_and_check() {
+            local remote="$1"
+            local destination="$2"
+            local label="$3"
+            local remote_files="$DIAGNOSTIC_ROOT/${label}_remote_files.txt"
+            local local_files="$DIAGNOSTIC_ROOT/${label}_local_files.txt"
+            mkdir -p "$destination"
+            "$RCLONE_BIN" lsf "$remote/" --recursive --files-only \
+              | LC_ALL=C sort -u > "$remote_files"
+            test -s "$remote_files"
+            "$RCLONE_BIN" copy "$remote/" "$destination/" \
+              --transfers 2 --checkers 4 --stats 30s --stats-one-line
+            find "$destination" -type f -printf '%P\n' \
+              | LC_ALL=C sort -u > "$local_files"
+            cmp -s "$remote_files" "$local_files"
+            "$RCLONE_BIN" check "$remote/" "$destination/" \
+              --checksum --checkers 4
+          }
+
+          copy_and_check "$PAPER_CANONICAL_REMOTE" "$PAPER_CANONICAL_LOCAL" paper_canonical
+          copy_and_check "$PAPER_HEADS_REMOTE" "$PAPER_HEADS_LOCAL" paper_heads
+          copy_and_check "$LEGACY_REMOTE" "$LEGACY_LOCAL" legacy_outcome
+          {
+            echo "RUN287_RECOVERY_DIAGNOSTIC_ROOT=$DIAGNOSTIC_ROOT"
+            echo "RUN287_RECOVERY_LOCAL_ROOT=$LOCAL_ROOT"
+            echo "RUN287_PAPER_CANONICAL_LOCAL=$PAPER_CANONICAL_LOCAL"
+            echo "RUN287_PAPER_HEADS_LOCAL=$PAPER_HEADS_LOCAL"
+            echo "RUN287_LEGACY_LOCAL=$LEGACY_LOCAL"
+            echo "RUN287_ACCEPTED_REMOTE_STATE=$ACCEPTED_STATE"
+            echo "RUN287_DRIVE_BASE_MODE=$BASE_MODE"
+          } >> "$GITHUB_ENV"
+
+      - name: Reverify paper chain and build diagnostic receipt
+        run: |
+          set -euo pipefail
+          SELECTION="$RUN287_RECOVERY_DIAGNOSTIC_ROOT/paper_immutable_head_selection.json"
+          VERIFIER="$RUN287_RECOVERY_DIAGNOSTIC_ROOT/paper_integrity_verifier_receipt.json"
+          DIAGNOSTIC_COPY="$RUN287_RECOVERY_DIAGNOSTIC_ROOT/daily_paper_snapshot_integrity.json"
+          python tools/run287_paper_ledger_integrity.py \
+            --select-immutable-heads-root "$RUN287_PAPER_HEADS_LOCAL" \
+            --output "$SELECTION"
+          python tools/run287_paper_ledger_integrity.py \
+            --state-dir "$RUN287_PAPER_CANONICAL_LOCAL" \
+            --safe-diagnostic-copy-source "$RUN287_PAPER_CANONICAL_LOCAL/snapshot_integrity.json" \
+            --safe-diagnostic-copy-output "$DIAGNOSTIC_COPY" \
+            --immutable-head-selection "$SELECTION"
+          python tools/run287_paper_ledger_integrity.py \
+            --state-dir "$RUN287_PAPER_CANONICAL_LOCAL" \
+            --require-integrity \
+            --immutable-head-selection "$SELECTION" \
+            --verifier-receipt-output "$VERIFIER"
+          cmp -s \
+            "$RUN287_PAPER_CANONICAL_LOCAL/snapshot_integrity.json" \
+            "$DIAGNOSTIC_COPY"
+          {
+            echo "RUN287_PAPER_SELECTION=$SELECTION"
+            echo "RUN287_PAPER_VERIFIER=$VERIFIER"
+          } >> "$GITHUB_ENV"
+
+      - name: Require the exact next authorization blocker
+        env:
+          REQUESTED_SESSION_DATE: ${{ inputs.session_date }}
+        run: |
+          set -euo pipefail
+          RECEIPT="$RUN287_RECOVERY_DIAGNOSTIC_ROOT/risk_outcome_parent_preflight_receipt.json"
+          LOG="$RUN287_RECOVERY_DIAGNOSTIC_ROOT/risk_outcome_parent_preflight.log"
+          set +e
+          python tools/build_run287_risk_outcome_parent_preflight.py \
+            --event-name "$GITHUB_EVENT_NAME" \
+            --source-commit-sha "$GITHUB_SHA" \
+            --source-run-id "$GITHUB_RUN_ID" \
+            --source-run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --source-job-key "$GITHUB_JOB" \
+            --session-date "$REQUESTED_SESSION_DATE" \
+            --remote-head-discovery-confirmed \
+            --remote-committed-head-count 0 \
+            --remote-legacy-outcome-state PRESENT_FETCHED \
+            --legacy-summary "$RUN287_LEGACY_LOCAL/summary.json" \
+            --legacy-event-log "$RUN287_LEGACY_LOCAL/risk_outcome_events.jsonl" \
+            --paper-integrity "$RUN287_PAPER_CANONICAL_LOCAL/snapshot_integrity.json" \
+            --paper-integrity-verifier-receipt "$RUN287_PAPER_VERIFIER" \
+            --paper-immutable-head-selection "$RUN287_PAPER_SELECTION" \
+            --output "$RECEIPT" \
+            2>&1 | tee "$LOG"
+          PREFLIGHT_EXIT="${PIPESTATUS[0]}"
+          set -e
+          if [ "$PREFLIGHT_EXIT" -ne 2 ]; then
+            echo "[recovery-preflight] BLOCKED: expected diagnostic exit 2, observed=$PREFLIGHT_EXIT"
+            exit 2
+          fi
+          echo "RUN287_PARENT_PREFLIGHT_RECEIPT=$RECEIPT" >> "$GITHUB_ENV"
+
+      - name: Bind exact read-only current truth
+        env:
+          EXPECTED_MASTER_SHA: ${{ inputs.expected_master_sha }}
+          REQUESTED_SESSION_DATE: ${{ inputs.session_date }}
+        run: |
+          set -euo pipefail
+          python - \
+            "$RUN287_RECOVERY_DIAGNOSTIC_ROOT" \
+            "$RUN287_RECOVERY_LOCAL_ROOT" \
+            "$RUN287_PARENT_PREFLIGHT_RECEIPT" \
+            "$RUN287_PAPER_SELECTION" \
+            "$RUN287_PAPER_VERIFIER" <<'PY'
+          import hashlib
+          import json
+          import os
+          import stat
+          import sys
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          diagnostic = Path(sys.argv[1])
+          local_root = Path(sys.argv[2])
+          preflight_path = Path(sys.argv[3])
+          selection_path = Path(sys.argv[4])
+          verifier_path = Path(sys.argv[5])
+
+          def sha256_bytes(payload: bytes) -> str:
+              return hashlib.sha256(payload).hexdigest()
+
+          def read_json(path: Path) -> dict:
+              payload = json.loads(path.read_text(encoding="utf-8"))
+              if not isinstance(payload, dict):
+                  raise SystemExit(f"not a JSON object:{path}")
+              return payload
+
+          def exact_tree(root: Path) -> dict:
+              if root.is_symlink() or not root.is_dir():
+                  raise SystemExit(f"unsafe evidence root:{root}")
+              files = {}
+              for path in sorted(root.rglob("*")):
+                  mode = path.lstat().st_mode
+                  if stat.S_ISLNK(mode):
+                      raise SystemExit(f"symlink evidence is forbidden:{path}")
+                  if path.is_dir():
+                      continue
+                  if not stat.S_ISREG(mode):
+                      raise SystemExit(f"non-regular evidence is forbidden:{path}")
+                  raw = path.read_bytes()
+                  files[path.relative_to(root).as_posix()] = {
+                      "sha256": sha256_bytes(raw),
+                      "bytes": len(raw),
+                  }
+              canonical = (
+                  json.dumps(files, sort_keys=True, separators=(",", ":"))
+                  + "\n"
+              ).encode("utf-8")
+              return {
+                  "file_count": len(files),
+                  "tree_sha256": sha256_bytes(canonical),
+                  "files": files,
+              }
+
+          preflight_raw = preflight_path.read_bytes()
+          selection_raw = selection_path.read_bytes()
+          verifier_raw = verifier_path.read_bytes()
+          preflight = read_json(preflight_path)
+          selection = read_json(selection_path)
+          verifier = read_json(verifier_path)
+          expected_false = (
+              "accepted_head_created",
+              "parent_anchor_created",
+              "target_books_mutated",
+              "orders_generated",
+              "ledger_mutated",
+              "historical_cagr_mdd_evidence_changed",
+              "fullrun_executed",
+              "production_activation_allowed",
+              "live_trading_enabled",
+              "automatic_promotion_allowed",
+          )
+          paper = (preflight.get("observed_state") or {}).get("paper_ledger") or {}
+          legacy = (preflight.get("observed_state") or {}).get("legacy_parent") or {}
+          authorization = preflight.get("authorization") or {}
+          expected = {
+              "status": "BLOCKED_ONE_TIME_LEGACY_QUARANTINE_AUTHORIZATION_REQUIRED",
+              "blockers": ["explicit_workflow_dispatch_authorization_required"],
+              "exit_code": 2,
+              "review_only": True,
+          }
+          for key, value in expected.items():
+              if preflight.get(key) != value:
+                  raise SystemExit(f"unexpected parent preflight {key}")
+          if any(preflight.get(field) is not False for field in expected_false):
+              raise SystemExit("preflight safety envelope is not entirely false")
+          if (
+              preflight.get("source", {}).get("source_commit_sha")
+              != os.environ["EXPECTED_MASTER_SHA"]
+              or preflight.get("source", {}).get("session_date")
+              != os.environ["REQUESTED_SESSION_DATE"]
+              or preflight.get("observed_state", {}).get(
+                  "remote_committed_accepted_head_count"
+              ) != 0
+              or preflight.get("observed_state", {}).get(
+                  "remote_committed_accepted_head_absence_proven"
+              ) is not True
+              or authorization.get("mode") != "legacy_quarantine"
+              or authorization.get("requested") is not False
+              or authorization.get("satisfied") is not False
+              or authorization.get("separate_user_approval_required") is not True
+          ):
+              raise SystemExit("preflight source, state, or authorization contract drifted")
+          if (
+              paper.get("file_sha256")
+              != os.environ["EXPECTED_PAPER_MANIFEST_SHA256"]
+              or str(paper.get("file_count"))
+              != os.environ["EXPECTED_PAPER_FILE_COUNT"]
+              or paper.get("snapshot_hash")
+              != os.environ["EXPECTED_PAPER_TERMINAL_SHA256"]
+              or paper.get("immutable_root_snapshot_hash")
+              != os.environ["EXPECTED_PAPER_ROOT_SHA256"]
+              or str(paper.get("immutable_head_count"))
+              != os.environ["EXPECTED_PAPER_HEAD_COUNT"]
+              or paper.get("as_of_date")
+              != os.environ["EXPECTED_PAPER_AS_OF_DATE"]
+          ):
+              raise SystemExit("paper evidence differs from the H1-audited identity")
+          if (
+              legacy.get("state") != "PRESENT_FETCHED"
+              or legacy.get("summary_sha256")
+              != os.environ["EXPECTED_LEGACY_SUMMARY_SHA256"]
+              or legacy.get("byte_exact_allowlist_match") is not True
+          ):
+              raise SystemExit("legacy evidence differs from the allowlisted identity")
+          if (
+              selection.get("selected_snapshot_hash")
+              != os.environ["EXPECTED_PAPER_TERMINAL_SHA256"]
+              or verifier.get("status")
+              != "VERIFIED"
+          ):
+              raise SystemExit("paper selection or verifier receipt drifted")
+
+          canonical_tree = exact_tree(local_root / "paper_canonical")
+          heads_tree = exact_tree(local_root / "paper_heads")
+          legacy_tree = exact_tree(local_root / "legacy_outcome")
+          result = {
+              "schema_version": "run287-risk-outcome-recovery-readonly-preflight-v1",
+              "status": "PASS_READ_ONLY_RECOVERY_PREFLIGHT",
+              "generated_at_utc": datetime.now(timezone.utc)
+                  .replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+              "source": {
+                  "repository": os.environ["GITHUB_REPOSITORY"],
+                  "master_sha": os.environ["EXPECTED_MASTER_SHA"],
+                  "workflow_run_id": os.environ["GITHUB_RUN_ID"],
+                  "workflow_run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+                  "session_date": os.environ["REQUESTED_SESSION_DATE"],
+              },
+              "drive": {
+                  "base_mode": os.environ["RUN287_DRIVE_BASE_MODE"],
+                  "accepted_head_namespace_state": os.environ[
+                      "RUN287_ACCEPTED_REMOTE_STATE"
+                  ],
+                  "accepted_head_count": 0,
+                  "canonical": canonical_tree,
+                  "immutable_heads": heads_tree,
+                  "legacy_outcome": legacy_tree,
+              },
+              "receipts": {
+                  "parent_preflight_sha256": sha256_bytes(preflight_raw),
+                  "paper_selection_sha256": sha256_bytes(selection_raw),
+                  "paper_verifier_sha256": sha256_bytes(verifier_raw),
+              },
+              "paper": paper,
+              "legacy_parent": legacy,
+              "next_blocker": preflight["status"],
+              "migration_authorized": False,
+              "drive_mutated": False,
+              "target_books_mutated": False,
+              "orders_generated": False,
+              "ledger_mutated": False,
+              "catchup_executed": False,
+              "fullrun_executed": False,
+              "production_activation_allowed": False,
+              "live_trading_enabled": False,
+          }
+          output = diagnostic / "current_truth.json"
+          output.write_text(
+              json.dumps(result, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(result, indent=2, sort_keys=True))
+          PY
+
+      - name: Upload read-only recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run287-risk-outcome-recovery-preflight-${{ github.run_id }}
+          path: outputs/run287_risk_outcome_recovery_preflight/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Remove temporary credentials
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -n "${RCLONE_CONFIG:-}" ]; then
+            rm -f -- "$RCLONE_CONFIG"
+          fi
+          if [ -n "${RUN287_SERVICE_ACCOUNT_PATH:-}" ]; then
+            rm -f -- "$RUN287_SERVICE_ACCOUNT_PATH"
+          fi
