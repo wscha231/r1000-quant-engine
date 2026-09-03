@@ -4668,6 +4668,18 @@ Expected contract:
   public selector, and exact-compare the regenerated path-bound selection
   before Drive discovery or preflight. Never trust an unanchored head tree
   supplied by the hydration source.
+- Exact-head review follow-up: Every diagnostic writer, including a byte-copy
+  helper, must protect all evidence inputs and immutable evidence roots at the
+  final atomic replace boundary. Being outside the mutable accepted-state
+  directory alone does not prevent overwriting a selection receipt or adding
+  or replacing a file beneath a committed physical head.
+- Exact-head review follow-up: Cache ledger/head equality is not authoritative
+  until all durable sources have been discovered. An explicit latest-run
+  ledger can validly descend from an older cached physical terminal; defer
+  that comparison until Drive supplies a verified descendant chain and require
+  content-continuous installation. If the authoritative source is unavailable
+  or cannot prove the extension, the final verifier receipt must still fail
+  closed.
 - Validation: Real producer fixture with 243 files and a six-head lineage,
   six physical head directories, missing/extra/changed-file checks, forbidden
   raw status, missing/forged/hash-mismatched receipt checks, missing head and

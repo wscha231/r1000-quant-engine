@@ -88,11 +88,13 @@ transaction, outcome migration, or broker path changed.
 | State or head file replaced by an identical-byte symlink | Block: symlink evidence is forbidden |
 | Verifier receipt reached through a symlinked ancestor directory | Block before reading, even when the destination bytes are identical |
 | Canonical diagnostic-copy source is a symlink | Block before reading or publishing diagnostic bytes |
+| Diagnostic-copy output equals the immutable-head selection file or lies anywhere under the selected physical-head root | Block before publication and recheck at atomic replace; selection/head bytes and file set remain unchanged |
 | Verifier output inside accepted state | Block before writing any output |
 | Verifier output equals the immutable-head selection file | Block; selection bytes remain unchanged |
 | Verifier output is a new or existing path under the physical immutable-head root | Block; no head byte or file set changes |
 | `latest_run` replaces `outputs` while verified heads came from cache | Preserve heads in a verified `$RUNNER_TEMP` anchor, restore and reselect them, exact-compare the selection, then expose diagnostic evidence before Drive discovery/preflight |
 | Hydrated `latest_run` supplies an unanchored head tree | Remove it from consideration; never promote hydrated head evidence over the previously verified anchor |
+| Explicit `latest_run` ledger is a verified descendant of an older cached physical-head terminal | Defer ledger/head equality until authoritative Drive discovery, then require the downloaded immutable-head chain to install with content-continuity; if Drive cannot provide it, the final verifier receipt fails closed |
 | Pre-existing fixed temporary-file symlink for receipt or diagnostic copy | Ignored safely; unique exclusive temp file is used and external bytes remain unchanged |
 | Same raw bytes, files, and selection receipt rerun | Identical verifier receipt bytes and SHA-256 |
 | Scheduled, zero accepted heads, `PRESENT_FETCHED`, no migration authorization | `BLOCKED_ONE_TIME_LEGACY_QUARANTINE_AUTHORIZATION_REQUIRED` |
@@ -104,7 +106,7 @@ transaction, outcome migration, or broker path changed.
 | H1 producer/preflight smoke | `16/16` passed |
 | Immutable paper-head selector smoke | passed |
 | Paper-ledger transaction smoke | passed |
-| Workflow artifact/order smoke, including cache-head hydration regression | passed |
+| Workflow artifact/order smoke, including cache-head hydration, deferred descendant reconciliation, and diagnostic-output boundary regressions | passed |
 | GitHub secret-scope smoke | passed |
 | Shared-lessons contract smoke | passed |
 | Registered Tier-1 PR validation | pending automatic push-triggered PR CI |

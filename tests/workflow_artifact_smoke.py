@@ -1631,6 +1631,11 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         '--safe-diagnostic-copy-output '
         '"$PAPER_INTEGRITY_DIAGNOSTIC_COPY"'
     )
+    paper_diagnostic_selection_idx = text.index(
+        '--immutable-head-selection '
+        '"$PAPER_INTEGRITY_SELECTION_EVIDENCE"',
+        paper_diagnostic_copy_idx,
+    )
     paper_diagnostic_initial_compare_idx = text.index(
         'cmp -s "$PAPER_INTEGRITY_SOURCE" '
         '"$PAPER_INTEGRITY_DIAGNOSTIC_COPY"'
@@ -1696,6 +1701,7 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         < accepted_parent_restore_idx
         < paper_diagnostic_copy_idx
         < paper_diagnostic_publish_idx
+        < paper_diagnostic_selection_idx
         < paper_diagnostic_initial_compare_idx
         < paper_verifier_receipt_idx
         < paper_diagnostic_final_compare_idx
@@ -2069,6 +2075,7 @@ def test_latest_run_hydration_preserves_reverified_paper_head_evidence() -> None
         '"$PAPER_INTEGRITY_SELECTION_EVIDENCE"',
         'ignored unanchored immutable heads supplied by output hydration',
         'restored and reverified immutable cache head evidence after output hydration',
+        'deferred cache ledger/head parity: authoritative Drive discovery must supply and verify the descendant head chain',
     ):
         assert token in restore, token
 
@@ -2101,6 +2108,15 @@ def test_latest_run_hydration_preserves_reverified_paper_head_evidence() -> None
     remote_discovery_idx = restore.index(
         'PAPER_REMOTE_CANDIDATE="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_remote"'
     )
+    remote_continuity_idx = restore.index(
+        '--install-immutable-heads-root "$PAPER_IMMUTABLE_HEADS_LOCAL"',
+        remote_discovery_idx,
+    )
+    remote_continuity_required_idx = restore.index(
+        "--require-install-continuity",
+        remote_continuity_idx,
+    )
+    assert "restored continuity ledger/head terminal mismatch" not in restore
     assert (
         initial_select_idx
         < preserve_idx
@@ -2111,9 +2127,12 @@ def test_latest_run_hydration_preserves_reverified_paper_head_evidence() -> None
         < selection_publish_idx
         < compare_idx
         < remote_discovery_idx
+        < remote_continuity_idx
+        < remote_continuity_required_idx
     ), (
         "verified cache heads must survive outside outputs, then be restored, "
-        "reselected, compared, and published before remote discovery"
+        "reselected, compared, and published before authoritative Drive "
+        "discovery proves the descendant continuity relation"
     )
 
     parsed_restore = extract_yaml_literal_run(

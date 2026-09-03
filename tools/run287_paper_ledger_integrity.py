@@ -138,6 +138,36 @@ def _path_is_within(path: Path, root: Path) -> bool:
     return candidate == boundary or boundary in candidate.parents
 
 
+def _require_output_outside_protected_evidence(
+    output: Path,
+    *,
+    protected_files: Iterable[Path],
+    protected_roots: Iterable[Path],
+    label: str,
+) -> None:
+    safe_output = _absolute_lexical_path(Path(output))
+    for protected_file in protected_files:
+        safe_file = _require_no_symlink_components(
+            Path(protected_file),
+            label=f"protected {label} evidence file",
+        )
+        if safe_output == safe_file:
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_INTEGRITY",
+                f"{label} output must not replace a protected evidence file",
+            )
+    for protected_root in protected_roots:
+        safe_root = _require_no_symlink_components(
+            Path(protected_root),
+            label=f"protected {label} evidence root",
+        )
+        if _path_is_within(safe_output, safe_root):
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_INTEGRITY",
+                f"{label} output must be outside protected evidence roots",
+            )
+
+
 def _read_regular_file_no_follow(path: Path, *, label: str) -> bytes:
     safe_path = _require_no_symlink_components(Path(path), label=label)
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
@@ -634,28 +664,12 @@ def write_integrity_verifier_receipt(
     protected_roots = tuple(protected_roots)
 
     def require_outside_protected_evidence() -> None:
-        for protected_file in protected_files:
-            safe_file = _require_no_symlink_components(
-                Path(protected_file),
-                label="protected verifier evidence file",
-            )
-            if output == safe_file:
-                raise PaperLedgerIntegrityError(
-                    "BLOCKED_INTEGRITY",
-                    "verifier receipt output must not replace a protected "
-                    "evidence file",
-                )
-        for protected_root in protected_roots:
-            safe_root = _require_no_symlink_components(
-                Path(protected_root),
-                label="protected verifier evidence root",
-            )
-            if _path_is_within(output, safe_root):
-                raise PaperLedgerIntegrityError(
-                    "BLOCKED_INTEGRITY",
-                    "verifier receipt output must be outside protected "
-                    "evidence roots",
-                )
+        _require_output_outside_protected_evidence(
+            output,
+            protected_files=protected_files,
+            protected_roots=protected_roots,
+            label="verifier receipt",
+        )
 
     require_outside_protected_evidence()
     _require_no_symlink_components(
@@ -703,17 +717,32 @@ def integrity_verifier_receipt_bytes(
 def copy_diagnostic_file_exact(
     source: Path,
     output: Path,
+    *,
+    protected_files: Iterable[Path] = (),
+    protected_roots: Iterable[Path] = (),
 ) -> dict[str, Any]:
     """Copy one regular file without following links or fixed temp names."""
     safe_source = _require_no_symlink_components(
         Path(source), label="diagnostic source"
     )
     safe_output = _absolute_lexical_path(Path(output))
+    protected_files = tuple(protected_files)
+    protected_roots = tuple(protected_roots)
+
+    def require_outside_protected_evidence() -> None:
+        _require_output_outside_protected_evidence(
+            safe_output,
+            protected_files=protected_files,
+            protected_roots=protected_roots,
+            label="diagnostic copy",
+        )
+
     if safe_source == safe_output:
         raise PaperLedgerIntegrityError(
             "BLOCKED_INTEGRITY",
             "diagnostic source and output must be different paths",
         )
+    require_outside_protected_evidence()
     _require_no_symlink_components(
         safe_output.parent, label="diagnostic output directory"
     )
@@ -775,6 +804,7 @@ def copy_diagnostic_file_exact(
         _require_no_symlink_components(
             safe_output, label="diagnostic output"
         )
+        require_outside_protected_evidence()
         os.replace(temporary, safe_output)
         published = True
         if (
@@ -2235,26 +2265,32 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     try:
-        verifier_receipt_values = (
-            args.immutable_head_selection,
-            args.verifier_receipt_output,
-        )
-        if any(verifier_receipt_values) and not all(
-            verifier_receipt_values
-        ):
+        if args.verifier_receipt_output and not args.immutable_head_selection:
             raise PaperLedgerIntegrityError(
                 "BLOCKED_INTEGRITY",
                 "verifier receipt mode requires immutable-head selection "
                 "and output",
             )
-        diagnostic_copy_values = (
+        if args.immutable_head_selection and not (
+            args.verifier_receipt_output
+            or args.safe_diagnostic_copy_source
+        ):
+            raise PaperLedgerIntegrityError(
+                "BLOCKED_INTEGRITY",
+                "immutable-head selection requires verifier receipt or "
+                "safe diagnostic copy mode",
+            )
+        diagnostic_copy_request_values = (
             args.safe_diagnostic_copy_source,
             args.safe_diagnostic_copy_output,
         )
-        if any(diagnostic_copy_values) and not all(diagnostic_copy_values):
+        if any(diagnostic_copy_request_values) and not all(
+            (*diagnostic_copy_request_values, args.immutable_head_selection)
+        ):
             raise PaperLedgerIntegrityError(
                 "BLOCKED_INTEGRITY",
-                "safe diagnostic copy mode requires source and output",
+                "safe diagnostic copy mode requires source, output, and "
+                "immutable-head selection",
             )
         modes = [
             bool(args.install_source),
@@ -2266,7 +2302,7 @@ def main() -> int:
         if args.safe_diagnostic_copy_source:
             if (
                 any(modes)
-                or any(verifier_receipt_values)
+                or bool(args.verifier_receipt_output)
                 or not args.state_dir
                 or args.require_integrity
                 or args.require_install_continuity
@@ -2278,7 +2314,8 @@ def main() -> int:
                 raise PaperLedgerIntegrityError(
                     "BLOCKED_INTEGRITY",
                     "safe diagnostic copy mode requires only --state-dir "
-                    "and its source/output arguments",
+                    "and its source/output/immutable-head-selection "
+                    "arguments",
                 )
             state_root = _require_no_symlink_components(
                 Path(args.state_dir), label="paper snapshot root"
@@ -2290,6 +2327,10 @@ def main() -> int:
             output = _require_no_symlink_components(
                 Path(args.safe_diagnostic_copy_output),
                 label="diagnostic output",
+            )
+            selection_path = _require_no_symlink_components(
+                Path(args.immutable_head_selection),
+                label="immutable paper head selection receipt",
             )
             if source != state_root / INTEGRITY_FILE:
                 raise PaperLedgerIntegrityError(
@@ -2303,7 +2344,67 @@ def main() -> int:
                     "diagnostic output must be outside the accepted "
                     "paper state",
                 )
-            result = copy_diagnostic_file_exact(source, output)
+            if _path_is_within(selection_path, state_root):
+                raise PaperLedgerIntegrityError(
+                    "BLOCKED_INTEGRITY",
+                    "immutable paper head selection receipt must be "
+                    "outside the accepted paper state",
+                )
+            selection_raw = _read_regular_file_no_follow(
+                selection_path,
+                label="immutable paper head selection receipt",
+            )
+            selection = _strict_json_object(
+                selection_raw,
+                label="immutable paper head selection receipt",
+            )
+            if set(selection) != PAPER_IMMUTABLE_HEAD_SELECTION_KEYS:
+                raise PaperLedgerIntegrityError(
+                    "BLOCKED_INTEGRITY",
+                    "immutable paper head selection receipt keys mismatch",
+                )
+            heads_root = Path(str(selection.get("heads_root") or ""))
+            if not heads_root.is_absolute():
+                raise PaperLedgerIntegrityError(
+                    "BLOCKED_INTEGRITY",
+                    "immutable paper heads root must be absolute",
+                )
+            heads_root = _require_no_symlink_components(
+                heads_root, label="immutable paper heads root"
+            )
+            if selection != select_verified_immutable_paper_head(heads_root):
+                raise PaperLedgerIntegrityError(
+                    "BLOCKED_INTEGRITY",
+                    "immutable paper head selection receipt does not match "
+                    "the reverified on-disk immutable head chain",
+                )
+            if _read_regular_file_no_follow(
+                selection_path,
+                label="immutable paper head selection receipt",
+            ) != selection_raw:
+                raise PaperLedgerIntegrityError(
+                    "BLOCKED_INTEGRITY",
+                    "immutable paper head selection receipt changed before "
+                    "diagnostic copy publication",
+                )
+            if output == selection_path:
+                raise PaperLedgerIntegrityError(
+                    "BLOCKED_INTEGRITY",
+                    "diagnostic copy output must not replace the immutable "
+                    "paper head selection receipt",
+                )
+            if _path_is_within(output, heads_root):
+                raise PaperLedgerIntegrityError(
+                    "BLOCKED_INTEGRITY",
+                    "diagnostic copy output must be outside the immutable "
+                    "paper head evidence root",
+                )
+            result = copy_diagnostic_file_exact(
+                source,
+                output,
+                protected_files=(selection_path,),
+                protected_roots=(state_root, heads_root),
+            )
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0
         if args.verifier_receipt_output:

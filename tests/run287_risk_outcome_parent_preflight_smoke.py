@@ -726,6 +726,38 @@ def test_diagnostic_copy_rejects_source_symlink_and_fixed_temp_attack() -> None:
         root = Path(td)
         kwargs = base_kwargs(root)
         source = Path(kwargs["paper_integrity_path"])
+        invalid_raw = json.loads(source.read_text(encoding="utf-8"))
+        invalid_raw["status"] = "VERIFIED"
+        source.write_text(
+            json.dumps(invalid_raw, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        output = root / "diagnostic" / "invalid-snapshot-integrity.json"
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "tools" / "run287_paper_ledger_integrity.py"),
+                "--state-dir",
+                str(source.parent),
+                "--safe-diagnostic-copy-source",
+                str(source),
+                "--safe-diagnostic-copy-output",
+                str(output),
+                "--immutable-head-selection",
+                str(kwargs["paper_immutable_head_selection_path"]),
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr or result.stdout
+        assert output.read_bytes() == source.read_bytes()
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        kwargs = base_kwargs(root)
+        source = Path(kwargs["paper_integrity_path"])
         external = root / "external-manifest.json"
         external.write_bytes(source.read_bytes())
         source.unlink()
@@ -741,6 +773,8 @@ def test_diagnostic_copy_rejects_source_symlink_and_fixed_temp_attack() -> None:
                 str(source),
                 "--safe-diagnostic-copy-output",
                 str(output),
+                "--immutable-head-selection",
+                str(kwargs["paper_immutable_head_selection_path"]),
             ],
             cwd=ROOT,
             check=False,
@@ -768,6 +802,8 @@ def test_diagnostic_copy_rejects_source_symlink_and_fixed_temp_attack() -> None:
                 str(source),
                 "--safe-diagnostic-copy-output",
                 str(output),
+                "--immutable-head-selection",
+                str(kwargs["paper_immutable_head_selection_path"]),
             ],
             cwd=ROOT,
             check=False,
@@ -779,6 +815,95 @@ def test_diagnostic_copy_rejects_source_symlink_and_fixed_temp_attack() -> None:
             result.stdout + result.stderr
         )
         assert not output.exists()
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        kwargs = base_kwargs(root)
+        source = Path(kwargs["paper_integrity_path"])
+        selection_path = Path(
+            kwargs["paper_immutable_head_selection_path"]
+        )
+        selection_bytes = selection_path.read_bytes()
+        base_command = [
+            sys.executable,
+            str(ROOT / "tools" / "run287_paper_ledger_integrity.py"),
+            "--state-dir",
+            str(source.parent),
+            "--safe-diagnostic-copy-source",
+            str(source),
+            "--immutable-head-selection",
+            str(selection_path),
+        ]
+        result = subprocess.run(
+            [
+                *base_command,
+                "--safe-diagnostic-copy-output",
+                str(selection_path),
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 2
+        assert "must not replace the immutable paper head selection" in (
+            result.stdout + result.stderr
+        )
+        assert selection_path.read_bytes() == selection_bytes
+
+        selection = json.loads(selection_bytes)
+        heads_root = Path(selection["heads_root"])
+        head_bytes_before = {
+            path.relative_to(heads_root).as_posix(): path.read_bytes()
+            for path in heads_root.rglob("*")
+            if path.is_file()
+        }
+        forbidden_new_file = (
+            Path(selection["selected_head_dir"])
+            / "diagnostic-snapshot-integrity.json"
+        )
+        result = subprocess.run(
+            [
+                *base_command,
+                "--safe-diagnostic-copy-output",
+                str(forbidden_new_file),
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 2
+        assert "must be outside the immutable paper head evidence root" in (
+            result.stdout + result.stderr
+        )
+        assert not forbidden_new_file.exists()
+
+        selected_manifest = (
+            Path(selection["selected_head_dir"]) / INTEGRITY_FILE
+        )
+        selected_manifest_bytes = selected_manifest.read_bytes()
+        result = subprocess.run(
+            [
+                *base_command,
+                "--safe-diagnostic-copy-output",
+                str(selected_manifest),
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 2
+        assert "must be outside the immutable paper head evidence root" in (
+            result.stdout + result.stderr
+        )
+        assert selected_manifest.read_bytes() == selected_manifest_bytes
+        assert {
+            path.relative_to(heads_root).as_posix(): path.read_bytes()
+            for path in heads_root.rglob("*")
+            if path.is_file()
+        } == head_bytes_before
 
 
 def test_separate_migration_consumer_can_open_only_existing_boundary() -> None:
