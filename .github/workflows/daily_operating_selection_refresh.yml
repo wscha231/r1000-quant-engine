@@ -32,11 +32,11 @@ on:
         type: boolean
         default: true
       allow_risk_outcome_genesis_bootstrap:
-        description: 'One-time bootstrap only: allow a new outcome genesis after authoritative Drive absence is confirmed'
+        description: 'Deprecated safety trap: ordinary daily rejects this; use only a separately reviewed migration workflow'
         type: boolean
         default: false
       allow_quarantined_legacy_outcome_parent:
-        description: 'One-time migration only: quarantine an existing legacy outcome prefix after authoritative Drive absence is confirmed'
+        description: 'Deprecated safety trap: ordinary daily rejects this; use only a separately reviewed migration workflow'
         type: boolean
         default: false
       allow_verified_paper_canonical_head_bootstrap:
@@ -71,6 +71,15 @@ jobs:
       RUN287_LEGACY_V1_SOURCE_HEAD_BRANCH: codex/run287-paper-ledger-continuity-20260718
 
     steps:
+      - name: Reject risk-outcome migration authority in ordinary daily
+        if: >-
+          github.event_name == 'workflow_dispatch' &&
+          (inputs.allow_risk_outcome_genesis_bootstrap ||
+          inputs.allow_quarantined_legacy_outcome_parent)
+        run: |
+          echo "[risk-outcome] BLOCKED: use a separately reviewed migration-only workflow"
+          exit 2
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -1225,15 +1234,8 @@ jobs:
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: r1000_top30_institutional
-          ALLOW_RISK_OUTCOME_GENESIS_BOOTSTRAP: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_risk_outcome_genesis_bootstrap || 'false' }}
-          ALLOW_QUARANTINED_LEGACY_OUTCOME_PARENT: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_quarantined_legacy_outcome_parent || 'false' }}
         run: |
           set -euo pipefail
-          if [ "${ALLOW_RISK_OUTCOME_GENESIS_BOOTSTRAP:-false}" = "true" ] && \
-             [ "${ALLOW_QUARANTINED_LEGACY_OUTCOME_PARENT:-false}" = "true" ]; then
-            echo "[risk-outcome] BLOCKED: genesis and legacy-quarantine bootstrap authorizations are mutually exclusive"
-            exit 2
-          fi
           CACHE_HEADS="$RUNNER_TEMP/run287_risk_outcome_cache_heads"
           CACHE_MANIFESTS="$RUNNER_TEMP/run287_risk_outcome_cache_head_manifests"
           CACHE_ACCEPTANCE_MARKERS="$RUNNER_TEMP/run287_risk_outcome_cache_acceptance_markers"
@@ -1495,36 +1497,38 @@ jobs:
             PAPER_INTEGRITY_SELECTION_EVIDENCE="outputs/full_rebuild_logs/daily_paper_immutable_head_selection.json"
             PAPER_INTEGRITY_VERIFIER_RECEIPT="outputs/full_rebuild_logs/daily_paper_integrity_verifier_receipt.json"
             PAPER_INTEGRITY_DIAGNOSTIC_COPY="outputs/full_rebuild_logs/daily_paper_preflight_snapshot_integrity.json"
-            PAPER_INTEGRITY_DIAGNOSTIC_TMP="${PAPER_INTEGRITY_DIAGNOSTIC_COPY}.tmp"
             rm -f \
               "$PAPER_INTEGRITY_VERIFIER_RECEIPT" \
-              "$PAPER_INTEGRITY_DIAGNOSTIC_COPY" \
-              "$PAPER_INTEGRITY_DIAGNOSTIC_TMP"
+              "$PAPER_INTEGRITY_DIAGNOSTIC_COPY"
             PAPER_INTEGRITY_SOURCE_SHA_BEFORE=""
             PAPER_INTEGRITY_SOURCE_SHA_AFTER=""
             PAPER_INTEGRITY_COPY_SHA=""
-            PAPER_INTEGRITY_COPY_EXIT=0
             set +e
-            PAPER_INTEGRITY_SOURCE_SHA_BEFORE="$(sha256sum "$PAPER_INTEGRITY_SOURCE" | awk 'NR == 1 { print $1 }')" && \
-              cp "$PAPER_INTEGRITY_SOURCE" "$PAPER_INTEGRITY_DIAGNOSTIC_TMP" && \
-              PAPER_INTEGRITY_SOURCE_SHA_AFTER="$(sha256sum "$PAPER_INTEGRITY_SOURCE" | awk 'NR == 1 { print $1 }')" && \
-              PAPER_INTEGRITY_COPY_SHA="$(sha256sum "$PAPER_INTEGRITY_DIAGNOSTIC_TMP" | awk 'NR == 1 { print $1 }')" && \
-              [ -n "$PAPER_INTEGRITY_SOURCE_SHA_BEFORE" ] && \
-              [ "$PAPER_INTEGRITY_SOURCE_SHA_BEFORE" = "$PAPER_INTEGRITY_SOURCE_SHA_AFTER" ] && \
-              [ "$PAPER_INTEGRITY_SOURCE_SHA_BEFORE" = "$PAPER_INTEGRITY_COPY_SHA" ] && \
-              cmp -s "$PAPER_INTEGRITY_SOURCE" "$PAPER_INTEGRITY_DIAGNOSTIC_TMP"
-            PAPER_INTEGRITY_COPY_EXIT=$?
+            python tools/run287_paper_ledger_integrity.py \
+              --state-dir outputs/daily_simulated_fill_ledger \
+              --safe-diagnostic-copy-source "$PAPER_INTEGRITY_SOURCE" \
+              --safe-diagnostic-copy-output "$PAPER_INTEGRITY_DIAGNOSTIC_COPY" \
+              2>&1 | tee outputs/full_rebuild_logs/daily_paper_integrity_diagnostic_copy.log
+            PAPER_INTEGRITY_COPY_EXIT="${PIPESTATUS[0]}"
             set -e
             if [ "$PAPER_INTEGRITY_COPY_EXIT" -eq 0 ]; then
-              if ! mv "$PAPER_INTEGRITY_DIAGNOSTIC_TMP" "$PAPER_INTEGRITY_DIAGNOSTIC_COPY"; then
+              set +e
+              PAPER_INTEGRITY_SOURCE_SHA_BEFORE="$(sha256sum "$PAPER_INTEGRITY_SOURCE" | awk 'NR == 1 { print $1 }')" && \
+                PAPER_INTEGRITY_SOURCE_SHA_AFTER="$(sha256sum "$PAPER_INTEGRITY_SOURCE" | awk 'NR == 1 { print $1 }')" && \
+                PAPER_INTEGRITY_COPY_SHA="$(sha256sum "$PAPER_INTEGRITY_DIAGNOSTIC_COPY" | awk 'NR == 1 { print $1 }')" && \
+                [ -n "$PAPER_INTEGRITY_SOURCE_SHA_BEFORE" ] && \
+                [ "$PAPER_INTEGRITY_SOURCE_SHA_BEFORE" = "$PAPER_INTEGRITY_SOURCE_SHA_AFTER" ] && \
+                [ "$PAPER_INTEGRITY_SOURCE_SHA_BEFORE" = "$PAPER_INTEGRITY_COPY_SHA" ] && \
+                cmp -s "$PAPER_INTEGRITY_SOURCE" "$PAPER_INTEGRITY_DIAGNOSTIC_COPY"
+              PAPER_INTEGRITY_COPY_VERIFY_EXIT=$?
+              set -e
+              if [ "$PAPER_INTEGRITY_COPY_VERIFY_EXIT" -ne 0 ]; then
                 PAPER_INTEGRITY_COPY_EXIT=2
               fi
             fi
             PAPER_INTEGRITY_VERIFIER_EXIT=2
             if [ "$PAPER_INTEGRITY_COPY_EXIT" -ne 0 ]; then
-              rm -f \
-                "$PAPER_INTEGRITY_DIAGNOSTIC_COPY" \
-                "$PAPER_INTEGRITY_DIAGNOSTIC_TMP"
+              rm -f "$PAPER_INTEGRITY_DIAGNOSTIC_COPY"
               echo "[paper-integrity] BLOCKED: preflight manifest diagnostic copy is not byte-exact" \
                 | tee outputs/full_rebuild_logs/daily_paper_integrity_verifier_receipt.log
             else
@@ -1572,12 +1576,6 @@ jobs:
               --paper-immutable-head-selection "$PAPER_INTEGRITY_SELECTION_EVIDENCE"
               --output outputs/run287_risk_outcome_parent_preflight/receipt.json
             )
-            if [ "${ALLOW_RISK_OUTCOME_GENESIS_BOOTSTRAP:-false}" = "true" ]; then
-              PREFLIGHT_ARGS+=(--allow-risk-outcome-genesis-bootstrap)
-            fi
-            if [ "${ALLOW_QUARANTINED_LEGACY_OUTCOME_PARENT:-false}" = "true" ]; then
-              PREFLIGHT_ARGS+=(--allow-quarantined-legacy-outcome-parent)
-            fi
             set +e
             python tools/build_run287_risk_outcome_parent_preflight.py \
               "${PREFLIGHT_ARGS[@]}" \

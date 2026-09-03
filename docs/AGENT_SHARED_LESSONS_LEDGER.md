@@ -4641,11 +4641,23 @@ Expected contract:
   bytes into a diagnostic-only path, verify source/copy SHA-256 and byte
   equality before and after verifier receipt generation, and keep preflight
   validation pointed at the canonical accepted-state source.
+- Independent-review follow-up: Never accept an immutable-head selection
+  receipt as self-authenticating. Reopen the physical head root, verify every
+  committed manifest/file map, prove one content-continuous chain, exact-match
+  the selected terminal to canonical state, and reject missing heads or any
+  symlink-backed component even when the linked bytes hash identically.
+- Independent-review follow-up: Diagnostic receipt writers must use unique,
+  exclusively created temporary files and must reject output paths inside the
+  accepted state. Ordinary daily workflows must never convert compatibility
+  inputs into risk-outcome genesis/quarantine authority or forward their
+  flags; reject them before checkout. That authority belongs only in a
+  separately reviewed migration-only workflow.
 - Validation: Real producer fixture with 243 files and a six-head lineage,
-  missing/extra/changed-file checks, forbidden raw status, missing/forged/hash-
-  mismatched receipt checks, parent/terminal/chain mismatches, deterministic
-  receipt replay, workflow artifact/order smoke, Python compilation, YAML
-  parse, and `git diff --check` passed.
+  six physical head directories, missing/extra/changed-file checks, forbidden
+  raw status, missing/forged/hash-mismatched receipt checks, missing head and
+  parent/terminal/chain mismatches, state/head/output symlink attacks,
+  deterministic receipt replay, workflow artifact/order smoke, Python
+  compilation, YAML parse, and `git diff --check` passed.
 - Next action: Merge H1 alone, confirm the scheduled/read-only preflight reaches
   `BLOCKED_ONE_TIME_LEGACY_QUARANTINE_AUTHORIZATION_REQUIRED`, then design a
   separately reviewed migration-only workflow and fresh exact-SHA approval

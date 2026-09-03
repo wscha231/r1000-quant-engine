@@ -1042,6 +1042,8 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "strict_selection",
         "allow_risk_outcome_genesis_bootstrap",
         "allow_quarantined_legacy_outcome_parent",
+        "Reject risk-outcome migration authority in ordinary daily",
+        "use a separately reviewed migration-only workflow",
         "LATEST_RUN_INPUT",
         "hydrate outputs/ from requested latest_run",
         "cache_prices",
@@ -1164,6 +1166,8 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "daily_run287_risk_outcome_parent_preflight.log",
         "--immutable-head-selection \"$PAPER_INTEGRITY_SELECTION_EVIDENCE\"",
         "--verifier-receipt-output \"$PAPER_INTEGRITY_VERIFIER_RECEIPT\"",
+        "--safe-diagnostic-copy-source \"$PAPER_INTEGRITY_SOURCE\"",
+        "--safe-diagnostic-copy-output \"$PAPER_INTEGRITY_DIAGNOSTIC_COPY\"",
         "--paper-integrity-verifier-receipt \"$PAPER_INTEGRITY_VERIFIER_RECEIPT\"",
         "--paper-immutable-head-selection \"$PAPER_INTEGRITY_SELECTION_EVIDENCE\"",
         "--paper-integrity outputs/daily_simulated_fill_ledger/snapshot_integrity.json",
@@ -1200,7 +1204,6 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "outcome genesis requires proven absence of authoritative legacy state",
         'PREFLIGHT_EXIT="${PIPESTATUS[0]}"',
         'exit "$PREFLIGHT_EXIT"',
-        "genesis and legacy-quarantine bootstrap authorizations are mutually exclusive",
         "allow_verified_paper_canonical_head_bootstrap",
         "ALLOW_VERIFIED_PAPER_CANONICAL_HEAD_BOOTSTRAP",
         "run287-verified-paper-canonical-bootstrap-v1",
@@ -1378,6 +1381,21 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "GOOGLE_SERVICE_ACCOUNT_KEY",
     ]:
         assert token in text, token
+    for forbidden in (
+        "ALLOW_RISK_OUTCOME_GENESIS_BOOTSTRAP",
+        "ALLOW_QUARANTINED_LEGACY_OUTCOME_PARENT",
+        "--allow-risk-outcome-genesis-bootstrap",
+        "--allow-quarantined-legacy-outcome-parent",
+        "PAPER_INTEGRITY_DIAGNOSTIC_TMP",
+        'cp "$PAPER_INTEGRITY_SOURCE"',
+    ):
+        assert forbidden not in text, forbidden
+    reject_migration = text.index(
+        "- name: Reject risk-outcome migration authority in ordinary daily"
+    )
+    assert reject_migration < text.index("- name: Checkout")
+    assert text.count("inputs.allow_risk_outcome_genesis_bootstrap") == 1
+    assert text.count("inputs.allow_quarantined_legacy_outcome_parent") == 1
     approved_pointer = json.loads(
         (
             ROOT
@@ -1607,20 +1625,20 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         '--verifier-receipt-output "$PAPER_INTEGRITY_VERIFIER_RECEIPT"'
     )
     paper_diagnostic_copy_idx = text.index(
-        'cp "$PAPER_INTEGRITY_SOURCE" '
-        '"$PAPER_INTEGRITY_DIAGNOSTIC_TMP"'
+        '--safe-diagnostic-copy-source "$PAPER_INTEGRITY_SOURCE"'
+    )
+    paper_diagnostic_publish_idx = text.index(
+        '--safe-diagnostic-copy-output '
+        '"$PAPER_INTEGRITY_DIAGNOSTIC_COPY"'
     )
     paper_diagnostic_initial_compare_idx = text.index(
         'cmp -s "$PAPER_INTEGRITY_SOURCE" '
-        '"$PAPER_INTEGRITY_DIAGNOSTIC_TMP"'
-    )
-    paper_diagnostic_publish_idx = text.index(
-        'mv "$PAPER_INTEGRITY_DIAGNOSTIC_TMP" '
         '"$PAPER_INTEGRITY_DIAGNOSTIC_COPY"'
     )
     paper_diagnostic_final_compare_idx = text.index(
         'cmp -s "$PAPER_INTEGRITY_SOURCE" '
-        '"$PAPER_INTEGRITY_DIAGNOSTIC_COPY"'
+        '"$PAPER_INTEGRITY_DIAGNOSTIC_COPY"',
+        paper_diagnostic_initial_compare_idx + 1,
     )
     paper_selection_evidence_idx = text.index(
         'cp "$PAPER_IMMUTABLE_SELECTION" '
@@ -1677,8 +1695,8 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         paper_selection_evidence_idx
         < accepted_parent_restore_idx
         < paper_diagnostic_copy_idx
-        < paper_diagnostic_initial_compare_idx
         < paper_diagnostic_publish_idx
+        < paper_diagnostic_initial_compare_idx
         < paper_verifier_receipt_idx
         < paper_diagnostic_final_compare_idx
         < outcome_parent_preflight_idx

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -24,9 +25,20 @@ from tools.run287_paper_ledger_integrity import (  # noqa: E402
     INTEGRITY_FILE,
     PAPER_IMMUTABLE_HEAD_SELECTION_SCHEMA,
     PAPER_IMMUTABLE_HEAD_SELECTION_STATUS,
+    PaperLedgerIntegrityError,
     build_integrity_verifier_receipt,
+    copy_diagnostic_file_exact,
+    select_verified_immutable_paper_head,
+    verify_integrity_manifest,
     write_integrity_manifest,
     write_integrity_verifier_receipt,
+)
+from tools.run_daily_simulated_fill_ledger import (  # noqa: E402
+    run as run_paper_ledger,
+)
+from tests.run287_paper_ledger_transaction_smoke import (  # noqa: E402
+    ledger_args,
+    prepare,
 )
 
 
@@ -83,64 +95,66 @@ def write_known_legacy_summary(path: Path) -> None:
 
 
 def write_real_paper_fixture(root: Path) -> dict[str, object]:
-    """Write six real producer manifests over exactly 243 tracked files."""
+    """Write six complete accepted-ledger heads over 243 tracked files."""
     paper = root / "paper"
     heads = root / "heads"
-    paper.mkdir(parents=True)
     heads.mkdir(parents=True)
-    write_json(
-        paper / "genesis_identity.json",
-        {
-            "schema_version": "run287-paper-genesis-fixture-v1",
-            "account_ids": ["main", "concentrated"],
-        },
+    prepare(root, list(PAPER_DATES))
+    first_result = run_paper_ledger(
+        ledger_args(
+            root,
+            PAPER_DATES[0],
+            suppress_new_orders=True,
+        )
     )
-    write_json(
-        paper / "state" / "session.json",
-        {"as_of_date": PAPER_DATES[0], "generation": 0},
-    )
-    for index in range(241):
+    assert first_result["status"] == "completed"
+    initial = verify_integrity_manifest(paper, require=True)
+    assert initial["file_count"] < 243
+    for index in range(243 - initial["file_count"]):
         write_json(
-            paper / "evidence" / f"file_{index:03d}.json",
+            paper / "h1_fixture" / f"file_{index:03d}.json",
             {"fixture_file": index, "tamper_evident": True},
         )
 
     manifests: list[dict] = []
-    previous = ""
-    for index, as_of_date in enumerate(PAPER_DATES):
-        if index:
-            write_json(
-                paper / "state" / "session.json",
-                {"as_of_date": as_of_date, "generation": index},
-            )
-        manifest = write_integrity_manifest(
-            paper,
-            as_of_date=as_of_date,
-            previous_snapshot_hash=previous,
+    manifest = write_integrity_manifest(
+        paper,
+        as_of_date=PAPER_DATES[0],
+        previous_snapshot_hash="",
+    )
+    assert manifest["file_count"] == 243
+    assert "status" not in manifest
+    manifests.append(manifest)
+    shutil.copytree(paper, heads / manifest["snapshot_hash"])
+    for as_of_date in PAPER_DATES[1:]:
+        result = run_paper_ledger(
+            ledger_args(root, as_of_date, suppress_new_orders=True)
         )
-        assert manifest["file_count"] == 243
-        assert "status" not in manifest
-        manifests.append(manifest)
-        previous = manifest["snapshot_hash"]
+        assert result["status"] == "completed"
+        verified = verify_integrity_manifest(
+            paper,
+            require=True,
+        )
+        assert verified["file_count"] == 243
+        assert verified["status"] == "VERIFIED"
+        raw_manifest = json.loads(
+            (paper / INTEGRITY_FILE).read_text(encoding="utf-8")
+        )
+        assert "status" not in raw_manifest
+        manifests.append(raw_manifest)
+        shutil.copytree(paper, heads / raw_manifest["snapshot_hash"])
 
     terminal = manifests[-1]
     chain = [manifest["snapshot_hash"] for manifest in manifests]
     selection_path = root / "evidence" / "paper_head_selection.json"
-    write_json(
-        selection_path,
-        {
-            "schema_version": PAPER_IMMUTABLE_HEAD_SELECTION_SCHEMA,
-            "status": PAPER_IMMUTABLE_HEAD_SELECTION_STATUS,
-            "heads_root": str(heads.resolve()),
-            "immutable_head_count": len(chain),
-            "root_snapshot_hash": chain[0],
-            "terminal_snapshot_hash": chain[-1],
-            "selected_snapshot_hash": chain[-1],
-            "selected_head_dir": str((heads / chain[-1]).resolve()),
-            "selected_as_of_date": terminal["as_of_date"],
-            "chain_snapshot_hashes": chain,
-        },
+    selection = select_verified_immutable_paper_head(heads)
+    assert selection["schema_version"] == (
+        PAPER_IMMUTABLE_HEAD_SELECTION_SCHEMA
     )
+    assert selection["status"] == PAPER_IMMUTABLE_HEAD_SELECTION_STATUS
+    assert selection["chain_snapshot_hashes"] == chain
+    assert selection["selected_as_of_date"] == terminal["as_of_date"]
+    write_json(selection_path, selection)
     verifier_payload = build_integrity_verifier_receipt(
         paper,
         immutable_head_selection=selection_path,
@@ -208,6 +222,28 @@ def test_real_243_file_six_head_fixture_reaches_next_blocker() -> None:
         assert raw_manifest["file_count"] == 243
         assert len(raw_manifest["ancestor_snapshot_hashes"]) == 5
         assert "status" not in raw_manifest
+        fixture_heads = sorted(
+            path.name
+            for path in Path(kwargs["paper_immutable_head_selection_path"])
+            .parent.parent.joinpath("heads")
+            .iterdir()
+        )
+        assert fixture_heads == sorted(
+            [
+                raw_manifest["snapshot_hash"],
+                *raw_manifest["ancestor_snapshot_hashes"],
+            ]
+        )
+        assert all(
+            (
+                Path(kwargs["paper_immutable_head_selection_path"])
+                .parent.parent
+                / "heads"
+                / snapshot_hash
+                / INTEGRITY_FILE
+            ).is_file()
+            for snapshot_hash in fixture_heads
+        )
 
         receipt, exit_code = build_receipt(**kwargs)
         assert exit_code == 2
@@ -316,7 +352,7 @@ def test_missing_extra_and_changed_files_block() -> None:
     with tempfile.TemporaryDirectory() as td:
         kwargs = base_kwargs(Path(td))
         paper = Path(kwargs["paper_integrity_path"]).parent
-        (paper / "evidence" / "file_000.json").unlink()
+        (paper / "h1_fixture" / "file_000.json").unlink()
         expect_value_error(kwargs, "snapshot checksum mismatch missing=")
 
     with tempfile.TemporaryDirectory() as td:
@@ -329,7 +365,7 @@ def test_missing_extra_and_changed_files_block() -> None:
         kwargs = base_kwargs(Path(td))
         paper = Path(kwargs["paper_integrity_path"]).parent
         write_json(
-            paper / "evidence" / "file_001.json",
+            paper / "h1_fixture" / "file_001.json",
             {"fixture_file": 1, "tampered": True},
         )
         expect_value_error(kwargs, "snapshot checksum mismatch missing=[]")
@@ -359,6 +395,35 @@ def test_parent_terminal_and_six_head_chain_mismatches_block() -> None:
 
     with tempfile.TemporaryDirectory() as td:
         kwargs = base_kwargs(Path(td))
+        selection = json.loads(
+            Path(kwargs["paper_immutable_head_selection_path"]).read_text(
+                encoding="utf-8"
+            )
+        )
+        shutil.rmtree(Path(selection["selected_head_dir"]))
+        expect_value_error(
+            kwargs,
+            "immutable paper head selection receipt does not match the "
+            "reverified on-disk immutable head chain",
+        )
+
+    with tempfile.TemporaryDirectory() as td:
+        kwargs = base_kwargs(Path(td))
+        selection = json.loads(
+            Path(kwargs["paper_immutable_head_selection_path"]).read_text(
+                encoding="utf-8"
+            )
+        )
+        heads = Path(selection["heads_root"])
+        shutil.rmtree(heads)
+        heads.mkdir()
+        expect_value_error(
+            kwargs,
+            "immutable paper heads contain no committed head",
+        )
+
+    with tempfile.TemporaryDirectory() as td:
+        kwargs = base_kwargs(Path(td))
         selection_path = Path(
             kwargs["paper_immutable_head_selection_path"]
         )
@@ -368,6 +433,44 @@ def test_parent_terminal_and_six_head_chain_mismatches_block() -> None:
         expect_value_error(
             kwargs,
             "immutable paper head selection receipt does not match",
+        )
+
+
+def test_symlink_backed_state_and_head_files_block() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        kwargs = base_kwargs(root)
+        paper_file = (
+            Path(kwargs["paper_integrity_path"]).parent
+            / "h1_fixture"
+            / "file_000.json"
+        )
+        external = root / "external-identical.json"
+        external.write_bytes(paper_file.read_bytes())
+        paper_file.unlink()
+        paper_file.symlink_to(external)
+        expect_value_error(kwargs, "paper snapshot contains a symlink")
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        kwargs = base_kwargs(root)
+        selection = json.loads(
+            Path(kwargs["paper_immutable_head_selection_path"]).read_text(
+                encoding="utf-8"
+            )
+        )
+        head_file = (
+            Path(selection["selected_head_dir"])
+            / "h1_fixture"
+            / "file_000.json"
+        )
+        external = root / "external-head-identical.json"
+        external.write_bytes(head_file.read_bytes())
+        head_file.unlink()
+        head_file.symlink_to(external)
+        expect_value_error(
+            kwargs,
+            "immutable paper head bundle symlink is forbidden",
         )
 
 
@@ -426,7 +529,143 @@ def test_verifier_receipt_cli_rebuilds_exact_expected_bytes() -> None:
         ).read_bytes()
 
 
-def test_explicit_legacy_dispatch_opens_only_existing_boundary() -> None:
+def test_verifier_receipt_output_cannot_mutate_state_or_follow_temp_symlink() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        kwargs = base_kwargs(root)
+        paper = Path(kwargs["paper_integrity_path"]).parent
+        forbidden_output = paper / "verifier_receipt.json"
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "tools" / "run287_paper_ledger_integrity.py"),
+                "--state-dir",
+                str(paper),
+                "--require-integrity",
+                "--immutable-head-selection",
+                str(kwargs["paper_immutable_head_selection_path"]),
+                "--verifier-receipt-output",
+                str(forbidden_output),
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 2
+        assert "must be outside the accepted paper state" in (
+            result.stdout + result.stderr
+        )
+        assert not forbidden_output.exists()
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        kwargs = base_kwargs(root)
+        payload = build_integrity_verifier_receipt(
+            Path(kwargs["paper_integrity_path"]).parent,
+            immutable_head_selection=Path(
+                kwargs["paper_immutable_head_selection_path"]
+            ),
+        )
+        output = root / "receipts" / "receipt.json"
+        output.parent.mkdir()
+        victim = root / "victim.txt"
+        victim.write_text("do-not-overwrite\n", encoding="utf-8")
+        legacy_fixed_temp = output.with_name(f".{output.name}.tmp")
+        legacy_fixed_temp.symlink_to(victim)
+        write_integrity_verifier_receipt(output, payload)
+        assert victim.read_text(encoding="utf-8") == "do-not-overwrite\n"
+        assert legacy_fixed_temp.is_symlink()
+        assert output.is_file() and not output.is_symlink()
+
+        unsafe_output = root / "unsafe-receipt.json"
+        unsafe_output.symlink_to(victim)
+        try:
+            write_integrity_verifier_receipt(unsafe_output, payload)
+        except PaperLedgerIntegrityError as exc:
+            assert "contains a symlink component" in str(exc)
+        else:
+            raise AssertionError("symlink verifier receipt output was accepted")
+
+
+def test_diagnostic_copy_rejects_source_symlink_and_fixed_temp_attack() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        kwargs = base_kwargs(root)
+        source = Path(kwargs["paper_integrity_path"])
+        output = root / "diagnostic" / "snapshot_integrity.json"
+        victim = root / "victim.txt"
+        victim.write_text("do-not-overwrite\n", encoding="utf-8")
+        output.parent.mkdir()
+        legacy_fixed_temp = output.with_name(f".{output.name}.tmp")
+        legacy_fixed_temp.symlink_to(victim)
+
+        result = copy_diagnostic_file_exact(source, output)
+        assert result["status"] == "COPIED_BYTE_EXACT_NO_SYMLINKS"
+        assert output.read_bytes() == source.read_bytes()
+        assert victim.read_text(encoding="utf-8") == "do-not-overwrite\n"
+        assert legacy_fixed_temp.is_symlink()
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        kwargs = base_kwargs(root)
+        source = Path(kwargs["paper_integrity_path"])
+        external = root / "external-manifest.json"
+        external.write_bytes(source.read_bytes())
+        source.unlink()
+        source.symlink_to(external)
+        output = root / "diagnostic" / "snapshot_integrity.json"
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "tools" / "run287_paper_ledger_integrity.py"),
+                "--state-dir",
+                str(source.parent),
+                "--safe-diagnostic-copy-source",
+                str(source),
+                "--safe-diagnostic-copy-output",
+                str(output),
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 2
+        assert "contains a symlink component" in (
+            result.stdout + result.stderr
+        )
+        assert not output.exists()
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        kwargs = base_kwargs(root)
+        source = Path(kwargs["paper_integrity_path"])
+        output = source.parent / "diagnostic-copy.json"
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "tools" / "run287_paper_ledger_integrity.py"),
+                "--state-dir",
+                str(source.parent),
+                "--safe-diagnostic-copy-source",
+                str(source),
+                "--safe-diagnostic-copy-output",
+                str(output),
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 2
+        assert "must be outside the accepted paper state" in (
+            result.stdout + result.stderr
+        )
+        assert not output.exists()
+
+
+def test_separate_migration_consumer_can_open_only_existing_boundary() -> None:
     with tempfile.TemporaryDirectory() as td:
         kwargs = base_kwargs(Path(td))
         kwargs["event_name"] = "workflow_dispatch"
@@ -472,7 +711,7 @@ def test_remote_absence_and_paper_integrity_are_mandatory() -> None:
         expect_value_error(kwargs, "paper_integrity_missing")
 
 
-def test_genesis_requires_exact_absence_and_separate_dispatch() -> None:
+def test_genesis_requires_exact_absence_and_separate_migration_consumer() -> None:
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
         kwargs = base_kwargs(root)
