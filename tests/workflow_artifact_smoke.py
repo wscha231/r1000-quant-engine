@@ -136,6 +136,12 @@ def test_run287_recovery_preflight_is_exact_head_and_read_only() -> None:
         "Prove exact latest completed NYSE session",
         'gate.get("latest_completed_session_date") != expected',
         "Configure temporary read-only rclone",
+        "RCLONE_VERSION: 1.75.0",
+        "RCLONE_ZIP_SHA256: aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa",
+        '"https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip"',
+        "sha256sum --check --strict",
+        'RCLONE_BIN="$RCLONE_INSTALL/rclone-v${RCLONE_VERSION}-linux-amd64/rclone"',
+        'grep -Fx "rclone v${RCLONE_VERSION}"',
         "scope = drive.readonly",
         "RCLONE_CONFIG_GDRIVE_SCOPE=drive.readonly",
         "export RCLONE_CONFIG=\"$RCLONE_CONFIG_PATH\"",
@@ -233,6 +239,7 @@ def test_run287_recovery_preflight_is_exact_head_and_read_only() -> None:
         "allow-quarantined-legacy-outcome-parent",
         "allow-risk-outcome-genesis-bootstrap",
         "outputs/daily_simulated_fill_ledger/",
+        "rclone-current",
     ):
         assert forbidden not in text, forbidden
 
