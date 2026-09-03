@@ -189,12 +189,13 @@ def test_run287_recovery_preflight_is_exact_head_and_read_only() -> None:
         for line in text.splitlines()
         if line.lstrip().startswith('"$RCLONE_BIN" ')
     ]
-    assert len(rclone_commands) == 6, rclone_commands
+    assert len(rclone_commands) == 7, rclone_commands
     for command in rclone_commands:
         assert re.match(
-            r'^"\$RCLONE_BIN" (?:lsd|lsf|copy|check)\b',
+            r'^"\$RCLONE_BIN" (?:version|lsd|lsf|copy|check)\b',
             command,
         ), command
+    assert sum('"$RCLONE_BIN" version' in command for command in rclone_commands) == 1
     assert sum('"$RCLONE_BIN" copy ' in command for command in rclone_commands) == 1
     assert sum('"$RCLONE_BIN" check ' in command for command in rclone_commands) == 1
 
@@ -2297,6 +2298,7 @@ def test_pages_deploy_keeps_prior_site_without_completed_session_artifact() -> N
 
 def main() -> int:
     test_workflow_yaml_files_parse()
+    test_run287_recovery_preflight_is_exact_head_and_read_only()
     test_pr_workflows_sparse_checkout_only_required_rebuild_data()
     test_pr_validation_does_not_duplicate_same_sha_push_and_pr_jobs()
     test_portfolio_guard_requires_checksum_locked_fixture()
