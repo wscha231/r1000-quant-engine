@@ -163,6 +163,9 @@ def test_run287_recovery_preflight_is_exact_head_and_read_only() -> None:
         "BLOCKED_ONE_TIME_LEGACY_QUARANTINE_AUTHORIZATION_REQUIRED",
         "explicit_workflow_dispatch_authorization_required",
         'if [ "$PREFLIGHT_EXIT" -ne 2 ]; then',
+        "Reconfirm durable evidence remained unchanged",
+        "accepted-head namespace appeared during audit",
+        "accepted-head namespace changed during audit",
         "PASS_READ_ONLY_RECOVERY_PREFLIGHT",
         '"migration_authorized": False',
         "Upload read-only recovery evidence",
@@ -182,14 +185,26 @@ def test_run287_recovery_preflight_is_exact_head_and_read_only() -> None:
     preflight_idx = text.index("build_run287_risk_outcome_parent_preflight.py")
     result_idx = text.index("PASS_READ_ONLY_RECOVERY_PREFLIGHT")
     upload_idx = text.index("Upload read-only recovery evidence")
-    assert exact_head_idx < session_idx < secret_idx < drive_idx < preflight_idx < result_idx < upload_idx
+    final_recheck_idx = text.index("Reconfirm durable evidence remained unchanged")
+    cleanup_idx = text.index("Remove temporary credentials")
+    assert (
+        exact_head_idx
+        < session_idx
+        < secret_idx
+        < drive_idx
+        < preflight_idx
+        < final_recheck_idx
+        < result_idx
+        < cleanup_idx
+        < upload_idx
+    )
 
     rclone_commands = [
         line.strip()
         for line in text.splitlines()
         if line.lstrip().startswith('"$RCLONE_BIN" ')
     ]
-    assert len(rclone_commands) == 7, rclone_commands
+    assert len(rclone_commands) == 12, rclone_commands
     for command in rclone_commands:
         assert re.match(
             r'^"\$RCLONE_BIN" (?:version|lsd|lsf|copy|check)\b',
@@ -197,7 +212,7 @@ def test_run287_recovery_preflight_is_exact_head_and_read_only() -> None:
         ), command
     assert sum('"$RCLONE_BIN" version' in command for command in rclone_commands) == 1
     assert sum('"$RCLONE_BIN" copy ' in command for command in rclone_commands) == 1
-    assert sum('"$RCLONE_BIN" check ' in command for command in rclone_commands) == 1
+    assert sum('"$RCLONE_BIN" check' in command for command in rclone_commands) == 4
 
     for step_name in (
         "Prove exact current master before secrets",
@@ -207,6 +222,7 @@ def test_run287_recovery_preflight_is_exact_head_and_read_only() -> None:
         "Download and checksum exact durable evidence",
         "Reverify paper chain and build diagnostic receipt",
         "Require the exact next authorization blocker",
+        "Reconfirm durable evidence remained unchanged",
         "Bind exact read-only current truth",
         "Remove temporary credentials",
     ):

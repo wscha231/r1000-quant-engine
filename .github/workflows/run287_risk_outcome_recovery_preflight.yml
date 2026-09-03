@@ -322,6 +322,62 @@ jobs:
           fi
           echo "RUN287_PARENT_PREFLIGHT_RECEIPT=$RECEIPT" >> "$GITHUB_ENV"
 
+      - name: Reconfirm durable evidence remained unchanged
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: |
+          set -euo pipefail
+          BASE="gdrive:r1000_top30_institutional/"
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+            BASE="gdrive:"
+          fi
+          PAPER_ARCHIVE_REMOTE="${BASE}paper_archive/"
+          PAPER_CANONICAL_REMOTE="${PAPER_ARCHIVE_REMOTE}run287_daily_simulated_fill_ledger"
+          PAPER_HEADS_REMOTE="${PAPER_ARCHIVE_REMOTE}run287_daily_simulated_fill_ledger_heads"
+          LEGACY_REMOTE="${PAPER_ARCHIVE_REMOTE}run287_risk_outcome_archive"
+          ACCEPTED_REMOTE="${PAPER_ARCHIVE_REMOTE}run287_risk_outcome_accepted_heads"
+          FINAL_DIRS="$RUN287_RECOVERY_DIAGNOSTIC_ROOT/drive_paper_archive_directories_final.txt"
+          FINAL_ACCEPTED="$RUN287_RECOVERY_DIAGNOSTIC_ROOT/drive_accepted_head_inventory_final.txt"
+          "$RCLONE_BIN" lsf "$PAPER_ARCHIVE_REMOTE" --dirs-only \
+            | LC_ALL=C sort -u > "$FINAL_DIRS"
+          for required in \
+            run287_daily_simulated_fill_ledger/ \
+            run287_daily_simulated_fill_ledger_heads/ \
+            run287_risk_outcome_archive/; do
+            grep -Fx "$required" "$FINAL_DIRS" >/dev/null
+          done
+          case "$RUN287_ACCEPTED_REMOTE_STATE" in
+            PROVEN_ABSENT)
+              if grep -Fx "run287_risk_outcome_accepted_heads/" "$FINAL_DIRS" >/dev/null; then
+                echo "[recovery-preflight] BLOCKED: accepted-head namespace appeared during audit"
+                exit 2
+              fi
+              : > "$FINAL_ACCEPTED"
+              ;;
+            PRESENT_EMPTY)
+              grep -Fx "run287_risk_outcome_accepted_heads/" "$FINAL_DIRS" >/dev/null
+              "$RCLONE_BIN" lsf "$ACCEPTED_REMOTE/" --recursive \
+                | LC_ALL=C sort -u > "$FINAL_ACCEPTED"
+              if [ -s "$FINAL_ACCEPTED" ]; then
+                echo "[recovery-preflight] BLOCKED: accepted-head namespace changed during audit"
+                exit 2
+              fi
+              ;;
+            *)
+              echo "[recovery-preflight] BLOCKED: unknown accepted-head namespace state"
+              exit 2
+              ;;
+          esac
+          "$RCLONE_BIN" check \
+            "$PAPER_CANONICAL_REMOTE/" "$RUN287_PAPER_CANONICAL_LOCAL/" \
+            --checksum --checkers 4
+          "$RCLONE_BIN" check \
+            "$PAPER_HEADS_REMOTE/" "$RUN287_PAPER_HEADS_LOCAL/" \
+            --checksum --checkers 4
+          "$RCLONE_BIN" check \
+            "$LEGACY_REMOTE/" "$RUN287_LEGACY_LOCAL/" \
+            --checksum --checkers 4
+
       - name: Bind exact read-only current truth
         env:
           EXPECTED_MASTER_SHA: ${{ inputs.expected_master_sha }}
@@ -518,15 +574,6 @@ jobs:
           print(json.dumps(result, indent=2, sort_keys=True))
           PY
 
-      - name: Upload read-only recovery evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: run287-risk-outcome-recovery-preflight-${{ github.run_id }}
-          path: outputs/run287_risk_outcome_recovery_preflight/
-          if-no-files-found: error
-          retention-days: 30
-
       - name: Remove temporary credentials
         if: always()
         run: |
@@ -537,3 +584,12 @@ jobs:
           if [ -n "${RUN287_SERVICE_ACCOUNT_PATH:-}" ]; then
             rm -f -- "$RUN287_SERVICE_ACCOUNT_PATH"
           fi
+
+      - name: Upload read-only recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run287-risk-outcome-recovery-preflight-${{ github.run_id }}
+          path: outputs/run287_risk_outcome_recovery_preflight/
+          if-no-files-found: error
+          retention-days: 30
