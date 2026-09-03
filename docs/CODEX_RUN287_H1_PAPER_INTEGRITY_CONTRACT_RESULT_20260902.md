@@ -63,9 +63,9 @@ after the canonical verifier succeeds.
 
 | Path | H1 purpose |
 | --- | --- |
-| `tools/run287_paper_ledger_integrity.py` | Build and securely write the deterministic verifier receipt; reverify complete physical immutable heads; no-follow/unique-temp copy diagnostic bytes; reject symlinks and outputs inside accepted state. |
-| `tools/build_run287_risk_outcome_parent_preflight.py` | Replace raw-status inspection with canonical verification plus exact receipt comparison. |
-| `.github/workflows/daily_operating_selection_refresh.yml` | Generate the read-only receipt before preflight, retain diagnostic evidence, and hard-disable risk-outcome migration authority in ordinary daily before checkout. |
+| `tools/run287_paper_ledger_integrity.py` | Build and securely write the deterministic verifier receipt; reverify complete physical immutable heads; no-follow/unique-temp copy diagnostic bytes; reject symlinks and outputs inside accepted state, the selection file, or any immutable-head evidence directory. |
+| `tools/build_run287_risk_outcome_parent_preflight.py` | Replace raw-status inspection with canonical verification plus exact receipt comparison; no-follow read the supplied receipt and reject symlinks in every ancestor component. |
+| `.github/workflows/daily_operating_selection_refresh.yml` | Generate the read-only receipt before preflight, retain diagnostic evidence, preserve/reverify cached physical heads across `outputs` hydration, and hard-disable risk-outcome migration authority in ordinary daily before checkout. |
 | `tests/run287_risk_outcome_parent_preflight_smoke.py` | Use 243 tracked files and six physically materialized hash-linked heads; cover missing heads, symlinks, output isolation, and receipt attacks. |
 | `tests/workflow_artifact_smoke.py` | Lock receipt ordering, artifact separation, the pre-checkout migration trap, and absence of migration environment/CLI flag forwarding. |
 | `docs/CODEX_RUN287_H1_PAPER_INTEGRITY_CONTRACT_RESULT_20260902.md` | Record root cause, contract delta, evidence decisions, rollback, and the next blocker. |
@@ -86,8 +86,13 @@ transaction, outcome migration, or broker path changed.
 | Parent, terminal, head count, or ordered chain mismatch | Block: canonical ancestry or immutable selection mismatch |
 | Empty head tree or missing selected head directory | Block: physical immutable-head revalidation failure |
 | State or head file replaced by an identical-byte symlink | Block: symlink evidence is forbidden |
+| Verifier receipt reached through a symlinked ancestor directory | Block before reading, even when the destination bytes are identical |
 | Canonical diagnostic-copy source is a symlink | Block before reading or publishing diagnostic bytes |
 | Verifier output inside accepted state | Block before writing any output |
+| Verifier output equals the immutable-head selection file | Block; selection bytes remain unchanged |
+| Verifier output is a new or existing path under the physical immutable-head root | Block; no head byte or file set changes |
+| `latest_run` replaces `outputs` while verified heads came from cache | Preserve heads in a verified `$RUNNER_TEMP` anchor, restore and reselect them, exact-compare the selection, then expose diagnostic evidence before Drive discovery/preflight |
+| Hydrated `latest_run` supplies an unanchored head tree | Remove it from consideration; never promote hydrated head evidence over the previously verified anchor |
 | Pre-existing fixed temporary-file symlink for receipt or diagnostic copy | Ignored safely; unique exclusive temp file is used and external bytes remain unchanged |
 | Same raw bytes, files, and selection receipt rerun | Identical verifier receipt bytes and SHA-256 |
 | Scheduled, zero accepted heads, `PRESENT_FETCHED`, no migration authorization | `BLOCKED_ONE_TIME_LEGACY_QUARANTINE_AUTHORIZATION_REQUIRED` |
@@ -99,7 +104,7 @@ transaction, outcome migration, or broker path changed.
 | H1 producer/preflight smoke | `16/16` passed |
 | Immutable paper-head selector smoke | passed |
 | Paper-ledger transaction smoke | passed |
-| Workflow artifact/order smoke | passed |
+| Workflow artifact/order smoke, including cache-head hydration regression | passed |
 | GitHub secret-scope smoke | passed |
 | Shared-lessons contract smoke | passed |
 | Registered Tier-1 PR validation | pending automatic push-triggered PR CI |

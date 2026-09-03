@@ -666,12 +666,22 @@ jobs:
           rm -rf "$PAPER_CACHE_ANCHOR"
           PAPER_HEAD_CACHE="outputs/run287_paper_immutable_head_bundles"
           PAPER_HEAD_CACHE_SELECTION="$RUNNER_TEMP/run287_paper_head_cache_selection.json"
+          PAPER_HEAD_CACHE_ANCHOR="$RUNNER_TEMP/run287_paper_immutable_head_bundles_cache_anchor"
+          PAPER_HEAD_CACHE_ANCHOR_SELECTION="$RUNNER_TEMP/run287_paper_head_cache_anchor_selection.json"
+          rm -rf \
+            "$PAPER_HEAD_CACHE_ANCHOR" \
+            "$PAPER_HEAD_CACHE_ANCHOR_SELECTION"
           if [ -d "$PAPER_HEAD_CACHE" ]; then
             python tools/run287_paper_ledger_integrity.py \
               --select-immutable-heads-root "$PAPER_HEAD_CACHE" \
               --output "$PAPER_HEAD_CACHE_SELECTION"
             cp "$PAPER_HEAD_CACHE_SELECTION" "$PAPER_INTEGRITY_SELECTION_EVIDENCE"
             CACHED_TERMINAL_HASH="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["selected_snapshot_hash"])' "$PAPER_HEAD_CACHE_SELECTION")"
+            python tools/run287_paper_ledger_integrity.py \
+              --reconcile-immutable-head-cache "$PAPER_HEAD_CACHE_ANCHOR" \
+              --merge-immutable-heads-root "$PAPER_HEAD_CACHE" \
+              --expected-terminal-hash "$CACHED_TERMINAL_HASH" \
+              --output "$PAPER_HEAD_CACHE_ANCHOR_SELECTION"
             if [ -s outputs/daily_simulated_fill_ledger/snapshot_integrity.json ]; then
               python tools/run287_paper_ledger_integrity.py \
                 --state-dir outputs/daily_simulated_fill_ledger \
@@ -821,11 +831,18 @@ jobs:
               restore_dir "$LATEST_RUN_INPUT" "$LATEST_RUN_INPUT"
             fi
           fi
+          LATEST_RUN_HYDRATION_SOURCE="${LATEST_RUN_INPUT:-outputs}"
           if [ "${LATEST_RUN_INPUT:-outputs}" != "outputs" ] && [ -d "$LATEST_RUN_INPUT" ]; then
+            LATEST_RUN_HYDRATION_SOURCE="$RUNNER_TEMP/run287_latest_run_hydration_source"
+            rm -rf "$LATEST_RUN_HYDRATION_SOURCE"
+            mkdir -p "$LATEST_RUN_HYDRATION_SOURCE"
+            cp -a "$LATEST_RUN_INPUT"/. "$LATEST_RUN_HYDRATION_SOURCE"/
+          fi
+          if [ "${LATEST_RUN_INPUT:-outputs}" != "outputs" ] && [ -d "$LATEST_RUN_HYDRATION_SOURCE" ]; then
             echo "[source] hydrate outputs/ from requested latest_run=$LATEST_RUN_INPUT"
             rm -rf outputs
             mkdir -p outputs
-            cp -a "$LATEST_RUN_INPUT"/. outputs/
+            cp -a "$LATEST_RUN_HYDRATION_SOURCE"/. outputs/
           fi
           if [ ! -s outputs/scored_latest.csv ] && [ -d cloud_results/full_rebuild/latest_global_alpha_universe ]; then
             echo "[fallback] hydrate outputs/ from committed cloud_results latest mirror"
@@ -851,6 +868,51 @@ jobs:
           rm -rf outputs/daily_simulated_fill_ledger
           if [ -d "$PAPER_CACHE_ANCHOR" ]; then
             cp -a "$PAPER_CACHE_ANCHOR" outputs/daily_simulated_fill_ledger
+          fi
+          if [ -d "$PAPER_HEAD_CACHE_ANCHOR" ]; then
+            rm -rf "$PAPER_HEAD_CACHE"
+            python tools/run287_paper_ledger_integrity.py \
+              --reconcile-immutable-head-cache "$PAPER_HEAD_CACHE" \
+              --merge-immutable-heads-root "$PAPER_HEAD_CACHE_ANCHOR" \
+              --expected-terminal-hash "$CACHED_TERMINAL_HASH"
+          elif [ -d "$PAPER_HEAD_CACHE" ]; then
+            rm -rf "$PAPER_HEAD_CACHE"
+            rm -f "$PAPER_INTEGRITY_SELECTION_EVIDENCE"
+            echo "[paper-ledger] ignored unanchored immutable heads supplied by output hydration"
+          elif [ -e "$PAPER_HEAD_CACHE" ]; then
+            echo "[paper-ledger] BLOCKED: hydrated continuity head cache path is unsafe"
+            exit 2
+          fi
+          if [ -d "$PAPER_HEAD_CACHE" ]; then
+            python tools/run287_paper_ledger_integrity.py \
+              --select-immutable-heads-root "$PAPER_HEAD_CACHE" \
+              --output "$PAPER_INTEGRITY_SELECTION_EVIDENCE"
+            if [ -d "$PAPER_HEAD_CACHE_ANCHOR" ] && \
+               ! cmp -s \
+                 "$PAPER_HEAD_CACHE_SELECTION" \
+                 "$PAPER_INTEGRITY_SELECTION_EVIDENCE"; then
+              echo "[paper-ledger] BLOCKED: restored immutable head selection differs from the preserved verified cache"
+              exit 2
+            fi
+            RESTORED_HEAD_TERMINAL_HASH="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["selected_snapshot_hash"])' "$PAPER_INTEGRITY_SELECTION_EVIDENCE")"
+            if [ -s outputs/daily_simulated_fill_ledger/snapshot_integrity.json ]; then
+              python tools/run287_paper_ledger_integrity.py \
+                --state-dir outputs/daily_simulated_fill_ledger \
+                --require-integrity
+              RESTORED_LEDGER_HASH="$(python -c 'import json; print(json.load(open("outputs/daily_simulated_fill_ledger/snapshot_integrity.json", encoding="utf-8"))["snapshot_hash"])')"
+              if [ "$RESTORED_LEDGER_HASH" != "$RESTORED_HEAD_TERMINAL_HASH" ]; then
+                echo "[paper-ledger] BLOCKED: restored continuity ledger/head terminal mismatch"
+                exit 2
+              fi
+            else
+              python tools/run287_paper_ledger_integrity.py \
+                --state-dir outputs/daily_simulated_fill_ledger \
+                --install-immutable-heads-root "$PAPER_HEAD_CACHE"
+            fi
+            echo "[paper-ledger] restored and reverified immutable cache head evidence after output hydration"
+          elif [ -e "$PAPER_HEAD_CACHE" ]; then
+            echo "[paper-ledger] BLOCKED: restored continuity head cache path is unsafe"
+            exit 2
           fi
           if [ "${GDRIVE_READY:-no}" = "yes" ]; then
             PAPER_REMOTE_CANDIDATE="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_remote"

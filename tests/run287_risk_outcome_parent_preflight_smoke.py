@@ -473,6 +473,29 @@ def test_symlink_backed_state_and_head_files_block() -> None:
             "immutable paper head bundle symlink is forbidden",
         )
 
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        kwargs = base_kwargs(root)
+        source_receipt = Path(
+            kwargs["paper_integrity_verifier_receipt_path"]
+        )
+        receipt_bytes = source_receipt.read_bytes()
+        real_parent = root / "real-receipt-parent"
+        real_parent.mkdir()
+        real_receipt = real_parent / "receipt.json"
+        real_receipt.write_bytes(receipt_bytes)
+        linked_parent = root / "linked-receipt-parent"
+        linked_parent.symlink_to(real_parent, target_is_directory=True)
+        kwargs["paper_integrity_verifier_receipt_path"] = (
+            linked_parent / "receipt.json"
+        )
+        expect_value_error(
+            kwargs,
+            "paper_integrity_verifier_receipt_missing:BLOCKED_INTEGRITY:"
+            "paper integrity verifier receipt contains a symlink component",
+        )
+        assert real_receipt.read_bytes() == receipt_bytes
+
 
 def test_verifier_receipt_hash_is_deterministic_for_same_input() -> None:
     with tempfile.TemporaryDirectory() as td:
@@ -557,6 +580,99 @@ def test_verifier_receipt_output_cannot_mutate_state_or_follow_temp_symlink() ->
             result.stdout + result.stderr
         )
         assert not forbidden_output.exists()
+
+        selection_path = Path(
+            kwargs["paper_immutable_head_selection_path"]
+        )
+        selection_bytes = selection_path.read_bytes()
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "tools" / "run287_paper_ledger_integrity.py"),
+                "--state-dir",
+                str(paper),
+                "--require-integrity",
+                "--immutable-head-selection",
+                str(selection_path),
+                "--verifier-receipt-output",
+                str(selection_path),
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 2
+        assert "must not replace the immutable paper head selection" in (
+            result.stdout + result.stderr
+        )
+        assert selection_path.read_bytes() == selection_bytes
+
+        selection = json.loads(selection_bytes)
+        heads_root = Path(selection["heads_root"])
+        head_bytes_before = {
+            path.relative_to(heads_root).as_posix(): path.read_bytes()
+            for path in heads_root.rglob("*")
+            if path.is_file()
+        }
+        forbidden_head_output = (
+            Path(selection["selected_head_dir"])
+            / "diagnostic-verifier-receipt.json"
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "tools" / "run287_paper_ledger_integrity.py"),
+                "--state-dir",
+                str(paper),
+                "--require-integrity",
+                "--immutable-head-selection",
+                str(selection_path),
+                "--verifier-receipt-output",
+                str(forbidden_head_output),
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 2
+        assert "must be outside the immutable paper head evidence root" in (
+            result.stdout + result.stderr
+        )
+        assert not forbidden_head_output.exists()
+        assert {
+            path.relative_to(heads_root).as_posix(): path.read_bytes()
+            for path in heads_root.rglob("*")
+            if path.is_file()
+        } == head_bytes_before
+
+        selected_manifest = (
+            Path(selection["selected_head_dir"]) / INTEGRITY_FILE
+        )
+        selected_manifest_bytes = selected_manifest.read_bytes()
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "tools" / "run287_paper_ledger_integrity.py"),
+                "--state-dir",
+                str(paper),
+                "--require-integrity",
+                "--immutable-head-selection",
+                str(selection_path),
+                "--verifier-receipt-output",
+                str(selected_manifest),
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 2
+        assert "must be outside the immutable paper head evidence root" in (
+            result.stdout + result.stderr
+        )
+        assert selected_manifest.read_bytes() == selected_manifest_bytes
 
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)

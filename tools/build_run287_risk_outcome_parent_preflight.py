@@ -32,6 +32,8 @@ from tools.run287_paper_ledger_integrity import (  # noqa: E402
     PAPER_INTEGRITY_VERIFIER_RECEIPT_SCHEMA,
     PAPER_INTEGRITY_VERIFIER_RECEIPT_STATUS,
     PaperLedgerIntegrityError,
+    _read_regular_file_no_follow,
+    _require_no_symlink_components,
     build_integrity_verifier_receipt,
     integrity_verifier_receipt_bytes,
 )
@@ -164,9 +166,20 @@ def validate_paper_integrity(
             "paper_integrity_verification_failed:"
             f"{exc.status}:{exc.reason}"
         ) from exc
-    if verifier_receipt.is_symlink() or not verifier_receipt.is_file():
-        raise ValueError("paper_integrity_verifier_receipt_missing")
-    receipt_raw = verifier_receipt.read_bytes()
+    try:
+        verifier_receipt = _require_no_symlink_components(
+            verifier_receipt,
+            label="paper integrity verifier receipt",
+        )
+        receipt_raw = _read_regular_file_no_follow(
+            verifier_receipt,
+            label="paper integrity verifier receipt",
+        )
+    except PaperLedgerIntegrityError as exc:
+        raise ValueError(
+            "paper_integrity_verifier_receipt_missing:"
+            f"{exc.status}:{exc.reason}"
+        ) from exc
     supplied_receipt = strict_json_object(
         receipt_raw,
         label="paper_integrity_verifier_receipt",

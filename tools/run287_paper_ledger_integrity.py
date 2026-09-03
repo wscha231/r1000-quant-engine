@@ -489,7 +489,10 @@ def _validate_immutable_head_selection_receipt(
             "selected immutable paper head does not exactly match the "
             "verified canonical manifest",
         )
-    if selected_manifest_path.read_bytes() != canonical_manifest_raw:
+    if _read_regular_file_no_follow(
+        selected_manifest_path,
+        label="selected immutable paper head manifest",
+    ) != canonical_manifest_raw:
         raise PaperLedgerIntegrityError(
             "BLOCKED_INTEGRITY",
             "selected immutable paper head manifest bytes do not match "
@@ -528,7 +531,9 @@ def build_integrity_verifier_receipt(
             "immutable paper head selection receipt is missing or unsafe",
         )
 
-    manifest_raw_before = manifest_path.read_bytes()
+    manifest_raw_before = _read_regular_file_no_follow(
+        manifest_path, label="paper integrity manifest"
+    )
     verified = verify_integrity_manifest(state_root, require=True)
     if (
         verified.get("schema_version") != INTEGRITY_SCHEMA
@@ -539,7 +544,9 @@ def build_integrity_verifier_receipt(
             "paper integrity verifier receipt requires a v2 manifest "
             "with a nonempty genesis identity",
         )
-    manifest_raw_after = manifest_path.read_bytes()
+    manifest_raw_after = _read_regular_file_no_follow(
+        manifest_path, label="paper integrity manifest"
+    )
     if manifest_raw_before != manifest_raw_after:
         raise PaperLedgerIntegrityError(
             "BLOCKED_INTEGRITY",
@@ -557,7 +564,10 @@ def build_integrity_verifier_receipt(
             "raw paper manifest and canonical verifier result differ",
         )
 
-    selection_raw = selection_path.read_bytes()
+    selection_raw = _read_regular_file_no_follow(
+        selection_path,
+        label="immutable paper head selection receipt",
+    )
     selection = _strict_json_object(
         selection_raw,
         label="immutable paper head selection receipt",
@@ -567,7 +577,10 @@ def build_integrity_verifier_receipt(
         verified_manifest=verified,
         canonical_manifest_raw=manifest_raw_before,
     )
-    if selection_path.read_bytes() != selection_raw:
+    if _read_regular_file_no_follow(
+        selection_path,
+        label="immutable paper head selection receipt",
+    ) != selection_raw:
         raise PaperLedgerIntegrityError(
             "BLOCKED_INTEGRITY",
             "immutable paper head selection receipt changed during "
@@ -612,8 +625,39 @@ def build_integrity_verifier_receipt(
 def write_integrity_verifier_receipt(
     path: Path,
     payload: Mapping[str, Any],
+    *,
+    protected_files: Iterable[Path] = (),
+    protected_roots: Iterable[Path] = (),
 ) -> None:
     output = _absolute_lexical_path(Path(path))
+    protected_files = tuple(protected_files)
+    protected_roots = tuple(protected_roots)
+
+    def require_outside_protected_evidence() -> None:
+        for protected_file in protected_files:
+            safe_file = _require_no_symlink_components(
+                Path(protected_file),
+                label="protected verifier evidence file",
+            )
+            if output == safe_file:
+                raise PaperLedgerIntegrityError(
+                    "BLOCKED_INTEGRITY",
+                    "verifier receipt output must not replace a protected "
+                    "evidence file",
+                )
+        for protected_root in protected_roots:
+            safe_root = _require_no_symlink_components(
+                Path(protected_root),
+                label="protected verifier evidence root",
+            )
+            if _path_is_within(output, safe_root):
+                raise PaperLedgerIntegrityError(
+                    "BLOCKED_INTEGRITY",
+                    "verifier receipt output must be outside protected "
+                    "evidence roots",
+                )
+
+    require_outside_protected_evidence()
     _require_no_symlink_components(
         output.parent, label="verifier receipt output directory"
     )
@@ -636,6 +680,7 @@ def write_integrity_verifier_receipt(
         _require_no_symlink_components(
             output, label="verifier receipt output"
         )
+        require_outside_protected_evidence()
         os.replace(temporary, output)
     finally:
         temporary.unlink(missing_ok=True)
@@ -2280,20 +2325,63 @@ def main() -> int:
                 Path(args.verifier_receipt_output),
                 label="verifier receipt output",
             )
+            selection_path = _require_no_symlink_components(
+                Path(args.immutable_head_selection),
+                label="immutable paper head selection receipt",
+            )
             if _path_is_within(receipt_output, state_root):
                 raise PaperLedgerIntegrityError(
                     "BLOCKED_INTEGRITY",
                     "verifier receipt output must be outside the accepted "
                     "paper state",
                 )
+            selection_raw = _read_regular_file_no_follow(
+                selection_path,
+                label="immutable paper head selection receipt",
+            )
+            selection = _strict_json_object(
+                selection_raw,
+                label="immutable paper head selection receipt",
+            )
+            heads_root = Path(str(selection.get("heads_root") or ""))
+            if not heads_root.is_absolute():
+                raise PaperLedgerIntegrityError(
+                    "BLOCKED_INTEGRITY",
+                    "immutable paper heads root must be absolute",
+                )
+            heads_root = _require_no_symlink_components(
+                heads_root, label="immutable paper heads root"
+            )
+            if receipt_output == selection_path:
+                raise PaperLedgerIntegrityError(
+                    "BLOCKED_INTEGRITY",
+                    "verifier receipt output must not replace the immutable "
+                    "paper head selection receipt",
+                )
+            if _path_is_within(receipt_output, heads_root):
+                raise PaperLedgerIntegrityError(
+                    "BLOCKED_INTEGRITY",
+                    "verifier receipt output must be outside the immutable "
+                    "paper head evidence root",
+                )
             result = build_integrity_verifier_receipt(
                 state_root,
-                immutable_head_selection=Path(
-                    args.immutable_head_selection
-                ),
+                immutable_head_selection=selection_path,
             )
+            if _read_regular_file_no_follow(
+                selection_path,
+                label="immutable paper head selection receipt",
+            ) != selection_raw:
+                raise PaperLedgerIntegrityError(
+                    "BLOCKED_INTEGRITY",
+                    "immutable paper head selection receipt changed before "
+                    "verifier receipt publication",
+                )
             write_integrity_verifier_receipt(
-                receipt_output, result
+                receipt_output,
+                result,
+                protected_files=(selection_path,),
+                protected_roots=(state_root, heads_root),
             )
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0

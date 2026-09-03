@@ -2045,6 +2045,91 @@ def test_fullrun_publication_is_fail_closed_and_preserves_cost_evidence() -> Non
     )
 
 
+def test_latest_run_hydration_preserves_reverified_paper_head_evidence() -> None:
+    text = DAILY_OPERATING_WORKFLOW.read_text(encoding="utf-8")
+    restore = extract_yaml_literal_run(
+        text,
+        "Restore persistent data and operating outputs",
+    )
+    for token in (
+        'PAPER_HEAD_CACHE_ANCHOR="$RUNNER_TEMP/run287_paper_immutable_head_bundles_cache_anchor"',
+        'PAPER_HEAD_CACHE_ANCHOR_SELECTION="$RUNNER_TEMP/run287_paper_head_cache_anchor_selection.json"',
+        '--reconcile-immutable-head-cache "$PAPER_HEAD_CACHE_ANCHOR"',
+        '--merge-immutable-heads-root "$PAPER_HEAD_CACHE"',
+        'LATEST_RUN_HYDRATION_SOURCE="$RUNNER_TEMP/run287_latest_run_hydration_source"',
+        'cp -a "$LATEST_RUN_INPUT"/. "$LATEST_RUN_HYDRATION_SOURCE"/',
+        'cp -a "$LATEST_RUN_HYDRATION_SOURCE"/. outputs/',
+        '--reconcile-immutable-head-cache "$PAPER_HEAD_CACHE"',
+        '--merge-immutable-heads-root "$PAPER_HEAD_CACHE_ANCHOR"',
+        '--expected-terminal-hash "$CACHED_TERMINAL_HASH"',
+        '--select-immutable-heads-root "$PAPER_HEAD_CACHE"',
+        '--output "$PAPER_INTEGRITY_SELECTION_EVIDENCE"',
+        'cmp -s',
+        '"$PAPER_HEAD_CACHE_SELECTION"',
+        '"$PAPER_INTEGRITY_SELECTION_EVIDENCE"',
+        'ignored unanchored immutable heads supplied by output hydration',
+        'restored and reverified immutable cache head evidence after output hydration',
+    ):
+        assert token in restore, token
+
+    initial_select_idx = restore.index(
+        '--select-immutable-heads-root "$PAPER_HEAD_CACHE"'
+    )
+    preserve_idx = restore.index(
+        '--reconcile-immutable-head-cache "$PAPER_HEAD_CACHE_ANCHOR"'
+    )
+    stage_latest_idx = restore.index(
+        'cp -a "$LATEST_RUN_INPUT"/. "$LATEST_RUN_HYDRATION_SOURCE"/'
+    )
+    hydrate_clear_idx = restore.index("rm -rf outputs", stage_latest_idx)
+    restore_heads_idx = restore.index(
+        '--reconcile-immutable-head-cache "$PAPER_HEAD_CACHE"',
+        hydrate_clear_idx,
+    )
+    restored_select_idx = restore.index(
+        '--select-immutable-heads-root "$PAPER_HEAD_CACHE"',
+        restore_heads_idx,
+    )
+    compare_idx = restore.index(
+        '"$PAPER_HEAD_CACHE_SELECTION"',
+        restored_select_idx,
+    )
+    selection_publish_idx = restore.index(
+        '--output "$PAPER_INTEGRITY_SELECTION_EVIDENCE"',
+        restored_select_idx,
+    )
+    remote_discovery_idx = restore.index(
+        'PAPER_REMOTE_CANDIDATE="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_remote"'
+    )
+    assert (
+        initial_select_idx
+        < preserve_idx
+        < stage_latest_idx
+        < hydrate_clear_idx
+        < restore_heads_idx
+        < restored_select_idx
+        < selection_publish_idx
+        < compare_idx
+        < remote_discovery_idx
+    ), (
+        "verified cache heads must survive outside outputs, then be restored, "
+        "reselected, compared, and published before remote discovery"
+    )
+
+    parsed_restore = extract_yaml_literal_run(
+        text,
+        "Restore persistent data and operating outputs",
+    )
+    restore_syntax = subprocess.run(
+        [bash_executable(), "-n"],
+        input=parsed_restore + "\n",
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert restore_syntax.returncode == 0, restore_syntax.stderr
+
+
 def test_pages_deploy_keeps_prior_site_without_completed_session_artifact() -> None:
     text = PAGES_WORKFLOW.read_text(encoding="utf-8")
     for token in [
@@ -2079,6 +2164,7 @@ def main() -> int:
     test_daily_autolearning_installs_market_calendar_and_remains_report_only()
     test_data_readiness_preflight_workflow_restores_drive_and_audits_without_full_rebuild()
     test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract()
+    test_latest_run_hydration_preserves_reverified_paper_head_evidence()
     test_pages_deploy_keeps_prior_site_without_completed_session_artifact()
     print("workflow artifact smoke passed")
     return 0

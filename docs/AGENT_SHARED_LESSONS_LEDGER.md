@@ -4652,6 +4652,22 @@ Expected contract:
   inputs into risk-outcome genesis/quarantine authority or forward their
   flags; reject them before checkout. That authority belongs only in a
   separately reviewed migration-only workflow.
+- Exact-head review follow-up: An out-of-state diagnostic destination is not
+  automatically safe. It must also differ from every evidence input file and
+  remain outside every immutable evidence root. Recheck these boundaries at
+  the atomic writer immediately before replace so a diagnostic receipt cannot
+  overwrite the selection receipt, add a file to a committed head, or replace
+  a tracked head file.
+- Exact-head review follow-up: No-follow evidence reads must cover every
+  existing ancestor component, not only the leaf. A byte-identical verifier
+  receipt reached through a symlinked parent directory is unsafe and must fail
+  closed before parsing.
+- Exact-head review follow-up: Verified evidence stored below `outputs` must be
+  anchored outside that tree before any explicit `latest_run` hydration.
+  Restore the physical immutable heads from the verified anchor, rerun the
+  public selector, and exact-compare the regenerated path-bound selection
+  before Drive discovery or preflight. Never trust an unanchored head tree
+  supplied by the hydration source.
 - Validation: Real producer fixture with 243 files and a six-head lineage,
   six physical head directories, missing/extra/changed-file checks, forbidden
   raw status, missing/forged/hash-mismatched receipt checks, missing head and
