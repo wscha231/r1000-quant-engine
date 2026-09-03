@@ -144,6 +144,17 @@ jobs:
           RCLONE_ZIP="$RUNNER_TEMP/run287-rclone.zip"
           RCLONE_CONFIG_PATH="$RUNNER_TEMP/run287-rclone.conf"
           SERVICE_ACCOUNT_PATH="$RUNNER_TEMP/run287-service-account.json"
+          RCLONE_BIN="$RCLONE_INSTALL/rclone-v${RCLONE_VERSION}-linux-amd64/rclone"
+          export RCLONE_BIN
+          export RCLONE_CONFIG="$RCLONE_CONFIG_PATH"
+          export RUN287_SERVICE_ACCOUNT_PATH="$SERVICE_ACCOUNT_PATH"
+          export RCLONE_CONFIG_GDRIVE_SCOPE=drive.readonly
+          {
+            echo "RCLONE_BIN=$RCLONE_BIN"
+            echo "RCLONE_CONFIG=$RCLONE_CONFIG_PATH"
+            echo "RUN287_SERVICE_ACCOUNT_PATH=$SERVICE_ACCOUNT_PATH"
+            echo "RCLONE_CONFIG_GDRIVE_SCOPE=drive.readonly"
+          } >> "$GITHUB_ENV"
           curl --fail --silent --show-error --location \
             "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip" \
             --output "$RCLONE_ZIP"
@@ -151,7 +162,6 @@ jobs:
             | sha256sum --check --strict
           mkdir -p "$RCLONE_INSTALL"
           unzip -q "$RCLONE_ZIP" -d "$RCLONE_INSTALL"
-          RCLONE_BIN="$RCLONE_INSTALL/rclone-v${RCLONE_VERSION}-linux-amd64/rclone"
           test -x "$RCLONE_BIN"
           "$RCLONE_BIN" version | grep -Fx "rclone v${RCLONE_VERSION}"
           if [ -n "${RCLONE_CONFIG_GDRIVE:-}" ]; then
@@ -170,16 +180,6 @@ jobs:
             } > "$RCLONE_CONFIG_PATH"
           fi
           chmod 600 "$RCLONE_CONFIG_PATH"
-          export RCLONE_BIN
-          export RCLONE_CONFIG="$RCLONE_CONFIG_PATH"
-          export RUN287_SERVICE_ACCOUNT_PATH="$SERVICE_ACCOUNT_PATH"
-          export RCLONE_CONFIG_GDRIVE_SCOPE=drive.readonly
-          {
-            echo "RCLONE_BIN=$RCLONE_BIN"
-            echo "RCLONE_CONFIG=$RCLONE_CONFIG_PATH"
-            echo "RUN287_SERVICE_ACCOUNT_PATH=$SERVICE_ACCOUNT_PATH"
-            echo "RCLONE_CONFIG_GDRIVE_SCOPE=drive.readonly"
-          } >> "$GITHUB_ENV"
           "$RCLONE_BIN" lsd gdrive: >/dev/null
 
       - name: Download and checksum exact durable evidence
@@ -578,12 +578,9 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          if [ -n "${RCLONE_CONFIG:-}" ]; then
-            rm -f -- "$RCLONE_CONFIG"
-          fi
-          if [ -n "${RUN287_SERVICE_ACCOUNT_PATH:-}" ]; then
-            rm -f -- "$RUN287_SERVICE_ACCOUNT_PATH"
-          fi
+          rm -f -- \
+            "$RUNNER_TEMP/run287-rclone.conf" \
+            "$RUNNER_TEMP/run287-service-account.json"
 
       - name: Upload read-only recovery evidence
         if: always()
