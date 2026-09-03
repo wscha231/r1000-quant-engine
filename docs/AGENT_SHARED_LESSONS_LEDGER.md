@@ -4613,3 +4613,83 @@ Expected contract:
 - Fullrun executed: false. Workflow dispatched or rerun: false. Target, order,
   TradeIntent, ledger, accepted-head, production, live trading, and automatic
   promotion state mutated: false.
+
+## 2026-09-02 - Raw integrity manifests and verifier receipts are separate contracts
+
+- Agent: Codex GPT-5.6.
+- Branch: `codex/run287-paper-integrity-contract-h1-20260902`.
+- Context: Scheduled run `33476672130` restored the verified 243-file,
+  six-head paper terminal `65fa6f5b...e02a7` but the risk-outcome parent
+  preflight rejected it as `paper_integrity_contract_invalid`.
+- Root cause: The v2 producer correctly forbids extra raw-manifest keys while
+  the preflight incorrectly required raw `status == VERIFIED`. The existing
+  smoke fixture encoded the consumer bug by adding `status` and omitting the
+  producer-required file map/count.
+- Reusable lesson: A raw integrity manifest describes content identity; a
+  verifier receipt describes a successful validation event. Never insert a
+  verifier status into an exact-key raw schema or delete the status gate.
+  Recompute a separately typed receipt from the canonical verifier, bind it to
+  the raw byte hash, complete file-map hash/count, and verified immutable-head
+  selection receipt, then exact-compare its canonical bytes at the consumer
+  boundary.
+- Reusable lesson: Receipt generation failure must not suppress the durable
+  blocked preflight receipt. Preserve the verifier log, remove any incomplete
+  receipt, and let the preflight emit its fail-closed diagnostic before the job
+  exits.
+- CI follow-up: Failed diagnostic artifacts must never include an accepted
+  paper-state directory or file directly. Copy the exact preflight manifest
+  bytes into a diagnostic-only path, verify source/copy SHA-256 and byte
+  equality before and after verifier receipt generation, and keep preflight
+  validation pointed at the canonical accepted-state source.
+- Independent-review follow-up: Never accept an immutable-head selection
+  receipt as self-authenticating. Reopen the physical head root, verify every
+  committed manifest/file map, prove one content-continuous chain, exact-match
+  the selected terminal to canonical state, and reject missing heads or any
+  symlink-backed component even when the linked bytes hash identically.
+- Independent-review follow-up: Diagnostic receipt writers must use unique,
+  exclusively created temporary files and must reject output paths inside the
+  accepted state. Ordinary daily workflows must never convert compatibility
+  inputs into risk-outcome genesis/quarantine authority or forward their
+  flags; reject them before checkout. That authority belongs only in a
+  separately reviewed migration-only workflow.
+- Exact-head review follow-up: An out-of-state diagnostic destination is not
+  automatically safe. It must also differ from every evidence input file and
+  remain outside every immutable evidence root. Recheck these boundaries at
+  the atomic writer immediately before replace so a diagnostic receipt cannot
+  overwrite the selection receipt, add a file to a committed head, or replace
+  a tracked head file.
+- Exact-head review follow-up: No-follow evidence reads must cover every
+  existing ancestor component, not only the leaf. A byte-identical verifier
+  receipt reached through a symlinked parent directory is unsafe and must fail
+  closed before parsing.
+- Exact-head review follow-up: Verified evidence stored below `outputs` must be
+  anchored outside that tree before any explicit `latest_run` hydration.
+  Restore the physical immutable heads from the verified anchor, rerun the
+  public selector, and exact-compare the regenerated path-bound selection
+  before Drive discovery or preflight. Never trust an unanchored head tree
+  supplied by the hydration source.
+- Exact-head review follow-up: Every diagnostic writer, including a byte-copy
+  helper, must protect all evidence inputs and immutable evidence roots at the
+  final atomic replace boundary. Being outside the mutable accepted-state
+  directory alone does not prevent overwriting a selection receipt or adding
+  or replacing a file beneath a committed physical head.
+- Exact-head review follow-up: Cache ledger/head equality is not authoritative
+  until all durable sources have been discovered. An explicit latest-run
+  ledger can validly descend from an older cached physical terminal; defer
+  that comparison until Drive supplies a verified descendant chain and require
+  content-continuous installation. If the authoritative source is unavailable
+  or cannot prove the extension, the final verifier receipt must still fail
+  closed.
+- Validation: Real producer fixture with 243 files and a six-head lineage,
+  six physical head directories, missing/extra/changed-file checks, forbidden
+  raw status, missing/forged/hash-mismatched receipt checks, missing head and
+  parent/terminal/chain mismatches, state/head/output symlink attacks,
+  deterministic receipt replay, workflow artifact/order smoke, Python
+  compilation, YAML parse, and `git diff --check` passed.
+- Next action: Merge H1 alone, confirm the scheduled/read-only preflight reaches
+  `BLOCKED_ONE_TIME_LEGACY_QUARANTINE_AUTHORIZATION_REQUIRED`, then design a
+  separately reviewed migration-only workflow and fresh exact-SHA approval
+  packet. Do not authorize migration through the ordinary daily workflow.
+- Fullrun executed: false. Workflow dispatched or rerun: false. Migration,
+  quarantine, Drive, target, order, ledger, accepted-head, production, live
+  trading, and automatic promotion state mutated: false.

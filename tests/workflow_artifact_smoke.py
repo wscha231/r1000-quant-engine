@@ -1042,6 +1042,8 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "strict_selection",
         "allow_risk_outcome_genesis_bootstrap",
         "allow_quarantined_legacy_outcome_parent",
+        "Reject risk-outcome migration authority in ordinary daily",
+        "use a separately reviewed migration-only workflow",
         "LATEST_RUN_INPUT",
         "hydrate outputs/ from requested latest_run",
         "cache_prices",
@@ -1162,6 +1164,18 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "tools/build_run287_risk_outcome_parent_preflight.py",
         "outputs/run287_risk_outcome_parent_preflight/receipt.json",
         "daily_run287_risk_outcome_parent_preflight.log",
+        "--immutable-head-selection \"$PAPER_INTEGRITY_SELECTION_EVIDENCE\"",
+        "--verifier-receipt-output \"$PAPER_INTEGRITY_VERIFIER_RECEIPT\"",
+        "--safe-diagnostic-copy-source \"$PAPER_INTEGRITY_SOURCE\"",
+        "--safe-diagnostic-copy-output \"$PAPER_INTEGRITY_DIAGNOSTIC_COPY\"",
+        "--paper-integrity-verifier-receipt \"$PAPER_INTEGRITY_VERIFIER_RECEIPT\"",
+        "--paper-immutable-head-selection \"$PAPER_INTEGRITY_SELECTION_EVIDENCE\"",
+        "--paper-integrity outputs/daily_simulated_fill_ledger/snapshot_integrity.json",
+        "daily_paper_preflight_snapshot_integrity.json",
+        "PAPER_INTEGRITY_SOURCE_SHA_BEFORE",
+        '"$PAPER_INTEGRITY_SOURCE_SHA_BEFORE" = "$PAPER_INTEGRITY_SOURCE_SHA_AFTER"',
+        '"$PAPER_INTEGRITY_SOURCE_SHA_FINAL" != "$PAPER_INTEGRITY_COPY_SHA"',
+        "preflight manifest diagnostic copy is not byte-exact",
         "--remote-head-discovery-confirmed",
         '--remote-committed-head-count "${REMOTE_COMMITTED_HEAD_COUNT}"',
         '--remote-legacy-outcome-state "${REMOTE_LEGACY_OUTCOME_STATE}"',
@@ -1190,7 +1204,6 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "outcome genesis requires proven absence of authoritative legacy state",
         'PREFLIGHT_EXIT="${PIPESTATUS[0]}"',
         'exit "$PREFLIGHT_EXIT"',
-        "genesis and legacy-quarantine bootstrap authorizations are mutually exclusive",
         "allow_verified_paper_canonical_head_bootstrap",
         "ALLOW_VERIFIED_PAPER_CANONICAL_HEAD_BOOTSTRAP",
         "run287-verified-paper-canonical-bootstrap-v1",
@@ -1368,6 +1381,21 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "GOOGLE_SERVICE_ACCOUNT_KEY",
     ]:
         assert token in text, token
+    for forbidden in (
+        "ALLOW_RISK_OUTCOME_GENESIS_BOOTSTRAP",
+        "ALLOW_QUARANTINED_LEGACY_OUTCOME_PARENT",
+        "--allow-risk-outcome-genesis-bootstrap",
+        "--allow-quarantined-legacy-outcome-parent",
+        "PAPER_INTEGRITY_DIAGNOSTIC_TMP",
+        'cp "$PAPER_INTEGRITY_SOURCE"',
+    ):
+        assert forbidden not in text, forbidden
+    reject_migration = text.index(
+        "- name: Reject risk-outcome migration authority in ordinary daily"
+    )
+    assert reject_migration < text.index("- name: Checkout")
+    assert text.count("inputs.allow_risk_outcome_genesis_bootstrap") == 1
+    assert text.count("inputs.allow_quarantined_legacy_outcome_parent") == 1
     approved_pointer = json.loads(
         (
             ROOT
@@ -1593,6 +1621,34 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     outcome_parent_preflight_idx = text.index(
         "python tools/build_run287_risk_outcome_parent_preflight.py"
     )
+    paper_verifier_receipt_idx = text.index(
+        '--verifier-receipt-output "$PAPER_INTEGRITY_VERIFIER_RECEIPT"'
+    )
+    paper_diagnostic_copy_idx = text.index(
+        '--safe-diagnostic-copy-source "$PAPER_INTEGRITY_SOURCE"'
+    )
+    paper_diagnostic_publish_idx = text.index(
+        '--safe-diagnostic-copy-output '
+        '"$PAPER_INTEGRITY_DIAGNOSTIC_COPY"'
+    )
+    paper_diagnostic_selection_idx = text.index(
+        '--immutable-head-selection '
+        '"$PAPER_INTEGRITY_SELECTION_EVIDENCE"',
+        paper_diagnostic_copy_idx,
+    )
+    paper_diagnostic_initial_compare_idx = text.index(
+        'cmp -s "$PAPER_INTEGRITY_SOURCE" '
+        '"$PAPER_INTEGRITY_DIAGNOSTIC_COPY"'
+    )
+    paper_diagnostic_final_compare_idx = text.index(
+        'cmp -s "$PAPER_INTEGRITY_SOURCE" '
+        '"$PAPER_INTEGRITY_DIAGNOSTIC_COPY"',
+        paper_diagnostic_initial_compare_idx + 1,
+    )
+    paper_selection_evidence_idx = text.index(
+        'cp "$PAPER_IMMUTABLE_SELECTION" '
+        '"$PAPER_INTEGRITY_SELECTION_EVIDENCE"'
+    )
     holding_risk_idx = text.index("python tools/build_run287_holding_risk_watch.py")
     exact_upstream_idx = text.index("python tools/run_run287_exact_packet_upstream.py")
     input_registry_idx = text.index("python tools/build_run287_exact_packet_input_registry.py")
@@ -1623,6 +1679,9 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     accepted_idx = text.index(
         "python tools/build_run287_accepted_publication_manifest.py"
     )
+    diagnostic_upload_idx = text.index(
+        "- name: Upload daily operating evidence artifact"
+    )
     assert freshness_idx < paper_idx, "freshness must fail closed before any paper-ledger mutation"
     assert (
         persistent_restore_idx
@@ -1637,7 +1696,23 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     assert durable_catchup_drive_idx < paper_idx, (
         "catch-up must prove durable Drive availability before any paper-ledger mutation"
     )
-    assert accepted_parent_restore_idx < outcome_parent_preflight_idx < paper_idx < snapshot_idx, "the immutable prior outcome head or a durable fail-closed preflight receipt must be established before the paper account is advanced"
+    assert (
+        paper_selection_evidence_idx
+        < accepted_parent_restore_idx
+        < paper_diagnostic_copy_idx
+        < paper_diagnostic_publish_idx
+        < paper_diagnostic_selection_idx
+        < paper_diagnostic_initial_compare_idx
+        < paper_verifier_receipt_idx
+        < paper_diagnostic_final_compare_idx
+        < outcome_parent_preflight_idx
+        < paper_idx
+        < snapshot_idx
+        < diagnostic_upload_idx
+    ), (
+        "the immutable prior outcome head or a durable fail-closed preflight "
+        "receipt must be established before the paper account is advanced"
+    )
     assert paper_idx < holding_risk_idx < snapshot_idx, "holding risk must use the marked paper account before reports"
     assert holding_risk_idx < exact_upstream_idx < input_registry_idx < exact_packet_idx < same_close_idx < selected_paper_idx < integrity_idx < parent_clear_idx < parent_idx < decision_archive_idx < outcome_idx < scorecard_idx < promotion_idx < snapshot_idx < accepted_idx, "paper ledger must verify integrity and freeze the restored outcome parent before outcomes; scorecard, promotion, and reports must be hash-bound before accepted publication"
     assert text.count(
@@ -1685,6 +1760,38 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         text.index("- name: Reverify accepted publication before GitHub publication")
     ]
     assert "outputs/run287_risk_outcome_parent_preflight/" in diagnostic_upload
+    assert "outputs/daily_simulated_fill_ledger/" not in diagnostic_upload
+    assert (
+        "outputs/full_rebuild_logs/"
+        "daily_paper_preflight_snapshot_integrity.json"
+        in diagnostic_upload
+    )
+    assert (
+        "outputs/full_rebuild_logs/"
+        "daily_paper_integrity_verifier_receipt.json"
+        in diagnostic_upload
+    )
+    assert (
+        "outputs/full_rebuild_logs/"
+        "daily_paper_immutable_head_selection.json"
+        in diagnostic_upload
+    )
+    risk_parent_restore_syntax = subprocess.run(
+        [bash_executable(), "-n"],
+        input=(
+            extract_yaml_literal_run(
+                text,
+                "Restore verified risk-outcome accepted head",
+            )
+            + "\n"
+        ),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert risk_parent_restore_syntax.returncode == 0, (
+        risk_parent_restore_syntax.stderr
+    )
     accepted_upload = text[
         text.index("- name: Upload accepted paper transaction artifact"):
         text.index("- name: Save validated forward paper state cache")
@@ -1944,6 +2051,104 @@ def test_fullrun_publication_is_fail_closed_and_preserves_cost_evidence() -> Non
     )
 
 
+def test_latest_run_hydration_preserves_reverified_paper_head_evidence() -> None:
+    text = DAILY_OPERATING_WORKFLOW.read_text(encoding="utf-8")
+    restore = extract_yaml_literal_run(
+        text,
+        "Restore persistent data and operating outputs",
+    )
+    for token in (
+        'PAPER_HEAD_CACHE_ANCHOR="$RUNNER_TEMP/run287_paper_immutable_head_bundles_cache_anchor"',
+        'PAPER_HEAD_CACHE_ANCHOR_SELECTION="$RUNNER_TEMP/run287_paper_head_cache_anchor_selection.json"',
+        '--reconcile-immutable-head-cache "$PAPER_HEAD_CACHE_ANCHOR"',
+        '--merge-immutable-heads-root "$PAPER_HEAD_CACHE"',
+        'LATEST_RUN_HYDRATION_SOURCE="$RUNNER_TEMP/run287_latest_run_hydration_source"',
+        'cp -a "$LATEST_RUN_INPUT"/. "$LATEST_RUN_HYDRATION_SOURCE"/',
+        'cp -a "$LATEST_RUN_HYDRATION_SOURCE"/. outputs/',
+        '--reconcile-immutable-head-cache "$PAPER_HEAD_CACHE"',
+        '--merge-immutable-heads-root "$PAPER_HEAD_CACHE_ANCHOR"',
+        '--expected-terminal-hash "$CACHED_TERMINAL_HASH"',
+        '--select-immutable-heads-root "$PAPER_HEAD_CACHE"',
+        '--output "$PAPER_INTEGRITY_SELECTION_EVIDENCE"',
+        'cmp -s',
+        '"$PAPER_HEAD_CACHE_SELECTION"',
+        '"$PAPER_INTEGRITY_SELECTION_EVIDENCE"',
+        'ignored unanchored immutable heads supplied by output hydration',
+        'restored and reverified immutable cache head evidence after output hydration',
+        'deferred cache ledger/head parity: authoritative Drive discovery must supply and verify the descendant head chain',
+    ):
+        assert token in restore, token
+
+    initial_select_idx = restore.index(
+        '--select-immutable-heads-root "$PAPER_HEAD_CACHE"'
+    )
+    preserve_idx = restore.index(
+        '--reconcile-immutable-head-cache "$PAPER_HEAD_CACHE_ANCHOR"'
+    )
+    stage_latest_idx = restore.index(
+        'cp -a "$LATEST_RUN_INPUT"/. "$LATEST_RUN_HYDRATION_SOURCE"/'
+    )
+    hydrate_clear_idx = restore.index("rm -rf outputs", stage_latest_idx)
+    restore_heads_idx = restore.index(
+        '--reconcile-immutable-head-cache "$PAPER_HEAD_CACHE"',
+        hydrate_clear_idx,
+    )
+    restored_select_idx = restore.index(
+        '--select-immutable-heads-root "$PAPER_HEAD_CACHE"',
+        restore_heads_idx,
+    )
+    compare_idx = restore.index(
+        '"$PAPER_HEAD_CACHE_SELECTION"',
+        restored_select_idx,
+    )
+    selection_publish_idx = restore.index(
+        '--output "$PAPER_INTEGRITY_SELECTION_EVIDENCE"',
+        restored_select_idx,
+    )
+    remote_discovery_idx = restore.index(
+        'PAPER_REMOTE_CANDIDATE="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_remote"'
+    )
+    remote_continuity_idx = restore.index(
+        '--install-immutable-heads-root "$PAPER_IMMUTABLE_HEADS_LOCAL"',
+        remote_discovery_idx,
+    )
+    remote_continuity_required_idx = restore.index(
+        "--require-install-continuity",
+        remote_continuity_idx,
+    )
+    assert "restored continuity ledger/head terminal mismatch" not in restore
+    assert (
+        initial_select_idx
+        < preserve_idx
+        < stage_latest_idx
+        < hydrate_clear_idx
+        < restore_heads_idx
+        < restored_select_idx
+        < selection_publish_idx
+        < compare_idx
+        < remote_discovery_idx
+        < remote_continuity_idx
+        < remote_continuity_required_idx
+    ), (
+        "verified cache heads must survive outside outputs, then be restored, "
+        "reselected, compared, and published before authoritative Drive "
+        "discovery proves the descendant continuity relation"
+    )
+
+    parsed_restore = extract_yaml_literal_run(
+        text,
+        "Restore persistent data and operating outputs",
+    )
+    restore_syntax = subprocess.run(
+        [bash_executable(), "-n"],
+        input=parsed_restore + "\n",
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert restore_syntax.returncode == 0, restore_syntax.stderr
+
+
 def test_pages_deploy_keeps_prior_site_without_completed_session_artifact() -> None:
     text = PAGES_WORKFLOW.read_text(encoding="utf-8")
     for token in [
@@ -1978,6 +2183,7 @@ def main() -> int:
     test_daily_autolearning_installs_market_calendar_and_remains_report_only()
     test_data_readiness_preflight_workflow_restores_drive_and_audits_without_full_rebuild()
     test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract()
+    test_latest_run_hydration_preserves_reverified_paper_head_evidence()
     test_pages_deploy_keeps_prior_site_without_completed_session_artifact()
     print("workflow artifact smoke passed")
     return 0

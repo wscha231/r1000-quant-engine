@@ -32,11 +32,11 @@ on:
         type: boolean
         default: true
       allow_risk_outcome_genesis_bootstrap:
-        description: 'One-time bootstrap only: allow a new outcome genesis after authoritative Drive absence is confirmed'
+        description: 'Deprecated safety trap: ordinary daily rejects this; use only a separately reviewed migration workflow'
         type: boolean
         default: false
       allow_quarantined_legacy_outcome_parent:
-        description: 'One-time migration only: quarantine an existing legacy outcome prefix after authoritative Drive absence is confirmed'
+        description: 'Deprecated safety trap: ordinary daily rejects this; use only a separately reviewed migration workflow'
         type: boolean
         default: false
       allow_verified_paper_canonical_head_bootstrap:
@@ -71,6 +71,15 @@ jobs:
       RUN287_LEGACY_V1_SOURCE_HEAD_BRANCH: codex/run287-paper-ledger-continuity-20260718
 
     steps:
+      - name: Reject risk-outcome migration authority in ordinary daily
+        if: >-
+          github.event_name == 'workflow_dispatch' &&
+          (inputs.allow_risk_outcome_genesis_bootstrap ||
+          inputs.allow_quarantined_legacy_outcome_parent)
+        run: |
+          echo "[risk-outcome] BLOCKED: use a separately reviewed migration-only workflow"
+          exit 2
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -651,15 +660,28 @@ jobs:
           PAPER_DURABLE_RESTORE_MODE=UNAVAILABLE
           echo "PAPER_DURABLE_RESTORE_MODE=$PAPER_DURABLE_RESTORE_MODE" >> "$GITHUB_ENV"
           mkdir -p outputs/full_rebuild_logs
+          PAPER_INTEGRITY_SELECTION_EVIDENCE="outputs/full_rebuild_logs/daily_paper_immutable_head_selection.json"
+          rm -f "$PAPER_INTEGRITY_SELECTION_EVIDENCE"
           PAPER_CACHE_ANCHOR="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_cache_anchor"
           rm -rf "$PAPER_CACHE_ANCHOR"
           PAPER_HEAD_CACHE="outputs/run287_paper_immutable_head_bundles"
           PAPER_HEAD_CACHE_SELECTION="$RUNNER_TEMP/run287_paper_head_cache_selection.json"
+          PAPER_HEAD_CACHE_ANCHOR="$RUNNER_TEMP/run287_paper_immutable_head_bundles_cache_anchor"
+          PAPER_HEAD_CACHE_ANCHOR_SELECTION="$RUNNER_TEMP/run287_paper_head_cache_anchor_selection.json"
+          rm -rf \
+            "$PAPER_HEAD_CACHE_ANCHOR" \
+            "$PAPER_HEAD_CACHE_ANCHOR_SELECTION"
           if [ -d "$PAPER_HEAD_CACHE" ]; then
             python tools/run287_paper_ledger_integrity.py \
               --select-immutable-heads-root "$PAPER_HEAD_CACHE" \
               --output "$PAPER_HEAD_CACHE_SELECTION"
+            cp "$PAPER_HEAD_CACHE_SELECTION" "$PAPER_INTEGRITY_SELECTION_EVIDENCE"
             CACHED_TERMINAL_HASH="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["selected_snapshot_hash"])' "$PAPER_HEAD_CACHE_SELECTION")"
+            python tools/run287_paper_ledger_integrity.py \
+              --reconcile-immutable-head-cache "$PAPER_HEAD_CACHE_ANCHOR" \
+              --merge-immutable-heads-root "$PAPER_HEAD_CACHE" \
+              --expected-terminal-hash "$CACHED_TERMINAL_HASH" \
+              --output "$PAPER_HEAD_CACHE_ANCHOR_SELECTION"
             if [ -s outputs/daily_simulated_fill_ledger/snapshot_integrity.json ]; then
               python tools/run287_paper_ledger_integrity.py \
                 --state-dir outputs/daily_simulated_fill_ledger \
@@ -809,11 +831,18 @@ jobs:
               restore_dir "$LATEST_RUN_INPUT" "$LATEST_RUN_INPUT"
             fi
           fi
+          LATEST_RUN_HYDRATION_SOURCE="${LATEST_RUN_INPUT:-outputs}"
           if [ "${LATEST_RUN_INPUT:-outputs}" != "outputs" ] && [ -d "$LATEST_RUN_INPUT" ]; then
+            LATEST_RUN_HYDRATION_SOURCE="$RUNNER_TEMP/run287_latest_run_hydration_source"
+            rm -rf "$LATEST_RUN_HYDRATION_SOURCE"
+            mkdir -p "$LATEST_RUN_HYDRATION_SOURCE"
+            cp -a "$LATEST_RUN_INPUT"/. "$LATEST_RUN_HYDRATION_SOURCE"/
+          fi
+          if [ "${LATEST_RUN_INPUT:-outputs}" != "outputs" ] && [ -d "$LATEST_RUN_HYDRATION_SOURCE" ]; then
             echo "[source] hydrate outputs/ from requested latest_run=$LATEST_RUN_INPUT"
             rm -rf outputs
             mkdir -p outputs
-            cp -a "$LATEST_RUN_INPUT"/. outputs/
+            cp -a "$LATEST_RUN_HYDRATION_SOURCE"/. outputs/
           fi
           if [ ! -s outputs/scored_latest.csv ] && [ -d cloud_results/full_rebuild/latest_global_alpha_universe ]; then
             echo "[fallback] hydrate outputs/ from committed cloud_results latest mirror"
@@ -839,6 +868,52 @@ jobs:
           rm -rf outputs/daily_simulated_fill_ledger
           if [ -d "$PAPER_CACHE_ANCHOR" ]; then
             cp -a "$PAPER_CACHE_ANCHOR" outputs/daily_simulated_fill_ledger
+          fi
+          if [ -d "$PAPER_HEAD_CACHE_ANCHOR" ]; then
+            rm -rf "$PAPER_HEAD_CACHE"
+            python tools/run287_paper_ledger_integrity.py \
+              --reconcile-immutable-head-cache "$PAPER_HEAD_CACHE" \
+              --merge-immutable-heads-root "$PAPER_HEAD_CACHE_ANCHOR" \
+              --expected-terminal-hash "$CACHED_TERMINAL_HASH"
+          elif [ -d "$PAPER_HEAD_CACHE" ]; then
+            rm -rf "$PAPER_HEAD_CACHE"
+            rm -f "$PAPER_INTEGRITY_SELECTION_EVIDENCE"
+            echo "[paper-ledger] ignored unanchored immutable heads supplied by output hydration"
+          elif [ -e "$PAPER_HEAD_CACHE" ]; then
+            echo "[paper-ledger] BLOCKED: hydrated continuity head cache path is unsafe"
+            exit 2
+          fi
+          if [ -d "$PAPER_HEAD_CACHE" ]; then
+            python tools/run287_paper_ledger_integrity.py \
+              --select-immutable-heads-root "$PAPER_HEAD_CACHE" \
+              --output "$PAPER_INTEGRITY_SELECTION_EVIDENCE"
+            if [ -d "$PAPER_HEAD_CACHE_ANCHOR" ] && \
+               ! cmp -s \
+                 "$PAPER_HEAD_CACHE_SELECTION" \
+                 "$PAPER_INTEGRITY_SELECTION_EVIDENCE"; then
+              echo "[paper-ledger] BLOCKED: restored immutable head selection differs from the preserved verified cache"
+              exit 2
+            fi
+            RESTORED_HEAD_TERMINAL_HASH="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["selected_snapshot_hash"])' "$PAPER_INTEGRITY_SELECTION_EVIDENCE")"
+            if [ -s outputs/daily_simulated_fill_ledger/snapshot_integrity.json ]; then
+              python tools/run287_paper_ledger_integrity.py \
+                --state-dir outputs/daily_simulated_fill_ledger \
+                --require-integrity
+              RESTORED_LEDGER_HASH="$(python -c 'import json; print(json.load(open("outputs/daily_simulated_fill_ledger/snapshot_integrity.json", encoding="utf-8"))["snapshot_hash"])')"
+              if [ "$RESTORED_LEDGER_HASH" != "$RESTORED_HEAD_TERMINAL_HASH" ]; then
+                echo "[paper-ledger] deferred cache ledger/head parity: authoritative Drive discovery must supply and verify the descendant head chain"
+              else
+                echo "[paper-ledger] restored cache ledger/head terminal parity verified"
+              fi
+            else
+              python tools/run287_paper_ledger_integrity.py \
+                --state-dir outputs/daily_simulated_fill_ledger \
+                --install-immutable-heads-root "$PAPER_HEAD_CACHE"
+            fi
+            echo "[paper-ledger] restored and reverified immutable cache head evidence after output hydration"
+          elif [ -e "$PAPER_HEAD_CACHE" ]; then
+            echo "[paper-ledger] BLOCKED: restored continuity head cache path is unsafe"
+            exit 2
           fi
           if [ "${GDRIVE_READY:-no}" = "yes" ]; then
             PAPER_REMOTE_CANDIDATE="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_remote"
@@ -940,6 +1015,7 @@ jobs:
                 python tools/run287_paper_ledger_integrity.py \
                   --select-immutable-heads-root "$PAPER_IMMUTABLE_HEADS_LOCAL" \
                   --output "$PAPER_IMMUTABLE_SELECTION"
+                cp "$PAPER_IMMUTABLE_SELECTION" "$PAPER_INTEGRITY_SELECTION_EVIDENCE"
                 PAPER_IMMUTABLE_TERMINAL_HASH="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["selected_snapshot_hash"])' "$PAPER_IMMUTABLE_SELECTION")"
                 if ! [[ "$PAPER_IMMUTABLE_TERMINAL_HASH" =~ ^[0-9a-f]{64}$ ]]; then
                   echo "[paper-ledger] BLOCKED: selected immutable terminal hash is invalid"
@@ -1221,15 +1297,8 @@ jobs:
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: r1000_top30_institutional
-          ALLOW_RISK_OUTCOME_GENESIS_BOOTSTRAP: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_risk_outcome_genesis_bootstrap || 'false' }}
-          ALLOW_QUARANTINED_LEGACY_OUTCOME_PARENT: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_quarantined_legacy_outcome_parent || 'false' }}
         run: |
           set -euo pipefail
-          if [ "${ALLOW_RISK_OUTCOME_GENESIS_BOOTSTRAP:-false}" = "true" ] && \
-             [ "${ALLOW_QUARANTINED_LEGACY_OUTCOME_PARENT:-false}" = "true" ]; then
-            echo "[risk-outcome] BLOCKED: genesis and legacy-quarantine bootstrap authorizations are mutually exclusive"
-            exit 2
-          fi
           CACHE_HEADS="$RUNNER_TEMP/run287_risk_outcome_cache_heads"
           CACHE_MANIFESTS="$RUNNER_TEMP/run287_risk_outcome_cache_head_manifests"
           CACHE_ACCEPTANCE_MARKERS="$RUNNER_TEMP/run287_risk_outcome_cache_acceptance_markers"
@@ -1487,6 +1556,75 @@ jobs:
               echo "[risk-outcome] BLOCKED: outcome genesis requires proven absence of authoritative legacy state"
               exit 2
             fi
+            PAPER_INTEGRITY_SOURCE="outputs/daily_simulated_fill_ledger/snapshot_integrity.json"
+            PAPER_INTEGRITY_SELECTION_EVIDENCE="outputs/full_rebuild_logs/daily_paper_immutable_head_selection.json"
+            PAPER_INTEGRITY_VERIFIER_RECEIPT="outputs/full_rebuild_logs/daily_paper_integrity_verifier_receipt.json"
+            PAPER_INTEGRITY_DIAGNOSTIC_COPY="outputs/full_rebuild_logs/daily_paper_preflight_snapshot_integrity.json"
+            rm -f \
+              "$PAPER_INTEGRITY_VERIFIER_RECEIPT" \
+              "$PAPER_INTEGRITY_DIAGNOSTIC_COPY"
+            PAPER_INTEGRITY_SOURCE_SHA_BEFORE=""
+            PAPER_INTEGRITY_SOURCE_SHA_AFTER=""
+            PAPER_INTEGRITY_COPY_SHA=""
+            set +e
+            python tools/run287_paper_ledger_integrity.py \
+              --state-dir outputs/daily_simulated_fill_ledger \
+              --safe-diagnostic-copy-source "$PAPER_INTEGRITY_SOURCE" \
+              --safe-diagnostic-copy-output "$PAPER_INTEGRITY_DIAGNOSTIC_COPY" \
+              --immutable-head-selection "$PAPER_INTEGRITY_SELECTION_EVIDENCE" \
+              2>&1 | tee outputs/full_rebuild_logs/daily_paper_integrity_diagnostic_copy.log
+            PAPER_INTEGRITY_COPY_EXIT="${PIPESTATUS[0]}"
+            set -e
+            if [ "$PAPER_INTEGRITY_COPY_EXIT" -eq 0 ]; then
+              set +e
+              PAPER_INTEGRITY_SOURCE_SHA_BEFORE="$(sha256sum "$PAPER_INTEGRITY_SOURCE" | awk 'NR == 1 { print $1 }')" && \
+                PAPER_INTEGRITY_SOURCE_SHA_AFTER="$(sha256sum "$PAPER_INTEGRITY_SOURCE" | awk 'NR == 1 { print $1 }')" && \
+                PAPER_INTEGRITY_COPY_SHA="$(sha256sum "$PAPER_INTEGRITY_DIAGNOSTIC_COPY" | awk 'NR == 1 { print $1 }')" && \
+                [ -n "$PAPER_INTEGRITY_SOURCE_SHA_BEFORE" ] && \
+                [ "$PAPER_INTEGRITY_SOURCE_SHA_BEFORE" = "$PAPER_INTEGRITY_SOURCE_SHA_AFTER" ] && \
+                [ "$PAPER_INTEGRITY_SOURCE_SHA_BEFORE" = "$PAPER_INTEGRITY_COPY_SHA" ] && \
+                cmp -s "$PAPER_INTEGRITY_SOURCE" "$PAPER_INTEGRITY_DIAGNOSTIC_COPY"
+              PAPER_INTEGRITY_COPY_VERIFY_EXIT=$?
+              set -e
+              if [ "$PAPER_INTEGRITY_COPY_VERIFY_EXIT" -ne 0 ]; then
+                PAPER_INTEGRITY_COPY_EXIT=2
+              fi
+            fi
+            PAPER_INTEGRITY_VERIFIER_EXIT=2
+            if [ "$PAPER_INTEGRITY_COPY_EXIT" -ne 0 ]; then
+              rm -f "$PAPER_INTEGRITY_DIAGNOSTIC_COPY"
+              echo "[paper-integrity] BLOCKED: preflight manifest diagnostic copy is not byte-exact" \
+                | tee outputs/full_rebuild_logs/daily_paper_integrity_verifier_receipt.log
+            else
+              echo "[paper-integrity] preflight manifest diagnostic copy sha256=$PAPER_INTEGRITY_COPY_SHA"
+              set +e
+              python tools/run287_paper_ledger_integrity.py \
+                --state-dir outputs/daily_simulated_fill_ledger \
+                --require-integrity \
+                --immutable-head-selection "$PAPER_INTEGRITY_SELECTION_EVIDENCE" \
+                --verifier-receipt-output "$PAPER_INTEGRITY_VERIFIER_RECEIPT" \
+                2>&1 | tee outputs/full_rebuild_logs/daily_paper_integrity_verifier_receipt.log
+              PAPER_INTEGRITY_VERIFIER_EXIT="${PIPESTATUS[0]}"
+              set -e
+            fi
+            if [ "$PAPER_INTEGRITY_VERIFIER_EXIT" -eq 0 ]; then
+              PAPER_INTEGRITY_SOURCE_SHA_FINAL=""
+              set +e
+              PAPER_INTEGRITY_SOURCE_SHA_FINAL="$(sha256sum "$PAPER_INTEGRITY_SOURCE" | awk 'NR == 1 { print $1 }')"
+              PAPER_INTEGRITY_FINAL_HASH_EXIT=$?
+              set -e
+              if [ "$PAPER_INTEGRITY_FINAL_HASH_EXIT" -ne 0 ] || \
+                 [ "$PAPER_INTEGRITY_SOURCE_SHA_FINAL" != "$PAPER_INTEGRITY_COPY_SHA" ] || \
+                 ! cmp -s "$PAPER_INTEGRITY_SOURCE" "$PAPER_INTEGRITY_DIAGNOSTIC_COPY"; then
+                PAPER_INTEGRITY_VERIFIER_EXIT=2
+                rm -f "$PAPER_INTEGRITY_DIAGNOSTIC_COPY"
+                echo "[paper-integrity] BLOCKED: canonical manifest changed across verifier receipt generation" \
+                  | tee -a outputs/full_rebuild_logs/daily_paper_integrity_verifier_receipt.log
+              fi
+            fi
+            if [ "$PAPER_INTEGRITY_VERIFIER_EXIT" -ne 0 ]; then
+              rm -f "$PAPER_INTEGRITY_VERIFIER_RECEIPT"
+            fi
             PREFLIGHT_ARGS=(
               --event-name "${GITHUB_EVENT_NAME}"
               --source-commit-sha "${GITHUB_SHA}"
@@ -1498,14 +1636,10 @@ jobs:
               --remote-committed-head-count "${REMOTE_COMMITTED_HEAD_COUNT}"
               --remote-legacy-outcome-state "${REMOTE_LEGACY_OUTCOME_STATE}"
               --paper-integrity outputs/daily_simulated_fill_ledger/snapshot_integrity.json
+              --paper-integrity-verifier-receipt "$PAPER_INTEGRITY_VERIFIER_RECEIPT"
+              --paper-immutable-head-selection "$PAPER_INTEGRITY_SELECTION_EVIDENCE"
               --output outputs/run287_risk_outcome_parent_preflight/receipt.json
             )
-            if [ "${ALLOW_RISK_OUTCOME_GENESIS_BOOTSTRAP:-false}" = "true" ]; then
-              PREFLIGHT_ARGS+=(--allow-risk-outcome-genesis-bootstrap)
-            fi
-            if [ "${ALLOW_QUARANTINED_LEGACY_OUTCOME_PARENT:-false}" = "true" ]; then
-              PREFLIGHT_ARGS+=(--allow-quarantined-legacy-outcome-parent)
-            fi
             set +e
             python tools/build_run287_risk_outcome_parent_preflight.py \
               "${PREFLIGHT_ARGS[@]}" \
@@ -3442,6 +3576,9 @@ jobs:
             outputs/full_rebuild_logs/daily_operating_price_cache_refresh_prior_manifest.json
             cache_prices/replay_price_cache_transaction.json
             outputs/full_rebuild_logs/daily_paper_legacy_drive_migration.json
+            outputs/full_rebuild_logs/daily_paper_preflight_snapshot_integrity.json
+            outputs/full_rebuild_logs/daily_paper_immutable_head_selection.json
+            outputs/full_rebuild_logs/daily_paper_integrity_verifier_receipt.json
             data_pit/free/market_snapshot/
             data_raw/free/market_snapshot/
             outputs/full_rebuild_logs/daily_user_current_contract.log

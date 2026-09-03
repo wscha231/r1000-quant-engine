@@ -27,12 +27,19 @@ from tools.build_run287_risk_outcome_parent_anchor import (  # noqa: E402
     build_anchor,
     strict_json_object,
 )
+from tools.run287_paper_ledger_integrity import (  # noqa: E402
+    INTEGRITY_FILE,
+    PAPER_INTEGRITY_VERIFIER_RECEIPT_SCHEMA,
+    PAPER_INTEGRITY_VERIFIER_RECEIPT_STATUS,
+    PaperLedgerIntegrityError,
+    _read_regular_file_no_follow,
+    _require_no_symlink_components,
+    build_integrity_verifier_receipt,
+    integrity_verifier_receipt_bytes,
+)
 
 
 SCHEMA_VERSION = "run287-risk-outcome-parent-preflight-v1"
-PAPER_INTEGRITY_SCHEMA_VERSION = (
-    "run287-paper-ledger-snapshot-integrity-v2"
-)
 LEGACY_PRESENT = "PRESENT_FETCHED"
 LEGACY_ABSENT = "PROVEN_ABSENT"
 ALLOWED_LEGACY_STATES = {LEGACY_PRESENT, LEGACY_ABSENT}
@@ -132,50 +139,97 @@ def validate_source_identity(
     }
 
 
-def validate_paper_integrity(path: str | Path) -> dict[str, Any]:
+def validate_paper_integrity(
+    path: str | Path,
+    *,
+    verifier_receipt_path: str | Path,
+    immutable_head_selection_path: str | Path,
+) -> dict[str, Any]:
     paper_path = repo_path(path)
-    if not paper_path.is_file():
-        raise ValueError("paper_integrity_missing")
-    raw = paper_path.read_bytes()
-    payload = strict_json_object(raw, label="paper_integrity")
-    ancestors = payload.get("ancestor_snapshot_hashes")
-    previous = str(payload.get("previous_snapshot_hash") or "")
-    paper_as_of_date = str(payload.get("as_of_date") or "")
-    try:
-        parsed_as_of_date = datetime.strptime(
-            paper_as_of_date,
-            "%Y-%m-%d",
-        )
-    except ValueError as exc:
-        raise ValueError("paper_integrity_as_of_date_invalid") from exc
-    if parsed_as_of_date.strftime("%Y-%m-%d") != paper_as_of_date:
-        raise ValueError("paper_integrity_as_of_date_invalid")
+    verifier_receipt = repo_path(verifier_receipt_path)
+    selection_path = repo_path(immutable_head_selection_path)
     if (
-        payload.get("schema_version") != PAPER_INTEGRITY_SCHEMA_VERSION
-        or payload.get("status") != "VERIFIED"
-        or not valid_hash(payload.get("snapshot_hash"), 64)
-        or not valid_hash(payload.get("genesis_identity_sha256"), 64)
-        or (previous and not valid_hash(previous, 64))
-        or not isinstance(ancestors, list)
-        or any(not valid_hash(value, 64) for value in ancestors)
-        or len(set(ancestors)) != len(ancestors)
-        or (previous and (not ancestors or ancestors[0] != previous))
-        or (not previous and ancestors)
-        or payload.get("snapshot_hash") in ancestors
+        paper_path.name != INTEGRITY_FILE
+        or paper_path.is_symlink()
+        or not paper_path.is_file()
     ):
-        raise ValueError("paper_integrity_contract_invalid")
+        raise ValueError("paper_integrity_missing")
+    if selection_path.is_symlink() or not selection_path.is_file():
+        raise ValueError("paper_immutable_head_selection_missing")
+    try:
+        expected_receipt = build_integrity_verifier_receipt(
+            paper_path.parent,
+            immutable_head_selection=selection_path,
+        )
+    except PaperLedgerIntegrityError as exc:
+        raise ValueError(
+            "paper_integrity_verification_failed:"
+            f"{exc.status}:{exc.reason}"
+        ) from exc
+    try:
+        verifier_receipt = _require_no_symlink_components(
+            verifier_receipt,
+            label="paper integrity verifier receipt",
+        )
+        receipt_raw = _read_regular_file_no_follow(
+            verifier_receipt,
+            label="paper integrity verifier receipt",
+        )
+    except PaperLedgerIntegrityError as exc:
+        raise ValueError(
+            "paper_integrity_verifier_receipt_missing:"
+            f"{exc.status}:{exc.reason}"
+        ) from exc
+    supplied_receipt = strict_json_object(
+        receipt_raw,
+        label="paper_integrity_verifier_receipt",
+    )
+    if (
+        expected_receipt.get("schema_version")
+        != PAPER_INTEGRITY_VERIFIER_RECEIPT_SCHEMA
+        or expected_receipt.get("status")
+        != PAPER_INTEGRITY_VERIFIER_RECEIPT_STATUS
+        or supplied_receipt != expected_receipt
+        or receipt_raw
+        != integrity_verifier_receipt_bytes(expected_receipt)
+    ):
+        raise ValueError("paper_integrity_verifier_receipt_mismatch")
+    raw_manifest = expected_receipt["raw_manifest"]
+    selection = expected_receipt["immutable_head_selection"]
     return {
-        "schema_version": payload["schema_version"],
-        "status": payload["status"],
-        "file_sha256": sha256_bytes(raw),
-        "file_bytes": len(raw),
-        "snapshot_hash": str(payload["snapshot_hash"]).lower(),
-        "previous_snapshot_hash": previous.lower(),
-        "ancestor_snapshot_count": len(ancestors),
-        "genesis_identity_sha256": str(
-            payload["genesis_identity_sha256"]
-        ).lower(),
-        "as_of_date": paper_as_of_date,
+        "schema_version": raw_manifest["schema_version"],
+        "status": expected_receipt["status"],
+        "file_sha256": raw_manifest["sha256"],
+        "file_bytes": raw_manifest["bytes"],
+        "file_count": raw_manifest["file_count"],
+        "files_sha256": raw_manifest["files_sha256"],
+        "snapshot_hash": raw_manifest["snapshot_hash"],
+        "previous_snapshot_hash": raw_manifest[
+            "previous_snapshot_hash"
+        ],
+        "ancestor_snapshot_count": len(
+            raw_manifest["ancestor_snapshot_hashes"]
+        ),
+        "genesis_identity_sha256": raw_manifest[
+            "genesis_identity_sha256"
+        ],
+        "as_of_date": raw_manifest["as_of_date"],
+        "verifier_receipt_schema_version": expected_receipt[
+            "schema_version"
+        ],
+        "verifier_receipt_sha256": sha256_bytes(receipt_raw),
+        "verifier_receipt_bytes": len(receipt_raw),
+        "immutable_head_selection_sha256": selection["sha256"],
+        "immutable_head_count": selection["immutable_head_count"],
+        "immutable_root_snapshot_hash": selection[
+            "root_snapshot_hash"
+        ],
+        "immutable_terminal_snapshot_hash": selection[
+            "terminal_snapshot_hash"
+        ],
+        "immutable_chain_snapshot_hashes": list(
+            selection["chain_snapshot_hashes"]
+        ),
     }
 
 
@@ -235,6 +289,8 @@ def build_receipt(
     legacy_summary_path: str | Path,
     legacy_event_log_path: str | Path,
     paper_integrity_path: str | Path,
+    paper_integrity_verifier_receipt_path: str | Path,
+    paper_immutable_head_selection_path: str | Path,
     allow_risk_outcome_genesis_bootstrap: bool,
     allow_quarantined_legacy_outcome_parent: bool,
     generated_at_utc: str | None = None,
@@ -258,7 +314,13 @@ def build_receipt(
     if head_count != 0:
         raise ValueError("remote_accepted_head_absence_not_proven")
 
-    paper = validate_paper_integrity(paper_integrity_path)
+    paper = validate_paper_integrity(
+        paper_integrity_path,
+        verifier_receipt_path=paper_integrity_verifier_receipt_path,
+        immutable_head_selection_path=(
+            paper_immutable_head_selection_path
+        ),
+    )
     legacy: dict[str, Any]
     if remote_legacy_outcome_state == LEGACY_PRESENT:
         legacy = validate_legacy_parent(
@@ -443,6 +505,20 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--paper-integrity-verifier-receipt",
+        default=(
+            "outputs/full_rebuild_logs/"
+            "daily_paper_integrity_verifier_receipt.json"
+        ),
+    )
+    parser.add_argument(
+        "--paper-immutable-head-selection",
+        default=(
+            "outputs/full_rebuild_logs/"
+            "daily_paper_immutable_head_selection.json"
+        ),
+    )
+    parser.add_argument(
         "--allow-risk-outcome-genesis-bootstrap",
         action="store_true",
     )
@@ -482,6 +558,12 @@ def main() -> int:
             legacy_summary_path=args.legacy_summary,
             legacy_event_log_path=args.legacy_event_log,
             paper_integrity_path=args.paper_integrity,
+            paper_integrity_verifier_receipt_path=(
+                args.paper_integrity_verifier_receipt
+            ),
+            paper_immutable_head_selection_path=(
+                args.paper_immutable_head_selection
+            ),
             allow_risk_outcome_genesis_bootstrap=(
                 args.allow_risk_outcome_genesis_bootstrap
             ),
