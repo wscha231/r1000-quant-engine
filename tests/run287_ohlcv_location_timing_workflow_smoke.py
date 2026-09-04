@@ -86,6 +86,36 @@ def main() -> None:
     assert "CATCHUP_ARTIFACT_ROOT" in text[first_ledger:catchup_timing]
     assert "PATTERN_CATCHUP_SOURCE" in text[first_ledger:catchup_timing]
     assert (
+        'CATCHUP_SOURCE_LAYOUT="$(' in text[first_ledger:catchup_timing]
+    )
+    assert (
+        'if [ "$CATCHUP_SOURCE_LAYOUT" = '
+        '"MULTI_SESSION_READ_ONLY_CAPTURE" ]; then'
+        in text[first_ledger:catchup_timing]
+    )
+    assert (
+        "--record-failed-session-reason "
+        "price_only_capture_pattern_evidence_unavailable"
+        in text[first_ledger:catchup_timing]
+    )
+    assert (
+        "OHLCV pattern memory remains BLOCKED and proposal-ineligible"
+        in text[first_ledger:catchup_timing]
+    )
+    assert (
+        'elif [ "$CATCHUP_SOURCE_LAYOUT" = '
+        '"LEGACY_SINGLE_SESSION_DAILY_ARTIFACT" ]; then'
+        in text[first_ledger:catchup_timing]
+    )
+    assert (
+        text[first_ledger:catchup_timing].index(
+            '"MULTI_SESSION_READ_ONLY_CAPTURE"'
+        )
+        < text[first_ledger:catchup_timing].index(
+            "PATTERN_CATCHUP_SOURCE"
+        )
+    )
+    assert (
         '--observation-accepted-at-utc "$PATTERN_CATCHUP_ACCEPTED_AT_UTC"'
         in catchup_block
     )

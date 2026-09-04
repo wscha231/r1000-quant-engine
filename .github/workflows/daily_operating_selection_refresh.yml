@@ -11,6 +11,10 @@ on:
         description: 'Optional completed NYSE session (YYYY-MM-DD); requires force_run and enables mark-only paper plus pinned-artifact pattern-memory catch-up when older than latest'
         type: string
         default: ''
+      capture_catchup_evidence_only:
+        description: 'Read-only only: capture exact historical close evidence through session_date; disables the transactional refresh job'
+        type: boolean
+        default: false
       catchup_price_evidence_run_id:
         description: 'Required for catch-up: prior daily workflow run whose artifact captured the selected exact close'
         type: string
@@ -58,6 +62,7 @@ concurrency:
 
 jobs:
   refresh:
+    if: github.event_name != 'workflow_dispatch' || inputs.capture_catchup_evidence_only != true
     environment: run287-paper-durable
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -2764,6 +2769,43 @@ jobs:
             if [ "$PATTERN_SESSION_ELIGIBLE" != yes ]; then
               echo "[paper-ledger] pre-launch paper mark accepted without pattern observation"
             else
+            CATCHUP_SOURCE_LAYOUT="$(
+              python - outputs/run287_catchup_price_evidence/status.json <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          evidence = json.loads(
+              Path(sys.argv[1]).read_text(encoding="utf-8")
+          )
+          source_layout = str(evidence.get("source_layout") or "")
+          if (
+              evidence.get("status")
+              != "READY_RUN287_CATCHUP_PRICE_EVIDENCE_REPLAY_ONLY"
+              or source_layout
+              not in {
+                  "LEGACY_SINGLE_SESSION_DAILY_ARTIFACT",
+                  "MULTI_SESSION_READ_ONLY_CAPTURE",
+              }
+          ):
+              raise SystemExit(
+                  "catch-up source layout is missing or untrusted"
+              )
+          print(source_layout)
+          PY
+            )"
+            if [ "$CATCHUP_SOURCE_LAYOUT" = "MULTI_SESSION_READ_ONLY_CAPTURE" ]; then
+              # The closed multi-session capture is intentionally price-only.
+              # Preserve portfolio chronology, but keep pattern statistics and
+              # proposals fail-closed until separately pinned first-attempt
+              # pattern evidence is available for this exact session.
+              python tools/archive_run287_ohlcv_pattern_memory.py \
+                --record-failed-session-reason price_only_capture_pattern_evidence_unavailable \
+                --valuation-date "$PAPER_AS_OF" \
+                --output-dir outputs/run287_decision_observation_archive/ohlcv_pattern_memory \
+                2>&1 | tee -a outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log
+              echo "[paper-ledger] price-only catch-up mark accepted; OHLCV pattern memory remains BLOCKED and proposal-ineligible for ${PAPER_AS_OF}"
+            elif [ "$CATCHUP_SOURCE_LAYOUT" = "LEGACY_SINGLE_SESSION_DAILY_ARTIFACT" ]; then
             # Pattern-memory catch-up is separate from portfolio replay. It
             # consumes only the operator-pinned prior daily artifact for this
             # exact session and never recomputes targets or creates orders.
@@ -2841,6 +2883,10 @@ jobs:
               exit 2
             fi
             echo "[paper-ledger] chronological pattern-memory catch-up accepted from pinned exact-session artifact; targets and orders remained disabled"
+            else
+              echo "[paper-ledger] BLOCKED: unsupported catch-up source layout"
+              exit 2
+            fi
             fi
             echo "[paper-ledger] chronological catch-up mark accepted; exact-packet recomputation and new orders are disabled"
           else
@@ -4836,3 +4882,366 @@ jobs:
             data_pit/macro
             manifests/free_data
           key: daily-operating-selection-${{ runner.os }}-${{ github.run_id }}
+
+  capture_catchup_evidence:
+    if: github.event_name == 'workflow_dispatch' && inputs.capture_catchup_evidence_only == true
+    permissions:
+      actions: read
+      contents: read
+    environment: run287-paper-durable
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      RCLONE_VERSION: 1.75.0
+      RCLONE_ZIP_SHA256: aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa
+
+    steps:
+      - name: Checkout exact capture ref without credentials
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Reject every non-capture dispatch shape
+        env:
+          CAPTURE_ONLY: ${{ inputs.capture_catchup_evidence_only }}
+          FORCE_RUN: ${{ inputs.force_run }}
+          REQUESTED_SESSION_DATE: ${{ inputs.session_date }}
+          EVIDENCE_RUN_ID: ${{ inputs.catchup_price_evidence_run_id }}
+          EVIDENCE_DIGEST: ${{ inputs.catchup_price_evidence_artifact_digest }}
+          SCOPE_COMMENT_ID: ${{ inputs.catchup_secret_scope_attestation_comment_id }}
+          LATEST_RUN: ${{ inputs.latest_run }}
+          STRICT_SELECTION: ${{ inputs.strict_selection }}
+          ALLOW_OUTCOME_GENESIS: ${{ inputs.allow_risk_outcome_genesis_bootstrap }}
+          ALLOW_OUTCOME_QUARANTINE: ${{ inputs.allow_quarantined_legacy_outcome_parent }}
+          ALLOW_PAPER_BOOTSTRAP: ${{ inputs.allow_verified_paper_canonical_head_bootstrap }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME:-}" != "workflow_dispatch" ] || \
+             [ "${GITHUB_RUN_ATTEMPT:-}" != "1" ] || \
+             [ "${CAPTURE_ONLY:-false}" != "true" ] || \
+             [ "${FORCE_RUN:-false}" != "false" ] || \
+             ! [[ "${REQUESTED_SESSION_DATE:-}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || \
+             [ -n "${EVIDENCE_RUN_ID:-}" ] || \
+             [ -n "${EVIDENCE_DIGEST:-}" ] || \
+             [ -n "${SCOPE_COMMENT_ID:-}" ] || \
+             [ "${LATEST_RUN:-outputs}" != "outputs" ] || \
+             [ "${STRICT_SELECTION:-true}" != "true" ] || \
+             [ "${ALLOW_OUTCOME_GENESIS:-false}" != "false" ] || \
+             [ "${ALLOW_OUTCOME_QUARANTINE:-false}" != "false" ] || \
+             [ "${ALLOW_PAPER_BOOTSTRAP:-false}" != "false" ]; then
+            echo "[catchup-capture] BLOCKED: dispatch inputs are not the exact read-only capture shape"
+            exit 2
+          fi
+
+      - name: Prove exact current default branch before secrets
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE:-}" != "branch" ] || \
+             [ "${GITHUB_REF_NAME:-}" != "${DEFAULT_BRANCH:-}" ]; then
+            echo "[catchup-capture] BLOCKED: dispatch ref is not the default branch"
+            exit 2
+          fi
+          REMOTE_REF="$RUNNER_TEMP/run287_capture_remote_default_ref.json"
+          curl --fail --silent --show-error \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/git/ref/heads/${DEFAULT_BRANCH}" \
+            > "$REMOTE_REF"
+          python - "$REMOTE_REF" "$GITHUB_SHA" <<'PY'
+          import json
+          import sys
+
+          observed = str(
+              (json.load(open(sys.argv[1], encoding="utf-8")).get("object") or {}).get("sha") or ""
+          )
+          if observed != sys.argv[2]:
+              raise SystemExit(
+                  "remote default branch differs from capture workflow SHA:"
+                  f" observed={observed} workflow={sys.argv[2]}"
+              )
+          PY
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Set up Python for capture
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install capture dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_github.txt
+
+      - name: Prove exact latest completed capture session
+        env:
+          REQUESTED_SESSION_DATE: ${{ inputs.session_date }}
+        run: |
+          set -euo pipefail
+          GATE="$RUNNER_TEMP/run287_catchup_capture_latest_session.json"
+          python tools/run_daily_market_session_gate.py \
+            --force \
+            --session-date "$REQUESTED_SESSION_DATE" \
+            --output "$GATE"
+          python - "$GATE" "$REQUESTED_SESSION_DATE" <<'PY'
+          import json
+          import sys
+
+          gate = json.load(open(sys.argv[1], encoding="utf-8"))
+          if (
+              gate.get("ready") is not True
+              or gate.get("calendar") != "NYSE"
+              or gate.get("session_date") != sys.argv[2]
+              or gate.get("latest_completed_session_date") != sys.argv[2]
+          ):
+              raise SystemExit(
+                  "capture through-date is not the exact latest completed NYSE session"
+              )
+          PY
+
+      - name: Configure temporary read-only rclone for capture
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.RUN287_DURABLE_GOOGLE_SERVICE_ACCOUNT_KEY }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RUN287_DURABLE_RCLONE_CONFIG_GDRIVE }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: |
+          set -euo pipefail
+          umask 077
+          if [ -z "${RCLONE_CONFIG_GDRIVE:-}" ] && \
+             [ -z "${GOOGLE_SERVICE_ACCOUNT_KEY:-}" ]; then
+            echo "[catchup-capture] BLOCKED: durable Drive read credential is unavailable"
+            exit 2
+          fi
+          RCLONE_INSTALL="$RUNNER_TEMP/run287-capture-rclone"
+          RCLONE_ZIP="$RUNNER_TEMP/run287-capture-rclone.zip"
+          RCLONE_CONFIG_PATH="$RUNNER_TEMP/run287-capture-rclone.conf"
+          SERVICE_ACCOUNT_PATH="$RUNNER_TEMP/run287-capture-service-account.json"
+          RCLONE_BIN="$RCLONE_INSTALL/rclone-v${RCLONE_VERSION}-linux-amd64/rclone"
+          export RCLONE_CONFIG_GDRIVE_SCOPE=drive.readonly
+          {
+            echo "RCLONE_BIN=$RCLONE_BIN"
+            echo "RCLONE_CONFIG=$RCLONE_CONFIG_PATH"
+            echo "RUN287_CAPTURE_SERVICE_ACCOUNT_PATH=$SERVICE_ACCOUNT_PATH"
+            echo "RCLONE_CONFIG_GDRIVE_SCOPE=drive.readonly"
+          } >> "$GITHUB_ENV"
+          curl --fail --silent --show-error --location \
+            "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip" \
+            --output "$RCLONE_ZIP"
+          printf '%s  %s\n' "$RCLONE_ZIP_SHA256" "$RCLONE_ZIP" \
+            | sha256sum --check --strict
+          mkdir -p "$RCLONE_INSTALL"
+          unzip -q "$RCLONE_ZIP" -d "$RCLONE_INSTALL"
+          test -x "$RCLONE_BIN"
+          "$RCLONE_BIN" version | grep -Fx "rclone v${RCLONE_VERSION}"
+          if [ -n "${RCLONE_CONFIG_GDRIVE:-}" ]; then
+            printf '%s' "$RCLONE_CONFIG_GDRIVE" > "$RCLONE_CONFIG_PATH"
+            grep -Eq '^\[gdrive\][[:space:]]*$' "$RCLONE_CONFIG_PATH"
+          else
+            printf '%s' "$GOOGLE_SERVICE_ACCOUNT_KEY" > "$SERVICE_ACCOUNT_PATH"
+            {
+              printf '%s\n' '[gdrive]' 'type = drive' 'scope = drive.readonly'
+              printf 'service_account_file = %s\n' "$SERVICE_ACCOUNT_PATH"
+              if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+                printf 'root_folder_id = %s\n' "$GDRIVE_ROOT_FOLDER_ID"
+              else
+                printf '%s\n' 'shared_with_me = true'
+              fi
+            } > "$RCLONE_CONFIG_PATH"
+          fi
+          chmod 600 "$RCLONE_CONFIG_PATH"
+          "$RCLONE_BIN" lsd gdrive: >/dev/null
+
+      - name: Download exact canonical paper evidence read only
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: |
+          set -euo pipefail
+          LOCAL_ROOT="$RUNNER_TEMP/run287-catchup-capture-readonly"
+          PAPER_CANONICAL_LOCAL="$LOCAL_ROOT/paper_canonical"
+          PAPER_HEADS_LOCAL="$LOCAL_ROOT/paper_heads"
+          BASE="gdrive:r1000_top30_institutional/"
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+            BASE="gdrive:"
+          fi
+          PAPER_CANONICAL_REMOTE="${BASE}paper_archive/run287_daily_simulated_fill_ledger"
+          PAPER_HEADS_REMOTE="${BASE}paper_archive/run287_daily_simulated_fill_ledger_heads"
+          copy_and_check() {
+            local remote="$1"
+            local destination="$2"
+            local inventory="$3"
+            mkdir -p "$destination"
+            "$RCLONE_BIN" lsf "$remote/" --recursive --files-only \
+              | LC_ALL=C sort -u > "$inventory"
+            test -s "$inventory"
+            "$RCLONE_BIN" copy "$remote/" "$destination/" \
+              --transfers 2 --checkers 4 --stats 30s --stats-one-line
+            find "$destination" -type f -printf '%P\n' \
+              | LC_ALL=C sort -u > "${inventory}.local"
+            cmp -s "$inventory" "${inventory}.local"
+            "$RCLONE_BIN" check "$remote/" "$destination/" \
+              --checksum --checkers 4
+          }
+          copy_and_check \
+            "$PAPER_CANONICAL_REMOTE" \
+            "$PAPER_CANONICAL_LOCAL" \
+            "$RUNNER_TEMP/run287_capture_paper_canonical_before.txt"
+          copy_and_check \
+            "$PAPER_HEADS_REMOTE" \
+            "$PAPER_HEADS_LOCAL" \
+            "$RUNNER_TEMP/run287_capture_paper_heads_before.txt"
+          {
+            echo "RUN287_CAPTURE_LOCAL_ROOT=$LOCAL_ROOT"
+            echo "RUN287_CAPTURE_PAPER_CANONICAL_LOCAL=$PAPER_CANONICAL_LOCAL"
+            echo "RUN287_CAPTURE_PAPER_HEADS_LOCAL=$PAPER_HEADS_LOCAL"
+            echo "RUN287_CAPTURE_PAPER_CANONICAL_REMOTE=$PAPER_CANONICAL_REMOTE"
+            echo "RUN287_CAPTURE_PAPER_HEADS_REMOTE=$PAPER_HEADS_REMOTE"
+          } >> "$GITHUB_ENV"
+
+      - name: Freeze catch-up sessions and ticker union
+        env:
+          REQUESTED_SESSION_DATE: ${{ inputs.session_date }}
+        run: |
+          set -euo pipefail
+          CAPTURE_ROOT="outputs/run287_catchup_price_capture"
+          mkdir -p "$CAPTURE_ROOT"
+          python tools/build_run287_catchup_price_capture.py plan \
+            --state-dir "$RUN287_CAPTURE_PAPER_CANONICAL_LOCAL" \
+            --heads-root "$RUN287_CAPTURE_PAPER_HEADS_LOCAL" \
+            --through-session-date "$REQUESTED_SESSION_DATE" \
+            --selection-output "$CAPTURE_ROOT/paper_selection.json" \
+            --ticker-book "$CAPTURE_ROOT/ticker_union.csv" \
+            --plan-output "$CAPTURE_ROOT/plan.json"
+          {
+            echo "RUN287_CAPTURE_ROOT=$CAPTURE_ROOT"
+            echo "RUN287_CAPTURE_PLAN=$CAPTURE_ROOT/plan.json"
+            echo "RUN287_CAPTURE_TICKER_BOOK=$CAPTURE_ROOT/ticker_union.csv"
+            echo "RUN287_CAPTURE_SELECTION=$CAPTURE_ROOT/paper_selection.json"
+          } >> "$GITHUB_ENV"
+
+      - name: Build isolated exact-close source cache
+        env:
+          REQUESTED_SESSION_DATE: ${{ inputs.session_date }}
+        run: |
+          set -euo pipefail
+          PRICE_CACHE="$RUNNER_TEMP/run287-catchup-capture-price-cache"
+          readarray -t RANGE < <(
+            python - "$RUN287_CAPTURE_PLAN" <<'PY'
+          import json
+          import sys
+          import pandas as pd
+
+          plan = json.load(open(sys.argv[1], encoding="utf-8"))
+          start = pd.Timestamp(plan["canonical_as_of_date"]) - pd.Timedelta(days=1)
+          end = pd.Timestamp(plan["through_session_date"]) + pd.Timedelta(days=1)
+          print(start.date().isoformat())
+          print(end.date().isoformat())
+          PY
+          )
+          test "${#RANGE[@]}" -eq 2
+          test ! -e "$PRICE_CACHE"
+          python tools/build_replay_price_cache.py \
+            --books "$RUN287_CAPTURE_TICKER_BOOK" \
+            --state-dir "$RUN287_CAPTURE_PAPER_CANONICAL_LOCAL" \
+            --exact-operating-universe \
+            --output-dir "$PRICE_CACHE" \
+            --required-tickers SPY QQQ SMH SOXX \
+            --refresh-through-date "$REQUESTED_SESSION_DATE" \
+            --refresh-stale-days -1 \
+            --max-scored 0 \
+            --start "${RANGE[0]}" \
+            --end "${RANGE[1]}"
+          test -s "$PRICE_CACHE/replay_price_cache_manifest.json"
+          echo "RUN287_CAPTURE_PRICE_CACHE=$PRICE_CACHE" >> "$GITHUB_ENV"
+
+      - name: Build immutable multi-session capture
+        run: |
+          set -euo pipefail
+          python tools/build_run287_catchup_price_capture.py build \
+            --state-dir "$RUN287_CAPTURE_PAPER_CANONICAL_LOCAL" \
+            --heads-root "$RUN287_CAPTURE_PAPER_HEADS_LOCAL" \
+            --selection "$RUN287_CAPTURE_SELECTION" \
+            --plan "$RUN287_CAPTURE_PLAN" \
+            --ticker-book "$RUN287_CAPTURE_TICKER_BOOK" \
+            --price-cache "$RUN287_CAPTURE_PRICE_CACHE" \
+            --output-root "$RUN287_CAPTURE_ROOT" \
+            --artifact-root-marker run287_catchup_price_capture_artifact_root.json \
+            --repository "$GITHUB_REPOSITORY" \
+            --source-sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --event-name "$GITHUB_EVENT_NAME" \
+            --job-key "$GITHUB_JOB"
+          test -s "$RUN287_CAPTURE_ROOT/manifest.json"
+          test -s run287_catchup_price_capture_artifact_root.json
+
+      - name: Reconfirm Drive and default branch unchanged
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          "$RCLONE_BIN" lsf "$RUN287_CAPTURE_PAPER_CANONICAL_REMOTE/" \
+            --recursive --files-only | LC_ALL=C sort -u \
+            > "$RUNNER_TEMP/run287_capture_paper_canonical_after.txt"
+          "$RCLONE_BIN" lsf "$RUN287_CAPTURE_PAPER_HEADS_REMOTE/" \
+            --recursive --files-only | LC_ALL=C sort -u \
+            > "$RUNNER_TEMP/run287_capture_paper_heads_after.txt"
+          cmp -s \
+            "$RUNNER_TEMP/run287_capture_paper_canonical_before.txt" \
+            "$RUNNER_TEMP/run287_capture_paper_canonical_after.txt"
+          cmp -s \
+            "$RUNNER_TEMP/run287_capture_paper_heads_before.txt" \
+            "$RUNNER_TEMP/run287_capture_paper_heads_after.txt"
+          "$RCLONE_BIN" check \
+            "$RUN287_CAPTURE_PAPER_CANONICAL_REMOTE/" \
+            "$RUN287_CAPTURE_PAPER_CANONICAL_LOCAL/" \
+            --checksum --checkers 4
+          "$RCLONE_BIN" check \
+            "$RUN287_CAPTURE_PAPER_HEADS_REMOTE/" \
+            "$RUN287_CAPTURE_PAPER_HEADS_LOCAL/" \
+            --checksum --checkers 4
+          REMOTE_REF="$RUNNER_TEMP/run287_capture_remote_default_ref_after.json"
+          curl --fail --silent --show-error \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/git/ref/heads/${DEFAULT_BRANCH:?}" \
+            > "$REMOTE_REF"
+          python - "$REMOTE_REF" "$GITHUB_SHA" <<'PY'
+          import json
+          import sys
+
+          observed = str(
+              (json.load(open(sys.argv[1], encoding="utf-8")).get("object") or {}).get("sha") or ""
+          )
+          if observed != sys.argv[2]:
+              raise SystemExit(
+                  "default branch advanced during capture:"
+                  f" observed={observed} workflow={sys.argv[2]}"
+              )
+          PY
+
+      - name: Remove temporary capture credentials
+        if: always()
+        run: |
+          set -euo pipefail
+          rm -f -- \
+            "$RUNNER_TEMP/run287-capture-rclone.conf" \
+            "$RUNNER_TEMP/run287-capture-service-account.json"
+
+      - name: Upload immutable catch-up capture artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-operating-selection-refresh-${{ github.run_id }}
+          path: |
+            run287_catchup_price_capture_artifact_root.json
+            outputs/run287_catchup_price_capture/
+          if-no-files-found: error
+          retention-days: 30

@@ -1558,8 +1558,10 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
         "- name: Reject risk-outcome migration authority in ordinary daily"
     )
     assert reject_migration < text.index("- name: Checkout")
-    assert text.count("inputs.allow_risk_outcome_genesis_bootstrap") == 1
-    assert text.count("inputs.allow_quarantined_legacy_outcome_parent") == 1
+    # Each deprecated authority appears once in the ordinary-daily reject gate
+    # and once in the independent capture-only dispatch-shape reject gate.
+    assert text.count("inputs.allow_risk_outcome_genesis_bootstrap") == 2
+    assert text.count("inputs.allow_quarantined_legacy_outcome_parent") == 2
     approved_pointer = json.loads(
         (
             ROOT
@@ -2041,6 +2043,212 @@ def test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract(
     assert text.count("--expected-manifest-sha256") >= 4
 
 
+def test_daily_operating_catchup_capture_is_read_only_and_closed() -> None:
+    import yaml  # type: ignore[import-not-found]
+
+    text = DAILY_OPERATING_WORKFLOW.read_text(encoding="utf-8")
+    workflow = yaml.safe_load(text)
+    trigger = workflow.get("on") or workflow.get(True)
+    inputs = trigger["workflow_dispatch"]["inputs"]
+    assert set(inputs) == {
+        "force_run",
+        "session_date",
+        "capture_catchup_evidence_only",
+        "catchup_price_evidence_run_id",
+        "catchup_price_evidence_artifact_digest",
+        "catchup_secret_scope_attestation_comment_id",
+        "latest_run",
+        "strict_selection",
+        "allow_risk_outcome_genesis_bootstrap",
+        "allow_quarantined_legacy_outcome_parent",
+        "allow_verified_paper_canonical_head_bootstrap",
+    }
+    assert inputs["capture_catchup_evidence_only"] == {
+        "description": (
+            "Read-only only: capture exact historical close evidence through "
+            "session_date; disables the transactional refresh job"
+        ),
+        "type": "boolean",
+        "default": False,
+    }
+
+    refresh = workflow["jobs"]["refresh"]
+    capture = workflow["jobs"]["capture_catchup_evidence"]
+    assert str(refresh["if"]) == (
+        "github.event_name != 'workflow_dispatch' || "
+        "inputs.capture_catchup_evidence_only != true"
+    )
+    assert str(capture["if"]) == (
+        "github.event_name == 'workflow_dispatch' && "
+        "inputs.capture_catchup_evidence_only == true"
+    )
+    assert capture["permissions"] == {"actions": "read", "contents": "read"}
+    assert capture["environment"] == "run287-paper-durable"
+
+    steps = capture["steps"]
+    names = [str(step.get("name")) for step in steps]
+    by_name = {str(step.get("name")): step for step in steps}
+    assert names == [
+        "Checkout exact capture ref without credentials",
+        "Reject every non-capture dispatch shape",
+        "Prove exact current default branch before secrets",
+        "Set up Python for capture",
+        "Install capture dependencies",
+        "Prove exact latest completed capture session",
+        "Configure temporary read-only rclone for capture",
+        "Download exact canonical paper evidence read only",
+        "Freeze catch-up sessions and ticker union",
+        "Build isolated exact-close source cache",
+        "Build immutable multi-session capture",
+        "Reconfirm Drive and default branch unchanged",
+        "Remove temporary capture credentials",
+        "Upload immutable catch-up capture artifact",
+    ]
+    assert by_name["Checkout exact capture ref without credentials"]["with"][
+        "persist-credentials"
+    ] is False
+
+    reject_idx = names.index("Reject every non-capture dispatch shape")
+    default_idx = names.index("Prove exact current default branch before secrets")
+    secret_idx = names.index("Configure temporary read-only rclone for capture")
+    download_idx = names.index("Download exact canonical paper evidence read only")
+    plan_idx = names.index("Freeze catch-up sessions and ticker union")
+    cache_idx = names.index("Build isolated exact-close source cache")
+    build_idx = names.index("Build immutable multi-session capture")
+    reconfirm_idx = names.index("Reconfirm Drive and default branch unchanged")
+    cleanup_idx = names.index("Remove temporary capture credentials")
+    upload_idx = names.index("Upload immutable catch-up capture artifact")
+    assert (
+        reject_idx
+        < default_idx
+        < secret_idx
+        < download_idx
+        < plan_idx
+        < cache_idx
+        < build_idx
+        < reconfirm_idx
+        < cleanup_idx
+        < upload_idx
+    )
+
+    reject = by_name["Reject every non-capture dispatch shape"]
+    assert set(reject["env"]) == {
+        "CAPTURE_ONLY",
+        "FORCE_RUN",
+        "REQUESTED_SESSION_DATE",
+        "EVIDENCE_RUN_ID",
+        "EVIDENCE_DIGEST",
+        "SCOPE_COMMENT_ID",
+        "LATEST_RUN",
+        "STRICT_SELECTION",
+        "ALLOW_OUTCOME_GENESIS",
+        "ALLOW_OUTCOME_QUARANTINE",
+        "ALLOW_PAPER_BOOTSTRAP",
+    }
+    for token in (
+        '"${GITHUB_RUN_ATTEMPT:-}" != "1"',
+        '"${CAPTURE_ONLY:-false}" != "true"',
+        '"${FORCE_RUN:-false}" != "false"',
+        '"${LATEST_RUN:-outputs}" != "outputs"',
+        '"${STRICT_SELECTION:-true}" != "true"',
+        '"${ALLOW_OUTCOME_GENESIS:-false}" != "false"',
+        '"${ALLOW_OUTCOME_QUARANTINE:-false}" != "false"',
+        '"${ALLOW_PAPER_BOOTSTRAP:-false}" != "false"',
+        "dispatch inputs are not the exact read-only capture shape",
+    ):
+        assert token in reject["run"], token
+
+    configure = by_name["Configure temporary read-only rclone for capture"]
+    assert configure["env"]["GOOGLE_SERVICE_ACCOUNT_KEY"] == (
+        "${{ secrets.RUN287_DURABLE_GOOGLE_SERVICE_ACCOUNT_KEY }}"
+    )
+    assert configure["env"]["RCLONE_CONFIG_GDRIVE"] == (
+        "${{ secrets.RUN287_DURABLE_RCLONE_CONFIG_GDRIVE }}"
+    )
+    assert "scope = drive.readonly" in configure["run"]
+    assert "RCLONE_CONFIG_GDRIVE_SCOPE=drive.readonly" in configure["run"]
+
+    download = by_name["Download exact canonical paper evidence read only"]["run"]
+    for token in (
+        "paper_archive/run287_daily_simulated_fill_ledger",
+        "paper_archive/run287_daily_simulated_fill_ledger_heads",
+        '"$RCLONE_BIN" copy "$remote/" "$destination/"',
+        '"$RCLONE_BIN" check "$remote/" "$destination/"',
+    ):
+        assert token in download, token
+    for forbidden in (" copyto ", " sync ", " move ", " delete ", " purge "):
+        assert forbidden not in download, forbidden
+
+    plan = by_name["Freeze catch-up sessions and ticker union"]["run"]
+    source_cache = by_name["Build isolated exact-close source cache"]["run"]
+    build = by_name["Build immutable multi-session capture"]["run"]
+    reconfirm = by_name["Reconfirm Drive and default branch unchanged"]["run"]
+    assert "build_run287_catchup_price_capture.py plan" in plan
+    assert "--state-dir \"$RUN287_CAPTURE_PAPER_CANONICAL_LOCAL\"" in plan
+    assert "--heads-root \"$RUN287_CAPTURE_PAPER_HEADS_LOCAL\"" in plan
+    assert "build_replay_price_cache.py" in source_cache
+    assert "--exact-operating-universe" in source_cache
+    assert '--refresh-through-date "$REQUESTED_SESSION_DATE"' in source_cache
+    assert "build_run287_catchup_price_capture.py build" in build
+    assert '--event-name "$GITHUB_EVENT_NAME"' in build
+    assert '--job-key "$GITHUB_JOB"' in build
+    assert reconfirm.count('"$RCLONE_BIN" check') == 2
+    assert "default branch advanced during capture" in reconfirm
+    assert "git ls-remote" not in reconfirm
+    assert by_name["Reconfirm Drive and default branch unchanged"]["env"][
+        "GH_TOKEN"
+    ] == "${{ github.token }}"
+    assert "/git/ref/heads/${DEFAULT_BRANCH:?}" in reconfirm
+
+    capture_run_text = "\n".join(
+        str(step.get("run") or "") for step in steps
+    )
+    for forbidden in (
+        "run_daily_simulated_fill_ledger.py",
+        "build_run287_same_close_target_books.py",
+        "risk_outcome_migration",
+        "run_local.py --full",
+        "run_broker_ledger_replay.py",
+        "rclone copyto",
+        "rclone sync",
+        "rclone move",
+        "rclone delete",
+        "rclone purge",
+        "git push",
+        "git commit",
+    ):
+        assert forbidden not in capture_run_text, forbidden
+
+    cleanup = by_name["Remove temporary capture credentials"]
+    assert str(cleanup["if"]) == "always()"
+    assert "run287-capture-rclone.conf" in cleanup["run"]
+    assert "run287-capture-service-account.json" in cleanup["run"]
+    upload = by_name["Upload immutable catch-up capture artifact"]
+    assert str(upload["if"]) == "success()"
+    assert upload["with"]["name"] == (
+        "daily-operating-selection-refresh-${{ github.run_id }}"
+    )
+    assert upload["with"]["path"] == (
+        "run287_catchup_price_capture_artifact_root.json\n"
+        "outputs/run287_catchup_price_capture/\n"
+    )
+    assert upload["with"]["if-no-files-found"] == "error"
+
+    for step in steps:
+        run = step.get("run")
+        if not isinstance(run, str):
+            continue
+        assert "${{" not in run, step.get("name")
+        syntax = subprocess.run(
+            [bash_executable(), "-n"],
+            input=run + "\n",
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert syntax.returncode == 0, (step.get("name"), syntax.stderr)
+
+
 def test_full_rebuild_binds_approved_session_and_preflight_artifacts() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     session_step = extract_yaml_literal_run(
@@ -2348,6 +2556,7 @@ def main() -> int:
     test_daily_autolearning_installs_market_calendar_and_remains_report_only()
     test_data_readiness_preflight_workflow_restores_drive_and_audits_without_full_rebuild()
     test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract()
+    test_daily_operating_catchup_capture_is_read_only_and_closed()
     test_latest_run_hydration_preserves_reverified_paper_head_evidence()
     test_pages_deploy_keeps_prior_site_without_completed_session_artifact()
     print("workflow artifact smoke passed")

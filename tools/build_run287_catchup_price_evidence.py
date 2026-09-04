@@ -35,6 +35,20 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
+from tools.build_run287_catchup_price_capture import (  # noqa: E402
+    CAPTURE_ARTIFACT_ROOT_MARKER,
+    CAPTURE_MANIFEST_KEYS,
+    CAPTURE_SCHEMA,
+    CAPTURE_SESSION_FILE_KEYS,
+    CAPTURE_SESSION_KEYS,
+    CAPTURE_STATUS,
+    PLAN_KEYS,
+    PLAN_SCHEMA,
+    PLAN_STATUS,
+    PRICE_MANIFEST_SCHEMA,
+    REQUIRED_BENCHMARKS,
+    SAFETY_ENVELOPE as CAPTURE_SAFETY_ENVELOPE,
+)
 
 
 SCHEMA_VERSION = "run287-catchup-price-evidence-v1"
@@ -86,6 +100,7 @@ SOURCE_FILES = {
     "market_snapshot_summary": Path("outputs/daily_market_snapshot/summary.json"),
     "market_snapshot_csv": Path("outputs/daily_market_snapshot/market_snapshot.csv"),
 }
+CAPTURE_ROOT_RELATIVE = Path("outputs/run287_catchup_price_capture")
 SNAPSHOT_COLUMNS = {
     "ticker",
     "price_available",
@@ -147,6 +162,479 @@ def read_json_object(path: Path, code: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         fail(f"{code}_not_object")
     return value
+
+
+def artifact_regular_file(
+    artifact_root: Path,
+    relative: Path,
+    *,
+    code: str,
+) -> Path:
+    if relative.is_absolute() or any(part in {"", ".", ".."} for part in relative.parts):
+        fail(f"{code}_path_invalid")
+    path = artifact_root / relative
+    current = artifact_root
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            fail(f"{code}_symlink")
+    try:
+        if not path.is_file() or artifact_root.resolve() not in path.resolve().parents:
+            fail(f"{code}_missing_or_unsafe")
+    except OSError:
+        fail(f"{code}_missing_or_unsafe")
+    return path
+
+
+def require_fingerprint(
+    artifact_root: Path,
+    record: Any,
+    *,
+    expected_path: str,
+    code: str,
+) -> Path:
+    if not isinstance(record, dict) or set(record) != {"path", "bytes", "sha256"}:
+        fail(f"{code}_record")
+    if (
+        record.get("path") != expected_path
+        or not isinstance(record.get("bytes"), int)
+        or isinstance(record.get("bytes"), bool)
+        or record["bytes"] <= 0
+        or not SHA256_RE.fullmatch(str(record.get("sha256") or ""))
+    ):
+        fail(f"{code}_record")
+    path = artifact_regular_file(
+        artifact_root,
+        Path(expected_path),
+        code=code,
+    )
+    if path.stat().st_size != record["bytes"] or sha256_file(path) != record["sha256"]:
+        fail(f"{code}_hash")
+    return path
+
+
+def resolve_capture_source_files(
+    *,
+    artifact_root: Path,
+    selected_date: pd.Timestamp,
+    artifact_identity: dict[str, Any],
+    captured_at: pd.Timestamp,
+    ingested_at: pd.Timestamp,
+) -> tuple[dict[str, Path], list[tuple[Path, str, str]], str]:
+    capture_relative = CAPTURE_ROOT_RELATIVE / "manifest.json"
+    capture_path = artifact_regular_file(
+        artifact_root,
+        capture_relative,
+        code="capture_manifest",
+    )
+    capture = read_json_object(capture_path, "capture_manifest")
+    if (
+        set(capture) != CAPTURE_MANIFEST_KEYS
+        or capture.get("schema_version") != CAPTURE_SCHEMA
+        or capture.get("status") != CAPTURE_STATUS
+    ):
+        fail("capture_manifest_schema")
+    for key, expected in CAPTURE_SAFETY_ENVELOPE.items():
+        if capture.get(key) != expected:
+            fail(f"capture_manifest_safety:{key}")
+    source = capture.get("source")
+    expected_source_keys = {
+        "repository",
+        "source_sha",
+        "run_id",
+        "run_attempt",
+        "event_name",
+        "job_key",
+    }
+    if (
+        not isinstance(source, dict)
+        or set(source) != expected_source_keys
+        or source.get("repository") != artifact_identity["repository"]
+        or source.get("source_sha") != artifact_identity["head_sha"]
+        or source.get("run_id") != artifact_identity["run_id"]
+        or source.get("run_attempt") != "1"
+        or source.get("run_attempt") != artifact_identity["workflow_run_attempt"]
+        or source.get("event_name") != artifact_identity["workflow_event"]
+        or source.get("job_key") != "capture_catchup_evidence"
+        or artifact_identity["workflow_event"] != "workflow_dispatch"
+        or artifact_identity["workflow_conclusion"] != "success"
+    ):
+        fail("capture_manifest_source_identity")
+    try:
+        session_count = int(capture.get("pending_session_count"))
+        ticker_count = int(capture.get("ticker_union_count"))
+    except Exception:
+        fail("capture_manifest_counts")
+    sessions = capture.get("sessions")
+    tickers = capture.get("ticker_union")
+    if (
+        not isinstance(sessions, list)
+        or len(sessions) != session_count
+        or not isinstance(tickers, list)
+        or any(
+            not isinstance(ticker, str) or not TICKER_RE.fullmatch(ticker)
+            for ticker in tickers
+        )
+        or tickers != sorted(set(tickers))
+        or len(tickers) != ticker_count
+        or session_count <= 0
+        or ticker_count <= 0
+    ):
+        fail("capture_manifest_counts")
+    ticker_sources = capture.get("ticker_sources")
+    if not isinstance(ticker_sources, dict) or not ticker_sources:
+        fail("capture_ticker_sources")
+    source_union: set[str] = set()
+    for label, values in ticker_sources.items():
+        if (
+            not isinstance(label, str)
+            or not label
+            or not isinstance(values, list)
+            or values != sorted(set(values))
+            or any(value not in tickers for value in values)
+        ):
+            fail("capture_ticker_sources")
+        source_union.update(values)
+    if source_union != set(tickers) or ticker_sources.get("required") != sorted(
+        REQUIRED_BENCHMARKS
+    ):
+        fail("capture_ticker_sources")
+
+    canonical_date = parse_session_date(
+        capture.get("canonical_as_of_date"),
+        "capture_canonical_asof_invalid",
+    )
+    through_date = parse_session_date(
+        capture.get("through_session_date"),
+        "capture_through_session_invalid",
+    )
+    if through_date <= canonical_date:
+        fail("capture_session_range_invalid")
+    schedule = mcal.get_calendar("NYSE").schedule(
+        start_date=(canonical_date + pd.Timedelta(days=1)).date(),
+        end_date=through_date.date(),
+    )
+    expected_sessions = [
+        pd.Timestamp(value).date().isoformat() for value in schedule.index
+    ]
+    if not expected_sessions or expected_sessions[-1] != through_date.date().isoformat():
+        fail("capture_session_range_invalid")
+
+    expected_top = {
+        (CAPTURE_ROOT_RELATIVE / name).as_posix()
+        for name in (
+            "manifest.json",
+            "plan.json",
+            "paper_selection.json",
+            "ticker_union.csv",
+            "source_price_cache_manifest.json",
+        )
+    }
+    marker_path = require_fingerprint(
+        artifact_root,
+        capture.get("artifact_root_marker"),
+        expected_path=CAPTURE_ARTIFACT_ROOT_MARKER.as_posix(),
+        code="capture_artifact_root_marker",
+    )
+    marker = read_json_object(marker_path, "capture_artifact_root_marker")
+    if marker != {
+        "schema_version": "run287-catchup-price-capture-artifact-root-v1",
+        "capture_manifest_path": capture_relative.as_posix(),
+        "repository": artifact_identity["repository"],
+        "source_sha": artifact_identity["head_sha"],
+        "run_id": artifact_identity["run_id"],
+        "read_only": True,
+        "production_mutation_allowed": False,
+        "live_trading_enabled": False,
+    }:
+        fail("capture_artifact_root_marker_contract")
+    expected_top.add(CAPTURE_ARTIFACT_ROOT_MARKER.as_posix())
+    plan_path = require_fingerprint(
+        artifact_root,
+        capture.get("capture_plan"),
+        expected_path=(CAPTURE_ROOT_RELATIVE / "plan.json").as_posix(),
+        code="capture_plan",
+    )
+    plan = read_json_object(plan_path, "capture_plan")
+    if (
+        set(plan) != PLAN_KEYS
+        or plan.get("schema_version") != PLAN_SCHEMA
+        or plan.get("status") != PLAN_STATUS
+    ):
+        fail("capture_plan_contract")
+    for key, expected in CAPTURE_SAFETY_ENVELOPE.items():
+        if plan.get(key) != expected:
+            fail(f"capture_plan_safety:{key}")
+    for key in (
+        "canonical_as_of_date",
+        "through_session_date",
+        "pending_session_count",
+        "ticker_union",
+        "ticker_union_count",
+        "ticker_sources",
+        "paper",
+    ):
+        if plan.get(key) != capture.get(key):
+            fail(f"capture_plan_manifest_mismatch:{key}")
+    if plan.get("pending_sessions") != expected_sessions:
+        fail("capture_plan_session_sequence")
+    plan_generated = parse_utc(
+        plan.get("generated_at_utc"), "capture_plan_generated_at_invalid"
+    )
+    capture_generated = parse_utc(
+        capture.get("generated_at_utc"), "capture_generated_at_invalid"
+    )
+    through_close = exact_nyse_close(through_date)
+    if (
+        plan_generated < through_close + pd.Timedelta(minutes=90)
+        or capture_generated < plan_generated
+        or capture_generated > captured_at
+        or captured_at > ingested_at
+    ):
+        fail("capture_time_order_invalid")
+
+    ticker_book_path = require_fingerprint(
+        artifact_root,
+        capture.get("ticker_book"),
+        expected_path=(CAPTURE_ROOT_RELATIVE / "ticker_union.csv").as_posix(),
+        code="capture_ticker_book",
+    )
+    ticker_book_record = capture["ticker_book"]
+    if plan.get("ticker_book") != {
+        "path": "ticker_union.csv",
+        "bytes": ticker_book_record["bytes"],
+        "sha256": ticker_book_record["sha256"],
+    }:
+        fail("capture_plan_ticker_book_mismatch")
+    try:
+        ticker_book = pd.read_csv(ticker_book_path, dtype=str)
+    except Exception:
+        fail("capture_ticker_book_invalid")
+    if (
+        list(ticker_book.columns) != ["ticker"]
+        or ticker_book["ticker"].tolist() != tickers
+    ):
+        fail("capture_ticker_book_contract")
+
+    source_price_manifest_path = require_fingerprint(
+        artifact_root,
+        capture.get("source_price_cache_manifest"),
+        expected_path=(CAPTURE_ROOT_RELATIVE / "source_price_cache_manifest.json").as_posix(),
+        code="capture_source_price_manifest",
+    )
+    source_price_manifest = read_json_object(
+        source_price_manifest_path, "capture_source_price_manifest"
+    )
+    source_price_files = capture.get("source_price_cache_files")
+    if (
+        source_price_manifest.get("schema_version") != PRICE_MANIFEST_SCHEMA
+        or source_price_manifest.get("status") not in {"completed", "already_cached"}
+        or source_price_manifest.get("exact_operating_universe") is not True
+        or source_price_manifest.get("refresh_through_date")
+        != capture.get("through_session_date")
+        or source_price_manifest.get("refresh_through_exact_coverage") is not True
+        or source_price_manifest.get("refresh_through_ticker_count") != ticker_count
+        or source_price_manifest.get("refresh_through_exact_ticker_count")
+        != ticker_count
+        or source_price_manifest.get("review_only") is not True
+        or source_price_manifest.get("production_mutation_allowed") is not False
+        or source_price_manifest.get("live_trading_enabled") is not False
+        or source_price_manifest.get("cache_files") != source_price_files
+        or not isinstance(source_price_files, dict)
+        or sorted(source_price_files) != tickers
+    ):
+        fail("capture_source_price_file_map_mismatch")
+    for ticker in tickers:
+        record = source_price_files[ticker]
+        if (
+            not isinstance(record, dict)
+            or set(record) != {"file", "sha256", "bytes"}
+            or record.get("file") != px_cache_name(ticker)
+            or not SHA256_RE.fullmatch(str(record.get("sha256") or ""))
+            or not isinstance(record.get("bytes"), int)
+            or isinstance(record.get("bytes"), bool)
+            or record["bytes"] <= 0
+        ):
+            fail(f"capture_source_price_file_record:{ticker}")
+    selection_record = ((capture.get("paper") or {}).get("immutable_heads") or {})
+    selection_path = artifact_regular_file(
+        artifact_root,
+        CAPTURE_ROOT_RELATIVE / "paper_selection.json",
+        code="capture_paper_selection",
+    )
+    if (
+        selection_path.stat().st_size != selection_record.get("selection_bytes")
+        or sha256_file(selection_path) != selection_record.get("selection_sha256")
+    ):
+        fail("capture_paper_selection_hash")
+
+    selected_text = selected_date.date().isoformat()
+    selected_paths: dict[str, Path] | None = None
+    selected_specs: list[tuple[Path, str, str]] = []
+    expected_tree = set(expected_top)
+    observed_sessions: list[str] = []
+    for index, record in enumerate(sessions):
+        if not isinstance(record, dict) or set(record) != CAPTURE_SESSION_KEYS:
+            fail(f"capture_session_record:{index}")
+        session_text = str(record.get("session_date") or "")
+        parsed = parse_session_date(session_text, "capture_session_date")
+        if observed_sessions and parsed <= parse_session_date(
+            observed_sessions[-1], "capture_session_date"
+        ):
+            fail("capture_sessions_not_strictly_ordered")
+        observed_sessions.append(session_text)
+        files = record.get("files")
+        if (
+            record.get("ticker_count") != ticker_count
+            or not isinstance(files, dict)
+            or set(files) != CAPTURE_SESSION_FILE_KEYS
+        ):
+            fail(f"capture_session_contract:{session_text}")
+        official_close = exact_nyse_close(parsed)
+        if parse_utc(
+            record.get("official_market_close_utc"),
+            "capture_session_close_invalid",
+        ) != official_close:
+            fail(f"capture_session_close_mismatch:{session_text}")
+        base = CAPTURE_ROOT_RELATIVE / "sessions" / session_text / "outputs"
+        expected = {
+            "market_session_gate": base / "daily_market_session_gate/session.json",
+            "market_snapshot_csv": base / "daily_market_snapshot/market_snapshot.csv",
+            "market_snapshot_summary": base / "daily_market_snapshot/summary.json",
+            "market_snapshot_report": base / "daily_market_snapshot/report.md",
+        }
+        verified: dict[str, Path] = {}
+        for label, relative in expected.items():
+            expected_path = relative.as_posix()
+            verified[label] = require_fingerprint(
+                artifact_root,
+                files.get(label),
+                expected_path=expected_path,
+                code=f"capture_session_{label}",
+            )
+            expected_tree.add(expected_path)
+        gate = read_json_object(
+            verified["market_session_gate"], "capture_session_gate"
+        )
+        gate_checked_at = validate_gate(
+            gate,
+            selected_date=parsed,
+            official_close=official_close,
+        )
+        summary = read_json_object(
+            verified["market_snapshot_summary"],
+            "capture_session_summary",
+        )
+        validate_summary(
+            summary,
+            selected_date=parsed,
+            official_close=official_close,
+            gate_checked_at=gate_checked_at,
+            captured_at=captured_at,
+            ingested_at=ingested_at,
+        )
+        if (
+            summary.get("asof_date") != session_text
+            or summary.get("latest_price_date_min") != session_text
+            or summary.get("exact_asof_close_required") is not True
+            or summary.get("exact_asof_close_count") != ticker_count
+            or summary.get("exact_asof_close_missing_count") != 0
+            or summary.get("exact_asof_close_missing_tickers") != []
+            or summary.get("ticker_count") != ticker_count
+        ):
+            fail(f"capture_session_summary_contract:{session_text}")
+        if session_text == selected_text:
+            if selected_paths is not None:
+                fail("capture_selected_session_duplicate")
+            selected_paths = {
+                "market_session_gate": verified["market_session_gate"],
+                "market_snapshot_summary": verified["market_snapshot_summary"],
+                "market_snapshot_csv": verified["market_snapshot_csv"],
+            }
+            selected_specs = [
+                (
+                    verified[label],
+                    label,
+                    expected[label].as_posix(),
+                )
+                for label in (
+                    "market_session_gate",
+                    "market_snapshot_summary",
+                    "market_snapshot_csv",
+                )
+            ]
+    if selected_paths is None:
+        fail("capture_selected_session_missing")
+    if observed_sessions != expected_sessions:
+        fail("capture_session_sequence")
+    actual_tree: set[str] = set()
+    for path in artifact_root.rglob("*"):
+        if path.is_symlink():
+            fail("capture_tree_symlink")
+        if path.is_file():
+            actual_tree.add(path.relative_to(artifact_root).as_posix())
+        elif not path.is_dir():
+            fail("capture_tree_non_regular")
+    if actual_tree != expected_tree:
+        fail("capture_tree_file_set")
+    return (
+        selected_paths,
+        [
+            (
+                capture_path,
+                "catchup_price_capture_manifest",
+                capture_relative.as_posix(),
+            ),
+            *selected_specs,
+        ],
+        "MULTI_SESSION_READ_ONLY_CAPTURE",
+    )
+
+
+def resolve_source_files(
+    *,
+    artifact_root: Path,
+    selected_date: pd.Timestamp,
+    artifact_identity: dict[str, Any],
+    captured_at: pd.Timestamp,
+    ingested_at: pd.Timestamp,
+) -> tuple[dict[str, Path], list[tuple[Path, str, str]], str]:
+    capture_manifest = artifact_root / CAPTURE_ROOT_RELATIVE / "manifest.json"
+    flat_paths = {
+        label: artifact_root / relative for label, relative in SOURCE_FILES.items()
+    }
+    flat_present = [path.is_file() for path in flat_paths.values()]
+    if capture_manifest.is_file():
+        if any(flat_present):
+            fail("artifact_source_layout_ambiguous")
+        return resolve_capture_source_files(
+            artifact_root=artifact_root,
+            selected_date=selected_date,
+            artifact_identity=artifact_identity,
+            captured_at=captured_at,
+            ingested_at=ingested_at,
+        )
+    if not all(flat_present):
+        missing = [
+            label for (label, path), present in zip(flat_paths.items(), flat_present)
+            if not present
+        ]
+        fail("artifact_source_missing:" + ",".join(sorted(missing)))
+    unsafe = [
+        label
+        for label, path in flat_paths.items()
+        if path.is_symlink() or artifact_root not in path.resolve().parents
+    ]
+    if unsafe:
+        fail("artifact_source_unsafe:" + ",".join(sorted(unsafe)))
+    return (
+        flat_paths,
+        [
+            (flat_paths[label], label, str(SOURCE_FILES[label]))
+            for label in sorted(flat_paths)
+        ],
+        "LEGACY_SINGLE_SESSION_DAILY_ARTIFACT",
+    )
 
 
 def parse_session_date(value: Any, code: str) -> pd.Timestamp:
@@ -698,32 +1186,16 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         run_id = str(artifact_identity["run_id"])
         artifact_name = str(artifact_identity["artifact_name"])
 
-        source_paths = {
-            label: artifact_root / relative
-            for label, relative in SOURCE_FILES.items()
-        }
-        missing_sources = [
-            label for label, path in source_paths.items() if not path.is_file()
-        ]
-        if missing_sources:
-            fail("artifact_source_missing:" + ",".join(sorted(missing_sources)))
-        unsafe_sources = [
-            label
-            for label, path in source_paths.items()
-            if path.is_symlink() or artifact_root not in path.resolve().parents
-        ]
-        if unsafe_sources:
-            fail("artifact_source_unsafe:" + ",".join(sorted(unsafe_sources)))
+        source_paths, resolved_source_specs, source_layout = resolve_source_files(
+            artifact_root=artifact_root,
+            selected_date=selected_date,
+            artifact_identity=artifact_identity,
+            captured_at=captured_at,
+            ingested_at=ingested_at,
+        )
         source_specs = [
             (metadata_path, "artifact_metadata", metadata_path.name),
-            *[
-                (
-                    source_paths[label],
-                    label,
-                    str(SOURCE_FILES[label]),
-                )
-                for label in sorted(source_paths)
-            ],
+            *resolved_source_specs,
         ]
         sources_before = [
             fingerprint(path, label=label, relative_path=relative)
@@ -818,6 +1290,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 ),
                 "ingested_at_utc": ingested_at.isoformat(),
                 "artifact": artifact_identity,
+                "source_layout": source_layout,
                 "source_files": sources,
                 "required_tickers": required,
                 "ticker_selection_mode": (
@@ -866,6 +1339,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                     captured_at.isoformat() if captured_at is not None else ""
                 ),
                 "artifact": artifact_identity,
+                "source_layout": source_layout,
                 "required_tickers": required,
                 "ticker_selection_mode": (
                     "EXPLICIT_USED_TICKERS"
