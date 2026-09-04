@@ -106,10 +106,21 @@ def collect_required_tickers(
     required_tickers: Iterable[str],
     session_date: pd.Timestamp,
 ) -> tuple[set[str], dict[str, list[str]]]:
+    target_paths = list(targets)
+    account_paths = list(accounts)
+    target_name_counts = {
+        name: sum(path.name == name for path in target_paths)
+        for name in {path.name for path in target_paths}
+    }
     sources: dict[str, set[str]] = {}
-    for path in targets:
-        sources[f"target:{path.name}"] = latest_target_tickers(path, session_date)
-    for path in accounts:
+    for path in target_paths:
+        label = (
+            f"target:{path.name}"
+            if target_name_counts[path.name] == 1
+            else f"target:{path.parent.name}/{path.name}"
+        )
+        sources[label] = latest_target_tickers(path, session_date)
+    for path in account_paths:
         sources[f"account:{path.name}"] = account_tickers(path)
     for path in sorted(state_dir.glob("*/account_state_latest.json")) if state_dir.exists() else []:
         sources[f"state_account:{path.parent.name}"] = account_tickers(path)

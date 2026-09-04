@@ -136,8 +136,95 @@ def test_daily_market_snapshot_builder() -> None:
         assert (data_lake_dir / "latest_manifest.json").exists()
 
 
+def test_historical_asof_excludes_future_rows_and_strict_mode_fails_closed() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        price_cache = root / "cache_prices"
+        price_cache.mkdir(parents=True)
+        book = root / "book.csv"
+        info_cache = root / "info.csv"
+        pd.DataFrame({"ticker": ["AAA"]}).to_csv(book, index=False)
+        pd.DataFrame(columns=["ticker"]).to_csv(info_cache, index=False)
+        pd.DataFrame(
+            {
+                "Open": [99.0, 998.0],
+                "High": [101.0, 1000.0],
+                "Low": [98.0, 997.0],
+                "Close": [100.0, 999.0],
+                "Adj Close": [100.0, 999.0],
+                "Volume": [1_000_000.0, 1_000_000.0],
+            },
+            index=pd.to_datetime(["2026-06-17", "2026-06-18"]),
+        ).to_parquet(price_cache / px_cache_name("AAA"))
+
+        def command(output: Path) -> list[str]:
+            return [
+                sys.executable,
+                str(ROOT / "tools" / "build_daily_market_snapshot.py"),
+                "--price-cache",
+                str(price_cache),
+                "--book",
+                str(book),
+                "--scored",
+                str(root / "missing_scored.csv"),
+                "--max-scored",
+                "0",
+                "--required-tickers",
+                "AAA",
+                "--output-dir",
+                str(output),
+                "--data-lake-dir",
+                str(output / "data_lake"),
+                "--info-cache",
+                str(info_cache),
+                "--no-fetch-live-info",
+                "--asof-date",
+                "2026-06-17",
+                "--require-exact-asof-close",
+            ]
+
+        exact_output = root / "exact"
+        result = subprocess.run(
+            command(exact_output), cwd=ROOT, capture_output=True, text=True
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        snapshot = pd.read_csv(exact_output / "market_snapshot.csv")
+        summary = json.loads(
+            (exact_output / "summary.json").read_text(encoding="utf-8")
+        )
+        assert snapshot.loc[0, "latest_price_date"] == "2026-06-17"
+        assert float(snapshot.loc[0, "previous_close"]) == 100.0
+        assert summary["exact_asof_close_required"] is True
+        assert summary["exact_asof_close_count"] == 1
+        assert summary["exact_asof_close_missing_tickers"] == []
+
+        pd.DataFrame({"ticker": ["AAA", "BBB"]}).to_csv(book, index=False)
+        pd.DataFrame(
+            {
+                "Open": [49.0],
+                "High": [51.0],
+                "Low": [48.0],
+                "Close": [50.0],
+                "Adj Close": [50.0],
+                "Volume": [1_000_000.0],
+            },
+            index=pd.to_datetime(["2026-06-16"]),
+        ).to_parquet(price_cache / px_cache_name("BBB"))
+        blocked_output = root / "blocked"
+        result = subprocess.run(
+            command(blocked_output), cwd=ROOT, capture_output=True, text=True
+        )
+        assert result.returncode == 2, result.stdout + result.stderr
+        summary = json.loads(
+            (blocked_output / "summary.json").read_text(encoding="utf-8")
+        )
+        assert summary["status"] == "blocked"
+        assert summary["exact_asof_close_missing_tickers"] == ["BBB"]
+
+
 def main() -> int:
     test_daily_market_snapshot_builder()
+    test_historical_asof_excludes_future_rows_and_strict_mode_fails_closed()
     print("daily_market_snapshot_smoke: PASS")
     return 0
 

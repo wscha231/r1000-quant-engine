@@ -370,6 +370,7 @@ def test_attestation_builder_and_pagination() -> None:
         "allow_verified_paper_canonical_head_bootstrap",
         "catchup_price_evidence_artifact_digest",
         "catchup_price_evidence_run_id",
+        "capture_catchup_evidence_only",
         "force_run",
         "latest_run",
         "session_date",

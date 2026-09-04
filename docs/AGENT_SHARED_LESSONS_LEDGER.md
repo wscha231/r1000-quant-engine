@@ -4753,3 +4753,36 @@ Expected contract:
 - Fullrun executed: false. Workflow dispatched or rerun: false. Migration,
   quarantine, Drive, target, order, ledger, accepted-head, production, live
   trading, and automatic promotion state mutated: false.
+
+## 2026-09-04 - Historical as-of labels do not prove historical price selection
+
+- Agent: Codex GPT-5.6.
+- Branch: `codex/run287-catchup-evidence-capture-20260904`.
+- Context: The verified paper terminal is 2026-07-24 and chronological catch-up
+  begins 2026-07-27, but retained daily artifacts do not contain one exact,
+  hash-bound close snapshot for every missing session.
+- Root cause: The daily snapshot builder accepted an as-of label while still
+  selecting the final row in each cache file. A cache containing later bars
+  could therefore create a future-row historical snapshot. Separately, both
+  portfolio target inputs share the basename `effective_target_latest.csv`, so
+  a basename-keyed source map silently replaced one portfolio with the other.
+- Reusable lesson: An as-of field is metadata, not a time boundary. Filter the
+  physical observation set at or before the requested session before choosing
+  a row, then require every used ticker to equal that session. When multiple
+  inputs can share a basename, source identity must include a stable parent
+  namespace and tests must prove both inputs survive.
+- Reusable lesson: Historical catch-up evidence should be captured once as a
+  closed, read-only multi-session tree, while each transactional run consumes
+  exactly one independently revalidated slice. Bind the complete NYSE session
+  sequence, all file hashes, source-cache manifest, paper terminal/head chain,
+  workflow SHA/run/attempt/job, and exact artifact file set. Reject reruns,
+  gaps, future rows, missing closes, extra files, and any Drive write command.
+- Evidence files:
+  - `tools/build_run287_catchup_price_capture.py`
+  - `tools/build_run287_catchup_price_evidence.py`
+  - `tests/run287_catchup_price_capture_smoke.py`
+  - `tests/run287_catchup_price_evidence_smoke.py`
+  - `docs/CODEX_RUN287_CATCHUP_PRICE_EVIDENCE_CAPTURE_RESULT_20260904.md`
+- Fullrun executed: false. Workflow dispatched or rerun: false. Migration,
+  quarantine, Drive, target, order, ledger, accepted-head, production, live
+  trading, and automatic promotion state mutated: false.

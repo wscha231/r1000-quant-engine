@@ -144,7 +144,12 @@ def merge_sources(target: dict[str, set[str]], extra: dict[str, set[str]]) -> No
         target.setdefault(ticker, set()).update(labels)
 
 
-def load_latest_price(price_cache: Path, ticker: str) -> dict[str, Any]:
+def load_latest_price(
+    price_cache: Path,
+    ticker: str,
+    *,
+    asof: date | None = None,
+) -> dict[str, Any]:
     path = price_cache / px_cache_name(ticker)
     base = {
         "ticker": ticker,
@@ -176,8 +181,15 @@ def load_latest_price(price_cache: Path, ticker: str) -> dict[str, Any]:
     d = frame.copy()
     d.index = pd.to_datetime(d.index, errors="coerce").tz_localize(None)
     d = d[d.index.notna()].sort_index()
+    if asof is not None:
+        cutoff = pd.Timestamp(asof).normalize()
+        d = d[d.index.normalize() <= cutoff]
     if d.empty:
-        base["price_missing_reason"] = "price_dates_invalid"
+        base["price_missing_reason"] = (
+            "price_cache_no_bar_on_or_before_asof"
+            if asof is not None
+            else "price_dates_invalid"
+        )
         return base
     close_col = "Close" if "Close" in d.columns else ("Adj Close" if "Adj Close" in d.columns else "")
     if not close_col:
@@ -336,7 +348,7 @@ def build_rows(
     info_map = info.set_index("ticker", drop=False).to_dict("index") if not info.empty else {}
     rows: list[dict[str, Any]] = []
     for ticker in tickers:
-        price = load_latest_price(price_cache, ticker)
+        price = load_latest_price(price_cache, ticker, asof=today)
         item = dict(price)
         row = info_map.get(ticker, {})
         shares = safe_float(row.get("shares_outstanding"))
@@ -395,13 +407,32 @@ def build_rows(
     return pd.DataFrame(rows)
 
 
-def summarize(snapshot: pd.DataFrame, *, output_dir: Path, data_lake_dir: Path, asof: date) -> dict[str, Any]:
+def summarize(
+    snapshot: pd.DataFrame,
+    *,
+    output_dir: Path,
+    data_lake_dir: Path,
+    asof: date,
+    require_exact_asof_close: bool = False,
+    generated_at: pd.Timestamp | None = None,
+) -> dict[str, Any]:
     price_dates = pd.to_datetime(snapshot.get("latest_price_date", pd.Series(dtype=str)), errors="coerce")
+    available = snapshot.get("price_available", pd.Series(dtype=bool)).fillna(False).astype(bool)
+    exact = available & price_dates.dt.normalize().eq(pd.Timestamp(asof))
+    tickers = snapshot.get("ticker", pd.Series(dtype=str)).fillna("").astype(str)
+    missing_exact = sorted(tickers[~exact].tolist()) if len(snapshot) else []
+    status = "completed" if len(snapshot) and bool(available.any()) else "blocked"
+    if require_exact_asof_close and (not len(snapshot) or missing_exact):
+        status = "blocked"
+    generated = pd.Timestamp(generated_at) if generated_at is not None else pd.Timestamp(now_utc())
+    if generated.tzinfo is None:
+        raise ValueError("generated_at must be timezone-aware")
+    generated = generated.tz_convert("UTC")
     return {
         "schema_version": "daily-market-snapshot-v1",
-        "generated_at_utc": now_utc().isoformat(),
+        "generated_at_utc": generated.isoformat(),
         "asof_date": asof.isoformat(),
-        "status": "completed" if len(snapshot) and bool(snapshot.get("price_available", pd.Series(dtype=bool)).any()) else "blocked",
+        "status": status,
         "ticker_count": int(len(snapshot)),
         "price_available_count": int(snapshot.get("price_available", pd.Series(dtype=bool)).fillna(False).sum()),
         "market_cap_available_count": int(snapshot.get("market_cap_usable", pd.Series(dtype=bool)).fillna(False).sum()),
@@ -409,6 +440,10 @@ def summarize(snapshot: pd.DataFrame, *, output_dir: Path, data_lake_dir: Path, 
         "benchmark_count": int(snapshot.get("is_benchmark", pd.Series(dtype=bool)).fillna(False).sum()),
         "latest_price_date_min": price_dates.min().date().isoformat() if price_dates.notna().any() else "",
         "latest_price_date_max": price_dates.max().date().isoformat() if price_dates.notna().any() else "",
+        "exact_asof_close_required": bool(require_exact_asof_close),
+        "exact_asof_close_count": int(exact.sum()),
+        "exact_asof_close_missing_count": len(missing_exact),
+        "exact_asof_close_missing_tickers": missing_exact,
         "stale_price_rows_gt_3d": int((pd.to_numeric(snapshot.get("price_stale_days"), errors="coerce") > 3).sum())
         if len(snapshot)
         else 0,
@@ -494,6 +529,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sleep-seconds", type=float, default=0.15)
     parser.add_argument("--no-fetch-live-info", action="store_true")
     parser.add_argument("--asof-date", default="")
+    parser.add_argument(
+        "--require-exact-asof-close",
+        action="store_true",
+        help=(
+            "Fail closed unless every emitted ticker has exactly the requested "
+            "as-of session close. Future cache rows are never eligible."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -536,7 +579,13 @@ def main() -> int:
         benchmark_tickers=set(required),
         today=asof,
     )
-    summary = summarize(snapshot, output_dir=output_dir, data_lake_dir=data_lake_dir, asof=asof)
+    summary = summarize(
+        snapshot,
+        output_dir=output_dir,
+        data_lake_dir=data_lake_dir,
+        asof=asof,
+        require_exact_asof_close=bool(args.require_exact_asof_close),
+    )
     write_outputs(snapshot, summary, output_dir, data_lake_dir)
     print(json.dumps({"status": summary["status"], "ticker_count": summary["ticker_count"], "output_dir": str(output_dir)}))
     return 0 if summary["status"] != "blocked" else 2

@@ -557,7 +557,8 @@ def test_workflow_scope_and_order() -> None:
             )
     trigger = workflow.get("on") or workflow.get(True)
     inputs = trigger["workflow_dispatch"]["inputs"]
-    assert len(inputs) == 10
+    assert len(inputs) == 11
+    assert inputs["capture_catchup_evidence_only"]["default"] is False
 
     assert workflow["jobs"]["refresh"]["environment"] == (
         "run287-paper-durable"

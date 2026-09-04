@@ -105,6 +105,7 @@ EVENT_INPUT_KEYS = {
     "catchup_price_evidence_artifact_digest",
     "catchup_price_evidence_run_id",
     "catchup_secret_scope_attestation_comment_id",
+    "capture_catchup_evidence_only",
     "force_run",
     "latest_run",
     "session_date",
@@ -117,6 +118,7 @@ BOOLEAN_INPUT_KEYS = {
     "allow_quarantined_legacy_outcome_parent",
     "allow_risk_outcome_genesis_bootstrap",
     "allow_verified_paper_canonical_head_bootstrap",
+    "capture_catchup_evidence_only",
     "force_run",
     "strict_selection",
 }
@@ -257,6 +259,7 @@ def expected_dispatch_inputs(
         ),
         "catchup_price_evidence_run_id": evidence_run_id,
         "catchup_secret_scope_attestation_comment_id": str(comment_id),
+        "capture_catchup_evidence_only": False,
         "force_run": True,
         "latest_run": "outputs",
         "session_date": session_date,
