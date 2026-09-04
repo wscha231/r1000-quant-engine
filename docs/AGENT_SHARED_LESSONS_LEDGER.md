@@ -99,21 +99,28 @@ Expected contract:
   then enqueue a changed same-close target as `SELECTED_TARGET`.
 - Attempt: Inspect the post-H1 evidence and trace the two local paper
   transactions through the later immutable-head persistence step.
-- Result: The workflow now verifies and byte-preserves the first `MARK_ONLY`
+- Result: The workflow now verifies and byte-preserves a first `MARK_ONLY`
   state under `$RUNNER_TEMP`, then requires it and the final state to form the
-  prospective immutable chain before any Drive publication.
+  prospective immutable chain before any Drive publication. An idempotent
+  same-session `SELECTED_TARGET` retry is instead accepted only when the
+  suppressed pass leaves the pre-transaction ledger byte-identical.
 - Failure or caveat: Previously only the final mutable ledger directory was
   installed prospectively; a successful second same-session transaction could
-  therefore reference a parent head that was never retained.
+  therefore reference a parent head that was never retained. The first draft
+  of the fix also incorrectly required every suppressed retry to materialize a
+  `MARK_ONLY` state, blocking the ledger's intentional byte-identical
+  `SELECTED_TARGET` reuse path.
 - Root cause: Immutable-head collection happened after both transactions, while
   the first accepted state was held only in the mutable state directory.
 - Reusable lesson: When one job permits multiple accepted state transitions,
-  freeze and verify every intermediate parent before the next mutation and
-  publish the complete chain in parent-first order.
+  freeze and verify every newly created intermediate parent before the next
+  mutation and publish the complete chain in parent-first order. Distinguish
+  that transition from an integrity-verified idempotent no-op retry.
 - Next action: Require exact-head review and green CI before merge, then keep
   migration and chronological catch-up work in separate changes.
 - Do-not-repeat: Do not infer an intermediate immutable parent from a final
-  child manifest or allow a later transaction to overwrite its only copy.
+  child manifest, allow a later transaction to overwrite its only copy, or
+  force a synthetic parent onto a byte-identical same-session retry.
 - Evidence files: `.github/workflows/daily_operating_selection_refresh.yml`,
   `tests/run287_paper_ledger_transaction_smoke.py`
 

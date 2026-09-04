@@ -895,10 +895,25 @@ def test_suppressed_preview_is_explicit_hash_bound_and_transition_safe() -> None
         selected = run(ledger_args(root, date))
         assert selected["result_status"] in {"RESTORED_CONTINUATION", "GENESIS"}
         selected_state = directory_hashes(root / "paper")
+        selected_hash = json.loads(
+            (root / "paper" / "snapshot_integrity.json").read_text(
+                encoding="utf-8"
+            )
+        )["snapshot_hash"]
 
         mark_only = run(ledger_args(root, date, suppress_new_orders=True))
         assert mark_only["result_status"] == "NO_NEW_ORDER_PREVIEW"
         assert directory_hashes(root / "paper") == selected_state
+        assert json.loads(
+            (root / "paper" / "accepted_publication.json").read_text(
+                encoding="utf-8"
+            )
+        )["transaction_mode"] == "SELECTED_TARGET"
+        assert json.loads(
+            (root / "paper" / "snapshot_integrity.json").read_text(
+                encoding="utf-8"
+            )
+        )["snapshot_hash"] == selected_hash
         for portfolio in ("main", "concentrated"):
             preview_dir = root / "previews" / portfolio
             manifest = json.loads((preview_dir / "order_batch_manifest.json").read_text(encoding="utf-8"))
@@ -2306,25 +2321,58 @@ def test_workflow_separates_failed_evidence_from_accepted_paper_state() -> None:
         mark_only_preserve,
     )
     assert first_transaction < mark_only_preserve < second_transaction
-    assert 'publication.get("transaction_mode") != "MARK_ONLY"' in script
+    pre_transaction = script.index(
+        'PAPER_PRE_TRANSACTION_HEAD="$RUNNER_TEMP/'
+        'run287_daily_simulated_fill_ledger_pre_transaction"'
+    )
+    assert pre_transaction < first_transaction
+    assert 'mode = publication.get("transaction_mode")' in script
+    assert 'mode == "MARK_ONLY"' in script
+    assert 'mode == "SELECTED_TARGET"' in script
+    assert 'disposition = "PRESERVE_MARK_ONLY"' in script
+    assert 'disposition = "REUSE_SELECTED_TARGET"' in script
+    assert 'set(portfolios) != {"main", "concentrated"}' in script
     assert (
-        'summary.get("new_order_generation_suppressed") is not True'
+        'PAPER_FIRST_TRANSACTION_FIELDS < <(python - "$PAPER_AS_OF"'
         in script
     )
-    assert 'row.get("enqueued_this_run") != 0' in script
     assert (
-        "outputs/daily_simulated_fill_ledger/. \\\n"
-        '  "$PAPER_MARK_ONLY_TRANSACTION_HEAD/"'
+        'summary.get("new_order_generation_suppressed") is True'
+        in script
+    )
+    assert 'row.get("enqueued_this_run") == 0' in script
+    assert (
+        'summary.get("as_of_date") == sys.argv[1]'
+        in script
+    )
+    assert 'publication.get("as_of_date") == sys.argv[1]' in script
+    assert (
+        '"$PAPER_FIRST_TRANSACTION_HASH" != '
+        '"$PAPER_PRE_TRANSACTION_HASH"'
         in script
     )
     assert (
-        'PAPER_MARK_ONLY_COPY_HASH" != '
-        '"$PAPER_MARK_ONLY_TRANSACTION_HASH"'
+        'PAPER_MARK_ONLY_TRANSACTION_HEAD=$PAPER_MARK_ONLY_TRANSACTION_HEAD'
         in script
     )
     assert (
         "outputs/daily_simulated_fill_ledger \\\n"
-        '     "$PAPER_MARK_ONLY_TRANSACTION_HEAD"'
+        '    "$PAPER_PRE_TRANSACTION_HEAD"'
+        in script
+    )
+    assert (
+        "outputs/daily_simulated_fill_ledger/. \\\n"
+        '      "$PAPER_MARK_ONLY_TRANSACTION_HEAD/"'
+        in script
+    )
+    assert (
+        'PAPER_MARK_ONLY_COPY_HASH" != '
+        '"$PAPER_FIRST_TRANSACTION_HASH"'
+        in script
+    )
+    assert (
+        "outputs/daily_simulated_fill_ledger \\\n"
+        '         "$PAPER_MARK_ONLY_TRANSACTION_HEAD"'
         in script
     )
     reports = by_name["Build post-gate operating reports"]
@@ -2462,13 +2510,18 @@ def test_workflow_legacy_drive_migration_is_one_time_and_quarantined() -> None:
     transaction = by_name["Run transactional paper ledger and same-close selector"]["run"]
     persist = by_name["Persist validated forward paper ledger state"]["run"]
     assert (
-        'PAPER_MARK_ONLY_TRANSACTION_HEAD:-}'
-        '" != "$EXPECTED_MARK_ONLY_HEAD"'
+        'case "${PAPER_FIRST_TRANSACTION_DISPOSITION:-}" in'
+        in persist
+    )
+    assert "PRESERVE_MARK_ONLY)" in persist
+    assert "REUSE_SELECTED_TARGET)" in persist
+    assert (
+        'OBSERVED_MARK_ONLY_HASH" != '
+        '"$PAPER_FIRST_TRANSACTION_HASH"'
         in persist
     )
     assert (
-        'OBSERVED_MARK_ONLY_HASH" != '
-        '"$PAPER_MARK_ONLY_TRANSACTION_HASH"'
+        '"$PAPER_FIRST_TRANSACTION_HASH" != "$LOCAL_SNAPSHOT_HASH"'
         in persist
     )
     mark_only_install = persist.index(

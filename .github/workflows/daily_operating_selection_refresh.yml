@@ -2433,6 +2433,36 @@ jobs:
               "$RUN287_LEGACY_V1_APPROVED_TREE_SHA256"
             )
           fi
+          # A same-session retry may already be at an accepted
+          # SELECTED_TARGET state.  Freeze the integrity-valid input so the
+          # suppressed pass can prove that such a retry was a byte-identical
+          # no-op instead of misclassifying it as a new MARK_ONLY parent.
+          PAPER_PRE_TRANSACTION_HEAD="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_pre_transaction"
+          PAPER_PRE_TRANSACTION_HASH=""
+          rm -rf "$PAPER_PRE_TRANSACTION_HEAD"
+          if [ -s outputs/daily_simulated_fill_ledger/snapshot_integrity.json ]; then
+            python tools/run287_paper_ledger_integrity.py \
+              --state-dir outputs/daily_simulated_fill_ledger \
+              --require-integrity
+            PAPER_PRE_TRANSACTION_HASH="$(python -c 'import json; print(json.load(open("outputs/daily_simulated_fill_ledger/snapshot_integrity.json", encoding="utf-8"))["snapshot_hash"])')"
+            if ! [[ "$PAPER_PRE_TRANSACTION_HASH" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "[paper-ledger] BLOCKED: pre-transaction snapshot hash is invalid"
+              exit 2
+            fi
+            mkdir -p "$PAPER_PRE_TRANSACTION_HEAD"
+            cp -a \
+              outputs/daily_simulated_fill_ledger/. \
+              "$PAPER_PRE_TRANSACTION_HEAD/"
+            python tools/run287_paper_ledger_integrity.py \
+              --state-dir "$PAPER_PRE_TRANSACTION_HEAD" \
+              --require-integrity
+            if ! diff -qr \
+              outputs/daily_simulated_fill_ledger \
+              "$PAPER_PRE_TRANSACTION_HEAD" >/dev/null; then
+              echo "[paper-ledger] BLOCKED: pre-transaction snapshot copy is not byte-exact"
+              exit 2
+            fi
+          fi
           # First settle prior next-close orders and freeze the exact-close
           # account mark.  This pass is transaction-safe but may not create a
           # new preview or order from a restored target.
@@ -2558,17 +2588,19 @@ jobs:
           )
           PY
           fi
-          # Preserve the first accepted same-session transition before any
-          # selector-ready second transaction can replace the mutable state
-          # directory.  The persistence step later installs both this
-          # MARK_ONLY head and the final head into one verified linear chain.
+          # Preserve a newly observed MARK_ONLY transition before any
+          # selector-ready second transaction can replace the mutable state.
+          # If this is an idempotent retry of an already accepted
+          # SELECTED_TARGET state, require exact equality with the frozen
+          # pre-transaction state and do not invent a MARK_ONLY parent.
           PAPER_MARK_ONLY_TRANSACTION_HEAD="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_mark_only_head"
           rm -rf "$PAPER_MARK_ONLY_TRANSACTION_HEAD"
           python tools/run287_paper_ledger_integrity.py \
             --state-dir outputs/daily_simulated_fill_ledger \
             --require-integrity
-          PAPER_MARK_ONLY_TRANSACTION_HASH="$(python - <<'PY'
+          readarray -t PAPER_FIRST_TRANSACTION_FIELDS < <(python - "$PAPER_AS_OF" <<'PY'
           import json
+          import sys
           from pathlib import Path
 
           state = Path("outputs/daily_simulated_fill_ledger")
@@ -2585,42 +2617,98 @@ jobs:
                   encoding="utf-8"
               )
           )
+          mode = publication.get("transaction_mode")
+          snapshot_hash = str(integrity.get("snapshot_hash") or "")
+          portfolios = summary.get("portfolios") or {}
           if (
-              publication.get("transaction_mode") != "MARK_ONLY"
-              or summary.get("new_order_generation_suppressed") is not True
-              or any(
-                  row.get("enqueued_this_run") != 0
-                  for row in (summary.get("portfolios") or {}).values()
-              )
+              not isinstance(portfolios, dict)
+              or set(portfolios) != {"main", "concentrated"}
           ):
-              raise SystemExit(
-                  "paper ledger blocked: first same-session state is not "
-                  "a zero-new-order MARK_ONLY transaction"
+              raise SystemExit("paper ledger blocked: portfolio summary is invalid")
+          if mode == "MARK_ONLY":
+              valid = (
+                  summary.get("new_order_generation_suppressed") is True
+                  and all(
+                      row.get("enqueued_this_run") == 0
+                      for row in portfolios.values()
+                  )
               )
-          print(integrity["snapshot_hash"])
+              disposition = "PRESERVE_MARK_ONLY"
+          elif mode == "SELECTED_TARGET":
+              valid = (
+                  summary.get("as_of_date") == sys.argv[1]
+                  and publication.get("as_of_date") == sys.argv[1]
+                  and summary.get("new_order_generation_suppressed") is False
+                  and all(
+                      row.get("new_order_generation_suppressed") is False
+                      for row in portfolios.values()
+                  )
+              )
+              disposition = "REUSE_SELECTED_TARGET"
+          else:
+              valid = False
+              disposition = ""
+          if not valid:
+              raise SystemExit(
+                  "paper ledger blocked: suppressed pass is neither a "
+                  "zero-new-order MARK_ONLY state nor an accepted "
+                  "same-session SELECTED_TARGET retry"
+              )
+          print(disposition)
+          print(snapshot_hash)
           PY
-          )"
-          if ! [[ "$PAPER_MARK_ONLY_TRANSACTION_HASH" =~ ^[0-9a-f]{64}$ ]]; then
-            echo "[paper-ledger] BLOCKED: MARK_ONLY transaction hash is invalid"
+          )
+          if [ "${#PAPER_FIRST_TRANSACTION_FIELDS[@]}" -ne 2 ]; then
+            echo "[paper-ledger] BLOCKED: first transaction classification is incomplete"
             exit 2
           fi
-          mkdir -p "$PAPER_MARK_ONLY_TRANSACTION_HEAD"
-          cp -a \
-            outputs/daily_simulated_fill_ledger/. \
-            "$PAPER_MARK_ONLY_TRANSACTION_HEAD/"
-          python tools/run287_paper_ledger_integrity.py \
-            --state-dir "$PAPER_MARK_ONLY_TRANSACTION_HEAD" \
-            --require-integrity
-          PAPER_MARK_ONLY_COPY_HASH="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["snapshot_hash"])' "$PAPER_MARK_ONLY_TRANSACTION_HEAD/snapshot_integrity.json")"
-          if [ "$PAPER_MARK_ONLY_COPY_HASH" != "$PAPER_MARK_ONLY_TRANSACTION_HASH" ] || \
-             ! diff -qr \
-               outputs/daily_simulated_fill_ledger \
-               "$PAPER_MARK_ONLY_TRANSACTION_HEAD" >/dev/null; then
-            echo "[paper-ledger] BLOCKED: preserved MARK_ONLY transaction is not byte-exact"
+          PAPER_FIRST_TRANSACTION_DISPOSITION="${PAPER_FIRST_TRANSACTION_FIELDS[0]}"
+          PAPER_FIRST_TRANSACTION_HASH="${PAPER_FIRST_TRANSACTION_FIELDS[1]}"
+          if ! [[ "$PAPER_FIRST_TRANSACTION_HASH" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "[paper-ledger] BLOCKED: first transaction hash is invalid"
             exit 2
           fi
-          echo "PAPER_MARK_ONLY_TRANSACTION_HEAD=$PAPER_MARK_ONLY_TRANSACTION_HEAD" >> "$GITHUB_ENV"
-          echo "PAPER_MARK_ONLY_TRANSACTION_HASH=$PAPER_MARK_ONLY_TRANSACTION_HASH" >> "$GITHUB_ENV"
+          case "$PAPER_FIRST_TRANSACTION_DISPOSITION" in
+            PRESERVE_MARK_ONLY)
+              mkdir -p "$PAPER_MARK_ONLY_TRANSACTION_HEAD"
+              cp -a \
+                outputs/daily_simulated_fill_ledger/. \
+                "$PAPER_MARK_ONLY_TRANSACTION_HEAD/"
+              python tools/run287_paper_ledger_integrity.py \
+                --state-dir "$PAPER_MARK_ONLY_TRANSACTION_HEAD" \
+                --require-integrity
+              PAPER_MARK_ONLY_COPY_HASH="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["snapshot_hash"])' "$PAPER_MARK_ONLY_TRANSACTION_HEAD/snapshot_integrity.json")"
+              if [ "$PAPER_MARK_ONLY_COPY_HASH" != "$PAPER_FIRST_TRANSACTION_HASH" ] || \
+                 ! diff -qr \
+                   outputs/daily_simulated_fill_ledger \
+                   "$PAPER_MARK_ONLY_TRANSACTION_HEAD" >/dev/null; then
+                echo "[paper-ledger] BLOCKED: preserved MARK_ONLY transaction is not byte-exact"
+                exit 2
+              fi
+              ;;
+            REUSE_SELECTED_TARGET)
+              if [ -z "$PAPER_PRE_TRANSACTION_HASH" ] || \
+                 [ ! -d "$PAPER_PRE_TRANSACTION_HEAD" ] || \
+                 [ "$PAPER_FIRST_TRANSACTION_HASH" != "$PAPER_PRE_TRANSACTION_HASH" ] || \
+                 ! diff -qr \
+                   outputs/daily_simulated_fill_ledger \
+                   "$PAPER_PRE_TRANSACTION_HEAD" >/dev/null; then
+                echo "[paper-ledger] BLOCKED: same-session SELECTED_TARGET retry changed accepted state"
+                exit 2
+              fi
+              ;;
+            *)
+              echo "[paper-ledger] BLOCKED: unknown first transaction disposition"
+              exit 2
+              ;;
+          esac
+          if [ "$PAPER_FIRST_TRANSACTION_DISPOSITION" = "PRESERVE_MARK_ONLY" ]; then
+            echo "PAPER_MARK_ONLY_TRANSACTION_HEAD=$PAPER_MARK_ONLY_TRANSACTION_HEAD" >> "$GITHUB_ENV"
+          else
+            echo "PAPER_MARK_ONLY_TRANSACTION_HEAD=" >> "$GITHUB_ENV"
+          fi
+          echo "PAPER_FIRST_TRANSACTION_DISPOSITION=$PAPER_FIRST_TRANSACTION_DISPOSITION" >> "$GITHUB_ENV"
+          echo "PAPER_FIRST_TRANSACTION_HASH=$PAPER_FIRST_TRANSACTION_HASH" >> "$GITHUB_ENV"
           SAME_CLOSE_READY=no
           python - "$SAME_CLOSE_DIR" <<'PY'
           import sys
@@ -4242,21 +4330,37 @@ jobs:
             install_prospective_head "$PAPER_CACHE_ANCHOR"
           fi
           EXPECTED_MARK_ONLY_HEAD="$RUNNER_TEMP/run287_daily_simulated_fill_ledger_mark_only_head"
-          if [ "${PAPER_MARK_ONLY_TRANSACTION_HEAD:-}" != "$EXPECTED_MARK_ONLY_HEAD" ] || \
-             ! [[ "${PAPER_MARK_ONLY_TRANSACTION_HASH:-}" =~ ^[0-9a-f]{64}$ ]] || \
-             [ ! -d "$PAPER_MARK_ONLY_TRANSACTION_HEAD" ]; then
-            echo "[paper-ledger] BLOCKED: preserved MARK_ONLY transaction evidence is missing"
-            exit 2
-          fi
-          python tools/run287_paper_ledger_integrity.py \
-            --state-dir "$PAPER_MARK_ONLY_TRANSACTION_HEAD" \
-            --require-integrity
-          OBSERVED_MARK_ONLY_HASH="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["snapshot_hash"])' "$PAPER_MARK_ONLY_TRANSACTION_HEAD/snapshot_integrity.json")"
-          if [ "$OBSERVED_MARK_ONLY_HASH" != "$PAPER_MARK_ONLY_TRANSACTION_HASH" ]; then
-            echo "[paper-ledger] BLOCKED: preserved MARK_ONLY transaction hash changed before persistence"
-            exit 2
-          fi
-          install_prospective_head "$PAPER_MARK_ONLY_TRANSACTION_HEAD"
+          case "${PAPER_FIRST_TRANSACTION_DISPOSITION:-}" in
+            PRESERVE_MARK_ONLY)
+              if [ "${PAPER_MARK_ONLY_TRANSACTION_HEAD:-}" != "$EXPECTED_MARK_ONLY_HEAD" ] || \
+                 ! [[ "${PAPER_FIRST_TRANSACTION_HASH:-}" =~ ^[0-9a-f]{64}$ ]] || \
+                 [ ! -d "$PAPER_MARK_ONLY_TRANSACTION_HEAD" ]; then
+                echo "[paper-ledger] BLOCKED: preserved MARK_ONLY transaction evidence is missing"
+                exit 2
+              fi
+              python tools/run287_paper_ledger_integrity.py \
+                --state-dir "$PAPER_MARK_ONLY_TRANSACTION_HEAD" \
+                --require-integrity
+              OBSERVED_MARK_ONLY_HASH="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["snapshot_hash"])' "$PAPER_MARK_ONLY_TRANSACTION_HEAD/snapshot_integrity.json")"
+              if [ "$OBSERVED_MARK_ONLY_HASH" != "$PAPER_FIRST_TRANSACTION_HASH" ]; then
+                echo "[paper-ledger] BLOCKED: preserved MARK_ONLY transaction hash changed before persistence"
+                exit 2
+              fi
+              install_prospective_head "$PAPER_MARK_ONLY_TRANSACTION_HEAD"
+              ;;
+            REUSE_SELECTED_TARGET)
+              if [ -e "$EXPECTED_MARK_ONLY_HEAD" ] || \
+                 ! [[ "${PAPER_FIRST_TRANSACTION_HASH:-}" =~ ^[0-9a-f]{64}$ ]] || \
+                 [ "$PAPER_FIRST_TRANSACTION_HASH" != "$LOCAL_SNAPSHOT_HASH" ]; then
+                echo "[paper-ledger] BLOCKED: idempotent SELECTED_TARGET evidence changed before persistence"
+                exit 2
+              fi
+              ;;
+            *)
+              echo "[paper-ledger] BLOCKED: first transaction disposition is unavailable"
+              exit 2
+              ;;
+          esac
           install_prospective_head outputs/daily_simulated_fill_ledger
           select_head_set "$PAPER_PROSPECTIVE_HEADS" "$PAPER_PROSPECTIVE_SELECTION"
           PROSPECTIVE_TERMINAL_HASH="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["selected_snapshot_hash"])' "$PAPER_PROSPECTIVE_SELECTION")"
