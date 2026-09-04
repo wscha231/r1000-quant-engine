@@ -90,6 +90,33 @@ Expected contract:
 
 ## Ledger
 
+### 2026-09-04 - Preserve every accepted same-session paper transition
+
+- Agent: Codex GPT-5.6
+- Branch/PR/run: `codex/run287-mark-only-head-preservation-20260904`,
+  post-H1 scheduled run `33842012286`
+- Context: A normal daily session can first settle fills as `MARK_ONLY` and
+  then enqueue a changed same-close target as `SELECTED_TARGET`.
+- Attempt: Inspect the post-H1 evidence and trace the two local paper
+  transactions through the later immutable-head persistence step.
+- Result: The workflow now verifies and byte-preserves the first `MARK_ONLY`
+  state under `$RUNNER_TEMP`, then requires it and the final state to form the
+  prospective immutable chain before any Drive publication.
+- Failure or caveat: Previously only the final mutable ledger directory was
+  installed prospectively; a successful second same-session transaction could
+  therefore reference a parent head that was never retained.
+- Root cause: Immutable-head collection happened after both transactions, while
+  the first accepted state was held only in the mutable state directory.
+- Reusable lesson: When one job permits multiple accepted state transitions,
+  freeze and verify every intermediate parent before the next mutation and
+  publish the complete chain in parent-first order.
+- Next action: Require exact-head review and green CI before merge, then keep
+  migration and chronological catch-up work in separate changes.
+- Do-not-repeat: Do not infer an intermediate immutable parent from a final
+  child manifest or allow a later transaction to overwrite its only copy.
+- Evidence files: `.github/workflows/daily_operating_selection_refresh.yml`,
+  `tests/run287_paper_ledger_transaction_smoke.py`
+
 ### 2026-09-04 - Read-only Drive credentials need early deterministic cleanup
 
 - Agent: Codex GPT-5.6

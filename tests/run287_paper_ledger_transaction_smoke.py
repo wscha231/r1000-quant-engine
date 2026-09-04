@@ -22,6 +22,7 @@ from tools.run287_paper_ledger_integrity import (  # noqa: E402
     install_verified_snapshot,
     reconcile_immutable_paper_head_cache,
     require_state_descends_from,
+    select_verified_immutable_paper_head,
     verify_integrity_manifest,
     write_integrity_manifest,
 )
@@ -903,6 +904,75 @@ def test_suppressed_preview_is_explicit_hash_bound_and_transition_safe() -> None
             manifest = json.loads((preview_dir / "order_batch_manifest.json").read_text(encoding="utf-8"))
             assert manifest["preview_mode"] == "NO_NEW_ORDER"
             assert pd.read_csv(preview_dir / "orders_preview.csv").empty
+
+
+def test_mark_only_parent_and_selected_child_form_complete_immutable_chain() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        date = "2026-04-01"
+        prepare(root, [date])
+
+        run(ledger_args(root, date, suppress_new_orders=True))
+        mark_publication = json.loads(
+            (root / "paper" / "accepted_publication.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert mark_publication["transaction_mode"] == "MARK_ONLY"
+        parent_integrity = json.loads(
+            (root / "paper" / "snapshot_integrity.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        parent_hash = parent_integrity["snapshot_hash"]
+        heads = root / "heads"
+        shutil.copytree(root / "paper", heads / parent_hash)
+
+        write_target(
+            root / "targets" / "main.csv",
+            "main",
+            "AAA",
+            date,
+            stock_weight=0.60,
+        )
+        write_target(
+            root / "targets" / "concentrated.csv",
+            "concentrated",
+            "BBB",
+            date,
+            stock_weight=0.60,
+        )
+        run(ledger_args(root, date))
+        selected_publication = json.loads(
+            (root / "paper" / "accepted_publication.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert selected_publication["transaction_mode"] == "SELECTED_TARGET"
+        child_integrity = json.loads(
+            (root / "paper" / "snapshot_integrity.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        child_hash = child_integrity["snapshot_hash"]
+        assert child_hash != parent_hash
+        assert child_integrity["previous_snapshot_hash"] == parent_hash
+        shutil.copytree(root / "paper", heads / child_hash)
+
+        selection = select_verified_immutable_paper_head(heads)
+        assert selection["chain_snapshot_hashes"] == [
+            parent_hash,
+            child_hash,
+        ]
+        assert selection["selected_snapshot_hash"] == child_hash
+
+        shutil.rmtree(heads / parent_hash)
+        try:
+            select_verified_immutable_paper_head(heads)
+        except PaperLedgerIntegrityError as exc:
+            assert "immutable paper head parent is missing" in str(exc)
+        else:
+            raise AssertionError("selected child was accepted without MARK_ONLY parent")
 
 
 def test_present_but_stale_preview_is_rebuilt_against_durable_account_and_target() -> None:
@@ -2224,6 +2294,39 @@ def test_workflow_separates_failed_evidence_from_accepted_paper_state() -> None:
             script.index("read -r TARGET_HANDOFF_SHA"),
         )
     )
+    mark_only_preserve = script.index(
+        'PAPER_MARK_ONLY_TRANSACTION_HEAD="$RUNNER_TEMP/'
+        'run287_daily_simulated_fill_ledger_mark_only_head"'
+    )
+    first_transaction = script.index(
+        "python tools/run_daily_simulated_fill_ledger.py"
+    )
+    second_transaction = script.index(
+        "python tools/run_daily_simulated_fill_ledger.py",
+        mark_only_preserve,
+    )
+    assert first_transaction < mark_only_preserve < second_transaction
+    assert 'publication.get("transaction_mode") != "MARK_ONLY"' in script
+    assert (
+        'summary.get("new_order_generation_suppressed") is not True'
+        in script
+    )
+    assert 'row.get("enqueued_this_run") != 0' in script
+    assert (
+        "outputs/daily_simulated_fill_ledger/. \\\n"
+        '  "$PAPER_MARK_ONLY_TRANSACTION_HEAD/"'
+        in script
+    )
+    assert (
+        'PAPER_MARK_ONLY_COPY_HASH" != '
+        '"$PAPER_MARK_ONLY_TRANSACTION_HASH"'
+        in script
+    )
+    assert (
+        "outputs/daily_simulated_fill_ledger \\\n"
+        '     "$PAPER_MARK_ONLY_TRANSACTION_HEAD"'
+        in script
+    )
     reports = by_name["Build post-gate operating reports"]
     assert reports["id"] == "operating_review"
 
@@ -2358,6 +2461,26 @@ def test_workflow_legacy_drive_migration_is_one_time_and_quarantined() -> None:
     restore = by_name["Restore persistent data and operating outputs"]["run"]
     transaction = by_name["Run transactional paper ledger and same-close selector"]["run"]
     persist = by_name["Persist validated forward paper ledger state"]["run"]
+    assert (
+        'PAPER_MARK_ONLY_TRANSACTION_HEAD:-}'
+        '" != "$EXPECTED_MARK_ONLY_HEAD"'
+        in persist
+    )
+    assert (
+        'OBSERVED_MARK_ONLY_HASH" != '
+        '"$PAPER_MARK_ONLY_TRANSACTION_HASH"'
+        in persist
+    )
+    mark_only_install = persist.index(
+        'install_prospective_head "$PAPER_MARK_ONLY_TRANSACTION_HEAD"'
+    )
+    final_install = persist.index(
+        "install_prospective_head outputs/daily_simulated_fill_ledger"
+    )
+    selection = persist.index(
+        'select_head_set "$PAPER_PROSPECTIVE_HEADS"'
+    )
+    assert mark_only_install < final_install < selection
     assert persist.count("assert_current_default_head") >= 8
     assert "assert_current_default_head\n  rclone copyto" in persist
     preparer = (
@@ -2575,6 +2698,7 @@ def main() -> int:
     test_session_gap_requires_chronological_catchup()
     test_duplicate_client_order_id_and_negative_cash_fail_closed()
     test_suppressed_preview_is_explicit_hash_bound_and_transition_safe()
+    test_mark_only_parent_and_selected_child_form_complete_immutable_chain()
     test_present_but_stale_preview_is_rebuilt_against_durable_account_and_target()
     test_interrupted_preview_only_publish_recovers_before_reuse()
     test_overlapping_recovery_prefers_newer_state_bundle()
