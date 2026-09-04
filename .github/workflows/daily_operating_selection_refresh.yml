@@ -2769,6 +2769,43 @@ jobs:
             if [ "$PATTERN_SESSION_ELIGIBLE" != yes ]; then
               echo "[paper-ledger] pre-launch paper mark accepted without pattern observation"
             else
+            CATCHUP_SOURCE_LAYOUT="$(
+              python - outputs/run287_catchup_price_evidence/status.json <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          evidence = json.loads(
+              Path(sys.argv[1]).read_text(encoding="utf-8")
+          )
+          source_layout = str(evidence.get("source_layout") or "")
+          if (
+              evidence.get("status")
+              != "READY_RUN287_CATCHUP_PRICE_EVIDENCE_REPLAY_ONLY"
+              or source_layout
+              not in {
+                  "LEGACY_SINGLE_SESSION_DAILY_ARTIFACT",
+                  "MULTI_SESSION_READ_ONLY_CAPTURE",
+              }
+          ):
+              raise SystemExit(
+                  "catch-up source layout is missing or untrusted"
+              )
+          print(source_layout)
+          PY
+            )"
+            if [ "$CATCHUP_SOURCE_LAYOUT" = "MULTI_SESSION_READ_ONLY_CAPTURE" ]; then
+              # The closed multi-session capture is intentionally price-only.
+              # Preserve portfolio chronology, but keep pattern statistics and
+              # proposals fail-closed until separately pinned first-attempt
+              # pattern evidence is available for this exact session.
+              python tools/archive_run287_ohlcv_pattern_memory.py \
+                --record-failed-session-reason price_only_capture_pattern_evidence_unavailable \
+                --valuation-date "$PAPER_AS_OF" \
+                --output-dir outputs/run287_decision_observation_archive/ohlcv_pattern_memory \
+                2>&1 | tee -a outputs/full_rebuild_logs/daily_run287_ohlcv_pattern_memory.log
+              echo "[paper-ledger] price-only catch-up mark accepted; OHLCV pattern memory remains BLOCKED and proposal-ineligible for ${PAPER_AS_OF}"
+            elif [ "$CATCHUP_SOURCE_LAYOUT" = "LEGACY_SINGLE_SESSION_DAILY_ARTIFACT" ]; then
             # Pattern-memory catch-up is separate from portfolio replay. It
             # consumes only the operator-pinned prior daily artifact for this
             # exact session and never recomputes targets or creates orders.
@@ -2846,6 +2883,10 @@ jobs:
               exit 2
             fi
             echo "[paper-ledger] chronological pattern-memory catch-up accepted from pinned exact-session artifact; targets and orders remained disabled"
+            else
+              echo "[paper-ledger] BLOCKED: unsupported catch-up source layout"
+              exit 2
+            fi
             fi
             echo "[paper-ledger] chronological catch-up mark accepted; exact-packet recomputation and new orders are disabled"
           else

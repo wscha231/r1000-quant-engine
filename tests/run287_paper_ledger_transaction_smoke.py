@@ -2633,6 +2633,22 @@ def test_workflow_catchup_is_explicit_mark_only_and_chronological() -> None:
         "exact-packet recomputation and new orders are disabled"
         in transaction
     )
+    assert (
+        "price_only_capture_pattern_evidence_unavailable"
+        in transaction
+    )
+    assert (
+        "OHLCV pattern memory remains BLOCKED and proposal-ineligible"
+        in transaction
+    )
+    assert (
+        'elif [ "$CATCHUP_SOURCE_LAYOUT" = '
+        '"LEGACY_SINGLE_SESSION_DAILY_ARTIFACT" ]; then'
+        in transaction
+    )
+    assert transaction.index(
+        '"MULTI_SESSION_READ_ONLY_CAPTURE"'
+    ) < transaction.index("PATTERN_EVIDENCE_DIRS")
     assert 'if [ "${PAPER_CATCHUP_MODE:-no}" = "yes" ]' in transaction
     assert (
         'CATCHUP_TARGET_SOURCE_DIR="outputs/run287_catchup_target_source/${PAPER_AS_OF}"'

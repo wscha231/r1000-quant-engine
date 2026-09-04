@@ -4786,3 +4786,29 @@ Expected contract:
 - Fullrun executed: false. Workflow dispatched or rerun: false. Migration,
   quarantine, Drive, target, order, ledger, accepted-head, production, live
   trading, and automatic promotion state mutated: false.
+
+## 2026-09-04 - Price catch-up and historical pattern evidence are separate contracts
+
+- Agent: Codex GPT-5.6.
+- Branch: `codex/run287-catchup-evidence-capture-20260904`.
+- Context: Exact-head review found that the closed multi-session capture
+  intentionally contained prices but the existing post-launch catch-up path
+  expected seven first-attempt pattern-evidence directories from a legacy
+  single-session daily artifact.
+- Reusable lesson: Exact historical close evidence does not authorize
+  reconstruction of historical selector or pattern inputs. Bind the artifact
+  layout explicitly. A price-only slice may support a chronological paper
+  mark, but it must publish an exact-session pattern failure marker and keep
+  directional statistics and proposals blocked. Only an independently pinned
+  first-attempt artifact may enter the legacy historical pattern path.
+- Reusable lesson: When a protected validator pin advances, update every
+  executable regression constant to the same exact causal ancestor and prove
+  it is in the live head lineage with no later protected-path delta. A green
+  unrelated smoke subset does not excuse a stale protected-publication test.
+- Validation: Workflow YAML and shell parsing, pattern-layout separation,
+  paper-ledger transaction safety, artifact topology, and targeted P0-4
+  protected-publication lineage checks passed locally. Full PR CI and a new
+  exact-head review remain required.
+- Fullrun executed: false. Workflow dispatched or rerun: false. Migration,
+  quarantine, Drive, target, order, ledger, accepted-head, production, live
+  trading, automatic promotion, and pattern backfill state mutated: false.

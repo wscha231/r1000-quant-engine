@@ -33,6 +33,7 @@ change, so a future row could be relabeled with an earlier requested date.
 | Future rows | Rows after each session are excluded before snapshot construction |
 | Artifact | Plan, paper selection, source-cache manifest, every session gate/snapshot/report, byte count, SHA-256, and exact file set are closed |
 | Consumer | Recomputes the NYSE sequence, validates the whole artifact tree, then materializes only the requested session into a replay-only cache |
+| Pattern evidence | The new multi-session artifact is explicitly price-only; a post-launch ledger mark records the exact session as pattern-blocked and keeps all pattern statistics/proposals ineligible instead of using later data |
 | Mutation | Drive, ledger, targets, orders, accepted heads, production, and live trading remain unchanged |
 
 The artifact keeps the existing daily artifact name so the already-reviewed
@@ -54,6 +55,15 @@ download/provenance path remains authoritative. A root marker forces
    sequence, timestamps, and per-session exact-close summaries.
 4. A capture rerun is rejected. A fresh dispatch must create a new run ID and
    artifact digest.
+5. The transactional consumer now distinguishes the legacy single-session
+   artifact from the new price-only multi-session layout. Legacy pattern
+   evidence retains its existing closed validation path. A multi-session
+   price slice can advance only the paper mark; the exact session is recorded
+   as `price_only_capture_pattern_evidence_unavailable`, and pattern memory
+   remains `BLOCKED` and proposal-ineligible. No current data is backfilled as
+   historical pattern evidence.
+6. The P0-4 protected-publication test pin now matches the exact protected
+   causal ancestor `a154552e6f627f1fdc34e0dd7dc53f55475aa4d5`.
 
 ## Changed files
 
@@ -66,7 +76,7 @@ download/provenance path remains authoritative. A root marker forces
 | `tools/validate_daily_close_prices.py` | Collision-free target source identities |
 | `tools/verify_run287_catchup_scope_attestation.py` | Require capture mode false for any later transactional catch-up |
 | `tools/run_pr_validation.py` | Register the new critical capture smoke test |
-| `tests/*` | Producer, consumer, workflow, chronology, tamper, and compatibility regression coverage |
+| `tests/*` | Producer, consumer, workflow, chronology, pattern fail-closed, protected-lineage, tamper, and compatibility regression coverage |
 
 ## Validation
 
@@ -78,17 +88,20 @@ Focused validation passed:
 - `run287_catchup_price_evidence_smoke.py`
 - `run287_github_secret_scope_smoke.py`
 - `run287_catchup_drive_readiness_smoke.py`
+- `run287_ohlcv_location_timing_workflow_smoke.py`
 - `workflow_artifact_smoke.py`
 - `run287_paper_ledger_transaction_smoke.py`
+- targeted P0-4 protected-publication lineage check
 - Python compilation, workflow YAML parse, and `git diff --check`
 
-The complete local registered run finished `217/227`. All tests owned by this
-change passed. Ten unrelated tests could not reproduce the CI environment in
-the intentionally sparse local checkout: missing `aggressive/`,
-`auto_learning_v2/`, and `research/` paths; a local PyArrow 25.0.1 versus the
-P0-3 pinned 23.0.1 environment; and shallow-history/protected-publication
-checks. The authoritative pull-request CI must therefore be green before
-merge.
+The earlier complete local registered run finished `217/227`. Its P0-4
+protected-publication failure included a stale test pin owned by this change;
+that pin is now corrected and its targeted lineage check passes. The remaining
+local-only failures cannot reproduce the CI environment in the intentionally
+sparse checkout because of missing `aggressive/`, `auto_learning_v2/`, and
+`research/` paths and local PyArrow 25.0.1 versus the P0-3 pinned 23.0.1
+environment. The authoritative pull-request CI must be fully green on the new
+exact head before merge.
 
 ## Current operational truth
 
@@ -113,3 +126,6 @@ session, pin its run ID, artifact ID, digest, source SHA, paper terminal, and
 session range, and independently consume the 2026-07-27 slice. Only after that
 evidence is verified should a fresh migration-only approval packet be
 prepared. Migration and catch-up still require their own explicit authority.
+Price-only catch-up must leave post-2026-07-29 pattern research blocked until
+separately pinned first-attempt pattern evidence exists; that block does not
+permit target generation, orders, or pattern proposals.
