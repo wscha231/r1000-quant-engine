@@ -90,6 +90,32 @@ Expected contract:
 
 ## Ledger
 
+### 2026-09-04 - Read-only Drive credentials need early deterministic cleanup
+
+- Agent: Codex GPT-5.6
+- Branch/PR/run: `codex/run287-post-h1-readonly-preflight-20260903`, PR #391
+- Context: A dedicated post-H1 recovery preflight downloads durable evidence
+  with rclone under `drive.readonly` scope and uploads diagnostics only.
+- Attempt: Pin rclone, keep all Drive operations read-only, and remove temporary
+  credential files in an always-run cleanup step before artifact upload.
+- Result: Both fixed credential paths are exported before any secret bytes can
+  be written, and cleanup removes those exact `$RUNNER_TEMP` paths directly.
+- Failure or caveat: The first draft registered cleanup paths only after
+  validating the supplied rclone config; the first regression assertion then
+  checked ordering for only one of the two credential paths.
+- Root cause: Failure-path cleanup depended on environment variables populated
+  too late, and the test encoded token presence without the complete ordering
+  invariant.
+- Reusable lesson: Register every deterministic secret-file cleanup target
+  before the first write, delete fixed targets independently of setup success,
+  and assert every registration precedes every possible credential write.
+- Next action: Require exact-head review and green CI before merging, then run
+  only the merged read-only preflight to produce a migration approval packet.
+- Do-not-repeat: Do not validate a credential-bearing config before cleanup can
+  locate it, and do not treat one-path ordering coverage as a two-path guard.
+- Evidence files: `.github/workflows/run287_risk_outcome_recovery_preflight.yml`,
+  `tests/workflow_artifact_smoke.py`
+
 ### 2026-07-10 - SEC identity coverage repaired and forward-only queue/ledger hardened
 
 - Agent: Codex GPT-5.6
