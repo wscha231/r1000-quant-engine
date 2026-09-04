@@ -192,8 +192,11 @@ def test_run287_recovery_preflight_is_exact_head_and_read_only() -> None:
     upload_idx = text.index("Upload read-only recovery evidence")
     final_recheck_idx = text.index("Reconfirm durable evidence remained unchanged")
     cleanup_idx = text.index("Remove temporary credentials")
-    cleanup_registration_idx = text.index(
-        'echo "RCLONE_CONFIG=$RCLONE_CONFIG_PATH"'
+    cleanup_registration_indices = (
+        text.index('echo "RCLONE_CONFIG=$RCLONE_CONFIG_PATH"'),
+        text.index(
+            'echo "RUN287_SERVICE_ACCOUNT_PATH=$SERVICE_ACCOUNT_PATH"'
+        ),
     )
     first_credential_write_idx = min(
         text.index("printf '%s' \"$RCLONE_CONFIG_GDRIVE\" > \"$RCLONE_CONFIG_PATH\""),
@@ -210,7 +213,7 @@ def test_run287_recovery_preflight_is_exact_head_and_read_only() -> None:
         < cleanup_idx
         < upload_idx
     )
-    assert cleanup_registration_idx < first_credential_write_idx
+    assert max(cleanup_registration_indices) < first_credential_write_idx
 
     rclone_commands = [
         line.strip()
