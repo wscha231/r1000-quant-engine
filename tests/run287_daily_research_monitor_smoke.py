@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import io
 import json
 import sys
 import tempfile
@@ -18,6 +19,7 @@ from tools import run_run287_daily_research_monitor as monitor
 
 CONTRACT = json.loads(monitor.CONTRACT.read_text(encoding="utf-8"))
 NOW = monitor.timestamp("2026-09-05T08:30:00Z")
+TACTICAL_EVENTS = CONTRACT["sources"]["tactical"]["allowed_events"]
 
 
 def sample_run(run_id=2, conclusion="success"):
@@ -49,12 +51,58 @@ def evidence():
 class MonitorTests(unittest.TestCase):
     def test_latest_failure_is_not_hidden_by_prior_success(self):
         runs = [sample_run(1), sample_run(2, "failure")]
-        self.assertEqual(monitor.latest_run(runs, "after_close_daily.yml", CONTRACT["repository"])["id"], 2)
+        self.assertEqual(monitor.latest_run(runs, "after_close_daily.yml", CONTRACT["repository"], TACTICAL_EVENTS)["id"], 2)
         foreign = sample_run(3)
         foreign["head_repository"]["full_name"] = "foreign/repo"
-        self.assertEqual(monitor.latest_run(runs + [foreign], "after_close_daily.yml", CONTRACT["repository"])["id"], 2)
+        self.assertEqual(monitor.latest_run(runs + [foreign], "after_close_daily.yml", CONTRACT["repository"], TACTICAL_EVENTS)["id"], 2)
         runs[-1]["status"] = "in_progress"
-        self.assertEqual(monitor.latest_run(runs, "after_close_daily.yml", CONTRACT["repository"])["id"], 2)
+        self.assertEqual(monitor.latest_run(runs, "after_close_daily.yml", CONTRACT["repository"], TACTICAL_EVENTS)["id"], 2)
+
+    def test_ownership_uses_the_newer_sec_triggered_run(self):
+        spec = CONTRACT["sources"]["ownership"]
+        runs = [sample_run(1), sample_run(2, "failure")]
+        for run in runs:
+            run["path"] = ".github/workflows/" + spec["workflow"]
+        runs[-1]["event"] = "workflow_run"
+        selected = monitor.latest_run(runs, spec["workflow"], CONTRACT["repository"], spec["allowed_events"])
+        self.assertEqual(selected["id"], 2)
+        self.assertEqual(selected["conclusion"], "failure")
+
+    def test_missing_required_members_block_but_keep_failure_diagnostics(self):
+        class Fake:
+            def __init__(self, key, conclusion):
+                self.spec = CONTRACT["sources"][key]
+                self.run = sample_run(conclusion=conclusion)
+                self.run["path"] = ".github/workflows/" + self.spec["workflow"]
+                archive = io.BytesIO()
+                label = "recovery" if key == "operating" else "summary"
+                with zipfile.ZipFile(archive, "w") as z:
+                    z.writestr(self.spec["members"][label], json.dumps({"status": "BLOCKED_TEST"}))
+                self.raw = archive.getvalue()
+                self.digest = "sha256:" + hashlib.sha256(self.raw).hexdigest()
+
+            def json(self, path):
+                if "/workflows/" in path:
+                    return {"workflow_runs": [self.run]}
+                return {"artifacts": [{"id": 3, "name": self.spec["artifact_prefix"] + "2",
+                                      "size_in_bytes": len(self.raw), "digest": self.digest,
+                                      "workflow_run": {"id": 2, "head_sha": "a" * 40}}]}
+
+            def archive(self, artifact_id, destination, limit):
+                destination.write_bytes(self.raw)
+                return self.digest
+        ownership = monitor.collect_source(Fake("ownership", "success"), "ownership", CONTRACT["sources"]["ownership"], CONTRACT)
+        self.assertEqual(ownership["status"], "MISSING_CONTRACT_MEMBERS")
+        self.assertEqual(ownership["missing_members"], ["ranked"])
+        operating = monitor.collect_source(Fake("operating", "failure"), "operating", CONTRACT["sources"]["operating"], CONTRACT)
+        self.assertEqual(operating["status"], "UPSTREAM_FAILED")
+        self.assertEqual(operating["data"]["recovery"]["status"], "BLOCKED_TEST")
+        self.assertEqual(operating["missing_members"], ["market", "prices", "upstream"])
+        sources = evidence()
+        sources.update(ownership=ownership, operating=operating)
+        report = monitor.evaluate(sources, "2026-09-04", NOW, CONTRACT)
+        self.assertIn("ownership:MISSING_CONTRACT_MEMBER:ranked", report["alerts"])
+        self.assertIn("operating:BLOCKED_TEST", report["alerts"])
 
     def test_dates_prices_and_estimate_coverage_are_separate(self):
         report = monitor.evaluate(evidence(), "2026-09-04", NOW, CONTRACT)

@@ -111,6 +111,10 @@ Expected contract:
   impute missing/Korean inputs as zero, blend new moat scores with arbitrary
   weights, or bypass an accepted-state recovery approval for research.
 - Evidence: `docs/CODEX_RUN287_DAILY_RESEARCH_MONITOR_20260905.md`.
+- Review correction: archive byte integrity does not establish member
+  completeness. Required missing members now alert explicitly, and Smart Money
+  includes quarterly SEC-triggered `workflow_run` executions in its source
+  event contract. Both regressions have no-network reproduction tests.
 
 ### 2026-09-04 - Preserve every accepted same-session paper transition
 

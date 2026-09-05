@@ -26,6 +26,10 @@ and Smart Money. It never substitutes an older successful run for a newer
 failed or running run. It checks run/commit identity and the archive SHA-256,
 then reads only exact JSON/CSV member paths without extracting or executing
 artifact contents. Downloads and individual members have size ceilings.
+All configured members are required except the explicitly optional operating
+recovery receipt. Missing members generate source-level and file-level alerts;
+available failure diagnostics remain readable. Smart Money also accepts its
+canonical `workflow_run` event from the quarterly SEC producer.
 
 The report records recovery status, model and price dates, collection dates,
 requested estimate coverage separately from archive coverage, quarterly 13F

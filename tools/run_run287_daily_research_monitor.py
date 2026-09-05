@@ -64,11 +64,11 @@ def collection_current(value: Any, session: str, now: datetime) -> bool:
             and value <= now.date().isoformat())
 
 
-def latest_run(runs: list[dict], workflow: str, repository: str) -> dict | None:
+def latest_run(runs: list[dict], workflow: str, repository: str, allowed_events: list[str]) -> dict | None:
     eligible = [r for r in runs if r.get("head_branch") == "master"
                 and r.get("path") == f".github/workflows/{workflow}"
                 and (r.get("head_repository") or {}).get("full_name") == repository
-                and r.get("event") in {"schedule", "workflow_dispatch"}]
+                and r.get("event") in allowed_events]
     # Include failed and running runs. Never hide a failure behind old success.
     return max(eligible, key=lambda r: (r["created_at"], r["id"]), default=None)
 
@@ -147,7 +147,7 @@ def collect_source(client: GitHub, key: str, spec: dict, contract: dict) -> dict
     result: dict[str, Any] = {"source": key, "status": "MISSING_RUN", "data": {}}
     try:
         runs = client.json(f"/actions/workflows/{spec['workflow']}/runs?branch=master&per_page=30")
-        run = latest_run(runs.get("workflow_runs", []), spec["workflow"], contract["repository"])
+        run = latest_run(runs.get("workflow_runs", []), spec["workflow"], contract["repository"], spec["allowed_events"])
         if run is None:
             return result
         result["run"] = {k: run.get(k) for k in
@@ -178,8 +178,12 @@ def collect_source(client: GitHub, key: str, spec: dict, contract: dict) -> dict
                        for k, v in spec["members"].items()}
             result["data"], result["files"] = read_members(path, members, contract["max_member_bytes"])
         result["artifact_hash_verified"] = True
+        optional = set(spec.get("optional_members", []))
+        if not optional.issubset(members):
+            raise ValueError("unknown_optional_member")
+        result["missing_members"] = sorted(set(members) - set(result["data"]) - optional)
         if run.get("conclusion") == "success":
-            result["status"] = "VERIFIED_ARTIFACT"
+            result["status"] = "MISSING_CONTRACT_MEMBERS" if result["missing_members"] else "VERIFIED_ARTIFACT"
     except Exception as exc:
         result["status"] = "BLOCKED_SOURCE"
         # Never echo exception text: urllib errors may contain signed URLs.
@@ -208,6 +212,8 @@ def evaluate(sources: dict, session: str, now: datetime, contract: dict) -> dict
         source = sources.get(key, {})
         if source.get("status") != "VERIFIED_ARTIFACT":
             alerts.append(f"{key}:{source.get('status', 'MISSING_SOURCE')}")
+        for member in source.get("missing_members", []):
+            alerts.append(f"{key}:MISSING_CONTRACT_MEMBER:{member}")
         created = (source.get("run") or {}).get("created_at")
         if created:
             try:

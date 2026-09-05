@@ -8,6 +8,8 @@
   "sources": {
     "operating": {
       "workflow": "daily_operating_selection_refresh.yml",
+      "allowed_events": ["schedule", "workflow_dispatch"],
+      "optional_members": ["recovery"],
       "artifact_prefix": "daily-operating-selection-refresh-",
       "members": {
         "recovery": "outputs/run287_risk_outcome_parent_preflight/receipt.json",
@@ -18,6 +20,7 @@
     },
     "tactical": {
       "workflow": "after_close_daily.yml",
+      "allowed_events": ["schedule", "workflow_dispatch"],
       "artifact_prefix": "after-close-daily-",
       "members": {
         "summary": "outputs/tactical_alpha/tactical_run_summary.json"
@@ -25,6 +28,7 @@
     },
     "estimates": {
       "workflow": "earnings_estimates_daily.yml",
+      "allowed_events": ["schedule", "workflow_dispatch"],
       "artifact_prefix": "earnings-estimates-daily-",
       "members": {
         "summary": "outputs/earnings_estimates_daily/archive_manifest.json",
@@ -33,6 +37,7 @@
     },
     "ownership": {
       "workflow": "smart_money_top30_refresh.yml",
+      "allowed_events": ["schedule", "workflow_dispatch", "workflow_run"],
       "artifact_prefix": "smart-money-top30-",
       "members": {
         "summary": "outputs/smart_money/smart_money_summary.json",
