@@ -1,0 +1,71 @@
+{
+  "schema_version": "run287-daily-research-monitor-v1",
+  "repository": "wscha231/r1000-quant-engine",
+  "branch": "master",
+  "purpose": "Read-only research handoff; workflow success is not data freshness or investment approval.",
+  "max_artifact_bytes": 536870912,
+  "max_member_bytes": 16777216,
+  "sources": {
+    "operating": {
+      "workflow": "daily_operating_selection_refresh.yml",
+      "allowed_events": ["schedule", "workflow_dispatch"],
+      "optional_members": ["recovery"],
+      "artifact_prefix": "daily-operating-selection-refresh-",
+      "members": {
+        "recovery": "outputs/run287_risk_outcome_parent_preflight/receipt.json",
+        "upstream": "outputs/run287_exact_packet_upstream/attempts/{run_id}-{run_attempt}/status.json",
+        "market": "outputs/daily_market_snapshot/summary.json",
+        "prices": "outputs/daily_market_snapshot/market_snapshot.csv"
+      }
+    },
+    "tactical": {
+      "workflow": "after_close_daily.yml",
+      "allowed_events": ["schedule", "workflow_dispatch"],
+      "artifact_prefix": "after-close-daily-",
+      "members": {
+        "summary": "outputs/tactical_alpha/tactical_run_summary.json"
+      }
+    },
+    "estimates": {
+      "workflow": "earnings_estimates_daily.yml",
+      "allowed_events": ["schedule", "workflow_dispatch"],
+      "artifact_prefix": "earnings-estimates-daily-",
+      "members": {
+        "summary": "outputs/earnings_estimates_daily/archive_manifest.json",
+        "prices": "cache_prices_forward_paper/replay_price_cache_manifest.json"
+      }
+    },
+    "ownership": {
+      "workflow": "smart_money_top30_refresh.yml",
+      "allowed_events": ["schedule", "workflow_dispatch", "workflow_run"],
+      "artifact_prefix": "smart-money-top30-",
+      "members": {
+        "summary": "outputs/smart_money/smart_money_summary.json",
+        "ranked": "outputs/smart_money/smart_money_ranked.csv"
+      }
+    }
+  },
+  "watchlist": {
+    "US": ["NVDA", "AMD", "AVGO", "ANET", "TSM", "MU", "AMAT", "KLAC", "LRCX", "GEV", "ETN", "VRT", "PWR", "EME", "FIX", "NVT", "CEG", "VST", "NEE", "BE", "CCJ", "FCX", "MTZ", "FLR"],
+    "KR": ["000660", "005930", "267260", "010120", "298040", "034020", "052690", "009830", "000720"]
+  },
+  "research_questions": [
+    "bottleneck_duration_and_capacity_response",
+    "patent_claims_customer_qualification_and_switching_costs",
+    "new_business_backlog_margin_and_cash_conversion",
+    "normalized_earnings_and_price_implied_expectations",
+    "total_return_relative_strength_20_60_120_240_sessions",
+    "engine_research_disagreement_price_growth_or_missing_data"
+  ],
+  "score_policy": "No new composite weights or return forecasts. Missing values remain null. Additive information requires PIT availability, purged walk-forward validation, costs, multiple-testing correction and an untouched holdout; no backtest is dispatched by this monitor.",
+  "safety": {
+    "research_only": true,
+    "orders_allowed": false,
+    "target_book_write_allowed": false,
+    "ledger_write_allowed": false,
+    "migration_allowed": false,
+    "fullrun_allowed": false,
+    "backtest_allowed": false,
+    "production_activation_allowed": false
+  }
+}

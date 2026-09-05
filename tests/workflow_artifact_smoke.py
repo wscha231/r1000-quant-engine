@@ -6,6 +6,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -2538,6 +2539,12 @@ def test_pages_deploy_keeps_prior_site_without_completed_session_artifact() -> N
 
 def main() -> int:
     test_workflow_yaml_files_parse()
+    # This registered Tier-1 smoke also executes the read-only research handoff
+    # regressions; no protected validation-runner publication needs changing.
+    subprocess.run(
+        [sys.executable, str(ROOT / "tests/run287_daily_research_monitor_smoke.py")],
+        check=True,
+    )
     test_run287_recovery_preflight_is_exact_head_and_read_only()
     test_pr_workflows_sparse_checkout_only_required_rebuild_data()
     test_pr_validation_does_not_duplicate_same_sha_push_and_pr_jobs()
