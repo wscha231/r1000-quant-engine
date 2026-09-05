@@ -4892,8 +4892,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      RCLONE_VERSION: 1.75.0
-      RCLONE_ZIP_SHA256: aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa
+      RUN287_CAPTURE_RCLONE_VERSION: 1.75.0
+      RUN287_CAPTURE_RCLONE_ZIP_SHA256: aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa
 
     steps:
       - name: Checkout exact capture ref without credentials
@@ -5022,7 +5022,7 @@ jobs:
           RCLONE_ZIP="$RUNNER_TEMP/run287-capture-rclone.zip"
           RCLONE_CONFIG_PATH="$RUNNER_TEMP/run287-capture-rclone.conf"
           SERVICE_ACCOUNT_PATH="$RUNNER_TEMP/run287-capture-service-account.json"
-          RCLONE_BIN="$RCLONE_INSTALL/rclone-v${RCLONE_VERSION}-linux-amd64/rclone"
+          RCLONE_BIN="$RCLONE_INSTALL/rclone-v${RUN287_CAPTURE_RCLONE_VERSION}-linux-amd64/rclone"
           export RCLONE_CONFIG_GDRIVE_SCOPE=drive.readonly
           {
             echo "RCLONE_BIN=$RCLONE_BIN"
@@ -5031,14 +5031,14 @@ jobs:
             echo "RCLONE_CONFIG_GDRIVE_SCOPE=drive.readonly"
           } >> "$GITHUB_ENV"
           curl --fail --silent --show-error --location \
-            "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip" \
+            "https://downloads.rclone.org/v${RUN287_CAPTURE_RCLONE_VERSION}/rclone-v${RUN287_CAPTURE_RCLONE_VERSION}-linux-amd64.zip" \
             --output "$RCLONE_ZIP"
-          printf '%s  %s\n' "$RCLONE_ZIP_SHA256" "$RCLONE_ZIP" \
+          printf '%s  %s\n' "$RUN287_CAPTURE_RCLONE_ZIP_SHA256" "$RCLONE_ZIP" \
             | sha256sum --check --strict
           mkdir -p "$RCLONE_INSTALL"
           unzip -q "$RCLONE_ZIP" -d "$RCLONE_INSTALL"
           test -x "$RCLONE_BIN"
-          "$RCLONE_BIN" version | grep -Fx "rclone v${RCLONE_VERSION}"
+          "$RCLONE_BIN" version | grep -Fx "rclone v${RUN287_CAPTURE_RCLONE_VERSION}"
           if [ -n "${RCLONE_CONFIG_GDRIVE:-}" ]; then
             printf '%s' "$RCLONE_CONFIG_GDRIVE" > "$RCLONE_CONFIG_PATH"
             grep -Eq '^\[gdrive\][[:space:]]*$' "$RCLONE_CONFIG_PATH"

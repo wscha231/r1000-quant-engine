@@ -122,6 +122,16 @@ def test_workflow_yaml_files_parse() -> None:
 
 def test_run287_recovery_preflight_is_exact_head_and_read_only() -> None:
     text = RUN287_RECOVERY_PREFLIGHT_WORKFLOW.read_text(encoding="utf-8")
+    import yaml  # type: ignore[import-not-found]
+
+    workflow = yaml.safe_load(text)
+    installer_env = workflow["jobs"]["preflight"]["env"]
+    assert installer_env["RUN287_PREFLIGHT_RCLONE_VERSION"] == "1.75.0"
+    assert installer_env["RUN287_PREFLIGHT_RCLONE_ZIP_SHA256"] == (
+        "aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa"
+    )
+    assert "RCLONE_VERSION" not in installer_env
+    assert "RCLONE_ZIP_SHA256" not in installer_env
     for token in (
         "workflow_dispatch:",
         "expected_master_sha:",
@@ -136,12 +146,12 @@ def test_run287_recovery_preflight_is_exact_head_and_read_only() -> None:
         "Prove exact latest completed NYSE session",
         'gate.get("latest_completed_session_date") != expected',
         "Configure temporary read-only rclone",
-        "RCLONE_VERSION: 1.75.0",
-        "RCLONE_ZIP_SHA256: aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa",
-        '"https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip"',
+        "RUN287_PREFLIGHT_RCLONE_VERSION: 1.75.0",
+        "RUN287_PREFLIGHT_RCLONE_ZIP_SHA256: aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa",
+        '"https://downloads.rclone.org/v${RUN287_PREFLIGHT_RCLONE_VERSION}/rclone-v${RUN287_PREFLIGHT_RCLONE_VERSION}-linux-amd64.zip"',
         "sha256sum --check --strict",
-        'RCLONE_BIN="$RCLONE_INSTALL/rclone-v${RCLONE_VERSION}-linux-amd64/rclone"',
-        'grep -Fx "rclone v${RCLONE_VERSION}"',
+        'RCLONE_BIN="$RCLONE_INSTALL/rclone-v${RUN287_PREFLIGHT_RCLONE_VERSION}-linux-amd64/rclone"',
+        'grep -Fx "rclone v${RUN287_PREFLIGHT_RCLONE_VERSION}"',
         "scope = drive.readonly",
         "RCLONE_CONFIG_GDRIVE_SCOPE=drive.readonly",
         "export RCLONE_CONFIG=\"$RCLONE_CONFIG_PATH\"",
@@ -214,6 +224,13 @@ def test_run287_recovery_preflight_is_exact_head_and_read_only() -> None:
         < upload_idx
     )
     assert max(cleanup_registration_indices) < first_credential_write_idx
+    for forbidden_installer_env in (
+        "\n      RCLONE_VERSION:",
+        "\n      RCLONE_ZIP_SHA256:",
+        "${RCLONE_VERSION}",
+        '"$RCLONE_ZIP_SHA256"',
+    ):
+        assert forbidden_installer_env not in text, forbidden_installer_env
 
     rclone_commands = [
         line.strip()
@@ -2084,6 +2101,12 @@ def test_daily_operating_catchup_capture_is_read_only_and_closed() -> None:
     )
     assert capture["permissions"] == {"actions": "read", "contents": "read"}
     assert capture["environment"] == "run287-paper-durable"
+    assert capture["env"] == {
+        "RUN287_CAPTURE_RCLONE_VERSION": "1.75.0",
+        "RUN287_CAPTURE_RCLONE_ZIP_SHA256": (
+            "aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa"
+        ),
+    }
 
     steps = capture["steps"]
     names = [str(step.get("name")) for step in steps]
@@ -2167,6 +2190,20 @@ def test_daily_operating_catchup_capture_is_read_only_and_closed() -> None:
     )
     assert "scope = drive.readonly" in configure["run"]
     assert "RCLONE_CONFIG_GDRIVE_SCOPE=drive.readonly" in configure["run"]
+    for token in (
+        'rclone-v${RUN287_CAPTURE_RCLONE_VERSION}-linux-amd64/rclone',
+        'downloads.rclone.org/v${RUN287_CAPTURE_RCLONE_VERSION}/',
+        '"$RUN287_CAPTURE_RCLONE_ZIP_SHA256"',
+        'grep -Fx "rclone v${RUN287_CAPTURE_RCLONE_VERSION}"',
+    ):
+        assert token in configure["run"], token
+    for forbidden_installer_env in (
+        "${RCLONE_VERSION}",
+        '"$RCLONE_ZIP_SHA256"',
+    ):
+        assert forbidden_installer_env not in configure["run"], (
+            forbidden_installer_env
+        )
 
     download = by_name["Download exact canonical paper evidence read only"]["run"]
     for token in (

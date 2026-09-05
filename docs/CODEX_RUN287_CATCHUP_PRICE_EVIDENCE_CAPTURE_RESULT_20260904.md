@@ -3,7 +3,33 @@
 Date: 2026-09-04
 Branch: `codex/run287-catchup-evidence-capture-20260904`
 Base master: `ec39d0c17e5459a0a72216095a84c46e38b61cc7`
-Status: `READY_FOR_EXACT_HEAD_REVIEW_NOT_EXECUTED`
+Status: `MERGED_CAPTURE_EXECUTION_BLOCKED_PRE_DRIVE`
+
+## First merged execution
+
+The first exact-master dispatch was run on 2026-09-05 through completed NYSE
+session `2026-09-04`:
+
+- workflow run: `33944035434`
+- capture job: `101246758073`
+- source SHA: `34bab52743c238c3419db0d03d17a366645459da`
+- transactional `refresh` job: `skipped`
+- capture result: `failure` before Drive access
+- failed step: `Configure temporary read-only rclone for capture`
+
+The pinned rclone ZIP passed SHA-256 verification, but the job-level
+`RCLONE_VERSION=1.75.0` installer variable collided with rclone's Boolean
+`--version` environment option. The binary rejected `1.75.0` as a Boolean.
+Credential cleanup succeeded; Drive download, artifact construction, artifact
+upload, migration, quarantine, target/order/ledger mutation, catch-up,
+production, and live trading did not run.
+
+The isolated hotfix renames installer version and ZIP-checksum variables under
+the `RUN287_CAPTURE_*` namespace. The same causal collision is removed from the
+separate read-only recovery preflight under `RUN287_PREFLIGHT_*`. It does not
+change rclone bytes, the pinned ZIP hash, `drive.readonly`, evidence validation,
+or any state authority. A fresh dispatch is required after merge; the failed
+job must not be rerun.
 
 ## Outcome
 

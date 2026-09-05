@@ -26,8 +26,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      RCLONE_VERSION: 1.75.0
-      RCLONE_ZIP_SHA256: aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa
+      RUN287_PREFLIGHT_RCLONE_VERSION: 1.75.0
+      RUN287_PREFLIGHT_RCLONE_ZIP_SHA256: aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa
       EXPECTED_PAPER_MANIFEST_SHA256: 82ffee50ee262fef5bd16e2881eecb5b359b2b00702f8de24208dff2630b4900
       EXPECTED_PAPER_TERMINAL_SHA256: 65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7
       EXPECTED_PAPER_ROOT_SHA256: f904fa6bd1d4280f688f99b4562837e48ad196942f75a3b9ad0b2aeb917709a3
@@ -144,7 +144,7 @@ jobs:
           RCLONE_ZIP="$RUNNER_TEMP/run287-rclone.zip"
           RCLONE_CONFIG_PATH="$RUNNER_TEMP/run287-rclone.conf"
           SERVICE_ACCOUNT_PATH="$RUNNER_TEMP/run287-service-account.json"
-          RCLONE_BIN="$RCLONE_INSTALL/rclone-v${RCLONE_VERSION}-linux-amd64/rclone"
+          RCLONE_BIN="$RCLONE_INSTALL/rclone-v${RUN287_PREFLIGHT_RCLONE_VERSION}-linux-amd64/rclone"
           export RCLONE_BIN
           export RCLONE_CONFIG="$RCLONE_CONFIG_PATH"
           export RUN287_SERVICE_ACCOUNT_PATH="$SERVICE_ACCOUNT_PATH"
@@ -156,14 +156,14 @@ jobs:
             echo "RCLONE_CONFIG_GDRIVE_SCOPE=drive.readonly"
           } >> "$GITHUB_ENV"
           curl --fail --silent --show-error --location \
-            "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip" \
+            "https://downloads.rclone.org/v${RUN287_PREFLIGHT_RCLONE_VERSION}/rclone-v${RUN287_PREFLIGHT_RCLONE_VERSION}-linux-amd64.zip" \
             --output "$RCLONE_ZIP"
-          printf '%s  %s\n' "$RCLONE_ZIP_SHA256" "$RCLONE_ZIP" \
+          printf '%s  %s\n' "$RUN287_PREFLIGHT_RCLONE_ZIP_SHA256" "$RCLONE_ZIP" \
             | sha256sum --check --strict
           mkdir -p "$RCLONE_INSTALL"
           unzip -q "$RCLONE_ZIP" -d "$RCLONE_INSTALL"
           test -x "$RCLONE_BIN"
-          "$RCLONE_BIN" version | grep -Fx "rclone v${RCLONE_VERSION}"
+          "$RCLONE_BIN" version | grep -Fx "rclone v${RUN287_PREFLIGHT_RCLONE_VERSION}"
           if [ -n "${RCLONE_CONFIG_GDRIVE:-}" ]; then
             printf '%s' "$RCLONE_CONFIG_GDRIVE" > "$RCLONE_CONFIG_PATH"
             grep -Eq '^\[gdrive\][[:space:]]*$' "$RCLONE_CONFIG_PATH"
@@ -535,8 +535,12 @@ jobs:
                   "session_date": os.environ["REQUESTED_SESSION_DATE"],
               },
               "tooling": {
-                  "rclone_version": os.environ["RCLONE_VERSION"],
-                  "rclone_zip_sha256": os.environ["RCLONE_ZIP_SHA256"],
+                  "rclone_version": os.environ[
+                      "RUN287_PREFLIGHT_RCLONE_VERSION"
+                  ],
+                  "rclone_zip_sha256": os.environ[
+                      "RUN287_PREFLIGHT_RCLONE_ZIP_SHA256"
+                  ],
               },
               "drive": {
                   "base_mode": os.environ["RUN287_DRIVE_BASE_MODE"],
