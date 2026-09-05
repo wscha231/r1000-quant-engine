@@ -1,0 +1,68 @@
+name: Run287 Daily Research Monitor
+
+on:
+  schedule:
+    - cron: '25 8 * * *'  # 17:25 Asia/Seoul; report latest settled US session.
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/run287_daily_research_monitor.yml'
+      - 'tools/run_run287_daily_research_monitor.py'
+      - 'tests/run287_daily_research_monitor_smoke.py'
+      - 'docs/run287_daily_research_monitor_contract.json'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: run287-research-monitor-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    # Only same-repository PRs receive the read-only Actions token.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            tools
+            tests
+            docs
+            .github
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install calendar dependencies
+        run: python -m pip install 'pandas==2.2.3' 'pandas_market_calendars==4.6.1'
+      - name: Validate monitor contracts
+        run: python tests/run287_daily_research_monitor_smoke.py
+      - name: Collect read-only daily research evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python tools/run_run287_daily_research_monitor.py
+          --output-dir outputs/daily_research_monitor/${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Publish report summary
+        if: always()
+        env:
+          REPORT: outputs/daily_research_monitor/${{ github.run_id }}-${{ github.run_attempt }}/report.md
+        run: |
+          if [ -f "$REPORT" ]; then
+            cat "$REPORT" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Research monitor could not produce its report; inspect the failed step.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload read-only research handoff
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run287-daily-research-monitor-${{ github.run_id }}-${{ github.run_attempt }}
+          path: outputs/daily_research_monitor/${{ github.run_id }}-${{ github.run_attempt }}/
+          if-no-files-found: error
+          retention-days: 45

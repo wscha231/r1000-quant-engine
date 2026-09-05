@@ -90,6 +90,28 @@ Expected contract:
 
 ## Ledger
 
+### 2026-09-05 - Daily research needs source dates, not workflow success
+
+- Agent: Codex
+- Branch: `codex/run287-daily-research-monitor-20260905`.
+- Context: independently refreshed prices, forward estimates and ownership
+  data did not make the after-close July-13 score current. Daily operating run
+  `33947924742` stopped at the explicit legacy recovery authorization gate.
+- Result: added a read-only artifact handoff with exact run/commit/digest
+  checks, separate collection/market/disclosure dates, null-preserving US/KR
+  research gaps and failed-run visibility. The existing registered workflow
+  smoke invokes the new focused regressions.
+- Caveat: local connector artifact URL materialization returned HTTP 403
+  (error 1010); only actual GitHub-runner evidence can establish the live
+  artifact integration. Source monitoring is not restored portfolio operation.
+- Lesson: full archive coverage is not forward-estimate coverage; quarterly
+  13F snapshots are not today's buying; a green reporting job is not a current
+  score. Keep validated current ranking unavailable until its handoff exists.
+- Do-not-repeat: do not mask a newer failure with an older successful run,
+  impute missing/Korean inputs as zero, blend new moat scores with arbitrary
+  weights, or bypass an accepted-state recovery approval for research.
+- Evidence: `docs/CODEX_RUN287_DAILY_RESEARCH_MONITOR_20260905.md`.
+
 ### 2026-09-04 - Preserve every accepted same-session paper transition
 
 - Agent: Codex GPT-5.6
