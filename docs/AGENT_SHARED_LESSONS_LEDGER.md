@@ -90,6 +90,41 @@ Expected contract:
 
 ## Ledger
 
+### 2026-09-05 - Keep installer metadata out of rclone's environment namespace
+
+- Agent: Codex GPT-5.6.
+- Branch/PR/run: `codex/run287-capture-rclone-env-hotfix-20260905`, failed
+  read-only capture run `33944035434`, job `101246758073`.
+- Context: The first merged multi-session catch-up price capture was dispatched
+  from exact `master` `34bab52743c238c3419db0d03d17a366645459da` through
+  completed NYSE session `2026-09-04` with the transactional job skipped.
+- Attempt: The job downloaded and checksum-verified the pinned rclone archive,
+  then invoked the pinned binary's `version` command before writing Drive
+  credentials or reading canonical evidence.
+- Result: Dispatch-shape, default-branch, dependency, and latest-session gates
+  passed. The job failed closed before Drive access; credential cleanup passed,
+  artifact upload was skipped, and no target, order, ledger, accepted head,
+  migration, catch-up, production, or live state changed.
+- Failure or caveat: The job-level `RCLONE_VERSION=1.75.0` variable was consumed
+  by rclone as its Boolean `--version` option, producing a Boolean parse error.
+  The same installer-variable naming pattern existed in the separate read-only
+  risk-outcome recovery preflight.
+- Root cause: Installer metadata used rclone's reserved `RCLONE_*` environment
+  namespace instead of an application-owned Run287 namespace.
+- Reusable lesson: Keep pinned tool version and archive-checksum metadata under
+  an application-owned prefix. Never export an installer variable whose
+  `RCLONE_*` name collides with a registered rclone flag, and test both the
+  failing old environment and the accepted replacement environment.
+- Next action: Merge the isolated two-workflow naming fix only after focused
+  validation, exact-head review, and green PR checks; then make a fresh
+  read-only capture dispatch rather than rerunning job `101246758073`.
+- Do-not-repeat: Do not rerun the failed job, weaken Drive read-only scope,
+  remove checksum/version verification, or combine this fix with migration or
+  chronological ledger catch-up.
+- Evidence files: `.github/workflows/daily_operating_selection_refresh.yml`,
+  `.github/workflows/run287_risk_outcome_recovery_preflight.yml`, and
+  `tests/workflow_artifact_smoke.py`.
+
 ### 2026-09-04 - Preserve every accepted same-session paper transition
 
 - Agent: Codex GPT-5.6
