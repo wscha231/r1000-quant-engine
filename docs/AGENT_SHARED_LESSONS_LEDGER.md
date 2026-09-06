@@ -4032,6 +4032,34 @@ Expected contract:
 - Safety: Fullrun executed false; production/live trading enabled false;
   automatic promotion enabled false.
 
+## 2026-08-19 - Score learning and portfolio sizing require separate PIT gates
+
+- The operating stack still contains many intuition-seeded score, overlay,
+  regime, and sizing constants. Adjusting them together against one historical
+  result would hide causal attribution and add more uncounted trials.
+- Freeze stock-alpha learning before allocation: learn nonnegative pillar and
+  63/126-session horizon weights only inside nested anchored walk-forward
+  folds, keep 21 sessions as timing diagnostics, and keep macro inputs outside
+  the stock-alpha score.
+- Treat 13F as delayed confirmation and discovery. Use split-adjusted share
+  changes rather than market-value changes as the primary trade measure,
+  measure managers by copyable post-filing excess returns, and cap the shadow
+  component at 10% until it earns independent OOS evidence.
+- Anchor portfolio sizing to equal weight, shrink covariance estimates, and
+  include turnover and 25/50/100 bps costs inside the allocation objective.
+  Optimized weights are not evidence unless they beat both equal weight and the
+  accepted champion in broker-ledger next-close evaluation.
+- The new readiness gate intentionally stops before a real fit. Historical PIT
+  membership/lifecycle, a materialized component frame, accepted historical
+  13F coverage, PIT daily returns, and prior-weight provenance must pass before
+  one causal challenger is preregistered and the outer test is opened once.
+- Daily monitoring, monthly shadow refits, quarterly 13F refreshes, and
+  semiannual manager review may generate proposals only. No schedule may
+  auto-retune, auto-promote, write targets, create orders, or mutate the ledger.
+- Fullrun executed: false. Historical fit executed: false. Portfolio replay
+  executed: false. Production/live trading enabled: false. Automatic promotion
+  enabled: false.
+
 ## 2026-08-11 - U0 acceptance freshness and candidate-discovery boundary
 
 - A default-branch SHA is not a complete GitHub census identity. Branches and

@@ -1,0 +1,283 @@
+{
+  "schema_version": "run287-scientific-selection-allocation-contract-v1",
+  "contract_version": "2026-08-19.1",
+  "purpose": "Pre-register a point-in-time, nested walk-forward research path for learning stock-selection component weights and robust portfolio weights without changing the operating champion.",
+  "research_question": "Can a constrained and stability-shrunk component model improve 63-session benchmark-excess stock ranking, and can a separately regularized allocation layer convert that ranking into better after-cost portfolio evidence than equal-weight and the accepted champion?",
+  "decision_layers": {
+    "stock_alpha": {
+      "role": "cross_sectional_security_ranking",
+      "macro_inputs_allowed": false,
+      "portfolio_risk_inputs_allowed": false
+    },
+    "portfolio_allocation": {
+      "role": "translate_oos_calibrated_alpha_into_shadow_weights",
+      "may_change_stock_order": false,
+      "uses_only_stock_alpha_survivors": true
+    },
+    "macro_risk_router": {
+      "role": "accepted_equity_budget_cash_and_risk_constraints_only",
+      "direct_stock_alpha_points_allowed": false,
+      "inputs": [
+        "policy_rate_and_yield_curve",
+        "credit_spreads",
+        "oil_and_energy_shock",
+        "usd_and_global_liquidity",
+        "vix_and_realized_volatility",
+        "market_breadth_and_benchmark_trend"
+      ]
+    }
+  },
+  "component_model": {
+    "inputs": {
+      "quality_moat": {
+        "column": "pillar_quality_moat",
+        "available_from_column": "pillar_quality_moat_available_from",
+        "observed_column": "pillar_quality_moat_observed",
+        "role": "alpha_core",
+        "coefficient_constraint": "nonnegative"
+      },
+      "valuation": {
+        "column": "pillar_valuation",
+        "available_from_column": "pillar_valuation_available_from",
+        "observed_column": "pillar_valuation_observed",
+        "role": "alpha_core",
+        "coefficient_constraint": "nonnegative"
+      },
+      "growth_revisions": {
+        "column": "pillar_growth_revisions",
+        "available_from_column": "pillar_growth_revisions_available_from",
+        "observed_column": "pillar_growth_revisions_observed",
+        "role": "alpha_core",
+        "coefficient_constraint": "nonnegative"
+      },
+      "leadership_momentum": {
+        "column": "pillar_leadership_momentum",
+        "available_from_column": "pillar_leadership_momentum_available_from",
+        "observed_column": "pillar_leadership_momentum_observed",
+        "role": "alpha_core",
+        "coefficient_constraint": "nonnegative"
+      },
+      "event_actuals": {
+        "column": "pillar_event_actuals",
+        "available_from_column": "pillar_event_actuals_available_from",
+        "observed_column": "pillar_event_actuals_observed",
+        "role": "alpha_core",
+        "coefficient_constraint": "nonnegative"
+      },
+      "manager_13f_flow": {
+        "column": "pillar_13f_manager_flow",
+        "available_from_column": "pillar_13f_manager_flow_available_from",
+        "observed_column": "pillar_13f_manager_flow_observed",
+        "role": "confirmation_and_discovery",
+        "coefficient_constraint": "nonnegative",
+        "shadow_prior_weight": 0.05,
+        "maximum_learned_weight": 0.1,
+        "quantity_change_measure": "split_adjusted_share_change_primary",
+        "market_value_change_role": "diagnostic_only_due_to_price_contamination"
+      }
+    },
+    "transform": "decision_date_cross_sectional_percentile_rank_then_center",
+    "missing_value_policy": "fail_closed_for_required_observation_flags_never_silent_zero",
+    "estimator": "nonnegative_simplex_ridge_anchored_to_preregistered_prior",
+    "ridge_grid_inner_only": [0.1, 1.0, 10.0, 100.0],
+    "hyperparameter_selection": "anchored_inner_walk_forward_only_outer_test_never_reused",
+    "outer_primary_metric": "mean_decision_date_spearman_ic_63d_benchmark_excess",
+    "outer_secondary_metrics": [
+      "mean_decision_date_spearman_ic_126d_benchmark_excess",
+      "top_minus_bottom_quintile_63d_benchmark_excess",
+      "downside_hit_rate",
+      "rank_stability",
+      "turnover"
+    ],
+    "horizon_weight_policy": "learn_nonnegative_simplex_mix_of_63d_and_126d_in_inner_folds_only",
+    "timing_horizon": "21d_warning_only_not_selection_weight",
+    "coefficient_stability": {
+      "method": "decision_date_block_bootstrap",
+      "report": [
+        "median_weight",
+        "interquartile_range",
+        "positive_weight_frequency",
+        "outer_fold_dispersion"
+      ],
+      "unstable_component_action": "shrink_toward_preregistered_prior_never_drop_after_outer_results"
+    }
+  },
+  "manager_13f_policy": {
+    "manager_performance_measure": "copyable_long_only_post_filing_portfolio_excess_return_not_reported_total_fund_return",
+    "performance_windows_years": [1, 2, 3],
+    "minimum_selected_managers": 10,
+    "target_selected_manager_band": [12, 20],
+    "manager_reselection_cadence": "semiannual",
+    "filing_signal_refresh_cadence": "quarterly_after_official_filing_availability",
+    "filing_delay_and_omissions": "respect_SEC_available_from_and_treat_shorts_and_unreported_exposures_as_unobserved",
+    "amendment_policy": "availability_ordered_PIT_state_with_restatement_and_new_holdings_semantics",
+    "universe_role": "candidate_discovery_and_bounded_confirmation_not_a_required_holding_list"
+  },
+  "validation": {
+    "outer_method": "anchored_expanding_walk_forward",
+    "inner_method": "anchored_expanding_walk_forward",
+    "label_must_be_available_strictly_before_fit_decision": true,
+    "embargo_nyse_sessions": 126,
+    "minimum_training_decision_dates": 36,
+    "minimum_outer_test_decision_dates": 24,
+    "minimum_cross_section_rows_per_decision": 100,
+    "minimum_component_coverage": 0.98,
+    "sector_neutral_diagnostic_required": true,
+    "all_candidate_variants_count_toward_multiplicity": true,
+    "outer_test_may_be_opened_once": true
+  },
+  "portfolio_allocation": {
+    "proposal_only": true,
+    "selection_count_policy": "fixed_by_preregistration_before_outer_results",
+    "baseline_anchors": [
+      "equal_weight_selected_names",
+      "accepted_operating_champion"
+    ],
+    "expected_return_input": "outer_walk_forward_calibrated_component_score",
+    "covariance_estimator": "ledoit_wolf_shrinkage_on_PIT_daily_returns",
+    "minimum_daily_return_sessions": 252,
+    "objective": "maximize_expected_alpha_minus_covariance_risk_minus_ex_ante_turnover_and_transaction_cost_penalty",
+    "risk_aversion_policy": "choose_in_inner_walk_forward_to_match_preregistered_risk_band",
+    "turnover_penalty_policy": "derive_from_25_50_100_bps_cost_scenarios_and_prior_weights",
+    "constraints": [
+      "long_only",
+      "weights_sum_to_accepted_equity_budget",
+      "accepted_single_name_cap",
+      "accepted_sector_and_risk_cluster_caps",
+      "ADV_capacity_limit",
+      "explicit_cash_residual_when_constraints_are_infeasible"
+    ],
+    "fallback": "equal_weight_or_current_champion_when_covariance_alpha_cost_or_prior_weight_evidence_is_incomplete",
+    "evaluation": "broker_ledger_next_close_after_costs_only_no_weight_level_CAGR_claim"
+  },
+  "data_readiness": {
+    "exchange_calendar": "NYSE",
+    "decision_time_must_be_on_or_after_scheduled_close": true,
+    "component_frame_required_columns": [
+      "feature_date",
+      "rebalance_date",
+      "decision_time_utc",
+      "ticker",
+      "sector",
+      "stable_security_id",
+      "pit_universe_label_clean",
+      "realized_benchmark_excess_63d",
+      "realized_benchmark_excess_126d",
+      "label_available_at_63d",
+      "label_available_at_126d"
+    ],
+    "daily_returns_required_columns": [
+      "date",
+      "ticker",
+      "stable_security_id",
+      "return",
+      "available_from",
+      "pit_lifecycle_state",
+      "pit_universe_label_clean"
+    ],
+    "prior_weights_required_columns": [
+      "rebalance_date",
+      "ticker",
+      "weight",
+      "source_sha256"
+    ],
+    "minimum_prior_weight_tickers": 10,
+    "current_known_blockers": [
+      "historical_PIT_universe_and_delisted_lifecycle_not_yet_clean",
+      "real_component_frame_not_materialized_for_this_contract",
+      "historical_13f_confirmation_coverage_and_manager_alpha_not_yet_accepted",
+      "expected_return_real_feature_store_fit_not_yet_published"
+    ]
+  },
+  "acceptance": {
+    "cross_sectional_skill_required": true,
+    "equal_weight_benchmark_required": true,
+    "accepted_champion_benchmark_required": true,
+    "cost_scenarios_bps": [25, 50, 100],
+    "multiple_testing_gate_required": [
+      "deflated_sharpe_ratio",
+      "probability_of_backtest_overfitting",
+      "white_reality_check",
+      "canonical_U0_trial_count_binding"
+    ],
+    "promotion_decision": "separate_exact_head_human_review_after_forward_paper_evidence",
+    "single_backtest_or_single_market_regime_can_pass": false
+  },
+  "sustainable_operation": {
+    "daily": [
+      "source_freshness_and_PIT_availability_audit",
+      "portfolio_risk_and_data_drift_monitor",
+      "no_method_or_weight_retuning"
+    ],
+    "monthly": [
+      "append_matured_labels",
+      "expanding_window_shadow_refit",
+      "selection_and_rebalance_proposal",
+      "turnover_cost_and_rank_stability_report"
+    ],
+    "quarterly": [
+      "official_13f_refresh_after_filing_availability",
+      "manager_trade_event_rebuild",
+      "component_and_portfolio_attribution_review"
+    ],
+    "semiannual": [
+      "manager_cohort_reselection_using_1_2_3_year_copyable_alpha",
+      "model_and_data_source_review_without_outer_test_reuse"
+    ],
+    "drift_policy": "pre_register_training_distribution_control_limits_then_shadow_or_block_never_auto_promote",
+    "rollback_policy": "retain_accepted_champion_and_versioned_inputs_models_contracts_and_outputs"
+  },
+  "scientific_references": [
+    {
+      "topic": "cross_sectional_machine_learning",
+      "title": "Empirical Asset Pricing via Machine Learning",
+      "url": "https://www.nber.org/papers/w25398"
+    },
+    {
+      "topic": "multiple_testing",
+      "title": "... and the Cross-Section of Expected Returns",
+      "url": "https://doi.org/10.1093/rfs/hhv059"
+    },
+    {
+      "topic": "portfolio_estimation_error",
+      "title": "Optimal Versus Naive Diversification",
+      "url": "https://doi.org/10.1093/rfs/hhm075"
+    },
+    {
+      "topic": "covariance_shrinkage",
+      "title": "Improved Estimation of the Covariance Matrix of Stock Returns With an Application to Portfolio Selection",
+      "url": "https://doi.org/10.1016/S0047-259X(03)00096-4"
+    },
+    {
+      "topic": "turnover_and_model_uncertainty",
+      "title": "Large-scale portfolio allocation under transaction costs and model uncertainty",
+      "url": "https://doi.org/10.1016/j.jeconom.2019.04.028"
+    },
+    {
+      "topic": "backtest_selection_bias",
+      "title": "The Deflated Sharpe Ratio",
+      "url": "https://www.davidhbailey.com/dhbpapers/deflated-sharpe.pdf"
+    },
+    {
+      "topic": "13f_reporting_boundary",
+      "title": "SEC Form 13F Frequently Asked Questions",
+      "url": "https://www.sec.gov/rules-regulations/staff-guidance/division-investment-management-frequently-asked-questions/frequently-asked-questions-about-form-13f"
+    }
+  ],
+  "outputs": [
+    "contract_audit.json",
+    "data_readiness.json",
+    "report.md"
+  ],
+  "safety": {
+    "research_only": true,
+    "automatic_promotion_allowed": false,
+    "champion_change_allowed": false,
+    "portfolio_mutation_allowed": false,
+    "target_books_written": false,
+    "orders_generated": false,
+    "operating_ledger_mutated": false,
+    "production_or_live_trading_enabled": false,
+    "fullrun_executed": false
+  }
+}
