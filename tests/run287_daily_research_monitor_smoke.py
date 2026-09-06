@@ -12,6 +12,7 @@ import tempfile
 import unittest
 import warnings
 import zipfile
+from html.parser import HTMLParser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -279,6 +280,30 @@ class MonitorTests(unittest.TestCase):
         self.assertIn('id="query"', result)
         self.assertIn("연결 대기", result)
         self.assertNotIn("fetch(", result)
+
+    def test_rendered_html_exposes_all_market_and_coverage_options(self):
+        class SelectOptions(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.current = None
+                self.options = {}
+
+            def handle_starttag(self, tag, attrs):
+                attributes = dict(attrs)
+                if tag == "select":
+                    self.current = attributes["id"]
+                    self.options[self.current] = []
+                elif tag == "option" and self.current is not None:
+                    self.options[self.current].append(attributes.get("value"))
+
+            def handle_endtag(self, tag):
+                if tag == "select":
+                    self.current = None
+
+        parsed = SelectOptions()
+        parsed.feed(monitor.render_html(monitor.evaluate(evidence(), "2026-09-04", NOW, CONTRACT)))
+        self.assertEqual(parsed.options["market"], ["", "US", "KR"])
+        self.assertEqual(parsed.options["coverage"], ["", "ready", "missing"])
 
     def test_latest_failure_is_not_hidden_by_prior_success(self):
         runs = [sample_run(1), sample_run(2, "failure")]

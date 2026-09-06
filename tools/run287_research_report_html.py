@@ -91,7 +91,7 @@ def render_html(report: dict) -> str:
 <section><div class="section-title"><h2>종목별 연구 입력</h2><span id="visible-count" class="muted" aria-live="polite">{len(rows)}개 종목</span></div>
 <p class="muted">13F 수급 점수는 보고 분기의 보유 공시입니다. 실시간 매수세나 검증된 추가 가점으로 해석하지 않습니다.</p>
 <div class="filters"><label>종목 <input id="query" type="search" placeholder="예: ETN, 000660" autocomplete="off"></label>
-<label>시장 <select id="market"><option value="">전체</option value="US">미국</option><option value="KR">한국</option></select></label>
+<label>시장 <select id="market"><option value="">전체</option><option value="US">미국</option><option value="KR">한국</option></select></label>
 <label>점수 연결 <select id="coverage"><option value="">전체</option><option value="ready">연결됨</option><option value="missing">연결 필요</option></select></label>
 <button id="reset" type="button">필터 초기화</button></div>
 <div class="table-wrap"><table id="watchlist"><thead><tr><th scope="col">종목 / 시장</th><th scope="col" class="num">종가 / 기준일</th><th scope="col" class="num">엔진 점수 / 기준일</th><th scope="col" class="num">기존 수급 점수</th><th scope="col">검증 상태 / 남은 자료</th></tr></thead><tbody>{''.join(body)}</tbody></table></div>

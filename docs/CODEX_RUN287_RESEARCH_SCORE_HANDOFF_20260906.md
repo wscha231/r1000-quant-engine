@@ -67,9 +67,13 @@ that limitation even after its code and tests pass.
 
 ## Validation and next implementation gates
 
-Local validation passed the 18 monitor regressions, the registered workflow
+Local validation passed the 19 monitor regressions, the registered workflow
 artifact smoke suite, Python compilation, report JavaScript syntax, and diff
 whitespace checks. No browser rendering or investment performance test was run.
+
+The first exact-head review caught a malformed US market option closing tag.
+The follow-up fixes the markup and parses rendered HTML to verify every market
+and coverage option. A JavaScript syntax check alone cannot verify HTML controls.
 
 Transport note: the local Git push lacked credentials. The connected GitHub
 Git-data transport may publish only the already-committed local blobs/tree,
