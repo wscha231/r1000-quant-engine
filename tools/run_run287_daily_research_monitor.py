@@ -26,6 +26,11 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from tools.run287_research_score_handoff import read_score_handoff, evaluate_score_handoff
+from tools.run287_research_report_html import render_html
+
 CONTRACT = ROOT / "docs/run287_daily_research_monitor_contract.json"
 SCHEMA = "run287-daily-research-monitor-v1"
 READY_UPSTREAM = {
@@ -42,6 +47,8 @@ def timestamp(value: str) -> datetime:
 
 
 def number(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
     try:
         value = float(value)
     except (ValueError, TypeError):
@@ -177,6 +184,16 @@ def collect_source(client: GitHub, key: str, spec: dict, contract: dict) -> dict
             members = {k: v.format(run_id=run["id"], run_attempt=run.get("run_attempt", 1))
                        for k, v in spec["members"].items()}
             result["data"], result["files"] = read_members(path, members, contract["max_member_bytes"])
+            if key == "operating" and result["data"].get("upstream", {}).get("status") in READY_UPSTREAM:
+                try:
+                    handoff, hashes = read_score_handoff(path, result["data"]["upstream"],
+                                                       contract["repository"], contract["max_member_bytes"])
+                    result["data"]["score_handoff"] = handoff
+                    result["files"].update(hashes)
+                except Exception as exc:
+                    # Preserve price/recovery evidence when the score graph fails.
+                    result["score_handoff_error"] = (str(exc) if isinstance(exc, ValueError)
+                        and re.fullmatch(r"[a-z_]+", str(exc)) else "score_handoff_invalid")
         result["artifact_hash_verified"] = True
         optional = set(spec.get("optional_members", []))
         if not optional.issubset(members):
@@ -289,6 +306,16 @@ def evaluate(sources: dict, session: str, now: datetime, contract: dict) -> dict
     price_source_verified = sources.get("operating", {}).get("artifact_hash_verified") is True
     if duplicates:
         alerts.append("operating:DUPLICATE_PRICE_TICKERS")
+    score_handoff, score_rows = evaluate_score_handoff(sources.get("operating", {}), session, now)
+    observations["engine_score_handoff"] = score_handoff
+    if not score_handoff["ready"]:
+        alerts.append("operating:" + score_handoff["status"])
+    # The source artifact is diagnostic. Accepted Drive-backed account state
+    # requires a separate receipt; this collector never substitutes a replay.
+    observations["accepted_portfolio"] = {
+        "status": "ACCEPTED_ACCOUNT_SOURCE_NOT_CONNECTED", "current_weights_ready": False,
+        "trade_history_ready": False, "performance_ready": False,
+        "meaning": "Current weights, trades and CAGR/MDD require a verified accepted-account handoff."}
     watchlist = []
     for market, tickers in contract["watchlist"].items():
         for ticker in tickers:
@@ -305,6 +332,13 @@ def evaluate(sources: dict, session: str, now: datetime, contract: dict) -> dict
                 price_state = "DUPLICATE_TICKER"
             if close is None or close <= 0:
                 price_state = "MISSING_OR_INVALID_PRICE"
+            engine = score_rows.get(ticker) if market == "US" else None
+            engine_status = ("KR_ADAPTER_REQUIRED" if market == "KR" else
+                             score_handoff["status"] if not score_handoff["ready"] else
+                             "TICKER_NOT_IN_SCORE_EXPORT" if engine is None else
+                             "CURRENT_NONRANKING_DIAGNOSTIC")
+            if market == "US" and score_handoff["ready"] and engine is None:
+                alerts.append(f"operating:SCORE_TICKER_MISSING:{ticker}")
             watchlist.append({"market": market, "ticker": ticker,
                               "price_as_of": price.get("latest_price_date"),
                               "price_status": price_state,
@@ -312,15 +346,25 @@ def evaluate(sources: dict, session: str, now: datetime, contract: dict) -> dict
                               "currency": price.get("currency") if price_state == "CURRENT" else None,
                               "ownership_score": number(row.get("smart_money_score")) if usable_row else None,
                               "ownership_available_from": available,
-                              "current_engine_score": None,
-                              "current_engine_status": "NO_VALIDATED_RANKING_HANDOFF",
+                              "current_engine_score": engine["score"] if engine is not None else None,
+                              "current_engine_status": engine_status,
+                              "engine_score_as_of": score_handoff["score_as_of"] if market == "US" else None,
+                              "engine_code_sha": score_handoff.get("engine_code_sha") if engine is not None else None,
+                              "engine_research_eligible": engine["research_eligible_after_quarantine"] if engine is not None else None,
+                              "engine_critical_data_complete": engine["critical_data_complete"] if engine is not None else None,
+                              "engine_critical_missing_fields": engine["critical_missing_fields"] if engine is not None else None,
+                              "engine_corporate_action_quarantine": engine["corporate_action_quarantine"] if engine is not None else None,
+                              "engine_missing_neutral_applied": engine["missing_neutral_applied"] if engine is not None else None,
                               "research_status": "PRIMARY_SOURCE_REVIEW_REQUIRED",
                               "data_gap": "KR_ADAPTER_REQUIRED" if market == "KR" else
+                              "PRICE_FINANCIAL_MOAT_AND_SELECTOR_REVIEW_REQUIRED" if engine is not None else
                               "PRICE_FINANCIAL_MOAT_AND_SCORE_HANDOFF_REQUIRED"})
     return {"schema_version": SCHEMA, "generated_at_utc": now.isoformat(),
             "expected_us_session": session, "repository": contract["repository"],
             "status": "ATTENTION_REQUIRED" if alerts else "OBSERVATIONS_COLLECTED",
             "current_investment_ranking_ready": False,
+            "current_engine_scores_ready": score_handoff["ready"],
+            "current_portfolio_ready": False,
             "alerts": sorted(set(alerts)), "observations": observations,
             "sources": {k: {a: b for a, b in v.items() if a != "data"} for k, v in sources.items()},
             "watchlist": watchlist, "research_questions": contract["research_questions"],
@@ -341,11 +385,13 @@ def render(report: dict) -> str:
                  "", "## Items to resolve", ""])
     rows.extend(f"- {item}" for item in report["alerts"])
     rows.extend(["", "## Research queue", "",
-                 "| Market | Ticker | Close / date | Disclosed ownership score | Data gap |", "|---|---|---|---|---|"])
+                 "| Market | Ticker | Close / date | Engine score / status | Disclosed ownership score | Data gap |", "|---|---|---|---|---|---|"])
     for row in report["watchlist"]:
         score = row["ownership_score"]
         price = f"{row['close']} / {row['price_as_of']}" if row['close'] is not None else row['price_status']
-        rows.append(f"| {row['market']} | {row['ticker']} | {price} | {score if score is not None else 'unavailable'} | {row['data_gap']} |")
+        engine = row["current_engine_score"]
+        engine_text = f"{engine:.6f} / {row['engine_score_as_of']} (nonranking)" if engine is not None else row["current_engine_status"]
+        rows.append(f"| {row['market']} | {row['ticker']} | {price} | {engine_text} | {score if score is not None else 'unavailable'} | {row['data_gap']} |")
     rows.extend(["", report["score_policy"], "",
                  "KR exchange calendar, long price history, financial estimates and source-cited moat research remain separate inputs. No US-relative score is imputed for KR tickers.", ""])
     return "\n".join(rows)
@@ -369,12 +415,14 @@ def main() -> int:
     report["contract_sha256"] = hashlib.sha256(args.contract.read_bytes()).hexdigest()
     (args.output_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (args.output_dir / "report.md").write_text(render(report), encoding="utf-8")
+    (args.output_dir / "report.html").write_text(render_html(report), encoding="utf-8")
     with (args.output_dir / "research_queue.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(report["watchlist"][0]))
         writer.writeheader()
         writer.writerows(report["watchlist"])
     print(json.dumps({"status": report["status"], "expected_us_session": report["expected_us_session"],
-                      "alerts": report["alerts"], "current_investment_ranking_ready": False}))
+                      "alerts": report["alerts"], "current_investment_ranking_ready": False,
+                      "current_engine_scores_ready": report["current_engine_scores_ready"]}))
     return 0  # Report generation success is intentionally separate from data readiness.
 
 
