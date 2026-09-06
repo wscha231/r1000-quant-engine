@@ -34,6 +34,23 @@ this ledger. Use secret names only.
 - Evidence files:
 ```
 
+## 2026-09-06 - Consume current score exports through their explicit evidence graph
+
+- Agent: Codex. Branch: `codex/run287-research-score-handoff-20260906`.
+- Context: The daily monitor hardcoded every engine score to null although a
+  current nonranking score-stack producer already existed.
+- Reusable lesson: Bind the artifact and upstream receipt to the source bundle,
+  both decision-manifest references, final score-stack CSV, source commit,
+  frozen model metadata and availability times. Same-close reuse must read the
+  original referenced attempt; constructing current-attempt filenames fails.
+- Caveat: A verified export remains a nonranking diagnostic. It cannot certify
+  selector outputs, accepted account state, future returns, or historical PIT
+  performance. A failed operating run remains visible even if report creation
+  succeeds. Keep independently verified prices when only the score graph fails.
+- Validation: Registered monitor regressions cover valid/invalid transport,
+  graph identity, dates, six active heads, null/zero, and escaped offline HTML.
+- Evidence: `docs/CODEX_RUN287_RESEARCH_SCORE_HANDOFF_20260906.md`.
+
 ## Standing Rules For Agents
 
 - Keep run287 and related strategy work research-only unless the user explicitly

@@ -8,6 +8,9 @@ on:
     paths:
       - '.github/workflows/run287_daily_research_monitor.yml'
       - 'tools/run_run287_daily_research_monitor.py'
+      - 'tools/run287_research_score_handoff.py'
+      - 'tools/run287_research_report_html.py'
+      - 'tools/run287_code_identity.py'
       - 'tests/run287_daily_research_monitor_smoke.py'
       - 'docs/run287_daily_research_monitor_contract.json'
 

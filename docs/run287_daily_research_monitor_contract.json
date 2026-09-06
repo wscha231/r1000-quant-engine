@@ -5,6 +5,15 @@
   "purpose": "Read-only research handoff; workflow success is not data freshness or investment approval.",
   "max_artifact_bytes": 536870912,
   "max_member_bytes": 16777216,
+  "score_handoff": {
+    "root": "operating upstream.source_bundle path and SHA-256",
+    "graph": "bundle -> decision manifest, score-stack manifest -> score-only manifest, ticker-order score CSV",
+    "absolute_path_root": "/home/runner/work/r1000-quant-engine/r1000-quant-engine/",
+    "path_policy": "Exact referenced outputs/ members only; retain original paths on same-date reuse; no latest-file or basename discovery.",
+    "semantics": "Current nonranking diagnostics; no score recalibration, rank assignment, selection, sizing or accepted-account claim.",
+    "unavailable_policy": "Return null and an explicit reason; never use the tactical historical score as fallback.",
+    "outputs": ["report.json", "report.md", "report.html", "research_queue.csv"]
+  },
   "sources": {
     "operating": {
       "workflow": "daily_operating_selection_refresh.yml",
