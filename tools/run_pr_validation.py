@@ -237,6 +237,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/run287_current_advisory_selector_smoke.py", []),
     ("tests/run287_current_selector_no_write_smoke.py", []),
     ("tests/run287_same_close_target_books_smoke.py", []),
+    ("tests/run287_paper_buy_guard_targets_smoke.py", []),
     ("tests/free_data_selection_overlay_smoke.py", []),
     ("tests/free_data_forward_paper_ledger_smoke.py", []),
     ("tests/forward_paper_price_universe_smoke.py", []),

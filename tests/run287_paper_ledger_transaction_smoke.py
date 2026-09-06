@@ -2291,11 +2291,20 @@ def test_workflow_separates_failed_evidence_from_accepted_paper_state() -> None:
         < script.index("python tools/build_run287_exact_packet_input_registry.py")
         < script.index("python tools/run_run287_exact_packet_producer.py")
         < script.index("python tools/build_run287_same_close_target_books.py")
+        < script.index("python tools/build_run287_paper_buy_guard_targets.py")
     )
     assert 'cp "$SAME_CLOSE_DIR/same_close_main_target_book.csv"' not in script
     assert "--main-publish-target outputs/reports/operating_main_target_book.csv" in script
     assert "--concentrated-publish-target outputs/reports/operating_concentrated_target_book.csv" in script
-    assert '--target-handoff-manifest "$SAME_CLOSE_DIR/status.json"' in script
+    assert '--same-close-status "$SAME_CLOSE_DIR/status.json"' in script
+    assert '--target-handoff-manifest "$PAPER_BUY_GUARD_DIR/status.json"' in script
+    assert '--main-target "$PAPER_BUY_GUARD_DIR/paper_buy_guard_main_target_book.csv"' in script
+    assert (
+        '--concentrated-target "$PAPER_BUY_GUARD_DIR/'
+        'paper_buy_guard_concentrated_target_book.csv"'
+        in script
+    )
+    assert "paper buy guard blocked; prior fills/marks retained and zero new orders generated" in script
     assert '--expected-target-handoff-sha256 "$TARGET_HANDOFF_SHA"' in script
     assert '--main-target-sha256 "$MAIN_TARGET_SHA"' in script
     assert (
@@ -2397,6 +2406,7 @@ def test_workflow_separates_failed_evidence_from_accepted_paper_state() -> None:
     assert "outputs/account_ledger_preview/" in accepted_paths
     assert "outputs/daily_simulated_fill_ledger/" in accepted_paths
     assert "outputs/run287_paper_immutable_head_bundles/" in accepted_paths
+    assert "outputs/run287_paper_buy_guard/" in accepted_paths
     assert "outputs/reports/operating_*_target_book.csv" in accepted_paths
     assert "outputs/run287_decision_observation_archive/" in accepted_paths
     assert "outputs/run287_risk_outcome_price_cache/" in accepted_paths
@@ -2440,6 +2450,7 @@ def test_workflow_separates_failed_evidence_from_accepted_paper_state() -> None:
         "Sync accepted paper transaction to Google Drive"
     ]
     assert accepted_sync["run"].count("assert_current_default_head") >= 4
+    assert "outputs/run287_paper_buy_guard" in accepted_sync["run"]
     assert (
         "assert_current_default_head\nrclone copy "
         "outputs/run287_accepted_publication"
