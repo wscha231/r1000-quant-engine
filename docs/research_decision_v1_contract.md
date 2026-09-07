@@ -150,3 +150,9 @@ previous-decision contract handles its own typed research rank fields; they are
 never raw inputs. Output directories are held from secure creation through
 staging, no-replace publication, conflict comparison, cleanup and sync. POSIX
 operations use the held dir_fd; Windows parents deny reparse/write/delete changes.
+
+Windows publication now uses SetFileInformationByHandle(FileRenameInfo) relative
+to the held RootDirectory with replacement disabled, then FlushFileBuffers.
+This supersedes the earlier path-based MoveFileEx description, which conflicts
+with the stronger parent-sharing guard. API contract:
+https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info

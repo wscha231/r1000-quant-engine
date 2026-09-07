@@ -5011,3 +5011,10 @@ Expected contract:
   access for held input/output directories to enforce denied write/delete sharing.
 - Retain the parent-replacement test. Linux cannot certify this native behavior;
   the subsequent Windows job is a separate required result.
+
+## 2026-09-07 — Windows publication under held parent handles
+- Job 101836865701 confirmed the read guard blocks directory replacement but
+  MoveFileEx reopens the parent with incompatible access. Do not release guards.
+- SetFileInformationByHandle/FileRenameInfo now uses the retained RootDirectory
+  and no-replace flag, then flushes the renamed file handle. Native CI remains
+  the authority for this platform; keep both prior failed jobs in the evidence.

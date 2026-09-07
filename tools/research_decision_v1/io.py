@@ -65,7 +65,7 @@ def immutable_bytes(path, data):
     with output_parent(path.parent) as parent_descriptor:
         temporary = None
         try:
-            if parent_descriptor is None:
+            if os.name == "nt":
                 handle = tempfile.NamedTemporaryFile(dir=path.parent, prefix=".research-stage-", delete=False)
                 temporary = Path(handle.name)
             else:
@@ -85,7 +85,7 @@ def immutable_bytes(path, data):
             sync_directory(path.parent, descriptor=parent_descriptor)
         finally:
             if temporary is not None:
-                if parent_descriptor is None: temporary.unlink(missing_ok=True)
+                if os.name == "nt": temporary.unlink(missing_ok=True)
                 else: os.unlink(temporary.name, dir_fd=parent_descriptor)
     return path
 

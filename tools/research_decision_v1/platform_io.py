@@ -112,14 +112,14 @@ def output_parent(path):
                 raise ctypes.WinError(ctypes.get_last_error())
             if info.attributes & 0x400 or not info.attributes & 0x10:
                 raise ValueError("output_symlink")
-        yield None
+        yield handles[-1]
     finally:
         for handle in reversed(handles): kernel.CloseHandle(handle)
 
 
 @contextmanager
 def output_existing_descriptor(path, parent_descriptor):
-    if parent_descriptor is None:
+    if os.name == "nt":
         with input_descriptor(path) as descriptor: yield descriptor
     else:
         descriptor = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent_descriptor)
@@ -129,12 +129,36 @@ def output_existing_descriptor(path, parent_descriptor):
 
 def publish_staged(temporary, path, parent_descriptor=None):
     if os.name == "nt":
-        ctypes, kernel, _ = _windows_api()
-        # WRITE_THROUGH, deliberately no REPLACE_EXISTING flag.
-        if not kernel.MoveFileExW(str(temporary), str(path), 0x8):
-            code = ctypes.get_last_error()
-            if code in (80, 183): raise FileExistsError("immutable_target_exists")
-            raise ctypes.WinError(code)
+        from ctypes import wintypes
+        ctypes, kernel, FileInfo = _windows_api()
+        # MoveFileEx reopens the destination parent and conflicts with the
+        # deliberately retained sharing guard. Rename relative to that already
+        # verified handle instead; never release/reopen the parent to publish.
+        class RenameInfo(ctypes.Structure):
+            _fields_ = [("replace", wintypes.DWORD), ("root", wintypes.HANDLE),
+                        ("length", wintypes.DWORD), ("name", wintypes.WCHAR * 1)]
+        kernel.SetFileInformationByHandle.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+        kernel.SetFileInformationByHandle.restype = wintypes.BOOL
+        kernel.FlushFileBuffers.argtypes = [wintypes.HANDLE]
+        kernel.FlushFileBuffers.restype = wintypes.BOOL
+        handle = kernel.CreateFileW(str(temporary), 0xC0010000, 1, None, 3, 0x80200000, None)
+        if handle == ctypes.c_void_p(-1).value: raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            info = FileInfo()
+            if not kernel.GetFileInformationByHandle(handle, ctypes.byref(info)):
+                raise ctypes.WinError(ctypes.get_last_error())
+            if info.attributes & (0x400 | 0x10): raise ValueError("unsafe_staged_file")
+            name = path.name.encode("utf-16-le")
+            buffer = ctypes.create_string_buffer(max(ctypes.sizeof(RenameInfo), RenameInfo.name.offset + len(name)))
+            rename = RenameInfo.from_buffer(buffer)
+            rename.replace = 0; rename.root = parent_descriptor; rename.length = len(name)
+            ctypes.memmove(ctypes.addressof(buffer) + RenameInfo.name.offset, name, len(name))
+            if not kernel.SetFileInformationByHandle(handle, 3, buffer, len(buffer)):
+                code = ctypes.get_last_error()
+                if code in (80, 183): raise FileExistsError("immutable_target_exists")
+                raise ctypes.WinError(code)
+            if not kernel.FlushFileBuffers(handle): raise ctypes.WinError(ctypes.get_last_error())
+        finally: kernel.CloseHandle(handle)
     else:
         # A renamed parent cannot redirect a write. Reject a changed pathname
         # too, so a successful return still names the verified directory.
@@ -147,5 +171,5 @@ def publish_staged(temporary, path, parent_descriptor=None):
 
 
 def sync_directory(path, descriptor=None):
-    if os.name == "nt": return  # MoveFileExW above requested write-through.
+    if os.name == "nt": return  # The renamed file handle was flushed above.
     os.fsync(descriptor)
