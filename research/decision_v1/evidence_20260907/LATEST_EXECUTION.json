@@ -1,7 +1,7 @@
 {
-  "source_commit": "07f976263481047e50bedae6349ede3e6a2292fc",
-  "execution_directory": "research/decision_v1/evidence_20260907/executions/07f976263481047e50bedae6349ede3e6a2292fc",
-  "real_decision_hash": "2caf4994a421a59c89c330687efdf108b6a797a51197cfe4fbbe208a9c6f0160",
+  "source_commit": "57505c23f3bdc714e42b2c98ebb96a40c4f1bca5",
+  "execution_directory": "research/decision_v1/evidence_20260907/executions/57505c23f3bdc714e42b2c98ebb96a40c4f1bca5",
+  "real_decision_hash": "39e4da88fa49c870bf9a7f9da771460bda19745630ac648aa7b67f5a3db63f40",
   "status": "EXECUTED_BLOCKED",
   "real_expansion_allowed": false
 }
