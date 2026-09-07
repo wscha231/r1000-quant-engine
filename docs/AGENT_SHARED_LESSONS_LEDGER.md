@@ -51,6 +51,53 @@ this ledger. Use secret names only.
   graph identity, dates, six active heads, null/zero, and escaped offline HTML.
 - Evidence: `docs/CODEX_RUN287_RESEARCH_SCORE_HANDOFF_20260906.md`.
 
+## 2026-09-07 - Credential rotation needs isolated endpoint probes
+
+- Agent: Codex. Branch: `codex/api-credentials-check-20260907`.
+- Context: The user rotated US and Korean provider keys and requested an
+  automated check without manually uploading the diagnostic workflow.
+- Result: Added a no-checkout workflow with ten bounded GET
+  probes across eight providers. It reports controlled status labels only;
+  response bodies, URLs, exceptions and credentials are never published.
+- Reusable lesson: A repository secret's presence does not establish endpoint
+  access. Probe base access separately from estimate-plan access; classify
+  403 as ambiguous key/plan/IP rejection. Disable redirects so credentialed
+  requests cannot follow a vendor redirect to another destination.
+- Caveat: Sample endpoint success proves neither complete historical/PIT
+  coverage nor production or trading readiness. ECOS and Alpha Vantage
+  aliases are diagnosed; conflicting values keep the check non-green.
+- Evidence: `.github/workflows/api_credentials_check.yml` and
+  `tests/api_credentials_check_smoke.py` (offline mocked responses only).
+- Validation caught and fixed a one-argument ECOS tuple construction error
+  in the earlier standalone draft; destination checks cover this regression.
+- CI run `34089080506` then passed the new smoke but correctly rejected
+  `post_publication_protected_delta:tools/run_pr_validation.py`. The protected
+  publication anchors in both the verifier and regression test now bind the
+  exact causal parent `26a43ce322f98870262333dcb10d0c54ec869b1e`; no protected
+  paths, immutable data, source hashes or rejection rules were removed.
+- Execution: The user authorized the real check. The workflow runs after its
+  own reviewed file changes on master, and also supports manual dispatch;
+  the job additionally requires `github.ref == 'refs/heads/master'` so an
+  ordinary manual dispatch against a feature ref is skipped. This makes the
+  first probe automatic after the normal review and merge gates.
+- Exact-head review at `b0e1e9a1b0aeee2a25cd8bf71ce289b61afd30b6`
+  identified the missing manual-ref guard, false failure on working fallback
+  aliases, and generic classification of FRED's HTTP 400 key errors. Added
+  the job guard, separated successful fallback notices from conflict warnings,
+  and classified structured FRED key rejection before generic HTTP failures.
+  Regression checks retain non-green conflicts even when all probes succeed,
+  allow each supported fallback, and suppress credential echoes in HTTP 400
+  responses. A job condition protects normal dispatches; repository write
+  access itself is not a credential sandbox against deliberately changed code.
+- Local caveat: The full P0-4 byte-stability test reached a Parquet mismatch
+  with local pandas 2.2.3 / pyarrow 21.0.0, versus the pinned 2.3.3 / 23.0.1.
+  Dependency installation could not complete in this environment. Relevant
+  ancestry and negative protected-mutation tests passed; the complete check
+  must still pass in CI with its pinned dependencies. Frozen artifacts were
+  not regenerated or relaxed to accommodate local versions.
+- No fullrun, orders, targets, account/ledger or Drive mutations are part of
+  this check. Actual credential results require a separate Actions execution.
+
 ## Standing Rules For Agents
 
 - Keep run287 and related strategy work research-only unless the user explicitly
