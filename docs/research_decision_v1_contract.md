@@ -2,7 +2,8 @@
 
 Related issue: #396. Scope: H1 input admission; H2 valuation/allocation is a
 separate dependent PR. This is not a repair or activation of the NONRANKING
-monitor. No workflow, target, accepted account, order, policy, or model changes.
+monitor. PR validation installs the frozen dependencies and tests both platforms. No
+operating workflow, target, accepted account, order, policy, or model changes.
 
 The caller materializes existing provider/cache data into `research-input-v1`.
 Every price/financial/thesis/risk block retains source URL, security identity,
@@ -100,3 +101,8 @@ and [MoveFileExW API](https://learn.microsoft.com/en-us/windows/win32/api/winbas
 Windows native execution is a CI validation requirement; Linux tests do not
 certify the Windows implementation. URI scans handle scheme names and case
 before any embedded value can reach a stored snapshot.
+
+The third-review CI dependency/Windows job change is causally published in
+`0629e4a50dcef8f85701f1e010466033107d1839`. The protected-publication verifier and
+matching regression constant now reference that ancestor; verifier behavior and
+the protected path set are unchanged.
