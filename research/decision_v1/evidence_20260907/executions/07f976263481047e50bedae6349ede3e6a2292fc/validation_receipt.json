@@ -1,0 +1,108 @@
+{
+  "schema_version": "research-validation-receipt-v1",
+  "source_commit": "07f976263481047e50bedae6349ede3e6a2292fc",
+  "source_tree": "258f496b089a0356b95ba9248aa8b8e4bb0999c8",
+  "local_validation_commit": "1112265b5486ea5e08bab481604a54cae3f300b5",
+  "kr_source_commit": "3c40210b8675267121d7f40f3dcd8d158720a4e8",
+  "source_code_hash": "ddef2ed477b641d51994fbd575a6a17f7f701f2aefa982452fd7ae5deebe7680",
+  "python": "3.12.13 (main, Aug  7 2026, 02:25:39) [Clang 22.1.3 ]",
+  "packages": {
+    "pandas": "2.3.3",
+    "numpy": "2.5.2",
+    "pandas_market_calendars": "5.4.0",
+    "exchange_calendars": "4.13.2",
+    "pyarrow": "25.0.1"
+  },
+  "local_tests": [
+    {
+      "command": "python tests/research_decision_v1_data_smoke.py",
+      "passed": 19,
+      "failed": 0,
+      "local_code_commit": "c574c100be73d56bcbf4d55e413aab71b8c3f4e0"
+    },
+    {
+      "command": "python tests/research_decision_v1_decision_smoke.py",
+      "passed": 16,
+      "failed": 0,
+      "local_code_commit": "555d11262f55691d12d857e49917dc7856befa34"
+    },
+    {
+      "command": "python tests/research_decision_export_smoke.py",
+      "repo": "KR",
+      "passed": 4,
+      "failed": 0
+    },
+    {
+      "command": "python tests/smoke_test.py --quick",
+      "repo": "KR",
+      "passed": 23,
+      "failed": 0
+    },
+    {
+      "command": "python tests/run287_daily_research_monitor_smoke.py",
+      "repo": "US",
+      "passed": 19,
+      "failed": 0,
+      "scope": "initial implementation validation; production monitor untouched"
+    },
+    {
+      "scope": "four focused P0-4 inventory/lineage regressions",
+      "passed": 4,
+      "failed": 0,
+      "dependency_contract": "docs/run287_p0_4_artifact_inventory/requirements.txt; pyarrow 23.0.1"
+    }
+  ],
+  "cli_cases": {
+    "REAL_PILOT": {
+      "export_exit_codes": [
+        2,
+        2
+      ],
+      "consumer_exit_code": 2,
+      "repeat_identical": true,
+      "weights_plus_cash": 1.0
+    },
+    "SYNTHETIC_3": {
+      "export_exit_codes": [
+        0,
+        0
+      ],
+      "consumer_exit_code": 0,
+      "repeat_identical": true,
+      "weights_plus_cash": 1.0
+    },
+    "SYNTHETIC_7": {
+      "export_exit_codes": [
+        0,
+        0
+      ],
+      "consumer_exit_code": 0,
+      "repeat_identical": true,
+      "weights_plus_cash": 1.0
+    }
+  },
+  "full_local_inventory": {
+    "status": "BLOCKED",
+    "reason": "legacy promisor Git blob unavailable; HTTP 403",
+    "blob": "324e84859be5dddf091b165f9533259354739077"
+  },
+  "kr_ci": {
+    "job_id": 101768731291,
+    "source_pin_step": "PASS",
+    "quick_smoke_passed": 23,
+    "full_smoke_passed": 44,
+    "pit_passed": 3,
+    "pit_failed": 4,
+    "reason": "historical listed_history/PIT cache missing; later steps skipped"
+  },
+  "us_h1_prior_ci": {
+    "job_id": 101769790608,
+    "head": "f2fdc859ab3edf593a091b712699504e2871ad18",
+    "status": "PASS",
+    "applies_to_latest_head": false
+  },
+  "latest_external_review_status": "See PR #399/#400 exact-head evidence; receipt is not a self-approval.",
+  "oos_validated": false,
+  "production_promoted": false,
+  "orders_allowed": false
+}
