@@ -4928,3 +4928,12 @@ Expected contract:
 - New test registration changed a protected runner. Explicit causal publication
   pin: 7d5913f1d48e213faaf979ea110276e51ab800dd; verifier algorithms/paths remain
   unchanged. A new external exact-head review remains a gate, never self-certified.
+
+
+## 2026-09-07 — Research H1 second exact-head findings
+- Date-only comparisons admitted financial observations before local fiscal-day
+  completion. Require explicit reporting_timezone and compare full instants.
+- Bind price envelope periods to bar ranges; reject REAL/SYNTHETIC feed mismatch.
+- Reject common credential aliases before any snapshot; read bounded input bytes
+  through a no-follow descriptor after walking non-symlink parents.
+- Added five concrete counterexamples without changing production readiness.

@@ -1,5 +1,6 @@
 """Counterexamples for isolated research input admission."""
 import copy
+import os
 import sys
 import tempfile
 import unittest
@@ -109,6 +110,51 @@ class DataContractTests(unittest.TestCase):
         b = bundle(); b["data_kind"] = "REAL"
         with self.assertRaisesRegex(ValueError, "synthetic_source"): export_market(b, "US")
 
+    def test_common_credential_aliases_never_persist(self):
+        for key in ("token", "session_token", "auth_token", "client_secret", "private_key", "clientSecret", "authorization", "cookie"):
+            b = bundle(); b["securities"][0]["optional"] = {"provider": {"status": "missing", key: "dummy"}}
+            with self.assertRaisesRegex(ValueError, "credential_field"): export_market(b, "US")
+
+    def test_reporting_day_completion_in_explicit_timezone(self):
+        for market, before, complete in (("US", "2026-07-01T03:59:59Z", "2026-07-01T04:00:00Z"),
+                                         ("KR", "2026-06-30T14:59:59Z", "2026-06-30T15:00:00Z")):
+            b = bundle(market); security = b["securities"][0]; block = security["blocks"]["financials"]
+            for field in ("published_at", "public_available_at", "first_seen_at", "ingested_at"): block[field] = before
+            self.assertIn("period_incomplete_at_public_available_at", envelope_errors(block, security, b["decision_cutoff"]))
+            for field in ("published_at", "public_available_at", "first_seen_at", "ingested_at"): block[field] = complete
+            self.assertEqual(envelope_errors(block, security, b["decision_cutoff"]), [])
+            del block["reporting_timezone"]
+            self.assertIn("reporting_timezone_required", envelope_errors(block, security, b["decision_cutoff"]))
+
+    def test_real_cannot_relabel_synthetic_feed(self):
+        import json
+        b = json.loads(json.dumps(bundle()).replace("https://example.org/synthetic", "https://www.sec.gov/Archives/filing"))
+        b["data_kind"] = "REAL"
+        with self.assertRaisesRegex(ValueError, "synthetic_feed"): export_market(b, "US")
+
+    def test_price_period_matches_security_bars(self):
+        b = bundle(); block = b["securities"][0]["blocks"]["price"]
+        block["report_period"] = {"start": "2020-01-01", "end": "2020-01-31"}
+        self.assertIn("price:report_period_bar_range_mismatch", self.result(b)["blockers"])
+
+    def test_descriptor_read_parent_symlink_size_and_leaf_replacement(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); p = root / "record.json"; p.write_text('{"x":1}')
+            alias = root / "alias"; alias.symlink_to(root, target_is_directory=True)
+            with self.assertRaises(ValueError): read_json(alias/"record.json")
+            huge = root / "huge.json"
+            with huge.open("wb") as handle: handle.truncate(32_000_001)
+            with self.assertRaises(ValueError): read_json(huge)
+            original_open = os.open
+            def swap_after_open(path, *args, **kwargs):
+                fd = original_open(path, *args, **kwargs)
+                if path == "record.json":
+                    p.rename(root/"old.json"); p.write_text('{"x":2}')
+                return fd
+            with patch("tools.research_decision_v1.io.os.open", side_effect=swap_after_open):
+                self.assertEqual(read_json(p), {"x": 1})
+            self.assertEqual(read_json(p), {"x": 2})
+
     def test_atomic_write_failure_can_retry(self):
         with tempfile.TemporaryDirectory() as directory:
             p = Path(directory) / "record.json"
@@ -123,6 +169,7 @@ class DataContractTests(unittest.TestCase):
         b = bundle(); p = b["securities"][0]["blocks"]["price"]
         p["payload"]["bars"] = p["payload"]["bars"][-240:]
         p["payload"]["benchmark_bars"] = p["payload"]["benchmark_bars"][-240:]
+        p["report_period"]["start"] = p["payload"]["bars"][0]["session"]
         rehash(p)
         self.assertEqual(self.result(b)["discovery"]["rs"]["240"]["status"], "missing")
         raw = [{"close": 100., "split_ratio": 1., "dividend": 0.},

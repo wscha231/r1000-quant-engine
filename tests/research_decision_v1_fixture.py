@@ -23,7 +23,7 @@ def bundle(market="US", ticker="TEST"):
                 "first_seen_at": "2026-09-07T10:00:00Z",
                 "ingested_at": "2026-09-07T11:00:00Z", "decision_cutoff": cutoff,
                 "report_period": period, "unit": unit, "currency": currency,
-                "accounting_basis": basis, "data_hash": digest(payload), "payload": payload}
+                "accounting_basis": basis, "reporting_timezone": "America/New_York" if market == "US" else "Asia/Seoul", "data_hash": digest(payload), "payload": payload}
 
     price = {"feed": "SYNTHETIC", "price_basis": "raw_unadjusted", "volume_basis": "raw_unadjusted",
              "quote_type": "official_close", "bars": bars,

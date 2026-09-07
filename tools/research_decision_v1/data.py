@@ -9,7 +9,8 @@ import hashlib
 import json
 import math
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from functools import lru_cache
 from urllib.parse import urlsplit, unquote
 
@@ -71,11 +72,16 @@ def validate_persistable_sources(value, *, real=False):
     """Reject unsafe input before retaining even a blocked input snapshot."""
     if isinstance(value, dict):
         for key, child in value.items():
-            if re.fullmatch(r"(?i)(api_?key|access_?token|refresh_?token|password|secret|authorization|credential)", key):
+            normalized_key = re.sub(r"([a-z])([A-Z])", r"\1_\2", key).lower()
+            if re.search(r"(?:^|[_\W])(?:token|secret|password|credentials?|authorization|auth|cookies?|api_?key|private_?key)(?:$|[_\W])", normalized_key):
                 raise ValueError("credential_field_forbidden")
+            if real and key == "feed" and isinstance(child, str) and re.match(r"(?i)^(synthetic|fixture|mock|test|demo)(?:$|[_ :.-])", child):
+                raise ValueError("synthetic_feed_in_real_input")
             validate_persistable_sources(child, real=real)
     elif isinstance(value, list):
         for child in value: validate_persistable_sources(child, real=real)
+    elif isinstance(value, str) and re.search(r"(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}|sk-(?:proj-)?[A-Za-z0-9_-]{20,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----)", value):
+        raise ValueError("credential_value_forbidden")
     elif isinstance(value, str) and "://" in value:
         # A URL embedded in prose is checked too, before original text is serialized.
         for url in re.findall(r"https?://[^\s<>\"']+", value):
@@ -132,12 +138,23 @@ def envelope_errors(block, security, cutoff):
         period = block.get("report_period")
         if not isinstance(period, dict) or set(period) != {"start", "end"}: errors.append("report_period_missing")
         else:
-            start, end = datetime.fromisoformat(period["start"]).date(), datetime.fromisoformat(period["end"]).date()
+            if not all(isinstance(period[k], str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", period[k]) for k in ("start", "end")):
+                raise ValueError("report_period_date_format")
+            start, end = date.fromisoformat(period["start"]), date.fromisoformat(period["end"])
             if start > end: errors.append("report_period_reversed")
             for field in ("published_at", "public_available_at", "first_seen_at", "ingested_at"):
                 if block.get("accounting_basis") != "RESEARCH_ASSUMPTION" and block.get(field) and end > timestamp(block[field]).date():
                     errors.append("period_after_" + field)
-    except (ValueError, TypeError, KeyError): errors.append("invalid_provenance")
+            if block.get("accounting_basis") in {"US_GAAP", "K_IFRS_CONSOLIDATED"}:
+                # A date denotes the complete reporting day in the issuer's
+                # explicit reporting timezone, not 00:00 UTC on that date.
+                if not block.get("reporting_timezone"): errors.append("reporting_timezone_required")
+                else:
+                    complete = datetime.combine(end + timedelta(days=1), time.min, tzinfo=ZoneInfo(block["reporting_timezone"]))
+                    for field in ("published_at", "public_available_at", "first_seen_at", "ingested_at"):
+                        if block.get(field) and timestamp(block[field]) < complete:
+                            errors.append("period_incomplete_at_" + field)
+    except (ValueError, TypeError, KeyError, ZoneInfoNotFoundError): errors.append("invalid_provenance")
     return sorted(set(errors))
 
 
@@ -273,6 +290,9 @@ def export_market(bundle, expected_market):
             try:
                 price = blocks["price"]
                 discovery = price_analysis(price["payload"], market, cutoff, s.get("listing_board"))
+                bars = price["payload"]["bars"]
+                if price["report_period"] != {"start": bars[0]["session"], "end": bars[-1]["session"]}:
+                    errors.append("price:report_period_bar_range_mismatch")
                 close = session_close(market, discovery["required_session"])
                 for field in ("published_at", "public_available_at", "first_seen_at", "ingested_at"):
                     if price.get(field) and timestamp(price[field]) < close:

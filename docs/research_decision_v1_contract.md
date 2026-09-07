@@ -71,3 +71,10 @@ inventory verifier. Its sole new registration is already published in ancestor
 publication constant and matching regression expectation to that ancestor. The
 protected path set, frozen inventory, generator behavior and rejection checks
 are unchanged; external exact-head review is still required.
+
+Second exact-head review: reported financial periods complete at next local
+midnight in the explicitly supplied IANA `reporting_timezone`; same-day
+availability before that instant is blocked. Price report periods match their
+bar range. REAL input cannot carry a reserved synthetic feed. Common secret
+field aliases are rejected before snapshots. Input reading walks directories
+without following symlinks and validates/bounds bytes from the same descriptor.
