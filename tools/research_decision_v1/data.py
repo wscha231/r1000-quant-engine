@@ -5,6 +5,8 @@ network, fills a missing value with zero, or imports a production selector.
 """
 from __future__ import annotations
 import copy
+import base64
+import binascii
 import hashlib
 import ipaddress
 import json
@@ -51,15 +53,23 @@ def number(value, *, positive=False, nonnegative=False):
     return float(value)
 
 
+def metadata_key(value):
+    key = re.sub(r"([a-z])([A-Z])", r"\1_\2", unicodedata.normalize("NFKC", value)).lower()
+    return re.sub(r"[\W_]+", "_", key).strip("_")
+
+
 def reject_diagnostic_scores(value):
     if isinstance(value, dict):
         for k, v in value.items():
-            if "score" in k.lower() or any(x in k.lower() for x in ("nonranking", "ranking_ready")):
+            key = metadata_key(k)
+            if ("score" in key or "nonranking" in key or
+                re.search(r"(?:^|_)(?:rank|ranking|rankable|readiness)(?:$|_)", key)):
                 raise ValueError("NONRANKING_or_legacy_score_forbidden")
             reject_diagnostic_scores(v)
     elif isinstance(value, list):
         for v in value: reject_diagnostic_scores(v)
-    elif isinstance(value, str) and "NONRANKING" in value.upper():
+    elif isinstance(value, str) and ("NONRANKING" in value.upper() or
+            metadata_key(value) in {"ranking_ready", "ranking_eligible", "rank_eligible", "rankable"}):
         raise ValueError("NONRANKING_or_legacy_score_forbidden")
 
 
@@ -80,12 +90,19 @@ def source_url(value):
         raise ValueError("opaque_source_path_forbidden")
 
 
+def contains_basic_credential(value):
+    for token in re.findall(r"(?i:\bbasic)\s+([A-Za-z0-9+/]+={0,2})", value):
+        try:
+            if b":" in base64.b64decode(token + "=" * (-len(token) % 4), validate=True): return True
+        except (ValueError, binascii.Error): pass
+    return False
+
+
 def validate_persistable_sources(value, *, real=False):
     """Reject unsafe input before retaining even a blocked input snapshot."""
     if isinstance(value, dict):
         for key, child in value.items():
-            normalized_key = re.sub(r"([a-z])([A-Z])", r"\1_\2", unicodedata.normalize("NFKC", key)).lower()
-            normalized_key = re.sub(r"[\W_]+", "_", normalized_key).strip("_")
+            normalized_key = metadata_key(key)
             # Deny the entire pass* token family, including pass_word/user_pass;
             # financial/thesis schemas have no persistable password-like field.
             if re.search(r"(?:^|[_\W])(?:token\w*|secret\w*|pass\w*|pwd\w*|pswd\w*|psw\w*|pword\w*|credential\w*|auth\w*|cookie\w*|api_?key\w*|private_?key\w*|access_?key\w*|client_?key\w*|signing_?key\w*|key\w*|bearer\w*|jwt\w*|oauth\w*|session_?(?:id|uuid|guid|key|token|secret|cookie|credential|auth)\w*|sid)(?:$|[_\W])", normalized_key):
@@ -97,7 +114,7 @@ def validate_persistable_sources(value, *, real=False):
             validate_persistable_sources(child, real=real)
     elif isinstance(value, list):
         for child in value: validate_persistable_sources(child, real=real)
-    elif isinstance(value, str) and re.search(r"(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}|sk-(?:proj-)?[A-Za-z0-9_-]{20,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|(?i:bearer)\s+[A-Za-z0-9._~+/-]{8,}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)", value):
+    elif isinstance(value, str) and (contains_basic_credential(value) or re.search(r"(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}|sk-(?:proj-)?[A-Za-z0-9_-]{20,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|(?i:bearer)\s+[A-Za-z0-9._~+/-]{8,}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)", value)):
         raise ValueError("credential_value_forbidden")
     elif isinstance(value, str) and "://" in value:
         # A URL embedded in prose is checked too, before original text is serialized.

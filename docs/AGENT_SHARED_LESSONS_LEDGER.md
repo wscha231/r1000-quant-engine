@@ -4995,3 +4995,12 @@ Expected contract:
 - Normalize key separators before family matching; session-id/session.id and
   Unicode punctuation receive the same treatment as session_id.
 - Expand regression aliases without changing source/financial readiness rules.
+
+## 2026-09-07 — Research H1 output and input isolation follow-up
+- Exact HEAD 956a357 review exposed Basic values in optional notes, rank/readiness
+  aliases in materialized inputs, and a parent-swap window before publication.
+- Three counterexamples reproduced failure before correction. Retain output
+  parent descriptors/handles through every publication operation; do not repeat
+  a checked path lookup for staging, collision comparison or directory sync.
+- Reject credential values and legacy decision aliases before snapshots. This
+  changes research admission only; no production readiness, book or order path.

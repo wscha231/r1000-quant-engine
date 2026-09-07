@@ -80,7 +80,54 @@ def input_descriptor(path):
     return _windows_descriptor(path) if os.name == "nt" else _posix_descriptor(path)
 
 
-def publish_staged(temporary, path):
+@contextmanager
+def output_parent(path):
+    """Create/open each parent without following redirects; retain publication authority."""
+    path = Path(path).absolute()
+    if ".." in path.parts: raise ValueError("output_symlink")
+    if os.name != "nt":
+        descriptor = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            for part in path.parts[1:]:
+                try: os.mkdir(part, mode=0o700, dir_fd=descriptor)
+                except FileExistsError: pass
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor)
+                os.close(descriptor); descriptor = child
+            yield descriptor
+        finally: os.close(descriptor)
+        return
+    ctypes, kernel, FileInfo = _windows_api()
+    if len(path.drive) != 2 or path.drive[1] != ":" or any(":" in part for part in path.parts[1:]):
+        raise ValueError("unsafe_windows_output_path")
+    handles = []
+    try:
+        for part in [*reversed(path.parents), path]:
+            # Every previously visited ancestor is already held against rename
+            # and reparse mutation. Check the new handle before descending.
+            part.mkdir(exist_ok=True)
+            handle = kernel.CreateFileW(str(part), 0x80, 1, None, 3, 0x02200000, None)
+            if handle == ctypes.c_void_p(-1).value: raise ctypes.WinError(ctypes.get_last_error())
+            handles.append(handle); info = FileInfo()
+            if not kernel.GetFileInformationByHandle(handle, ctypes.byref(info)):
+                raise ctypes.WinError(ctypes.get_last_error())
+            if info.attributes & 0x400 or not info.attributes & 0x10:
+                raise ValueError("output_symlink")
+        yield None
+    finally:
+        for handle in reversed(handles): kernel.CloseHandle(handle)
+
+
+@contextmanager
+def output_existing_descriptor(path, parent_descriptor):
+    if parent_descriptor is None:
+        with input_descriptor(path) as descriptor: yield descriptor
+    else:
+        descriptor = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent_descriptor)
+        try: yield descriptor
+        finally: os.close(descriptor)
+
+
+def publish_staged(temporary, path, parent_descriptor=None):
     if os.name == "nt":
         ctypes, kernel, _ = _windows_api()
         # WRITE_THROUGH, deliberately no REPLACE_EXISTING flag.
@@ -89,11 +136,16 @@ def publish_staged(temporary, path):
             if code in (80, 183): raise FileExistsError("immutable_target_exists")
             raise ctypes.WinError(code)
     else:
-        os.link(temporary, path)
+        # A renamed parent cannot redirect a write. Reject a changed pathname
+        # too, so a successful return still names the verified directory.
+        try:
+            with _posix_descriptor(path.parent / ".") as checked:
+                if (os.fstat(checked).st_dev, os.fstat(checked).st_ino) != (os.fstat(parent_descriptor).st_dev, os.fstat(parent_descriptor).st_ino):
+                    raise ValueError("output_parent_changed")
+        except OSError as exc: raise ValueError("output_parent_changed") from exc
+        os.link(temporary.name, path.name, src_dir_fd=parent_descriptor, dst_dir_fd=parent_descriptor, follow_symlinks=False)
 
 
-def sync_directory(path):
+def sync_directory(path, descriptor=None):
     if os.name == "nt": return  # MoveFileExW above requested write-through.
-    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
-    try: os.fsync(descriptor)
-    finally: os.close(descriptor)
+    os.fsync(descriptor)

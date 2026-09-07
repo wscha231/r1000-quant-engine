@@ -143,3 +143,10 @@ volume is invented for a missing benchmark field.
 Credential key normalization collapses punctuation/whitespace/underscore runs
 after NFKC and camel-case normalization. Session ID/UUID/GUID variants cannot
 evade persistence rejection through hyphenated, dotted or full-width separators.
+
+Latest boundary review: input admission rejects rank/readiness aliases and Basic
+authorization values (including generic provider notes). The independent H2
+previous-decision contract handles its own typed research rank fields; they are
+never raw inputs. Output directories are held from secure creation through
+staging, no-replace publication, conflict comparison, cleanup and sync. POSIX
+operations use the held dir_fd; Windows parents deny reparse/write/delete changes.

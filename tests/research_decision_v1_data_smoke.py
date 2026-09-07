@@ -59,6 +59,45 @@ class DataContractTests(unittest.TestCase):
         b = bundle(); b["securities"][0]["status"] = "NONRANKING"
         with self.assertRaisesRegex(ValueError, "NONRANKING"): export_market(b, "US")
 
+    def test_legacy_rank_and_readiness_aliases_are_not_raw_inputs(self):
+        for field in ("rank", "ranking_eligible", "ranking-ready", "rankEligible", "readiness"):
+            b = bundle(); b["securities"][0][field] = 1
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, "NONRANKING"):
+                export_market(b, "US")
+        for value in ("RANKING_READY", "ranking-eligible", "RANKABLE"):
+            b = bundle(); b["securities"][0]["status"] = value
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "NONRANKING"):
+                export_market(b, "US")
+
+    def test_basic_authorization_values_cannot_reach_blocked_snapshots(self):
+        # Explicit dummy credentials, never a provider response or real secret.
+        from tools.research_decision_v1.data import validate_persistable_sources
+        validate_persistable_sources({"note": "Basic assumptions are disclosed."})
+        for value in ("Basic dXNlcjpwYXNzd29yZA==", "note: basic\tdGVzdDp0ZXN0"):
+            b = bundle(); b["securities"][0]["optional"] = {"provider": {"status": "missing", "note": value}}
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "credential_value"):
+                export_market(b, "US")
+
+    def test_output_parent_replacement_cannot_redirect_publication(self):
+        import tools.research_decision_v1.io as io
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); parent = root / "accepted"; parent.mkdir()
+            outside = root / "outside"; outside.mkdir()
+            original = io.publish_staged
+            def replace_parent(*args, **kwargs):
+                if os.name == "nt":
+                    with self.assertRaises(OSError): parent.rename(root / "moved")
+                else:
+                    parent.rename(root / "moved")
+                    parent.symlink_to(outside, target_is_directory=True)
+                return original(*args, **kwargs)
+            with patch.object(io, "publish_staged", side_effect=replace_parent):
+                if os.name == "nt": immutable_json(parent / "record.json", {"x": 1})
+                else:
+                    with self.assertRaises(ValueError): immutable_json(parent / "record.json", {"x": 1})
+            self.assertEqual(list(outside.iterdir()), [])
+            if os.name != "nt": self.assertEqual(list((root / "moved").iterdir()), [])
+
     def test_public_availability_and_official_close(self):
         for market in ("US", "KR"):
             b = bundle(market); price = b["securities"][0]["blocks"]["price"]
