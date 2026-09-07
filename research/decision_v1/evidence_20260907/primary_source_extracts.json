@@ -1,0 +1,68 @@
+[
+  {
+    "security_id": "US:NVDA",
+    "source": "https://nvidianews.nvidia.com/news/nvidia-announces-financial-results-for-second-quarter-fiscal-2027",
+    "published_date": "2026-08-26",
+    "report_period": {
+      "start": "2026-04-27",
+      "end": "2026-07-26"
+    },
+    "currency": "USD",
+    "accounting_basis": "US_GAAP",
+    "reported_values": {
+      "quarter_revenue": 96221000000,
+      "quarter_net_income": 59688000000,
+      "quarter_diluted_eps": 2.46
+    },
+    "business_note": "AI accelerator and data-center platforms; issuer reports Vera Rubin production ramp.",
+    "extraction_type": "MANUAL_PRIMARY_SOURCE_EXTRACT_NOT_INDEPENDENTLY_RECONCILED",
+    "observed_at": "2026-09-07T13:35:25Z",
+    "public_available_at": null,
+    "published_at": null,
+    "raw_provider_response_available": false
+  },
+  {
+    "security_id": "US:EME",
+    "source": "https://emcorgroup.com/investor-relations/press-releases/2026-news/emcor-group-inc-reports-second-quarter-2026-results",
+    "published_date": "2026-07-30",
+    "report_period": {
+      "start": "2026-04-01",
+      "end": "2026-06-30"
+    },
+    "currency": "USD",
+    "accounting_basis": "US_GAAP",
+    "reported_values": {
+      "quarter_revenue": 5154900000,
+      "quarter_operating_income": 547300000,
+      "quarter_diluted_eps": 9.06
+    },
+    "business_note": "Electrical/mechanical construction and building services; issuer reports remaining performance obligations.",
+    "extraction_type": "MANUAL_PRIMARY_SOURCE_EXTRACT_NOT_INDEPENDENTLY_RECONCILED",
+    "observed_at": "2026-09-07T13:35:25Z",
+    "public_available_at": null,
+    "published_at": null,
+    "raw_provider_response_available": false
+  },
+  {
+    "security_id": "KR:000660",
+    "source": "https://news.skhynix.com/en/q2-2026-business-results/",
+    "published_date": "2026-07-29",
+    "report_period": {
+      "start": "2026-04-01",
+      "end": "2026-06-30"
+    },
+    "currency": "KRW",
+    "accounting_basis": "K_IFRS_CONSOLIDATED",
+    "reported_values": {
+      "quarter_revenue": 79318700000000,
+      "quarter_operating_income": 60542600000000,
+      "quarter_net_income": 93922600000000
+    },
+    "business_note": "Memory manufacturer; issuer reports AI-related demand and long-term customer agreements.",
+    "extraction_type": "MANUAL_PRIMARY_SOURCE_EXTRACT_NOT_INDEPENDENTLY_RECONCILED",
+    "observed_at": "2026-09-07T13:35:25Z",
+    "public_available_at": null,
+    "published_at": null,
+    "raw_provider_response_available": false
+  }
+]

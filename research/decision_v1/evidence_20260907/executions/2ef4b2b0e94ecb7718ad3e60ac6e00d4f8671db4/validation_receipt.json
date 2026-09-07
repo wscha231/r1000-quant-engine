@@ -1,0 +1,111 @@
+{
+  "admission_source": {
+    "basis": "source_bytes_lf_captured_at_import",
+    "path": "tools/research_decision_v1/data.py",
+    "sha256": "2b3e2b39af18ee702e2c0c39135ea5478dd6a8c16c1a9c91bc63a8e324c648dd"
+  },
+  "exact_head_review": {
+    "h1": "RUNNING at 2052808; request comment 5574590519",
+    "h2": "New artifact-head review required after publication; prior review is not approval",
+    "kr": "COMPLETED without findings at 3c40210"
+  },
+  "executed_code_commit": "2ef4b2b0e94ecb7718ad3e60ac6e00d4f8671db4",
+  "executed_source_tree": "b9f2186dcbd960584312b578d31875ba07585ecb",
+  "execution_layout": "decision_hash/source_commit",
+  "h1_head": "205280894e73e09093175288720b63b7f64394d3",
+  "kr_ci": {
+    "full_smoke_passed": 44,
+    "job": 101768731291,
+    "pit_passed": 3,
+    "pit_total": 7,
+    "quick_passed": 23,
+    "source_pin": "PASS",
+    "status": "BLOCKED_MISSING_LISTING_HISTORY_CACHE"
+  },
+  "kr_head": "3c40210b8675267121d7f40f3dcd8d158720a4e8",
+  "local_equivalent_commit": "dc071c41529483119ce6578e8ccc85d65cd83c28",
+  "local_tests": [
+    {
+      "command": "python tests/research_decision_v1_data_smoke.py",
+      "failed": 0,
+      "passed": 36,
+      "tested_commit": "2ef4b2b0e94ecb7718ad3e60ac6e00d4f8671db4"
+    },
+    {
+      "command": "python tests/research_decision_v1_decision_smoke.py",
+      "failed": 0,
+      "passed": 40,
+      "same_complete_tree_as_executed_code": true,
+      "tested_local_commit": "dc071c41529483119ce6578e8ccc85d65cd83c28"
+    },
+    {
+      "command": "python tests/research_decision_export_smoke.py",
+      "failed": 0,
+      "passed": 4,
+      "repository": "KR",
+      "tested_commit": "3c40210b8675267121d7f40f3dcd8d158720a4e8"
+    },
+    {
+      "failed": 0,
+      "group": "protected inventory/lineage four direct regressions",
+      "passed": 4,
+      "tested_local_commit": "dc071c41529483119ce6578e8ccc85d65cd83c28"
+    }
+  ],
+  "oos_validated": false,
+  "orders_allowed": false,
+  "prior_full_inventory": {
+    "reason": "legacy promisor blob 324e84859be5dddf091b165f9533259354739077 HTTP 403",
+    "status": "BLOCKED_PREVIOUS_ATTEMPT"
+  },
+  "prior_local_legacy_smoke": {
+    "passed": 93,
+    "reason": "requests and legacy sparse files missing; not rerun as a full suite",
+    "status": "ENVIRONMENT_BLOCKED_PREVIOUS_CHECKOUT",
+    "total": 130
+  },
+  "prior_windows_failures": [
+    101835610334,
+    101836865701,
+    101838088249
+  ],
+  "production_promoted": false,
+  "profitability_validated": false,
+  "protected_publication_pin": "17a83fd54a4a705d37e2643a68127d656db84b5f",
+  "real_admitted_candidates": 0,
+  "real_candidates": 3,
+  "real_execution": "EXECUTED_BLOCKED",
+  "real_expansion_allowed": false,
+  "recorded_at": "2026-09-07T18:59:47.241539+00:00",
+  "runtime": {
+    "exchange_calendars": "4.13.2",
+    "numpy": "2.5.2",
+    "pandas": "2.3.3",
+    "pandas_market_calendars": "5.4.0",
+    "pyarrow": "25.0.1",
+    "pytz": "2026.3.post1",
+    "tzdata": "2026.3"
+  },
+  "schema_version": "research-validation-receipt-v1",
+  "source_code_hash": "5d8e4af281d81cef3890f56fe78d307475d83b275daa18c00ae4045dcbc40b03",
+  "synthetic_connection_passed": true,
+  "us_h1_full_validate": {
+    "head": "205280894e73e09093175288720b63b7f64394d3",
+    "job": 101838898003,
+    "status": "IN_PROGRESS_AT_RECEIPT"
+  },
+  "us_h1_native_windows": {
+    "head": "205280894e73e09093175288720b63b7f64394d3",
+    "job": 101838898175,
+    "passed": 36,
+    "status": "PASS"
+  },
+  "workspace_recovery": {
+    "current_us_root": "/workspace/scratch/f247432c1548/r1000-quant-engine",
+    "original_uncommitted_csv_final_presence_reverified": false,
+    "previous_us_root": "/workspace/scratch/a006f1d2e538/r1000-quant-engine",
+    "published_objects_verified_on_recovery": true,
+    "reason": "previous transient path unavailable late in session",
+    "user_csv_writes_performed": false
+  }
+}

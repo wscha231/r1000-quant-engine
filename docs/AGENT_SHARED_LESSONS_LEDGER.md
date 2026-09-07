@@ -5046,3 +5046,79 @@ PR #399 review 3952185218 reproduced an in-place write after fsync: device/inode
 ### 2026-09-07 — Research H1 verify published bytes and owned cleanup
 
 PR #399 reviews 3952327371/3952327375: anonymous files remain writable through permitted procfs handles. Reproduce that corruption and compare the published bytes before claiming success. Windows cleanup must refer to the retained inode, not a freed staging pathname: mark failed/colliding staging handles for deletion before close and do no path cleanup after successful rename. Native regression preserves foreign files created after both success and collision.
+
+
+## 2026-09-07 - H2 scenario utility is not a calibrated return forecast
+
+- Related issue #396; H2 is stacked on H1 PR #399 and never consumes NONRANKING.
+- Fixed configuration committed before first scenario/ranking test output.
+- Compute EV/earnings scenarios, reverse valuation, FX, separate return/utility
+  ranks, eight assumption perturbations, and constraints with residual cash.
+- An intact incumbent is preserved when replacement improvement does not exceed
+  cost/buffer. New positions consume remaining common-risk room; incumbent-only
+  hard-cap breaches block approval instead of silently overriding the cap.
+- A valid all-cash research decision differs from an all-missing-input fallback.
+- A real US2/KR1 input contains only partial primary-source quarterly extracts;
+  no fabricated TTM, price history, FX, regime, scenario probability or rank.
+- Source Git tree equality was verified for connector publication after local
+  git push lacked authentication. User-owned dirty CSVs remain outside commits.
+- No fullrun, existing monitor/target/book/order change, OOS claim or promotion.
+
+
+## 2026-09-07 — Research V1 bounded real execution and H2 audit details
+- Real NVDA/EME/000660 inputs are partial official IR extracts, not reconciled
+  TTM/price/scenario records. CLI export/consumer exit 2, all WAIT/0%, cash 100%
+  unallocated fallback. Stop real expansion to 5+2; no alpha/PIT/OOS claim.
+- Synthetic 3/7-name CLI runs pass deterministic hash/file and weight-sum checks.
+  Keep these separate from real evidence; they prove mechanical connection only.
+- Ingestion-only refresh is provenance, not an earnings or price revision.
+  Sensitivity outside the valuation domain is null without invalidating Base.
+- H2 protected runner registration causal pin is ancestor
+  2718d53321dfba16f66d7943aa0f282235cade8a, with unchanged verifier algorithms.
+- Full local inventory uses pinned pyarrow 23.0.1; broader legacy checks still
+  need unavailable promisor blob 324e84859be5dddf091b165f9533259354739077.
+
+
+## 2026-09-07 — H2 after second H1 review
+- Preserve previous H2 head 88d4dfa1322d816481452d16928eb40678a0e999 in a named
+  provenance branch, then reapply only H2 scope onto c1196e775b7fa3e1e857025cb23c80254b296602.
+- Active H2 runner registration ancestor is now 163e1a4ae764f506f19a5150df72a8ced2a05b3f;
+  protected verifier algorithms and frozen inventories remain unchanged.
+
+## 2026-09-07 — H2 exact-head review corrections
+- Feasible final replacement capacity is credited only once; zero-sized
+  alternatives cannot cause an incumbent sale. Retained positions consume count.
+- Entry/hold hurdles use KRW net return, and report return currencies and ranks
+  are explicit. Intact holdings below the hold hurdle require valuation review.
+- Equal weights are equal per constituent; market-cap weights require current
+  verified capitalization. TTM diluted shares are not current shares outstanding.
+- Ledger removals are recorded without implying an order. Actual buy/sell delta
+  must pass liquidity, including complete exits and restricted trading.
+- Sanitize custom configuration before persistence. Dirty research source bytes
+  block CLI execution before inputs/artifacts, regardless of Git index flags.
+- H2 review regressions now include 30 cases; fixed numerical configuration is
+  unchanged from preregistration. Fixture connection is not return validation.
+
+## 2026-09-07 — Research H2 second review / executable and decision evidence
+- Verify and execute the same source snapshot before importing the engine.
+- Separate semantic decisions from source-specific rendering receipt paths.
+- Persist complete manifest-listed evidence for synthetic as well as REAL runs.
+- Use KRW questions consistently; attribute optional evidence/provenance changes.
+- Feasible final country counts backfill clipped names; absent incumbent evidence
+  preserves the submitted book and renders the common blocker explicitly.
+- A strengthened-thesis ADD consumes cash and risk capacity just like a new
+  entry. The reproduced negative-cash counterexample is now bounded by both.
+
+## 2026-09-07 — Research H2 third review / retained capital and prior evidence
+- Reproduced six failures before fixes: incremental ADD hurdle, cross-market
+  fees, retained-book backfill, prior-record persistence, CRLF identity and
+  missing-evidence completion. Forty decision tests now pass.
+- Retry the retained-book fit monotonically after an infeasible new name; charge
+  actual buy/sell markets and require the entry hurdle on every incremental buy.
+- Validate previous metadata/closed component hashes before ledger copying;
+  boolean research output flags are never reused as current readiness evidence.
+- Canonical source identity uses verified Git bytes with LF normalization.
+
+### 2026-09-07 — Research H2 runtime and receipt boundaries
+
+PR #400 reviews 3952174939/3952174941/3952174942: verifying a package tree does not exclude modules elsewhere on sys.path. Require isolated interpreter startup and replace inherited paths with the staged tree plus validated interpreter locations. Production verification gates must raise explicitly instead of relying on assert. A research capital amount without a reconciled account must retain its assumption label, including blocked output. Adversarial module injection, optimized Python and missing/false/type-confused labels are regression cases.
