@@ -26,9 +26,10 @@ def bundle(market="US", ticker="TEST"):
                 "accounting_basis": basis, "reporting_timezone": "America/New_York" if market == "US" else "Asia/Seoul", "data_hash": digest(payload), "payload": payload}
 
     price = {"feed": "SYNTHETIC", "price_basis": "raw_unadjusted", "volume_basis": "raw_unadjusted",
-             "quote_type": "official_close", "bars": bars,
+             "quote_type": "official_close", "bars": bars, "volume_unit": "shares", "dividend_share_basis": "ex_date",
              "corporate_actions_status": "no_event", "corporate_actions_through": dates[-1],
              "benchmark_id": "SPY" if market == "US" else "KOSPI200",
+             "benchmark_return_kind": "PRICE_AND_DISTRIBUTIONS" if market == "US" else "TOTAL_RETURN_INDEX",
              "benchmark_bars": bars, "benchmark_actions_status": "no_event",
              "benchmark_actions_through": dates[-1],
              "benchmark_price_basis": "raw_unadjusted"}

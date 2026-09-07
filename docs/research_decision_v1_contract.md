@@ -29,7 +29,11 @@ through the current completed session for both security and benchmark. US uses
 SPY; KR listing board selects KOSPI200 or KOSDAQ150. Calendar dependency is pinned to
 `pandas_market_calendars==5.4.0`; a changed calendar requires a reviewed update.
 
-V1 supports consolidated profitable operating companies in USD / KRW. Financial
+H1 retains valid consolidated financial observations in USD / KRW, including
+reported losses. Profitability is a valuation-domain gate, not a data-quality
+judgment: valuation_method_eligibility marks PE only for positive TTM net income
+and EV_EBITDA only for positive EBITDA. H2 independently repeats that metric
+gate before calculation. Unsupported methods remain blocked. Financial
 currency values use base units, not millions; diluted shares use actual shares.
 FCF = operating cash flow minus positive cash CAPEX. Required TTM age <=210 days.
 The latest quarter must match TTM end, the latest annual end must be within
@@ -78,3 +82,21 @@ availability before that instant is blocked. Price report periods match their
 bar range. REAL input cannot carry a reserved synthetic feed. Common secret
 field aliases are rejected before snapshots. Input reading walks directories
 without following symlinks and validates/bounds bytes from the same descriptor.
+
+Third review corrections: price units are currency_per_share, volume units are
+shares, risk units are fractions, and dividends are on the ex-date share basis.
+For split-adjusted closes, historical dividends are divided by subsequent split
+ratios. Raw and adjusted series agree across pre-split dividends and reverse
+splits. KR benchmark bars must be a total-return index with no extra split or
+dividend application; US SPY uses price plus distributions.
+
+Tier-1 installs requirements_research_decision_v1.txt explicitly and includes it
+in the pip cache key. A bounded Windows PR job exercises the same admission
+tests. POSIX uses directory-relative no-follow descriptors; Windows opens and
+checks non-reparse handles, holds parents and denies write/delete sharing during
+the read. Windows publication uses no-replace MoveFileExW with WRITE_THROUGH.
+See the primary [CreateFileW API](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)
+and [MoveFileExW API](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefileexw).
+Windows native execution is a CI validation requirement; Linux tests do not
+certify the Windows implementation. URI scans handle scheme names and case
+before any embedded value can reach a stored snapshot.

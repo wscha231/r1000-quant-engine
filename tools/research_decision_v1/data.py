@@ -84,7 +84,7 @@ def validate_persistable_sources(value, *, real=False):
         raise ValueError("credential_value_forbidden")
     elif isinstance(value, str) and "://" in value:
         # A URL embedded in prose is checked too, before original text is serialized.
-        for url in re.findall(r"https?://[^\s<>\"']+", value):
+        for url in re.findall(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s<>\"']+", value, flags=re.I):
             source_url(url)
             host = urlsplit(url).hostname
             if real and any(host == x or host.endswith("." + x) for x in ("example.org", "example.com", "example.net", "localhost")):
@@ -160,10 +160,16 @@ def envelope_errors(block, security, cutoff):
 
 def total_return_series(bars, basis):
     if basis not in {"raw_unadjusted", "split_adjusted"}: raise ValueError("price_basis_unverified")
+    # Dividends arrive on the ex-date share basis. Split-adjusted closes are on
+    # the final share basis, so prior dividends need the same subsequent splits.
+    subsequent_splits = [1.] * len(bars)
+    if basis == "split_adjusted":
+        for i in range(len(bars)-1, 0, -1):
+            subsequent_splits[i-1] = number(subsequent_splits[i] * number(bars[i]["split_ratio"], positive=True), positive=True)
     series = [1.]
-    for old, new in zip(bars, bars[1:]):
+    for i, (old, new) in enumerate(zip(bars, bars[1:]), 1):
         split = number(new["split_ratio"], positive=True)
-        dividend = number(new["dividend"], nonnegative=True)
+        dividend = number(new["dividend"], nonnegative=True) / subsequent_splits[i]
         factor = split if basis == "raw_unadjusted" else 1.
         series.append(series[-1] * (number(new["close"], positive=True) + dividend) * factor / number(old["close"], positive=True))
     return series
@@ -176,11 +182,17 @@ def price_analysis(payload, market, cutoff, listing_board=None):
     if payload.get("corporate_actions_through") != latest: raise ValueError("corporate_actions_stale")
     if payload.get("benchmark_actions_status") not in {"available", "no_event"}: raise ValueError("benchmark_actions_unverified")
     if payload.get("benchmark_actions_through") != latest: raise ValueError("benchmark_actions_stale")
+    if payload.get("volume_unit") != "shares": raise ValueError("volume_unit_unverified")
+    if payload.get("dividend_share_basis") != "ex_date": raise ValueError("dividend_share_basis_unverified")
     if payload.get("volume_basis") != payload.get("price_basis"): raise ValueError("price_volume_adjustment_mismatch")
     expected_benchmark = "SPY" if market == "US" else {"KOSPI": "KOSPI200", "KOSDAQ": "KOSDAQ150"}.get(listing_board)
     if expected_benchmark is None: raise ValueError("listing_board_unverified")
     if payload.get("benchmark_id") != expected_benchmark: raise ValueError("benchmark_identity_mismatch")
+    expected_return_kind = "PRICE_AND_DISTRIBUTIONS" if market == "US" else "TOTAL_RETURN_INDEX"
+    if payload.get("benchmark_return_kind") != expected_return_kind: raise ValueError("benchmark_return_kind_mismatch")
     bars, benchmark = payload["bars"], payload["benchmark_bars"]
+    if expected_return_kind == "TOTAL_RETURN_INDEX" and any(b["dividend"] != 0 or b["split_ratio"] != 1 for b in benchmark):
+        raise ValueError("total_return_index_action_double_count")
     if not bars or not benchmark: raise ValueError("price_missing")
     for rows, action_status in ((bars, payload["corporate_actions_status"]), (benchmark, payload["benchmark_actions_status"])):
         ds = [b["session"] for b in rows]
@@ -284,6 +296,8 @@ def export_market(bundle, expected_market):
         if s.get("currency") != MARKETS[market][0]: errors.append("market_currency_mismatch")
         blocks = s.get("blocks", {})
         coverage = {k: envelope_errors(blocks.get(k), s, cutoff) for k in CORE}
+        for key, unit in {"price": "currency_per_share", "financials": "currency_and_shares", "thesis": "text", "risk": "fraction"}.items():
+            if not coverage[key] and blocks[key].get("unit") != unit: coverage[key].append("unit_mismatch")
         for k, reasons in coverage.items(): errors += [k + ":" + e for e in reasons]
         discovery = None
         if not coverage["price"]:
@@ -298,7 +312,13 @@ def export_market(bundle, expected_market):
                     if price.get(field) and timestamp(price[field]) < close:
                         errors.append("price:" + field + "_before_official_close")
             except (ValueError, KeyError, TypeError, IndexError) as exc: errors.append("price:" + str(exc))
-        if not coverage["financials"]: errors += financial_errors(blocks["financials"], market, cutoff)
+        method_eligibility = None
+        if not coverage["financials"]:
+            financial_blockers = financial_errors(blocks["financials"], market, cutoff)
+            errors += financial_blockers
+            if not financial_blockers:
+                ttm = blocks["financials"]["payload"]["ttm"]
+                method_eligibility = {"PE": ttm["net_income"] > 0, "EV_EBITDA": ttm["ebitda"] > 0}
         if not coverage["thesis"] and not coverage["risk"]: errors += thesis_risk_errors(blocks)
         optional = copy.deepcopy(s.get("optional", {}))
         for key, block in optional.items():
@@ -308,7 +328,7 @@ def export_market(bundle, expected_market):
                 if es: optional[key] = {"status": "unverified", "reasons": es}
         s.update(data_quality_pass=not errors, blockers=sorted(set(errors)), coverage=coverage,
                  discovery=discovery, required_session=discovery["required_session"] if discovery else None,
-                 optional=optional, historical_pit_verified=False, consensus_revision=None)
+                 optional=optional, valuation_method_eligibility=method_eligibility, historical_pit_verified=False, consensus_revision=None)
         rows.append(s)
     result = {"schema_version": "research-market-export-v1", "market": market,
               "data_kind": bundle["data_kind"], "decision_cutoff": cutoff,

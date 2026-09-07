@@ -4937,3 +4937,14 @@ Expected contract:
 - Reject common credential aliases before any snapshot; read bounded input bytes
   through a no-follow descriptor after walking non-symlink parents.
 - Added five concrete counterexamples without changing production readiness.
+
+
+## 2026-09-07 — Research H1 third review / numeric and platform boundaries
+- A dividend before a later split must share the final basis of split-adjusted
+  closes. Added dividend/split and reverse-split equivalence counterexamples.
+- Enforce price/volume/risk units and total-return benchmark semantics.
+- Preserve valid negative financial facts but emit explicit valuation-method
+  eligibility; H2 already independently blocks a nonpositive valuation metric.
+- URI schemes/case cannot evade secret-bearing URL rejection.
+- Freeze research dependencies in Tier-1 install/cache; add native Windows
+  handle/publication checks to the existing PR event (no new schedule).

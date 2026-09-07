@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from research_decision_v1_fixture import bundle, rehash
 from tools.research_decision_v1.data import export_market, total_return_series, envelope_errors
 from tools.research_decision_v1.io import immutable_json, read_json
+from tools.research_decision_v1.platform_io import input_descriptor
 
 
 class DataContractTests(unittest.TestCase):
@@ -145,6 +146,14 @@ class DataContractTests(unittest.TestCase):
             huge = root / "huge.json"
             with huge.open("wb") as handle: handle.truncate(32_000_001)
             with self.assertRaises(ValueError): read_json(huge)
+            if os.name == "nt":
+                with input_descriptor(p.absolute()) as descriptor:
+                    self.assertEqual(os.read(descriptor, 100), b'{"x":1}')
+                    with self.assertRaises(OSError): p.rename(root/"old.json")
+                    with self.assertRaises(OSError): p.write_text('{"x":2}')
+                p.write_text('{"x":2}')
+                self.assertEqual(read_json(p), {"x": 2})
+                return
             original_open = os.open
             def swap_after_open(path, *args, **kwargs):
                 fd = original_open(path, *args, **kwargs)
@@ -154,6 +163,47 @@ class DataContractTests(unittest.TestCase):
             with patch("tools.research_decision_v1.io.os.open", side_effect=swap_after_open):
                 self.assertEqual(read_json(p), {"x": 1})
             self.assertEqual(read_json(p), {"x": 2})
+
+    def test_uri_scheme_case_credentials_and_units(self):
+        for uri in ("ftp://user:dummy@example.org/file", "HTTPS://user:dummy@example.org/file", "FiLe:///private/file"):
+            b = bundle(); b["securities"][0]["optional"] = {"provider": {"status": "missing", "detail": uri}}
+            with self.assertRaises(ValueError): export_market(b, "US")
+        for key, wrong_unit in (("price", "cents"), ("risk", "percent"), ("thesis", "score_units")):
+            b = bundle(); b["securities"][0]["blocks"][key]["unit"] = wrong_unit
+            self.assertIn(key+":unit_mismatch", self.result(b)["blockers"])
+        b = bundle(); p = b["securities"][0]["blocks"]["price"]
+        p["payload"]["volume_unit"] = "lots"; rehash(p)
+        self.assertIn("price:volume_unit_unverified", self.result(b)["blockers"])
+
+    def test_pre_split_dividends_share_the_adjusted_price_basis(self):
+        raw = [{"close": 100., "dividend": 0., "split_ratio": 1.},
+               {"close": 99., "dividend": 1., "split_ratio": 1.},
+               {"close": 49.5, "dividend": 0., "split_ratio": 2.}]
+        adjusted = copy.deepcopy(raw)
+        for bar in adjusted[:2]: bar["close"] /= 2.
+        self.assertEqual(total_return_series(raw, "raw_unadjusted"), [1., 1., 1.])
+        self.assertEqual(total_return_series(adjusted, "split_adjusted"), [1., 1., 1.])
+        # The same identity holds for reverse splits and an earlier dividend.
+        raw[-1].update(close=198., split_ratio=.5)
+        adjusted = copy.deepcopy(raw)
+        for bar in adjusted[:2]: bar["close"] *= 2.
+        self.assertEqual(total_return_series(adjusted, "split_adjusted"), total_return_series(raw, "raw_unadjusted"))
+
+    def test_valid_losses_are_distinct_from_valuation_eligibility(self):
+        b = bundle(); f = b["securities"][0]["blocks"]["financials"]
+        f["payload"]["ttm"].update(net_income=-1., ebitda=-1.); rehash(f)
+        row = self.result(b)
+        self.assertTrue(row["data_quality_pass"])
+        self.assertEqual(row["valuation_method_eligibility"], {"PE": False, "EV_EBITDA": False})
+
+    def test_kr_benchmark_must_be_total_return_without_double_distribution(self):
+        b = bundle("KR"); p = b["securities"][0]["blocks"]["price"]
+        p["payload"]["benchmark_return_kind"] = "PRICE_ONLY"; rehash(p)
+        self.assertIn("price:benchmark_return_kind_mismatch", self.result(b)["blockers"])
+        p["payload"]["benchmark_return_kind"] = "TOTAL_RETURN_INDEX"
+        p["payload"]["benchmark_bars"] = copy.deepcopy(p["payload"]["benchmark_bars"])
+        p["payload"]["benchmark_bars"][-1]["dividend"] = 1.; rehash(p)
+        self.assertIn("price:total_return_index_action_double_count", self.result(b)["blockers"])
 
     def test_atomic_write_failure_can_retry(self):
         with tempfile.TemporaryDirectory() as directory:
