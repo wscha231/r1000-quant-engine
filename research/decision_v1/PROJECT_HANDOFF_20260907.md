@@ -11,7 +11,7 @@
 
 | 구분 | 판정 | 근거 |
 |---|---|---|
-| 코드 구현 | 연구 계산·내보내기 구현, 원자료 완결 연동은 미완료 | H1/H2/KR PR, 36/40/4개 신규 테스트 |
+| 코드 구현 | 연구 계산·내보내기 구현, 원자료 완결 연동은 미완료 | H1/H2/KR PR, H1 39개(플랫폼 전용 1개 skip), H2 42개, KR 4개 검사 |
 | 제한된 실제 실행 | EXECUTED_BLOCKED | US/KR export와 consumer 모두 exit 2; 검증 통과 0/3 |
 | 합성 연결 | 3개 및 7개 종목 연결 통과 | 같은 코드·입력으로 두 번 실행, 결정과 파일 해시 동일 |
 | OOS·수익성 | 미실행·미검증 | 과거 PIT/추정치 이력·성숙 outcome 검증 없음 |
@@ -25,8 +25,8 @@
 
 | 범위 | branch | 실행/구현 기준 commit | PR |
 |---|---|---|---|
-| 미국 H1 | codex/research-decision-v1-data-contract-20260907 | 205280894e73e09093175288720b63b7f64394d3 | [US #399](https://github.com/wscha231/r1000-quant-engine/pull/399) |
-| 미국 H2 | codex/research-decision-v1-ranking-reviewed-20260907 | 2ef4b2b0e94ecb7718ad3e60ac6e00d4f8671db4 | [US #400](https://github.com/wscha231/r1000-quant-engine/pull/400) |
+| 미국 H1 | codex/research-decision-v1-data-contract-20260907 | 1c5e1c0eaeb7885d35bd6713aba93ff931460c81 | [US #399](https://github.com/wscha231/r1000-quant-engine/pull/399) |
+| 미국 H2 | codex/research-decision-v1-ranking-reviewed-20260907 | 863ccd3d81ce9e0744b96f278cbe353d43331dfb | [US #400](https://github.com/wscha231/r1000-quant-engine/pull/400) |
 | 한국 export | codex/research-decision-v1-kr-export-20260907 | 3c40210b8675267121d7f40f3dcd8d158720a4e8 | [KR #2](https://github.com/wscha231/kr-quant-engine/pull/2) |
 
 H2는 H1 브랜치를 PR base로 사용한다. H1과 H2의 기능 변경을 분리했다.
@@ -48,8 +48,8 @@ AGENTS.md, 운영 표준, CURRENT_STATUS 및 KR 인수인계, 공유 교훈·실
 
 | 범위 | 로컬 검증 commit | 원격 기준 commit | 동일 tree |
 |---|---|---|---|
-| H1 | 949e9e58b3254e348c81527a4d88d0a33d2c3573 | 205280894e73e09093175288720b63b7f64394d3 | d29cefbfbc865c0b69a4d239cc0b62118ab264a4 |
-| H2 | dc071c41529483119ce6578e8ccc85d65cd83c28 | 2ef4b2b0e94ecb7718ad3e60ac6e00d4f8671db4 | b9f2186dcbd960584312b578d31875ba07585ecb |
+| H1 | cea1d9e80f7a87033ab967fce15e67f551cd0005 | 1c5e1c0eaeb7885d35bd6713aba93ff931460c81 | d9cda99509c1c954da473229d74c3ff19ec42dd1 |
+| H2 | cb9adba76db41a91d0d3186c52426307e4dffc0d | 863ccd3d81ce9e0744b96f278cbe353d43331dfb | 2e246e4f52dca3116965b99ca1c4b50dae78e378 |
 | KR | e6e411b243914a604a20be32ecb2f8b999491195 | 3c40210b8675267121d7f40f3dcd8d158720a4e8 | b3057e53e30059885d66042120aa71901e777b4a |
 
 H1 검토 수정에 맞춰 H2를 재적용했다. 기존 H2 head
@@ -62,6 +62,8 @@ H1 검토 수정에 맞춰 H2를 재적용했다. 기존 H2 head
 `codex/research-decision-v1-ranking-before-evidence-review-20260907`에 보존했다.
 세 번째 검토 head d968e5c2f35d9a3d762a85198e94d5c32c25ae52는
 `codex/research-decision-v1-ranking-before-final-admission-20260907`에 보존했다.
+추가 H1 리뷰 전 H2 head e66a26d7f8c09da0178fa59e089203df0c8d5082는
+`codex/research-decision-v1-ranking-before-staged-identity-20260907`에 보존했다.
 PR #400의 본인 작업 브랜치만 재정렬했으며 기본 브랜치는 병합하지 않았다.
 
 ## 변경 파일과 핵심 함수
@@ -70,14 +72,14 @@ PR #400의 본인 작업 브랜치만 재정렬했으며 기본 브랜치는 병
 |---|---|
 | tools/research_decision_v1/data.py | export_market, envelope_errors, financial_errors, price_analysis, total_return_series: 출처·단위·시점·시장·가격조정·결측 검증 |
 | tools/research_decision_v1/io.py | descriptor_bytes, read_bytes, read_json, immutable_json, immutable_bytes, source_material: 제한된 입력·불변 저장·소스 해시 |
-| tools/research_decision_v1/platform_io.py | output_parent, input_descriptor, publish_staged: 디렉터리 유지·POSIX dir_fd·Windows native 동일 디렉터리 rename |
+| tools/research_decision_v1/platform_io.py | output_parent, create_staged_descriptor, input_descriptor, publish_staged, discard_staged: 디렉터리 유지·POSIX dir_fd·Windows native 동일 디렉터리 rename |
 | tools/export_research_decision_market.py | 미국 전용 export CLI |
 | tools/research_decision_v1/valuation.py | scenario_price, evaluate_security: 12개월 EV/EBITDA·P/E와 reverse valuation |
 | tools/research_decision_v1/portfolio.py | add_fx_returns, read_book, replacement_net_improvement, propose, _propose_once, constraint_audit: 환율·기존 보유 비교·위험/비용/비중 |
 | tools/research_decision_v1/engine.py | validate_previous_record, run_decisions, rank_sensitivity, component_hashes, discovery_snapshot: 재검증·순위·민감도·변경 이유 |
-| tools/run_research_decision_v1.py | verified_source_snapshot, load_verified_runtime, render_report: import 전 바이트 검증·동일 snapshot 실행·독립 산출물 |
-| tests/research_decision_v1_* | 합성 fixture, 데이터 36개 및 의사결정 40개 반례 |
-| research/decision_v1/reproduce_checks.py | 실제 2+1 및 합성 3/7개 명령행 연결·반복 재현 검사 |
+| tools/run_research_decision_v1.py | verified_source_snapshot, trusted_runtime_paths, load_verified_runtime, render_report: import 전 바이트 검증·동일 snapshot 실행·독립 산출물 |
+| tests/research_decision_v1_* | 합성 fixture, 데이터 39개 및 의사결정 42개 반례 |
+| research/decision_v1/reproduce_checks.py | verify_case: 실제 2+1 및 합성 3/7개 연결·최적화 모드에서도 반복/비중 검증 |
 | docs/research_decision_v1_config.json | 출력 전 고정한 연구 설정 |
 | docs/research_decision_v1_contract.md, docs/research_decision_v1_usage.md | 입력/출력·해석·제한 계약 |
 | requirements_research_decision_v1.txt | 연구용 캘린더/표 계산 및 tzdata==2026.3 고정 의존성 |
@@ -91,7 +93,7 @@ PR #400의 본인 작업 브랜치만 재정렬했으며 기본 브랜치는 병
 | KR CHANGELOG.md, SESSION_HANDOFF.md, research/research_decision_v1.md | 한국 작업 경계·인수인계 |
 
 보호 검증기를 끄지 않았다. H1 CI 등록 pin은 `5755e5f1f6e0ecf4ad6098dcfd2c1bb2e0392290`,
-현 H2 등록 pin은 실제 선행 commit `17a83fd54a4a705d37e2643a68127d656db84b5f`다.
+현 H2 등록 pin은 실제 선행 commit `5398fe985accffda8150fcb1b8e8bf53e74d935c`다.
 보호 경로 목록·검증 알고리즘·동결된 inventory는 바꾸지 않았다.
 
 H2 리뷰 반례를 수정했다: 최종 매수 가능 비중만 교체 근거로 한 번 사용, 보유 종목을
@@ -112,7 +114,7 @@ H1은 IDNA/숫자 주소와 자격증명 별칭을 정규화하고, 보고기간
 날짜만 허용한다. export_hash에는 검증 모듈 소스 식별자가 포함된다.
 
 기존 모니터·공식 target·장부·주문·승격 경로의 diff는 없다. 미국 로컬의 기존
-사용자 변경 CSV 두 개도 커밋하지 않았다. 작업 전후 diff numstat는 각각
+사용자 변경 CSV 두 개도 커밋하지 않았다. 기존 경로에 접근할 수 있었던 작업 전후 diff numstat는 각각
 `1/8878`, `1/41137`로 동일하다. 경로는 20260624 global_alpha_universe 아래
 market_leader_challenger의 holdings_daily.csv와 sec_enriched_candidate_replay의
 candidate_replay_book_sec_enriched.csv다.
@@ -183,59 +185,61 @@ no-trade 2%p/교체 개선 buffer 3%p다. 편도 비용 US 15bp/KR 25bp는 연�
 
 ## 실행 명령·테스트·산출물
 
-아래는 최종 실행 코드 `2ef4b2b0e94ecb7718ad3e60ac6e00d4f8671db4`에서 실제 실행한 명령이다.
+아래는 최종 실행 코드 `863ccd3d81ce9e0744b96f278cbe353d43331dfb`에서 실제 실행한 명령이다.
 
 ```bash
 cd /workspace/scratch/f247432c1548/r1000-quant-engine
-PYTHONWARNINGS=ignore PYTHONPATH=/workspace/scratch/f247432c1548/research_runtime python research/decision_v1/reproduce_checks.py --kr-root /workspace/scratch/f247432c1548/kr-quant-engine
+/workspace/scratch/f247432c1548/research_venv/bin/python -I -W ignore research/decision_v1/reproduce_checks.py --kr-root /workspace/scratch/f247432c1548/kr-quant-engine
 ```
 
 재현 스크립트가 각 시장 exporter와 consumer를 실행한다. 정확한 개별 명령·
-입력 경로·exit code·파일 SHA256은 [connection_verification.json](evidence_20260907/executions/2ef4b2b0e94ecb7718ad3e60ac6e00d4f8671db4/connection_verification.json)에 있다.
+입력 경로·exit code·파일 SHA256은 [connection_verification.json](evidence_20260907/executions/863ccd3d81ce9e0744b96f278cbe353d43331dfb/connection_verification.json)에 있다.
 필수 데이터 오류를 exit 0으로 바꾸지 않았다.
 
 | 검사 | 결과 |
 |---|---|
-| H1 data smoke | 36개 통과: 시점·원가격/조정·FCF·결측/0·synthetic·안전한 입력/저장 |
-| H2 decision smoke | 40개 통과: 시나리오·환율·순위·민감도·현금/비용·기존 보유·변경 원인 |
+| H1 data smoke | 39개 중 38개 통과, Windows 전용 1개 skip: 시점·원가격/조정·FCF·결측/0·synthetic·안전한 입력/저장 |
+| H2 decision smoke | 42개 통과: 시나리오·환율·순위·민감도·현금/비용·기존 보유·변경 원인 |
 | KR export pin smoke | 4개 통과 |
 | 기존 US daily research monitor | 초기 구현 검증 19개 통과; 이후 모니터 수정 없음 |
 | 보호 inventory/lineage | 최종 pin의 직접 관련 4개 회귀검사 통과 |
 | 실제 2+1 CLI | export/consumer exit 2; 동일 실행 두 번의 결정·파일 해시 일치 |
 | 합성 3/7 CLI | exit 0; 반복 동일, 비중+현금=1, 7개 fixture에서만 5+2 확인 |
 | 선행 로컬 기존 smoke | 93/130; requests 및 기존 sparse 파일 누락으로 차단. 실패를 통과로 표시하지 않음 |
-| H1 최신 native Windows | head 2052808, job 101838898175: 36개 검사 통과 |
+| H1 최신 native Windows | head 1c5e1c0, job 101853192884: 39개 중 38개 통과, Linux 전용 1개 skip |
 | 선행 전체 로컬 inventory | 과거 promisor blob 324e84859be5dddf091b165f9533259354739077의 HTTP 403으로 미완료 |
 | US H1 선행 f2fdc859 CI | job 101769790608, 229/229 통과; 최신 HEAD 결과로 대체 해석하지 않음 |
 | KR 최신 CI | job 101768731291: source-pin·quick 23·full 44 통과. 기존 PIT 3/7 통과, 상장 이력 캐시 부재로 4개 실패; 후속 단계 skip |
 
-이 receipt 작성 시 H1 2052808의 외부 검토와 전체 validate는 진행 중이다.
-H1 native Windows 36개는 통과했다. KR 3c40210 exact-head 검토는 추가 지적 없이
-완료됐다. H2의 세 번째 검토 지적 6개를 수정하고 40개 테스트로 확인했다.
-최종 artifact commit 게시 후 새 exact-head 검토를 요청한다. review_complete를
-스스로 통과 처리하지 않았으며 이전 HEAD의 검토를 현재 승인으로 사용하지 않는다.
+이 receipt 작성 시 H1 1c5e1c0의 exact-head 외부 검토 및 전체 validate는 별도 진행 상태다.
+H1 native Windows는 38개 통과/플랫폼 전용 1개 skip이며, KR 3c40210 검토는 추가 지적 없이 완료됐다.
+H2의 최신 지적 3개(import 경로·최적화 검증·신규자금 표시)를 수정했다.
+42개 검사는 local 934ef314에서 실행했으며 최종 실행 코드와 연구 package/CLI가 같다.
+최종 artifact HEAD 게시 후 새 exact-head 검토를 요청한다. 스스로 review_complete를
+통과 처리하거나 이전 HEAD의 검토를 현재 승인으로 사용하지 않는다.
 
-최신 소스 package hash: `5d8e4af281d81cef3890f56fe78d307475d83b275daa18c00ae4045dcbc40b03`
+최신 소스 package hash: `7c38562c060867387f4f1f1180123cc9beb7260ea2c322558ec076418fbe1541`
 
 고정 설정 hash: `c5e3f22852a3c59c6b8aa1b21e9829990c0ba6230af07b6548bac7284c6db9bf`. 최초 설정은 출력 전에 local commit
 `a4b5d8c06225823a4af93da638053c053d71c1dc`에 저장했고 결과를 보고 계수를 조정하지 않았다.
 
 실제 결정 hash: `e315b06c20aa189a922a0cd8da81708ec8c824895d8426b49fab1bfe85d1fd88`
 
-- [실제 report.md](evidence_20260907/executions/2ef4b2b0e94ecb7718ad3e60ac6e00d4f8671db4/REAL_PILOT/report.md)
-- [실제 report.json](evidence_20260907/executions/2ef4b2b0e94ecb7718ad3e60ac6e00d4f8671db4/REAL_PILOT/report.json)
-- [실제 coverage](evidence_20260907/executions/2ef4b2b0e94ecb7718ad3e60ac6e00d4f8671db4/REAL_PILOT/data_coverage_snapshot.json)
-- [실제 evidence snapshot](evidence_20260907/executions/2ef4b2b0e94ecb7718ad3e60ac6e00d4f8671db4/REAL_PILOT/research_evidence_snapshot.json)
-- [실제 portfolio proposal](evidence_20260907/executions/2ef4b2b0e94ecb7718ad3e60ac6e00d4f8671db4/REAL_PILOT/portfolio_proposal_research.json)
-- [검증 receipt](evidence_20260907/executions/2ef4b2b0e94ecb7718ad3e60ac6e00d4f8671db4/validation_receipt.json)
-- [이전 코드와 artifact 비교](evidence_20260907/executions/2ef4b2b0e94ecb7718ad3e60ac6e00d4f8671db4/artifact_comparison.json)
+- [실제 report.md](evidence_20260907/executions/863ccd3d81ce9e0744b96f278cbe353d43331dfb/REAL_PILOT/report.md)
+- [실제 report.json](evidence_20260907/executions/863ccd3d81ce9e0744b96f278cbe353d43331dfb/REAL_PILOT/report.json)
+- [실제 coverage](evidence_20260907/executions/863ccd3d81ce9e0744b96f278cbe353d43331dfb/REAL_PILOT/data_coverage_snapshot.json)
+- [실제 evidence snapshot](evidence_20260907/executions/863ccd3d81ce9e0744b96f278cbe353d43331dfb/REAL_PILOT/research_evidence_snapshot.json)
+- [실제 portfolio proposal](evidence_20260907/executions/863ccd3d81ce9e0744b96f278cbe353d43331dfb/REAL_PILOT/portfolio_proposal_research.json)
+- [검증 receipt](evidence_20260907/executions/863ccd3d81ce9e0744b96f278cbe353d43331dfb/validation_receipt.json)
+- [이전 코드와 artifact 비교](evidence_20260907/executions/863ccd3d81ce9e0744b96f278cbe353d43331dfb/artifact_comparison.json)
 
-이전 119af4d 실행과 원본 입력·설정·context·수치 순위·행동·비중·차단 이유를
-비교했고 세 경우 모두 동일했다. 검증 모듈 식별자와 실행 소스가 달라진 점은
-artifact_comparison.json 및 manifest로 구분한다. 신규 ADD의 진입 기준, 실제
-매수/매도 시장별 비용, 기존 보유 유지 후 후보 보충, 이전 장부 메타데이터,
-CRLF 소스 식별 및 보유 증거가 없는 5+2 판정을 반례로 수정했다. 고정 계수를
-결과에 맞춰 바꾸지 않았다.
+이전 2ef4b2b 실행과 원본 입력 및 report.json 전체를 대조했고 세 경우 모두
+동일했다. 결정 hash·설정·순위·행동·비중·차단 이유는 바뀌지 않았으며, 소스별
+실행 디렉터리와 manifest는 구분된다. Linux는 익명 파일에서 게시하며 H2는
+격리된 Python과 검증한 import 경로를 사용한다. 최적화 모드에서도 검증을
+유지하고 신규자금의 가정 표시를 강제했다. 게시 후 바이트 대조 및 Windows 핸들 정리도 검증했다.
+Linux/Windows 각각 39개 중 38개 통과, 상대 OS 전용 1개 skip이다. H2 42개 및 보호
+publication 검사 4개도 다시 통과했다. 수치 계수는 바꾸지 않았다.
 REAL context의 비밀정보 없는 진단 키가 새 검증 규칙과 충돌한 실행은 exit 1로
 실패했다. 차단 규칙을 약화하지 않고 `context_v2.json`으로 진단 키만 명시적으로
 버전 변경했다. 원본 context도 보존하며 시장 원자료·경제 가정·수치 설정은 동일하다.
@@ -245,8 +249,8 @@ REAL context의 비밀정보 없는 진단 키가 새 검증 규칙과 충돌한
 `evidence_provenance`다. 실제 표본은 최초 관찰로 순위 변화 이력이 없다.
 
 합성 보고서는 같은 execution 폴더의 SYNTHETIC_3/SYNTHETIC_7 아래에 별도 보존한다.
-이번 실행 파일 41개를 추가했으며, 과거 실행을 포함한 manifest 18개가 참조하는
-artifact 144개의 파일 해시를 모두 대조했다.
+이번 실행 파일 41개를 추가했으며, 과거 실행을 포함한 manifest 21개가 참조하는
+artifact 168개의 파일 해시를 모두 대조했다.
 현재 원본 응답으로부터의 유효 투자순위, OOS 성과, 통계 보정은 산출하지 못했다.
 
 ## 다음 작업과 중단 조건

@@ -1,0 +1,56 @@
+{
+  "cases": {
+    "REAL_PILOT": {
+      "current_decision_hash": "e315b06c20aa189a922a0cd8da81708ec8c824895d8426b49fab1bfe85d1fd88",
+      "entire_semantic_report_identical": true,
+      "previous_decision_hash": "e315b06c20aa189a922a0cd8da81708ec8c824895d8426b49fab1bfe85d1fd88",
+      "repeat_decision_and_file_hashes_identical": true,
+      "same_actions_weights_reasons": true,
+      "same_cash": true,
+      "same_config": true,
+      "same_context": true,
+      "same_numeric_ranks": true,
+      "same_original_inputs_by_market": {
+        "KR": true,
+        "US": true
+      },
+      "source_specific_manifest_and_directory_are_distinct": true
+    },
+    "SYNTHETIC_3": {
+      "current_decision_hash": "841feee8fa7924e69552c4c1004f442dcdc65d7569395009bd5a032777b41a9c",
+      "entire_semantic_report_identical": true,
+      "previous_decision_hash": "841feee8fa7924e69552c4c1004f442dcdc65d7569395009bd5a032777b41a9c",
+      "repeat_decision_and_file_hashes_identical": true,
+      "same_actions_weights_reasons": true,
+      "same_cash": true,
+      "same_config": true,
+      "same_context": true,
+      "same_numeric_ranks": true,
+      "same_original_inputs_by_market": {
+        "KR": true,
+        "US": true
+      },
+      "source_specific_manifest_and_directory_are_distinct": true
+    },
+    "SYNTHETIC_7": {
+      "current_decision_hash": "94c8a7a2034fe3953b7c7e547db04f397418f5fcfd6cefe63079b33b25f502f2",
+      "entire_semantic_report_identical": true,
+      "previous_decision_hash": "94c8a7a2034fe3953b7c7e547db04f397418f5fcfd6cefe63079b33b25f502f2",
+      "repeat_decision_and_file_hashes_identical": true,
+      "same_actions_weights_reasons": true,
+      "same_cash": true,
+      "same_config": true,
+      "same_context": true,
+      "same_numeric_ranks": true,
+      "same_original_inputs_by_market": {
+        "KR": true,
+        "US": true
+      },
+      "source_specific_manifest_and_directory_are_distinct": true
+    }
+  },
+  "code_change": "Published-byte integrity checks, Windows owned-handle cleanup, isolated imports, optimized receipt gates and explicit research capital assumption; no numeric rule/config change",
+  "config_coefficients_tuned": false,
+  "current_executed_code": "863ccd3d81ce9e0744b96f278cbe353d43331dfb",
+  "previous_executed_code": "2ef4b2b0e94ecb7718ad3e60ac6e00d4f8671db4"
+}
