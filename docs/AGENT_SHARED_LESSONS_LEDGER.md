@@ -5004,3 +5004,10 @@ Expected contract:
   a checked path lookup for staging, collision comparison or directory sync.
 - Reject credential values and legacy decision aliases before snapshots. This
   changes research admission only; no production readiness, book or order path.
+
+## 2026-09-07 — Native Windows publication regression
+- Job 101835610334 reproduced parent rename despite an attributes-only handle.
+  Attributes access is exempt from share checks in CreateFileW. Request read
+  access for held input/output directories to enforce denied write/delete sharing.
+- Retain the parent-replacement test. Linux cannot certify this native behavior;
+  the subsequent Windows job is a separate required result.

@@ -59,7 +59,7 @@ def _windows_descriptor(path):
         # read finishes. Reparse processing is disabled and attributes checked.
         for part in [*reversed(path.parents), path]:
             directory = part != path
-            handle = kernel.CreateFileW(str(part), 0x80 if directory else 0x80000000,
+            handle = kernel.CreateFileW(str(part), 0x80000000,
                                         1, None, 3, 0x00200000 | (0x02000000 if directory else 0), None)
             if handle == ctypes.c_void_p(-1).value: raise ctypes.WinError(ctypes.get_last_error())
             handles.append(handle)
@@ -105,7 +105,7 @@ def output_parent(path):
             # Every previously visited ancestor is already held against rename
             # and reparse mutation. Check the new handle before descending.
             part.mkdir(exist_ok=True)
-            handle = kernel.CreateFileW(str(part), 0x80, 1, None, 3, 0x02200000, None)
+            handle = kernel.CreateFileW(str(part), 0x80000000, 1, None, 3, 0x02200000, None)
             if handle == ctypes.c_void_p(-1).value: raise ctypes.WinError(ctypes.get_last_error())
             handles.append(handle); info = FileInfo()
             if not kernel.GetFileInformationByHandle(handle, ctypes.byref(info)):
