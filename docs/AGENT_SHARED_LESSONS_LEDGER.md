@@ -4902,3 +4902,18 @@ Expected contract:
 - Fullrun executed: false. Workflow dispatched or rerun: false. Migration,
   quarantine, Drive, target, order, ledger, accepted-head, production, live
   trading, automatic promotion, and pattern backfill state mutated: false.
+
+
+## 2026-09-07 - Research decisions need independent raw-input admission
+
+- Related issue #396; H1 data contract only, H2 valuation/allocation is separate.
+- The existing monitor is NONRANKING; its values cannot be reused as rank or size inputs.
+- Existing valuation fallbacks (zero debt/cash and TTM-as-forward) do not establish
+  verified scenario inputs. Keep missing/zero/stale/no-event distinct.
+- Current master API job 101654720085 has passing FMP/Alpaca/DART/KRX samples;
+  Finnhub estimates returns 403. Samples do not establish full financial coverage.
+- Local provider credentials are absent. Artifact 9963347716 is accessible through
+  the connector, but its materialization URL returned HTTP 403 (1010) twice.
+  SEC/Yahoo direct sample reads also failed. Do not report a current-data run ready.
+- Existing user-owned modified CSVs were preserved. No monitor, official target,
+  book, order, workflow, migration, fullrun or promotion path changed.
