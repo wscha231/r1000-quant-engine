@@ -168,3 +168,7 @@ raw-input rank/readiness prohibition remains independent and unchanged.
 Current H2 registration is causally published in 17a83fd54a4a705d37e2643a68127d656db84b5f
 on final H1 205280894e73e09093175288720b63b7f64394d3. Only the
 publication pin advances; protected paths, verifier and research settings stay fixed.
+
+Staged-file identity integration is published in 2bdfb6fb7e4cc0e7655e61b9b55625965c77b2ed
+on H1 85cd315e59ee6b55fa8f3b17bb54046d5401c7d3. The protected
+publication pin follows that causal ancestor without changing verifier behavior.
