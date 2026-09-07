@@ -5029,3 +5029,12 @@ Expected contract:
 Native publication uses a simple leaf name with RootDirectory=NULL, the
 source-handle same-directory rename contract. The verified parent handles stay
 open; no target-directory reopening or sharing-guard release is necessary.
+
+## 2026-09-07 — Staged identity must survive publication
+- Exact-head review 2052808 identified a reopened staging leaf after writing.
+  The Linux replacement counterexample failed before correction.
+- Keep the same staged descriptor open through write/fsync/publication. Windows
+  CREATE_NEW denies write/delete sharing; native rename uses its CRT-owned handle.
+  Linux publishes through linkat on /proc/self/fd, with held destination dir_fd,
+  so a replacement even after the identity check cannot substitute another inode.
+- Unsupported descriptor-backed publication fails closed; no path fallback.

@@ -1,13 +1,12 @@
 """Bounded JSON inputs and immutable research-only output paths."""
 import json
 import os
-import tempfile
 import stat
 import uuid
 from pathlib import Path
 from tools.research_decision_v1.data import canonical, digest
 from tools.research_decision_v1.platform_io import (input_descriptor, is_redirect, publish_staged,
-    sync_directory, output_parent, output_existing_descriptor)
+    sync_directory, output_parent, output_existing_descriptor, create_staged_descriptor)
 
 
 def descriptor_bytes(descriptor, maximum):
@@ -65,28 +64,25 @@ def immutable_bytes(path, data):
     with output_parent(path.parent) as parent_descriptor:
         temporary = None
         try:
-            if os.name == "nt":
-                handle = tempfile.NamedTemporaryFile(dir=path.parent, prefix=".research-stage-", delete=False)
-                temporary = Path(handle.name)
-            else:
-                temporary = path.parent / (".research-stage-" + uuid.uuid4().hex)
-                descriptor = os.open(temporary.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                                     0o600, dir_fd=parent_descriptor)
-                handle = os.fdopen(descriptor, "wb")
-            with handle:
+            staged_path = path.parent / (".research-stage-" + uuid.uuid4().hex)
+            descriptor = create_staged_descriptor(staged_path, parent_descriptor)
+            temporary = staged_path  # Cleanup only a file successfully created here.
+            with os.fdopen(descriptor, "wb") as handle:
                 handle.write(data); handle.flush(); os.fsync(handle.fileno())
-            try:
-                publish_staged(temporary, path, parent_descriptor=parent_descriptor)
-            except FileExistsError:
                 try:
-                    with output_existing_descriptor(path, parent_descriptor) as descriptor:
-                        if descriptor_bytes(descriptor, len(data)) != data: raise ValueError("immutable_history_conflict")
-                except (ValueError, OSError) as exc: raise ValueError("immutable_history_conflict") from exc
-            sync_directory(path.parent, descriptor=parent_descriptor)
+                    publish_staged(temporary, path, parent_descriptor=parent_descriptor, staged_descriptor=handle.fileno())
+                except FileExistsError:
+                    try:
+                        with output_existing_descriptor(path, parent_descriptor) as existing:
+                            if descriptor_bytes(existing, len(data)) != data: raise ValueError("immutable_history_conflict")
+                    except (ValueError, OSError) as exc: raise ValueError("immutable_history_conflict") from exc
+                sync_directory(path.parent, descriptor=parent_descriptor)
         finally:
             if temporary is not None:
                 if os.name == "nt": temporary.unlink(missing_ok=True)
-                else: os.unlink(temporary.name, dir_fd=parent_descriptor)
+                else:
+                    try: os.unlink(temporary.name, dir_fd=parent_descriptor)
+                    except FileNotFoundError: pass
     return path
 
 

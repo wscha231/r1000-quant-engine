@@ -127,8 +127,25 @@ def output_existing_descriptor(path, parent_descriptor):
         finally: os.close(descriptor)
 
 
-def publish_staged(temporary, path, parent_descriptor=None):
+def create_staged_descriptor(temporary, parent_descriptor):
+    if os.name != "nt":
+        return os.open(temporary.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                       0o600, dir_fd=parent_descriptor)
+    import msvcrt
+    ctypes, kernel, _ = _windows_api()
+    # CREATE_NEW, read/write/delete access, READ sharing only, write-through.
+    # The CRT owns this handle until writing and native publication both finish.
+    handle = kernel.CreateFileW(str(temporary), 0xC0010000, 1, None, 1, 0x80200000, None)
+    if handle == ctypes.c_void_p(-1).value: raise ctypes.WinError(ctypes.get_last_error())
+    try: return msvcrt.open_osfhandle(handle, os.O_RDWR | os.O_BINARY)
+    except BaseException:
+        kernel.CloseHandle(handle)
+        raise
+
+
+def publish_staged(temporary, path, parent_descriptor=None, staged_descriptor=None):
     if os.name == "nt":
+        import msvcrt
         from ctypes import wintypes
         ctypes, kernel, FileInfo = _windows_api()
         # MoveFileEx reopens the destination parent and conflicts with the
@@ -151,26 +168,23 @@ def publish_staged(temporary, path, parent_descriptor=None):
         native.RtlNtStatusToDosError.restype = wintypes.ULONG
         kernel.FlushFileBuffers.argtypes = [wintypes.HANDLE]
         kernel.FlushFileBuffers.restype = wintypes.BOOL
-        handle = kernel.CreateFileW(str(temporary), 0xC0010000, 1, None, 3, 0x80200000, None)
-        if handle == ctypes.c_void_p(-1).value: raise ctypes.WinError(ctypes.get_last_error())
-        try:
-            info = FileInfo()
-            if not kernel.GetFileInformationByHandle(handle, ctypes.byref(info)):
-                raise ctypes.WinError(ctypes.get_last_error())
-            if info.attributes & (0x400 | 0x10): raise ValueError("unsafe_staged_file")
-            name = path.name.encode("utf-16-le")
-            buffer = ctypes.create_string_buffer(ctypes.sizeof(RenameInfo) + len(name))
-            rename = RenameInfo.from_buffer(buffer)
-            rename.replace = 0; rename.root = None; rename.length = len(name)
-            ctypes.memmove(ctypes.addressof(buffer) + RenameInfo.name.offset, name, len(name))
-            completion = IoStatus()
-            status = native.NtSetInformationFile(handle, ctypes.byref(completion), buffer, len(buffer), 10)
-            if status != 0:
-                code = native.RtlNtStatusToDosError(status)
-                if code in (80, 183): raise FileExistsError("immutable_target_exists")
-                raise ctypes.WinError(code)
-            if not kernel.FlushFileBuffers(handle): raise ctypes.WinError(ctypes.get_last_error())
-        finally: kernel.CloseHandle(handle)
+        handle = msvcrt.get_osfhandle(staged_descriptor)
+        info = FileInfo()
+        if not kernel.GetFileInformationByHandle(handle, ctypes.byref(info)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        if info.attributes & (0x400 | 0x10): raise ValueError("unsafe_staged_file")
+        name = path.name.encode("utf-16-le")
+        buffer = ctypes.create_string_buffer(ctypes.sizeof(RenameInfo) + len(name))
+        rename = RenameInfo.from_buffer(buffer)
+        rename.replace = 0; rename.root = None; rename.length = len(name)
+        ctypes.memmove(ctypes.addressof(buffer) + RenameInfo.name.offset, name, len(name))
+        completion = IoStatus()
+        status = native.NtSetInformationFile(handle, ctypes.byref(completion), buffer, len(buffer), 10)
+        if status != 0:
+            code = native.RtlNtStatusToDosError(status)
+            if code in (80, 183): raise FileExistsError("immutable_target_exists")
+            raise ctypes.WinError(code)
+        if not kernel.FlushFileBuffers(handle): raise ctypes.WinError(ctypes.get_last_error())
     else:
         # A renamed parent cannot redirect a write. Reject a changed pathname
         # too, so a successful return still names the verified directory.
@@ -179,7 +193,14 @@ def publish_staged(temporary, path, parent_descriptor=None):
                 if (os.fstat(checked).st_dev, os.fstat(checked).st_ino) != (os.fstat(parent_descriptor).st_dev, os.fstat(parent_descriptor).st_ino):
                     raise ValueError("output_parent_changed")
         except OSError as exc: raise ValueError("output_parent_changed") from exc
-        os.link(temporary.name, path.name, src_dir_fd=parent_descriptor, dst_dir_fd=parent_descriptor, follow_symlinks=False)
+        staged, named = os.fstat(staged_descriptor), os.stat(temporary.name, dir_fd=parent_descriptor, follow_symlinks=False)
+        if (staged.st_dev, staged.st_ino) != (named.st_dev, named.st_ino):
+            raise ValueError("staged_file_changed")
+        # Linux linkat follows the procfs descriptor reference, never a reopened
+        # temporary leaf. Other POSIX platforms fail closed if it is unavailable.
+        reference = "/proc/self/fd/" + str(staged_descriptor)
+        if not os.path.isdir('/proc/self/fd'): raise ValueError("descriptor_publication_unavailable")
+        os.link(reference, path.name, dst_dir_fd=parent_descriptor, follow_symlinks=True)
 
 
 def sync_directory(path, descriptor=None):

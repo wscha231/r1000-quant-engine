@@ -165,3 +165,11 @@ https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/ns-ntifs-_f
 Native publication uses a simple leaf name with RootDirectory=NULL, the
 source-handle same-directory rename contract. The verified parent handles stay
 open; no target-directory reopening or sharing-guard release is necessary.
+
+Staged bytes retain one descriptor from creation through writing, fsync and
+publication. Windows CREATE_NEW requests read/write/delete access and permits
+READ sharing only; the same CRT-owned handle performs the native leaf rename.
+Linux links the held inode through /proc/self/fd with linkat and a held target
+dir_fd, rather than reopening the staging leaf. Missing procfs/unsupported
+platform publication fails closed, without a pathname fallback.
+https://man7.org/linux/man-pages/man2/link.2.html
