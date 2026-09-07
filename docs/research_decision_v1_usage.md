@@ -116,3 +116,7 @@ Second H1 review restack: original H2 head 88d4dfa1322d816481452d16928eb40678a0e
 is retained in codex/research-decision-v1-ranking-before-h1-review2-20260907.
 The active dependent PR replays the same H2 capability on corrected H1, with
 content-addressed synthetic input paths to preserve prior fixture versions.
+
+Final reviewed-scope registration is published in causal ancestor
+`57bb001cc6902d83516c3eb0df319ca0d5a9b880`; the protected-publication pin and
+matching regression advance to it. Previous heads remain provenance only.
