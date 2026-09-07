@@ -156,3 +156,12 @@ to the held RootDirectory with replacement disabled, then FlushFileBuffers.
 This supersedes the earlier path-based MoveFileEx description, which conflicts
 with the stronger parent-sharing guard. API contract:
 https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info
+
+On the native Windows runner the Win32 wrapper rejects non-null RootDirectory.
+The implementation therefore uses NtSetInformationFile(FileRenameInformation)
+for the same held-parent/no-replace operation, with native status conversion.
+https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/ns-ntifs-_file_rename_information
+
+Native publication uses a simple leaf name with RootDirectory=NULL, the
+source-handle same-directory rename contract. The verified parent handles stay
+open; no target-directory reopening or sharing-guard release is necessary.

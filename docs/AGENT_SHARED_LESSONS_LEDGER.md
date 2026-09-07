@@ -5018,3 +5018,14 @@ Expected contract:
 - SetFileInformationByHandle/FileRenameInfo now uses the retained RootDirectory
   and no-replace flag, then flushes the renamed file handle. Native CI remains
   the authority for this platform; keep both prior failed jobs in the evidence.
+
+## 2026-09-07 — Native relative rename compatibility
+- Job 101838088249 rejected RootDirectory in the Win32 rename wrapper (87).
+  Use NtSetInformationFile/FileRenameInformation with the same retained parent,
+  no replacement, synchronous file handle and explicit native error conversion.
+- Do not reopen or release a guarded parent to make a test pass. Native Windows
+  validation remains separate from the passing Linux admission suite.
+
+Native publication uses a simple leaf name with RootDirectory=NULL, the
+source-handle same-directory rename contract. The verified parent handles stay
+open; no target-directory reopening or sharing-guard release is necessary.

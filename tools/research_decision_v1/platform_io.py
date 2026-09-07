@@ -132,13 +132,23 @@ def publish_staged(temporary, path, parent_descriptor=None):
         from ctypes import wintypes
         ctypes, kernel, FileInfo = _windows_api()
         # MoveFileEx reopens the destination parent and conflicts with the
-        # deliberately retained sharing guard. Rename relative to that already
-        # verified handle instead; never release/reopen the parent to publish.
+        # retained sharing guard. A native leaf-only rename stays in the opened
+        # source file's directory, without reopening a target directory.
         class RenameInfo(ctypes.Structure):
             _fields_ = [("replace", wintypes.DWORD), ("root", wintypes.HANDLE),
                         ("length", wintypes.DWORD), ("name", wintypes.WCHAR * 1)]
-        kernel.SetFileInformationByHandle.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
-        kernel.SetFileInformationByHandle.restype = wintypes.BOOL
+        # Use the native same-directory contract: RootDirectory=NULL and a
+        # simple leaf name. All parent handles stay held until publication ends.
+        native = ctypes.WinDLL("ntdll", use_last_error=True)
+        class IoStatusValue(ctypes.Union):
+            _fields_ = [("status", ctypes.c_int32), ("pointer", ctypes.c_void_p)]
+        class IoStatus(ctypes.Structure):
+            _fields_ = [("value", IoStatusValue), ("information", ctypes.c_size_t)]
+        native.NtSetInformationFile.argtypes = [wintypes.HANDLE, ctypes.POINTER(IoStatus), ctypes.c_void_p,
+                                               wintypes.ULONG, ctypes.c_int]
+        native.NtSetInformationFile.restype = ctypes.c_int32
+        native.RtlNtStatusToDosError.argtypes = [ctypes.c_int32]
+        native.RtlNtStatusToDosError.restype = wintypes.ULONG
         kernel.FlushFileBuffers.argtypes = [wintypes.HANDLE]
         kernel.FlushFileBuffers.restype = wintypes.BOOL
         handle = kernel.CreateFileW(str(temporary), 0xC0010000, 1, None, 3, 0x80200000, None)
@@ -149,12 +159,14 @@ def publish_staged(temporary, path, parent_descriptor=None):
                 raise ctypes.WinError(ctypes.get_last_error())
             if info.attributes & (0x400 | 0x10): raise ValueError("unsafe_staged_file")
             name = path.name.encode("utf-16-le")
-            buffer = ctypes.create_string_buffer(max(ctypes.sizeof(RenameInfo), RenameInfo.name.offset + len(name)))
+            buffer = ctypes.create_string_buffer(ctypes.sizeof(RenameInfo) + len(name))
             rename = RenameInfo.from_buffer(buffer)
-            rename.replace = 0; rename.root = parent_descriptor; rename.length = len(name)
+            rename.replace = 0; rename.root = None; rename.length = len(name)
             ctypes.memmove(ctypes.addressof(buffer) + RenameInfo.name.offset, name, len(name))
-            if not kernel.SetFileInformationByHandle(handle, 3, buffer, len(buffer)):
-                code = ctypes.get_last_error()
+            completion = IoStatus()
+            status = native.NtSetInformationFile(handle, ctypes.byref(completion), buffer, len(buffer), 10)
+            if status != 0:
+                code = native.RtlNtStatusToDosError(status)
                 if code in (80, 183): raise FileExistsError("immutable_target_exists")
                 raise ctypes.WinError(code)
             if not kernel.FlushFileBuffers(handle): raise ctypes.WinError(ctypes.get_last_error())
