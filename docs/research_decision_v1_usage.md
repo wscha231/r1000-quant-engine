@@ -133,3 +133,7 @@ imports and executes that same snapshot. Artifacts live under
 retain a prior result. Markdown shows proposal blockers and constraint audits.
 Historical synthetic evidence packages now include every file named by their
 original manifests, byte-verified against the corresponding original execution.
+
+Final H2 registration is causally published in `952cc369377a7dee0baf29ea853d186a8df528ff`, based on H1
+`c4d53151b09be5f53d6bb424ef4b60d4b3fc86e1`. The protected-publication pin
+advances to that ancestor; verifier behavior and frozen inventory are unchanged.
