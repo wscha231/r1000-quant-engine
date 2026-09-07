@@ -4984,3 +4984,65 @@ Expected contract:
   advance a financial observation. History boundaries require exact dates.
 - Content-addressed exports include the imported admission module fingerprint,
   so source changes remain distinguishable outside the producing checkout.
+
+
+## 2026-09-07 - H2 scenario utility is not a calibrated return forecast
+
+- Related issue #396; H2 is stacked on H1 PR #399 and never consumes NONRANKING.
+- Fixed configuration committed before first scenario/ranking test output.
+- Compute EV/earnings scenarios, reverse valuation, FX, separate return/utility
+  ranks, eight assumption perturbations, and constraints with residual cash.
+- An intact incumbent is preserved when replacement improvement does not exceed
+  cost/buffer. New positions consume remaining common-risk room; incumbent-only
+  hard-cap breaches block approval instead of silently overriding the cap.
+- A valid all-cash research decision differs from an all-missing-input fallback.
+- A real US2/KR1 input contains only partial primary-source quarterly extracts;
+  no fabricated TTM, price history, FX, regime, scenario probability or rank.
+- Source Git tree equality was verified for connector publication after local
+  git push lacked authentication. User-owned dirty CSVs remain outside commits.
+- No fullrun, existing monitor/target/book/order change, OOS claim or promotion.
+
+
+## 2026-09-07 — Research V1 bounded real execution and H2 audit details
+- Real NVDA/EME/000660 inputs are partial official IR extracts, not reconciled
+  TTM/price/scenario records. CLI export/consumer exit 2, all WAIT/0%, cash 100%
+  unallocated fallback. Stop real expansion to 5+2; no alpha/PIT/OOS claim.
+- Synthetic 3/7-name CLI runs pass deterministic hash/file and weight-sum checks.
+  Keep these separate from real evidence; they prove mechanical connection only.
+- Ingestion-only refresh is provenance, not an earnings or price revision.
+  Sensitivity outside the valuation domain is null without invalidating Base.
+- H2 protected runner registration causal pin is ancestor
+  2718d53321dfba16f66d7943aa0f282235cade8a, with unchanged verifier algorithms.
+- Full local inventory uses pinned pyarrow 23.0.1; broader legacy checks still
+  need unavailable promisor blob 324e84859be5dddf091b165f9533259354739077.
+
+
+## 2026-09-07 — H2 after second H1 review
+- Preserve previous H2 head 88d4dfa1322d816481452d16928eb40678a0e999 in a named
+  provenance branch, then reapply only H2 scope onto c1196e775b7fa3e1e857025cb23c80254b296602.
+- Active H2 runner registration ancestor is now 163e1a4ae764f506f19a5150df72a8ced2a05b3f;
+  protected verifier algorithms and frozen inventories remain unchanged.
+
+## 2026-09-07 — H2 exact-head review corrections
+- Feasible final replacement capacity is credited only once; zero-sized
+  alternatives cannot cause an incumbent sale. Retained positions consume count.
+- Entry/hold hurdles use KRW net return, and report return currencies and ranks
+  are explicit. Intact holdings below the hold hurdle require valuation review.
+- Equal weights are equal per constituent; market-cap weights require current
+  verified capitalization. TTM diluted shares are not current shares outstanding.
+- Ledger removals are recorded without implying an order. Actual buy/sell delta
+  must pass liquidity, including complete exits and restricted trading.
+- Sanitize custom configuration before persistence. Dirty research source bytes
+  block CLI execution before inputs/artifacts, regardless of Git index flags.
+- H2 review regressions now include 30 cases; fixed numerical configuration is
+  unchanged from preregistration. Fixture connection is not return validation.
+
+## 2026-09-07 — Research H2 second review / executable and decision evidence
+- Verify and execute the same source snapshot before importing the engine.
+- Separate semantic decisions from source-specific rendering receipt paths.
+- Persist complete manifest-listed evidence for synthetic as well as REAL runs.
+- Use KRW questions consistently; attribute optional evidence/provenance changes.
+- Feasible final country counts backfill clipped names; absent incumbent evidence
+  preserves the submitted book and renders the common blocker explicitly.
+- A strengthened-thesis ADD consumes cash and risk capacity just like a new
+  entry. The reproduced negative-cash counterexample is now bounded by both.

@@ -1,0 +1,7 @@
+{
+  "source_commit": "246b19facc6e6150350cec0e35bb45a022e1a3bf",
+  "execution_directory": "research/decision_v1/evidence_20260907/executions/246b19facc6e6150350cec0e35bb45a022e1a3bf",
+  "real_decision_hash": "f2cd64b768bb05d682e6b0e61859531d8298fadc279e3c298b62b621d02a450b",
+  "status": "EXECUTED_BLOCKED",
+  "real_expansion_allowed": false
+}
