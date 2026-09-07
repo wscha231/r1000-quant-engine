@@ -62,7 +62,7 @@ def source_url(value):
         raise ValueError("invalid_source_url")
     # Store a public document URL, never a provider request/signed download URL.
     # Query/fragment rejection is intentionally stronger than a credential-name denylist.
-    if p.query or p.fragment or re.search(r"(?:key|token|secret|signature|credential|password|passwd|pwd|passphrase|auth)[=_/:.-]", unquote(p.path), re.I):
+    if p.query or p.fragment or re.search(r"(?:key|token|secret|signature|credential|pass[a-z]*|pwd|pswd|psw|pword|auth)[=_/:.-]", unquote(p.path), re.I):
         raise ValueError("credential_bearing_source")
     if re.search(r"[A-Za-z0-9_]{48,}", unquote(p.path)):
         raise ValueError("opaque_source_path_forbidden")
@@ -73,7 +73,9 @@ def validate_persistable_sources(value, *, real=False):
     if isinstance(value, dict):
         for key, child in value.items():
             normalized_key = re.sub(r"([a-z])([A-Z])", r"\1_\2", key).lower()
-            if re.search(r"(?:^|[_\W])(?:token|secret|password|passwd|pwd|pswd|psw|pword|passphrase|credentials?|authorization|auth|cookies?|api_?key|private_?key)(?:$|[_\W])", normalized_key):
+            # Deny the entire pass* token family, including pass_word/user_pass;
+            # financial/thesis schemas have no persistable password-like field.
+            if re.search(r"(?:^|[_\W])(?:token|secret|pass[a-z]*|pwd|pswd|psw|pword|credentials?|authorization|auth|cookies?|api_?key|private_?key)(?:$|[_\W])", normalized_key):
                 raise ValueError("credential_field_forbidden")
             if real and key == "feed" and isinstance(child, str) and re.match(r"(?i)^(synthetic|fixture|mock|test|demo)(?:$|[_ :.-])", child):
                 raise ValueError("synthetic_feed_in_real_input")

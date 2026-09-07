@@ -4957,3 +4957,8 @@ Expected contract:
   runs every time; Windows uses its separate research requirements cache key.
 - Prior exact-head CI abd6db2 passed 228/229 scripts; the sole failure was this
   legacy single-line cache-path guard. Native Windows admission tests passed.
+
+## 2026-09-07 — Research H1 password-family follow-up
+- Reject the full `pass*` key-token family, including split/camel forms such as
+  pass_word, user_pass, passcode and userPass. The schema has no legitimate
+  password-like metadata field. Alias examples are regression inputs only.
