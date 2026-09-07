@@ -116,16 +116,36 @@ class DataContractTests(unittest.TestCase):
                     "passwd", "pwd", "dbPwd", "db_passwd", "pswd", "psw", "pword", "passphrase",
                     "passcode", "pass_word", "user_pass", "pass", "userPass", "passCode", "pass_key", "passhash",
                     "password1", "password2", "pass123", "userPassword42", "pass_123", "pass\uFF11",
-                    "token1", "secret42", "apiKey2", "authorization2", "cookies2", "privateKey99"):
+                    "token1", "secret42", "apiKey2", "authorization2", "cookies2", "privateKey99", "jwt", "bearer", "sessionid", "sessionId", "access_key", "clientKey", "signing_key", "sid", "session", "ＪＷＴ"):
+
             b = bundle(); b["securities"][0]["optional"] = {"provider": {"status": "missing", key: "dummy"}}
             with self.assertRaisesRegex(ValueError, "credential_field"): export_market(b, "US")
 
     def test_real_provenance_rejects_nonpublic_literal_and_local_hosts(self):
         from tools.research_decision_v1.data import validate_persistable_sources
         for host in ("127.0.0.1", "[::1]", "[::ffff:127.0.0.1]", "10.2.3.4", "169.254.169.254", "100.64.0.1",
-                     "192.0.2.1", "127.1", "2130706433", "internal", "data.local", "data.internal", "localhost."):
+                     "192.0.2.1", "127.1", "2130706433", "internal", "data.local", "data.internal", "localhost.", "0x7f.0.0.1", "0x7f.1", "127.0x0.0.1", "０x７f.１", "%31%32%37.1", "8.8.8.8"):
+
             with self.assertRaises(ValueError): validate_persistable_sources({"source": "https://"+host+"/report"}, real=True)
         validate_persistable_sources({"source": "https://www.sec.gov/Archives/report"}, real=True)
+
+    def test_opaque_bearer_and_jwt_values_do_not_persist_in_notes(self):
+        for value in ("Bearer abcdefghijklmnop", "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.signature"):
+            b = bundle(); b["securities"][0]["optional"] = {"provider": {"status": "missing", "note": value}}
+            with self.assertRaisesRegex(ValueError, "credential_value"): export_market(b, "US")
+
+    def test_reporting_timezone_uses_pinned_package_not_system_lookup(self):
+        from tools.research_decision_v1.data import reporting_zone
+        from zoneinfo import ZoneInfo
+        with patch("tools.research_decision_v1.data.ZoneInfo") as zone:
+            zone.side_effect = AssertionError("host lookup forbidden")
+            zone.from_file.side_effect = ZoneInfo.from_file
+            self.assertEqual(reporting_zone("America/New_York").key, "America/New_York")
+            self.assertFalse(zone.called)
+            self.assertTrue(zone.from_file.called)
+        with patch("tzdata.__version__", "unfrozen"):
+            with self.assertRaisesRegex(ValueError, "version_mismatch"): reporting_zone("America/New_York")
+        with self.assertRaises(ValueError): reporting_zone("../UTC")
 
     def test_fcf_identity_does_not_allow_magnitude_scaled_error(self):
         b = bundle(); block = b["securities"][0]["blocks"]["financials"]

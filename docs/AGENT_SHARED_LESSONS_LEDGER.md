@@ -4969,3 +4969,11 @@ Expected contract:
   host forms; no provider request or DNS lookup is introduced by the check.
 - FCF uses absolute cent tolerance with zero relative tolerance. A large value
   must not conceal a materially incorrect OCF-minus-capex identity.
+
+## 2026-09-07 — Research H1 seventh review / canonical provenance
+- Reject JWT/bearer/session-id/access-key metadata and credential-valued notes
+  before persistence; preserve only date-shaped price-bar session values.
+- Admit REAL public document DNS names after IDNA normalization; reject IP and
+  legacy hexadecimal/numeric forms without performing DNS or network calls.
+- Pin financial reporting-day timezone bytes, not just the ZoneInfo API.
+  Counterexamples cover host-lookup avoidance and mismatched database versions.

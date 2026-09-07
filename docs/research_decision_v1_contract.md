@@ -111,3 +111,14 @@ The subsequent Linux cache-key compatibility fix was published in causal ancesto
 `5755e5f1f6e0ecf4ad6098dcfd2c1bb2e0392290`; the protected-publication pin advances
 there without changing inventory or verifier behavior. Research dependencies are
 still installed explicitly on every validation run.
+
+Seventh-review boundary corrections: normalize credential metadata with NFKC and
+reject JWT/bearer/session-id/access-key families and recognized JWT/bearer values
+before retaining blocked snapshots. A price bar's `session` remains a date.
+REAL public-document provenance requires a valid DNS name after percent/IDNA
+normalization; all IP literals and resolver-dependent numeric/hex forms are
+rejected. This is a provenance admission rule, not a claim of DNS verification.
+Financial reporting-day completion reads `tzdata==2026.3` package bytes through
+ZoneInfo.from_file, independent of host TZPATH and cached system ZoneInfo objects.
+The export records the pinned database version. Missing/mismatched timezone
+data blocks financial admission, and does not fall back to the host database.

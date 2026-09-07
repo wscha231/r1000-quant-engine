@@ -10,6 +10,8 @@ import ipaddress
 import json
 import math
 import re
+import unicodedata
+from importlib import resources
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from functools import lru_cache
@@ -19,6 +21,7 @@ STATUSES = {"available", "stale", "missing", "provider_error", "no_event", "not_
 MARKETS = {"US": ("USD", "NYSE"), "KR": ("KRW", "XKRX")}
 CORE = ("price", "financials", "thesis", "risk")
 CALENDAR_VERSION = "5.4.0"
+TZDATA_VERSION = "2026.3"
 
 
 def canonical(value):
@@ -73,32 +76,56 @@ def validate_persistable_sources(value, *, real=False):
     """Reject unsafe input before retaining even a blocked input snapshot."""
     if isinstance(value, dict):
         for key, child in value.items():
-            normalized_key = re.sub(r"([a-z])([A-Z])", r"\1_\2", key).lower()
+            normalized_key = re.sub(r"([a-z])([A-Z])", r"\1_\2", unicodedata.normalize("NFKC", key)).lower()
             # Deny the entire pass* token family, including pass_word/user_pass;
             # financial/thesis schemas have no persistable password-like field.
-            if re.search(r"(?:^|[_\W])(?:token\w*|secret\w*|pass\w*|pwd\w*|pswd\w*|psw\w*|pword\w*|credential\w*|auth\w*|cookie\w*|api_?key\w*|private_?key\w*)(?:$|[_\W])", normalized_key):
+            if re.search(r"(?:^|[_\W])(?:token\w*|secret\w*|pass\w*|pwd\w*|pswd\w*|psw\w*|pword\w*|credential\w*|auth\w*|cookie\w*|api_?key\w*|private_?key\w*|access_?key\w*|client_?key\w*|signing_?key\w*|key\w*|bearer\w*|jwt\w*|oauth\w*|session_?(?:id|key|token|secret|cookie|credential|auth)\w*|sid)(?:$|[_\W])", normalized_key):
+                raise ValueError("credential_field_forbidden")
+            if normalized_key == "session" and (not isinstance(child, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", child)):
                 raise ValueError("credential_field_forbidden")
             if real and key == "feed" and isinstance(child, str) and re.match(r"(?i)^(synthetic|fixture|mock|test|demo)(?:$|[_ :.-])", child):
                 raise ValueError("synthetic_feed_in_real_input")
             validate_persistable_sources(child, real=real)
     elif isinstance(value, list):
         for child in value: validate_persistable_sources(child, real=real)
-    elif isinstance(value, str) and re.search(r"(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}|sk-(?:proj-)?[A-Za-z0-9_-]{20,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----)", value):
+    elif isinstance(value, str) and re.search(r"(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}|sk-(?:proj-)?[A-Za-z0-9_-]{20,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|(?i:bearer)\s+[A-Za-z0-9._~+/-]{8,}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)", value):
         raise ValueError("credential_value_forbidden")
     elif isinstance(value, str) and "://" in value:
         # A URL embedded in prose is checked too, before original text is serialized.
         for url in re.findall(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s<>\"']+", value, flags=re.I):
             source_url(url)
-            host = urlsplit(url).hostname.rstrip(".")
-            if real and any(host == x or host.endswith("." + x) for x in ("example.org", "example.com", "example.net", "localhost")):
-                raise ValueError("synthetic_source_in_real_input")
-            if real:
-                try: address = ipaddress.ip_address(host)
-                except ValueError:
-                    if "." not in host or re.fullmatch(r"[0-9.]+", host) or host.endswith((".local", ".internal", ".test", ".invalid", ".example")):
-                        raise ValueError("non_public_source_host")
-                else:
-                    if not address.is_global: raise ValueError("non_public_source_host")
+            if real: validate_public_source_host(urlsplit(url).hostname)
+
+
+def validate_public_source_host(host):
+    # Public evidence uses canonical DNS names, never IP literals or resolver-
+    # dependent legacy IPv4 spellings. Normalize IDNA before this admission check.
+    try: host = unquote(host).encode("idna").decode("ascii").lower().rstrip(".")
+    except (UnicodeError, ValueError): raise ValueError("non_public_source_host") from None
+    if any(host == x or host.endswith("."+x) for x in ("example.org", "example.com", "example.net", "localhost")):
+        raise ValueError("synthetic_source_in_real_input")
+    try: ipaddress.ip_address(host)
+    except ValueError: pass
+    else: raise ValueError("non_public_source_host")
+    labels = host.split(".")
+    if (len(labels) < 2 or len(host) > 253 or
+        any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) for label in labels) or
+        re.fullmatch(r"[0-9]+|0x[0-9a-f]+", labels[-1]) or
+        host.endswith((".local", ".internal", ".test", ".invalid", ".example"))):
+        raise ValueError("non_public_source_host")
+
+
+def reporting_zone(name):
+    """Read the pinned package bytes; host TZPATH and ZoneInfo cache are unused."""
+    if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_+-]+(?:/[A-Za-z0-9_+-]+)*", name):
+        raise ValueError("invalid_reporting_timezone")
+    try:
+        import tzdata
+        if tzdata.__version__ != TZDATA_VERSION: raise ValueError("timezone_database_version_mismatch")
+        with resources.files("tzdata.zoneinfo").joinpath(*name.split("/")).open("rb") as handle:
+            return ZoneInfo.from_file(handle, key=name)
+    except (ImportError, OSError, ZoneInfoNotFoundError): raise ValueError("timezone_database_unavailable") from None
+
 
 
 @lru_cache(maxsize=128)
@@ -160,7 +187,7 @@ def envelope_errors(block, security, cutoff):
                 # explicit reporting timezone, not 00:00 UTC on that date.
                 if not block.get("reporting_timezone"): errors.append("reporting_timezone_required")
                 else:
-                    complete = datetime.combine(end + timedelta(days=1), time.min, tzinfo=ZoneInfo(block["reporting_timezone"]))
+                    complete = datetime.combine(end + timedelta(days=1), time.min, tzinfo=reporting_zone(block["reporting_timezone"]))
                     for field in ("published_at", "public_available_at", "first_seen_at", "ingested_at"):
                         if block.get(field) and timestamp(block[field]) < complete:
                             errors.append("period_incomplete_at_" + field)
@@ -343,6 +370,7 @@ def export_market(bundle, expected_market):
     result = {"schema_version": "research-market-export-v1", "market": market,
               "data_kind": bundle["data_kind"], "decision_cutoff": cutoff,
               "calendar_engine": {"name": "pandas_market_calendars", "version": CALENDAR_VERSION},
+              "reporting_timezone_database": {"name": "tzdata", "version": TZDATA_VERSION, "lookup": "package_bytes"},
               "source_input_hash": digest(bundle), "input_snapshot": copy.deepcopy(bundle),
               "securities": sorted(rows, key=lambda s: str(s["security_id"])),
               "orders_allowed": False}
