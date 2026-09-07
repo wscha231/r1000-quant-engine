@@ -133,6 +133,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements_github.txt
           pip install -r docs/run287_p0_3_authority_census/requirements.txt
+          pip install -r requirements_research_decision_v1.txt
 
       - name: Reject new large or dated runtime artifacts
         if: ${{ github.event_name == 'pull_request' }}
@@ -144,3 +145,23 @@ jobs:
 
       - name: Run Tier-1 PR validation
         run: python tools/run_pr_validation.py
+
+  research-windows:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            tools
+            tests
+          sparse-checkout-cone-mode: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_research_decision_v1.txt
+      - name: Install frozen research calendar dependencies
+        run: python -m pip install -r requirements_research_decision_v1.txt
+      - name: Research admission and native Windows handle tests
+        run: python tests/research_decision_v1_data_smoke.py

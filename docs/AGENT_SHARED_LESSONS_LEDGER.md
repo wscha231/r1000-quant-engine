@@ -4902,3 +4902,147 @@ Expected contract:
 - Fullrun executed: false. Workflow dispatched or rerun: false. Migration,
   quarantine, Drive, target, order, ledger, accepted-head, production, live
   trading, automatic promotion, and pattern backfill state mutated: false.
+
+
+## 2026-09-07 - Research decisions need independent raw-input admission
+
+- Related issue #396; H1 data contract only, H2 valuation/allocation is separate.
+- The existing monitor is NONRANKING; its values cannot be reused as rank or size inputs.
+- Existing valuation fallbacks (zero debt/cash and TTM-as-forward) do not establish
+  verified scenario inputs. Keep missing/zero/stale/no-event distinct.
+- Current master API job 101654720085 has passing FMP/Alpaca/DART/KRX samples;
+  Finnhub estimates returns 403. Samples do not establish full financial coverage.
+- Local provider credentials are absent. Artifact 9963347716 is accessible through
+  the connector, but its materialization URL returned HTTP 403 (1010) twice.
+  SEC/Yahoo direct sample reads also failed. Do not report a current-data run ready.
+- Existing user-owned modified CSVs were preserved. No monitor, official target,
+  book, order, workflow, migration, fullrun or promotion path changed.
+
+
+## 2026-09-07 — Research V1 H1 review corrections
+- Reproduction: old quarter/annual rows, pre-close prices and unknown availability
+  could enter the first contract; added concrete counterexample tests.
+- Benchmark identity and action coverage are market/board-bound. Unsafe source
+  URLs are rejected before retaining the input snapshot; immutable files publish
+  only after complete staging/fsync. No production readiness change.
+- New test registration changed a protected runner. Explicit causal publication
+  pin: 7d5913f1d48e213faaf979ea110276e51ab800dd; verifier algorithms/paths remain
+  unchanged. A new external exact-head review remains a gate, never self-certified.
+
+
+## 2026-09-07 — Research H1 second exact-head findings
+- Date-only comparisons admitted financial observations before local fiscal-day
+  completion. Require explicit reporting_timezone and compare full instants.
+- Bind price envelope periods to bar ranges; reject REAL/SYNTHETIC feed mismatch.
+- Reject common credential aliases before any snapshot; read bounded input bytes
+  through a no-follow descriptor after walking non-symlink parents.
+- Added five concrete counterexamples without changing production readiness.
+
+
+## 2026-09-07 — Research H1 third review / numeric and platform boundaries
+- A dividend before a later split must share the final basis of split-adjusted
+  closes. Added dividend/split and reverse-split equivalence counterexamples.
+- Enforce price/volume/risk units and total-return benchmark semantics.
+- Preserve valid negative financial facts but emit explicit valuation-method
+  eligibility; H2 already independently blocks a nonpositive valuation metric.
+- URI schemes/case cannot evade secret-bearing URL rejection.
+- Freeze research dependencies in Tier-1 install/cache; add native Windows
+  handle/publication checks to the existing PR event (no new schedule).
+
+## 2026-09-07 — Research H1 fourth review / password aliases and CI compatibility
+- Reject password aliases (`passwd`, `pwd`, camel-case variants, and passphrase)
+  before retaining even unavailable provider payloads.
+- Keep the existing Linux pip cache key on requirements_github.txt, as required
+  by the unchanged workflow guard. The explicit pinned research install still
+  runs every time; Windows uses its separate research requirements cache key.
+- Prior exact-head CI abd6db2 passed 228/229 scripts; the sole failure was this
+  legacy single-line cache-path guard. Native Windows admission tests passed.
+
+## 2026-09-07 — Research H1 password-family follow-up
+- Reject the full `pass*` key-token family, including split/camel forms such as
+  pass_word, user_pass, passcode and userPass. The schema has no legitimate
+  password-like metadata field. Alias examples are regression inputs only.
+
+## 2026-09-07 — Research H1 final boundary counterexamples
+- Password tokens include numeric/Unicode suffixes, not only alphabetic text.
+- REAL source provenance rejects non-global literal addresses and local/reserved
+  host forms; no provider request or DNS lookup is introduced by the check.
+- FCF uses absolute cent tolerance with zero relative tolerance. A large value
+  must not conceal a materially incorrect OCF-minus-capex identity.
+
+## 2026-09-07 — Research H1 seventh review / canonical provenance
+- Reject JWT/bearer/session-id/access-key metadata and credential-valued notes
+  before persistence; preserve only date-shaped price-bar session values.
+- Admit REAL public document DNS names after IDNA normalization; reject IP and
+  legacy hexadecimal/numeric forms without performing DNS or network calls.
+- Pin financial reporting-day timezone bytes, not just the ZoneInfo API.
+  Counterexamples cover host-lookup avoidance and mismatched database versions.
+
+## 2026-09-07 — Research H1 eighth review / admission identity and boundaries
+- Special-use namespaces are not public filing provenance, even with DNS shape.
+- The supported market fixes the reporting-day timezone; arbitrary zones cannot
+  advance a financial observation. History boundaries require exact dates.
+- Content-addressed exports include the imported admission module fingerprint,
+  so source changes remain distinguishable outside the producing checkout.
+
+## 2026-09-07 — Research H1 ninth review / observation and index semantics
+- Enforce publication <= public availability when both are known.
+- URL splitting alone does not validate ports; evaluate the parsed port too.
+- Only tradable security volume belongs in liquidity admission. An index
+  benchmark needs aligned return data, not a fabricated trading-volume field.
+
+## 2026-09-07 — Research H1 credential separator normalization
+- Normalize key separators before family matching; session-id/session.id and
+  Unicode punctuation receive the same treatment as session_id.
+- Expand regression aliases without changing source/financial readiness rules.
+
+## 2026-09-07 — Research H1 output and input isolation follow-up
+- Exact HEAD 956a357 review exposed Basic values in optional notes, rank/readiness
+  aliases in materialized inputs, and a parent-swap window before publication.
+- Three counterexamples reproduced failure before correction. Retain output
+  parent descriptors/handles through every publication operation; do not repeat
+  a checked path lookup for staging, collision comparison or directory sync.
+- Reject credential values and legacy decision aliases before snapshots. This
+  changes research admission only; no production readiness, book or order path.
+
+## 2026-09-07 — Native Windows publication regression
+- Job 101835610334 reproduced parent rename despite an attributes-only handle.
+  Attributes access is exempt from share checks in CreateFileW. Request read
+  access for held input/output directories to enforce denied write/delete sharing.
+- Retain the parent-replacement test. Linux cannot certify this native behavior;
+  the subsequent Windows job is a separate required result.
+
+## 2026-09-07 — Windows publication under held parent handles
+- Job 101836865701 confirmed the read guard blocks directory replacement but
+  MoveFileEx reopens the parent with incompatible access. Do not release guards.
+- SetFileInformationByHandle/FileRenameInfo now uses the retained RootDirectory
+  and no-replace flag, then flushes the renamed file handle. Native CI remains
+  the authority for this platform; keep both prior failed jobs in the evidence.
+
+## 2026-09-07 — Native relative rename compatibility
+- Job 101838088249 rejected RootDirectory in the Win32 rename wrapper (87).
+  Use NtSetInformationFile/FileRenameInformation with the same retained parent,
+  no replacement, synchronous file handle and explicit native error conversion.
+- Do not reopen or release a guarded parent to make a test pass. Native Windows
+  validation remains separate from the passing Linux admission suite.
+
+Native publication uses a simple leaf name with RootDirectory=NULL, the
+source-handle same-directory rename contract. The verified parent handles stay
+open; no target-directory reopening or sharing-guard release is necessary.
+
+## 2026-09-07 — Staged identity must survive publication
+- Exact-head review 2052808 identified a reopened staging leaf after writing.
+  The Linux replacement counterexample failed before correction.
+- Keep the same staged descriptor open through write/fsync/publication. Windows
+  CREATE_NEW denies write/delete sharing; native rename uses its CRT-owned handle.
+  Linux publishes through linkat on /proc/self/fd, with held destination dir_fd,
+  so a replacement even after the identity check cannot substitute another inode.
+- Unsupported descriptor-backed publication fails closed; no path fallback.
+
+### 2026-09-07 — Research H1 anonymous publication
+
+PR #399 review 3952185218 reproduced an in-place write after fsync: device/inode identity did not establish byte integrity. Linux now holds an anonymous `O_TMPFILE` inode until descriptor publication; unsupported anonymous staging fails closed. Regression injects the write before publication and at the link boundary; Windows continues to deny write/rename opens with the retained handle.
+
+### 2026-09-07 — Research H1 verify published bytes and owned cleanup
+
+PR #399 reviews 3952327371/3952327375: anonymous files remain writable through permitted procfs handles. Reproduce that corruption and compare the published bytes before claiming success. Windows cleanup must refer to the retained inode, not a freed staging pathname: mark failed/colliding staging handles for deletion before close and do no path cleanup after successful rename. Native regression preserves foreign files created after both success and collision.

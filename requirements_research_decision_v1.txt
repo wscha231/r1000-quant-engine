@@ -1,0 +1,6 @@
+# Existing calendar implementation, frozen for reproducible admission.
+pandas==2.3.3
+pandas_market_calendars==5.4.0
+exchange_calendars==4.13.2
+# Read these package bytes for financial reporting-day completion, independent of host TZPATH.
+tzdata==2026.3
