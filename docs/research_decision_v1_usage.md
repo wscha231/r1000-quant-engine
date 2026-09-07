@@ -175,3 +175,5 @@ Use `python -I` from an interpreter with the pinned dependencies installed in it
 The bounded reproducer also requires `python -I`; `verify_case` uses explicit exceptions, so repeated-file identity, finite weights/cash totaling one, data-kind separation and readiness checks survive `-O`/`PYTHONOPTIMIZE`. NEW_CAPITAL_RESEARCH requires the typed boolean `capital_is_assumption=true`; missing, false or other types block the proposal, and emitted capital in that mode always remains labeled an assumption. No broker reconciliation is inferred.
 
 Isolated-runtime H2 validation registration is causally published in `f8d41764781bde5fa6cf7f3f6f75582930b0f130`, on H1 `b24afdb050b82c4d743a50d1aaeb775bac9c47a9`. Only the protected-publication pin advances; the protected file set, verifier and research settings are unchanged.
+
+Byte-verification H2 registration is causally published in `5398fe985accffda8150fcb1b8e8bf53e74d935c`, on H1 `1c5e1c0eaeb7885d35bd6713aba93ff931460c81`. Only the causal publication pin advances; no verifier, protected path or numeric research rule changes.
