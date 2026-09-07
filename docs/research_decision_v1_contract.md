@@ -106,3 +106,8 @@ The third-review CI dependency/Windows job change is causally published in
 `0629e4a50dcef8f85701f1e010466033107d1839`. The protected-publication verifier and
 matching regression constant now reference that ancestor; verifier behavior and
 the protected path set are unchanged.
+
+The subsequent Linux cache-key compatibility fix was published in causal ancestor
+`5755e5f1f6e0ecf4ad6098dcfd2c1bb2e0392290`; the protected-publication pin advances
+there without changing inventory or verifier behavior. Research dependencies are
+still installed explicitly on every validation run.
