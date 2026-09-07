@@ -89,7 +89,7 @@ perturbations outside the supported valuation domain are null with a reason;
 they do not invalidate the unperturbed scenario.
 
 H2 validation registration is causally published at
-`2718d53321dfba16f66d7943aa0f282235cade8a`. Only the protected-publication pin and
+`163e1a4ae764f506f19a5150df72a8ced2a05b3f`. Only the protected-publication pin and
 matching regression constant advance to that ancestor; no verifier logic changes.
 
 Second H1 review restack: original H2 head 88d4dfa1322d816481452d16928eb40678a0e999

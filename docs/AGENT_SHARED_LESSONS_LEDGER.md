@@ -4968,3 +4968,10 @@ Expected contract:
   2718d53321dfba16f66d7943aa0f282235cade8a, with unchanged verifier algorithms.
 - Full local inventory uses pinned pyarrow 23.0.1; broader legacy checks still
   need unavailable promisor blob 324e84859be5dddf091b165f9533259354739077.
+
+
+## 2026-09-07 — H2 after second H1 review
+- Preserve previous H2 head 88d4dfa1322d816481452d16928eb40678a0e999 in a named
+  provenance branch, then reapply only H2 scope onto c1196e775b7fa3e1e857025cb23c80254b296602.
+- Active H2 runner registration ancestor is now 163e1a4ae764f506f19a5150df72a8ced2a05b3f;
+  protected verifier algorithms and frozen inventories remain unchanged.
