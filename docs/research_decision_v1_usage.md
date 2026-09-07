@@ -82,3 +82,12 @@ Branch boundary: the first unpublished H2 branch at
 `61af490a79ebf79d5fa75afae80fa447cc6bd1e6` is retained as provenance. The reviewed
 H2 branch reapplies only that locally committed scope onto the corrected H1
 ancestor. No other active PR's files or user-edited CSVs are included.
+
+Change attribution separates material price/financial/estimate/thesis/risk and
+missing-data changes from an evidence-provenance-only refresh. Sensitivity
+perturbations outside the supported valuation domain are null with a reason;
+they do not invalidate the unperturbed scenario.
+
+H2 validation registration is causally published at
+`2718d53321dfba16f66d7943aa0f282235cade8a`. Only the protected-publication pin and
+matching regression constant advance to that ancestor; no verifier logic changes.

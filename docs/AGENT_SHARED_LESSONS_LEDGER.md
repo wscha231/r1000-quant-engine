@@ -4945,3 +4945,17 @@ Expected contract:
 - Source Git tree equality was verified for connector publication after local
   git push lacked authentication. User-owned dirty CSVs remain outside commits.
 - No fullrun, existing monitor/target/book/order change, OOS claim or promotion.
+
+
+## 2026-09-07 — Research V1 bounded real execution and H2 audit details
+- Real NVDA/EME/000660 inputs are partial official IR extracts, not reconciled
+  TTM/price/scenario records. CLI export/consumer exit 2, all WAIT/0%, cash 100%
+  unallocated fallback. Stop real expansion to 5+2; no alpha/PIT/OOS claim.
+- Synthetic 3/7-name CLI runs pass deterministic hash/file and weight-sum checks.
+  Keep these separate from real evidence; they prove mechanical connection only.
+- Ingestion-only refresh is provenance, not an earnings or price revision.
+  Sensitivity outside the valuation domain is null without invalidating Base.
+- H2 protected runner registration causal pin is ancestor
+  2718d53321dfba16f66d7943aa0f282235cade8a, with unchanged verifier algorithms.
+- Full local inventory uses pinned pyarrow 23.0.1; broader legacy checks still
+  need unavailable promisor blob 324e84859be5dddf091b165f9533259354739077.

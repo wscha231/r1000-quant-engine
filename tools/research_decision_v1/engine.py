@@ -66,10 +66,14 @@ def discovery_snapshot(securities, config):
 
 def component_hashes(security):
     blocks = security.get("blocks", {})
-    return {"price": digest(blocks.get("price")), "financials": digest(blocks.get("financials")),
-            "estimates": digest({"scenario": blocks.get("scenario"), "estimates": security.get("optional", {}).get("estimates")}),
-            "thesis": digest(blocks.get("thesis")), "risk": digest(blocks.get("risk")),
-            "missing": digest({"blockers": security["blockers"], "optional": security.get("optional", {})})}
+    def material(block):
+        if not isinstance(block, dict): return block
+        return {k: block.get(k) for k in ("status", "payload", "report_period", "unit", "currency", "accounting_basis")}
+    return {"price": digest(material(blocks.get("price"))), "financials": digest(material(blocks.get("financials"))),
+            "estimates": digest({"scenario": material(blocks.get("scenario")), "estimates": material(security.get("optional", {}).get("estimates"))}),
+            "thesis": digest(material(blocks.get("thesis"))), "risk": digest(material(blocks.get("risk"))),
+            "missing": digest({"blockers": security["blockers"], "optional": {k: v.get("status") for k,v in security.get("optional", {}).items()}}),
+            "evidence_provenance": digest({k: {field: value for field, value in block.items() if field not in {"payload", "data_hash"}} for k, block in blocks.items()})}
 
 
 def rank_sensitivity(rows, securities, context, config, cutoff, fx_valid):
@@ -129,7 +133,7 @@ def run_decisions(exports, context, config, previous=None):
         if previous and previous["config_hash"] != digest(config): changes.append("config")
         if previous and previous["context_hash"] != digest(context): changes.append("portfolio_context_or_fx_or_regime")
         if not p: changes = ["initial_observation"]
-        if p and p.get("investment_rank") != r["investment_rank"] and not changes: changes.append("peer_cross_section_change")
+        if p and p.get("investment_rank") != r["investment_rank"] and not set(changes) - {"evidence_provenance"}: changes.append("peer_cross_section_change")
         r["rank_change_reasons"] = changes or ["unchanged"]
         ledger.append({"security_id": r["security_id"], "previous_investment_rank": p.get("investment_rank") if p else None,
                        "investment_rank": r["investment_rank"], "changes": r["rank_change_reasons"],

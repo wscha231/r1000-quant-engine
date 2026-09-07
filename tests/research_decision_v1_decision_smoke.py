@@ -73,6 +73,20 @@ class DecisionTests(unittest.TestCase):
         self.assertNotEqual(first["decision_hash"], second["decision_hash"])
         self.assertEqual(second["previous_decision_hash"], first["decision_hash"])
 
+    def test_ingestion_refresh_is_not_a_fundamental_revision(self):
+        b = with_scenario(); first = evaluate(b)
+        for block in b["securities"][0]["blocks"].values(): block["ingested_at"] = "2026-09-07T11:30:00Z"
+        second = evaluate(b, previous=first)
+        self.assertEqual(second["ranking"][0]["rank_change_reasons"], ["evidence_provenance"])
+        self.assertEqual(first["ranking"][0]["investment_rank"], second["ranking"][0]["investment_rank"])
+
+    def test_sensitivity_domain_does_not_invalidate_base_valuation(self):
+        b = with_scenario(); sc = b["securities"][0]["blocks"]["scenario"]
+        for row in sc["payload"]["scenarios"]: row["margin"] = .95
+        rehash(sc); result = evaluate(b)
+        self.assertTrue(result["ranking"][0]["valuation_ready"])
+        self.assertIsNone(result["ranking"][0]["sensitivity"]["margin"][1]["target_price"])
+
     def test_small_us_two_kr_one_connection(self):
         us = with_scenario(ticker="AAA"); us["securities"] += with_scenario(ticker="BBB")["securities"]
         us["securities"][1]["blocks"]["risk"]["payload"]["exposures"]["industry:other"] = 1.

@@ -73,7 +73,9 @@ def evaluate_security(security, config, cutoff):
             sensitivity[field] = []
             for delta in (-config["sensitivity_fraction"], config["sensitivity_fraction"]):
                 changed = {**base, field: base[field] * (1 + delta)}
-                sensitivity[field].append({"delta": delta, "target_price": scenario_price(changed, p["method"])})
+                try: sensitivity[field].append({"delta": delta, "target_price": scenario_price(changed, p["method"])})
+                except ValueError:
+                    sensitivity[field].append({"delta": delta, "target_price": None, "reason": "perturbation_outside_valuation_domain"})
         t = security["blocks"]["thesis"]["payload"]
         risk = security["blocks"]["risk"]["payload"]
         utility -= risk["uncertainty"] * config["dispersion_penalty"]
