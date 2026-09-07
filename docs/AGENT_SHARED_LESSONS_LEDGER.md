@@ -51,6 +51,28 @@ this ledger. Use secret names only.
   graph identity, dates, six active heads, null/zero, and escaped offline HTML.
 - Evidence: `docs/CODEX_RUN287_RESEARCH_SCORE_HANDOFF_20260906.md`.
 
+## 2026-09-07 - Credential rotation needs isolated endpoint probes
+
+- Agent: Codex. Branch: `codex/api-credentials-check-20260907`.
+- Context: The user rotated US and Korean provider keys and requested an
+  automated check without manually uploading the diagnostic workflow.
+- Result: Added a manual-only, no-checkout workflow with ten bounded GET
+  probes across eight providers. It reports controlled status labels only;
+  response bodies, URLs, exceptions and credentials are never published.
+- Reusable lesson: A repository secret's presence does not establish endpoint
+  access. Probe base access separately from estimate-plan access; classify
+  403 as ambiguous key/plan/IP rejection. Disable redirects so credentialed
+  requests cannot follow a vendor redirect to another destination.
+- Caveat: Sample endpoint success proves neither complete historical/PIT
+  coverage nor production or trading readiness. ECOS and Alpha Vantage
+  aliases are diagnosed; conflicting values keep the check non-green.
+- Evidence: `.github/workflows/api_credentials_check.yml` and
+  `tests/api_credentials_check_smoke.py` (offline mocked responses only).
+- Validation caught and fixed a one-argument ECOS tuple construction error
+  in the earlier standalone draft; destination checks cover this regression.
+- No fullrun, orders, targets, account/ledger or Drive mutations are part of
+  this check. Actual credential results require a separate Actions execution.
+
 ## Standing Rules For Agents
 
 - Keep run287 and related strategy work research-only unless the user explicitly
