@@ -19,8 +19,11 @@ exec(compile(SOURCE, 'embedded_probe', 'exec'), NS)
 
 
 class CredentialCheckTests(unittest.TestCase):
-    def test_manual_no_write_workflow(self):
-        self.assertEqual(WORKFLOW.get('on', WORKFLOW.get(True)), {'workflow_dispatch': None})
+    def test_reviewed_master_or_manual_no_write_workflow(self):
+        self.assertEqual(WORKFLOW.get('on', WORKFLOW.get(True)), {
+            'workflow_dispatch': None,
+            'push': {'branches': ['master'], 'paths': ['.github/workflows/api_credentials_check.yml']},
+        })
         self.assertEqual(WORKFLOW['permissions'], {})
         self.assertEqual(len(WORKFLOW['jobs']['probe']['steps']), 1)
         self.assertNotIn('uses', STEP)

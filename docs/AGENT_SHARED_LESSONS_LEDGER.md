@@ -56,7 +56,7 @@ this ledger. Use secret names only.
 - Agent: Codex. Branch: `codex/api-credentials-check-20260907`.
 - Context: The user rotated US and Korean provider keys and requested an
   automated check without manually uploading the diagnostic workflow.
-- Result: Added a manual-only, no-checkout workflow with ten bounded GET
+- Result: Added a no-checkout workflow with ten bounded GET
   probes across eight providers. It reports controlled status labels only;
   response bodies, URLs, exceptions and credentials are never published.
 - Reusable lesson: A repository secret's presence does not establish endpoint
@@ -70,6 +70,21 @@ this ledger. Use secret names only.
   `tests/api_credentials_check_smoke.py` (offline mocked responses only).
 - Validation caught and fixed a one-argument ECOS tuple construction error
   in the earlier standalone draft; destination checks cover this regression.
+- CI run `34089080506` then passed the new smoke but correctly rejected
+  `post_publication_protected_delta:tools/run_pr_validation.py`. The protected
+  publication anchors in both the verifier and regression test now bind the
+  exact causal parent `26a43ce322f98870262333dcb10d0c54ec869b1e`; no protected
+  paths, immutable data, source hashes or rejection rules were removed.
+- Execution: The user authorized the real check. The workflow runs after its
+  own reviewed file changes on master, and also supports manual dispatch;
+  branch and PR updates never invoke vendor keys. This makes the first probe
+  automatic after the normal review and merge gates.
+- Local caveat: The full P0-4 byte-stability test reached a Parquet mismatch
+  with local pandas 2.2.3 / pyarrow 21.0.0, versus the pinned 2.3.3 / 23.0.1.
+  Dependency installation could not complete in this environment. Relevant
+  ancestry and negative protected-mutation tests passed; the complete check
+  must still pass in CI with its pinned dependencies. Frozen artifacts were
+  not regenerated or relaxed to accommodate local versions.
 - No fullrun, orders, targets, account/ledger or Drive mutations are part of
   this check. Actual credential results require a separate Actions execution.
 
