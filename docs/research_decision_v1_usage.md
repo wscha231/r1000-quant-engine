@@ -1,0 +1,79 @@
+# Research Decision V1 — H2
+
+Parent: H1 PR #399, published source `7d5913f1d48e213faaf979ea110276e51ab800dd`.
+Related issue #396. The fixed config was locally committed as
+`a4b5d8c06225823a4af93da638053c053d71c1dc` before any scenario/ranking test output.
+No coefficients were selected from the fixture outcomes.
+
+## Run boundaries
+
+1. Materialize and reconcile provider/cache inputs to the H1 contract. Preserve
+   original source responses separately; a canonical payload hash is not proof
+   that a human extraction or the provider is correct. Incomplete reconciliation
+   must set that block `unverified`.
+2. Run each market's exporter in its own repository. The KR wrapper checks the
+   shared package's exact source hash before importing it.
+3. `python tools/run_research_decision_v1.py --market-export <US-export.json>
+   --market-export <KR-export.json> --context <context.json>`
+4. Optionally pass `--previous <report.json>` to explain component/rank changes.
+   Different input-kind or future/tampered previous records are rejected.
+
+The output directory is content addressed under `outputs/research_decision_v1`.
+It includes frozen evidence/config, source hashes, per-field coverage, industry
+discovery, ranking, proposal, decision ledger, Markdown/JSON report and immutable
+source-commit receipts. Identical fixed inputs produce identical decision hashes.
+Exit 2 means the actual proposal is blocked/partial, even though a diagnostic
+artifact was saved. No mutable `latest` writer, scheduling or operating imports.
+
+## Interpretation
+
+12-month `EV_EBITDA` and `PE` scenarios require revenue, appropriate margin,
+multiple, future diluted shares, net debt, dividend and explicit subjective
+probabilities. Debt is subtracted only in the enterprise-value method. No extra
+buyback yield is allowed when future shares already include it. Reverse valuation
+is conditional on Base margin/multiple/shares/debt; it is not a forecast.
+
+Investment utility = expected total return - assumed round-trip costs
+- 0.5 * Bear downside - 0.1 * scenario dispersion - 0.1 * uncertainty.
+This is an explicit decision preference in return units, not a calibrated return
+or loss-probability model. Total-return rank and investment rank are distinct.
+Industry and theme equal/current-cap weighted returns, RS and breadth are solely
+candidate-discovery diagnostics. Missing group coverage remains missing.
+No ownership, news, options or NONRANKING alpha points are used.
+
+US returns are also translated into KRW under each scenario's explicit FX rate.
+Global rank/weights require valid FX; local country ranking survives FX failure.
+Costs are conservative research assumptions, not validated tax estimates.
+Benchmark excess return exists only with an explicit benchmark scenario.
+1/3/6-month forecasts and statistical loss probability remain null.
+
+New-capital allocation uses positive utility, thesis confidence and downside,
+then applies single-name/country/industry/theme/customer/liquidity/regime/stress
+caps. Constraint shrinkage leaves the residual in cash. Counts are maxima, never
+country weights. Above 5% produces a risk review; above 10% adds concentration
+review fields. All proposed weights plus cash equal one, with no short/leverage.
+
+An existing-book proposal requires a recent, complete submitted book and no
+unreconciled pending orders. It compares replacement utility to incumbent utility
+after cost/buffer, preserves small changes, and requires strengthened thesis for
+adds. Short RS alone is not an exit. Missing incumbent evidence preserves the
+submitted book and blocks changes. If preserving an incumbent conflicts with hard
+risk caps, the conflict is displayed and the proposal is not marked ready. This
+is a review proposal, never an actual broker reconciliation or an order.
+
+Scenario stress is not pathwise MDD; the 25% MDD goal remains OOS-unvalidated.
+Eight one-at-a-time revenue/margin/multiple/share perturbations show rank ranges;
+they are neither confidence intervals nor post-hoc parameter optimization.
+
+## Remaining scope
+
+This implements the deterministic research calculation for reconciled inputs.
+It does not automatically reconcile arbitrary SEC/DART/FMP statement taxonomies,
+retrieve missing long raw price/corporate-action archives, establish a complete
+historical universe, calibrate returns, validate OOS performance, or promote a
+model. Current-data completion depends on those required source records.
+Real pilot failures stop expansion to 5+2; synthetic tests cannot replace them.
+
+Cadence design only (disabled): daily price/risk observations, event financial
+and thesis updates, weekly research review, biweekly weight proposals. No new
+schedule was installed or activated by this PR.

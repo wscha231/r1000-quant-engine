@@ -1,0 +1,83 @@
+{
+  "schema_version": "research-input-v1",
+  "market": "KR",
+  "data_kind": "REAL",
+  "decision_cutoff": "2026-09-07T13:35:25Z",
+  "securities": [
+    {
+      "security_id": "KR:000660",
+      "ticker": "000660",
+      "market": "KR",
+      "currency": "KRW",
+      "blocks": {
+        "price": {
+          "status": "missing",
+          "reason": "No locally materialized current raw/corporate-action/benchmark history; local provider keys absent."
+        },
+        "financials": {
+          "status": "unverified",
+          "source": "https://news.skhynix.com/en/q2-2026-business-results/",
+          "payload": {
+            "reported_quarter_extract": {
+              "quarter_revenue": 79318700000000,
+              "quarter_operating_income": 60542600000000,
+              "quarter_net_income": 93922600000000
+            }
+          },
+          "reason": "Press-release extract is partial: TTM, recent annual/quarters, net debt, diluted shares, FCF, CAPEX and SBC not reconciled."
+        },
+        "thesis": {
+          "status": "unverified",
+          "source": "https://news.skhynix.com/en/q2-2026-business-results/",
+          "payload": {
+            "business": "Memory manufacturer; issuer reports AI-related demand and long-term customer agreements."
+          },
+          "reason": "Customer/bottleneck/competition/catalyst and strongest bear case not fully reconciled to source evidence."
+        },
+        "risk": {
+          "status": "missing",
+          "reason": "Common-risk and liquidity assessment requires verified raw history."
+        },
+        "scenario": {
+          "status": "missing",
+          "reason": "No defensible 12-month scenario without verified valuation base."
+        }
+      },
+      "optional": {
+        "reported_quarter_extract": {
+          "status": "available",
+          "source": "https://news.skhynix.com/en/q2-2026-business-results/",
+          "security_id": "KR:000660",
+          "published_at": null,
+          "public_available_at": null,
+          "first_seen_at": "2026-09-07T13:35:25Z",
+          "ingested_at": "2026-09-07T13:35:25Z",
+          "decision_cutoff": "2026-09-07T13:35:25Z",
+          "report_period": {
+            "start": "2026-04-01",
+            "end": "2026-06-30"
+          },
+          "unit": "base_currency_except_eps_currency_per_share",
+          "currency": "KRW",
+          "accounting_basis": "K_IFRS_CONSOLIDATED",
+          "data_hash": "10d65de796cc4cd489efe0312601120d0944b94056f9f933724d9371f4ffd978",
+          "payload": {
+            "quarter_revenue": 79318700000000,
+            "quarter_operating_income": 60542600000000,
+            "quarter_net_income": 93922600000000
+          },
+          "extraction_type": "MANUAL_PRIMARY_SOURCE_EXTRACT_NOT_INDEPENDENTLY_RECONCILED",
+          "published_date": "2026-07-29"
+        },
+        "estimates": {
+          "status": "missing",
+          "reason": "FMP AAPL API probe is not an estimate response for this security."
+        },
+        "form4": {
+          "status": "missing",
+          "reason": "Not collected for this decision; no alpha contribution."
+        }
+      }
+    }
+  ]
+}

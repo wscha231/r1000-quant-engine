@@ -4917,3 +4917,20 @@ Expected contract:
   SEC/Yahoo direct sample reads also failed. Do not report a current-data run ready.
 - Existing user-owned modified CSVs were preserved. No monitor, official target,
   book, order, workflow, migration, fullrun or promotion path changed.
+
+
+## 2026-09-07 - H2 scenario utility is not a calibrated return forecast
+
+- Related issue #396; H2 is stacked on H1 PR #399 and never consumes NONRANKING.
+- Fixed configuration committed before first scenario/ranking test output.
+- Compute EV/earnings scenarios, reverse valuation, FX, separate return/utility
+  ranks, eight assumption perturbations, and constraints with residual cash.
+- An intact incumbent is preserved when replacement improvement does not exceed
+  cost/buffer. New positions consume remaining common-risk room; incumbent-only
+  hard-cap breaches block approval instead of silently overriding the cap.
+- A valid all-cash research decision differs from an all-missing-input fallback.
+- A real US2/KR1 input contains only partial primary-source quarterly extracts;
+  no fabricated TTM, price history, FX, regime, scenario probability or rank.
+- Source Git tree equality was verified for connector publication after local
+  git push lacked authentication. User-owned dirty CSVs remain outside commits.
+- No fullrun, existing monitor/target/book/order change, OOS claim or promotion.
