@@ -30,6 +30,7 @@ def bundle(market="US", ticker="TEST"):
              "corporate_actions_status": "no_event", "corporate_actions_through": dates[-1],
              "benchmark_id": "SPY" if market == "US" else "KOSPI200",
              "benchmark_bars": bars, "benchmark_actions_status": "no_event",
+             "benchmark_actions_through": dates[-1],
              "benchmark_price_basis": "raw_unadjusted"}
     thesis = {"id": f"fixture-{sid}", "intact": True, "strengthened": False,
               "confidence": 0.7, "company_quality": "pass",
@@ -49,10 +50,12 @@ def bundle(market="US", ticker="TEST"):
     blocks = {"price": envelope(price, "currency_per_share"),
               "financials": envelope(financials, "currency_and_shares", "US_GAAP" if market == "US" else "K_IFRS_CONSOLIDATED"),
               "thesis": envelope(thesis, "text"), "risk": envelope(risk, "fraction")}
+    blocks["price"].update(published_at=None, public_available_at="2026-09-07T10:00:00Z",
+                           report_period={"start": dates[0], "end": dates[-1]})
     return {"schema_version": "research-input-v1", "data_kind": "SYNTHETIC",
             "market": market, "decision_cutoff": cutoff,
             "securities": [{"security_id": sid, "ticker": ticker, "market": market,
-                            "currency": currency, "blocks": blocks, "optional": {}}]}
+                            "currency": currency, "listing_board": "KOSPI" if market == "KR" else "US", "blocks": blocks, "optional": {}}]}
 
 
 def rehash(envelope):

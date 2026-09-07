@@ -11,7 +11,7 @@ import math
 import re
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
-from urllib.parse import urlsplit, parse_qsl
+from urllib.parse import urlsplit, unquote
 
 STATUSES = {"available", "stale", "missing", "provider_error", "no_event", "not_applicable", "unverified"}
 MARKETS = {"US": ("USD", "NYSE"), "KR": ("KRW", "XKRX")}
@@ -45,11 +45,13 @@ def number(value, *, positive=False, nonnegative=False):
 def reject_diagnostic_scores(value):
     if isinstance(value, dict):
         for k, v in value.items():
-            if any(x in k.lower() for x in ("nonranking", "alphaops_score", "raw_score", "ranking_ready")):
+            if "score" in k.lower() or any(x in k.lower() for x in ("nonranking", "ranking_ready")):
                 raise ValueError("NONRANKING_or_legacy_score_forbidden")
             reject_diagnostic_scores(v)
     elif isinstance(value, list):
         for v in value: reject_diagnostic_scores(v)
+    elif isinstance(value, str) and "NONRANKING" in value.upper():
+        raise ValueError("NONRANKING_or_legacy_score_forbidden")
 
 
 def source_url(value):
@@ -57,8 +59,30 @@ def source_url(value):
     p = urlsplit(value)
     if p.scheme != "https" or not p.hostname or p.username or p.password:
         raise ValueError("invalid_source_url")
-    if any(re.search(r"key|token|secret|signature|credential", k, re.I) for k, _ in parse_qsl(p.query)):
+    # Store a public document URL, never a provider request/signed download URL.
+    # Query/fragment rejection is intentionally stronger than a credential-name denylist.
+    if p.query or p.fragment or re.search(r"(?:key|token|secret|signature|credential|password|auth)[=_/:.-]", unquote(p.path), re.I):
         raise ValueError("credential_bearing_source")
+    if re.search(r"[A-Za-z0-9_]{48,}", unquote(p.path)):
+        raise ValueError("opaque_source_path_forbidden")
+
+
+def validate_persistable_sources(value, *, real=False):
+    """Reject unsafe input before retaining even a blocked input snapshot."""
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if re.fullmatch(r"(?i)(api_?key|access_?token|refresh_?token|password|secret|authorization|credential)", key):
+                raise ValueError("credential_field_forbidden")
+            validate_persistable_sources(child, real=real)
+    elif isinstance(value, list):
+        for child in value: validate_persistable_sources(child, real=real)
+    elif isinstance(value, str) and "://" in value:
+        # A URL embedded in prose is checked too, before original text is serialized.
+        for url in re.findall(r"https?://[^\s<>\"']+", value):
+            source_url(url)
+            host = urlsplit(url).hostname
+            if real and any(host == x or host.endswith("." + x) for x in ("example.org", "example.com", "example.net", "localhost")):
+                raise ValueError("synthetic_source_in_real_input")
 
 
 @lru_cache(maxsize=128)
@@ -71,6 +95,14 @@ def sessions(market, start, cutoff):
     schedule = mcal.get_calendar(MARKETS[market][1]).schedule(start_date=start, end_date=end.date())
     schedule = schedule[schedule.market_close <= pd.Timestamp(end)]
     return tuple(x.date().isoformat() for x in schedule.index)
+
+
+@lru_cache(maxsize=128)
+def session_close(market, session):
+    import pandas_market_calendars as mcal
+    schedule = mcal.get_calendar(MARKETS[market][1]).schedule(start_date=session, end_date=session)
+    if len(schedule) != 1: raise ValueError("invalid_session")
+    return schedule.iloc[0].market_close.to_pydatetime()
 
 
 def envelope_errors(block, security, cutoff):
@@ -89,15 +121,22 @@ def envelope_errors(block, security, cutoff):
         for field in ("published_at", "public_available_at", "first_seen_at", "ingested_at"):
             if field not in block: errors.append(field + "_undeclared"); continue
             if block[field] is None:
-                if field in ("first_seen_at", "ingested_at"): errors.append(field + "_unknown")
+                if field in ("public_available_at", "first_seen_at", "ingested_at"): errors.append(field + "_unknown")
             elif timestamp(block[field]) > cut: errors.append(field + "_after_cutoff")
         if timestamp(block["first_seen_at"]) > timestamp(block["ingested_at"]): errors.append("observation_order")
         if block.get("public_available_at") and timestamp(block["public_available_at"]) > timestamp(block["first_seen_at"]):
             errors.append("availability_after_observation")
+        if block.get("published_at") and timestamp(block["published_at"]) > timestamp(block["first_seen_at"]):
+            errors.append("publication_after_observation")
         if block.get("data_hash") != digest(block.get("payload")): errors.append("data_hash_mismatch")
         period = block.get("report_period")
         if not isinstance(period, dict) or set(period) != {"start", "end"}: errors.append("report_period_missing")
-        elif period["start"] > period["end"]: errors.append("report_period_reversed")
+        else:
+            start, end = datetime.fromisoformat(period["start"]).date(), datetime.fromisoformat(period["end"]).date()
+            if start > end: errors.append("report_period_reversed")
+            for field in ("published_at", "public_available_at", "first_seen_at", "ingested_at"):
+                if block.get("accounting_basis") != "RESEARCH_ASSUMPTION" and block.get(field) and end > timestamp(block[field]).date():
+                    errors.append("period_after_" + field)
     except (ValueError, TypeError, KeyError): errors.append("invalid_provenance")
     return sorted(set(errors))
 
@@ -113,14 +152,17 @@ def total_return_series(bars, basis):
     return series
 
 
-def price_analysis(payload, market, cutoff):
+def price_analysis(payload, market, cutoff, listing_board=None):
     latest = sessions(market, (timestamp(cutoff) - timedelta(days=20)).date().isoformat(), cutoff)[-1]
     if not payload.get("feed") or payload.get("quote_type") != "official_close": raise ValueError("close_feed_required")
     if payload.get("corporate_actions_status") not in {"available", "no_event"}: raise ValueError("corporate_actions_unverified")
     if payload.get("corporate_actions_through") != latest: raise ValueError("corporate_actions_stale")
     if payload.get("benchmark_actions_status") not in {"available", "no_event"}: raise ValueError("benchmark_actions_unverified")
+    if payload.get("benchmark_actions_through") != latest: raise ValueError("benchmark_actions_stale")
     if payload.get("volume_basis") != payload.get("price_basis"): raise ValueError("price_volume_adjustment_mismatch")
-    if not payload.get("benchmark_id"): raise ValueError("benchmark_missing")
+    expected_benchmark = "SPY" if market == "US" else {"KOSPI": "KOSPI200", "KOSDAQ": "KOSDAQ150"}.get(listing_board)
+    if expected_benchmark is None: raise ValueError("listing_board_unverified")
+    if payload.get("benchmark_id") != expected_benchmark: raise ValueError("benchmark_identity_mismatch")
     bars, benchmark = payload["bars"], payload["benchmark_bars"]
     if not bars or not benchmark: raise ValueError("price_missing")
     for rows, action_status in ((bars, payload["corporate_actions_status"]), (benchmark, payload["benchmark_actions_status"])):
@@ -166,6 +208,13 @@ def financial_errors(block, market, cutoff):
             if not f.get(field): errors.append(field + "_missing")
             ends = [row["end"] for row in f.get(field, [])]
             if len(ends) != len(set(ends)): errors.append(field + "_duplicate")
+            if ends and field == "recent_quarters" and max(ends) != p["end"]: errors.append("recent_quarters_not_current")
+            if ends and field == "recent_annual" and (end - datetime.fromisoformat(max(ends))).days > 370:
+                errors.append("recent_annual_stale")
+            ordered = sorted(f.get(field, []), key=lambda row: row["start"])
+            for previous, current in zip(ordered, ordered[1:]):
+                if (datetime.fromisoformat(current["start"]) - datetime.fromisoformat(previous["end"])).days != 1:
+                    errors.append(field + "_gap_or_overlap")
             for row in f.get(field, []):
                 s, e = datetime.fromisoformat(row["start"]), datetime.fromisoformat(row["end"])
                 if not bounds[0] <= (e-s).days <= bounds[1] or e > end: errors.append(field + "_period_invalid")
@@ -201,6 +250,7 @@ def thesis_risk_errors(blocks):
 
 def export_market(bundle, expected_market):
     reject_diagnostic_scores(bundle)
+    validate_persistable_sources(bundle, real=bundle.get("data_kind") == "REAL")
     if bundle.get("schema_version") != "research-input-v1": raise ValueError("input_schema_mismatch")
     market = bundle.get("market")
     if market != expected_market or market not in MARKETS: raise ValueError("market_jurisdiction_mismatch")
@@ -220,7 +270,13 @@ def export_market(bundle, expected_market):
         for k, reasons in coverage.items(): errors += [k + ":" + e for e in reasons]
         discovery = None
         if not coverage["price"]:
-            try: discovery = price_analysis(blocks["price"]["payload"], market, cutoff)
+            try:
+                price = blocks["price"]
+                discovery = price_analysis(price["payload"], market, cutoff, s.get("listing_board"))
+                close = session_close(market, discovery["required_session"])
+                for field in ("published_at", "public_available_at", "first_seen_at", "ingested_at"):
+                    if price.get(field) and timestamp(price[field]) < close:
+                        errors.append("price:" + field + "_before_official_close")
             except (ValueError, KeyError, TypeError, IndexError) as exc: errors.append("price:" + str(exc))
         if not coverage["financials"]: errors += financial_errors(blocks["financials"], market, cutoff)
         if not coverage["thesis"] and not coverage["risk"]: errors += thesis_risk_errors(blocks)

@@ -4917,3 +4917,14 @@ Expected contract:
   SEC/Yahoo direct sample reads also failed. Do not report a current-data run ready.
 - Existing user-owned modified CSVs were preserved. No monitor, official target,
   book, order, workflow, migration, fullrun or promotion path changed.
+
+
+## 2026-09-07 — Research V1 H1 review corrections
+- Reproduction: old quarter/annual rows, pre-close prices and unknown availability
+  could enter the first contract; added concrete counterexample tests.
+- Benchmark identity and action coverage are market/board-bound. Unsafe source
+  URLs are rejected before retaining the input snapshot; immutable files publish
+  only after complete staging/fsync. No production readiness change.
+- New test registration changed a protected runner. Explicit causal publication
+  pin: 7d5913f1d48e213faaf979ea110276e51ab800dd; verifier algorithms/paths remain
+  unchanged. A new external exact-head review remains a gate, never self-certified.

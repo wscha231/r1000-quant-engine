@@ -3,11 +3,12 @@ import copy
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from research_decision_v1_fixture import bundle, rehash
-from tools.research_decision_v1.data import export_market, total_return_series
+from tools.research_decision_v1.data import export_market, total_return_series, envelope_errors
 from tools.research_decision_v1.io import immutable_json, read_json
 
 
@@ -50,9 +51,73 @@ class DataContractTests(unittest.TestCase):
         self.assertFalse(self.result(b)["data_quality_pass"])
 
     def test_nonranking_forbidden(self):
-        b = bundle(); b["securities"][0]["nonranking_score"] = 999
-        with self.assertRaisesRegex(ValueError, "NONRANKING"):
-            export_market(b, "US")
+        for field in ("nonranking_score", "score", "current_engine_score", "ownership_score"):
+            b = bundle(); b["securities"][0][field] = 999
+            with self.assertRaisesRegex(ValueError, "NONRANKING"): export_market(b, "US")
+        b = bundle(); b["securities"][0]["status"] = "NONRANKING"
+        with self.assertRaisesRegex(ValueError, "NONRANKING"): export_market(b, "US")
+
+    def test_public_availability_and_official_close(self):
+        for market in ("US", "KR"):
+            b = bundle(market); price = b["securities"][0]["blocks"]["price"]
+            price["public_available_at"] = None
+            self.assertIn("price:public_available_at_unknown", self.result(b)["blockers"])
+            price["public_available_at"] = "2026-09-04T00:00:00Z"
+            self.assertFalse(self.result(b)["data_quality_pass"])
+        b = bundle(); financials = b["securities"][0]["blocks"]["financials"]
+        financials.update(published_at="2026-06-01T00:00:00Z", public_available_at="2026-06-01T00:00:00Z")
+        self.assertIn("financials:period_after_published_at", self.result(b)["blockers"])
+
+    def test_forecast_period_is_not_a_future_reported_actual(self):
+        b = bundle(); security = b["securities"][0]
+        block = copy.deepcopy(security["blocks"]["financials"])
+        block.update(accounting_basis="RESEARCH_ASSUMPTION", report_period={"start": "2026-09-07", "end": "2027-09-07"})
+        self.assertEqual(envelope_errors(block, security, b["decision_cutoff"]), [])
+        block["accounting_basis"] = "US_GAAP"
+        self.assertIn("period_after_published_at", envelope_errors(block, security, b["decision_cutoff"]))
+
+    def test_benchmark_identity_actions_and_board(self):
+        for market in ("US", "KR"):
+            b = bundle(market); p = b["securities"][0]["blocks"]["price"]
+            p["payload"]["benchmark_actions_through"] = "2020-01-01"; rehash(p)
+            self.assertIn("price:benchmark_actions_stale", self.result(b)["blockers"])
+            b = bundle(market); p = b["securities"][0]["blocks"]["price"]
+            p["payload"]["benchmark_id"] = "OTHER"; rehash(p)
+            self.assertIn("price:benchmark_identity_mismatch", self.result(b)["blockers"])
+        b = bundle("KR"); b["securities"][0]["listing_board"] = "KOSDAQ"
+        self.assertFalse(self.result(b)["data_quality_pass"])
+        p = b["securities"][0]["blocks"]["price"]; p["payload"]["benchmark_id"] = "KOSDAQ150"; rehash(p)
+        self.assertTrue(self.result(b)["data_quality_pass"])
+
+    def test_recent_financial_recency_and_continuity(self):
+        for field in ("recent_quarters", "recent_annual"):
+            b = bundle(); f = b["securities"][0]["blocks"]["financials"]
+            for row in f["payload"][field]:
+                row["start"] = row["start"].replace("2026", "2010").replace("2025", "2009")
+                row["end"] = row["end"].replace("2026", "2010").replace("2025", "2009")
+            rehash(f); self.assertFalse(self.result(b)["data_quality_pass"])
+        b = bundle(); f = b["securities"][0]["blocks"]["financials"]
+        f["payload"]["recent_quarters"].append({"start": "2025-10-01", "end": "2025-12-31", "revenue": 2000.})
+        rehash(f); self.assertIn("recent_quarters_gap_or_overlap", self.result(b)["blockers"])
+
+    def test_unsafe_sources_never_reach_blocked_snapshot(self):
+        sources = ("https://example.org/a?apikey=dummy", "https://example.org/a#access_token=dummy",
+                   "https://example.org/token/dummy", "https://user:dummy@example.org/a")
+        for source in sources:
+            b = bundle(); b["securities"][0]["blocks"]["price"] = {"status": "missing", "source": source}
+            with self.assertRaises(ValueError): export_market(b, "US")
+        b = bundle(); b["data_kind"] = "REAL"
+        with self.assertRaisesRegex(ValueError, "synthetic_source"): export_market(b, "US")
+
+    def test_atomic_write_failure_can_retry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            p = Path(directory) / "record.json"
+            with patch("tools.research_decision_v1.io.os.fsync", side_effect=OSError("interrupted")):
+                with self.assertRaises(OSError): immutable_json(p, {"x": 1})
+            self.assertFalse(p.exists())
+            self.assertEqual(list(Path(directory).iterdir()), [])
+            immutable_json(p, {"x": 1})
+            self.assertEqual(read_json(p), {"x": 1})
 
     def test_short_history_and_split_dividend(self):
         b = bundle(); p = b["securities"][0]["blocks"]["price"]
