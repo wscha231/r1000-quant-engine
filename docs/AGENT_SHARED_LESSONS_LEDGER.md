@@ -4948,3 +4948,12 @@ Expected contract:
 - URI schemes/case cannot evade secret-bearing URL rejection.
 - Freeze research dependencies in Tier-1 install/cache; add native Windows
   handle/publication checks to the existing PR event (no new schedule).
+
+## 2026-09-07 — Research H1 fourth review / password aliases and CI compatibility
+- Reject password aliases (`passwd`, `pwd`, camel-case variants, and passphrase)
+  before retaining even unavailable provider payloads.
+- Keep the existing Linux pip cache key on requirements_github.txt, as required
+  by the unchanged workflow guard. The explicit pinned research install still
+  runs every time; Windows uses its separate research requirements cache key.
+- Prior exact-head CI abd6db2 passed 228/229 scripts; the sole failure was this
+  legacy single-line cache-path guard. Native Windows admission tests passed.

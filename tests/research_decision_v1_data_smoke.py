@@ -112,7 +112,8 @@ class DataContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "synthetic_source"): export_market(b, "US")
 
     def test_common_credential_aliases_never_persist(self):
-        for key in ("token", "session_token", "auth_token", "client_secret", "private_key", "clientSecret", "authorization", "cookie"):
+        for key in ("token", "session_token", "auth_token", "client_secret", "private_key", "clientSecret", "authorization", "cookie",
+                    "passwd", "pwd", "dbPwd", "db_passwd", "pswd", "psw", "pword", "passphrase"):
             b = bundle(); b["securities"][0]["optional"] = {"provider": {"status": "missing", key: "dummy"}}
             with self.assertRaisesRegex(ValueError, "credential_field"): export_market(b, "US")
 
