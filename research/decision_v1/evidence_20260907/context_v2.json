@@ -1,0 +1,37 @@
+{
+  "mode": "NEW_CAPITAL_RESEARCH",
+  "capital_krw": 100000000.0,
+  "capital_is_assumption": true,
+  "decision_cutoff": "2026-09-07T13:35:25Z",
+  "fx": {
+    "status": "missing",
+    "pair": "KRW_PER_USD",
+    "spot": null,
+    "source": "https://fred.stlouisfed.org/series/DEXKOUS",
+    "observed_at": null,
+    "scenario_rates": null,
+    "assumption_type": "SUBJECTIVE_SCENARIO"
+  },
+  "regime": {
+    "state": "UNKNOWN",
+    "source": null,
+    "observed_at": null,
+    "rationale": "No verified current regime export consumed."
+  },
+  "benchmark_expected_returns": {},
+  "provider_probe_evidence": {
+    "run_id": 34094427045,
+    "job_id": 101654720085,
+    "checked_at": "2026-09-07T07:13:45.007496+00:00",
+    "coverage": "endpoint samples only; no universe or financial completeness claim"
+  },
+  "materialization_failure": {
+    "artifact_id": 9963347716,
+    "artifact_sha256": "581ecacd8d627019ffb31f2308a1d125f168df54efe0c761bc99e30dc0cdcba5",
+    "local_download_http": 403,
+    "local_download_body": "error code: 1010",
+    "attempts": 2,
+    "direct_sec_yahoo": "URLError",
+    "local_provider_access_status": "unconfigured"
+  }
+}
