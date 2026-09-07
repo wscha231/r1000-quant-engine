@@ -116,7 +116,8 @@ class DataContractTests(unittest.TestCase):
                     "passwd", "pwd", "dbPwd", "db_passwd", "pswd", "psw", "pword", "passphrase",
                     "passcode", "pass_word", "user_pass", "pass", "userPass", "passCode", "pass_key", "passhash",
                     "password1", "password2", "pass123", "userPassword42", "pass_123", "pass\uFF11",
-                    "token1", "secret42", "apiKey2", "authorization2", "cookies2", "privateKey99", "jwt", "bearer", "sessionid", "sessionId", "access_key", "clientKey", "signing_key", "sid", "session", "ＪＷＴ"):
+                    "token1", "secret42", "apiKey2", "authorization2", "cookies2", "privateKey99", "jwt", "bearer", "sessionid", "sessionId", "access_key", "clientKey", "signing_key", "sid", "session", "ＪＷＴ", "session-id", "session.id", "session id", "session::id", "session__id", "session－id", "sessionUuid", "sessionGUID"):
+
 
             b = bundle(); b["securities"][0]["optional"] = {"provider": {"status": "missing", key: "dummy"}}
             with self.assertRaisesRegex(ValueError, "credential_field"): export_market(b, "US")

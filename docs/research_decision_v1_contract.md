@@ -139,3 +139,7 @@ availability. Source URLs validate parsed ports (1..65535) before persistence.
 Liquidity requires security-bar share volume; benchmark volume is unused and
 may be absent, including non-tradable KR total-return index series. No zero
 volume is invented for a missing benchmark field.
+
+Credential key normalization collapses punctuation/whitespace/underscore runs
+after NFKC and camel-case normalization. Session ID/UUID/GUID variants cannot
+evade persistence rejection through hyphenated, dotted or full-width separators.

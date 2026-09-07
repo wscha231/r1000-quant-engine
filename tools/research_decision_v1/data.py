@@ -85,9 +85,10 @@ def validate_persistable_sources(value, *, real=False):
     if isinstance(value, dict):
         for key, child in value.items():
             normalized_key = re.sub(r"([a-z])([A-Z])", r"\1_\2", unicodedata.normalize("NFKC", key)).lower()
+            normalized_key = re.sub(r"[\W_]+", "_", normalized_key).strip("_")
             # Deny the entire pass* token family, including pass_word/user_pass;
             # financial/thesis schemas have no persistable password-like field.
-            if re.search(r"(?:^|[_\W])(?:token\w*|secret\w*|pass\w*|pwd\w*|pswd\w*|psw\w*|pword\w*|credential\w*|auth\w*|cookie\w*|api_?key\w*|private_?key\w*|access_?key\w*|client_?key\w*|signing_?key\w*|key\w*|bearer\w*|jwt\w*|oauth\w*|session_?(?:id|key|token|secret|cookie|credential|auth)\w*|sid)(?:$|[_\W])", normalized_key):
+            if re.search(r"(?:^|[_\W])(?:token\w*|secret\w*|pass\w*|pwd\w*|pswd\w*|psw\w*|pword\w*|credential\w*|auth\w*|cookie\w*|api_?key\w*|private_?key\w*|access_?key\w*|client_?key\w*|signing_?key\w*|key\w*|bearer\w*|jwt\w*|oauth\w*|session_?(?:id|uuid|guid|key|token|secret|cookie|credential|auth)\w*|sid)(?:$|[_\W])", normalized_key):
                 raise ValueError("credential_field_forbidden")
             if normalized_key == "session" and (not isinstance(child, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", child)):
                 raise ValueError("credential_field_forbidden")

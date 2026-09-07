@@ -4990,3 +4990,8 @@ Expected contract:
 - URL splitting alone does not validate ports; evaluate the parsed port too.
 - Only tradable security volume belongs in liquidity admission. An index
   benchmark needs aligned return data, not a fabricated trading-volume field.
+
+## 2026-09-07 — Research H1 credential separator normalization
+- Normalize key separators before family matching; session-id/session.id and
+  Unicode punctuation receive the same treatment as session_id.
+- Expand regression aliases without changing source/financial readiness rules.
