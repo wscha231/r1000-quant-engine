@@ -141,3 +141,7 @@ advances to that ancestor; verifier behavior and frozen inventory are unchanged.
 Admission identity follow-up: H2 registration is republished in `7e44b2f8a6c3f35c4e3c5adc935f956f9a3dbab7`
 on H1 `be373ffa1c5723696e3823ee07de17d3c8b65445`; the matching protected-publication
 pin follows that ancestor. Verifier logic, inventory and numeric research rules remain fixed.
+
+Chronology/index follow-up: the H2 registration ancestor is now `41c4960eb7a7ff2006065f0144b78844e86cd5ec`
+on H1 `9cd89bd6ed3529c5d5ca80dcde5bf28502b80475`. Only the causal pin advances;
+protected verifier behavior, frozen inventory and ranking coefficients remain fixed.
