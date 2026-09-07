@@ -19,12 +19,13 @@ exec(compile(SOURCE, 'embedded_probe', 'exec'), NS)
 
 
 class CredentialCheckTests(unittest.TestCase):
-    def test_reviewed_master_or_manual_no_write_workflow(self):
+    def test_reviewed_master_only_no_write_workflow(self):
         self.assertEqual(WORKFLOW.get('on', WORKFLOW.get(True)), {
             'workflow_dispatch': None,
             'push': {'branches': ['master'], 'paths': ['.github/workflows/api_credentials_check.yml']},
         })
         self.assertEqual(WORKFLOW['permissions'], {})
+        self.assertEqual(WORKFLOW['jobs']['probe']['if'], "github.ref == 'refs/heads/master'")
         self.assertEqual(len(WORKFLOW['jobs']['probe']['steps']), 1)
         self.assertNotIn('uses', STEP)
         self.assertLessEqual(WORKFLOW['jobs']['probe']['timeout-minutes'], 6)
@@ -34,6 +35,10 @@ class CredentialCheckTests(unittest.TestCase):
                  ('FMP', 402, {}, 'PLAN_RESTRICTED'),
                  ('Finnhub', 403, {}, 'FORBIDDEN_CHECK_KEY_PLAN_IP'),
                  ('FRED', 429, {}, 'RATE_LIMITED'),
+                 ('FRED', 400, {'error_code': 400, 'error_message': 'Bad Request. The value for variable api_key is not registered.'}, 'AUTH_REJECTED'),
+                 ('FRED', 400, {'error_code': 400, 'error_message': 'Bad Request. The value for variable api_key must be a 32 character string.'}, 'AUTH_REJECTED'),
+                 ('FRED', 400, {'error_code': 400, 'error_message': 'Bad Request. The series does not exist.'}, 'PROVIDER_ERROR'),
+                 ('FRED', 400, {'error_code': 400, 'error_message': None}, 'HTTP_ERROR'),
                  ('DART', 200, {'status': '010'}, 'AUTH_REJECTED'),
                  ('AlphaVantage', 200, {'Information': 'sensitive'}, 'PROVIDER_NOTICE_CHECK_QUOTA_PLAN'),
                  ('Finnhub', 200, {}, 'EMPTY_OR_UNEXPECTED_RESPONSE')]
@@ -54,7 +59,9 @@ class CredentialCheckTests(unittest.TestCase):
         canary = 'credential-canary-never-publish'
         def raises(*args):
             raise RuntimeError(canary)
-        for reply in [lambda *a: (200, {'error': canary}), raises]:
+        for reply in [lambda *a: (200, {'error': canary}),
+                      lambda *a: (400, {'error_code': 400, 'error_message': 'The value for variable api_key ' + canary + ' is not registered.'}),
+                      raises]:
             with tempfile.TemporaryDirectory() as tmp:
                 summary = Path(tmp) / 'summary.md'
                 env = {name: canary for name in STEP['env']}
@@ -89,10 +96,27 @@ class CredentialCheckTests(unittest.TestCase):
         self.assertTrue(all(url.startswith('https://') for url in destinations))
         self.assertFalse(any('/orders' in url or '/account' in url for url in destinations))
 
+    def test_successful_fallback_aliases_do_not_fail(self):
+        for missing in [('ALPHAVANTAGE_API_KEY',), ('BOK_ECOS_API_KEY',),
+                        ('ALPHAVANTAGE_API_KEY', 'BOK_ECOS_API_KEY')]:
+            with self.subTest(missing=missing):
+                env = {name: 'dummy' for name in STEP['env'] if name not in missing}
+                with patch.dict(os.environ, env, clear=True), patch.dict(NS, request=lambda *a: (200, {}), classify=lambda *a: 'PASS'), contextlib.redirect_stdout(io.StringIO()) as out:
+                    self.assertEqual(NS['run'](), 0)
+                report = json.loads(out.getvalue())
+                self.assertEqual(report['alias_warnings'], [])
+                self.assertEqual(report['alias_notices'], [name + ': FALLBACK_USED' for name in missing])
+                self.assertTrue(all(r['result'] == 'PASS' for r in report['results']))
+
     def test_conflicting_alias_is_visible_without_value(self):
-        with patch.dict(os.environ, {'ECOS_API_KEY': 'alternate', 'BOK_ECOS_API_KEY': 'primary'}, clear=True), patch.dict(NS, request=lambda *a: (0, None)), contextlib.redirect_stdout(io.StringIO()) as out:
+        env = {name: 'dummy' for name in STEP['env']}
+        env.update({'ECOS_API_KEY': 'alternate-canary', 'BOK_ECOS_API_KEY': 'primary-canary'})
+        with patch.dict(os.environ, env, clear=True), patch.dict(NS, request=lambda *a: (200, {}), classify=lambda *a: 'PASS'), contextlib.redirect_stdout(io.StringIO()) as out:
             self.assertEqual(NS['run'](), 1)
         self.assertEqual(json.loads(out.getvalue())['alias_warnings'], ['BOK_ECOS_API_KEY: CONFLICT_PRIMARY_USED'])
+        self.assertTrue(all(r['result'] == 'PASS' for r in json.loads(out.getvalue())['results']))
+        self.assertNotIn('alternate-canary', out.getvalue())
+        self.assertNotIn('primary-canary', out.getvalue())
 
 
 if __name__ == '__main__':

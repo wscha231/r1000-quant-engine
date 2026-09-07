@@ -77,8 +77,18 @@ this ledger. Use secret names only.
   paths, immutable data, source hashes or rejection rules were removed.
 - Execution: The user authorized the real check. The workflow runs after its
   own reviewed file changes on master, and also supports manual dispatch;
-  branch and PR updates never invoke vendor keys. This makes the first probe
-  automatic after the normal review and merge gates.
+  the job additionally requires `github.ref == 'refs/heads/master'` so an
+  ordinary manual dispatch against a feature ref is skipped. This makes the
+  first probe automatic after the normal review and merge gates.
+- Exact-head review at `b0e1e9a1b0aeee2a25cd8bf71ce289b61afd30b6`
+  identified the missing manual-ref guard, false failure on working fallback
+  aliases, and generic classification of FRED's HTTP 400 key errors. Added
+  the job guard, separated successful fallback notices from conflict warnings,
+  and classified structured FRED key rejection before generic HTTP failures.
+  Regression checks retain non-green conflicts even when all probes succeed,
+  allow each supported fallback, and suppress credential echoes in HTTP 400
+  responses. A job condition protects normal dispatches; repository write
+  access itself is not a credential sandbox against deliberately changed code.
 - Local caveat: The full P0-4 byte-stability test reached a Parquet mismatch
   with local pandas 2.2.3 / pyarrow 21.0.0, versus the pinned 2.3.3 / 23.0.1.
   Dependency installation could not complete in this environment. Relevant
