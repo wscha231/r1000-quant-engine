@@ -107,23 +107,20 @@ class DataContractTests(unittest.TestCase):
                     with self.assertRaises(OSError): temporary.rename(root / "moved")
                     with self.assertRaises(OSError): temporary.write_bytes(b'{"x":999}')
                 else:
-                    temporary.rename(root / "moved"); temporary.write_bytes(b'{"x":999}')
+                    temporary.write_bytes(b'{"x":999}')
                 return original(temporary, path, **kwargs)
             with patch.object(io, "publish_staged", side_effect=replace_leaf):
-                if os.name == "nt": immutable_json(target, {"x": 1})
-                else:
-                    with self.assertRaisesRegex(ValueError, "staged_file_changed"):
-                        immutable_json(target, {"x": 1})
-            if os.name == "nt": self.assertEqual(read_json(target), {"x": 1}); return
-            self.assertFalse(target.exists())
-        # Even a replacement after the identity check cannot change the inode
-        # selected by the descriptor-backed Linux link operation.
+                immutable_json(target, {"x": 1})
+            self.assertEqual(read_json(target), {"x": 1})
+            if os.name == "nt": return
+        # An in-place write at the final publication boundary must not change
+        # the bytes selected by the retained anonymous Linux descriptor.
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); target = root / "record.json"; held = {}; link = os.link
             def capture(temporary, path, **kwargs):
                 held['path'] = temporary; return original(temporary, path, **kwargs)
             def replace_at_link(*args, **kwargs):
-                held['path'].rename(root / "moved"); held['path'].write_bytes(b'{"x":999}')
+                held['path'].write_bytes(b'{"x":999}')
                 return link(*args, **kwargs)
             with patch.object(io, "publish_staged", side_effect=capture), patch('tools.research_decision_v1.platform_io.os.link', side_effect=replace_at_link):
                 immutable_json(target, {"x": 1})

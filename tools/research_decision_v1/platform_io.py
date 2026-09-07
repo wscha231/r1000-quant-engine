@@ -129,8 +129,12 @@ def output_existing_descriptor(path, parent_descriptor):
 
 def create_staged_descriptor(temporary, parent_descriptor):
     if os.name != "nt":
-        return os.open(temporary.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                       0o600, dir_fd=parent_descriptor)
+        # No directory entry may expose writable staged bytes before publication.
+        # A named inode can be overwritten in place without changing its identity.
+        flag = getattr(os, "O_TMPFILE", None)
+        if flag is None: raise ValueError("anonymous_staging_unavailable")
+        try: return os.open(".", flag | os.O_RDWR, 0o600, dir_fd=parent_descriptor)
+        except OSError as exc: raise ValueError("anonymous_staging_unavailable") from exc
     import msvcrt
     ctypes, kernel, _ = _windows_api()
     # CREATE_NEW, read/write/delete access, READ sharing only, write-through.
@@ -193,11 +197,8 @@ def publish_staged(temporary, path, parent_descriptor=None, staged_descriptor=No
                 if (os.fstat(checked).st_dev, os.fstat(checked).st_ino) != (os.fstat(parent_descriptor).st_dev, os.fstat(parent_descriptor).st_ino):
                     raise ValueError("output_parent_changed")
         except OSError as exc: raise ValueError("output_parent_changed") from exc
-        staged, named = os.fstat(staged_descriptor), os.stat(temporary.name, dir_fd=parent_descriptor, follow_symlinks=False)
-        if (staged.st_dev, staged.st_ino) != (named.st_dev, named.st_ino):
-            raise ValueError("staged_file_changed")
-        # Linux linkat follows the procfs descriptor reference, never a reopened
-        # temporary leaf. Other POSIX platforms fail closed if it is unavailable.
+        # Linux linkat publishes the anonymous inode via its retained descriptor.
+        # There is no temporary leaf for another writer to open or overwrite.
         reference = "/proc/self/fd/" + str(staged_descriptor)
         if not os.path.isdir('/proc/self/fd'): raise ValueError("descriptor_publication_unavailable")
         os.link(reference, path.name, dst_dir_fd=parent_descriptor, follow_symlinks=True)

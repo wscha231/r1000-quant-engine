@@ -66,11 +66,11 @@ def immutable_bytes(path, data):
         try:
             staged_path = path.parent / (".research-stage-" + uuid.uuid4().hex)
             descriptor = create_staged_descriptor(staged_path, parent_descriptor)
-            temporary = staged_path  # Cleanup only a file successfully created here.
+            temporary = staged_path if os.name == "nt" else None
             with os.fdopen(descriptor, "wb") as handle:
                 handle.write(data); handle.flush(); os.fsync(handle.fileno())
                 try:
-                    publish_staged(temporary, path, parent_descriptor=parent_descriptor, staged_descriptor=handle.fileno())
+                    publish_staged(staged_path, path, parent_descriptor=parent_descriptor, staged_descriptor=handle.fileno())
                 except FileExistsError:
                     try:
                         with output_existing_descriptor(path, parent_descriptor) as existing:
@@ -78,11 +78,7 @@ def immutable_bytes(path, data):
                     except (ValueError, OSError) as exc: raise ValueError("immutable_history_conflict") from exc
                 sync_directory(path.parent, descriptor=parent_descriptor)
         finally:
-            if temporary is not None:
-                if os.name == "nt": temporary.unlink(missing_ok=True)
-                else:
-                    try: os.unlink(temporary.name, dir_fd=parent_descriptor)
-                    except FileNotFoundError: pass
+            if temporary is not None: temporary.unlink(missing_ok=True)
     return path
 
 

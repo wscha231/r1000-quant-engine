@@ -173,3 +173,5 @@ Linux links the held inode through /proc/self/fd with linkat and a held target
 dir_fd, rather than reopening the staging leaf. Missing procfs/unsupported
 platform publication fails closed, without a pathname fallback.
 https://man7.org/linux/man-pages/man2/link.2.html
+
+Linux publication requires anonymous `O_TMPFILE` staging and descriptor-backed linking. Unsupported filesystems/platforms fail with `anonymous_staging_unavailable`; no named temporary fallback is used. The Windows retained-handle publication contract is unchanged. A same-name file created by another process is not owned or deleted by this writer. This closes in-place writes through a temporary filename before publication (Linux [open(2)](https://man7.org/linux/man-pages/man2/open.2.html), [link(2)](https://man7.org/linux/man-pages/man2/link.2.html)).

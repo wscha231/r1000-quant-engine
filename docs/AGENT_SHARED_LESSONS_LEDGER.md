@@ -5038,3 +5038,7 @@ open; no target-directory reopening or sharing-guard release is necessary.
   Linux publishes through linkat on /proc/self/fd, with held destination dir_fd,
   so a replacement even after the identity check cannot substitute another inode.
 - Unsupported descriptor-backed publication fails closed; no path fallback.
+
+### 2026-09-07 — Research H1 anonymous publication
+
+PR #399 review 3952185218 reproduced an in-place write after fsync: device/inode identity did not establish byte integrity. Linux now holds an anonymous `O_TMPFILE` inode until descriptor publication; unsupported anonymous staging fails closed. Regression injects the write before publication and at the link boundary; Windows continues to deny write/rename opens with the retained handle.
