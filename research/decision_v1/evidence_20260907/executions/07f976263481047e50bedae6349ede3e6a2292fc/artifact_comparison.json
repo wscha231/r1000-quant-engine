@@ -1,0 +1,20 @@
+{
+  "prior_code_commit": "88d4dfa1322d816481452d16928eb40678a0e999",
+  "current_code_commit": "07f976263481047e50bedae6349ede3e6a2292fc",
+  "same_original_source_inputs": {
+    "us": true,
+    "kr": true
+  },
+  "same_config": true,
+  "same_context": true,
+  "same_actions_weights_and_blockers": true,
+  "prior_decision_hash": "4c1872a55915dc4e6d07002a18f5bd7be118dece2b01b49c2ca609965879302e",
+  "current_decision_hash": "2caf4994a421a59c89c330687efdf108b6a797a51197cfe4fbbe208a9c6f0160",
+  "changed_json_paths": [
+    "/decision_hash",
+    "/input_export_hashes/0",
+    "/input_export_hashes/1"
+  ],
+  "explanation": "H1 admission now reports missing financial reporting timezone among optional extract provenance errors; original inputs and proposal remain unchanged. Synthetic fixtures gained explicit reporting timezone in their own content-addressed input version.",
+  "all_current_repeats_identical": true
+}
