@@ -6,6 +6,7 @@ network, fills a missing value with zero, or imports a production selector.
 from __future__ import annotations
 import copy
 import hashlib
+import ipaddress
 import json
 import math
 import re
@@ -62,7 +63,7 @@ def source_url(value):
         raise ValueError("invalid_source_url")
     # Store a public document URL, never a provider request/signed download URL.
     # Query/fragment rejection is intentionally stronger than a credential-name denylist.
-    if p.query or p.fragment or re.search(r"(?:key|token|secret|signature|credential|pass[a-z]*|pwd|pswd|psw|pword|auth)[=_/:.-]", unquote(p.path), re.I):
+    if p.query or p.fragment or re.search(r"(?:key|token|secret|signature|credential|pass\w*|pwd|pswd|psw|pword|auth)[=_/:.-]", unquote(p.path), re.I):
         raise ValueError("credential_bearing_source")
     if re.search(r"[A-Za-z0-9_]{48,}", unquote(p.path)):
         raise ValueError("opaque_source_path_forbidden")
@@ -75,7 +76,7 @@ def validate_persistable_sources(value, *, real=False):
             normalized_key = re.sub(r"([a-z])([A-Z])", r"\1_\2", key).lower()
             # Deny the entire pass* token family, including pass_word/user_pass;
             # financial/thesis schemas have no persistable password-like field.
-            if re.search(r"(?:^|[_\W])(?:token|secret|pass[a-z]*|pwd|pswd|psw|pword|credentials?|authorization|auth|cookies?|api_?key|private_?key)(?:$|[_\W])", normalized_key):
+            if re.search(r"(?:^|[_\W])(?:token\w*|secret\w*|pass\w*|pwd\w*|pswd\w*|psw\w*|pword\w*|credential\w*|auth\w*|cookie\w*|api_?key\w*|private_?key\w*)(?:$|[_\W])", normalized_key):
                 raise ValueError("credential_field_forbidden")
             if real and key == "feed" and isinstance(child, str) and re.match(r"(?i)^(synthetic|fixture|mock|test|demo)(?:$|[_ :.-])", child):
                 raise ValueError("synthetic_feed_in_real_input")
@@ -88,9 +89,16 @@ def validate_persistable_sources(value, *, real=False):
         # A URL embedded in prose is checked too, before original text is serialized.
         for url in re.findall(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s<>\"']+", value, flags=re.I):
             source_url(url)
-            host = urlsplit(url).hostname
+            host = urlsplit(url).hostname.rstrip(".")
             if real and any(host == x or host.endswith("." + x) for x in ("example.org", "example.com", "example.net", "localhost")):
                 raise ValueError("synthetic_source_in_real_input")
+            if real:
+                try: address = ipaddress.ip_address(host)
+                except ValueError:
+                    if "." not in host or re.fullmatch(r"[0-9.]+", host) or host.endswith((".local", ".internal", ".test", ".invalid", ".example")):
+                        raise ValueError("non_public_source_host")
+                else:
+                    if not address.is_global: raise ValueError("non_public_source_host")
 
 
 @lru_cache(maxsize=128)
@@ -233,7 +241,7 @@ def financial_errors(block, market, cutoff):
         metrics = f["ttm"]
         for k in ("revenue", "ebitda", "net_income", "operating_cash_flow", "capex", "fcf", "sbc", "net_debt", "diluted_shares"):
             number(metrics[k], positive=k in {"revenue", "diluted_shares"}, nonnegative=k in {"capex", "sbc"})
-        if not math.isclose(metrics["fcf"], metrics["operating_cash_flow"] - metrics["capex"], rel_tol=1e-6, abs_tol=.01): errors.append("fcf_identity_mismatch")
+        if not math.isclose(metrics["fcf"], metrics["operating_cash_flow"] - metrics["capex"], rel_tol=0., abs_tol=.01): errors.append("fcf_identity_mismatch")
         if p != block.get("report_period"): errors.append("financial_report_period_mismatch")
         for field, bounds in (("recent_quarters", (70, 110)), ("recent_annual", (350, 380))):
             if not f.get(field): errors.append(field + "_missing")

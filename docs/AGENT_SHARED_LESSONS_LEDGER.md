@@ -4962,3 +4962,10 @@ Expected contract:
 - Reject the full `pass*` key-token family, including split/camel forms such as
   pass_word, user_pass, passcode and userPass. The schema has no legitimate
   password-like metadata field. Alias examples are regression inputs only.
+
+## 2026-09-07 — Research H1 final boundary counterexamples
+- Password tokens include numeric/Unicode suffixes, not only alphabetic text.
+- REAL source provenance rejects non-global literal addresses and local/reserved
+  host forms; no provider request or DNS lookup is introduced by the check.
+- FCF uses absolute cent tolerance with zero relative tolerance. A large value
+  must not conceal a materially incorrect OCF-minus-capex identity.
