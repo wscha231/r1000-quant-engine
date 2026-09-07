@@ -126,6 +126,43 @@ class DataContractTests(unittest.TestCase):
                 immutable_json(target, {"x": 1})
             self.assertEqual(read_json(target), {"x": 1})
 
+    @unittest.skipIf(os.name == "nt", "Linux procfs regression")
+    def test_procfs_overwrite_is_detected_before_success(self):
+        link = os.link
+        def corrupt(*args, **kwargs):
+            with open(args[0], "wb") as handle: handle.write(b'{"x":999}')
+            return link(*args, **kwargs)
+        with tempfile.TemporaryDirectory() as directory:
+            with patch('tools.research_decision_v1.platform_io.os.link', side_effect=corrupt):
+                with self.assertRaisesRegex(ValueError, "published_bytes_mismatch"):
+                    immutable_json(Path(directory)/"record.json", {"x": 1})
+
+    @unittest.skipUnless(os.name == "nt", "Native Windows handle cleanup regression")
+    def test_windows_cleanup_does_not_delete_foreign_replacement(self):
+        from contextlib import contextmanager
+        import tools.research_decision_v1.io as io
+        original, fdopen = io.publish_staged, os.fdopen
+        for collision in (False, True):
+            with tempfile.TemporaryDirectory() as directory:
+                root=Path(directory); target=root/"record.json"; held={}
+                if collision: immutable_json(target, {"x": 1})
+                def publish(temporary, path, **kwargs):
+                    held['path']=temporary
+                    result=original(temporary, path, **kwargs)
+                    temporary.write_bytes(b'foreign')
+                    return result
+                @contextmanager
+                def close_then_replace(*args, **kwargs):
+                    with fdopen(*args, **kwargs) as handle: yield handle
+                    if collision:
+                        temporary=held['path']
+                        if temporary.exists(): temporary.rename(root/"owned-leftover")
+                        temporary.write_bytes(b'foreign')
+                with patch.object(io,"publish_staged",side_effect=publish), patch.object(io.os,"fdopen",side_effect=close_then_replace):
+                    immutable_json(target, {"x": 1})
+                self.assertEqual(held['path'].read_bytes(), b'foreign')
+                self.assertEqual(read_json(target), {"x": 1})
+
     def test_public_availability_and_official_close(self):
         for market in ("US", "KR"):
             b = bundle(market); price = b["securities"][0]["blocks"]["price"]

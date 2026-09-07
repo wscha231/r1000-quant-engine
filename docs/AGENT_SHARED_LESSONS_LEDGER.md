@@ -5042,3 +5042,7 @@ open; no target-directory reopening or sharing-guard release is necessary.
 ### 2026-09-07 — Research H1 anonymous publication
 
 PR #399 review 3952185218 reproduced an in-place write after fsync: device/inode identity did not establish byte integrity. Linux now holds an anonymous `O_TMPFILE` inode until descriptor publication; unsupported anonymous staging fails closed. Regression injects the write before publication and at the link boundary; Windows continues to deny write/rename opens with the retained handle.
+
+### 2026-09-07 — Research H1 verify published bytes and owned cleanup
+
+PR #399 reviews 3952327371/3952327375: anonymous files remain writable through permitted procfs handles. Reproduce that corruption and compare the published bytes before claiming success. Windows cleanup must refer to the retained inode, not a freed staging pathname: mark failed/colliding staging handles for deletion before close and do no path cleanup after successful rename. Native regression preserves foreign files created after both success and collision.

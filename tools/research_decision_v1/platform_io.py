@@ -147,6 +147,20 @@ def create_staged_descriptor(temporary, parent_descriptor):
         raise
 
 
+def discard_staged(staged_descriptor):
+    """Dispose only of the still-owned Windows inode, before closing its handle."""
+    if os.name != "nt": return  # Closing an anonymous inode is sufficient.
+    import msvcrt
+    from ctypes import wintypes
+    ctypes, kernel, _ = _windows_api()
+    kernel.SetFileInformationByHandle.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    kernel.SetFileInformationByHandle.restype = wintypes.BOOL
+    delete = ctypes.c_ubyte(1)  # FILE_DISPOSITION_INFO contains one BOOLEAN.
+    if not kernel.SetFileInformationByHandle(msvcrt.get_osfhandle(staged_descriptor), 4,
+                                             ctypes.byref(delete), ctypes.sizeof(delete)):
+        raise ctypes.WinError(ctypes.get_last_error())
+
+
 def publish_staged(temporary, path, parent_descriptor=None, staged_descriptor=None):
     if os.name == "nt":
         import msvcrt

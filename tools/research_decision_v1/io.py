@@ -6,7 +6,7 @@ import uuid
 from pathlib import Path
 from tools.research_decision_v1.data import canonical, digest
 from tools.research_decision_v1.platform_io import (input_descriptor, is_redirect, publish_staged,
-    sync_directory, output_parent, output_existing_descriptor, create_staged_descriptor)
+    sync_directory, output_parent, output_existing_descriptor, create_staged_descriptor, discard_staged)
 
 
 def descriptor_bytes(descriptor, maximum):
@@ -62,23 +62,35 @@ def immutable_bytes(path, data):
     if ".." in path.parts: raise ValueError("output_symlink")
     if any(is_redirect(p) for p in (path, *path.parents)): raise ValueError("output_symlink")
     with output_parent(path.parent) as parent_descriptor:
-        temporary = None
-        try:
-            staged_path = path.parent / (".research-stage-" + uuid.uuid4().hex)
-            descriptor = create_staged_descriptor(staged_path, parent_descriptor)
-            temporary = staged_path if os.name == "nt" else None
-            with os.fdopen(descriptor, "wb") as handle:
+        staged_path = path.parent / (".research-stage-" + uuid.uuid4().hex)
+        descriptor = create_staged_descriptor(staged_path, parent_descriptor)
+        with os.fdopen(descriptor, "wb") as handle:
+            published = False
+            try:
                 handle.write(data); handle.flush(); os.fsync(handle.fileno())
                 try:
                     publish_staged(staged_path, path, parent_descriptor=parent_descriptor, staged_descriptor=handle.fileno())
+                    published = True
                 except FileExistsError:
                     try:
                         with output_existing_descriptor(path, parent_descriptor) as existing:
                             if descriptor_bytes(existing, len(data)) != data: raise ValueError("immutable_history_conflict")
                     except (ValueError, OSError) as exc: raise ValueError("immutable_history_conflict") from exc
                 sync_directory(path.parent, descriptor=parent_descriptor)
-        finally:
-            if temporary is not None: temporary.unlink(missing_ok=True)
+                # Check published bytes before reporting success. On Windows the
+                # retained handle prevents target replacement and writable opens;
+                # reopening it would conflict with its WRITE/DELETE sharing guard.
+                try:
+                    if os.name == "nt" and published:
+                        os.lseek(handle.fileno(), 0, os.SEEK_SET)
+                        actual = descriptor_bytes(handle.fileno(), len(data))
+                    else:
+                        with output_existing_descriptor(path, parent_descriptor) as existing:
+                            actual = descriptor_bytes(existing, len(data))
+                    if actual != data: raise ValueError("published_bytes_mismatch")
+                except (ValueError, OSError) as exc: raise ValueError("published_bytes_mismatch") from exc
+            finally:
+                if not published: discard_staged(handle.fileno())
     return path
 
 
