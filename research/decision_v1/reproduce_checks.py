@@ -57,7 +57,7 @@ def main():
               'profitability_validated': False, 'oos_validated': False, 'cases': {}}
     for label, counts in [('REAL_PILOT', None), ('SYNTHETIC_3', (2, 1)), ('SYNTHETIC_7', (5, 2))]:
         if counts is None:
-            us_path, kr_path, ctx_path = evidence/'us_pilot_input.json', evidence/'kr_pilot_input.json', evidence/'context.json'
+            us_path, kr_path, ctx_path = evidence/'us_pilot_input.json', evidence/'kr_pilot_input.json', evidence/'context_v2.json'
             expected = 2
         else:
             us_input, kr_input, ctx = fixture_set('US', counts[0]), fixture_set('KR', counts[1]), context()
