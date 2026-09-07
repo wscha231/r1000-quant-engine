@@ -137,3 +137,7 @@ original manifests, byte-verified against the corresponding original execution.
 Final H2 registration is causally published in `952cc369377a7dee0baf29ea853d186a8df528ff`, based on H1
 `c4d53151b09be5f53d6bb424ef4b60d4b3fc86e1`. The protected-publication pin
 advances to that ancestor; verifier behavior and frozen inventory are unchanged.
+
+Admission identity follow-up: H2 registration is republished in `7e44b2f8a6c3f35c4e3c5adc935f956f9a3dbab7`
+on H1 `be373ffa1c5723696e3823ee07de17d3c8b65445`; the matching protected-publication
+pin follows that ancestor. Verifier logic, inventory and numeric research rules remain fixed.
