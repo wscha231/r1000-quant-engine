@@ -172,6 +172,29 @@ class DataContractTests(unittest.TestCase):
             block["payload"][field][0]["start"] += "T23:59:59"; rehash(block)
             self.assertIn("financials_invalid_or_missing", self.result(b)["blockers"])
 
+    def test_publication_cannot_follow_claimed_public_availability(self):
+        b = bundle(); security = b["securities"][0]; block = security["blocks"]["financials"]
+        block.update(published_at="2026-08-02T12:00:00Z", public_available_at="2026-08-01T12:00:00Z")
+        self.assertIn("publication_after_public_availability", envelope_errors(block, security, b["decision_cutoff"]))
+        block["published_at"] = None
+        self.assertNotIn("publication_after_public_availability", envelope_errors(block, security, b["decision_cutoff"]))
+
+    def test_source_url_ports_are_validated(self):
+        from tools.research_decision_v1.data import validate_persistable_sources
+        for port in ("bad", "99999", "-1", "0"):
+            with self.assertRaisesRegex(ValueError, "invalid_source_url"):
+                validate_persistable_sources({"source":"https://www.sec.gov:"+port+"/report"}, real=True)
+        validate_persistable_sources({"source":"https://www.sec.gov:443/report"}, real=True)
+
+    def test_benchmark_volume_is_unused_and_security_volume_is_required(self):
+        for market in ("US", "KR"):
+            b = bundle(market); block = b["securities"][0]["blocks"]["price"]
+            block["payload"]["benchmark_bars"] = copy.deepcopy(block["payload"]["benchmark_bars"])
+            for bar in block["payload"]["benchmark_bars"]: del bar["volume"]
+            rehash(block); self.assertTrue(self.result(b)["data_quality_pass"])
+            del block["payload"]["bars"][-1]["volume"]; rehash(block)
+            self.assertFalse(self.result(b)["data_quality_pass"])
+
     def test_fcf_identity_does_not_allow_magnitude_scaled_error(self):
         b = bundle(); block = b["securities"][0]["blocks"]["financials"]
         block["payload"]["ttm"].update(operating_cash_flow=1e12, capex=500000., fcf=1e12); rehash(block)

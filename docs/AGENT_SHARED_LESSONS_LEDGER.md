@@ -4984,3 +4984,9 @@ Expected contract:
   advance a financial observation. History boundaries require exact dates.
 - Content-addressed exports include the imported admission module fingerprint,
   so source changes remain distinguishable outside the producing checkout.
+
+## 2026-09-07 — Research H1 ninth review / observation and index semantics
+- Enforce publication <= public availability when both are known.
+- URL splitting alone does not validate ports; evaluate the parsed port too.
+- Only tradable security volume belongs in liquidity admission. An index
+  benchmark needs aligned return data, not a fabricated trading-volume field.

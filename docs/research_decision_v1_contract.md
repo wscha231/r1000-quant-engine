@@ -133,3 +133,9 @@ All TTM/history boundaries are canonical date-only values with exact adjacent
 dates. Exports include the admission module source SHA256 captured at import
 (normalized LF), in addition to dependency versions and the input hash. It is
 part of export_hash; KR/H2 verified loaders bind this to their source snapshot.
+
+Ninth-review corrections: known publication cannot follow claimed public
+availability. Source URLs validate parsed ports (1..65535) before persistence.
+Liquidity requires security-bar share volume; benchmark volume is unused and
+may be absent, including non-tradable KR total-return index series. No zero
+volume is invented for a missing benchmark field.

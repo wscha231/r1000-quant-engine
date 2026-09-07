@@ -68,6 +68,10 @@ def source_url(value):
     p = urlsplit(value)
     if p.scheme != "https" or not p.hostname or p.username or p.password:
         raise ValueError("invalid_source_url")
+    try:
+        port = p.port
+        if port is not None and not 1 <= port <= 65535: raise ValueError("invalid_port")
+    except ValueError: raise ValueError("invalid_source_url") from None
     # Store a public document URL, never a provider request/signed download URL.
     # Query/fragment rejection is intentionally stronger than a credential-name denylist.
     if p.query or p.fragment or re.search(r"(?:key|token|secret|signature|credential|pass\w*|pwd|pswd|psw|pword|auth)[=_/:.-]", unquote(p.path), re.I):
@@ -173,6 +177,8 @@ def envelope_errors(block, security, cutoff):
         if timestamp(block["first_seen_at"]) > timestamp(block["ingested_at"]): errors.append("observation_order")
         if block.get("public_available_at") and timestamp(block["public_available_at"]) > timestamp(block["first_seen_at"]):
             errors.append("availability_after_observation")
+        if block.get("published_at") and block.get("public_available_at") and timestamp(block["published_at"]) > timestamp(block["public_available_at"]):
+            errors.append("publication_after_public_availability")
         if block.get("published_at") and timestamp(block["published_at"]) > timestamp(block["first_seen_at"]):
             errors.append("publication_after_observation")
         if block.get("data_hash") != digest(block.get("payload")): errors.append("data_hash_mismatch")
@@ -243,7 +249,8 @@ def price_analysis(payload, market, cutoff, listing_board=None):
         if ds[-1] != latest: raise ValueError("stale_or_future_price")
         if tuple(ds) != sessions(market, ds[0], cutoff): raise ValueError("calendar_gap_or_non_session")
         for b in rows:
-            number(b["close"], positive=True); number(b["volume"], nonnegative=True)
+            number(b["close"], positive=True)
+            if rows is bars: number(b["volume"], nonnegative=True)
             number(b["split_ratio"], positive=True); number(b["dividend"], nonnegative=True)
             if action_status == "no_event" and (b["split_ratio"] != 1 or b["dividend"] != 0):
                 raise ValueError("no_event_conflicts_with_corporate_action")
