@@ -155,3 +155,7 @@ boolean flags are typed before constructing the sanitizer view. These flags
 never affect current admission/ranks. Missing-evidence holdings cannot complete
 5+2 or full research coverage. Accepted CRLF checkouts execute/hash normalized
 Git blob bytes, and an LF/CRLF replay retains the identical immutable receipt.
+
+Third H2 review registration is causally published in `0396f8d8e8b3f4b51152c106051d448048cd151e`
+on H1 `956a3578a5ef41c72860085ac462d38ffcce926d`; the protected-publication pin
+advances to this ancestor without changing verifier behavior or frozen inventory.
