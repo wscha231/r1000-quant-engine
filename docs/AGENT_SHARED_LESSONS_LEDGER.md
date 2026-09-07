@@ -4977,3 +4977,10 @@ Expected contract:
   legacy hexadecimal/numeric forms without performing DNS or network calls.
 - Pin financial reporting-day timezone bytes, not just the ZoneInfo API.
   Counterexamples cover host-lookup avoidance and mismatched database versions.
+
+## 2026-09-07 — Research H1 eighth review / admission identity and boundaries
+- Special-use namespaces are not public filing provenance, even with DNS shape.
+- The supported market fixes the reporting-day timezone; arbitrary zones cannot
+  advance a financial observation. History boundaries require exact dates.
+- Content-addressed exports include the imported admission module fingerprint,
+  so source changes remain distinguishable outside the producing checkout.

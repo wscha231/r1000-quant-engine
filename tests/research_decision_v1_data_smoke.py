@@ -124,7 +124,8 @@ class DataContractTests(unittest.TestCase):
     def test_real_provenance_rejects_nonpublic_literal_and_local_hosts(self):
         from tools.research_decision_v1.data import validate_persistable_sources
         for host in ("127.0.0.1", "[::1]", "[::ffff:127.0.0.1]", "10.2.3.4", "169.254.169.254", "100.64.0.1",
-                     "192.0.2.1", "127.1", "2130706433", "internal", "data.local", "data.internal", "localhost.", "0x7f.0.0.1", "0x7f.1", "127.0x0.0.1", "０x７f.１", "%31%32%37.1", "8.8.8.8"):
+                     "192.0.2.1", "127.1", "2130706433", "internal", "data.local", "data.internal", "localhost.", "0x7f.0.0.1", "0x7f.1", "127.0x0.0.1", "０x７f.１", "%31%32%37.1", "8.8.8.8", "router.home.arpa", "resolver.arpa", "service.arpa", "hidden.onion", "name.alt", "router.lan"):
+
 
             with self.assertRaises(ValueError): validate_persistable_sources({"source": "https://"+host+"/report"}, real=True)
         validate_persistable_sources({"source": "https://www.sec.gov/Archives/report"}, real=True)
@@ -146,6 +147,30 @@ class DataContractTests(unittest.TestCase):
         with patch("tzdata.__version__", "unfrozen"):
             with self.assertRaisesRegex(ValueError, "version_mismatch"): reporting_zone("America/New_York")
         with self.assertRaises(ValueError): reporting_zone("../UTC")
+
+    def test_export_carries_admission_source_fingerprint(self):
+        import hashlib
+        from tools.research_decision_v1 import data
+        result = export_market(bundle(), "US")
+        expected = hashlib.sha256(Path(data.__file__).read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+        self.assertEqual(result["admission_source"]["sha256"], expected)
+        changed = copy.deepcopy(result); changed["admission_source"]["sha256"] = "0"*64
+        from tools.research_decision_v1.data import digest
+        changed.pop("export_hash")
+        self.assertNotEqual(digest(changed), result["export_hash"])
+
+    def test_financial_timezone_cannot_move_the_market_boundary(self):
+        for market in ("US", "KR"):
+            b = bundle(market); security = b["securities"][0]; block = security["blocks"]["financials"]
+            block["reporting_timezone"] = "Pacific/Kiritimati"
+            for field in ("published_at", "public_available_at", "first_seen_at", "ingested_at"): block[field] = "2026-06-30T11:00:00Z"
+            self.assertIn("reporting_timezone_market_mismatch", envelope_errors(block, security, b["decision_cutoff"]))
+
+    def test_history_boundaries_reject_datetime_truncation(self):
+        for field in ("recent_quarters", "recent_annual"):
+            b = bundle(); block = b["securities"][0]["blocks"]["financials"]
+            block["payload"][field][0]["start"] += "T23:59:59"; rehash(block)
+            self.assertIn("financials_invalid_or_missing", self.result(b)["blockers"])
 
     def test_fcf_identity_does_not_allow_magnitude_scaled_error(self):
         b = bundle(); block = b["securities"][0]["blocks"]["financials"]

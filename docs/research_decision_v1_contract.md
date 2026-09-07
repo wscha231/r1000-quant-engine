@@ -122,3 +122,14 @@ Financial reporting-day completion reads `tzdata==2026.3` package bytes through
 ZoneInfo.from_file, independent of host TZPATH and cached system ZoneInfo objects.
 The export records the pinned database version. Missing/mismatched timezone
 data blocks financial admission, and does not fall back to the host database.
+
+Eighth-review corrections: REAL provenance also excludes special-use DNS
+namespaces (including home.arpa, onion and alt) and private naming conventions.
+Registry reference: https://www.iana.org/assignments/special-use-domain-names
+The V1 financial boundary is tied to the supported market timezone: US
+America/New_York, KR Asia/Seoul. Other reporting jurisdictions need a separate
+verified contract extension; an arbitrary IANA zone cannot advance admission.
+All TTM/history boundaries are canonical date-only values with exact adjacent
+dates. Exports include the admission module source SHA256 captured at import
+(normalized LF), in addition to dependency versions and the input hash. It is
+part of export_hash; KR/H2 verified loaders bind this to their source snapshot.

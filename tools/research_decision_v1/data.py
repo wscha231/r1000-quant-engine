@@ -12,6 +12,7 @@ import math
 import re
 import unicodedata
 from importlib import resources
+from pathlib import Path
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from functools import lru_cache
@@ -22,6 +23,9 @@ MARKETS = {"US": ("USD", "NYSE"), "KR": ("KRW", "XKRX")}
 CORE = ("price", "financials", "thesis", "risk")
 CALENDAR_VERSION = "5.4.0"
 TZDATA_VERSION = "2026.3"
+REPORTING_TIMEZONES = {"US": "America/New_York", "KR": "Asia/Seoul"}
+# Captured on import; the verified KR/H2 loaders import their checked snapshot.
+_ADMISSION_SOURCE_HASH = hashlib.sha256(Path(__file__).read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
 def canonical(value):
@@ -111,7 +115,7 @@ def validate_public_source_host(host):
     if (len(labels) < 2 or len(host) > 253 or
         any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) for label in labels) or
         re.fullmatch(r"[0-9]+|0x[0-9a-f]+", labels[-1]) or
-        host.endswith((".local", ".internal", ".test", ".invalid", ".example"))):
+        host.endswith((".local", ".internal", ".test", ".invalid", ".example", ".arpa", ".onion", ".alt", ".home", ".lan", ".corp", ".mail"))):
         raise ValueError("non_public_source_host")
 
 
@@ -186,6 +190,8 @@ def envelope_errors(block, security, cutoff):
                 # A date denotes the complete reporting day in the issuer's
                 # explicit reporting timezone, not 00:00 UTC on that date.
                 if not block.get("reporting_timezone"): errors.append("reporting_timezone_required")
+                elif block["reporting_timezone"] != REPORTING_TIMEZONES.get(security["market"]):
+                    errors.append("reporting_timezone_market_mismatch")
                 else:
                     complete = datetime.combine(end + timedelta(days=1), time.min, tzinfo=reporting_zone(block["reporting_timezone"]))
                     for field in ("published_at", "public_available_at", "first_seen_at", "ingested_at"):
@@ -254,13 +260,19 @@ def price_analysis(payload, market, cutoff, listing_board=None):
             "adv20_local": sum(b["close"] * b["volume"] for b in bars[-20:]) / 20}
 
 
+def financial_date(value):
+    if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        raise ValueError("financial_date_only_required")
+    return date.fromisoformat(value)
+
+
 def financial_errors(block, market, cutoff):
     errors = []
     try:
         f = block["payload"]; p = f["period"]
-        start, end = datetime.fromisoformat(p["start"]), datetime.fromisoformat(p["end"])
+        start, end = financial_date(p["start"]), financial_date(p["end"])
         if not 350 <= (end-start).days <= 380: errors.append("ttm_period_invalid")
-        age = (timestamp(cutoff).date() - end.date()).days
+        age = (timestamp(cutoff).date() - end).days
         if age < 0 or age > 210: errors.append("financials_future_or_stale")
         expected_basis = "US_GAAP" if market == "US" else "K_IFRS_CONSOLIDATED"
         if block["accounting_basis"] != expected_basis: errors.append("accounting_basis_unverified")
@@ -275,14 +287,14 @@ def financial_errors(block, market, cutoff):
             ends = [row["end"] for row in f.get(field, [])]
             if len(ends) != len(set(ends)): errors.append(field + "_duplicate")
             if ends and field == "recent_quarters" and max(ends) != p["end"]: errors.append("recent_quarters_not_current")
-            if ends and field == "recent_annual" and (end - datetime.fromisoformat(max(ends))).days > 370:
+            if ends and field == "recent_annual" and (end - financial_date(max(ends))).days > 370:
                 errors.append("recent_annual_stale")
             ordered = sorted(f.get(field, []), key=lambda row: row["start"])
             for previous, current in zip(ordered, ordered[1:]):
-                if (datetime.fromisoformat(current["start"]) - datetime.fromisoformat(previous["end"])).days != 1:
+                if financial_date(current["start"]) != financial_date(previous["end"]) + timedelta(days=1):
                     errors.append(field + "_gap_or_overlap")
             for row in f.get(field, []):
-                s, e = datetime.fromisoformat(row["start"]), datetime.fromisoformat(row["end"])
+                s, e = financial_date(row["start"]), financial_date(row["end"])
                 if not bounds[0] <= (e-s).days <= bounds[1] or e > end: errors.append(field + "_period_invalid")
                 number(row["revenue"], nonnegative=True)
     except (KeyError, ValueError, TypeError): errors.append("financials_invalid_or_missing")
@@ -371,6 +383,7 @@ def export_market(bundle, expected_market):
               "data_kind": bundle["data_kind"], "decision_cutoff": cutoff,
               "calendar_engine": {"name": "pandas_market_calendars", "version": CALENDAR_VERSION},
               "reporting_timezone_database": {"name": "tzdata", "version": TZDATA_VERSION, "lookup": "package_bytes"},
+              "admission_source": {"path": "tools/research_decision_v1/data.py", "sha256": _ADMISSION_SOURCE_HASH, "basis": "source_bytes_lf_captured_at_import"},
               "source_input_hash": digest(bundle), "input_snapshot": copy.deepcopy(bundle),
               "securities": sorted(rows, key=lambda s: str(s["security_id"])),
               "orders_allowed": False}
