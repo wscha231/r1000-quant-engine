@@ -164,3 +164,7 @@ Previous research outputs retain their typed historical ranks only for the
 change ledger. Whole-record credential validation runs before reuse; consumed
 security identities, rank types and closed component hashes are checked. The
 raw-input rank/readiness prohibition remains independent and unchanged.
+
+Current H2 registration is causally published in 17a83fd54a4a705d37e2643a68127d656db84b5f
+on final H1 205280894e73e09093175288720b63b7f64394d3. Only the
+publication pin advances; protected paths, verifier and research settings stay fixed.
