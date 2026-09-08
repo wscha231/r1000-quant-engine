@@ -236,6 +236,13 @@ def evaluate(packet: Mapping[str, Any], prior: Mapping[str, Any] | None = None) 
     if not contiguous and prior is not None:
         reason.append("session_gap_resets_confirmation")
     desired = min(cap, capacity, max(0.0, base + tilt))
+    # Retaining filled fear exposure is HOLD authority, not an evergreen buy.
+    # Unfilled increments require current qualification and session confirmation.
+    # The independent upstream baseline may still rise; never sell a held panic
+    # addition solely because sentiment normalized or confirmation was interrupted.
+    if tilt > 0 and "qualified_fear_add" not in reason:
+        desired = min(desired, max(current, base))
+        reason.append("retained_fear_tilt_hold_only")
     if not buys or risk_bad or not business_ok:
         desired = min(desired, current)
         reason.append("no_exposure_increase")
