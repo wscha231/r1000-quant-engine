@@ -9,10 +9,16 @@ def context_errors(context, config, cutoff):
     errors = []
     if context.get("mode") == "NEW_CAPITAL_RESEARCH" and context.get("capital_is_assumption") is not True:
         errors.append("new_capital_requires_explicit_assumption")
+    # Account/capital, FX and regime are separate dependency gates. In
+    # particular, missing research capital must not invalidate valid FX ranks.
     try:
         if context["decision_cutoff"] != cutoff: errors.append("context_cutoff_mismatch")
         if context["mode"] not in {"NEW_CAPITAL_RESEARCH", "EXISTING_BOOK_PROPOSAL"}: errors.append("invalid_account_mode")
+    except (ValueError, KeyError, TypeError): errors.append("account_context_unverified")
+    try:
         number(context["capital_krw"], positive=True)
+    except (ValueError, KeyError, TypeError): errors.append("capital_unverified")
+    try:
         fx = context["fx"]
         if fx["status"] != "available" or fx["pair"] != "KRW_PER_USD": errors.append("fx_unavailable_or_pair_invalid")
         source_url(fx["source"]); number(fx["spot"], positive=True)
@@ -20,7 +26,7 @@ def context_errors(context, config, cutoff):
         if not 0 <= age <= config["fx_max_age_hours"]: errors.append("fx_future_or_stale")
         if fx["assumption_type"] != "SUBJECTIVE_SCENARIO" or set(fx["scenario_rates"]) != {"Bear", "Base", "Bull"}: errors.append("fx_scenarios_invalid")
         for value in fx["scenario_rates"].values(): number(value, positive=True)
-    except (ValueError, KeyError, TypeError): errors.append("fx_or_capital_unverified")
+    except (ValueError, KeyError, TypeError): errors.append("fx_unverified")
     try:
         regime = context["regime"]; source_url(regime["source"])
         age = (timestamp(cutoff)-timestamp(regime["observed_at"])).total_seconds()/3600
@@ -29,6 +35,20 @@ def context_errors(context, config, cutoff):
             errors.append("regime_unverified")
     except (ValueError, KeyError, TypeError): errors.append("regime_unverified")
     return sorted(set(errors))
+
+
+
+def investment_eligible(row):
+    """Missing opt-in evidence blocks investment use, not financial calculation."""
+    gate=row.get("quality_gate")
+    return gate is None or (isinstance(gate,dict) and gate.get("required") is True and gate.get("eligible") is True)
+
+
+def enforce_quality_questions(row):
+    if not investment_eligible(row):
+        company=row["four_questions"]["good_company"]
+        row["four_questions"].update(good_stock="fail" if company=="fail" else "unverified_quality",
+            buy_price_now="wait" if row["valuation_ready"] else "unverified")
 
 
 def add_fx_returns(rows, context, config, fx_valid):
@@ -43,8 +63,9 @@ def add_fx_returns(rows, context, config, fx_valid):
             number(benchmark)
             row["expected_excess_return"] = row["expected_total_return"] - benchmark
             row["benchmark_forecast_type"] = "SUBJECTIVE_SCENARIO"
-        if not fx_valid:
+        if not fx_valid and row["currency"] != "KRW":
             row["four_questions"].update(good_stock="unverified_fx", buy_price_now="unverified_fx")
+            enforce_quality_questions(row)
             continue
         converted = []
         for s in row["scenarios"]:
@@ -58,15 +79,16 @@ def add_fx_returns(rows, context, config, fx_valid):
                    investment_utility_krw=utility)
         row["four_questions"].update(good_stock="pass" if utility > 0 else "fail",
                                      buy_price_now="pass" if row["expected_net_return_krw"] >= config["new_entry_net_return"] else "wait")
+        enforce_quality_questions(row)
     # Deterministic ID tie-break; no momentum or NONRANKING values in either rank.
     for market in ("US", "KR"):
         group = [r for r in rows if r["market"] == market and r["valuation_ready"]]
         for rank, r in enumerate(sorted(group, key=lambda r: (-r["expected_total_return"], r["security_id"])), 1): r["expected_return_rank_local"] = rank
-        for rank, r in enumerate(sorted(group, key=lambda r: (-r["investment_utility"], -r["expected_total_return"], r["security_id"])), 1): r["investment_rank_local"] = rank
+        for rank, r in enumerate(sorted((r for r in group if investment_eligible(r)), key=lambda r: (-r["investment_utility"], -r["expected_total_return"], r["security_id"])), 1): r["investment_rank_local"] = rank
     if fx_valid:
         group = [r for r in rows if r["valuation_ready"]]
         for rank, r in enumerate(sorted(group, key=lambda r: (-r["expected_total_return_krw"], r["security_id"])), 1): r["expected_return_rank"] = rank
-        for rank, r in enumerate(sorted(group, key=lambda r: (-r["investment_utility_krw"], -r["expected_total_return_krw"], r["security_id"])), 1): r["investment_rank"] = rank
+        for rank, r in enumerate(sorted((r for r in group if investment_eligible(r)), key=lambda r: (-r["investment_utility_krw"], -r["expected_total_return_krw"], r["security_id"])), 1): r["investment_rank"] = rank
 
 
 def read_book(context, ids, cutoff):
@@ -180,6 +202,65 @@ def replacement_net_improvement(incumbent, candidate, config):
     return candidate["investment_utility_krw"]-incumbent["investment_utility_krw"]-costs
 
 
+
+def fund_targets(desired, prior, securities, context, config):
+    """Self-financing targets; HOLD means unchanged notional, not hidden trades.
+
+    Desired tradable weights use post-cost NAV. Preserved HOLDs keep their
+    pre-trade notional. Solve lambda + sum(c_i*|D_i(lambda)-U_i|) = 1,
+    where D_i=lambda*w_i except HOLD D_i=U_i. No fees are borrowed or ignored.
+    A fee-induced direction reversal or infeasible cash balance blocks the
+    proposal rather than silently selling an intact holding or adding capital.
+    This is an estimated funding identity, not an execution or tax simulation.
+    """
+    capital = number(context["capital_krw"], positive=True)
+    ids = sorted(set(desired) | set(prior))
+    targets = {sid: number(desired.get(sid, 0.), nonnegative=True) for sid in ids}
+    old = {sid: number(prior.get(sid, 0.), nonnegative=True) for sid in ids}
+    if sum(targets.values()) > 1 + 1e-12 or sum(old.values()) > 1 + 1e-12:
+        raise ValueError("funding_overallocated")
+    rates = {sid: number(config["one_way_cost_bps"][securities[sid]["market"]], nonnegative=True)/10000 for sid in ids}
+    if any(c >= 1 for c in rates.values()): raise ValueError("funding_cost_domain")
+    held = {sid for sid in ids if old[sid] > 0 and targets[sid] == old[sid]}
+    if sum(rates[sid]*targets[sid] for sid in ids if sid not in held) >= 1:
+        raise ValueError("funding_not_contracting")
+    def notionals(scale):
+        return {sid: old[sid] if sid in held else scale*targets[sid] for sid in ids}
+    def cost(scale):
+        amounts = notionals(scale)
+        return sum(rates[sid]*abs(amounts[sid]-old[sid]) for sid in ids)
+    if cost(0.) > 1: raise ValueError("funding_insolvent")
+    lo, hi = 0., 1.
+    for _ in range(80):
+        mid = (lo+hi)/2
+        if mid+cost(mid) > 1: hi=mid
+        else: lo=mid
+    scale = (lo+hi)/2
+    if scale <= 0: raise ValueError("funding_nonpositive_nav")
+    amounts = notionals(scale)
+    fees = cost(scale)
+    cash = scale-sum(amounts.values())
+    if cash < -1e-12: raise ValueError("funding_insufficient_cash")
+    cash = max(0., cash)
+    for sid in ids:
+        intended, trade = targets[sid]-old[sid], amounts[sid]-old[sid]
+        if (intended > 0 and trade < -1e-12) or (intended < 0 and trade > 1e-12):
+            raise ValueError("funding_changes_trade_direction")
+    if not math.isclose(sum(amounts.values())+cash+fees,1.,abs_tol=1e-11):
+        raise ValueError("funding_conservation_failed")
+    return {"schema_version":"research-self-financing-v1", "initial_nav_krw":capital,
+        "post_cost_nav_krw":capital*scale, "post_cost_nav_fraction":scale,
+        "cost_fraction_initial_nav":fees, "transaction_cost_krw":capital*fees,
+        "position_fraction_initial_nav":amounts,
+        "position_values_krw":{sid:capital*w for sid,w in amounts.items()},
+        "trade_fraction_initial_nav":{sid:amounts[sid]-old[sid] for sid in ids},
+        "target_weights":{sid:w/scale for sid,w in amounts.items()},
+        "cash_krw":capital*cash, "cash_weight":cash/scale,
+        "turnover_initial_nav":sum(abs(amounts[sid]-old[sid]) for sid in ids),
+        "preserved_notional_hold_ids":sorted(held), "actual_execution_verified":False,
+        "personal_income_tax_included":False}
+
+
 def propose(rows, securities, context, config, common_errors, cutoff):
     # Each retry removes one infeasible new name. Recompute the whole retained-
     # incumbent comparison so new count slots can reach the next ranked name.
@@ -227,8 +308,10 @@ def _propose_once(rows, securities, context, config, common_errors, cutoff, excl
         if sid in excluded_new:
             reasons[sid].append("allocation_below_minimum_after_incumbent_capacity"); continue
         if not r["valuation_ready"]: continue
+        if not investment_eligible(r):
+            reasons[sid].append("quality_review_required_for_investment"); continue
         s = securities[sid]; t, risk = s["blocks"]["thesis"]["payload"], s["blocks"]["risk"]["payload"]
-        if risk["integrity_alert"] or risk["liquidity_restriction"] or not t["intact"] or t["company_quality"] != "pass":
+        if risk["integrity_alert"] or risk["liquidity_restriction"] or not t["intact"] or r["four_questions"]["good_company"] != "pass":
             reasons[sid].append("thesis_quality_or_risk_gate"); continue
         threshold = config["hold_net_return"] if prior.get(sid, 0.) else config["new_entry_net_return"]
         if r["expected_net_return_krw"] < threshold or r["investment_utility_krw"] <= 0:
@@ -243,7 +326,7 @@ def _propose_once(rows, securities, context, config, common_errors, cutoff, excl
         replacement_ids = set()
         for sid, old in prior.items():
             s = securities[sid]; row = by_id[sid]
-            if not row["valuation_ready"]:
+            if not row["valuation_ready"] or not investment_eligible(row):
                 proposal["blockers"].append(sid+":incumbent_evidence_missing_preserve_book")
                 continue
             thesis = s["blocks"]["thesis"]["payload"]
@@ -347,21 +430,44 @@ def _propose_once(rows, securities, context, config, common_errors, cutoff, excl
         failed_new = [r["security_id"] for r in eligible if r["security_id"] not in prior
                       and r["security_id"] in weights and weights[r["security_id"]] <= 0]
         if failed_new: return {"_retry_excluding": failed_new[-1]}
-    audit = constraint_audit(weights, securities, rows, context, config, prior)
-    # Existing-book no-trade preservation may conflict with hard risk caps. Surface
-    # the conflict for review instead of silently overriding a thesis or a cap.
+    # Funding and risk use the same post-cost denominator. Do not label an
+    # unchanged HOLD notional an ADD merely because costs reduced total NAV.
+    try:
+        funding = fund_targets(weights, prior, securities, context, config)
+    except (ValueError, KeyError, TypeError) as exc:
+        proposal["blockers"].append("funding:"+str(exc))
+        proposal.update(cash_weight=cash_prior, cash_is_unallocated_fallback=not bool(prior),
+                        target_weight_basis="UNCHANGED_PRE_TRADE_NAV", funding=None)
+        for r in rows:
+            sid=r["security_id"]
+            r["four_questions"]["portfolio_value"]="blocked_funding"
+            proposal["rows"].append({"security_id":sid,"action":"HOLD" if prior.get(sid) else "WAIT",
+                "previous_weight":prior.get(sid,0.),"target_weight":prior.get(sid,0.),
+                "reasons":reasons[sid]+proposal["blockers"]})
+        return proposal
+    weights = funding["target_weights"]
+    scale = funding["post_cost_nav_fraction"]
+    funded_context = dict(context, capital_krw=funding["post_cost_nav_krw"])
+    funded_prior = {sid:w/scale for sid,w in prior.items()}
+    audit = constraint_audit(weights, securities, rows, funded_context, config, funded_prior)
+    # Existing-book no-trade preservation may conflict with hard risk caps.
+    # Surface that conflict instead of bypassing the cap or selling silently.
     proposal["blockers"] += audit["violations"]
-    valuation_observed = any(r["valuation_ready"] for r in rows)
+    valuation_observed = any(r["valuation_ready"] and
+        ("quality_gate" not in r or r["quality_gate"].get("review_complete") is True) for r in rows)
     proposal.update(ready=not proposal["blockers"] and valuation_observed, constraints=audit,
-                    cash_weight=1-sum(weights.values()), cash_is_unallocated_fallback=not valuation_observed,
-                    turnover=sum(abs(weights.get(sid, 0.)-prior.get(sid, 0.)) for sid in set(weights)|set(prior)),
-                    estimated_one_way_cost_fraction=sum(abs(weights.get(sid, 0.)-prior.get(sid, 0.))*config["one_way_cost_bps"][securities[sid]["market"]]/10000 for sid in set(weights)|set(prior)),
+                    cash_weight=funding["cash_weight"], cash_is_unallocated_fallback=not valuation_observed,
+                    cash_reason="RESEARCH_POLICY_RESIDUAL" if valuation_observed else "UNALLOCATED_MISSING_EVIDENCE",
+                    target_weight_basis="POST_COST_NAV", previous_weight_basis="PRE_TRADE_NAV",
+                    funding=funding, turnover=funding["turnover_initial_nav"],
+                    estimated_one_way_cost_fraction=funding["cost_fraction_initial_nav"],
                     tax_status="personal_income_tax_not_modeled; friction assumptions are not verified tax rates")
     for r in rows:
         sid = r["security_id"]; w, old = weights.get(sid, 0.), prior.get(sid, 0.)
+        amount = funding["position_fraction_initial_nav"].get(sid, 0.)
         if old and w == 0: action = "EXCLUDE"
-        elif old and w < old-1e-10: action = "REDUCE"
-        elif old and w > old+1e-10: action = "ADD"
+        elif old and amount < old-1e-10: action = "REDUCE"
+        elif old and amount > old+1e-10: action = "ADD"
         elif old: action = "HOLD"
         elif w: action = "ENTER"
         elif not r["valuation_ready"]: action = "WAIT"
@@ -369,5 +475,5 @@ def _propose_once(rows, securities, context, config, common_errors, cutoff, excl
         if w and r.get("investment_utility_krw", 0.) > 0: reasons[sid].append("positive_scenario_utility_subject_to_risk_liquidity_cost_caps")
         elif not reasons[sid]: reasons[sid].append("allocation_below_minimum_or_risk_capacity")
         r["four_questions"]["portfolio_value"] = "pass_research_only" if w and proposal["ready"] else "wait_or_review"
-        proposal["rows"].append({"security_id": sid, "action": action, "previous_weight": old, "target_weight": w, "reasons": reasons[sid]})
+        proposal["rows"].append({"security_id": sid, "action": action, "previous_weight": old, "target_weight": w, "target_value_krw": funding["position_values_krw"].get(sid, 0.), "trade_fraction_initial_nav": funding["trade_fraction_initial_nav"].get(sid, 0.), "reasons": reasons[sid]})
     return proposal

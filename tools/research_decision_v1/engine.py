@@ -5,7 +5,7 @@ import math
 import re
 from tools.research_decision_v1.data import canonical, digest, export_market, number, total_return_series, timestamp, validate_persistable_sources, reject_diagnostic_scores
 from tools.research_decision_v1.valuation import evaluate_security
-from tools.research_decision_v1.portfolio import context_errors, add_fx_returns, propose
+from tools.research_decision_v1.portfolio import context_errors, add_fx_returns, propose, investment_eligible
 
 
 def validate_config(config):
@@ -96,6 +96,9 @@ def component_hashes(security):
 def rank_sensitivity(rows, securities, context, config, cutoff, fx_valid):
     for row in rows:
         if not row["valuation_ready"]: continue
+        if not investment_eligible(row):
+            row["rank_sensitivity"]={"status":"blocked_quality","variants":[]}
+            continue
         ranks = [row["investment_rank"]] if fx_valid else [row["investment_rank_local"]]
         variants = []
         for field in ("revenue", "margin", "multiple", "diluted_shares"):
@@ -107,6 +110,7 @@ def rank_sensitivity(rows, securities, context, config, cutoff, fx_valid):
                 changed = evaluate_security(altered, config, cutoff)
                 if not changed["valuation_ready"]:
                     variants.append({"field": field, "delta": delta, "rank": None, "reason": "perturbation_outside_valuation_domain"}); continue
+                if "quality_gate" in row: changed["quality_gate"]=copy.deepcopy(row["quality_gate"])
                 candidate_rows = [copy.deepcopy(r) if r["security_id"] != row["security_id"] else changed for r in rows]
                 add_fx_returns(candidate_rows, context, config, fx_valid)
                 rank = changed["investment_rank"] if fx_valid else changed["investment_rank_local"]
@@ -128,6 +132,11 @@ def validate_previous_record(previous, kind, cutoff):
         for node in nodes:
             if type(node.get("data_quality_pass")) is not bool: raise ValueError("previous_admission_flag_invalid")
             del node["data_quality_pass"]
+        for row in safe.get("ranking", []):
+            quality=row.get("quality_assessment")
+            if quality is not None:
+                if quality.pop("remote_document_authenticity_verified") is not False:
+                    raise ValueError("previous_unearned_document_authenticity")
     except (KeyError, TypeError, AttributeError): raise ValueError("previous_schema_invalid") from None
     validate_persistable_sources(safe, real=kind == "REAL")
     # This is a previous research OUTPUT, with its own typed rank contract.
@@ -142,7 +151,7 @@ def validate_previous_record(previous, kind, cutoff):
     if digest({k:v for k,v in previous.items() if k != "decision_hash"}) != previous["decision_hash"]:
         raise ValueError("previous_hash_mismatch")
     required = {"price", "financials", "estimates", "thesis", "risk", "missing", "evidence_provenance"}
-    allowed = required | {"optional_evidence", "optional_provenance"}
+    allowed = required | {"optional_evidence", "optional_provenance", "quality_evidence", "quality_review"}
     if not isinstance(previous.get("ranking"), list): raise ValueError("previous_ranking_invalid")
     old = {}
     for row in previous["ranking"]:
@@ -159,7 +168,52 @@ def validate_previous_record(previous, kind, cutoff):
     return old
 
 
-def run_decisions(exports, context, config, previous=None):
+
+def evaluate_research_rows(securities, config, cutoff, kind, quality_bundle):
+    """Optional reviewed-evidence route through the actual research engine.
+
+    No H1 input is relabelled or changed. An absent bundle preserves the legacy
+    research baseline; an explicit empty bundle blocks unreviewed investments.
+    This uses caller-supplied reviewed records, not authenticated independent
+    review or model performance. Numeric assumptions are never generated here.
+    """
+    if quality_bundle is None:
+        return [evaluate_security(s, config, cutoff) for _,s in sorted(securities.items())]
+    from tools.research_decision_v1.quality_bridge import evaluate_with_quality
+    fields={"schema_version","data_kind","decision_cutoff","assessments"}
+    if not isinstance(quality_bundle,dict) or set(quality_bundle)!=fields:
+        raise ValueError("quality_bundle_schema")
+    validate_persistable_sources(quality_bundle, real=kind=="REAL")
+    reject_diagnostic_scores(quality_bundle)
+    if (quality_bundle["schema_version"]!="research-quality-bundle-v1" or
+        quality_bundle["data_kind"]!=kind or quality_bundle["decision_cutoff"]!=cutoff):
+        raise ValueError("quality_bundle_identity")
+    entries=quality_bundle["assessments"]
+    if not isinstance(entries,dict) or not set(entries)<=set(securities):
+        raise ValueError("quality_bundle_universe")
+    rows=[]
+    for sid,security in sorted(securities.items()):
+        entry=entries.get(sid,{"packet":{},"corpus":{},"receipt":{},"baseline":None})
+        if not isinstance(entry,dict) or set(entry)!={"packet","corpus","receipt","baseline"}:
+            raise ValueError("quality_entry_schema")
+        result=evaluate_with_quality(security,config,cutoff,packet=entry["packet"],
+            corpus=entry["corpus"],receipt=entry["receipt"],baseline=entry["baseline"],data_kind=kind)
+        row=result["valuation"]
+        quality=result["quality"]
+        eligible=quality["company_assessment"]=="pass" and result["scenario_links"]["status"]!="blocked"
+        row["quality_assessment"]=quality
+        row["scenario_links"]=result["scenario_links"]
+        row["quality_gate"]={"required":True,"eligible":eligible,
+            "method_version":quality["method_version"],"company_assessment":quality["company_assessment"],
+            "review_complete":quality.get("core_company_axes_complete", False) and quality["review_receipt_valid"] and result["scenario_links"]["status"]!="blocked",
+            "independent_review_completed":False}
+        row["four_questions"]["portfolio_value"]="pending_risk_constraints"
+        if not eligible: row["blockers"].append("quality:reviewed_business_or_scenario_link_incomplete")
+        rows.append(row)
+    return rows
+
+
+def run_decisions(exports, context, config, previous=None, *, quality_bundle=None):
     validate_config(config)
     if not exports: raise ValueError("market_exports_required")
     clean = [replay_export(e) for e in exports]
@@ -174,7 +228,7 @@ def run_decisions(exports, context, config, previous=None):
     old = validate_previous_record(previous, kind, cutoff) if previous is not None else {}
     securities = {s["security_id"]: s for e in clean for s in e["securities"]}
     if not securities: raise ValueError("empty_research_universe")
-    rows = [evaluate_security(s, config, cutoff) for sid, s in sorted(securities.items())]
+    rows = evaluate_research_rows(securities, config, cutoff, kind, quality_bundle)
     common_errors = context_errors(context, config, cutoff)
     fx_valid = not any(x.startswith("fx") for x in common_errors)
     add_fx_returns(rows, context, config, fx_valid)
@@ -183,6 +237,13 @@ def run_decisions(exports, context, config, previous=None):
     ledger = []
     for r in rows:
         r["component_hashes"] = component_hashes(securities[r["security_id"]])
+        if quality_bundle is not None:
+            q=r["quality_assessment"]
+            r["component_hashes"].update(
+                quality_evidence=q.get("semantic_hash") or digest(None),
+                quality_review=digest({"method":q["method_version"],"subject":q.get("review_subject_hash"),
+                    "valid":q["review_receipt_valid"],"assessment":q["company_assessment"],
+                    "links":r["scenario_links"]["status"]}))
         p = old.get(r["security_id"])
         changes = ["evidence_provenance" if k == "optional_provenance" else k for k, value in r["component_hashes"].items()
                    if p and k in p["component_hashes"] and p["component_hashes"][k] != value]
@@ -208,14 +269,14 @@ def run_decisions(exports, context, config, previous=None):
                  "quarter_count": len(s.get("blocks", {}).get("financials", {}).get("payload", {}).get("recent_quarters", [])),
                  "annual_count": len(s.get("blocks", {}).get("financials", {}).get("payload", {}).get("recent_annual", [])),
                  "historical_pit_verified": False} for sid, s in sorted(securities.items())]
-    admitted_ids = {r["security_id"] for r in rows if r["valuation_ready"]}
+    admitted_ids = {r["security_id"] for r in rows if r["valuation_ready"] and investment_eligible(r)}
     selected = {market: sum(p["target_weight"] is not None and p["target_weight"]>0 and p["security_id"] in admitted_ids
                             for p in proposal["rows"] if p["security_id"].split(":")[0] == market) for market in ("US", "KR")}
     held_evidence_complete = all(p["target_weight"] is not None and
         (p["target_weight"] == 0 or p["security_id"] in admitted_ids) for p in proposal["rows"])
     readiness = {"research_pipeline_ready": True, "data_quality_pass": all(s["data_quality_pass"] for s in securities.values()),
-                 "research_ranking_ready": any(r["valuation_ready"] for r in rows) and fx_valid,
-                 "research_universe_fully_covered": all(r["valuation_ready"] for r in rows) and held_evidence_complete,
+                 "research_ranking_ready": any(r["valuation_ready"] and investment_eligible(r) for r in rows) and fx_valid,
+                 "research_universe_fully_covered": all(r["valuation_ready"] and investment_eligible(r) for r in rows) and held_evidence_complete,
                  "portfolio_proposal_ready": proposal["ready"], "target_5_plus_2_complete": proposal["ready"] and selected == config["target_counts"],
                  "return_calibration_validated": False, "oos_validated": False, "broker_reconciled": False,
                  "production_promoted": False, "orders_allowed": False}
@@ -225,6 +286,14 @@ def run_decisions(exports, context, config, previous=None):
                 "previous_decision_hash": previous["decision_hash"] if previous else None,
                 "readiness": readiness, "ranking": rows, "portfolio_proposal": proposal,
                 "coverage": coverage, "industry_discovery": discovery_snapshot(list(securities.values()), config),
-                "decision_ledger": ledger}
+                "decision_ledger": ledger,
+                "workflow": {"mode":"QUALITY_CONNECTED_RESEARCH" if quality_bundle is not None else "LEGACY_RESEARCH_BASELINE",
+                    "quality_bundle_hash":digest(quality_bundle) if quality_bundle is not None else None,
+                    "universe_count":len(rows), "market_admitted_count":sum(s["data_quality_pass"] for s in securities.values()),
+                    "valuation_count":sum(r["valuation_ready"] for r in rows),
+                    "quality_eligible_count":sum(investment_eligible(r) for r in rows) if quality_bundle is not None else None,
+                    "fx_ready":fx_valid, "funding_ready":proposal.get("funding") is not None,
+                    "proposal_ready":proposal["ready"], "oos_validated":False,
+                    "realized_performance_available":False, "orders_allowed":False}}
     decision["decision_hash"] = digest(decision)
     return decision

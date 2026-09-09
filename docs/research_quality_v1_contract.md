@@ -1,6 +1,6 @@
 # Quality evidence V1: first implemented slice
 
-RESEARCH_ONLY / OPT_IN / NOT_WIRED_TO_PORTFOLIO. Refs #396, #399, #400, #401.
+RESEARCH_ONLY / OPT_IN. The standalone sidecar remains non-portfolio; the new explicit engine route is described below. Refs #396, #399, #400, #401.
 Dependency: #400 at `52b119ab653016bb1706cf4ff706890e820e131d`.
 This extends its actual `evaluate_security` and `scenario_price` functions; it is
 not a replacement selector and does not activate the NONRANKING monitor.
@@ -34,7 +34,7 @@ are rejected. A reviewed assumption range remains an assumption, not a measured
 fact. The comparison is a fixed-current-price counterfactual, not a past account.
 No binding mutates the supplied numerical scenario or adds an alpha bonus.
 
-This sidecar does **not** connect to portfolio.py/engine.py/operating CLI, clear
+The standalone sidecar does **not** itself invoke portfolio.py/engine.py/the CLI or clear
 readiness flags, supply missing prices/FX/capital, or fabricate ranks/weights.
 `portfolio_proposal_ready=false` remains until the separately reviewed integration
 and upstream cash/FX/source-verification issues are addressed. A nested valuation
@@ -112,3 +112,36 @@ security IDs are rejected before output paths; UTF-8 is explicit for text files.
 See [review repairs and shared lesson](../research/decision_v1/QUALITY_REVIEW_FIXES_20260909.md)
 and the linked validation receipt. The repaired suite has 65 unique tests. Local
 correctness tests are not OOS, profitability, live-data coverage or trading approval.
+
+
+## 2026-09-09 explicit research-engine integration
+
+`run_decisions(..., quality_bundle=...)` and `--quality-bundle FILE` now connect
+reviewed quality to the existing research engine. This is a research CLI, never
+an operating/broker execution path. Omission preserves a separately identified
+legacy research baseline; an explicit empty bundle does NOT fall back to legacy
+company labels. The standalone `evaluate_with_quality` still returns no portfolio.
+
+Bundle fields are exactly: schema_version="research-quality-bundle-v1", data_kind,
+decision_cutoff, assessments. Each security entry contains packet/corpus/receipt/
+baseline. Universe, cutoff, REAL/SYNTHETIC and safe-source checks apply before use.
+A documented caller review is still not authenticated independent approval.
+
+Only reviewed company-pass and valid scenario-link rows receive investment ranks
+and new allocations. Financial expected-return comparison is separately retained.
+Unreviewed existing holdings preserve their book and require review, not an automatic
+sale. Price absence preserves company evidence. Currency conversion and sensitivity
+cannot overwrite quality failure. Receipt/semantic changes enter the decision ledger.
+
+The existing immutable writer receives research_quality_input_snapshot.json,
+research_quality_assessments.json and research_workflow_status.json, with manifest
+hash references. No legacy NONRANKING/readiness source is activated. Global
+RESEARCH_INDEX pointers and historical v1.0 review receipts are not auto-updated.
+The default mode's old decision hashes change due to funding/status output changes;
+old immutable records stay distinct and usable only at their own pinned source.
+
+Funding uses the separate core-seam fixes, post-cost NAV and unchanged HOLD notionals.
+The new CLI artifacts and source verifier must be tested in the full pinned checkout
+before acceptance. See SYSTEM_WORKFLOW_HANDOFF_20260909.md for actual test scope,
+known producer/consumer breakage and incomplete REAL data coverage. No profitable
+investment recommendation, schedule, operational target or execution is implied.
