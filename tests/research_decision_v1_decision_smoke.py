@@ -41,6 +41,85 @@ def set_targets(security, targets):
 
 
 class DecisionTests(unittest.TestCase):
+    def assert_hold_accounting(self, proposal, security_id, prior_weight, cfg=None):
+        """HOLD preserves notional; funded weights use the smaller post-cost NAV."""
+        cfg = config() if cfg is None else cfg
+        self.assertTrue(proposal["ready"], proposal["blockers"])
+        self.assertEqual(proposal["target_weight_basis"], "POST_COST_NAV")
+        self.assertFalse(proposal["orders_allowed"])
+        self.assertFalse(proposal["constraints"]["violations"])
+        funding = proposal["funding"]
+        initial, nav = funding["initial_nav_krw"], funding["post_cost_nav_krw"]
+        # Numerical tolerance is at most 1e-12 of NAV, not a trading buffer.
+        tolerance = max(1e-8, initial * 1e-12)
+        self.assertGreater(nav, 0.)
+        self.assertLessEqual(nav, initial)
+        self.assertGreaterEqual(funding["cash_krw"], 0.)
+        held = next(r for r in proposal["rows"] if r["security_id"] == security_id)
+        self.assertEqual(held["action"], "HOLD")
+        self.assertEqual(funding["trade_fraction_initial_nav"][security_id], 0.)
+        self.assertEqual(funding["position_fraction_initial_nav"][security_id], prior_weight)
+        self.assertAlmostEqual(funding["position_values_krw"][security_id], initial * prior_weight,
+                               delta=tolerance)
+        self.assertAlmostEqual(held["target_weight"] * nav, initial * prior_weight, delta=tolerance)
+        expected_fee = initial * sum(abs(trade) * cfg["one_way_cost_bps"][sid.split(":")[0]] / 10000
+                                     for sid, trade in funding["trade_fraction_initial_nav"].items())
+        self.assertAlmostEqual(funding["transaction_cost_krw"], expected_fee, delta=tolerance)
+        self.assertAlmostEqual(nav + expected_fee, initial, delta=tolerance)
+        self.assertAlmostEqual(sum(funding["position_values_krw"].values()) + funding["cash_krw"],
+                               nav, delta=tolerance)
+        self.assertAlmostEqual(proposal["cash_weight"] * nav, funding["cash_krw"], delta=tolerance)
+        for row in proposal["rows"]:
+            self.assertAlmostEqual(row["target_weight"] * nav,
+                                   funding["position_values_krw"].get(row["security_id"], 0.),
+                                   delta=tolerance)
+        self.assertAlmostEqual(sum(r["target_weight"] for r in proposal["rows"]) + proposal["cash_weight"],
+                               1., places=12)
+
+    def funded_hold_fixture(self, new_weight=.3, zero_cost=False):
+        from tools.research_decision_v1.portfolio import fund_targets
+        cfg = config()
+        if zero_cost:
+            cfg["one_way_cost_bps"] = {"US": 0., "KR": 0.}
+        funding = fund_targets({"US:OLD": .2, "US:NEW": new_weight}, {"US:OLD": .2},
+                               {sid: {"market": "US"} for sid in ("US:OLD", "US:NEW")}, context(), cfg)
+        proposal = {"ready": True, "blockers": [], "orders_allowed": False,
+                    "target_weight_basis": "POST_COST_NAV", "funding": funding,
+                    "constraints": {"violations": []}, "cash_weight": funding["cash_weight"],
+                    "rows": [{"security_id": sid, "action": "HOLD" if sid == "US:OLD" else "ENTER",
+                              "target_weight": weight} for sid, weight in funding["target_weights"].items()]}
+        return proposal, cfg
+
+    def test_hold_accounting_has_analytic_post_cost_weight(self):
+        for new_weight in (.2, .3):
+            proposal, cfg = self.funded_hold_fixture(new_weight)
+            self.assert_hold_accounting(proposal, "US:OLD", .2, cfg)
+            rate = cfg["one_way_cost_bps"]["US"] / 10000
+            self.assertAlmostEqual(proposal["funding"]["target_weights"]["US:OLD"],
+                                   .2 * (1 + rate * new_weight), places=12)
+            self.assertGreater(proposal["funding"]["transaction_cost_krw"], 0.)
+
+    def test_hold_accounting_zero_fee_is_exact_no_trade(self):
+        proposal, cfg = self.funded_hold_fixture(zero_cost=True)
+        self.assert_hold_accounting(proposal, "US:OLD", .2, cfg)
+        self.assertEqual(proposal["funding"]["target_weights"]["US:OLD"], .2)
+        self.assertEqual(proposal["funding"]["transaction_cost_krw"], 0.)
+
+    def test_hold_accounting_rejects_hidden_trade_stale_weight_and_funding_errors(self):
+        proposal, cfg = self.funded_hold_fixture()
+        for mistake in ("trade", "weight", "cash", "fee", "action", "risk"):
+            with self.subTest(mistake=mistake):
+                broken = copy.deepcopy(proposal)
+                row = next(r for r in broken["rows"] if r["security_id"] == "US:OLD")
+                if mistake == "trade": broken["funding"]["trade_fraction_initial_nav"]["US:OLD"] = .0001
+                if mistake == "weight": row["target_weight"] = .2
+                if mistake == "cash": broken["funding"]["cash_krw"] += 1.
+                if mistake == "fee": broken["funding"]["transaction_cost_krw"] = 0.
+                if mistake == "action": row["action"] = "ADD"
+                if mistake == "risk": broken["constraints"]["violations"] = ["single_cap"]
+                with self.assertRaises(AssertionError):
+                    self.assert_hold_accounting(broken, "US:OLD", .2, cfg)
+
     def test_ev_scenario_arithmetic_reverse_and_horizons(self):
         r = evaluate()["ranking"][0]
         self.assertEqual([s["target_price"] for s in r["scenarios"]], [74., 189., 291.])
@@ -205,7 +284,7 @@ class DecisionTests(unittest.TestCase):
                        "positions": {"US:INCUMBENT": .2}, "cash_weight": .8}
         out = evaluate(b, ctx)
         incumbent = next(r for r in out["portfolio_proposal"]["rows"] if r["security_id"] == "US:INCUMBENT")
-        self.assertEqual(incumbent["target_weight"], .2)
+        self.assert_hold_accounting(out["portfolio_proposal"], "US:INCUMBENT", .2)
         self.assertIn("keep_incumbent_replacement_not_cost_justified", incumbent["reasons"])
         self.assertFalse(out["portfolio_proposal"]["constraints"]["violations"])
 
@@ -548,7 +627,8 @@ print('guarded 9 invalid cases under optimization')
             risk["payload"]["exposures"] = {"industry:"+("blocked" if ticker in {"OLD1","OLD2","AAA","BBB","CCC"} else ticker):1., "theme:"+ticker:1., "customer:"+ticker:.2}; rehash(risk)
         out = evaluate(b, book_context({"US:OLD1":.2,"US:OLD2":.2}))["portfolio_proposal"]
         targets={r["security_id"]:r["target_weight"] for r in out["rows"]}
-        self.assertEqual(targets["US:OLD1"], .2); self.assertEqual(targets["US:OLD2"], .2)
+        for sid in ("US:OLD1", "US:OLD2"):
+            self.assert_hold_accounting(out, sid, .2)
         self.assertGreater(targets["US:DDD"], 0.); self.assertGreater(targets["US:EEE"], 0.)
         self.assertTrue(out["ready"], out["blockers"])
 
