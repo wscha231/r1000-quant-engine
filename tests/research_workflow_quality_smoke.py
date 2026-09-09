@@ -6,6 +6,9 @@ No real issuer receives a synthetic approval and no order path is called.
 """
 import copy
 import importlib.util
+import json
+import tempfile
+from types import SimpleNamespace
 from pathlib import Path
 import sys
 import subprocess
@@ -13,7 +16,7 @@ import unittest
 from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
-from tools.research_decision_v1 import engine, data
+from tools.research_decision_v1 import engine, data, io
 
 def load(name,path):
     spec=importlib.util.spec_from_file_location(name,ROOT/path)
@@ -141,6 +144,32 @@ class IntegratedQualityTests(unittest.TestCase):
         new=run(b=b,previous=old)
         changes=new['ranking'][0]['rank_change_reasons']
         self.assertIn('quality_review',changes);self.assertNotIn('price',changes)
+
+    def test_valid_receipt_identity_changes_are_auditable(self):
+        old=run()
+        for field,value in [('review_id','FIXTURE.REVIEW.2'),('reviewer','another_synthetic_reviewer'),
+                            ('reviewed_at','2026-09-08T15:01:00Z')]:
+            with self.subTest(field=field):
+                b=bundle();rec=b['assessments']['US:EXAM']['receipt'];rec[field]=value
+                new=run(b=b,previous=old);row=new['ranking'][0]
+                self.assertTrue(row['quality_assessment']['review_receipt_valid'])
+                self.assertEqual(row['quality_assessment']['review_receipt_hash'],data.digest(rec))
+                self.assertIn('quality_review',row['rank_change_reasons'])
+                self.assertNotIn('price',row['rank_change_reasons'])
+
+    def test_cli_explicit_nonobject_quality_stops_before_decision_and_write(self):
+        cli=load('null_quality_cli','tools/run_research_decision_v1.py')
+        for value in (None,[],False,''):
+            with self.subTest(value=value),tempfile.TemporaryDirectory() as tmp:
+                d=Path(tmp)
+                for name,content in [('export',{}),('context',f.context()),('config',f.CONFIG),('quality',value)]:
+                    (d/name).write_text(json.dumps(content),encoding='utf-8')
+                args=SimpleNamespace(market_export=[str(d/'export')],context=str(d/'context'),
+                    config=str(d/'config'),previous=None,quality_bundle=str(d/'quality'))
+                with patch.object(engine,'run_decisions') as calculate,patch.object(io,'research_root') as writer:
+                    with self.assertRaisesRegex(ValueError,'explicit_quality_bundle_must_be_object'):
+                        cli.run_verified(args,{'commit':'b'*40},(ROOT,data,engine,io,cli))
+                    calculate.assert_not_called();writer.assert_not_called()
 
     def test_scenario_changes_keep_value_arithmetic_and_traceable_link(self):
         s=f.security();e=quality_entry();baseline=q.binding(e['packet'],s)

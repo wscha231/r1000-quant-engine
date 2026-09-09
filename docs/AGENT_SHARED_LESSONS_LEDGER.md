@@ -5122,3 +5122,12 @@ PR #399 reviews 3952327371/3952327375: anonymous files remain writable through p
 ### 2026-09-07 — Research H2 runtime and receipt boundaries
 
 PR #400 reviews 3952174939/3952174941/3952174942: verifying a package tree does not exclude modules elsewhere on sys.path. Require isolated interpreter startup and replace inherited paths with the staged tree plus validated interpreter locations. Production verification gates must raise explicitly instead of relying on assert. A research capital amount without a reconciled account must retain its assumption label, including blocked output. Adversarial module injection, optimized Python and missing/false/type-confused labels are regression cases.
+
+### 2026-09-09 — Quality review regressions before historical evaluation
+
+- Explicit JSON null is not omission of `--quality-bundle`; reject nonobjects before calculation or publication. Git source reads disable replacement objects so the recorded commit and executed bytes agree.
+- Counterfactual percentage returns replay canonical H1 price admission and match discovery to the admitted close. Missing or rejected price evidence preserves target-value analysis, with no return percentage.
+- Reject conflicting source IDs before pilot normalization. Include validated review-receipt identity in decision history. Check same-time event conflicts against the full index history, including behind later failures.
+- Register the four quality/funding/source suites in the mandatory runner and use isolated Python for research suites. Synthetic seam tests mock export replay only; H1 and complete CLI tests remain separate.
+- HOLD preserves pre-trade notional, not its pre-cost weight. Fees paid on other trades can put an unchanged holding above a hard post-cost cap. Keep that proposal blocked; never round weights or loosen limits to make a stale test pass.
+- Historical performance of this method requires contemporaneously available quality evidence. Today's partial NVDA/EME/SK hynix captures cannot be backdated into an eight-year study.

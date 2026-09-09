@@ -88,7 +88,7 @@ def security(blocked=False):
              "accounting_basis": "RESEARCH_ASSUMPTION", "published_at": STAMP, "public_available_at": STAMP,
              "first_seen_at": STAMP, "ingested_at": STAMP, "report_period": PERIOD,
              "payload": payload, "data_hash": digest(payload)}
-    return {"security_id": "US:EXAM", "market": "US", "currency": "USD",
+    result = {"security_id": "US:EXAM", "market": "US", "currency": "USD",
             "blockers": ["price:missing"] if blocked else [],
             "discovery": None if blocked else {"price": 10., "rs": {"20": {"value": -.5}}},
             "blocks": {"scenario": block, "financials": {"payload": {"ttm": {
@@ -96,6 +96,15 @@ def security(blocked=False):
                 "thesis": {"payload": {"company_quality": "pass", "strongest_bear_case": "Synthetic downside.",
                     "catalyst": "Synthetic milestone.", "invalidation_condition": "Synthetic failure.", "source_evidence": []}},
                 "risk": {"payload": {"uncertainty": .1}}}}
+    if not blocked:
+        spec = importlib.util.spec_from_file_location("price_fixture", ROOT / "tests/research_decision_v1_fixture.py")
+        fixture = importlib.util.module_from_spec(spec); spec.loader.exec_module(fixture)
+        price = fixture.bundle(ticker="EXAM")["securities"][0]["blocks"]["price"]
+        price["decision_cutoff"] = CUTOFF
+        for bar in price["payload"]["bars"]: bar["close"] = 10.
+        price["data_hash"] = digest(price["payload"])
+        result["blocks"]["price"] = price
+    return result
 
 
 def binding(packet, sec, variable="margin", new=.11):
@@ -366,6 +375,19 @@ def event(kind="execution", status="blocked", stamp="2026-09-08T16:00:00Z", path
 
 
 class IndexTests(unittest.TestCase):
+    def test_same_time_conflict_behind_newer_failure_is_rejected(self):
+        a=event(status="success",path="a.json")
+        b=event(status="success",path="b.json");b["sha256"]="d"*64
+        # Equivalent instants with different timezone notation also conflict.
+        b["observed_at"]="2026-09-09T01:00:00+09:00"
+        later=event(status="failed",stamp="2026-09-08T17:00:00Z",path="failed.json")
+        for first,conflict in ((a,b),(b,a)):
+            idx=empty_index()
+            for e in (first,later):idx=advance_index(idx,e,expected_parent_hash=idx["index_hash"])
+            self.assertEqual(advance_index(idx,first,expected_parent_hash=idx["index_hash"]),idx)
+            with self.assertRaisesRegex(ValueError,"ambiguous_same_time_event"):
+                advance_index(idx,conflict,expected_parent_hash=idx["index_hash"])
+
     def add(self, idx, ev):
         return advance_index(idx, ev, expected_parent_hash=idx["index_hash"])
 
@@ -484,6 +506,24 @@ class ReviewRegressionTests(unittest.TestCase):
         self.assertIsNone(r["counterfactual"]["expected_total_return_delta"])
         self.assertEqual(r["counterfactual"]["return_status"], "price_not_admitted")
 
+    def test_counterfactual_replays_price_envelope_and_discovery(self):
+        for fault in ("missing","hash","future","stale_actions","discovery","currency"):
+            with self.subTest(fault=fault):
+                p,c,s,b=self.link("dividend",1.)
+                price=s["blocks"]["price"]
+                if fault=="missing":del s["blocks"]["price"]
+                elif fault=="hash":price["data_hash"]="0"*64
+                elif fault=="future":price["first_seen_at"]="2026-09-09T00:00:00Z"
+                elif fault=="currency":price["currency"]="KRW"
+                elif fault=="discovery":s["discovery"]["price"]=11.
+                else:
+                    price["payload"]["corporate_actions_through"]="2026-09-03"
+                    price["data_hash"]=digest(price["payload"])
+                r=validate_bindings(p,assess(p,c),s,b)["counterfactual"]
+                self.assertEqual(r["terminal_value_deltas"]["Base"],1.)
+                self.assertEqual(r["return_status"],"price_not_admitted")
+                self.assertIsNone(r["expected_total_return_delta"])
+
     def test_r6_dividend_has_value_and_total_return_effect(self):
         p, c, s, b = self.link("dividend", 1.)
         r = validate_bindings(p, assess(p, c), s, b)["counterfactual"]
@@ -515,6 +555,8 @@ class ReviewRegressionTests(unittest.TestCase):
             for row in rows:
                 for key in ("revenue", "net_debt", "dividend"): row[key] *= factor
         s["discovery"]["price"] *= factor
+        for bar in s["blocks"]["price"]["payload"]["bars"]: bar["close"] *= factor
+        s["blocks"]["price"]["data_hash"] = digest(s["blocks"]["price"]["payload"])
         link = p["bindings"][0]; link["old_value"] *= factor; link["new_value"] *= factor
         link["quantification"]["low"] *= factor; link["quantification"]["high"] *= factor
         link["baseline_scenarios_hash"] = digest(b)
@@ -563,6 +605,19 @@ class ReviewRegressionTests(unittest.TestCase):
             r = self.pilot_run(doc, tmp)
             self.assertNotEqual(r.returncode, 2)
             self.assertFalse((Path(tmp) / "out").exists())
+
+    def test_conflicting_source_id_is_rejected_before_normalization(self):
+        spec=importlib.util.spec_from_file_location("pilot_duplicate_source",ROOT/"research/decision_v1/run_quality_pilot.py")
+        mod=importlib.util.module_from_spec(spec);spec.loader.exec_module(mod)
+        doc=self.pilot_input();original=doc["records"][0]
+        for field,value in (("origin_url","https://example.org/different"),("issuer_id","US:OTHER"),
+                            ("captured_text","Different captured source."),("published_at","2000-01-01T00:00:00Z")):
+            record=copy.deepcopy(original);row=copy.deepcopy(record["captured_claims"][0])
+            row["source"][field]=value;record["captured_claims"].append(row)
+            with self.subTest(field=field),self.assertRaisesRegex(ValueError,"conflicting_pilot_source_id"):
+                mod.expand_record(record,doc["observed_at"])
+        identical=copy.deepcopy(original);identical["captured_claims"].append(copy.deepcopy(identical["captured_claims"][0]))
+        self.assertEqual(mod.expand_record(original,doc["observed_at"])[1],mod.expand_record(identical,doc["observed_at"])[1])
 
     def test_r5_input_and_manifest_use_explicit_utf8(self):
         spec = importlib.util.spec_from_file_location("quality_replay_test", ROOT / "research/decision_v1/run_quality_pilot.py")

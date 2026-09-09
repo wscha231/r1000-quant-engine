@@ -139,6 +139,7 @@ def assess_quality(packet: Any, corpus: Any, receipt: Any, *, security_id: str,
            "security_id": security_id, "data_kind": data_kind, "decision_cutoff": cutoff,
            "company_assessment": "unverified", "claims": [], "axes": {}, "blockers": [],
            "schema_valid": False, "review_receipt_valid": False, "reviewer_type": None,
+           "review_receipt_hash": None,
            "remote_document_authenticity_verified": False, "independent_review_completed": False,
            "orders_allowed": False, "oos_validated": False}
     try:
@@ -212,6 +213,7 @@ def assess_quality(packet: Any, corpus: Any, receipt: Any, *, security_id: str,
         _require(receipt["decision"] == "accepted", "review_not_accepted")
         out["review_receipt_valid"] = True
         out["reviewer_type"] = receipt["reviewer_type"]
+        out["review_receipt_hash"] = digest(receipt)
     except (ValueError, TypeError, KeyError):
         out["blockers"].append("review_receipt_missing_or_invalid")
 

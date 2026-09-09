@@ -71,7 +71,7 @@ def verified_source_snapshot(root):
         git=trusted_git_executable()
         git_env=git_read_environment()
         def read_git(*args, text=False):
-            return subprocess.check_output([git,"--no-pager","-c","core.fsmonitor=false",*args],
+            return subprocess.check_output([git,"--no-pager","--no-replace-objects","-c","core.fsmonitor=false",*args],
                 cwd=root,text=text,env=git_env,timeout=30)
         commit = read_git("rev-parse", "HEAD", text=True).strip()
         tracked = read_git("ls-tree", "-r", "--name-only", commit, "--", *paths, text=True).splitlines()
@@ -219,7 +219,9 @@ def run_verified(args, snapshot, runtime):
     context, config = read_json(args.context), read_json(config_path)
     previous = read_json(args.previous) if args.previous else None
     quality_path=getattr(args,"quality_bundle",None)
-    quality_bundle=read_json(quality_path) if quality_path else None
+    quality_bundle=read_json(quality_path) if quality_path is not None else None
+    if quality_path is not None and not isinstance(quality_bundle, dict):
+        raise ValueError("explicit_quality_bundle_must_be_object")
     decision = engine.run_decisions(exports, context, config, previous, quality_bundle=quality_bundle)
     directory = io.research_root(ROOT) / "runs" / decision["decision_hash"] / code_commit
     # The result hash excludes runtime metadata. Byte identity is separately kept.

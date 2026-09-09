@@ -34,9 +34,13 @@ def validated_security_id(record):
 def expand_record(record, stamp):
     """Expand reviewed partial capture definitions, retaining unverified axes."""
     sid = validated_security_id(record)
-    corpus, claims = {}, []
+    corpus, claims, source_definitions = {}, [], {}
     for row in record["captured_claims"]:
         source = row["source"]
+        source_id = source["source_id"]
+        if source_id in source_definitions and source_definitions[source_id] != source:
+            raise ValueError("conflicting_pilot_source_id")
+        source_definitions[source_id] = copy.deepcopy(source)
         text = source["captured_text"]
         sh = hashlib.sha256(text.encode()).hexdigest()
         corpus[source["source_id"]] = {**source, "capture_scope": "excerpt", "content_sha256": sh,

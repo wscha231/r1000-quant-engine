@@ -242,6 +242,7 @@ def run_decisions(exports, context, config, previous=None, *, quality_bundle=Non
             r["component_hashes"].update(
                 quality_evidence=q.get("semantic_hash") or digest(None),
                 quality_review=digest({"method":q["method_version"],"subject":q.get("review_subject_hash"),
+                    "receipt":q.get("review_receipt_hash"),
                     "valid":q["review_receipt_valid"],"assessment":q["company_assessment"],
                     "links":r["scenario_links"]["status"]}))
         p = old.get(r["security_id"])

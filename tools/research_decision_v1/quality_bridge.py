@@ -11,7 +11,7 @@ import math
 from datetime import date
 from typing import Any
 
-from .data import MARKETS, digest, envelope_errors, number, timestamp
+from .data import MARKETS, digest, envelope_errors, export_market, number, timestamp
 from .quality import assess_quality, _closed, _require, _text
 from .valuation import evaluate_security, scenario_price, target_date
 
@@ -198,7 +198,20 @@ def validate_bindings(packet: dict, quality: dict, security: dict, baseline: dic
             # return is not; never replace a missing/rejected price with a value.
             try:
                 _require(not any(str(b).startswith("price:") for b in security.get("blockers", [])), "price_blocked")
-                price = number(security["discovery"]["price"], positive=True)
+                # Replay the canonical H1 price admission, independently of
+                # missing financials. A caller-supplied discovery value is not
+                # evidence of admission and must match the verified bars.
+                price_input = {k: security[k] for k in ("security_id", "market", "currency")}
+                price_input.update(ticker=security["security_id"].split(":", 1)[1],
+                    listing_board=security.get("listing_board"),
+                    blocks={"price": security["blocks"].get("price")})
+                replay = export_market({"schema_version": "research-input-v1",
+                    "market": security["market"], "data_kind": quality["data_kind"],
+                    "decision_cutoff": quality["decision_cutoff"], "securities": [price_input]},
+                    security["market"])["securities"][0]
+                _require(not any(b.startswith("price:") for b in replay["blockers"]), "price_not_admitted")
+                price = number(replay["discovery"]["price"], positive=True)
+                _require(price == number(security["discovery"]["price"], positive=True), "price_discovery_mismatch")
             except (ValueError, KeyError, TypeError):
                 pass
             else:

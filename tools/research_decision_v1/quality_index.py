@@ -50,6 +50,10 @@ def advance_index(index: dict, event: dict, *, expected_parent_hash: str) -> dic
     event_hash = digest(event)
     if any(e["event_hash"] == event_hash for e in result["events"]):
         return copy.deepcopy(index)
+    for existing in result["events"]:
+        reference = existing["reference"]
+        if all(reference[k] == event[k] for k in ("data_kind", "security_id", "kind")):
+            _require(stamp != timestamp(reference["observed_at"]), "ambiguous_same_time_event")
     # Synthetic receipts cannot replace real reviewed or execution pointers.
     identity = event["data_kind"] + ":" + event["security_id"]
     entry = result["companies"].setdefault(identity, {"latest_reviewed_snapshot": None,

@@ -205,9 +205,14 @@ class DecisionTests(unittest.TestCase):
                        "positions": {"US:INCUMBENT": .2}, "cash_weight": .8}
         out = evaluate(b, ctx)
         incumbent = next(r for r in out["portfolio_proposal"]["rows"] if r["security_id"] == "US:INCUMBENT")
-        self.assertEqual(incumbent["target_weight"], .2)
+        funding=out["portfolio_proposal"]["funding"]
+        self.assertEqual(incumbent["action"], "HOLD")
+        self.assertEqual(funding["position_values_krw"]["US:INCUMBENT"], ctx["capital_krw"]*.2)
+        self.assertAlmostEqual(incumbent["target_weight"], ctx["capital_krw"]*.2/funding["post_cost_nav_krw"])
         self.assertIn("keep_incumbent_replacement_not_cost_justified", incumbent["reasons"])
-        self.assertFalse(out["portfolio_proposal"]["constraints"]["violations"])
+        self.assertGreater(incumbent["target_weight"], .2)
+        self.assertFalse(out["portfolio_proposal"]["ready"])
+        self.assertTrue(out["portfolio_proposal"]["constraints"]["violations"])
 
     def test_nonpositive_metric_blocks_each_supported_valuation_method(self):
         for method, field in (("PE", "net_income"), ("EV_EBITDA", "ebitda")):
@@ -546,11 +551,15 @@ print('guarded 9 invalid cases under optimization')
             risk = security["blocks"]["risk"]; ticker=security["ticker"]
             risk["payload"]["stress_loss"] = .3
             risk["payload"]["exposures"] = {"industry:"+("blocked" if ticker in {"OLD1","OLD2","AAA","BBB","CCC"} else ticker):1., "theme:"+ticker:1., "customer:"+ticker:.2}; rehash(risk)
-        out = evaluate(b, book_context({"US:OLD1":.2,"US:OLD2":.2}))["portfolio_proposal"]
+        ctx=book_context({"US:OLD1":.2,"US:OLD2":.2})
+        out = evaluate(b, ctx)["portfolio_proposal"]
         targets={r["security_id"]:r["target_weight"] for r in out["rows"]}
-        self.assertEqual(targets["US:OLD1"], .2); self.assertEqual(targets["US:OLD2"], .2)
+        for sid in ("US:OLD1","US:OLD2"):
+            self.assertEqual(out["funding"]["position_values_krw"][sid],ctx["capital_krw"]*.2)
+            self.assertGreater(targets[sid],.2)
         self.assertGreater(targets["US:DDD"], 0.); self.assertGreater(targets["US:EEE"], 0.)
-        self.assertTrue(out["ready"], out["blockers"])
+        self.assertFalse(out["ready"])
+        self.assertTrue(out["constraints"]["violations"])
 
     def test_previous_metadata_is_sanitized_and_component_schema_is_closed(self):
         from tools.research_decision_v1.data import digest
