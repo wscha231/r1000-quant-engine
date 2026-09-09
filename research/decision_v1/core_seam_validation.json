@@ -1,0 +1,76 @@
+{
+  "schema_version": "research-core-seam-validation-v1",
+  "base_commit": "52b119ab653016bb1706cf4ff706890e820e131d",
+  "data_kind": "SYNTHETIC_TESTS",
+  "unique_tests": 19,
+  "source_sha256": {
+    "tools/research_decision_v1/portfolio.py": "45c26f1f1cdcee287aa1996d03945a5ef09446f5536c63761a1da2c585a3ae2b",
+    "tools/run_research_decision_v1.py": "837a6b27d550b3a354a8fda939056bd2c81011ecbefc3148b686353a56580ef0",
+    "tests/research_workflow_funding_smoke.py": "9636e7a59915b8dbcbc11468a6d7268399a0cbf9327aaf288009ee5b2c8bd04b",
+    "tests/research_workflow_source_smoke.py": "b2541d2ebd2e61622107eca318d58f70fde78e01905ac9c7dad087eaf2809efb"
+  },
+  "runs": [
+    {
+      "scope": "base",
+      "test": "research_workflow_funding_smoke.py",
+      "mode": "normal",
+      "exit": 1,
+      "count": 14,
+      "log": "base_research_workflow_funding_smoke_normal.log",
+      "log_sha256": "b21e19c1a03a8e9a549490533aebf76350bbdf9fb5952bc51159d85cff912ead"
+    },
+    {
+      "scope": "base",
+      "test": "research_workflow_source_smoke.py",
+      "mode": "normal",
+      "exit": 1,
+      "count": 5,
+      "log": "base_research_workflow_source_smoke_normal.log",
+      "log_sha256": "abd055b61b551244014d14b9d318d9b79be33fed6b7b92583d3a282a8ec4d414"
+    },
+    {
+      "scope": "core",
+      "test": "research_workflow_funding_smoke.py",
+      "mode": "normal",
+      "exit": 0,
+      "count": 14,
+      "log": "core_research_workflow_funding_smoke_normal.log",
+      "log_sha256": "4e3a7821e219ca8f5c35064ccb4c35a6cb6f6bcb74f38f68c27877765e908c04"
+    },
+    {
+      "scope": "core",
+      "test": "research_workflow_funding_smoke.py",
+      "mode": "optimized",
+      "exit": 0,
+      "count": 14,
+      "log": "core_research_workflow_funding_smoke_optimized.log",
+      "log_sha256": "0418938a62ef9b093beb74f827759e9df9e1bf103405e76c0427bcea56f7b9ea"
+    },
+    {
+      "scope": "core",
+      "test": "research_workflow_source_smoke.py",
+      "mode": "normal",
+      "exit": 0,
+      "count": 5,
+      "log": "core_research_workflow_source_smoke_normal.log",
+      "log_sha256": "fc514fcdb5bbd892522051f4fe862db8651da54e733bf1b37beab39a39b2221f"
+    },
+    {
+      "scope": "core",
+      "test": "research_workflow_source_smoke.py",
+      "mode": "optimized",
+      "exit": 0,
+      "count": 5,
+      "log": "core_research_workflow_source_smoke_optimized.log",
+      "log_sha256": "b803f22e6c59e240c78c2df67b69947cbd2d365c7e02de9496bb4be26c015f34"
+    }
+  ],
+  "mock_boundary": "engine.replay_export in labelled synthetic engine tests only; trusted-Git tests use actual local Git",
+  "full_h1_h2_suite": "NOT_RUN",
+  "full_checkout": false,
+  "native_windows": "NOT_RUN",
+  "independent_review": "PENDING",
+  "oos_validated": false,
+  "orders_allowed": false,
+  "numeric_strategy_config_changed": false
+}

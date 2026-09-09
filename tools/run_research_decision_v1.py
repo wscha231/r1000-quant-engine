@@ -18,6 +18,48 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+
+def trusted_git_executable():
+    """Use an OS-managed install, never cwd/PATH or a caller-supplied wrapper.
+
+    The OS/interpreter and administrative installation are the trust boundary.
+    This is not protection against an administrator replacing the Git binary.
+    Windows uses the OS known-folder API, not ProgramFiles environment overrides.
+    """
+    if os.name == "posix":
+        candidates = [Path("/usr/bin/git"), Path("/bin/git")]
+    elif os.name == "nt":
+        import ctypes
+        candidates = []
+        for folder in (0x26, 0x2A):
+            path = ctypes.create_unicode_buffer(32768)
+            if ctypes.windll.shell32.SHGetFolderPathW(None,folder,None,0,path)==0:
+                candidates.append(Path(path.value)/"Git/cmd/git.exe")
+    else:
+        raise ValueError("trusted_git_platform_unsupported")
+    for candidate in candidates:
+        try:
+            resolved=candidate.resolve(strict=True)
+            info=resolved.stat()
+            if not stat.S_ISREG(info.st_mode) or not os.access(resolved,os.X_OK): continue
+            if os.name == "posix":
+                nodes=[resolved,*resolved.parents]
+                if any(p.stat().st_uid!=0 or p.stat().st_mode & 0o022 for p in nodes): continue
+            elif any(p.is_symlink() or getattr(p,"is_junction",lambda:False)() for p in (candidate,*candidate.parents)):
+                continue
+            return str(resolved)
+        except (OSError,ValueError):
+            continue
+    raise ValueError("trusted_git_installation_unavailable")
+
+
+def git_read_environment():
+    env={k:v for k,v in os.environ.items() if not k.startswith(("GIT_","LD_","DYLD_"))}
+    env.update(PATH=os.defpath,GIT_CONFIG_NOSYSTEM="1",GIT_CONFIG_GLOBAL=os.devnull,
+               GIT_TERMINAL_PROMPT="0",GIT_OPTIONAL_LOCKS="0")
+    return env
+
+
 def verified_source_snapshot(root):
     """Stdlib-only gate: retain the exact source bytes checked before imports."""
     root = Path(root).absolute()
@@ -26,8 +68,13 @@ def verified_source_snapshot(root):
              "docs/research_decision_v1_config.json"]
     required = {paths[2], paths[3], paths[4], "tools/research_decision_v1/__init__.py"}
     try:
-        commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
-        tracked = subprocess.check_output(["git", "ls-tree", "-r", "--name-only", commit, "--", *paths], cwd=root, text=True).splitlines()
+        git=trusted_git_executable()
+        git_env=git_read_environment()
+        def read_git(*args, text=False):
+            return subprocess.check_output([git,"--no-pager","-c","core.fsmonitor=false",*args],
+                cwd=root,text=text,env=git_env,timeout=30)
+        commit = read_git("rev-parse", "HEAD", text=True).strip()
+        tracked = read_git("ls-tree", "-r", "--name-only", commit, "--", *paths, text=True).splitlines()
         tracked = {p for p in tracked if p.endswith((".py", ".json"))}
         actual = {p.relative_to(root).as_posix() for p in (root/paths[0]).rglob("*.py")}
         actual.update(p for p in paths[1:] if (root/p).exists() or (root/p).is_symlink())
@@ -43,12 +90,12 @@ def verified_source_snapshot(root):
                 content = handle.read(32_000_001)
                 after = os.fstat(handle.fileno())
             if len(content) > 32_000_000 or (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns): return None
-            expected = subprocess.check_output(["git", "show", commit+":"+path], cwd=root)
+            expected = read_git("show", commit+":"+path)
             if content.replace(b"\r\n", b"\n") != expected.replace(b"\r\n", b"\n"): return None
             files[path] = expected.replace(b"\r\n", b"\n")
-        if subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip() != commit: return None
-        return {"commit": commit, "files": files}
-    except (OSError, ValueError, subprocess.CalledProcessError): return None
+        if read_git("rev-parse", "HEAD", text=True).strip() != commit: return None
+        return {"commit": commit, "files": files, "git_executable":git}
+    except (OSError, ValueError, subprocess.SubprocessError): return None
 
 
 def source_paths_match_commit(root):
@@ -175,7 +222,7 @@ def run_verified(args, snapshot, runtime):
         "industry_discovery.json": decision["industry_discovery"]}
     for name, value in artifacts.items(): immutable_json(directory / name, value)
     report_path = directory / "report.md"
-    report_bytes = renderer.render_report(decision).encode()
+    report_bytes = renderer.render_report(decision).encode("utf-8")
     immutable_bytes(report_path, report_bytes)
     manifest = {"schema_version": "research-run-manifest-v1", "decision_hash": decision["decision_hash"],
                 "source_commit": code_commit,
