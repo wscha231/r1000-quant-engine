@@ -6,6 +6,11 @@ checkout. This test does not fetch data, create orders, or claim historical PIT.
 from __future__ import annotations
 import copy
 import hashlib
+import importlib.util
+import json
+import subprocess
+import tempfile
+from unittest import mock
 from pathlib import Path
 import sys
 import unittest
@@ -94,13 +99,17 @@ def security(blocked=False):
 
 
 def binding(packet, sec, variable="margin", new=.11):
-    baseline = {"method": sec["blocks"]["scenario"]["payload"]["method"], "report_period": copy.deepcopy(PERIOD),
+    baseline = {"schema_version": "quality-scenario-baseline-v1",
+                "security_id": sec["security_id"], "market": sec["market"],
+                "currency": sec["currency"], "data_kind": "SYNTHETIC",
+                "decision_cutoff": CUTOFF,
+                "method": sec["blocks"]["scenario"]["payload"]["method"], "report_period": copy.deepcopy(PERIOD),
                 "scenarios": copy.deepcopy(sec["blocks"]["scenario"]["payload"]["scenarios"])}
     current = sec["blocks"]["scenario"]["payload"]["scenarios"][1]
     old = current[variable]
     current[variable] = new
     sec["blocks"]["scenario"]["data_hash"] = digest(sec["blocks"]["scenario"]["payload"])
-    unit = {"margin": "fraction", "multiple": "multiple", "revenue": "currency"}.get(variable, "fraction")
+    unit = {"margin": "fraction", "multiple": "multiple", "revenue": "currency", "dividend": "currency_per_share"}.get(variable, "fraction")
     b = {"binding_id": "B0", "claim_id": "C0", "scenario": "Base", "variable": variable,
          "direction": "increase" if new > old else "decrease", "old_value": old, "new_value": new,
          "unit": unit, "currency": "USD", "period": copy.deepcopy(PERIOD), "economic_driver_id": "pricing",
@@ -257,7 +266,7 @@ class QualityTests(unittest.TestCase):
         self.assertIn("source_issuer_role_mismatch", q["claims"][0]["blockers"])
 
     def test_explicit_competitor_evidence_is_not_identity_error(self):
-        p, c = make_packet(); c["S0"]["issuer_id"] = "US:OTHER"
+        p, c = make_packet(); c["S0"].update(issuer_id="US:OTHER", kind="competitor")
         p["claims"][0]["evidence"][0]["role"] = "competitor"
         self.assertTrue(assess(p, c)["claims"][0]["source_match"])
 
@@ -399,6 +408,179 @@ class IndexTests(unittest.TestCase):
     def test_review_requires_receipt(self):
         ev = event(kind="review", status="reviewed_partial"); ev["review_receipt_hash"] = None
         with self.assertRaises(ValueError): self.add(empty_index(), ev)
+
+
+class ReviewRegressionTests(unittest.TestCase):
+    """Reviewed defects and neighbouring invariants; no return performance claim."""
+    def link(self, variable="margin", new=.11):
+        p, c = make_packet(); s = security(); b = binding(p, s, variable, new)
+        return p, c, s, b
+
+    def test_r1_cross_identity_baseline_rejected(self):
+        for field, value in (("security_id", "KR:000660"), ("currency", "KRW"),
+                             ("market", "KR"), ("data_kind", "REAL"),
+                             ("decision_cutoff", "2026-09-01T00:00:00Z")):
+            with self.subTest(field=field):
+                p, c, s, b = self.link(); b[field] = value
+                p["bindings"][0]["baseline_scenarios_hash"] = digest(b)
+                r = validate_bindings(p, assess(p, c), s, b)
+                self.assertEqual(r["status"], "blocked")
+                self.assertNotIn("counterfactual", r)
+
+    def test_r1_closed_baseline_schema_required(self):
+        for remove in (True, False):
+            p, c, s, b = self.link()
+            if remove: del b["data_kind"]
+            else: b["unreviewed_adjustment"] = 100
+            p["bindings"][0]["baseline_scenarios_hash"] = digest(b)
+            self.assertEqual(validate_bindings(p, assess(p, c), s, b)["status"], "blocked")
+
+    def test_r2_issuer_cannot_masquerade_as_third_party(self):
+        for role in ("customer", "industry"):
+            p, c = make_packet(); p["claims"][0]["evidence"][0]["role"] = role
+            r = assess(p, c)
+            self.assertFalse(r["claims"][0]["source_match"])
+            self.assertEqual(r["company_assessment"], "unverified")
+
+    def test_r2_valid_third_party_role_matrix(self):
+        for role, kind in (("customer", "customer"), ("industry", "independent"),
+                           ("industry", "regulator"), ("competitor", "competitor")):
+            p, c = make_packet(); c["S0"].update(issuer_id="US:OTHER", kind=kind)
+            p["claims"][0]["evidence"][0]["role"] = role
+            self.assertTrue(assess(p, c)["claims"][0]["source_match"])
+
+    def test_r2_incompatible_kind_rejected_even_with_different_issuer(self):
+        p, c = make_packet(); c["S0"].update(issuer_id="US:OTHER", kind="customer")
+        p["claims"][0]["evidence"][0]["role"] = "competitor"
+        self.assertFalse(assess(p, c)["claims"][0]["source_match"])
+
+    def test_r4_invalid_current_envelope_cannot_publish_counterfactual(self):
+        for field, value in (("status", "stale"), ("decision_cutoff", STAMP),
+                             ("data_hash", "0" * 64), ("currency", "KRW"),
+                             ("public_available_at", "2026-10-01T00:00:00Z")):
+            with self.subTest(field=field):
+                p, c, s, b = self.link(); s["blocks"]["scenario"][field] = value
+                r = validate_bindings(p, assess(p, c), s, b)
+                self.assertEqual(r["status"], "blocked")
+                self.assertNotIn("counterfactual", r)
+
+    def test_r4_bad_scenario_semantics_rejected(self):
+        for field, value in (("horizon_months", 6), ("probability_type", "CALIBRATED"),
+                             ("company_type", "BANK")):
+            p, c, s, b = self.link(); block = s["blocks"]["scenario"]
+            block["payload"][field] = value; block["data_hash"] = digest(block["payload"])
+            self.assertEqual(validate_bindings(p, assess(p, c), s, b)["status"], "blocked")
+
+    def test_r4_duplicate_scenarios_rejected(self):
+        p, c, s, b = self.link(); block = s["blocks"]["scenario"]
+        block["payload"]["scenarios"].append(copy.deepcopy(block["payload"]["scenarios"][0]))
+        block["data_hash"] = digest(block["payload"])
+        self.assertEqual(validate_bindings(p, assess(p, c), s, b)["status"], "blocked")
+
+    def test_r4_missing_price_preserves_value_link_not_return(self):
+        p, c, s, b = self.link(); s.update(discovery=None, blockers=["price:missing"])
+        r = validate_bindings(p, assess(p, c), s, b)
+        self.assertEqual(r["status"], "verified_links_only")
+        self.assertIsNone(r["counterfactual"]["expected_total_return_delta"])
+        self.assertEqual(r["counterfactual"]["return_status"], "price_not_admitted")
+
+    def test_r6_dividend_has_value_and_total_return_effect(self):
+        p, c, s, b = self.link("dividend", 1.)
+        r = validate_bindings(p, assess(p, c), s, b)["counterfactual"]
+        self.assertEqual(r["target_price_deltas"]["Base"], 0.)
+        self.assertEqual(r["terminal_value_deltas"]["Base"], 1.)
+        self.assertAlmostEqual(r["total_return_deltas"]["Base"], .1)
+        self.assertAlmostEqual(r["expected_total_return_delta"], .05)
+
+    def test_r6_mean_return_delta_matches_existing_valuation(self):
+        p, c, s, b = self.link("dividend", 1.)
+        old = copy.deepcopy(s); old["blocks"]["scenario"]["payload"]["scenarios"] = copy.deepcopy(b["scenarios"])
+        old["blocks"]["scenario"]["data_hash"] = digest(old["blocks"]["scenario"]["payload"])
+        r = validate_bindings(p, assess(p, c), s, b)["counterfactual"]
+        delta = evaluate_security(s, CONFIG, CUTOFF)["expected_total_return"] - evaluate_security(old, CONFIG, CUTOFF)["expected_total_return"]
+        self.assertAlmostEqual(r["expected_total_return_delta"], delta)
+
+    def test_method_change_requires_fresh_review(self):
+        p, c = make_packet(); r = receipt(p, c)
+        sources = {sid: {k: v for k, v in src.items() if k not in {"captured_text", "ingested_at"}}
+                   for sid, src in sorted(c.items())}
+        r["subject_hash"] = digest({"method": "quality-evidence-v1.0", "packet": p, "sources": sources})
+        self.assertFalse(assess(p, c, r)["review_receipt_valid"])
+
+    def test_counterfactual_scales_consistently_in_currency_units(self):
+        p, c, s, b = self.link("dividend", 1.)
+        first = validate_bindings(p, assess(p, c), s, b)["counterfactual"]
+        factor = 100.
+        for rows in (b["scenarios"], s["blocks"]["scenario"]["payload"]["scenarios"]):
+            for row in rows:
+                for key in ("revenue", "net_debt", "dividend"): row[key] *= factor
+        s["discovery"]["price"] *= factor
+        link = p["bindings"][0]; link["old_value"] *= factor; link["new_value"] *= factor
+        link["quantification"]["low"] *= factor; link["quantification"]["high"] *= factor
+        link["baseline_scenarios_hash"] = digest(b)
+        s["blocks"]["scenario"]["data_hash"] = digest(s["blocks"]["scenario"]["payload"])
+        second = validate_bindings(p, assess(p, c), s, b)["counterfactual"]
+        self.assertAlmostEqual(first["expected_total_return_delta"], second["expected_total_return_delta"])
+        self.assertAlmostEqual(first["terminal_value_deltas"]["Base"] * factor, second["terminal_value_deltas"]["Base"])
+
+    def test_higher_price_does_not_increase_same_business_return(self):
+        p, c, s, b = self.link()
+        low = evaluate_with_quality(s, CONFIG, CUTOFF, packet=p, corpus=c, receipt=receipt(p, c), data_kind="SYNTHETIC", baseline=b)
+        high_s = copy.deepcopy(s); high_s["discovery"]["price"] *= 1.1
+        high = evaluate_with_quality(high_s, CONFIG, CUTOFF, packet=p, corpus=c, receipt=receipt(p, c), data_kind="SYNTHETIC", baseline=b)
+        self.assertGreater(low["valuation"]["expected_total_return"], high["valuation"]["expected_total_return"])
+        self.assertEqual(low["quality"]["company_assessment"], high["quality"]["company_assessment"])
+        self.assertFalse(high["orders_allowed"])
+
+    def test_current_payload_wrong_type_is_controlled_block(self):
+        for value in (None, [], "invalid"):
+            p, c, s, b = self.link(); block = s["blocks"]["scenario"]
+            block["payload"] = value; block["data_hash"] = digest(value)
+            self.assertEqual(validate_bindings(p, assess(p, c), s, b)["status"], "blocked")
+
+    def pilot_input(self):
+        return json.loads((ROOT / "research/decision_v1/quality_evidence_20260909/pilot_capture.json").read_text(encoding="utf-8"))
+
+    def pilot_run(self, document, directory):
+        tmp = Path(directory); input_file = tmp / "capture.json"
+        input_file.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+        return subprocess.run([sys.executable, "-I", str(ROOT / "research/decision_v1/run_quality_pilot.py"),
+            "--input", str(input_file), "--output-dir", str(tmp / "out"), "--source-sha", "b" * 40],
+            capture_output=True, text=True, encoding="utf-8", timeout=15)
+
+    def test_r3_unsafe_security_never_creates_output(self):
+        for sid in ("../escaped", "US:../../escaped", "KR:000660/../escaped", "US:EXAM\\escaped"):
+            with self.subTest(sid=sid), tempfile.TemporaryDirectory() as tmp:
+                doc = self.pilot_input(); doc["records"][0]["security_id"] = sid
+                r = self.pilot_run(doc, tmp)
+                self.assertNotEqual(r.returncode, 2)
+                self.assertFalse((Path(tmp) / "out").exists())
+                self.assertFalse((Path(tmp) / "escaped").exists())
+
+    def test_r3_duplicate_identity_never_overwrites_artifact(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            doc = self.pilot_input(); doc["records"].append(copy.deepcopy(doc["records"][0]))
+            r = self.pilot_run(doc, tmp)
+            self.assertNotEqual(r.returncode, 2)
+            self.assertFalse((Path(tmp) / "out").exists())
+
+    def test_r5_input_and_manifest_use_explicit_utf8(self):
+        spec = importlib.util.spec_from_file_location("quality_replay_test", ROOT / "research/decision_v1/run_quality_pilot.py")
+        mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+        doc = self.pilot_input(); doc["transport_note"] = "한글 인코딩 검증"
+        reads, writes = [], []
+        read, write = Path.read_text, Path.write_text
+        def checked_read(path, *args, **kwargs):
+            reads.append(kwargs.get("encoding")); return read(path, *args, **kwargs)
+        def checked_write(path, *args, **kwargs):
+            writes.append(kwargs.get("encoding")); return write(path, *args, **kwargs)
+        with tempfile.TemporaryDirectory() as tmp:
+            inp = Path(tmp) / "input.json"; inp.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+            argv = ["pilot", "--input", str(inp), "--output-dir", str(Path(tmp) / "out"), "--source-sha", "b" * 40]
+            with mock.patch.object(sys, "argv", argv), mock.patch.object(Path, "read_text", checked_read), mock.patch.object(Path, "write_text", checked_write):
+                self.assertEqual(mod.main(), 2)
+        self.assertTrue(reads); self.assertTrue(writes)
+        self.assertTrue(all(x == "utf-8" for x in reads + writes))
 
 
 if __name__ == "__main__":

@@ -15,7 +15,7 @@ from urllib.parse import unquote
 
 from .data import digest, reject_diagnostic_scores, source_url, timestamp, validate_persistable_sources
 
-METHOD_VERSION = "quality-evidence-v1.0"
+METHOD_VERSION = "quality-evidence-v1.1"
 AXES = ("technology", "bottleneck", "competition", "demand_sustainability",
         "governance", "management_allocation", "price_expectations")
 COMPANY_AXES = AXES[:-1]  # Price evidence cannot erase an assessed business.
@@ -60,6 +60,20 @@ def _url(value: Any) -> None:
     decoded = unquote(value)
     _require(not re.search(r"(?i)(?:[;/])(?:j?session[_-]?id|cookie|sid)(?:[=/;])", decoded),
              "source_url_session_credential")
+
+
+def _role_matches(source: dict, role: str, security_id: str) -> bool:
+    """Check every declared role; an issuer capture is not independent evidence.
+
+    Source metadata still requires source-grounding review. This is a consistency
+    check, not authentication of whoever supplied the source metadata.
+    """
+    own_issuer = source["issuer_id"] == security_id
+    kind = source["kind"]
+    return ((role == "issuer" and own_issuer and kind == "company") or
+            (role == "competitor" and not own_issuer and kind == "competitor") or
+            (role == "customer" and not own_issuer and kind == "customer") or
+            (role == "industry" and not own_issuer and kind in {"independent", "regulator"}))
 
 
 def _source_errors(source: dict, source_id: str, cutoff: str, data_kind: str) -> list[str]:
@@ -211,7 +225,7 @@ def assess_quality(packet: Any, corpus: Any, receipt: Any, *, security_id: str,
                 errors.append("source_missing")
             elif source_errors.get(sid) or sid in superseded:
                 errors.append("source_invalid_or_superseded")
-            elif (ev["role"] == "issuer" and src["issuer_id"] != security_id) or (ev["role"] == "competitor" and src["issuer_id"] == security_id):
+            elif not _role_matches(src, ev["role"], security_id):
                 errors.append("source_issuer_role_mismatch")
             elif ev["content_sha256"] != src["content_sha256"] or ev["quote"] not in src["captured_text"]:
                 errors.append("quote_or_hash_mismatch")

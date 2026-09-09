@@ -20,13 +20,20 @@ if not sys.flags.isolated:
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from tools.research_decision_v1.data import canonical, digest
-from tools.research_decision_v1.quality import AXES
+from tools.research_decision_v1.quality import AXES, SECURITY
 from tools.research_decision_v1.quality_bridge import evaluate_with_quality
+
+
+def validated_security_id(record):
+    sid = record.get("security_id") if isinstance(record, dict) else None
+    if not isinstance(sid, str) or SECURITY.fullmatch(sid) is None:
+        raise ValueError("invalid_pilot_security_id")
+    return sid
 
 
 def expand_record(record, stamp):
     """Expand reviewed partial capture definitions, retaining unverified axes."""
-    sid = record["security_id"]
+    sid = validated_security_id(record)
     corpus, claims = {}, []
     for row in record["captured_claims"]:
         source = row["source"]
@@ -59,10 +66,16 @@ def expand_record(record, stamp):
 
 
 def execute(document):
-    if document.get("data_kind") != "REAL" or document.get("schema_version") != "quality-capture-pilot-v1":
+    if not isinstance(document, dict) or document.get("data_kind") != "REAL" or document.get("schema_version") != "quality-capture-pilot-v1":
         raise ValueError("pilot_input_schema")
+    records = document.get("records")
+    if not isinstance(records, list) or not 0 < len(records) <= 128:
+        raise ValueError("pilot_records_required")
+    identities = [validated_security_id(record) for record in records]
+    if len(set(identities)) != len(identities):
+        raise ValueError("duplicate_pilot_security_id")
     result = []
-    for record in document["records"]:
+    for record in records:
         packet, corpus, security = expand_record(record, document["observed_at"])
         # Empty config is deliberate: the old evaluator must return BLOCKED before
         # any valuation math. No synthetic price/config is inserted into REAL data.
@@ -87,12 +100,13 @@ def main():
     args = parser.parse_args()
     if re.fullmatch("[0-9a-f]{40}", args.source_sha) is None:
         raise ValueError("source_sha_format")
-    document = json.loads(args.input.read_text())
+    document = json.loads(args.input.read_text(encoding="utf-8"))
     first, second = execute(document), execute(copy.deepcopy(document))
     if canonical(first) != canonical(second):
         raise ValueError("nondeterministic_pilot")
     artifacts = {}
     for row in first["rows"]:
+        validated_security_id(row)  # Defence in depth before deriving any path.
         artifacts[row["security_id"].replace(":", "_") + "/quality_assessment.json"] = row["quality"]
         artifacts[row["security_id"].replace(":", "_") + "/quality_valuation_bridge.json"] = row
     paths = ["tools/research_decision_v1/" + name for name in
@@ -104,7 +118,7 @@ def main():
     for name, value in artifacts.items():
         dest = args.output_dir / name
         dest.parent.mkdir(parents=True, exist_ok=True)
-        data = (canonical(value) + "\n").encode()
+        data = (canonical(value) + "\n").encode("utf-8")
         with dest.open("xb") as handle:
             handle.write(data)
         file_hashes[name] = hashlib.sha256(data).hexdigest()
@@ -114,7 +128,7 @@ def main():
         "input_hash": digest(document), "identical_repeat_results": True,
         "artifacts": file_hashes, "h1_market_admission_executed": False,
         "portfolio_proposal_ready": False, "oos_validated": False, "orders_allowed": False}
-    (args.output_dir / "execution_manifest.json").write_text(canonical(manifest) + "\n")
+    (args.output_dir / "execution_manifest.json").write_text(canonical(manifest) + "\n", encoding="utf-8")
     print(json.dumps({"status": "EXECUTED_PARTIAL_QUALITY_INVESTMENT_BLOCKED",
         "matched_claims": {r["security_id"]: r["quality"]["source_matched_claims"] for r in first["rows"]},
         "reviewed_claims": {r["security_id"]: r["quality"]["reviewed_claims"] for r in first["rows"]},

@@ -94,3 +94,21 @@ cost/FX repairs, OOS and promotion are **not completed by this slice**. The prio
 #400 CI being green does not mean it ran these newly added tests. Keep Draft.
 H1 data/storage fixes stay out of this new H2 module; #403/#404 contrarian work is
 not imported. No numeric strategy configuration changes are made.
+
+## 2026-09-09 review-repair compatibility
+
+Method `quality-evidence-v1.1` changes evidence-role checks. Existing v1.0 review
+receipts need a fresh explicit review; runtime never auto-issues a new receipt.
+All four evidence roles must match their declared source kind and issuer relation.
+Baseline inputs now use the closed `quality-scenario-baseline-v1` identity schema
+(security_id, market, currency, data_kind, decision_cutoff, method, report_period,
+scenarios, schema_version). Current numeric scenarios must pass the same envelope
+validation as V1 valuation plus scenario-domain checks before a link can verify.
+Dividend-inclusive terminal values and same-price total-return changes are reported
+separately from price-only changes. Without admitted current price, value links may
+remain available but percentage-return fields are null. Invalid/duplicate pilot
+security IDs are rejected before output paths; UTF-8 is explicit for text files.
+
+See [review repairs and shared lesson](../research/decision_v1/QUALITY_REVIEW_FIXES_20260909.md)
+and the linked validation receipt. The repaired suite has 65 unique tests. Local
+correctness tests are not OOS, profitability, live-data coverage or trading approval.

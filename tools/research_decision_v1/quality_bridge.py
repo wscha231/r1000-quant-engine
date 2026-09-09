@@ -11,15 +11,78 @@ import math
 from datetime import date
 from typing import Any
 
-from .data import digest, number, timestamp
+from .data import MARKETS, digest, envelope_errors, number, timestamp
 from .quality import assess_quality, _closed, _require, _text
-from .valuation import evaluate_security, scenario_price
+from .valuation import evaluate_security, scenario_price, target_date
 
 VARIABLE_UNITS = {"revenue": "currency", "margin": "fraction", "multiple": "multiple",
                   "net_debt": "currency", "diluted_shares": "shares", "dividend": "currency_per_share"}
 BINDING_FIELDS = {"binding_id", "claim_id", "scenario", "variable", "direction", "old_value",
                   "new_value", "unit", "currency", "period", "economic_driver_id", "quantification",
                   "baseline_scenarios_hash"}
+
+
+BASELINE_FIELDS = {"schema_version", "security_id", "market", "currency", "data_kind",
+                   "decision_cutoff", "method", "report_period", "scenarios"}
+SCENARIO_FIELDS = {"name", "probability", *VARIABLE_UNITS}
+
+
+def _scenario_map(rows: Any, method: str) -> dict:
+    """Validate scenario domains before emitting a numeric comparison."""
+    _require(method in {"PE", "EV_EBITDA"}, "unsupported_valuation_method")
+    _require(isinstance(rows, list) and len(rows) == 3, "three_scenarios_required")
+    result = {}
+    for row in rows:
+        _closed(row, SCENARIO_FIELDS, "scenario_fields")
+        name = row["name"]
+        _require(name in {"Bear", "Base", "Bull"} and name not in result, "scenario_identity")
+        _require(0 <= number(row["probability"]) <= 1, "scenario_probability")
+        number(scenario_price(row, method), nonnegative=True)  # V1 domain plus finite output.
+        result[name] = row
+    _require(math.isclose(sum(r["probability"] for r in rows), 1., abs_tol=1e-12), "probability_sum")
+    prices = [scenario_price(result[name], method) for name in ("Bear", "Base", "Bull")]
+    values = [prices[i] + result[name]["dividend"] for i, name in enumerate(("Bear", "Base", "Bull"))]
+    for numbers in (prices, values):
+        for value in numbers: number(value, nonnegative=True)
+        _require(all(a <= b or math.isclose(a, b, rel_tol=1e-12, abs_tol=1e-12)
+                     for a, b in zip(numbers, numbers[1:])), "scenario_order")
+    return result
+
+
+def _numeric_context(packet: dict, quality: dict, security: dict, baseline: dict) -> tuple:
+    """Current envelopes and baseline identities must agree before using bytes.
+
+    The baseline is a reviewed counterfactual at the current cutoff, not an
+    attestation that an old portfolio or historical market snapshot existed.
+    """
+    cutoff = quality["decision_cutoff"]
+    _require(packet["security_id"] == quality["security_id"] == security["security_id"], "quality_security_mismatch")
+    _require(packet["data_kind"] == quality["data_kind"] and quality["data_kind"] in {"REAL", "SYNTHETIC"}, "quality_data_kind")
+    _require(security.get("data_kind", quality["data_kind"]) == quality["data_kind"], "security_data_kind")
+    market = security["market"]
+    _require(market in MARKETS and security["currency"] == MARKETS[market][0] and
+             security["security_id"].startswith(market + ":"), "security_market_currency")
+    _closed(baseline, BASELINE_FIELDS, "baseline_schema")
+    _require(baseline["schema_version"] == "quality-scenario-baseline-v1", "baseline_version")
+    for field in ("security_id", "market", "currency"):
+        _require(baseline[field] == security[field], "baseline_identity_mismatch")
+    _require(baseline["data_kind"] == quality["data_kind"] and baseline["decision_cutoff"] == cutoff, "baseline_kind_cutoff")
+    current = security.get("blocks", {}).get("scenario")
+    _require(not envelope_errors(current, security, cutoff), "scenario_envelope_not_admitted")
+    _require(current["unit"] == "scenario_currency_and_shares" and
+             current["accounting_basis"] == "RESEARCH_ASSUMPTION", "scenario_basis_unit")
+    payload = current["payload"]
+    _require(payload["probability_type"] == "SUBJECTIVE_SCENARIO" and
+             payload["company_type"] == "PROFITABLE_OPERATING", "scenario_semantics")
+    _require(type(payload["horizon_months"]) is int and payload["horizon_months"] == 12 and
+             payload["target_date"] == target_date(cutoff), "scenario_horizon")
+    _require(current["report_period"] == baseline["report_period"] ==
+             {"start": timestamp(cutoff).date().isoformat(), "end": target_date(cutoff)}, "scenario_period")
+    _text(payload["rationale"], "scenario_rationale")
+    _require(baseline["method"] == payload["method"], "baseline_method")
+    return (current, payload, _scenario_map(payload["scenarios"], payload["method"]),
+            _scenario_map(baseline["scenarios"], payload["method"]))
+
 
 
 def validate_bindings(packet: dict, quality: dict, security: dict, baseline: dict | None) -> dict:
@@ -37,13 +100,15 @@ def validate_bindings(packet: dict, quality: dict, security: dict, baseline: dic
         output.update(status="blocked", blockers=["bindings_require_reviewed_packet"])
         return output
     claimed = {c["claim_id"]: c for c in quality["claims"]}
-    current = security.get("blocks", {}).get("scenario", {})
-    payload = current.get("payload", {})
+    current, payload, current_map, baseline_map = {}, {}, {}, {}
+    numeric = any(isinstance(b, dict) and b.get("new_value") is not None for b in bindings)
+    if numeric:
+        try:
+            current, payload, current_map, baseline_map = _numeric_context(packet, quality, security, baseline)
+        except (ValueError, KeyError, TypeError, AttributeError):
+            output.update(status="blocked", blockers=["numeric_context_not_admitted"])
+            return output
     scenarios = payload.get("scenarios", [])
-    current_map = {s["name"]: s for s in scenarios if isinstance(s, dict) and "name" in s}
-    baseline_map = {}
-    if isinstance(baseline, dict):
-        baseline_map = {s["name"]: s for s in baseline.get("scenarios", []) if isinstance(s, dict) and "name" in s}
     occupied, drivers, ids, verified_numeric = set(), set(), set(), []
     for b in bindings:
         try:
@@ -117,10 +182,34 @@ def validate_bindings(packet: dict, quality: dict, security: dict, baseline: dic
             method = payload["method"]
             before = {name: scenario_price(s, method) for name, s in baseline_map.items()}
             after = {name: scenario_price(s, method) for name, s in current_map.items()}
-            output["counterfactual"] = {"basis": "same_current_price_not_prior_execution",
+            values_before = {name: before[name] + baseline_map[name]["dividend"] for name in before}
+            values_after = {name: after[name] + current_map[name]["dividend"] for name in after}
+            comparison = {"basis": "same_current_price_not_prior_execution",
                 "baseline_hash": digest(baseline), "current_scenarios_hash": digest(scenarios),
+                "currency": security["currency"], "value_unit": "currency_per_share",
                 "target_prices_before": before, "target_prices_after": after,
-                "target_price_deltas": {name: after[name] - before[name] for name in sorted(before)}}
+                "target_price_deltas": {name: after[name] - before[name] for name in sorted(before)},
+                "terminal_values_before": values_before, "terminal_values_after": values_after,
+                "terminal_value_deltas": {name: values_after[name] - values_before[name] for name in sorted(before)},
+                "return_status": "price_not_admitted", "current_price": None,
+                "total_return_deltas": None, "expected_total_return_delta": None,
+                "costs_and_personal_taxes_included": False}
+            # Target value is meaningful without a current price. A percentage
+            # return is not; never replace a missing/rejected price with a value.
+            try:
+                _require(not any(str(b).startswith("price:") for b in security.get("blockers", [])), "price_blocked")
+                price = number(security["discovery"]["price"], positive=True)
+            except (ValueError, KeyError, TypeError):
+                pass
+            else:
+                old_returns = {name: number(values_before[name] / price - 1.) for name in before}
+                new_returns = {name: number(values_after[name] / price - 1.) for name in after}
+                deltas = {name: new_returns[name] - old_returns[name] for name in before}
+                comparison.update(return_status="available", current_price=price,
+                    total_returns_before=old_returns, total_returns_after=new_returns,
+                    total_return_deltas=deltas,
+                    expected_total_return_delta=sum(current_map[name]["probability"] * deltas[name] for name in before))
+            output["counterfactual"] = comparison
         except (ValueError, KeyError, TypeError):
             output["blockers"].append("comparison_unbound_or_invalid")
     output["status"] = "blocked" if output["blockers"] else "verified_links_only"

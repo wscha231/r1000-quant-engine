@@ -1,0 +1,46 @@
+{
+  "schema_version": "quality-review-fix-validation-v1",
+  "observed_at": "2026-09-09T00:43:43.922683+00:00",
+  "parent_sha": "6a671033cc74265a2d370fc05c05898b2a4a0043",
+  "scope": "REVIEW_BUGFIX_ONLY",
+  "code_file_sha256": {
+    "tools/research_decision_v1/quality.py": "c7dd6c1ae8f7d8b33edf7b9c8f4664409942dfc9ceeccd039ce4c612a74bd7e6",
+    "tools/research_decision_v1/quality_bridge.py": "2c201187ad6e691277843e9f854e0318aecfbfe7533c458d6cc82e943c1e9ca0",
+    "research/decision_v1/run_quality_pilot.py": "871564758ec70990b7d040f8e6ece9ce22248f2045f5bfe05ac51196be33078f",
+    "tests/research_quality_v1_smoke.py": "1c78bee28549d6ed080821efce5250d2e89049442881190dfbf1cac9ca589f33"
+  },
+  "same_suite_test_count": 65,
+  "legacy_suite_before_changes": {
+    "tests": 47,
+    "passed": 47
+  },
+  "before_fix_summary": "FAILED (failures=22, errors=5)",
+  "after": {
+    "normal": "65/65 PASS",
+    "optimized": "65/65 PASS",
+    "explicit_encoding_warning_mode": "65/65 PASS"
+  },
+  "same_unique_tests_not_195": true,
+  "review_families_addressed": 6,
+  "full_checkout_suite": "NOT_RUN",
+  "native_windows": "NOT_RUN",
+  "native_windows_encoding_behavior": "explicit encoding call checks only",
+  "whole_portfolio_integration": "NOT_RUN",
+  "oos_profitability": "NOT_VALIDATED",
+  "mdd_validation": "NOT_VALIDATED",
+  "independent_exact_head_review": "PENDING",
+  "orders_allowed": false,
+  "production_promoted": false,
+  "strategy_weights_changed": false,
+  "new_market_data_fetched": false,
+  "python": "3.13.5",
+  "log_sha256": {
+    "baseline47.log": "cd7af291ceb7712f7c2ffbbc5cda4d7d32eab80fd65583a9628fddc3e4dcd546",
+    "final_normal.log": "76de0b2fa333fa275b771ab5d85893eb794aa384483b724654f16e6a675973b0",
+    "final_optimized.log": "f01e48d419f793cec28a543f65b9dd3915cfff73a71b8bbf9c50f150d0ac0430",
+    "after61.log": "cea7e04b914e084e438b2ea316a3cfba4658c555a2e0b74c5f2568d389f14ce1",
+    "before_same65.log": "7fdcbf35749b5a8f4c7a10e4a9f7b3b67454a3b01f0bfb9e490f92d2ebc76182",
+    "reproduced_before.log": "c2480bb15de69fafdbdb02bd56371e04bc861b604dca1d75895b4824405c29ff",
+    "final_encoding.log": "1523d4a85442ea1e547b9a70ce6b19cebee1c3c83181872eb749a2ab062b3b3d"
+  }
+}
