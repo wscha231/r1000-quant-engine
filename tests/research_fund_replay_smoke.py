@@ -175,6 +175,10 @@ class FullFundTests(unittest.TestCase):
         self.assertEqual(run(spec,events,packets)['status'],'BLOCKED')
         spec,events,packets=fixture();spec['cost_bps']['US']=0.
         self.assertEqual(run(spec,events,packets)['reason'],'fund_cost_mismatch')
+        for kind in ([],{},'untrusted input text'):
+            spec,events,packets=fixture();spec['data_kind']=kind
+            result=run(spec,events,packets)
+            self.assertEqual(result['status'],'BLOCKED');self.assertIsNone(result['data_kind'])
 
     def test_end_after_now_and_missing_decisions_rejected(self):
         spec,events,packets=fixture(False)

@@ -63,6 +63,7 @@ def load_history(path, shard_sink=None):
 
 
 def compare_development(spec, root):
+    validate_persistable_sources(spec)
     require(spec["schema_version"] == "fund-cagr-development-v1", "fund_comparison_schema")
     trials = []
     kinds=set()
@@ -474,8 +475,10 @@ def replay(manifest, events, config, packet_loader, *, now=None, decision_sink=N
         # Data validation errors are controlled identifiers. Do not echo raw
         # source packets, paths or provider error bodies into a public report.
         reason=str(exc) if isinstance(exc,ValueError) and str(exc).startswith("fund_") else "fund_input_or_engine_validation_failed"
+        kind=manifest.get("data_kind") if isinstance(manifest,dict) else None
+        kind=kind if isinstance(kind,str) and kind in {"REAL","SYNTHETIC"} else None
         return {"schema_version":SCHEMA,"status":"BLOCKED","objective":OBJECTIVE,"metrics":None,
-                "reason":reason,"data_kind":manifest.get("data_kind"),"orders_allowed":False,
+                "reason":reason,"data_kind":kind,"orders_allowed":False,
                 "production_promoted":False,"completed_decisions":len(fund.decisions) if fund else 0,
                 "last_completed_mark":fund.daily[-1]["time"] if fund and fund.daily else None}
 

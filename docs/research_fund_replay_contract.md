@@ -173,3 +173,7 @@ Git-anchored preregistration, complete failed-trial history, DSR/WRC, source
 verification and a genuinely unused test period are still separate obligations.
 An already inspected historical period is not made unused by naming it OOS.
 No 7–8 year real-data performance has been produced by these code tests.
+
+## Implementation validation
+
+[Machine-readable software evidence](../research/decision_v1/fund_replay_code_validation_20260910.json): 27 new fund tests (also optimized Python), 14 funding, 24 quality-connection and 46 H2 decision tests passed locally. The full original H1 export and quality path is exercised by the new fund fixture without mocking those boundaries. The committed-source CLI processed two synthetic decisions/two fills, then reproduced the identical semantic result solely from the retained input archive. These counts are software tests, not observed investment returns. The protected runner publication pin advances to causal ancestor `9994cc9a1b9d22e28ce6f2d431d3d16f3b0d631d`, which contains the new mandatory registration; verifier algorithms and protected paths are unchanged.
