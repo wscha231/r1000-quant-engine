@@ -29,6 +29,11 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            tools/audit_run287_source_archive.py
+            tests/run287_source_archive_audit_smoke.py
+            docs/run287_next_single_ab_readiness_contract.json
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
