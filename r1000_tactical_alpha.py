@@ -34,6 +34,7 @@ except Exception:  # pragma: no cover - optional for offline local review
     yf = None
 
 from r1000_config import EngineConfig
+from tools.run_daily_market_session_gate import evaluate_market_session
 from r1000_helpers import get_paths, normalize_ticker, safe_mkdir, to_yf_symbol
 from r1000_pipeline import (
     CASH_PROXY_TICKER,
@@ -96,6 +97,7 @@ def _first_existing(paths: Iterable[Path]) -> Optional[Path]:
 def load_scored_latest(base_dir: Path, explicit: Optional[str] = None) -> LoadedFrame:
     candidates: list[Path] = []
     if explicit:
+        if not Path(explicit).is_file(): raise FileNotFoundError("explicit_scored_source_missing")
         candidates.append(Path(explicit))
     candidates.extend(
         [
@@ -119,6 +121,7 @@ def load_scored_latest(base_dir: Path, explicit: Optional[str] = None) -> Loaded
 def load_previous_holdings(base_dir: Path, explicit: Optional[str] = None) -> LoadedFrame:
     candidates: list[Path] = []
     if explicit:
+        if not Path(explicit).is_file(): raise FileNotFoundError("explicit_holdings_source_missing")
         candidates.append(Path(explicit))
     candidates.extend(
         [
@@ -143,23 +146,59 @@ def load_previous_summary(base_dir: Path) -> dict[str, Any]:
     if path is None:
         return {}
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict): raise ValueError("previous_summary_must_be_object")
+        return payload
+    except (OSError, ValueError) as exc:
+        raise ValueError("previous_summary_unreadable") from exc
 
 
 def latest_nyse_day_on_or_before(date_like: Any) -> pd.Timestamp:
-    dt = pd.to_datetime(date_like, errors="coerce")
+    dt = pd.Timestamp(date_like)
     if pd.isna(dt):
-        dt = pd.Timestamp.utcnow()
-    dt = pd.Timestamp(dt).tz_localize(None).normalize()
-    start = dt - pd.Timedelta(days=14)
-    days = get_nyse_days(str(start.date()), str(dt.date()))
-    days = pd.DatetimeIndex(days)
-    days = days[days <= dt]
-    if len(days) == 0:
-        raise RuntimeError(f"No NYSE trading day found on or before {dt.date()}")
-    return pd.Timestamp(days[-1]).normalize()
+        raise ValueError("invalid_decision_time")
+    dt = dt.tz_localize("UTC") if dt.tzinfo is None else dt.tz_convert("UTC")
+    if dt == dt.normalize():
+        dt += pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
+    cutoff = min(dt, pd.Timestamp.now(tz="UTC"))
+    gate = evaluate_market_session(now_utc=cutoff, min_close_age_minutes=0)
+    if not gate["latest_completed_session_date"]:
+        raise ValueError("no_completed_nyse_session")
+    return pd.Timestamp(gate["latest_completed_session_date"])
+
+
+def tactical_input_gate(candidates, previous, held, session, scored_date):
+    """Data integrity gate, independent of the tactical selection formula."""
+    required = pd.Timestamp(session).date().isoformat()
+    blockers = []
+    prior = str(previous.get("data_as_of") or "")
+    dates = candidates.get("price_as_of", pd.Series(dtype=str)).fillna("").astype(str)
+    if candidates.empty: blockers.append("empty_candidate_universe")
+    if len(dates) != len(candidates) or not dates.eq(required).all():
+        blockers.append("candidate_prices_not_exact_session")
+    if prior:
+        try:
+            if pd.Timestamp(required) < pd.Timestamp(prior) or any(pd.Timestamp(x) < pd.Timestamp(prior) for x in dates if x):
+                blockers.append("data_as_of_regressed")
+        except (ValueError, TypeError): blockers.append("previous_data_as_of_invalid")
+    if pd.Timestamp(scored_date).date().isoformat() != required:
+        blockers.append("scored_snapshot_not_current_session")
+    count = previous.get("candidate_count")
+    if count is not None:
+        if type(count) is not int or count < 0: blockers.append("previous_candidate_count_invalid")
+        elif count and len(candidates) < .5 * count: blockers.append("candidate_universe_collapsed")
+    tickers = candidates.get("ticker", pd.Series(dtype=str)).astype(str)
+    if tickers.duplicated().any(): blockers.append("duplicate_candidate_ticker")
+    if set(held) - set(tickers): blockers.append("held_security_missing_current_evidence")
+    for column in ("px", "tactical_rank", "tactical_rank_score"):
+        values = pd.to_numeric(candidates.get(column, pd.Series(index=candidates.index, dtype=float)), errors="coerce")
+        if not np.isfinite(values).all() or (column != "tactical_rank_score" and not values.gt(0).all()):
+            blockers.append("invalid_candidate_" + column)
+    return {"schema_version": "tactical-input-gate-v1", "ready": not blockers,
+            "required_session": required, "previous_data_as_of": prior,
+            "candidate_count": len(candidates), "previous_candidate_count": count,
+            "minimum_retained_candidate_fraction": .5, "blockers": sorted(set(blockers)),
+            "orders_allowed": False}
 
 
 def latest_snapshot(scored: pd.DataFrame) -> tuple[pd.DataFrame, pd.Timestamp]:
@@ -518,7 +557,7 @@ def select_tactical_portfolio(
     return out
 
 
-def build_trade_plan(target: pd.DataFrame, candidates: pd.DataFrame, prev_weights: dict[str, float]) -> pd.DataFrame:
+def build_trade_plan(target: pd.DataFrame, candidates: pd.DataFrame, prev_weights: dict[str, float], *, required_session=None) -> pd.DataFrame:
     target_weights = {}
     if not target.empty:
         target_weights = {
@@ -549,6 +588,7 @@ def build_trade_plan(target: pd.DataFrame, candidates: pd.DataFrame, prev_weight
         hard_exit = False
         soft_exit = False
         price_as_of = ""
+        price = np.nan
         if not cand_by_ticker.empty and ticker in cand_by_ticker.index:
             row = cand_by_ticker.loc[ticker]
             if isinstance(row, pd.DataFrame):
@@ -558,6 +598,7 @@ def build_trade_plan(target: pd.DataFrame, candidates: pd.DataFrame, prev_weight
             hard_exit = bool(row.get("tactical_hard_exit", False))
             soft_exit = bool(row.get("tactical_soft_exit", False))
             price_as_of = str(row.get("price_as_of", "") or "")
+            price = pd.to_numeric(row.get("px", np.nan), errors="coerce")
         if action == "SELL":
             reason = "hard_exit" if hard_exit else "soft_exit_or_rank_replaced" if soft_exit else "rank_replaced"
         elif action in {"BUY", "INCREASE"}:
@@ -566,6 +607,16 @@ def build_trade_plan(target: pd.DataFrame, candidates: pd.DataFrame, prev_weight
             reason = "target_weight_lower"
         else:
             reason = "within_rebalance_band"
+        try:
+            date_valid = pd.Timestamp(price_as_of).date().isoformat() == price_as_of
+        except (ValueError, TypeError): date_valid = False
+        input_ready = (date_valid and all(pd.notna(x) for x in (price, rank, score))
+                       and math.isfinite(float(price)) and float(price) > 0
+                       and math.isfinite(float(rank)) and math.isfinite(float(score))
+                       and (required_session is None or price_as_of == str(required_session)))
+        if not input_ready:
+            action, target_w, delta = "HOLD", current, 0.
+            reason = "blocked_missing_or_stale_price_and_rank"
         rows.append(
             {
                 "ticker": ticker,
@@ -579,8 +630,11 @@ def build_trade_plan(target: pd.DataFrame, candidates: pd.DataFrame, prev_weight
                 "tactical_soft_exit": soft_exit,
                 "price_as_of": price_as_of,
                 "reason": reason,
+                "input_ready": input_ready,
             }
         )
+    if not rows:
+        return pd.DataFrame(columns=["ticker", "action", "current_weight", "target_weight", "delta_weight", "reason", "input_ready"])
     return pd.DataFrame(rows).sort_values(
         ["action", "delta_weight"],
         ascending=[True, False],
@@ -669,7 +723,7 @@ def main() -> int:
         if args.as_of
         else pd.Timestamp(datetime.now(timezone.utc).replace(tzinfo=None)).normalize()
     )
-    target_trading_day = latest_nyse_day_on_or_before(schedule_as_of)
+    target_trading_day = latest_nyse_day_on_or_before(args.as_of or pd.Timestamp.now(tz="UTC"))
     previous_summary = load_previous_summary(base_dir)
     previous_data_as_of = str(previous_summary.get("data_as_of") or "")
 
@@ -699,6 +753,15 @@ def main() -> int:
     )
     prev = load_previous_holdings(base_dir, args.previous_holdings)
     prev_weights = normalize_prev_weights(prev.frame)
+    gate = tactical_input_gate(candidates, previous_summary, prev_weights, target_trading_day, latest_rebalance_dt)
+    out_dir = Path(args.output_dir).resolve() if args.output_dir else (paths["out"] / DEFAULT_OUTPUT_SUBDIR)
+    if not gate["ready"] or previous_data_as_of == str(target_trading_day.date()):
+        gate["run_status"] = "blocked_input_quality" if not gate["ready"] else "no_new_trading_session"
+        diagnostic = out_dir / "diagnostics" / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        safe_mkdir(diagnostic)
+        (diagnostic / "input_gate.json").write_text(json.dumps(gate, indent=2), encoding="utf-8")
+        print(json.dumps(gate, indent=2))
+        return 2 if not gate["ready"] else 0
     target = select_tactical_portfolio(
         candidates,
         prev_weights,
@@ -707,7 +770,7 @@ def main() -> int:
         min_upgrade_gap=float(args.min_upgrade_gap),
         max_single_weight=float(args.max_single_weight),
     )
-    trade_plan = build_trade_plan(target, candidates, prev_weights)
+    trade_plan = build_trade_plan(target, candidates, prev_weights, required_session=str(target_trading_day.date()))
 
     data_as_of = ""
     if not candidates.empty and "price_as_of" in candidates.columns:
@@ -734,6 +797,7 @@ def main() -> int:
         "min_price": float(args.min_price),
         "min_dollar_vol": float(args.min_dollar_vol),
         "price_refresh": refresh_summary,
+        "input_gate": gate,
         "notes": [
             "Weekends and NYSE holidays map to the last valid NYSE trading day.",
             "No trade is forced: existing positions are kept unless rank/exit rules fail or a stronger candidate clears the upgrade gap.",
