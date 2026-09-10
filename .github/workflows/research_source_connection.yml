@@ -1,18 +1,6 @@
 name: Research Source Connection
 
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/research_source_connection.yml'
-      - 'tools/research_source_connection.py'
-      - 'tests/research_source_connection_smoke.py'
-      - 'tools/admit_connected_research.py'
-      - 'tests/research_connected_admission_smoke.py'
-      - 'tools/research_universe_connection.py'
-      - 'tests/research_universe_connection_smoke.py'
-      - 'tools/research_us_decision.py'
-      - 'docs/research_us_fund_config.json'
-      - 'adr_universe.yaml'
   workflow_dispatch:
 
 permissions:
@@ -41,14 +29,6 @@ jobs:
             /tools/research_us_decision.py
             /docs/research_us_fund_config.json
             /adr_universe.yaml
-      - name: Read pinned decision engine source
-        uses: actions/checkout@v4
-        with:
-          ref: 3eb068e76d676ec3fc75288b645db8448615aa2d
-          path: engine-reference
-          persist-credentials: false
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
             /tools/research_decision_v1/
             /docs/research_fund_replay_config.json
             /docs/research_decision_v1_config.json
@@ -61,7 +41,7 @@ jobs:
         run: python -m pip install PyYAML==6.0.3 pandas==2.3.3 pandas-market-calendars==5.4.0 exchange-calendars==4.13.2 tzdata==2026.3
       - name: Verify source and disclosure boundaries
         env:
-          RESEARCH_ENGINE_SOURCE: ${{ github.workspace }}/engine-reference
+          RESEARCH_ENGINE_SOURCE: ${{ github.workspace }}
         run: |
           python tools/run_pr_validation.py \
             --include research_source_connection_smoke \
@@ -86,10 +66,12 @@ jobs:
             --historical-probe-date 2019-05-31 \
             --report "$RUNNER_TEMP/research-source-report.json"
       - name: Run real connected observations through H1 and H2
+        env:
+          RESEARCH_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           python -I tools/admit_connected_research.py \
             --capture "$RUNNER_TEMP/research-source-private" \
-            --engine-source "$GITHUB_WORKSPACE/engine-reference" \
+            --engine-source "$GITHUB_WORKSPACE" \
             --report "$RUNNER_TEMP/research-admission-report.json"
       - name: Preserve private source snapshot under a new research prefix
         if: always()

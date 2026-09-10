@@ -82,7 +82,7 @@ def collect_us_universe(capture,end):
                 duplicates+=1
                 old=merged[ticker]
                 require(old['currency']==member['currency'],'duplicate_currency_conflict')
-                merged[ticker]={**old,**member,'membership_as_of':old['membership_as_of'],
+                merged[ticker]={**old,**member,'membership_as_of':old['membership_as_of'],'sector':old.get('sector','Unclassified'),
                     'candidate_origins':['IWB','US_FOREIGN']}
             else:merged[ticker]={**member,'candidate_origins':[source['name']]}
     members=[merged[t] for t in sorted(merged)]

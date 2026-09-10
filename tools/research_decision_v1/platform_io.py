@@ -1,0 +1,223 @@
+"""Local-file handles on POSIX and Windows; never follow reparse points."""
+from contextlib import contextmanager
+import os
+from pathlib import Path
+
+
+def is_redirect(path):
+    path = Path(path)
+    return path.is_symlink() or getattr(path, "is_junction", lambda: False)()
+
+
+@contextmanager
+def _posix_descriptor(path):
+    directory = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY)
+    descriptor = None
+    try:
+        for part in path.parts[1:-1]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+            os.close(directory); directory = child
+        descriptor = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+        yield descriptor
+    finally:
+        if descriptor is not None: os.close(descriptor)
+        os.close(directory)
+
+
+def _windows_api():
+    import ctypes
+    from ctypes import wintypes
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    class FileInfo(ctypes.Structure):
+        _fields_ = [("attributes", wintypes.DWORD), ("creation", wintypes.FILETIME),
+                    ("access", wintypes.FILETIME), ("write", wintypes.FILETIME),
+                    ("volume", wintypes.DWORD), ("size_high", wintypes.DWORD),
+                    ("size_low", wintypes.DWORD), ("links", wintypes.DWORD),
+                    ("index_high", wintypes.DWORD), ("index_low", wintypes.DWORD)]
+    kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                                   ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    kernel.CreateFileW.restype = wintypes.HANDLE
+    kernel.GetFileInformationByHandle.argtypes = [wintypes.HANDLE, ctypes.POINTER(FileInfo)]
+    kernel.GetFileInformationByHandle.restype = wintypes.BOOL
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel.CloseHandle.restype = wintypes.BOOL
+    kernel.MoveFileExW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD]
+    kernel.MoveFileExW.restype = wintypes.BOOL
+    return ctypes, kernel, FileInfo
+
+
+@contextmanager
+def _windows_descriptor(path):
+    import msvcrt
+    ctypes, kernel, FileInfo = _windows_api()
+    # Restrict to ordinary local drive paths, excluding device/UNC/ADS names.
+    if len(path.drive) != 2 or path.drive[1] != ":" or any(":" in part for part in path.parts[1:]):
+        raise ValueError("unsafe_windows_input_path")
+    handles, descriptor = [], None
+    try:
+        # Keep all parents open without WRITE/DELETE sharing until the bounded
+        # read finishes. Reparse processing is disabled and attributes checked.
+        for part in [*reversed(path.parents), path]:
+            directory = part != path
+            handle = kernel.CreateFileW(str(part), 0x80000000,
+                                        1, None, 3, 0x00200000 | (0x02000000 if directory else 0), None)
+            if handle == ctypes.c_void_p(-1).value: raise ctypes.WinError(ctypes.get_last_error())
+            handles.append(handle)
+            info = FileInfo()
+            if not kernel.GetFileInformationByHandle(handle, ctypes.byref(info)):
+                raise ctypes.WinError(ctypes.get_last_error())
+            if info.attributes & 0x400 or bool(info.attributes & 0x10) != directory:
+                raise ValueError("unsafe_windows_reparse_or_type")
+        descriptor = msvcrt.open_osfhandle(handles[-1], os.O_RDONLY | os.O_BINARY)
+        handles.pop()  # CRT descriptor now owns the final Windows handle.
+        yield descriptor
+    finally:
+        if descriptor is not None: os.close(descriptor)
+        for handle in reversed(handles): kernel.CloseHandle(handle)
+
+
+def input_descriptor(path):
+    return _windows_descriptor(path) if os.name == "nt" else _posix_descriptor(path)
+
+
+@contextmanager
+def output_parent(path):
+    """Create/open each parent without following redirects; retain publication authority."""
+    path = Path(path).absolute()
+    if ".." in path.parts: raise ValueError("output_symlink")
+    if os.name != "nt":
+        descriptor = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            for part in path.parts[1:]:
+                try: os.mkdir(part, mode=0o700, dir_fd=descriptor)
+                except FileExistsError: pass
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor)
+                os.close(descriptor); descriptor = child
+            yield descriptor
+        finally: os.close(descriptor)
+        return
+    ctypes, kernel, FileInfo = _windows_api()
+    if len(path.drive) != 2 or path.drive[1] != ":" or any(":" in part for part in path.parts[1:]):
+        raise ValueError("unsafe_windows_output_path")
+    handles = []
+    try:
+        for part in [*reversed(path.parents), path]:
+            # Every previously visited ancestor is already held against rename
+            # and reparse mutation. Check the new handle before descending.
+            part.mkdir(exist_ok=True)
+            handle = kernel.CreateFileW(str(part), 0x80000000, 1, None, 3, 0x02200000, None)
+            if handle == ctypes.c_void_p(-1).value: raise ctypes.WinError(ctypes.get_last_error())
+            handles.append(handle); info = FileInfo()
+            if not kernel.GetFileInformationByHandle(handle, ctypes.byref(info)):
+                raise ctypes.WinError(ctypes.get_last_error())
+            if info.attributes & 0x400 or not info.attributes & 0x10:
+                raise ValueError("output_symlink")
+        yield handles[-1]
+    finally:
+        for handle in reversed(handles): kernel.CloseHandle(handle)
+
+
+@contextmanager
+def output_existing_descriptor(path, parent_descriptor):
+    if os.name == "nt":
+        with input_descriptor(path) as descriptor: yield descriptor
+    else:
+        descriptor = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent_descriptor)
+        try: yield descriptor
+        finally: os.close(descriptor)
+
+
+def create_staged_descriptor(temporary, parent_descriptor):
+    if os.name != "nt":
+        # No directory entry may expose writable staged bytes before publication.
+        # A named inode can be overwritten in place without changing its identity.
+        flag = getattr(os, "O_TMPFILE", None)
+        if flag is None: raise ValueError("anonymous_staging_unavailable")
+        try: return os.open(".", flag | os.O_RDWR, 0o600, dir_fd=parent_descriptor)
+        except OSError as exc: raise ValueError("anonymous_staging_unavailable") from exc
+    import msvcrt
+    ctypes, kernel, _ = _windows_api()
+    # CREATE_NEW, read/write/delete access, READ sharing only, write-through.
+    # The CRT owns this handle until writing and native publication both finish.
+    handle = kernel.CreateFileW(str(temporary), 0xC0010000, 1, None, 1, 0x80200000, None)
+    if handle == ctypes.c_void_p(-1).value: raise ctypes.WinError(ctypes.get_last_error())
+    try: return msvcrt.open_osfhandle(handle, os.O_RDWR | os.O_BINARY)
+    except BaseException:
+        kernel.CloseHandle(handle)
+        raise
+
+
+def discard_staged(staged_descriptor):
+    """Dispose only of the still-owned Windows inode, before closing its handle."""
+    if os.name != "nt": return  # Closing an anonymous inode is sufficient.
+    import msvcrt
+    from ctypes import wintypes
+    ctypes, kernel, _ = _windows_api()
+    kernel.SetFileInformationByHandle.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    kernel.SetFileInformationByHandle.restype = wintypes.BOOL
+    delete = ctypes.c_ubyte(1)  # FILE_DISPOSITION_INFO contains one BOOLEAN.
+    if not kernel.SetFileInformationByHandle(msvcrt.get_osfhandle(staged_descriptor), 4,
+                                             ctypes.byref(delete), ctypes.sizeof(delete)):
+        raise ctypes.WinError(ctypes.get_last_error())
+
+
+def publish_staged(temporary, path, parent_descriptor=None, staged_descriptor=None):
+    if os.name == "nt":
+        import msvcrt
+        from ctypes import wintypes
+        ctypes, kernel, FileInfo = _windows_api()
+        # MoveFileEx reopens the destination parent and conflicts with the
+        # retained sharing guard. A native leaf-only rename stays in the opened
+        # source file's directory, without reopening a target directory.
+        class RenameInfo(ctypes.Structure):
+            _fields_ = [("replace", wintypes.DWORD), ("root", wintypes.HANDLE),
+                        ("length", wintypes.DWORD), ("name", wintypes.WCHAR * 1)]
+        # Use the native same-directory contract: RootDirectory=NULL and a
+        # simple leaf name. All parent handles stay held until publication ends.
+        native = ctypes.WinDLL("ntdll", use_last_error=True)
+        class IoStatusValue(ctypes.Union):
+            _fields_ = [("status", ctypes.c_int32), ("pointer", ctypes.c_void_p)]
+        class IoStatus(ctypes.Structure):
+            _fields_ = [("value", IoStatusValue), ("information", ctypes.c_size_t)]
+        native.NtSetInformationFile.argtypes = [wintypes.HANDLE, ctypes.POINTER(IoStatus), ctypes.c_void_p,
+                                               wintypes.ULONG, ctypes.c_int]
+        native.NtSetInformationFile.restype = ctypes.c_int32
+        native.RtlNtStatusToDosError.argtypes = [ctypes.c_int32]
+        native.RtlNtStatusToDosError.restype = wintypes.ULONG
+        kernel.FlushFileBuffers.argtypes = [wintypes.HANDLE]
+        kernel.FlushFileBuffers.restype = wintypes.BOOL
+        handle = msvcrt.get_osfhandle(staged_descriptor)
+        info = FileInfo()
+        if not kernel.GetFileInformationByHandle(handle, ctypes.byref(info)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        if info.attributes & (0x400 | 0x10): raise ValueError("unsafe_staged_file")
+        name = path.name.encode("utf-16-le")
+        buffer = ctypes.create_string_buffer(ctypes.sizeof(RenameInfo) + len(name))
+        rename = RenameInfo.from_buffer(buffer)
+        rename.replace = 0; rename.root = None; rename.length = len(name)
+        ctypes.memmove(ctypes.addressof(buffer) + RenameInfo.name.offset, name, len(name))
+        completion = IoStatus()
+        status = native.NtSetInformationFile(handle, ctypes.byref(completion), buffer, len(buffer), 10)
+        if status != 0:
+            code = native.RtlNtStatusToDosError(status)
+            if code in (80, 183): raise FileExistsError("immutable_target_exists")
+            raise ctypes.WinError(code)
+        if not kernel.FlushFileBuffers(handle): raise ctypes.WinError(ctypes.get_last_error())
+    else:
+        # A renamed parent cannot redirect a write. Reject a changed pathname
+        # too, so a successful return still names the verified directory.
+        try:
+            with _posix_descriptor(path.parent / ".") as checked:
+                if (os.fstat(checked).st_dev, os.fstat(checked).st_ino) != (os.fstat(parent_descriptor).st_dev, os.fstat(parent_descriptor).st_ino):
+                    raise ValueError("output_parent_changed")
+        except OSError as exc: raise ValueError("output_parent_changed") from exc
+        # Linux linkat publishes the anonymous inode via its retained descriptor.
+        # There is no temporary leaf for another writer to open or overwrite.
+        reference = "/proc/self/fd/" + str(staged_descriptor)
+        if not os.path.isdir('/proc/self/fd'): raise ValueError("descriptor_publication_unavailable")
+        os.link(reference, path.name, dst_dir_fd=parent_descriptor, follow_symlinks=True)
+
+
+def sync_directory(path, descriptor=None):
+    if os.name == "nt": return  # The renamed file handle was flushed above.
+    os.fsync(descriptor)

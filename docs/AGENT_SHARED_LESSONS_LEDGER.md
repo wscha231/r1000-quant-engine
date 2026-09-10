@@ -1,5 +1,25 @@
 # Agent Shared Lessons Ledger
 
+### 2026-09-10 - All-horizon analysis and US chronological core connection
+
+- PR412 now connects US decisions and fund replay to one checked-in core.
+  Exact-date relative strength covers all candidates over seven horizons;
+  insufficient histories are not filled or promoted into investment ranks.
+- Reuse immutable captures and reconstruct prices from their receipt-bound
+  raw pages. Restore comparable IWB sector labels from the CSV: merging a
+  foreign seed previously replaced the sector on duplicate securities.
+- SEC companyfacts staleness is not absence of interim statements. TSM and
+  ASML official quarterly tables permit current native-currency TTM research.
+  Later comparative figures and today's review must not enter past decisions.
+- The integrated manifest is still distinct from raw bars and a current
+  inventory. A SPY reference curve or green diagnostic job is not a successful
+  stock-selection fund. Keep its performance labels and remaining gaps explicit.
+- Validation CLI `--include` adds tests; use repeated `--only` for a focused
+  subset. An unintended broad run encountered unrelated missing dependencies;
+  focused US/core regressions are the relevant validation for this change.
+- Evidence: `docs/US_RESEARCH_CONTINUATION_20260910.md`; exact-head real
+  workflow outcomes must be recorded after execution, never predicted here.
+
 This is the shared "mistake notebook" for Codex, Claude, GPT Pro, and any other
 agent working on `wscha231/r1000-quant-engine`.
 

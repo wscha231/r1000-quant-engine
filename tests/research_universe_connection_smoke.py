@@ -41,13 +41,14 @@ class Universe(unittest.TestCase):
         self.assertIsNone(r['membership_as_of']);self.assertFalse(r['historical_selection_allowed'])
 
     def test_us_union_deduplicates_and_never_calls_kr(self):
-        row=dict(ticker='TSM',market='US',currency='USD',membership_as_of='2026-09-08')
-        other={**row,'issuer_id':'CIK:0001046179','membership_as_of':None}
+        row=dict(ticker='TSM',market='US',currency='USD',membership_as_of='2026-09-08',sector='Information Technology')
+        other={**row,'issuer_id':'CIK:0001046179','membership_as_of':None,'sector':'Semiconductor seed'}
         with tempfile.TemporaryDirectory() as d,patch.object(m,'collect_iwb',return_value={'members':[row]}),patch.object(m,'collect_us_foreign',return_value={'members':[other]}),patch.object(m,'collect_kr_board',side_effect=AssertionError('KR called')):
             r=m.collect_us_universe(source.Capture(d),'2026-09-09')
         self.assertEqual(len(r['members']),1);self.assertEqual(r['duplicate_security_rows_merged'],1)
         self.assertEqual(r['members'][0]['issuer_id'],'CIK:0001046179')
         self.assertEqual(r['members'][0]['membership_as_of'],'2026-09-08')
+        self.assertEqual(r['members'][0]['sector'],'Information Technology')
 
     def test_missing_priority_or_source_is_visible_without_sample_fallback(self):
         with tempfile.TemporaryDirectory() as d,patch.object(m,'collect_iwb',side_effect=OSError),patch.object(m,'collect_us_foreign',return_value=dict(members=[],priority_coverage_complete=False)),patch.object(m,'connection_sample',side_effect=AssertionError):

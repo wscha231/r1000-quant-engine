@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run connected REAL observations through the pinned H1/H2 admission path.
+"""Run connected REAL observations through the digest-bound H1/H2 admission path.
 
 This probe does not invent missing underwriting or label provider bar closes
 as independently verified exchange auction prices. It records engine blockers.
@@ -14,8 +14,8 @@ import os
 from pathlib import Path
 import sys
 
-ENGINE_COMMIT='3eb068e76d676ec3fc75288b645db8448615aa2d'
-ENGINE_DIGEST='e950124946fe73136d78175f3f1bc0311abbb8aba8e06d5c811591ff61926fdb'
+ENGINE_COMMIT=os.environ.get('RESEARCH_SOURCE_COMMIT','LOCAL_SOURCE_DIGEST')
+ENGINE_DIGEST='8d83471591a804e95e44aaf2536d3d9611f249eefe42abbd02206c2a96c2e0f8'
 MODULES='__init__ currency data engine fund_metrics fund_replay io platform_io portfolio quality quality_bridge quality_index valuation'.split()
 
 
@@ -60,8 +60,8 @@ def run(capture,engine_root):
     profile=report.get('market_profile')
     extension_hash=None
     if profile=='US_LISTED_USD_V1':
-        # A checked-in, inspectable entry point replaces the obsolete fixed 5+2
-        # contract. The verified core is not edited or monkey-patched.
+        # Decision and chronological replay now share the same profile-aware
+        # checked-in core. No imported globals are monkey-patched.
         extension=Path(__file__).resolve().with_name('research_us_decision.py')
         config_path=Path(__file__).resolve().parents[1]/'docs/research_us_fund_config.json'
         require(not extension.is_symlink() and not config_path.is_symlink(),'profile_symlink')
