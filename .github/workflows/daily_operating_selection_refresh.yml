@@ -121,6 +121,15 @@ jobs:
           fi
           python tools/run_daily_market_session_gate.py "${ARGS[@]}"
 
+      - name: Publish market session gate diagnostic
+        if: always() && steps.market.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-market-session-gate-${{ github.run_id }}
+          path: ${{ runner.temp }}/daily_market_session_gate.json
+          if-no-files-found: error
+          retention-days: 45
+
       - name: Enforce default-branch sole writer
         if: steps.market.outputs.ready == 'yes'
         env:

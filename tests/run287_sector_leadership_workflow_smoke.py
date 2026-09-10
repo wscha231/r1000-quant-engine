@@ -148,6 +148,7 @@ def test_official_actions_are_sha_pinned() -> None:
         "Set up Python": SETUP_PYTHON_ACTION,
         "Restore exact source price cache": CACHE_RESTORE_ACTION,
         "Upload sector leadership research artifact": UPLOAD_ARTIFACT_ACTION,
+        "Upload verified upstream session skip": UPLOAD_ARTIFACT_ACTION,
     }
     for name, action in expected.items():
         step = named_step(payload, "research", name)
@@ -1047,8 +1048,8 @@ def test_artifact_scope_and_output_files_are_exact() -> None:
         for step in steps
         if step.get("uses") == UPLOAD_ARTIFACT_ACTION
     ]
-    assert len(uploads) == 1
-    upload = uploads[0]["with"]
+    assert len(uploads) == 2
+    upload = next(s for s in uploads if s["name"] == "Upload sector leadership research artifact")["with"]
     assert upload["name"] == (
         "run287-sector-leadership-research-${{ steps.source.outputs.run_id }}"
     )
@@ -1102,7 +1103,59 @@ def test_mutation_and_external_secret_surfaces_are_absent() -> None:
     assert not present, f"forbidden workflow surfaces present: {present}"
 
 
+def test_market_session_skip_requires_verified_receipt() -> None:
+    import copy
+    import hashlib
+    import zipfile
+    sys.path.insert(0, str(ROOT))
+    from tools.run_daily_market_session_gate import evaluate_market_session
+    from tools.verify_upstream_market_session_skip import verify_skip
+
+    gate=evaluate_market_session(now_utc="2026-09-07T15:00:00Z")
+    assert gate["status"] == "SKIP_STALE_SESSION"
+    run={"id":123,"head_sha":"a"*40,"status":"completed","conclusion":"success",
+         "run_attempt":1,"created_at":"2026-09-07T14:59:00Z",
+         "run_started_at":"2026-09-07T14:59:00Z","updated_at":"2026-09-07T15:02:00Z"}
+    with tempfile.TemporaryDirectory() as tmp:
+        archive=Path(tmp)/"gate.zip"
+        def pack(value, extra=False):
+            with zipfile.ZipFile(archive,"w") as z:
+                z.writestr("daily_market_session_gate.json",json.dumps(value))
+                if extra:z.writestr("unexpected.json","{}")
+            return {"id":456,"name":"daily-market-session-gate-123","expired":False,
+                    "workflow_run":{"id":123,"head_sha":"a"*40},
+                    "created_at":"2026-09-07T15:01:00Z","size_in_bytes":archive.stat().st_size,
+                    "digest":"sha256:"+hashlib.sha256(archive.read_bytes()).hexdigest()}
+        receipt=verify_skip(pack(gate),archive,run)
+        assert receipt["status"] == "SKIPPED_UPSTREAM_MARKET_SESSION"
+        assert receipt["ready"] is False and receipt["orders_generated"] is False
+        for fault in ("digest","run","expired","date","calendar","ready","extra","size","failed_run"):
+            value=copy.deepcopy(gate);source=copy.deepcopy(run)
+            if fault=="calendar":value["session_date"]="2026-09-03"
+            if fault=="ready":value["ready"]=True
+            item=pack(value,extra=fault=="extra")
+            if fault=="digest":item["digest"]="sha256:"+"0"*64
+            if fault=="run":item["workflow_run"]["head_sha"]="b"*40
+            if fault=="expired":item["expired"]=True
+            if fault=="date":item["created_at"]="2026-09-06T15:01:00Z"
+            if fault=="size":item["size_in_bytes"]+=1
+            if fault=="failed_run":source["conclusion"]="failure"
+            try:verify_skip(item,archive,source)
+            except (ValueError,KeyError):pass
+            else:raise AssertionError("invalid skip accepted: "+fault)
+    producer=named_step(daily_workflow_payload(),"refresh","Publish market session gate diagnostic")
+    assert producer["with"]["name"] == "daily-market-session-gate-${{ github.run_id }}"
+    assert producer["with"]["if-no-files-found"] == "error"
+    selection=named_step(workflow_payload(),"research","Resolve and download exact source artifacts")["run"]
+    assert "not any(exact.values()) and len(skips) == 1" in selection
+    assert "verify_skip(item, archive, source_run)" in selection
+    skipped=named_step(workflow_payload(),"research","Upload verified upstream session skip")
+    assert skipped["if"] == "steps.artifacts.outputs.session_skip == 'yes'"
+    assert "sector-leadership-session-skip-" in skipped["with"]["name"]
+
+
 def main() -> int:
+    test_market_session_skip_requires_verified_receipt()
     test_shell_blocks_parse()
     test_embedded_python_blocks_compile()
     test_triggers_and_permissions_are_read_only()
