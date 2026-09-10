@@ -68,7 +68,16 @@ class Connection(unittest.TestCase):
     def test_future_restatement_not_used(self):
         rows=[fact('2024-01-01','2024-12-31','2025-02-01',100),
               fact('2024-01-01','2024-12-31','2025-10-01',900)]
-        self.assertEqual(m.ttm_from_facts(facts(rows),['Revenues'],'2025-09-09')['value'],100)
+        self.assertEqual(m.ttm_from_facts(facts(rows),['Revenues'],'2025-06-09')['value'],100)
+
+    def test_old_tag_cannot_shadow_new_current_tag(self):
+        f=facts([fact('2025-01-01','2025-12-31','2026-02-01',200)])
+        f['facts']['us-gaap']['OldRevenue']={'units':{'USD':[fact('2021-01-01','2021-12-31','2022-02-01',10)]}}
+        r=m.ttm_from_facts(f,['OldRevenue','Revenues'],'2026-03-01')
+        self.assertEqual(r['tag'],'Revenues');self.assertEqual(r['value'],200)
+
+    def test_stale_ttm_not_reported_as_current(self):
+        self.assertIsNone(m.ttm_from_facts(facts([fact('2021-01-01','2021-12-31','2022-02-01',10)]),['Revenues'],'2026-09-09'))
 
     def test_incomplete_fiscal_ytd_or_unknown_never_filled(self):
         rows=[fact('2024-01-01','2024-12-31','2025-02-01',100),
@@ -110,6 +119,21 @@ class Connection(unittest.TestCase):
         self.assertIsNone(r['portfolio_weights'])
         self.assertIsNone(r['metrics'])
         self.assertFalse(r['orders_allowed'])
+
+    def test_missing_dividend_payment_date_not_invented(self):
+        raw=json.dumps({'corporate_actions':{'cash_dividends':[
+            {'id':'a','symbol':'NVDA','rate':1,'ex_date':'2019-01-01','payable_date':None},
+            {'id':'b','symbol':'NVDA','rate':1,'ex_date':'2020-01-01','payable_date':'2020-01-10'}]},'next_page_token':None}).encode()
+        with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'ALPACA_API_KEY':'a','ALPACA_API_SECRET':'b'}),patch.object(m,'request_raw',return_value=raw):
+            r=m.collect_actions(m.Capture(d),'2018-05-01','2026-09-09')
+        nvda=next(s for s in r['securities'] if s['ticker']=='NVDA')
+        self.assertEqual(nvda['cash_payment_dates_missing'],1)
+        self.assertFalse(r['full_action_coverage_verified'])
+
+    def test_duplicate_action_not_double_paid(self):
+        raw=b'{"corporate_actions":{"cash_dividends":[{"id":"a"},{"id":"a"}]}}'
+        with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'ALPACA_API_KEY':'a','ALPACA_API_SECRET':'b'}),patch.object(m,'request_raw',return_value=raw):
+            self.assertRaisesRegex(ValueError,'duplicate_action',m.collect_actions,m.Capture(d),'2018-05-01','2026-09-09')
 
 
 if __name__=='__main__':unittest.main()

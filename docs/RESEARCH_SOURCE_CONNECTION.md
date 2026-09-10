@@ -54,3 +54,43 @@ Source references: [SEC APIs](https://www.sec.gov/search-filings/edgar-applicati
 [Alpaca bars](https://docs.alpaca.markets/us/reference/stockbars),
 [FRED observations](https://fred.stlouisfed.org/docs/api/fred/series_observations.html),
 [Alpha Vantage listing status](https://www.alphavantage.co/documentation/#listing-status).
+
+
+## First actual collection and follow-up
+
+- Source head: `23ef3700979c79b1dce1dfce33f9e6702e38c2f2`.
+- [Run 34486807630](https://github.com/wscha231/r1000-quant-engine/actions/runs/34486807630),
+  job `102903057383`, completed successfully on 2026-09-10 at 14:10:35 UTC.
+- 49,968 US raw daily rows plus the same adjusted-row count across 24 watchlist
+  securities and SPY. All 25 have a 2026-09-09 bar. Requested history begins
+  2018-05-01; IPO/spin-off histories begin later and are not backfilled.
+- SEC facts and submissions obtained for all 24 US issuers. These are raw
+  sources, not 24 complete normalized financial packets. Initial parsing could
+  select a discontinued tag (NVDA revenue, among others); the follow-up parser
+  evaluates equivalent tags independently and discards stale TTM observations.
+- Nine Korean closes obtained from 943 KRX daily records for 2026-09-09.
+- UNRATE: 100 initial-release records, 99 numeric. DGS3MO/DGS2/DGS10 returned
+  HTTP 400 for the wide vintage window. Alpha Vantage listing parsing failed.
+  Neither input is represented as complete. Follow-up bounds the vintage
+  requests and emits controlled response-shape diagnostics.
+- 63 raw-source receipts; canonical receipts SHA-256:
+  `b28ad71d5e168c531a162dabb5796c6fa2f52041c14b4f7691435f1dbdfadae7`.
+- Private snapshot `34486807630-1-23ef3700979c79b1dce1dfce33f9e6702e38c2f2`
+  uploaded under the isolated research prefix and byte-checked successfully.
+
+The follow-up also queries actual corporate-action records and runs source
+observations through the real H1/H2 admission code pinned to PR #409 commit
+`3eb068e76d676ec3fc75288b645db8448615aa2d`. Its package/config digest is checked
+before import. This is an admission probe: it preserves missing complete
+financials, reviewed thesis/risk/scenarios, FX and official-close/action
+reconciliation. It cannot silently manufacture an investable packet.
+
+The USD engine's 31 synthetic accounting/chronology regressions passed locally
+again against that exact source tree. Those tests include next-close fills,
+whole shares, costs, unpaid dividend rights, splits, cash delistings, cross-market
+cash timing and future-information perturbation. They are not actual returns.
+
+Current study outputs remain `metrics=null` and `portfolio_weights=null` until
+the real input gates pass. No hand-selected seven-name allocation is relabelled
+as an engine result. The intended investment start is 2019-06-03, with earlier
+price warm-up data and a new $100,000 continuous USD account, through 2026-09-09.

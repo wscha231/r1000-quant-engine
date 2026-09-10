@@ -27,6 +27,11 @@ HOSTS = {'data.sec.gov','www.sec.gov','data.alpaca.markets','api.stlouisfed.org'
 MAX_BYTES = 24*1024*1024
 
 
+class SourceFailure(ValueError):
+    def __init__(self,reason,diagnostic):
+        super().__init__(reason);self.diagnostic=diagnostic
+
+
 def now(): return datetime.now(timezone.utc).isoformat().replace('+00:00','Z')
 def digest_bytes(raw): return hashlib.sha256(raw).hexdigest()
 def canonical(value): return json.dumps(value,sort_keys=True,separators=(',',':'),allow_nan=False).encode()
@@ -81,15 +86,17 @@ class Capture:
         self.root.mkdir(parents=True,exist_ok=True)
         self.receipts=[]
 
-    def get(self, name, base, params=None, headers=None, *, json_body=True):
+    def get(self, name, base, params=None, headers=None, *, json_body=True, validator=None):
         raw=request_raw(base,params,headers)
         # Providers sometimes echo the API key in a JSON error even when CSV
         # was requested. Discard such bodies before writing any file.
-        probe=json.loads(raw) if json_body or raw.lstrip().startswith((b'{',b'[')) else None
+        prefix=raw.decode('utf-8-sig').lstrip()
+        probe=json.loads(prefix) if json_body or prefix.startswith(('{','[')) else None
         if isinstance(probe,dict):
             require(not any(k in probe for k in ('Error Message','Information','Note','error_message','error')),'provider_body_error')
             require(not ('status' in probe and probe['status'] not in ('000','success','OK','ok')),'provider_body_error')
         value=probe if json_body else raw
+        if validator:validator(value)
         sha=digest_bytes(raw)
         path=self.root/(sha+'.raw')
         save_private(path,raw)
@@ -102,7 +109,16 @@ class Capture:
 
 def guarded(name, fn):
     try: return dict(name=name,status='COLLECTED',data=fn())
-    except HTTPError as exc: return dict(name=name,status='BLOCKED',reason='HTTP_'+str(exc.code))
+    except SourceFailure as exc:return dict(name=name,status='BLOCKED',reason=str(exc),diagnostic=exc.diagnostic)
+    except HTTPError as exc:
+        # Classify a small known set of provider failures without retaining or
+        # printing messages that may echo the request URL and API key.
+        detail=exc.read(8192).decode('utf-8',errors='replace').lower()
+        category='http_error'
+        if 'vintage' in detail and any(x in detail for x in ('maximum','limit','too many')):category='vintage_query_limit'
+        elif 'output_type' in detail:category='output_type_contract'
+        elif any(x in detail for x in ('invalid api_key','api key is invalid','api_key is not registered')):category='credential_invalid'
+        return dict(name=name,status='BLOCKED',reason='HTTP_'+str(exc.code),provider_error_category=category)
     except (URLError,TimeoutError,OSError): return dict(name=name,status='BLOCKED',reason='TRANSPORT_ERROR')
     except (ValueError,TypeError,KeyError,IndexError,csv.Error) as exc:
         reason=str(exc) if type(exc) is ValueError and str(exc) in SAFE_REASONS else 'INPUT_OR_PROVIDER_CONTRACT'
@@ -150,6 +166,36 @@ def collect_bars(capture, start, end):
         watchlist_only=True,historical_universe_verified=False)
 
 
+def collect_actions(capture,start,end):
+    auth={'APCA-API-KEY-ID':key('ALPACA_API_KEY'),'APCA-API-SECRET-KEY':key('ALPACA_API_SECRET')}
+    actions={};token=None;seen=set();hashes=[]
+    for page in range(20):
+        params=dict(symbols=','.join(US+['SPY']),start=start,end=end,limit=1000,sort='asc')
+        if token:params['page_token']=token
+        value,receipt=capture.get('alpaca_actions','https://data.alpaca.markets/v1/corporate-actions',params,auth)
+        groups=value['corporate_actions'];require(isinstance(groups,dict),'actions_schema')
+        for kind,rows in groups.items():
+            require(isinstance(rows,list),'actions_schema');actions.setdefault(kind,[]).extend(rows)
+        hashes.append(receipt['raw_sha256']);token=value.get('next_page_token')
+        if not token:break
+        require(token not in seen,'repeated_page_token');seen.add(token)
+    else:raise ValueError('page_limit')
+    identities=[r['id'] for rows in actions.values() for r in rows]
+    require(len(set(identities))==len(identities),'duplicate_action')
+    save_private(capture.root/'actions.json',canonical(actions))
+    cash_kinds={'cash_dividends','cash_mergers','stock_and_cash_mergers','redemptions'}
+    result=[]
+    for symbol in US+['SPY']:
+        selected=[(kind,r) for kind,rows in actions.items() for r in rows
+                  if symbol in [r.get(k) for k in ('symbol','old_symbol','source_symbol','acquiree_symbol')]]
+        cash=[r for kind,r in selected if kind in cash_kinds]
+        result.append(dict(ticker=symbol,actions=len(selected),cash_actions=len(cash),
+            cash_payment_dates_missing=sum(not r.get('payable_date') for r in cash),
+            original_announcement_times_verified=False))
+    return dict(securities=result,counts_by_kind={k:len(v) for k,v in actions.items()},
+                raw_response_hashes=hashes,full_action_coverage_verified=False)
+
+
 def filed_records(facts, tags, end, unit='USD'):
     for tag in tags:
         group=facts.get('facts',{}).get('us-gaap',{}).get(tag,{})
@@ -160,6 +206,12 @@ def filed_records(facts, tags, end, unit='USD'):
 
 
 def ttm_from_facts(facts,tags,end):
+    if len(tags)>1:
+        # Evaluate each equivalent mapping independently; never stop at an old
+        # tag merely because it has some history, or mix nonmatching periods.
+        choices=[ttm_from_facts(facts,[tag],end) for tag in tags]
+        choices=[c for c in choices if c]
+        return max(choices,key=lambda c:c['period_end']) if choices else None
     tag,rows=filed_records(facts,tags,end)
     periods={}
     for row in sorted(rows,key=lambda r:(r['filed'],r.get('accn',''))):
@@ -178,6 +230,7 @@ def ttm_from_facts(facts,tags,end):
                     and abs((date.fromisoformat(ytd['start'])-date.fromisoformat(r['start'])).days-365)<=8]
         if len(candidates)!=1: return None
         prior=candidates[0];value=year['val']+ytd['val']-prior['val'];components=[year,ytd,prior];finish=ytd['end']
+    if (date.fromisoformat(end)-date.fromisoformat(finish)).days>210:return None
     return dict(value=value,period_end=finish,tag=tag,components=[{k:r.get(k) for k in ('start','end','filed','accn','val')} for r in components],
                 intraday_publication_verified=False,valuation_approved=False)
 
@@ -210,14 +263,24 @@ def collect_fred(capture,start,end):
     output=[]
     for series in ('DGS3MO','DGS2','DGS10','UNRATE'):
         def one():
-            value,receipt=capture.get('fred_initial_'+series,'https://api.stlouisfed.org/fred/series/observations',
-                dict(series_id=series,file_type='json',api_key=key('FRED_API_KEY'),realtime_start=start,realtime_end=end,
-                     observation_start=start,observation_end=end,output_type=4,limit=100000))
-            rows=value['observations'];require(isinstance(rows,list) and rows,'fred_observations')
-            require(int(value.get('count',len(rows)))==len(rows),'fred_pagination_required')
+            # The eight-year daily request returned HTTP 400 in the first real
+            # probe. Bound vintage windows, preserving the response versions.
+            rows=[];hashes=[]
+            for year in range(int(start[:4]),int(end[:4])+1):
+                lo=max(start,str(year)+'-01-01');hi=min(end,str(year)+'-12-31')
+                value,receipt=capture.get('fred_initial_'+series+'_'+str(year),'https://api.stlouisfed.org/fred/series/observations',
+                    dict(series_id=series,file_type='json',api_key=key('FRED_API_KEY'),realtime_start=lo,realtime_end=hi,
+                         observation_start=start,observation_end=end,output_type=4,limit=100000))
+                part=value['observations'];require(isinstance(part,list),'fred_observations')
+                require(int(value.get('count',len(part)))==len(part),'fred_pagination_required')
+                rows.extend(part);hashes.append(receipt['raw_sha256'])
+            require(rows,'fred_observations')
+            rows=sorted({canonical(r):r for r in rows}.values(),key=lambda r:(r['date'],r.get('realtime_start','')))
             usable=[r for r in rows if r.get('value') not in ('.','',None)]
+            save_private(capture.root/('fred_'+series+'.json'),canonical(rows))
             return dict(series=series,rows=len(rows),usable_rows=len(usable),first=usable[0]['date'] if usable else None,
-                last=usable[-1]['date'] if usable else None,raw_sha256=receipt['raw_sha256'],
+                last=usable[-1]['date'] if usable else None,raw_response_hashes=hashes,
+                unique_observation_dates=len({r['date'] for r in rows}),
                 output_type='initial_release',vintage_dates_present=all('realtime_start' in r and 'realtime_end' in r for r in rows),
                 publication_time_mapping_verified=False)
         output.append(guarded(series,one))
@@ -227,11 +290,19 @@ def collect_fred(capture,start,end):
 def collect_listing(capture,asof):
     output=[]
     for state in ('active','delisted'):
+        def parse(raw):
+            reader=csv.DictReader(io.StringIO(raw.decode('utf-8-sig')))
+            fields=[f.strip() for f in (reader.fieldnames or [])]
+            expected={'symbol','ipoDate','delistingDate','status'}
+            if not expected<=set(fields):
+                known={'symbol','name','exchange','assetType','ipoDate','delistingDate','delistDate','status'}
+                raise SourceFailure('listing_csv_schema',{'recognized_columns':sorted(set(fields)&known),'column_count':len(fields)})
+            rows=[{k.strip():v for k,v in r.items() if isinstance(k,str)} for r in reader]
+            require(rows,'listing_empty')
+            return rows
         raw,receipt=capture.get('listing_'+state,'https://www.alphavantage.co/query',
-            dict(function='LISTING_STATUS',date=asof,state=state,apikey=key('ALPHAVANTAGE_API_KEY','ALPHA_VANTAGE_API_KEY')),json_body=False)
-        reader=csv.DictReader(io.StringIO(raw.decode('utf-8-sig')))
-        require(reader.fieldnames and {'symbol','ipoDate','delistingDate','status'}<=set(reader.fieldnames),'listing_csv_schema')
-        rows=list(reader);require(rows,'listing_empty')
+            dict(function='LISTING_STATUS',date=asof,state=state,apikey=key('ALPHAVANTAGE_API_KEY','ALPHA_VANTAGE_API_KEY')),json_body=False,validator=parse)
+        rows=parse(raw)
         output.append(dict(state=state,requested_as_of=asof,rows=len(rows),raw_sha256=receipt['raw_sha256'],
                            russell_membership_verified=False,provider_historical_semantics_documented=True,
                            historical_entity_mapping_verified=False))
@@ -256,6 +327,7 @@ def run(root,start,end):
     require(date.fromisoformat(start)<date.fromisoformat(end)<datetime.now(timezone.utc).date(),'completed_date_window')
     capture=Capture(root)
     results=[guarded('US_prices',lambda:collect_bars(capture,start,end)),
+             guarded('US_corporate_actions',lambda:collect_actions(capture,start,end)),
              guarded('SEC_facts',lambda:collect_sec(capture,end)),
              guarded('macro_initial_releases',lambda:collect_fred(capture,start,end)),
              guarded('historical_listing_reference',lambda:collect_listing(capture,start)),

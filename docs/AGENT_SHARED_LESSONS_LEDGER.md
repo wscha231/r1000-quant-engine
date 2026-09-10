@@ -4922,3 +4922,18 @@ Expected contract:
   public reports expose controlled aggregates only. No accepted state restore.
 - Validation: 12 local regression cases passed. Actual provider run and exact
   head CI/review remain to be inspected. No real backtest results yet.
+
+
+### 2026-09-10 - Source connection first real run
+
+- Run34486807630 recovered 49,968 raw US bar observations (25 symbols), SEC
+  facts/submissions for 24 issuers, and nine KR closes through September9.
+  Private run-specific snapshot upload and byte check succeeded.
+- Real SEC data exposed discontinued-tag shadowing: first available tag is not
+  necessarily the current reporting tag. Select independently reconstructed
+  complete periods by date; stale TTM must remain absent. Add regression cases.
+- Daily FRED wide vintage queries returned HTTP400 while monthly UNRATE worked.
+  Bound requests and classify controlled errors before diagnosing lost history.
+- Keep raw capture, normalized admission, reviewed underwriting and final
+  allocation separate. Updated raw data must not become a fabricated approved
+  portfolio. Test the actual pinned engine path with the connected observations.
