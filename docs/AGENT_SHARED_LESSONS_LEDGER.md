@@ -4902,3 +4902,8 @@ Expected contract:
 - Fullrun executed: false. Workflow dispatched or rerun: false. Migration,
   quarantine, Drive, target, order, ledger, accepted-head, production, live
   trading, automatic promotion, and pattern backfill state mutated: false.
+
+
+### 2026-09-10 — Validate GitHub run-block limits before replay dispatch
+
+The manual AlphaOps replay workflow parsed as YAML but contained a 31,252-character run block, exceeding GitHub's documented 21,000-character limit. Push-created workflow failure records had no jobs. Move the block to a tracked shell script and pass the decision timestamp through an exported step environment variable. Normalizing those two substitutions reproduced the original commands byte-for-byte (original SHA-256 2cad7dba69ef16e41d92d2d064e5f0c050f99113d896f4aaab4b25c4772760bf). The registered workflow smoke now checks run-block length, external script wiring, absence of GitHub expressions in the shell, and bash syntax. Existing lifecycle-evidence and execution-cost wiring checks follow the actual script. No replay was dispatched. Reference: https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstepsrun

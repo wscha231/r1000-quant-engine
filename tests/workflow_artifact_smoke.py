@@ -906,6 +906,9 @@ def test_operating_acceptance_audit_runs_after_attribution_inputs() -> None:
 
 def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:
     text = REPLAY_WORKFLOW.read_text(encoding="utf-8")
+    script = (ROOT / "tools/run_alphaops_replay_sidecars.sh").read_text(encoding="utf-8")
+    text = text.replace("          bash tools/run_alphaops_replay_sidecars.sh",
+                        "\n".join("          " + line for line in script.splitlines()))
     for token in [
         "AlphaOps Replay Sidecars",
         "source_run_id",
@@ -2537,7 +2540,23 @@ def test_pages_deploy_keeps_prior_site_without_completed_session_artifact() -> N
         assert token in text, token
 
 
+def test_replay_commands_fit_action_limits_and_preserve_input_wiring() -> None:
+    import yaml
+    payload=yaml.load(REPLAY_WORKFLOW.read_text(encoding="utf-8"),Loader=yaml.BaseLoader)
+    steps=payload["jobs"]["replay_sidecars"]["steps"]
+    assert all(len(step.get("run", "")) <= 21000 for step in steps)
+    replay=next(s for s in steps if s.get("name")=="Run fast replay sidecars")
+    assert replay["run"].strip()=="bash tools/run_alphaops_replay_sidecars.sh"
+    assert replay["env"]["DECISION_TIME_UTC"]=="${{ inputs.decision_time_utc }}"
+    script=(ROOT/"tools/run_alphaops_replay_sidecars.sh").read_text(encoding="utf-8")
+    assert "${{" not in script
+    assert '${DECISION_TIME_UTC}' in script
+    checked=subprocess.run([bash_executable(),"-n"],input=script,text=True,capture_output=True)
+    assert checked.returncode==0,checked.stderr
+
+
 def main() -> int:
+    test_replay_commands_fit_action_limits_and_preserve_input_wiring()
     test_workflow_yaml_files_parse()
     # This registered Tier-1 smoke also executes the read-only research handoff
     # regressions; no protected validation-runner publication needs changing.
