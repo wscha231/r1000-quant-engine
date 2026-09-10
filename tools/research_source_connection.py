@@ -20,10 +20,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-US = ('NVDA AMD AVGO ANET TSM MU AMAT KLAC LRCX GEV ETN VRT PWR EME FIX NVT CEG VST NEE BE CCJ FCX MTZ FLR').split()
-KR = ('000660 005930 267260 010120 298040 034020 052690 009830 000720').split()
 HOSTS = {'data.sec.gov','www.sec.gov','data.alpaca.markets','api.stlouisfed.org',
-         'www.alphavantage.co','data-dbg.krx.co.kr','opendart.fss.or.kr'}
+         'www.alphavantage.co','data-dbg.krx.co.kr','opendart.fss.or.kr','www.ishares.com'}
 MAX_BYTES = 24*1024*1024
 
 
@@ -43,7 +41,10 @@ SAFE_REASONS = {'credential_missing','credential_alias_conflict','provider_body_
     'listing_csv_schema','listing_empty','issuer_identity','bars_schema','page_limit',
     'repeated_page_token','fred_pagination_required','response_size','source_url',
     'duplicate_or_reverse_bars','bar_value_or_date','raw_adjusted_alignment',
-    'krx_rows','krx_date','krx_price','symlink_path','raw_corruption'}
+    'krx_rows','krx_date','krx_price','symlink_path','raw_corruption',
+    'iwb_identity','iwb_date_missing','iwb_schema','future_membership','iwb_row_schema',
+    'duplicate_member','iwb_empty','iwb_coverage_floor','krx_symbol','krx_nonnegative_number',
+    'cross_source_duplicate_member','historical_probe_date','us_membership_missing'}
 
 
 def save_private(path, raw):
@@ -125,24 +126,29 @@ def guarded(name, fn):
         return dict(name=name,status='BLOCKED',reason=reason)
 
 
-def collect_bars(capture, start, end):
+def collect_bars(capture, start, end, symbols):
+    require(symbols and len(symbols)==len(set(symbols)), 'unique_symbols_required')
     auth={'APCA-API-KEY-ID':key('ALPACA_API_KEY'),'APCA-API-SECRET-KEY':key('ALPACA_API_SECRET')}
     all_bars={}; receipts=[]
     for adjustment in ('raw','all'):
-        token=None; seen_tokens=set(); bars={s:[] for s in US+['SPY']}
-        for page in range(20):
-            params=dict(symbols=','.join(bars),timeframe='1Day',start=start+'T00:00:00Z',
-                end=end+'T23:59:59Z',feed='sip',adjustment=adjustment,asof=end,limit=10000,sort='asc')
-            if token: params['page_token']=token
-            value,receipt=capture.get('alpaca_'+adjustment,'https://data.alpaca.markets/v2/stocks/bars',params,auth)
-            require(isinstance(value.get('bars'),dict),'bars_schema')
-            require(set(value['bars'])<=set(bars),'unexpected_symbol')
-            for symbol,rows in value['bars'].items(): bars[symbol].extend(rows)
-            receipts.append(receipt['raw_sha256'])
-            token=value.get('next_page_token')
-            if not token: break
-            require(token not in seen_tokens,'repeated_page_token'); seen_tokens.add(token)
-        else: raise ValueError('page_limit')
+        bars={s:[] for s in symbols}
+        # Bound each request independently of the size of the candidate pool.
+        # Pagination limits apply per batch, never truncate to the first names.
+        for offset in range(0,len(symbols),50):
+            batch=symbols[offset:offset+50];token=None;seen_tokens=set()
+            for page in range(30):
+                params=dict(symbols=','.join(batch),timeframe='1Day',start=start+'T00:00:00Z',
+                    end=end+'T23:59:59Z',feed='sip',adjustment=adjustment,asof=end,limit=10000,sort='asc')
+                if token: params['page_token']=token
+                value,receipt=capture.get('alpaca_'+adjustment,'https://data.alpaca.markets/v2/stocks/bars',params,auth)
+                require(isinstance(value.get('bars'),dict),'bars_schema')
+                require(set(value['bars'])<=set(batch),'unexpected_symbol')
+                for symbol,rows in value['bars'].items(): bars[symbol].extend(rows)
+                receipts.append(receipt['raw_sha256'])
+                token=value.get('next_page_token')
+                if not token: break
+                require(token not in seen_tokens,'repeated_page_token'); seen_tokens.add(token)
+            else: raise ValueError('page_limit')
         for symbol,rows in bars.items():
             dates=[r['t'][:10] for r in rows]
             require(dates==sorted(set(dates)),'duplicate_or_reverse_bars')
@@ -150,7 +156,7 @@ def collect_bars(capture, start, end):
                 require(start<=row['t'][:10]<=end and type(row['c']) in (int,float) and math.isfinite(row['c']) and row['c']>0,'bar_value_or_date')
         all_bars[adjustment]=bars
     output=[]
-    for symbol in US+['SPY']:
+    for symbol in symbols:
         raw,adjusted=all_bars['raw'][symbol],all_bars['all'][symbol]
         require([r['t'] for r in raw]==[r['t'] for r in adjusted],'raw_adjusted_alignment')
         row=dict(ticker=symbol,rows=len(raw),first=raw[0]['t'][:10] if raw else None,
@@ -163,14 +169,14 @@ def collect_bars(capture, start, end):
     save_private(capture.root/'bars.json',canonical(all_bars))
     return dict(securities=output,raw_response_hashes=receipts,price_basis='raw',
         discovery_basis='provider_adjusted_total_return_proxy',corporate_action_cashflows_verified=False,
-        watchlist_only=True,historical_universe_verified=False)
+        historical_universe_verified=False)
 
 
-def collect_actions(capture,start,end):
+def collect_actions(capture,start,end,symbols):
     auth={'APCA-API-KEY-ID':key('ALPACA_API_KEY'),'APCA-API-SECRET-KEY':key('ALPACA_API_SECRET')}
     actions={};token=None;seen=set();hashes=[]
     for page in range(20):
-        params=dict(symbols=','.join(US+['SPY']),start=start,end=end,limit=1000,sort='asc')
+        params=dict(symbols=','.join(symbols),start=start,end=end,limit=1000,sort='asc')
         if token:params['page_token']=token
         value,receipt=capture.get('alpaca_actions','https://data.alpaca.markets/v1/corporate-actions',params,auth)
         groups=value['corporate_actions'];require(isinstance(groups,dict),'actions_schema')
@@ -185,7 +191,7 @@ def collect_actions(capture,start,end):
     save_private(capture.root/'actions.json',canonical(actions))
     cash_kinds={'cash_dividends','cash_mergers','stock_and_cash_mergers','redemptions'}
     result=[]
-    for symbol in US+['SPY']:
+    for symbol in symbols:
         selected=[(kind,r) for kind,rows in actions.items() for r in rows
                   if symbol in [r.get(k) for k in ('symbol','old_symbol','source_symbol','acquiree_symbol')]]
         cash=[r for kind,r in selected if kind in cash_kinds]
@@ -235,11 +241,11 @@ def ttm_from_facts(facts,tags,end):
                 intraday_publication_verified=False,valuation_approved=False)
 
 
-def collect_sec(capture,end):
+def collect_sec(capture,end,symbols):
     mapping,_=capture.get('sec_tickers','https://www.sec.gov/files/company_tickers.json')
     tickers={r['ticker']:r['cik_str'] for r in mapping.values()}
     summaries=[]
-    for ticker in US:
+    for ticker in symbols:
         def one():
             cik=str(tickers[ticker]).zfill(10)
             facts,receipt=capture.get('sec_facts_'+ticker,'https://data.sec.gov/api/xbrl/companyfacts/CIK'+cik+'.json')
@@ -311,20 +317,21 @@ def collect_listing(capture,asof):
             raw,receipt=capture.get('listing_'+state,'https://www.alphavantage.co/query',
                 dict(function='LISTING_STATUS',date=asof,state=state,apikey=key('ALPHAVANTAGE_API_KEY','ALPHA_VANTAGE_API_KEY')),json_body=False,validator=parse)
             rows=parse(raw)
+            from research_universe_connection import listing_temporal_audit
             return dict(state=state,requested_as_of=asof,rows=len(rows),raw_sha256=receipt['raw_sha256'],
                         russell_membership_verified=False,provider_historical_semantics_documented=True,
-                        historical_entity_mapping_verified=False)
+                        historical_entity_mapping_verified=False,**listing_temporal_audit(rows,asof,state))
         output.append(guarded(state,one))
     return output
 
 
-def collect_krx(capture,end):
+def collect_krx(capture,end,symbols):
     value,receipt=capture.get('krx_close','https://data-dbg.krx.co.kr/svc/apis/sto/stk_bydd_trd',
                               {'basDd':end.replace('-','')},{'AUTH_KEY':key('KRX_API_KEY')})
     rows=value['OutBlock_1'];require(isinstance(rows,list) and rows,'krx_rows')
     selected=[]
     for r in rows:
-        if str(r.get('ISU_CD')) not in KR: continue
+        if str(r.get('ISU_CD')) not in symbols: continue
         require(r.get('BAS_DD')==end.replace('-',''),'krx_date')
         price=float(str(r['TDD_CLSPRC']).replace(',',''))
         require(math.isfinite(price) and price>0,'krx_price')
@@ -332,17 +339,37 @@ def collect_krx(capture,end):
     return dict(rows=len(rows),selected=selected,raw_sha256=receipt['raw_sha256'],historical_price_actions_verified=False)
 
 
-def run(root,start,end):
+def run(root,start,end,universe_mode='current_markets',historical_probe=None):
     require(date.fromisoformat(start)<date.fromisoformat(end)<datetime.now(timezone.utc).date(),'completed_date_window')
+    require(universe_mode in ('connection_sample','current_markets'),'universe_mode')
+    from research_universe_connection import collect_current_universe, connection_sample
     capture=Capture(root)
-    results=[guarded('US_prices',lambda:collect_bars(capture,start,end)),
-             guarded('US_corporate_actions',lambda:collect_actions(capture,start,end)),
-             guarded('SEC_facts',lambda:collect_sec(capture,end)),
-             guarded('macro_initial_releases',lambda:collect_fred(capture,start,end)),
-             guarded('historical_listing_reference',lambda:collect_listing(capture,start)),
-             guarded('KR_current_close',lambda:collect_krx(capture,end))]
+    if universe_mode=='connection_sample':
+        universe=connection_sample();us=universe['symbols']['US'];kr=universe['symbols']['KR']
+        symbols=sorted(set(us+['SPY']))
+        results=[guarded('US_prices',lambda:collect_bars(capture,start,end,symbols)),
+                 guarded('US_corporate_actions',lambda:collect_actions(capture,start,end,symbols)),
+                 guarded('SEC_facts',lambda:collect_sec(capture,end,us)),
+                 guarded('macro_initial_releases',lambda:collect_fred(capture,start,end)),
+                 guarded('historical_listing_reference',lambda:collect_listing(capture,start)),
+                 guarded('KR_current_close',lambda:collect_krx(capture,end,kr))]
+    else:
+        # Wide discovery must use source membership, never the old thematic
+        # sample. Missing a board/source remains visible; no sample fallback.
+        universe=collect_current_universe(capture,end,historical_probe)
+        us=[m['ticker'] for m in universe['members'] if m['market']=='US']
+        kr=[m for m in universe['members'] if m['market']=='KR']
+        results=[guarded('US_prices',lambda:collect_bars(capture,start,end,sorted(set(us+['SPY']))))
+                 if us else dict(name='US_prices',status='BLOCKED',reason='us_membership_missing'),
+                 dict(name='KR_current_close',status='COLLECTED' if kr else 'BLOCKED',
+                      data=dict(selected=kr,board_coverage_complete=all(s['status']=='COLLECTED'
+                          for s in universe['sources'] if s['name'].startswith('KR_')))),
+                 dict(name='SEC_facts',status='NOT_RUN',reason='broad_discovery_before_company_underwriting',data=[]),
+                 dict(name='US_corporate_actions',status='NOT_RUN',reason='fund_cashflow_reconciliation_pending'),
+                 guarded('historical_listing_reference',lambda:collect_listing(capture,historical_probe or start))]
     report=dict(schema_version='research-source-connection-v1',generated_at=now(),start=start,end=end,
         data_kind='REAL',initial_cash_usd=100000,objective='after_cost_usd_cagr',sources=results,
+        collection_scope=universe_mode,universe=universe,requested_investment_start='2019-06-03',
         source_receipt_count=len(capture.receipts),source_receipts_hash=digest_bytes(canonical(capture.receipts)),
         status='SOURCE_CAPTURE_ONLY',backtest_status='BLOCKED',metrics=None,portfolio_weights=None,
         remaining_gates=['historical_investable_universe','publication_timed_normalized_financials',
@@ -353,10 +380,33 @@ def run(root,start,end):
     return report
 
 
+def public_report(report):
+    """Keep the full wide-source inventory/quotes private, publish coverage."""
+    if report.get('collection_scope')!='current_markets':return report
+    from research_universe_connection import summarize_universe
+    result={**report,'universe':summarize_universe(report['universe']),'sources':[]}
+    for source in report['sources']:
+        item={**source}
+        if source['name']=='US_prices' and 'data' in source:
+            data=source['data'];rows=data['securities']
+            item['data']={k:v for k,v in data.items() if k!='securities'}
+            item['data'].update(security_count=len(rows),bar_count=sum(r['rows'] for r in rows),
+                exact_requested_close_count=sum(r['exact_requested_close'] for r in rows),
+                rs_240_input_count=sum('returns' in r for r in rows),
+                missing_symbol_count=sum(not r['rows'] for r in rows))
+        elif source['name']=='KR_current_close' and 'data' in source:
+            item['data']={k:v for k,v in source['data'].items() if k!='selected'}
+            item['data']['security_count']=len(source['data']['selected'])
+        result['sources'].append(item)
+    return result
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--private-dir',required=True)
-    p.add_argument('--start',default='2019-05-09');p.add_argument('--end',required=True);p.add_argument('--report',required=True)
-    a=p.parse_args();report=run(a.private_dir,a.start,a.end)
+    p.add_argument('--start',required=True);p.add_argument('--end',required=True);p.add_argument('--report',required=True)
+    p.add_argument('--universe-mode',choices=('connection_sample','current_markets'),default='current_markets')
+    p.add_argument('--historical-probe-date')
+    a=p.parse_args();report=public_report(run(a.private_dir,a.start,a.end,a.universe_mode,a.historical_probe_date))
     Path(a.report).parent.mkdir(parents=True,exist_ok=True)
     Path(a.report).write_text(json.dumps(report,indent=2,sort_keys=True)+'\n')
     print(json.dumps(report,sort_keys=True))

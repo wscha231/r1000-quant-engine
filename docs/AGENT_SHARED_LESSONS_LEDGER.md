@@ -4949,3 +4949,22 @@ Expected contract:
 - Private persistence did not verify on the second run despite a green
   diagnostic workflow. Do not declare its raw snapshot durable. Add file/byte
   counts and separate copy/byte-check error categories with bounded timeouts.
+
+### 2026-09-10 - A thematic connection sample is not the strategy universe
+
+- The 24 US / nine KR set came directly from the daily monitor watchlist. No
+  per-name quantitative selection rule or full-market comparison was recorded.
+  A sample admission result must not be reported as an investment screen.
+- Default source collection now reads broad IWB equity and KOSPI/KOSDAQ share
+  inventories. The old sample requires an explicit mode and carries its source
+  file hash. A failed market source never falls back to the 33 theme names.
+- Preserve original membership dates, share classes and missing/zero-price
+  rows. Check IPO/delisting contradictions in historical listing responses;
+  successful transport or consistent dates alone do not prove PIT completeness.
+- Current and historical probe snapshots stay separate. Current members with
+  old price histories are still a survivor-selected sample for an old backtest.
+- IWB is a broad US proxy, not the complete US or ADR universe. Two historical
+  probe dates are not a continuous seven-year historical membership series.
+- Price collection batches every source member and preserves per-symbol
+  missing coverage. Public artifacts contain aggregates; wide source records
+  and per-company diagnostics stay in the immutable private research snapshot.

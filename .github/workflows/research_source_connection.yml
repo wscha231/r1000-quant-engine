@@ -8,6 +8,8 @@ on:
       - 'tests/research_source_connection_smoke.py'
       - 'tools/admit_connected_research.py'
       - 'tests/research_connected_admission_smoke.py'
+      - 'tools/research_universe_connection.py'
+      - 'tests/research_universe_connection_smoke.py'
   workflow_dispatch:
 
 permissions:
@@ -29,6 +31,10 @@ jobs:
             /tests/research_source_connection_smoke.py
             /tools/admit_connected_research.py
             /tests/research_connected_admission_smoke.py
+            /tools/research_universe_connection.py
+            /tests/research_universe_connection_smoke.py
+            /docs/run287_daily_research_monitor_contract.json
+            /tools/run_pr_validation.py
       - name: Read pinned decision engine source
         uses: actions/checkout@v4
         with:
@@ -46,7 +52,10 @@ jobs:
         env:
           RESEARCH_ENGINE_SOURCE: ${{ github.workspace }}/engine-reference
         run: |
-          python tests/research_source_connection_smoke.py
+          python tools/run_pr_validation.py \
+            --include research_source_connection_smoke \
+            --include research_universe_connection_smoke \
+            --only research_source_connection --only research_universe_connection
           python tests/research_connected_admission_smoke.py
       - name: Connect real source data independently
         env:
@@ -62,7 +71,9 @@ jobs:
           through=$(date -u -d yesterday +%F)
           python tools/research_source_connection.py \
             --private-dir "$RUNNER_TEMP/research-source-private" \
-            --start 2018-05-01 --end "$through" \
+            --universe-mode current_markets \
+            --start 2025-05-01 --end "$through" \
+            --historical-probe-date 2019-05-31 \
             --report "$RUNNER_TEMP/research-source-report.json"
       - name: Run real connected observations through H1 and H2
         run: |

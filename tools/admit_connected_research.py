@@ -6,8 +6,10 @@ as independently verified exchange auction prices. It records engine blockers.
 """
 from __future__ import annotations
 import argparse
+from collections import Counter
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -89,6 +91,7 @@ def run(capture,engine_root):
     # a chosen 100% cash position or as a realized backtest result.
     output=dict(schema_version='connected-research-admission-v1',engine_commit=ENGINE_COMMIT,engine_source_digest=ENGINE_DIGEST,
         data_kind='REAL',source_receipts_hash=report['source_receipts_hash'],decision_cutoff=cutoff,price_through=report['end'],
+        collection_scope=report.get('collection_scope','connection_sample'),
         workflow=decision['workflow'],readiness=decision['readiness'],coverage=decision['coverage'],
         portfolio_weights=proposal['rows'] if proposal['ready'] else None,
         proposal_blockers=proposal.get('blockers',proposal.get('reasons',[])),
@@ -100,6 +103,14 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--capture',required=True);p.add_argument('--engine-source',required=True);p.add_argument('--report',required=True)
     a=p.parse_args();result=run(a.capture,a.engine_source)
+    if result['collection_scope']=='current_markets':
+        # Full company-by-company diagnostics stay beside the private inputs.
+        path=Path(a.capture).resolve()/'admission_report.json'
+        fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+        with os.fdopen(fd,'wb') as out:out.write(canonical(result))
+        coverage=result.pop('coverage')
+        result['coverage_count']=len(coverage)
+        result['blocker_counts']=dict(Counter(b for row in coverage for b in row.get('blockers',[])))
     Path(a.report).write_bytes(canonical(result)+b'\n');print(json.dumps(result,sort_keys=True))
     return 0
 

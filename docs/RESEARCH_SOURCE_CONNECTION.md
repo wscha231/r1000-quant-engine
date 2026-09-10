@@ -29,13 +29,59 @@ pagination, preserving those failure classifications.
 ```
 python tests/research_source_connection_smoke.py
 python tools/research_source_connection.py --private-dir /private/run-unique \
-  --start 2018-05-01 --end 2026-09-09 --report /private/report.json
+  --universe-mode current_markets --start 2025-05-01 --end 2026-09-09 \
+  --historical-probe-date 2019-05-31 --report /private/report.json
 ```
 
 Every run needs a new private directory. Hashed raw responses and receipts must
 stay private; the PR workflow uploads only the controlled aggregate report.
 API keys, query strings, provider error bodies and raw market data do not enter
 public artifacts. Failed data does not become a synthetic 100% cash allocation.
+
+## Candidate scope and the former 33-name sample
+
+The former 24 US / nine KR set is exactly the `watchlist` in
+`docs/run287_daily_research_monitor_contract.json`. It is an inherited theme
+watchlist, with no recorded per-name quantitative selection thresholds, full
+market comparison, historical membership or investment approval. It overweights
+semiconductors, AI infrastructure, power, construction and resources. Its size
+was a connection-test scope, not a limit on the strategy or a selected top 33.
+
+`current_markets` is now the default. The collector reads all provider equity
+members of the live IWB proxy and all KOSPI/KOSDAQ daily share records; there is
+no theme whitelist or fallback to the sample. IWB is a broad US base, not all
+US listings, exact index membership or an exhaustive ADR universe. Korean share
+classes, SPACs, halted securities and missing quotes remain visible for later
+eligibility review. A non-empty partial board is not complete market coverage.
+
+US bars use every resolved source member plus SPY, in batches with independent
+pagination. The current collection window supplies 20/60/120/240-session price
+inputs for broad discovery; it does **not** change the intended June 3, 2019
+fund investment start or claim a shorter backtest as the requested study.
+Company financial normalization and reviewed underwriting remain later work.
+This broad-source job does not repeatedly refetch the old 24-company SEC set.
+
+To reproduce the connection sample, explicitly pass
+`--universe-mode connection_sample --start 2018-05-01`; the report carries the
+monitor-file hash and states that no quantitative sample-selection rule exists.
+
+`universe_snapshots.json` privately retains member records and references to
+original source receipts, with actual dates and current/past snapshots separate.
+Historical KRX probe dates never get unioned into the current pool. A 2019 US
+listing request is audited for IPO-after-request, delisted-before-request and
+status contradictions. Passing those checks alone does not certify historical
+completeness, stable entity history or contemporaneous publication timing.
+IWB's reported date is never replaced by the requested date. Current membership
+must not be used to select the historical fund. Two probe dates are not a
+continuous seven-year membership series.
+
+Public artifacts report counts, dates, sectors, exclusions and failure classes;
+the full broad inventory, quotes and per-company admission diagnostics remain
+private. Source selection, quantitative discovery, qualitative investment
+approval and final allocation are distinct stages.
+
+References: [IWB provider download](https://www.ishares.com/us/products/239707/ishares-russell-1000-etf/latest-holdings.csv),
+[KRX services](https://openapi.krx.co.kr/contents/OPP/INFO/service/OPPINFO004.cmd).
 
 ## Remaining fund integration gates
 

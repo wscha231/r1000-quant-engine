@@ -94,7 +94,7 @@ class Connection(unittest.TestCase):
             else:value={'bars':{'SPY':[{'t':'2026-09-09T04:00:00Z','c':200}]},'next_page_token':None}
             return json.dumps(value).encode()
         with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'ALPACA_API_KEY':'a','ALPACA_API_SECRET':'b'}),patch.object(m,'request_raw',side_effect=response):
-            result=m.collect_bars(m.Capture(d),'2026-09-08','2026-09-09')
+            result=m.collect_bars(m.Capture(d),'2026-09-08','2026-09-09',['NVDA','SPY','EME'])
         self.assertEqual(len(calls),4)
         by={r['ticker']:r for r in result['securities']}
         self.assertFalse(by['NVDA']['exact_requested_close'])
@@ -105,16 +105,16 @@ class Connection(unittest.TestCase):
     def test_repeated_token_rejected(self):
         raw=b'{"bars":{},"next_page_token":"repeat"}'
         with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'ALPACA_API_KEY':'a','ALPACA_API_SECRET':'b'}),patch.object(m,'request_raw',return_value=raw):
-            self.assertRaisesRegex(ValueError,'repeated_page_token',m.collect_bars,m.Capture(d),'2026-09-08','2026-09-09')
+            self.assertRaisesRegex(ValueError,'repeated_page_token',m.collect_bars,m.Capture(d),'2026-09-08','2026-09-09',['NVDA','SPY','EME'])
 
     def test_future_price_rejected(self):
         raw=b'{"bars":{"NVDA":[{"t":"2026-09-10T04:00:00Z","c":100}]}}'
         with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'ALPACA_API_KEY':'a','ALPACA_API_SECRET':'b'}),patch.object(m,'request_raw',return_value=raw):
-            self.assertRaisesRegex(ValueError,'bar_value_or_date',m.collect_bars,m.Capture(d),'2026-09-08','2026-09-09')
+            self.assertRaisesRegex(ValueError,'bar_value_or_date',m.collect_bars,m.Capture(d),'2026-09-08','2026-09-09',['NVDA','SPY','EME'])
 
     def test_all_sources_blocked_does_not_create_cash_allocation(self):
         with tempfile.TemporaryDirectory() as d,patch.object(m,'request_raw',side_effect=OSError),patch.dict(os.environ,{},clear=True):
-            r=m.run(d,'2019-05-09','2026-09-09')
+            r=m.run(d,'2019-05-09','2026-09-09','connection_sample')
         self.assertEqual(r['backtest_status'],'BLOCKED')
         self.assertIsNone(r['portfolio_weights'])
         self.assertIsNone(r['metrics'])
@@ -125,7 +125,7 @@ class Connection(unittest.TestCase):
             {'id':'a','symbol':'NVDA','rate':1,'ex_date':'2019-01-01','payable_date':None},
             {'id':'b','symbol':'NVDA','rate':1,'ex_date':'2020-01-01','payable_date':'2020-01-10'}]},'next_page_token':None}).encode()
         with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'ALPACA_API_KEY':'a','ALPACA_API_SECRET':'b'}),patch.object(m,'request_raw',return_value=raw):
-            r=m.collect_actions(m.Capture(d),'2018-05-01','2026-09-09')
+            r=m.collect_actions(m.Capture(d),'2018-05-01','2026-09-09',['NVDA','SPY'])
         nvda=next(s for s in r['securities'] if s['ticker']=='NVDA')
         self.assertEqual(nvda['cash_payment_dates_missing'],1)
         self.assertFalse(r['full_action_coverage_verified'])
@@ -133,7 +133,7 @@ class Connection(unittest.TestCase):
     def test_duplicate_action_not_double_paid(self):
         raw=b'{"corporate_actions":{"cash_dividends":[{"id":"a"},{"id":"a"}]}}'
         with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'ALPACA_API_KEY':'a','ALPACA_API_SECRET':'b'}),patch.object(m,'request_raw',return_value=raw):
-            self.assertRaisesRegex(ValueError,'duplicate_action',m.collect_actions,m.Capture(d),'2018-05-01','2026-09-09')
+            self.assertRaisesRegex(ValueError,'duplicate_action',m.collect_actions,m.Capture(d),'2018-05-01','2026-09-09',['NVDA','SPY'])
 
     def test_failed_delisted_response_preserves_active_reference(self):
         payloads=[b'symbol,name,exchange,assetType,ipoDate,delistingDate,status\nEXAM,Example,NYSE,Stock,2000-01-01,null,Active\n',b'Not a listing CSV']
