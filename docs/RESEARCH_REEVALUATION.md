@@ -146,6 +146,13 @@ That failed run remains part of the implementation evidence; it is not evidence
 that the series are unavailable. Inspect the subsequent exact-head pilot for
 actual collection success and dates.
 
+The next run (`34463496551`, head `2013fc28be69431f038f8d90762fced2ed65eada`)
+collected 1,998 rows each for DGS2 and DGS10, through 2026-09-08; both repeated
+batches were unchanged. UNRATE failed validation. The parser now handles the
+single monthly anchor before an intra-month start date and exposes allowlisted
+validation reasons. This boundary row is excluded, never assigned a fabricated
+daily release date. Duplicate and future-date rejection remain in place.
+
 Next integration gates:
 
 1. Connect independent historical price/lifecycle/FX, SEC and macro-vintage

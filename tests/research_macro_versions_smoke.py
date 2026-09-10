@@ -35,6 +35,14 @@ class MacroTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"series_not_allowlisted"):
             parse_fred(b"", "untrusted", "2019-01-01", "2019-01-03", "2026-09-10T00:00:00Z")
 
+    def test_monthly_period_anchor_is_clipped_without_losing_later_rows(self):
+        raw=b"observation_date,UNRATE\n2018-09-01,3.7\n2018-10-01,3.8\n"
+        rows=parse_fred(raw,"UNRATE","2018-09-10","2018-10-31","2026-09-10T00:00:00Z")
+        self.assertEqual(len(rows),1)
+        self.assertEqual(rows[0]["effective_at"],"2018-10-01T00:00:00Z")
+        with self.assertRaisesRegex(ValueError,"duplicate_or_out_of_window"):
+            parse_fred(raw+b"2018-09-01,3.7\n","UNRATE","2018-09-10","2018-10-31","2026-09-10T00:00:00Z")
+
     def test_real_pilot_404_regression_uses_official_export_path(self):
         opener=MagicMock()
         response=opener.open.return_value.__enter__.return_value

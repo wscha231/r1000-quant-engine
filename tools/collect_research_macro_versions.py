@@ -25,6 +25,10 @@ from tools.research_lifecycle import Store, iso, require, safe_path, timestamp, 
 
 SERIES = ("DGS2", "DGS10", "UNRATE")
 MAX_BYTES = 2 * 1024 * 1024
+PUBLIC_REASONS = {"series_not_allowlisted", "response_size_bound", "observation_window",
+                  "fred_csv_schema", "fred_csv_row", "duplicate_or_out_of_window_observation",
+                  "macro_value_invalid", "no_usable_observations", "redirect_rejected",
+                  "same_batch_not_idempotent", "stale_dataset_head", "mixed_real_synthetic"}
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -44,8 +48,15 @@ def parse_fred(raw, series, start, through, retrieved_at):
     for row in reader:
         require(set(row) == {date_field, series} and row[series] is not None, "fred_csv_row")
         day = date.fromisoformat(row[date_field])
-        require(first <= day <= last and day not in seen, "duplicate_or_out_of_window_observation")
+        # FRED can include the month-start anchor when cosd falls inside a
+        # monthly period. Exclude that one boundary row; do not invent a
+        # daily publication or relax duplicate/future-date checks.
+        monthly_boundary = series == "UNRATE" and day == first.replace(day=1) and day < first
+        require((first <= day <= last or monthly_boundary) and day not in seen,
+                "duplicate_or_out_of_window_observation")
         seen.add(day)
+        if monthly_boundary:
+            continue
         if row[series] in {"", "."}:
             continue
         value = float(row[series])
@@ -103,8 +114,11 @@ def collect(store, *, dataset, start, through, fetcher=fetch):
             summaries.append(dict(series=series, status="BLOCKED", reason="HTTP_"+str(exc.code)))
         except (URLError, TimeoutError, OSError):
             summaries.append(dict(series=series, status="BLOCKED", reason="TRANSPORT_ERROR"))
-        except (ValueError, UnicodeError, csv.Error, TypeError):
-            summaries.append(dict(series=series, status="BLOCKED", reason="VALIDATION_ERROR"))
+        except (ValueError, UnicodeError, csv.Error, TypeError) as exc:
+            # Emit only an allowlisted reason, never an arbitrary exception
+            # that could echo raw input or a transport URL.
+            reason=str(exc) if str(exc) in PUBLIC_REASONS else "VALIDATION_ERROR"
+            summaries.append(dict(series=series, status="BLOCKED", reason=reason))
     head = store.head(dataset)
     archived_rows = len(store.as_of(head, through+"T23:59:59Z")) if head else 0
     succeeded = sum(s["status"] == "COLLECTED" for s in summaries)
