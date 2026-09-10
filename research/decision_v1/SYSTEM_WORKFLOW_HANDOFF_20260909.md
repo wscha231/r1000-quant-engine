@@ -1,5 +1,9 @@
 # [PROJECT_HANDOFF] Overall workflow and repaired seams — 2026-09-09
 
+> User handoff review: [2026-09-10 reconciliation](HANDOFF_RECONCILIATION_20260910.md).
+> Adds shared-environment comparison checks and reconciled FX/cost attribution;
+> keeps historical quantitative recovery separate from unavailable quality records.
+
 > New 2026-09-10 code: [USD continuous fund replay contract](../../docs/research_fund_replay_contract.md).
 > Branch `codex/usd-fund-manager-replay-20260910` extends the current #405 dependency.
 > It connects actual simulated shares/cash to repeated H1/H2/quality decisions and adds

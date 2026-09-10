@@ -159,6 +159,22 @@ volatility, annual/monthly/rolling 12m and 36m performance, USD total-return
 benchmark comparison, tracking error, transactions/costs, daily cash/holdings,
 and per-security P&L that reconciles exactly to NAV less initial capital.
 
+The handoff review adds a reconciled `pnl_attribution` by security and **listing
+market**, separating local-asset P&L, FX translation and actual costs. FX first
+revalues pre-close local holdings and unpaid rights; local repricing then uses
+the new FX rate. The price/FX interaction is assigned to local-asset P&L. That
+component includes distributions and lifecycle recovery, not only price moves.
+Subtracting actual fees reconciles to net account P&L; adding fees back does not
+simulate a separate cost-free strategy. Cash earns zero under this policy.
+Economic country, industry, theme and customer contributions require historical
+classifications/allocation rules and remain uncomputed. Listing market does not
+imply operating-country exposure, particularly for ADRs.
+
+Turnover is half gross traded value divided by mean post-session NAV; annualized
+turnover divides this by elapsed years. Partial fills, cancellations/expiry and
+pending orders at cutoff remain separate counts. Execution metrics are ex-post
+diagnostics and are never additional signals passed to earlier decisions.
+
 Development selection is executable through the same `--fund-input` option
 with schema `fund-cagr-development-v1`, `trials=[{trial_id,result:{path,sha256}}]`,
 `registered_trial_ids`, `development_end`, `test_start`, `max_drawdown`, and
@@ -167,6 +183,32 @@ end before the test period. Risk-ineligible trials remain visible. Among
 eligible trials, CAGR is first, MDD breaks an exact tie, and ID is deterministic;
 Sharpe cannot displace a higher CAGR. CSCV/PBO also selects and ranks by compound
 growth, not by Sharpe or compounded arithmetic excess returns.
+
+**Same dates are insufficient for comparison.** Completed replays now preserve
+`comparison_basis` and its hash: initial account, market/window/decision clock,
+fee/FX/cash/fill/ADV/pending policies, benchmark weights, opening risk-free rate,
+seed marks, the entire close-event stream (raw prices, FX, rates, benchmarks,
+corporate actions and availability), and historical universe/macro/candidate
+H1 price/financial/optional observations. These fields must agree before CAGR
+selection. Candidate common inputs exclude held-only exports because holdings
+can differ between strategies. The close stream must be shared, including its
+quote coverage; strategy-specific filtered price streams are not comparable.
+
+Scenario, thesis, quality and risk judgments and decision configs may differ as
+the registered strategy change; the result/config identities remain visible.
+The hashes check retained input consistency, not authentic data or independent
+preregistration. A different-cost or different-universe study requires a
+separate labelled sensitivity/data-correction analysis; it cannot win this
+same-environment alpha comparison. Old outputs without this evidence must be
+replayed from their original inputs; do not retrofit a fabricated common hash.
+
+The two 2026-09-10 user handoffs retain Main CAGR >=35%, Concentrated >=50%,
+and realized MDD >=-25% as research goals for separately registered USD100k
+strategies. This config implements one research fund policy; it does not create
+two independent strategies by labelling the same curve twice. Goals do not
+alter scenario values, eligibility, counts or risk limits to fit known history.
+See [handoff reconciliation](../research/decision_v1/HANDOFF_RECONCILIATION_20260910.md)
+for baseline/quality/data-recovery sequencing and remaining evidence.
 
 The older Run287 multiple-testing promotion contract is frozen historical
 evidence and remains unchanged. The new comparison does not grant promotion:
@@ -177,4 +219,4 @@ No 7–8 year real-data performance has been produced by these code tests.
 
 ## Implementation validation
 
-[Machine-readable software evidence](../research/decision_v1/fund_replay_code_validation_20260910.json): 27 new fund tests (also optimized Python), 14 funding, 24 quality-connection and 46 H2 decision tests passed locally. The full original H1 export and quality path is exercised by the new fund fixture without mocking those boundaries. The committed-source CLI processed two synthetic decisions/two fills, then reproduced the identical semantic result solely from the retained input archive. These counts are software tests, not observed investment returns. The protected runner publication pin advances to causal ancestor `9994cc9a1b9d22e28ce6f2d431d3d16f3b0d631d`, which contains the new mandatory registration; verifier algorithms and protected paths are unchanged.
+[Machine-readable initial software evidence](../research/decision_v1/fund_replay_code_validation_20260910.json) records the original 27 fund tests and earlier CLI replay. The handoff follow-up adds comparison and FX/receivable regressions to the same registered suite; its exact commands/results are recorded in the [reconciliation](../research/decision_v1/HANDOFF_RECONCILIATION_20260910.md). Counts are software tests, not observed investment returns. The full original H1 export and quality path is exercised without mocking those boundaries. The protected runner publication pin remains causal ancestor `9994cc9a1b9d22e28ce6f2d431d3d16f3b0d631d`; no test registration, verifier algorithm or protected path is changed by this follow-up.

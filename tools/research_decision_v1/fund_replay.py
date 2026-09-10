@@ -13,10 +13,14 @@ from pathlib import Path
 
 from tools.research_decision_v1 import engine, io
 from tools.research_decision_v1.data import canonical, digest, number, timestamp, sessions, session_close, validate_persistable_sources, source_url
-from tools.research_decision_v1.fund_metrics import metrics, OBJECTIVE, select_cagr_trial, cagr_selection_pbo
+from tools.research_decision_v1.fund_metrics import metrics, execution_analysis, OBJECTIVE, select_cagr_trial, cagr_selection_pbo
 
 
 SCHEMA = "fund-manager-replay-v1"
+COMPARISON_SCHEMA = "fund-common-environment-v1"
+COMPARISON_FIELDS = {"schema_version","base_currency","initial_cash_usd","start_at","end_date","markets",
+    "decision_schedule","execution","benchmark_weights","opening_risk_free_hash","seed_closes_hash",
+    "market_history_hash","common_input_history_hash"}
 BOOK_SOURCE = "https://github.com/wscha231/r1000-quant-engine"
 
 
@@ -67,16 +71,31 @@ def compare_development(spec, root):
     require(spec["schema_version"] == "fund-cagr-development-v1", "fund_comparison_schema")
     trials = []
     kinds=set()
+    common_basis = None
     for trial in spec["trials"]:
         result = read_reference(root, trial["result"])
         require(result["schema_version"] == SCHEMA and result["result_hash"] == digest({k:v for k,v in result.items() if k != "result_hash"}), "fund_comparison_result_identity")
         require(result["status"] == "COMPLETED_RESEARCH_REPLAY", "fund_comparison_incomplete_trial")
         require(result["objective"] == OBJECTIVE and result["costs_included"] is True, "fund_comparison_semantics")
+        basis = result.get("comparison_basis")
+        require(isinstance(basis,dict) and set(basis) == COMPARISON_FIELDS and basis.get("schema_version") == COMPARISON_SCHEMA and
+                result.get("comparison_basis_hash") == digest(basis), "fund_comparison_basis_missing_or_invalid")
+        require(basis["base_currency"] == "USD" and basis["initial_cash_usd"] == 100000. and
+                timestamp(basis["start_at"]) == timestamp(result["start_at"]) and basis["end_date"] == result["end_date"],
+                "fund_comparison_basis_result_mismatch")
+        if common_basis is None:
+            common_basis = basis
+        else:
+            require(basis == common_basis, "fund_comparison_environment_mismatch")
         kinds.add((result["data_kind"],result["evidence_mode"],result["evaluation_scope"]))
-        trials.append({"trial_id": trial["trial_id"], "curve": result["equity_curve"]})
+        trials.append({"trial_id": trial["trial_id"], "curve": result["equity_curve"],
+                       "result_hash":result["result_hash"], "config_hash":result["config_hash"]})
     require(len(kinds) == 1, "fund_comparison_mixed_evidence")
     out = select_cagr_trial(trials, development_end=spec["development_end"], test_start=spec["test_start"],
                             max_drawdown=spec["max_drawdown"], registered_trial_ids=spec["registered_trial_ids"])
+    out.update(comparison_basis=common_basis, comparison_basis_hash=digest(common_basis),
+               source_authenticity_verified=False, oos_validated=False,
+               trial_evidence=[{k:t[k] for k in ("trial_id","result_hash","config_hash")} for t in trials])
     if spec.get("pbo_blocks") is not None:
         columns = {t["trial_id"]: [b["equity_usd"]/a["equity_usd"]-1 for a,b in zip(t["curve"],t["curve"][1:])] for t in trials}
         out["cagr_selection_pbo"] = cagr_selection_pbo(columns, blocks=spec["pbo_blocks"])
@@ -116,6 +135,8 @@ class Fund:
         self.shares, self.quotes, self.pending, self.receivables = {}, {}, {}, []
         self.delisted_ids = set()
         self.net_cash_flow, self.trades, self.action_log, self.decisions = {}, [], [], []
+        self.fx_pnl = {}
+        self.market_hasher, self.common_input_hasher = hashlib.sha256(), hashlib.sha256()
         self.previous, self.last_closes, self.benchmark_initial, self.benchmarks = None, {}, {}, {}
         self.cash_interest = 0.
         self.rate = scalar_evidence(manifest["opening_risk_free"], self.start.isoformat())
@@ -216,8 +237,21 @@ class Fund:
             self.seen_closes.add((market,day))
             self.advance_rate(now)
         if "KR" in self.markets or event.get("fx") is not None:
-            self.fx = scalar_evidence(event["fx"], event["time"], positive=True)
+            new_fx = scalar_evidence(event["fx"], event["time"], positive=True)
             require((now-timestamp(event["fx"]["observed_at"])).total_seconds() <= 86400, "fund_fx_stale")
+            if not seed and self.fx is not None:
+                # Translate the pre-close holdings/rights first. Subsequent
+                # local repricing uses the new FX rate; the cross term belongs
+                # to local-asset P&L under this explicit sequential convention.
+                local_values = {sid:q*self.quotes[sid]["close"] for sid,q in self.shares.items()
+                                if q > 0 and sid.startswith("KR:")}
+                for right in self.receivables:
+                    sid=right["security_id"]
+                    if sid.startswith("KR:"):
+                        local_values[sid]=local_values.get(sid,0.)+right["amount_local"]
+                for sid,value in local_values.items():
+                    self.fx_pnl[sid]=self.fx_pnl.get(sid,0.)+value*(1/new_fx-1/self.fx)
+            self.fx = new_fx
         if not seed:
             self.corporate_actions(event["corporate_actions"],now,market)
             self.pay_receivables(now)
@@ -281,7 +315,8 @@ class Fund:
                 self.shares[sid]=self.shares.get(sid,0.)+sign*quantity
                 self.trades.append(dict(order,time=now.isoformat(),session=self.quotes[sid]["session"],
                     status="FILLED",quantity=quantity,side="BUY" if sign>0 else "SELL",price_local=self.quotes[sid]["close"],
-                    fx_krw_per_usd=self.fx,gross_usd=gross,cost_usd=cost,fx_cost_usd=fx_cost,cash_after_usd=self.cash))
+                    fx_krw_per_usd=self.fx,gross_usd=gross,cost_usd=cost,fx_cost_usd=fx_cost,cash_after_usd=self.cash,
+                    remaining_quantity=abs(order["target_quantity"]-self.shares[sid])))
                 if self.shares[sid] == order["target_quantity"]: self.pending.pop(sid,None)
         for sid,order in list(self.pending.items()):
             if sid.startswith(market+":") and order["attempted_sessions"] >= self.max_pending:
@@ -355,6 +390,15 @@ class Fund:
         require(all(r["quality_assessment"]["schema_valid"] and r["quality_assessment"]["review_receipt_valid"] and
                     r["quality_assessment"]["company_assessment"] in {"pass","fail"} for r in result["ranking"]),
                 "fund_research_coverage_incomplete")
+        # Freeze common observations independently of strategy judgments and
+        # packet file names. Held-only exports differ legitimately between
+        # strategies; compare the full historical candidate universe instead.
+        common={"time":now.isoformat(),"universe":membership,"macro":packet["macro"],
+                "securities":[{"security_id":sid,"currency":securities[sid]["currency"],
+                    "listing_board":securities[sid].get("listing_board"),
+                    "blocks":{key:securities[sid]["blocks"][key] for key in ("price","financials")},
+                    "optional":securities[sid].get("optional",{})} for sid in sorted(membership["members"])]}
+        self.common_input_hasher.update((canonical(common)+"\n").encode("utf-8"))
         self.previous=result
         proposal=result["portfolio_proposal"]
         for row in proposal["rows"]:
@@ -392,8 +436,26 @@ class Fund:
         self.daily.append({"time":now.isoformat(),"equity_usd":nav,"cash_usd":self.cash,
             "receivables_usd":rights,"holdings_usd":values,"shares":copy.deepcopy(self.shares),
             "risk_free_return":self.rf_growth/self.last_rf_growth-1.,"benchmark_equity_usd":benchmark,
-            "cumulative_pnl_by_security_usd":pnl,"pending_order_count":len(self.pending)})
+            "cumulative_pnl_by_security_usd":pnl,"pending_order_count":len(self.pending),
+            "cumulative_fx_pnl_by_security_usd":copy.deepcopy(self.fx_pnl),"fx_krw_per_usd":self.fx})
         self.last_mark,self.last_rf_growth=now,self.rf_growth
+
+    def comparison_basis(self):
+        """Observed common environment; hashes do not certify source authenticity."""
+        return {"schema_version":COMPARISON_SCHEMA,"base_currency":"USD","initial_cash_usd":100000.,
+            "start_at":self.start.isoformat(),"end_date":self.spec["end_date"],"markets":sorted(self.markets),
+            "decision_schedule":copy.deepcopy(self.spec["decision_schedule"]),
+            "execution":{"fill_mode":"next_close","price_basis":"raw_unadjusted","cash_carry_mode":"none",
+                "cost_bps":{m:self.spec["cost_bps"][m] for m in self.markets},
+                "fx_conversion_bps":self.spec["fx_conversion_bps"],"max_pending_sessions":self.max_pending,
+                "max_adv_participation":self.config["max_adv_participation"],
+                "accounting_policy":"integer_shares_receivables_same_close_netting_no_settlement_or_income_tax_v1",
+                "pending_order_policy":"cancel_unfilled_remainder_before_each_new_decision"},
+            "benchmark_weights":copy.deepcopy(self.weights),
+            "opening_risk_free_hash":digest(self.spec["opening_risk_free"]),
+            "seed_closes_hash":digest(self.spec["seed_closes"]),
+            "market_history_hash":self.market_hasher.hexdigest(),
+            "common_input_history_hash":self.common_input_hasher.hexdigest()}
 
 
 def replay(manifest, events, config, packet_loader, *, now=None, decision_sink=None):
@@ -421,7 +483,8 @@ def replay(manifest, events, config, packet_loader, *, now=None, decision_sink=N
         fund.benchmark_initial={m:fund.benchmarks[m]*(1. if m == "US" else 1/fund.fx) for m in fund.markets}
         fund.daily=[{"time":fund.start.isoformat(),"equity_usd":100000.,"cash_usd":100000.,
                     "risk_free_return":0.,"benchmark_equity_usd":100000.,"shares":{},"holdings_usd":{},
-                    "receivables_usd":0.,"cumulative_pnl_by_security_usd":{},"pending_order_count":0}]
+                    "receivables_usd":0.,"cumulative_pnl_by_security_usd":{},"pending_order_count":0,
+                    "cumulative_fx_pnl_by_security_usd":{},"fx_krw_per_usd":fund.fx}]
         previous=fund.start
         last_day=None
         decisions=0
@@ -439,6 +502,7 @@ def replay(manifest, events, config, packet_loader, *, now=None, decision_sink=N
             if last_day and t.date() != last_day and day_end(last_day.isoformat()) > fund.last_mark:
                 fund.mark(day_end(last_day.isoformat()))
             if event["type"] == "close":
+                fund.market_hasher.update((canonical(event)+"\n").encode("utf-8"))
                 fund.close(copy.deepcopy(event)); last_day=t.date()
             elif event["type"] == "decision":
                 actual_decisions.append(t)
@@ -470,10 +534,11 @@ def replay(manifest, events, config, packet_loader, *, now=None, decision_sink=N
             "fx_policy":"automatic_conversion_to_usd_at_observed_rate_with_declared_cost",
             "pending_order_policy":"cancel_unfilled_remainder_before_each_new_decision",
             "benchmark_policy":"fixed_initial_weights_buy_and_hold_total_return_indices_in_usd"}
-        fills=[r for r in fund.trades if r["status"] == "FILLED"]
-        result["metrics"].update(trade_count=len(fills),transaction_cost_usd=sum(r["cost_usd"] for r in fills),
-            fx_cost_usd=sum(r["fx_cost_usd"] for r in fills)+sum(r.get("fx_cost_usd",0.) for r in fund.action_log),
-            gross_traded_usd=sum(r["gross_usd"] for r in fills))
+        execution, attribution=execution_analysis(fund.daily,fund.trades,fund.action_log,fund.fx_pnl)
+        result["metrics"].update(execution)
+        result["pnl_attribution"]=attribution
+        result["comparison_basis"]=fund.comparison_basis()
+        result["comparison_basis_hash"]=digest(result["comparison_basis"])
         result["result_hash"]=digest(result)
         return result
     except (ValueError,KeyError,TypeError,OverflowError,ZeroDivisionError) as exc:
@@ -498,4 +563,18 @@ def render(result):
               f"Final cash: ${result['final_cash_usd']:,.2f}","",
               "Raw-price integer-share executions; dividends accrue on ex-date and become spendable on payment.",
               "Historical source authenticity and unused OOS status require independent evidence.",""]
+    if result.get("pnl_attribution"):
+        a=result["pnl_attribution"]
+        lines += [f"Evidence: {result['evidence_mode']}; scope: {result['evaluation_scope']}",
+            f"Window: {result['start_at']} through {result['end_date']}",
+            f"Comparison basis: {result['comparison_basis_hash']}",
+            f"Turnover (half gross / mean NAV): {m['turnover']:.2f}; annualized: {m['annualized_turnover']:.2f}",
+            f"Partial fills: {m['partial_fill_count']}; pending at cutoff: {m['pending_at_cutoff_count']}","",
+            "| Listing market | Local asset P&L (USD) | FX translation (USD) | Costs (USD) | Net P&L (USD) |",
+            "|---|---:|---:|---:|---:|"]
+        for market,row in sorted(a["by_listing_market"].items()):
+            lines.append(f"| {market} | {row['local_asset_pnl_usd']:,.2f} | {row['fx_translation_pnl_usd']:,.2f} | {row['cost_usd']:,.2f} | {row['net_pnl_usd']:,.2f} |")
+        lines += ["", "Local asset P&L includes distributions, lifecycle recovery and the price/FX interaction.",
+                  "Listing market is not the company's economic country exposure. Cash earns zero under this policy.",
+                  "Industry/theme/customer contribution and missed-winner/early-exit counterfactuals are not computed.",""]
     return "\n".join(lines)

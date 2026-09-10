@@ -1,5 +1,23 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-10 — Handoff comparison integrity and FX attribution
+
+- Two user handoffs predated #409. Read current source/CI before copying their
+  status claims or old patches. A functional fixed environment is not the same
+  as historical data access, and a healthy code check is not a successful fund.
+- Reproduced a common-date CAGR comparison accepting 25bps versus 5bps trades.
+  A `costs_included` flag is insufficient. Compare the common market, universe,
+  macro, H1 observations and execution environment, preserving each strategy's
+  different judgments/config and original result identity.
+- Decompose FX using prior local holdings AND unpaid distribution rights before
+  local repricing. Reconcile costs to net USD P&L; do not call fee add-back a
+  cost-free strategy or listing market an economic country exposure.
+- Keep quantitative baseline recovery separate from unavailable historical
+  quality. Never relax the quality gate or retrofit comparison hashes into old
+  reports to obtain performance. Evidence:
+  `research/decision_v1/HANDOFF_RECONCILIATION_20260910.md` and the expanded,
+  already registered `tests/research_fund_replay_smoke.py`.
+
 ## 2026-09-10 — USD continuous fund state and CAGR selection
 
 - User required one initial USD100k account, chronological information, actual

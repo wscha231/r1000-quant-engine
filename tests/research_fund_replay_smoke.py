@@ -110,6 +110,15 @@ class FullFundTests(unittest.TestCase):
         self.assertTrue(all(data.timestamp(t['decision_at']) < data.timestamp(t['time']) for t in fills))
         self.assertGreater(r['final_cash_usd'],0.)
         self.assertAlmostEqual(sum(r['equity_curve'][-1]['cumulative_pnl_by_security_usd'].values()),r['metrics']['ending_capital_usd']-100000.)
+        attribution=r['pnl_attribution'];total=attribution['total']
+        self.assertAlmostEqual(total['net_pnl_usd'],r['metrics']['ending_capital_usd']-100000.)
+        self.assertAlmostEqual(total['local_asset_pnl_usd']+total['fx_translation_pnl_usd']-total['cost_usd'],total['net_pnl_usd'])
+        self.assertEqual(total['fx_translation_pnl_usd'],0.)
+        self.assertEqual(attribution['by_listing_market']['US'],total)
+        self.assertAlmostEqual(total['cost_usd'],sum(t['gross_usd']*.0025 for t in fills))
+        observations=r['equity_curve'][1:]
+        average_nav=sum(row['equity_usd'] for row in observations)/len(observations)
+        self.assertAlmostEqual(r['metrics']['turnover'],sum(t['gross_usd'] for t in fills)/(2*average_nav))
         self.assertFalse(r['historical_pit_certified'])
 
     def test_future_price_change_cannot_change_earlier_order(self):
@@ -169,6 +178,7 @@ class FullFundTests(unittest.TestCase):
         self.assertEqual(r['status'],'COMPLETED_RESEARCH_REPLAY',r)
         self.assertGreaterEqual(min(row['cash_usd'] for row in r['equity_curve']),0.)
         self.assertTrue(any(t['quantity']<t['target_quantity'] for t in r['trades'] if t['status']=='FILLED'))
+        self.assertGreater(r['metrics']['partial_fill_count'],0)
 
     def test_blocked_quality_and_mismatched_config_remain_blocked(self):
         spec,events,packets=fixture();packets['one']['quality_bundle']['assessments']={}
@@ -294,6 +304,80 @@ class AccountingTests(unittest.TestCase):
     def test_raw_adjusted_confusion_rejected(self):
         f=self.fund();e=close('2026-09-08');e['price_basis']='split_adjusted'
         with self.assertRaisesRegex(ValueError,'raw_prices'):f.close(e)
+
+    def test_kr_fx_attribution_includes_unpaid_rights_and_conversion_cost(self):
+        spec,_,_=fixture(False);cfg=copy.deepcopy(CFG);cfg['one_way_cost_bps']['KR']=35.
+        sid='KR:999999';seed=close('2026-09-08',100000.,market='KR',sid=sid,fx=1000.)
+        spec.update(markets=['KR'],seed_closes=[seed],benchmark_weights={'KR':1.},
+                    cost_bps={'KR':25.},fx_conversion_bps=10.,decision_config_hash=data.digest(cfg),end_date='2026-09-10')
+        f=replay.Fund(spec,cfg);f.close(seed,seed=True)
+        f.shares={sid:100.};f.cash=90000.;f.net_cash_flow={sid:-10000.}
+        f.benchmark_initial={'KR':.1}
+        f.daily=[{'time':START,'equity_usd':100000.}]
+        ex=close('2026-09-09',90000.,market='KR',sid=sid,fx=2000.)
+        ex['corporate_actions']=[dict(action_id='KR_DIV',kind='DIVIDEND',security_id=sid,source=SOURCE,
+            public_available_at=START,effective_at='2026-09-09T00:00:00Z',cash_per_share=10000.,pay_at='2026-09-10T00:00:00Z')]
+        f.close(ex);f.mark(replay.day_end('2026-09-09'))
+        self.assertEqual(f.daily[-1]['equity_usd'],95000.)
+        self.assertEqual(f.daily[-1]['cumulative_fx_pnl_by_security_usd'][sid],-5000.)
+        _,a=fund_metrics.execution_analysis(f.daily,f.trades,f.action_log,f.fx_pnl)
+        self.assertEqual(a['total']['local_asset_pnl_usd'],0.)
+        f.close(close('2026-09-10',90000.,market='KR',sid=sid,fx=1000.))
+        f.mark(replay.day_end('2026-09-10'))
+        _,a=fund_metrics.execution_analysis(f.daily,f.trades,f.action_log,f.fx_pnl)
+        self.assertEqual(f.cash,90999.)
+        self.assertEqual(a['by_listing_market']['KR'],{'net_pnl_usd':-1.,'fx_translation_pnl_usd':0.,'cost_usd':1.,'local_asset_pnl_usd':0.})
+
+
+class ComparisonTests(unittest.TestCase):
+    def compare(self,results):
+        with tempfile.TemporaryDirectory() as folder:
+            refs=[]
+            for i,result in enumerate(results):
+                self.assertEqual(result['status'],'COMPLETED_RESEARCH_REPLAY',result)
+                name=f'{i}.json';(Path(folder)/name).write_text(json.dumps(result),encoding='utf-8')
+                refs.append({'trial_id':str(i),'result':{'path':name,'sha256':data.digest(result)}})
+            spec={'schema_version':'fund-cagr-development-v1','trials':refs,
+                  'registered_trial_ids':[str(i) for i in range(len(results))],
+                  'development_end':'2026-09-09T23:59:59Z','test_start':'2026-09-10T00:00:00Z','max_drawdown':-.25}
+            return replay.compare_development(spec,folder)
+
+    def test_same_dates_but_different_costs_or_data_cannot_select_a_winner(self):
+        baseline=run()
+        for change in ('cost','price','benchmark','macro','universe','capacity'):
+            with self.subTest(change=change):
+                spec,events,packets=fixture();cfg=copy.deepcopy(CFG)
+                if change=='cost':spec['cost_bps']['US']=5.;cfg['one_way_cost_bps']['US']=5.
+                if change=='price':events[-1]['quotes'][0]['close']=130.
+                if change=='benchmark':events[-1]['benchmark_total_return_index']=105.
+                if change=='macro':
+                    p=packets['one'];p['macro'][0].update(value=3.,payload_hash=data.digest(3.))
+                    p['context']['regime']['input_hash']=data.digest(p['macro'])
+                if change=='universe':packets['two']['universe'].update(members=[],members_hash=data.digest([]))
+                if change=='capacity':cfg['max_adv_participation']=.005
+                spec['decision_config_hash']=data.digest(cfg)
+                result=replay.replay(spec,events,cfg,packets.get,now='2026-09-10T02:00:00Z')
+                with self.assertRaisesRegex(ValueError,'environment_mismatch'):self.compare([baseline,result])
+
+    def test_strategy_judgment_can_change_with_identical_common_environment(self):
+        baseline=run();spec,events,packets=fixture()
+        entry=packets['two']['quality_bundle']['assessments']['US:TEST']
+        entry['packet']['claims'][4].update(impact='adverse',severity='critical')
+        entry['receipt']=receipt(entry['packet'],entry['corpus'])
+        changed=run(spec,events,packets)
+        self.assertNotEqual(baseline['result_hash'],changed['result_hash'])
+        self.assertEqual(baseline['comparison_basis'],changed['comparison_basis'])
+        result=self.compare([baseline,changed])
+        self.assertEqual(len(result['trial_evidence']),2)
+        self.assertFalse(result['source_authenticity_verified']);self.assertFalse(result['oos_validated'])
+
+    def test_missing_or_changed_comparison_evidence_is_not_grandfathered(self):
+        for change in ('missing','hash'):
+            r=run()
+            if change=='missing':r.pop('comparison_basis')
+            else:r['comparison_basis']['execution']['cost_bps']['US']=0.
+            r['result_hash']=data.digest({k:v for k,v in r.items() if k!='result_hash'})
+            with self.assertRaisesRegex(ValueError,'basis_missing_or_invalid'):self.compare([r])
 
 
 class CurrencyAndObjectiveTests(unittest.TestCase):

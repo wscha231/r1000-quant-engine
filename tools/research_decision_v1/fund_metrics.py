@@ -87,6 +87,54 @@ def metrics(curve):
     return result
 
 
+def execution_analysis(curve, trades, actions, fx_pnl):
+    """Reconcile realized/marked USD P&L, without inventing a no-cost strategy."""
+    fills=[r for r in trades if r["status"] == "FILLED"]
+    fees={}
+    for row in fills:
+        sid=row["security_id"]
+        fees[sid]=fees.get(sid,0.)+row["cost_usd"]+row["fx_cost_usd"]
+    for row in actions:
+        sid=row["security_id"]
+        fees[sid]=fees.get(sid,0.)+row.get("fx_cost_usd",0.)
+    by_security={}
+    by_market={}
+    net=curve[-1]["cumulative_pnl_by_security_usd"]
+    for sid in sorted(set(net)|set(fees)|set(fx_pnl)):
+        row={"net_pnl_usd":net.get(sid,0.),"fx_translation_pnl_usd":fx_pnl.get(sid,0.),
+             "cost_usd":fees.get(sid,0.)}
+        row["local_asset_pnl_usd"]=row["net_pnl_usd"]-row["fx_translation_pnl_usd"]+row["cost_usd"]
+        by_security[sid]=row
+        market=by_market.setdefault(sid.split(":",1)[0],{key:0. for key in row})
+        for key,value in row.items(): market[key]+=value
+    total={key:sum(row[key] for row in by_security.values()) for key in
+           ("net_pnl_usd","fx_translation_pnl_usd","cost_usd","local_asset_pnl_usd")}
+    expected=curve[-1]["equity_usd"]-curve[0]["equity_usd"]
+    if not math.isclose(total["net_pnl_usd"],expected,abs_tol=1e-6):
+        raise ValueError("fund_attribution_does_not_reconcile")
+    years=(timestamp(curve[-1]["time"])-timestamp(curve[0]["time"])).total_seconds()/(365.25*86400)
+    gross=sum(r["gross_usd"] for r in fills)
+    average_nav=statistics.mean(r["equity_usd"] for r in curve[1:])
+    turnover=gross/(2*average_nav)
+    unfilled={}
+    for row in trades:
+        if row["status"] != "FILLED":
+            unfilled[row["status"]]=unfilled.get(row["status"],0)+1
+    execution={"trade_count":len(fills),"transaction_cost_usd":sum(r["cost_usd"] for r in fills),
+        "fx_cost_usd":sum(r["fx_cost_usd"] for r in fills)+sum(r.get("fx_cost_usd",0.) for r in actions),
+        "gross_traded_usd":gross,"turnover":turnover,"annualized_turnover":turnover/years,
+        "turnover_convention":"half_gross_traded_divided_by_mean_post_session_nav",
+        "partial_fill_count":sum(r["remaining_quantity"] > 0 for r in fills),
+        "unfilled_terminal_status_counts":unfilled,"pending_at_cutoff_count":curve[-1]["pending_order_count"]}
+    attribution={"total":total,"by_security":by_security,"by_listing_market":by_market,
+        "cash_interest_pnl_usd":0.,
+        "fx_convention":"pre_close_local_holdings_and_unpaid_rights_translation_then_local_repricing_at_new_fx",
+        "local_asset_pnl_includes":"price_changes_distributions_lifecycle_recovery_and_price_fx_interaction",
+        "cost_convention":"actual_trade_and_distribution_conversion_fees_not_counterfactual_cost_free_returns",
+        "economic_country_industry_theme_customer_attribution":"not_computed_requires_historical_classification_allocation"}
+    return execution,attribution
+
+
 def select_cagr_trial(trials, *, development_end, test_start, max_drawdown, registered_trial_ids):
     """Select only from development data; higher Sharpe cannot beat higher CAGR.
 
