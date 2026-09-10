@@ -28,8 +28,24 @@ Additional read-only Drive inspection on 2026-09-10 found a separate
 The existing repository builder specifies 363 price-map files, and the
 operating workflow pins its ZIP SHA256 to
 `66ca4b6a6a61cb7e9a3a47e2f6d26aa42f30a9b96a25d07699c6cdeb8faf1d84`.
-These are metadata and code-contract facts until its bytes pass the audit.
-The audit now restores **only that existing exact cache key** with
+The extended [run 34452252116](https://github.com/wscha231/r1000-quant-engine/actions/runs/34452252116),
+job `102790421533`, subsequently hit that cache and **verified the entire ZIP**
+on source `9179ec46d20bd4ba9074b6a1e4c3cf946b0f8b02`. Its 388 members include
+363 dated price-cache Parquet files totaling **1,091,464 rows**, all ending
+2026-07-10. Earliest observed history is 2011-03-07. The latest individual
+start date is 2025-02-13: this intersection is not a new permissible backtest
+start and does not prove a gap; listing dates and session coverage must be
+checked per security. The cache is a frozen selection substrate, not proof of
+historical universe membership or delisting coverage.
+
+The original ZIP's alternate-format audit found 914 CSV files with zero
+date-plus-close header candidates. Its one other Parquet has 1,797 rows,
+2019-05-09 through 2026-07-02, no close column, and a hash different from the
+missing macro anchor. The static ZIP's two non-cache Parquets likewise do not
+match that macro hash. No original raw price history was recovered from those
+alternate members. Opaque formats were not executed or deserialized.
+
+The audit restores **only that existing exact cache key** with
 `actions/cache/restore`; it never saves a cache or runs the daily workflow.
 No Drive credentials are introduced into PR execution. Cache absence is an
 explicit `SOURCE_NOT_AVAILABLE`, and a wrong hash is a failed source audit.
@@ -43,8 +59,8 @@ cannot be silently substituted for the pinned July source. Streamed file
 references have not materialized usable bytes in the workspace. Private Drive
 identifiers, transfer references and raw source payloads are not published.
 
-Remaining gates: verify the static archive's actual file hashes/dates; recover
-the pinned macro input and historical release/availability evidence; establish
+Remaining gates: recover the pinned macro input and historical
+release/availability evidence; establish
 the full historical investable universe including lifecycle/delistings; extend
 price/corporate-action/FX and decision inputs through 2026-09-09; then run
 source-only and post-book preflights. Historical quality/H1 inputs must be
@@ -126,9 +142,12 @@ source path, then runs source-only and post-book preflight before any baseline
 reproduction. A new performance result is never manufactured from old summary
 metrics or renamed current snapshots.
 
-The extended audit has eleven offline regressions. It inventories bounded CSV
+The extended audit's eleven regressions passed locally and in run 34452252116.
+It inventories bounded CSV
 headers without publishing unknown column names or rows, scans every Parquet
 even outside recognized cache folders, tests the separate static source
 identity, and never decodes pickle/opaque executable formats. Header similarity
-alone remains unverified coverage. The original eight-test remote source audit
-is observed evidence; extended-code validation is recorded separately in PR410.
+alone remains unverified coverage. Guard passed for the extended source head;
+full PR Validation was still running at the observation. This does not resolve
+the separately recorded local integration-test caveat. No full-suite success or
+independent review is claimed.

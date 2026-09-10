@@ -21,6 +21,11 @@
   Inspect it under its distinct source identity; never call it the original
   source-run artifact or infer historical universe/PIT from price histories.
   The extended eleven-test audit checks alternate formats and bounded headers.
+- Extended run `34452252116` verified the separate static ZIP and read 363
+  price-cache files / 1,091,464 rows, ending 2026-07-10. All eleven archive tests
+  and Guard passed. Its prices are recovered evidence, not an end-to-end
+  historical strategy run; latest-period decisions and PIT/lifecycle inputs
+  still block a new result through 2026-09-09.
 
 This is the shared "mistake notebook" for Codex, Claude, GPT Pro, and any other
 agent working on `wscha231/r1000-quant-engine`.
