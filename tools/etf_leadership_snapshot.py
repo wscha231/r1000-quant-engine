@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import urllib.parse
@@ -107,7 +108,7 @@ def compute_etf_metrics(ticker: str, label: str) -> dict | None:
 
 
 def classify_state(ret_1m: float | None) -> str:
-    if ret_1m is None:
+    if ret_1m is None or not math.isfinite(ret_1m):
         return "unknown"
     if ret_1m >= LEADER_HOT_RET_1M:
         return "hot"

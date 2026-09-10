@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import urllib.parse
@@ -124,9 +125,16 @@ def compute_snapshot() -> dict:
 
 
 def classify_regime(snap: dict) -> str:
-    spy_above = bool(snap.get("spy_above_ma200", True))
-    spy_3m = float(snap.get("spy_ret_3m") or 0.0)
-    vix_z = float(snap.get("vix_z_63d") or 0.0)
+    try:
+        required = ("spy_close", "spy_ma200", "spy_ret_3m", "vix", "vix_z_63d")
+        if any(type(snap.get(k)) not in (int, float) or not math.isfinite(snap[k]) for k in required):
+            return "unknown"
+        if min(snap["spy_close"], snap["spy_ma200"], snap["vix"]) <= 0:
+            return "unknown"
+        spy_above = snap["spy_close"] > snap["spy_ma200"]
+        spy_3m, vix_z = snap["spy_ret_3m"], snap["vix_z_63d"]
+    except (TypeError, ValueError, KeyError):
+        return "unknown"
 
     if (not spy_above) and spy_3m < THRESHOLDS["spy_3m_deep_bear"] and vix_z > 2.0:
         return "deep_bear"

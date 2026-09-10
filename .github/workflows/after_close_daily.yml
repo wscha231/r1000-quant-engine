@@ -118,16 +118,10 @@ jobs:
         run: |
           SCANNER_TOP="${{ github.event.inputs.scanner_top || '25' }}"
           SCANNER_MIN_SCORE="${{ github.event.inputs.scanner_min_score || '70' }}"
-          set +e
           python aggressive/scanner.py \
             --universe r1000 \
             --top "$SCANNER_TOP" \
             --min-score "$SCANNER_MIN_SCORE"
-          STATUS=$?
-          set -e
-          if [ "$STATUS" != "0" ]; then
-            echo "::warning::scanner failed with status $STATUS"
-          fi
 
       - name: Macro regime snapshot
         env:
@@ -160,10 +154,10 @@ jobs:
             python tools/run_theme_leadership_tape.py \
               --scored "$SCORED_CSV" \
               --price-cache cache_prices \
-              --output-dir cloud_results/theme_leadership_tape || \
-              echo "::warning::theme leadership tape failed"
+              --output-dir cloud_results/theme_leadership_tape
           else
-            echo "::warning::theme leadership tape skipped: no scored_latest.csv found"
+            echo "::error::required scored_latest.csv is missing"
+            exit 2
           fi
 
       - name: Explosive mover scan
@@ -180,8 +174,7 @@ jobs:
           if [ "${{ github.event.inputs.reset_seen }}" = "true" ]; then
             ARGS="$ARGS --reset-seen"
           fi
-          python tools/explosive_mover_scan_daily.py $ARGS || \
-            echo "::warning::explosive mover scan failed"
+          python tools/explosive_mover_scan_daily.py $ARGS
 
       - name: Tactical alpha after-close review
         run: |
@@ -191,8 +184,7 @@ jobs:
             --preliminary-limit 240 \
             --update-prices \
             --max-price-updates 160 \
-            --mirror-cloud-results || \
-            echo "::warning::tactical alpha review failed"
+            --mirror-cloud-results
 
       - name: Regime snapshot for paper executor
         env:
@@ -305,7 +297,7 @@ jobs:
           retention-days: 90
 
       - name: Commit daily cloud results
-        if: always()
+        if: success()
         run: |
           git config user.name  "github-actions-bot"
           git config user.email "actions@github.com"

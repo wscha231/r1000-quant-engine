@@ -4902,3 +4902,8 @@ Expected contract:
 - Fullrun executed: false. Workflow dispatched or rerun: false. Migration,
   quarantine, Drive, target, order, ledger, accepted-head, production, live
   trading, automatic promotion, and pattern backfill state mutated: false.
+
+
+### 2026-09-10 — Tactical input failures must preserve the prior research book
+
+The September 9 After-Close incident regressed price dates from September 4 to August 24, reduced 141 candidates to one, and emitted five rank-replacement sells without current prices. Require completed-session price and score evidence, nonregressing dates, finite prices/ranks, held-name coverage, and a declared candidate-collapse guard before selection. Rejected or duplicate inputs write a separate diagnostic without overwriting the latest book or trade plan. Direct trade-plan calls also preserve unpriced holdings. Macro/ETF NaN inputs mean unknown. Required scanner and tactical failures must fail the workflow; diagnostic uploads remain available and failed runs do not commit cloud results. Nine offline synthetic regressions cover the incident, normal eligible data, intraday/holiday/early closes, immutable prior outputs, and workflow failure propagation. This is input integrity, not a new fitted alpha filter or a historical-performance result.
