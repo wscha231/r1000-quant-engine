@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 from urllib.parse import urlsplit, parse_qs
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from tools.collect_research_macro_versions import NoRedirect, fetch, parse_fred
+from tools.collect_research_macro_versions import NoRedirect, coverage, fetch, parse_fred
 
 
 class MacroTests(unittest.TestCase):
@@ -56,6 +56,15 @@ class MacroTests(unittest.TestCase):
         self.assertEqual(url.path,"/graph/fredgraph.csv")
         self.assertEqual(parse_qs(url.query),{"id":["DGS10"],"cosd":["2019-01-01"],"coed":["2019-01-03"]})
         self.assertEqual(self.parse(raw)[0]["value"],2.66)
+
+    def test_collected_monthly_rows_do_not_hide_a_missing_period(self):
+        raw=b"DATE,UNRATE\n2025-09-01,4.1\n2025-10-01,.\n2025-11-01,4.2\n"
+        rows=parse_fred(raw,"UNRATE","2025-09-01","2025-11-30","2026-09-10T00:00:00Z")
+        out=coverage(raw,"UNRATE","2025-09-01","2025-11-30",rows)
+        self.assertEqual(out['observed_span_monthly_gaps'],['2025-10-01'])
+        self.assertEqual(out['missing_value_dates'],['2025-10-01'])
+        self.assertFalse(out['observed_span_monthly_complete'])
+        self.assertFalse(out['missing_values_filled'])
 
 
 if __name__ == "__main__":

@@ -153,6 +153,16 @@ single monthly anchor before an intra-month start date and exposes allowlisted
 validation reasons. This boundary row is excluded, never assigned a fabricated
 daily release date. Duplicate and future-date rejection remain in place.
 
+Run `34463709007` (head `9bf2dc8b26b03a732199d938cf5cbb842bae3ca7`, job
+`102827256348`) then passed 27 regressions and collected all three series:
+1,998 + 1,998 + 94 usable rows. All same-batch ingestions returned `UNCHANGED`.
+UNRATE ended at 2026-08-01 and its row count exposed an internal monthly gap;
+the collector now reports missing-value dates and monthly gaps explicitly.
+Collection success is not complete period coverage. Artifact `10146607991`
+contains aggregate diagnostics; the raw store is temporary. The report records
+zero archival-mode usable rows and no fund performance. These are collection
+results, not a complete historical backtest or proof of remote data persistence.
+
 Next integration gates:
 
 1. Connect independent historical price/lifecycle/FX, SEC and macro-vintage

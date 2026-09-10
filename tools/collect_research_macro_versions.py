@@ -109,7 +109,8 @@ def collect(store, *, dataset, start, through, fetcher=fetch):
                 retrieved_at=retrieved, raw_sha256=batch["raw_sha256"], raw_object=raw_object,
                 snapshot=result["snapshot"], receipt=result["receipt"],
                 changed_partitions=result["changed_partitions"], added_records=result["added_records"],
-                repeated_same_batch_status=repeated["status"], evidence="current_only"))
+                repeated_same_batch_status=repeated["status"], evidence="current_only",
+                coverage=coverage(raw,series,start,through,rows)))
         except HTTPError as exc:
             summaries.append(dict(series=series, status="BLOCKED", reason="HTTP_"+str(exc.code)))
         except (URLError, TimeoutError, OSError):
@@ -132,6 +133,28 @@ def collect(store, *, dataset, start, through, fetcher=fetch):
         remaining_inputs=["historical_macro_vintages", "historical_universe_and_delistings",
                           "raw_prices_actions_and_fx", "SEC_publication_timed_fundamentals",
                           "chronological_candidate_selection", "verified_fund_engine_integration"])
+
+
+def coverage(raw, series, start, through, rows):
+    """Describe observed holes without treating provider cadence as daily data."""
+    reader=csv.DictReader(io.StringIO(raw.decode("utf-8-sig")))
+    date_field=reader.fieldnames[0]
+    missing=[r[date_field] for r in reader
+             if start <= r[date_field] <= through and r[series] in {"", "."}]
+    result=dict(missing_value_dates=missing, missing_values_filled=False,
+                daily_release_calendar_verified=False)
+    if series == "UNRATE":
+        observed={r["effective_at"][:10] for r in rows}
+        cursor=date.fromisoformat(min(observed)); last=date.fromisoformat(max(observed))
+        gaps=[]
+        while cursor <= last:
+            if cursor.isoformat() not in observed:
+                gaps.append(cursor.isoformat())
+            cursor=date(cursor.year+cursor.month//12,cursor.month%12+1,1)
+        result.update(observed_span_monthly_gaps=gaps,
+                      observed_span_monthly_complete=not gaps,
+                      required_window_coverage_verified=False)
+    return result
 
 
 def main():
