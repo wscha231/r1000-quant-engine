@@ -10,6 +10,9 @@ on:
       - 'tests/research_connected_admission_smoke.py'
       - 'tools/research_universe_connection.py'
       - 'tests/research_universe_connection_smoke.py'
+      - 'tools/research_us_decision.py'
+      - 'docs/research_us_fund_config.json'
+      - 'adr_universe.yaml'
   workflow_dispatch:
 
 permissions:
@@ -35,6 +38,9 @@ jobs:
             /tests/research_universe_connection_smoke.py
             /docs/run287_daily_research_monitor_contract.json
             /tools/run_pr_validation.py
+            /tools/research_us_decision.py
+            /docs/research_us_fund_config.json
+            /adr_universe.yaml
       - name: Read pinned decision engine source
         uses: actions/checkout@v4
         with:
@@ -45,9 +51,14 @@ jobs:
           sparse-checkout: |
             /tools/research_decision_v1/
             /docs/research_fund_replay_config.json
+            /docs/research_decision_v1_config.json
+            /tests/research_decision_v1_fixture.py
+            /tests/research_decision_v1_decision_fixture.py
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install pinned research dependencies
+        run: python -m pip install PyYAML==6.0.3 pandas==2.3.3 pandas-market-calendars==5.4.0 exchange-calendars==4.13.2 tzdata==2026.3
       - name: Verify source and disclosure boundaries
         env:
           RESEARCH_ENGINE_SOURCE: ${{ github.workspace }}/engine-reference
@@ -64,14 +75,13 @@ jobs:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
           ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
-          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
         run: |
           set -euo pipefail
           umask 077
           through=$(date -u -d yesterday +%F)
           python tools/research_source_connection.py \
             --private-dir "$RUNNER_TEMP/research-source-private" \
-            --universe-mode current_markets \
+            --universe-mode us_listed \
             --start 2025-05-01 --end "$through" \
             --historical-probe-date 2019-05-31 \
             --report "$RUNNER_TEMP/research-source-report.json"

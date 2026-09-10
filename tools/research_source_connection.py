@@ -44,7 +44,8 @@ SAFE_REASONS = {'credential_missing','credential_alias_conflict','provider_body_
     'krx_rows','krx_date','krx_price','symlink_path','raw_corruption',
     'iwb_identity','iwb_date_missing','iwb_schema','future_membership','iwb_row_schema',
     'duplicate_member','iwb_empty','iwb_coverage_floor','krx_symbol','krx_nonnegative_number',
-    'cross_source_duplicate_member','historical_probe_date','us_membership_missing'}
+    'cross_source_duplicate_member','historical_probe_date','us_membership_missing',
+    'adr_seed_schema','priority_adr_missing','sec_exchange_schema','duplicate_currency_conflict','us_market_currency'}
 
 
 def save_private(path, raw):
@@ -202,23 +203,23 @@ def collect_actions(capture,start,end,symbols):
                 raw_response_hashes=hashes,full_action_coverage_verified=False)
 
 
-def filed_records(facts, tags, end, unit='USD'):
+def filed_records(facts, tags, end, unit='USD', namespace='us-gaap'):
     for tag in tags:
-        group=facts.get('facts',{}).get('us-gaap',{}).get(tag,{})
+        group=facts.get('facts',{}).get(namespace,{}).get(tag,{})
         rows=[r for r in group.get('units',{}).get(unit,[]) if r.get('filed','9999')<=end and r.get('end','9999')<=end
-              and r.get('form') in ('10-K','10-Q','20-F','40-F') and type(r.get('val')) in (int,float) and math.isfinite(r['val'])]
+              and r.get('form') in ('10-K','10-Q','20-F','40-F','6-K') and type(r.get('val')) in (int,float) and math.isfinite(r['val'])]
         if rows: return tag,rows
     return None,[]
 
 
-def ttm_from_facts(facts,tags,end):
+def ttm_from_facts(facts,tags,end,unit='USD',namespace='us-gaap'):
     if len(tags)>1:
         # Evaluate each equivalent mapping independently; never stop at an old
         # tag merely because it has some history, or mix nonmatching periods.
-        choices=[ttm_from_facts(facts,[tag],end) for tag in tags]
+        choices=[ttm_from_facts(facts,[tag],end,unit,namespace) for tag in tags]
         choices=[c for c in choices if c]
         return max(choices,key=lambda c:c['period_end']) if choices else None
-    tag,rows=filed_records(facts,tags,end)
+    tag,rows=filed_records(facts,tags,end,unit,namespace)
     periods={}
     for row in sorted(rows,key=lambda r:(r['filed'],r.get('accn',''))):
         if row.get('start'): periods[(row['start'],row['end'])]=row
@@ -237,8 +238,50 @@ def ttm_from_facts(facts,tags,end):
         if len(candidates)!=1: return None
         prior=candidates[0];value=year['val']+ytd['val']-prior['val'];components=[year,ytd,prior];finish=ytd['end']
     if (date.fromisoformat(end)-date.fromisoformat(finish)).days>210:return None
-    return dict(value=value,period_end=finish,tag=tag,components=[{k:r.get(k) for k in ('start','end','filed','accn','val')} for r in components],
+    return dict(value=value,period_end=finish,tag=tag,currency=unit,namespace=namespace,
+                components=[{k:r.get(k) for k in ('start','end','filed','accn','val')} for r in components],
                 intraday_publication_verified=False,valuation_approved=False)
+
+
+FOREIGN_REPORTING = {
+    'TSM':dict(currency='TWD',namespace='ifrs-full',issuer_country='TW',security_type='ADS',
+        source='https://investor.tsmc.com/english/quarterly-results/2026/q2',
+        listing_source='https://investor.tsmc.com/english/faq'),
+    'ASML':dict(currency='EUR',namespace='us-gaap',issuer_country='NL',security_type='US_REGISTERED_ORDINARY',
+        source='https://www.asml.com/en/news/press-releases/2026/q2-2026-financial-results',
+        listing_source='https://www.asml.com/en/investors/shares')}
+
+
+def financial_packet(facts,end,ticker):
+    reporting=FOREIGN_REPORTING.get(ticker,dict(currency='USD',namespace='us-gaap'))
+    unit,namespace=reporting['currency'],reporting['namespace']
+    tags=({'revenue':['Revenue'],'net_income':['ProfitLoss'],
+        'operating_cash_flow':['CashFlowsFromUsedInOperatingActivities'],
+        'capex':['PurchaseOfPropertyPlantAndEquipment']} if namespace=='ifrs-full' else {
+        'revenue':['RevenueFromContractWithCustomerExcludingAssessedTax','Revenues','SalesRevenueNet'],
+        'net_income':['NetIncomeLoss','ProfitLoss'],
+        'operating_cash_flow':['NetCashProvidedByUsedInOperatingActivities'],
+        'capex':['PaymentsToAcquirePropertyPlantAndEquipment']})
+    metrics={name:ttm_from_facts(facts,choices,end,unit,namespace) for name,choices in tags.items()}
+    cfo,capex=metrics['operating_cash_flow'],metrics['capex']
+    metrics['free_cash_flow']=(dict(value=cfo['value']-capex['value'],period_end=cfo['period_end'],
+        currency=unit,namespace=namespace,valuation_approved=False) if cfo and capex and
+        cfo['period_end']==capex['period_end'] and capex['value']>=0 else None)
+    # Preserve useful older annual statements without calling them current TTM.
+    annual={}
+    for name,choices in tags.items():
+        candidates=[]
+        for tag in choices:
+            _,rows=filed_records(facts,[tag],end,unit,namespace)
+            candidates.extend({**r,'tag':tag} for r in rows if r.get('start') and
+                330<=(date.fromisoformat(r['end'])-date.fromisoformat(r['start'])).days<=380)
+        if candidates:
+            row=max(candidates,key=lambda r:(r['end'],r['filed'],r.get('accn','')))
+            annual[name]={k:row.get(k) for k in ('start','end','filed','accn','val','tag')}
+            annual[name].update(currency=unit,namespace=namespace)
+    return dict(financial_metrics=metrics,latest_annual_metrics=annual,reporting=reporting,
+        trading_currency='USD',native_to_usd_conversion_verified=unit=='USD',
+        per_us_security_basis_verified=False,financial_values_are_company_totals=True)
 
 
 def collect_sec(capture,end,symbols):
@@ -251,14 +294,7 @@ def collect_sec(capture,end,symbols):
             facts,receipt=capture.get('sec_facts_'+ticker,'https://data.sec.gov/api/xbrl/companyfacts/CIK'+cik+'.json')
             filings,fr=capture.get('sec_submissions_'+ticker,'https://data.sec.gov/submissions/CIK'+cik+'.json')
             require(str(facts['cik']).zfill(10)==cik and str(filings['cik']).zfill(10)==cik,'issuer_identity')
-            metrics={name:ttm_from_facts(facts,tags,end) for name,tags in {
-                'revenue':['RevenueFromContractWithCustomerExcludingAssessedTax','Revenues','SalesRevenueNet'],
-                'net_income':['NetIncomeLoss','ProfitLoss'],
-                'operating_cash_flow':['NetCashProvidedByUsedInOperatingActivities'],
-                'capex':['PaymentsToAcquirePropertyPlantAndEquipment']}.items()}
-            cfo,capex=metrics['operating_cash_flow'],metrics['capex']
-            metrics['free_cash_flow']=dict(value=cfo['value']-capex['value'],period_end=cfo['period_end']) if cfo and capex and cfo['period_end']==capex['period_end'] else None
-            return dict(ticker=ticker,financial_metrics=metrics,raw_sha256=receipt['raw_sha256'],
+            return dict(ticker=ticker,issuer_id='CIK:'+cik,**financial_packet(facts,end,ticker),raw_sha256=receipt['raw_sha256'],
                 submissions_sha256=fr['raw_sha256'],older_submission_files=len(filings.get('filings',{}).get('files',[])),
                 full_h1_ready=False,quality_review_complete=False)
         summaries.append(guarded(ticker,one));time.sleep(.15)
@@ -339,10 +375,10 @@ def collect_krx(capture,end,symbols):
     return dict(rows=len(rows),selected=selected,raw_sha256=receipt['raw_sha256'],historical_price_actions_verified=False)
 
 
-def run(root,start,end,universe_mode='current_markets',historical_probe=None):
+def run(root,start,end,universe_mode='us_listed',historical_probe=None):
     require(date.fromisoformat(start)<date.fromisoformat(end)<datetime.now(timezone.utc).date(),'completed_date_window')
-    require(universe_mode in ('connection_sample','current_markets'),'universe_mode')
-    from research_universe_connection import collect_current_universe, connection_sample
+    require(universe_mode in ('connection_sample','current_markets','us_listed'),'universe_mode')
+    from research_universe_connection import collect_current_universe, collect_us_universe, connection_sample
     capture=Capture(root)
     if universe_mode=='connection_sample':
         universe=connection_sample();us=universe['symbols']['US'];kr=universe['symbols']['KR']
@@ -356,15 +392,17 @@ def run(root,start,end,universe_mode='current_markets',historical_probe=None):
     else:
         # Wide discovery must use source membership, never the old thematic
         # sample. Missing a board/source remains visible; no sample fallback.
-        universe=collect_current_universe(capture,end,historical_probe)
+        universe=(collect_us_universe(capture,end) if universe_mode=='us_listed'
+                  else collect_current_universe(capture,end,historical_probe))
         us=[m['ticker'] for m in universe['members'] if m['market']=='US']
         kr=[m for m in universe['members'] if m['market']=='KR']
         results=[guarded('US_prices',lambda:collect_bars(capture,start,end,sorted(set(us+['SPY']))))
                  if us else dict(name='US_prices',status='BLOCKED',reason='us_membership_missing'),
-                 dict(name='KR_current_close',status='COLLECTED' if kr else 'BLOCKED',
+                 dict(name='KR_current_close',status='OUT_OF_SCOPE' if universe_mode=='us_listed' else 'COLLECTED' if kr else 'BLOCKED',
                       data=dict(selected=kr,board_coverage_complete=all(s['status']=='COLLECTED'
                           for s in universe['sources'] if s['name'].startswith('KR_')))),
-                 dict(name='SEC_facts',status='NOT_RUN',reason='broad_discovery_before_company_underwriting',data=[]),
+                 guarded('SEC_facts',lambda:collect_sec(capture,end,[t for t in FOREIGN_REPORTING if t in us]))
+                    if universe_mode=='us_listed' else dict(name='SEC_facts',status='NOT_RUN',reason='broad_discovery_before_company_underwriting',data=[]),
                  dict(name='US_corporate_actions',status='NOT_RUN',reason='fund_cashflow_reconciliation_pending'),
                  guarded('historical_listing_reference',lambda:collect_listing(capture,historical_probe or start))]
     report=dict(schema_version='research-source-connection-v1',generated_at=now(),start=start,end=end,
@@ -375,6 +413,9 @@ def run(root,start,end,universe_mode='current_markets',historical_probe=None):
         remaining_gates=['historical_investable_universe','publication_timed_normalized_financials',
                          'full_raw_price_action_cashflow_coverage','reviewed_asof_quality_and_scenarios','engine_packet_binding'],
         orders_allowed=False,accepted_state_modified=False)
+    if universe_mode=='us_listed':
+        report['market_profile']='US_LISTED_USD_V1'
+        report['required_priority_candidates']={ticker:ticker in us for ticker in FOREIGN_REPORTING}
     save_private(capture.root/'receipts.json',canonical(capture.receipts))
     save_private(capture.root/'connection_report.json',canonical(report))
     return report
@@ -382,7 +423,7 @@ def run(root,start,end,universe_mode='current_markets',historical_probe=None):
 
 def public_report(report):
     """Keep the full wide-source inventory/quotes private, publish coverage."""
-    if report.get('collection_scope')!='current_markets':return report
+    if report.get('collection_scope') not in ('current_markets','us_listed'):return report
     from research_universe_connection import summarize_universe
     result={**report,'universe':summarize_universe(report['universe']),'sources':[]}
     for source in report['sources']:
@@ -394,9 +435,31 @@ def public_report(report):
                 exact_requested_close_count=sum(r['exact_requested_close'] for r in rows),
                 rs_240_input_count=sum('returns' in r for r in rows),
                 missing_symbol_count=sum(not r['rows'] for r in rows))
+            if report.get('market_profile')=='US_LISTED_USD_V1':
+                by={r['ticker']:r for r in rows};benchmark=by.get('SPY',{})
+                diagnostics={}
+                for ticker in FOREIGN_REPORTING:
+                    row=by.get(ticker,{})
+                    aligned=(row.get('exact_requested_close') and benchmark.get('exact_requested_close') and
+                        'returns' in row and 'returns' in benchmark)
+                    diagnostics[ticker]=dict(history_sessions=row.get('rows',0),last_session=row.get('last'),
+                        above_200_session_average=row.get('above_200_session_average') if aligned else None,
+                        excess_return_vs_spy={h:row['returns'][h]-benchmark['returns'][h] for h in ('20','60','120','240')} if aligned else None,
+                        method='adjusted_price_return_difference; discovery_only',investment_rank=None)
+                item['data']['priority_diagnostics']=diagnostics
         elif source['name']=='KR_current_close' and 'data' in source:
             item['data']={k:v for k,v in source['data'].items() if k!='selected'}
             item['data']['security_count']=len(source['data']['selected'])
+        elif source['name']=='SEC_facts' and 'data' in source:
+            # Publish diagnostic coverage, not raw financial values or filings.
+            item['data']=[{k:v for k,v in row.items() if k!='data'} | (
+                dict(data=dict(ticker=row['data']['ticker'],reporting=row['data']['reporting'],
+                    ttm_fields_available=[k for k,v in row['data']['financial_metrics'].items() if v is not None],
+                    annual_fields_available=list(row['data']['latest_annual_metrics']),
+                    annual_period_ends=sorted({v['end'] for v in row['data']['latest_annual_metrics'].values()}),
+                    native_to_usd_conversion_verified=row['data']['native_to_usd_conversion_verified'],
+                    per_us_security_basis_verified=row['data']['per_us_security_basis_verified']))
+                if 'data' in row else {}) for row in source['data']]
         result['sources'].append(item)
     return result
 
@@ -404,7 +467,7 @@ def public_report(report):
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--private-dir',required=True)
     p.add_argument('--start',required=True);p.add_argument('--end',required=True);p.add_argument('--report',required=True)
-    p.add_argument('--universe-mode',choices=('connection_sample','current_markets'),default='current_markets')
+    p.add_argument('--universe-mode',choices=('connection_sample','current_markets','us_listed'),default='us_listed')
     p.add_argument('--historical-probe-date')
     a=p.parse_args();report=public_report(run(a.private_dir,a.start,a.end,a.universe_mode,a.historical_probe_date))
     Path(a.report).parent.mkdir(parents=True,exist_ok=True)

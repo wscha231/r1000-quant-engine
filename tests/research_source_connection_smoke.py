@@ -21,6 +21,33 @@ def facts(rows):
 
 
 class Connection(unittest.TestCase):
+    def test_foreign_reporting_keeps_currency_and_namespace(self):
+        annual=fact('2025-01-01','2025-12-31','2026-04-16',1000)
+        f={'facts':{'ifrs-full':{'Revenue':{'units':{'TWD':[annual],'USD':[{**annual,'val':30}]}}}}}
+        r=m.financial_packet(f,'2026-06-01','TSM')
+        self.assertEqual(r['financial_metrics']['revenue']['value'],1000)
+        self.assertEqual(r['financial_metrics']['revenue']['currency'],'TWD')
+        self.assertFalse(r['native_to_usd_conversion_verified']);self.assertFalse(r['per_us_security_basis_verified'])
+        r=m.financial_packet(f,'2026-09-09','TSM')
+        self.assertIsNone(r['financial_metrics']['revenue'])
+        self.assertEqual(r['latest_annual_metrics']['revenue']['val'],1000)
+
+    def test_asml_uses_eur_and_6k_without_future_revisions(self):
+        annual=fact('2025-01-01','2025-12-31','2026-02-01',100)
+        rows=[annual,fact('2025-01-01','2025-06-30','2025-07-16',40),
+              {**fact('2026-01-01','2026-06-30','2026-07-15',70),'form':'6-K'},
+              {**annual,'filed':'2026-10-01','val':999}]
+        f={'facts':{'us-gaap':{'Revenues':{'units':{'EUR':rows,'USD':[{**annual,'val':888}]}}}}}
+        r=m.financial_packet(f,'2026-09-09','ASML')
+        self.assertEqual(r['financial_metrics']['revenue']['value'],130)
+        self.assertEqual(r['financial_metrics']['revenue']['currency'],'EUR')
+
+    def test_us_default_makes_no_kr_request(self):
+        with tempfile.TemporaryDirectory() as d,patch.object(m,'request_raw',side_effect=OSError),patch.object(m,'collect_krx',side_effect=AssertionError('KR called')):
+            r=m.run(d,'2025-05-01','2026-09-09')
+        self.assertEqual(r['market_profile'],'US_LISTED_USD_V1')
+        self.assertEqual(next(x for x in r['sources'] if x['name']=='KR_current_close')['status'],'OUT_OF_SCOPE')
+
     def test_provider_error_discarded_even_for_csv(self):
         with tempfile.TemporaryDirectory() as d:
             c=m.Capture(d)

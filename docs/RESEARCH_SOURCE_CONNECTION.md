@@ -6,6 +6,44 @@ The requested investment study remains 7–8 years, after-cost USD CAGR first,
 with stock selection, sales and cash decisions through the previous completed
 close. Collection success is not a passing backtest or an investment target.
 
+## Active mandate: US listings, including foreign companies
+
+On September 10 the user selected **US-only**, including TSM, ASML and similar
+US-listed foreign securities. The default is now `--universe-mode us_listed`.
+The pool is IWB equity members **union** the existing foreign-company seed
+verified against the current SEC exchange map. This is a broad candidate pool,
+not an exhaustive list of every US stock or ADR, and not a recommendation.
+Seed market caps, listing-month guesses and speculative future watchlists do
+not establish eligibility. OTC/unresolved entries are retained in private
+exclusion diagnostics. Missing TSM/ASML or a source failure is reported explicitly.
+Current SEC observations keep their actual retrieval time, not yesterday's date.
+
+`docs/research_us_fund_config.json` sets US trading-market capacity to 100%, KR
+to zero, and selection targets to five US securities and zero KR securities.
+All securities and account cash must be USD. This mandate is about the listing
+market, not issuer domicile: Taiwan/Netherlands and other business exposures
+remain relevant. It does not require fully invested equities. Existing single
+security, common-exposure, stress, liquidity, cost and regime cash limits remain.
+The US workflow makes no KRX calls and requires no USD/KRW feed.
+
+The pinned core enforces obsolete fixed 5+2 counts. The inspectable
+`tools/research_us_decision.py` entry point reimplements its config/decision
+entry functions with US scope, foreign-input rejection and `target_scope_complete`.
+All financial, quality, provenance and portfolio helpers still come from the
+hash-verified core; no runtime monkey-patch or approval flag substitution is used.
+The report identifies both the core digest and extension/config hashes.
+This entry point is connected to current-source admission. The separate PR 409
+historical fund replay entry point still needs to consume this profile; a
+successful source run does not claim that integration or the full replay is done.
+
+TSM and ASML receive priority SEC financial parsing in native TWD/IFRS and
+EUR/US GAAP respectively. Six-K facts are accepted only when actually present
+and filed by the cutoff. Older annual values stay explicitly annual; they are
+not relabelled current TTM. US share/ADS ratios, reporting-currency conversion,
+dividend withholding and depositary fees still require dated reconciliation.
+No company-total native-currency metric is used as USD per-share value.
+Company review notes: [US foreign candidates](US_FOREIGN_CANDIDATES_20260910.md).
+
 ## Current sources
 
 | Input | Source | What collection alone does not establish |
@@ -29,7 +67,7 @@ pagination, preserving those failure classifications.
 ```
 python tests/research_source_connection_smoke.py
 python tools/research_source_connection.py --private-dir /private/run-unique \
-  --universe-mode current_markets --start 2025-05-01 --end 2026-09-09 \
+  --universe-mode us_listed --start 2025-05-01 --end 2026-09-09 \
   --historical-probe-date 2019-05-31 --report /private/report.json
 ```
 
@@ -47,7 +85,7 @@ market comparison, historical membership or investment approval. It overweights
 semiconductors, AI infrastructure, power, construction and resources. Its size
 was a connection-test scope, not a limit on the strategy or a selected top 33.
 
-`current_markets` is now the default. The collector reads all provider equity
+`current_markets` is the earlier opt-in US/KR path. That collector reads all provider equity
 members of the live IWB proxy and all KOSPI/KOSDAQ daily share records; there is
 no theme whitelist or fallback to the sample. IWB is a broad US base, not all
 US listings, exact index membership or an exhaustive ADR universe. Korean share
@@ -89,7 +127,8 @@ References: [IWB provider download](https://www.ishares.com/us/products/239707/i
 2. Original publication timestamps, actual later retrieval timestamps and a
    separately labelled archive reconstruction mode. Do not backdate retrieval.
 3. Complete raw closes, actual action payment dates, benchmark total returns,
-   cash rate and USD/KRW FX aligned with each decision and next-close execution.
+   cash rate and foreign-issuer reporting currency/ADS basis aligned with each
+   decision and next-close execution. USD/KRW is outside the US-only mandate.
 4. Reviewed, dated quality evidence and valuation scenarios; today's judgments
    cannot be represented as judgments recorded in 2019.
 5. Bind those inputs to the decision and USD fund manifests, run preflight and

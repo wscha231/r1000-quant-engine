@@ -24,6 +24,36 @@ def krrow(ticker,day='20260909',close='10,000',volume='0'):
 
 
 class Universe(unittest.TestCase):
+    def test_us_seed_has_required_names_and_never_uses_forecast_watchlist(self):
+        rows,origin=m.adr_candidates()
+        self.assertTrue({'TSM','ASML'}<={r['ticker'] for r in rows})
+        self.assertNotIn('SKHY',{r['ticker'] for r in rows})
+        self.assertEqual(origin['path'],'adr_universe.yaml')
+
+    def test_foreign_seed_verified_against_exchange_without_stale_mcap_filter(self):
+        seeds=[dict(ticker='TSM',mcap_usd_b=0),dict(ticker='ASML'),dict(ticker='OTCX'),dict(ticker='MISSING')]
+        raw=json.dumps(dict(fields=['cik','name','ticker','exchange'],data=[
+            [1,'Taiwan','TSM','NYSE'],[2,'ASML','ASML','Nasdaq'],[3,'OTC','OTCX','OTC']])).encode()
+        with tempfile.TemporaryDirectory() as d,patch.object(m,'adr_candidates',return_value=(seeds,{})),patch.object(source,'request_raw',return_value=raw):
+            r=m.collect_us_foreign(source.Capture(d),'2026-09-09')
+        self.assertEqual({r['ticker'] for r in r['members']},{'TSM','ASML'})
+        self.assertEqual(r['excluded'],{'non_us_exchange_or_otc':1,'not_in_current_sec_exchange_map':1})
+        self.assertIsNone(r['membership_as_of']);self.assertFalse(r['historical_selection_allowed'])
+
+    def test_us_union_deduplicates_and_never_calls_kr(self):
+        row=dict(ticker='TSM',market='US',currency='USD',membership_as_of='2026-09-08')
+        other={**row,'issuer_id':'CIK:0001046179','membership_as_of':None}
+        with tempfile.TemporaryDirectory() as d,patch.object(m,'collect_iwb',return_value={'members':[row]}),patch.object(m,'collect_us_foreign',return_value={'members':[other]}),patch.object(m,'collect_kr_board',side_effect=AssertionError('KR called')):
+            r=m.collect_us_universe(source.Capture(d),'2026-09-09')
+        self.assertEqual(len(r['members']),1);self.assertEqual(r['duplicate_security_rows_merged'],1)
+        self.assertEqual(r['members'][0]['issuer_id'],'CIK:0001046179')
+        self.assertEqual(r['members'][0]['membership_as_of'],'2026-09-08')
+
+    def test_missing_priority_or_source_is_visible_without_sample_fallback(self):
+        with tempfile.TemporaryDirectory() as d,patch.object(m,'collect_iwb',side_effect=OSError),patch.object(m,'collect_us_foreign',return_value=dict(members=[],priority_coverage_complete=False)),patch.object(m,'connection_sample',side_effect=AssertionError):
+            r=m.collect_us_universe(source.Capture(d),'2026-09-09')
+        self.assertFalse(r['source_coverage_complete']);self.assertEqual(r['members'],[])
+
     def test_sample_origin_matches_existing_monitor_not_quantitative_rank(self):
         r=m.connection_sample()
         self.assertEqual({k:len(v) for k,v in r['symbols'].items()},{'US':24,'KR':9})

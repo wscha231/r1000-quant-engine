@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -56,10 +57,24 @@ def verify_capture(root):
 def run(capture,engine_root):
     report=verify_capture(capture)
     data,engine,config=load_engine(engine_root)
+    profile=report.get('market_profile')
+    extension_hash=None
+    if profile=='US_LISTED_USD_V1':
+        # A checked-in, inspectable entry point replaces the obsolete fixed 5+2
+        # contract. The verified core is not edited or monkey-patched.
+        extension=Path(__file__).resolve().with_name('research_us_decision.py')
+        config_path=Path(__file__).resolve().parents[1]/'docs/research_us_fund_config.json'
+        require(not extension.is_symlink() and not config_path.is_symlink(),'profile_symlink')
+        extension_hash=sha(extension.read_bytes())
+        spec=importlib.util.spec_from_file_location('research_us_decision',extension)
+        engine=importlib.util.module_from_spec(spec);spec.loader.exec_module(engine)
+        config=json.loads(config_path.read_text());engine.validate_config(config)
+    else:require(profile is None,'unknown_market_profile')
     cutoff=report['generated_at']
     src={s['name']:s for s in report['sources']}
     us=src.get('US_prices',{}).get('data',{}).get('securities',[])
     kr=src.get('KR_current_close',{}).get('data',{}).get('selected',[])
+    if profile=='US_LISTED_USD_V1':require(not kr,'us_profile_foreign_input')
     financial={r['name']:r.get('data') for r in src.get('SEC_facts',{}).get('data',[])}
     bundles=[]
     for market,currency,quotes in [('US','USD',us),('KR','KRW',kr)]:
@@ -92,6 +107,8 @@ def run(capture,engine_root):
     output=dict(schema_version='connected-research-admission-v1',engine_commit=ENGINE_COMMIT,engine_source_digest=ENGINE_DIGEST,
         data_kind='REAL',source_receipts_hash=report['source_receipts_hash'],decision_cutoff=cutoff,price_through=report['end'],
         collection_scope=report.get('collection_scope','connection_sample'),
+        market_profile=profile,decision_extension_sha256=extension_hash,effective_config_hash=data.digest(config),
+        country_caps=config['country_caps'],target_counts=config['target_counts'],
         workflow=decision['workflow'],readiness=decision['readiness'],coverage=decision['coverage'],
         portfolio_weights=proposal['rows'] if proposal['ready'] else None,
         proposal_blockers=proposal.get('blockers',proposal.get('reasons',[])),
@@ -103,7 +120,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--capture',required=True);p.add_argument('--engine-source',required=True);p.add_argument('--report',required=True)
     a=p.parse_args();result=run(a.capture,a.engine_source)
-    if result['collection_scope']=='current_markets':
+    if result['collection_scope'] in ('current_markets','us_listed'):
         # Full company-by-company diagnostics stay beside the private inputs.
         path=Path(a.capture).resolve()/'admission_report.json'
         fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)

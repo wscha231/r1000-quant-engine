@@ -14,6 +14,91 @@ from research_source_connection import canonical, digest_bytes, guarded, key, re
 
 IWB_URL = 'https://www.ishares.com/us/products/239707/ishares-russell-1000-etf/latest-holdings.csv'
 KR_ENDPOINTS = {'KOSPI':'stk_bydd_trd', 'KOSDAQ':'ksq_bydd_trd'}
+US_EXCHANGES = {'NYSE', 'Nasdaq', 'NYSE American', 'NYSE Arca', 'Cboe BZX'}
+
+
+def adr_candidates():
+    # This file is a discovery seed, not current capitalization, proof of an
+    # active listing, or historical membership. Ignore speculative watchlists.
+    import yaml
+    path=Path(__file__).resolve().parents[1]/'adr_universe.yaml'
+    raw=path.read_bytes();rows=yaml.safe_load(raw)['adr_universe']
+    require(isinstance(rows,list) and rows,'adr_seed_schema')
+    symbols=[r['ticker'] for r in rows]
+    require(len(symbols)==len(set(symbols)),'duplicate_member')
+    require({'TSM','ASML'}<=set(symbols),'priority_adr_missing')
+    return rows,dict(path='adr_universe.yaml',sha256=digest_bytes(raw))
+
+
+def parse_sec_exchange(value):
+    require(isinstance(value,dict) and {'fields','data'}<=set(value),'sec_exchange_schema')
+    fields=value['fields']
+    require({'cik','name','ticker','exchange'}<=set(fields),'sec_exchange_schema')
+    rows=[dict(zip(fields,r)) for r in value['data'] if len(r)==len(fields)]
+    require(len(rows)==len(value['data']) and rows,'sec_exchange_schema')
+    result={}
+    for r in rows:
+        ticker=r['ticker'].replace('-','.') if '.' not in r['ticker'] else r['ticker']
+        require(ticker not in result,'duplicate_member')
+        result[ticker]={**r,'ticker':ticker,'cik':str(r['cik']).zfill(10)}
+    return result
+
+
+def collect_us_foreign(capture,end):
+    seeds,provenance=adr_candidates()
+    value,receipt=capture.get('sec_exchange_membership','https://www.sec.gov/files/company_tickers_exchange.json',
+        validator=parse_sec_exchange)
+    listed=parse_sec_exchange(value);members=[];excluded=[]
+    for seed in seeds:
+        ticker=seed['ticker'];row=listed.get(ticker)
+        reason=('seed_skip' if seed.get('skip') else 'not_in_current_sec_exchange_map' if not row
+                else 'non_us_exchange_or_otc' if row['exchange'] not in US_EXCHANGES else None)
+        if reason:
+            excluded.append(dict(ticker=ticker,reason=reason));continue
+        members.append(dict(ticker=ticker,market='US',currency='USD',name=row['name'],exchange=row['exchange'],
+            issuer_id='CIK:'+row['cik'],issuer_country=seed.get('country'),issuer_country_verified=False,
+            sector=seed.get('sector','Unclassified'),security_type='foreign_listing_structure_review_required',
+            membership_as_of=None,observed_at=receipt['retrieved_at'],requested_date=end,
+            candidate_origin='curated_foreign_seed_verified_current_sec_exchange',
+            entity_history_verified=False))
+    missing=sorted({'TSM','ASML'}-{m['ticker'] for m in members})
+    return dict(source_kind='US_LISTED_FOREIGN_CANDIDATES',members=members,seed_provenance=provenance,
+        seed_count=len(seeds),excluded_candidates=excluded,excluded=dict(Counter(r['reason'] for r in excluded)),
+        priority_missing=missing,priority_coverage_complete=not missing,receipt=receipt,
+        membership_as_of=None,observed_at=receipt['retrieved_at'],exact_requested_date=False,
+        current_exchange_identity_only=True,broker_tradability_verified=False,
+        historical_selection_allowed=False,exhaustive_adr_universe=False)
+
+
+def collect_us_universe(capture,end):
+    sources=[guarded('US_IWB',lambda:collect_iwb(capture,end)),
+             guarded('US_FOREIGN',lambda:collect_us_foreign(capture,end))]
+    merged={};duplicates=0
+    for source in sources:
+        if source['status']!='COLLECTED':continue
+        for member in source['data']['members']:
+            ticker=member['ticker']
+            if ticker in merged:
+                duplicates+=1
+                old=merged[ticker]
+                require(old['currency']==member['currency'],'duplicate_currency_conflict')
+                merged[ticker]={**old,**member,'membership_as_of':old['membership_as_of'],
+                    'candidate_origins':['IWB','US_FOREIGN']}
+            else:merged[ticker]={**member,'candidate_origins':[source['name']]}
+    members=[merged[t] for t in sorted(merged)]
+    require(all(m['market']=='US' and m['currency']=='USD' for m in members),'us_market_currency')
+    issuer_groups={}
+    for m in members:
+        if m.get('issuer_id'):issuer_groups.setdefault(m['issuer_id'],[]).append(m['ticker'])
+    result=dict(mode='US_LISTED_WITH_FOREIGN_INVENTORY',sources=sources,members=members,historical_probes=[],
+        source_coverage_complete=all(s['status']=='COLLECTED' and s['data'].get('priority_coverage_complete',True) for s in sources),
+        duplicate_security_rows_merged=duplicates,
+        duplicate_issuer_groups=[v for v in issuer_groups.values() if len(v)>1],
+        historical_selection_allowed=False,continuous_historical_membership_verified=False,
+        qualitative_analysis_complete=False,investment_approval=False,
+        scope='US IWB equities plus current US-exchange foreign candidates; USD cash permitted; no KR listings')
+    save_private(capture.root/'universe_snapshots.json',canonical(result))
+    return result
 
 
 def connection_sample():
@@ -157,12 +242,13 @@ def summarize_universe(result):
         output={k:v for k,v in source.items() if k!='data'}
         if 'data' in source:
             data=source['data'];members=data.get('members',[])
-            output['data']={k:v for k,v in data.items() if k not in ('members','receipt')}
+            output['data']={k:v for k,v in data.items() if k not in ('members','receipt','excluded_candidates')}
             output['data']['member_count']=len(members)
             output['data']['no_positive_trade_count']=sum(m.get('has_positive_trade') is False for m in members)
             if 'receipt' in data:output['data']['receipt']=data['receipt']
         return output
-    return {**{k:v for k,v in result.items() if k not in ('members','sources','historical_probes')},
+    return {**{k:v for k,v in result.items() if k not in ('members','sources','historical_probes','duplicate_issuer_groups')},
+        'duplicate_issuer_group_count':len(result.get('duplicate_issuer_groups',[])),
         'member_count':len(result['members']),
         'market_counts':dict(Counter(m['market'] for m in result['members'])),
         'sources':[summary(s) for s in result['sources']],

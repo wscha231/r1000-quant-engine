@@ -4968,3 +4968,24 @@ Expected contract:
 - Price collection batches every source member and preserves per-symbol
   missing coverage. Public artifacts contain aggregates; wide source records
   and per-company diagnostics stay in the immutable private research snapshot.
+
+### 2026-09-10 - US-only mandate includes foreign issuers listed in the US
+
+- User selected US listings plus USD cash, including TSM and ASML. US venue is
+  not US issuer domicile or mandatory 100% equity exposure. KR input is out of
+  scope; reporting-currency and foreign-business risks remain relevant.
+- IWB membership alone omits important foreign issuers. Union it with current
+  SEC-exchange-verified foreign candidates, deduplicate securities, retain issuer
+  identities and exclusions, and ignore stale seed market caps and speculative
+  listing watchlists. Current exchange observations are not historical membership.
+- TSM native IFRS/TWD and ASML US GAAP/EUR values cannot be treated as USD
+  per-share metrics. Preserve stale annual statements as annual observations;
+  missing current TTM, conversion or ADS/share basis does not become approval.
+- The pinned core has a fixed 5+2 validation contract. The current-master-based
+  US entry point changes scope to 5+0, rejects foreign-market input and retains
+  all core data, quality, risk and self-financing helpers without monkey-patching.
+  Publish core, extension and config hashes together. Do not claim the separate
+  historical fund runner consumes the new profile until that binding is tested.
+- Local verification: 43 source/universe/admission tests passed, including a
+  labelled synthetic five-US-security proposal with cash and costs, no KRW
+  feed, and rejection of a KR holding. Synthetic success is not real CAGR.
