@@ -26,15 +26,13 @@ remain relevant. It does not require fully invested equities. Existing single
 security, common-exposure, stress, liquidity, cost and regime cash limits remain.
 The US workflow makes no KRX calls and requires no USD/KRW feed.
 
-The pinned core enforces obsolete fixed 5+2 counts. The inspectable
-`tools/research_us_decision.py` entry point reimplements its config/decision
-entry functions with US scope, foreign-input rejection and `target_scope_complete`.
-All financial, quality, provenance and portfolio helpers still come from the
-hash-verified core; no runtime monkey-patch or approval flag substitution is used.
-The report identifies both the core digest and extension/config hashes.
-This entry point is connected to current-source admission. The separate PR 409
-historical fund replay entry point still needs to consume this profile; a
-successful source run does not claim that integration or the full replay is done.
+The shared checked-in core supports the US profile in both current decisions
+and chronological fund replay. `tools/research_us_decision.py` and
+`tools/research_us_fund_replay.py` enforce US scope and reuse the same financial,
+quality, provenance and accounting implementation. The report identifies core,
+entry-point and config hashes. Actual US next-close fills, cash and costs are
+regression-tested; real source collection is still not a completed fund.
+See [continuation and results](US_RESEARCH_CONTINUATION_20260910.md).
 
 TSM and ASML receive priority SEC financial parsing in native TWD/IFRS and
 EUR/US GAAP respectively. Six-K facts are accepted only when actually present
@@ -96,7 +94,11 @@ US bars use every resolved source member plus SPY, in batches with independent
 pagination. The current collection window supplies 20/60/120/240-session price
 inputs for broad discovery; it does **not** change the intended June 3, 2019
 fund investment start or claim a shorter backtest as the requested study.
-Company financial normalization and reviewed underwriting remain later work.
+Reviewed official interim tables now normalize TSM/ASML through Q2 2026 for
+current research. Broad company normalization and historical underwriting
+remain incomplete. The all-candidate RS continuation reuses captures and
+collects the missing earlier window for 504-session discovery, reconciling
+overlapping raw prices and adjusted-price scaling before joining it.
 This broad-source job does not repeatedly refetch the old 24-company SEC set.
 
 To reproduce the connection sample, explicitly pass

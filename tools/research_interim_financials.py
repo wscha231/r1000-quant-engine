@@ -27,8 +27,14 @@ def normalize(registry,ticker,analysis_at):
         if any(type(v) not in (int,float) or not math.isfinite(v) for v in r['values'].values()):
             raise ValueError('interim_number_invalid')
         if r['values']['capex_ppe']<0:raise ValueError('interim_capex_sign')
-        if end in periods:raise ValueError('interim_conflicting_period')
-        periods[end]=r
+        previous=periods.get(end)
+        if previous and previous['observed_at']==r['observed_at'] and previous!=r:
+            raise ValueError('interim_conflicting_version')
+        if previous and previous['period_start']!=r['period_start']:
+            raise ValueError('interim_conflicting_period')
+        if (previous is None or datetime.fromisoformat(r['observed_at'].replace('Z','+00:00'))>
+                datetime.fromisoformat(previous['observed_at'].replace('Z','+00:00'))):
+            periods[end]=r
     rows=[periods[d] for d in sorted(periods)][-4:]
     complete=(len(rows)==4 and len({r['currency'] for r in rows})==1 and all(
         date.fromisoformat(b['period_start'])==date.fromisoformat(a['period_end'])+timedelta(days=1)

@@ -29,6 +29,23 @@ The mandate is US-listed equities, including foreign issuers, plus USD cash.
 
 ## Execution and interpretation
 
+First real continuation run: 34540344556 at source
+`a05ae6596ae0307e3c6d86b509b146348f15e1c3`. Both immutable captures restored and
+verified. Of 1,118 current candidates, RS coverage was 1,117 for 5/10/20,
+1,114 for 60, 1,110 for 120 and 1,100 for 240 sessions. The original window
+had zero 504-session coverage. The follow-up collects the missing earlier
+window, checks a multi-session raw/adjusted overlap and privately persists the
+extension. Unresolved overlap or listing histories stay explicitly missing.
+
+The first run's **SPY reference**, 2019-06-03 through 2026-09-09:
+USD100,000 to USD308,231.16; CAGR16.7495%; MDD-33.7938%; Sharpe0.7553.
+These are benchmark observations, not integrated fund results. The integrated
+result was BLOCKED (`fund_chronological_manifest_missing`), with null fund
+metrics and no portfolio weights. Artifact10177051628, SHA-256
+`df0bf1e9e9a0b356053b3e6c6559bc85af54baf8fcb606599284e31127cc302f`.
+The artifact metadata and completed job log were read; a local ZIP download
+returned HTTP403, so independent downloaded-byte verification is not claimed.
+
 `research_us_continue.yml` runs registered regression tests, restores verified
 private inputs and publishes derived results. Manual source collection remains
 available in `research_source_connection.yml` for a new dated snapshot.

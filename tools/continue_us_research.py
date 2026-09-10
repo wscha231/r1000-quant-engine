@@ -109,7 +109,7 @@ def benchmark_reference(bars,rates,start,end):
         strategy_result=False,metrics=result,equity_curve=curve)
 
 
-def run(current,sample,output,fund_manifest=None):
+def run(current,sample,output,fund_manifest=None,extend_rs=False):
     current,sample,output=map(Path,(current,sample,output));output.mkdir(parents=True,exist_ok=True)
     reports=[verify_capture(p) for p in (current,sample)]
     here=Path(__file__).resolve().parents[1];data,_,_=load_engine(here)
@@ -117,6 +117,13 @@ def run(current,sample,output,fund_manifest=None):
     report=reports[0];end=report['end'];start='2019-06-03'
     bars,members,_=rebound_inputs(current,report)
     sample_bars,_,rates=rebound_inputs(sample,reports[1])
+    extension=None
+    if extend_rs:
+        from extend_us_rs_history import extend,persist
+        private=output.parent/'us-rs-extension-private'
+        bars,extension=extend(bars,report,private)
+        extension['private_persistence']=persist(private)
+        (output/'rs_extension_report.json').write_bytes(canonical(extension))
     rs=analyze(bars['all'],members,end)
     (output/'all_us_relative_strength.json').write_bytes(canonical(rs))
     financial=fact_diagnostics(current,report)+fact_diagnostics(sample,reports[1])
@@ -146,6 +153,7 @@ def run(current,sample,output,fund_manifest=None):
         [r for r in rs['rows'] if r['horizons'][str(n)]['status']=='available'],
         key=lambda r:(-r['horizons'][str(n)]['excess_return_pp'],r['ticker']))[:10]] for n in rs['horizons']}
     summary=dict(schema_version='us-research-continuation-v1',as_of=end,candidate_count=rs['candidate_count'],
+        rs_extension=extension,
         rs_coverage=rs['coverage'],strength_states=rs['state_counts'],leaders=leaders,
         financial_coverage=[{k:v for k,v in r.items() if k!='tag_coverage'} for r in financial],
         priority_tag_diagnostics=[r for r in financial[:2]],
@@ -161,7 +169,7 @@ def run(current,sample,output,fund_manifest=None):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--current',required=True);p.add_argument('--sample',required=True);p.add_argument('--output',required=True)
-    p.add_argument('--fund-manifest');a=p.parse_args()
-    run(a.current,a.sample,a.output,a.fund_manifest)
+    p.add_argument('--fund-manifest');p.add_argument('--extend-rs',action='store_true');a=p.parse_args()
+    run(a.current,a.sample,a.output,a.fund_manifest,a.extend_rs)
 
 if __name__=='__main__':main()

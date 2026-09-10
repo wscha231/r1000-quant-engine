@@ -9,13 +9,41 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT));sys.path.insert(0,str(ROOT/'tools'))
 import research_rs_horizons as rs
 import research_us_fund_replay as us_fund
+import research_us_decision as us_decision
 from research_interim_financials import normalize
+from extend_us_rs_history import merge_histories
 from tools.research_decision_v1 import data,fund_replay
 from research_fund_replay_smoke import fixture
 from research_decision_v1_fixture import bundle
 
 
 class Continuation(unittest.TestCase):
+    def test_extended_window_requires_consistent_raw_overlap(self):
+        old=[dict(t=f'2025-04-{i:02d}T04:00:00Z',c=100.+i) for i in range(1,16)]
+        current={'raw':{'SPY':copy.deepcopy(old[5:])},'all':{'SPY':copy.deepcopy(old[5:])}}
+        earlier={'raw':{'SPY':copy.deepcopy(old)},'all':{'SPY':[dict(r,c=r['c']/2) for r in old]}}
+        joined,status=merge_histories(current,earlier,'2025-04-06')
+        self.assertEqual(status['SPY'],'extended')
+        self.assertEqual(joined['all']['SPY'],old)
+        earlier['raw']['SPY'][-1]['c']*=3
+        joined,status=merge_histories(current,earlier,'2025-04-06')
+        self.assertEqual(status['SPY'],'source_overlap_conflict')
+        self.assertEqual(joined,current)
+
+    def test_interim_revision_is_available_only_after_its_observation(self):
+        registry=json.loads((ROOT/'docs/research_interim_financials_20260910.json').read_text())
+        original=normalize(registry,'ASML','2026-09-11T00:00:00Z')
+        changed=copy.deepcopy(next(r for r in registry['records'] if r['ticker']=='ASML'))
+        changed['observed_at']='2026-09-12T00:00:00Z';changed['values']['revenue']+=1
+        registry['records'].append(changed)
+        self.assertEqual(normalize(registry,'ASML','2026-09-11T00:00:00Z'),original)
+        self.assertEqual(normalize(registry,'ASML','2026-09-13T00:00:00Z')['ttm_company_totals']['revenue'],
+            original['ttm_company_totals']['revenue']+1000000)
+
+    def test_us_entrypoint_rejects_legacy_profile_before_loading_inputs(self):
+        config=json.loads((ROOT/'docs/research_decision_v1_config.json').read_text())
+        self.assertRaisesRegex(ValueError,'us_market_profile_required',us_decision.run_decisions,[],{},config)
+
     def test_interim_observation_not_backdated_or_mixed_across_currency(self):
         registry=json.loads((ROOT/'docs/research_interim_financials_20260910.json').read_text())
         self.assertEqual(normalize(registry,'ASML','2026-09-09T23:59:59Z')['status'],'MISSING')

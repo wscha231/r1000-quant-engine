@@ -9,6 +9,7 @@ on:
       - 'tools/research_interim_financials.py'
       - 'docs/research_interim_financials_*.json'
       - 'tools/continue_us_research.py'
+      - 'tools/extend_us_rs_history.py'
       - 'tools/restore_research_captures.py'
       - 'tools/admit_connected_research.py'
       - 'tests/research_us_continue_smoke.py'
@@ -36,6 +37,7 @@ jobs:
             /tools/research_rs_horizons.py
             /tools/research_interim_financials.py
             /tools/continue_us_research.py
+            /tools/extend_us_rs_history.py
             /tools/restore_research_captures.py
             /tools/admit_connected_research.py
             /tools/research_source_connection.py
@@ -70,12 +72,15 @@ jobs:
       - name: Analyze all horizons and attempt integrated fund replay
         env:
           RESEARCH_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+          RESEARCH_RCLONE_CONFIG: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
         run: |
           umask 077
           python -I tools/continue_us_research.py \
             --current "$RUNNER_TEMP/us-research-reuse/current" \
             --sample "$RUNNER_TEMP/us-research-reuse/sample" \
-            --output "$RUNNER_TEMP/us-research-results"
+            --output "$RUNNER_TEMP/us-research-results" --extend-rs
       - name: Publish derived research results
         if: always()
         uses: actions/upload-artifact@v4
