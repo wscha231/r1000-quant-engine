@@ -41,13 +41,13 @@ def set_targets(security, targets):
 
 
 class DecisionTests(unittest.TestCase):
-    def assert_hold_accounting(self, proposal, security_id, prior_weight, cfg=None):
+    def assert_hold_accounting(self, proposal, security_id, prior_weight, cfg=None, *, expected_ready=True):
         """HOLD preserves notional; funded weights use the smaller post-cost NAV."""
         cfg = config() if cfg is None else cfg
-        self.assertTrue(proposal["ready"], proposal["blockers"])
+        self.assertEqual(proposal["ready"], expected_ready, proposal["blockers"])
         self.assertEqual(proposal["target_weight_basis"], "POST_COST_NAV")
         self.assertFalse(proposal["orders_allowed"])
-        self.assertFalse(proposal["constraints"]["violations"])
+        self.assertEqual(bool(proposal["constraints"]["violations"]), not expected_ready)
         funding = proposal["funding"]
         initial, nav = funding["initial_nav_krw"], funding["post_cost_nav_krw"]
         # Numerical tolerance is at most 1e-12 of NAV, not a trading buffer.
@@ -284,9 +284,9 @@ class DecisionTests(unittest.TestCase):
                        "positions": {"US:INCUMBENT": .2}, "cash_weight": .8}
         out = evaluate(b, ctx)
         incumbent = next(r for r in out["portfolio_proposal"]["rows"] if r["security_id"] == "US:INCUMBENT")
-        self.assert_hold_accounting(out["portfolio_proposal"], "US:INCUMBENT", .2)
+        self.assert_hold_accounting(out["portfolio_proposal"], "US:INCUMBENT", .2, expected_ready=False)
         self.assertIn("keep_incumbent_replacement_not_cost_justified", incumbent["reasons"])
-        self.assertFalse(out["portfolio_proposal"]["constraints"]["violations"])
+        self.assertTrue(out["portfolio_proposal"]["constraints"]["violations"])
 
     def test_nonpositive_metric_blocks_each_supported_valuation_method(self):
         for method, field in (("PE", "net_income"), ("EV_EBITDA", "ebitda")):
@@ -628,9 +628,16 @@ print('guarded 9 invalid cases under optimization')
         out = evaluate(b, book_context({"US:OLD1":.2,"US:OLD2":.2}))["portfolio_proposal"]
         targets={r["security_id"]:r["target_weight"] for r in out["rows"]}
         for sid in ("US:OLD1", "US:OLD2"):
-            self.assert_hold_accounting(out, sid, .2)
+            self.assert_hold_accounting(out, sid, .2, expected_ready=False)
         self.assertGreater(targets["US:DDD"], 0.); self.assertGreater(targets["US:EEE"], 0.)
-        self.assertTrue(out["ready"], out["blockers"])
+        self.assertFalse(out["ready"])
+        self.assertTrue(out["constraints"]["violations"])
+
+    def test_git_replace_cannot_attest_different_source_bytes(self):
+        # Keep this source-integrity regression in the already mandatory H2
+        # suite as well as the focused source suite.
+        from research_workflow_source_smoke import SourceSeamTests
+        SourceSeamTests().test_replace_ref_cannot_attest_different_commit_bytes()
 
     def test_previous_metadata_is_sanitized_and_component_schema_is_closed(self):
         from tools.research_decision_v1.data import digest

@@ -64,4 +64,24 @@ class SourceSeamTests(unittest.TestCase):
             (root/'tools/research_decision_v1/data.py').write_text('# changed\n',encoding='utf-8')
             self.assertIsNone(cli.verified_source_snapshot(root))
 
+    @unittest.skipUnless(os.name=='posix' and Path('/usr/bin/git').exists(),'requires OS Git')
+    def test_replace_ref_cannot_attest_different_commit_bytes(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);self.fixture(root)
+            def git(*args):
+                return subprocess.check_output(['/usr/bin/git',*args],cwd=root,
+                    env=cli.git_read_environment(),text=True).strip()
+            original=git('rev-parse','HEAD');path='tools/research_decision_v1/data.py'
+            original_bytes=(root/path).read_bytes()
+            (root/path).write_text('# replacement source\n',encoding='utf-8')
+            git('add','--',path)
+            git('-c','user.name=Fixture','-c','user.email=fixture@example.org','commit','-qm','replacement')
+            replacement=git('rev-parse','HEAD')
+            git('update-ref','HEAD',original,replacement);git('replace',original,replacement)
+            self.assertIsNone(cli.verified_source_snapshot(root))
+            (root/path).write_bytes(original_bytes)
+            snapshot=cli.verified_source_snapshot(root)
+            self.assertEqual(snapshot['commit'],original)
+            self.assertEqual(snapshot['files'][path],original_bytes)
+
 if __name__=='__main__':unittest.main(verbosity=2)

@@ -71,7 +71,7 @@ def verified_source_snapshot(root):
         git=trusted_git_executable()
         git_env=git_read_environment()
         def read_git(*args, text=False):
-            return subprocess.check_output([git,"--no-pager","-c","core.fsmonitor=false",*args],
+            return subprocess.check_output([git,"--no-pager","--no-replace-objects","-c","core.fsmonitor=false",*args],
                 cwd=root,text=text,env=git_env,timeout=30)
         commit = read_git("rev-parse", "HEAD", text=True).strip()
         tracked = read_git("ls-tree", "-r", "--name-only", commit, "--", *paths, text=True).splitlines()

@@ -5122,3 +5122,7 @@ PR #399 reviews 3952327371/3952327375: anonymous files remain writable through p
 ### 2026-09-07 — Research H2 runtime and receipt boundaries
 
 PR #400 reviews 3952174939/3952174941/3952174942: verifying a package tree does not exclude modules elsewhere on sys.path. Require isolated interpreter startup and replace inherited paths with the staged tree plus validated interpreter locations. Production verification gates must raise explicitly instead of relying on assert. A research capital amount without a reconciled account must retain its assumption label, including blocked output. Adversarial module injection, optimized Python and missing/false/type-confused labels are regression cases.
+
+### 2026-09-10 — H2 source identity and HOLD regression expectations
+
+Git replace refs can substitute a different tree while HEAD keeps its original SHA. Disable replacement objects on every verifier Git call and exercise that substitution through the already mandatory H2 suite. A retained HOLD preserves its monetary amount, so fees paid on other trades raise its post-cost NAV weight; if the hard cap is exceeded the proposal must remain blocked. Test readiness separately from correct HOLD accounting instead of rounding the weight or relaxing the cap. The isolated H2 suite passed 46 tests; this is software regression evidence, not historical investment performance.
