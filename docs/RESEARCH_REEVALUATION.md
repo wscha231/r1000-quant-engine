@@ -137,6 +137,15 @@ diagnostics. Its temporary store is intentionally not the durable service;
 no recurring schedule is installed. A current-vintage collection, even with
 eight years of observation dates, does not make an eight-year PIT backtest ready.
 
+The first real pilot (run `34463287454`, head
+`2fa40cb2ce2da369eae3f977e2dc130b6b9b58b2`) failed with HTTP 404 for all three
+series because the new collector used an incorrect CSV route. No dataset head
+was created. The path was corrected to `/graph/fredgraph.csv`, matching the
+existing repository's FRED adapters, with a regression on the requested URL.
+That failed run remains part of the implementation evidence; it is not evidence
+that the series are unavailable. Inspect the subsequent exact-head pilot for
+actual collection success and dates.
+
 Next integration gates:
 
 1. Connect independent historical price/lifecycle/FX, SEC and macro-vintage

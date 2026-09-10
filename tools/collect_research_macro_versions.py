@@ -61,10 +61,9 @@ def parse_fred(raw, series, start, through, retrieved_at):
 
 def fetch(series, start, through):
     require(series in SERIES, "series_not_allowlisted")
-    url = "https://fred.stlouisfed.org/graph/?" + urlencode(dict(id=series, cosd=start, coed=through))
-    # graph.csv is the public graph export; source_uri in the receipt is the
+    url = "https://fred.stlouisfed.org/graph/fredgraph.csv?" + urlencode(dict(id=series, cosd=start, coed=through))
+    # fredgraph.csv is the public graph export; source_uri in the receipt is the
     # stable public series page without a credential-bearing query.
-    url = url.replace("/graph/?", "/graph.csv?")
     request = Request(url, headers={"User-Agent": "research-data-lifecycle/1.0", "Accept": "text/csv"})
     with build_opener(NoRedirect()).open(request, timeout=15) as response:
         require(response.status == 200, "provider_status")

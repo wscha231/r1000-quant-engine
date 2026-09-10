@@ -3,9 +3,11 @@
 import sys
 from pathlib import Path
 import unittest
+from unittest.mock import MagicMock, patch
+from urllib.parse import urlsplit, parse_qs
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from tools.collect_research_macro_versions import NoRedirect, parse_fred
+from tools.collect_research_macro_versions import NoRedirect, fetch, parse_fred
 
 
 class MacroTests(unittest.TestCase):
@@ -32,6 +34,20 @@ class MacroTests(unittest.TestCase):
     def test_unknown_series_cannot_be_requested(self):
         with self.assertRaisesRegex(ValueError,"series_not_allowlisted"):
             parse_fred(b"", "untrusted", "2019-01-01", "2019-01-03", "2026-09-10T00:00:00Z")
+
+    def test_real_pilot_404_regression_uses_official_export_path(self):
+        opener=MagicMock()
+        response=opener.open.return_value.__enter__.return_value
+        response.status=200
+        response.read.return_value=b"DATE,DGS10\n2019-01-02,2.66\n"
+        with patch("tools.collect_research_macro_versions.build_opener",return_value=opener):
+            raw,_=fetch("DGS10","2019-01-01","2019-01-03")
+        url=urlsplit(opener.open.call_args.args[0].full_url)
+        self.assertEqual(url.scheme,"https")
+        self.assertEqual(url.netloc,"fred.stlouisfed.org")
+        self.assertEqual(url.path,"/graph/fredgraph.csv")
+        self.assertEqual(parse_qs(url.query),{"id":["DGS10"],"cosd":["2019-01-01"],"coed":["2019-01-03"]})
+        self.assertEqual(self.parse(raw)[0]["value"],2.66)
 
 
 if __name__ == "__main__":
