@@ -88,6 +88,11 @@ jobs:
           state = {'status': 'BLOCKED', 'reason': 'credential_missing'}
           config = root / 'research-source-rclone.conf'
           config_text = os.environ.get('RESEARCH_RCLONE_CONFIG', '')
+          phase = 'setup'
+          capture = root / 'research-source-private'
+          source_files = list(capture.glob('*'))
+          print(json.dumps({'private_capture_files':len(source_files),
+              'private_capture_bytes':sum(p.stat().st_size for p in source_files if p.is_file())}))
           try:
               if config_text:
                   config.write_text(config_text)
@@ -112,13 +117,19 @@ jobs:
                   remote = 'gdrive:research_source_snapshots/'+snapshot+'/'
                   local = str(root / 'research-source-private')
                   common = [str(binary), '--config', str(config)]
-                  subprocess.run(common+['copy',local,remote,'--immutable','--transfers','2','--checkers','2'],
-                      check=True,timeout=300,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-                  subprocess.run(common+['check',local,remote,'--download','--one-way','--checkers','2'],
+                  phase = 'copy'
+                  subprocess.run(common+['copy',local,remote,'--immutable','--transfers','4','--checkers','4'],
+                      check=True,timeout=600,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+                  phase = 'byte_check'
+                  subprocess.run(common+['check',local,remote,'--download','--one-way','--checkers','4'],
                       check=True,timeout=300,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
                   state = {'status': 'VERIFIED_PRIVATE_SNAPSHOT', 'snapshot': snapshot}
+          except subprocess.TimeoutExpired:
+              state = {'status': 'BLOCKED', 'reason':phase+'_timeout'}
+          except subprocess.CalledProcessError as exc:
+              state = {'status': 'BLOCKED', 'reason':phase+'_failed', 'returncode':exc.returncode}
           except Exception:
-              state = {'status': 'BLOCKED', 'reason': 'private_snapshot_not_verified'}
+              state = {'status': 'BLOCKED', 'reason':phase+'_not_verified'}
           finally:
               config.unlink(missing_ok=True)
           report['private_persistence'] = state

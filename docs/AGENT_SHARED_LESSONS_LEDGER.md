@@ -4937,3 +4937,15 @@ Expected contract:
 - Keep raw capture, normalized admission, reviewed underwriting and final
   allocation separate. Updated raw data must not become a fabricated approved
   portfolio. Test the actual pinned engine path with the connected observations.
+
+
+### 2026-09-10 - Connected input and persistence outcomes are independent
+
+- Run34488760178 restored FRED daily initial-release retrieval by bounding
+  vintage windows. The actual H1/H2 probe processed33 names but admitted0;
+  quality and complete underwriting were not manufactured from raw facts.
+- A successful active listing response must survive a later delisted-response
+  parsing failure; preserve each provider result separately.
+- Private persistence did not verify on the second run despite a green
+  diagnostic workflow. Do not declare its raw snapshot durable. Add file/byte
+  counts and separate copy/byte-check error categories with bounded timeouts.

@@ -135,5 +135,14 @@ class Connection(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'ALPACA_API_KEY':'a','ALPACA_API_SECRET':'b'}),patch.object(m,'request_raw',return_value=raw):
             self.assertRaisesRegex(ValueError,'duplicate_action',m.collect_actions,m.Capture(d),'2018-05-01','2026-09-09')
 
+    def test_failed_delisted_response_preserves_active_reference(self):
+        payloads=[b'symbol,name,exchange,assetType,ipoDate,delistingDate,status\nEXAM,Example,NYSE,Stock,2000-01-01,null,Active\n',b'Not a listing CSV']
+        with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'ALPHAVANTAGE_API_KEY':'a'},clear=True),patch.object(m,'request_raw',side_effect=payloads):
+            c=m.Capture(d);r=m.collect_listing(c,'2018-05-01')
+            self.assertEqual(r[0]['status'],'COLLECTED');self.assertEqual(r[0]['data']['rows'],1)
+            self.assertEqual(r[1]['status'],'BLOCKED')
+            self.assertEqual(len(c.receipts),1)
+            self.assertEqual(len(list(Path(d).glob('*.raw'))),1)
+
 
 if __name__=='__main__':unittest.main()

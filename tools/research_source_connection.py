@@ -296,16 +296,25 @@ def collect_listing(capture,asof):
             expected={'symbol','ipoDate','delistingDate','status'}
             if not expected<=set(fields):
                 known={'symbol','name','exchange','assetType','ipoDate','delistingDate','delistDate','status'}
-                raise SourceFailure('listing_csv_schema',{'recognized_columns':sorted(set(fields)&known),'column_count':len(fields)})
+                lowered=raw[:8192].decode('utf-8',errors='replace').lower()
+                category='unrecognized_response'
+                for label,phrases in {'quota':('rate limit','call frequency','calls per day'),
+                        'subscription':('premium endpoint','premium api','subscription'),
+                        'empty_result':('no data found','no records found')}.items():
+                    if any(p in lowered for p in phrases):category=label;break
+                raise SourceFailure('listing_csv_schema',{'recognized_columns':sorted(set(fields)&known),
+                                    'column_count':len(fields),'body_category':category})
             rows=[{k.strip():v for k,v in r.items() if isinstance(k,str)} for r in reader]
             require(rows,'listing_empty')
             return rows
-        raw,receipt=capture.get('listing_'+state,'https://www.alphavantage.co/query',
-            dict(function='LISTING_STATUS',date=asof,state=state,apikey=key('ALPHAVANTAGE_API_KEY','ALPHA_VANTAGE_API_KEY')),json_body=False,validator=parse)
-        rows=parse(raw)
-        output.append(dict(state=state,requested_as_of=asof,rows=len(rows),raw_sha256=receipt['raw_sha256'],
-                           russell_membership_verified=False,provider_historical_semantics_documented=True,
-                           historical_entity_mapping_verified=False))
+        def one():
+            raw,receipt=capture.get('listing_'+state,'https://www.alphavantage.co/query',
+                dict(function='LISTING_STATUS',date=asof,state=state,apikey=key('ALPHAVANTAGE_API_KEY','ALPHA_VANTAGE_API_KEY')),json_body=False,validator=parse)
+            rows=parse(raw)
+            return dict(state=state,requested_as_of=asof,rows=len(rows),raw_sha256=receipt['raw_sha256'],
+                        russell_membership_verified=False,provider_historical_semantics_documented=True,
+                        historical_entity_mapping_verified=False)
+        output.append(guarded(state,one))
     return output
 
 

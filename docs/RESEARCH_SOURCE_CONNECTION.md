@@ -94,3 +94,32 @@ Current study outputs remain `metrics=null` and `portfolio_weights=null` until
 the real input gates pass. No hand-selected seven-name allocation is relabelled
 as an engine result. The intended investment start is 2019-06-03, with earlier
 price warm-up data and a new $100,000 continuous USD account, through 2026-09-09.
+
+
+## Second actual run: connected admission remains blocked
+
+[Run34488760178](https://github.com/wscha231/r1000-quant-engine/actions/runs/34488760178)
+completed on 2026-09-10 at 14:29:46 UTC using source head
+`55bc6ba989311f27e621d636ef9333171a605e07` and pinned PR409 engine source.
+
+- The bounded FRED requests succeeded: DGS3MO/DGS2/DGS10 each returned 2,181
+  dated records through 2026-09-08; UNRATE returned 100 through August2026.
+  Counts include explicit missing values. Original intraday release timing is
+  still a separate gate.
+- Corporate actions: 566 cash dividends, 2 cash mergers, 8 forward splits,
+  3 name changes, 2 spin-offs, 2 stock-and-cash mergers and 4 stock mergers.
+  Several cash payment dates are absent (NVDA7, EME7, SPY6); unsupported merger
+  and spin-off accounting also needs treatment before a full replay.
+- Real H1/H2 call completed over 33 current research securities: admitted0,
+  valuation0, quality eligible0, portfolio ready=false. Weights and performance
+  metrics are null. The function call succeeding does not make the inputs ready.
+- Complete financial packets, official-close/action reconciliation, thesis,
+  exposure/stress and scenarios remain missing or unverified per security.
+  FX and a verified regime context are also absent from this admission probe.
+- 98 source receipts, SHA-256
+  `00031cb6bdeb7132690b5b4c496bffef32fa82157e2ca60f27375c3f5781c9ab`.
+- This run's private persistence did NOT verify. Its success conclusion only
+  means the diagnostic job finished; the previous run's verified snapshot is
+  separate. The follow-up reports failure stage/size, preserves successful
+  active-listing collection when delisted parsing fails, and gives the private
+  immutable copy ten minutes plus a separate five-minute byte-check budget.
