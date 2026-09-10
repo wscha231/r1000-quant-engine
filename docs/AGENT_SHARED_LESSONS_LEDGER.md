@@ -4902,3 +4902,8 @@ Expected contract:
 - Fullrun executed: false. Workflow dispatched or rerun: false. Migration,
   quarantine, Drive, target, order, ledger, accepted-head, production, live
   trading, automatic promotion, and pattern backfill state mutated: false.
+
+
+### 2026-09-10 — Preserve the distinction between session skips and missing transactions
+
+An upstream successful workflow may have legitimately skipped account processing because no recent completed NYSE close exists. Publish its original session-gate JSON and let the consumer verify the exact run/head, archive digest/size/member, attempt timestamps and calendar replay. Accept that receipt only when both normal transaction artifact families are absent. A partially published transaction, forced/READY gate or missing receipt must still fail. Publish a separately named skip diagnostic so it cannot enter the prior READY research search. The existing workflow smoke now executes valid and nine invalid receipt cases, in addition to its shell, embedded-Python and workflow contract checks.

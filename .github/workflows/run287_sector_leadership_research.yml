@@ -295,6 +295,31 @@ jobs:
               )
               raise SystemExit(0)
           if any(len(exact[name]) != 1 for name in expected_names):
+              # A skip receipt cannot excuse a partially published transaction.
+              skips = [a for a in artifacts if a.get("name") == f"daily-market-session-gate-{run_id}"]
+              if not any(exact.values()) and len(skips) == 1:
+                  import subprocess
+                  from tools.verify_upstream_market_session_skip import verify_skip
+
+                  item = skips[0]
+                  if type(item.get("id")) is not int or item["id"] <= 0:
+                      raise SystemExit("invalid session diagnostic artifact ID")
+                  size = item.get("size_in_bytes")
+                  if type(size) is not int or not 0 < size <= 1024**2:
+                      raise SystemExit("session diagnostic artifact exceeds size bound")
+                  archive = Path(os.environ["RUNNER_TEMP"], "source-session-gate.zip")
+                  with archive.open("wb") as handle:
+                      subprocess.run(["gh", "api", "-H", "Accept: application/vnd.github+json",
+                          f"repos/{os.environ['GITHUB_REPOSITORY']}/actions/artifacts/{item['id']}/zip"],
+                          stdout=handle, check=True, timeout=60)
+                  source_run = json.loads(Path(os.environ["RUNNER_TEMP"], "source-run.json").read_text(encoding="utf-8"))
+                  diagnostic = verify_skip(item, archive, source_run)
+                  destination = Path("outputs/run287_sector_leadership_session_skip")
+                  destination.mkdir(parents=True, exist_ok=True)
+                  (destination / "summary.json").write_text(json.dumps(diagnostic, indent=2) + "\n", encoding="utf-8")
+                  with out.open("a", encoding="utf-8") as handle:
+                      handle.write("session_skip=yes\n")
+                  raise SystemExit(0)
               raise SystemExit(
                   "exact daily and accepted source artifacts are both required"
               )
@@ -341,7 +366,7 @@ jobs:
               )
           PY
           if ! grep -qx 'eligible=yes' "$GITHUB_OUTPUT"; then
-            echo "[sector-leadership] SKIPPED: catch-up has no normal accepted inputs"
+            echo "[sector-leadership] SKIPPED: verified source has no eligible normal inputs"
             exit 0
           fi
           readarray -t ARTIFACT_ROWS < <(
@@ -453,6 +478,15 @@ jobs:
                       shutil.copyfileobj(source, sink)
           PY
           done
+
+      - name: Upload verified upstream session skip
+        if: steps.artifacts.outputs.session_skip == 'yes'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: run287-sector-leadership-session-skip-${{ steps.source.outputs.run_id }}
+          path: outputs/run287_sector_leadership_session_skip
+          if-no-files-found: error
+          retention-days: 45
 
       - name: Emit observable catch-up research skip
         if: steps.artifacts.outputs.catchup == 'yes'
