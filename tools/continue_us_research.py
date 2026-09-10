@@ -119,10 +119,19 @@ def run(current,sample,output,fund_manifest=None,extend_rs=False):
     sample_bars,_,rates=rebound_inputs(sample,reports[1])
     extension=None
     if extend_rs:
-        from extend_us_rs_history import extend,persist
-        private=output.parent/'us-rs-extension-private'
-        bars,extension=extend(bars,report,private)
-        extension['private_persistence']=persist(private)
+        from extend_us_rs_history import extend,persist,merge_histories
+        cached=current.parent/'rs_extension'
+        if cached.is_dir():
+            cached_report=verify_capture(cached)
+            older,_,_=rebound_inputs(cached,cached_report)
+            bars,statuses=merge_histories(bars,older,report['start'])
+            extension=dict(cached_report,reused=True,merge_counts=dict(Counter(statuses.values())),
+                overlap_conflicts=[t for t,s in statuses.items() if s=='source_overlap_conflict'],
+                private_persistence={'status':'RESTORED_VERIFIED_PRIVATE_EXTENSION'})
+        else:
+            private=output.parent/'us-rs-extension-private'
+            bars,extension=extend(bars,report,private)
+            extension['private_persistence']=persist(private)
         (output/'rs_extension_report.json').write_bytes(canonical(extension))
     rs=analyze(bars['all'],members,end)
     (output/'all_us_relative_strength.json').write_bytes(canonical(rs))
@@ -157,6 +166,7 @@ def run(current,sample,output,fund_manifest=None,extend_rs=False):
         rs_coverage=rs['coverage'],strength_states=rs['state_counts'],leaders=leaders,
         financial_coverage=[{k:v for k,v in r.items() if k!='tag_coverage'} for r in financial],
         priority_tag_diagnostics=[r for r in financial[:2]],
+        priority_strength=[r for r in rs['rows'] if r['ticker'] in ('TSM','ASML','NVDA','MU','DELL','BE')],
         current_interim_financials=interim,
         integrated_fund=result,benchmark_reference={k:v for k,v in benchmark.items() if k!='equity_curve'})
     # Keep the log concise; detailed derived outputs are separate artifacts.

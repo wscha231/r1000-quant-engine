@@ -1,0 +1,20 @@
+{
+  "schema_version": "research-source-reuse-registry-v1",
+  "snapshots": {
+    "current": {
+      "prefix": "research_source_snapshots",
+      "snapshot": "34499199863-1-9e850fa113c6ccdb046087cce8d31fbdb0a72967",
+      "receipts_sha256": "e3e1ca98835cbf95a7ced8501100ee228f66bf7742de0deefc38be193f3fd10e"
+    },
+    "sample": {
+      "prefix": "research_source_snapshots",
+      "snapshot": "34490195617-1-cf839ea6d8a74d0c1f261e628d917bf19c8da632",
+      "receipts_sha256": "ed3e85711eb063cef430158a68e589261c66193bea69aa4eb0a8a524b45a442e"
+    },
+    "rs_extension": {
+      "prefix": "research_source_extensions",
+      "snapshot": "34541075517-1-fbd3c26542d87d388b9561e8d133133629cbf64e",
+      "receipts_sha256": "69ae3f98782e11cc0bdfe7d39519ef2a697ae0236201fed15e172246b5c1b45c"
+    }
+  }
+}

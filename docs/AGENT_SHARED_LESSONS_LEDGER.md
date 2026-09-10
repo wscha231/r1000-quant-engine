@@ -19,6 +19,11 @@
   focused US/core regressions are the relevant validation for this change.
 - Evidence: `docs/US_RESEARCH_CONTINUATION_20260910.md`; exact-head real
   workflow outcomes must be recorded after execution, never predicted here.
+- Real CI34540344511 passed229/230 files; the sole failure was the new static
+  registrations changing protected `tools/run_pr_validation.py`. Restore the
+  frozen runner byte-for-byte and register this research subset through its
+  supported `--include`/`--only` CLI in the dedicated PR workflow. Do not advance
+  the protected publication pin or suppress its lineage check to make CI green.
 
 This is the shared "mistake notebook" for Codex, Claude, GPT Pro, and any other
 agent working on `wscha231/r1000-quant-engine`.

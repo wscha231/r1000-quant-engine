@@ -1,17 +1,26 @@
-"""Read two exact private research snapshots; never touch accepted account state."""
+"""Restore receipt-bound research snapshots; never touch accepted account state."""
 import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import urllib.request
 import zipfile
 
-SNAPSHOTS={
-    'current':('34499199863-1-9e850fa113c6ccdb046087cce8d31fbdb0a72967',
-        'e3e1ca98835cbf95a7ced8501100ee228f66bf7742de0deefc38be193f3fd10e'),
-    'sample':('34490195617-1-cf839ea6d8a74d0c1f261e628d917bf19c8da632',
-        'ed3e85711eb063cef430158a68e589261c66193bea69aa4eb0a8a524b45a442e')}
+def registry():
+    p=Path(__file__).resolve().parents[1]/'docs/research_source_reuse_registry.json'
+    value=json.loads(p.read_text())
+    if value['schema_version']!='research-source-reuse-registry-v1':raise ValueError('registry_schema')
+    snapshots=value['snapshots']
+    if not {'current','sample'}<=set(snapshots)<={'current','sample','rs_extension'}:
+        raise ValueError('registry_scope')
+    for name,r in snapshots.items():
+        if (r['prefix'] not in ('research_source_snapshots','research_source_extensions') or
+                not re.fullmatch('[0-9]+-[0-9]+-[0-9a-f]{40}',r['snapshot']) or
+                not re.fullmatch('[0-9a-f]{64}',r['receipts_sha256'])):
+            raise ValueError('registry_identity')
+    return snapshots
 
 
 def main():
@@ -26,10 +35,11 @@ def main():
         archive.write_bytes(raw)
         with zipfile.ZipFile(archive) as z:
             binary=root/'rclone';binary.write_bytes(z.read('rclone-v1.75.0-linux-amd64/rclone'));binary.chmod(0o700)
-        for name,(snapshot,expected) in SNAPSHOTS.items():
+        for name,item in registry().items():
+            snapshot,expected=item['snapshot'],item['receipts_sha256']
             target=root/name
             subprocess.run([str(binary),'--config',str(config),'copy',
-                'gdrive:research_source_snapshots/'+snapshot+'/',str(target),'--immutable','--transfers','4','--checkers','4'],
+                'gdrive:'+item['prefix']+'/'+snapshot+'/',str(target),'--immutable','--transfers','4','--checkers','4'],
                 check=True,timeout=600,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
             report=verify_capture(target)
             if report['source_receipts_hash']!=expected:raise ValueError('snapshot_identity')

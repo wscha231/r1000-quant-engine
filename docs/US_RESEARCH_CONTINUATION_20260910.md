@@ -46,6 +46,25 @@ metrics and no portfolio weights. Artifact10177051628, SHA-256
 The artifact metadata and completed job log were read; a local ZIP download
 returned HTTP403, so independent downloaded-byte verification is not claimed.
 
+Second real run: [34541075517](https://github.com/wscha231/r1000-quant-engine/actions/runs/34541075517),
+source `fbd3c26542d87d388b9561e8d133133629cbf64e`, completed September10 UTC.
+504-session RS coverage increased from0 to **1,068/1,118**. The extension
+joined1,079 securities including SPY;35 lacked sufficient overlap/listing
+history,3 had no earlier history and2 had conflicting source overlap. Those
+two earlier histories were rejected. Native existing windows remained intact.
+Long strength:283 outperforming on both240/504 windows,544 underperforming,
+241 mixed,32 partially covered and18 insufficient. These are research states,
+not approved allocations. The integrated fund remained blocked.
+
+The new extension has90 raw receipts, canonical receipts SHA-256
+`69ae3f98782e11cc0bdfe7d39519ef2a697ae0236201fed15e172246b5c1b45c`.
+Private immutable copy and downloaded-byte check both succeeded at snapshot
+`34541075517-1-fbd3c26542d87d388b9561e8d133133629cbf64e`.
+Public derived artifact10177454610 has GitHub SHA-256
+`1a7fc3c53f999fc166f374d1eb0e75ead152cb3f25d520adddc44326be588d1f`.
+The reuse registry now restores this extension, so subsequent evaluations do
+not refetch the same historical window. Overlap validation still runs on reuse.
+
 `research_us_continue.yml` runs registered regression tests, restores verified
 private inputs and publishes derived results. Manual source collection remains
 available in `research_source_connection.yml` for a new dated snapshot.
@@ -74,8 +93,8 @@ flags or rename an inadmissible survivor backtest to bypass that boundary.
 ## Sustainable updates
 
 1. Retain source captures and receipt hashes; append each new capture under a
-   fresh immutable research prefix. Change the restore registry only after its
-   private byte check succeeds.
+   fresh immutable research prefix. Update `research_source_reuse_registry.json`
+   only after its private byte check succeeds. Keep requested data dates visible.
 2. Append a reviewed interim observation version with source, pages, units,
    period and actual observation time; preserve previous versions. Never
    advance dates merely to make freshness checks pass.
