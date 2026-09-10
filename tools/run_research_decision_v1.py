@@ -181,6 +181,14 @@ def render_report(decision):
                   "| Country counts | "+json.dumps(audit["country_counts"], sort_keys=True)+" |",
                   "| Common risk exposure | "+json.dumps(audit["common_risk_exposure"], sort_keys=True)+" |",
                   "| Violations | "+("; ".join(audit["violations"]) or "none")+" |"]
+    funding=p.get("funding")
+    if funding:
+        lines += ["", "## Funding reconciliation (KRW)",
+            f"Initial NAV: {funding['initial_nav_krw']:.2f}; transaction cost: {funding['transaction_cost_krw']:.2f}; post-cost NAV: {funding['post_cost_nav_krw']:.2f}.",
+            f"Target positions plus residual cash: {sum(funding['position_values_krw'].values())+funding['cash_krw']:.2f}.",
+            "Target weights use post-cost NAV; previous weights use pre-trade NAV. HOLD preserves notional."]
+    if decision.get("workflow"):
+        lines += ["", "Workflow: `"+json.dumps(decision["workflow"],sort_keys=True)+"`"]
     lines += ["", "Readiness: `"+json.dumps(decision["readiness"], sort_keys=True)+"`", ""]
     return "\n".join(lines)
 
@@ -191,6 +199,7 @@ def main():
     parser.add_argument("--context", required=True)
     parser.add_argument("--config", default=str(ROOT / "docs/research_decision_v1_config.json"))
     parser.add_argument("--previous")
+    parser.add_argument("--quality-bundle", help="Explicit reviewed quality inputs; omission preserves research baseline")
     args = parser.parse_args()
     snapshot = verified_source_snapshot(ROOT)
     if snapshot is None:
@@ -209,7 +218,11 @@ def run_verified(args, snapshot, runtime):
     config_path = stage/"docs/research_decision_v1_config.json" if Path(args.config).resolve() == ROOT/"docs/research_decision_v1_config.json" else args.config
     context, config = read_json(args.context), read_json(config_path)
     previous = read_json(args.previous) if args.previous else None
-    decision = engine.run_decisions(exports, context, config, previous)
+    quality_path=getattr(args,"quality_bundle",None)
+    quality_bundle=read_json(quality_path) if quality_path is not None else None
+    if quality_path is not None and not isinstance(quality_bundle, dict):
+        raise ValueError("explicit_quality_bundle_must_be_object")
+    decision = engine.run_decisions(exports, context, config, previous, quality_bundle=quality_bundle)
     directory = io.research_root(ROOT) / "runs" / decision["decision_hash"] / code_commit
     # The result hash excludes runtime metadata. Byte identity is separately kept.
     artifacts = {
@@ -220,12 +233,19 @@ def run_verified(args, snapshot, runtime):
         "portfolio_proposal_research.json": decision["portfolio_proposal"],
         "research_decision_ledger.json": {"parent": decision["previous_decision_hash"], "rows": decision["decision_ledger"]},
         "industry_discovery.json": decision["industry_discovery"]}
+    if quality_bundle is not None:
+        artifacts["research_quality_input_snapshot.json"]=quality_bundle
+        artifacts["research_quality_assessments.json"]={r["security_id"]:{
+            "quality":r["quality_assessment"],"scenario_links":r["scenario_links"],
+            "gate":r["quality_gate"]} for r in decision["ranking"]}
+    artifacts["research_workflow_status.json"]=decision["workflow"]
     for name, value in artifacts.items(): immutable_json(directory / name, value)
     report_path = directory / "report.md"
     report_bytes = renderer.render_report(decision).encode("utf-8")
     immutable_bytes(report_path, report_bytes)
     manifest = {"schema_version": "research-run-manifest-v1", "decision_hash": decision["decision_hash"],
-                "source_commit": code_commit,
+                "source_commit": code_commit, "git_executable":snapshot["git_executable"],
+                "quality_bundle_hash":decision["workflow"]["quality_bundle_hash"],
                 "source_code_hash": digest({name: content.decode("utf-8") for name, content in snapshot["files"].items()
                                             if name.startswith("tools/research_decision_v1/") or name == "tools/__init__.py"}),
                 "renderer_source_hash": hashlib.sha256(snapshot["files"]["tools/run_research_decision_v1.py"]).hexdigest(),

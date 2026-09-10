@@ -1,0 +1,272 @@
+{
+  "schema_version": "quality-capture-pilot-v1",
+  "data_kind": "REAL",
+  "observed_at": "2026-09-08T15:59:56Z",
+  "cutoff": "2026-09-08T15:59:56Z",
+  "capture_boundary": "Manually retained short excerpts from web tool primary-source output; no complete HTTP-body authentication. Public availability is conservatively set to this observation, not retrospectively backfilled.",
+  "transports": {
+    "EME.RPO": "web parsed page",
+    "EME.GUIDANCE": "web parsed page",
+    "EME.PEER.FIX": "web search-result excerpt, full open failed",
+    "NVDA.REVENUE": "web search-result excerpt, full open failed",
+    "NVDA.PRODUCTION": "web search-result excerpt, full open failed",
+    "SK.HBM4": "web parsed page",
+    "SK.BUYBACK.PLAN": "web search-result excerpt"
+  },
+  "provider_status": {
+    "Financial_Datasets": "EME income statement: balance $0.00; one attempted read; no repeat/purchase"
+  },
+  "records": [
+    {
+      "security_id": "US:EME",
+      "review_due_at": "2026-10-01T00:00:00Z",
+      "open_questions": {
+        "technology": "Customer TCO, acceptance, reliability and differentiated execution versus alternatives remain unreviewed.",
+        "bottleneck": "Profitable bottleneck duration, capacity additions, certification lead time and pricing power remain unreviewed.",
+        "competition": "Comparable competing products, capacity and customer overlap require a complete evidence comparison.",
+        "demand_sustainability": "End-customer investment returns, repeat demand, cyclicality and cash conversion remain unreviewed.",
+        "governance": "Proxy/DART ownership, minority rights, related-party transfers and dilution have not been fully reconciled.",
+        "management_allocation": "Promises versus realized execution, acquisition outcomes and per-share cash returns need historical review.",
+        "price_expectations": "Current official close, normalized financials and 12-month underwriting are not materialized."
+      },
+      "captured_claims": [
+        {
+          "claim_id": "EME.RPO",
+          "axis": "demand_sustainability",
+          "segment": "company announcement",
+          "kind": "fact",
+          "statement": "EMCOR reports Q2 2026 remaining performance obligations of USD 17.14 billion.",
+          "impact": "unknown",
+          "rationale": "Limited source-grounding review: this supports only the stated announcement, not a whole-company advantage or forecast.",
+          "strongest_bear_case": "RPO is not collected cash or guaranteed profit; cancellation and execution risks are not quantified here.",
+          "invalidation_condition": "Review revisions, project cancellations, conversion timing and contract margins in the next filing.",
+          "role": "issuer",
+          "quote": "$17.14 billion",
+          "locator": "HTML announcement headline, parsed line 45",
+          "source": {
+            "source_id": "EME.RPO.source",
+            "url": "https://emcorgroup.com/investor-relations/press-releases/2026-news/emcor-group-inc-reports-second-quarter-2026-results",
+            "origin_url": "https://emcorgroup.com/investor-relations/press-releases/2026-news/emcor-group-inc-reports-second-quarter-2026-results",
+            "issuer_id": "US:EME",
+            "kind": "company",
+            "captured_text": "Remaining Performance Obligations of $17.14 billion"
+          }
+        },
+        {
+          "claim_id": "EME.GUIDANCE",
+          "axis": "management_allocation",
+          "segment": "company announcement",
+          "kind": "fact",
+          "statement": "EMCOR raises its company-issued FY2026 revenue range to USD 20.00-20.50 billion.",
+          "impact": "favorable",
+          "rationale": "Limited source-grounding review: this supports only the stated announcement, not a whole-company advantage or forecast.",
+          "strongest_bear_case": "FY2026 guidance is neither a September 2027 NTM forecast nor independent proof of durable margins.",
+          "invalidation_condition": "Review a revised guidance range and reconcile FY2026 versus the requested forward period.",
+          "role": "issuer",
+          "quote": "$20.00 billion - $20.50 billion",
+          "locator": "HTML FY2026 guidance headline, parsed line 46",
+          "source": {
+            "source_id": "EME.GUIDANCE.source",
+            "url": "https://emcorgroup.com/investor-relations/press-releases/2026-news/emcor-group-inc-reports-second-quarter-2026-results",
+            "origin_url": "https://emcorgroup.com/investor-relations/press-releases/2026-news/emcor-group-inc-reports-second-quarter-2026-results",
+            "issuer_id": "US:EME",
+            "kind": "company",
+            "captured_text": "$20.00 billion - $20.50 billion"
+          }
+        },
+        {
+          "claim_id": "EME.PEER.FIX",
+          "axis": "competition",
+          "segment": "company announcement",
+          "kind": "inference",
+          "statement": "Comparison candidate Comfort Systems also reports substantial backlog; EME growth alone does not establish an uncontested profit pool.",
+          "impact": "adverse",
+          "rationale": "Limited source-grounding review: this supports only the stated announcement, not a whole-company advantage or forecast.",
+          "strongest_bear_case": "Different business mix and contract definitions prevent interpreting peer backlog as a direct EME market-share loss.",
+          "invalidation_condition": "Obtain comparable customer, service, geography and contract-margin evidence before changing EME market-share assumptions.",
+          "role": "competitor",
+          "quote": "$14.06 billion",
+          "locator": "Official investor release search-result excerpt; backlog paragraph",
+          "source": {
+            "source_id": "EME.PEER.FIX.source",
+            "url": "https://investors.comfortsystemsusa.com/node/18636",
+            "origin_url": "https://investors.comfortsystemsusa.com/node/18636",
+            "issuer_id": "US:FIX",
+            "kind": "competitor",
+            "captured_text": "Backlog as of June 30, 2026 was $14.06 billion"
+          }
+        }
+      ],
+      "bindings": [
+        {
+          "binding_id": "EME.GUIDANCE.REVENUE",
+          "claim_id": "EME.GUIDANCE",
+          "scenario": "Base",
+          "variable": "revenue",
+          "direction": "increase",
+          "old_value": null,
+          "new_value": null,
+          "unit": "currency",
+          "currency": "USD",
+          "period": {
+            "start": "2026-01-01",
+            "end": "2026-12-31"
+          },
+          "economic_driver_id": "FY2026_guidance_not_NTM",
+          "quantification": null,
+          "baseline_scenarios_hash": null
+        }
+      ],
+      "review_receipt": {
+        "schema_version": "quality-review-receipt-v1",
+        "subject_hash": "732f20f6dea35783d15d5428c69ce287ea73a387b32d99c50f017efc7f00bff5",
+        "review_id": "US.EME.partial.20260909",
+        "reviewer": "Current-session model source-grounding review; NOT independent approval",
+        "reviewer_type": "model",
+        "scope": "claim_and_axis_sufficiency",
+        "reviewed_at": "2026-09-08T15:59:56Z",
+        "decision": "accepted"
+      }
+    },
+    {
+      "security_id": "US:NVDA",
+      "review_due_at": "2026-10-01T00:00:00Z",
+      "open_questions": {
+        "technology": "Customer TCO, acceptance, reliability and differentiated execution versus alternatives remain unreviewed.",
+        "bottleneck": "Profitable bottleneck duration, capacity additions, certification lead time and pricing power remain unreviewed.",
+        "competition": "Comparable competing products, capacity and customer overlap require a complete evidence comparison.",
+        "demand_sustainability": "End-customer investment returns, repeat demand, cyclicality and cash conversion remain unreviewed.",
+        "governance": "Proxy/DART ownership, minority rights, related-party transfers and dilution have not been fully reconciled.",
+        "management_allocation": "Promises versus realized execution, acquisition outcomes and per-share cash returns need historical review.",
+        "price_expectations": "Current official close, normalized financials and 12-month underwriting are not materialized."
+      },
+      "captured_claims": [
+        {
+          "claim_id": "NVDA.REVENUE",
+          "axis": "demand_sustainability",
+          "segment": "company announcement",
+          "kind": "fact",
+          "statement": "NVIDIA announces Q2 FY2027 revenue of USD 96.2 billion.",
+          "impact": "unknown",
+          "rationale": "Limited source-grounding review: this supports only the stated announcement, not a whole-company advantage or forecast.",
+          "strongest_bear_case": "Current revenue does not prove end-customer investment returns, sustained demand or normalized owner earnings.",
+          "invalidation_condition": "Review normalized cash flow and customer spending changes in later filings.",
+          "role": "issuer",
+          "quote": "$96.2 billion",
+          "locator": "Official IR search-result excerpt; revenue headline",
+          "source": {
+            "source_id": "NVDA.REVENUE.source",
+            "url": "https://investor.nvidia.com/news/press-release-details/2026/NVIDIA-Announces-Financial-Results-for-Second-Quarter-Fiscal-2027/default.aspx",
+            "origin_url": "https://investor.nvidia.com/news/press-release-details/2026/NVIDIA-Announces-Financial-Results-for-Second-Quarter-Fiscal-2027/default.aspx",
+            "issuer_id": "US:NVDA",
+            "kind": "company",
+            "captured_text": "Revenue of $96.2 billion"
+          }
+        },
+        {
+          "claim_id": "NVDA.PRODUCTION",
+          "axis": "technology",
+          "segment": "company announcement",
+          "kind": "fact",
+          "statement": "NVIDIA states that Vera Rubin is in full production in its Q2 FY2027 announcement.",
+          "impact": "unknown",
+          "rationale": "Limited source-grounding review: this supports only the stated announcement, not a whole-company advantage or forecast.",
+          "strongest_bear_case": "The issuer statement is not an independent comparative benchmark, yield verification or proof against custom accelerators.",
+          "invalidation_condition": "Review customer acceptance, measured TCO and alternative accelerator deployment.",
+          "role": "issuer",
+          "quote": "Vera Rubin, now in full production",
+          "locator": "Official IR search-result excerpt; management quote",
+          "source": {
+            "source_id": "NVDA.PRODUCTION.source",
+            "url": "https://investor.nvidia.com/news/press-release-details/2026/NVIDIA-Announces-Financial-Results-for-Second-Quarter-Fiscal-2027/default.aspx",
+            "origin_url": "https://investor.nvidia.com/news/press-release-details/2026/NVIDIA-Announces-Financial-Results-for-Second-Quarter-Fiscal-2027/default.aspx",
+            "issuer_id": "US:NVDA",
+            "kind": "company",
+            "captured_text": "Vera Rubin, now in full production"
+          }
+        }
+      ],
+      "bindings": [],
+      "review_receipt": {
+        "schema_version": "quality-review-receipt-v1",
+        "subject_hash": "9c429a18d29a698dc9c9118e990eb5b525be2c9057d6f229c3d7be7a6d366677",
+        "review_id": "US.NVDA.partial.20260909",
+        "reviewer": "Current-session model source-grounding review; NOT independent approval",
+        "reviewer_type": "model",
+        "scope": "claim_and_axis_sufficiency",
+        "reviewed_at": "2026-09-08T15:59:56Z",
+        "decision": "accepted"
+      }
+    },
+    {
+      "security_id": "KR:000660",
+      "review_due_at": "2026-10-01T00:00:00Z",
+      "open_questions": {
+        "technology": "Customer TCO, acceptance, reliability and differentiated execution versus alternatives remain unreviewed.",
+        "bottleneck": "Profitable bottleneck duration, capacity additions, certification lead time and pricing power remain unreviewed.",
+        "competition": "Comparable competing products, capacity and customer overlap require a complete evidence comparison.",
+        "demand_sustainability": "End-customer investment returns, repeat demand, cyclicality and cash conversion remain unreviewed.",
+        "governance": "Proxy/DART ownership, minority rights, related-party transfers and dilution have not been fully reconciled.",
+        "management_allocation": "Promises versus realized execution, acquisition outcomes and per-share cash returns need historical review.",
+        "price_expectations": "Current official close, normalized financials and 12-month underwriting are not materialized."
+      },
+      "captured_claims": [
+        {
+          "claim_id": "SK.HBM4",
+          "axis": "technology",
+          "segment": "company announcement",
+          "kind": "fact",
+          "statement": "SK hynix says it began HBM4 mass shipments in Q2 2026.",
+          "impact": "unknown",
+          "rationale": "Limited source-grounding review: this supports only the stated announcement, not a whole-company advantage or forecast.",
+          "strongest_bear_case": "This issuer statement does not establish competitor qualification, customer concentration or future HBM4 margins.",
+          "invalidation_condition": "Review customer acceptance, yield, product mix and competing certification.",
+          "role": "issuer",
+          "quote": "mass shipments of HBM4",
+          "locator": "Official newsroom parsed line 60",
+          "source": {
+            "source_id": "SK.HBM4.source",
+            "url": "https://news.skhynix.com/en/q2-2026-business-results/",
+            "origin_url": "https://news.skhynix.com/en/q2-2026-business-results/",
+            "issuer_id": "KR:000660",
+            "kind": "company",
+            "captured_text": "The company began mass shipments of HBM4"
+          }
+        },
+        {
+          "claim_id": "SK.BUYBACK.PLAN",
+          "axis": "management_allocation",
+          "segment": "company announcement",
+          "kind": "fact",
+          "statement": "SK hynix announces a KRW 40 trillion repurchase/cancellation program; this capture does not establish completed cancellation.",
+          "impact": "unknown",
+          "rationale": "Limited source-grounding review: this supports only the stated announcement, not a whole-company advantage or forecast.",
+          "strongest_bear_case": "Authorization, purchase execution and actual retirement are distinct; no share count is reduced in this pilot.",
+          "invalidation_condition": "Reconcile executed repurchases, completed cancellation and diluted shares from subsequent filings.",
+          "role": "issuer",
+          "quote": "40 trillion won",
+          "locator": "Official newsroom search-result excerpt; board resolution",
+          "source": {
+            "source_id": "SK.BUYBACK.PLAN.source",
+            "url": "https://news.skhynix.com/en/share-buyback-and-retirement/",
+            "origin_url": "https://news.skhynix.com/en/share-buyback-and-retirement/",
+            "issuer_id": "KR:000660",
+            "kind": "company",
+            "captured_text": "repurchase and fully cancel 40 trillion won"
+          }
+        }
+      ],
+      "bindings": [],
+      "review_receipt": {
+        "schema_version": "quality-review-receipt-v1",
+        "subject_hash": "09960c7f2895effd3ed292a49317dc62cb5d32fd3191e179093119394427eccb",
+        "review_id": "KR.000660.partial.20260909",
+        "reviewer": "Current-session model source-grounding review; NOT independent approval",
+        "reviewer_type": "model",
+        "scope": "claim_and_axis_sufficiency",
+        "reviewed_at": "2026-09-08T15:59:56Z",
+        "decision": "accepted"
+      }
+    }
+  ]
+}

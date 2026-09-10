@@ -1,0 +1,220 @@
+{
+  "schema_version": "research-long-backtest-readiness-audit-v1",
+  "mode": "EVIDENCE_AUDIT_NOT_BACKTEST",
+  "observed_at": "2026-09-10T00:39:13.439987+00:00",
+  "requested_horizon_years": [
+    7,
+    8
+  ],
+  "requested_completed_us_session": "2026-09-09",
+  "ready_for_long_backtest": false,
+  "backtest_executed": false,
+  "historical_ab_executed": false,
+  "performance": {
+    "cagr": null,
+    "cumulative_return": null,
+    "maximum_drawdown": null,
+    "sharpe": null,
+    "sortino": null,
+    "calmar": null,
+    "turnover": null,
+    "reason": "NO_VALIDATED_NEW_METHOD_REPLAY"
+  },
+  "preflight": {
+    "exit_code": 1,
+    "source_local_commit": "180e7f287e74acf494f765d83ee8fc4d510a7348",
+    "source_parent_commits": [
+      "ae650d343b86cf2647e5fdc09ad62e787dd80139",
+      "65d41968d796caeb91c7e672074b6280001b1726"
+    ],
+    "source_files_sha256": {
+      "tools/run_clean7y_window_preflight.py": "5cadccd24722fd291db146f7ee0f2fc62690f4bbad12d96cb6d200f39e1067bb",
+      "r1000_pipeline.py": "736f98c5668f2012f9ae3ce309c24f01d465960a50a45bb74f1165b3da6a258f",
+      "tools/run_research_decision_v1.py": "52b26b47a392771e748c6e9bad62dcbdc9448c9366ec9a0ed0fa14b7183d1418",
+      "tools/research_decision_v1/engine.py": "a8109bb2924f836c3b0203e9ebe14c2328f6c049c1e47a1aaa5884e4e99cff36",
+      "tools/research_decision_v1/portfolio.py": "5a62e9fa9a6ff5865558d7961bfa0ed3899d99406d3dd66da3da792de7f4e503",
+      "tools/research_decision_v1/quality_bridge.py": "7a58631ddd068ebc649e3f13db1269b0a2bef85a7c74790dd1a8214004dcdcc9",
+      "tools/research_decision_v1/quality_index.py": "b2ecf3ec3ffbe85aa98413edba0e5a7c74fb5abf9bebda42b3a568c16c050364",
+      "requirements_research_decision_v1.txt": "8bb851ad82a9324c2b90f993b9c02142d58580099ec81c21287450e7174b5b40"
+    },
+    "raw_status_sha256": "bd7e28c43c9ad9ad1c08b12d834b0a157abddd236ac6bbd3d2b0b715dd707387",
+    "raw_status_json": "{\n  \"actual_candidate_first_pass\": false,\n  \"blockers\": [\n    \"candidate_replay_book_not_in_expected_clean7y_decision_window\",\n    \"target_books_not_in_expected_clean7y_decision_window\",\n    \"first_decision_pit_check_failed\",\n    \"replay_price_cache_start_after_clean7y_floor\"\n  ],\n  \"cache_check_deferred\": false,\n  \"cache_manifest\": {\n    \"checked\": true,\n    \"exists\": false,\n    \"path\": null,\n    \"required_start_or_before\": \"2019-05-09\",\n    \"start\": null,\n    \"start_pass\": false\n  },\n  \"end_date\": \"2026-09-09\",\n  \"evaluation_start_date\": \"2019-06-03\",\n  \"expected_first_decision\": \"2019-05-31\",\n  \"expected_first_decision_next_close_fill\": \"2019-06-03\",\n  \"feature_start_date\": \"2016-01-01\",\n  \"files\": {\n    \"candidate_replay_book\": {\n      \"exists\": false,\n      \"first_rebalance_date\": null,\n      \"path\": \"/workspace/scratch/f247432c1548/r1000-quant-engine/cloud_results/full_rebuild/latest_global_alpha_universe/reports/candidate_replay_book.csv\",\n      \"rows\": 0\n    },\n    \"official_concentrated_target_book\": {\n      \"exists\": false,\n      \"first_rebalance_date\": null,\n      \"path\": \"/workspace/scratch/f247432c1548/r1000-quant-engine/cloud_results/full_rebuild/latest_global_alpha_universe/alphaops_vnext/official_concentrated_target_book.csv\",\n      \"rows\": 0\n    },\n    \"official_main_target_book\": {\n      \"exists\": false,\n      \"first_rebalance_date\": null,\n      \"path\": \"/workspace/scratch/f247432c1548/r1000-quant-engine/cloud_results/full_rebuild/latest_global_alpha_universe/alphaops_vnext/official_main_target_book.csv\",\n      \"rows\": 0\n    },\n    \"operating_concentrated_target_book\": {\n      \"exists\": false,\n      \"first_rebalance_date\": null,\n      \"path\": \"/workspace/scratch/f247432c1548/r1000-quant-engine/cloud_results/full_rebuild/latest_global_alpha_universe/reports/operating_concentrated_target_book.csv\",\n      \"rows\": 0\n    },\n    \"operating_main_target_book\": {\n      \"exists\": false,\n      \"first_rebalance_date\": null,\n      \"path\": \"/workspace/scratch/f247432c1548/r1000-quant-engine/cloud_results/full_rebuild/latest_global_alpha_universe/reports/operating_main_target_book.csv\",\n      \"rows\": 0\n    }\n  },\n  \"first_decision_pit\": {\n    \"available_from_columns\": [],\n    \"checked\": false,\n    \"first_decision_date\": null,\n    \"future_available_from_rows\": null,\n    \"missing_required_columns\": [],\n    \"path\": \"/workspace/scratch/f247432c1548/r1000-quant-engine/cloud_results/full_rebuild/latest_global_alpha_universe/reports/candidate_replay_book.csv\",\n    \"pit_status\": \"missing_candidate_book\",\n    \"required_columns\": [\n      \"valuation_price_cutoff_date\",\n      \"feature_available_from\"\n    ]\n  },\n  \"generated_month_end_contains_expected\": true,\n  \"mode\": \"post_book\",\n  \"monthly_test_dates_contains_expected_first\": true,\n  \"monthly_test_dates_first\": \"2019-05-31\",\n  \"must_be_before\": \"2019-06-28\",\n  \"not_before\": \"2019-05-31\",\n  \"post_book_validation_required\": false,\n  \"production_promotion_allowed\": false,\n  \"projected_calendar_trading_days\": {\n    \"count\": 1832,\n    \"end_date\": \"2026-09-09\",\n    \"min_required\": 1764,\n    \"pass\": true,\n    \"portfolios\": {\n      \"concentrated\": 1832,\n      \"main\": 1832\n    },\n    \"start_date\": \"2019-06-03\"\n  },\n  \"purpose\": \"research_7y_window_preflight\",\n  \"schema_version\": \"clean7y-window-preflight-v3\",\n  \"status\": \"blocked\",\n  \"target_book_checks\": {\n    \"operating_concentrated_target_book\": false,\n    \"operating_main_target_book\": false\n  },\n  \"target_book_scope\": \"operating\",\n  \"target_books_first_pass\": false\n}",
+    "interpretation": "Sparse local post-book replay readiness; not a claim that remote sources do not exist."
+  },
+  "local_validation": {
+    "core_h2": {
+      "tests": 46,
+      "status": "PASS",
+      "log_sha256": "32d2d1543824d0441c53fe59e35bff51b68faac1e71712a70a538a82a62891b8",
+      "scope": "software regression; synthetic source fixtures; no investment performance"
+    },
+    "final_quality_h2": {
+      "tests": 46,
+      "status": "PASS",
+      "log_sha256": "4362d844750ab6cd42e55070f6e2b347d5623470b544267063650080e5bb4ced",
+      "scope": "software regression; synthetic source fixtures; no investment performance"
+    }
+  },
+  "github_snapshot": {
+    "master": "8ccbd478e05ff34c6dd70e410be0cae793c9863e",
+    "observed_at": "2026-09-10T00:36:10.264Z",
+    "prs": [
+      {
+        "base": "codex/research-decision-v1-data-contract-20260907",
+        "draft": true,
+        "head": "65d41968d796caeb91c7e672074b6280001b1726",
+        "merged": false,
+        "number": 400
+      },
+      {
+        "base": "codex/research-decision-v1-ranking-reviewed-20260907",
+        "draft": true,
+        "head": "ae650d343b86cf2647e5fdc09ad62e787dd80139",
+        "merged": false,
+        "number": 405,
+        "runs": [
+          {
+            "conclusion": "success",
+            "id": 34419875690,
+            "name": "Portfolio System Guard",
+            "status": "completed"
+          },
+          {
+            "conclusion": "success",
+            "id": 34419875665,
+            "name": "PR Validation (Fast)",
+            "status": "completed"
+          }
+        ]
+      },
+      {
+        "base": "master",
+        "draft": true,
+        "head": "785e7324e36508008fb5046ee74c7a0d3b426c70",
+        "merged": false,
+        "number": 406,
+        "runs": [
+          {
+            "conclusion": "success",
+            "id": 34420128642,
+            "name": "Portfolio System Guard",
+            "status": "completed"
+          },
+          {
+            "conclusion": "success",
+            "id": 34420128687,
+            "name": "PR Validation (Fast)",
+            "status": "completed"
+          }
+        ]
+      },
+      {
+        "base": "master",
+        "draft": true,
+        "head": "499f2470a7b68a500dbf498faf0c590c793c5f2e",
+        "merged": false,
+        "number": 407,
+        "runs": [
+          {
+            "conclusion": "success",
+            "id": 34420536216,
+            "name": "Portfolio System Guard",
+            "status": "completed"
+          },
+          {
+            "conclusion": "success",
+            "id": 34420536183,
+            "name": "PR Validation (Fast)",
+            "status": "completed"
+          }
+        ]
+      },
+      {
+        "base": "master",
+        "draft": true,
+        "head": "08562391911393c73d1a46048cf605135bb53f6f",
+        "merged": false,
+        "number": 408,
+        "runs": [
+          {
+            "conclusion": "success",
+            "id": 34421071758,
+            "name": "Portfolio System Guard",
+            "status": "completed"
+          },
+          {
+            "conclusion": null,
+            "id": 34421071757,
+            "name": "PR Validation (Fast)",
+            "status": "in_progress"
+          }
+        ]
+      }
+    ],
+    "source_scope": "code_and_metadata_only"
+  },
+  "data_recovery": {
+    "github_artifact": {
+      "run_id": 28725350727,
+      "artifact_id": 8088582521,
+      "reported_bytes": 369243166,
+      "reported_expired": false,
+      "reported_sha256": "ebdbbe7e764b735ca129f662c42ec80b68659f4e3196b5a364cf32c506c4c818",
+      "body_download_status": "HTTP_403",
+      "actual_bytes_verified": false
+    },
+    "local_price_manifests": [
+      {
+        "reported_start": "2016-01-04",
+        "reported_end": "2026-09-04",
+        "reported_tickers": 80,
+        "local_parquet_count": 0
+      },
+      {
+        "reported_start": "2026-07-01",
+        "reported_end": "2026-09-08",
+        "reported_tickers": 97,
+        "local_parquet_count": 0
+      }
+    ],
+    "drive": {
+      "cache_listing_items": 100,
+      "cache_listing_parquet_items": 99,
+      "listing_may_be_truncated": true,
+      "candidate_book_metadata_bytes": 63428475,
+      "candidate_book_equivalence_to_canonical_source": "UNVERIFIED",
+      "manifest_body_download_status": "HTTP_403",
+      "price_parquet_body_inspected": false,
+      "private_file_identifiers_excluded": true
+    }
+  },
+  "remaining_blockers": [
+    "EXACT_HEAD_INDEPENDENT_REVIEW_PENDING",
+    "HISTORICAL_SOURCE_BYTES_NOT_MATERIALIZED_AND_HASH_VERIFIED",
+    "HISTORICAL_UNIVERSE_ACTIONS_AND_DELISTINGS_UNVERIFIED",
+    "HISTORICAL_QUALITY_RECEIPTS_AND_SCENARIO_TIMELINE_NOT_AVAILABLE_FOR_THIS_METHOD",
+    "KR_HISTORICAL_ADMISSION_NOT_VALIDATED",
+    "CANONICAL_PARITY_AND_COMPLETE_PREREGISTRATION_NOT_READY"
+  ],
+  "planned_comparisons": {
+    "status": "DESIGN_ONLY_NOT_PREREGISTERED",
+    "maximum_active_challengers": 1,
+    "sequence": [
+      "canonical control replay/parity",
+      "quantitative V1 incremental study if historical scenarios exist",
+      "quality increment only where contemporaneous evidence is valid; otherwise explicitly retrospective reconstruction or forward observation"
+    ],
+    "latest_date_is_not_coverage_proof": true,
+    "past_captures_were_not_backdated": true
+  },
+  "safety": {
+    "orders_generated": false,
+    "accepted_ledger_mutated": false,
+    "target_books_mutated": false,
+    "production_promotion_allowed": false,
+    "model_weights_changed": false,
+    "risk_limits_changed": false,
+    "auto_merge": false
+  },
+  "handoff": "BACKTEST_READINESS_20260910.md"
+}

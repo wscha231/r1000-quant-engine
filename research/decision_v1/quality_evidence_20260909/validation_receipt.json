@@ -1,0 +1,104 @@
+{
+  "schema_version": "quality-implementation-validation-v1",
+  "code_commit": "ce17c84aa3d1adf54ccfc421d1be7a5ede2314d6",
+  "base_dependency": {
+    "pr": 400,
+    "sha": "52b119ab653016bb1706cf4ff706890e820e131d"
+  },
+  "local_scope": "partial-source snapshot; not a full checkout; no user worktree",
+  "local_patch_commit": "546a4bd2f6b326cb08d379938986fdb975c6d85a",
+  "local_patch_tree": "61a0f85b379b32be30eac5a922fecc13e1e8599d",
+  "code_blobs": {
+    "docs/research_quality_v1_contract.md": {
+      "git_blob": "54ef8867261fce7421fb9348cf3b80ed5ad47ff2",
+      "sha256": "7cd4f074afb107f7cf9e9e9cc3dedbc19302bd054b1dfde9f1bb03976e36de4f",
+      "bytes": 6043
+    },
+    "research/decision_v1/quality_evidence_20260909/pilot_capture.json": {
+      "git_blob": "4c5941476410a58346659e6f1784c7f2ee9b93f8",
+      "sha256": "f7efb9424cc8a911f30599fc2dbaaada63925eff49dc856e678c169d956dcbb3",
+      "bytes": 15729
+    },
+    "research/decision_v1/run_quality_pilot.py": {
+      "git_blob": "c73cd2170769454baeb1a5843ad5f94f6dc2a068",
+      "sha256": "c4caf4457cf75796f134ea7b7ce6345b5e7cc130b960f281066302d633313efe",
+      "bytes": 7263
+    },
+    "tests/research_quality_v1_smoke.py": {
+      "git_blob": "3559baf14bfaf14c268634c3619ad5b135c4da72",
+      "sha256": "61a0ab12bf26a3e768ee8306acecdadf2ffc8368fe4e8dc1f27bcf0e077027a2",
+      "bytes": 22465
+    },
+    "tools/research_decision_v1/quality.py": {
+      "git_blob": "4eded8c3a8733b107c7846d1f705347351efbbe0",
+      "sha256": "4dc3fc58331f6075f5b616045e48a60a15b64d31aa1ce0b68308288065724382",
+      "bytes": 16599
+    },
+    "tools/research_decision_v1/quality_bridge.py": {
+      "git_blob": "5a63556c189ab055205ac72b917c23b09e5af895",
+      "sha256": "7823a9a2a93e5d47defc91fbe4fed5c58e2ac42349b77c1c947b5d83d97c4c31",
+      "bytes": 10464
+    },
+    "tools/research_decision_v1/quality_index.py": {
+      "git_blob": "7167cb6df085ebf96f25db87b763bc9094eebb70",
+      "sha256": "b7c2c66aa9db290d9796d751b393e13163c52d2ded13c31d92599613f18ba9d0",
+      "bytes": 4209
+    }
+  },
+  "tests": {
+    "normal": {
+      "command": "python -I tests/research_quality_v1_smoke.py",
+      "count": 47,
+      "passed": 47
+    },
+    "optimized": {
+      "command": "python -I -O tests/research_quality_v1_smoke.py",
+      "count": 47,
+      "passed": 47
+    },
+    "test_data_kind": "SYNTHETIC",
+    "full_existing_h1_h2_suite": "NOT_RUN",
+    "protected_tier1_registration": false,
+    "full_checkout_ci": "NOT_RUN",
+    "independent_exact_head_review": false
+  },
+  "real_pilot": {
+    "command": "python -I research/decision_v1/run_quality_pilot.py --input research/decision_v1/quality_evidence_20260909/pilot_capture.json --output-dir NEW_EMPTY_PATH --source-sha ce17c84aa3d1adf54ccfc421d1be7a5ede2314d6",
+    "expected_exit": 2,
+    "observed_exit": 2,
+    "independent_process_replay_identical_files": 7,
+    "matched_and_model_reviewed_claims": {
+      "US:EME": 3,
+      "US:NVDA": 2,
+      "KR:000660": 2
+    },
+    "complete_company_assessments": 0,
+    "ready_portfolio_proposals": 0,
+    "h1_admission_executed": false
+  },
+  "environment": {
+    "python": "3.13.5",
+    "pandas_market_calendars": "not installed; upstream needs 5.4.0",
+    "tzdata": "installed 2026.2, upstream needs 2026.3; no reported-day/calendar routines tested"
+  },
+  "provider": {
+    "Financial_Datasets": "one EME TTM call rejected: balance $0.00; no purchase/retry"
+  },
+  "upstream_review": {
+    "h1_399_unresolved_observed": 6,
+    "h2_400_unresolved_observed": 3,
+    "cash_nav_fix_applied": false,
+    "fx_capital_fix_applied": false,
+    "trusted_git_launcher_fix_applied": false
+  },
+  "prior_h2_ci": {
+    "34158360791": "Portfolio System Guard success",
+    "34158360848": "PR Validation Fast success",
+    "these_runs_executed_new_quality_tests": false
+  },
+  "oos_validated": false,
+  "production_promoted": false,
+  "orders_allowed": false,
+  "official_books_changed": false,
+  "validation_observed_at": "2026-09-08T16:11:04Z"
+}

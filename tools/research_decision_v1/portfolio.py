@@ -37,6 +37,20 @@ def context_errors(context, config, cutoff):
     return sorted(set(errors))
 
 
+
+def investment_eligible(row):
+    """Missing opt-in evidence blocks investment use, not financial calculation."""
+    gate=row.get("quality_gate")
+    return gate is None or (isinstance(gate,dict) and gate.get("required") is True and gate.get("eligible") is True)
+
+
+def enforce_quality_questions(row):
+    if not investment_eligible(row):
+        company=row["four_questions"]["good_company"]
+        row["four_questions"].update(good_stock="fail" if company=="fail" else "unverified_quality",
+            buy_price_now="wait" if row["valuation_ready"] else "unverified")
+
+
 def add_fx_returns(rows, context, config, fx_valid):
     for row in rows:
         row.update(expected_total_return_krw=None, expected_net_return_krw=None, investment_rank=None, expected_return_rank=None,
@@ -51,6 +65,7 @@ def add_fx_returns(rows, context, config, fx_valid):
             row["benchmark_forecast_type"] = "SUBJECTIVE_SCENARIO"
         if not fx_valid and row["currency"] != "KRW":
             row["four_questions"].update(good_stock="unverified_fx", buy_price_now="unverified_fx")
+            enforce_quality_questions(row)
             continue
         converted = []
         for s in row["scenarios"]:
@@ -64,15 +79,16 @@ def add_fx_returns(rows, context, config, fx_valid):
                    investment_utility_krw=utility)
         row["four_questions"].update(good_stock="pass" if utility > 0 else "fail",
                                      buy_price_now="pass" if row["expected_net_return_krw"] >= config["new_entry_net_return"] else "wait")
+        enforce_quality_questions(row)
     # Deterministic ID tie-break; no momentum or NONRANKING values in either rank.
     for market in ("US", "KR"):
         group = [r for r in rows if r["market"] == market and r["valuation_ready"]]
         for rank, r in enumerate(sorted(group, key=lambda r: (-r["expected_total_return"], r["security_id"])), 1): r["expected_return_rank_local"] = rank
-        for rank, r in enumerate(sorted(group, key=lambda r: (-r["investment_utility"], -r["expected_total_return"], r["security_id"])), 1): r["investment_rank_local"] = rank
+        for rank, r in enumerate(sorted((r for r in group if investment_eligible(r)), key=lambda r: (-r["investment_utility"], -r["expected_total_return"], r["security_id"])), 1): r["investment_rank_local"] = rank
     if fx_valid:
         group = [r for r in rows if r["valuation_ready"]]
         for rank, r in enumerate(sorted(group, key=lambda r: (-r["expected_total_return_krw"], r["security_id"])), 1): r["expected_return_rank"] = rank
-        for rank, r in enumerate(sorted(group, key=lambda r: (-r["investment_utility_krw"], -r["expected_total_return_krw"], r["security_id"])), 1): r["investment_rank"] = rank
+        for rank, r in enumerate(sorted((r for r in group if investment_eligible(r)), key=lambda r: (-r["investment_utility_krw"], -r["expected_total_return_krw"], r["security_id"])), 1): r["investment_rank"] = rank
 
 
 def read_book(context, ids, cutoff):
@@ -292,8 +308,10 @@ def _propose_once(rows, securities, context, config, common_errors, cutoff, excl
         if sid in excluded_new:
             reasons[sid].append("allocation_below_minimum_after_incumbent_capacity"); continue
         if not r["valuation_ready"]: continue
+        if not investment_eligible(r):
+            reasons[sid].append("quality_review_required_for_investment"); continue
         s = securities[sid]; t, risk = s["blocks"]["thesis"]["payload"], s["blocks"]["risk"]["payload"]
-        if risk["integrity_alert"] or risk["liquidity_restriction"] or not t["intact"] or t["company_quality"] != "pass":
+        if risk["integrity_alert"] or risk["liquidity_restriction"] or not t["intact"] or r["four_questions"]["good_company"] != "pass":
             reasons[sid].append("thesis_quality_or_risk_gate"); continue
         threshold = config["hold_net_return"] if prior.get(sid, 0.) else config["new_entry_net_return"]
         if r["expected_net_return_krw"] < threshold or r["investment_utility_krw"] <= 0:
@@ -308,7 +326,7 @@ def _propose_once(rows, securities, context, config, common_errors, cutoff, excl
         replacement_ids = set()
         for sid, old in prior.items():
             s = securities[sid]; row = by_id[sid]
-            if not row["valuation_ready"]:
+            if not row["valuation_ready"] or not investment_eligible(row):
                 proposal["blockers"].append(sid+":incumbent_evidence_missing_preserve_book")
                 continue
             thesis = s["blocks"]["thesis"]["payload"]
@@ -435,7 +453,8 @@ def _propose_once(rows, securities, context, config, common_errors, cutoff, excl
     # Existing-book no-trade preservation may conflict with hard risk caps.
     # Surface that conflict instead of bypassing the cap or selling silently.
     proposal["blockers"] += audit["violations"]
-    valuation_observed = any(r["valuation_ready"] for r in rows)
+    valuation_observed = any(r["valuation_ready"] and
+        ("quality_gate" not in r or r["quality_gate"].get("review_complete") is True) for r in rows)
     proposal.update(ready=not proposal["blockers"] and valuation_observed, constraints=audit,
                     cash_weight=funding["cash_weight"], cash_is_unallocated_fallback=not valuation_observed,
                     cash_reason="RESEARCH_POLICY_RESIDUAL" if valuation_observed else "UNALLOCATED_MISSING_EVIDENCE",

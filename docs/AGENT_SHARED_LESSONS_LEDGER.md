@@ -5123,6 +5123,18 @@ PR #399 reviews 3952327371/3952327375: anonymous files remain writable through p
 
 PR #400 reviews 3952174939/3952174941/3952174942: verifying a package tree does not exclude modules elsewhere on sys.path. Require isolated interpreter startup and replace inherited paths with the staged tree plus validated interpreter locations. Production verification gates must raise explicitly instead of relying on assert. A research capital amount without a reconciled account must retain its assumption label, including blocked output. Adversarial module injection, optimized Python and missing/false/type-confused labels are regression cases.
 
+### 2026-09-09 — Quality review regressions before historical evaluation
+
+- Explicit JSON null is not omission of `--quality-bundle`; reject nonobjects before calculation or publication. Git source reads disable replacement objects so the recorded commit and executed bytes agree.
+- Counterfactual percentage returns replay canonical H1 price admission and match discovery to the admitted close. Missing or rejected price evidence preserves target-value analysis, with no return percentage.
+- Reject conflicting source IDs before pilot normalization. Include validated review-receipt identity in decision history. Check same-time event conflicts against the full index history, including behind later failures.
+- Register the four quality/funding/source suites in the mandatory runner and use isolated Python for research suites. Synthetic seam tests mock export replay only; H1 and complete CLI tests remain separate.
+- HOLD preserves pre-trade notional, not its pre-cost weight. Fees paid on other trades can put an unchanged holding above a hard post-cost cap. Keep that proposal blocked; never round weights or loosen limits to make a stale test pass.
+- Historical performance of this method requires contemporaneously available quality evidence. Today's partial NVDA/EME/SK hynix captures cannot be backdated into an eight-year study.
 ### 2026-09-10 — H2 source identity and HOLD regression expectations
 
 Git replace refs can substitute a different tree while HEAD keeps its original SHA. Disable replacement objects on every verifier Git call and exercise that substitution through the already mandatory H2 suite. A retained HOLD preserves its monetary amount, so fees paid on other trades raise its post-cost NAV weight; if the hard cap is exceeded the proposal must remain blocked. Test readiness separately from correct HOLD accounting instead of rounding the weight or relaxing the cap. The isolated H2 suite passed 46 tests; this is software regression evidence, not historical investment performance.
+
+### 2026-09-10 — Long-backtest source recovery and evidence limits
+
+The strict clean7y post-book diagnostic exited 1 on the sparse local source path. A Drive keyword search did not find source files that were visible through their canonical folder, including price parquet files and a candidate book. Remote metadata is not verified replay input: GitHub artifact and Drive manifest body transfers returned HTTP 403 here. Preserve that distinction in handoffs. Calendar length, old control metrics, current qualitative captures, and software CI are not new-method historical performance. Keep performance null until actual source bytes, chronology, frozen comparisons and costs pass. The public repository handoff excludes private Drive identifiers and download links.

@@ -47,6 +47,10 @@ CHILD_ENV = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
 # weekly leader sidecar, broker position/execution policy, operating
 # target books, and the leakage audit. Each is fast (< 30 s).
 DEFAULT_TESTS: list[tuple[str, list[str]]] = [
+    ("tests/research_workflow_funding_smoke.py", []),
+    ("tests/research_workflow_source_smoke.py", []),
+    ("tests/research_workflow_quality_smoke.py", []),
+    ("tests/research_quality_v1_smoke.py", []),
     ("tests/research_decision_v1_data_smoke.py", []),
     ("tests/research_decision_v1_decision_smoke.py", []),
     ("tests/api_credentials_check_smoke.py", []),
@@ -287,7 +291,8 @@ def run_one(rel_path: str, extra_args: list[str], quiet: bool) -> tuple[bool, fl
     if not full.exists():
         return False, 0.0, f"missing test file: {rel_path}"
     start = time.monotonic()
-    cmd = [sys.executable, str(full), *extra_args]
+    isolated = ["-I"] if Path(rel_path).name.startswith("research_") else []
+    cmd = [sys.executable, *isolated, str(full), *extra_args]
     proc = subprocess.run(cmd, capture_output=True, text=True, env=CHILD_ENV, encoding="utf-8", errors="replace")
     elapsed = time.monotonic() - start
     if proc.returncode != 0:

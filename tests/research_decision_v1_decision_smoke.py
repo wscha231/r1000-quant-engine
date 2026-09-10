@@ -286,6 +286,8 @@ class DecisionTests(unittest.TestCase):
         incumbent = next(r for r in out["portfolio_proposal"]["rows"] if r["security_id"] == "US:INCUMBENT")
         self.assert_hold_accounting(out["portfolio_proposal"], "US:INCUMBENT", .2, expected_ready=False)
         self.assertIn("keep_incumbent_replacement_not_cost_justified", incumbent["reasons"])
+        self.assertGreater(incumbent["target_weight"], .2)
+        self.assertFalse(out["portfolio_proposal"]["ready"])
         self.assertTrue(out["portfolio_proposal"]["constraints"]["violations"])
 
     def test_nonpositive_metric_blocks_each_supported_valuation_method(self):
@@ -625,7 +627,8 @@ print('guarded 9 invalid cases under optimization')
             risk = security["blocks"]["risk"]; ticker=security["ticker"]
             risk["payload"]["stress_loss"] = .3
             risk["payload"]["exposures"] = {"industry:"+("blocked" if ticker in {"OLD1","OLD2","AAA","BBB","CCC"} else ticker):1., "theme:"+ticker:1., "customer:"+ticker:.2}; rehash(risk)
-        out = evaluate(b, book_context({"US:OLD1":.2,"US:OLD2":.2}))["portfolio_proposal"]
+        ctx=book_context({"US:OLD1":.2,"US:OLD2":.2})
+        out = evaluate(b, ctx)["portfolio_proposal"]
         targets={r["security_id"]:r["target_weight"] for r in out["rows"]}
         for sid in ("US:OLD1", "US:OLD2"):
             self.assert_hold_accounting(out, sid, .2, expected_ready=False)
