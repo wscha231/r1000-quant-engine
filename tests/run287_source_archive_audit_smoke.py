@@ -32,6 +32,16 @@ class ArchiveAuditTests(unittest.TestCase):
             self.assertFalse(result['artifact_identity_verified'])
             self.assertNotIn('books',result)
 
+    def test_static_profile_is_separate_and_also_requires_exact_bytes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'source.zip';path.write_bytes(b'not the frozen static archive')
+            result=audit.audit_archive(path,source_profile='frozen_static')
+            self.assertEqual(result['status'],'SOURCE_IDENTITY_FAILED')
+            self.assertEqual(result['source_profile'],'frozen_static')
+            self.assertIsNone(result['artifact_id'])
+            self.assertIsNone(result['source_run_id'])
+            self.assertFalse(result['artifact_identity_verified'])
+
     def test_manifest_only_never_counts_as_prices(self):
         result=self.inspect([('cache_prices/replay_price_cache_manifest.json','{"start":"2016-01-01","end":"2026-09-09","status":"completed"}')])
         self.assertEqual(result['price_cache']['parquet_files'],0)
@@ -62,6 +72,28 @@ class ArchiveAuditTests(unittest.TestCase):
         self.assertEqual(prices['parquet_files'],1);self.assertEqual(prices['total_rows'],2)
         self.assertEqual(prices['common_start'],'2019-05-09');self.assertEqual(prices['common_end'],'2026-06-23')
         self.assertFalse(prices['missing_session_and_lifecycle_checks_completed'])
+
+    def test_alternate_format_inventory_does_not_certify_cache_or_leak_names(self):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        data=io.BytesIO()
+        pq.write_table(pa.table({'date':['2026-06-23'],'close':[200.], 'SECRET_COLUMN':['private']}),data)
+        result=self.inspect([('private_folder/private.parquet',data.getvalue()),
+            ('private_folder/prices.csv','date,close,SECRET_COLUMN\n2026-09-09,100,SECRET_ROW\n'),
+            ('private_folder/opaque.pkl',b'never deserialize pickle')])
+        inventory=result['format_inventory']
+        self.assertEqual(inventory['csv_price_header_candidates'],1)
+        self.assertEqual(inventory['other_parquet'][0]['rows'],1)
+        self.assertFalse(inventory['other_parquet'][0]['matches_missing_macro_anchor_hash'])
+        self.assertEqual(result['price_cache']['parquet_files'],0)
+        self.assertFalse(result['research_replay_ready'])
+        for private in ('private_folder','SECRET_COLUMN','SECRET_ROW','never deserialize'):
+            self.assertNotIn(private,json.dumps(result))
+
+    def test_csv_header_scan_is_bounded(self):
+        result=audit.csv_header_inventory(io.BytesIO(b'x'*65537+b'\ndate,close\n'))
+        self.assertEqual(result['status'],'HEADER_TOO_LARGE')
+        self.assertFalse(result['price_header_candidate'])
 
     def test_traversal_duplicates_and_symlinks_rejected(self):
         for name in ('../escape.csv','/absolute.csv','C:/drive.csv','safe\\escape.csv'):

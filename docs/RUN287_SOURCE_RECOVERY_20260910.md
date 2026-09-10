@@ -1,5 +1,56 @@
 # Run287 source archive recovery — 2026-09-10
 
+## Verified result, not a new backtest
+
+[Source audit run 34450814925](https://github.com/wscha231/r1000-quant-engine/actions/runs/34450814925),
+job `102785917503`, succeeded on audit source
+`7f6467db083bd6175f502df5295a71c993fd9df2`. It opened the original ZIP inside
+Actions and verified all **369,243,166 bytes** against the frozen SHA256.
+The original failed run remains failed. Its ZIP contains 1,391 files totaling
+1,349,507,015 expanded bytes. The aggregate JSON and report-artifact identity
+are retained in `docs/run287_source_recovery_evidence.json`.
+
+| Actual inspected input | Result | Consequence |
+|---|---|---|
+| Raw and SEC-enriched candidate books | Each 47,435 rows, 981 tickers, 85 decision dates, 2019-05-31 through 2026-05-29 | Candidates do not extend through the requested 2026-09-09 close. |
+| Official Main / Concentrated targets | 1,207 / 545 rows, 317 / 188 tickers, 86 decision dates, through 2026-07-02 | These are archived targets, not new USD100k strategy decisions. |
+| Frozen six-file source contract | Five expected member hashes matched; macro Parquet absent at expected suffix | Recover the exact separately stored macro bytes; a same-name file is insufficient. |
+| Candidate provenance | `feature_available_from` and `valuation_price_cutoff_date` absent from both candidate books | Zero detected future rows cannot certify PIT when the columns are absent. |
+| Recognized Parquet price-cache directories | Zero files, one other Parquet in the ZIP | A price manifest is insufficient to reproduce fills. Other formats require separate inspection. |
+
+Current `full_rebuild_manual.yml` uploads the cache manifest, not raw price
+Parquet files, in the official evidence artifact. The source run's collector
+and engine cache logs both report cache misses; their post-save steps were
+skipped. Do not assume the original run created a recoverable Actions cache.
+
+Additional read-only Drive inspection on 2026-09-10 found a separate
+`run287_exact_static_archive_v1.zip` (38,646,212 bytes, modified 2026-07-14).
+The existing repository builder specifies 363 price-map files, and the
+operating workflow pins its ZIP SHA256 to
+`66ca4b6a6a61cb7e9a3a47e2f6d26aa42f30a9b96a25d07699c6cdeb8faf1d84`.
+These are metadata and code-contract facts until its bytes pass the audit.
+The audit now restores **only that existing exact cache key** with
+`actions/cache/restore`; it never saves a cache or runs the daily workflow.
+No Drive credentials are introduced into PR execution. Cache absence is an
+explicit `SOURCE_NOT_AVAILABLE`, and a wrong hash is a failed source audit.
+
+The mutable Drive cache manifest, modified 2026-09-05, declares 80 cached
+tickers, a 400-ticker book, maximum date 2026-09-04, and common end 2026-07-02.
+Its folder's bounded first page contains 99 Parquet files plus the manifest;
+neither that partial listing nor the manifest certifies the folder's complete
+coverage. A same-name macro file exists but was modified 2026-05-26, so it
+cannot be silently substituted for the pinned July source. Streamed file
+references have not materialized usable bytes in the workspace. Private Drive
+identifiers, transfer references and raw source payloads are not published.
+
+Remaining gates: verify the static archive's actual file hashes/dates; recover
+the pinned macro input and historical release/availability evidence; establish
+the full historical investable universe including lifecycle/delistings; extend
+price/corporate-action/FX and decision inputs through 2026-09-09; then run
+source-only and post-book preflights. Historical quality/H1 inputs must be
+contemporaneous. The initial capital remains USD100,000; no current research
+judgment is copied backward and no new CAGR/MDD/Sharpe is claimed here.
+
 The user requested continued real-data recovery and baseline reproduction after
 PR #409. Its head `3eb068e76d676ec3fc75288b645db8448615aa2d` passed PR Validation
 `34435823730` and Portfolio System Guard `34435823724`. It remains unmerged.
@@ -53,7 +104,7 @@ python tools/audit_run287_source_archive.py --download \
   --output "$RUNNER_TEMP/run287-source-audit/report.json"
 ```
 
-The eight offline tests passed: archive identity, manifest-only rejection,
+The initial eight offline tests passed: archive identity, manifest-only rejection,
 date/provenance coverage, actual Parquet scanning, traversal/duplicate/symlink
 rejection, ambiguous anchors, sensitive-field suppression, and contract hashes.
 The existing registered clean7y suite calls them; no protected runner pin,
@@ -74,3 +125,10 @@ recalculation. The next step uses actual audit coverage to select the missing
 source path, then runs source-only and post-book preflight before any baseline
 reproduction. A new performance result is never manufactured from old summary
 metrics or renamed current snapshots.
+
+The extended audit has eleven offline regressions. It inventories bounded CSV
+headers without publishing unknown column names or rows, scans every Parquet
+even outside recognized cache folders, tests the separate static source
+identity, and never decodes pickle/opaque executable formats. Header similarity
+alone remains unverified coverage. The original eight-test remote source audit
+is observed evidence; extended-code validation is recorded separately in PR410.

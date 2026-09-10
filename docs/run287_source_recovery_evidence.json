@@ -1,0 +1,150 @@
+{
+  "evidence_run_id": 34450814925,
+  "evidence_job_id": 102785917503,
+  "evidence_artifact_id": 10141467433,
+  "evidence_artifact_zip_sha256": "b6bac31880ba29d8cd80c2ec43f8706d95f193e9ce30ee33114d2e653554ae5c",
+  "report": {
+    "accepted_state_modified": false,
+    "archive_bytes": 369243166,
+    "archive_matches_expected": true,
+    "archive_sha256": "ebdbbe7e764b735ca129f662c42ec80b68659f4e3196b5a364cf32c506c4c818",
+    "artifact_id": 8088582521,
+    "artifact_identity_verified": true,
+    "audit_source_commit": "7f6467db083bd6175f502df5295a71c993fd9df2",
+    "books": [
+      {
+        "dates": {
+          "rebalance_date": {
+            "first": "2019-05-31",
+            "invalid_or_missing": 0,
+            "last": "2026-07-02"
+          }
+        },
+        "decision_sessions": 86,
+        "features_after_decision_day_rows": 0,
+        "has_2019_05_31_decision": true,
+        "intraday_pit_verified": false,
+        "member_id": "a4089e89c36e42177539f366e07a5cb3c1c5c54f2bbb2d081efa4f0b142d1b47",
+        "name": "official_concentrated_target_book.csv",
+        "prices_after_decision_day_rows": 0,
+        "required_provenance_columns_present": false,
+        "rows": 545,
+        "unique_tickers": 188
+      },
+      {
+        "dates": {
+          "rebalance_date": {
+            "first": "2019-05-31",
+            "invalid_or_missing": 0,
+            "last": "2026-07-02"
+          }
+        },
+        "decision_sessions": 86,
+        "features_after_decision_day_rows": 0,
+        "has_2019_05_31_decision": true,
+        "intraday_pit_verified": false,
+        "member_id": "e508f69387c0dbf639148372243bbfac4a599ac217931d0e5b95a6337001c574",
+        "name": "official_main_target_book.csv",
+        "prices_after_decision_day_rows": 0,
+        "required_provenance_columns_present": false,
+        "rows": 1207,
+        "unique_tickers": 317
+      },
+      {
+        "dates": {
+          "rebalance_date": {
+            "first": "2019-05-31",
+            "invalid_or_missing": 0,
+            "last": "2026-05-29"
+          }
+        },
+        "decision_sessions": 85,
+        "features_after_decision_day_rows": 0,
+        "has_2019_05_31_decision": true,
+        "intraday_pit_verified": false,
+        "member_id": "49a990d9d86b0d1396bdf686fa2393ed86a3af13201fa7da23f815b0d0148de0",
+        "name": "candidate_replay_book.csv",
+        "prices_after_decision_day_rows": 0,
+        "required_provenance_columns_present": false,
+        "rows": 47435,
+        "unique_tickers": 981
+      },
+      {
+        "dates": {
+          "rebalance_date": {
+            "first": "2019-05-31",
+            "invalid_or_missing": 0,
+            "last": "2026-05-29"
+          }
+        },
+        "decision_sessions": 85,
+        "features_after_decision_day_rows": 0,
+        "has_2019_05_31_decision": true,
+        "intraday_pit_verified": false,
+        "member_id": "2c0f62aaa82ee307dd0f66eb77343c776c863ef606c038a5921142c575fe336b",
+        "name": "candidate_replay_book_sec_enriched.csv",
+        "prices_after_decision_day_rows": 0,
+        "required_provenance_columns_present": false,
+        "rows": 47435,
+        "unique_tickers": 981
+      }
+    ],
+    "contract_files": {
+      "candidate_replay_book": {
+        "hash_verified": true,
+        "match_count": 1,
+        "sha256": "7ffa0b27382d303008ffca55878b259ccf7f11beaee28be6f1e4653c30e97989"
+      },
+      "long_crisis_features": {
+        "hash_verified": false,
+        "match_count": 0
+      },
+      "long_crisis_thresholds": {
+        "hash_verified": true,
+        "match_count": 1,
+        "sha256": "d108c017e301f6929e1441827d5a19c02beb0d89727dbbff40f94f3e504d2da2"
+      },
+      "raw_candidate_replay_book": {
+        "hash_verified": true,
+        "match_count": 1,
+        "sha256": "2b4bc9db22e573f07e91bcdd94db51c6ce4381dacc7e4268618b189d09eaaafc"
+      },
+      "selector_metadata": {
+        "hash_verified": true,
+        "match_count": 1,
+        "sha256": "dff267f66964c499ad8095f456949648aae29d8111de66f4d5c3a85a620b644a"
+      },
+      "target_generation_input_manifest": {
+        "hash_verified": true,
+        "match_count": 1,
+        "sha256": "7451166d8132c7e3fbd3eb75f7ecdd095e86e482b9202c2e0e0a2b1189ba6ff7"
+      }
+    },
+    "data_kind": "REAL",
+    "expanded_bytes": 1349507015,
+    "historical_pit_certified": false,
+    "member_count": 1391,
+    "next_gate": "source_only_and_post_book_preflight_with_verified_price_lifecycle_and_pit_inputs",
+    "orders_allowed": false,
+    "performance_recomputed": false,
+    "price_cache": {
+      "all_files_dated": false,
+      "common_end": null,
+      "common_start": null,
+      "date_scanned_files": 0,
+      "earliest_date": null,
+      "file_observations_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "latest_date": null,
+      "missing_session_and_lifecycle_checks_completed": false,
+      "other_parquet_files": 1,
+      "parquet_files": 0,
+      "total_rows": 0
+    },
+    "reported_metric_files": [],
+    "research_replay_ready": false,
+    "schema_version": "run287-source-archive-audit-v1",
+    "source_run_head": "15176b588d5bb0792bce1df6367758d795a8a33a",
+    "source_run_id": 28725350727,
+    "status": "AUDIT_COMPLETED"
+  }
+}

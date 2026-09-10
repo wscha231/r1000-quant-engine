@@ -23,12 +23,18 @@ RUN_ID = 28725350727
 SOURCE_SHA = "15176b588d5bb0792bce1df6367758d795a8a33a"
 ARCHIVE_BYTES = 369243166
 ARCHIVE_SHA256 = "ebdbbe7e764b735ca129f662c42ec80b68659f4e3196b5a364cf32c506c4c818"
+STATIC_ARCHIVE_SHA256 = "66ca4b6a6a61cb7e9a3a47e2f6d26aa42f30a9b96a25d07699c6cdeb8faf1d84"
+STATIC_ARCHIVE_BYTES = 38646212
 MAX_MEMBERS, MAX_EXPANDED_BYTES = 50000, 8_000_000_000
 DATE_FIELDS = ("rebalance_date", "date", "session", "valuation_price_cutoff_date", "feature_available_from")
 CSV_NAMES = {"candidate_replay_book.csv", "candidate_replay_book_sec_enriched.csv",
     "operating_main_target_book.csv", "operating_concentrated_target_book.csv",
     "official_main_target_book.csv", "official_concentrated_target_book.csv"}
 CACHE_PARTS = {"cache_prices", "price_cache", "replay_price_cache", "cache_ohlcv"}
+TABLE_FIELDS = set(DATE_FIELDS) | {"Date", "timestamp", "Datetime", "ticker", "symbol",
+    "open", "high", "low", "close", "adj_close", "Adj Close", "volume", "equity",
+    "nav", "cash", "portfolio_return", "daily_return", "available_at", "published_at",
+    "accepted_at", "filing_date", "accession", "macro_regime", "crisis_state"}
 EXPECTED = {
     "raw_candidate_replay_book": ("outputs/reports/candidate_replay_book.csv", "2b4bc9db22e573f07e91bcdd94db51c6ce4381dacc7e4268618b189d09eaaafc"),
     "candidate_replay_book": ("outputs/sec_enriched_candidate_replay/candidate_replay_book_sec_enriched.csv", "7ffa0b27382d303008ffca55878b259ccf7f11beaee28be6f1e4653c30e97989"),
@@ -117,6 +123,8 @@ def parquet_coverage(archive, member):
             for block in iter(lambda: source.read(1024 * 1024), b""):
                 tmp.write(block)
         tmp.seek(0)
+        file_hash = sha256(tmp)
+        tmp.seek(0)
         parquet = pq.ParquetFile(tmp)
         columns = parquet.schema_arrow.names
         selected = next((c for c in ("date", "Date", "session", "timestamp", "Datetime", "__index_level_0__") if c in columns), None)
@@ -129,7 +137,27 @@ def parquet_coverage(archive, member):
                     else: first, last = min(first or day, day), max(last or day, day)
         return {"rows": parquet.metadata.num_rows, "date_observations": observations,
             "first": first, "last": last, "invalid_dates": invalid, "date_column_found": selected is not None,
+            "sha256": file_hash, "column_count": len(columns),
+            "recognized_fields": sorted(TABLE_FIELDS & set(columns)),
             "has_close_column": any(c.lower() in {"close", "adj close", "adj_close"} for c in columns)}
+
+
+def csv_header_inventory(stream):
+    # Inspect a bounded header only: unknown provider column names and all rows
+    # stay private. Header resemblance is not proof of usable price coverage.
+    raw = stream.readline(65537)
+    if len(raw) > 65536:
+        return {"status": "HEADER_TOO_LARGE", "price_header_candidate": False}
+    try:
+        fields = next(csv.reader([raw.decode("utf-8-sig")]))
+    except (UnicodeError, csv.Error, StopIteration):
+        return {"status": "HEADER_UNREADABLE", "price_header_candidate": False}
+    lowered = {f.lower() for f in fields}
+    return {"status": "HEADER_INSPECTED", "column_count": len(fields),
+        "recognized_fields": sorted(TABLE_FIELDS & set(fields)),
+        "price_header_candidate": bool(lowered & {"date", "session", "timestamp", "datetime"}) and
+            bool(lowered & {"close", "adj close", "adj_close"}),
+        "observations_verified": False}
 
 
 def metric_summary(value):
@@ -147,13 +175,21 @@ def metric_summary(value):
     return result
 
 
-def audit_archive(path, *, expected_hash=ARCHIVE_SHA256, expected_bytes=ARCHIVE_BYTES):
+def audit_archive(path, *, source_profile="official", expected_hash=None, expected_bytes=None):
+    if source_profile not in {"official", "frozen_static"}:
+        raise ValueError("unknown_source_profile")
+    frozen_static = source_profile == "frozen_static"
+    pinned_hash = STATIC_ARCHIVE_SHA256 if frozen_static else ARCHIVE_SHA256
+    pinned_bytes = STATIC_ARCHIVE_BYTES if frozen_static else ARCHIVE_BYTES
+    expected_hash = pinned_hash if expected_hash is None else expected_hash
+    expected_bytes = pinned_bytes if expected_bytes is None else expected_bytes
     path = Path(path)
     with path.open("rb") as source: actual_hash = sha256(source)
     matches = actual_hash == expected_hash and path.stat().st_size == expected_bytes
-    official = expected_hash == ARCHIVE_SHA256 and expected_bytes == ARCHIVE_BYTES
-    result = {"schema_version": "run287-source-archive-audit-v1", "artifact_id": ARTIFACT_ID,
-        "source_run_id": RUN_ID, "source_run_head": SOURCE_SHA,
+    official = expected_hash == pinned_hash and expected_bytes == pinned_bytes
+    result = {"schema_version": "run287-source-archive-audit-v1", "source_profile": source_profile,
+        "artifact_id": None if frozen_static else ARTIFACT_ID,
+        "source_run_id": None if frozen_static else RUN_ID, "source_run_head": None if frozen_static else SOURCE_SHA,
         "archive_bytes": path.stat().st_size, "archive_sha256": actual_hash,
         "data_kind": "REAL" if official else "SYNTHETIC_TEST_ONLY",
         "archive_matches_expected": matches, "artifact_identity_verified": matches and official,
@@ -174,11 +210,18 @@ def audit_archive(path, *, expected_hash=ARCHIVE_SHA256, expected_bytes=ARCHIVE_
             anchors[key] = entry
         result["contract_files"] = anchors
         result["books"], result["reported_metric_files"] = [], []
+        inventory = {"formats": {}, "csv_headers": [], "other_parquet": []}
         prices = []
         other_parquet = 0
         for member in members:
             name = PurePosixPath(member.filename).name
             identity = hashlib.sha256(member.filename.encode()).hexdigest()
+            suffix = PurePosixPath(name).suffix.lower()
+            format_label = suffix if suffix in {".csv", ".json", ".parquet", ".jsonl", ".pkl", ".pickle", ".feather", ".zip", ".gz", ".md", ".html", ".log", ".txt"} else "other"
+            inventory["formats"][format_label] = inventory["formats"].get(format_label, 0) + 1
+            if suffix == ".csv":
+                with archive.open(member) as source: header = csv_header_inventory(source)
+                inventory["csv_headers"].append(header)
             if name in CSV_NAMES:
                 with archive.open(member) as source: info = csv_coverage(source)
                 result["books"].append(dict(info, name=name, member_id=identity))
@@ -189,7 +232,20 @@ def audit_archive(path, *, expected_hash=ARCHIVE_SHA256, expected_bytes=ARCHIVE_
             elif name.endswith(".parquet"):
                 if CACHE_PARTS & set(PurePosixPath(member.filename).parts):
                     prices.append(dict(parquet_coverage(archive, member), member_id=identity))
-                else: other_parquet += 1
+                else:
+                    other_parquet += 1
+                    info = parquet_coverage(archive, member)
+                    info["matches_missing_macro_anchor_hash"] = info["sha256"] == EXPECTED["long_crisis_features"][1]
+                    inventory["other_parquet"].append(dict(info, member_id=identity))
+        inventory["csv_price_header_candidates"] = sum(x["price_header_candidate"] for x in inventory["csv_headers"])
+        groups = {}
+        for header in inventory["csv_headers"]:
+            group = json.dumps(header, sort_keys=True)
+            if group not in groups: groups[group] = dict(header, file_count=0)
+            groups[group]["file_count"] += 1
+        inventory["csv_headers"] = list(groups.values())
+        inventory["all_formats_decoded"] = False
+        result["format_inventory"] = inventory
         covered = [p for p in prices if p["first"] and p["last"]]
         result["price_cache"] = {"parquet_files": len(prices), "other_parquet_files": other_parquet,
             "date_scanned_files": len(covered), "total_rows": sum(p["rows"] for p in prices),
@@ -209,6 +265,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--zip", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--static-zip", help="Optional read-only cache copy of the separately hash-pinned static archive.")
     parser.add_argument("--download", action="store_true", help="Fetch only the fixed official artifact via existing gh authentication.")
     args = parser.parse_args()
     path = Path(args.zip)
@@ -221,6 +278,12 @@ def main():
                                    stdout=target, stderr=subprocess.DEVNULL, timeout=300, check=False)
             if p.returncode: raise ValueError("source_download_failed")
         report = audit_archive(path)
+        if args.static_zip:
+            static = Path(args.static_zip)
+            report["frozen_static_archive"] = audit_archive(static, source_profile="frozen_static") if static.is_file() else {
+                "status": "SOURCE_NOT_AVAILABLE", "source_profile": "frozen_static",
+                "artifact_identity_verified": False, "research_replay_ready": False,
+                "historical_pit_certified": False, "performance_recomputed": False}
     except Exception as exc:
         safe = {"archive_size_bound", "unsafe_or_duplicate_archive_member", "csv_row_bound", "parquet_file_bound",
                 "download_destination_exists", "source_download_failed"}
@@ -232,7 +295,8 @@ def main():
     with output.open("x", encoding="utf-8") as target:
         target.write(json.dumps(report, sort_keys=True, indent=2) + "\n")
     print("SOURCE_AUDIT_JSON=" + json.dumps(report, sort_keys=True))
-    return 0 if report["status"] == "AUDIT_COMPLETED" else 2
+    static_status = report.get("frozen_static_archive", {}).get("status", "SOURCE_NOT_AVAILABLE")
+    return 0 if report["status"] == "AUDIT_COMPLETED" and static_status in {"AUDIT_COMPLETED", "SOURCE_NOT_AVAILABLE"} else 2
 
 
 if __name__ == "__main__":

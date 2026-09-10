@@ -13,6 +13,14 @@
   fund result. Existing source-only/post-book/PIT gates remain necessary.
 - Evidence: `docs/RUN287_SOURCE_RECOVERY_20260910.md`; eight archive regressions
   run through the already registered clean7y preflight smoke suite.
+- Actual run `34450814925` verified the original 369,243,166-byte ZIP. Five
+  frozen anchors matched; candidate books contain 981 tickers through May 29
+  but lack required availability/cutoff columns. Raw cache prices were not
+  uploaded. Original collector/engine cache saves were skipped after failure.
+- A separately pinned static archive has its own read-only Actions cache key.
+  Inspect it under its distinct source identity; never call it the original
+  source-run artifact or infer historical universe/PIT from price histories.
+  The extended eleven-test audit checks alternate formats and bounded headers.
 
 This is the shared "mistake notebook" for Codex, Claude, GPT Pro, and any other
 agent working on `wscha231/r1000-quant-engine`.
