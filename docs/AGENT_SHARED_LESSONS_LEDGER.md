@@ -17,6 +17,11 @@
 - Reviewed adverse quality or historical membership removal can justify an
   explicit exit; missing quality evidence cannot. Known risk cuts in the new
   opt-in fund mode take precedence over intact-thesis HOLD hysteresis.
+- Final review found that pending orders could defer new adverse information.
+  Cancel only the simulated unfilled remainder at a new decision, retaining
+  already filled shares/cash, then reevaluate risk. Reconcile latest H1 share
+  volume as well as price to the execution marks; the regression uses a partial
+  BUY followed by reviewed adverse quality and an actual exit.
 - New development comparison uses after-cost USD CAGR consistently, including
   CSCV selection. Frozen Sharpe-era promotion evidence is not relabelled; full
   trial history, independent source/preregistration/OOS evidence remain required.

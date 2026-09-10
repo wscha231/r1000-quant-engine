@@ -192,6 +192,12 @@ class FullFundTests(unittest.TestCase):
 
     def test_verified_adverse_quality_exits_without_becoming_missing_data(self):
         spec,events,packets=fixture()
+        # An old partially filled BUY must not postpone the adverse update.
+        events[1]['quotes'][0]['volume']=100.
+        raw=packets['two']['market_exports'][0]['input_snapshot']
+        pb=raw['securities'][0]['blocks']['price'];pb['payload']['bars'][-1]['volume']=100.
+        pb['data_hash']=data.digest(pb['payload'])
+        packets['two']['market_exports']=[data.export_market(raw,'US')]
         entry=packets['two']['quality_bundle']['assessments']['US:TEST']
         entry['packet']['claims'][4].update(impact='adverse',severity='critical')
         entry['receipt']=receipt(entry['packet'],entry['corpus'])
@@ -199,6 +205,7 @@ class FullFundTests(unittest.TestCase):
         self.assertEqual(r['status'],'COMPLETED_RESEARCH_REPLAY',r)
         self.assertEqual(r['final_holdings'].get('US:TEST',0.),0.)
         self.assertTrue(any('fund_reviewed_quality_exit' in t.get('reasons',[]) for t in r['trades']))
+        self.assertTrue(any(t['status']=='CANCELLED_NEW_DECISION' for t in r['trades']))
 
     def test_membership_exit_keeps_risk_evidence_and_liquidates(self):
         spec,events,packets=fixture()

@@ -98,7 +98,7 @@ Decision event: `type=decision`, `time`, `packet={path,sha256}`. Its packet has:
 
 H1 admission is recomputed. Its financial publication/first-seen/ingestion
 times, price/corporate-action basis and exchange clocks are not overridden.
-Admitted decision prices must equal the simulator's available raw marks.
+Admitted decision prices and latest share volumes must equal the simulator's available raw marks.
 Current collection cannot be backdated into historical H1/quality admission.
 All selected/held evidence must support a ready proposal. A reviewed negative
 quality verdict can exclude or exit; unreviewed input blocks performance.
@@ -125,8 +125,9 @@ alpha weight or reuse a rejected portfolio rule.
   income taxes are not modeled. No negative cash or external funding is allowed.
 - Buy gaps scale affordable whole-share purchases. Prior H1 ADV limits order
   capacity; actual session volume only caps achievable fills. Halts, partial
-  fills and expiry are logged. A pending order defers a new proposal rather
-  than disappearing from the account. Post-fill price drift can breach a
+  fills and expiry are logged. At each new decision, explicitly cancel the
+  unfilled remainder and reevaluate the actual filled book. An old pending BUY
+  cannot suppress fresh risk/quality exits. Post-fill price drift can breach a
   target exposure; the next decision enforces reductions, not a hindsight fill.
 - The new frozen config opts into risk-cap reductions and reviewed quality,
   membership and hold-hurdle exits before HOLD preservation. Old one-shot

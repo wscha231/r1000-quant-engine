@@ -23,5 +23,14 @@
   "optimized_python_fund_tests": 27,
   "archived_input_cli_replay_exit": 0,
   "archived_input_semantic_result_identical": true,
-  "protected_runner_registration_ancestor": "9994cc9a1b9d22e28ce6f2d431d3d16f3b0d631d"
+  "protected_runner_registration_ancestor": "9994cc9a1b9d22e28ce6f2d431d3d16f3b0d631d",
+  "followup": {
+    "fund_tests": 27,
+    "pending_order_reconciliation": "cancel_unfilled_before_fresh_risk_decision",
+    "latest_price_and_volume_reconciled": true,
+    "file_sha256": {
+      "tools/research_decision_v1/fund_replay.py": "95f0d5f8480f1eb602473c3caa28753f678b1cfda0d4ca500efa50d9fa697d35",
+      "tests/research_fund_replay_smoke.py": "a6404f5b227f5a47b9228a008a81a00ad0415ac527b65ce86ffaff43a8dc8e1b"
+    }
+  }
 }

@@ -323,14 +323,18 @@ class Fund:
             require(quote is not None and timestamp(quote["available_at"]) <= now, "fund_decision_quote_unavailable")
             require(s["discovery"]["required_session"] == quote["session"] and
                     math.isclose(s["discovery"]["price"],quote["close"],rel_tol=1e-10), "fund_decision_price_reconciliation")
+            require(math.isclose(s["blocks"]["price"]["payload"]["bars"][-1]["volume"],quote["volume"],rel_tol=1e-10),
+                    "fund_decision_volume_reconciliation")
         ctx=copy.deepcopy(packet["context"])
         if "KR" in self.markets:
             require(math.isclose(number(ctx["fx"]["spot"],positive=True), self.fx,rel_tol=1e-10), "fund_decision_fx_reconciliation")
         if self.pending:
-            record=dict(time=event["time"],status="DEFERRED_PENDING_FILLS",packet_hash=digest(packet),input_reference=copy.deepcopy(event["packet"]))
-            if self.decision_sink: record["archive"]=self.decision_sink(record,packet)
-            self.decisions.append(record)
-            return
+            # Reconcile the simulated open-order book before evaluating fresh
+            # risk. A halted/partial old BUY cannot suppress a new risk-off or
+            # thesis-exit decision. Filled shares and cash are never reset.
+            for order in self.pending.values():
+                self.trades.append(dict(order,status="CANCELLED_NEW_DECISION",time=event["time"]))
+            self.pending.clear()
         nav,values,receivables=self.equity()
         spendable_nav=nav-receivables
         require(spendable_nav > 0, "fund_no_spendable_capital")
@@ -464,6 +468,7 @@ def replay(manifest, events, config, packet_loader, *, now=None, decision_sink=N
             "final_holdings":fund.daily[-1]["shares"],"final_cash_usd":fund.cash,
             "cash_carry_mode":"none","personal_income_tax_included":False,
             "fx_policy":"automatic_conversion_to_usd_at_observed_rate_with_declared_cost",
+            "pending_order_policy":"cancel_unfilled_remainder_before_each_new_decision",
             "benchmark_policy":"fixed_initial_weights_buy_and_hold_total_return_indices_in_usd"}
         fills=[r for r in fund.trades if r["status"] == "FILLED"]
         result["metrics"].update(trade_count=len(fills),transaction_cost_usd=sum(r["cost_usd"] for r in fills),
