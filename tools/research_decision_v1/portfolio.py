@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import re
 from tools.research_decision_v1.data import number, source_url, timestamp
+from tools.research_decision_v1.currency import base_currency, capital as account_capital, local_to_base, scenario_fx_ratio, with_capital
 
 
 def context_errors(context, config, cutoff):
@@ -16,7 +17,7 @@ def context_errors(context, config, cutoff):
         if context["mode"] not in {"NEW_CAPITAL_RESEARCH", "EXISTING_BOOK_PROPOSAL"}: errors.append("invalid_account_mode")
     except (ValueError, KeyError, TypeError): errors.append("account_context_unverified")
     try:
-        number(context["capital_krw"], positive=True)
+        account_capital(context)
     except (ValueError, KeyError, TypeError): errors.append("capital_unverified")
     try:
         fx = context["fx"]
@@ -53,33 +54,39 @@ def enforce_quality_questions(row):
 
 def add_fx_returns(rows, context, config, fx_valid):
     for row in rows:
-        row.update(expected_total_return_krw=None, expected_net_return_krw=None, investment_rank=None, expected_return_rank=None,
+        row.update(expected_total_return_base=None, expected_net_return_base=None, investment_rank=None, expected_return_rank=None,
                    investment_rank_local=None, expected_return_rank_local=None)
         if not row["valuation_ready"]: continue
         row.setdefault("four_questions_local", dict(row["four_questions"]))
-        row["question_currency"] = "KRW"
+        row["question_currency"] = base_currency(context)
         benchmark = context.get("benchmark_expected_returns", {}).get(row["market"])
         if benchmark is not None:
             number(benchmark)
             row["expected_excess_return"] = row["expected_total_return"] - benchmark
             row["benchmark_forecast_type"] = "SUBJECTIVE_SCENARIO"
-        if not fx_valid and row["currency"] != "KRW":
+        if not fx_valid and row["currency"] != base_currency(context):
             row["four_questions"].update(good_stock="unverified_fx", buy_price_now="unverified_fx")
             enforce_quality_questions(row)
             continue
         converted = []
         for s in row["scenarios"]:
-            ratio = context["fx"]["scenario_rates"][s["name"]]/context["fx"]["spot"] if row["currency"] == "USD" else 1.
-            converted.append({"name": s["name"], "probability": s["probability"], "total_return_krw": (1+s["total_return"])*ratio-1., "fx_ratio": ratio})
-        mean = sum(s["probability"]*s["total_return_krw"] for s in converted)
-        values = [s["total_return_krw"] for s in converted]
+            ratio = scenario_fx_ratio(context, row["currency"], s["name"])
+            converted.append({"name": s["name"], "probability": s["probability"], "total_return_base": (1+s["total_return"])*ratio-1., "fx_ratio": ratio})
+        mean = sum(s["probability"]*s["total_return_base"] for s in converted)
+        values = [s["total_return_base"] for s in converted]
         utility = mean - 2*config["one_way_cost_bps"][row["market"]]/10000 - config["downside_penalty"]*max(0., -min(values)) - config["dispersion_penalty"]*(max(values)-min(values)+row["uncertainty"])
-        row.update(scenarios_krw=converted, expected_total_return_krw=mean,
-                   expected_net_return_krw=mean-2*config["one_way_cost_bps"][row["market"]]/10000,
-                   investment_utility_krw=utility)
+        row.update(scenarios_base=converted, expected_total_return_base=mean,
+                   expected_net_return_base=mean-2*config["one_way_cost_bps"][row["market"]]/10000,
+                   investment_utility_base=utility)
         row["four_questions"].update(good_stock="pass" if utility > 0 else "fail",
-                                     buy_price_now="pass" if row["expected_net_return_krw"] >= config["new_entry_net_return"] else "wait")
+                                     buy_price_now="pass" if row["expected_net_return_base"] >= config["new_entry_net_return"] else "wait")
         enforce_quality_questions(row)
+    if base_currency(context) == "KRW":
+        for row in rows:
+            for key in ("expected_total_return", "expected_net_return", "investment_utility", "scenarios"):
+                if key+"_base" in row: row[key+"_krw"] = row[key+"_base"]
+            for scenario in row.get("scenarios_krw", []):
+                scenario["total_return_krw"] = scenario["total_return_base"]
     # Deterministic ID tie-break; no momentum or NONRANKING values in either rank.
     for market in ("US", "KR"):
         group = [r for r in rows if r["market"] == market and r["valuation_ready"]]
@@ -87,8 +94,8 @@ def add_fx_returns(rows, context, config, fx_valid):
         for rank, r in enumerate(sorted((r for r in group if investment_eligible(r)), key=lambda r: (-r["investment_utility"], -r["expected_total_return"], r["security_id"])), 1): r["investment_rank_local"] = rank
     if fx_valid:
         group = [r for r in rows if r["valuation_ready"]]
-        for rank, r in enumerate(sorted(group, key=lambda r: (-r["expected_total_return_krw"], r["security_id"])), 1): r["expected_return_rank"] = rank
-        for rank, r in enumerate(sorted((r for r in group if investment_eligible(r)), key=lambda r: (-r["investment_utility_krw"], -r["expected_total_return_krw"], r["security_id"])), 1): r["investment_rank"] = rank
+        for rank, r in enumerate(sorted(group, key=lambda r: (-r["expected_total_return_base"], r["security_id"])), 1): r["expected_return_rank"] = rank
+        for rank, r in enumerate(sorted((r for r in group if investment_eligible(r)), key=lambda r: (-r["investment_utility_base"], -r["expected_total_return_base"], r["security_id"])), 1): r["investment_rank"] = rank
 
 
 def read_book(context, ids, cutoff):
@@ -97,7 +104,7 @@ def read_book(context, ids, cutoff):
         return {}, 1.
     book = context.get("book", {})
     source_url(book["source"])
-    if book.get("decision_cutoff") != cutoff or book.get("currency") != "KRW": raise ValueError("book_cutoff_or_currency_unverified")
+    if book.get("decision_cutoff") != cutoff or book.get("currency") != base_currency(context): raise ValueError("book_cutoff_or_currency_unverified")
     if not 0 <= (timestamp(cutoff)-timestamp(book["verified_at"])).total_seconds() <= 86400: raise ValueError("book_verification_stale")
     if book.get("pending_orders") != []: raise ValueError("pending_orders_require_reconciliation")
     positions = book["positions"]
@@ -123,10 +130,10 @@ def constraint_audit(weights, securities, rows, context, config, prior=None):
         countries[market] = countries.get(market, 0.) + w
         country_counts[market] = country_counts.get(market, 0) + 1
         for group, exposure in risk["exposures"].items(): groups[group] = groups.get(group, 0.) + w*exposure
-        fx_loss = max(0., 1-min(context["fx"]["scenario_rates"].values())/context["fx"]["spot"]) if market == "US" else 0.
+        fx_loss = max(0., 1-min(scenario_fx_ratio(context, s["currency"], n) for n in ("Bear", "Base", "Bull")))
         shock = max(row.get("downside_loss", 0.), risk["stress_loss"])
         stress += w * (1-(1-shock)*(1-fx_loss))
-        local_capital = context["capital_krw"]/(context["fx"]["spot"] if market == "US" else 1.)
+        local_capital = account_capital(context) / local_to_base(context, s["currency"])
         if context["mode"] == "NEW_CAPITAL_RESEARCH" and w * local_capital > s["discovery"]["adv20_local"] * config["max_adv_participation"] + .01:
             violations.append(sid+":liquidity")
         if w > config["max_security_weight"]+1e-10: violations.append(sid+":concentration")
@@ -139,7 +146,7 @@ def constraint_audit(weights, securities, rows, context, config, prior=None):
         traded_weight = abs(weights.get(sid, 0.) - prior.get(sid, 0.))
         if traded_weight <= 1e-10: continue
         security = securities[sid]
-        local_capital = context["capital_krw"] / (context["fx"]["spot"] if security["market"] == "US" else 1.)
+        local_capital = account_capital(context) / local_to_base(context, security["currency"])
         if traded_weight * local_capital > security["discovery"]["adv20_local"] * config["max_adv_participation"] + .01:
             violations.append(sid+":trade_liquidity")
         if security["blocks"]["risk"]["payload"]["liquidity_restriction"]:
@@ -167,12 +174,12 @@ def feasible_initial_weights(eligible, securities, rows, context, config):
         for row in eligible:
             if row["security_id"] in clipped or count[row["market"]] >= config["target_counts"][row["market"]]: continue
             selected.append(row); count[row["market"]] += 1
-        raw = {r["security_id"]: r["investment_utility_krw"] * securities[r["security_id"]]["blocks"]["thesis"]["payload"]["confidence"] / max(config["min_downside_denominator"], r["downside_loss"], securities[r["security_id"]]["blocks"]["risk"]["payload"]["stress_loss"]) for r in selected}
+        raw = {r["security_id"]: r["investment_utility_base"] * securities[r["security_id"]]["blocks"]["thesis"]["payload"]["confidence"] / max(config["min_downside_denominator"], r["downside_loss"], securities[r["security_id"]]["blocks"]["risk"]["payload"]["stress_loss"]) for r in selected}
         total = sum(raw.values()); budget = config["gross_caps"][context["regime"]["state"]]
         weights = {sid: min(config["max_security_weight"], value/total*budget) if total else 0. for sid, value in raw.items()}
         for sid in weights:
-            security = securities[sid]; fx = context["fx"]["spot"] if security["market"] == "US" else 1.
-            cap = security["discovery"]["adv20_local"] * fx * config["max_adv_participation"] / context["capital_krw"]
+            security = securities[sid]; fx = local_to_base(context, security["currency"])
+            cap = security["discovery"]["adv20_local"] * fx * config["max_adv_participation"] / account_capital(context)
             weights[sid] = min(weights[sid], cap)
         for market in ("US", "KR"):
             members = [sid for sid in weights if securities[sid]["market"] == market]
@@ -199,7 +206,33 @@ def feasible_initial_weights(eligible, securities, rows, context, config):
 
 def replacement_net_improvement(incumbent, candidate, config):
     costs = (config["one_way_cost_bps"][incumbent["market"]] + config["one_way_cost_bps"][candidate["market"]])/10000
-    return candidate["investment_utility_krw"]-incumbent["investment_utility_krw"]-costs
+    return candidate["investment_utility_base"]-incumbent["investment_utility_base"]-costs
+
+
+def reduce_to_risk_caps(weights, securities, rows, context, config):
+    """Opt-in fund simulation: known hard risk cuts precede HOLD hysteresis.
+
+    The maximum round-trip fee reserves denominator room. This only reduces
+    exposures; it does not relax limits or promise a realized maximum drawdown.
+    """
+    room = 1. - 2 * max(config["one_way_cost_bps"].values()) / 10000
+    if not 0 < room <= 1:
+        raise ValueError("fund_risk_cost_domain")
+    out = {sid: min(w, config["max_security_weight"] * room) for sid, w in weights.items()}
+    def shrink(members, limit):
+        amount = sum(out[sid] * exposure for sid, exposure in members.items())
+        factor = min(1., limit * room / amount) if amount else 1.
+        for sid, exposure in members.items():
+            if exposure: out[sid] *= factor
+    shrink({sid: 1. for sid in out}, config["gross_caps"][context["regime"]["state"]])
+    for market in ("US", "KR"):
+        shrink({sid: 1. for sid in out if securities[sid]["market"] == market}, config["country_caps"][market])
+    groups = {g for sid in out for g in securities[sid]["blocks"]["risk"]["payload"]["exposures"]}
+    for group in sorted(groups):
+        shrink({sid: securities[sid]["blocks"]["risk"]["payload"]["exposures"].get(group, 0.) for sid in out}, config["group_caps"][group.split(":")[0]])
+    stress = constraint_audit(out, securities, rows, context, config)["scenario_stress_loss"]
+    factor = min(1., config["max_stress_loss"] * room / stress) if stress else 1.
+    return {sid: w * factor for sid, w in out.items()}
 
 
 
@@ -213,7 +246,7 @@ def fund_targets(desired, prior, securities, context, config):
     proposal rather than silently selling an intact holding or adding capital.
     This is an estimated funding identity, not an execution or tax simulation.
     """
-    capital = number(context["capital_krw"], positive=True)
+    capital = account_capital(context)
     ids = sorted(set(desired) | set(prior))
     targets = {sid: number(desired.get(sid, 0.), nonnegative=True) for sid in ids}
     old = {sid: number(prior.get(sid, 0.), nonnegative=True) for sid in ids}
@@ -248,17 +281,21 @@ def fund_targets(desired, prior, securities, context, config):
             raise ValueError("funding_changes_trade_direction")
     if not math.isclose(sum(amounts.values())+cash+fees,1.,abs_tol=1e-11):
         raise ValueError("funding_conservation_failed")
-    return {"schema_version":"research-self-financing-v1", "initial_nav_krw":capital,
-        "post_cost_nav_krw":capital*scale, "post_cost_nav_fraction":scale,
-        "cost_fraction_initial_nav":fees, "transaction_cost_krw":capital*fees,
+    result = {"schema_version":"research-self-financing-v1", "base_currency":base_currency(context), "initial_nav_base":capital,
+        "post_cost_nav_base":capital*scale, "post_cost_nav_fraction":scale,
+        "cost_fraction_initial_nav":fees, "transaction_cost_base":capital*fees,
         "position_fraction_initial_nav":amounts,
-        "position_values_krw":{sid:capital*w for sid,w in amounts.items()},
+        "position_values_base":{sid:capital*w for sid,w in amounts.items()},
         "trade_fraction_initial_nav":{sid:amounts[sid]-old[sid] for sid in ids},
         "target_weights":{sid:w/scale for sid,w in amounts.items()},
-        "cash_krw":capital*cash, "cash_weight":cash/scale,
+        "cash_base":capital*cash, "cash_weight":cash/scale,
         "turnover_initial_nav":sum(abs(amounts[sid]-old[sid]) for sid in ids),
         "preserved_notional_hold_ids":sorted(held), "actual_execution_verified":False,
         "personal_income_tax_included":False}
+    if base_currency(context) == "KRW":
+        for key in ("initial_nav", "post_cost_nav", "transaction_cost", "position_values", "cash"):
+            result[key+"_krw"] = result[key+"_base"]
+    return result
 
 
 def propose(rows, securities, context, config, common_errors, cutoff):
@@ -268,7 +305,12 @@ def propose(rows, securities, context, config, common_errors, cutoff):
     while True:
         result = _propose_once(rows, securities, context, config, common_errors, cutoff, excluded_new)
         rejected = result.pop("_retry_excluding", None)
-        if rejected is None: return result
+        if rejected is None:
+            if base_currency(context) == "KRW":
+                result["capital_krw"] = result["capital_base"]
+                for row in result["rows"]:
+                    if "target_value_base" in row: row["target_value_krw"] = row["target_value_base"]
+            return result
         if rejected in excluded_new: raise ValueError("nonprogressing_candidate_fit")
         excluded_new.add(rejected)
 
@@ -285,7 +327,8 @@ def _propose_once(rows, securities, context, config, common_errors, cutoff, excl
     except (ValueError, KeyError, TypeError) as exc: errors.append("book:"+str(exc))
     proposal = {"mode": context.get("mode"), "ready": False, "orders_allowed": False,
                 "broker_reconciled": False, "rows": [], "cash_weight": None,
-                "constraints": {}, "blockers": errors, "capital_krw": context.get("capital_krw"),
+                "constraints": {}, "blockers": errors, "base_currency":context.get("base_currency", "KRW"),
+                "capital_base": context.get("capital_base", context.get("capital_krw")),
                 "capital_is_assumption": True if context.get("mode") == "NEW_CAPITAL_RESEARCH" else context.get("capital_is_assumption", False),
                 "risk_limit_is_future_guarantee": False}
     if errors:
@@ -303,8 +346,13 @@ def _propose_once(rows, securities, context, config, common_errors, cutoff, excl
         if context.get("mode") == "NEW_CAPITAL_RESEARCH": proposal["cash_weight"] = 1.; proposal["cash_is_unallocated_fallback"] = True
         return proposal
     eligible = []
+    member_ids = context.get("eligible_security_ids") if config.get("fund_manager_rebalance", False) else None
+    if member_ids is not None and (not isinstance(member_ids, list) or len(member_ids) != len(set(member_ids)) or not set(member_ids) <= set(securities)):
+        raise ValueError("fund_investment_universe_invalid")
     for r in sorted(rows, key=lambda r: (r["investment_rank"] or 10**9, r["security_id"])):
         sid = r["security_id"]
+        if member_ids is not None and sid not in member_ids:
+            reasons[sid].append("fund_universe_exit"); continue
         if sid in excluded_new:
             reasons[sid].append("allocation_below_minimum_after_incumbent_capacity"); continue
         if not r["valuation_ready"]: continue
@@ -314,7 +362,7 @@ def _propose_once(rows, securities, context, config, common_errors, cutoff, excl
         if risk["integrity_alert"] or risk["liquidity_restriction"] or not t["intact"] or r["four_questions"]["good_company"] != "pass":
             reasons[sid].append("thesis_quality_or_risk_gate"); continue
         threshold = config["hold_net_return"] if prior.get(sid, 0.) else config["new_entry_net_return"]
-        if r["expected_net_return_krw"] < threshold or r["investment_utility_krw"] <= 0:
+        if r["expected_net_return_base"] < threshold or r["investment_utility_base"] <= 0:
             reasons[sid].append("net_return_or_risk_adjusted_utility_below_threshold"); continue
         eligible.append(r)
     budget = config["gross_caps"][context["regime"]["state"]]
@@ -326,15 +374,25 @@ def _propose_once(rows, securities, context, config, common_errors, cutoff, excl
         replacement_ids = set()
         for sid, old in prior.items():
             s = securities[sid]; row = by_id[sid]
+            quality = row.get("quality_assessment", {})
+            if (config.get("fund_manager_rebalance", False) and row["valuation_ready"] and
+                quality.get("schema_valid") and quality.get("review_receipt_valid") and quality.get("company_assessment") == "fail"):
+                weights[sid] = 0.; reasons[sid].append("fund_reviewed_quality_exit"); continue
             if not row["valuation_ready"] or not investment_eligible(row):
                 proposal["blockers"].append(sid+":incumbent_evidence_missing_preserve_book")
                 continue
             thesis = s["blocks"]["thesis"]["payload"]
             risk = s["blocks"]["risk"]["payload"]
+            if member_ids is not None and sid not in member_ids:
+                weights[sid] = 0.; reasons[sid].append("fund_universe_exit"); continue
             if not thesis["intact"] or risk["integrity_alert"]:
                 weights[sid] = 0.; reasons[sid].append("thesis_or_integrity_exit_proposal"); continue
+            if config.get("fund_manager_rebalance", False) and (
+                row["expected_net_return_base"] < config["hold_net_return"] or row["investment_utility_base"] <= 0
+            ):
+                weights[sid] = 0.; reasons[sid].append("fund_hold_hurdle_exit_to_cash"); continue
             desired = weights.get(sid, 0.)
-            if desired > old and row["expected_net_return_krw"] < config["new_entry_net_return"]:
+            if desired > old and row["expected_net_return_base"] < config["new_entry_net_return"]:
                 weights[sid] = old; reasons[sid].append("add_requires_entry_net_return"); continue
             if abs(desired-old) < config["no_trade_weight_buffer"]:
                 weights[sid] = old; reasons[sid].append("no_trade_buffer"); continue
@@ -401,7 +459,7 @@ def _propose_once(rows, securities, context, config, common_errors, cutoff, excl
             fit_new_capacity()
             capacity = {sid: w for sid, w in weights.items() if sid not in prior and w > 0}
             restored = False
-            for sid in sorted(replacement_ids, key=lambda sid: (by_id[sid]["investment_utility_krw"], sid)):
+            for sid in sorted(replacement_ids, key=lambda sid: (by_id[sid]["investment_utility_base"], sid)):
                 needed = prior[sid]-weights.get(sid, 0.)
                 alternatives = sorted((other for other in capacity if
                     replacement_net_improvement(by_id[sid], by_id[other], config) > config["replacement_improvement_buffer"]),
@@ -424,12 +482,17 @@ def _propose_once(rows, securities, context, config, common_errors, cutoff, excl
         for sid, old in prior.items():
             if weights.get(sid, 0.) <= 0: continue
             row = by_id[sid]
-            if row["expected_net_return_krw"] < config["hold_net_return"] or row["investment_utility_krw"] <= 0:
+            if row["expected_net_return_base"] < config["hold_net_return"] or row["investment_utility_base"] <= 0:
                 proposal["blockers"].append(sid+":held_below_hold_hurdle_requires_review")
                 reasons[sid].append("preserved_intact_thesis_requires_valuation_review")
         failed_new = [r["security_id"] for r in eligible if r["security_id"] not in prior
                       and r["security_id"] in weights and weights[r["security_id"]] <= 0]
         if failed_new: return {"_retry_excluding": failed_new[-1]}
+    if config.get("fund_manager_rebalance", False):
+        reduced = reduce_to_risk_caps(weights, securities, rows, context, config)
+        for sid, w in reduced.items():
+            if w < weights[sid] - 1e-12: reasons[sid].append("fund_required_risk_reduction")
+        weights = reduced
     # Funding and risk use the same post-cost denominator. Do not label an
     # unchanged HOLD notional an ADD merely because costs reduced total NAV.
     try:
@@ -447,7 +510,7 @@ def _propose_once(rows, securities, context, config, common_errors, cutoff, excl
         return proposal
     weights = funding["target_weights"]
     scale = funding["post_cost_nav_fraction"]
-    funded_context = dict(context, capital_krw=funding["post_cost_nav_krw"])
+    funded_context = with_capital(context, funding["post_cost_nav_base"])
     funded_prior = {sid:w/scale for sid,w in prior.items()}
     audit = constraint_audit(weights, securities, rows, funded_context, config, funded_prior)
     # Existing-book no-trade preservation may conflict with hard risk caps.
@@ -472,8 +535,8 @@ def _propose_once(rows, securities, context, config, common_errors, cutoff, excl
         elif w: action = "ENTER"
         elif not r["valuation_ready"]: action = "WAIT"
         else: action = "EXCLUDE" if "thesis_quality_or_risk_gate" in reasons[sid] else "WAIT"
-        if w and r.get("investment_utility_krw", 0.) > 0: reasons[sid].append("positive_scenario_utility_subject_to_risk_liquidity_cost_caps")
+        if w and r.get("investment_utility_base", 0.) > 0: reasons[sid].append("positive_scenario_utility_subject_to_risk_liquidity_cost_caps")
         elif not reasons[sid]: reasons[sid].append("allocation_below_minimum_or_risk_capacity")
         r["four_questions"]["portfolio_value"] = "pass_research_only" if w and proposal["ready"] else "wait_or_review"
-        proposal["rows"].append({"security_id": sid, "action": action, "previous_weight": old, "target_weight": w, "target_value_krw": funding["position_values_krw"].get(sid, 0.), "trade_fraction_initial_nav": funding["trade_fraction_initial_nav"].get(sid, 0.), "reasons": reasons[sid]})
+        proposal["rows"].append({"security_id": sid, "action": action, "previous_weight": old, "target_weight": w, "target_value_base": funding["position_values_base"].get(sid, 0.), "trade_fraction_initial_nav": funding["trade_fraction_initial_nav"].get(sid, 0.), "reasons": reasons[sid]})
     return proposal

@@ -47,6 +47,7 @@ CHILD_ENV = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
 # weekly leader sidecar, broker position/execution policy, operating
 # target books, and the leakage audit. Each is fast (< 30 s).
 DEFAULT_TESTS: list[tuple[str, list[str]]] = [
+    ("tests/research_fund_replay_smoke.py", []),
     ("tests/research_workflow_funding_smoke.py", []),
     ("tests/research_workflow_source_smoke.py", []),
     ("tests/research_workflow_quality_smoke.py", []),
