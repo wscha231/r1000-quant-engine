@@ -1,0 +1,35 @@
+test_atomic_write_failure_can_retry (__main__.DataContractTests.test_atomic_write_failure_can_retry) ... ok
+test_benchmark_identity_actions_and_board (__main__.DataContractTests.test_benchmark_identity_actions_and_board) ... ok
+test_common_credential_aliases_never_persist (__main__.DataContractTests.test_common_credential_aliases_never_persist) ... ok
+test_descriptor_read_parent_symlink_size_and_leaf_replacement (__main__.DataContractTests.test_descriptor_read_parent_symlink_size_and_leaf_replacement) ... ok
+test_export_carries_admission_source_fingerprint (__main__.DataContractTests.test_export_carries_admission_source_fingerprint) ... ok
+test_fcf_identity_does_not_allow_magnitude_scaled_error (__main__.DataContractTests.test_fcf_identity_does_not_allow_magnitude_scaled_error) ... ok
+test_financial_timezone_cannot_move_the_market_boundary (__main__.DataContractTests.test_financial_timezone_cannot_move_the_market_boundary) ... ok
+test_forecast_period_is_not_a_future_reported_actual (__main__.DataContractTests.test_forecast_period_is_not_a_future_reported_actual) ... ok
+test_future_stale_identity_currency_period_hash (__main__.DataContractTests.test_future_stale_identity_currency_period_hash) ... ok
+test_history_boundaries_reject_datetime_truncation (__main__.DataContractTests.test_history_boundaries_reject_datetime_truncation) ... ok
+test_immutable_conflict_json_and_symlink (__main__.DataContractTests.test_immutable_conflict_json_and_symlink) ... ok
+test_kr_benchmark_must_be_total_return_without_double_distribution (__main__.DataContractTests.test_kr_benchmark_must_be_total_return_without_double_distribution) ... ok
+test_market_cutoff_and_fcf (__main__.DataContractTests.test_market_cutoff_and_fcf) ... ok
+test_nonranking_forbidden (__main__.DataContractTests.test_nonranking_forbidden) ... ok
+test_opaque_bearer_and_jwt_values_do_not_persist_in_notes (__main__.DataContractTests.test_opaque_bearer_and_jwt_values_do_not_persist_in_notes) ... ok
+test_optional_failure_no_event_and_zero (__main__.DataContractTests.test_optional_failure_no_event_and_zero) ... ok
+test_pre_split_dividends_share_the_adjusted_price_basis (__main__.DataContractTests.test_pre_split_dividends_share_the_adjusted_price_basis) ... ok
+test_price_period_matches_security_bars (__main__.DataContractTests.test_price_period_matches_security_bars) ... ok
+test_public_availability_and_official_close (__main__.DataContractTests.test_public_availability_and_official_close) ... ok
+test_real_cannot_relabel_synthetic_feed (__main__.DataContractTests.test_real_cannot_relabel_synthetic_feed) ... ok
+test_real_provenance_rejects_nonpublic_literal_and_local_hosts (__main__.DataContractTests.test_real_provenance_rejects_nonpublic_literal_and_local_hosts) ... ok
+test_recent_financial_recency_and_continuity (__main__.DataContractTests.test_recent_financial_recency_and_continuity) ... ok
+test_reporting_day_completion_in_explicit_timezone (__main__.DataContractTests.test_reporting_day_completion_in_explicit_timezone) ... ok
+test_reporting_timezone_uses_pinned_package_not_system_lookup (__main__.DataContractTests.test_reporting_timezone_uses_pinned_package_not_system_lookup) ... ok
+test_short_history_and_split_dividend (__main__.DataContractTests.test_short_history_and_split_dividend) ... ok
+test_stale_rehashed_price_and_calendar_gap (__main__.DataContractTests.test_stale_rehashed_price_and_calendar_gap) ... ok
+test_unsafe_sources_never_reach_blocked_snapshot (__main__.DataContractTests.test_unsafe_sources_never_reach_blocked_snapshot) ... ok
+test_uri_scheme_case_credentials_and_units (__main__.DataContractTests.test_uri_scheme_case_credentials_and_units) ... ok
+test_valid_and_deterministic (__main__.DataContractTests.test_valid_and_deterministic) ... ok
+test_valid_losses_are_distinct_from_valuation_eligibility (__main__.DataContractTests.test_valid_losses_are_distinct_from_valuation_eligibility) ... ok
+
+----------------------------------------------------------------------
+Ran 30 tests in 14.531s
+
+OK

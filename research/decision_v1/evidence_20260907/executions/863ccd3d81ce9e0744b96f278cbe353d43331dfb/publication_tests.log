@@ -1,0 +1,5 @@
+PASS test_pr_validation_checkout_supports_pinned_lineage_checks
+PASS test_generator_is_byte_stable
+PASS test_post_publication_protected_changes_are_rejected
+PASS test_protected_generator_allows_only_pin_delta
+4/4 PASS

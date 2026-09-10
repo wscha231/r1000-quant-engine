@@ -1,0 +1,129 @@
+{
+  "admission_source": {
+    "basis": "source_bytes_lf_captured_at_import",
+    "path": "tools/research_decision_v1/data.py",
+    "sha256": "2b3e2b39af18ee702e2c0c39135ea5478dd6a8c16c1a9c91bc63a8e324c648dd"
+  },
+  "exact_head_review": {
+    "h1": "New exact-head review requested at 1c5e1c0 (comment 5575156042); procfs overwrite and owned-cleanup findings fixed and resolved",
+    "h2": "New artifact-head review required after publication; prior head not approval",
+    "kr": "COMPLETED without findings at 3c40210"
+  },
+  "executed_code_commit": "863ccd3d81ce9e0744b96f278cbe353d43331dfb",
+  "executed_source_tree": "2e246e4f52dca3116965b99ca1c4b50dae78e378",
+  "execution_layout": "decision_hash/source_commit",
+  "h1_head": "1c5e1c0eaeb7885d35bd6713aba93ff931460c81",
+  "kr_ci": {
+    "full_smoke_passed": 44,
+    "job": 101768731291,
+    "pit_passed": 3,
+    "pit_total": 7,
+    "quick_passed": 23,
+    "source_pin": "PASS",
+    "status": "BLOCKED_MISSING_LISTING_HISTORY_CACHE"
+  },
+  "kr_head": "3c40210b8675267121d7f40f3dcd8d158720a4e8",
+  "local_equivalent_commit": "cb9adba76db41a91d0d3186c52426307e4dffc0d",
+  "local_tests": [
+    {
+      "command": "/workspace/scratch/f247432c1548/research_venv/bin/python -I -W ignore tests/research_decision_v1_data_smoke.py",
+      "failed": 0,
+      "passed": 38,
+      "same_h1_io_data_source_as_executed_code": true,
+      "skipped": 1,
+      "tested_local_commit": "cea1d9e80f7a87033ab967fce15e67f551cd0005",
+      "total": 39
+    },
+    {
+      "command": "/workspace/scratch/f247432c1548/research_venv/bin/python -I -W ignore tests/research_decision_v1_decision_smoke.py",
+      "failed": 0,
+      "passed": 42,
+      "same_execution_package_and_cli_as_executed_code": true,
+      "tested_local_commit": "934ef3147a16674abd2af1bbd5c80f81a6c9db9e"
+    },
+    {
+      "command": "python tests/research_decision_export_smoke.py",
+      "failed": 0,
+      "passed": 4,
+      "repository": "KR",
+      "tested_commit": "3c40210b8675267121d7f40f3dcd8d158720a4e8"
+    },
+    {
+      "failed": 0,
+      "group": "protected inventory/lineage four direct regressions",
+      "passed": 4,
+      "tested_local_commit": "cb9adba76db41a91d0d3186c52426307e4dffc0d"
+    }
+  ],
+  "oos_validated": false,
+  "optimized_gate_regression": {
+    "invalid_cases_rejected_under_python_O": 9,
+    "new_capital_missing_false_wrong_type_blocked": true,
+    "unchecked_module_side_effect_observed": false
+  },
+  "orders_allowed": false,
+  "prior_full_inventory": {
+    "reason": "legacy promisor blob 324e84859be5dddf091b165f9533259354739077 HTTP 403",
+    "status": "BLOCKED_PREVIOUS_ATTEMPT"
+  },
+  "prior_local_legacy_smoke": {
+    "passed": 93,
+    "reason": "requests and legacy sparse files missing; not rerun as a full suite",
+    "status": "ENVIRONMENT_BLOCKED_PREVIOUS_CHECKOUT",
+    "total": 130
+  },
+  "prior_windows_failures": [
+    101835610334,
+    101836865701,
+    101838088249
+  ],
+  "production_promoted": false,
+  "profitability_validated": false,
+  "protected_publication_pin": "5398fe985accffda8150fcb1b8e8bf53e74d935c",
+  "real_admitted_candidates": 0,
+  "real_candidates": 3,
+  "real_execution": "EXECUTED_BLOCKED",
+  "real_expansion_allowed": false,
+  "recorded_at": "2026-09-07T20:08:36.173937+00:00",
+  "runtime": {
+    "exchange_calendars": "4.13.2",
+    "numpy": "2.5.2",
+    "pandas": "2.3.3",
+    "pandas_market_calendars": "5.4.0",
+    "pyarrow": "25.0.1",
+    "pytz": "2026.3.post1",
+    "tzdata": "2026.3"
+  },
+  "runtime_import_policy": "ISOLATED_INTERPRETER_LOCATIONS",
+  "runtime_python": "/workspace/scratch/f247432c1548/research_venv/bin/python",
+  "schema_version": "research-validation-receipt-v1",
+  "source_code_hash": "7c38562c060867387f4f1f1180123cc9beb7260ea2c322558ec076418fbe1541",
+  "staged_identity_regression": {
+    "after": "PASS: Linux published bytes comparison and native Windows handle cleanup preserve foreign paths",
+    "before": "FAILED to reject procfs overwrite; no ValueError raised",
+    "pathname_fallback": false
+  },
+  "synthetic_connection_passed": true,
+  "third_party_source_bytes_verified": false,
+  "us_h1_full_validate": {
+    "head": "1c5e1c0eaeb7885d35bd6713aba93ff931460c81",
+    "job": 101853193075,
+    "status": "IN_PROGRESS_AT_RECEIPT"
+  },
+  "us_h1_native_windows": {
+    "head": "1c5e1c0eaeb7885d35bd6713aba93ff931460c81",
+    "job": 101853192884,
+    "passed": 38,
+    "skipped": 1,
+    "status": "PASS",
+    "total": 39
+  },
+  "workspace_recovery": {
+    "current_us_root": "/workspace/scratch/f247432c1548/r1000-quant-engine",
+    "original_uncommitted_csv_final_presence_reverified": false,
+    "previous_us_root": "/workspace/scratch/a006f1d2e538/r1000-quant-engine",
+    "published_objects_verified_on_recovery": true,
+    "reason": "previous transient path unavailable late in session",
+    "user_csv_writes_performed": false
+  }
+}
