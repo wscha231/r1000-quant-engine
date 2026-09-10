@@ -1,5 +1,9 @@
 # [PROJECT_HANDOFF] Overall workflow and repaired seams — 2026-09-09
 
+> Continuation: [2026-09-10 fixes and long-backtest readiness](BACKTEST_READINESS_20260910.md).
+> It records current repairs, later CI evidence, the blocked preflight and source recovery limits.
+> The dated statements below remain historical evidence; RESEARCH_INDEX entries are not reapproved by this link.
+
 **The research decision graph is now connected in code and synthetic seam tests.
 The complete live-data investment/operating system is NOT finished.**
 RESEARCH_ONLY. No merge, production promotion, schedule, book, order or numeric

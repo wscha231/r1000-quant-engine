@@ -636,6 +636,12 @@ print('guarded 9 invalid cases under optimization')
         self.assertFalse(out["ready"])
         self.assertTrue(out["constraints"]["violations"])
 
+    def test_git_replace_cannot_attest_different_source_bytes(self):
+        # Keep this source-integrity regression in the already mandatory H2
+        # suite as well as the focused source suite.
+        from research_workflow_source_smoke import SourceSeamTests
+        SourceSeamTests().test_replace_ref_cannot_attest_different_commit_bytes()
+
     def test_previous_metadata_is_sanitized_and_component_schema_is_closed(self):
         from tools.research_decision_v1.data import digest
         b=with_scenario(ticker="OLD"); previous=evaluate(b)

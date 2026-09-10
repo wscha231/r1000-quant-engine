@@ -5131,3 +5131,10 @@ PR #400 reviews 3952174939/3952174941/3952174942: verifying a package tree does 
 - Register the four quality/funding/source suites in the mandatory runner and use isolated Python for research suites. Synthetic seam tests mock export replay only; H1 and complete CLI tests remain separate.
 - HOLD preserves pre-trade notional, not its pre-cost weight. Fees paid on other trades can put an unchanged holding above a hard post-cost cap. Keep that proposal blocked; never round weights or loosen limits to make a stale test pass.
 - Historical performance of this method requires contemporaneously available quality evidence. Today's partial NVDA/EME/SK hynix captures cannot be backdated into an eight-year study.
+### 2026-09-10 — H2 source identity and HOLD regression expectations
+
+Git replace refs can substitute a different tree while HEAD keeps its original SHA. Disable replacement objects on every verifier Git call and exercise that substitution through the already mandatory H2 suite. A retained HOLD preserves its monetary amount, so fees paid on other trades raise its post-cost NAV weight; if the hard cap is exceeded the proposal must remain blocked. Test readiness separately from correct HOLD accounting instead of rounding the weight or relaxing the cap. The isolated H2 suite passed 46 tests; this is software regression evidence, not historical investment performance.
+
+### 2026-09-10 — Long-backtest source recovery and evidence limits
+
+The strict clean7y post-book diagnostic exited 1 on the sparse local source path. A Drive keyword search did not find source files that were visible through their canonical folder, including price parquet files and a candidate book. Remote metadata is not verified replay input: GitHub artifact and Drive manifest body transfers returned HTTP 403 here. Preserve that distinction in handoffs. Calendar length, old control metrics, current qualitative captures, and software CI are not new-method historical performance. Keep performance null until actual source bytes, chronology, frozen comparisons and costs pass. The public repository handoff excludes private Drive identifiers and download links.
