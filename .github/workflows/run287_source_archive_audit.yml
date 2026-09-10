@@ -1,0 +1,54 @@
+name: Run287 Source Archive Audit
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/run287_source_archive_audit.yml'
+      - 'tools/audit_run287_source_archive.py'
+      - 'tests/run287_source_archive_audit_smoke.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: run287-source-audit-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source_archive_audit:
+    if: >-
+      github.repository == 'wscha231/r1000-quant-engine' &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install parquet reader
+        run: python -m pip install pyarrow==23.0.1
+      - name: Validate bounded archive audit
+        run: python tests/run287_source_archive_audit_smoke.py
+      - name: Verify fixed source bytes and inspect coverage
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUDIT_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: >-
+          python tools/audit_run287_source_archive.py --download
+          --zip "$RUNNER_TEMP/run287-source-audit/source.zip"
+          --output "$RUNNER_TEMP/run287-source-audit/report.json"
+      - name: Retain diagnostics only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run287-source-audit-${{ github.run_id }}
+          path: ${{ runner.temp }}/run287-source-audit/report.json
+          if-no-files-found: error
+          retention-days: 30

@@ -1,5 +1,19 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-10 — Inspect frozen source data inside the authenticated runner
+
+- A fresh artifact file reference still failed HTTP403 at the workspace's file
+  transport. Keep that boundary distinct from missing GitHub source data.
+- Add a fixed-artifact, read-only Actions audit using actions:read, verify the
+  original ZIP hash before member reads, and retain only aggregate diagnostics.
+  Never execute source-archive code, restore accepted state, or publish raw data
+  as a workaround. Preserve the failed source run's status separately.
+- Inspect CSV provenance and actual Parquet observations. A manifest's date
+  range cannot prove price coverage; archived metric values cannot prove a new
+  fund result. Existing source-only/post-book/PIT gates remain necessary.
+- Evidence: `docs/RUN287_SOURCE_RECOVERY_20260910.md`; eight archive regressions
+  run through the already registered clean7y preflight smoke suite.
+
 This is the shared "mistake notebook" for Codex, Claude, GPT Pro, and any other
 agent working on `wscha231/r1000-quant-engine`.
 
