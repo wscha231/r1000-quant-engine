@@ -1,0 +1,110 @@
+name: Research Source Connection
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/research_source_connection.yml'
+      - 'tools/research_source_connection.py'
+      - 'tests/research_source_connection_smoke.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  connect-research-sources:
+    if: (github.event_name == 'workflow_dispatch' && github.ref_name == 'codex/research-fund-connection-20260910') || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/research-fund-connection-20260910')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /tools/research_source_connection.py
+            /tests/research_source_connection_smoke.py
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify source and disclosure boundaries
+        run: python tests/research_source_connection_smoke.py
+      - name: Connect real source data independently
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
+          ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          through=$(date -u -d yesterday +%F)
+          python tools/research_source_connection.py \
+            --private-dir "$RUNNER_TEMP/research-source-private" \
+            --start 2018-05-01 --end "$through" \
+            --report "$RUNNER_TEMP/research-source-report.json"
+      - name: Preserve private source snapshot under a new research prefix
+        if: always()
+        env:
+          RESEARCH_RCLONE_CONFIG: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          RESEARCH_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          umask 077
+          python - <<'PY'
+          import hashlib, json, os, pathlib, re, subprocess, urllib.request, zipfile
+          root = pathlib.Path(os.environ['RUNNER_TEMP'])
+          report_path = root / 'research-source-report.json'
+          if not report_path.is_file():
+              raise SystemExit('No source report to preserve')
+          report = json.loads(report_path.read_text())
+          state = {'status': 'BLOCKED', 'reason': 'credential_missing'}
+          config = root / 'research-source-rclone.conf'
+          config_text = os.environ.get('RESEARCH_RCLONE_CONFIG', '')
+          try:
+              if config_text:
+                  config.write_text(config_text)
+                  config.chmod(0o600)
+                  version = '1.75.0'
+                  archive = root / 'research-source-rclone.zip'
+                  urllib.request.urlretrieve('https://downloads.rclone.org/v'+version+'/rclone-v'+version+'-linux-amd64.zip', archive)
+                  expected = 'aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa'
+                  if hashlib.sha256(archive.read_bytes()).hexdigest() != expected:
+                      raise ValueError('download_digest')
+                  with zipfile.ZipFile(archive) as z:
+                      executable = 'rclone-v'+version+'-linux-amd64/rclone'
+                      binary = root / 'research-source-rclone'
+                      binary.write_bytes(z.read(executable))
+                      binary.chmod(0o700)
+                  snapshot = os.environ['GITHUB_RUN_ID']+'-'+os.environ['GITHUB_RUN_ATTEMPT']+'-'+os.environ['RESEARCH_HEAD']
+                  if not re.fullmatch(r'[0-9]+-[0-9]+-[0-9a-f]{40}', snapshot):
+                      raise ValueError('snapshot_id')
+                  # Only append to this research prefix; never restore, sync,
+                  # overwrite or delete accepted account or ledger state.
+                  remote = 'gdrive:research_source_snapshots/'+snapshot+'/'
+                  local = str(root / 'research-source-private')
+                  common = [str(binary), '--config', str(config)]
+                  subprocess.run(common+['copy',local,remote,'--immutable','--transfers','2','--checkers','2'],
+                      check=True,timeout=300,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+                  subprocess.run(common+['check',local,remote,'--download','--one-way','--checkers','2'],
+                      check=True,timeout=300,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+                  state = {'status': 'VERIFIED_PRIVATE_SNAPSHOT', 'snapshot': snapshot}
+          except Exception:
+              state = {'status': 'BLOCKED', 'reason': 'private_snapshot_not_verified'}
+          finally:
+              config.unlink(missing_ok=True)
+          report['private_persistence'] = state
+          report_path.write_text(json.dumps(report,indent=2,sort_keys=True)+'\n')
+          print(json.dumps({'private_persistence': state},sort_keys=True))
+          PY
+      - name: Retain aggregate evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-source-connection-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/research-source-report.json
+          if-no-files-found: error
+          retention-days: 30

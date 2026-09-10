@@ -4902,3 +4902,23 @@ Expected contract:
 - Fullrun executed: false. Workflow dispatched or rerun: false. Migration,
   quarantine, Drive, target, order, ledger, accepted-head, production, live
   trading, automatic promotion, and pattern backfill state mutated: false.
+
+
+## 2026-09-10 - Real source connection separates access from historical fitness
+
+- Branch: `codex/research-fund-connection-20260910`, based on current master.
+- Financial Datasets returned a zero-credit account message inside a nominal
+  tool response; short Alpaca bars worked while longer requests returned
+  connector internal errors. Neither outcome proves historical data absent.
+- Add a bounded independent REST collection job using existing credentials,
+  pagination and per-symbol dates, with source-specific controlled failures.
+- SEC fiscal TTM uses annual plus fiscal YTD minus comparable prior YTD. Keep
+  publication timing and complete valuation approval false until established.
+- Never substitute today's watchlist for the historical eligible universe or
+  turn an unavailable portfolio into a 100% cash strategy result.
+- Discard provider error bodies before raw persistence, including JSON errors
+  returned to CSV requests, because they can echo credential-bearing URLs.
+- Private raw snapshots use a new run-specific research prefix and byte check;
+  public reports expose controlled aggregates only. No accepted state restore.
+- Validation: 12 local regression cases passed. Actual provider run and exact
+  head CI/review remain to be inspected. No real backtest results yet.
