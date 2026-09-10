@@ -1,5 +1,28 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-10 — USD continuous fund state and CAGR selection
+
+- User required one initial USD100k account, chronological information, actual
+  simulated fills/cash, last completed close and CAGR as the primary objective.
+- Current H2 snapshots were KRW-based; an output history is not account state.
+  Added explicit base currency and a streamed research replay that reuses H1,
+  quality and valuation, supplies its own filled book, and archives each decision.
+- Keep same-close signal/fill separation, unpaid dividend rights, split/raw
+  price basis, cash affordability, market calendars and failed-session coverage
+  as independently checked invariants. Short synthetic runs cannot use the full
+  seven/eight-year label. Missing inputs never become a zero-return cash result.
+- A native-currency regression initially accessed missing FX through an eager
+  argument evaluation; the native-currency identity now returns before any FX
+  access. Existing KRW quality/funding regressions remain mandatory.
+- Reviewed adverse quality or historical membership removal can justify an
+  explicit exit; missing quality evidence cannot. Known risk cuts in the new
+  opt-in fund mode take precedence over intact-thesis HOLD hysteresis.
+- New development comparison uses after-cost USD CAGR consistently, including
+  CSCV selection. Frozen Sharpe-era promotion evidence is not relabelled; full
+  trial history, independent source/preregistration/OOS evidence remain required.
+- Evidence: `docs/research_fund_replay_contract.md`,
+  `tests/research_fund_replay_smoke.py`, `docs/research_fund_replay_config.json`.
+
 This is the shared "mistake notebook" for Codex, Claude, GPT Pro, and any other
 agent working on `wscha231/r1000-quant-engine`.
 

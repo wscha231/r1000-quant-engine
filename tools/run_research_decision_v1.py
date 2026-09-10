@@ -150,14 +150,15 @@ def load_verified_runtime(snapshot):
 
 def render_report(decision):
     p = decision["portfolio_proposal"]
+    base = p.get("base_currency", "KRW")
     lines = ["# Research decision V1", "", f"Data kind: {decision['data_kind']}; cutoff: {decision['decision_cutoff']}",
              f"Mode: {decision['mode']}; orders_allowed=false", "", "Subjective scenarios; OOS and MDD validation incomplete.", "",
-             "| Security | Local total return (currency) | KRW total return | KRW return rank | KRW investment rank |",
+             f"| Security | Local total return (currency) | {base} total return | {base} return rank | {base} investment rank |",
              "|---|---:|---:|---:|---:|"]
     actions = {r["security_id"]: r for r in p["rows"]}
     for r in decision["ranking"]:
         expected = f"{r['expected_total_return']:.2%}" if r["expected_total_return"] is not None else "N/A"
-        krw = f"{r['expected_total_return_krw']:.2%}" if r["expected_total_return_krw"] is not None else "N/A"
+        krw = f"{r['expected_total_return_base']:.2%}" if r["expected_total_return_base"] is not None else "N/A"
         lines.append(f"| {r['security_id']} | {expected} ({r['currency']}) | {krw} | {r['expected_return_rank'] or 'N/A'} | {r['investment_rank'] or 'N/A'} |")
     lines += ["", "| Security | Action | Weight | Reason |", "|---|---|---:|---|"]
     for a in p["rows"]:
@@ -183,9 +184,9 @@ def render_report(decision):
                   "| Violations | "+("; ".join(audit["violations"]) or "none")+" |"]
     funding=p.get("funding")
     if funding:
-        lines += ["", "## Funding reconciliation (KRW)",
-            f"Initial NAV: {funding['initial_nav_krw']:.2f}; transaction cost: {funding['transaction_cost_krw']:.2f}; post-cost NAV: {funding['post_cost_nav_krw']:.2f}.",
-            f"Target positions plus residual cash: {sum(funding['position_values_krw'].values())+funding['cash_krw']:.2f}.",
+        lines += ["", f"## Funding reconciliation ({base})",
+            f"Initial NAV: {funding['initial_nav_base']:.2f}; transaction cost: {funding['transaction_cost_base']:.2f}; post-cost NAV: {funding['post_cost_nav_base']:.2f}.",
+            f"Target positions plus residual cash: {sum(funding['position_values_base'].values())+funding['cash_base']:.2f}.",
             "Target weights use post-cost NAV; previous weights use pre-trade NAV. HOLD preserves notional."]
     if decision.get("workflow"):
         lines += ["", "Workflow: `"+json.dumps(decision["workflow"],sort_keys=True)+"`"]
@@ -195,12 +196,18 @@ def render_report(decision):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--market-export", action="append", required=True)
-    parser.add_argument("--context", required=True)
+    parser.add_argument("--market-export", action="append")
+    parser.add_argument("--context")
+    parser.add_argument("--fund-input", help="Frozen chronological USD fund manifest or CAGR development comparison")
     parser.add_argument("--config", default=str(ROOT / "docs/research_decision_v1_config.json"))
     parser.add_argument("--previous")
     parser.add_argument("--quality-bundle", help="Explicit reviewed quality inputs; omission preserves research baseline")
     args = parser.parse_args()
+    if args.fund_input:
+        if args.market_export or args.context or args.previous or args.quality_bundle:
+            parser.error("--fund-input cannot be mixed with one-shot decision inputs")
+    elif not args.market_export or not args.context:
+        parser.error("one-shot decisions require --market-export and --context")
     snapshot = verified_source_snapshot(ROOT)
     if snapshot is None:
         print(json.dumps({"status": "BLOCKED_SOURCE_MISMATCH", "source_paths_match_commit": False,
@@ -214,9 +221,48 @@ def run_verified(args, snapshot, runtime):
     stage, data, engine, io, renderer = runtime
     digest, read_json, immutable_json, immutable_bytes = data.digest, io.read_json, io.immutable_json, io.immutable_bytes
     code_commit = snapshot["commit"]
-    exports = [read_json(p) for p in args.market_export]
     config_path = stage/"docs/research_decision_v1_config.json" if Path(args.config).resolve() == ROOT/"docs/research_decision_v1_config.json" else args.config
-    context, config = read_json(args.context), read_json(config_path)
+    config = read_json(config_path)
+    if getattr(args,"fund_input",None):
+        from tools.research_decision_v1 import fund_replay
+        specification=read_json(args.fund_input)
+        if specification.get("schema_version") == "fund-cagr-development-v1":
+            decision=fund_replay.compare_development(specification,Path(args.fund_input).absolute().parent)
+            report_bytes=(json.dumps(decision,indent=2,sort_keys=True)+"\n").encode("utf-8")
+            successful=True
+        else:
+            request_hash=digest({"specification":specification,"config":config})
+            input_dir=io.research_root(ROOT)/"fund_inputs"/request_hash/code_commit
+            def archive_shard(reference,shard):
+                immutable_json(input_dir/"inputs"/reference["path"],shard)
+            def archive_decision(record,packet):
+                key=digest(record)
+                immutable_json(input_dir/"decisions"/(key+".json"),record)
+                immutable_json(input_dir/"inputs"/record["input_reference"]["path"],packet)
+                return {"decision_record_hash":key,"packet_hash":digest(packet),"request_hash":request_hash}
+            manifest,events,loader=fund_replay.load_history(args.fund_input,archive_shard)
+            decision=fund_replay.replay(manifest,events,config,loader,decision_sink=archive_decision)
+            # The manifest is validated inside the simulator. Unsafe inputs
+            # never get copied into an evidence snapshot after a blocked run.
+            if decision["status"] == "COMPLETED_RESEARCH_REPLAY":
+                immutable_json(input_dir/"inputs"/"fund_manifest.json",manifest)
+                immutable_json(input_dir/"decision_config.json",config)
+            report_bytes=fund_replay.render(decision).encode("utf-8")
+            successful=decision["status"] == "COMPLETED_RESEARCH_REPLAY"
+        run_hash=digest({"specification":specification,"config":config,"result":decision})
+        directory=io.research_root(ROOT)/"fund_replays"/run_hash/code_commit
+        immutable_json(directory/"result.json",decision)
+        immutable_bytes(directory/"report.md",report_bytes)
+        receipt={"source_commit":code_commit,"executed_verified_source_snapshot":True,
+                 "source_code_hash":digest({name:content.decode("utf-8") for name,content in snapshot["files"].items()}),
+                 "input_manifest_hash":digest(specification),"config_hash":digest(config),"result_hash":digest(decision),
+                 "report_file_sha256":hashlib.sha256(report_bytes).hexdigest(),"orders_allowed":False,
+                 "production_promoted":False,"validation_is_profitability_proof":False}
+        immutable_json(directory/"execution_receipt.json",receipt)
+        print(json.dumps({"directory":str(directory),"status":decision.get("status","DEVELOPMENT_COMPARISON"),"run_hash":run_hash},sort_keys=True))
+        return 0 if successful else 2
+    exports = [read_json(p) for p in args.market_export]
+    context = read_json(args.context)
     previous = read_json(args.previous) if args.previous else None
     quality_path=getattr(args,"quality_bundle",None)
     quality_bundle=read_json(quality_path) if quality_path is not None else None

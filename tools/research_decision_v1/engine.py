@@ -11,6 +11,8 @@ from tools.research_decision_v1.portfolio import context_errors, add_fx_returns,
 def validate_config(config):
     validate_persistable_sources(config)
     reject_diagnostic_scores(config)
+    if type(config.get("fund_manager_rebalance", False)) is not bool:
+        raise ValueError("fund_manager_rebalance_must_be_boolean")
     if config.get("schema_version") != "research-decision-config-v1" or config.get("horizon_months") != 12:
         raise ValueError("config_schema_or_horizon_invalid")
     for key in ("orders_allowed", "calibration_validated", "oos_validated", "production_promoted"):
@@ -230,6 +232,10 @@ def run_decisions(exports, context, config, previous=None, *, quality_bundle=Non
     if not securities: raise ValueError("empty_research_universe")
     rows = evaluate_research_rows(securities, config, cutoff, kind, quality_bundle)
     common_errors = context_errors(context, config, cutoff)
+    if context.get("base_currency") == "USD" and all(s["currency"] == "USD" for s in securities.values()):
+        # No foreign asset or conversion in this portfolio. An unrelated KRW
+        # feed must not be a dependency of an entirely USD-native decision.
+        common_errors = [e for e in common_errors if not e.startswith("fx")]
     fx_valid = not any(x.startswith("fx") for x in common_errors)
     add_fx_returns(rows, context, config, fx_valid)
     rank_sensitivity(rows, securities, context, config, cutoff, fx_valid)
