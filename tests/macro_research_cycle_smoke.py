@@ -119,8 +119,10 @@ class CheckpointTests(unittest.TestCase):
                 self.assertNotIn("RCLONE_CONFIG_GDRIVE", kwargs["env"])
                 return subprocess.CompletedProcess(args, 1, b"", b"private-secret")
             with patch.object(checkpoint.subprocess, "run", fail):
-                with self.assertRaisesRegex(ValueError, "^research_transport_failed$"):
+                with self.assertRaisesRegex(ValueError, "^research_transport_failed:command:exit_1:UNCLASSIFIED$"):
                     transport.call("version")
+        message = checkpoint.transport_failure(b"secret-key: Error 403: insufficient permissions", "cat", 1)
+        self.assertEqual(message, "research_transport_failed:cat:exit_1:PERMISSION")
 
     def test_two_cycles_failure_journal_and_readonly_export(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -26,6 +26,23 @@ MAX_FILES = 10000
 NAMESPACE = "research/macro_technical_evidence/v1/"
 
 
+def transport_failure(stderr, command, returncode):
+    """Fixed diagnostic categories, never provider bodies, tokens or paths."""
+    body = stderr.decode("utf-8", errors="replace").lower()
+    categories = {
+        "NOT_FOUND": ("not found", "couldn't find", "doesn't exist", "does not exist"),
+        "AUTHENTICATION": ("invalid_grant", "invalid credentials", "unauthorized", "invalid authentication"),
+        "PERMISSION": ("permission", "forbidden", "access denied", "cannotdownloadfile"),
+        "QUOTA": ("quota", "ratelimit", "rate limit", "too many requests"),
+        "DOWNLOAD_RESTRICTED": ("abusive", "malware", "virus"),
+        "NOT_DOWNLOADABLE": ("not downloadable", "only files with binary content", "not a file", "is a directory"),
+        "TIMEOUT": ("timeout", "timed out", "deadline exceeded"),
+    }
+    category = next((name for name, terms in categories.items() if any(t in body for t in terms)), "UNCLASSIFIED")
+    verb = command if command in {"mkdir", "cat", "lsjson", "copy", "copyto"} else "command"
+    return f"research_transport_failed:{verb}:exit_{int(returncode)}:{category}"
+
+
 def safe_path(path):
     path = Path(path).absolute()
     require(not any(p.is_symlink() for p in [path, *path.parents]), "checkpoint_symlink")
@@ -108,7 +125,8 @@ class RcloneTransport:
         except (OSError, subprocess.TimeoutExpired):
             raise ValueError("research_transport_unavailable") from None
         # Rclone diagnostic bodies may include auth/config. Only fixed codes escape.
-        require(result.returncode == 0, "research_transport_failed")
+        if result.returncode:
+            raise ValueError(transport_failure(result.stderr, str(args[0]), result.returncode))
         require(len(result.stdout) <= MAX_OBJECT, "transport_output_size")
         return result.stdout
 
