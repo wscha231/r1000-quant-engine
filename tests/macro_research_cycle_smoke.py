@@ -154,6 +154,8 @@ class CheckpointTests(unittest.TestCase):
                     transport.call("version")
         message = checkpoint.transport_failure(b"secret-key: Error 403: insufficient permissions", "cat", 1)
         self.assertEqual(message, "research_transport_failed:cat:exit_1:PERMISSION")
+        wrapped = checkpoint.transport_failure(b"couldn't find root: userRateLimitExceeded", "lsjson", 1)
+        self.assertEqual(wrapped, "research_transport_failed:lsjson:exit_1:RATE_LIMIT")
 
     def test_two_cycles_failure_journal_and_readonly_export(self):
         with tempfile.TemporaryDirectory() as tmp:

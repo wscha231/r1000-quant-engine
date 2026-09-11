@@ -32,16 +32,18 @@ def transport_failure(stderr, command, returncode):
     """Fixed diagnostic categories, never provider bodies, tokens or paths."""
     body = stderr.decode("utf-8", errors="replace").lower()
     categories = {
-        "NOT_FOUND": ("not found", "couldn't find", "doesn't exist", "does not exist"),
-        "AUTHENTICATION": ("invalid_grant", "invalid credentials", "unauthorized", "invalid authentication"),
-        "PERMISSION": ("permission", "forbidden", "access denied", "cannotdownloadfile"),
+        # Provider reason takes precedence over wrapper text such as
+        # "couldn't find root: ... userRateLimitExceeded".
+        "RATE_LIMIT": ("ratelimit", "rate limit", "too many requests", "error 429"),
         "DOWNLOAD_QUOTA": ("downloadquotaexceeded", "download quota"),
         "STORAGE_QUOTA": ("storagequotaexceeded", "storage quota"),
-        "RATE_LIMIT": ("ratelimit", "rate limit", "too many requests"),
+        "AUTHENTICATION": ("invalid_grant", "invalid credentials", "unauthorized", "invalid authentication"),
+        "PERMISSION": ("permission", "forbidden", "access denied", "cannotdownloadfile"),
         "QUOTA": ("quota",),
         "DOWNLOAD_RESTRICTED": ("abusive", "malware", "virus"),
         "NOT_DOWNLOADABLE": ("not downloadable", "only files with binary content", "not a file", "is a directory"),
         "TIMEOUT": ("timeout", "timed out", "deadline exceeded"),
+        "NOT_FOUND": ("not found", "couldn't find", "doesn't exist", "does not exist"),
     }
     category = next((name for name, terms in categories.items() if any(t in body for t in terms)), "UNCLASSIFIED")
     verb = command if command in {"mkdir", "cat", "lsjson", "copy", "copyto"} else "command"
@@ -115,7 +117,15 @@ class RcloneTransport:
                             r"(scheduled|pr-[1-9][0-9]*)", remote), "research_remote_scope")
         self.root = remote
         self.binary = os.environ.get("MACRO_RCLONE_BIN", "rclone")
-        self.call("mkdir", self.root + "/commits")
+        # Restore starts with a read. Only an explicitly missing namespace may
+        # create its initial commit directory; access/rate failures are not genesis.
+        try:
+            self.names("commits")
+        except ValueError as exc:
+            if not str(exc).endswith(":NOT_FOUND"):
+                raise
+            self.call("mkdir", self.root + "/commits")
+            self.names("commits")
 
     def call(self, *args):
         # These names collide with rclone's own environment options. Never pass
@@ -137,15 +147,15 @@ class RcloneTransport:
         return result.stdout
 
     def names(self, prefix):
-        rows = json.loads(self.call("lsjson", self.root + "/" + relative(prefix), "--files-only"))
+        rows = json.loads(self.read_call("lsjson", self.root + "/" + relative(prefix), "--files-only"))
         names = [r["Name"] for r in rows]
         require(len(names) == len(set(names)), "duplicate_remote_names")
         return sorted(names)
 
-    def read(self, path):
+    def read_call(self, *args):
         for attempt in range(5):
             try:
-                return self.call("cat", self.root + "/" + relative(path))
+                return self.call(*args)
             except ValueError as exc:
                 # Only read requests with an explicitly transient rate-limit
                 # response retry. Daily/download/storage quotas and access failures
@@ -153,6 +163,9 @@ class RcloneTransport:
                 if not str(exc).endswith(":RATE_LIMIT") or attempt == 4:
                     raise
                 time.sleep(2 ** attempt + random.random())
+
+    def read(self, path):
+        return self.read_call("cat", self.root + "/" + relative(path))
 
     def write(self, path, raw):
         with tempfile.TemporaryDirectory(prefix="macro-transfer-") as tmp:
