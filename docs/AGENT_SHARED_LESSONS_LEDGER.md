@@ -1,5 +1,50 @@
 # Agent Shared Lessons Ledger
 
+### 2026-09-11 - Full financial history requires issuer-wide scope and filing versions
+
+- The PR412 US price cohort has 1,118 candidates, but its SEC collector filters
+  to `FOREIGN_REPORTING`, currently TSM/ASML only. This is a scope defect. Do
+  not describe two-company normalization as all-candidate financial progress.
+- Existing master/PR263/PR295 code already supplies bulk/FSDS ingestion, CIK
+  mapping and changed-issuer retrieval. Reuse verified raw data and these
+  bounded collection patterns before adding another per-company fetch loop.
+  The July 990/992 raw-file count is not current or full quarterly coverage.
+- Actual legacy functions reproduce two synthetic failures: a 2025 Q1 revision
+  changes a 2024 Q2 flow from 150 to 130 while retaining 2024 availability;
+  integer FSDS `20240331` becomes an epoch-nanosecond date in 1970. Preserve
+  accession versions, actual fact periods, units and reporting contexts.
+- Collect basic financial history for every requested issuer. Prioritizing
+  deep qualitative review must not silently narrow basic data collection.
+  Report coverage by issuer/period/field and retain missing issuers in counts.
+- [Audit, pinned branch evidence and design](FINANCIAL_HISTORY_REUSE_AUDIT_20260911.md)
+  include a read-only, source-hash-pinned reproduction. This audit does not fix
+  the engine, verify current Drive bytes, collect full history or run a fund.
+
+### 2026-09-10 - All-horizon analysis and US chronological core connection
+
+- PR412 now connects US decisions and fund replay to one checked-in core.
+  Exact-date relative strength covers all candidates over seven horizons;
+  insufficient histories are not filled or promoted into investment ranks.
+- Reuse immutable captures and reconstruct prices from their receipt-bound
+  raw pages. Restore comparable IWB sector labels from the CSV: merging a
+  foreign seed previously replaced the sector on duplicate securities.
+- SEC companyfacts staleness is not absence of interim statements. TSM and
+  ASML official quarterly tables permit current native-currency TTM research.
+  Later comparative figures and today's review must not enter past decisions.
+- The integrated manifest is still distinct from raw bars and a current
+  inventory. A SPY reference curve or green diagnostic job is not a successful
+  stock-selection fund. Keep its performance labels and remaining gaps explicit.
+- Validation CLI `--include` adds tests; use repeated `--only` for a focused
+  subset. An unintended broad run encountered unrelated missing dependencies;
+  focused US/core regressions are the relevant validation for this change.
+- Evidence: `docs/US_RESEARCH_CONTINUATION_20260910.md`; exact-head real
+  workflow outcomes must be recorded after execution, never predicted here.
+- Real CI34540344511 passed229/230 files; the sole failure was the new static
+  registrations changing protected `tools/run_pr_validation.py`. Restore the
+  frozen runner byte-for-byte and register this research subset through its
+  supported `--include`/`--only` CLI in the dedicated PR workflow. Do not advance
+  the protected publication pin or suppress its lineage check to make CI green.
+
 This is the shared "mistake notebook" for Codex, Claude, GPT Pro, and any other
 agent working on `wscha231/r1000-quant-engine`.
 
@@ -4902,3 +4947,90 @@ Expected contract:
 - Fullrun executed: false. Workflow dispatched or rerun: false. Migration,
   quarantine, Drive, target, order, ledger, accepted-head, production, live
   trading, automatic promotion, and pattern backfill state mutated: false.
+
+
+## 2026-09-10 - Real source connection separates access from historical fitness
+
+- Branch: `codex/research-fund-connection-20260910`, based on current master.
+- Financial Datasets returned a zero-credit account message inside a nominal
+  tool response; short Alpaca bars worked while longer requests returned
+  connector internal errors. Neither outcome proves historical data absent.
+- Add a bounded independent REST collection job using existing credentials,
+  pagination and per-symbol dates, with source-specific controlled failures.
+- SEC fiscal TTM uses annual plus fiscal YTD minus comparable prior YTD. Keep
+  publication timing and complete valuation approval false until established.
+- Never substitute today's watchlist for the historical eligible universe or
+  turn an unavailable portfolio into a 100% cash strategy result.
+- Discard provider error bodies before raw persistence, including JSON errors
+  returned to CSV requests, because they can echo credential-bearing URLs.
+- Private raw snapshots use a new run-specific research prefix and byte check;
+  public reports expose controlled aggregates only. No accepted state restore.
+- Validation: 12 local regression cases passed. Actual provider run and exact
+  head CI/review remain to be inspected. No real backtest results yet.
+
+
+### 2026-09-10 - Source connection first real run
+
+- Run34486807630 recovered 49,968 raw US bar observations (25 symbols), SEC
+  facts/submissions for 24 issuers, and nine KR closes through September9.
+  Private run-specific snapshot upload and byte check succeeded.
+- Real SEC data exposed discontinued-tag shadowing: first available tag is not
+  necessarily the current reporting tag. Select independently reconstructed
+  complete periods by date; stale TTM must remain absent. Add regression cases.
+- Daily FRED wide vintage queries returned HTTP400 while monthly UNRATE worked.
+  Bound requests and classify controlled errors before diagnosing lost history.
+- Keep raw capture, normalized admission, reviewed underwriting and final
+  allocation separate. Updated raw data must not become a fabricated approved
+  portfolio. Test the actual pinned engine path with the connected observations.
+
+
+### 2026-09-10 - Connected input and persistence outcomes are independent
+
+- Run34488760178 restored FRED daily initial-release retrieval by bounding
+  vintage windows. The actual H1/H2 probe processed33 names but admitted0;
+  quality and complete underwriting were not manufactured from raw facts.
+- A successful active listing response must survive a later delisted-response
+  parsing failure; preserve each provider result separately.
+- Private persistence did not verify on the second run despite a green
+  diagnostic workflow. Do not declare its raw snapshot durable. Add file/byte
+  counts and separate copy/byte-check error categories with bounded timeouts.
+
+### 2026-09-10 - A thematic connection sample is not the strategy universe
+
+- The 24 US / nine KR set came directly from the daily monitor watchlist. No
+  per-name quantitative selection rule or full-market comparison was recorded.
+  A sample admission result must not be reported as an investment screen.
+- Default source collection now reads broad IWB equity and KOSPI/KOSDAQ share
+  inventories. The old sample requires an explicit mode and carries its source
+  file hash. A failed market source never falls back to the 33 theme names.
+- Preserve original membership dates, share classes and missing/zero-price
+  rows. Check IPO/delisting contradictions in historical listing responses;
+  successful transport or consistent dates alone do not prove PIT completeness.
+- Current and historical probe snapshots stay separate. Current members with
+  old price histories are still a survivor-selected sample for an old backtest.
+- IWB is a broad US proxy, not the complete US or ADR universe. Two historical
+  probe dates are not a continuous seven-year historical membership series.
+- Price collection batches every source member and preserves per-symbol
+  missing coverage. Public artifacts contain aggregates; wide source records
+  and per-company diagnostics stay in the immutable private research snapshot.
+
+### 2026-09-10 - US-only mandate includes foreign issuers listed in the US
+
+- User selected US listings plus USD cash, including TSM and ASML. US venue is
+  not US issuer domicile or mandatory 100% equity exposure. KR input is out of
+  scope; reporting-currency and foreign-business risks remain relevant.
+- IWB membership alone omits important foreign issuers. Union it with current
+  SEC-exchange-verified foreign candidates, deduplicate securities, retain issuer
+  identities and exclusions, and ignore stale seed market caps and speculative
+  listing watchlists. Current exchange observations are not historical membership.
+- TSM native IFRS/TWD and ASML US GAAP/EUR values cannot be treated as USD
+  per-share metrics. Preserve stale annual statements as annual observations;
+  missing current TTM, conversion or ADS/share basis does not become approval.
+- The pinned core has a fixed 5+2 validation contract. The current-master-based
+  US entry point changes scope to 5+0, rejects foreign-market input and retains
+  all core data, quality, risk and self-financing helpers without monkey-patching.
+  Publish core, extension and config hashes together. Do not claim the separate
+  historical fund runner consumes the new profile until that binding is tested.
+- Local verification: 43 source/universe/admission tests passed, including a
+  labelled synthetic five-US-security proposal with cash and costs, no KRW
+  feed, and rejection of a KR holding. Synthetic success is not real CAGR.

@@ -1,0 +1,165 @@
+{
+  "schema_version": "financial-history-reuse-audit-v1",
+  "audit_date": "2026-09-11",
+  "audit_type": "CODE_HISTORY_AND_DESIGN",
+  "master_sha": "8ccbd478e05ff34c6dd70e410be0cae793c9863e",
+  "connection_head_sha": "29cb094bb66ccc51ff7f058d9f2fa596fa96483a",
+  "whole_history_collection_completed": false,
+  "current_drive_bytes_verified": false,
+  "backtest_executed": false,
+  "investment_metrics": null,
+  "mandate": {
+    "market": "US_LISTED_INCLUDING_FOREIGN_ISSUERS",
+    "starting_capital_usd": 100000,
+    "investment_start": "2019-06-03",
+    "investment_end_policy": "latest_completed_US_session",
+    "initial_raw_start": "2016-01-01",
+    "current_price_cohort_count": 1118,
+    "current_cohort_is_all_US_listings": false,
+    "current_cohort_is_historical_universe": false
+  },
+  "source_refs": [
+    {
+      "pr": 41,
+      "branch": "codex/fix-sec-refresh-restore-timeouts",
+      "head": "c788591fe51397238eb80b21491b9356affc5b2c",
+      "merged": true,
+      "reuse": "bounded restore"
+    },
+    {
+      "pr": 261,
+      "branch": "codex/free-historical-data-backfill-20260710",
+      "head": "7cab918fae591deca01f079c98815a03de8d9b0a",
+      "merged": true,
+      "reuse": "collection and coverage contracts"
+    },
+    {
+      "pr": 263,
+      "branch": "codex/sec-cik-coverage-20260710",
+      "head": "72ef125be9bcda9d7439d01525f01d9292688aa7",
+      "merged": true,
+      "reuse": "CIK identity and full request queue",
+      "historical_reported_companyfacts_members": 990,
+      "historical_reported_eligible_issuers": 992,
+      "count_semantics": "old raw-file membership; not current or complete quarterly coverage"
+    },
+    {
+      "pr": 281,
+      "branch": "codex/run287-decision-complete-frame-20260714",
+      "head": "6c9a226c142b92bc55a3745c0aa62f0e60927240",
+      "merged": true,
+      "reuse": "exact accession and acceptance binding"
+    },
+    {
+      "pr": 295,
+      "branch": "codex/run287-exact-source-bundle-orchestrator-20260715",
+      "head": "41fcae502b2bb83be75c0bc9acadad743ab6fd00",
+      "merged": true,
+      "reuse": "changed issuer collection and receipts"
+    },
+    {
+      "pr": 303,
+      "branch": "codex/run287-sec-balance-source-screen-20260718",
+      "head": "348af543c8eb3481175eefff2497594fb0e3d5bc",
+      "merged": false,
+      "reuse": "fact cache and accession joins only",
+      "signal_reuse_allowed": false,
+      "source_screen_verdict": "REJECT_SOURCE_SCREEN"
+    },
+    {
+      "pr": 411,
+      "branch": "codex/research-data-lifecycle-20260910",
+      "head": "d85c4ccde43702b5f1e37ee718a54a0c383f1435",
+      "merged": false,
+      "reuse": "immutable observations, versioned heads and reevaluation planning"
+    },
+    {
+      "pr": 412,
+      "branch": "codex/research-fund-connection-20260910",
+      "head": "29cb094bb66ccc51ff7f058d9f2fa596fa96483a",
+      "merged": false,
+      "reuse": "price cohort, RS, receipts and US replay entrypoints"
+    }
+  ],
+  "findings": [
+    {
+      "id": "F001",
+      "status": "CODE_CONFIRMED",
+      "path": "tools/research_source_connection.py",
+      "function": "run",
+      "problem": "us_listed SEC collection restricted to FOREIGN_REPORTING keys TSM/ASML",
+      "fix": "plan all requested issuer CIKs and bind bulk plus delta adapters"
+    },
+    {
+      "id": "F002",
+      "status": "SYNTHETIC_REPRODUCED",
+      "path": "r1000_pipeline.py",
+      "function": "companyfacts_quarterly_flows",
+      "problem": "future Q1 revision changes already-available Q2 flow",
+      "expected_q2": 150,
+      "observed_q2": 130,
+      "decision": "2024-08-02",
+      "future_revision": "2025-05-01",
+      "output_accepted": "2024-08-01"
+    },
+    {
+      "id": "F003",
+      "status": "SYNTHETIC_REPRODUCED",
+      "path": "r1000_pipeline.py",
+      "function": "prep_num",
+      "problem": "integer YYYYMMDD interpreted as epoch nanoseconds; context columns dropped",
+      "input_ddate": 20240331,
+      "expected_date": "2024-03-31",
+      "observed_date": "1970-01-01T00:00:00.020240331",
+      "dropped_context_fields": [
+        "version",
+        "segments",
+        "coreg"
+      ]
+    },
+    {
+      "id": "F004",
+      "status": "CODE_CONFIRMED",
+      "path": "r1000_pipeline.py",
+      "problem": "filed used as accepted; latest-only dedup; unit preference; current market-cap fallback may enter historical rows",
+      "old_backtest_impact_measured": false
+    },
+    {
+      "id": "F005",
+      "status": "CODE_CONFIRMED",
+      "path": ".github/workflows/free_data_daily_update.yml",
+      "problem": "scheduled SEC bulk refresh defaults false; distinct limited recent collector excludes 6-K"
+    }
+  ],
+  "counterexample_source_sha256": "736f98c5668f2012f9ae3ce309c24f01d465960a50a45bb74f1165b3da6a258f",
+  "counterexample_script": "docs/financial_history_audit_20260911/reproduce_counterexamples.py",
+  "implementation_status": "DESIGN_NOT_IMPLEMENTED",
+  "design": {
+    "raw": "all face-statement fields plus separate notes and original filings; preserve accession and contexts",
+    "bootstrap": "reuse verified existing sources then bulk Companyfacts/Submissions and missing FSDS quarters",
+    "incremental": "new accession -> changed CIK -> affected derived partitions",
+    "storage": "immutable raw packs + Parquet analytics + SQLite catalogue/queue; existing private durable storage",
+    "scope_key": "CIK for issuer collection; historical security_id for investing",
+    "pit": "available version at decision; revisions retained; derived availability is max of component availability",
+    "reporting": "coverage by issuer, period, statement, field, market and sector",
+    "ongoing_schedule_activated": false
+  },
+  "acceptance_gates": [
+    "all requested issuers represented including failures",
+    "original filing availability and revision provenance",
+    "native currency/security-unit continuity",
+    "synthetic revision/date/context regressions",
+    "real short-window all-then-eligible cohort fund accounting",
+    "full-window fund preflight",
+    "actual performance and final portfolio outputs",
+    "incremental update reproducibility"
+  ],
+  "references": [
+    "https://www.sec.gov/search-filings/edgar-application-programming-interfaces",
+    "https://www.sec.gov/data-research/sec-markets-data/financial-statement-data-sets",
+    "https://www.sec.gov/files/financial-statement-data-sets.pdf",
+    "https://www.sec.gov/data-research/sec-markets-data/financial-statement-notes-data-sets",
+    "https://www.sec.gov/about/webmaster-frequently-asked-questions",
+    "https://developers.google.com/workspace/drive/api/guides/limits"
+  ]
+}

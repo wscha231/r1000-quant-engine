@@ -1,0 +1,198 @@
+{
+  "schema_version": "reviewed-interim-facts-v1",
+  "data_kind": "REAL",
+  "interpretation": "Native company totals; current research only. Later comparative statements are not original-period PIT versions.",
+  "free_cash_flow_definition": "operating cash flow minus gross cash purchases of property, plant and equipment; excludes intangible purchases",
+  "current_tsm_ads_ratio": {
+    "ordinary_shares_per_ads": 5,
+    "source": "https://investor.tsmc.com/english/encrypt/files/encrypt_file/reports/2026-07/114aaca0fea2050e96b91fffbab9ed04ba09cd92/FS.pdf",
+    "page": 2,
+    "historical_ratio_verified": false
+  },
+  "records": [
+    {
+      "ticker": "TSM",
+      "currency": "TWD",
+      "period_start": "2025-07-01",
+      "period_end": "2025-09-30",
+      "period_kind": "QUARTER",
+      "scale": 1000000,
+      "values": {
+        "revenue": 989918,
+        "net_income_to_parent": 452302,
+        "operating_cash_flow": 426829,
+        "capex_ppe": 287452
+      },
+      "source": "https://investor.tsmc.com/english/encrypt/files/encrypt_file/reports/2026-02/cb73d5f4e019a8f6d7a494a0f8f6c6da2dfc4ee2/FS.pdf",
+      "pages": [
+        2,
+        4
+      ],
+      "observed_at": "2026-09-10T23:00:31.466768+00:00",
+      "extraction_method": "reviewed_primary_statement_table",
+      "original_publication_timestamp_verified": false,
+      "historical_use_allowed": false
+    },
+    {
+      "ticker": "TSM",
+      "currency": "TWD",
+      "period_start": "2025-10-01",
+      "period_end": "2025-12-31",
+      "period_kind": "QUARTER",
+      "scale": 1000000,
+      "values": {
+        "revenue": 1046090,
+        "net_income_to_parent": 505744,
+        "operating_cash_flow": 725509,
+        "capex_ppe": 356906
+      },
+      "source": "https://investor.tsmc.com/english/encrypt/files/encrypt_file/reports/2026-02/cb73d5f4e019a8f6d7a494a0f8f6c6da2dfc4ee2/FS.pdf",
+      "pages": [
+        2,
+        4
+      ],
+      "observed_at": "2026-09-10T23:00:31.466768+00:00",
+      "extraction_method": "reviewed_primary_statement_table",
+      "original_publication_timestamp_verified": false,
+      "historical_use_allowed": false
+    },
+    {
+      "ticker": "TSM",
+      "currency": "TWD",
+      "period_start": "2026-01-01",
+      "period_end": "2026-03-31",
+      "period_kind": "QUARTER",
+      "scale": 1000000,
+      "values": {
+        "revenue": 1134103,
+        "net_income_to_parent": 572480,
+        "operating_cash_flow": 698976,
+        "capex_ppe": 350763
+      },
+      "source": "https://investor.tsmc.com/english/encrypt/files/encrypt_file/reports/2026-07/114aaca0fea2050e96b91fffbab9ed04ba09cd92/FS.pdf",
+      "pages": [
+        2,
+        4
+      ],
+      "observed_at": "2026-09-10T23:00:31.466768+00:00",
+      "extraction_method": "reviewed_primary_statement_table",
+      "original_publication_timestamp_verified": false,
+      "historical_use_allowed": false
+    },
+    {
+      "ticker": "TSM",
+      "currency": "TWD",
+      "period_start": "2026-04-01",
+      "period_end": "2026-06-30",
+      "period_kind": "QUARTER",
+      "scale": 1000000,
+      "values": {
+        "revenue": 1270381,
+        "net_income_to_parent": 706562,
+        "operating_cash_flow": 783365,
+        "capex_ppe": 496002
+      },
+      "source": "https://investor.tsmc.com/english/encrypt/files/encrypt_file/reports/2026-07/114aaca0fea2050e96b91fffbab9ed04ba09cd92/FS.pdf",
+      "pages": [
+        2,
+        4
+      ],
+      "observed_at": "2026-09-10T23:00:31.466768+00:00",
+      "extraction_method": "reviewed_primary_statement_table",
+      "original_publication_timestamp_verified": false,
+      "historical_use_allowed": false
+    },
+    {
+      "ticker": "ASML",
+      "currency": "EUR",
+      "period_start": "2025-06-30",
+      "period_end": "2025-09-28",
+      "period_kind": "QUARTER",
+      "scale": 1000000,
+      "values": {
+        "revenue": 7516.0,
+        "net_income_to_parent": 2124.5,
+        "operating_cash_flow": 559.1,
+        "capex_ppe": 295.9
+      },
+      "source": "https://ourbrand.asml.com/asset/ffeb8813-403b-49df-83c0-01aae7533dd6/Financial-statements-US-GAAP-Q2-2026.pdf",
+      "pages": [
+        7,
+        10
+      ],
+      "observed_at": "2026-09-10T23:00:31.466768+00:00",
+      "extraction_method": "reviewed_primary_statement_table",
+      "original_publication_timestamp_verified": false,
+      "historical_use_allowed": false
+    },
+    {
+      "ticker": "ASML",
+      "currency": "EUR",
+      "period_start": "2025-09-29",
+      "period_end": "2025-12-31",
+      "period_kind": "QUARTER",
+      "scale": 1000000,
+      "values": {
+        "revenue": 9718.1,
+        "net_income_to_parent": 2839.6,
+        "operating_cash_flow": 11410.3,
+        "capex_ppe": 447.9
+      },
+      "source": "https://ourbrand.asml.com/asset/ffeb8813-403b-49df-83c0-01aae7533dd6/Financial-statements-US-GAAP-Q2-2026.pdf",
+      "pages": [
+        7,
+        10
+      ],
+      "observed_at": "2026-09-10T23:00:31.466768+00:00",
+      "extraction_method": "reviewed_primary_statement_table",
+      "original_publication_timestamp_verified": false,
+      "historical_use_allowed": false
+    },
+    {
+      "ticker": "ASML",
+      "currency": "EUR",
+      "period_start": "2026-01-01",
+      "period_end": "2026-03-29",
+      "period_kind": "QUARTER",
+      "scale": 1000000,
+      "values": {
+        "revenue": 8766.9,
+        "net_income_to_parent": 2756.7,
+        "operating_cash_flow": -2185.6,
+        "capex_ppe": 402.4
+      },
+      "source": "https://ourbrand.asml.com/asset/ffeb8813-403b-49df-83c0-01aae7533dd6/Financial-statements-US-GAAP-Q2-2026.pdf",
+      "pages": [
+        7,
+        10
+      ],
+      "observed_at": "2026-09-10T23:00:31.466768+00:00",
+      "extraction_method": "reviewed_primary_statement_table",
+      "original_publication_timestamp_verified": false,
+      "historical_use_allowed": false
+    },
+    {
+      "ticker": "ASML",
+      "currency": "EUR",
+      "period_start": "2026-03-30",
+      "period_end": "2026-06-28",
+      "period_kind": "QUARTER",
+      "scale": 1000000,
+      "values": {
+        "revenue": 9326.5,
+        "net_income_to_parent": 2917.6,
+        "operating_cash_flow": 1703.0,
+        "capex_ppe": 299.4
+      },
+      "source": "https://ourbrand.asml.com/asset/ffeb8813-403b-49df-83c0-01aae7533dd6/Financial-statements-US-GAAP-Q2-2026.pdf",
+      "pages": [
+        7,
+        10
+      ],
+      "observed_at": "2026-09-10T23:00:31.466768+00:00",
+      "extraction_method": "reviewed_primary_statement_table",
+      "original_publication_timestamp_verified": false,
+      "historical_use_allowed": false
+    }
+  ]
+}

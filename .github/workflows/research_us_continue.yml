@@ -1,0 +1,95 @@
+name: US Research Replay and All-Candidate Strength
+
+on:
+  pull_request:
+    paths:
+      - 'tools/research_decision_v1/**'
+      - 'tools/research_us_*.py'
+      - 'tools/research_rs_horizons.py'
+      - 'tools/research_interim_financials.py'
+      - 'docs/research_interim_financials_*.json'
+      - 'docs/research_source_reuse_registry.json'
+      - 'tools/continue_us_research.py'
+      - 'tools/extend_us_rs_history.py'
+      - 'tools/restore_research_captures.py'
+      - 'tools/admit_connected_research.py'
+      - 'tests/research_us_continue_smoke.py'
+      - '.github/workflows/research_us_continue.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reuse-and-replay:
+    if: (github.event_name == 'workflow_dispatch' && github.ref_name == 'codex/research-fund-connection-20260910') || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/research-fund-connection-20260910')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /tools/research_decision_v1/
+            /tools/research_us_decision.py
+            /tools/research_us_fund_replay.py
+            /tools/research_rs_horizons.py
+            /tools/research_interim_financials.py
+            /tools/continue_us_research.py
+            /tools/extend_us_rs_history.py
+            /tools/restore_research_captures.py
+            /tools/run_pr_validation.py
+            /tools/admit_connected_research.py
+            /tools/research_source_connection.py
+            /tools/research_universe_connection.py
+            /adr_universe.yaml
+            /docs/research_us_fund_config.json
+            /docs/research_interim_financials_20260910.json
+            /docs/research_source_reuse_registry.json
+            /docs/research_decision_v1_config.json
+            /docs/research_fund_replay_config.json
+            /tests/research_us_continue_smoke.py
+            /tests/research_fund_replay_smoke.py
+            /tests/research_workflow_funding_smoke.py
+            /tests/research_workflow_quality_smoke.py
+            /tests/research_quality_v1_smoke.py
+            /tests/research_decision_v1_fixture.py
+            /tests/research_decision_v1_decision_fixture.py
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned research runtime
+        run: python -m pip install PyYAML==6.0.3 pandas==2.3.3 pandas-market-calendars==5.4.0 exchange-calendars==4.13.2 tzdata==2026.3
+      - name: Validate chronological US integration
+        run: |
+          python tools/run_pr_validation.py \
+            --include research_us_continue_smoke --include research_fund_replay_smoke \
+            --only research_us_continue_smoke --only research_fund_replay_smoke
+      - name: Restore verified research inputs
+        env:
+          RESEARCH_RCLONE_CONFIG: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+        run: |
+          umask 077
+          python tools/restore_research_captures.py
+      - name: Analyze all horizons and attempt integrated fund replay
+        env:
+          RESEARCH_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+          RESEARCH_RCLONE_CONFIG: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+        run: |
+          umask 077
+          python -I tools/continue_us_research.py \
+            --current "$RUNNER_TEMP/us-research-reuse/current" \
+            --sample "$RUNNER_TEMP/us-research-reuse/sample" \
+            --output "$RUNNER_TEMP/us-research-results" --extend-rs
+      - name: Publish derived research results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: us-research-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/us-research-results/
+          if-no-files-found: error
+          retention-days: 30
