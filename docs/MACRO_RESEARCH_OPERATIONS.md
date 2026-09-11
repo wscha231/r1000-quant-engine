@@ -175,3 +175,12 @@ A `CHECKPOINT_PREPARED` line records the manifest and proposed commit after byte
 verification but before publication, so an acknowledgement failure is traceable.
 It is not a COMMITTED receipt. A failed cycle reports that remote reconciliation
 is required, because a commit could exist even when its readback failed.
+
+
+A connected Drive metadata check found one matching research folder and the
+expected objects/manifests/commits children. The transport now resolves its
+research folder once and pins that narrower folder ID for subsequent commands,
+reducing repeated ancestor lookups while using the same credential and limits.
+No account rotation, permission change or quota bypass is involved. A folder
+listing remains metadata evidence, not proof that all stored bytes were restored.
+See the [rclone folder-root contract](https://rclone.org/drive/#root-folder-id).

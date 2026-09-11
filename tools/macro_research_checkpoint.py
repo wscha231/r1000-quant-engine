@@ -117,15 +117,25 @@ class RcloneTransport:
                             r"(scheduled|pr-[1-9][0-9]*)", remote), "research_remote_scope")
         self.root = remote
         self.binary = os.environ.get("MACRO_RCLONE_BIN", "rclone")
+        self.folder_id = None
         # Restore starts with a read. Only an explicitly missing namespace may
         # create its initial commit directory; access/rate failures are not genesis.
         try:
-            self.names("commits")
+            info = json.loads(self.read_call("lsjson", self.root, "--stat"))
         except ValueError as exc:
             if not str(exc).endswith(":NOT_FOUND"):
                 raise
             self.call("mkdir", self.root + "/commits")
-            self.names("commits")
+            info = json.loads(self.read_call("lsjson", self.root, "--stat"))
+        require(isinstance(info, dict) and info.get("IsDir") is True and
+                re.fullmatch(r"[A-Za-z0-9_-]+", info.get("ID", "")), "research_folder_identity")
+        # Pin the narrower, already-resolved research folder for this process.
+        # Re-resolving every ancestor for each object amplifies API request load.
+        self.folder_id = info["ID"]
+        self.root = "gdrive:"
+
+    def path(self, suffix):
+        return self.root + ("" if self.root.endswith(":") else "/") + relative(suffix)
 
     def call(self, *args):
         # These names collide with rclone's own environment options. Never pass
@@ -133,8 +143,9 @@ class RcloneTransport:
         env = {k: v for k, v in os.environ.items() if not k.startswith(("RCLONE_", "MACRO_DRIVE_"))
                and k not in {"FRED_API_KEY", "GH_TOKEN", "GITHUB_TOKEN"}}
         env["RCLONE_CONFIG"] = os.environ["MACRO_RCLONE_CONFIG"]
+        root_flags = ["--drive-root-folder-id", self.folder_id] if getattr(self, "folder_id", None) else []
         try:
-            result = subprocess.run([self.binary, *map(str, args), "--retries", "2",
+            result = subprocess.run([self.binary, *map(str, args), *root_flags, "--retries", "2",
                 "--low-level-retries", "2", "--contimeout", "20s", "--timeout", "60s",
                 "--tpslimit", "2", "--tpslimit-burst", "1"],
                 env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=480)
@@ -147,7 +158,7 @@ class RcloneTransport:
         return result.stdout
 
     def names(self, prefix):
-        rows = json.loads(self.read_call("lsjson", self.root + "/" + relative(prefix), "--files-only"))
+        rows = json.loads(self.read_call("lsjson", self.path(prefix), "--files-only"))
         names = [r["Name"] for r in rows]
         require(len(names) == len(set(names)), "duplicate_remote_names")
         return sorted(names)
@@ -167,23 +178,23 @@ class RcloneTransport:
                 time.sleep(2 ** attempt + random.random())
 
     def read(self, path):
-        return self.read_call("cat", self.root + "/" + relative(path))
+        return self.read_call("cat", self.path(path))
 
     def write(self, path, raw):
         with tempfile.TemporaryDirectory(prefix="macro-transfer-") as tmp:
             local = Path(tmp) / "payload"
             exclusive(local, raw)
-            self.call("copyto", local, self.root + "/" + relative(path), "--immutable", "--checksum")
+            self.call("copyto", local, self.path(path), "--immutable", "--checksum")
         require(self.read(path) == raw, "remote_write_readback")
 
     def upload(self, objects):
-        self.call("copy", objects, self.root + "/objects", "--immutable", "--checksum", "--transfers", "4")
+        self.call("copy", objects, self.path("objects"), "--immutable", "--checksum", "--transfers", "4")
 
     def download(self, hashes, target):
         with tempfile.TemporaryDirectory(prefix="macro-filelist-") as tmp:
             listing = Path(tmp) / "objects.txt"
             listing.write_text("\n".join(sorted(hashes)) + "\n")
-            self.call("copy", self.root + "/objects", target, "--files-from-raw", listing,
+            self.call("copy", self.path("objects"), target, "--files-from-raw", listing,
                       "--immutable", "--checksum", "--transfers", "4", "--max-transfer", "512M",
                       "--cutoff-mode", "HARD")
 
