@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Checkpoint corruption/failure/retry and orchestration regressions; synthetic."""
 from pathlib import Path
+from contextlib import redirect_stdout
+import configparser
+import io
 import json
 import os
 import sys
@@ -13,6 +16,7 @@ sys.path.insert(0, str(ROOT))
 from tools import macro_history_sources as source
 from tools import macro_research_checkpoint as checkpoint
 from tools import macro_research_cycle as cycle
+from tools import configure_macro_research_drive as drive_config
 
 
 def fixture(root):
@@ -108,7 +112,7 @@ class CheckpointTests(unittest.TestCase):
             self.assertEqual(transport.read("commits/" + "a"*64 + ".json"), b"payload")
             self.assertEqual(call.call_count, 3)
             self.assertEqual(sleep.call_count, 2)
-        for reason in ["DOWNLOAD_QUOTA", "STORAGE_QUOTA", "PERMISSION"]:
+        for reason in ["DOWNLOAD_QUOTA", "STORAGE_QUOTA", "PERMISSION", "AUTHENTICATION_INVALID_GRANT", "AUTHENTICATION_INVALID_CLIENT"]:
             with patch.object(transport, "call", side_effect=ValueError(":" + reason)) as call:
                 with self.assertRaises(ValueError):
                     transport.read("commits/" + "a"*64 + ".json")
@@ -182,6 +186,96 @@ class CheckpointTests(unittest.TestCase):
         self.assertEqual(message, "research_transport_failed:cat:exit_1:PERMISSION")
         wrapped = checkpoint.transport_failure(b"couldn't find root: userRateLimitExceeded", "lsjson", 1)
         self.assertEqual(wrapped, "research_transport_failed:lsjson:exit_1:RATE_LIMIT")
+        for reason in ("invalid_grant", "invalid_client", "unauthorized_client", "invalid_scope"):
+            stderr = ('couldn\'t find root: {"error":"' + reason + '","error_description":"private-secret"}').encode()
+            self.assertEqual(checkpoint.transport_failure(stderr, "lsjson", 1),
+                "research_transport_failed:lsjson:exit_1:AUTHENTICATION_" + reason.upper())
+        self.assertEqual(checkpoint.transport_failure(b"invalid_grant userRateLimitExceeded private-secret", "cat", 1),
+            "research_transport_failed:cat:exit_1:RATE_LIMIT")
+
+    def test_oauth_shape_accepts_expired_modern_legacy_and_service_account_configs(self):
+        token = dict(access_token="fixture-access", refresh_token="fixture-refresh", expiry="2000-01-01T00:00:00Z")
+        remote = dict(client_id="123-fixture.apps.googleusercontent.com", client_secret="fixture-client-secret", token=json.dumps(token))
+        drive_config.validate_drive_config(remote)
+        drive_config.validate_drive_config(dict(token=json.dumps(token)))  # rclone's built-in client
+        legacy = dict(AccessToken="fixture-access", RefreshToken="fixture-refresh", Expiry="2000-01-01T00:00:00+00:00")
+        drive_config.validate_drive_config(dict(token=json.dumps(legacy)))
+        for key in ("service_account_file", "service_account_credentials"):
+            drive_config.validate_drive_config({key: "fixture-service-account"})
+
+    def test_oauth_missing_placeholder_and_malformed_fields_fail_closed(self):
+        token = dict(access_token="fixture-access", refresh_token="fixture-refresh", expiry="2000-01-01T00:00:00Z")
+        base = dict(client_id="123-fixture.apps.googleusercontent.com", client_secret="fixture-client-secret", token=json.dumps(token))
+        cases = [
+            (dict(token=""), "OAUTH_TOKEN_MISSING"),
+            (dict(token="private-secret{"), "OAUTH_TOKEN_JSON"),
+            (dict(token="[]"), "OAUTH_TOKEN_JSON"),
+            (dict(client_id=""), "OAUTH_CLIENT_PAIR_INCOMPLETE"),
+            (dict(client_secret=""), "OAUTH_CLIENT_PAIR_INCOMPLETE"),
+            (dict(client_id="123"), "OAUTH_CLIENT_ID_FORMAT"),
+            (dict(client_secret="YOUR_FULL_WEB_CLIENT_SECRET"), "OAUTH_PLACEHOLDER"),
+        ]
+        for delta, code in [
+            (dict(access_token=""), "OAUTH_ACCESS_TOKEN_MISSING"),
+            (dict(refresh_token=None), "OAUTH_REFRESH_TOKEN_MISSING"),
+            (dict(refresh_token="YOUR_REFRESH_TOKEN"), "OAUTH_PLACEHOLDER"),
+            (dict(access_token="YOUR_ACCESS_TOKEN"), "OAUTH_PLACEHOLDER"),
+            (dict(refresh_token=123), "OAUTH_FIELD_FORMAT"),
+            (dict(refresh_token="fixture refresh"), "OAUTH_FIELD_FORMAT"),
+            (dict(expiry=None, expires_in=3600), "OAUTH_EXPIRY_FORMAT"),
+            (dict(expiry="2026-02-30T00:00:00Z"), "OAUTH_EXPIRY_FORMAT"),
+            (dict(expiry="2026-09-11T00:00:00"), "OAUTH_EXPIRY_FORMAT"),
+        ]:
+            cases.append((dict(token=json.dumps(dict(token, **delta))), code))
+        # Mixed schemas must not appear valid when rclone would discard refresh.
+        cases.append((dict(token=json.dumps(dict(access_token="fixture-access", RefreshToken="fixture-refresh"))), "OAUTH_REFRESH_TOKEN_MISSING"))
+        for delta, code in cases:
+            with self.subTest(code=code), self.assertRaisesRegex(drive_config.DriveConfigurationError, "^" + code + "$"):
+                drive_config.validate_drive_config(dict(base, **delta))
+
+    def test_configuration_preserves_existing_root_and_keeps_credentials_temporary(self):
+        token = json.dumps(dict(access_token="fixture-access", refresh_token="fixture-refresh", expiry="2000-01-01T00:00:00Z"))
+        supplied = "[gdrive]\ntype = drive\nroot_folder_id = fixture-root\nteam_drive = fixture-team\ntoken = " + token + "\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            env = dict(MACRO_RESEARCH_LANE="pr-413", RUNNER_TEMP=tmp, GITHUB_ENV=str(root / "env"), MACRO_DRIVE_CONFIG=supplied)
+            previous_umask = os.umask(0o077)
+            try:
+                stdout = io.StringIO()
+                with patch.dict(os.environ, env, clear=True), redirect_stdout(stdout):
+                    drive_config.main()
+                config = configparser.ConfigParser(interpolation=None)
+                config.read(root / "macro-rclone.conf")
+                self.assertEqual(config["gdrive"]["root_folder_id"], "fixture-root")
+                self.assertEqual(config["gdrive"]["team_drive"], "fixture-team")
+                self.assertEqual(config["gdrive"]["token"], token)
+                self.assertEqual((root / "macro-rclone.conf").stat().st_mode & 0o777, 0o600)
+                self.assertIn("MACRO_RESEARCH_REMOTE=gdrive:research/macro_technical_evidence/v1/pr-413\n", (root / "env").read_text())
+                self.assertNotIn("fixture", stdout.getvalue() + (root / "env").read_text())
+                self.assertIn("Google access is not yet verified", stdout.getvalue())
+            finally:
+                os.umask(previous_umask)
+
+    def test_configuration_cli_never_reports_untrusted_exception_text(self):
+        for error, expected in [
+            (drive_config.DriveConfigurationError("OAUTH_TOKEN_MISSING"), ":OAUTH_TOKEN_MISSING"),
+            (drive_config.DriveConfigurationError("private-secret"), ":INVALID_CONFIG"),
+            (ValueError("private-secret"), ""),
+        ]:
+            with patch.object(drive_config, "configure", side_effect=error), self.assertRaises(SystemExit) as failure:
+                drive_config.main()
+            self.assertEqual(str(failure.exception), "BLOCKED_RESEARCH_DRIVE_CONFIGURATION" + expected)
+        with tempfile.TemporaryDirectory() as tmp:
+            env = dict(MACRO_RESEARCH_LANE="pr-413", RUNNER_TEMP=tmp, GITHUB_ENV=str(Path(tmp) / "env"))
+            previous_umask = os.umask(0o077)
+            try:
+                for text, code in [("", "CREDENTIALS_MISSING"), ("gdrive]\nprivate-secret", "INVALID_CONFIG"), ("[gdrive]\ntype=drive", "OAUTH_TOKEN_MISSING")]:
+                    with patch.dict(os.environ, dict(env, MACRO_DRIVE_CONFIG=text), clear=True), self.assertRaises(SystemExit) as failure:
+                        drive_config.main()
+                    self.assertEqual(str(failure.exception), "BLOCKED_RESEARCH_DRIVE_CONFIGURATION:" + code)
+                    self.assertFalse((Path(tmp) / "macro-rclone.conf").exists())
+            finally:
+                os.umask(previous_umask)
 
     def test_two_cycles_failure_journal_and_readonly_export(self):
         with tempfile.TemporaryDirectory() as tmp:

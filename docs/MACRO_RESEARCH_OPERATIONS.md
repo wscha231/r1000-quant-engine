@@ -198,3 +198,53 @@ lookup after its immediate upload readback had succeeded. Known hash-addressed
 file reads now retry the exact same path within the same bounded window. A
 persistently missing file still fails; it cannot select an older head or create
 a new genesis. New-namespace discovery does not use this missing-file retry.
+
+## OAuth credential diagnosis, 2026-09-11
+
+At head `338947cb26666df141be4aa5c1880e370b7ce74c`, research pilot run
+`34576468407` was checked after two user-reported credential updates:
+
+| Attempt | Job | Completion (UTC) | Failure | Artifact |
+|---|---|---|---|---|
+| 2 | `103403567554` | 2026-09-11 20:02:34 | `lsjson:AUTHENTICATION` | `10280377102` |
+| 3 | `103408596652` | 2026-09-11 20:19:02 | `lsjson:AUTHENTICATION` | `10280359655` |
+
+Artifact SHA256 values, in attempt order:
+
+```text
+61f4ae2efca912a0eb68f78b02d4f2b2ddb171f5ec21b0c1d32aec0327f94417
+4b599419b0f4ed2c7df983ed66ad881eb2d537b50a6ba689e89aab474cecd086
+```
+
+Both stopped during namespace discovery before remote writes; neither proved
+the earlier RATE_LIMIT condition was resolved. The GitHub Secret and connected
+Drive plugin use separate credentials. A successful plugin metadata read cannot
+validate the Actions credential, and the secret value is not retrievable here.
+
+`configure_macro_research_drive.py` now reports allowlisted configuration codes
+for missing credentials/tokens, malformed JSON/fields, placeholder values,
+incomplete custom client pairs, invalid client-ID shape and invalid/missing
+rclone expiry. Existing service-account configurations remain supported. It
+preserves supplied root/shared-drive settings and never prints credential values.
+The following remote check distinguishes `AUTHENTICATION_INVALID_GRANT`,
+`AUTHENTICATION_INVALID_CLIENT`, `AUTHENTICATION_UNAUTHORIZED_CLIENT` and
+`AUTHENTICATION_INVALID_SCOPE`, without printing provider bodies or descriptions.
+Authentication failures are not retried by the read-backoff wrapper.
+
+For browser-only setup, use the existing Google Cloud project and a web OAuth
+client with the exact redirect URI `https://developers.google.com/oauthplayground`.
+In [Google OAuth Playground](https://developers.google.com/oauthplayground/),
+enable **Use your own OAuth credentials**, enter that client pair, request
+offline Drive access, authorize the intended account and exchange the code.
+The stored `client_id`, `client_secret`, `access_token` and `refresh_token` must
+belong to that same flow. Client creation alone supplies no user tokens. See
+[Google's authorization flow](https://developers.google.com/identity/protocols/oauth2/web-server).
+
+Store the complete `[gdrive]` configuration only in `RCLONE_CONFIG_GDRIVE`.
+Use rclone's `expiry` timestamp (for example `2000-01-01T00:00:00Z` to force
+refresh), not only Google's `expires_in`. Include a nonempty access token:
+[rclone v1.75.0's token parser](https://github.com/rclone/rclone/blob/v1.75.0/lib/oauthutil/oauthutil.go)
+falls back to its legacy token schema when `access_token` is empty. A parseable
+configuration only passes the local shape check; actual refresh and namespace
+access must still succeed. Do not publish the configuration, tokens or OAuth
+response in source, logs, chat or artifacts.

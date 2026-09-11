@@ -16,6 +16,21 @@ directive/report when it discovers any of the following:
 Do not paste secrets, raw API keys, account tokens, or private credentials into
 this ledger. Use secret names only.
 
+## 2026-09-11 - OAuth client creation does not authorize unattended Drive access
+
+- Agent: Codex; branch `codex/macro-technical-evidence-20260911`, PR #413.
+- Secret updates were followed by AUTHENTICATION failures before the first
+  namespace read in run `34576468407`, attempts 2 and 3. Secret presence and a
+  separately connected Drive plugin do not prove the Actions credential works.
+- Validate missing tokens, placeholders, client shape and rclone expiry locally;
+  report only allowlisted codes. Keep provider OAuth reasons separate without
+  exposing response bodies. A format pass is not a successful Google login.
+- OAuth Playground tokens must use the same custom web client as the stored
+  configuration. Preserve existing root/shared-drive settings. Do not replace
+  a failed checkpoint chain or retry authentication errors as quota failures.
+- Evidence, artifact hashes and operator instructions:
+  `docs/MACRO_RESEARCH_OPERATIONS.md`.
+
 ## 2026-09-11 - Verify restored research bytes before advancing the checkpoint
 
 - Agent: Codex; branch `codex/macro-technical-evidence-20260911`, PR #413.
