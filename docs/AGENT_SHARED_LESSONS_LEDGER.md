@@ -18,6 +18,33 @@ this ledger. Use secret names only.
 
 ## Entry Template
 
+## 2026-09-11 - Historical macro screening needs source vintages and mature labels
+
+- Agent: Codex; branch `codex/macro-technical-evidence-20260911`.
+- Context: User requested historical-first macro/technical effect research
+  and ongoing reevaluation from this chat.
+- Result: Added bounded current/ALFRED source adapters, immutable raw receipts,
+  a 30-series registry, official-calendar due planning, and fixed index
+  hypotheses with next-session entry and purged walk-forward evaluation.
+- Lesson: Current FRED history cannot become historical release evidence by
+  shifting its observation dates. ALFRED dates support conservative date-level
+  reconstruction, not announcement-time surprises. Repeating monthly values
+  over trading days or securities does not create independent macro events.
+- Caveat: SP500 graph history has a ten-year limit and excludes dividends.
+  WTREGEN/WRESBAL are weekly averages; liquidity component units differ.
+  Whole-run multiple-testing correction does not replace the historical
+  canonical experiment census. A low first-screen score is not permanent rejection.
+- Local direct FRED access did not complete after network approval was
+  cancelled. The same-repository public pilot is separate execution evidence;
+  its temporary store is not remotely durable research data.
+- Validation: Initial 12 offline regression tests and workflow syntax passed.
+  The existing macro-input Tier-1 suite invokes the new tests without changing
+  protected validator pins. Provider/CI results are recorded in the linked report.
+- Next: Verify the public pilot, then ALFRED/calendar access and durable
+  persistence before recurring operation. No selector/target/ledger/promotion
+  change or fullrun is included.
+- Evidence: `docs/MACRO_TECHNICAL_EVIDENCE.md`.
+
 ```text
 ### YYYY-MM-DD - short title
 
