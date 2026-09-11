@@ -1,6 +1,7 @@
 name: Macro and technical evidence pilot
 
-# Bounded research on public sources. No secrets, accepted state or broker calls.
+# Bounded research. Only the isolated archive step may use the existing FRED key.
+# No accepted state, Drive credential or broker call is part of either lane.
 # A recurring durable service is installed only after verified storage/restore.
 on:
   pull_request:
@@ -66,8 +67,63 @@ jobs:
               eligible_for_selector=False, durable_remote_verified=False)
           exclusive(root/'reports/summary.json', encoded(summary))
           print(json.dumps(summary, sort_keys=True))
+          # Public derived readpack: inspect effects without copying raw prices.
+          for row in result['results']:
+              fields = ['asset','feature','horizon_sessions','oos_rows','nonoverlap_windows',
+                        'effect_per_training_sd_pp','effect_ci95_pp','family_q_value',
+                        'oos_mse_improvement','state_or_event_mean_return_pct',
+                        'non_event_mean_return_pct','status']
+              print('EVIDENCE_ROW ' + json.dumps({k:row[k] for k in fields}, sort_keys=True))
           assert {'SP500','NASDAQCOM'} <= set(result['coverage']), 'missing_index_history'
           assert summary['collected'] == len(ids), 'partial_collection'
+          PY
+      - name: Verify three historical macro archives and release calendars
+        env:
+          RESEARCH_ROOT: ${{ runner.temp }}/macro-evidence
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: |
+          python - <<'PY'
+          from datetime import datetime, timedelta, timezone
+          import json, os
+          from pathlib import Path
+          from tools.macro_history_sources import collect, encoded, exclusive, fetch_calendar, utc_now
+          from tools.macro_technical_study import study
+          root = Path(os.environ['RESEARCH_ROOT'])
+          if not os.environ.get('FRED_API_KEY'):
+              summary = dict(status='BLOCKED_FRED_KEY_UNAVAILABLE', historical_macro_tests=0)
+              exclusive(root/'reports/alfred-summary.json', encoded(summary))
+              print('ALFRED_SUMMARY ' + json.dumps(summary))
+          else:
+              prior = json.loads((root/'reports/collection.json').read_bytes())
+              price_receipts = list((root/'store/receipts').glob('*.json'))
+              assert len(price_receipts) == 1, 'price_receipt_identity'
+              archive, path = collect(root/'store', ['UNRATE','PAYEMS','CPIAUCSL'],
+                  prior['requested_start'], prior['requested_through'], mode='alfred')
+              exclusive(root/'reports/alfred-collection.json', encoded(archive))
+              result = study(root/'store', price_receipts[0], utc_now(), [path])
+              exclusive(root/'reports/alfred-evidence.json', encoded(result))
+              macro_rows = [r for r in result['results'] if r['sample_kind']=='release']
+              summary = dict(sources=archive['sources'], historical_macro_tests=len(macro_rows),
+                  status_counts={s:sum(r['status']==s for r in macro_rows)
+                                 for s in sorted({r['status'] for r in macro_rows})},
+                  historical_pit_certified=False, eligible_for_selector=False)
+              exclusive(root/'reports/alfred-summary.json', encoded(summary))
+              print('ALFRED_SUMMARY ' + json.dumps(summary, sort_keys=True))
+              for row in macro_rows:
+                  fields = ['asset','feature','horizon_sessions','oos_rows','nonoverlap_windows',
+                            'effect_per_training_sd_pp','effect_ci95_pp','family_q_value',
+                            'oos_mse_improvement','status']
+                  print('MACRO_EVIDENCE_ROW ' + json.dumps({k:row[k] for k in fields}, sort_keys=True))
+              today = datetime.now(timezone.utc).date()
+              try:
+                  calendar = fetch_calendar(['UNRATE','PAYEMS','CPIAUCSL'],
+                      (today-timedelta(days=30)).isoformat(), (today+timedelta(days=90)).isoformat())
+                  exclusive(root/'reports/calendar.json', encoded(calendar))
+                  print('CALENDAR_SUMMARY ' + json.dumps(calendar, sort_keys=True))
+              except Exception:
+                  print('CALENDAR_SUMMARY {"status":"SOURCE_OR_CALENDAR_CONTRACT_BLOCKED"}')
+                  raise SystemExit(2)
+              assert all(s['status']=='COLLECTED' for s in archive['sources']), 'partial_archive_collection'
           PY
       - name: Preserve aggregate diagnostics
         if: always()

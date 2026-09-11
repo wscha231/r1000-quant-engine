@@ -26,6 +26,12 @@ ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = ROOT / "docs/macro_indicator_registry.json"
 MAX_BYTES = 16 * 1024 * 1024
 MAX_PAGES = 20
+PUBLIC_ERRORS = frozenset({"fred_key_unavailable", "alfred_output_contract", "alfred_page_offset",
+    "alfred_count", "alfred_count_changed", "alfred_empty_page", "alfred_date_bounds",
+    "alfred_duplicate_vintage", "alfred_incomplete_pagination", "alfred_overlapping_vintages",
+    "alfred_page_limit", "graph_schema", "graph_row", "duplicate_or_future_observation",
+    "nonfinite_value", "empty_series", "source_bounds", "observation_window",
+    "credential_echo_rejected", "redirect_rejected", "response_size"})
 
 
 def require(condition, reason):
@@ -226,9 +232,10 @@ def collect(store, series_ids, start, through, mode="current", fetcher=fetch):
             items.append(dict(series=series, status="BLOCKED", reason="HTTP_"+str(exc.code)))
         except (URLError, TimeoutError, OSError):
             items.append(dict(series=series, status="BLOCKED", reason="TRANSPORT_OR_STORE_ERROR"))
-        except (ValueError, TypeError, KeyError, UnicodeError, csv.Error):
+        except (ValueError, TypeError, KeyError, UnicodeError, csv.Error) as exc:
             # Arbitrary exception messages and API URLs must not enter reports.
-            items.append(dict(series=series, status="BLOCKED", reason="SOURCE_CONTRACT_OR_KEY"))
+            reason = str(exc) if str(exc) in PUBLIC_ERRORS else "SOURCE_CONTRACT_OR_KEY"
+            items.append(dict(series=series, status="BLOCKED", reason=reason))
     receipt = dict(schema="macro-history-bundle-v1", mode=mode, requested_start=start,
         requested_through=through, created_at=utc_now(), registry_sha256=digest(REGISTRY.read_bytes()),
         sources=items, durable_remote_verified=False, historical_price_pit_verified=False)

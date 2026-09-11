@@ -137,8 +137,12 @@ be tracked separately. A changed report is not proof of a structural break.
 `.github/workflows/macro_technical_evidence.yml` runs the public 12-series pilot
 on relevant same-repository PR changes and supports manual dispatch after
 publication. The temporary runner store is not uploaded; only aggregate
-collection/evidence/summary JSON is retained for 30 days. No credential,
-raw index history, ledger, portfolio target or broker connection is required.
+collection/evidence/summary JSON is retained for 30 days. The public lane requires no credential. A subsequent isolated step uses only
+the existing `FRED_API_KEY` for UNRATE/PAYEMS/CPIAUCSL archival retrieval and
+their release calendars. If that key is absent it records an explicit block.
+The same-repository guard excludes fork PRs; dependency installation occurs
+before the key is supplied. No raw index history, ledger, portfolio target,
+Drive credential or broker connection is published.
 An incomplete collection remains a failed pilot even if partial reports exist.
 
 The objects/receipts format preserves attempts and raw bytes locally. It is
@@ -187,3 +191,40 @@ Local starting evidence: 12 offline regressions passed. This environment's
 direct FRED request did not complete because network approval was cancelled;
 it is not evidence of a FRED outage. Real provider results and PR/CI evidence
 are recorded below after the GitHub pilot runs.
+
+
+## First real-source result (retained baseline)
+
+[PR #413](https://github.com/wscha231/r1000-quant-engine/pull/413), source
+`0281936c95e924901a8fc9738d8eac9ce80c48cd`,
+[run 34558079749](https://github.com/wscha231/r1000-quant-engine/actions/runs/34558079749),
+job `103134935159`, artifact `10183311335` completed the public pilot.
+`docs/macro_evidence_runs/20260911_public_pilot.json` preserves the aggregate
+job-log evidence and artifact identity beyond artifact expiry.
+
+- 12/12 sources collected, 31,759 source observation rows.
+- S&P 500: 2,513 NYSE observations, 2016-09-12 through 2026-09-10.
+- Nasdaq Composite: 6,711 NYSE observations, 2000-01-03 through 2026-09-09.
+  The provider returned 6,712 rows; the follow-up adds explicit reporting of
+  the source date outside the NYSE calendar and the unfilled latest session.
+- 294 declared technical feature/horizon/index comparisons: 218 did not meet
+  the combined incremental-prediction/inference criterion; 76 lacked sufficient
+  independent evidence. No candidate passed this screen. This does not prove
+  zero effect, test nonlinear combinations or establish portfolio performance.
+- UNRATE and CPIAUCSL each have an internal missing October 2025 observation.
+  The values were not imputed. All ten current-vintage macro inputs remained
+  blocked from historical release evaluation.
+- Initial 12 tests passed on the runner; the follow-up adds a thirteenth
+  official-calendar/date-precision regression and a future-label perturbation.
+- The provider artifact exists with verified GitHub metadata, but this
+  workspace's download returned HTTP failure; full bytes were not locally
+  verified. Subsequent runs emit a bounded derived readpack for direct review.
+- Ordinary local git push lacked credentials. The connected Git data API
+  published the locally committed/validated tree with exact tree-hash parity;
+  the local checkout was then aligned to that published commit.
+- A pre-existing invalid `alphaops_replay_sidecars_manual.yml` workflow also
+  reports a failed push event on unrelated branches (separate PR #408).
+  This is distinct from the successful research pilot and its own source checks.
+
+No thresholds are changed to make this first negative result pass. Historical
+sample reuse remains recorded when the archive/combined study is added.

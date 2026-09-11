@@ -231,14 +231,16 @@ def study(store, receipt_path, as_of, macro_receipts=()):
         end_date=min(stamp(as_of).date().isoformat(), receipt["requested_through"]))
     schedule = schedule[schedule["market_close"] <= stamp(as_of)]
     sessions = pd.DatetimeIndex(schedule.index).tz_localize(None)
-    close_times = list(schedule["market_close"].dt.to_pydatetime())
+    close_times = [t.to_pydatetime() for t in schedule["market_close"]]
     specs = {s["id"]: s for s in registry()["series"]}
-    prices = {}
+    prices, off_calendar = {}, {}
     for sid in ("SP500", "NASDAQCOM", "NASDAQ100"):
         records = all_records.get(sid)
         if records:
             require(all(r["evidence"] == "current_only" for r in records), "price_lane_requires_current_graph")
             prices[sid] = pd.Series({pd.Timestamp(r["observation_date"]): r["value"] for r in records}, dtype=float).reindex(sessions)
+            off_calendar[sid] = sorted(r["observation_date"] for r in records
+                                       if pd.Timestamp(r["observation_date"]) not in sessions)
             require((prices[sid].dropna() > 0).all(), "nonpositive_index")
     results, gaps, coverage = [], [], {}
     for sid, close in prices.items():
@@ -256,6 +258,9 @@ def study(store, receipt_path, as_of, macro_receipts=()):
         coverage[sid] = dict(rows=len(available), first=str(available.index.min().date()),
             last=str(available.index.max().date()), missing_sessions_inside_history=int(
                 close.loc[available.index.min():available.index.max()].isna().sum()),
+            calendar_excluded_source_dates=off_calendar[sid],
+            requested_last_session=str(sessions[-1].date()),
+            missing_tail_sessions=int((sessions > available.index.max()).sum()),
             return_basis="PRICE_INDEX_EXCLUDING_DIVIDENDS_AND_COSTS", evidence="FREE_PROXY")
         for name, feature in features.items():
             kind = kinds.get(name, "continuous")
@@ -300,7 +305,7 @@ def compare(previous, current):
                 effect_change_pp=b-a if a is not None and b is not None else None,
                 old_oos_rows=prior["oos_rows"], new_oos_rows=row["oos_rows"]))
     return dict(same_code=same_code, same_receipt=same_input,
-        attribution="NO_CHANGE" if same_code and same_input else "DATA_OR_WINDOW_UPDATE" if same_code else "CODE_AND_POSSIBLY_DATA_CHANGED",
+        attribution="NO_CHANGE" if same_code and same_input else "INPUT_RECEIPT_CHANGED_CHECK_VALUES" if same_code else "CODE_AND_POSSIBLY_DATA_CHANGED",
         structural_break_proven=False, changes=changes)
 
 

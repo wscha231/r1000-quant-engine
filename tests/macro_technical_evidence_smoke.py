@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from datetime import timezone
 from pathlib import Path
+import os
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
+from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 import pandas as pd
@@ -110,6 +113,9 @@ class EvidenceTests(unittest.TestCase):
         for fold in result["folds"]:
             self.assertLess(fold["last_training_label_position"],fold["first_test_position"])
         self.assertEqual(result["status"],"INSUFFICIENT_INDEPENDENT_EVIDENCE")
+        changed=y.copy(); changed.iloc[350:400]=999
+        other=study.evaluate(x,changed,63,initial=400,min_train=200,fold_size=200)
+        self.assertEqual(result['folds'][0]['coefficient_per_train_sd'],other['folds'][0]['coefficient_per_train_sd'])
 
     def test_dependence_and_rare_events_do_not_pass(self):
         self.assertEqual(study.independent_windows(np.arange(1000),252),4)
@@ -135,6 +141,22 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(plan["PAYEMS"]["status"],"BACKFILL_REQUIRED")
         no_calendar={r["series"]:r for r in source.update_plan("2026-09-11T00:00:00Z",before,[])}
         self.assertEqual(no_calendar["UNRATE"]["status"],"CALENDAR_REFRESH_REQUIRED")
+
+    def test_calendar_uses_official_dates_and_shared_release(self):
+        calls=[]
+        def fake(url, secret=None):
+            calls.append(urlparse(url).path)
+            query=parse_qs(urlparse(url).query)
+            if urlparse(url).path.endswith('/series/release'):
+                return source.encoded(dict(releases=[dict(id=50)]))
+            self.assertEqual(query['include_release_dates_with_no_data'],['true'])
+            return source.encoded(dict(count=1,release_dates=[dict(release_id=50,date='2026-10-02')]))
+        with patch.dict(os.environ,{'FRED_API_KEY':'synthetic-test-key'}), patch.object(source,'request_bytes',fake):
+            calendar=source.fetch_calendar(['UNRATE','PAYEMS'],'2026-09-01','2026-12-31')
+        self.assertEqual(calls.count('/fred/release/dates'),1)
+        self.assertEqual(len(calendar['events']),2)
+        self.assertEqual(calendar['events'][0]['release_at'],'2026-10-03T04:00:00+00:00')
+        self.assertNotIn('synthetic-test-key',source.encoded(calendar).decode())
 
 
 def run_tests():

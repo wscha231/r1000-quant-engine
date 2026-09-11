@@ -1,0 +1,291 @@
+{
+  "schema": "macro-evidence-pilot-receipt-v1",
+  "repository": "wscha231/r1000-quant-engine",
+  "pr": 413,
+  "head_sha": "0281936c95e924901a8fc9738d8eac9ce80c48cd",
+  "tree_sha": "91205eba86010325ca496303573b7784c12e2ab2",
+  "run_id": 34558079749,
+  "job_id": 103134935159,
+  "artifact_id": 10183311335,
+  "artifact_zip_sha256": "64837d0961190c7d712b813255dfa19fee00e281d976a710c170668aadbe5e2a",
+  "evidence_transport": "GitHub job-log aggregate JSON plus artifact metadata; artifact local download did not materialize",
+  "raw_observation_rows": 31759,
+  "collected": 12,
+  "coverage": {
+    "NASDAQCOM": {
+      "evidence": "FREE_PROXY",
+      "first": "2000-01-03",
+      "last": "2026-09-09",
+      "missing_sessions_inside_history": 0,
+      "return_basis": "PRICE_INDEX_EXCLUDING_DIVIDENDS_AND_COSTS",
+      "rows": 6711
+    },
+    "SP500": {
+      "evidence": "FREE_PROXY",
+      "first": "2016-09-12",
+      "last": "2026-09-10",
+      "missing_sessions_inside_history": 0,
+      "return_basis": "PRICE_INDEX_EXCLUDING_DIVIDENDS_AND_COSTS",
+      "rows": 2513
+    }
+  },
+  "durable_remote_verified": false,
+  "eligible_for_selector": false,
+  "macro_blocked": [
+    {
+      "reason": "CURRENT_VINTAGE_NOT_HISTORICAL_RELEASE_EVIDENCE",
+      "series": "DGS2"
+    },
+    {
+      "reason": "CURRENT_VINTAGE_NOT_HISTORICAL_RELEASE_EVIDENCE",
+      "series": "DGS10"
+    },
+    {
+      "reason": "CURRENT_VINTAGE_NOT_HISTORICAL_RELEASE_EVIDENCE",
+      "series": "UNRATE"
+    },
+    {
+      "reason": "CURRENT_VINTAGE_NOT_HISTORICAL_RELEASE_EVIDENCE",
+      "series": "PAYEMS"
+    },
+    {
+      "reason": "CURRENT_VINTAGE_NOT_HISTORICAL_RELEASE_EVIDENCE",
+      "series": "CPIAUCSL"
+    },
+    {
+      "reason": "CURRENT_VINTAGE_NOT_HISTORICAL_RELEASE_EVIDENCE",
+      "series": "WALCL"
+    },
+    {
+      "reason": "CURRENT_VINTAGE_NOT_HISTORICAL_RELEASE_EVIDENCE",
+      "series": "WTREGEN"
+    },
+    {
+      "reason": "CURRENT_VINTAGE_NOT_HISTORICAL_RELEASE_EVIDENCE",
+      "series": "RRPONTSYD"
+    },
+    {
+      "reason": "CURRENT_VINTAGE_NOT_HISTORICAL_RELEASE_EVIDENCE",
+      "series": "SOFR"
+    },
+    {
+      "reason": "CURRENT_VINTAGE_NOT_HISTORICAL_RELEASE_EVIDENCE",
+      "series": "M2SL"
+    }
+  ],
+  "sources": [
+    {
+      "earliest": "2016-09-12",
+      "evidence": "current_only",
+      "internal_missing_months": null,
+      "latest": "2026-09-10",
+      "missing_value_count": 96,
+      "observation_periods": 2513,
+      "raw_sha256": [
+        "9fff2f74a4fc1a09cb7fe51800f4697064fb8e39f10f9bed22b4cf303a4374d9"
+      ],
+      "records_sha256": "cebbce43b7ec1954389e6689037ef12b0e9cd3862977efa64f96495074bb3366",
+      "retrieved_at": "2026-09-11T03:21:06.633319+00:00",
+      "rows": 2513,
+      "series": "SP500",
+      "source_uri": "https://fred.stlouisfed.org/series/SP500",
+      "status": "COLLECTED"
+    },
+    {
+      "earliest": "2000-01-03",
+      "evidence": "current_only",
+      "internal_missing_months": null,
+      "latest": "2026-09-09",
+      "missing_value_count": 250,
+      "observation_periods": 6712,
+      "raw_sha256": [
+        "6e7a5b8fe3e8d597a79bbaa3b9b071c3b397e35403717e8005b1aa4f432073df"
+      ],
+      "records_sha256": "70dbcbfab1984542196275a2cf7e7cb2f8d4d339663ab7193394fdc5cee6eae0",
+      "retrieved_at": "2026-09-11T03:21:07.551801+00:00",
+      "rows": 6712,
+      "series": "NASDAQCOM",
+      "source_uri": "https://fred.stlouisfed.org/series/NASDAQCOM",
+      "status": "COLLECTED"
+    },
+    {
+      "earliest": "2000-01-03",
+      "evidence": "current_only",
+      "internal_missing_months": null,
+      "latest": "2026-09-09",
+      "missing_value_count": 288,
+      "observation_periods": 6675,
+      "raw_sha256": [
+        "bb67d81cefcf97b0b83ac5709bc48205adda609d58aeec80bd9f1cb2a0010435"
+      ],
+      "records_sha256": "a86ecb69009ba01143e7b58895e746dc3c2f100d59cad5986f62ade18c07fa2e",
+      "retrieved_at": "2026-09-11T03:21:09.012637+00:00",
+      "rows": 6675,
+      "series": "DGS2",
+      "source_uri": "https://fred.stlouisfed.org/series/DGS2",
+      "status": "COLLECTED"
+    },
+    {
+      "earliest": "2000-01-03",
+      "evidence": "current_only",
+      "internal_missing_months": null,
+      "latest": "2026-09-09",
+      "missing_value_count": 288,
+      "observation_periods": 6675,
+      "raw_sha256": [
+        "b7924470a2eea45055d526243cabe79afa5d9b989609602e5b4f4c523134ccac"
+      ],
+      "records_sha256": "e6a3b40be8162070af5302de0b1556755663ac63972d761548139b3625580e12",
+      "retrieved_at": "2026-09-11T03:21:10.609168+00:00",
+      "rows": 6675,
+      "series": "DGS10",
+      "source_uri": "https://fred.stlouisfed.org/series/DGS10",
+      "status": "COLLECTED"
+    },
+    {
+      "earliest": "2000-01-01",
+      "evidence": "current_only",
+      "internal_missing_months": [
+        "2025-10"
+      ],
+      "latest": "2026-08-01",
+      "missing_value_count": 1,
+      "observation_periods": 319,
+      "raw_sha256": [
+        "8ed511c54a3cef036e1d675567c41e59a0aeb63c47923d545dee17b6917a132f"
+      ],
+      "records_sha256": "7edb7c51a1cba7bc75eca716a9956532127de8dd5bf6e439c2eb943b11c50add",
+      "retrieved_at": "2026-09-11T03:21:11.194378+00:00",
+      "rows": 319,
+      "series": "UNRATE",
+      "source_uri": "https://fred.stlouisfed.org/series/UNRATE",
+      "status": "COLLECTED"
+    },
+    {
+      "earliest": "2000-01-01",
+      "evidence": "current_only",
+      "internal_missing_months": [],
+      "latest": "2026-08-01",
+      "missing_value_count": 0,
+      "observation_periods": 320,
+      "raw_sha256": [
+        "fa4321099f9a9b2ef727e9faf5b696845807ca1b72188e939ebfbf689a1051f5"
+      ],
+      "records_sha256": "db4d546c004fcd7206b663fc571b6ef9908defef847f1e0454b62fdf4b6a3d52",
+      "retrieved_at": "2026-09-11T03:21:11.637845+00:00",
+      "rows": 320,
+      "series": "PAYEMS",
+      "source_uri": "https://fred.stlouisfed.org/series/PAYEMS",
+      "status": "COLLECTED"
+    },
+    {
+      "earliest": "2000-01-01",
+      "evidence": "current_only",
+      "internal_missing_months": [
+        "2025-10"
+      ],
+      "latest": "2026-07-01",
+      "missing_value_count": 1,
+      "observation_periods": 318,
+      "raw_sha256": [
+        "5383c317ef7a96963db606755b2fc4e430b45c06992d713882563a14b3f66453"
+      ],
+      "records_sha256": "50ead0df2be88bd9c8ba9b88c0896f074b707f6bba6c68e3cf40600e3d088b2a",
+      "retrieved_at": "2026-09-11T03:21:12.120153+00:00",
+      "rows": 318,
+      "series": "CPIAUCSL",
+      "source_uri": "https://fred.stlouisfed.org/series/CPIAUCSL",
+      "status": "COLLECTED"
+    },
+    {
+      "earliest": "2002-12-18",
+      "evidence": "current_only",
+      "internal_missing_months": null,
+      "latest": "2026-09-09",
+      "missing_value_count": 0,
+      "observation_periods": 1239,
+      "raw_sha256": [
+        "853cb68f8f59466a7fa3e44bda0dd541fdc697ab1c1b979ab24afdb03cb9d8e1"
+      ],
+      "records_sha256": "fdaab414c5b57bc180e8881897863df25176afdba266c2df10ed35495cf895e8",
+      "retrieved_at": "2026-09-11T03:21:12.368504+00:00",
+      "rows": 1239,
+      "series": "WALCL",
+      "source_uri": "https://fred.stlouisfed.org/series/WALCL",
+      "status": "COLLECTED"
+    },
+    {
+      "earliest": "2002-12-18",
+      "evidence": "current_only",
+      "internal_missing_months": null,
+      "latest": "2026-09-09",
+      "missing_value_count": 0,
+      "observation_periods": 1239,
+      "raw_sha256": [
+        "a1aa407a57537e43ceccf5f3a4a19196122e0109f5f09ec7c410545e237a907b"
+      ],
+      "records_sha256": "367df1d8d2364318fc4ac84b41cc9767ff34a28e6acdb45a96c28ea56e965b58",
+      "retrieved_at": "2026-09-11T03:21:12.714413+00:00",
+      "rows": 1239,
+      "series": "WTREGEN",
+      "source_uri": "https://fred.stlouisfed.org/series/WTREGEN",
+      "status": "COLLECTED"
+    },
+    {
+      "earliest": "2003-02-07",
+      "evidence": "current_only",
+      "internal_missing_months": null,
+      "latest": "2026-09-10",
+      "missing_value_count": 2832,
+      "observation_periods": 3323,
+      "raw_sha256": [
+        "d24caf611904abfdacbb3c9e6293487f2bce484efefd946e6d60d0e11584c8f0"
+      ],
+      "records_sha256": "02634026b24603d411f7cdb20265c0e4664418bb4cf09f4d0185828aafb88e45",
+      "retrieved_at": "2026-09-11T03:21:14.136989+00:00",
+      "rows": 3323,
+      "series": "RRPONTSYD",
+      "source_uri": "https://fred.stlouisfed.org/series/RRPONTSYD",
+      "status": "COLLECTED"
+    },
+    {
+      "earliest": "2018-04-03",
+      "evidence": "current_only",
+      "internal_missing_months": null,
+      "latest": "2026-09-09",
+      "missing_value_count": 95,
+      "observation_periods": 2107,
+      "raw_sha256": [
+        "7475c88a2435b9493ee591b30c7309b6bb0cc65c8c3ba002a0e836d370b6e9a1"
+      ],
+      "records_sha256": "ae77929bd805b71ac7313ae950bdf6f2069aaabc199d92f5ad1d999b9a3d3df1",
+      "retrieved_at": "2026-09-11T03:21:14.614445+00:00",
+      "rows": 2107,
+      "series": "SOFR",
+      "source_uri": "https://fred.stlouisfed.org/series/SOFR",
+      "status": "COLLECTED"
+    },
+    {
+      "earliest": "2000-01-01",
+      "evidence": "current_only",
+      "internal_missing_months": [],
+      "latest": "2026-07-01",
+      "missing_value_count": 0,
+      "observation_periods": 319,
+      "raw_sha256": [
+        "2ba8e3636df3954d1d24f594c7ff3435fabac4e4f8df16d7fd9607b0ea4a4e78"
+      ],
+      "records_sha256": "08cbd3c981bed54c690b3d201083acc4422ab29a947f59f02ffddb9f52ce727c",
+      "retrieved_at": "2026-09-11T03:21:15.056518+00:00",
+      "rows": 319,
+      "series": "M2SL",
+      "source_uri": "https://fred.stlouisfed.org/series/M2SL",
+      "status": "COLLECTED"
+    }
+  ],
+  "status_counts": {
+    "INSUFFICIENT_INDEPENDENT_EVIDENCE": 76,
+    "NO_INCREMENTAL_EVIDENCE": 218
+  },
+  "tests_declared": 294
+}
