@@ -121,12 +121,16 @@ class CheckpointTests(unittest.TestCase):
 
     def test_existing_research_folder_is_resolved_once_and_pinned_without_creation(self):
         remote = "gdrive:research/macro_technical_evidence/v1/pr-413"
-        with patch.object(checkpoint.RcloneTransport, "call", return_value=source.encoded(dict(IsDir=True, ID="verified-folder"))) as call:
+        row = dict(Name="pr-413", IsDir=True, ID="verified-folder")
+        with patch.object(checkpoint.RcloneTransport, "call", return_value=source.encoded([row])) as call:
             transport = checkpoint.RcloneTransport(remote)
             self.assertEqual(call.call_count, 1)
-            self.assertEqual(call.call_args.args, ("lsjson", remote, "--stat"))
+            self.assertEqual(call.call_args.args, ("lsjson", remote.rsplit("/", 1)[0], "--dirs-only"))
             self.assertEqual(transport.folder_id, "verified-folder")
             self.assertEqual(transport.path("objects/" + "a"*64), "gdrive:objects/" + "a"*64)
+        with patch.object(checkpoint.RcloneTransport, "call", return_value=source.encoded([row, dict(row, ID="another-folder")])):
+            with self.assertRaisesRegex(ValueError, "ambiguous"):
+                checkpoint.RcloneTransport(remote)
 
     def test_changed_retrieval_is_not_changed_economy(self):
         old = dict(series="UNRATE", observation_date="2020-01-01", vintage_date=None, value=3.5, retrieved_at="2020-02-01")

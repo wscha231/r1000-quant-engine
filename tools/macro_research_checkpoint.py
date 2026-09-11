@@ -118,15 +118,27 @@ class RcloneTransport:
         self.root = remote
         self.binary = os.environ.get("MACRO_RCLONE_BIN", "rclone")
         self.folder_id = None
-        # Restore starts with a read. Only an explicitly missing namespace may
-        # create its initial commit directory; access/rate failures are not genesis.
+        # An lsjson --stat of the filesystem root may omit its ID. Obtain the
+        # directory's ID from its parent's listing instead, rejecting duplicates.
+        parent, leaf = remote.rsplit("/", 1)
+        def folders():
+            rows = json.loads(self.read_call("lsjson", parent, "--dirs-only"))
+            require(isinstance(rows, list), "research_parent_listing")
+            return [r for r in rows if r.get("Name") == leaf]
+        created = False
         try:
-            info = json.loads(self.read_call("lsjson", self.root, "--stat"))
+            matches = folders()
         except ValueError as exc:
             if not str(exc).endswith(":NOT_FOUND"):
                 raise
             self.call("mkdir", self.root + "/commits")
-            info = json.loads(self.read_call("lsjson", self.root, "--stat"))
+            created = True
+            matches = folders()
+        if not matches and not created:
+            self.call("mkdir", self.root + "/commits")
+            matches = folders()
+        require(len(matches) == 1, "research_folder_missing_or_ambiguous")
+        info = matches[0]
         require(isinstance(info, dict) and info.get("IsDir") is True and
                 re.fullmatch(r"[A-Za-z0-9_-]+", info.get("ID", "")), "research_folder_identity")
         # Pin the narrower, already-resolved research folder for this process.

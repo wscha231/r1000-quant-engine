@@ -184,3 +184,10 @@ reducing repeated ancestor lookups while using the same credential and limits.
 No account rotation, permission change or quota bypass is involved. A folder
 listing remains metadata evidence, not proof that all stored bytes were restored.
 See the [rclone folder-root contract](https://rclone.org/drive/#root-folder-id).
+
+The folder-pinning probe (`5d81684b4fc33e7cd3906ae35013bda6b0035428`,
+run `34575826929`, job `103187942626`) exposed another contract detail:
+`lsjson --stat` can omit the filesystem root's directory ID. Resolve the named
+research child from its parent's directory listing instead; require exactly one
+matching folder and a valid ID. Missing IDs or duplicate names remain blockers.
+A regression covers the actual parent-list shape and duplicate rejection.
