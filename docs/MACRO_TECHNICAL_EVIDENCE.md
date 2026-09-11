@@ -295,3 +295,13 @@ Next implementation is private checkpoint persistence and a clean restore,
 then scheduled source updates with release-completeness checks. Thereafter
 expand macro archives and conditional/sector/theme tests, compare against this
 retained baseline, and connect only reviewed evidence to engine consumers.
+
+
+## Storage and recurring lifecycle continuation
+
+The next implementation now connects immutable remote checkpoints, verified
+clean restore, daily collection/revision checks, paired result comparisons and
+a read-only engine context export. See [MACRO_RESEARCH_OPERATIONS.md](MACRO_RESEARCH_OPERATIONS.md)
+for the schedule, commands, limits and exact activation gates. The earlier
+statements above describe their dated pilot checkpoints; implementation of the
+continuation alone does not prove remote execution or scheduled activation.

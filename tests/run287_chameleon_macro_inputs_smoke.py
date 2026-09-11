@@ -583,6 +583,8 @@ def main() -> int:
     # Tier-1 suite without modifying the protected validator publication pin.
     from macro_technical_evidence_smoke import run_tests
     run_tests()
+    from macro_research_cycle_smoke import run_tests as run_cycle_tests
+    run_cycle_tests()
     test_normalizer_is_free_proxy_report_only_and_fail_closed()
     test_source_identity_date_and_cross_section_guards()
     test_empty_context_header_engine_propagation_and_input_limits()

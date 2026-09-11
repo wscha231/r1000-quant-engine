@@ -16,7 +16,22 @@ directive/report when it discovers any of the following:
 Do not paste secrets, raw API keys, account tokens, or private credentials into
 this ledger. Use secret names only.
 
-## Entry Template
+## 2026-09-11 - Verify restored research bytes before advancing the checkpoint
+
+- Agent: Codex; branch `codex/macro-technical-evidence-20260911`, PR #413.
+- Added a bounded research-only Drive checkpoint chain and daily reevaluation
+  wrapper. Raw objects, revisions, registries and failed attempts are preserved.
+- Never use a successful upload, fresh retrieval timestamp or green Draft review
+  gate as proof of clean restore, changed economic data or independent review.
+- Rclone option names collide with generic credential/version environment names;
+  use prefixed task names and exclude unrelated credentials from its environment.
+- Rolling provider windows can silently shorten history. Retain previously
+  collected older price rows with provenance; never fill missing interior dates.
+- Local synthetic restore/fault tests are not remote persistence evidence. The
+  PR pilot separately verifies real remote bytes and reproduces the study.
+- One writer is required; forks, corrupt latest data and partial uploads must
+  fail closed. No timestamp-based fallback, accepted paper mutation or promotion.
+- Evidence and remaining activation gates: `docs/MACRO_RESEARCH_OPERATIONS.md`.
 
 ## 2026-09-11 - Historical macro screening needs source vintages and mature labels
 
@@ -44,6 +59,8 @@ this ledger. Use secret names only.
   persistence before recurring operation. No selector/target/ledger/promotion
   change or fullrun is included.
 - Evidence: `docs/MACRO_TECHNICAL_EVIDENCE.md`.
+
+## Entry Template
 
 ```text
 ### YYYY-MM-DD - short title

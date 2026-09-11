@@ -1,16 +1,21 @@
 name: Macro and technical evidence pilot
 
 # Bounded research. Only the isolated archive step may use the existing FRED key.
-# No accepted state, Drive credential or broker call is part of either lane.
-# A recurring durable service is installed only after verified storage/restore.
+# The isolated PR checkpoint lane writes only its new research namespace.
+# Scheduled operation lives in macro_research_daily.yml on the default branch.
 on:
   pull_request:
     paths:
       - '.github/workflows/macro_technical_evidence.yml'
       - 'tools/macro_history_sources.py'
       - 'tools/macro_technical_study.py'
+      - 'tools/macro_research_checkpoint.py'
+      - 'tools/macro_research_cycle.py'
+      - 'tools/configure_macro_research_drive.py'
+      - '.github/workflows/macro_research_daily.yml'
       - 'docs/macro_indicator_registry.json'
       - 'tests/macro_technical_evidence_smoke.py'
+      - 'tests/macro_research_cycle_smoke.py'
   workflow_dispatch:
 
 permissions:
@@ -18,13 +23,13 @@ permissions:
 
 concurrency:
   group: macro-evidence-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   evidence:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,8 +37,12 @@ jobs:
           sparse-checkout: |
             tools/macro_history_sources.py
             tools/macro_technical_study.py
+            tools/macro_research_checkpoint.py
+            tools/macro_research_cycle.py
+            tools/configure_macro_research_drive.py
             docs/macro_indicator_registry.json
             tests/macro_technical_evidence_smoke.py
+            tests/macro_research_cycle_smoke.py
           sparse-checkout-cone-mode: false
       - uses: actions/setup-python@v5
         with:
@@ -41,7 +50,9 @@ jobs:
       - name: Install bounded analysis dependencies
         run: python -m pip install numpy==2.2.6 pandas==2.3.3 scipy==1.16.3 pandas_market_calendars==5.1.3
       - name: Offline evidence regressions
-        run: python tests/macro_technical_evidence_smoke.py
+        run: |
+          python tests/macro_technical_evidence_smoke.py
+          python tests/macro_research_cycle_smoke.py
       - name: Collect public history and evaluate index hypotheses
         env:
           RESEARCH_ROOT: ${{ runner.temp }}/macro-evidence
@@ -125,11 +136,81 @@ jobs:
                   raise SystemExit(2)
               assert all(s['status']=='COLLECTED' for s in archive['sources']), 'partial_archive_collection'
           PY
+      - name: Install checksum-pinned research transport
+        if: github.event_name == 'pull_request'
+        env:
+          MACRO_RCLONE_RELEASE: 1.75.0
+          MACRO_RCLONE_SHA256: aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location "https://downloads.rclone.org/v${MACRO_RCLONE_RELEASE}/rclone-v${MACRO_RCLONE_RELEASE}-linux-amd64.zip" -o "$RUNNER_TEMP/macro-rclone.zip"
+          printf '%s  %s\n' "$MACRO_RCLONE_SHA256" "$RUNNER_TEMP/macro-rclone.zip" | sha256sum --check --strict
+          unzip -q "$RUNNER_TEMP/macro-rclone.zip" -d "$RUNNER_TEMP/macro-rclone-bin"
+          echo "MACRO_RCLONE_BIN=$RUNNER_TEMP/macro-rclone-bin/rclone-v${MACRO_RCLONE_RELEASE}-linux-amd64/rclone" >> "$GITHUB_ENV"
+      - name: Configure isolated PR research namespace
+        if: github.event_name == 'pull_request'
+        env:
+          MACRO_RESEARCH_LANE: pr-${{ github.event.pull_request.number }}
+          MACRO_DRIVE_CONFIG: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          MACRO_DRIVE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          MACRO_DRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: python tools/configure_macro_research_drive.py
+      - name: Verify real remote storage and clean restore
+        if: github.event_name == 'pull_request'
+        env:
+          RESEARCH_ROOT: ${{ runner.temp }}/macro-evidence
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from tools.macro_history_sources import REGISTRY, digest, encoded, exclusive
+          from tools.macro_research_checkpoint import RcloneTransport, head, publish, restore_latest
+          from tools.macro_technical_study import study
+          root = Path(os.environ['RESEARCH_ROOT'])
+          raw = REGISTRY.read_bytes()
+          exclusive(root/'store/registries'/(digest(raw)+'.json'), raw)
+          remote = RcloneTransport(os.environ['MACRO_RESEARCH_REMOTE'])
+          before = head(remote)[0]
+          publication = publish(remote, root, before,
+              'github-'+os.environ['GITHUB_RUN_ID']+'-'+os.environ['GITHUB_RUN_ATTEMPT'])
+          restored = restore_latest(remote, root.parent/'macro-restored')
+          assert restored['commit'] == publication['commit']
+          assert restored['manifest_sha256'] == publication['manifest_sha256']
+          recovered = root.parent/'macro-restored'
+          saved = json.loads((recovered/'reports/alfred-evidence.json').read_bytes())
+          current_id = digest((recovered/'reports/collection.json').read_bytes())
+          archive_id = digest((recovered/'reports/alfred-collection.json').read_bytes())
+          replayed = study(recovered/'store', recovered/'store/receipts'/(current_id+'.json'),
+              saved['as_of'], [recovered/'store/receipts'/(archive_id+'.json')])
+          assert replayed['input_receipt_sha256'] == saved['input_receipt_sha256']
+          assert replayed['tests_declared'] == saved['tests_declared'] == 336
+          assert [r['status'] for r in replayed['results']] == [r['status'] for r in saved['results']]
+          import numpy as np
+          for a, b in zip(replayed['results'], saved['results']):
+              for field in ('effect_per_training_sd_pp', 'effect_ci95_pp', 'oos_mse_improvement', 'family_q_value'):
+                  if a[field] is None or b[field] is None:
+                      assert a[field] is b[field]
+                  else:
+                      assert np.allclose(a[field], b[field], rtol=1e-10, atol=1e-12)
+          summary = dict(publication=publication, clean_restore=restored,
+              restored_study_reproduced=True, restored_test_count=replayed['tests_declared'],
+              scope='ISOLATED_PR_RESEARCH', scheduled_service_active=False,
+              selector_enabled=False, remote_permissions_changed=False)
+          # This receipt describes the already committed bundle; it is intentionally
+          # outside that bundle and cannot create a self-referential content hash.
+          exclusive(root.parent/'macro-checkpoint-summary.json', encoded(summary))
+          print('CHECKPOINT_SUMMARY '+json.dumps(summary, sort_keys=True))
+          PY
       - name: Preserve aggregate diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: macro-technical-evidence-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/macro-evidence/reports/*.json
+          path: |
+            ${{ runner.temp }}/macro-evidence/reports/*.json
+            ${{ runner.temp }}/macro-checkpoint-summary.json
           if-no-files-found: warn
           retention-days: 30
+      - name: Remove temporary credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/macro-rclone.conf" "$RUNNER_TEMP/macro-drive-account.json"
