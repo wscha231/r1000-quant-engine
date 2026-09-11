@@ -175,22 +175,24 @@ class RcloneTransport:
         require(len(names) == len(set(names)), "duplicate_remote_names")
         return sorted(names)
 
-    def read_call(self, *args):
+    def read_call(self, *args, retry_known_file=False):
         # Seven total reads span a one-minute quota window; no individual
         # backoff exceeds 33 seconds, and retries are never indefinite.
         for attempt in range(7):
             try:
                 return self.call(*args)
             except ValueError as exc:
-                # Only read requests with an explicitly transient rate-limit
-                # response retry. Daily/download/storage quotas and access failures
-                # stop. Do not replay writes to recover a missing acknowledgement.
-                if not str(exc).endswith(":RATE_LIMIT") or attempt == 6:
+                # A known hash-addressed file can briefly disappear from a path
+                # lookup after a successful upload/read. Retry the SAME file;
+                # persistent absence still blocks and never becomes genesis.
+                retry = str(exc).endswith(":RATE_LIMIT") or (
+                    retry_known_file and str(exc).endswith(":NOT_FOUND"))
+                if not retry or attempt == 6:
                     raise
                 time.sleep(2 ** attempt + random.random())
 
     def read(self, path):
-        return self.read_call("cat", self.path(path))
+        return self.read_call("cat", self.path(path), retry_known_file=True)
 
     def write(self, path, raw):
         with tempfile.TemporaryDirectory(prefix="macro-transfer-") as tmp:

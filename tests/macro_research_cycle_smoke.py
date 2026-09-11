@@ -118,6 +118,14 @@ class CheckpointTests(unittest.TestCase):
                 transport.read("commits/" + "a"*64 + ".json")
             self.assertEqual(call.call_count, 7)
             self.assertEqual(sleep.call_count, 6)
+        missing = ValueError("research_transport_failed:cat:exit_3:NOT_FOUND")
+        with patch.object(transport, "call", side_effect=[missing, b"same-file"]) as call, patch.object(checkpoint.time, "sleep"):
+            self.assertEqual(transport.read("commits/" + "a"*64 + ".json"), b"same-file")
+            self.assertEqual(call.call_args_list[0], call.call_args_list[1])
+        with patch.object(transport, "call", side_effect=missing) as call, patch.object(checkpoint.time, "sleep"):
+            with self.assertRaisesRegex(ValueError, "NOT_FOUND"):
+                transport.read("commits/" + "a"*64 + ".json")
+            self.assertEqual(call.call_count, 7)
 
     def test_existing_research_folder_is_resolved_once_and_pinned_without_creation(self):
         remote = "gdrive:research/macro_technical_evidence/v1/pr-413"

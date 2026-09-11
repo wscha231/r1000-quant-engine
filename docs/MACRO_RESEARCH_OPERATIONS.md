@@ -159,8 +159,8 @@ before retrying, not assume the earlier head survived. No accepted paper state
 is involved. The fixed error classifier exposes no provider bodies or keys.
 
 The transport now limits API requests to two per second with a burst of one.
-Only explicitly transient rate-limited reads receive a bounded exponential
-backoff; download/storage quotas and permission errors stop. It never retries
+Rate-limited reads and temporarily missing known hash-addressed files receive
+a bounded exponential backoff; download/storage quotas and permission errors stop. It never retries
 a write to recover an acknowledgement. This follows the provider's
 [quota/backoff guidance](https://developers.google.com/workspace/drive/api/guides/limits).
 The PR pilot additionally runs a complete subsequent collection/revision/
@@ -191,3 +191,10 @@ run `34575826929`, job `103187942626`) exposed another contract detail:
 research child from its parent's directory listing instead; require exactly one
 matching folder and a valid ID. Missing IDs or duplicate names remain blockers.
 A regression covers the actual parent-list shape and duplicate rejection.
+
+The parent-list implementation passed folder resolution in run `34576081880`
+(job `103188728261`), but the same manifest disappeared from a subsequent path
+lookup after its immediate upload readback had succeeded. Known hash-addressed
+file reads now retry the exact same path within the same bounded window. A
+persistently missing file still fails; it cannot select an older head or create
+a new genesis. New-namespace discovery does not use this missing-file retry.
