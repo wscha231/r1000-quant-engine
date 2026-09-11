@@ -1,5 +1,25 @@
 # Agent Shared Lessons Ledger
 
+### 2026-09-11 - Full financial history requires issuer-wide scope and filing versions
+
+- The PR412 US price cohort has 1,118 candidates, but its SEC collector filters
+  to `FOREIGN_REPORTING`, currently TSM/ASML only. This is a scope defect. Do
+  not describe two-company normalization as all-candidate financial progress.
+- Existing master/PR263/PR295 code already supplies bulk/FSDS ingestion, CIK
+  mapping and changed-issuer retrieval. Reuse verified raw data and these
+  bounded collection patterns before adding another per-company fetch loop.
+  The July 990/992 raw-file count is not current or full quarterly coverage.
+- Actual legacy functions reproduce two synthetic failures: a 2025 Q1 revision
+  changes a 2024 Q2 flow from 150 to 130 while retaining 2024 availability;
+  integer FSDS `20240331` becomes an epoch-nanosecond date in 1970. Preserve
+  accession versions, actual fact periods, units and reporting contexts.
+- Collect basic financial history for every requested issuer. Prioritizing
+  deep qualitative review must not silently narrow basic data collection.
+  Report coverage by issuer/period/field and retain missing issuers in counts.
+- [Audit, pinned branch evidence and design](FINANCIAL_HISTORY_REUSE_AUDIT_20260911.md)
+  include a read-only, source-hash-pinned reproduction. This audit does not fix
+  the engine, verify current Drive bytes, collect full history or run a fund.
+
 ### 2026-09-10 - All-horizon analysis and US chronological core connection
 
 - PR412 now connects US decisions and fund replay to one checked-in core.

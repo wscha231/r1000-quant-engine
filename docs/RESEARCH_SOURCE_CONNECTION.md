@@ -34,8 +34,15 @@ entry-point and config hashes. Actual US next-close fills, cash and costs are
 regression-tested; real source collection is still not a completed fund.
 See [continuation and results](US_RESEARCH_CONTINUATION_20260910.md).
 
-TSM and ASML receive priority SEC financial parsing in native TWD/IFRS and
-EUR/US GAAP respectively. Six-K facts are accepted only when actually present
+The current `us_listed` collector limits SEC financial collection to TSM and
+ASML through `FOREIGN_REPORTING`; it does not collect fundamentals for the
+whole price cohort. This is a scope defect, not merely a parsing priority or
+evidence that other issuers' filings are unavailable. The
+[September 11 financial-history audit](FINANCIAL_HISTORY_REUSE_AUDIT_20260911.md)
+traces existing bulk/backfill collectors and defines the replacement with an
+all-issuer inventory plus filing-driven updates. That replacement is not yet
+implemented. TSM/ASML parsing uses native TWD/IFRS and EUR/US GAAP respectively.
+Six-K facts are accepted only when actually present
 and filed by the cutoff. Older annual values stay explicitly annual; they are
 not relabelled current TTM. US share/ADS ratios, reporting-currency conversion,
 dividend withholding and depositary fees still require dated reconciliation.
@@ -99,7 +106,8 @@ current research. Broad company normalization and historical underwriting
 remain incomplete. The all-candidate RS continuation reuses captures and
 collects the missing earlier window for 504-session discovery, reconciling
 overlapping raw prices and adjusted-price scaling before joining it.
-This broad-source job does not repeatedly refetch the old 24-company SEC set.
+The current broad-source job only requests those two issuers' SEC data; its
+price coverage must not be reported as broad financial-history coverage.
 
 To reproduce the connection sample, explicitly pass
 `--universe-mode connection_sample --start 2018-05-01`; the report carries the
