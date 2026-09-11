@@ -70,6 +70,17 @@ class EvidenceTests(unittest.TestCase):
         closes=[d.to_pydatetime().replace(hour=21,tzinfo=timezone.utc) for d in days]
         self.assertTrue(study.archive_release_changes(records,days,closes,"monthly").isna().all())
 
+    def test_unavailable_revision_does_not_expire_prior_value_early(self):
+        rows=[dict(date='2020-01-01',value='3.5',realtime_start='2020-02-07',realtime_end='2020-03-08'),
+              dict(date='2020-01-01',value='3.6',realtime_start='2020-03-09',realtime_end='9999-12-31'),
+              dict(date='2020-02-01',value='3.7',realtime_start='2020-03-06',realtime_end='9999-12-31')]
+        parsed=source.parse_alfred([alfred_page(rows)],'UNRATE','2020-01-01','2020-03-31','2026-09-11T00:00:00Z')
+        dates=pd.bdate_range('2020-02-01','2020-03-11')
+        closes=[d.to_pydatetime().replace(hour=21,tzinfo=timezone.utc) for d in dates]
+        changes=study.archive_release_changes(parsed,dates,closes,'monthly')
+        self.assertAlmostEqual(changes.loc['2020-03-09'],.2)
+        self.assertEqual(len(changes.dropna()),1)
+
     def test_objects_receipts_idempotency_and_tamper(self):
         with tempfile.TemporaryDirectory() as tmp:
             fetcher=lambda *args: ([b"DATE,UNRATE\n2020-01-01,3.5\n2020-02-01,3.6\n"], "2026-09-11T00:00:00Z")

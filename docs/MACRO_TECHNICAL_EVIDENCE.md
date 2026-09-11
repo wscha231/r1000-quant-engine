@@ -228,3 +228,34 @@ job-log evidence and artifact identity beyond artifact expiry.
 
 No thresholds are changed to make this first negative result pass. Historical
 sample reuse remains recorded when the archive/combined study is added.
+
+
+## Archival adapter and calendar proof
+
+[Run 34558604870](https://github.com/wscha231/r1000-quant-engine/actions/runs/34558604870),
+head `30072f780edb2110d016e65b6263509f5122f45b`, job `103136489097`,
+artifact `10183499791` successfully used the existing FRED key without exposing
+it. Official ALFRED collection returned 596 UNRATE, 4,114 PAYEMS and 1,586
+CPIAUCSL vintage rows (6,296 total) for the requested 2000-onward periods.
+The official calendar returned 13 date-level entries across those three series,
+including the shared labor release. Historical macro changes added 42 tests to
+the 294 technical tests; correction for the combined study uses all 336 tests.
+No combined-study macro candidate passed: 30 had no incremental evidence under
+this screen and 12 lacked independent evidence. The first technical screen and
+combined screen are distinct families; do not merge their q-values.
+
+The bounded public readpack is retained at
+`docs/macro_evidence_runs/20260911_archive_pilot_v1.json`. Its macro output is
+superseded by the following correctness fix, not by a tuned threshold. The
+Nasdaq source date excluded from the actual NYSE session grid is 2019-04-19;
+2026-09-10 remains an unfilled trailing observation for that provider series.
+
+Source review found an interval-boundary issue: if a revision is admitted only
+after its date ends, the previous value must expire at that same delayed
+boundary. Comparing its raw realtime_end date with the decision date could
+prematurely drop a valid first-release sample. A regression perturbs a revision
+not available until the next day and requires the still-valid previous value.
+The adapter now maps both interval ends consistently and reports missing
+ALFRED values as missing rather than a zero missing-value count. Fourteen
+local regressions pass; thresholds and the previously inspected sample remain
+unchanged. A new source-hash-bound pilot verifies this correction.

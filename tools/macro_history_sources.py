@@ -213,7 +213,8 @@ def collect(store, series_ids, start, through, mode="current", fetcher=fetch):
                 require(len(pages) == 1, "graph_page_count")
                 records, missing = parse_graph(pages[0], series, start, through, retrieved)
             else:
-                records, missing = parse_alfred(pages, series, start, through, retrieved), []
+                records = parse_alfred(pages, series, start, through, retrieved)
+                missing = [r["observation_date"] for r in records if r["value"] is None]
             hashes = [digest(raw) for raw in pages]
             for raw, sha in zip(pages, hashes):
                 exclusive(store / "objects" / sha, raw)

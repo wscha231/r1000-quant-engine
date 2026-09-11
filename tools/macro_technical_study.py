@@ -9,10 +9,12 @@ never assigned fictional historical release times.
 from __future__ import annotations
 
 import argparse
+from datetime import date, datetime, time, timedelta
 import json
 from pathlib import Path
 import subprocess
 import sys
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -102,8 +104,19 @@ def archive_release_changes(records, sessions, close_times, frequency):
             else:
                 contiguous = previous is not None and (pd.Timestamp(latest)-pd.Timestamp(previous)).days <= 4
             a, b = state[latest], state.get(previous, {})
-            valid = all(r.get("value") is not None and r.get("realtime_end", "0000") >= day.date().isoformat()
-                        for r in (a, b))
+            def active(record):
+                if record.get("value") is None:
+                    return False
+                end = record["realtime_end"]
+                if end == "9999-12-31":
+                    return True
+                # Start dates were delayed until end-of-date; interval ends
+                # must use the same delay. Never reject an old value early
+                # just because a later, not-yet-admitted revision is known.
+                expires = datetime.combine(date.fromisoformat(end)+timedelta(days=2),
+                                           time(), ZoneInfo("America/New_York"))
+                return cutoff < expires
+            valid = all(active(r) for r in (a, b))
             if contiguous and valid:
                 result.loc[day] = a["value"]-b["value"]
         last_latest = latest
