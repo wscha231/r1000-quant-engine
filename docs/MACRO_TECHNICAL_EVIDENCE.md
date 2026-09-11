@@ -2,6 +2,7 @@
 
 Entry point for the work requested on 2026-09-11. This is an independent
 RESEARCH_ONLY extension of current master `8ccbd478e05ff34c6dd70e410be0cae793c9863e`.
+Current result: `docs/macro_evidence_runs/20260911_verified_readpack.json`.
 Read the exact PR head and latest pilot artifact before using any result. A
 planned capability, a passing synthetic test, and measured provider evidence
 are different states. No new portfolio CAGR or selector efficacy is claimed.
@@ -163,9 +164,10 @@ Drive contract is separate and untouched.
 
 1. Read this document, the exact PR diff/checks and the latest pilot's aggregate
    artifact. Use actual coverage; do not infer success from a workflow's existence.
-2. Run the official ALFRED/calendar adapters in an authorized credential-bearing
-   environment and authenticate historical availability. Their offline tests
-   alone do not prove provider pagination/entitlement or historical coverage.
+2. Extend the ALFRED/calendar proof beyond the three verified monthly series
+   to rates/liquidity and other sources. Obtain exact release times and archived
+   consensus before testing immediate announcement surprises. The current
+   conservative daily study does not measure the initial intraday reaction.
 3. Obtain longer S&P/total-return prices and missing gold/silver, crypto, tax and
    age-distribution adapters. Preserve all starts, gaps and source truth classes.
 4. Integrate the reviewed lifecycle and prove private persistence/restore, then
@@ -259,3 +261,37 @@ The adapter now maps both interval ends consistently and reports missing
 ALFRED values as missing rather than a zero missing-value count. Fourteen
 local regressions pass; thresholds and the previously inspected sample remain
 unchanged. A new source-hash-bound pilot verifies this correction.
+
+
+## Verified implementation checkpoint
+
+The corrected source `282f60fb09cf1356f0737227a32a79972a8651ef` passed
+[run 34558897084](https://github.com/wscha231/r1000-quant-engine/actions/runs/34558897084)
+(job `103137339895`, artifact `10183599627`). Fourteen regressions, the
+12-series public collection, three-series ALFRED retrieval and official
+calendar retrieval all passed. The artifact ZIP digest reported by GitHub is
+`6e3d69b77b03d0b9f7349c8588d605296a05cc9654ac0a0d10603058d18b1e6d`.
+`docs/macro_evidence_runs/20260911_verified_readpack.json` preserves all 294
+public technical and 42 combined-study macro derived rows, coverage, calendar
+and exact source identities. It supersedes the archival pilot V1 for use.
+
+Result: no hypothesis passed the complete screening criterion. Thirty public
+technical combinations and fourteen macro combinations reduced OOS squared
+prediction error, but that alone did not establish sufficiently robust added
+predictive value under the preregistered correction/evidence requirements.
+The public technical counts remain 218 without sufficient incremental evidence
+and 76 insufficient independent samples. The macro counts remain 30 and 12.
+Do not equate these outcomes with proof that every indicator has zero effect.
+
+Data scope remains price indices plus three date-level macro archives; research
+statistics are not an implementable total-return strategy. Full Tier-1 CI and
+independent review remain pending at this checkpoint; the separate Portfolio
+System Guard passed. A green draft review gate is not an independent review.
+The existing replay-workflow validation issue remains separate. No merge,
+recurring data service, durable remote raw database, selector activation,
+portfolio replay or live deployment is asserted.
+
+Next implementation is private checkpoint persistence and a clean restore,
+then scheduled source updates with release-completeness checks. Thereafter
+expand macro archives and conditional/sector/theme tests, compare against this
+retained baseline, and connect only reviewed evidence to engine consumers.
