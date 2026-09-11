@@ -83,6 +83,37 @@ class CheckpointTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "symlink"):
                 checkpoint.prepare(root / "data", root / "stage")
 
+    def test_commit_acknowledgement_failure_is_recovered_without_duplicate_head(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); fixture(root / "data")
+            transport = checkpoint.LocalTransport(root / "remote")
+            write = transport.write
+            def uncertain(path, raw):
+                write(path, raw)
+                if path.startswith("commits/"):
+                    raise ValueError("readback_rate_limit")
+            with patch.object(transport, "write", uncertain):
+                with self.assertRaisesRegex(ValueError, "readback_rate_limit"):
+                    checkpoint.publish(transport, root / "data", None, "one")
+            restored = checkpoint.restore_latest(transport, root / "clean")
+            self.assertEqual(restored["generation"], 1)
+            next_result = checkpoint.publish(transport, root / "data", restored["commit"], "two")
+            self.assertEqual(next_result["parent"], restored["commit"])
+
+    def test_read_rate_backoff_is_bounded_and_does_not_retry_quota_or_permission(self):
+        transport = object.__new__(checkpoint.RcloneTransport)
+        transport.root = "gdrive:research/macro_technical_evidence/v1/pr-413"
+        limited = ValueError("research_transport_failed:cat:exit_1:RATE_LIMIT")
+        with patch.object(transport, "call", side_effect=[limited, limited, b"payload"]) as call, patch.object(checkpoint.time, "sleep") as sleep:
+            self.assertEqual(transport.read("commits/" + "a"*64 + ".json"), b"payload")
+            self.assertEqual(call.call_count, 3)
+            self.assertEqual(sleep.call_count, 2)
+        for reason in ["DOWNLOAD_QUOTA", "STORAGE_QUOTA", "PERMISSION"]:
+            with patch.object(transport, "call", side_effect=ValueError(":" + reason)) as call:
+                with self.assertRaises(ValueError):
+                    transport.read("commits/" + "a"*64 + ".json")
+                self.assertEqual(call.call_count, 1)
+
     def test_changed_retrieval_is_not_changed_economy(self):
         old = dict(series="UNRATE", observation_date="2020-01-01", vintage_date=None, value=3.5, retrieved_at="2020-02-01")
         self.assertFalse(cycle.source_changes({"UNRATE": [old]}, {"UNRATE": [dict(old, retrieved_at="2026-09-11")]})[0]["changed"])

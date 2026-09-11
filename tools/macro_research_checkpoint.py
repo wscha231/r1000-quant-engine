@@ -11,9 +11,11 @@ import json
 import os
 from pathlib import Path
 import re
+import random
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -33,7 +35,10 @@ def transport_failure(stderr, command, returncode):
         "NOT_FOUND": ("not found", "couldn't find", "doesn't exist", "does not exist"),
         "AUTHENTICATION": ("invalid_grant", "invalid credentials", "unauthorized", "invalid authentication"),
         "PERMISSION": ("permission", "forbidden", "access denied", "cannotdownloadfile"),
-        "QUOTA": ("quota", "ratelimit", "rate limit", "too many requests"),
+        "DOWNLOAD_QUOTA": ("downloadquotaexceeded", "download quota"),
+        "STORAGE_QUOTA": ("storagequotaexceeded", "storage quota"),
+        "RATE_LIMIT": ("ratelimit", "rate limit", "too many requests"),
+        "QUOTA": ("quota",),
         "DOWNLOAD_RESTRICTED": ("abusive", "malware", "virus"),
         "NOT_DOWNLOADABLE": ("not downloadable", "only files with binary content", "not a file", "is a directory"),
         "TIMEOUT": ("timeout", "timed out", "deadline exceeded"),
@@ -120,7 +125,8 @@ class RcloneTransport:
         env["RCLONE_CONFIG"] = os.environ["MACRO_RCLONE_CONFIG"]
         try:
             result = subprocess.run([self.binary, *map(str, args), "--retries", "2",
-                "--low-level-retries", "2", "--contimeout", "20s", "--timeout", "60s"],
+                "--low-level-retries", "2", "--contimeout", "20s", "--timeout", "60s",
+                "--tpslimit", "2", "--tpslimit-burst", "1"],
                 env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=480)
         except (OSError, subprocess.TimeoutExpired):
             raise ValueError("research_transport_unavailable") from None
@@ -137,7 +143,16 @@ class RcloneTransport:
         return sorted(names)
 
     def read(self, path):
-        return self.call("cat", self.root + "/" + relative(path))
+        for attempt in range(5):
+            try:
+                return self.call("cat", self.root + "/" + relative(path))
+            except ValueError as exc:
+                # Only read requests with an explicitly transient rate-limit
+                # response retry. Daily/download/storage quotas and access failures
+                # stop. Do not replay writes to recover a missing acknowledgement.
+                if not str(exc).endswith(":RATE_LIMIT") or attempt == 4:
+                    raise
+                time.sleep(2 ** attempt + random.random())
 
     def write(self, path, raw):
         with tempfile.TemporaryDirectory(prefix="macro-transfer-") as tmp:

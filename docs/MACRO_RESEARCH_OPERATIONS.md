@@ -146,3 +146,23 @@ Archive expansion, nonlinear/conditional tests, sector/theme/security PIT data,
 costs, portfolio replay, frozen future predictions and model promotion remain
 subsequent research stages. Negative first-screen results are retained and do
 not justify permanent exclusion of every indicator.
+
+
+## Remote transport finding, 2026-09-11
+
+Run `34574014021` stopped reading back the just-uploaded manifest. Diagnostic
+head `ae747b9adeac38677f9b70e52c120738a705bb87`, run `34574331469`,
+job `103183261609`, reached full raw roundtrip verification, then encountered
+a quota-class error reading the just-written commit. The acknowledgement can
+fail after the remote commit exists: recovery must inspect and verify the chain
+before retrying, not assume the earlier head survived. No accepted paper state
+is involved. The fixed error classifier exposes no provider bodies or keys.
+
+The transport now limits API requests to two per second with a burst of one.
+Only explicitly transient rate-limited reads receive a bounded exponential
+backoff; download/storage quotas and permission errors stop. It never retries
+a write to recover an acknowledgement. This follows the provider's
+[quota/backoff guidance](https://developers.google.com/workspace/drive/api/guides/limits).
+The PR pilot additionally runs a complete subsequent collection/revision/
+reevaluation cycle against the restored checkpoint, including its journal and
+engine context export. Final success still requires its actual run receipt.
