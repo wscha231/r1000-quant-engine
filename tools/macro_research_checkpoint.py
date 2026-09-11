@@ -153,14 +153,16 @@ class RcloneTransport:
         return sorted(names)
 
     def read_call(self, *args):
-        for attempt in range(5):
+        # Seven total reads span a one-minute quota window; no individual
+        # backoff exceeds 33 seconds, and retries are never indefinite.
+        for attempt in range(7):
             try:
                 return self.call(*args)
             except ValueError as exc:
                 # Only read requests with an explicitly transient rate-limit
                 # response retry. Daily/download/storage quotas and access failures
                 # stop. Do not replay writes to recover a missing acknowledgement.
-                if not str(exc).endswith(":RATE_LIMIT") or attempt == 4:
+                if not str(exc).endswith(":RATE_LIMIT") or attempt == 6:
                     raise
                 time.sleep(2 ** attempt + random.random())
 
@@ -324,6 +326,11 @@ def publish(transport, root, expected_parent, run_id, *, commit=True):
         run_id=run_id, created_at=utc_now(), eligible_for_selector=False)
     sha = digest(encoded(record))
     if commit:
+        if transport.remote_verified:
+            print("CHECKPOINT_PREPARED " + json.dumps(dict(
+                phase="ROUNDTRIP_VERIFIED_PUBLICATION_PENDING", manifest_sha256=manifest_sha,
+                proposed_commit=sha, parent=before, files=restored["files"], bytes=restored["bytes"],
+                eligible_for_selector=False), sort_keys=True))
         transport.write("commits/" + sha + ".json", encoded(record))
         require(head(transport)[0] == sha, "checkpoint_publication_conflict")
     return dict(restored, status="COMMITTED" if commit else "ARCHIVED_FAILED_ATTEMPT",

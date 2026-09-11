@@ -199,13 +199,14 @@ def run_cycle(transport, workspace, run_id, *, now=None, collector=source.collec
         # Do not serialize arbitrary provider/config exceptions or advance the head.
         failed = dict(schema="macro-cycle-attempt-v1", phase="FAILED", run_id=run_id,
             attempt_sha256=attempt, reason="COLLECTION_EVALUATION_OR_PERSISTENCE_BLOCKED",
+            checkpoint_state="REQUIRES_REMOTE_RECONCILIATION",
             eligible_for_selector=False, parent=parent, finished_at=source.utc_now())
         try:
             failed["archive"] = checkpoint.publish(transport, current_root, parent, run_id, commit=False)
         except Exception:
             failed["failed_bundle_archived"] = False
         checkpoint.journal(transport, failed)
-        raise ValueError("macro_cycle_blocked; previous committed checkpoint retained") from None
+        raise ValueError("macro_cycle_blocked; inspect verified remote head before retry") from None
     finished = dict(schema="macro-cycle-attempt-v1", phase="COMPLETED", run_id=run_id,
         attempt_sha256=attempt, finished_at=source.utc_now(), checkpoint=committed,
         eligible_for_selector=False, scheduler_liveness_proven=False)

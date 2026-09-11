@@ -113,6 +113,11 @@ class CheckpointTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     transport.read("commits/" + "a"*64 + ".json")
                 self.assertEqual(call.call_count, 1)
+        with patch.object(transport, "call", side_effect=limited) as call, patch.object(checkpoint.time, "sleep") as sleep:
+            with self.assertRaisesRegex(ValueError, "RATE_LIMIT"):
+                transport.read("commits/" + "a"*64 + ".json")
+            self.assertEqual(call.call_count, 7)
+            self.assertEqual(sleep.call_count, 6)
 
     def test_changed_retrieval_is_not_changed_economy(self):
         old = dict(series="UNRATE", observation_date="2020-01-01", vintage_date=None, value=3.5, retrieved_at="2020-02-01")

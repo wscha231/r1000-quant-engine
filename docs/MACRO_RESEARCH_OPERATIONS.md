@@ -166,3 +166,12 @@ a write to recover an acknowledgement. This follows the provider's
 The PR pilot additionally runs a complete subsequent collection/revision/
 reevaluation cycle against the restored checkpoint, including its journal and
 engine context export. Final success still requires its actual run receipt.
+
+The later preflight (`e6898c696c28ac1363adc9967f644c7473e4c5b5`,
+run `34574989846`, job `103185300025`) explicitly classified the provider
+response as RATE_LIMIT, not missing data. Reads now have at most seven attempts
+with 1/2/4/8/16/32-second plus jitter delays, spanning a one-minute quota window.
+A `CHECKPOINT_PREPARED` line records the manifest and proposed commit after byte
+verification but before publication, so an acknowledgement failure is traceable.
+It is not a COMMITTED receipt. A failed cycle reports that remote reconciliation
+is required, because a commit could exist even when its readback failed.
