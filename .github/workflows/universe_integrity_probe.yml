@@ -9,18 +9,32 @@ on:
       - 'tests/test_universe_integrity.py'
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: universe-integrity-probe-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
           fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /r1000_unified_universe.py
+            /r1000_pipeline.py
+            /r1000_config.py
+            /aggressive/
+            /AGENTS.md
+            /docs/AGENT_SHARED_LESSONS_LEDGER.md
+            /docs/RUN287_GITHUB_AGENT_OPERATING_STANDARD.md
+            /tools/run_pr_validation.py
+            /tools/universe_integrity/
+            /tests/test_universe_integrity.py
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -63,3 +77,29 @@ jobs:
           path: ${{ runner.temp }}/universe-integrity-source/
           retention-days: 14
           if-no-files-found: error
+      - name: Reuse verified whole-cohort artifact
+        if: contains(github.event.head_commit.message, 'RUN_WHOLE_COHORT_AUDIT')
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 34541821739
+          name: us-research-results-34541821739-1
+          path: ${{ runner.temp }}/whole-cohort-input
+      - name: Audit every requested issuer and macro context
+        if: contains(github.event.head_commit.message, 'RUN_WHOLE_COHORT_AUDIT')
+        shell: bash
+        run: |
+          python tools/universe_integrity/financial_coverage.py \
+            --input "$RUNNER_TEMP/whole-cohort-input/all_us_relative_strength.json" \
+            --input-sha256 4e1eb090f8137395603228dbc55c35907307ad6d049ec778f2722d1cbb87f4b4 \
+            --cutoff 2026-09-11 \
+            --private-root "$RUNNER_TEMP/whole-cohort-private" \
+            --output "$RUNNER_TEMP/whole-cohort-diagnostics"
+      - name: Publish derived diagnostics only
+        if: always() && contains(github.event.head_commit.message, 'RUN_WHOLE_COHORT_AUDIT')
+        uses: actions/upload-artifact@v4
+        with:
+          name: whole-cohort-financials-${{ github.sha }}
+          path: ${{ runner.temp }}/whole-cohort-diagnostics/
+          if-no-files-found: warn
+          retention-days: 14
