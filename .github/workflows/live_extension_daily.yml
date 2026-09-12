@@ -1,4 +1,4 @@
-name: Live Extension Daily
+name: Live Extension (Manual Research)
 
 # Forward-walk from the backtest anchor to today using daily prices only.
 # Bridges the gap caused by walk-forward forward-return constraint
@@ -32,11 +32,6 @@ on:
         description: 'max fresh entry candidates to surface'
         type: string
         default: '10'
-  schedule:
-    # 23:00 UTC = 18:00 ET (~30min after US close, after after_close_daily).
-    # In Korea this is 08:00 KST next day.
-    - cron: '0 23 * * 1-5'
-
 permissions:
   contents: write
 
