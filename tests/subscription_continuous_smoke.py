@@ -1,5 +1,6 @@
 """Synthetic lifecycle fixtures; not observed trades or strategy performance."""
 from copy import deepcopy
+from contextlib import closing
 from datetime import datetime,timedelta,timezone
 from decimal import Decimal
 from pathlib import Path
@@ -98,7 +99,7 @@ class ContinuousTests(unittest.TestCase):
   with self.assertRaisesRegex(ValueError,'coverage'):self.add(event('mark','MARK',{'prices':{},'quote_at':'2026-01-06T20:00:00Z','source_sha256':H,'price_basis':'RAW_CLOSE'},'2026-01-06T20:00:00Z'))
  def test_backup_and_tamper(self):
   self.buy();backup=Path(self.temp.name)/'backup.sqlite';result=self.j.backup(backup);self.assertEqual(result['head'],self.j.read()['head'])
-  with sqlite3.connect(backup) as db:db.execute("UPDATE events SET body='{}' WHERE seq=1")
+  with closing(sqlite3.connect(backup)) as db, db:db.execute("UPDATE events SET body='{}' WHERE seq=1")
   with self.assertRaises((ValueError,KeyError)):Journal(backup).read()
  def test_backup_no_overwrite(self):
   dest=Path(self.temp.name)/'keep';dest.write_text('existing')
