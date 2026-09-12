@@ -631,6 +631,8 @@ def test_static_site_references_only_public_assets() -> None:
 def main() -> int:
     from tests.public_market_quotes_smoke import main as quotes_smoke
     quotes_smoke()
+    from tests.public_project_results_smoke import main as project_results_smoke
+    project_results_smoke()
     test_replay_export_is_privacy_safe()
     test_daily_artifact_refreshes_holdings_but_not_fake_trades()
     test_daily_artifact_merges_only_safe_forward_paper_fills()

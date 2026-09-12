@@ -389,3 +389,10 @@ tbody tr:hover { background: rgba(255, 255, 255, 0.022); }
   html { scroll-behavior: auto; }
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }
+
+/* Independently refreshed project results */
+.project-source-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:18px 0}
+.project-source{padding:16px;border:1px solid var(--line,#29394f);border-radius:12px;background:rgba(255,255,255,.025)}
+.project-source strong{font-size:14px}.project-source p{font-size:13px;color:#c0ccdc;margin:10px 0}.project-source a{font-size:13px;color:#80ddcf}
+.project-results-table{max-height:430px;margin-top:16px}.project-results-table small{display:block;color:#a9b9ca;font-size:11px;margin-top:5px}
+.project-results .chart-note{line-height:1.8;overflow-wrap:anywhere}
