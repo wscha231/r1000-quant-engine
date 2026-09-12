@@ -7,8 +7,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
+from urllib.error import HTTPError
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from threading import Thread
 
-from tools.refresh_public_market_quotes import collect, exact_close, preserve_deployed, public_tickers
+from tools.refresh_public_market_quotes import collect, exact_close, fetch_json, preserve_deployed, public_tickers, yahoo_close
 
 
 def fixture():
@@ -29,6 +32,38 @@ def rejected(call):
 
 def main():
     stamp = lambda day: datetime.fromisoformat(day + "T13:30:00+00:00").timestamp()
+    reached_sink = []
+    class RedirectServer(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/sink":
+                reached_sink.append(True)
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"{}")
+            else:
+                self.send_response(302)
+                self.send_header("Location", f"http://localhost:{self.server.server_port}/sink")
+                self.end_headers()
+        def log_message(self, *_): pass
+    with HTTPServer(("127.0.0.1", 0), RedirectServer) as server:
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            try:
+                fetch_json(f"http://127.0.0.1:{server.server_port}/redirect",
+                           {"APCA-API-KEY-ID": "test-only", "APCA-API-SECRET-KEY": "test-only"})
+                raise AssertionError("redirect followed")
+            except HTTPError as exc:
+                assert exc.code == 302
+            assert reached_sink == []
+        finally:
+            server.shutdown()
+            thread.join(timeout=2)
+    provider_payload = {"chart": {"result": [{"meta": {"symbol": "BRK-B", "currency": "USD"},
+                        "timestamp": [stamp("2026-09-11")], "indicators": {"quote": [{"close": [450]}]}}]}}
+    with patch("tools.refresh_public_market_quotes.fetch_json", return_value=(provider_payload, "a" * 64)) as request:
+        assert yahoo_close("BRK.B", "2026-09-11") == (450, "a" * 64)
+        assert "/BRK-B?" in request.call_args.args[0]
     assert exact_close([(stamp("2026-09-10"), 10), (stamp("2026-09-11"), 11),
                         (stamp("2026-09-14"), 14)], "2026-09-11") == 11
     for rows in [[(stamp("2026-09-10"), 10)], [(stamp("2026-09-11"), None)],

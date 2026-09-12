@@ -4920,3 +4920,9 @@ Expected contract:
 - Exact-head review correction: preserve a newer deployed session, but retain
   reviewed default-branch corrections when the portfolio date is unchanged.
   The same-date regression proves those corrected bytes are not overwritten.
+
+- Subsequent review correction: the public quote HTTP client rejects all
+  redirects so Alpaca headers cannot cross origins. A local HTTP redirect
+  server regression proves the destination is never reached. Yahoo class-share
+  symbols are normalized to its dashed convention while public identities stay
+  unchanged; the provider-symbol regression covers BRK.B/BRK-B.

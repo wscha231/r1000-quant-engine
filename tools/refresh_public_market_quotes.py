@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlencode
 from urllib.error import HTTPError
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 from zoneinfo import ZoneInfo
 
 from tools.build_public_portfolio_dashboard import validate_public_payload
@@ -23,9 +23,15 @@ PUBLIC_DASHBOARD = "https://wscha231.github.io/r1000-quant-engine/data/dashboard
 NY = ZoneInfo("America/New_York")
 
 
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # In particular, never forward Alpaca authentication headers.
+        return None
+
+
 def fetch_json(url, headers=None):
     request = Request(url, headers={"User-Agent": "Run287-public-market-quotes/1.0", **(headers or {})})
-    with urlopen(request, timeout=25) as response:
+    with build_opener(NoRedirect()).open(request, timeout=25) as response:
         raw = response.read(5_000_001)
     if len(raw) > 5_000_000:
         raise ValueError("response_too_large")
@@ -92,13 +98,16 @@ def exact_close(rows, session):
 
 
 def yahoo_close(ticker, session):
-    url = "https://query1.finance.yahoo.com/v8/finance/chart/" + ticker + "?" + urlencode({"range": "5d", "interval": "1d", "includePrePost": "false"})
+    # Same provider convention as build_replay_price_cache.yfinance_symbol;
+    # keep the dotted public identity in collect(), not in the provider URL.
+    provider_symbol = ticker.replace(".", "-")
+    url = "https://query1.finance.yahoo.com/v8/finance/chart/" + provider_symbol + "?" + urlencode({"range": "5d", "interval": "1d", "includePrePost": "false"})
     payload, digest = fetch_json(url)
     result = payload["chart"]["result"]
     if len(result) != 1:
         raise ValueError("ambiguous_symbol")
     item = result[0]
-    if item["meta"]["symbol"] != ticker or item["meta"]["currency"] != "USD":
+    if item["meta"]["symbol"] != provider_symbol or item["meta"]["currency"] != "USD":
         raise ValueError("symbol_or_currency_mismatch")
     stamps = item["timestamp"]
     closes = item["indicators"]["quote"][0]["close"]
