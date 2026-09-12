@@ -92,7 +92,9 @@ not completed analysis. Never label it a successful full data/analysis cycle.
 ## Execution
 
 `long_history_research.yml` has one global writer lock and no cancel-in-progress.
-The initial branch push runs a scoped data-only pilot. After merge, scheduled runs
+The initial pilot used a temporary feature-branch trigger. The final workflow
+runs with secrets only on master; a merge touching collector paths starts the
+next verified-code cycle. After merge, scheduled runs
 are configured for 06:37 UTC Tuesday–Saturday (after US Monday–Friday closes).
 A workflow_dispatch follows the same restore/compare/append path. It never reruns
 paper-account processing. A schedule in an unmerged PR is not active operation.
@@ -120,8 +122,8 @@ be refreshed under a versioned cohort contract to admit future listings.
 
 [PROJECT_HANDOFF]
 - Basis: 2026-09-12; master e89e87e722c67b32e56c2dd86969502c8e952676.
-- Fact: original PR413 real remote lifecycle recovered; 50 offline regressions
-  (14 source, 16 checkpoint/cycle, 20 new history) pass locally.
+- Fact: original PR413 real remote lifecycle recovered; 56 offline regressions
+  (14 source, 16 checkpoint/cycle, 26 new history) pass locally.
 - Local environment caveat: pandas_market_calendars is unavailable, so the
   registered integration suite must run in the pinned GitHub runtime.
 - Change: scoped source reuse, partitioned long-history ingestion and consumer.

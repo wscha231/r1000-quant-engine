@@ -1,7 +1,7 @@
 name: Durable financial and macro history
 on:
   push:
-    branches: ['codex/durable-long-history-20260912']
+    branches: ['master']
     paths:
       - 'tools/long_history_lake.py'
       - 'tests/long_history_lake_smoke.py'
@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   history:
-    if: github.repository == 'wscha231/r1000-quant-engine' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/codex/durable-long-history-20260912')
+    if: github.repository == 'wscha231/r1000-quant-engine' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -27,6 +27,7 @@ jobs:
           fetch-depth: 1
           sparse-checkout-cone-mode: false
           sparse-checkout: |
+            /.github/workflows/long_history_research.yml
             /tools/long_history_lake.py
             /tools/macro_history_sources.py
             /tools/macro_technical_study.py

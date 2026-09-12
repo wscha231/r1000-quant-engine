@@ -5015,3 +5015,12 @@ Expected contract:
   fixed HTTP/transport error classes without secret URLs; retry transient FRED
   failures finitely, never structural contract errors. Source span limits remain
   actual(SP500~10years,ICE HY spread~3years), not the requested30years.
+- Final history workflow restricts secret-bearing execution to master; a temporary
+  pilot branch exception must not survive into scheduled operation. Validate every
+  historical catalog hash, not only the tip. Preserve SEC fy/fp/frame in fact
+  identity. Reuse daily HTTP validators while forcing re-extraction when deferred
+  source periods become due. Missing CIKs keep whole-cohort coverage PARTIAL.
+- Direct World Bank object verification found USA inflation2025null; report
+  missing country-years and country-specific endpoints, not only global row counts.
+  The56offline regressions cover these review boundaries. No local calendar
+  package distribution is accessible, so full integration evidence remains CI-owned.

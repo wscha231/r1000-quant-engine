@@ -117,12 +117,52 @@ class HistoryTest(unittest.TestCase):
 
     def test_schema_and_window_changes_invalidate_http_validators(self):
         from tools.long_history_lake import sec_conditional,extraction_identity
-        old=dict(start='2016-01-01',through='2026-09-12',http={'etag':'v1'},extraction_sha256=extraction_identity())
+        old=dict(start='2016-01-01',through='2026-09-12',http={'etag':'v1'},extraction_sha256=extraction_identity(),deferred_until=None)
         self.assertEqual(sec_conditional(old,old['start'],old['through']),old['http'])
         with patch('tools.long_history_lake.FORMS',{'10-K'}):
             self.assertIsNone(sec_conditional(old,old['start'],old['through']))
-        self.assertIsNone(sec_conditional(old,old['start'],'2026-09-13'))
+        self.assertEqual(sec_conditional(old,old['start'],'2026-09-13'),old['http'])
+        self.assertIsNone(sec_conditional(old,old['start'],'2026-09-11'))
         self.assertIsNone(sec_conditional(dict(old,extraction_sha256='old'),old['start'],old['through']))
+
+    def test_deferred_financial_period_invalidates_reuse_when_due(self):
+        from tools.long_history_lake import sec_future_boundary,sec_conditional,extraction_identity
+        boundary=sec_future_boundary(encoded(source()),'2017-12-31')
+        self.assertEqual(boundary,'2018-01-01')
+        old=dict(start='2016-01-01',through='2017-12-31',http={'etag':'v1'},extraction_sha256=extraction_identity(),deferred_until=boundary)
+        self.assertIsNone(sec_conditional(old,old['start'],'2018-01-01'))
+
+    def test_old_catalog_corruption_is_not_hidden_by_valid_tip(self):
+        self.put(); first=self.lake.publish('one',{})
+        other=Lake(self.t,self.root/'second'); self.put(other,90); other.publish('two',{})
+        (self.root/'remote'/PREFIX/'catalogs'/first['catalog_sha256']).write_bytes(b'bad')
+        with self.assertRaisesRegex(ValueError,'remote_hash'): Lake(self.t,self.root/'third')
+
+    def test_preserves_fiscal_contexts(self):
+        src=source(); values=src['facts']['us-gaap']['Revenues']['units']['USD']
+        values.append(dict(values[0],fy=2017,fp='FY',frame='CY2016'))
+        rows,_=sec_rows(encoded(src),'0000000001','2016-01-01','2026-09-12')
+        self.assertEqual(len(rows),3)
+        self.assertEqual(sum(r['frame']=='CY2016' for r in rows),1)
+
+    def test_unmapped_security_keeps_cycle_partial(self):
+        from tools.long_history_lake import diagnostics
+        self.lake.catalog['datasets']['universe/cohort']=dict(status='COLLECTED',active_issuer_keys=[],missing=[dict(ticker='HOLX')])
+        self.assertEqual(diagnostics(self.lake)['status'],'PARTIAL')
+
+    def test_country_year_missing_coverage(self):
+        from tools.long_history_lake import wb_coverage
+        rows=[dict(country='USA',observation_date='2024-01-01',value=3),dict(country='USA',observation_date='2025-01-01',value=None)]
+        result=wb_coverage(rows)
+        self.assertEqual(result['missing_values'],1)
+        self.assertEqual(result['missing_country_years'],[dict(country='USA',year=2025)])
+        self.assertEqual(result['country_coverage']['USA']['latest'],'2024-01-01')
+
+    def test_secret_job_is_default_branch_only(self):
+        workflow=(ROOT/'.github/workflows/long_history_research.yml').read_text()
+        self.assertIn("branches: ['master']",workflow)
+        self.assertIn("&& github.ref == 'refs/heads/master'",workflow)
+        self.assertNotIn('codex/durable-long-history-20260912',workflow)
 
     def test_transient_fred_retry_and_secret_safe_failure(self):
         from urllib.error import URLError,HTTPError

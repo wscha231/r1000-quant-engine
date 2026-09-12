@@ -131,7 +131,8 @@ def sec_rows(raw, cik, start, through):
                         continue
                     if end.isoformat() < start or end.isoformat() > through or filed.isoformat() > through:
                         continue
-                    identity = (namespace,concept,unit,r.get('start'),r['end'],r['filed'],r['accn'],r['form'])
+                    identity = (namespace,concept,unit,r.get('start'),r['end'],r['filed'],r['accn'],r['form'],
+                                r.get('fy'),r.get('fp'),r.get('frame'))
                     require(identity not in seen or seen[identity] == value, 'conflicting_fact_version')
                     if identity in seen:
                         continue
@@ -141,7 +142,8 @@ def sec_rows(raw, cik, start, through):
                         form=r['form'],value=value,fy=r.get('fy'),fp=r.get('fp'),frame=r.get('frame'),
                         duration_days=(end-begin).days+1 if begin else None,
                         evidence='SEC_FILED_DATE_CURRENT_ARCHIVE_NOT_CERTIFIED_PIT'))
-    rows.sort(key=lambda r:(r['end'],r['filed'],r['namespace'],r['concept'],r['unit'],r['accession'],r['start'] or ''))
+    rows.sort(key=lambda r:(r['end'],r['filed'],r['namespace'],r['concept'],r['unit'],r['accession'],r['start'] or '',
+                            str(r['fy']),r['fp'] or '',r['frame'] or ''))
     return rows, rejected
 
 
@@ -161,11 +163,27 @@ def fact_coverage(rows, start, through):
 
 def extraction_identity():
     return digest(encoded(dict(parser=inspect.getsource(sec_rows),
-        coverage=inspect.getsource(fact_coverage),forms=sorted(FORMS))))
+        coverage=inspect.getsource(fact_coverage),future=inspect.getsource(sec_future_boundary),forms=sorted(FORMS))))
+
+
+def sec_future_boundary(raw,through):
+    """Force re-extraction when a previously filtered source period becomes due."""
+    future=[]
+    for namespace,concepts in json.loads(raw).get('facts',{}).items():
+        if namespace not in ('us-gaap','ifrs-full','dei'): continue
+        for fact in concepts.values():
+            for entries in fact.get('units',{}).values():
+                for row in entries:
+                    if row.get('form') not in FORMS: continue
+                    try: boundary=max(date.fromisoformat(row['end']),date.fromisoformat(row['filed'])).isoformat()
+                    except (KeyError,ValueError,TypeError): continue
+                    if boundary>through: future.append(boundary)
+    return min(future,default=None)
 
 
 def sec_conditional(old,start,through):
-    return old.get('http') if (old.get('start')==start and old.get('through')==through
+    return old.get('http') if (old.get('start')==start and old.get('through','9999')<=through
+        and 'deferred_until' in old and (old['deferred_until'] is None or old['deferred_until']>through)
         and old.get('extraction_sha256')==extraction_identity()) else None
 
 
@@ -214,6 +232,16 @@ def wb_rows(raw, indicator, start, through, retrieved):
             value=value,available_at=retrieved,evidence='current_only',published_at=None))
     require(rows,'worldbank_empty')
     return sorted(rows,key=lambda r:(r['country'],r['observation_date']))
+
+
+def wb_coverage(rows):
+    missing=[dict(country=r['country'],year=int(r['observation_date'][:4])) for r in rows if r['value'] is None]
+    countries={}
+    for country in COUNTRIES:
+        valid=[r['observation_date'] for r in rows if r['country']==country and r['value'] is not None]
+        countries[country]=dict(nonmissing=len(valid),earliest=min(valid,default=None),latest=max(valid,default=None),
+            missing_years=[r['year'] for r in missing if r['country']==country])
+    return dict(missing_values=len(missing),missing_country_years=missing,country_coverage=countries)
 
 
 def safe_error(exc):
@@ -275,15 +303,15 @@ class Lake:
             parent,last=following[0]
             generation+=1
             require(last.get('generation')==generation and last.get('schema')=='long-history-commit-v1','commit_schema')
+            catalog=json.loads(self.read_hash('catalogs',last['catalog']))
+            require(catalog.get('schema')==SCHEMA and catalog.get('generation')==generation,'catalog_schema')
+            require(catalog.get('eligible_for_selector') is False,'research_only')
+            for dataset in catalog['datasets'].values():
+                for obj in dataset.get('objects',[]):
+                    require(obj in catalog['locations'],'catalog_dependency')
             del entries[parent]
         if last is None:
             return None,dict(schema=SCHEMA,generation=0,datasets={},locations={},eligible_for_selector=False)
-        catalog=json.loads(self.read_hash('catalogs',last['catalog']))
-        require(catalog.get('schema')==SCHEMA and catalog.get('generation')==generation,'catalog_schema')
-        require(catalog.get('eligible_for_selector') is False,'research_only')
-        for dataset in catalog['datasets'].values():
-            for obj in dataset.get('objects',[]):
-                require(obj in catalog['locations'],'catalog_dependency')
         return parent,catalog
 
     def object(self, raw):
@@ -398,11 +426,14 @@ def collect_financials(lake,cohort,start,through):
             data,http=get_public(f'https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json',conditional)
             if data is None:
                 require(old.get('objects') and old.get('normalized'),'304_without_prior')
-                return key,None,None,dict(old,tickers=symbols,status='UNCHANGED',changed=False,checked_at=utc_now())
+                return key,None,None,dict(old,tickers=symbols,through=through,
+                    missing_years=[y for y in range(int(start[:4]),int(through[:4])) if y not in old['years_with_any_facts']],
+                    status='UNCHANGED',changed=False,checked_at=utc_now())
             rows,rejected=sec_rows(data,cik,start,through)
             require(rows,'NO_FACTS_IN_WINDOW')
             metadata=dict(cik=cik,tickers=symbols,start=start,through=through,http=http,
                 extraction_sha256=extraction_identity(),
+                deferred_until=sec_future_boundary(data,through),
                 retrieved_at=utc_now(),evidence='SEC_FILED_DATE_CURRENT_ARCHIVE_NOT_CERTIFIED_PIT',
                 rejected_rows=rejected,**fact_coverage(rows,start,through))
             return key,[data],rows,metadata
@@ -460,7 +491,7 @@ def collect_macros(lake,start,through):
             lake.dataset(key,[pages],rows,dict(rows=len(rows),evidence='current_only',retrieved_at=retrieved,
                 earliest=min(r['observation_date'] for r in rows if r['value'] is not None),latest=max(r['observation_date'] for r in rows if r['value'] is not None),
                 countries=list(COUNTRIES),indicator=indicator,frequency='annual',
-                requested_start=start,requested_through=through))
+                requested_start=start,requested_through=through,**wb_coverage(rows)))
         except Exception as exc: lake.blocked(key,exc)
 
 
@@ -471,13 +502,13 @@ def diagnostics(lake):
     sec=[d for k,d in datasets.items() if k.startswith('sec/')]
     macro={k:d for k,d in datasets.items() if k.startswith(('current/','alfred/','worldbank/'))}
     counts={s:sum(d['status']==s for d in datasets.values()) for s in ('COLLECTED','UNCHANGED','STALE_RETAINED','BLOCKED')}
-    return dict(schema='long-history-quality-v1',as_of=utc_now(),status='PARTIAL' if counts['BLOCKED'] or counts['STALE_RETAINED'] else 'COLLECTED_NOT_PIT_CERTIFIED',
+    return dict(schema='long-history-quality-v1',as_of=utc_now(),status='PARTIAL' if counts['BLOCKED'] or counts['STALE_RETAINED'] or datasets.get('universe/cohort',{}).get('missing') else 'COLLECTED_NOT_PIT_CERTIFIED',
         status_counts=counts,financial_issuers=len(sec),financial_fact_rows=sum(d.get('rows',0) for d in sec),
         archived_inactive_issuers=sum(k.startswith('sec/') and k not in active for k in all_datasets),
         financial_issuers_collected=sum(d['status'] in ('COLLECTED','UNCHANGED') for d in sec),
         issuers_with_ten_calendar_years=sum(len(d.get('years_with_any_facts',[]))>=10 for d in sec),
         three_statement_ten_year_completeness='NOT_CERTIFIED',
-        macro_coverage={k:{f:d.get(f) for f in ('status','rows','earliest','latest','evidence','first_vintage_date','first_available_at','missing_values','missing_observation_dates','last_failure')} for k,d in macro.items()},
+        macro_coverage={k:{f:d.get(f) for f in ('status','rows','earliest','latest','evidence','first_vintage_date','first_available_at','missing_values','missing_observation_dates','missing_country_years','country_coverage','last_failure')} for k,d in macro.items()},
         universe=datasets.get('universe/cohort',{}),eligible_for_selector=False,weights_activated=False,
         historical_membership_verified=False,historical_pit_certified=False,
         provider_failures={k:d.get('last_failure') for k,d in datasets.items() if d['status'] in ('BLOCKED','STALE_RETAINED')})
