@@ -4981,3 +4981,23 @@ Expected contract:
   restoration rather than following public redirects. Keep credential-bearing
   request redirects disabled. CLI and workflow regressions verify the configured
   custom path is restored before publication.
+
+
+## 2026-09-12 — Connect research output without advancing the portfolio clock
+
+- Public Pages previously consumed only successful daily account artifacts.
+  Reuse the hash-verified research monitor for independent project results,
+  and distinguish source execution, observation dates and accepted portfolio dates.
+- When adding workflow_run producers, explicitly restrict the account artifact
+  downloader to the Daily Operating Selection Refresh workflow name; a generic
+  success condition is no longer sufficient.
+- Actual September12 after-close artifacts contain NaN SPY/ETF closes and a
+  September9 theme input date. Do not promote collection timestamps, neutral
+  missing-return defaults or legacy top-ticker lists into current recommendations.
+- A 33-name research watchlist is not the whole1118-name financial cohort.
+  History workflow success is not accepted catalog/coverage evidence.
+- Regressions cover public field allowlisting, numeric zero, stale/future/missing
+  scores, failed producers, duplicate identities, account event isolation,
+  DOM escaping, open-tab expiry and missing-file recovery. No ledger/targets,
+  fullrun, broker calls, Drive writes or promotion are part of this connection.
+- Evidence: docs/PUBLIC_PROJECT_RESULTS_20260912.md.

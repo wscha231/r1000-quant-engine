@@ -144,3 +144,35 @@ The publisher reads `actions/configure-pages`' canonical `base_url` before
 restoring public data, so custom domains do not require following redirects.
 For a manual local restoration, pass the canonical full JSON URL with
 `--preserve-deployed --deployed-url https://your-domain/data/dashboard.json`.
+
+
+## Project results connection
+
+The homepage's Project Results panel is built by
+`tools/build_public_project_results.py` on every Pages build. It reuses the
+existing daily research monitor's exact master workflow, artifact SHA-256,
+member and score-lineage checks. Four read-only source requests run concurrently.
+It never executes source artifacts or publishes the private monitor report.
+Only the explicit public field allowlist reaches `data/project-results.json`.
+
+After-close, estimates, ownership, research-monitor and long-history completions
+also trigger Pages, regardless of success, so failed producers remain visible.
+A daily 08:45 UTC reconciliation supplements the existing post-close schedule.
+Only the **Daily Operating Selection Refresh** event with a successful
+completed-session artifact can enter the existing portfolio publisher. All
+other events refresh research and quotes only.
+
+The table is the existing 33-name US/KR research watchlist, **not the 1,118-name
+universe or a stock ranking**. Valid nonranking score exports appear automatically;
+missing scores stay unavailable. Korea needs its upstream adapter. Source runs
+and artifact hashes, source commit, config hash and public content hash are kept
+in the public JSON. Long-history status reports workflow execution only until a
+separate accepted catalog adapter exists; it does not certify its data coverage.
+
+The theme panel reports input dates and aggregate coverage only, not unvalidated
+legacy top-stock recommendations. Legacy macro/ETF exporters lack individual
+observation dates, so their collection dates and missing-price counts are
+reported without treating their regimes/returns as current investment signals.
+The browser refreshes every five minutes and on focus; score/price display
+expires with the matching quote session freshness deadline. Account dates,
+weights, replay metrics and paper-ledger publication retain their existing gates.

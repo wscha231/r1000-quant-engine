@@ -62,6 +62,18 @@
 
     <section id="freshness-notice" class="freshness-notice" role="status" hidden></section>
 
+    <section class="panel project-results" aria-labelledby="project-results-title">
+      <div class="section-heading section-heading-wrap">
+        <div><span class="section-kicker">PROJECT RESULTS</span><h2 id="project-results-title">프로젝트 최신 결과</h2>
+        <p class="section-description" id="project-results-status" role="status">연구 결과 연결 확인 중</p></div>
+        <label class="search-field"><span class="sr-only">연구 종목 검색</span><input id="research-results-search" type="search" placeholder="연구 종목 검색" autocomplete="off"></label>
+      </div>
+      <div class="project-source-grid" id="project-source-cards"></div>
+      <p class="section-description">기존 미국·한국 연구 관심종목의 점수와 입력 자료입니다. 전체 투자 유니버스의 순위나 확정 매수 목록은 아닙니다. 비중·성과는 아래 포트폴리오의 기준일을 확인하세요.</p>
+      <div class="table-wrap project-results-table"><table><thead><tr><th scope="col">종목</th><th scope="col" class="number">검증 종가 · 기준일</th><th scope="col" class="number">연구 점수 · 기준일</th><th scope="col">상태</th></tr></thead><tbody id="research-results-body"></tbody></table></div>
+      <p class="chart-note" id="project-diagnostics"></p>
+    </section>
+
     <section class="metric-grid" id="metric-grid" aria-label="포트폴리오 핵심 성과"></section>
 
     <section class="panel allocation-overview" aria-labelledby="allocation-overview-title">
@@ -258,5 +270,6 @@
   </div>
 
   <script src="./app.js" defer></script>
+  <script src="./project-results.js"></script>
 </body>
 </html>
