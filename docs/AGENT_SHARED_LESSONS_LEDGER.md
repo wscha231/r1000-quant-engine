@@ -4914,3 +4914,17 @@ Expected contract:
   research artifacts as private solely because the public dashboard filters them.
 - Policy source preparation does not prove Google verification, production
   publishing status, token validity, or successful Pages deployment.
+
+
+### 2026-09-12 — Pages sparse validator runtime must match its imports
+
+- Run `34672956065`, job `103497669610`, failed to publish the accepted
+  privacy page because the sparse checkout omitted `run287_paper_ledger_integrity`
+  and the validator's transitive test/runtime imports. Full-checkout PR checks
+  did not reproduce this deployment-only environment.
+- Include repository Python modules, tools and tests in the build checkout and
+  install the validator dependencies. Keep the uploaded artifact restricted to
+  `docs/public`; retain the existing completed-session artifact publication gate.
+- Reproduced the public smoke in an isolated sparse source snapshot and verified
+  success after restoring the runtime. The registered workflow smoke now guards
+  checkout/dependency availability and the public-only artifact root.
