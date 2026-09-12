@@ -1118,6 +1118,9 @@ def test_research_sidecar_is_wired_without_replacing_champion_metrics() -> None:
     replay_workflow = (
         REPO_ROOT / ".github" / "workflows" / "alphaops_replay_sidecars_manual.yml"
     ).read_text(encoding="utf-8")
+    replay_workflow += "\n" + (
+        REPO_ROOT / "tools" / "run_alphaops_replay_sidecars.sh"
+    ).read_text(encoding="utf-8")
     full_workflow = (
         REPO_ROOT / ".github" / "workflows" / "full_rebuild_manual.yml"
     ).read_text(encoding="utf-8")

@@ -906,6 +906,18 @@ def test_operating_acceptance_audit_runs_after_attribution_inputs() -> None:
 
 def test_fast_replay_workflow_uses_artifacts_not_full_rebuild() -> None:
     text = REPLAY_WORKFLOW.read_text(encoding="utf-8")
+    import yaml
+
+    workflow = yaml.safe_load(text)
+    steps = workflow["jobs"]["replay_sidecars"]["steps"]
+    assert all(len(step.get("run", "")) <= 21000 for step in steps)
+    replay = next(step for step in steps if step.get("name") == "Run fast replay sidecars")
+    assert replay["run"] == "bash tools/run_alphaops_replay_sidecars.sh"
+    assert replay["env"]["DECISION_TIME_UTC"] == "${{ inputs.decision_time_utc }}"
+    script = (ROOT / "tools" / "run_alphaops_replay_sidecars.sh").read_text(encoding="utf-8")
+    assert "${{" not in script
+    assert '--decision-time-utc "$DECISION_TIME_UTC"' in script
+    text += "\n" + script
     for token in [
         "AlphaOps Replay Sidecars",
         "source_run_id",

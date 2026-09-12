@@ -471,7 +471,7 @@ def test_cli_and_operational_invocations_require_lifecycle_evidence() -> None:
     assert 'parser.add_argument("--security-lifecycle-events"' in tool
     assert 'parser.add_argument("--decision-time-utc"' in tool
     for path in (
-        ROOT / ".github" / "workflows" / "alphaops_replay_sidecars_manual.yml",
+        ROOT / "tools" / "run_alphaops_replay_sidecars.sh",
         ROOT / "tools" / "run_full_rebuild_sidecars.py",
     ):
         source = path.read_text(encoding="utf-8")
