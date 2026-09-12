@@ -124,6 +124,26 @@ class HistoryTest(unittest.TestCase):
         self.assertIsNone(sec_conditional(old,old['start'],'2026-09-13'))
         self.assertIsNone(sec_conditional(dict(old,extraction_sha256='old'),old['start'],old['through']))
 
+    def test_transient_fred_retry_and_secret_safe_failure(self):
+        from urllib.error import URLError,HTTPError
+        from tools.long_history_lake import fetch_fred_retry,safe_error
+        expected=([b'data'],'2026-09-12T00:00:00+00:00')
+        with patch('tools.long_history_lake.fetch_fred',side_effect=[URLError('api_key=private'),expected]) as fetch,patch('tools.long_history_lake.time.sleep'):
+            self.assertEqual(fetch_fred_retry('NFCI','1996-01-01','2026-09-12','alfred'),expected)
+            self.assertEqual(fetch.call_count,2)
+        self.assertEqual(safe_error(HTTPError('https://example.com/?api_key=private',403,'private',{},None)),'HTTP_403')
+        with patch('tools.long_history_lake.fetch_fred',side_effect=URLError('api_key=private')) as fetch,patch('tools.long_history_lake.time.sleep'):
+            with self.assertRaisesRegex(ValueError,'^TRANSPORT_ERROR$'):
+                fetch_fred_retry('NFCI','1996-01-01','2026-09-12','alfred')
+            self.assertEqual(fetch.call_count,3)
+
+    def test_source_contract_errors_are_not_retried(self):
+        from tools.long_history_lake import fetch_fred_retry
+        with patch('tools.long_history_lake.fetch_fred',side_effect=ValueError('alfred_count')) as fetch:
+            with self.assertRaisesRegex(ValueError,'alfred_count'):
+                fetch_fred_retry('NFCI','1996-01-01','2026-09-12','alfred')
+            self.assertEqual(fetch.call_count,1)
+
     def test_fred_missing_dates_survive_parser(self):
         from tools.long_history_lake import parse_graph,fred_missing
         rows,missing=parse_graph(b'observation_date,UNRATE\n2025-09-01,4.4\n2025-10-01,.\n2025-11-01,4.5\n',

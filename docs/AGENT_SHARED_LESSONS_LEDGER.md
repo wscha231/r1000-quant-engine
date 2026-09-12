@@ -5009,3 +5009,9 @@ Expected contract:
 - Offline regressions for these boundaries pass (48 total). Current PR420 data
   pilot34680321989 remains in progress; pack presence alone is not a completed
   catalog/clean-consumer execution receipt or active scheduled operation.
+- Initial expanded catalog5e9d7db95c9fcf01e508d5d0f8179e498dd306c9f09de87842553fd9285a6722
+  is independently hash-verified:27packs/503129850bytes,15173078facts. Missing
+  HOLX mapping,2SEC404s and ALFRED/NFCI failure keep coverage PARTIAL. Preserve
+  fixed HTTP/transport error classes without secret URLs; retry transient FRED
+  failures finitely, never structural contract errors. Source span limits remain
+  actual(SP500~10years,ICE HY spread~3years), not the requested30years.

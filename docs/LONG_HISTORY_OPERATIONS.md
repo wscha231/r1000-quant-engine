@@ -120,8 +120,8 @@ be refreshed under a versioned cohort contract to admit future listings.
 
 [PROJECT_HANDOFF]
 - Basis: 2026-09-12; master e89e87e722c67b32e56c2dd86969502c8e952676.
-- Fact: original PR413 real remote lifecycle recovered; 48 offline regressions
-  (14 source, 16 checkpoint/cycle, 18 new history) pass locally.
+- Fact: original PR413 real remote lifecycle recovered; 50 offline regressions
+  (14 source, 16 checkpoint/cycle, 20 new history) pass locally.
 - Local environment caveat: pandas_market_calendars is unavailable, so the
   registered integration suite must run in the pinned GitHub runtime.
 - Change: scoped source reuse, partitioned long-history ingestion and consumer.
@@ -129,3 +129,16 @@ be refreshed under a versioned cohort contract to admit future listings.
   linked current PR/run; code presence is not evidence of completion.
 - Stop: source/hash/identity/chain failure; stale datasets cannot feed active signals.
 - Decision: no alpha activation, live/paper order, ledger migration or fullrun.
+
+Initial expanded catalog: `5e9d7db95c9fcf01e508d5d0f8179e498dd306c9f09de87842553fd9285a6722`,
+commit `fc6d4b070b4f813a4b1fd03c55cdb556da06d15b7fd11249284eb8b0885e6415`.
+Directly downloaded catalog SHA256 matches. Run34680321989 archived27 packs,
+503,129,850bytes,15,173,078financial fact rows from1,104successful issuers;
+962have observations in at least10calendar years. HOLX lacks a current CIK match;
+CIKs1103838and1569650returned404; ALFRED/NFCI was blocked with a generic error.
+This is PARTIAL coverage, not a complete10-year three-statement panel.30current
+FRED series,11ALFRED archives and20World Bank combinations were collected.
+SP500 begins2016-09-12; BAMLH0A0HYM2 begins2023-09-12 despite the1996request.
+Storage commit is established; inspect execution receipts for consumer completion.
+Transient FRED transport/429/5xx failures now retry at most3times; contract failures
+do not retry. Fixed HTTP/transport codes never include credential-bearing URLs.

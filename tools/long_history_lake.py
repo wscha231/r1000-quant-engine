@@ -217,8 +217,22 @@ def wb_rows(raw, indicator, start, through, retrieved):
 
 
 def safe_error(exc):
+    if isinstance(exc,HTTPError): return 'HTTP_'+str(exc.code)
+    if isinstance(exc,TimeoutError): return 'TRANSPORT_TIMEOUT'
+    if isinstance(exc,(URLError,OSError)): return 'TRANSPORT_ERROR'
     text = str(exc)
     return text if re.fullmatch(r'[A-Za-z0-9_]{1,90}',text) else 'SOURCE_OR_CONTRACT_ERROR'
+
+
+def fetch_fred_retry(series,start,through,mode):
+    for attempt in range(3):
+        try: return fetch_fred(series,start,through,mode)
+        except HTTPError as exc:
+            if exc.code not in (429,500,502,503,504) or attempt==2:
+                raise ValueError(safe_error(exc)) from None
+        except (URLError,TimeoutError,OSError) as exc:
+            if attempt==2: raise ValueError(safe_error(exc)) from None
+        time.sleep(2**attempt)
 
 
 def retain_price_prefix(old_rows,new_rows,retrieved):
@@ -408,7 +422,7 @@ def collect_macros(lake,start,through):
         for mode in (['current','alfred'] if sid in ARCHIVES else ['current']):
             key=f'{mode}/{sid}'
             try:
-                pages,retrieved=fetch_fred(sid,start,through,mode)
+                pages,retrieved=fetch_fred_retry(sid,start,through,mode)
                 if mode=='current': rows,missing=parse_graph(pages[0],sid,start,through,retrieved)
                 else: rows=parse_alfred(pages,sid,start,through,retrieved); missing=[]
                 # Retrieval belongs to the version receipt, not every unchanged row.
