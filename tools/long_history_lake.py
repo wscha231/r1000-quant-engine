@@ -15,6 +15,7 @@ import copy
 from datetime import date, datetime, timedelta, timezone
 import gzip
 import io
+import inspect
 import json
 import math
 import os
@@ -34,7 +35,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tools.macro_history_sources import (NoRedirect, digest, encoded, exclusive,
     fetch as fetch_fred, parse_alfred, parse_graph, registry, require, utc_now)
-from tools.macro_research_checkpoint import LocalTransport, RcloneTransport, relative
+from tools.macro_research_checkpoint import LocalTransport, RcloneTransport, relative, checked_bytes
 
 SCHEMA = 'long-history-catalog-v1'
 PREFIX = 'long-history-v1'
@@ -156,6 +157,22 @@ def fact_coverage(rows, start, through):
         currencies_and_units=sorted({r['unit'] for r in rows}),
         first_filed=min((r['filed'] for r in rows),default=None),
         last_filed=max((r['filed'] for r in rows),default=None))
+
+
+def extraction_identity():
+    return digest(encoded(dict(parser=inspect.getsource(sec_rows),
+        coverage=inspect.getsource(fact_coverage),forms=sorted(FORMS))))
+
+
+def sec_conditional(old,start,through):
+    return old.get('http') if (old.get('start')==start and old.get('through')==through
+        and old.get('extraction_sha256')==extraction_identity()) else None
+
+
+def fred_missing(rows,missing):
+    dates=sorted(set(missing)|{r['observation_date'] for r in rows if r['value'] is None})
+    return dict(missing_values=len(missing)+sum(r['value'] is None for r in rows),
+        missing_observation_dates=dates)
 
 
 def issuer_queue(members, mapping):
@@ -283,7 +300,10 @@ class Lake:
         else:
             pack_id=self.catalog['locations'][sha]
             if self._pack_cache[0]!=pack_id:
-                self._pack_cache=(pack_id,self.read_hash('packs',pack_id))
+                cache=self.workspace/'pack-cache'/pack_id
+                if not cache.exists():
+                    exclusive(cache,self.read_hash('packs',pack_id))
+                self._pack_cache=(pack_id,checked_bytes(cache,pack_id))
             pack=self._pack_cache[1]
             with zipfile.ZipFile(io.BytesIO(pack)) as z:
                 info=z.getinfo(sha)
@@ -352,21 +372,23 @@ def collect_financials(lake,cohort,start,through):
     mapping_raw,_=get_public('https://www.sec.gov/files/company_tickers.json')
     groups,missing=issuer_queue(members,json.loads(mapping_raw))
     lake.dataset('universe/cohort',[raw,mapping_raw],members,dict(evidence='CURRENT_COHORT_NOT_HISTORICAL_MEMBERSHIP',
-        rows=len(members),requested_securities=len(members),mapped_issuers=len(groups),missing=missing))
+        rows=len(members),requested_securities=len(members),mapped_issuers=len(groups),
+        active_issuer_keys=sorted('sec/'+cik for cik in groups),missing=missing))
     def one(item):
         cik,symbols=item; key='sec/'+cik
         old=lake.catalog['datasets'].get(key,{})
         try:
             # An older restored object can only be reused for the same extraction
             # floor/schema. A changed window forces a full response.
-            conditional=old.get('http') if old.get('start')==start else None
+            conditional=sec_conditional(old,start,through)
             data,http=get_public(f'https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json',conditional)
             if data is None:
                 require(old.get('objects') and old.get('normalized'),'304_without_prior')
-                return key,None,None,dict(old,status='UNCHANGED',changed=False,checked_at=utc_now())
+                return key,None,None,dict(old,tickers=symbols,status='UNCHANGED',changed=False,checked_at=utc_now())
             rows,rejected=sec_rows(data,cik,start,through)
             require(rows,'NO_FACTS_IN_WINDOW')
             metadata=dict(cik=cik,tickers=symbols,start=start,through=through,http=http,
+                extraction_sha256=extraction_identity(),
                 retrieved_at=utc_now(),evidence='SEC_FILED_DATE_CURRENT_ARCHIVE_NOT_CERTIFIED_PIT',
                 rejected_rows=rejected,**fact_coverage(rows,start,through))
             return key,[data],rows,metadata
@@ -388,7 +410,7 @@ def collect_macros(lake,start,through):
             try:
                 pages,retrieved=fetch_fred(sid,start,through,mode)
                 if mode=='current': rows,missing=parse_graph(pages[0],sid,start,through,retrieved)
-                else: rows=parse_alfred(pages,sid,start,through,retrieved)
+                else: rows=parse_alfred(pages,sid,start,through,retrieved); missing=[]
                 # Retrieval belongs to the version receipt, not every unchanged row.
                 clean=[{k:v for k,v in r.items() if k!='retrieved_at'} for r in rows]
                 if mode=='current':
@@ -403,7 +425,7 @@ def collect_macros(lake,start,through):
                     evidence='alfred_date_archive' if mode=='alfred' else 'current_only',
                     first_vintage_date=min((r['vintage_date'] for r in rows),default=None) if mode=='alfred' else None,
                     first_available_at=min((r['available_at'] for r in rows),default=None) if mode=='alfred' else retrieved,
-                    missing_values=sum(r['value'] is None for r in rows),
+                    **fred_missing(rows,missing),
                     requested_start=start,requested_through=through,raw_redistribution=spec['raw_redistribution'],
                     retained_expired_provider_rows=retained))
                 if retained:
@@ -429,15 +451,19 @@ def collect_macros(lake,start,through):
 
 
 def diagnostics(lake):
-    datasets=lake.catalog['datasets']; sec=[d for k,d in datasets.items() if k.startswith('sec/')]
+    all_datasets=lake.catalog['datasets']
+    active=set(all_datasets.get('universe/cohort',{}).get('active_issuer_keys',[]))
+    datasets={k:d for k,d in all_datasets.items() if not k.startswith('sec/') or k in active}
+    sec=[d for k,d in datasets.items() if k.startswith('sec/')]
     macro={k:d for k,d in datasets.items() if k.startswith(('current/','alfred/','worldbank/'))}
     counts={s:sum(d['status']==s for d in datasets.values()) for s in ('COLLECTED','UNCHANGED','STALE_RETAINED','BLOCKED')}
     return dict(schema='long-history-quality-v1',as_of=utc_now(),status='PARTIAL' if counts['BLOCKED'] or counts['STALE_RETAINED'] else 'COLLECTED_NOT_PIT_CERTIFIED',
         status_counts=counts,financial_issuers=len(sec),financial_fact_rows=sum(d.get('rows',0) for d in sec),
+        archived_inactive_issuers=sum(k.startswith('sec/') and k not in active for k in all_datasets),
         financial_issuers_collected=sum(d['status'] in ('COLLECTED','UNCHANGED') for d in sec),
         issuers_with_ten_calendar_years=sum(len(d.get('years_with_any_facts',[]))>=10 for d in sec),
         three_statement_ten_year_completeness='NOT_CERTIFIED',
-        macro_coverage={k:{f:d.get(f) for f in ('status','rows','earliest','latest','evidence','first_vintage_date','first_available_at','missing_values','last_failure')} for k,d in macro.items()},
+        macro_coverage={k:{f:d.get(f) for f in ('status','rows','earliest','latest','evidence','first_vintage_date','first_available_at','missing_values','missing_observation_dates','last_failure')} for k,d in macro.items()},
         universe=datasets.get('universe/cohort',{}),eligible_for_selector=False,weights_activated=False,
         historical_membership_verified=False,historical_pit_certified=False,
         provider_failures={k:d.get('last_failure') for k,d in datasets.items() if d['status'] in ('BLOCKED','STALE_RETAINED')})

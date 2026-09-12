@@ -71,6 +71,10 @@ objects are never deleted or overwritten. Only new object bytes are uploaded;
 SEC conditional GET is used where the provider supplies validators. Macro history
 is re-polled to catch revisions, with content deduplication on storage. This is
 incremental storage, not a claim that every provider offers incremental APIs.
+SEC validators are reused only for the same extraction-code fingerprint and date
+window. A parser/form/coverage change forces re-extraction. Current issuer metrics
+use the current CIK mapping; retained former issuers remain archived separately.
+FRED missing observations retain both counts and dates, including omitted `.` rows.
 
 Every new pack is downloaded and hashed before catalog publication. The consumer
 then starts with an empty local cache and reads the published catalog. It builds a
@@ -116,8 +120,8 @@ be refreshed under a versioned cohort contract to admit future listings.
 
 [PROJECT_HANDOFF]
 - Basis: 2026-09-12; master e89e87e722c67b32e56c2dd86969502c8e952676.
-- Fact: original PR413 real remote lifecycle recovered; 44 offline regressions
-  (14 source, 16 checkpoint/cycle, 14 new history) pass locally.
+- Fact: original PR413 real remote lifecycle recovered; 48 offline regressions
+  (14 source, 16 checkpoint/cycle, 18 new history) pass locally.
 - Local environment caveat: pandas_market_calendars is unavailable, so the
   registered integration suite must run in the pinned GitHub runtime.
 - Change: scoped source reuse, partitioned long-history ingestion and consumer.

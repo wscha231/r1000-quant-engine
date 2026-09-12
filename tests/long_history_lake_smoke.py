@@ -8,6 +8,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from tools.long_history_lake import Lake,LocalTransport,sec_rows,fact_coverage,issuer_queue,encoded,digest,materialize,wb_rows,PREFIX
@@ -113,6 +114,34 @@ class HistoryTest(unittest.TestCase):
         groups,missing=issuer_queue(members,mapping)
         self.assertEqual(len(groups),999); self.assertEqual(len(missing),1)
         with self.assertRaisesRegex(ValueError,'cohort_below_1000'): issuer_queue(members[:2],mapping)
+
+    def test_schema_and_window_changes_invalidate_http_validators(self):
+        from tools.long_history_lake import sec_conditional,extraction_identity
+        old=dict(start='2016-01-01',through='2026-09-12',http={'etag':'v1'},extraction_sha256=extraction_identity())
+        self.assertEqual(sec_conditional(old,old['start'],old['through']),old['http'])
+        with patch('tools.long_history_lake.FORMS',{'10-K'}):
+            self.assertIsNone(sec_conditional(old,old['start'],old['through']))
+        self.assertIsNone(sec_conditional(old,old['start'],'2026-09-13'))
+        self.assertIsNone(sec_conditional(dict(old,extraction_sha256='old'),old['start'],old['through']))
+
+    def test_fred_missing_dates_survive_parser(self):
+        from tools.long_history_lake import parse_graph,fred_missing
+        rows,missing=parse_graph(b'observation_date,UNRATE\n2025-09-01,4.4\n2025-10-01,.\n2025-11-01,4.5\n',
+            'UNRATE','2025-01-01','2025-12-31','2026-09-12T00:00:00+00:00')
+        result=fred_missing(rows,missing)
+        self.assertEqual(result['missing_values'],1)
+        self.assertEqual(result['missing_observation_dates'],['2025-10-01'])
+
+    def test_current_mapping_excludes_retained_old_issuer(self):
+        from tools.long_history_lake import diagnostics
+        self.put()
+        self.lake.catalog['datasets']['sec/0000000002']=dict(status='BLOCKED',rows=0)
+        self.lake.catalog['datasets']['universe/cohort']=dict(status='COLLECTED',active_issuer_keys=['sec/0000000001'])
+        report=diagnostics(self.lake)
+        self.assertEqual(report['financial_issuers'],1)
+        self.assertEqual(report['archived_inactive_issuers'],1)
+        self.assertEqual(report['status_counts']['BLOCKED'],0)
+        self.assertIn('sec/0000000002',self.lake.catalog['datasets'])
 
     def test_retains_rolling_prefix_not_interior_gap(self):
         from tools.long_history_lake import retain_price_prefix
