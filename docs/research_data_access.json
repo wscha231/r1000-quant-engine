@@ -6,6 +6,7 @@
   "eligible_for_selector": false,
   "guide": "docs/RESEARCH_DATA_ACCESS.md",
   "operations": "docs/LONG_HISTORY_OPERATIONS.md",
+  "shared_reader_gate": "Lake.verified_execution(): exact commit/catalog receipt and linked report hashes; expose quality and study status before records",
   "collector": "tools/long_history_lake.py",
   "workflow": ".github/workflows/long_history_research.yml",
   "remote_environment": "MACRO_RESEARCH_REMOTE",

@@ -263,9 +263,9 @@ def fetch_fred_retry(series,start,through,mode):
         time.sleep(2**attempt)
 
 
-def retain_price_prefix(old_rows,new_rows,retrieved):
+def retain_price_prefix(old_rows,new_rows,retrieved,window_start=None):
     """Keep observations that age out of a provider window, never interior holes."""
-    first=min(r['observation_date'] for r in new_rows)
+    first=window_start or min(r['observation_date'] for r in new_rows)
     prefix=[]
     for row in old_rows:
         if row['observation_date']<first:
@@ -385,6 +385,41 @@ class Lake:
         raw=self.get_bytes(self.catalog['datasets'][key]['normalized'])
         return [json.loads(line) for line in unpacked(raw).splitlines()]
 
+    def verified_execution(self):
+        """Bind shared consumption to this restored commit's completed receipt.
+
+        Writers still restore storage-only commits so an interrupted cycle can
+        recover. Shared readers must explicitly require execution evidence.
+        """
+        require(self.parent is not None,'execution_without_commit')
+        commit=json.loads(self.read_hash('commits',self.parent))
+        names=self.transport.names(f'{PREFIX}/executions')
+        require(len(names)==len(set(names)) and len(names)<=20000,'execution_inventory')
+        matches=[]
+        for sha in names:
+            receipt=json.loads(self.read_hash('executions',sha))
+            if receipt.get('commit_sha256')!=self.parent:
+                continue
+            require(receipt.get('catalog_sha256')==commit['catalog'],'execution_catalog_mismatch')
+            matches.append((sha,receipt))
+        require(len(matches)==1,'execution_receipt_missing_or_ambiguous')
+        sha,receipt=matches[0]
+        require(receipt.get('schema')=='long-history-execution-v1' and
+                receipt.get('run_id')==commit['run_id'] and
+                receipt.get('eligible_for_selector') is False,'execution_schema')
+        require(type(receipt.get('study_recomputed_from_drive')) is bool and
+                type(receipt.get('consumer_rows')) is int and receipt['consumer_rows']>=0,
+                'execution_consumer_evidence')
+        reports=receipt.get('reports')
+        require(isinstance(reports,dict) and 'quality.json' in reports,'execution_reports')
+        verified={name:self.read_hash('reports',report_sha) for name,report_sha in reports.items()}
+        quality=json.loads(verified['quality.json'])
+        require(quality.get('schema')=='long-history-quality-v1' and
+                quality.get('eligible_for_selector') is False and
+                quality.get('status') in {'PARTIAL','COLLECTED_NOT_PIT_CERTIFIED'} and
+                quality['status']==receipt.get('quality_status'),'execution_quality_mismatch')
+        return dict(receipt,execution_receipt_sha256=sha)
+
     def publish(self,run_id,config):
         require(re.fullmatch('[A-Za-z0-9_-]{1,100}',run_id),'run_id')
         require(self.restore_catalog()[0]==self.parent,'stale_writer')
@@ -489,18 +524,28 @@ def collect_macros(lake,start,through):
                     for r in clean: r.pop('available_at',None)
                 old=lake.catalog['datasets'].get(key,{})
                 retained=0
+                retained_missing=[]
                 if mode=='current' and spec['group']=='price' and old.get('normalized'):
-                    clean,retained=retain_price_prefix(lake.get_records(key),clean,old['retrieved_at'])
+                    # The provider window includes explicit missing rows, even
+                    # though parse_graph omits them from normalized records.
+                    window_start=min([r['observation_date'] for r in rows]+missing)
+                    clean,retained=retain_price_prefix(lake.get_records(key),clean,old['retrieved_at'],window_start)
+                    retained_missing=[d for d in old.get('missing_observation_dates',[])
+                                      if start<=d<window_start]
+                coverage=fred_missing(rows,missing)
+                if retained_missing:
+                    coverage['missing_observation_dates']=sorted(set(coverage['missing_observation_dates'])|set(retained_missing))
+                    coverage['missing_values']+=len(set(retained_missing))
                 lake.dataset(key,pages,clean,dict(series=sid,frequency=spec['frequency'],group=spec['group'],unit=spec['unit'],
                     rows=len(clean),earliest=min(r['observation_date'] for r in clean),
                     latest=max(r['observation_date'] for r in rows if r['value'] is not None),retrieved_at=retrieved,
                     evidence='alfred_date_archive' if mode=='alfred' else 'current_only',
                     first_vintage_date=min((r['vintage_date'] for r in rows),default=None) if mode=='alfred' else None,
                     first_available_at=min((r['available_at'] for r in rows),default=None) if mode=='alfred' else retrieved,
-                    **fred_missing(rows,missing),
+                    **coverage,
                     requested_start=start,requested_through=through,raw_redistribution=spec['raw_redistribution'],
                     retained_expired_provider_rows=retained))
-                if retained:
+                if retained or retained_missing:
                     entry=lake.catalog['datasets'][key]
                     dependencies=old.get('retained_source_objects',[])+old['raw_objects']+[old['normalized']]
                     entry['retained_source_objects']=sorted(set(dependencies))

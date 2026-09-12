@@ -5027,3 +5027,6 @@ Expected contract:
 - Expose docs/RESEARCH_DATA_ACCESS.md and docs/research_data_access.json from AGENTS.md so other chats/agents resolve current catalog/execution evidence and retain coverage/PIT limitations.
 - Offline regression additions reproduce nine failures on prior code; revised history suite has35checks. Register the three research suites directly in Tier1.
 - Full retained-pack scans currently imply roughly3.02GB reads per unchanged workflow cycle at the prior503MB inventory; measure actual runtime/bytes before claiming efficient operation. No account/target/fullrun/model promotion is enabled.
+
+- PR423 review follow-up: storage restoration alone does not prove a completed consumer cycle. Shared readers now require a hash-verified execution receipt for the exact commit/catalog and verified linked reports; expose PARTIAL/study status before using rows.
+- Preserve missing dates outside a rolling price window together with retained raw lineage. The window begins at the first returned date including missing values, so a new leading gap cannot resurrect an old price. Added four regression cases; history suite now has 39 tests.

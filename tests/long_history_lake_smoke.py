@@ -47,6 +47,51 @@ class HistoryTest(unittest.TestCase):
         self.assertFalse(after.pending)
         self.assertEqual(after.publish('two',{})['new_packs'],0)
 
+    def execution(self,publication,**changes):
+        quality=encoded(dict(schema='long-history-quality-v1',status='PARTIAL',eligible_for_selector=False))
+        quality_sha=digest(quality)
+        self.t.write(f'{PREFIX}/reports/{quality_sha}',quality)
+        receipt=dict(schema='long-history-execution-v1',run_id='one',
+            commit_sha256=publication['commit_sha256'],catalog_sha256=publication['catalog_sha256'],
+            reports={'quality.json':quality_sha},consumer_rows=1,
+            study_recomputed_from_drive=False,quality_status='PARTIAL',eligible_for_selector=False)
+        receipt.update(changes)
+        raw=encoded(receipt); sha=digest(raw)
+        self.t.write(f'{PREFIX}/executions/{sha}',raw)
+        return sha,quality_sha
+
+    def test_storage_only_commit_cannot_supply_shared_execution(self):
+        self.put(); self.lake.publish('one',{})
+        reader=Lake(self.t,self.root/'reader')
+        with self.assertRaisesRegex(ValueError,'execution_receipt_missing_or_ambiguous'):
+            reader.verified_execution()
+
+    def test_execution_requires_matching_catalog_and_latest_commit(self):
+        self.put(); published=self.lake.publish('one',{})
+        self.execution(published,catalog_sha256='0'*64)
+        reader=Lake(self.t,self.root/'reader')
+        with self.assertRaisesRegex(ValueError,'execution_catalog_mismatch'):
+            reader.verified_execution()
+        other=Lake(self.t,self.root/'next'); self.put(other,90); other.publish('two',{})
+        reader=Lake(self.t,self.root/'latest')
+        with self.assertRaisesRegex(ValueError,'execution_receipt_missing_or_ambiguous'):
+            reader.verified_execution()
+
+    def test_execution_exposes_partial_and_checks_remote_receipt_and_reports(self):
+        self.put(); published=self.lake.publish('one',{})
+        sha,quality_sha=self.execution(published)
+        reader=Lake(self.t,self.root/'reader')
+        receipt=reader.verified_execution()
+        self.assertEqual(receipt['execution_receipt_sha256'],sha)
+        self.assertEqual(receipt['quality_status'],'PARTIAL')
+        self.assertFalse(receipt['study_recomputed_from_drive'])
+        report_path=self.root/'remote'/PREFIX/'reports'/quality_sha
+        original=report_path.read_bytes(); report_path.write_bytes(b'corrupt')
+        with self.assertRaisesRegex(ValueError,'remote_hash'): reader.verified_execution()
+        report_path.write_bytes(original)
+        (self.root/'remote'/PREFIX/'executions'/sha).write_bytes(b'corrupt')
+        with self.assertRaisesRegex(ValueError,'remote_hash'): reader.verified_execution()
+
     def test_stale_writer_cannot_advance(self):
         other=Lake(self.t,self.root/'second')
         self.put(); self.lake.publish('one',{})
@@ -210,6 +255,34 @@ class HistoryTest(unittest.TestCase):
         self.assertEqual(n,2)
         self.assertEqual([r['value'] for r in rows],[1,2,30,50])
         self.assertEqual(rows[0]['source_retrieved_at'],'2026-09-11T00:00:00+00:00')
+
+    def test_rolling_collection_preserves_old_gaps_and_new_window_boundary(self):
+        from tools.long_history_lake import collect_macros,registry
+        spec=next(s for s in registry()['series'] if s['id']=='SP500')
+        old=b'observation_date,SP500\n2020-01-01,10\n2020-01-02,.\n2020-01-03,30\n2020-01-04,40\n'
+        new=b'observation_date,SP500\n2020-01-03,.\n2020-01-04,41\n'
+        filled=b'observation_date,SP500\n2020-01-03,31\n2020-01-04,42\n'
+        with patch('tools.long_history_lake.registry',return_value={'series':[spec]}), \
+             patch('tools.long_history_lake.WB_INDICATORS',()), \
+             patch('tools.long_history_lake.fetch_fred_retry') as fetch:
+            fetch.return_value=([old],'2026-09-10T00:00:00+00:00')
+            collect_macros(self.lake,'1996-01-01','2026-09-10')
+            self.lake.publish('first',{})
+            reader=Lake(self.t,self.root/'rolling')
+            fetch.return_value=([new],'2026-09-11T00:00:00+00:00')
+            collect_macros(reader,'1996-01-01','2026-09-11')
+            entry=reader.catalog['datasets']['current/SP500']
+            self.assertEqual(entry['status'],'COLLECTED')
+            self.assertEqual(entry['missing_observation_dates'],['2020-01-02','2020-01-03'])
+            self.assertEqual(entry['missing_values'],2)
+            self.assertEqual([r['value'] for r in reader.get_records('current/SP500')],[10,41])
+            self.assertTrue(entry['retained_source_objects'])
+            reader.publish('second',{})
+            last=Lake(self.t,self.root/'filled')
+            fetch.return_value=([filled],'2026-09-12T00:00:00+00:00')
+            collect_macros(last,'1996-01-01','2026-09-12')
+            self.assertEqual(last.catalog['datasets']['current/SP500']['missing_observation_dates'],['2020-01-02'])
+            self.assertEqual(last.catalog['datasets']['current/SP500']['missing_values'],1)
 
     def test_sql_cutoff(self):
         self.put(); self.lake.publish('one',{})

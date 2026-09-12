@@ -62,6 +62,12 @@ lake = Lake(RcloneTransport(os.environ['MACRO_RESEARCH_REMOTE']),
 if lake.parent is None:
     raise ValueError('No verified history commit')
 commit = json.loads(lake.read_hash('commits', lake.parent))
+execution = lake.verified_execution()  # Missing/mismatched receipt or report fails.
+print({'execution_receipt': execution['execution_receipt_sha256'],
+       'quality_status': execution['quality_status'],
+       'study_recomputed_from_drive': execution['study_recomputed_from_drive']})
+if not execution['study_recomputed_from_drive']:
+    raise ValueError('Stored data has no completed study in this cycle')
 key = 'current/UNRATE'
 dataset = lake.catalog['datasets'][key]
 if dataset['status'] not in {'COLLECTED', 'UNCHANGED'}:
@@ -75,6 +81,10 @@ print({'commit': lake.parent, 'catalog': commit['catalog'],
 ```
 
 SQL materialize는 현재 수정 자료를 과거 시점으로 소급하는 요청을 차단한다.
+위 예제의 verified_execution은 해당 commit·catalog에 대응하는 실행 영수증과
+연결된 보고서의 해시를 검증한다. 저장 이후 중단되어 영수증이 없거나 보고서가
+누락된 최신 commit은 공통 소비 예제에서 차단되며, 이전 성공으로 대체하지 않는다.
+PARTIAL이면 표시된 dataset 상태·coverage를 따로 확인하여 연구에 한정한다.
 직접 `get_records`로 읽은 행도 이를 우회하여 PIT 자료로 취급하지 않는다.
 SEC의 filed 날짜와 ALFRED vintage 날짜는 실제 장중 공개시각과 다르다.
 원문이 필요한 경우 dataset의 raw_objects를 get_bytes로 읽어 gzip 해제하며,
