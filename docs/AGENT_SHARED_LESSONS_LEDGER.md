@@ -4981,3 +4981,20 @@ Expected contract:
   restoration rather than following public redirects. Keep credential-bearing
   request redirects disabled. CLI and workflow regressions verify the configured
   custom path is restored before publication.
+
+## 2026-09-12 — Long history must preserve versions and report real coverage
+
+- PR413 OAuth recovery succeeded in run 34644613851 attempt 2, job103515382907:
+  real checkpoint, clean restore, reproduced study and subsequent complete cycle.
+  Artifact10294141317. It does not by itself verify expanded 10/30-year coverage.
+- A whole-cohort current-financial audit may leave raw files only in RUNNER_TEMP.
+  Archive raw/normalized versions in verified Drive packs before relying on them
+  for recurring research; retain every mapped issuer and explicit missing rows.
+- A ten-calendar-year span is not forty-quarter/three-statement completeness.
+  Preserve accessions, amended filings, units and YTD/quarter durations. Current
+  companyfacts and current revised macro history do not establish historical PIT.
+- Content-addressed packs reduce per-file Drive API load; immutable catalogs and
+  clean consumption distinguish durable data from transient Actions artifacts.
+- Direct local network/artifact download is unavailable in this environment.
+  Use the connected GitHub source transport and pinned Actions runtime; don't
+  claim an unrun local calendar integration suite passed.

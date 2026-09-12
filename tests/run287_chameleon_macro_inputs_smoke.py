@@ -582,6 +582,10 @@ def main() -> int:
     test_normalizer_is_free_proxy_report_only_and_fail_closed()
     test_source_identity_date_and_cross_section_guards()
     test_empty_context_header_engine_propagation_and_input_limits()
+    # The long-history collector consumes this same macro source contract.
+    import subprocess
+    for suite in ("macro_technical_evidence_smoke.py", "macro_research_cycle_smoke.py", "long_history_lake_smoke.py"):
+        subprocess.run([sys.executable, str(ROOT / "tests" / suite)], check=True)
     print("run287_chameleon_macro_inputs_smoke: PASS")
     return 0
 
