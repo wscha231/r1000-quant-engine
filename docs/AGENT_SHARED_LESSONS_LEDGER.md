@@ -4903,6 +4903,18 @@ Expected contract:
   quarantine, Drive, target, order, ledger, accepted-head, production, live
   trading, automatic promotion, and pattern backfill state mutated: false.
 
+## 2026-09-12 - OAuth privacy URL must point to published content
+
+- A proposed Pages URL is not a deployed privacy policy. Add the actual page
+  under docs/public and link it from the homepage; keep the Actions-only Pages
+  source so internal docs are not published.
+- Disclose the broad Drive OAuth scope separately from the configured research
+  folder, and distinguish revoking future access from deleting retained copies.
+- GitHub Actions artifacts follow repository access rules; do not describe all
+  research artifacts as private solely because the public dashboard filters them.
+- Policy source preparation does not prove Google verification, production
+  publishing status, token validity, or successful Pages deployment.
+
 ## 2026-09-12 — Public quote freshness must not claim account completion
 
 - Context: Public snapshot remains at July 10 while the daily account restore
@@ -4939,3 +4951,8 @@ Expected contract:
   cover weekends and Labor Day; Node VM tests cover null/malformed packets,
   one-day-old targets, and deadline expiry. The quote smoke also runs directly
   after adding the repository-root import setup.
+
+- Open-tab expiry review: schedule a render at the freshness deadline and
+  recheck on tab visibility/focus, so already-rendered targets disappear
+  without user interaction. The browser runtime regression fires the captured
+  deadline timer and verifies both expiry and suspended-tab recovery.

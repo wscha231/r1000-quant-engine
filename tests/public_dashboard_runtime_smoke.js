@@ -11,14 +11,23 @@ class ClockDate extends Date {
   static now() { return clock; }
 }
 const elements = new Map();
+const events = new Map();
+const timers = new Map();
+let timerId = 0;
+const window = {
+  setTimeout(callback, delay) { timers.set(++timerId, { callback, at: clock + delay }); return timerId; },
+  clearTimeout(id) { timers.delete(id); },
+  addEventListener(name, callback) { events.set(name, callback); },
+};
 const document = {
   querySelector(selector) {
-    if (!elements.has(selector)) elements.set(selector, { hidden: false, textContent: '', classList: { toggle() {} } });
+    if (!elements.has(selector)) elements.set(selector, { hidden: false, textContent: '', classList: { toggle() {} }, addEventListener() {} });
     return elements.get(selector);
   },
   querySelectorAll() { return []; },
+  addEventListener(name, callback) { events.set(name, callback); },
 };
-const context = vm.createContext({ document, Date: ClockDate, Intl, console });
+const context = vm.createContext({ document, window, Date: ClockDate, Intl, console });
 vm.runInContext(source, context);
 const data = {
   as_of_close: '2026-09-11',
@@ -42,14 +51,24 @@ vm.runInContext('state.data=input;state.quotes=null;renderPreviews()', context);
 assert.equal(elements.get('#preview-section').hidden, true);
 assert.equal(vm.runInContext('isPortfolioStale()', context), true);
 assert.ok(!vm.runInContext('holdingsRow(input.portfolios.main.holdings[0], 0)', context).includes('90.00%'));
-vm.runInContext('state.quotes=validateQuotes(quoteInput,input);renderPreviews()', context);
+vm.runInContext('state.quotes=validateQuotes(quoteInput,input);refreshFreshnessDisplay();attachEvents()', context);
 assert.equal(vm.runInContext('isPortfolioStale()', context), false); // weekend is calendar-aware
 assert.equal(elements.get('#preview-section').hidden, false);
+assert.equal(timers.size, 1);
+const deadlineTimer = [...timers.values()][0];
+assert.equal(deadlineTimer.at, Date.parse(quotes.freshness_valid_until_utc));
 clock = Date.parse('2026-09-14T20:00:00Z');
-vm.runInContext('renderPreviews()', context);
+deadlineTimer.callback(); // browser timer fires without a render call or user action
 assert.equal(vm.runInContext('isPortfolioStale()', context), true); // next close invalidates old freshness
 assert.equal(elements.get('#preview-section').hidden, true);
 assert.ok(!vm.runInContext('holdingsRow(input.portfolios.main.holdings[0], 0)', context).includes('90.00%'));
+assert.equal(timers.size, 0);
+// A suspended tab also rechecks immediately on visibility/focus restoration.
+for (const name of ['visibilitychange', 'focus']) {
+  elements.get('#preview-section').hidden = false;
+  events.get(name)();
+  assert.equal(elements.get('#preview-section').hidden, true);
+}
 context.quoteInput = { ...quotes, freshness_valid_until_utc: 'invalid' };
 assert.equal(vm.runInContext('validateQuotes(quoteInput,input)', context), null);
 context.quoteInput = { ...quotes, portfolio_as_of_close: '2026-09-10' };

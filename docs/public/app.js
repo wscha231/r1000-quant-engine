@@ -142,6 +142,24 @@ function isPortfolioStale() {
   return !expected || !Number.isFinite(expires) || Date.now() >= expires || asof !== expected;
 }
 
+let freshnessTimer = null;
+
+function scheduleFreshnessRefresh() {
+  window.clearTimeout(freshnessTimer);
+  const delay = Date.parse(state.quotes?.freshness_valid_until_utc) - Date.now();
+  if (Number.isFinite(delay) && delay > 0) {
+    freshnessTimer = window.setTimeout(refreshFreshnessDisplay, Math.min(delay, 2147483647));
+  }
+}
+
+function refreshFreshnessDisplay() {
+  if (!state.data) return;
+  renderHeader();
+  renderHoldings();
+  renderPreviews();
+  scheduleFreshnessRefresh();
+}
+
 function validateQuotes(data, dashboard) {
   if (data?.schema_version !== "run287-public-market-quotes-v1" || data.review_only !== true ||
       data.live_trading_enabled !== false || data.portfolio_revalued !== false ||
@@ -474,6 +492,8 @@ function closeTradeLedger() {
 }
 
 function attachEvents() {
+  document.addEventListener("visibilitychange", refreshFreshnessDisplay);
+  window.addEventListener("focus", refreshFreshnessDisplay);
   $$(".portfolio-tab").forEach((button) => button.addEventListener("click", () => {
     setActivePortfolio(button.dataset.portfolio);
   }));
@@ -520,6 +540,7 @@ async function loadDashboard() {
       if (quoteResponse.ok) state.quotes = validateQuotes(await quoteResponse.json(), data);
     } catch { state.quotes = null; }
     renderAll();
+    scheduleFreshnessRefresh();
   } catch (error) {
     console.error(error);
     $("#load-error").hidden = false;

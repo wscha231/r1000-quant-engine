@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="r1000 Research의 Google Drive 데이터 접근, 이용, 저장, 공유 및 삭제에 관한 개인정보처리방침">
+  <title>개인정보처리방침 | r1000 Research</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, sans-serif; color: #172033; background: #f4f7fb; }
+    body { margin: 0; line-height: 1.8; overflow-wrap: anywhere; }
+    main { max-width: 780px; margin: 32px auto; padding: 28px; background: white; border: 1px solid #dde4ee; border-radius: 16px; }
+    h1 { font-size: 1.9rem; line-height: 1.3; } h2 { font-size: 1.2rem; margin-top: 2rem; }
+    a { color: #174fa6; } .meta { color: #526078; }
+    @media (max-width: 600px) { main { margin: 12px; padding: 20px; } }
+  </style>
+</head>
+<body>
+<main>
+  <nav aria-label="사이트 이동"><a href="./">r1000 대시보드로 돌아가기</a></nav>
+  <h1>r1000 Research 개인정보처리방침</h1>
+  <p class="meta">작성일: 2026년 9월 12일 · 이 방침은 사이트에 게시된 날부터 적용됩니다.</p>
+  <p>r1000 Research(이하 r1000)는 GitHub 계정 wscha231이 운영하는 금융 데이터 연구 프로젝트입니다. Run287 Portfolio Monitor는 그 연구 결과를 보여주는 공개 대시보드입니다. 이 방침은 r1000의 Google Drive 연동과 공개 사이트에 적용됩니다.</p>
+
+  <h2>1. 서비스와 Google Drive 사용 목적</h2>
+  <p>r1000는 과거 및 최신 시장·경제 지표를 수집하고, 기간별 관계와 모의 포트폴리오를 분석합니다. Google Drive는 연구 데이터, 분석 결과, 모의 운용 기록 및 복원용 자료를 보관하고 다음 실행에서 다시 읽기 위해 사용합니다. 현재 Drive 연동은 운영자가 승인한 계정을 대상으로 하며, 공개 대시보드 방문자에게 Google 로그인이나 개인 Drive 연결을 요구하지 않습니다.</p>
+
+  <h2>2. 접근하는 데이터와 권한</h2>
+  <p>Drive 연동은 지정된 연구 폴더와 파일의 이름, 식별자, 경로, 수정 시각 등 메타데이터 및 파일 내용을 처리합니다. 동의한 작업에는 폴더·파일 조회, 다운로드, 생성, 업로드, 갱신과 보관 자료 정리가 포함될 수 있습니다. Google 비밀번호는 받지 않으며 OAuth 인증 토큰을 사용합니다.</p>
+  <p>현재 설정에서 요청하는 <code>https://www.googleapis.com/auth/drive</code> 권한은 Google 계정의 Drive 파일을 조회·편집·생성·삭제할 수 있는 넓은 권한입니다. Google 자체가 이 권한을 연구 폴더에만 제한하는 것은 아닙니다. r1000의 사용 목적과 작업 대상은 운영자가 지정한 연구 자료이며, 연구와 무관한 개인 문서의 수집을 목적으로 하지 않습니다.</p>
+
+  <h2>3. 이용 범위</h2>
+  <p>처리하는 자료는 데이터 갱신, 분석 재현, 오류 확인, 백업·복원 및 연구 결과 표시를 위해 이용합니다. Google 사용자 데이터를 판매하거나 광고 타기팅, 신용 평가 또는 대출 심사에 이용하지 않습니다. 비공개 Google 사용자 데이터를 범용 AI 모델의 학습에 이용하지 않습니다. 시장 데이터에 대한 통계 분석과 연구 모델 평가는 프로젝트의 연구 기능에 해당합니다.</p>
+  <p>Google API에서 받은 정보의 이용 및 다른 서비스로의 전송에는 Limited Use 요건을 포함한 <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>가 적용됩니다.</p>
+
+  <h2>4. 저장 위치와 접근</h2>
+  <p>연구 자료는 연결된 Google Drive에 저장됩니다. GitHub Actions에서 계산할 때 실행 환경으로 내려받을 수 있으며, 실행 결과 일부는 GitHub의 아티팩트·캐시 또는 저장소에 보관될 수 있습니다. 접근 가능 범위는 해당 Drive 공유 설정과 GitHub 저장소·실행 결과의 공개 범위에 따릅니다. 공개 저장소의 실행 결과를 비공개 보관함으로 간주해서는 안 됩니다.</p>
+  <p>OAuth 설정과 인증 토큰은 GitHub Actions Secrets 등 인증 정보 보관 수단으로 관리하며, 소스 코드나 공개 사이트에 포함하지 않습니다. 운영 권한을 가진 관리자는 승인된 운영·오류 처리 목적에서 필요한 자료에 접근할 수 있습니다.</p>
+
+  <h2>5. 공개 및 서비스 제공자</h2>
+  <p>Google은 Drive 보관과 인증을, GitHub는 소스 보관·자동 실행·사이트 호스팅을 제공합니다. 대시보드에는 공개 대상으로 정한 종목, 비중, 시장 가격, 연구 성과와 모의 매매 요약이 표시될 수 있습니다. 총자산, 보유 수량, 금액 기준 손익, 인증 토큰 및 연구와 무관한 개인 Drive 문서는 공개 대상이 아닙니다.</p>
+  <p>공개 사이트는 GitHub Pages에서 제공되며 홈페이지는 Google Fonts를 요청합니다. 이 과정에서 각 제공자는 IP 주소, 브라우저 정보 등 접속 정보를 처리할 수 있습니다. 관련 내용은 <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub 개인정보처리방침</a>과 <a href="https://policies.google.com/privacy">Google 개인정보처리방침</a>에서 확인할 수 있습니다. 이 개인정보처리방침 페이지에는 외부 글꼴이나 추적 스크립트를 넣지 않았습니다.</p>
+
+  <h2>6. 보관 및 삭제</h2>
+  <p>연구 재현과 복원을 위한 자료는 운영자가 삭제하거나 보관 정책을 변경할 때까지 유지될 수 있으며, 모든 자료에 적용되는 일괄 자동 삭제 기한은 현재 없습니다. GitHub 아티팩트와 캐시에는 GitHub 및 저장소 설정의 보관 기간이 별도로 적용됩니다.</p>
+  <p>연결 계정 소유자는 <a href="https://myaccount.google.com/connections">Google 계정의 서드 파티 연결 관리</a>에서 r1000의 접근 권한을 철회할 수 있습니다. 철회 후에는 새 Drive 접근이 중단되지만 기존 복사본이 자동으로 삭제되지는 않습니다. 완전한 정리가 필요한 경우 자동 실행을 중지하고, GitHub Secrets의 인증 정보와 Drive 파일·휴지통, 관련 GitHub 아티팩트·캐시 및 공개 자료를 각각 확인하여 삭제해야 합니다. 이미 공개되거나 외부에 복사된 자료의 모든 사본을 회수할 수 있다고 보장하지 않습니다.</p>
+
+  <h2>7. 문의 및 변경</h2>
+  <p>운영자: <a href="https://github.com/wscha231">wscha231</a>. 개인정보 및 삭제 관련 문의는 Google OAuth 동의 화면에 표시된 사용자 지원 이메일로 보내 주세요. 일반적인 사이트 문의는 <a href="https://github.com/wscha231/r1000-quant-engine/issues">프로젝트 문의 게시판</a>을 이용할 수 있습니다. 공개 게시판에는 이메일 주소, 계정 자료, 파일 내용 또는 인증 토큰을 올리지 마세요.</p>
+  <p>처리 목적이나 데이터 이용 방식이 변경되면 이 페이지를 갱신합니다. 새로운 권한 또는 기존 동의 범위를 벗어나는 이용이 필요할 때에는 필요한 안내와 동의를 먼저 진행합니다.</p>
+</main>
+</body>
+</html>
