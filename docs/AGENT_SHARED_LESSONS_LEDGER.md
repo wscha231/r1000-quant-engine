@@ -16,6 +16,11 @@ directive/report when it discovers any of the following:
 Do not paste secrets, raw API keys, account tokens, or private credentials into
 this ledger. Use secret names only.
 
+## 2026-09-13 KST — Keep manual replay steps within GitHub's script limit
+- Master run34719702311 (and earlier runs34685942437/34717195027) failed before creating a replay job. The unchanged manual workflow contained a 31,252-character run step, exceeding GitHub's documented 21,000-character limit; server annotation text was unavailable through the connection.
+- Move that exact command body to tools/run_alphaops_replay_sidecars.sh. Pass the existing decision-time input through DECISION_TIME_UTC; preserve command order, pipefail, exit handling, policy inputs and artifact paths. Keep the workflow manual-only.
+- Validate Bash syntax and the existing artifact, lifecycle and capacity wiring contracts against the executed script. Check the inline length limit as part of the existing workflow contract. Do not execute the research replay merely to validate this extraction.
+
 ## 2026-09-13 KST — Retire obsolete scheduled research loops
 - Audit master e39d4f5338b186acdd7753a6007dfbea92211a51: 43 workflow files, 22 with schedule.
 - Agent Board and AutoLearning use committed full-rebuild paths; Live Extension run34663352311 uses a 2026-06-23 anchor on 2026-09-12.
