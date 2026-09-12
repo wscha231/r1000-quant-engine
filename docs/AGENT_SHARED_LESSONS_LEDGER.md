@@ -4916,3 +4916,7 @@ Expected contract:
   root engine helpers reached by the replay-price evidence verifier.
 - Evidence: docs/PUBLIC_DASHBOARD_FRESHNESS_20260912.md. Changes do not authorize
   a legacy migration, accepted-state update, chronological fullrun, or orders.
+
+- Exact-head review correction: preserve a newer deployed session, but retain
+  reviewed default-branch corrections when the portfolio date is unchanged.
+  The same-date regression proves those corrected bytes are not overwritten.

@@ -72,6 +72,11 @@ def main():
         assert json.loads(path.read_text()) == deployed
         preserve_deployed(path, data)
         assert json.loads(path.read_text()) == deployed
+        corrected = copy.deepcopy(deployed)
+        corrected["portfolios"]["main"]["metrics"]["cagr"] = 0.25
+        path.write_text(json.dumps(corrected))
+        preserve_deployed(path, deployed)
+        assert json.loads(path.read_text()) == corrected
         unsafe = copy.deepcopy(deployed)
         unsafe["status"]["review_only"] = False
         rejected(lambda: preserve_deployed(path, unsafe))

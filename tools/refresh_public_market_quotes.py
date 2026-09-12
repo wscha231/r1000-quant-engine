@@ -61,8 +61,9 @@ def preserve_deployed(path, deployed):
     tracked = json.loads(path.read_text(encoding="utf-8"))
     for data in (tracked, deployed):
         validate_dashboard(data)
-    # Prefer deployed on equality too: ledger corrections can share a date.
-    if deployed["as_of_close"] >= tracked["as_of_close"]:
+    # The default-branch source can contain a reviewed same-date correction.
+    # Only a strictly newer deployed session may replace those source bytes.
+    if deployed["as_of_close"] > tracked["as_of_close"]:
         atomic_json(path, deployed)
 
 
