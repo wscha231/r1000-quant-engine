@@ -3,6 +3,8 @@ from __future__ import annotations
 import copy
 import json
 import os
+import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -10,6 +12,10 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from threading import Thread
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from tools.refresh_public_market_quotes import collect, exact_close, fetch_json, preserve_deployed, public_tickers, yahoo_close
 
@@ -82,6 +88,7 @@ def main():
     with patch.dict(os.environ, {"ALPACA_API_KEY": "", "ALPACA_API_SECRET": ""}):
         complete = collect(data, now="2026-09-12T03:00:00Z", yahoo=good)
         assert complete["status"] == "COMPLETE" and complete["as_of_close"] == "2026-09-11"
+        assert complete["freshness_valid_until_utc"].startswith("2026-09-14T20:00:00")
         assert complete["portfolio_as_of_close"] == "2026-07-10" and complete["portfolio_revalued"] is False
         assert data == before
         def partial(ticker, session):
@@ -95,6 +102,7 @@ def main():
         # Labor Day selects the real preceding Friday, not a weekday guess.
         holiday = collect(data, now="2026-09-07T23:00:00Z", yahoo=lambda t, s: (100, "a" * 64))
         assert holiday["expected_session_date"] == "2026-09-04"
+        assert holiday["freshness_valid_until_utc"].startswith("2026-09-08T20:00:00")
     with patch.dict(os.environ, {"ALPACA_API_KEY": "test-only", "ALPACA_API_SECRET": "test-only"}):
         def fail(*_): raise ValueError("provider rejected request")
         unavailable = collect(data, now="2026-09-12T03:00:00Z", alpaca=fail,
@@ -120,6 +128,7 @@ def main():
     unsafe = copy.deepcopy(data)
     unsafe["portfolios"]["main"]["holdings"][0]["ticker"] = "../../unsafe"
     rejected(lambda: public_tickers(unsafe))
+    subprocess.run(["node", str(ROOT / "tests/public_dashboard_runtime_smoke.js")], check=True)
     print("public_market_quotes_smoke: PASS")
 
 

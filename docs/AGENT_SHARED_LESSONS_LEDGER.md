@@ -4932,3 +4932,10 @@ Expected contract:
   successful workflow events cannot regress the published account date.
   Yahoo responses must explicitly identify daily granularity. Both invariants
   are covered by the existing registered public/workflow smoke paths.
+
+- Final freshness review: an absent or invalid quote packet is not proof that
+  recent targets remain current. Public target display now requires a matching
+  session and a live freshness deadline at the next NYSE close. Calendar tests
+  cover weekends and Labor Day; Node VM tests cover null/malformed packets,
+  one-day-old targets, and deadline expiry. The quote smoke also runs directly
+  after adding the repository-root import setup.

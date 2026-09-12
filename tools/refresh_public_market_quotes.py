@@ -15,12 +15,22 @@ from urllib.parse import urlencode
 from urllib.error import HTTPError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from zoneinfo import ZoneInfo
+import pandas_market_calendars as mcal
 
 from tools.build_public_portfolio_dashboard import validate_public_payload
 from tools.run_daily_market_session_gate import evaluate_market_session
 
 PUBLIC_DASHBOARD = "https://wscha231.github.io/r1000-quant-engine/data/dashboard.json"
 NY = ZoneInfo("America/New_York")
+
+
+def freshness_deadline(checked_at):
+    now = datetime.fromisoformat(checked_at)
+    schedule = mcal.get_calendar("NYSE").schedule(start_date=now.date(), end_date=(now + timedelta(days=14)).date())
+    upcoming = schedule.loc[schedule["market_close"] > now, "market_close"]
+    if upcoming.empty:
+        raise ValueError("next_market_close_unknown")
+    return upcoming.iloc[0].isoformat()
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -144,6 +154,7 @@ def collect(dashboard, *, now=None, yahoo=yahoo_close, alpaca=alpaca_closes):
     gate = evaluate_market_session(now_utc=now, max_close_age_hours=120)
     session = gate["session_date"]
     result = {"schema_version": "run287-public-market-quotes-v1", "checked_at_utc": gate["checked_at_utc"],
+              "freshness_valid_until_utc": freshness_deadline(gate["checked_at_utc"]),
               "expected_session_date": session, "portfolio_as_of_close": dashboard["as_of_close"],
               "as_of_close": None, "status": "UNAVAILABLE", "quotes": [], "missing_tickers": tickers,
               "scope": "published_holdings_only", "portfolio_revalued": False,

@@ -131,5 +131,6 @@
   "scope": "published_holdings_only",
   "portfolio_revalued": false,
   "review_only": true,
-  "live_trading_enabled": false
+  "live_trading_enabled": false,
+  "freshness_valid_until_utc": "2026-09-14T20:00:00+00:00"
 }

@@ -78,6 +78,10 @@ must match the NYSE session in New York time, be finite and positive, and have
 one unambiguous observation. A response hash records the public source bytes.
 The exchange calendar, holidays, early closes, and a 90-minute settlement
 buffer are required. Partial observations cannot claim a complete quote date.
+Freshness proof expires at the next NYSE close, using the exchange calendar.
+Missing/malformed proof or an expired deadline suppresses target deltas and
+proposals, including when the portfolio is only one day old. Weekends and
+exchange holidays do not invent an intervening close.
 
 This price panel does not resolve the legacy risk-outcome migration or
 Google Drive OAuth errors in the transactional daily workflow. Recover that

@@ -138,7 +138,8 @@ function renderHeader() {
 function isPortfolioStale() {
   const asof = state.data?.as_of_close;
   const expected = state.quotes?.expected_session_date;
-  return (!!expected && asof < expected) || Date.now() - Date.parse(`${asof}T20:00:00Z`) > 4 * 86400000;
+  const expires = Date.parse(state.quotes?.freshness_valid_until_utc);
+  return !expected || !Number.isFinite(expires) || Date.now() >= expires || asof !== expected;
 }
 
 function validateQuotes(data, dashboard) {
@@ -147,6 +148,8 @@ function validateQuotes(data, dashboard) {
       data.portfolio_as_of_close !== dashboard.as_of_close || !Array.isArray(data.quotes) ||
       !/^\d{4}-\d{2}-\d{2}$/.test(data.expected_session_date) ||
       !Number.isFinite(Date.parse(data.checked_at_utc)) || Date.parse(data.checked_at_utc) > Date.now() + 60000 ||
+      !Number.isFinite(Date.parse(data.freshness_valid_until_utc)) ||
+      Date.parse(data.freshness_valid_until_utc) <= Date.parse(data.checked_at_utc) ||
       Date.parse(`${data.expected_session_date}T00:00:00Z`) > Date.now()) return null;
   const tickers = new Set(Object.values(dashboard.portfolios).flatMap(p => p.holdings.map(h => h.ticker)));
   const seen = new Set();
