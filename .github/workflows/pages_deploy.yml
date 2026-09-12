@@ -63,6 +63,7 @@ jobs:
             /*.py
             docs/public
             docs/run287_daily_research_monitor_contract.json
+            .github/workflows/pages_deploy.yml
             .github/workflows/long_history_research.yml
             tools
             tests

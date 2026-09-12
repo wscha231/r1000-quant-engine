@@ -5006,3 +5006,17 @@ Expected contract:
   trigger events, reuse the existing full quote validator against a separately
   verified dashboard, reject nonpositive diagnostic closes, and omit the optional
   PR420 history card until its workflow exists on the checked-out master.
+
+
+## 2026-09-12 — Project results validator must be present in its sparse runtime
+
+- PR421 deployment run34684874631/job103530013295 successfully collected real
+  project results (2026-09-11,33rows), then failed the newly registered workflow
+  regression because .github/workflows/pages_deploy.yml itself was excluded
+  from sparse checkout. Full-checkout local/PR tests did not expose this.
+- Add that exact workflow file to the build checkout and assert its presence in
+  the sparse patterns. Reproduce the complete public smoke from a temporary
+  source snapshot containing only those declared paths, rather than relying on
+  a full checkout again. Public artifact root remains docs/public only.
+- Do not remove/skip the regression or weaken source/account publication gates.
+  No account, model, target, durable state or broker change is needed.
