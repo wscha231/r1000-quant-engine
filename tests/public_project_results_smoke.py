@@ -96,6 +96,8 @@ class Tests(unittest.TestCase):
         self.assertIn('github.event.workflow_run.event',guard)
         self.assertNotIn('pull_request',guard)
         self.assertIn('.github/workflows/long_history_research.yml',raw)
+        checkout=next(x for x in steps if x.get('uses','').startswith('actions/checkout@'))
+        self.assertIn('.github/workflows/pages_deploy.yml',checkout['with']['sparse-checkout'].splitlines())
 
     def test_browser_expiry_missing_file_and_escape(self):
         result=self.run_build()
