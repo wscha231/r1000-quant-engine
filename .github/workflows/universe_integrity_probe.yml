@@ -7,6 +7,7 @@ on:
       - 'r1000_unified_universe.py'
       - 'tools/universe_integrity/**'
       - 'tests/test_universe_integrity.py'
+      - 'tests/test_unified_bridge_integrity.py'
 permissions:
   contents: read
   actions: read
@@ -35,6 +36,7 @@ jobs:
             /tools/run_pr_validation.py
             /tools/universe_integrity/
             /tests/test_universe_integrity.py
+            /tests/test_unified_bridge_integrity.py
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -42,9 +44,8 @@ jobs:
       - name: Focused regressions when present
         shell: bash
         run: |
-          if test -f tests/test_universe_integrity.py; then
-            python -m unittest discover -s tests -p 'test_universe_integrity.py' -v
-          fi
+          python tests/test_universe_integrity.py -v
+          python tests/test_unified_bridge_integrity.py -v
       - name: Export bounded public source snapshot
         shell: bash
         run: |
@@ -57,7 +58,8 @@ jobs:
                    'aggressive/data_alpaca.py', 'AGENTS.md',
                    'docs/AGENT_SHARED_LESSONS_LEDGER.md',
                    'docs/RUN287_GITHUB_AGENT_OPERATING_STANDARD.md',
-                   'tools/run_pr_validation.py']
+                   'tools/run_pr_validation.py', 'tools/universe_integrity/financial_coverage.py',
+                   'tests/test_universe_integrity.py', 'tests/test_unified_bridge_integrity.py']
           manifest = {'head': os.environ['GITHUB_SHA'], 'paths': {},
                       'purpose': 'BOUNDED_PUBLIC_SOURCE_REVIEW_NOT_MARKET_DATA'}
           with tarfile.open(root / 'source.tar.gz', 'w:gz') as tar:
