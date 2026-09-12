@@ -2540,6 +2540,9 @@ def test_pages_deploy_keeps_prior_site_without_completed_session_artifact() -> N
     assert "github.event.workflow_run.conclusion == 'success'" in text
     assert text.count("if: steps.daily_artifact.outputs.available == 'yes'") == 2
     assert "--preserve-deployed" in text
+    refresh = text.index("--source .dashboard-source")
+    assert text.index("cp docs/public/data/dashboard.json .dashboard-previous.json") < refresh
+    assert text.index("--preserve-from .dashboard-previous.json") > refresh
     assert "python -m tools.refresh_public_market_quotes" in text
 
 

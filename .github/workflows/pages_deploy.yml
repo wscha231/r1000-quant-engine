@@ -69,7 +69,9 @@ jobs:
         run: python -m pip install 'pandas>=2.2,<3' numpy pyarrow 'pandas_market_calendars>=4.4' requests pyyaml
 
       - name: Preserve last published portfolio snapshot
-        run: python -m tools.refresh_public_market_quotes --preserve-deployed
+        run: |
+          python -m tools.refresh_public_market_quotes --preserve-deployed
+          cp docs/public/data/dashboard.json .dashboard-previous.json
 
       - name: Check for completed-session daily artifact
         id: daily_artifact
@@ -120,6 +122,8 @@ jobs:
             --base-json docs/public/data/dashboard.json \
             --output docs/public/data/dashboard.json \
             --repo-root .
+          # Delayed successful daily events cannot roll the public account back.
+          python -m tools.refresh_public_market_quotes --preserve-from .dashboard-previous.json
 
       - name: Refresh public close observations without portfolio mutation
         env:

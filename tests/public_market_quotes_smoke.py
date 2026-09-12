@@ -59,11 +59,13 @@ def main():
         finally:
             server.shutdown()
             thread.join(timeout=2)
-    provider_payload = {"chart": {"result": [{"meta": {"symbol": "BRK-B", "currency": "USD"},
+    provider_payload = {"chart": {"result": [{"meta": {"symbol": "BRK-B", "currency": "USD", "dataGranularity": "1d"},
                         "timestamp": [stamp("2026-09-11")], "indicators": {"quote": [{"close": [450]}]}}]}}
     with patch("tools.refresh_public_market_quotes.fetch_json", return_value=(provider_payload, "a" * 64)) as request:
         assert yahoo_close("BRK.B", "2026-09-11") == (450, "a" * 64)
         assert "/BRK-B?" in request.call_args.args[0]
+        provider_payload["chart"]["result"][0]["meta"]["dataGranularity"] = "1m"
+        rejected(lambda: yahoo_close("BRK.B", "2026-09-11"))
     assert exact_close([(stamp("2026-09-10"), 10), (stamp("2026-09-11"), 11),
                         (stamp("2026-09-14"), 14)], "2026-09-11") == 11
     for rows in [[(stamp("2026-09-10"), 10)], [(stamp("2026-09-11"), None)],

@@ -109,6 +109,8 @@ def yahoo_close(ticker, session):
     item = result[0]
     if item["meta"]["symbol"] != provider_symbol or item["meta"]["currency"] != "USD":
         raise ValueError("symbol_or_currency_mismatch")
+    if item["meta"].get("dataGranularity") != "1d":
+        raise ValueError("not_a_daily_bar")
     stamps = item["timestamp"]
     closes = item["indicators"]["quote"][0]["close"]
     if len(stamps) != len(closes):
@@ -187,11 +189,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dashboard", type=Path, default=Path("docs/public/data/dashboard.json"))
     parser.add_argument("--output", type=Path, default=Path("docs/public/data/market-quotes.json"))
-    parser.add_argument("--preserve-deployed", action="store_true")
+    preservation = parser.add_mutually_exclusive_group()
+    preservation.add_argument("--preserve-deployed", action="store_true")
+    preservation.add_argument("--preserve-from", type=Path)
     args = parser.parse_args()
     if args.preserve_deployed:
         deployed, _ = fetch_json(PUBLIC_DASHBOARD)
         preserve_deployed(args.dashboard, deployed)
+        return
+    if args.preserve_from:
+        preserve_deployed(args.dashboard, json.loads(args.preserve_from.read_text(encoding="utf-8")))
         return
     result = collect(json.loads(args.dashboard.read_text(encoding="utf-8")))
     atomic_json(args.output, result)

@@ -4926,3 +4926,9 @@ Expected contract:
   server regression proves the destination is never reached. Yahoo class-share
   symbols are normalized to its dashed convention while public identities stay
   unchanged; the provider-symbol regression covers BRK.B/BRK-B.
+
+- Publication follow-up: retain a private working copy of the public snapshot
+  and reapply its newer session after daily-artifact ingestion, so delayed
+  successful workflow events cannot regress the published account date.
+  Yahoo responses must explicitly identify daily granularity. Both invariants
+  are covered by the existing registered public/workflow smoke paths.
