@@ -1,0 +1,39 @@
+{
+  "schema": "contrarian-local-validation-v1",
+  "base_source_commit": "8ccbd478e05ff34c6dd70e410be0cae793c9863e",
+  "python_version": "3.13.5",
+  "evidence_class": "SYNTHETIC_OFFLINE_ONLY",
+  "config_hash": "05c301ed070804075ca8929f2ecf5817c9613a6ddbbd8dfdde1ebb9ff7d161c7",
+  "unittest_methods_passed": 41,
+  "randomized_safety_cases": 1000,
+  "py_compile": "PASS",
+  "synthetic_cli": "PASS",
+  "full_repo_ci": "NOT_RUN",
+  "registered_in_tier1": false,
+  "historical_backtest": "NOT_RUN",
+  "oos": "NOT_RUN",
+  "official_target_changed": false,
+  "broker_order_created": false,
+  "files": {
+    "overlay.py": {
+      "sha256": "e1e09c759b97b0356419c0950c7ac5c85f8b4914e70d6cd16ceb13a9183666e8",
+      "git_blob_sha1": "70503171871e79a0bff5aa78d9168f6a7f2d03d9"
+    },
+    "test_overlay.py": {
+      "sha256": "b674765d10f949245410902b885cea87dd81e9bce484d44b628a8a8813f83ef4",
+      "git_blob_sha1": "20496fcbe79b6758017485bd4acd2eb4b2dcded8"
+    },
+    "synthetic_input.json": {
+      "sha256": "663b08e7d1fe70678eca2b0b589809b432b9711b6f2f58d06be163d1717c256a",
+      "git_blob_sha1": "381aa8836af0761da1f8ca05ecc0d6c5a3ba682c"
+    },
+    "experiment.json": {
+      "sha256": "4afbdbcf0921d6aaa48a46feb3459f449e44c7fc3a88864eb9cb5ec35ad9b2c5",
+      "git_blob_sha1": "7362bffaf225fdcee113507c1b5e04ad7d1c9c93"
+    },
+    "PROJECT_HANDOFF_20260908.md": {
+      "sha256": "165bdd1fc84a2065e5f262cb313c6b43ba3cc946222e7af69153da0572181463",
+      "git_blob_sha1": "73684f32fe0bed2969974487f616f7e8ea1abe7b"
+    }
+  }
+}
