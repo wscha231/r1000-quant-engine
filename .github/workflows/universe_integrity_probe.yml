@@ -1,0 +1,65 @@
+name: Universe Integrity Probe
+on:
+  push:
+    branches: ['codex/universe-integrity-20260912']
+    paths:
+      - '.github/workflows/universe_integrity_probe.yml'
+      - 'r1000_unified_universe.py'
+      - 'tools/universe_integrity/**'
+      - 'tests/test_universe_integrity.py'
+permissions:
+  contents: read
+concurrency:
+  group: universe-integrity-probe-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install 'pandas==2.3.3' 'numpy==2.2.6'
+      - name: Focused regressions when present
+        shell: bash
+        run: |
+          if test -f tests/test_universe_integrity.py; then
+            python -m unittest discover -s tests -p 'test_universe_integrity.py' -v
+          fi
+      - name: Export bounded public source snapshot
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, pathlib, subprocess, tarfile
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'universe-integrity-source'
+          root.mkdir()
+          paths = ['r1000_unified_universe.py', 'r1000_pipeline.py', 'r1000_config.py',
+                   'aggressive/universe.py', 'aggressive/finnhub_cache_loader.py',
+                   'aggressive/data_alpaca.py', 'AGENTS.md',
+                   'docs/AGENT_SHARED_LESSONS_LEDGER.md',
+                   'docs/RUN287_GITHUB_AGENT_OPERATING_STANDARD.md',
+                   'tools/run_pr_validation.py']
+          manifest = {'head': os.environ['GITHUB_SHA'], 'paths': {},
+                      'purpose': 'BOUNDED_PUBLIC_SOURCE_REVIEW_NOT_MARKET_DATA'}
+          with tarfile.open(root / 'source.tar.gz', 'w:gz') as tar:
+              for name in paths:
+                  path = pathlib.Path(name)
+                  if not path.is_file() or path.is_symlink():
+                      raise RuntimeError('source_path_missing')
+                  raw = path.read_bytes()
+                  manifest['paths'][name] = {'sha256': hashlib.sha256(raw).hexdigest(),
+                      'git_blob': subprocess.check_output(['git', 'hash-object', name], text=True).strip()}
+                  tar.add(name, arcname=name, recursive=False)
+          (root / 'source_manifest.json').write_text(json.dumps(manifest, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: universe-integrity-source-${{ github.sha }}
+          path: ${{ runner.temp }}/universe-integrity-source/
+          retention-days: 14
+          if-no-files-found: error
