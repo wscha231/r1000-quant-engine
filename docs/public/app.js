@@ -1,5 +1,6 @@
 const state = {
   data: null,
+  quotes: null,
   portfolio: "main",
   holdingsSearch: "",
   tradeSearch: "",
@@ -28,6 +29,7 @@ function valueOrDash(value) {
 }
 
 function percent(value, digits = 2) {
+  if (value === null || value === undefined || value === "") return "—";
   const number = Number(value);
   return Number.isFinite(number) ? `${(number * 100).toFixed(digits)}%` : "—";
 }
@@ -40,6 +42,7 @@ function signedPercent(value, digits = 2) {
 }
 
 function price(value) {
+  if (value === null || value === undefined || value === "") return "—";
   const number = Number(value);
   return Number.isFinite(number)
     ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(number)
@@ -47,6 +50,7 @@ function price(value) {
 }
 
 function number(value, digits = 2) {
+  if (value === null || value === undefined || value === "") return "—";
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric.toFixed(digits) : "—";
 }
@@ -100,7 +104,7 @@ function metricCard(portfolio, item) {
       <div class="metric-main">
         <div><span>${cagrLabel}</span><strong class="positive">${percent(metrics.cagr)}</strong></div>
         <div><span>${drawdownLabel}</span><strong class="drawdown">${percent(metrics.max_drawdown)}</strong></div>
-        <div><span>LATEST CASH</span><strong>${percent(item.cash_weight)}</strong></div>
+        <div><span>CASH · ${formatDate(state.data.as_of_close)}</span><strong>${percent(item.cash_weight)}</strong></div>
       </div>
       <dl class="metric-minor">
         <div><dt>Sharpe</dt><dd>${number(metrics.sharpe)}</dd></div>
@@ -117,8 +121,65 @@ function renderHeader() {
   $("#generated-at").textContent = formatTimestamp(data.generated_at_utc);
   $("#source-label").textContent = valueOrDash(data.source?.label);
   $("#decision-label").textContent = valueOrDash(data.status?.promotion_state || data.status?.decision);
-  $("#header-status-text").textContent = `${formatDate(data.as_of_close)} 종가 반영`;
+  const quotes = state.quotes;
+  const priceDate = quotes?.as_of_close;
+  const stale = isPortfolioStale();
+  $("#header-status-text").textContent = stale ? "포트폴리오 갱신 지연" : `포트 기준 ${formatDate(data.as_of_close)}`;
+  $(".header-status").classList.toggle("is-stale", stale);
+  $("#quote-asof").textContent = priceDate ? formatDate(priceDate) : "미확인 / 일부 누락";
+  const notice = $("#freshness-notice");
+  notice.hidden = !stale && !!priceDate;
+  notice.textContent = `포트폴리오·비중·성과는 ${formatDate(data.as_of_close)} 기준입니다. ` +
+    (priceDate ? `조회 종가는 ${formatDate(priceDate)} 기준이며, 이 가격으로 포트폴리오 성과를 재계산한 것은 아닙니다.` :
+      "완전한 종가 자료가 아직 확인되지 않았습니다. 누락 종목은 조회 종가를 표시하지 않습니다.");
   $("#allocation-asof").textContent = formatDate(data.as_of_close);
+}
+
+function isPortfolioStale() {
+  const asof = state.data?.as_of_close;
+  const expected = state.quotes?.expected_session_date;
+  const expires = Date.parse(state.quotes?.freshness_valid_until_utc);
+  return state.quotes?.status !== "COMPLETE" || state.quotes?.as_of_close !== expected ||
+    !expected || !Number.isFinite(expires) || Date.now() >= expires || asof !== expected;
+}
+
+let freshnessTimer = null;
+
+function scheduleFreshnessRefresh() {
+  window.clearTimeout(freshnessTimer);
+  const delay = Date.parse(state.quotes?.freshness_valid_until_utc) - Date.now();
+  if (Number.isFinite(delay) && delay > 0) {
+    freshnessTimer = window.setTimeout(refreshFreshnessDisplay, Math.min(delay, 2147483647));
+  }
+}
+
+function refreshFreshnessDisplay() {
+  if (!state.data) return;
+  renderHeader();
+  renderHoldings();
+  renderPreviews();
+  scheduleFreshnessRefresh();
+}
+
+function validateQuotes(data, dashboard) {
+  if (data?.schema_version !== "run287-public-market-quotes-v1" || data.review_only !== true ||
+      data.live_trading_enabled !== false || data.portfolio_revalued !== false ||
+      data.portfolio_as_of_close !== dashboard.as_of_close || !Array.isArray(data.quotes) ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(data.expected_session_date) ||
+      !Number.isFinite(Date.parse(data.checked_at_utc)) || Date.parse(data.checked_at_utc) > Date.now() + 60000 ||
+      !Number.isFinite(Date.parse(data.freshness_valid_until_utc)) ||
+      Date.parse(data.freshness_valid_until_utc) <= Date.parse(data.checked_at_utc) ||
+      Date.parse(`${data.expected_session_date}T00:00:00Z`) > Date.now()) return null;
+  const tickers = new Set(Object.values(dashboard.portfolios).flatMap(p => p.holdings.map(h => h.ticker)));
+  const seen = new Set();
+  for (const q of data.quotes) {
+    if (!tickers.has(q.ticker) || seen.has(q.ticker) || q.currency !== "USD" ||
+        q.session_date !== data.expected_session_date || !Number.isFinite(q.close) || q.close <= 0) return null;
+    seen.add(q.ticker);
+  }
+  if (data.status === "COMPLETE" && (seen.size !== tickers.size || data.as_of_close !== data.expected_session_date)) return null;
+  if (data.status !== "COMPLETE" && data.as_of_close !== null) return null;
+  return data;
 }
 
 function renderMetricCards() {
@@ -267,13 +328,15 @@ function renderAllocationStrip(holdings, cashWeight) {
 
 function holdingsRow(item, rank) {
   const delta = Number(item.target_weight) - Number(item.weight);
-  const hasTarget = item.target_weight !== null && item.target_weight !== undefined && Number.isFinite(Number(item.target_weight));
+  const hasTarget = !isPortfolioStale() && item.target_weight !== null && item.target_weight !== undefined && Number.isFinite(Number(item.target_weight));
+  const quote = state.quotes?.quotes?.find(q => q.ticker === item.ticker);
   const deltaClass = !hasTarget ? "" : delta > 0 ? "weight-delta-positive" : delta < 0 ? "weight-delta-negative" : "";
   return `
     <tr>
       <td class="rank-cell">${String(rank).padStart(2, "0")}</td>
       <td class="ticker-cell">${escapeHtml(item.ticker)}</td>
       <td class="number">${price(item.price)}</td>
+      <td class="number">${quote ? `${price(quote.close)}<small class="quote-date">${formatDate(quote.session_date)}</small>` : "—"}</td>
       <td class="number">${percent(item.weight)}</td>
       <td class="number">${hasTarget ? percent(item.target_weight) : "—"}</td>
       <td class="number ${deltaClass}">${hasTarget ? signedPercent(delta) : "—"}</td>
@@ -287,17 +350,18 @@ function renderHoldings() {
   const body = holdings.map(holdingsRow).join("");
   const cashTarget = Number(portfolio.target_cash_weight);
   const cashDelta = cashTarget - Number(portfolio.cash_weight);
-  const cashTargetValid = portfolio.target_cash_weight !== null && portfolio.target_cash_weight !== undefined && Number.isFinite(cashTarget);
+  const cashTargetValid = !isPortfolioStale() && portfolio.target_cash_weight !== null && portfolio.target_cash_weight !== undefined && Number.isFinite(cashTarget);
   const cashRow = query && !"CASH".includes(query) ? "" : `
     <tr class="cash-row">
       <td class="rank-cell">—</td>
       <td class="ticker-cell">CASH</td>
       <td class="number">—</td>
+      <td class="number">—</td>
       <td class="number">${percent(portfolio.cash_weight)}</td>
       <td class="number">${cashTargetValid ? percent(cashTarget) : "—"}</td>
       <td class="number">${cashTargetValid ? signedPercent(cashDelta) : "—"}</td>
     </tr>`;
-  $("#holdings-body").innerHTML = body + cashRow || `<tr><td colspan="6" class="empty-state">검색 결과가 없습니다.</td></tr>`;
+  $("#holdings-body").innerHTML = body + cashRow || `<tr><td colspan="7" class="empty-state">검색 결과가 없습니다.</td></tr>`;
   $("#holdings-footer").textContent = `${portfolio.label || state.portfolio} · 주식 ${portfolio.holding_count ?? holdings.length}종목 · 현금 ${percent(portfolio.cash_weight)}`;
   renderAllocationStrip(portfolio.holdings || [], portfolio.cash_weight);
 }
@@ -311,7 +375,7 @@ function previewActionLabel(action) {
 }
 
 function renderPreviews() {
-  const previews = state.data.order_previews || [];
+  const previews = isPortfolioStale() ? [] : state.data.order_previews || [];
   $("#preview-section").hidden = previews.length === 0;
   if (!previews.length) return;
   $("#preview-body").innerHTML = previews.slice(0, 60).map((item) => {
@@ -429,6 +493,8 @@ function closeTradeLedger() {
 }
 
 function attachEvents() {
+  document.addEventListener("visibilitychange", refreshFreshnessDisplay);
+  window.addEventListener("focus", refreshFreshnessDisplay);
   $$(".portfolio-tab").forEach((button) => button.addEventListener("click", () => {
     setActivePortfolio(button.dataset.portfolio);
   }));
@@ -470,7 +536,12 @@ async function loadDashboard() {
       throw new Error("public safety contract is not fail-closed");
     }
     state.data = data;
+    try {
+      const quoteResponse = await fetch(`./data/market-quotes.json?v=${Date.now()}`, { cache: "no-store" });
+      if (quoteResponse.ok) state.quotes = validateQuotes(await quoteResponse.json(), data);
+    } catch { state.quotes = null; }
     renderAll();
+    scheduleFreshnessRefresh();
   } catch (error) {
     console.error(error);
     $("#load-error").hidden = false;

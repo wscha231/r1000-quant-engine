@@ -4928,3 +4928,56 @@ Expected contract:
 - Reproduced the public smoke in an isolated sparse source snapshot and verified
   success after restoring the runtime. The registered workflow smoke now guards
   checkout/dependency availability and the public-only artifact root.
+
+## 2026-09-12 — Public quote freshness must not claim account completion
+
+- Context: Public snapshot remains at July 10 while the daily account restore
+  fails at legacy risk-outcome authorization; Pages consequently skips.
+  A separate September 12 data sync fails with Drive unauthorized_client.
+- Lesson: A current job timestamp is not a current observation. Keep public
+  quote dates separate from portfolio/metric dates, require exact-session
+  finite closes, and hide stale proposals. Quote-only publication must restore
+  the last deployed portfolio so the older tracked seed cannot overwrite it.
+- Build lesson: Sparse checkouts must contain transitive imports, including
+  root engine helpers reached by the replay-price evidence verifier.
+- Evidence: docs/PUBLIC_DASHBOARD_FRESHNESS_20260912.md. Changes do not authorize
+  a legacy migration, accepted-state update, chronological fullrun, or orders.
+
+- Exact-head review correction: preserve a newer deployed session, but retain
+  reviewed default-branch corrections when the portfolio date is unchanged.
+  The same-date regression proves those corrected bytes are not overwritten.
+
+- Subsequent review correction: the public quote HTTP client rejects all
+  redirects so Alpaca headers cannot cross origins. A local HTTP redirect
+  server regression proves the destination is never reached. Yahoo class-share
+  symbols are normalized to its dashed convention while public identities stay
+  unchanged; the provider-symbol regression covers BRK.B/BRK-B.
+
+- Publication follow-up: retain a private working copy of the public snapshot
+  and reapply its newer session after daily-artifact ingestion, so delayed
+  successful workflow events cannot regress the published account date.
+  Yahoo responses must explicitly identify daily granularity. Both invariants
+  are covered by the existing registered public/workflow smoke paths.
+
+- Final freshness review: an absent or invalid quote packet is not proof that
+  recent targets remain current. Public target display now requires a matching
+  session and a live freshness deadline at the next NYSE close. Calendar tests
+  cover weekends and Labor Day; Node VM tests cover null/malformed packets,
+  one-day-old targets, and deadline expiry. The quote smoke also runs directly
+  after adding the repository-root import setup.
+
+- Open-tab expiry review: schedule a render at the freshness deadline and
+  recheck on tab visibility/focus, so already-rendered targets disappear
+  without user interaction. The browser runtime regression fires the captured
+  deadline timer and verifies both expiry and suspended-tab recovery.
+
+- Incomplete-quote/cache review: target freshness requires COMPLETE exact-session
+  coverage, not just a valid collection timestamp. Restoring the public snapshot
+  uses a unique request URL and explicit cache revalidation so an edge-cached
+  older deployment cannot undo a newer account date. Runtime status-matrix and
+  local HTTP cache/nonce regressions cover both paths.
+
+- Custom-domain review: use configure-pages canonical base_url for snapshot
+  restoration rather than following public redirects. Keep credential-bearing
+  request redirects disabled. CLI and workflow regressions verify the configured
+  custom path is restored before publication.

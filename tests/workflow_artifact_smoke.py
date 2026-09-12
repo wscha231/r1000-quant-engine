@@ -2543,6 +2543,8 @@ def test_pages_deploy_checks_out_public_validator_runtime() -> None:
 
 
 def test_pages_deploy_keeps_prior_site_without_completed_session_artifact() -> None:
+    # The published portfolio is preserved, while independent quote status may
+    # refresh. A failed daily run must still never enter the account builder.
     text = PAGES_WORKFLOW.read_text(encoding="utf-8")
     for token in [
         "Check for completed-session daily artifact",
@@ -2555,6 +2557,16 @@ def test_pages_deploy_keeps_prior_site_without_completed_session_artifact() -> N
         "needs.build.outputs.deploy_ready == 'yes'",
     ]:
         assert token in text, token
+    assert "github.event.workflow_run.conclusion == 'success'" in text
+    assert text.count("if: steps.daily_artifact.outputs.available == 'yes'") == 2
+    assert "--preserve-deployed" in text
+    assert text.index("uses: actions/configure-pages@v5") < text.index("--preserve-deployed")
+    assert "PUBLIC_PAGES_BASE_URL: ${{ steps.pages.outputs.base_url }}" in text
+    assert '--deployed-url "${PUBLIC_PAGES_BASE_URL%/}/data/dashboard.json"' in text
+    refresh = text.index("--source .dashboard-source")
+    assert text.index("cp docs/public/data/dashboard.json .dashboard-previous.json") < refresh
+    assert text.index("--preserve-from .dashboard-previous.json") > refresh
+    assert "python -m tools.refresh_public_market_quotes" in text
 
 
 def main() -> int:
