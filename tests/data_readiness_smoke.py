@@ -635,4 +635,10 @@ if __name__ == "__main__":
     test_data_readiness_allows_policy_replay_with_pit_stores_without_companyfacts()
     test_data_readiness_reports_stale_operating_book()
     test_data_readiness_blocks_invalid_universe_health()
+    # This registered Tier-1 entry also covers the independent research
+    # lifecycle, without changing protected publication-runner anchors.
+    import subprocess
+    import sys
+    for name in ("research_lifecycle_smoke.py", "research_macro_versions_smoke.py"):
+        subprocess.run([sys.executable, str(Path(__file__).with_name(name))], check=True)
     print("data_readiness_smoke: PASS")

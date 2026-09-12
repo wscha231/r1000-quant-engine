@@ -16,6 +16,28 @@ directive/report when it discovers any of the following:
 Do not paste secrets, raw API keys, account tokens, or private credentials into
 this ledger. Use secret names only.
 
+## 2026-09-10 - New research baselines need independent input versions
+
+- Agent: Codex. Branch: `codex/research-data-lifecycle-20260910`.
+- Context: The user permits abandoning old performance as an acceptance target
+  and requests sustainable updates of the USD 100,000 chronological fund study.
+- Lesson: Exact frozen hashes constrain reproduction of an old dataset, not a
+  newly declared dataset. Collect independent research inputs without restoring
+  an accepted paper ledger. Preserve the complete trial population even when
+  choosing a fresh baseline.
+- Implementation: Immutable monthly observation partitions, two evidence modes,
+  actual local recording receipts, revision-aware plans, immutable attempt
+  outcomes, verified local backups and an isolated public-macro collection pilot.
+- Caveats: Current FRED graphs are current-vintage evidence, not historical PIT.
+  Date-shaped observation rows do not establish historical availability. A local
+  backup is not verified remote persistence. Portfolio path dependence requires
+  full chronological replay until complete state checkpoints are certified.
+- Do not repeat: Compare lower-cost simulations as alpha improvements, reset
+  failed trials, relabel inspected periods as new OOS, or claim complete backtest
+  performance from collection diagnostics.
+- Evidence: `docs/RESEARCH_REEVALUATION.md`; lifecycle and macro regressions are
+  registered through `tests/data_readiness_smoke.py` in the existing Tier-1 runner.
+
 ## Entry Template
 
 ```text

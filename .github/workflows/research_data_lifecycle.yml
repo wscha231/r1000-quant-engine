@@ -1,0 +1,54 @@
+name: Research Data Lifecycle Pilot
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/research_data_lifecycle.yml'
+      - 'tools/research_lifecycle.py'
+      - 'tools/collect_research_macro_versions.py'
+      - 'tests/research_lifecycle_smoke.py'
+      - 'tests/research_macro_versions_smoke.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  independent-macro-pilot:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /tools/research_lifecycle.py
+            /tools/collect_research_macro_versions.py
+            /tests/research_lifecycle_smoke.py
+            /tests/research_macro_versions_smoke.py
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify lifecycle and provider parsing
+        run: |
+          python tests/research_lifecycle_smoke.py
+          python tests/research_macro_versions_smoke.py
+      - name: Collect independent current macro evidence
+        shell: bash
+        run: |
+          through=$(date -u -d yesterday +%F)
+          python tools/collect_research_macro_versions.py \
+            --store "$RUNNER_TEMP/research-data-lifecycle" \
+            --start 2018-09-10 --through "$through" \
+            --report "$RUNNER_TEMP/research-data-lifecycle-report.json"
+      - name: Retain aggregate evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-data-lifecycle-pilot-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/research-data-lifecycle-report.json
+          if-no-files-found: error
+          retention-days: 30
