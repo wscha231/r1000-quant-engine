@@ -47,7 +47,9 @@ jobs:
   build:
     if: >-
       github.event_name != 'workflow_run' ||
-      github.event.workflow_run.head_branch == 'master'
+      (github.event.workflow_run.head_branch == 'master' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       contains(fromJSON('["schedule","workflow_dispatch","workflow_run","push"]'), github.event.workflow_run.event))
     runs-on: ubuntu-latest
     outputs:
       deploy_ready: ${{ steps.publish_gate.outputs.ready }}
@@ -61,6 +63,7 @@ jobs:
             /*.py
             docs/public
             docs/run287_daily_research_monitor_contract.json
+            .github/workflows/long_history_research.yml
             tools
             tests
             data_static/run287_promotion_state.json

@@ -166,7 +166,8 @@ The table is the existing 33-name US/KR research watchlist, **not the 1,118-name
 universe or a stock ranking**. Valid nonranking score exports appear automatically;
 missing scores stay unavailable. Korea needs its upstream adapter. Source runs
 and artifact hashes, source commit, config hash and public content hash are kept
-in the public JSON. Long-history status reports workflow execution only until a
+in the public JSON. The optional long-history card is omitted until its workflow is installed on
+trusted master. Its status reports workflow execution only until a
 separate accepted catalog adapter exists; it does not certify its data coverage.
 
 The theme panel reports input dates and aggregate coverage only, not unvalidated

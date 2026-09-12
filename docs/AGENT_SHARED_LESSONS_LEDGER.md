@@ -5001,3 +5001,8 @@ Expected contract:
   DOM escaping, open-tab expiry and missing-file recovery. No ledger/targets,
   fullrun, broker calls, Drive writes or promotion are part of this connection.
 - Evidence: docs/PUBLIC_PROJECT_RESULTS_20260912.md.
+
+- PR421 review corrections: authenticate workflow_run repository and allowlisted
+  trigger events, reuse the existing full quote validator against a separately
+  verified dashboard, reject nonpositive diagnostic closes, and omit the optional
+  PR420 history card until its workflow exists on the checked-out master.

@@ -8,7 +8,7 @@ import sys
 import unittest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from tools.build_public_project_results import build
+from tools.build_public_project_results import build, collect_history
 
 NOW = datetime(2026, 9, 12, tzinfo=timezone.utc)
 SESSION = '2026-09-11'
@@ -54,6 +54,19 @@ class Tests(unittest.TestCase):
         r,s=fixture();r['current_engine_scores_ready']=False
         self.assertIsNone(self.run_build(r,s)['rows'][0]['engine_score'])
 
+    def test_nonpositive_diagnostic_closes(self):
+        for value in [0, -1, None, float('nan')]:
+            r,s=fixture();s['tactical']['data']['macro']['spy_close']=value
+            s['tactical']['data']['etfs']['etfs']['XLK']['close']=value
+            result=self.run_build(r,s)
+            self.assertFalse(result['diagnostics']['macro']['price_present'])
+            self.assertEqual(result['diagnostics']['etfs']['finite_close_count'],0)
+
+    def test_optional_history_is_omitted_until_installed(self):
+        class NoCalls:
+            def json(self, path):raise AssertionError('uninstalled workflow queried')
+        self.assertIsNone(collect_history(NoCalls(),ROOT/'tests/uninstalled-history-workflow.yml'))
+
     def test_failed_producer_cannot_supply_diagnostics(self):
         r,s=fixture();s['tactical']['status']='UPSTREAM_FAILED'
         self.assertIsNone(self.run_build(r,s)['diagnostics']['theme']['data_as_of'])
@@ -78,6 +91,11 @@ class Tests(unittest.TestCase):
         self.assertEqual(upload['with']['path'],'docs/public')
         self.assertIn('docs/run287_daily_research_monitor_contract.json',raw)
         self.assertIn('Run287 Daily Research Monitor',raw)
+        guard=w['jobs']['build']['if']
+        self.assertIn('head_repository.full_name == github.repository',guard)
+        self.assertIn('github.event.workflow_run.event',guard)
+        self.assertNotIn('pull_request',guard)
+        self.assertIn('.github/workflows/long_history_research.yml',raw)
 
     def test_browser_expiry_missing_file_and_escape(self):
         result=self.run_build()
@@ -86,14 +104,24 @@ class Tests(unittest.TestCase):
         script=r'''
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
 const packet=JSON.parse(process.argv[1]);let now=Date.parse('2026-09-12T00:00:00Z'),fail=false;
+const dashboard={schema_version:'run287-public-dashboard-v1',as_of_close:'2026-07-10',status:{review_only:true,live_trading_enabled:false},portfolios:{main:{holdings:[{ticker:'AMD'}]}}};
+const validQuotes={schema_version:'run287-public-market-quotes-v1',status:'COMPLETE',review_only:true,live_trading_enabled:false,portfolio_revalued:false,portfolio_as_of_close:'2026-07-10',as_of_close:'2026-09-11',expected_session_date:'2026-09-11',checked_at_utc:'2026-09-12T00:00:00Z',freshness_valid_until_utc:'2026-09-14T20:00:00Z',quotes:[{ticker:'AMD',currency:'USD',close:120,session_date:'2026-09-11'}]};
+let quotePacket=structuredClone(validQuotes);
 const elements={};const element=id=>elements[id]??=( {value:'',textContent:'',innerHTML:'',addEventListener(){},replaceChildren(){this.innerHTML='';}} );
 const timers=[];const sandbox={Date:class extends Date {static now(){return now;}},Number,String,Array,Error,Promise,
  document:{getElementById:element,addEventListener(){},hidden:false},window:{addEventListener(){},setInterval(fn){timers.push(fn);}},
- fetch:async url=>({ok:!fail,json:async()=>url.includes('project-results')?packet:{status:'COMPLETE',expected_session_date:'2026-09-11',freshness_valid_until_utc:'2026-09-14T20:00:00Z'}})};
+ fetch:async url=>({ok:!fail,json:async()=>url.includes('project-results')?packet:url.includes('market-quotes')?quotePacket:dashboard})};
+const app=fs.readFileSync('docs/public/app.js','utf8');
+vm.runInNewContext(app.slice(app.indexOf('function validateQuotes('),app.indexOf('function renderMetricCards(')),sandbox);
 vm.runInNewContext(fs.readFileSync('docs/public/project-results.js','utf8'),sandbox);
 setImmediate(async()=>{
  assert(element('research-results-body').innerHTML.includes('>0<'));
  assert(element('project-source-cards').innerHTML.includes('&lt;img'));
+ for(const mutate of [q=>delete q.schema_version,q=>delete q.quotes,q=>q.quotes=[],q=>q.quotes.push(q.quotes[0]),q=>q.quotes[0].close=0,q=>q.quotes[0].currency='KRW',q=>q.as_of_close='2026-09-10',q=>q.checked_at_utc='2026-09-20T00:00:00Z',q=>q.portfolio_as_of_close='2026-07-11']){
+   quotePacket=structuredClone(validQuotes);mutate(quotePacket);await timers[0]();
+   assert(!element('research-results-body').innerHTML.includes('>0<'));
+ }
+ quotePacket=structuredClone(validQuotes);await timers[0]();assert(element('research-results-body').innerHTML.includes('>0<'));
  now=Date.parse('2026-09-14T20:00:01Z');timers[1]();
  assert(!element('research-results-body').innerHTML.includes('>0<'));
  assert(element('project-results-status').textContent.includes('최신성 확인 필요'));

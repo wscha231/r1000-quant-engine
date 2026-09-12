@@ -44,6 +44,11 @@ def integer(value):
     return value if type(value) is int and 0 <= value <= 10**12 else None
 
 
+def positive_close(value):
+    value = number(value)
+    return value is not None and value > 0
+
+
 def source_view(key, source):
     run = source.get('run') or {}
     run_id = integer(run.get('id'))
@@ -100,10 +105,10 @@ def build(report, sources, session, now, code_sha, contract_hash):
         # These legacy exporters expose collection dates, not observation dates.
         # Even finite numbers cannot certify current macro/ETF observations.
         'macro': {'collection_date': day(macro.get('asof_date')), 'status': 'OBSERVATION_DATES_UNVERIFIED',
-                  'price_present': number(macro.get('spy_close')) is not None},
+                  'price_present': positive_close(macro.get('spy_close'))},
         'etfs': {'collection_date': day(data.get('etfs', {}).get('asof_date')),
                  'status': 'OBSERVATION_DATES_UNVERIFIED', 'total': len(etfs) if isinstance(etfs, dict) else 0,
-                 'finite_close_count': sum(number(v.get('close')) is not None for v in etfs.values() if isinstance(v, dict)) if isinstance(etfs, dict) else 0}}
+                 'finite_close_count': sum(positive_close(v.get('close')) for v in etfs.values() if isinstance(v, dict)) if isinstance(etfs, dict) else 0}}
     result = {'schema_version': SCHEMA, 'review_only': True, 'live_trading_enabled': False,
               'generated_at': now.isoformat(), 'expected_us_session': session,
               'source_commit': sha(code_sha), 'config_hash': sha(contract_hash),
@@ -113,6 +118,23 @@ def build(report, sources, session, now, code_sha, contract_hash):
     # Deterministic content identity; intentionally excludes its own hash.
     result['data_hash'] = hashlib.sha256(json.dumps(result, sort_keys=True, allow_nan=False).encode()).hexdigest()
     return result
+
+
+def collect_history(client, workflow_path=ROOT/'.github/workflows/long_history_research.yml'):
+    # The optional producer is under review in PR420. Do not invent an outage
+    # until its workflow is installed on the checked-out trusted master.
+    if not workflow_path.is_file():
+        return None
+    history = {'status': 'MISSING_RUN'}
+    try:
+        runs = client.json('/actions/workflows/long_history_research.yml/runs?branch=master&per_page=30')
+        run = latest_run(runs.get('workflow_runs', []), 'long_history_research.yml', REPO, ['push','schedule','workflow_dispatch'])
+        if run:
+            history = {'run': run, 'status': 'UPSTREAM_IN_PROGRESS' if run.get('status') != 'completed' else
+                       'WORKFLOW_SUCCESS_DATA_UNVERIFIED' if run.get('conclusion') == 'success' else 'UPSTREAM_FAILED'}
+    except Exception:
+        history = {'status': 'BLOCKED_SOURCE'}
+    return history
 
 
 def collect(now):
@@ -131,16 +153,9 @@ def collect(now):
         sources = dict(pool.map(one, contract['sources'].items()))
     session = completed_session(now)
     report = evaluate(sources, session, now, contract)
-    history = {'status': 'MISSING_RUN'}
-    try:
-        runs = client.json('/actions/workflows/long_history_research.yml/runs?branch=master&per_page=30')
-        run = latest_run(runs.get('workflow_runs', []), 'long_history_research.yml', REPO, ['push','schedule','workflow_dispatch'])
-        if run:
-            history = {'run': run, 'status': 'UPSTREAM_IN_PROGRESS' if run.get('status') != 'completed' else
-                       'WORKFLOW_SUCCESS_DATA_UNVERIFIED' if run.get('conclusion') == 'success' else 'UPSTREAM_FAILED'}
-    except Exception:
-        history = {'status': 'BLOCKED_SOURCE'}
-    sources['history'] = history
+    history = collect_history(client)
+    if history is not None:
+        sources['history'] = history
     code_sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     config_hash = hashlib.sha256(json.dumps(contract, sort_keys=True).encode()).hexdigest()
     return build(report, sources, session, now, code_sha, config_hash)

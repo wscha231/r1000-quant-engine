@@ -44,14 +44,19 @@
   }
   async function refresh() {
     try {
-      const responses = await Promise.all(['project-results.json','market-quotes.json'].map(async name => {
+      const responses = await Promise.all(['project-results.json','market-quotes.json','dashboard.json'].map(async name => {
         try { const response = await fetch(`./data/${name}?v=${Date.now()}`, {cache:'no-store'}); return response.ok ? await response.json() : null; }
         catch { return null; }
       }));
       const data = responses[0];
       if (data?.schema_version !== 'run287-public-project-results-v1' || data.review_only !== true || data.live_trading_enabled !== false || data.ranking_ready !== false || !Array.isArray(data.rows) || !Array.isArray(data.sources)) throw new Error('invalid public research');
       packet = data;
-      quotes = responses[1];
+      const dashboard = responses[2];
+      quotes = null;
+      if (dashboard?.schema_version === 'run287-public-dashboard-v1' &&
+          dashboard.status?.review_only === true && dashboard.status?.live_trading_enabled === false) {
+        try { quotes = validateQuotes(responses[1], dashboard); } catch { quotes = null; }
+      }
     } catch { packet = null; quotes = null; }
     render();
   }
