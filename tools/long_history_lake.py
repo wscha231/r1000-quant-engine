@@ -154,6 +154,7 @@ def fact_coverage(rows, start, through):
         missing_years=[y for y in range(int(start[:4]),int(through[:4])) if y not in years],
         statement_completeness='NOT_CERTIFIED',quarter_completeness='NOT_CERTIFIED',
         currencies_and_units=sorted({r['unit'] for r in rows}),
+        first_filed=min((r['filed'] for r in rows),default=None),
         last_filed=max((r['filed'] for r in rows),default=None))
 
 
@@ -201,6 +202,18 @@ def wb_rows(raw, indicator, start, through, retrieved):
 def safe_error(exc):
     text = str(exc)
     return text if re.fullmatch(r'[A-Za-z0-9_]{1,90}',text) else 'SOURCE_OR_CONTRACT_ERROR'
+
+
+def retain_price_prefix(old_rows,new_rows,retrieved):
+    """Keep observations that age out of a provider window, never interior holes."""
+    first=min(r['observation_date'] for r in new_rows)
+    prefix=[]
+    for row in old_rows:
+        if row['observation_date']<first:
+            row=dict(row)
+            row.setdefault('source_retrieved_at',retrieved)
+            prefix.append(row)
+    return sorted(prefix+new_rows,key=lambda r:r['observation_date']),len(prefix)
 
 
 class Lake:
@@ -380,11 +393,25 @@ def collect_macros(lake,start,through):
                 clean=[{k:v for k,v in r.items() if k!='retrieved_at'} for r in rows]
                 if mode=='current':
                     for r in clean: r.pop('available_at',None)
+                old=lake.catalog['datasets'].get(key,{})
+                retained=0
+                if mode=='current' and spec['group']=='price' and old.get('normalized'):
+                    clean,retained=retain_price_prefix(lake.get_records(key),clean,old['retrieved_at'])
                 lake.dataset(key,pages,clean,dict(series=sid,frequency=spec['frequency'],group=spec['group'],unit=spec['unit'],
-                    rows=len(rows),earliest=min(r['observation_date'] for r in rows),
+                    rows=len(clean),earliest=min(r['observation_date'] for r in clean),
                     latest=max(r['observation_date'] for r in rows if r['value'] is not None),retrieved_at=retrieved,
                     evidence='alfred_date_archive' if mode=='alfred' else 'current_only',
-                    requested_start=start,requested_through=through,raw_redistribution=spec['raw_redistribution']))
+                    first_vintage_date=min((r['vintage_date'] for r in rows),default=None) if mode=='alfred' else None,
+                    first_available_at=min((r['available_at'] for r in rows),default=None) if mode=='alfred' else retrieved,
+                    missing_values=sum(r['value'] is None for r in rows),
+                    requested_start=start,requested_through=through,raw_redistribution=spec['raw_redistribution'],
+                    retained_expired_provider_rows=retained))
+                if retained:
+                    entry=lake.catalog['datasets'][key]
+                    dependencies=old.get('retained_source_objects',[])+old['raw_objects']+[old['normalized']]
+                    entry['retained_source_objects']=sorted(set(dependencies))
+                    entry['objects']=sorted(set(entry['objects']+dependencies))
+                    entry['retained_from_commit']=lake.parent
             except Exception as exc: lake.blocked(key,exc)
     for indicator in WB_INDICATORS:
         key='worldbank/'+indicator
@@ -410,7 +437,7 @@ def diagnostics(lake):
         financial_issuers_collected=sum(d['status'] in ('COLLECTED','UNCHANGED') for d in sec),
         issuers_with_ten_calendar_years=sum(len(d.get('years_with_any_facts',[]))>=10 for d in sec),
         three_statement_ten_year_completeness='NOT_CERTIFIED',
-        macro_coverage={k:{f:d.get(f) for f in ('status','rows','earliest','latest','evidence','last_failure')} for k,d in macro.items()},
+        macro_coverage={k:{f:d.get(f) for f in ('status','rows','earliest','latest','evidence','first_vintage_date','first_available_at','missing_values','last_failure')} for k,d in macro.items()},
         universe=datasets.get('universe/cohort',{}),eligible_for_selector=False,weights_activated=False,
         historical_membership_verified=False,historical_pit_certified=False,
         provider_failures={k:d.get('last_failure') for k,d in datasets.items() if d['status'] in ('BLOCKED','STALE_RETAINED')})
@@ -447,6 +474,8 @@ def analyze_restored(lake, root, start, through):
     from tools.macro_technical_study import study
     from tools.macro_research_cycle import CURRENT, engine_context
     from tools.macro_history_sources import REGISTRY
+    require(lake.catalog['config']['registry_sha256']==digest(encoded(registry())),
+            'analysis_registry_version_mismatch')
     store=Path(root)/'store'
     registry_raw=REGISTRY.read_bytes()
     exclusive(store/'registries'/(digest(registry_raw)+'.json'),registry_raw)
@@ -458,7 +487,14 @@ def analyze_restored(lake, root, start, through):
             require(entry['status'] in ('COLLECTED','UNCHANGED'),'study_required_source_blocked')
             raw_pages=[unpacked(lake.get_bytes(sha)) for sha in entry['raw_objects']]
             retrieved=entry['retrieved_at']
-            if mode=='current': rows,_=parse_graph(raw_pages[0],sid,start,through,retrieved)
+            if mode=='current':
+                rows,_=parse_graph(raw_pages[0],sid,start,through,retrieved)
+                if entry.get('retained_expired_provider_rows'):
+                    for sha in entry['retained_source_objects']:
+                        lake.get_bytes(sha)  # Verify original lineage dependencies too.
+                    rows=lake.get_records(mode+'/'+sid)
+                    rows=[dict(r,retrieved_at=r.get('source_retrieved_at',retrieved),
+                               available_at=r.get('source_retrieved_at',retrieved)) for r in rows]
             else: rows=parse_alfred(raw_pages,sid,start,through,retrieved)
             raw_hashes=[]
             for raw in raw_pages:

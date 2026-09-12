@@ -114,6 +114,15 @@ class HistoryTest(unittest.TestCase):
         self.assertEqual(len(groups),999); self.assertEqual(len(missing),1)
         with self.assertRaisesRegex(ValueError,'cohort_below_1000'): issuer_queue(members[:2],mapping)
 
+    def test_retains_rolling_prefix_not_interior_gap(self):
+        from tools.long_history_lake import retain_price_prefix
+        old=[dict(observation_date='2016-01-0'+str(i),value=i,evidence='current_only') for i in range(1,6)]
+        new=[dict(observation_date='2016-01-0'+str(i),value=i*10,evidence='current_only') for i in (3,5)]
+        rows,n=retain_price_prefix(old,new,'2026-09-11T00:00:00+00:00')
+        self.assertEqual(n,2)
+        self.assertEqual([r['value'] for r in rows],[1,2,30,50])
+        self.assertEqual(rows[0]['source_retrieved_at'],'2026-09-11T00:00:00+00:00')
+
     def test_sql_cutoff(self):
         self.put(); self.lake.publish('one',{})
         reader=Lake(self.t,self.root/'consumer')
