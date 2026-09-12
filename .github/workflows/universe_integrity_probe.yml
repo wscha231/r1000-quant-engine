@@ -1,0 +1,107 @@
+name: Universe Integrity Probe
+on:
+  push:
+    branches: ['codex/universe-integrity-20260912']
+    paths:
+      - '.github/workflows/universe_integrity_probe.yml'
+      - 'r1000_unified_universe.py'
+      - 'tools/universe_integrity/**'
+      - 'tests/test_universe_integrity.py'
+      - 'tests/test_unified_bridge_integrity.py'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: universe-integrity-probe-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /r1000_unified_universe.py
+            /r1000_pipeline.py
+            /r1000_config.py
+            /aggressive/
+            /AGENTS.md
+            /docs/AGENT_SHARED_LESSONS_LEDGER.md
+            /docs/RUN287_GITHUB_AGENT_OPERATING_STANDARD.md
+            /tools/run_pr_validation.py
+            /tools/universe_integrity/
+            /tests/test_universe_integrity.py
+            /tests/test_unified_bridge_integrity.py
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install 'pandas==2.3.3' 'numpy==2.2.6'
+      - name: Focused regressions when present
+        shell: bash
+        run: |
+          python tests/test_universe_integrity.py -v
+          python tests/test_unified_bridge_integrity.py -v
+      - name: Export bounded public source snapshot
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, pathlib, subprocess, tarfile
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'universe-integrity-source'
+          root.mkdir()
+          paths = ['r1000_unified_universe.py', 'r1000_pipeline.py', 'r1000_config.py',
+                   'aggressive/universe.py', 'aggressive/finnhub_cache_loader.py',
+                   'aggressive/data_alpaca.py', 'AGENTS.md',
+                   'docs/AGENT_SHARED_LESSONS_LEDGER.md',
+                   'docs/RUN287_GITHUB_AGENT_OPERATING_STANDARD.md',
+                   'tools/run_pr_validation.py', 'tools/universe_integrity/financial_coverage.py',
+                   'tests/test_universe_integrity.py', 'tests/test_unified_bridge_integrity.py']
+          manifest = {'head': os.environ['GITHUB_SHA'], 'paths': {},
+                      'purpose': 'BOUNDED_PUBLIC_SOURCE_REVIEW_NOT_MARKET_DATA'}
+          with tarfile.open(root / 'source.tar.gz', 'w:gz') as tar:
+              for name in paths:
+                  path = pathlib.Path(name)
+                  if not path.is_file() or path.is_symlink():
+                      raise RuntimeError('source_path_missing')
+                  raw = path.read_bytes()
+                  manifest['paths'][name] = {'sha256': hashlib.sha256(raw).hexdigest(),
+                      'git_blob': subprocess.check_output(['git', 'hash-object', name], text=True).strip()}
+                  tar.add(name, arcname=name, recursive=False)
+          (root / 'source_manifest.json').write_text(json.dumps(manifest, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: universe-integrity-source-${{ github.sha }}
+          path: ${{ runner.temp }}/universe-integrity-source/
+          retention-days: 14
+          if-no-files-found: error
+      - name: Reuse verified whole-cohort artifact
+        if: contains(github.event.head_commit.message, 'RUN_WHOLE_COHORT_AUDIT')
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 34541821739
+          name: us-research-results-34541821739-1
+          path: ${{ runner.temp }}/whole-cohort-input
+      - name: Audit every requested issuer and macro context
+        if: contains(github.event.head_commit.message, 'RUN_WHOLE_COHORT_AUDIT')
+        shell: bash
+        run: |
+          python tools/universe_integrity/financial_coverage.py \
+            --input "$RUNNER_TEMP/whole-cohort-input/all_us_relative_strength.json" \
+            --input-sha256 4e1eb090f8137395603228dbc55c35907307ad6d049ec778f2722d1cbb87f4b4 \
+            --cutoff 2026-09-11 \
+            --private-root "$RUNNER_TEMP/whole-cohort-private" \
+            --output "$RUNNER_TEMP/whole-cohort-diagnostics"
+      - name: Publish derived diagnostics only
+        if: always() && contains(github.event.head_commit.message, 'RUN_WHOLE_COHORT_AUDIT')
+        uses: actions/upload-artifact@v4
+        with:
+          name: whole-cohort-financials-${{ github.sha }}
+          path: ${{ runner.temp }}/whole-cohort-diagnostics/
+          if-no-files-found: warn
+          retention-days: 14
