@@ -1,0 +1,42 @@
+name: Subscription Manager Readiness CI
+on:
+  pull_request:
+    paths:
+      - 'tools/subscription_manager/**'
+      - 'tests/subscription_manager_readiness_smoke.py'
+      - '.github/workflows/subscription_manager_readiness_ci.yml'
+  push:
+    branches: ['codex/subscription-manager-foundation-20260913']
+    paths:
+      - 'tools/subscription_manager/**'
+      - 'tests/subscription_manager_readiness_smoke.py'
+      - '.github/workflows/subscription_manager_readiness_ci.yml'
+permissions:
+  contents: read
+concurrency:
+  group: subscription-readiness-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  offline-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /tools/subscription_manager/
+            /tests/subscription_manager_readiness_smoke.py
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Offline standard-library invariants
+        run: |
+          python -W error::ResourceWarning tests/subscription_manager_readiness_smoke.py -v
+          python -O -W error::ResourceWarning tests/subscription_manager_readiness_smoke.py -v
