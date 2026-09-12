@@ -37,8 +37,8 @@
         <div class="eyebrow">RUN287 · SIMULATED BROKER LEDGER</div>
         <h1 id="hero-title">매일의 판단을<br><span>한 화면에.</span></h1>
         <p class="hero-description">
-          Main과 Concentrated의 보유 비중, 현금, 검증 성과와 매매 이력을
-          직전 완료 거래일 종가 기준으로 공개합니다.
+          Main과 Concentrated의 마지막 공개 포트폴리오와 매매 이력을 보여줍니다.
+          최근 종가는 별도로 조회하며, 비중과 성과의 기준일을 함께 표시합니다.
         </p>
         <div class="guardrail-row" aria-label="운용 안전 상태">
           <span class="guardrail">연구·검토 전용</span>
@@ -47,16 +47,19 @@
         </div>
       </div>
       <aside class="asof-card" aria-label="데이터 기준일">
-        <span>VALUATION CLOSE</span>
+        <span>PORTFOLIO AS OF</span>
         <strong id="as-of-close">—</strong>
-        <p>직전 완료 미국 거래일 종가</p>
+        <p>포트폴리오 평가 기준일</p>
         <dl>
           <div><dt>갱신</dt><dd id="generated-at">—</dd></div>
+          <div><dt>종가 조회</dt><dd id="quote-asof">확인 중</dd></div>
           <div><dt>출처</dt><dd id="source-label">—</dd></div>
           <div><dt>판정</dt><dd id="decision-label">—</dd></div>
         </dl>
       </aside>
     </section>
+
+    <section id="freshness-notice" class="freshness-notice" role="status" hidden></section>
 
     <section class="metric-grid" id="metric-grid" aria-label="포트폴리오 핵심 성과"></section>
 
@@ -91,7 +94,7 @@
       <div class="section-heading section-heading-wrap">
         <div>
           <span class="section-kicker">CURRENT ALLOCATION</span>
-          <h2 id="holdings-title">현재 보유 비중</h2>
+          <h2 id="holdings-title">공개 기준일 보유 비중</h2>
         </div>
         <div class="controls">
           <div class="segmented" role="group" aria-label="보유 포트폴리오 선택">
@@ -111,8 +114,9 @@
             <tr>
               <th scope="col">순위</th>
               <th scope="col">종목</th>
-              <th scope="col" class="number">종가</th>
-              <th scope="col" class="number">현재 비중</th>
+              <th scope="col" class="number">평가 당시 종가</th>
+              <th scope="col" class="number">조회 종가 · 날짜</th>
+              <th scope="col" class="number">기준일 비중</th>
               <th scope="col" class="number">목표 비중</th>
               <th scope="col" class="number">차이</th>
             </tr>

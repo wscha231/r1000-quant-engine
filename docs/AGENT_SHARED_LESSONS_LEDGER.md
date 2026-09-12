@@ -4902,3 +4902,17 @@ Expected contract:
 - Fullrun executed: false. Workflow dispatched or rerun: false. Migration,
   quarantine, Drive, target, order, ledger, accepted-head, production, live
   trading, automatic promotion, and pattern backfill state mutated: false.
+
+## 2026-09-12 — Public quote freshness must not claim account completion
+
+- Context: Public snapshot remains at July 10 while the daily account restore
+  fails at legacy risk-outcome authorization; Pages consequently skips.
+  A separate September 12 data sync fails with Drive unauthorized_client.
+- Lesson: A current job timestamp is not a current observation. Keep public
+  quote dates separate from portfolio/metric dates, require exact-session
+  finite closes, and hide stale proposals. Quote-only publication must restore
+  the last deployed portfolio so the older tracked seed cannot overwrite it.
+- Build lesson: Sparse checkouts must contain transitive imports, including
+  root engine helpers reached by the replay-price evidence verifier.
+- Evidence: docs/PUBLIC_DASHBOARD_FRESHNESS_20260912.md. Changes do not authorize
+  a legacy migration, accepted-state update, chronological fullrun, or orders.

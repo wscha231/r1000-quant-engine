@@ -2523,6 +2523,8 @@ def test_latest_run_hydration_preserves_reverified_paper_head_evidence() -> None
 
 
 def test_pages_deploy_keeps_prior_site_without_completed_session_artifact() -> None:
+    # The published portfolio is preserved, while independent quote status may
+    # refresh. A failed daily run must still never enter the account builder.
     text = PAGES_WORKFLOW.read_text(encoding="utf-8")
     for token in [
         "Check for completed-session daily artifact",
@@ -2535,6 +2537,10 @@ def test_pages_deploy_keeps_prior_site_without_completed_session_artifact() -> N
         "needs.build.outputs.deploy_ready == 'yes'",
     ]:
         assert token in text, token
+    assert "github.event.workflow_run.conclusion == 'success'" in text
+    assert text.count("if: steps.daily_artifact.outputs.available == 'yes'") == 2
+    assert "--preserve-deployed" in text
+    assert "python -m tools.refresh_public_market_quotes" in text
 
 
 def main() -> int:

@@ -24,6 +24,11 @@
 
 [hidden] { display: none !important; }
 
+.freshness-notice { margin: 0 0 24px; padding: 18px 22px; border: 1px solid var(--amber); border-radius: 14px; background: rgba(255,204,115,.08); color: var(--amber); line-height: 1.7; }
+.header-status.is-stale { color: var(--amber); }
+.header-status.is-stale .status-dot { background: var(--amber); }
+.quote-date { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; }
+
 html { scroll-behavior: smooth; }
 
 body {

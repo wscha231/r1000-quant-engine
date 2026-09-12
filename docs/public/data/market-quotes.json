@@ -1,0 +1,135 @@
+{
+  "schema_version": "run287-public-market-quotes-v1",
+  "checked_at_utc": "2026-09-12T03:30:52.523532+00:00",
+  "expected_session_date": "2026-09-11",
+  "portfolio_as_of_close": "2026-07-10",
+  "as_of_close": "2026-09-11",
+  "status": "COMPLETE",
+  "quotes": [
+    {
+      "ticker": "ALAB",
+      "close": 291.2200012207031,
+      "session_date": "2026-09-11",
+      "currency": "USD",
+      "source": "Yahoo Finance daily unadjusted close",
+      "response_sha256": "485133a6659d6abc6d5e9f23b9f010650320e8a2800b4f98ffacec9340f89d6f"
+    },
+    {
+      "ticker": "AMD",
+      "close": 516.1300048828125,
+      "session_date": "2026-09-11",
+      "currency": "USD",
+      "source": "Yahoo Finance daily unadjusted close",
+      "response_sha256": "f1b9636517109fc52c9b7938a1c4cca504fefe22319437c34ba3650c0bf3d2e7"
+    },
+    {
+      "ticker": "CIEN",
+      "close": 349.5400085449219,
+      "session_date": "2026-09-11",
+      "currency": "USD",
+      "source": "Yahoo Finance daily unadjusted close",
+      "response_sha256": "fac044daa6987e934871bb8c7886777eba4f73189e2e614d00babc0aad2a2743"
+    },
+    {
+      "ticker": "FLEX",
+      "close": 115.77999877929688,
+      "session_date": "2026-09-11",
+      "currency": "USD",
+      "source": "Yahoo Finance daily unadjusted close",
+      "response_sha256": "550438df7e51571cf5ef85f570230163c920a65d8a1e9bd85e232c7c642fc116"
+    },
+    {
+      "ticker": "HPE",
+      "close": 62.09000015258789,
+      "session_date": "2026-09-11",
+      "currency": "USD",
+      "source": "Yahoo Finance daily unadjusted close",
+      "response_sha256": "b4759fe0195bfec37f0f40ad41a5ca6ef5e3ba4ea9cf1790dbe59f4afbf81c29"
+    },
+    {
+      "ticker": "MRVL",
+      "close": 236.10000610351562,
+      "session_date": "2026-09-11",
+      "currency": "USD",
+      "source": "Yahoo Finance daily unadjusted close",
+      "response_sha256": "66418b410b983570691fa29fd4aaf3064e271ff85681b56f2a210239f6264c21"
+    },
+    {
+      "ticker": "MU",
+      "close": 975.260009765625,
+      "session_date": "2026-09-11",
+      "currency": "USD",
+      "source": "Yahoo Finance daily unadjusted close",
+      "response_sha256": "5143b9965d2d3ed71245702b9c911014cd654763504b4d48a837b2b53c1e7dcc"
+    },
+    {
+      "ticker": "NXT",
+      "close": 82.88999938964844,
+      "session_date": "2026-09-11",
+      "currency": "USD",
+      "source": "Yahoo Finance daily unadjusted close",
+      "response_sha256": "66d3a002c36f4bf905ef5eb3f4944f6f173145951fd2d5a8de058775843fa9e6"
+    },
+    {
+      "ticker": "ON",
+      "close": 76.13999938964844,
+      "session_date": "2026-09-11",
+      "currency": "USD",
+      "source": "Yahoo Finance daily unadjusted close",
+      "response_sha256": "b20df68940c129b27c09750456a5a3bf114343148827182d84062c666788d30b"
+    },
+    {
+      "ticker": "QCOM",
+      "close": 181.97000122070312,
+      "session_date": "2026-09-11",
+      "currency": "USD",
+      "source": "Yahoo Finance daily unadjusted close",
+      "response_sha256": "a00d99abedbeac4b036fd2fb5256604b23edb25d7a4005793eb53f8fe36a98b5"
+    },
+    {
+      "ticker": "RVMD",
+      "close": 203.77000427246094,
+      "session_date": "2026-09-11",
+      "currency": "USD",
+      "source": "Yahoo Finance daily unadjusted close",
+      "response_sha256": "d712d4c8f16bb9218dff82a632580e4bc2d4b67b42147aaa7d3786d3ecd30d2b"
+    },
+    {
+      "ticker": "SNDK",
+      "close": 1633.3499755859375,
+      "session_date": "2026-09-11",
+      "currency": "USD",
+      "source": "Yahoo Finance daily unadjusted close",
+      "response_sha256": "b6a035cbb96b5cd142ff204b09341044eb6d3ccd066c0e8c1a163eb124ee206c"
+    },
+    {
+      "ticker": "TXN",
+      "close": 268.70001220703125,
+      "session_date": "2026-09-11",
+      "currency": "USD",
+      "source": "Yahoo Finance daily unadjusted close",
+      "response_sha256": "4c137192c97eee7b58105d9c71cce9787802568b9c23f8d89b2c70be8e9f3d49"
+    },
+    {
+      "ticker": "UMC",
+      "close": 22.639999389648438,
+      "session_date": "2026-09-11",
+      "currency": "USD",
+      "source": "Yahoo Finance daily unadjusted close",
+      "response_sha256": "f0275a0d9ed53bb80d98dd35af0d92234ce89a604d268a2903b74aca64be42a7"
+    },
+    {
+      "ticker": "WDC",
+      "close": 447.17999267578125,
+      "session_date": "2026-09-11",
+      "currency": "USD",
+      "source": "Yahoo Finance daily unadjusted close",
+      "response_sha256": "5efcc1331c915f113045cd4ac1896a73b2eb4a8fca6e265e426431afd360c6bf"
+    }
+  ],
+  "missing_tickers": [],
+  "scope": "published_holdings_only",
+  "portfolio_revalued": false,
+  "review_only": true,
+  "live_trading_enabled": false
+}

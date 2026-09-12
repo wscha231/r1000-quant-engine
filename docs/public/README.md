@@ -43,8 +43,9 @@ a forbidden field, secret-like value, or absolute local path reaches
    through Saturday. An exact NYSE calendar gate identifies weekends, US
    holidays, and early closes, then requires at least a 90-minute data buffer.
    A stale session older than 18 hours is skipped.
-2. `.github/workflows/pages_deploy.yml` runs only after that workflow succeeds
-   on `master`.
+2. `.github/workflows/pages_deploy.yml` ingests a portfolio artifact only after
+   that workflow succeeds on `master`. Independent public close observations
+   also refresh at 02:35 UTC Tuesday–Saturday and after a failed daily run.
 3. The daily workflow restores the last validated private paper state, resolves
    prior pending orders at the next cached close, and enqueues a new batch only
    when the normalized target allocation changed.
@@ -55,10 +56,33 @@ a forbidden field, secret-like value, or absolute local path reaches
    target weights, review previews, and allowlisted forward paper fills on the
    last validated public snapshot, re-runs the privacy smoke test, and deploys
    **only `docs/public/`**.
-6. If the market was closed, the exact-close artifact is absent and Pages
-   deployment is skipped. If the source is stale, incomplete, not review-only,
-   unsafe, or malformed, publication fails closed and the previously valid site
-   remains live.
+6. Missing or failed daily artifacts cannot update the portfolio. The last
+   deployed public portfolio is restored before any asset/quote publication,
+   avoiding a reset to the older tracked seed. Invalid portfolio artifacts
+   still abort publication. Missing quotes are explicitly unavailable; no
+   prior-session fallback is shown as the requested close.
+
+## Independent prices and freshness
+
+`market-quotes.json` observes only tickers already in the public holdings.
+It is not a new selection, portfolio revaluation, or performance calculation.
+`dashboard.json` retains its own portfolio, weights, metrics, and history dates.
+The UI shows both price columns with dates and suppresses stale target deltas
+and proposals. A stale portfolio gets an amber notice even if quotes are absent.
+
+Quotes use existing Alpaca credentials against the market-data-only SIP
+daily-bar endpoint, with raw (unadjusted) closes. No broker endpoint is called.
+If credentials are absent, public Yahoo daily bars are used. Authentication
+errors do not trigger credential retries or silently change feeds. Every bar
+must match the NYSE session in New York time, be finite and positive, and have
+one unambiguous observation. A response hash records the public source bytes.
+The exchange calendar, holidays, early closes, and a 90-minute settlement
+buffer are required. Partial observations cannot claim a complete quote date.
+
+This price panel does not resolve the legacy risk-outcome migration or
+Google Drive OAuth errors in the transactional daily workflow. Recover that
+state through its reviewed chronological contract before reporting updated
+account weights, fills, or CAGR/MDD.
 
 The daily ledger is simulated and review-only. It freezes integer-share order
 quantities after a completed close, resolves them no earlier than the next
