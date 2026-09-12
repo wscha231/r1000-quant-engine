@@ -139,7 +139,8 @@ function isPortfolioStale() {
   const asof = state.data?.as_of_close;
   const expected = state.quotes?.expected_session_date;
   const expires = Date.parse(state.quotes?.freshness_valid_until_utc);
-  return !expected || !Number.isFinite(expires) || Date.now() >= expires || asof !== expected;
+  return state.quotes?.status !== "COMPLETE" || state.quotes?.as_of_close !== expected ||
+    !expected || !Number.isFinite(expires) || Date.now() >= expires || asof !== expected;
 }
 
 let freshnessTimer = null;

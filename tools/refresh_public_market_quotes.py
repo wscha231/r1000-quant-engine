@@ -14,6 +14,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 from urllib.error import HTTPError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 import pandas_market_calendars as mcal
 
@@ -46,6 +47,12 @@ def fetch_json(url, headers=None):
     if len(raw) > 5_000_000:
         raise ValueError("response_too_large")
     return json.loads(raw), hashlib.sha256(raw).hexdigest()
+
+
+def fetch_deployed():
+    # A prior edge-cached response must not roll back a just-published session.
+    return fetch_json(PUBLIC_DASHBOARD + "?restore=" + uuid4().hex,
+                      {"Cache-Control": "no-cache, no-store, max-age=0", "Pragma": "no-cache"})
 
 
 def atomic_json(path, payload):
@@ -205,7 +212,7 @@ def main():
     preservation.add_argument("--preserve-from", type=Path)
     args = parser.parse_args()
     if args.preserve_deployed:
-        deployed, _ = fetch_json(PUBLIC_DASHBOARD)
+        deployed, _ = fetch_deployed()
         preserve_deployed(args.dashboard, deployed)
         return
     if args.preserve_from:

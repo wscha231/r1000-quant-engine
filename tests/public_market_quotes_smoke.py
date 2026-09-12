@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.refresh_public_market_quotes import collect, exact_close, fetch_json, preserve_deployed, public_tickers, yahoo_close
+from tools.refresh_public_market_quotes import collect, exact_close, fetch_deployed, fetch_json, preserve_deployed, public_tickers, yahoo_close
 
 
 def fixture():
@@ -39,9 +39,20 @@ def rejected(call):
 def main():
     stamp = lambda day: datetime.fromisoformat(day + "T13:30:00+00:00").timestamp()
     reached_sink = []
+    restore_requests = []
     class RedirectServer(BaseHTTPRequestHandler):
         def do_GET(self):
-            if self.path == "/sink":
+            if self.path.startswith("/dashboard.json"):
+                restore_requests.append(self.path)
+                data = fixture()
+                if (self.path.startswith("/dashboard.json?restore=")
+                        and self.headers.get("Cache-Control") == "no-cache, no-store, max-age=0"
+                        and self.headers.get("Pragma") == "no-cache"):
+                    data["as_of_close"] = "2026-07-24"
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(json.dumps(data).encode())
+            elif self.path == "/sink":
                 reached_sink.append(True)
                 self.send_response(200)
                 self.end_headers()
@@ -62,6 +73,11 @@ def main():
             except HTTPError as exc:
                 assert exc.code == 302
             assert reached_sink == []
+            with patch("tools.refresh_public_market_quotes.PUBLIC_DASHBOARD",
+                       f"http://127.0.0.1:{server.server_port}/dashboard.json"):
+                assert fetch_deployed()[0]["as_of_close"] == "2026-07-24"
+                assert fetch_deployed()[0]["as_of_close"] == "2026-07-24"
+                assert len(set(restore_requests)) == 2
         finally:
             server.shutdown()
             thread.join(timeout=2)

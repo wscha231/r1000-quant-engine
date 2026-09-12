@@ -51,6 +51,15 @@ vm.runInContext('state.data=input;state.quotes=null;renderPreviews()', context);
 assert.equal(elements.get('#preview-section').hidden, true);
 assert.equal(vm.runInContext('isPortfolioStale()', context), true);
 assert.ok(!vm.runInContext('holdingsRow(input.portfolios.main.holdings[0], 0)', context).includes('90.00%'));
+for (const status of ['PARTIAL', 'PROVIDER_UNAVAILABLE', 'UNAVAILABLE', 'WAITING_FOR_COMPLETED_CLOSE']) {
+  context.quoteInput = { ...quotes, status, as_of_close: null, quotes: status === 'PARTIAL' ? quotes.quotes.slice(0, 1) : [] };
+  vm.runInContext('state.quotes=validateQuotes(quoteInput,input);refreshFreshnessDisplay()', context);
+  assert.notEqual(vm.runInContext('state.quotes', context), null); // valid observation, insufficient freshness proof
+  assert.equal(vm.runInContext('isPortfolioStale()', context), true);
+  assert.equal(elements.get('#preview-section').hidden, true);
+  assert.ok(!vm.runInContext('holdingsRow(input.portfolios.main.holdings[0], 0)', context).includes('90.00%'));
+}
+context.quoteInput = quotes;
 vm.runInContext('state.quotes=validateQuotes(quoteInput,input);refreshFreshnessDisplay();attachEvents()', context);
 assert.equal(vm.runInContext('isPortfolioStale()', context), false); // weekend is calendar-aware
 assert.equal(elements.get('#preview-section').hidden, false);

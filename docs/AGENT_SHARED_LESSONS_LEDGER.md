@@ -4956,3 +4956,9 @@ Expected contract:
   recheck on tab visibility/focus, so already-rendered targets disappear
   without user interaction. The browser runtime regression fires the captured
   deadline timer and verifies both expiry and suspended-tab recovery.
+
+- Incomplete-quote/cache review: target freshness requires COMPLETE exact-session
+  coverage, not just a valid collection timestamp. Restoring the public snapshot
+  uses a unique request URL and explicit cache revalidation so an edge-cached
+  older deployment cannot undo a newer account date. Runtime status-matrix and
+  local HTTP cache/nonce regressions cover both paths.
