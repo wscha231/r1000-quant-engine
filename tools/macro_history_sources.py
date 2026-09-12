@@ -225,6 +225,8 @@ def collect(store, series_ids, start, through, mode="current", fetcher=fetch):
                 raw_sha256=hashes, source_uri="https://fred.stlouisfed.org/series/"+series,
                 rows=len(records), observation_periods=len({r["observation_date"] for r in records}),
                 earliest=min(r["observation_date"] for r in records),
+                provider_window_start=min([r["observation_date"] for r in records]+missing),
+                missing_observation_dates=sorted(set(missing)),
                 latest=max(r["observation_date"] for r in records), retrieved_at=retrieved,
                 evidence=records[0]["evidence"], missing_value_count=len(missing),
                 internal_missing_months=period_gaps(records, specs[series]["frequency"]))

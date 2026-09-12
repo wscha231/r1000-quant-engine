@@ -197,10 +197,25 @@ class HistoryTest(unittest.TestCase):
     def test_country_year_missing_coverage(self):
         from tools.long_history_lake import wb_coverage
         rows=[dict(country='USA',observation_date='2024-01-01',value=3),dict(country='USA',observation_date='2025-01-01',value=None)]
-        result=wb_coverage(rows)
+        with patch('tools.long_history_lake.COUNTRIES',('USA',)):
+            result=wb_coverage(rows,'2024-01-01','2025-12-31')
         self.assertEqual(result['missing_values'],1)
         self.assertEqual(result['missing_country_years'],[dict(country='USA',year=2025)])
         self.assertEqual(result['country_coverage']['USA']['latest'],'2024-01-01')
+
+    def test_worldbank_coverage_counts_omitted_countries_and_boundary_years(self):
+        from tools.long_history_lake import wb_coverage
+        rows=[dict(country='USA',observation_date='2024-01-01',value=3),
+              dict(country='USA',observation_date='2025-01-01',value=None),
+              dict(country='CHN',observation_date='2024-01-01',value=2)]
+        result=wb_coverage(rows,'2024-01-01','2026-09-12')
+        self.assertEqual(result['expected_country_years'],15)
+        self.assertEqual(result['missing_values'],13)
+        self.assertEqual(len(result['omitted_country_years']),12)
+        self.assertEqual(result['country_coverage']['USA']['missing_years'],[2025,2026])
+        self.assertEqual(result['country_coverage']['KOR']['missing_years'],[2024,2025,2026])
+        self.assertEqual(result['country_coverage']['KOR']['nonmissing'],0)
+        self.assertIsNone(result['country_coverage']['KOR']['earliest'])
 
     def test_secret_job_is_default_branch_only(self):
         workflow=(ROOT/'.github/workflows/long_history_research.yml').read_text()

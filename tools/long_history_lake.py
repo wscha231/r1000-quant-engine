@@ -234,14 +234,21 @@ def wb_rows(raw, indicator, start, through, retrieved):
     return sorted(rows,key=lambda r:(r['country'],r['observation_date']))
 
 
-def wb_coverage(rows):
-    missing=[dict(country=r['country'],year=int(r['observation_date'][:4])) for r in rows if r['value'] is None]
+def wb_coverage(rows,start,through):
+    expected_years=range(int(start[:4]),int(through[:4])+1)
+    returned={(r['country'],int(r['observation_date'][:4])):r['value'] for r in rows}
+    missing=[dict(country=country,year=year) for country in COUNTRIES for year in expected_years
+             if returned.get((country,year)) is None]
+    omitted=[dict(country=country,year=year) for country in COUNTRIES for year in expected_years
+             if (country,year) not in returned]
     countries={}
     for country in COUNTRIES:
         valid=[r['observation_date'] for r in rows if r['country']==country and r['value'] is not None]
         countries[country]=dict(nonmissing=len(valid),earliest=min(valid,default=None),latest=max(valid,default=None),
             missing_years=[r['year'] for r in missing if r['country']==country])
-    return dict(missing_values=len(missing),missing_country_years=missing,country_coverage=countries)
+    return dict(missing_values=len(missing),missing_country_years=missing,
+        omitted_country_years=omitted,expected_country_years=len(COUNTRIES)*len(expected_years),
+        country_coverage=countries)
 
 
 def safe_error(exc):
@@ -563,7 +570,7 @@ def collect_macros(lake,start,through):
             lake.dataset(key,[pages],rows,dict(rows=len(rows),evidence='current_only',retrieved_at=retrieved,
                 earliest=min(r['observation_date'] for r in rows if r['value'] is not None),latest=max(r['observation_date'] for r in rows if r['value'] is not None),
                 countries=list(COUNTRIES),indicator=indicator,frequency='annual',
-                requested_start=start,requested_through=through,**wb_coverage(rows)))
+                requested_start=start,requested_through=through,**wb_coverage(rows,start,through)))
         except Exception as exc: lake.blocked(key,exc)
 
 
@@ -580,7 +587,7 @@ def diagnostics(lake):
         financial_issuers_collected=sum(d['status'] in ('COLLECTED','UNCHANGED') for d in sec),
         issuers_with_ten_calendar_years=sum(len(d.get('years_with_any_facts',[]))>=10 for d in sec),
         three_statement_ten_year_completeness='NOT_CERTIFIED',
-        macro_coverage={k:{f:d.get(f) for f in ('status','rows','earliest','latest','evidence','first_vintage_date','first_available_at','missing_values','missing_observation_dates','missing_country_years','country_coverage','last_failure')} for k,d in macro.items()},
+        macro_coverage={k:{f:d.get(f) for f in ('status','rows','earliest','latest','evidence','first_vintage_date','first_available_at','missing_values','missing_observation_dates','missing_country_years','omitted_country_years','expected_country_years','country_coverage','last_failure')} for k,d in macro.items()},
         universe=datasets.get('universe/cohort',{}),eligible_for_selector=False,weights_activated=False,
         historical_membership_verified=False,historical_pit_certified=False,
         provider_failures={k:d.get('last_failure') for k,d in datasets.items() if d['status'] in ('BLOCKED','STALE_RETAINED')})

@@ -41,8 +41,15 @@ def retain_expired_price_history(store, fresh_receipt, fresh_records, previous_r
         sid = item["series"]
         if sid not in {"SP500", "NASDAQCOM"} or item["status"] != "COLLECTED":
             continue
-        retained = [r for r in old_records.get(sid, []) if r["observation_date"] < item["earliest"]]
-        if not retained:
+        boundary = item.get("provider_window_start")
+        source.require(isinstance(boundary, str) and boundary <= item["earliest"],
+                       "provider_window_start_required")
+        source.require(source.date.fromisoformat(boundary).isoformat() == boundary,
+                       "provider_window_start_required")
+        retained = [r for r in old_records.get(sid, []) if r["observation_date"] < boundary]
+        prior = previous.get(sid, {})
+        retained_missing = [d for d in prior.get("missing_observation_dates", []) if d < boundary]
+        if not retained and not retained_missing:
             continue
         records[sid] = sorted(retained + records[sid], key=lambda r: r["observation_date"])
         raw = source.encoded(records[sid])
@@ -54,6 +61,11 @@ def retain_expired_price_history(store, fresh_receipt, fresh_records, previous_r
             retained_expired_provider_rows=len(retained),
             retained_from_receipt_sha256=source.digest(source.encoded(previous_receipt)),
             price_history_policy="OLDER_THAN_NEW_PROVIDER_WINDOW_ONLY; NO_INTERIOR_GAP_FILL")
+        item["missing_observation_dates"] = sorted(set(item.get("missing_observation_dates", [])) | set(retained_missing))
+        item["missing_value_count"] = len(item["missing_observation_dates"])
+        item["retained_missing_dates_complete"] = not (
+            prior.get("missing_value_count", 0) and "missing_observation_dates" not in prior
+        ) and prior.get("retained_missing_dates_complete", True)
     return receipt, records
 
 

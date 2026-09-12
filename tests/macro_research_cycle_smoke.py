@@ -164,11 +164,33 @@ class CheckpointTests(unittest.TestCase):
             old = {"SP500": [row("2016-01-01", 100), row("2016-01-02", 110), row("2016-01-03", 120)]}
             new = {"SP500": [row("2016-01-02", 111), row("2016-01-04", 130)]}
             old_receipt = dict(sources=[dict(series="SP500", status="COLLECTED", raw_sha256=["a"*64])])
-            fresh = dict(sources=[dict(series="SP500", status="COLLECTED", raw_sha256=["b"*64], earliest="2016-01-02")])
+            fresh = dict(sources=[dict(series="SP500", status="COLLECTED", raw_sha256=["b"*64], earliest="2016-01-02", provider_window_start="2016-01-02")])
             receipt, merged = cycle.retain_expired_price_history(tmp, fresh, new, old_receipt, old)
             self.assertEqual([(r["observation_date"], r["value"]) for r in merged["SP500"]],
                 [("2016-01-01", 100), ("2016-01-02", 111), ("2016-01-04", 130)])
             self.assertEqual(receipt["sources"][0]["retained_expired_provider_rows"], 1)
+
+    def test_collected_price_boundary_excludes_new_leading_missing_close(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            old_raw=b'DATE,SP500\n2020-01-01,10\n2020-01-02,.\n2020-01-03,30\n2020-01-04,40\n'
+            new_raw=b'DATE,SP500\n2020-01-03,.\n2020-01-04,41\n'
+            fetcher=lambda *a: ([old_raw], '2026-09-12T00:00:00Z')
+            _,old_path=source.collect(tmp,['SP500'],'2020-01-01','2026-09-12',fetcher=fetcher)
+            old_receipt,old=source.load_bundle(tmp,old_path)
+            fetcher=lambda *a: ([new_raw], '2026-09-12T00:00:00Z')
+            _,new_path=source.collect(tmp,['SP500'],'2020-01-01','2026-09-12',fetcher=fetcher)
+            fresh,new=source.load_bundle(tmp,new_path)
+            self.assertEqual(fresh['sources'][0]['provider_window_start'],'2020-01-03')
+            receipt,records=cycle.retain_expired_price_history(tmp,fresh,new,old_receipt,old)
+            self.assertEqual([(r['observation_date'],r['value']) for r in records['SP500']],
+                             [('2020-01-01',10),('2020-01-04',41)])
+            item=receipt['sources'][0]
+            self.assertEqual(item['missing_observation_dates'],['2020-01-02','2020-01-03'])
+            self.assertEqual(item['missing_value_count'],2)
+            self.assertTrue(item['retained_missing_dates_complete'])
+            del fresh['sources'][0]['provider_window_start']
+            with self.assertRaisesRegex(ValueError,'provider_window_start_required'):
+                cycle.retain_expired_price_history(tmp,fresh,new,old_receipt,old)
 
     def test_transport_redacts_errors_and_environment_collisions(self):
         import subprocess
