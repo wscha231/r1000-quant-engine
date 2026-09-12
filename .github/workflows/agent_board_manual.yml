@@ -1,4 +1,4 @@
-name: Agent Board (Manual / Scheduled)
+name: Agent Board (Manual)
 
 # Artifact-only coordination layer for the multi-agent loop. It can inspect a
 # downloaded full-rebuild artifact or the repository's latest committed/cloud
@@ -19,9 +19,6 @@ on:
         description: 'Optional GitHub Actions run URL to include in packets'
         type: string
         required: false
-  schedule:
-    - cron: '30 22 * * 0-4'
-
 permissions:
   contents: read
   actions: read

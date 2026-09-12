@@ -16,6 +16,14 @@ directive/report when it discovers any of the following:
 Do not paste secrets, raw API keys, account tokens, or private credentials into
 this ledger. Use secret names only.
 
+## 2026-09-13 KST — Retire obsolete scheduled research loops
+- Audit master e39d4f5338b186acdd7753a6007dfbea92211a51: 43 workflow files, 22 with schedule.
+- Agent Board and AutoLearning use committed full-rebuild paths; Live Extension run34663352311 uses a 2026-06-23 anchor on 2026-09-12.
+- This change removes only their schedules and updates display names; manual inputs, jobs and historical outputs remain intact.
+- Daily monitor run34693116190 is green but reports ATTENTION_REQUIRED and current ranking/scores unavailable. Workflow success is not data readiness.
+- Keep core price/SEC/estimate/macro collection; authentication failures before token replacement do not prove that current credentials fail.
+- Validate YAML semantic equality except name/schedule and exact patch application. Code publication requires an approved local worktree and exact-head review.
+
 ## Entry Template
 
 ```text

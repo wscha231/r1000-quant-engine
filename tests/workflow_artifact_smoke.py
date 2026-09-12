@@ -1148,7 +1148,7 @@ def test_free_data_daily_workflow_updates_metrics_after_close() -> None:
 def test_daily_autolearning_installs_market_calendar_and_remains_report_only() -> None:
     text = DAILY_AUTOLEARNING_WORKFLOW.read_text(encoding="utf-8")
     for token in [
-        "Daily AutoLearning Scan",
+        "AutoLearning Scan (Manual)",
         "contents: read",
         "pandas-market-calendars",
         "tools/run_autolearning_winner_challenger.py",
