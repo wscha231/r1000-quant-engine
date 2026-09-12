@@ -1,0 +1,22 @@
+{
+  "schema": "r1000-research-data-access-v1",
+  "repository": "wscha231/r1000-quant-engine",
+  "source_authority": "current default branch at exact commit SHA",
+  "mode": "RESEARCH_ONLY",
+  "eligible_for_selector": false,
+  "guide": "docs/RESEARCH_DATA_ACCESS.md",
+  "operations": "docs/LONG_HISTORY_OPERATIONS.md",
+  "shared_reader_gate": "Lake.verified_execution(): exact commit/catalog receipt and linked report hashes; expose quality and study status before records",
+  "collector": "tools/long_history_lake.py",
+  "workflow": ".github/workflows/long_history_research.yml",
+  "remote_environment": "MACRO_RESEARCH_REMOTE",
+  "namespace_below_configured_drive_base": "research/macro_technical_evidence/v1/scheduled/long-history-v1",
+  "immutable_paths": ["commits/<sha256>", "catalogs/<sha256>", "packs/<sha256>", "reports/<sha256>", "executions/<sha256>"],
+  "dataset_keys": ["universe/cohort", "sec/<10-digit-CIK>", "current/<FRED-series-id>", "alfred/<FRED-series-id>", "worldbank/<indicator-id>"],
+  "consumable_source_states": ["COLLECTED", "UNCHANGED"],
+  "blocked_source_states": ["BLOCKED", "STALE_RETAINED"],
+  "required_evidence": ["source_commit", "catalog_sha256", "commit_sha256", "execution_receipt_sha256", "quality_status", "dataset_evidence", "actual_history_window", "decision_cutoff"],
+  "pit_policy": "Current revised histories and SEC filed-date filters alone do not certify historical PIT.",
+  "refresh_policy": "Reuse verified objects; append source changes; resolve the latest verified commit on each new research run.",
+  "current_coverage_source": "verified catalog datasets and execution-linked quality report; never this static index"
+}

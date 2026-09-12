@@ -5028,3 +5028,15 @@ Expected contract:
   a full checkout again. Public artifact root remains docs/public only.
 - Do not remove/skip the regression or weaken source/account publication gates.
   No account, model, target, durable state or broker change is needed.
+
+## 2026-09-13 KST — Shared durable research access and historical pack integrity
+- Reconstruct PR420 research collection on current master; do not import its stale branch stack or overwrite current Pages changes.
+- Catalog hashes alone cannot prove SEC recovery after source304 responses. Restore now verifies the union of pack/member dependencies across historical catalogs and at publication boundaries; local caches cannot hide remote loss.
+- Expose docs/RESEARCH_DATA_ACCESS.md and docs/research_data_access.json from AGENTS.md so other chats/agents resolve current catalog/execution evidence and retain coverage/PIT limitations.
+- Offline regression additions reproduce nine failures on prior code; revised history suite has35checks. Register the three research suites directly in Tier1.
+- Full retained-pack scans currently imply roughly3.02GB reads per unchanged workflow cycle at the prior503MB inventory; measure actual runtime/bytes before claiming efficient operation. No account/target/fullrun/model promotion is enabled.
+
+- PR423 review follow-up: storage restoration alone does not prove a completed consumer cycle. Shared readers now require a hash-verified execution receipt for the exact commit/catalog and verified linked reports; expose PARTIAL/study status before using rows.
+- Preserve missing dates outside a rolling price window together with retained raw lineage. The window begins at the first returned date including missing values, so a new leading gap cannot resurrect an old price. Added four regression cases; history suite now has 39 tests.
+- PR423 Tier-1 run 34715585754 rejected the newly registered research suites with post_publication_protected_delta:tools/run_pr_validation.py. Following the existing protected-publication protocol, advance only verifier/regression pins to causal ancestor 346d93c713eaa539db7d10ebd0fb34b0d54626b9, reviewed by Codex in review 5187824659. Keep all protected paths, frozen artifacts, hashes, registered tests, and mutation rejection rules unchanged.
+- Further PR423 review found the same leading-missing price boundary in the separate macro cycle. Carry provider_window_start and missing dates from source collection; refuse ambiguous fresh boundaries, retain only earlier rows/gaps, and mark legacy missing-date evidence incomplete. World Bank coverage now compares every requested country/year, including entirely omitted countries and boundary years, rather than counting only returned nulls. The research suites pass 40 history + 17 cycle + 14 source tests.
