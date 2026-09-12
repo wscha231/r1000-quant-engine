@@ -1,0 +1,83 @@
+name: Macro research daily lifecycle
+
+on:
+  schedule:
+    # After the previous New York date has ended in both EST and EDT.
+    - cron: '37 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One writer for the scheduled namespace, including manual retries. Never cancel
+# a writer between verification and its append-only publication.
+concurrency:
+  group: macro-research-durable-scheduled-v1
+  cancel-in-progress: false
+
+jobs:
+  update:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      MACRO_RCLONE_RELEASE: 1.75.0
+      MACRO_RCLONE_SHA256: aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            tools/macro_history_sources.py
+            tools/macro_technical_study.py
+            tools/macro_research_checkpoint.py
+            tools/macro_research_cycle.py
+            tools/configure_macro_research_drive.py
+            docs/macro_indicator_registry.json
+            tests/macro_technical_evidence_smoke.py
+            tests/macro_research_cycle_smoke.py
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verified transport and bounded dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install numpy==2.2.6 pandas==2.3.3 scipy==1.16.3 pandas_market_calendars==5.1.3
+          curl --fail --silent --show-error --location "https://downloads.rclone.org/v${MACRO_RCLONE_RELEASE}/rclone-v${MACRO_RCLONE_RELEASE}-linux-amd64.zip" -o "$RUNNER_TEMP/macro-rclone.zip"
+          printf '%s  %s\n' "$MACRO_RCLONE_SHA256" "$RUNNER_TEMP/macro-rclone.zip" | sha256sum --check --strict
+          unzip -q "$RUNNER_TEMP/macro-rclone.zip" -d "$RUNNER_TEMP/macro-rclone-bin"
+          echo "MACRO_RCLONE_BIN=$RUNNER_TEMP/macro-rclone-bin/rclone-v${MACRO_RCLONE_RELEASE}-linux-amd64/rclone" >> "$GITHUB_ENV"
+      - name: Offline collection and restore regressions
+        run: |
+          python tests/macro_technical_evidence_smoke.py
+          python tests/macro_research_cycle_smoke.py
+      - name: Configure research namespace
+        env:
+          MACRO_RESEARCH_LANE: scheduled
+          MACRO_DRIVE_CONFIG: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          MACRO_DRIVE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          MACRO_DRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: python tools/configure_macro_research_drive.py
+      - name: Restore, collect, reevaluate and verify remote checkpoint
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: |
+          python tools/macro_research_cycle.py \
+            --remote "$MACRO_RESEARCH_REMOTE" \
+            --workspace "$RUNNER_TEMP/macro-cycle" \
+            --run-id "github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --report "$RUNNER_TEMP/macro-cycle-summary.json"
+      - name: Preserve derived diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macro-cycle-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/macro-cycle-summary.json
+            ${{ runner.temp }}/macro-cycle/current/reports/*.json
+          retention-days: 30
+          if-no-files-found: warn
+      - name: Remove temporary credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/macro-rclone.conf" "$RUNNER_TEMP/macro-drive-account.json"

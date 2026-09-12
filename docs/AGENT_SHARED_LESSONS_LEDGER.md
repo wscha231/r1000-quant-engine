@@ -16,6 +16,65 @@ directive/report when it discovers any of the following:
 Do not paste secrets, raw API keys, account tokens, or private credentials into
 this ledger. Use secret names only.
 
+## 2026-09-11 - OAuth client creation does not authorize unattended Drive access
+
+- Agent: Codex; branch `codex/macro-technical-evidence-20260911`, PR #413.
+- Secret updates were followed by AUTHENTICATION failures before the first
+  namespace read in run `34576468407`, attempts 2 and 3. Secret presence and a
+  separately connected Drive plugin do not prove the Actions credential works.
+- Validate missing tokens, placeholders, client shape and rclone expiry locally;
+  report only allowlisted codes. Keep provider OAuth reasons separate without
+  exposing response bodies. A format pass is not a successful Google login.
+- OAuth Playground tokens must use the same custom web client as the stored
+  configuration. Preserve existing root/shared-drive settings. Do not replace
+  a failed checkpoint chain or retry authentication errors as quota failures.
+- Evidence, artifact hashes and operator instructions:
+  `docs/MACRO_RESEARCH_OPERATIONS.md`.
+
+## 2026-09-11 - Verify restored research bytes before advancing the checkpoint
+
+- Agent: Codex; branch `codex/macro-technical-evidence-20260911`, PR #413.
+- Added a bounded research-only Drive checkpoint chain and daily reevaluation
+  wrapper. Raw objects, revisions, registries and failed attempts are preserved.
+- Never use a successful upload, fresh retrieval timestamp or green Draft review
+  gate as proof of clean restore, changed economic data or independent review.
+- Rclone option names collide with generic credential/version environment names;
+  use prefixed task names and exclude unrelated credentials from its environment.
+- Rolling provider windows can silently shorten history. Retain previously
+  collected older price rows with provenance; never fill missing interior dates.
+- Local synthetic restore/fault tests are not remote persistence evidence. The
+  PR pilot separately verifies real remote bytes and reproduces the study.
+- One writer is required; forks, corrupt latest data and partial uploads must
+  fail closed. No timestamp-based fallback, accepted paper mutation or promotion.
+- Evidence and remaining activation gates: `docs/MACRO_RESEARCH_OPERATIONS.md`.
+
+## 2026-09-11 - Historical macro screening needs source vintages and mature labels
+
+- Agent: Codex; branch `codex/macro-technical-evidence-20260911`.
+- Context: User requested historical-first macro/technical effect research
+  and ongoing reevaluation from this chat.
+- Result: Added bounded current/ALFRED source adapters, immutable raw receipts,
+  a 30-series registry, official-calendar due planning, and fixed index
+  hypotheses with next-session entry and purged walk-forward evaluation.
+- Lesson: Current FRED history cannot become historical release evidence by
+  shifting its observation dates. ALFRED dates support conservative date-level
+  reconstruction, not announcement-time surprises. Repeating monthly values
+  over trading days or securities does not create independent macro events.
+- Caveat: SP500 graph history has a ten-year limit and excludes dividends.
+  WTREGEN/WRESBAL are weekly averages; liquidity component units differ.
+  Whole-run multiple-testing correction does not replace the historical
+  canonical experiment census. A low first-screen score is not permanent rejection.
+- Local direct FRED access did not complete after network approval was
+  cancelled. The same-repository public pilot is separate execution evidence;
+  its temporary store is not remotely durable research data.
+- Validation: Initial 12 offline regression tests and workflow syntax passed.
+  The existing macro-input Tier-1 suite invokes the new tests without changing
+  protected validator pins. Provider/CI results are recorded in the linked report.
+- Next: Verify the public pilot, then ALFRED/calendar access and durable
+  persistence before recurring operation. No selector/target/ledger/promotion
+  change or fullrun is included.
+- Evidence: `docs/MACRO_TECHNICAL_EVIDENCE.md`.
+
 ## Entry Template
 
 ```text

@@ -1,0 +1,228 @@
+name: Macro and technical evidence pilot
+
+# Bounded research. Only the isolated archive step may use the existing FRED key.
+# The isolated PR checkpoint lane writes only its new research namespace.
+# Scheduled operation lives in macro_research_daily.yml on the default branch.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/macro_technical_evidence.yml'
+      - 'tools/macro_history_sources.py'
+      - 'tools/macro_technical_study.py'
+      - 'tools/macro_research_checkpoint.py'
+      - 'tools/macro_research_cycle.py'
+      - 'tools/configure_macro_research_drive.py'
+      - '.github/workflows/macro_research_daily.yml'
+      - 'docs/macro_indicator_registry.json'
+      - 'tests/macro_technical_evidence_smoke.py'
+      - 'tests/macro_research_cycle_smoke.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macro-evidence-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  evidence:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            tools/macro_history_sources.py
+            tools/macro_technical_study.py
+            tools/macro_research_checkpoint.py
+            tools/macro_research_cycle.py
+            tools/configure_macro_research_drive.py
+            docs/macro_indicator_registry.json
+            tests/macro_technical_evidence_smoke.py
+            tests/macro_research_cycle_smoke.py
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install bounded analysis dependencies
+        run: python -m pip install numpy==2.2.6 pandas==2.3.3 scipy==1.16.3 pandas_market_calendars==5.1.3
+      - name: Offline evidence regressions
+        run: |
+          python tests/macro_technical_evidence_smoke.py
+          python tests/macro_research_cycle_smoke.py
+      - name: Collect public history and evaluate index hypotheses
+        env:
+          RESEARCH_ROOT: ${{ runner.temp }}/macro-evidence
+        run: |
+          python - <<'PY'
+          from datetime import datetime, timedelta, timezone
+          import json, os
+          from pathlib import Path
+          from tools.macro_history_sources import collect, encoded, exclusive, utc_now
+          from tools.macro_technical_study import study
+          root = Path(os.environ['RESEARCH_ROOT'])
+          through = (datetime.now(timezone.utc).date()-timedelta(days=1)).isoformat()
+          ids = 'SP500,NASDAQCOM,DGS2,DGS10,UNRATE,PAYEMS,CPIAUCSL,WALCL,WTREGEN,RRPONTSYD,SOFR,M2SL'.split(',')
+          receipt, path = collect(root/'store', ids, '2000-01-01', through)
+          exclusive(root/'reports/collection.json', encoded(receipt))
+          result = study(root/'store', path, utc_now())
+          exclusive(root/'reports/evidence.json', encoded(result))
+          summary = dict(coverage=result['coverage'], tests_declared=result['tests_declared'],
+              collected=sum(s['status']=='COLLECTED' for s in receipt['sources']),
+              sources=receipt['sources'], macro_blocked=result['blocked_macro'],
+              status_counts={s:sum(r['status']==s for r in result['results'])
+                             for s in sorted({r['status'] for r in result['results']})},
+              eligible_for_selector=False, durable_remote_verified=False)
+          exclusive(root/'reports/summary.json', encoded(summary))
+          print(json.dumps(summary, sort_keys=True))
+          # Public derived readpack: inspect effects without copying raw prices.
+          for row in result['results']:
+              fields = ['asset','feature','horizon_sessions','oos_rows','nonoverlap_windows',
+                        'effect_per_training_sd_pp','effect_ci95_pp','family_q_value',
+                        'oos_mse_improvement','state_or_event_mean_return_pct',
+                        'non_event_mean_return_pct','status']
+              print('EVIDENCE_ROW ' + json.dumps({k:row[k] for k in fields}, sort_keys=True))
+          assert {'SP500','NASDAQCOM'} <= set(result['coverage']), 'missing_index_history'
+          assert summary['collected'] == len(ids), 'partial_collection'
+          PY
+      - name: Verify three historical macro archives and release calendars
+        env:
+          RESEARCH_ROOT: ${{ runner.temp }}/macro-evidence
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: |
+          python - <<'PY'
+          from datetime import datetime, timedelta, timezone
+          import json, os
+          from pathlib import Path
+          from tools.macro_history_sources import collect, encoded, exclusive, fetch_calendar, utc_now
+          from tools.macro_technical_study import study
+          root = Path(os.environ['RESEARCH_ROOT'])
+          if not os.environ.get('FRED_API_KEY'):
+              summary = dict(status='BLOCKED_FRED_KEY_UNAVAILABLE', historical_macro_tests=0)
+              exclusive(root/'reports/alfred-summary.json', encoded(summary))
+              print('ALFRED_SUMMARY ' + json.dumps(summary))
+          else:
+              prior = json.loads((root/'reports/collection.json').read_bytes())
+              price_receipts = list((root/'store/receipts').glob('*.json'))
+              assert len(price_receipts) == 1, 'price_receipt_identity'
+              archive, path = collect(root/'store', ['UNRATE','PAYEMS','CPIAUCSL'],
+                  prior['requested_start'], prior['requested_through'], mode='alfred')
+              exclusive(root/'reports/alfred-collection.json', encoded(archive))
+              result = study(root/'store', price_receipts[0], utc_now(), [path])
+              exclusive(root/'reports/alfred-evidence.json', encoded(result))
+              macro_rows = [r for r in result['results'] if r['sample_kind']=='release']
+              summary = dict(sources=archive['sources'], historical_macro_tests=len(macro_rows),
+                  status_counts={s:sum(r['status']==s for r in macro_rows)
+                                 for s in sorted({r['status'] for r in macro_rows})},
+                  historical_pit_certified=False, eligible_for_selector=False)
+              exclusive(root/'reports/alfred-summary.json', encoded(summary))
+              print('ALFRED_SUMMARY ' + json.dumps(summary, sort_keys=True))
+              for row in macro_rows:
+                  fields = ['asset','feature','horizon_sessions','oos_rows','nonoverlap_windows',
+                            'effect_per_training_sd_pp','effect_ci95_pp','family_q_value',
+                            'oos_mse_improvement','status']
+                  print('MACRO_EVIDENCE_ROW ' + json.dumps({k:row[k] for k in fields}, sort_keys=True))
+              today = datetime.now(timezone.utc).date()
+              try:
+                  calendar = fetch_calendar(['UNRATE','PAYEMS','CPIAUCSL'],
+                      (today-timedelta(days=30)).isoformat(), (today+timedelta(days=90)).isoformat())
+                  exclusive(root/'reports/calendar.json', encoded(calendar))
+                  print('CALENDAR_SUMMARY ' + json.dumps(calendar, sort_keys=True))
+              except Exception:
+                  print('CALENDAR_SUMMARY {"status":"SOURCE_OR_CALENDAR_CONTRACT_BLOCKED"}')
+                  raise SystemExit(2)
+              assert all(s['status']=='COLLECTED' for s in archive['sources']), 'partial_archive_collection'
+          PY
+      - name: Install checksum-pinned research transport
+        if: github.event_name == 'pull_request'
+        env:
+          MACRO_RCLONE_RELEASE: 1.75.0
+          MACRO_RCLONE_SHA256: aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location "https://downloads.rclone.org/v${MACRO_RCLONE_RELEASE}/rclone-v${MACRO_RCLONE_RELEASE}-linux-amd64.zip" -o "$RUNNER_TEMP/macro-rclone.zip"
+          printf '%s  %s\n' "$MACRO_RCLONE_SHA256" "$RUNNER_TEMP/macro-rclone.zip" | sha256sum --check --strict
+          unzip -q "$RUNNER_TEMP/macro-rclone.zip" -d "$RUNNER_TEMP/macro-rclone-bin"
+          echo "MACRO_RCLONE_BIN=$RUNNER_TEMP/macro-rclone-bin/rclone-v${MACRO_RCLONE_RELEASE}-linux-amd64/rclone" >> "$GITHUB_ENV"
+      - name: Configure isolated PR research namespace
+        if: github.event_name == 'pull_request'
+        env:
+          MACRO_RESEARCH_LANE: pr-${{ github.event.pull_request.number }}
+          MACRO_DRIVE_CONFIG: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          MACRO_DRIVE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          MACRO_DRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: python tools/configure_macro_research_drive.py
+      - name: Verify real remote storage and clean restore
+        if: github.event_name == 'pull_request'
+        env:
+          RESEARCH_ROOT: ${{ runner.temp }}/macro-evidence
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from tools.macro_history_sources import REGISTRY, digest, encoded, exclusive
+          from tools.macro_research_checkpoint import RcloneTransport, head, publish, restore_latest
+          from tools.macro_technical_study import study
+          root = Path(os.environ['RESEARCH_ROOT'])
+          raw = REGISTRY.read_bytes()
+          exclusive(root/'store/registries'/(digest(raw)+'.json'), raw)
+          remote = RcloneTransport(os.environ['MACRO_RESEARCH_REMOTE'])
+          before = head(remote)[0]
+          publication = publish(remote, root, before,
+              'github-'+os.environ['GITHUB_RUN_ID']+'-'+os.environ['GITHUB_RUN_ATTEMPT'])
+          restored = restore_latest(remote, root.parent/'macro-restored')
+          assert restored['commit'] == publication['commit']
+          assert restored['manifest_sha256'] == publication['manifest_sha256']
+          recovered = root.parent/'macro-restored'
+          saved = json.loads((recovered/'reports/alfred-evidence.json').read_bytes())
+          current_id = digest((recovered/'reports/collection.json').read_bytes())
+          archive_id = digest((recovered/'reports/alfred-collection.json').read_bytes())
+          replayed = study(recovered/'store', recovered/'store/receipts'/(current_id+'.json'),
+              saved['as_of'], [recovered/'store/receipts'/(archive_id+'.json')])
+          assert replayed['input_receipt_sha256'] == saved['input_receipt_sha256']
+          assert replayed['tests_declared'] == saved['tests_declared'] == 336
+          assert [r['status'] for r in replayed['results']] == [r['status'] for r in saved['results']]
+          import numpy as np
+          for a, b in zip(replayed['results'], saved['results']):
+              for field in ('effect_per_training_sd_pp', 'effect_ci95_pp', 'oos_mse_improvement', 'family_q_value'):
+                  if a[field] is None or b[field] is None:
+                      assert a[field] is b[field]
+                  else:
+                      assert np.allclose(a[field], b[field], rtol=1e-10, atol=1e-12)
+          summary = dict(publication=publication, clean_restore=restored,
+              restored_study_reproduced=True, restored_test_count=replayed['tests_declared'],
+              scope='ISOLATED_PR_RESEARCH', scheduled_service_active=False,
+              selector_enabled=False, remote_permissions_changed=False)
+          # This receipt describes the already committed bundle; it is intentionally
+          # outside that bundle and cannot create a self-referential content hash.
+          exclusive(root.parent/'macro-checkpoint-summary.json', encoded(summary))
+          print('CHECKPOINT_SUMMARY '+json.dumps(summary, sort_keys=True))
+          PY
+      - name: Verify a subsequent complete research cycle
+        if: github.event_name == 'pull_request'
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: |
+          python tools/macro_research_cycle.py \
+            --remote "$MACRO_RESEARCH_REMOTE" \
+            --workspace "$RUNNER_TEMP/macro-cycle-verification" \
+            --run-id "verification-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --report "$RUNNER_TEMP/macro-cycle-summary.json"
+      - name: Preserve aggregate diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macro-technical-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/macro-evidence/reports/*.json
+            ${{ runner.temp }}/macro-checkpoint-summary.json
+            ${{ runner.temp }}/macro-cycle-summary.json
+            ${{ runner.temp }}/macro-cycle-verification/current/reports/*.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Remove temporary credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/macro-rclone.conf" "$RUNNER_TEMP/macro-drive-account.json"
