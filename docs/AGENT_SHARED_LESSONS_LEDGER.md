@@ -5020,3 +5020,10 @@ Expected contract:
   a full checkout again. Public artifact root remains docs/public only.
 - Do not remove/skip the regression or weaken source/account publication gates.
   No account, model, target, durable state or broker change is needed.
+
+## 2026-09-13 KST — Shared durable research access and historical pack integrity
+- Reconstruct PR420 research collection on current master; do not import its stale branch stack or overwrite current Pages changes.
+- Catalog hashes alone cannot prove SEC recovery after source304 responses. Restore now verifies the union of pack/member dependencies across historical catalogs and at publication boundaries; local caches cannot hide remote loss.
+- Expose docs/RESEARCH_DATA_ACCESS.md and docs/research_data_access.json from AGENTS.md so other chats/agents resolve current catalog/execution evidence and retain coverage/PIT limitations.
+- Offline regression additions reproduce nine failures on prior code; revised history suite has35checks. Register the three research suites directly in Tier1.
+- Full retained-pack scans currently imply roughly3.02GB reads per unchanged workflow cycle at the prior503MB inventory; measure actual runtime/bytes before claiming efficient operation. No account/target/fullrun/model promotion is enabled.

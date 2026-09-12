@@ -14,6 +14,11 @@ Read these files before making a non-trivial change:
 4. The task-specific data, workflow, or promotion contract named by the code
    being changed
 
+For long financial/macro history or cross-chat data reuse, also read
+`docs/RESEARCH_DATA_ACCESS.md` and `docs/research_data_access.json`. Resolve
+the current verified Drive catalog and execution receipt; a prior chat's
+counts or an unmerged PR are not current data-readiness evidence.
+
 If these instructions conflict with an older handoff, use the current
 repository contract and the most recent accepted evidence. Do not infer current
 state from a stale branch, PR description, terminal transcript, or dashboard.
