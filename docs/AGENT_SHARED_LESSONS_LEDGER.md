@@ -4962,3 +4962,8 @@ Expected contract:
   uses a unique request URL and explicit cache revalidation so an edge-cached
   older deployment cannot undo a newer account date. Runtime status-matrix and
   local HTTP cache/nonce regressions cover both paths.
+
+- Custom-domain review: use configure-pages canonical base_url for snapshot
+  restoration rather than following public redirects. Keep credential-bearing
+  request redirects disabled. CLI and workflow regressions verify the configured
+  custom path is restored before publication.

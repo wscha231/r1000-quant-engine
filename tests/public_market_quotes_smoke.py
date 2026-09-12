@@ -18,6 +18,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.refresh_public_market_quotes import collect, exact_close, fetch_deployed, fetch_json, preserve_deployed, public_tickers, yahoo_close
+from tools.refresh_public_market_quotes import main as refresh_main
 
 
 def fixture():
@@ -42,10 +43,10 @@ def main():
     restore_requests = []
     class RedirectServer(BaseHTTPRequestHandler):
         def do_GET(self):
-            if self.path.startswith("/dashboard.json"):
+            if self.path.startswith(("/dashboard.json", "/custom/data/dashboard.json")):
                 restore_requests.append(self.path)
                 data = fixture()
-                if (self.path.startswith("/dashboard.json?restore=")
+                if ("?restore=" in self.path
                         and self.headers.get("Cache-Control") == "no-cache, no-store, max-age=0"
                         and self.headers.get("Pragma") == "no-cache"):
                     data["as_of_close"] = "2026-07-24"
@@ -78,6 +79,15 @@ def main():
                 assert fetch_deployed()[0]["as_of_close"] == "2026-07-24"
                 assert fetch_deployed()[0]["as_of_close"] == "2026-07-24"
                 assert len(set(restore_requests)) == 2
+            with TemporaryDirectory() as tmp:
+                target = Path(tmp) / "dashboard.json"
+                target.write_text(json.dumps(fixture()))
+                custom = f"http://127.0.0.1:{server.server_port}/custom/data/dashboard.json"
+                with patch.object(sys, "argv", ["refresh", "--preserve-deployed", "--dashboard", str(target),
+                                                "--deployed-url", custom]):
+                    refresh_main()
+                assert json.loads(target.read_text())["as_of_close"] == "2026-07-24"
+                assert restore_requests[-1].startswith("/custom/data/dashboard.json?restore=")
         finally:
             server.shutdown()
             thread.join(timeout=2)

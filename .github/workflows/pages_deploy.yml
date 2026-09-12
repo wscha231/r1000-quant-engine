@@ -73,9 +73,17 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Configure GitHub Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
       - name: Preserve last published portfolio snapshot
+        env:
+          PUBLIC_PAGES_BASE_URL: ${{ steps.pages.outputs.base_url }}
         run: |
-          python -m tools.refresh_public_market_quotes --preserve-deployed
+          test -n "$PUBLIC_PAGES_BASE_URL"
+          python -m tools.refresh_public_market_quotes --preserve-deployed \
+            --deployed-url "${PUBLIC_PAGES_BASE_URL%/}/data/dashboard.json"
           cp docs/public/data/dashboard.json .dashboard-previous.json
 
       - name: Check for completed-session daily artifact
@@ -139,10 +147,6 @@ jobs:
       - name: Validate public data and static assets
         if: steps.publish_gate.outputs.ready == 'yes'
         run: python tests/public_portfolio_dashboard_smoke.py
-
-      - name: Configure GitHub Pages
-        if: steps.publish_gate.outputs.ready == 'yes'
-        uses: actions/configure-pages@v5
 
       - name: Upload public-only Pages artifact
         if: steps.publish_gate.outputs.ready == 'yes'

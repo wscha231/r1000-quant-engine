@@ -49,9 +49,9 @@ def fetch_json(url, headers=None):
     return json.loads(raw), hashlib.sha256(raw).hexdigest()
 
 
-def fetch_deployed():
+def fetch_deployed(url=None):
     # A prior edge-cached response must not roll back a just-published session.
-    return fetch_json(PUBLIC_DASHBOARD + "?restore=" + uuid4().hex,
+    return fetch_json((url or PUBLIC_DASHBOARD) + "?restore=" + uuid4().hex,
                       {"Cache-Control": "no-cache, no-store, max-age=0", "Pragma": "no-cache"})
 
 
@@ -207,12 +207,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dashboard", type=Path, default=Path("docs/public/data/dashboard.json"))
     parser.add_argument("--output", type=Path, default=Path("docs/public/data/market-quotes.json"))
+    parser.add_argument("--deployed-url", help="Canonical public dashboard URL from GitHub Pages configuration")
     preservation = parser.add_mutually_exclusive_group()
     preservation.add_argument("--preserve-deployed", action="store_true")
     preservation.add_argument("--preserve-from", type=Path)
     args = parser.parse_args()
     if args.preserve_deployed:
-        deployed, _ = fetch_deployed()
+        deployed, _ = fetch_deployed(args.deployed_url)
         preserve_deployed(args.dashboard, deployed)
         return
     if args.preserve_from:

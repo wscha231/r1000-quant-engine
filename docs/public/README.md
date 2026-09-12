@@ -140,3 +140,7 @@ After buying and verifying a domain:
 
 For an Actions-based Pages deployment, GitHub stores the custom-domain setting;
 a tracked `CNAME` file is not required.
+The publisher reads `actions/configure-pages`' canonical `base_url` before
+restoring public data, so custom domains do not require following redirects.
+For a manual local restoration, pass the canonical full JSON URL with
+`--preserve-deployed --deployed-url https://your-domain/data/dashboard.json`.
