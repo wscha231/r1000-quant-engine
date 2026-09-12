@@ -50,17 +50,21 @@ jobs:
           ref: master
           fetch-depth: 60
           sparse-checkout: |
+            /*.py
             docs/public
-            tools/build_public_portfolio_dashboard.py
-            tools/run287_promotion_gate.py
+            tools
+            tests
             data_static/run287_promotion_state.json
-            tests/public_portfolio_dashboard_smoke.py
           sparse-checkout-cone-mode: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      # Public validation imports the paper-ledger smoke and its runtime.
+      - name: Install public validation dependencies
+        run: python -m pip install 'pandas>=2.2,<3' numpy pyarrow 'pandas_market_calendars>=4.4' requests pyyaml
 
       - name: Check for completed-session daily artifact
         id: daily_artifact
