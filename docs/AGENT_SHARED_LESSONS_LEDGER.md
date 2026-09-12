@@ -4998,3 +4998,14 @@ Expected contract:
 - Direct local network/artifact download is unavailable in this environment.
   Use the connected GitHub source transport and pinned Actions runtime; don't
   claim an unrun local calendar integration suite passed.
+- PR420 review: HTTP304 only proves unchanged upstream bytes. Bind conditional
+  SEC reuse to extraction/form/coverage code identity and the extraction window;
+  otherwise a new catalog can misattribute old normalized rows to new code.
+- Preserve the separate missing-date output from the FRED parser. Its nonmissing
+  rows alone cannot describe interior gaps. Restrict current issuer coverage to
+  the latest cohort-to-CIK mapping while retaining inactive historical objects.
+- A Drive text search can omit hash-named binary packs. Direct folder listing
+  exposed the uploaded ZIPs; an empty text-search result was not proof of absence.
+- Offline regressions for these boundaries pass (48 total). Current PR420 data
+  pilot34680321989 remains in progress; pack presence alone is not a completed
+  catalog/clean-consumer execution receipt or active scheduled operation.
