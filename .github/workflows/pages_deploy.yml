@@ -65,7 +65,8 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install dashboard and calendar dependencies
+      # Public validation imports the paper-ledger smoke and its runtime.
+      - name: Install public validation dependencies
         run: python -m pip install 'pandas>=2.2,<3' numpy pyarrow 'pandas_market_calendars>=4.4' requests pyyaml
 
       - name: Set up dashboard JavaScript checks

@@ -2522,6 +2522,26 @@ def test_latest_run_hydration_preserves_reverified_paper_head_evidence() -> None
     assert restore_syntax.returncode == 0, restore_syntax.stderr
 
 
+def test_pages_deploy_checks_out_public_validator_runtime() -> None:
+    # Full-checkout PR validation can pass while the sparse Pages job cannot
+    # import the very same validator (deployment run 34672956065).
+    import yaml
+
+    workflow = yaml.safe_load(PAGES_WORKFLOW.read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["build"]["steps"]
+    checkout = next(step for step in steps if step.get("uses", "").startswith("actions/checkout@"))
+    patterns = checkout["with"]["sparse-checkout"].splitlines()
+    for required in ["/*.py", "tools", "tests", "docs/public", "data_static/run287_promotion_state.json"]:
+        assert required in patterns, f"Pages validator runtime omitted: {required}"
+    validation_index = next(i for i, step in enumerate(steps) if "python tests/public_portfolio_dashboard_smoke.py" in step.get("run", ""))
+    install_commands = "\n".join(step.get("run", "") for step in steps[:validation_index])
+    assert "python -m pip install" in install_commands
+    for package in ["pandas", "numpy", "pyarrow", "pandas_market_calendars", "requests", "pyyaml"]:
+        assert package in install_commands, f"Pages validator dependency omitted: {package}"
+    upload = next(step for step in steps if step.get("uses", "").startswith("actions/upload-pages-artifact@"))
+    assert upload["with"]["path"] == "docs/public", "Internal validator sources must not be published"
+
+
 def test_pages_deploy_keeps_prior_site_without_completed_session_artifact() -> None:
     # The published portfolio is preserved, while independent quote status may
     # refresh. A failed daily run must still never enter the account builder.
@@ -2577,6 +2597,7 @@ def main() -> int:
     test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract()
     test_daily_operating_catchup_capture_is_read_only_and_closed()
     test_latest_run_hydration_preserves_reverified_paper_head_evidence()
+    test_pages_deploy_checks_out_public_validator_runtime()
     test_pages_deploy_keeps_prior_site_without_completed_session_artifact()
     print("workflow artifact smoke passed")
     return 0
