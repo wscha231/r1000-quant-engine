@@ -1,5 +1,32 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-10 — Inspect frozen source data inside the authenticated runner
+
+- A fresh artifact file reference still failed HTTP403 at the workspace's file
+  transport. Keep that boundary distinct from missing GitHub source data.
+- Add a fixed-artifact, read-only Actions audit using actions:read, verify the
+  original ZIP hash before member reads, and retain only aggregate diagnostics.
+  Never execute source-archive code, restore accepted state, or publish raw data
+  as a workaround. Preserve the failed source run's status separately.
+- Inspect CSV provenance and actual Parquet observations. A manifest's date
+  range cannot prove price coverage; archived metric values cannot prove a new
+  fund result. Existing source-only/post-book/PIT gates remain necessary.
+- Evidence: `docs/RUN287_SOURCE_RECOVERY_20260910.md`; eight archive regressions
+  run through the already registered clean7y preflight smoke suite.
+- Actual run `34450814925` verified the original 369,243,166-byte ZIP. Five
+  frozen anchors matched; candidate books contain 981 tickers through May 29
+  but lack required availability/cutoff columns. Raw cache prices were not
+  uploaded. Original collector/engine cache saves were skipped after failure.
+- A separately pinned static archive has its own read-only Actions cache key.
+  Inspect it under its distinct source identity; never call it the original
+  source-run artifact or infer historical universe/PIT from price histories.
+  The extended eleven-test audit checks alternate formats and bounded headers.
+- Extended run `34452252116` verified the separate static ZIP and read 363
+  price-cache files / 1,091,464 rows, ending 2026-07-10. All eleven archive tests
+  and Guard passed. Its prices are recovered evidence, not an end-to-end
+  historical strategy run; latest-period decisions and PIT/lifecycle inputs
+  still block a new result through 2026-09-09.
+
 This is the shared "mistake notebook" for Codex, Claude, GPT Pro, and any other
 agent working on `wscha231/r1000-quant-engine`.
 
