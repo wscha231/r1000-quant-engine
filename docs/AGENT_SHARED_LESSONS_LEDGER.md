@@ -4902,3 +4902,15 @@ Expected contract:
 - Fullrun executed: false. Workflow dispatched or rerun: false. Migration,
   quarantine, Drive, target, order, ledger, accepted-head, production, live
   trading, automatic promotion, and pattern backfill state mutated: false.
+
+## 2026-09-12 - OAuth privacy URL must point to published content
+
+- A proposed Pages URL is not a deployed privacy policy. Add the actual page
+  under docs/public and link it from the homepage; keep the Actions-only Pages
+  source so internal docs are not published.
+- Disclose the broad Drive OAuth scope separately from the configured research
+  folder, and distinguish revoking future access from deleting retained copies.
+- GitHub Actions artifacts follow repository access rules; do not describe all
+  research artifacts as private solely because the public dashboard filters them.
+- Policy source preparation does not prove Google verification, production
+  publishing status, token validity, or successful Pages deployment.
