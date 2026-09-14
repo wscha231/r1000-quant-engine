@@ -90,6 +90,13 @@ SEC의 filed 날짜와 ALFRED vintage 날짜는 실제 장중 공개시각과 �
 원문이 필요한 경우 dataset의 raw_objects를 get_bytes로 읽어 gzip 해제하며,
 파생값에는 사용한 원본·코드·mapping·cutoff 식별자를 남긴다.
 
+큰 정규화 자료의 `encoding=gzip_jsonl_chunks_v1`은 `normalized` 객체가
+순서 있는 chunk 해시·총행수 manifest임을 뜻한다. 원본 전체를 하나의 gzip
+JSONL로 가정하지 말고 현재 reader의 `get_records` 또는 `iter_records`를
+사용한다. 작은 자료와 기존 catalog의 `gzip_jsonl` 객체는 그대로 읽힌다.
+Chunk마다 크기·해시·catalog 소속을 검증하고 마지막에 총행수를 대조한다.
+SQL 소비는 순차 reader를 사용하므로 중간 결함이면 transaction이 실패한다.
+
 ## 다른 채팅에 전달할 짧은 요청
 
 > GitHub wscha231/r1000-quant-engine의 최신 기본 브랜치와 AGENTS.md,
