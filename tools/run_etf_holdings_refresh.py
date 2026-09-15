@@ -142,15 +142,23 @@ def normalize_holding_rows(
     out["holding_name"] = d[name_col].astype(str).str.strip() if name_col else ""
     out["holding_weight"] = _normalize_weight_series(d[weight_col], weight_unit=unit)
     valid = out["holding_ticker"].ne("") & out["holding_weight"].notna()
-    out = out[valid].head(int(max_holdings)).copy()
-    if out.empty:
+    valid_rows = out[valid].copy()
+    if valid_rows.empty:
         return pd.DataFrame()
+    truncated = len(valid_rows) > int(max_holdings)
+    out = valid_rows.head(int(max_holdings)).copy()
+    effective_coverage = coverage
+    if coverage == "FULL":
+        if truncated:
+            effective_coverage = "TOP_ONLY"
+        elif abs(float(out["holding_weight"].sum()) - 1.0) > 0.02:
+            effective_coverage = "PARTIAL"
     out["etf_ticker"] = spec["etf_ticker"]
     out["etf_label"] = spec["etf_label"]
     out["theme"] = spec["theme"]
     out["source"] = source
     out["source_weight_unit"] = unit
-    out["coverage_kind"] = coverage
+    out["coverage_kind"] = effective_coverage
     out["as_of_date"] = as_of
     out["available_from"] = as_of
     return out[
