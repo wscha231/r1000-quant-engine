@@ -22,6 +22,7 @@ from strict import (  # noqa: E402
     validate_documents,
     validate_membership_events,
     validate_price_rows,
+    validate_security_registry,
     resolve_memberships,
     run_payload,
 )
@@ -115,8 +116,8 @@ def test_reviewed_membership_only_and_unlink():
 def test_universe_expansion_requires_verified_us_common_or_adr():
     memberships = {"NEW": {"security_id": "NEW"}, "FOREIGN": {"security_id": "FOREIGN"}}
     securities = [
-        {"security_id": "NEW", "identity_verified": True, "listing_country": "US", "instrument": "COMMON", "exchange": "XNAS", "research_eligible": True},
-        {"security_id": "FOREIGN", "identity_verified": True, "listing_country": "KR", "instrument": "COMMON", "exchange": "XKRX", "research_eligible": True},
+        {"security_id": "NEW", "available_at": "2026-09-15T00:00:00Z", "identity_verified": True, "listing_country": "US", "instrument": "COMMON", "exchange": "XNAS", "research_eligible": True},
+        {"security_id": "FOREIGN", "available_at": "2026-09-15T00:00:00Z", "identity_verified": True, "listing_country": "KR", "instrument": "COMMON", "exchange": "XKRX", "research_eligible": True},
     ]
     result = compose_universe(["BASE"], securities, memberships)
     assert result["research_universe_proposal"] == ["BASE", "NEW"]
@@ -158,8 +159,9 @@ def test_end_to_end_keeps_trading_disabled():
         "schema": "theme-etf-runtime-v1",
         "decision_at": "2026-09-15T22:00:00Z",
         "benchmark_id": "SPY",
+        "base_universe_available_at": "2026-09-15T00:00:00Z",
         "base_universe": ["BASE"],
-        "securities": [{"security_id": "NEW", "identity_verified": True, "listing_country": "US", "instrument": "ADR", "exchange": "XNYS", "research_eligible": True}],
+        "securities": [{"security_id": "NEW", "available_at": "2026-09-15T00:00:00Z", "identity_verified": True, "listing_country": "US", "instrument": "ADR", "exchange": "XNYS", "research_eligible": True}],
         "membership_events": [{"event_id": "m1", "theme_id": "T", "security_id": "NEW", "action": "LINK", "role": "DIRECT", "relevance": 0.8, "effective_at": "2026-09-15T00:00:00Z", "observed_at": "2026-09-15T01:00:00Z", "reviewed_at": "2026-09-15T02:00:00Z", "reviewed": True}],
         "prices": rows,
         "documents": [],
@@ -181,6 +183,7 @@ def test_point_in_time_inputs_reject_future_or_duplicate_evidence():
     expect_error(validate_price_rows, duplicate_prices, "2026-09-15T22:00:00Z")
     expect_error(validate_price_rows, [{"security_id": "SPY", "session": "2026-09-15", "available_at": "2026-09-14T21:00:00Z", "total_return_index": 100}], "2026-09-15T22:00:00Z")
     expect_error(validate_membership_events, [{"event_id": "m2", "effective_at": "2026-09-14T00:00:00Z", "observed_at": "2026-09-15T10:00:00Z", "reviewed_at": "2026-09-15T09:00:00Z", "reviewed": True}], "2026-09-15T22:00:00Z")
+    expect_error(validate_security_registry, [{"security_id": "NEW", "available_at": "2026-09-16T00:00:00Z"}], "2026-09-15T22:00:00Z")
 
 
 def main():
