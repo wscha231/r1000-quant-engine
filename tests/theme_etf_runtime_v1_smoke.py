@@ -138,11 +138,11 @@ def test_leadership_uses_log_relative_total_return():
 
 def test_discovery_deduplicates_documents_and_tracks_source_groups():
     docs = [
-        {"document_id": "1", "source_group": "A", "title": "co-packaged optics demand accelerates", "summary": "co-packaged optics"},
-        {"document_id": "1", "source_group": "A", "title": "duplicate", "summary": "duplicate"},
-        {"document_id": "2", "source_group": "B", "title": "co-packaged optics capacity", "summary": "co-packaged optics"},
+        {"document_id": "1", "source_group": "A", "available_at": "2026-09-15T10:00:00Z", "title": "co-packaged optics demand accelerates", "summary": "co-packaged optics"},
+        {"document_id": "1", "source_group": "A", "available_at": "2026-09-15T10:01:00Z", "title": "duplicate", "summary": "duplicate"},
+        {"document_id": "2", "source_group": "B", "available_at": "2026-09-15T10:02:00Z", "title": "co-packaged optics capacity", "summary": "co-packaged optics"},
     ]
-    terms = discover_terms(docs)
+    terms = discover_terms(docs, decision_at="2026-09-15T11:00:00Z")
     matching = [r for r in terms if r["term"] == "co-packaged optics"]
     assert matching and matching[0]["independent_source_groups"] == 2
 
@@ -179,6 +179,8 @@ def test_point_in_time_inputs_reject_future_or_duplicate_evidence():
         {"security_id": "SPY", "session": "2026-09-15", "available_at": "2026-09-15T21:00:00Z", "total_return_index": 100},
     ]
     expect_error(validate_price_rows, duplicate_prices, "2026-09-15T22:00:00Z")
+    expect_error(validate_price_rows, [{"security_id": "SPY", "session": "2026-09-15", "available_at": "2026-09-14T21:00:00Z", "total_return_index": 100}], "2026-09-15T22:00:00Z")
+    expect_error(validate_membership_events, [{"event_id": "m2", "effective_at": "2026-09-14T00:00:00Z", "observed_at": "2026-09-15T10:00:00Z", "reviewed_at": "2026-09-15T09:00:00Z", "reviewed": True}], "2026-09-15T22:00:00Z")
 
 
 def main():
