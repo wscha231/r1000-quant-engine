@@ -1,13 +1,13 @@
 """Strict supported interface for Theme/ETF Runtime V1.
 
 The lower-level runtime module remains pure and backwards-readable; this module
-adds input conflict checks and revalidation for normalized snapshots. CLI and
-CI use this interface.
+adds point-in-time input checks and revalidation. CLI and CI use this interface.
 """
 from __future__ import annotations
 
+from datetime import date
 import math
-from typing import Any
+from typing import Any, Iterable
 
 try:
     from . import runtime as _core
@@ -17,7 +17,6 @@ except ImportError:  # direct CLI/test import with runtime directory on sys.path
 ContractError = _core.ContractError
 build_holding_events = _core.build_holding_events
 compose_universe = _core.compose_universe
-compute_leadership = _core.compute_leadership
 discover_terms = _core.discover_terms
 latest_asof_by_fund = _core.latest_asof_by_fund
 resolve_memberships = _core.resolve_memberships
@@ -40,6 +39,13 @@ def normalize_snapshot(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def validate_normalized_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Validate conservative cached snapshots.
+
+    Externally supplied pre-normalized snapshots may be reused only when they
+    are incomplete/conservative. A `complete=True` claim must be rebuilt from
+    the raw snapshot contract in the current run, because the normalized shape
+    does not retain enough evidence to independently prove source completeness.
+    """
     if snapshot.get("schema") != "etf-snapshot-v2":
         raise ContractError("normalized snapshot schema mismatch")
     expected_sha = str(snapshot.get("snapshot_sha256") or "")
@@ -53,6 +59,7 @@ def validate_normalized_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     if not rows:
         raise ContractError("normalized snapshot rows required")
     seen: set[str] = set()
+    actual_identity_ok = True
     for row in rows:
         security_id = str(row.get("security_id") or "").upper()
         if not security_id or security_id in seen:
@@ -64,25 +71,111 @@ def validate_normalized_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
             raise ContractError("normalized snapshot weight invalid") from exc
         if not math.isfinite(weight) or weight < -1.0 or weight > 1.0:
             raise ContractError("normalized snapshot weight invalid")
+        if str(row.get("instrument") or "").upper() in {"COMMON", "ADR", "ETF"} and not bool(row.get("identity_verified", False)):
+            actual_identity_ok = False
+    if bool(snapshot.get("identity_ok")) != actual_identity_ok:
+        raise ContractError("normalized snapshot identity gate mismatch")
     weight_sum = sum(float(row["weight"]) for row in rows)
     if abs(float(snapshot.get("weight_sum")) - weight_sum) > 1e-12:
         raise ContractError("normalized snapshot weight_sum mismatch")
     if bool(snapshot.get("complete", False)):
-        if str(snapshot.get("coverage_kind")).upper() != _core.FULL_COVERAGE:
-            raise ContractError("only FULL snapshots may be complete")
-        if not all(bool(snapshot.get(k, False)) for k in ("expected_unique_rows_ok", "identity_ok", "weight_sum_ok")):
-            raise ContractError("complete snapshot gates are inconsistent")
-        if abs(weight_sum - 1.0) > 0.02:
-            raise ContractError("complete snapshot weight sum outside tolerance")
+        raise ContractError("complete normalized snapshot must be rebuilt from raw source evidence")
     return snapshot
 
 
+def _cutoff(decision_at: str):
+    return _core.utc(decision_at)
+
+
+def validate_price_rows(rows: Iterable[dict[str, Any]], decision_at: str) -> list[dict[str, Any]]:
+    cutoff = _cutoff(decision_at)
+    out = list(rows)
+    seen: set[tuple[str, str]] = set()
+    for row in out:
+        security_id = str(row.get("security_id") or "").strip().upper()
+        session = str(row.get("session") or "").strip()
+        available_at = row.get("available_at")
+        if not security_id or not session or not available_at:
+            raise ContractError("price rows require security_id, session, and available_at")
+        key = (security_id, session)
+        if key in seen:
+            raise ContractError(f"duplicate price row: {security_id} {session}")
+        seen.add(key)
+        try:
+            session_date = date.fromisoformat(session)
+            value = float(row.get("total_return_index"))
+        except (TypeError, ValueError) as exc:
+            raise ContractError("invalid price session or total_return_index") from exc
+        if session_date > cutoff.date():
+            raise ContractError("future price session at decision time")
+        if _core.utc(str(available_at)) > cutoff:
+            raise ContractError("price row was not available at decision time")
+        if not math.isfinite(value) or value <= 0:
+            raise ContractError("total_return_index must be finite and positive")
+    return out
+
+
+def compute_leadership(price_rows: Iterable[dict[str, Any]], benchmark_id: str, *, decision_at: str | None = None) -> list[dict[str, Any]]:
+    rows = list(price_rows)
+    if decision_at is not None:
+        validate_price_rows(rows, decision_at)
+    return _core.compute_leadership(rows, benchmark_id)
+
+
+def validate_documents(documents: Iterable[dict[str, Any]], decision_at: str) -> list[dict[str, Any]]:
+    cutoff = _cutoff(decision_at)
+    out = list(documents)
+    seen: set[str] = set()
+    for doc in out:
+        doc_id = str(doc.get("document_id") or "").strip()
+        available_at = doc.get("available_at")
+        if not doc_id or not available_at:
+            raise ContractError("documents require document_id and available_at")
+        if doc_id in seen:
+            continue
+        seen.add(doc_id)
+        if _core.utc(str(available_at)) > cutoff:
+            raise ContractError("future document at decision time")
+    return out
+
+
+def validate_membership_events(events: Iterable[dict[str, Any]], decision_at: str) -> list[dict[str, Any]]:
+    cutoff = _cutoff(decision_at)
+    out = list(events)
+    seen: set[str] = set()
+    for event in out:
+        event_id = str(event.get("event_id") or "").strip()
+        observed_at = event.get("observed_at")
+        if not event_id or not observed_at:
+            raise ContractError("membership events require event_id and observed_at")
+        if event_id in seen:
+            raise ContractError(f"duplicate membership event_id: {event_id}")
+        seen.add(event_id)
+        _core.utc(str(event["effective_at"]))
+        if _core.utc(str(observed_at)) > cutoff:
+            raise ContractError("membership event was not observed at decision time")
+        if bool(event.get("reviewed", False)):
+            reviewed_at = event.get("reviewed_at")
+            if not reviewed_at:
+                raise ContractError("reviewed membership event requires reviewed_at")
+            if _core.utc(str(reviewed_at)) > cutoff:
+                raise ContractError("membership event was not reviewed at decision time")
+    return out
+
+
 def run_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    decision_at = str(payload.get("decision_at") or "")
+    _cutoff(decision_at)
     for snapshot in payload.get("etf_snapshots", []):
         if snapshot.get("schema") == "etf-snapshot-v2":
             validate_normalized_snapshot(snapshot)
+            if _core.utc(str(snapshot["available_at"])) > _cutoff(decision_at):
+                raise ContractError("ETF snapshot was not available at decision time")
         else:
             unit = str(snapshot.get("weight_unit") or "").upper().strip()
             for row in snapshot.get("rows", []):
                 normalize_weight(row.get("weight"), unit)
+    validate_price_rows(payload.get("prices", []), decision_at)
+    validate_documents(payload.get("documents", []), decision_at)
+    validate_membership_events(payload.get("membership_events", []), decision_at)
     return _core.run_payload(payload)
