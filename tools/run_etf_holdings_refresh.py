@@ -29,6 +29,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_UNIVERSE = "research/etf_holdings_universe_20260520/thematic_etfs.yaml"
 DEFAULT_PIT_DIR = "data_pit/etf_holdings"
 DEFAULT_OUTPUT_DIR = "outputs/etf_thematic_signals"
+WEIGHT_UNITS = {"FRACTION", "PERCENT"}
+COVERAGE_KINDS = {"FULL", "TOP_ONLY", "PARTIAL", "PCF", "PROXY", "NPORT"}
 
 
 def repo_path(value: str | Path) -> Path:
@@ -77,34 +79,78 @@ def load_universe(path: Path) -> list[dict[str, Any]]:
                 "etf_label": str(row.get("label") or ticker).strip(),
                 "theme": str(row.get("theme") or "unknown").strip(),
                 "holdings_url": str(row.get("holdings_url") or "").strip(),
+                "holdings_weight_unit": str(row.get("holdings_weight_unit") or "").upper().strip(),
+                "coverage_kind": str(row.get("coverage_kind") or "TOP_ONLY").upper().strip(),
             }
         )
     return out
 
 
-def normalize_holding_rows(frame: pd.DataFrame, spec: dict[str, Any], *, as_of: str, source: str, max_holdings: int) -> pd.DataFrame:
+def _normalize_weight_series(series: pd.Series, *, weight_unit: str) -> pd.Series:
+    unit = str(weight_unit or "").upper().strip()
+    if unit not in WEIGHT_UNITS:
+        return pd.Series(float("nan"), index=series.index, dtype=float)
+    raw = series.astype(str).str.strip()
+    if unit == "FRACTION" and raw.str.contains("%", regex=False).any():
+        return pd.Series(float("nan"), index=series.index, dtype=float)
+    numeric = pd.to_numeric(raw.str.replace("%", "", regex=False), errors="coerce")
+    if unit == "PERCENT":
+        numeric = numeric / 100.0
+    numeric = numeric.where(numeric.map(lambda value: bool(math.isfinite(float(value))) if pd.notna(value) else False))
+    return numeric.where(numeric.between(0.0, 1.0))
+
+
+def normalize_holding_rows(
+    frame: pd.DataFrame,
+    spec: dict[str, Any],
+    *,
+    as_of: str,
+    source: str,
+    max_holdings: int,
+    weight_unit: str,
+    coverage_kind: str,
+) -> pd.DataFrame:
     if frame.empty:
+        return pd.DataFrame()
+    unit = str(weight_unit or "").upper().strip()
+    coverage = str(coverage_kind or "").upper().strip()
+    if unit not in WEIGHT_UNITS or coverage not in COVERAGE_KINDS:
         return pd.DataFrame()
     d = frame.copy()
     lower = {str(c).lower().strip(): c for c in d.columns}
     ticker_col = next((lower[c] for c in ["holding_ticker", "ticker", "symbol", "holding symbol", "identifier"] if c in lower), None)
     name_col = next((lower[c] for c in ["holding_name", "name", "company", "security", "holding name"] if c in lower), None)
-    weight_col = next((lower[c] for c in ["holding_weight", "weight", "% assets", "weight (%)", "market value weight"] if c in lower), None)
-    if ticker_col is None:
+    weight_col = next(
+        (
+            lower[c]
+            for c in [
+                "holding_weight",
+                "holding percent",
+                "weight",
+                "% assets",
+                "weight (%)",
+                "market value weight",
+            ]
+            if c in lower
+        ),
+        None,
+    )
+    if ticker_col is None or weight_col is None:
         return pd.DataFrame()
-    out = pd.DataFrame()
+    out = pd.DataFrame(index=d.index)
     out["holding_ticker"] = d[ticker_col].astype(str).str.upper().str.strip()
     out["holding_name"] = d[name_col].astype(str).str.strip() if name_col else ""
-    if weight_col:
-        weight = pd.to_numeric(d[weight_col].astype(str).str.replace("%", "", regex=False), errors="coerce")
-        out["holding_weight"] = weight.where(weight <= 1.0, weight / 100.0).fillna(0.0).clip(lower=0.0)
-    else:
-        out["holding_weight"] = 0.0
-    out = out[out["holding_ticker"].ne("")].head(int(max_holdings)).copy()
+    out["holding_weight"] = _normalize_weight_series(d[weight_col], weight_unit=unit)
+    valid = out["holding_ticker"].ne("") & out["holding_weight"].notna()
+    out = out[valid].head(int(max_holdings)).copy()
+    if out.empty:
+        return pd.DataFrame()
     out["etf_ticker"] = spec["etf_ticker"]
     out["etf_label"] = spec["etf_label"]
     out["theme"] = spec["theme"]
     out["source"] = source
+    out["source_weight_unit"] = unit
+    out["coverage_kind"] = coverage
     out["as_of_date"] = as_of
     out["available_from"] = as_of
     return out[
@@ -115,6 +161,8 @@ def normalize_holding_rows(frame: pd.DataFrame, spec: dict[str, Any], *, as_of: 
             "holding_ticker",
             "holding_name",
             "holding_weight",
+            "source_weight_unit",
+            "coverage_kind",
             "source",
             "as_of_date",
             "available_from",
@@ -132,44 +180,100 @@ def fetch_yfinance_holdings(spec: dict[str, Any], *, as_of: str, max_holdings: i
         if top is None or top.empty:
             return pd.DataFrame()
         top = top.reset_index() if top.index.name else top.copy()
-        return normalize_holding_rows(top, spec, as_of=as_of, source="yfinance", max_holdings=max_holdings)
+        # yfinance FundsData.top_holdings exposes Holding Percent as a fraction.
+        # It is also a top-holdings view, not proof of a complete portfolio.
+        return normalize_holding_rows(
+            top,
+            spec,
+            as_of=as_of,
+            source="yfinance",
+            max_holdings=max_holdings,
+            weight_unit="FRACTION",
+            coverage_kind="TOP_ONLY",
+        )
     except Exception:
         return pd.DataFrame()
 
 
 def fetch_url_holdings(spec: dict[str, Any], *, as_of: str, max_holdings: int) -> pd.DataFrame:
     url = str(spec.get("holdings_url") or "").strip()
-    if not url:
+    unit = str(spec.get("holdings_weight_unit") or "").upper().strip()
+    coverage = str(spec.get("coverage_kind") or "").upper().strip()
+    if not url or unit not in WEIGHT_UNITS or coverage not in COVERAGE_KINDS:
         return pd.DataFrame()
     try:
         response = requests.get(url, timeout=30, headers={"User-Agent": "R1000QuantEngine research"})
         response.raise_for_status()
         frame = pd.read_csv(io.StringIO(response.text))
-        return normalize_holding_rows(frame, spec, as_of=as_of, source=url, max_holdings=max_holdings)
+        return normalize_holding_rows(
+            frame,
+            spec,
+            as_of=as_of,
+            source=url,
+            max_holdings=max_holdings,
+            weight_unit=unit,
+            coverage_kind=coverage,
+        )
     except Exception:
         return pd.DataFrame()
 
 
+def _single_value(group: pd.DataFrame, column: str, default: str) -> str:
+    if column not in group.columns:
+        return default
+    values = [str(value).strip() for value in group[column].dropna().tolist() if str(value).strip()]
+    unique = sorted(set(values))
+    return unique[0] if len(unique) == 1 else ""
+
+
 def load_fixture_holdings(path: Path, specs: list[dict[str, Any]], *, as_of: str, max_holdings: int) -> pd.DataFrame:
     frame = read_table(path)
-    if frame.empty:
+    if frame.empty or "etf_ticker" not in frame.columns:
         return pd.DataFrame()
     specs_by_ticker = {s["etf_ticker"]: s for s in specs}
     rows: list[pd.DataFrame] = []
-    for etf, group in frame.groupby(frame.get("etf_ticker", "").astype(str).str.upper().str.strip()):
+    grouped = frame.groupby(frame["etf_ticker"].astype(str).str.upper().str.strip())
+    for etf, group in grouped:
         spec = specs_by_ticker.get(etf, {"etf_ticker": etf, "etf_label": etf, "theme": "fixture"})
-        rows.append(normalize_holding_rows(group, spec, as_of=as_of, source="fixture", max_holdings=max_holdings))
-    return pd.concat([r for r in rows if not r.empty], ignore_index=True, sort=False) if rows else pd.DataFrame()
+        unit = _single_value(group, "weight_unit", "FRACTION").upper()
+        coverage = _single_value(group, "coverage_kind", "TOP_ONLY").upper()
+        normalized = normalize_holding_rows(
+            group,
+            spec,
+            as_of=as_of,
+            source="fixture",
+            max_holdings=max_holdings,
+            weight_unit=unit,
+            coverage_kind=coverage,
+        )
+        if not normalized.empty:
+            rows.append(normalized)
+    return pd.concat(rows, ignore_index=True, sort=False) if rows else pd.DataFrame()
 
 
 def previous_holdings(pit_file: Path) -> pd.DataFrame:
     prev = read_table(pit_file)
-    if prev.empty or "available_from" not in prev.columns:
+    if prev.empty or "available_from" not in prev.columns or "etf_ticker" not in prev.columns:
         return pd.DataFrame()
-    available = pd.to_datetime(prev["available_from"], errors="coerce", utc=True)
-    if available.notna().any():
-        prev = prev[available.eq(available.max())].copy()
-    return prev
+    prev = prev.copy()
+    prev["_available_ts"] = pd.to_datetime(prev["available_from"], errors="coerce", utc=True)
+    prev = prev[prev["_available_ts"].notna()].copy()
+    if prev.empty:
+        return pd.DataFrame()
+    latest_by_fund = prev.groupby(prev["etf_ticker"].astype(str).str.upper().str.strip())["_available_ts"].transform("max")
+    prev = prev[prev["_available_ts"].eq(latest_by_fund)].copy()
+    return prev.drop(columns=["_available_ts"])
+
+
+def _full_coverage_funds(frame: pd.DataFrame) -> set[str]:
+    if frame.empty or "coverage_kind" not in frame.columns or "etf_ticker" not in frame.columns:
+        return set()
+    out: set[str] = set()
+    for fund, group in frame.groupby(frame["etf_ticker"].astype(str).str.upper().str.strip()):
+        kinds = {str(value).upper().strip() for value in group["coverage_kind"].dropna()}
+        if kinds == {"FULL"}:
+            out.add(str(fund).upper())
+    return out
 
 
 def build_signals(holdings: pd.DataFrame, previous: pd.DataFrame) -> pd.DataFrame:
@@ -189,17 +293,22 @@ def build_signals(holdings: pd.DataFrame, previous: pd.DataFrame) -> pd.DataFram
         )
     d = holdings.copy()
     d["ticker"] = d["holding_ticker"].astype(str).str.upper().str.strip()
-    prev_pairs = set()
+    prev_pairs: set[tuple[str, str]] = set()
     if not previous.empty and {"etf_ticker", "holding_ticker"}.issubset(previous.columns):
-        prev_pairs = set(zip(previous["etf_ticker"].astype(str), previous["holding_ticker"].astype(str).str.upper()))
+        prev_pairs = set(zip(previous["etf_ticker"].astype(str).str.upper(), previous["holding_ticker"].astype(str).str.upper()))
+    current_full = _full_coverage_funds(d)
+    previous_full = _full_coverage_funds(previous)
+    eligible_add_funds = current_full & previous_full
     d["is_recent_add"] = [
-        (str(row.etf_ticker), str(row.holding_ticker).upper()) not in prev_pairs
+        str(row.etf_ticker).upper() in eligible_add_funds
+        and (str(row.etf_ticker).upper(), str(row.holding_ticker).upper()) not in prev_pairs
         for row in d[["etf_ticker", "holding_ticker"]].itertuples(index=False)
-    ] if prev_pairs else False
+    ]
     rows: list[dict[str, Any]] = []
     for ticker, group in d[d["ticker"].ne("")].groupby("ticker"):
         consensus = int(group["etf_ticker"].nunique())
-        weight_sum = float(pd.to_numeric(group["holding_weight"], errors="coerce").fillna(0.0).sum())
+        weight_values = pd.to_numeric(group["holding_weight"], errors="coerce").dropna()
+        weight_sum = float(weight_values.sum()) if not weight_values.empty else 0.0
         recent_add = safe_pct(float(group["is_recent_add"].sum()) / max(consensus, 1))
         theme_score = safe_pct(0.55 * safe_pct(weight_sum / 0.15) + 0.25 * safe_pct(consensus / 3.0) + 0.20 * recent_add)
         crowding = safe_pct(consensus / 8.0)
@@ -284,13 +393,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     signals.to_csv(out_dir / "signals_latest.csv", index=False)
     summary = {
         "status": "completed",
-        "schema_version": "etf-holdings-signals-v1",
+        "schema_version": "etf-holdings-signals-v2",
         "research_only": True,
         "production_activation_allowed": False,
         "score_total_changed": False,
         "as_of": as_of,
         "etf_universe_count": int(len(specs)),
         "holding_rows": int(len(holdings)),
+        "full_coverage_etfs": int(len(_full_coverage_funds(holdings))),
         "signal_tickers": int(len(signals)),
         "pit_file": str(pit_file),
         "latest_csv": str(out_dir / "etf_latest.csv"),
