@@ -9,6 +9,9 @@ quarter `report_period`.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import math
+from decimal import Decimal, InvalidOperation
 import json
 import re
 import sys
@@ -31,6 +34,8 @@ from tools.run_sec_submissions_collector import (  # noqa: E402
     sec_get_json,
     sec_headers,
 )
+
+from tools.sec_13f_parser_integrity import adapt_legacy_parser_rows
 
 DEFAULT_INDEX = "data_pit/sec/sec_filings_index.parquet"
 DEFAULT_OUTPUT_DIR = "data_pit/sec"
@@ -63,6 +68,12 @@ FORM13F_COLUMNS = [
     "form_type",
     "amendment_type",
     "filing_url",
+    "source_row_id",
+    "raw_reported_shares",
+    "raw_reported_value",
+    "raw_xml_sha256",
+    "parse_evidence_id",
+    "value_unit_status",
 ]
 
 FORM13F_NUMERIC_COLUMNS = {
@@ -95,15 +106,43 @@ def first_text(node: ET.Element | None, name: str, default: str = "") -> str:
     return str(child.text).strip()
 
 
+class FilingBatchError(RuntimeError):
+    """One or more requested filings failed; never publish a partial snapshot."""
+
+    def __init__(self, errors: list[dict[str, str]]) -> None:
+        self.errors = errors
+        super().__init__(f"13f_filing_batch_incomplete:{len(errors)}")
+
+
 def as_float(value: Any) -> float:
+    """Parse a required nonnegative number, without inventing a zero.
+
+    Preserve the legacy float interface, but reject values it cannot represent
+    without changing their decimal value. Raw numeric strings are also retained.
+    """
+    if value is None or isinstance(value, bool):
+        raise ValueError("13f_required_number_missing_or_boolean")
+    text = str(value).strip()
+    # Commas must be correctly grouped; 12,34 must not become 1234.
+    if not re.fullmatch(r"(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)(?:\.[0-9]+)?", text):
+        raise ValueError("13f_required_number_invalid")
     try:
-        text = str(value or "").replace(",", "").strip()
-        if not text:
-            return 0.0
-        out = float(text)
-    except Exception:
-        return 0.0
-    return out if pd.notna(out) else 0.0
+        exact = Decimal(text.replace(",", ""))
+        result = float(exact)
+    except (InvalidOperation, ValueError, OverflowError) as exc:
+        raise ValueError("13f_required_number_invalid") from exc
+    if not exact.is_finite() or exact < 0 or not math.isfinite(result):
+        raise ValueError("13f_required_number_nonfinite_or_negative")
+    if Decimal(str(result)) != exact:
+        raise ValueError("13f_required_number_precision_loss")
+    return result
+
+
+def optional_float(value: Any) -> float | None:
+    """An absent optional voting field stays null, not zero."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    return as_float(value)
 
 
 def market_value_usd(value: Any, filing_date: Any = "") -> float:
@@ -332,7 +371,14 @@ def parse_13f_xml(
 ) -> list[dict[str, Any]]:
     filing = filing or {}
     cusip_map = cusip_map or {}
-    root = ET.fromstring(extract_information_table_xml(xml_text).encode("utf-8"))
+    payload = extract_information_table_xml(xml_text).encode("utf-8")
+    if len(payload) > 32 * 1024 * 1024:
+        raise ValueError("13f_xml_size_limit")
+    if b"<!DOCTYPE" in payload.upper() or b"<!ENTITY" in payload.upper():
+        raise ValueError("13f_xml_entities_not_allowed")
+    root = ET.fromstring(payload)
+    if local_name(root.tag).lower() != "informationtable":
+        raise ValueError("13f_information_table_root_required")
     rows: list[dict[str, Any]] = []
     manager_cik = cik10(filing.get("cik10") or filing.get("manager_cik"))
     manager_name = str(filing.get("manager_name") or filing.get("ticker") or "").strip()
@@ -357,17 +403,38 @@ def parse_13f_xml(
                 "market_value_usd": market_value_usd(value_raw, filing.get("filing_date") or filing.get("accepted_at")),
                 "put_call": first_text(info, "putCall"),
                 "investment_discretion": first_text(info, "investmentDiscretion"),
-                "other_manager": first_text(info, "otherManager"),
-                "voting_authority_sole": as_float(first_text(first(info, "votingAuthority"), "Sole")),
-                "voting_authority_shared": as_float(first_text(first(info, "votingAuthority"), "Shared")),
-                "voting_authority_none": as_float(first_text(first(info, "votingAuthority"), "None")),
+                "other_manager": ",".join(
+                    str(node.text or "").strip() for node in info.iter()
+                    if local_name(node.tag).lower() == "othermanager"
+                ),
+                "voting_authority_sole": optional_float(first_text(first(info, "votingAuthority"), "Sole")),
+                "voting_authority_shared": optional_float(first_text(first(info, "votingAuthority"), "Shared")),
+                "voting_authority_none": optional_float(first_text(first(info, "votingAuthority"), "None")),
                 "source_accession": str(filing.get("accession_number") or filing.get("source_accession") or ""),
                 "form_type": str(filing.get("form_type") or "").upper().strip(),
                 "amendment_type": str(filing.get("amendment_type") or "").upper().strip(),
                 "filing_url": str(filing.get("filing_url") or ""),
             }
         )
-    return rows
+    raw_hash = hashlib.sha256(payload).hexdigest()
+    manifest = {
+        "source_accession": str(filing.get("accession_number") or filing.get("source_accession") or ""),
+        "raw_sha256": raw_hash,
+        "expected_row_count": sum(local_name(node.tag).lower() == "infotable" for node in root.iter()),
+        # This describes the legacy numeric transform; it is NOT evidence that
+        # the filing's economic dollar units or corporate actions are correct.
+        "parser_value_multiplier": market_value_usd("1", filing.get("filing_date") or filing.get("accepted_at")),
+        "row_count_basis": "CACHED_INFORMATION_TABLE_XML_NOT_COVER",
+    }
+    checked = adapt_legacy_parser_rows(
+        payload, rows, manifest, {},
+        cutoff=str(filing.get("available_from") or filing.get("accepted_at") or ""),
+    )
+    for row in checked["rows"]:
+        row["raw_xml_sha256"] = raw_hash
+        row["parse_evidence_id"] = checked["adapter_evidence_id"]
+        row["value_unit_status"] = "UNVERIFIED_LEGACY_DATE_RULE"
+    return checked["rows"]
 
 
 def parse_13f_index(
@@ -404,6 +471,7 @@ def parse_13f_index(
         d = d.drop(columns=[c for c in ["_accepted_sort", "_filing_sort"] if c in d.columns])
 
     rows: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
     for _, item in d.iterrows():
         filing = item.to_dict()
         try:
@@ -423,47 +491,55 @@ def parse_13f_index(
             )
             rows.extend(parse_13f_xml(xml_text, filing, cusip_map=cusip_map))
         except Exception as exc:
-            rows.append(
-                {
-                    **{col: "" for col in FORM13F_COLUMNS},
-                    "manager_cik": cik10(filing.get("cik10")),
-                    "manager_name": str(filing.get("ticker") or ""),
-                    "report_period": str(filing.get("period_of_report") or ""),
-                    "filing_date": str(filing.get("filing_date") or ""),
-                    "accepted_at": str(filing.get("accepted_at") or ""),
-                    "available_from": str(filing.get("available_from") or ""),
-                    "source_accession": str(filing.get("accession_number") or ""),
-                    "form_type": str(filing.get("form_type") or "").upper().strip(),
-                    "amendment_type": str(filing.get("amendment_type") or "").upper().strip(),
-                    "filing_url": str(filing.get("filing_url") or ""),
-                    "issuer_name": f"PARSE_ERROR: {str(exc)[:180]}",
-                }
-            )
+            # Do not echo exception text: requests exceptions can contain URLs
+            # or provider responses. Exact raw evidence stays in the raw cache.
+            errors.append({
+                "manager_cik": cik10(filing.get("cik10")),
+                "source_accession": str(filing.get("accession_number") or ""),
+                "error_type": type(exc).__name__,
+                "status": "PARSE_BLOCKED",
+            })
+    if errors:
+        raise FilingBatchError(errors)
     out = pd.DataFrame(rows)
     for col in FORM13F_COLUMNS:
         if col not in out.columns:
-            out[col] = 0.0 if col in {"shares", "market_value_usd", "voting_authority_sole", "voting_authority_shared", "voting_authority_none"} else ""
+            out[col] = None if col in FORM13F_NUMERIC_COLUMNS else ""
     out["manager_cik"] = out["manager_cik"].map(cik10)
     return out[FORM13F_COLUMNS].copy()
 
 
 def write_outputs(frame: pd.DataFrame, output_dir: Path) -> dict[str, str]:
-    output_dir.mkdir(parents=True, exist_ok=True)
     frame = frame.copy()
+    if frame.empty:
+        raise ValueError("13f_empty_output_requires_separate_cover_verification")
+    if not frame.empty:
+        for required in ("shares", "market_value_usd"):
+            if required not in frame.columns:
+                raise ValueError(f"13f_output_required_column_missing:{required}")
+        if "issuer_name" in frame.columns and frame["issuer_name"].astype(str).str.startswith("PARSE_ERROR:").any():
+            raise ValueError("13f_output_contains_legacy_parse_error")
     for col in FORM13F_COLUMNS:
         if col not in frame.columns:
-            frame[col] = 0.0 if col in FORM13F_NUMERIC_COLUMNS else ""
+            frame[col] = None if col in FORM13F_NUMERIC_COLUMNS else ""
     for col in FORM13F_NUMERIC_COLUMNS:
-        frame[col] = pd.to_numeric(frame[col], errors="coerce").fillna(0.0)
+        parse = as_float if col in {"shares", "market_value_usd"} else optional_float
+        # A true missing optional scalar may be pandas NA/NaN; malformed text
+        # such as 'NaN' is still rejected by optional_float/as_float.
+        values = [None if pd.isna(v) and not isinstance(v, str) else v for v in frame[col]]
+        frame[col] = pd.Series([parse(v) for v in values], index=frame.index, dtype="Float64")
     for col in [c for c in FORM13F_COLUMNS if c not in FORM13F_NUMERIC_COLUMNS]:
         frame[col] = frame[col].fillna("").astype(str)
     frame = frame[FORM13F_COLUMNS].copy()
+    output_dir.mkdir(parents=True, exist_ok=True)
     parquet_path = output_dir / "institutional_13f_holdings.parquet"
     csv_path = output_dir / "institutional_13f_holdings.csv"
     frame.to_parquet(parquet_path, index=False)
     frame.to_csv(csv_path, index=False)
     summary = {
         "row_count": int(len(frame)),
+        "validation_scope": "PARSE_INTEGRITY_ONLY",
+        "unit_scope_pit_and_corporate_actions_accepted": False,
         "manager_count": int(frame["manager_cik"].nunique()) if "manager_cik" in frame else 0,
         "mapped_ticker_count": int(frame["ticker_mapped"].replace("", pd.NA).nunique(dropna=True))
         if "ticker_mapped" in frame
@@ -490,16 +566,24 @@ def main() -> int:
     args = parser.parse_args()
 
     cusip_map = read_cusip_map(repo_path(args.cusip_map)) if args.cusip_map else {}
-    frame = parse_13f_index(
-        read_filings_index(repo_path(args.filings_index)),
-        raw_dir=repo_path(args.raw_dir),
-        user_agent=args.user_agent,
-        refresh=bool(args.refresh),
-        sleep_s=float(args.sleep),
-        max_filings=int(args.max_filings),
-        cusip_map=cusip_map,
-        as_of=str(args.as_of or ""),
-    )
+    try:
+        frame = parse_13f_index(
+            read_filings_index(repo_path(args.filings_index)),
+            raw_dir=repo_path(args.raw_dir),
+            user_agent=args.user_agent,
+            refresh=bool(args.refresh),
+            sleep_s=float(args.sleep),
+            max_filings=int(args.max_filings),
+            cusip_map=cusip_map,
+            as_of=str(args.as_of or ""),
+        )
+    except FilingBatchError as exc:
+        print(json.dumps({"status": "BLOCKED_PARTIAL_PARSE", "errors": exc.errors,
+                          "published": False}, sort_keys=True))
+        return 2
+    if frame.empty:
+        print(json.dumps({"status": "BLOCKED_EMPTY_PARSE", "published": False}, sort_keys=True))
+        return 2
     paths = write_outputs(frame, repo_path(args.output_dir))
     print(json.dumps({"status": "ok", "rows": int(len(frame)), **paths}, indent=2, sort_keys=True))
     return 0
