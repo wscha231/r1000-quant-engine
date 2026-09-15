@@ -142,14 +142,19 @@ def normalize_holding_rows(
     out["holding_name"] = d[name_col].astype(str).str.strip() if name_col else ""
     out["holding_weight"] = _normalize_weight_series(d[weight_col], weight_unit=unit)
     valid = out["holding_ticker"].ne("") & out["holding_weight"].notna()
+    invalid_present = bool((~valid).any())
     valid_rows = out[valid].copy()
     if valid_rows.empty:
+        return pd.DataFrame()
+    if bool(valid_rows["holding_ticker"].duplicated(keep=False).any()):
         return pd.DataFrame()
     truncated = len(valid_rows) > int(max_holdings)
     out = valid_rows.head(int(max_holdings)).copy()
     effective_coverage = coverage
     if coverage == "FULL":
-        if truncated:
+        if invalid_present:
+            effective_coverage = "PARTIAL"
+        elif truncated:
             effective_coverage = "TOP_ONLY"
         elif abs(float(out["holding_weight"].sum()) - 1.0) > 0.02:
             effective_coverage = "PARTIAL"
