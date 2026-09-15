@@ -5,6 +5,7 @@ adds point-in-time input checks and revalidation. CLI and CI use this interface.
 """
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import date
 import math
 from typing import Any, Iterable
@@ -131,7 +132,34 @@ def validate_price_rows(rows: Iterable[dict[str, Any]], decision_at: str) -> lis
 
 def compute_leadership(price_rows: Iterable[dict[str, Any]], benchmark_id: str, *, decision_at: str) -> list[dict[str, Any]]:
     rows = validate_price_rows(price_rows, decision_at)
-    return _core.compute_leadership(rows, benchmark_id)
+    series: dict[str, dict[str, float]] = defaultdict(dict)
+    for row in rows:
+        series[str(row["security_id"]).upper()][str(row["session"])] = float(row["total_return_index"])
+    benchmark_id = str(benchmark_id).upper()
+    benchmark = series.get(benchmark_id)
+    if not benchmark:
+        raise ContractError(f"benchmark series missing: {benchmark_id}")
+    benchmark_sessions = sorted(benchmark)
+    end_session = benchmark_sessions[-1]
+    out: list[dict[str, Any]] = []
+    for security_id, values in sorted(series.items()):
+        if security_id == benchmark_id:
+            continue
+        result: dict[str, Any] = {"security_id": security_id, "benchmark_id": benchmark_id, "latest_session": end_session}
+        for horizon in _core.HORIZONS:
+            if len(benchmark_sessions) <= horizon:
+                result[f"return_{horizon}"] = None
+                result[f"rs_log_{horizon}"] = None
+                continue
+            start_session = benchmark_sessions[-1 - horizon]
+            if start_session not in values or end_session not in values:
+                result[f"return_{horizon}"] = None
+                result[f"rs_log_{horizon}"] = None
+                continue
+            result[f"return_{horizon}"] = values[end_session] / values[start_session] - 1.0
+            result[f"rs_log_{horizon}"] = math.log(values[end_session] / values[start_session]) - math.log(benchmark[end_session] / benchmark[start_session])
+        out.append(result)
+    return out
 
 
 def validate_documents(documents: Iterable[dict[str, Any]], decision_at: str) -> list[dict[str, Any]]:
@@ -225,4 +253,11 @@ def run_payload(payload: dict[str, Any]) -> dict[str, Any]:
     validate_price_rows(payload.get("prices", []), decision_at)
     validate_documents(payload.get("documents", []), decision_at)
     validate_membership_events(payload.get("membership_events", []), decision_at)
-    return _core.run_payload(payload)
+    result = _core.run_payload(payload)
+    if payload.get("prices"):
+        leadership = compute_leadership(payload.get("prices", []), str(payload["benchmark_id"]), decision_at=decision_at)
+        result["leadership"] = leadership
+        result["summary"]["leadership_row_count"] = len(leadership)
+        result.pop("result_sha256", None)
+        result["result_sha256"] = digest(result)
+    return result
