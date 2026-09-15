@@ -6,6 +6,7 @@ on:
       - 'research/theme_etf_runtime_v1/**'
       - 'tools/run_theme_etf_runtime_v1.py'
       - 'tests/theme_etf_runtime_v1_smoke.py'
+      - 'tests/theme_etf_runtime_v1_anchor_smoke.py'
       - '.github/workflows/theme_etf_runtime_v1.yml'
       - 'docs/THEME_ETF_RUNTIME_V1_20260915.md'
   workflow_dispatch:
@@ -27,8 +28,10 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Compile
         run: |
-          python -m py_compile research/theme_etf_runtime_v1/runtime.py research/theme_etf_runtime_v1/strict.py research/theme_etf_runtime_v1/__init__.py tools/run_theme_etf_runtime_v1.py tests/theme_etf_runtime_v1_smoke.py
+          python -m py_compile research/theme_etf_runtime_v1/runtime.py research/theme_etf_runtime_v1/strict.py research/theme_etf_runtime_v1/__init__.py tools/run_theme_etf_runtime_v1.py tests/theme_etf_runtime_v1_smoke.py tests/theme_etf_runtime_v1_anchor_smoke.py
       - name: Focused regression
         run: |
           python -W error::ResourceWarning tests/theme_etf_runtime_v1_smoke.py
           python -O -W error::ResourceWarning tests/theme_etf_runtime_v1_smoke.py
+          python -W error::ResourceWarning tests/theme_etf_runtime_v1_anchor_smoke.py
+          python -O -W error::ResourceWarning tests/theme_etf_runtime_v1_anchor_smoke.py
