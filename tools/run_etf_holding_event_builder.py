@@ -102,21 +102,27 @@ def safe_pct(value: float) -> float:
 
 
 def normalize_holdings(holdings: pd.DataFrame) -> pd.DataFrame:
-    if holdings.empty:
+    if holdings.empty or "holding_weight" not in holdings.columns:
         return pd.DataFrame()
     d = holdings.copy()
     d["etf_ticker"] = text(d, "etf_ticker").str.upper().str.strip()
     d["holding_ticker"] = text(d, "holding_ticker").str.upper().str.strip()
     d["ticker"] = d["holding_ticker"]
     d["available_from_ts"] = pd.to_datetime(d.get("available_from"), errors="coerce", utc=True)
-    d["holding_weight"] = num(d, "holding_weight").clip(lower=0.0)
+    d["holding_weight"] = pd.to_numeric(d["holding_weight"], errors="coerce")
+    valid_weight = d["holding_weight"].notna() & np.isfinite(d["holding_weight"]) & d["holding_weight"].between(0.0, 1.0)
     d["etf_label"] = text(d, "etf_label")
     d["holding_name"] = text(d, "holding_name")
     d["theme"] = text(d, "theme", "unknown").replace("", "unknown")
     d["source"] = text(d, "source")
     d["coverage_kind"] = text(d, "coverage_kind", "UNKNOWN").str.upper().str.strip().replace("", "UNKNOWN")
     d["as_of_date"] = text(d, "as_of_date").where(text(d, "as_of_date").str.strip().ne(""), text(d, "available_from"))
-    d = d[d["etf_ticker"].ne("") & d["holding_ticker"].ne("") & d["available_from_ts"].notna()].copy()
+    d = d[
+        d["etf_ticker"].ne("")
+        & d["holding_ticker"].ne("")
+        & d["available_from_ts"].notna()
+        & valid_weight
+    ].copy()
     if d.empty:
         return pd.DataFrame()
     d = d.sort_values(["etf_ticker", "available_from_ts", "holding_weight"], ascending=[True, True, False])
