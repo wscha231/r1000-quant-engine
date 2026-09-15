@@ -19,6 +19,9 @@ from strict import (  # noqa: E402
     normalize_snapshot,
     normalize_weight,
     validate_normalized_snapshot,
+    validate_documents,
+    validate_membership_events,
+    validate_price_rows,
     resolve_memberships,
     run_payload,
 )
@@ -56,11 +59,13 @@ def test_weight_units():
     expect_error(normalize_weight, "0.5%", "FRACTION")
 
 
-def test_normalized_snapshot_revalidates_hash_and_complete_gate():
-    snap = full_snapshot("ETF1", [{"security_id": "A", "ticker": "A", "instrument": "COMMON", "identity_verified": True, "weight": 100}])
-    assert validate_normalized_snapshot(snap)["complete"] is True
-    forged = dict(snap)
-    forged["complete"] = False
+def test_normalized_snapshot_revalidates_hash_and_blocks_complete_claim():
+    complete = full_snapshot("ETF1", [{"security_id": "A", "ticker": "A", "instrument": "COMMON", "identity_verified": True, "weight": 100}])
+    expect_error(validate_normalized_snapshot, complete)
+    partial = full_snapshot("ETF1", [{"security_id": "A", "ticker": "A", "instrument": "COMMON", "identity_verified": True, "weight": 50}], coverage="TOP_ONLY")
+    assert validate_normalized_snapshot(partial)["complete"] is False
+    forged = dict(partial)
+    forged["weight_sum"] = 0.9
     expect_error(validate_normalized_snapshot, forged)
 
 
@@ -99,9 +104,9 @@ def test_latest_asof_is_per_fund_not_global_timestamp():
 
 def test_reviewed_membership_only_and_unlink():
     events = [
-        {"event_id": "1", "theme_id": "T", "security_id": "A", "action": "LINK", "role": "DIRECT", "relevance": 0.9, "effective_at": "2026-09-10T00:00:00Z", "reviewed": False},
-        {"event_id": "2", "theme_id": "T", "security_id": "B", "action": "LINK", "role": "ENABLER", "relevance": 0.8, "effective_at": "2026-09-10T00:00:00Z", "reviewed": True},
-        {"event_id": "3", "theme_id": "T", "security_id": "B", "action": "UNLINK", "role": "ENABLER", "relevance": 0.0, "effective_at": "2026-09-16T00:00:00Z", "reviewed": True},
+        {"event_id": "1", "theme_id": "T", "security_id": "A", "action": "LINK", "role": "DIRECT", "relevance": 0.9, "effective_at": "2026-09-10T00:00:00Z", "observed_at": "2026-09-10T01:00:00Z", "reviewed": False},
+        {"event_id": "2", "theme_id": "T", "security_id": "B", "action": "LINK", "role": "ENABLER", "relevance": 0.8, "effective_at": "2026-09-10T00:00:00Z", "observed_at": "2026-09-10T01:00:00Z", "reviewed_at": "2026-09-10T02:00:00Z", "reviewed": True},
+        {"event_id": "3", "theme_id": "T", "security_id": "B", "action": "UNLINK", "role": "ENABLER", "relevance": 0.0, "effective_at": "2026-09-16T00:00:00Z", "observed_at": "2026-09-10T01:00:00Z", "reviewed_at": "2026-09-10T02:00:00Z", "reviewed": True},
     ]
     state = resolve_memberships(events, "2026-09-15T00:00:00Z")
     assert set(state) == {"B"}
@@ -123,9 +128,9 @@ def test_leadership_uses_log_relative_total_return():
     start = datetime(2026, 1, 1, tzinfo=timezone.utc)
     for i in range(21):
         day = (start + timedelta(days=i)).date().isoformat()
-        rows.append({"security_id": "SPY", "session": day, "total_return_index": 100 + i})
-        rows.append({"security_id": "ETF1", "session": day, "total_return_index": 100 + 2 * i})
-    out = compute_leadership(rows, "SPY")
+        rows.append({"security_id": "SPY", "session": day, "available_at": day + "T23:00:00Z", "total_return_index": 100 + i})
+        rows.append({"security_id": "ETF1", "session": day, "available_at": day + "T23:00:00Z", "total_return_index": 100 + 2 * i})
+    out = compute_leadership(rows, "SPY", decision_at="2026-01-21T23:30:00Z")
     row = out[0]
     assert row["rs_log_20"] > 0
     assert row["return_20"] > 0
@@ -147,15 +152,15 @@ def test_end_to_end_keeps_trading_disabled():
     start = datetime(2025, 1, 1, tzinfo=timezone.utc)
     for i in range(241):
         session = (start + timedelta(days=i)).date().isoformat()
-        rows.append({"security_id": "SPY", "session": session, "total_return_index": 100 + i * 0.1})
-        rows.append({"security_id": "ETF1", "session": session, "total_return_index": 100 + i * 0.2})
+        rows.append({"security_id": "SPY", "session": session, "available_at": session + "T23:00:00Z", "total_return_index": 100 + i * 0.1})
+        rows.append({"security_id": "ETF1", "session": session, "available_at": session + "T23:00:00Z", "total_return_index": 100 + i * 0.2})
     payload = {
         "schema": "theme-etf-runtime-v1",
         "decision_at": "2026-09-15T22:00:00Z",
         "benchmark_id": "SPY",
         "base_universe": ["BASE"],
         "securities": [{"security_id": "NEW", "identity_verified": True, "listing_country": "US", "instrument": "ADR", "exchange": "XNYS", "research_eligible": True}],
-        "membership_events": [{"event_id": "m1", "theme_id": "T", "security_id": "NEW", "action": "LINK", "role": "DIRECT", "relevance": 0.8, "effective_at": "2026-09-15T00:00:00Z", "reviewed": True}],
+        "membership_events": [{"event_id": "m1", "theme_id": "T", "security_id": "NEW", "action": "LINK", "role": "DIRECT", "relevance": 0.8, "effective_at": "2026-09-15T00:00:00Z", "observed_at": "2026-09-15T01:00:00Z", "reviewed_at": "2026-09-15T02:00:00Z", "reviewed": True}],
         "prices": rows,
         "documents": [],
         "etf_snapshots": [],
@@ -164,6 +169,16 @@ def test_end_to_end_keeps_trading_disabled():
     assert result["summary"]["orders_generated"] is False
     assert result["summary"]["target_book_changed"] is False
     assert result["summary"]["universe"]["research_universe_proposal"] == ["BASE", "NEW"]
+
+
+def test_point_in_time_inputs_reject_future_or_duplicate_evidence():
+    expect_error(validate_documents, [{"document_id": "d1", "available_at": "2026-09-16T00:00:00Z"}], "2026-09-15T22:00:00Z")
+    expect_error(validate_membership_events, [{"event_id": "m1", "effective_at": "2026-09-14T00:00:00Z", "observed_at": "2026-09-16T00:00:00Z", "reviewed": False}], "2026-09-15T22:00:00Z")
+    duplicate_prices = [
+        {"security_id": "SPY", "session": "2026-09-15", "available_at": "2026-09-15T21:00:00Z", "total_return_index": 100},
+        {"security_id": "SPY", "session": "2026-09-15", "available_at": "2026-09-15T21:00:00Z", "total_return_index": 100},
+    ]
+    expect_error(validate_price_rows, duplicate_prices, "2026-09-15T22:00:00Z")
 
 
 def main():
