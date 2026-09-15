@@ -102,6 +102,41 @@ def test_etf_invalid_or_conflicting_weights_do_not_become_zero() -> None:
     assert invalid.empty
 
 
+def test_full_coverage_is_downgraded_when_truncated_or_incomplete() -> None:
+    truncated = normalize_holding_rows(
+        pd.DataFrame(
+            [
+                {"ticker": "A", "holding_weight": 0.4},
+                {"ticker": "B", "holding_weight": 0.3},
+                {"ticker": "C", "holding_weight": 0.3},
+            ]
+        ),
+        _spec(),
+        as_of="2026-09-15T00:00:00Z",
+        source="fixture",
+        max_holdings=2,
+        weight_unit="FRACTION",
+        coverage_kind="FULL",
+    )
+    assert set(truncated["coverage_kind"]) == {"TOP_ONLY"}
+
+    incomplete = normalize_holding_rows(
+        pd.DataFrame(
+            [
+                {"ticker": "A", "holding_weight": 0.4},
+                {"ticker": "B", "holding_weight": 0.3},
+            ]
+        ),
+        _spec(),
+        as_of="2026-09-15T00:00:00Z",
+        source="fixture",
+        max_holdings=25,
+        weight_unit="FRACTION",
+        coverage_kind="FULL",
+    )
+    assert set(incomplete["coverage_kind"]) == {"PARTIAL"}
+
+
 def test_previous_holdings_uses_latest_snapshot_per_fund() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "holdings.csv"
