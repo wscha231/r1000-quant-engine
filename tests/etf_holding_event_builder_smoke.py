@@ -138,6 +138,23 @@ def test_invalid_weight_is_dropped_instead_of_becoming_zero_event() -> None:
     assert len(events) == 6
 
 
+def test_invalid_row_downgrades_full_snapshot_before_membership_change() -> None:
+    holdings = pd.DataFrame(
+        [
+            {"etf_ticker": "ETF1", "etf_label": "ETF One", "theme": "fixture", "holding_ticker": "A", "holding_name": "A", "holding_weight": 0.80, "coverage_kind": "FULL", "source": "fixture", "as_of_date": "2026-04-30T00:00:00Z", "available_from": "2026-04-30T00:00:00Z"},
+            {"etf_ticker": "ETF1", "etf_label": "ETF One", "theme": "fixture", "holding_ticker": "BAD", "holding_name": "Bad", "holding_weight": 0.20, "coverage_kind": "FULL", "source": "fixture", "as_of_date": "2026-04-30T00:00:00Z", "available_from": "2026-04-30T00:00:00Z"},
+            {"etf_ticker": "ETF1", "etf_label": "ETF One", "theme": "fixture", "holding_ticker": "A", "holding_name": "A", "holding_weight": 1.00, "coverage_kind": "FULL", "source": "fixture", "as_of_date": "2026-05-31T00:00:00Z", "available_from": "2026-05-31T00:00:00Z"},
+            {"etf_ticker": "ETF1", "etf_label": "ETF One", "theme": "fixture", "holding_ticker": "BAD", "holding_name": "Bad", "holding_weight": "N/A", "coverage_kind": "FULL", "source": "fixture", "as_of_date": "2026-05-31T00:00:00Z", "available_from": "2026-05-31T00:00:00Z"},
+        ]
+    )
+    events = build_etf_holding_events(holdings, change_threshold=0.0025)
+    bad = events[(events["ticker"].eq("BAD")) & (events["available_from"].eq("2026-05-31T00:00:00Z"))].iloc[0]
+    assert bad["event_type"] == "absence_unconfirmed"
+    assert bad["current_coverage_kind"] == "PARTIAL"
+    assert bool(bad["membership_change_confirmed"]) is False
+    assert float(bad["etf_event_seed_score"]) == 0.0
+
+
 def test_etf_holding_event_builder_cli_outputs_summary() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -161,5 +178,6 @@ if __name__ == "__main__":
     test_etf_holding_event_builder_detects_inclusion_weight_change_and_removal()
     test_partial_coverage_does_not_prove_membership_change()
     test_invalid_weight_is_dropped_instead_of_becoming_zero_event()
+    test_invalid_row_downgrades_full_snapshot_before_membership_change()
     test_etf_holding_event_builder_cli_outputs_summary()
     print("etf_holding_event_builder_smoke: PASS")
