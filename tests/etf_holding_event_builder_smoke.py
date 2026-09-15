@@ -116,6 +116,28 @@ def test_partial_coverage_does_not_prove_membership_change() -> None:
     assert bool(absence["membership_change_confirmed"]) is False
 
 
+def test_invalid_weight_is_dropped_instead_of_becoming_zero_event() -> None:
+    bad = pd.DataFrame(
+        [
+            {
+                "etf_ticker": "SMH",
+                "etf_label": "VanEck Semiconductor ETF",
+                "theme": "semiconductors",
+                "holding_ticker": "BAD",
+                "holding_name": "Bad Row",
+                "holding_weight": "N/A",
+                "coverage_kind": "FULL",
+                "source": "fixture",
+                "as_of_date": "2026-05-31T00:00:00Z",
+                "available_from": "2026-05-31T00:00:00Z",
+            }
+        ]
+    )
+    events = build_etf_holding_events(pd.concat([sample_holdings(), bad], ignore_index=True), change_threshold=0.0025)
+    assert "BAD" not in set(events["ticker"])
+    assert len(events) == 6
+
+
 def test_etf_holding_event_builder_cli_outputs_summary() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -138,5 +160,6 @@ def test_etf_holding_event_builder_cli_outputs_summary() -> None:
 if __name__ == "__main__":
     test_etf_holding_event_builder_detects_inclusion_weight_change_and_removal()
     test_partial_coverage_does_not_prove_membership_change()
+    test_invalid_weight_is_dropped_instead_of_becoming_zero_event()
     test_etf_holding_event_builder_cli_outputs_summary()
     print("etf_holding_event_builder_smoke: PASS")
