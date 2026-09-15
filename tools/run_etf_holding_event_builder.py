@@ -25,6 +25,7 @@ if str(REPO_ROOT) not in sys.path:
 DEFAULT_HOLDINGS = "data_pit/etf_holdings/etf_holdings.parquet"
 DEFAULT_OUTPUT_DIR = "outputs/etf_holding_events"
 DEFAULT_PIT_OUTPUT = "data_pit/etf_holdings/etf_holding_events.parquet"
+FULL_COVERAGE = "FULL"
 
 EVENT_COLUMNS = [
     "event_id",
@@ -44,6 +45,9 @@ EVENT_COLUMNS = [
     "holding_weight_delta",
     "holding_rank",
     "previous_holding_rank",
+    "current_coverage_kind",
+    "previous_coverage_kind",
+    "membership_change_confirmed",
     "etf_consensus_count",
     "theme_consensus_count",
     "source",
@@ -110,6 +114,7 @@ def normalize_holdings(holdings: pd.DataFrame) -> pd.DataFrame:
     d["holding_name"] = text(d, "holding_name")
     d["theme"] = text(d, "theme", "unknown").replace("", "unknown")
     d["source"] = text(d, "source")
+    d["coverage_kind"] = text(d, "coverage_kind", "UNKNOWN").str.upper().str.strip().replace("", "UNKNOWN")
     d["as_of_date"] = text(d, "as_of_date").where(text(d, "as_of_date").str.strip().ne(""), text(d, "available_from"))
     d = d[d["etf_ticker"].ne("") & d["holding_ticker"].ne("") & d["available_from_ts"].notna()].copy()
     if d.empty:
@@ -120,13 +125,27 @@ def normalize_holdings(holdings: pd.DataFrame) -> pd.DataFrame:
     return d.reset_index(drop=True)
 
 
-def event_type_for(current_weight: float, previous_weight: float, *, initial_snapshot: bool, change_threshold: float) -> str:
+def _coverage_kind(frame: pd.DataFrame) -> str:
+    if frame.empty or "coverage_kind" not in frame.columns:
+        return "UNKNOWN"
+    kinds = {str(value).upper().strip() for value in frame["coverage_kind"].dropna() if str(value).strip()}
+    return next(iter(kinds)) if len(kinds) == 1 else "MIXED"
+
+
+def event_type_for(
+    current_weight: float,
+    previous_weight: float,
+    *,
+    initial_snapshot: bool,
+    change_threshold: float,
+    membership_change_confirmed: bool,
+) -> str:
     if initial_snapshot and current_weight > 0 and previous_weight <= 0:
         return "initial"
     if current_weight > 0 and previous_weight <= 0:
-        return "inclusion"
+        return "inclusion" if membership_change_confirmed else "presence_observed"
     if current_weight <= 0 and previous_weight > 0:
-        return "removal"
+        return "removal" if membership_change_confirmed else "absence_unconfirmed"
     delta = current_weight - previous_weight
     if delta > change_threshold:
         return "weight_increase"
@@ -157,6 +176,14 @@ def consensus_maps(current: pd.DataFrame) -> tuple[dict[str, int], dict[tuple[st
     return {str(k): int(v) for k, v in ticker_counts.items()}, {(str(k[0]), str(k[1])): int(v) for k, v in theme_counts.items()}
 
 
+def _latest_asof_all_funds(d: pd.DataFrame, available_ts: pd.Timestamp) -> pd.DataFrame:
+    eligible = d[d["available_from_ts"].le(available_ts)].copy()
+    if eligible.empty:
+        return eligible
+    latest = eligible.groupby("etf_ticker")["available_from_ts"].transform("max")
+    return eligible[eligible["available_from_ts"].eq(latest)].copy()
+
+
 def build_etf_holding_events(holdings: pd.DataFrame, *, change_threshold: float = 0.0025) -> pd.DataFrame:
     d = normalize_holdings(holdings)
     if d.empty:
@@ -170,17 +197,28 @@ def build_etf_holding_events(holdings: pd.DataFrame, *, change_threshold: float 
             current_by_ticker = current.set_index("holding_ticker", drop=False)
             previous_by_ticker = previous.set_index("holding_ticker", drop=False) if not previous.empty else pd.DataFrame()
             all_tickers = sorted(set(current_by_ticker.index.astype(str)) | (set(previous_by_ticker.index.astype(str)) if not previous_by_ticker.empty else set()))
-            consensus, theme_consensus = consensus_maps(d[d["available_from_ts"].eq(available_ts)])
+            asof_all_funds = _latest_asof_all_funds(d, pd.Timestamp(available_ts))
+            consensus, theme_consensus = consensus_maps(asof_all_funds)
+            current_coverage = _coverage_kind(current)
+            previous_coverage = _coverage_kind(previous)
+            membership_change_confirmed = bool(index > 0 and current_coverage == FULL_COVERAGE and previous_coverage == FULL_COVERAGE)
             for holding_ticker in all_tickers:
                 cur = current_by_ticker.loc[holding_ticker] if holding_ticker in current_by_ticker.index else pd.Series(dtype=object)
                 prev = previous_by_ticker.loc[holding_ticker] if not previous_by_ticker.empty and holding_ticker in previous_by_ticker.index else pd.Series(dtype=object)
                 weight = float(cur.get("holding_weight", 0.0) or 0.0)
                 prev_weight = float(prev.get("holding_weight", 0.0) or 0.0)
                 delta = weight - prev_weight
-                event_type = event_type_for(weight, prev_weight, initial_snapshot=(index == 0), change_threshold=float(change_threshold))
+                event_type = event_type_for(
+                    weight,
+                    prev_weight,
+                    initial_snapshot=(index == 0),
+                    change_threshold=float(change_threshold),
+                    membership_change_confirmed=membership_change_confirmed,
+                )
                 theme = str(cur.get("theme") or prev.get("theme") or "unknown")
+                timestamp_id = pd.Timestamp(available_ts).isoformat()
                 row = {
-                    "event_id": f"etf:{etf_ticker}:{pd.Timestamp(available_ts).date().isoformat()}:{holding_ticker}",
+                    "event_id": f"etf:{etf_ticker}:{timestamp_id}:{holding_ticker}",
                     "source_type": "etf_holding",
                     "ticker": str(holding_ticker).upper().strip(),
                     "holding_ticker": str(holding_ticker).upper().strip(),
@@ -197,6 +235,9 @@ def build_etf_holding_events(holdings: pd.DataFrame, *, change_threshold: float 
                     "holding_weight_delta": delta,
                     "holding_rank": int(cur.get("holding_rank", 0) or 0),
                     "previous_holding_rank": int(prev.get("holding_rank", 0) or 0),
+                    "current_coverage_kind": current_coverage,
+                    "previous_coverage_kind": previous_coverage,
+                    "membership_change_confirmed": membership_change_confirmed,
                     "etf_consensus_count": int(consensus.get(str(holding_ticker).upper().strip(), 0)),
                     "theme_consensus_count": int(theme_consensus.get((str(holding_ticker).upper().strip(), theme), 0)),
                     "source": str(cur.get("source") or prev.get("source") or ""),
@@ -209,7 +250,7 @@ def build_etf_holding_events(holdings: pd.DataFrame, *, change_threshold: float 
     events = pd.DataFrame(rows)
     for col in EVENT_COLUMNS:
         if col not in events.columns:
-            events[col] = False if col in {"history_boundary", "research_only", "production_activation_allowed"} else ""
+            events[col] = False if col in {"history_boundary", "membership_change_confirmed", "research_only", "production_activation_allowed"} else ""
     return events[EVENT_COLUMNS].sort_values(["available_from", "etf_ticker", "ticker"]).reset_index(drop=True)
 
 
@@ -268,15 +309,19 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     write_table(events, pit_output)
     write_table(events, output_dir / "etf_holding_events.csv")
     latest = events.copy()
-    if not latest.empty and "available_from" in latest.columns:
+    if not latest.empty and {"available_from", "etf_ticker"}.issubset(latest.columns):
         latest_ts = pd.to_datetime(latest["available_from"], errors="coerce", utc=True)
-        latest = latest[latest_ts.eq(latest_ts.max())].copy() if latest_ts.notna().any() else latest.head(0)
+        latest = latest.assign(_latest_ts=latest_ts)
+        latest = latest[latest["_latest_ts"].notna()].copy()
+        if not latest.empty:
+            per_fund_latest = latest.groupby("etf_ticker")["_latest_ts"].transform("max")
+            latest = latest[latest["_latest_ts"].eq(per_fund_latest)].drop(columns=["_latest_ts"])
     write_table(latest, output_dir / "latest.csv")
     available = pd.to_datetime(events.get("available_from"), errors="coerce", utc=True) if not events.empty else pd.Series(dtype="datetime64[ns, UTC]")
     summary = {
         "status": "completed" if not events.empty else "blocked",
         "reason": "" if not events.empty else "missing ETF holdings snapshots with holding_ticker and available_from",
-        "schema_version": "etf-holding-events-v1",
+        "schema_version": "etf-holding-events-v2",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "research_only": True,
         "production_activation_allowed": False,
@@ -300,7 +345,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     }
     write_json(output_dir / "summary.json", summary)
     (output_dir / "report.md").write_text(render_report(summary, events), encoding="utf-8")
-    print(json.dumps({"status": summary["status"], "event_rows": summary["event_rows"]}, sort_keys=True))
+    print(json.dumps({"status": summary["status"], "event_rows": summary["event_rows"], "ticker_count": summary["ticker_count"], "etf_count": summary["etf_count"]}, indent=2, sort_keys=True))
     return summary
 
 
