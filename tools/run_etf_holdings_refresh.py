@@ -378,10 +378,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             time.sleep(float(args.sleep))
         holdings = pd.concat(frames, ignore_index=True, sort=False) if frames else pd.DataFrame()
     pit_file = pit_dir / "etf_holdings.parquet"
+    history = read_table(pit_file)
     prev = previous_holdings(pit_file)
-    if not prev.empty and not holdings.empty:
-        combined = pd.concat([prev, holdings], ignore_index=True, sort=False)
+    if not history.empty and not holdings.empty:
+        combined = pd.concat([history, holdings], ignore_index=True, sort=False)
         combined = combined.drop_duplicates(["etf_ticker", "holding_ticker", "available_from"], keep="last")
+    elif not history.empty:
+        combined = history
     else:
         combined = holdings
     if not combined.empty:
@@ -400,6 +403,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "as_of": as_of,
         "etf_universe_count": int(len(specs)),
         "holding_rows": int(len(holdings)),
+        "historical_rows_retained": int(len(history)),
+        "pit_rows_after_refresh": int(len(combined)),
         "full_coverage_etfs": int(len(_full_coverage_funds(holdings))),
         "signal_tickers": int(len(signals)),
         "pit_file": str(pit_file),
