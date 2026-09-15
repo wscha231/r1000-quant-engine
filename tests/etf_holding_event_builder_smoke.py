@@ -167,6 +167,8 @@ def test_etf_holding_event_builder_cli_outputs_summary() -> None:
         payload = run(Namespace(holdings=str(holdings), pit_output=str(pit), output_dir=str(out), change_threshold=0.0025))
         assert payload["status"] == "completed", payload
         assert payload["event_rows"] == 6
+        assert payload["candidate_event_rows"] == 6
+        assert payload["candidate_excluded_unconfirmed_rows"] == 0
         assert payload["ticker_count"] == 3
         assert payload["schema_version"] == "etf-holding-events-v2"
         saved = pd.read_parquet(pit)
@@ -175,10 +177,32 @@ def test_etf_holding_event_builder_cli_outputs_summary() -> None:
         assert summary["score_total_changed"] is False
 
 
+def test_cli_keeps_unconfirmed_membership_events_audit_only() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        holdings = root / "data_pit" / "etf_holdings" / "etf_holdings.parquet"
+        pit = root / "data_pit" / "etf_holdings" / "etf_holding_events.parquet"
+        out = root / "outputs" / "etf_holding_events"
+        holdings.parent.mkdir(parents=True, exist_ok=True)
+        sample_holdings(coverage_kind="TOP_ONLY").to_parquet(holdings, index=False)
+        payload = run(Namespace(holdings=str(holdings), pit_output=str(pit), output_dir=str(out), change_threshold=0.0025))
+        candidate = pd.read_parquet(pit)
+        audit = pd.read_csv(out / "etf_holding_events.csv", low_memory=False)
+        unconfirmed = {"presence_observed", "absence_unconfirmed"}
+        assert unconfirmed.isdisjoint(set(candidate["event_type"]))
+        assert unconfirmed.issubset(set(audit["event_type"]))
+        assert payload["event_rows"] == 6
+        assert payload["candidate_event_rows"] == 4
+        assert payload["candidate_excluded_unconfirmed_rows"] == 2
+        assert len(candidate) == 4
+        assert len(audit) == 6
+
+
 if __name__ == "__main__":
     test_etf_holding_event_builder_detects_inclusion_weight_change_and_removal()
     test_partial_coverage_does_not_prove_membership_change()
     test_invalid_weight_is_dropped_instead_of_becoming_zero_event()
     test_invalid_row_downgrades_full_snapshot_before_membership_change()
     test_etf_holding_event_builder_cli_outputs_summary()
+    test_cli_keeps_unconfirmed_membership_events_audit_only()
     print("etf_holding_event_builder_smoke: PASS")
