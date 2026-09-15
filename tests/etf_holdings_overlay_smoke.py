@@ -102,7 +102,7 @@ def test_etf_invalid_or_conflicting_weights_do_not_become_zero() -> None:
     assert invalid.empty
 
 
-def test_full_coverage_is_downgraded_when_truncated_or_incomplete() -> None:
+def test_full_coverage_is_downgraded_when_truncated_incomplete_or_invalid() -> None:
     truncated = normalize_holding_rows(
         pd.DataFrame(
             [
@@ -135,6 +135,39 @@ def test_full_coverage_is_downgraded_when_truncated_or_incomplete() -> None:
         coverage_kind="FULL",
     )
     assert set(incomplete["coverage_kind"]) == {"PARTIAL"}
+
+    invalid_member = normalize_holding_rows(
+        pd.DataFrame(
+            [
+                {"ticker": "A", "holding_weight": 1.0},
+                {"ticker": "B", "holding_weight": "N/A"},
+            ]
+        ),
+        _spec(),
+        as_of="2026-09-15T00:00:00Z",
+        source="fixture",
+        max_holdings=25,
+        weight_unit="FRACTION",
+        coverage_kind="FULL",
+    )
+    assert list(invalid_member["holding_ticker"]) == ["A"]
+    assert set(invalid_member["coverage_kind"]) == {"PARTIAL"}
+
+    duplicate = normalize_holding_rows(
+        pd.DataFrame(
+            [
+                {"ticker": "A", "holding_weight": 0.5},
+                {"ticker": "A", "holding_weight": 0.5},
+            ]
+        ),
+        _spec(),
+        as_of="2026-09-15T00:00:00Z",
+        source="fixture",
+        max_holdings=25,
+        weight_unit="FRACTION",
+        coverage_kind="FULL",
+    )
+    assert duplicate.empty
 
 
 def test_previous_holdings_uses_latest_snapshot_per_fund() -> None:
