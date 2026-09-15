@@ -111,6 +111,13 @@ def normalize_holdings(holdings: pd.DataFrame) -> pd.DataFrame:
     d["available_from_ts"] = pd.to_datetime(d.get("available_from"), errors="coerce", utc=True)
     d["holding_weight"] = pd.to_numeric(d["holding_weight"], errors="coerce")
     valid_weight = d["holding_weight"].notna() & np.isfinite(d["holding_weight"]) & d["holding_weight"].between(0.0, 1.0)
+    duplicate_row = d.duplicated(["etf_ticker", "holding_ticker", "available_from_ts"], keep=False)
+    problem_mask = ~valid_weight | duplicate_row
+    problem_keys = {
+        (str(row.etf_ticker), row.available_from_ts)
+        for row in d.loc[problem_mask, ["etf_ticker", "available_from_ts"]].itertuples(index=False)
+        if str(row.etf_ticker) and pd.notna(row.available_from_ts)
+    }
     d["etf_label"] = text(d, "etf_label")
     d["holding_name"] = text(d, "holding_name")
     d["theme"] = text(d, "theme", "unknown").replace("", "unknown")
@@ -122,11 +129,18 @@ def normalize_holdings(holdings: pd.DataFrame) -> pd.DataFrame:
         & d["holding_ticker"].ne("")
         & d["available_from_ts"].notna()
         & valid_weight
+        & ~duplicate_row
     ].copy()
     if d.empty:
         return pd.DataFrame()
+    for etf_ticker, available_ts in problem_keys:
+        degraded = (
+            d["etf_ticker"].eq(etf_ticker)
+            & d["available_from_ts"].eq(available_ts)
+            & d["coverage_kind"].eq(FULL_COVERAGE)
+        )
+        d.loc[degraded, "coverage_kind"] = "PARTIAL"
     d = d.sort_values(["etf_ticker", "available_from_ts", "holding_weight"], ascending=[True, True, False])
-    d = d.drop_duplicates(["etf_ticker", "holding_ticker", "available_from_ts"], keep="last")
     d["holding_rank"] = d.groupby(["etf_ticker", "available_from_ts"])["holding_weight"].rank(method="first", ascending=False).astype(int)
     return d.reset_index(drop=True)
 
