@@ -148,7 +148,8 @@ def test_invalid_row_downgrades_full_snapshot_before_membership_change() -> None
         ]
     )
     events = build_etf_holding_events(holdings, change_threshold=0.0025)
-    bad = events[(events["ticker"].eq("BAD")) & (events["available_from"].eq("2026-05-31T00:00:00Z"))].iloc[0]
+    event_times = pd.to_datetime(events["available_from"], errors="coerce", utc=True)
+    bad = events[(events["ticker"].eq("BAD")) & event_times.eq(pd.Timestamp("2026-05-31T00:00:00Z"))].iloc[0]
     assert bad["event_type"] == "absence_unconfirmed"
     assert bad["current_coverage_kind"] == "PARTIAL"
     assert bool(bad["membership_change_confirmed"]) is False
