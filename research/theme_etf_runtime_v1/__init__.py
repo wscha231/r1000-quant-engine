@@ -15,4 +15,5 @@ from .strict import (  # noqa: F401
     validate_membership_events,
     validate_normalized_snapshot,
     validate_price_rows,
+    validate_security_registry,
 )
