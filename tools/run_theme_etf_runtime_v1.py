@@ -12,7 +12,7 @@ RUNTIME_ROOT = REPO_ROOT / "research" / "theme_etf_runtime_v1"
 if str(RUNTIME_ROOT) not in sys.path:
     sys.path.insert(0, str(RUNTIME_ROOT))
 
-from runtime import ContractError, digest, run_payload  # noqa: E402
+from strict import ContractError, digest, run_payload  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
