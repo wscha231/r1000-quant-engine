@@ -9,7 +9,7 @@ RUNTIME_ROOT = ROOT / "research" / "theme_etf_runtime_v1"
 if str(RUNTIME_ROOT) not in sys.path:
     sys.path.insert(0, str(RUNTIME_ROOT))
 
-from runtime import (  # noqa: E402
+from strict import (  # noqa: E402
     ContractError,
     build_holding_events,
     compose_universe,
@@ -18,6 +18,7 @@ from runtime import (  # noqa: E402
     latest_asof_by_fund,
     normalize_snapshot,
     normalize_weight,
+    validate_normalized_snapshot,
     resolve_memberships,
     run_payload,
 )
@@ -52,6 +53,15 @@ def test_weight_units():
     assert abs(normalize_weight("0.5", "FRACTION") - 0.5) < 1e-12
     expect_error(normalize_weight, 0.5, "UNKNOWN")
     expect_error(normalize_weight, True, "FRACTION")
+    expect_error(normalize_weight, "0.5%", "FRACTION")
+
+
+def test_normalized_snapshot_revalidates_hash_and_complete_gate():
+    snap = full_snapshot("ETF1", [{"security_id": "A", "ticker": "A", "instrument": "COMMON", "identity_verified": True, "weight": 100}])
+    assert validate_normalized_snapshot(snap)["complete"] is True
+    forged = dict(snap)
+    forged["complete"] = False
+    expect_error(validate_normalized_snapshot, forged)
 
 
 def test_partial_snapshot_does_not_prove_removal():
@@ -115,7 +125,8 @@ def test_leadership_uses_log_relative_total_return():
         day = (start + timedelta(days=i)).date().isoformat()
         rows.append({"security_id": "SPY", "session": day, "total_return_index": 100 + i})
         rows.append({"security_id": "ETF1", "session": day, "total_return_index": 100 + 2 * i})
-    row = compute_leadership(rows, "SPY")[0]
+    out = compute_leadership(rows, "SPY")
+    row = out[0]
     assert row["rs_log_20"] > 0
     assert row["return_20"] > 0
 
@@ -126,7 +137,8 @@ def test_discovery_deduplicates_documents_and_tracks_source_groups():
         {"document_id": "1", "source_group": "A", "title": "duplicate", "summary": "duplicate"},
         {"document_id": "2", "source_group": "B", "title": "co-packaged optics capacity", "summary": "co-packaged optics"},
     ]
-    matching = [r for r in discover_terms(docs) if r["term"] == "co-packaged optics"]
+    terms = discover_terms(docs)
+    matching = [r for r in terms if r["term"] == "co-packaged optics"]
     assert matching and matching[0]["independent_source_groups"] == 2
 
 
