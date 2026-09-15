@@ -11,5 +11,8 @@ from .strict import (  # noqa: F401
     normalize_weight,
     resolve_memberships,
     run_payload,
+    validate_documents,
+    validate_membership_events,
     validate_normalized_snapshot,
+    validate_price_rows,
 )
