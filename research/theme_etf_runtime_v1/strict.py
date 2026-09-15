@@ -189,18 +189,39 @@ def resolve_memberships(events: Iterable[dict[str, Any]], decision_at: str) -> d
     return _core.resolve_memberships(validated, decision_at)
 
 
+def validate_security_registry(rows: Iterable[dict[str, Any]], decision_at: str) -> list[dict[str, Any]]:
+    cutoff = _cutoff(decision_at)
+    out = list(rows)
+    seen: set[str] = set()
+    for row in out:
+        security_id = str(row.get("security_id") or "").strip().upper()
+        available_at = row.get("available_at")
+        if not security_id or not available_at:
+            raise ContractError("security registry rows require security_id and available_at")
+        if security_id in seen:
+            raise ContractError(f"duplicate security registry row: {security_id}")
+        seen.add(security_id)
+        if _core.utc(str(available_at)) > cutoff:
+            raise ContractError("security registry row was not available at decision time")
+    return out
+
+
 def run_payload(payload: dict[str, Any]) -> dict[str, Any]:
     decision_at = str(payload.get("decision_at") or "")
-    _cutoff(decision_at)
+    cutoff = _cutoff(decision_at)
+    base_available_at = payload.get("base_universe_available_at")
+    if not base_available_at:
+        raise ContractError("base_universe_available_at required")
+    if _core.utc(str(base_available_at)) > cutoff:
+        raise ContractError("base universe was not available at decision time")
     for snapshot in payload.get("etf_snapshots", []):
         if snapshot.get("schema") == "etf-snapshot-v2":
-            validate_normalized_snapshot(snapshot)
-            if _core.utc(str(snapshot["available_at"])) > _cutoff(decision_at):
-                raise ContractError("ETF snapshot was not available at decision time")
+            normalized = validate_normalized_snapshot(snapshot)
         else:
-            unit = str(snapshot.get("weight_unit") or "").upper().strip()
-            for row in snapshot.get("rows", []):
-                normalize_weight(row.get("weight"), unit)
+            normalized = normalize_snapshot(snapshot)
+        if _core.utc(str(normalized["available_at"])) > cutoff:
+            raise ContractError("ETF snapshot was not available at decision time")
+    validate_security_registry(payload.get("securities", []), decision_at)
     validate_price_rows(payload.get("prices", []), decision_at)
     validate_documents(payload.get("documents", []), decision_at)
     validate_membership_events(payload.get("membership_events", []), decision_at)
