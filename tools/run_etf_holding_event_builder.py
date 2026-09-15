@@ -26,6 +26,7 @@ DEFAULT_HOLDINGS = "data_pit/etf_holdings/etf_holdings.parquet"
 DEFAULT_OUTPUT_DIR = "outputs/etf_holding_events"
 DEFAULT_PIT_OUTPUT = "data_pit/etf_holdings/etf_holding_events.parquet"
 FULL_COVERAGE = "FULL"
+UNCONFIRMED_MEMBERSHIP_EVENTS = {"presence_observed", "absence_unconfirmed"}
 
 EVENT_COLUMNS = [
     "event_id",
@@ -281,6 +282,7 @@ def render_report(summary: dict[str, Any], events: pd.DataFrame) -> str:
         "Research-only ETF holdings event table for post-disclosure alpha studies.",
         "",
         f"- event rows: {summary.get('event_rows', 0)}",
+        f"- candidate event rows: {summary.get('candidate_event_rows', 0)}",
         f"- ticker count: {summary.get('ticker_count', 0)}",
         f"- ETF count: {summary.get('etf_count', 0)}",
         "",
@@ -326,7 +328,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     holdings = read_table(holdings_path)
     events = build_etf_holding_events(holdings, change_threshold=float(args.change_threshold))
-    write_table(events, pit_output)
+    if events.empty:
+        candidate_events = events.copy()
+    else:
+        candidate_events = events[~events["event_type"].isin(UNCONFIRMED_MEMBERSHIP_EVENTS)].copy()
+    # The PIT parquet is consumed by post-disclosure candidate scoring, so it
+    # must exclude membership changes that partial/top-only holdings cannot prove.
+    write_table(candidate_events, pit_output)
+    # Keep every observation in the CSV as an audit trail, including
+    # presence_observed/absence_unconfirmed rows that are intentionally neutral.
     write_table(events, output_dir / "etf_holding_events.csv")
     latest = events.copy()
     if not latest.empty and {"available_from", "etf_ticker"}.issubset(latest.columns):
@@ -349,6 +359,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "holdings": str(holdings_path),
         "pit_output": str(pit_output),
         "event_rows": int(len(events)),
+        "candidate_event_rows": int(len(candidate_events)),
+        "candidate_excluded_unconfirmed_rows": int(len(events) - len(candidate_events)),
         "latest_rows": int(len(latest)),
         "ticker_count": int(events["ticker"].nunique()) if not events.empty else 0,
         "etf_count": int(events["etf_ticker"].nunique()) if not events.empty else 0,
@@ -365,7 +377,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     }
     write_json(output_dir / "summary.json", summary)
     (output_dir / "report.md").write_text(render_report(summary, events), encoding="utf-8")
-    print(json.dumps({"status": summary["status"], "event_rows": summary["event_rows"], "ticker_count": summary["ticker_count"], "etf_count": summary["etf_count"]}, indent=2, sort_keys=True))
+    print(json.dumps({"status": summary["status"], "event_rows": summary["event_rows"], "candidate_event_rows": summary["candidate_event_rows"], "ticker_count": summary["ticker_count"], "etf_count": summary["etf_count"]}, indent=2, sort_keys=True))
     return summary
 
 
