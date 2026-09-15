@@ -1,0 +1,31 @@
+name: Liquidity rates and banks CI
+on:
+  pull_request:
+    paths:
+      - 'tools/liquidity_rates_banks.py'
+      - 'tests/liquidity_rates_banks_smoke.py'
+      - 'docs/LIQUIDITY_RATES_BANKS_MERGE_20260916.md'
+      - '.github/workflows/liquidity_rates_banks_ci.yml'
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '${{ matrix.python }}'
+      - name: Normal interpreter
+        env:
+          PYTHONWARNINGS: error::ResourceWarning
+        run: python -m unittest tests.liquidity_rates_banks_smoke -v
+      - name: Optimized interpreter
+        run: python -O -W error::ResourceWarning -m unittest tests.liquidity_rates_banks_smoke -v
