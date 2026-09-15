@@ -16,7 +16,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from tools.run_etf_holding_event_builder import build_etf_holding_events, run  # noqa: E402
 
 
-def sample_holdings() -> pd.DataFrame:
+def sample_holdings(*, coverage_kind: str = "FULL") -> pd.DataFrame:
     return pd.DataFrame(
         [
             {
@@ -26,6 +26,7 @@ def sample_holdings() -> pd.DataFrame:
                 "holding_ticker": "AAA",
                 "holding_name": "AAA Inc",
                 "holding_weight": 0.10,
+                "coverage_kind": coverage_kind,
                 "source": "fixture",
                 "as_of_date": "2026-04-30T00:00:00Z",
                 "available_from": "2026-04-30T00:00:00Z",
@@ -37,6 +38,7 @@ def sample_holdings() -> pd.DataFrame:
                 "holding_ticker": "CCC",
                 "holding_name": "CCC Inc",
                 "holding_weight": 0.04,
+                "coverage_kind": coverage_kind,
                 "source": "fixture",
                 "as_of_date": "2026-04-30T00:00:00Z",
                 "available_from": "2026-04-30T00:00:00Z",
@@ -48,6 +50,7 @@ def sample_holdings() -> pd.DataFrame:
                 "holding_ticker": "AAA",
                 "holding_name": "AAA Inc",
                 "holding_weight": 0.15,
+                "coverage_kind": coverage_kind,
                 "source": "fixture",
                 "as_of_date": "2026-05-31T00:00:00Z",
                 "available_from": "2026-05-31T00:00:00Z",
@@ -59,6 +62,7 @@ def sample_holdings() -> pd.DataFrame:
                 "holding_ticker": "BBB",
                 "holding_name": "BBB Inc",
                 "holding_weight": 0.06,
+                "coverage_kind": coverage_kind,
                 "source": "fixture",
                 "as_of_date": "2026-05-31T00:00:00Z",
                 "available_from": "2026-05-31T00:00:00Z",
@@ -70,6 +74,7 @@ def sample_holdings() -> pd.DataFrame:
                 "holding_ticker": "AAA",
                 "holding_name": "AAA Inc",
                 "holding_weight": 0.08,
+                "coverage_kind": coverage_kind,
                 "source": "fixture",
                 "as_of_date": "2026-05-31T00:00:00Z",
                 "available_from": "2026-05-31T00:00:00Z",
@@ -90,10 +95,25 @@ def test_etf_holding_event_builder_detects_inclusion_weight_change_and_removal()
     assert abs(float(increase["holding_weight_delta"]) - 0.05) < 1e-9
     assert int(increase["etf_consensus_count"]) == 2
     assert float(increase["etf_event_seed_score"]) > 0
+    assert bool(increase["membership_change_confirmed"]) is True
     removal = events[events["event_type"].eq("removal")].iloc[0]
     assert float(removal["etf_event_seed_score"]) < 0
+    assert bool(removal["membership_change_confirmed"]) is True
     assert bool(events["research_only"].all()) is True
     assert bool((~events["production_activation_allowed"]).all()) is True
+
+
+def test_partial_coverage_does_not_prove_membership_change() -> None:
+    events = build_etf_holding_events(sample_holdings(coverage_kind="TOP_ONLY"), change_threshold=0.0025)
+    counts = events["event_type"].value_counts().to_dict()
+    assert counts["presence_observed"] == 1
+    assert counts["absence_unconfirmed"] == 1
+    presence = events[events["event_type"].eq("presence_observed")].iloc[0]
+    absence = events[events["event_type"].eq("absence_unconfirmed")].iloc[0]
+    assert float(presence["etf_event_seed_score"]) == 0.0
+    assert float(absence["etf_event_seed_score"]) == 0.0
+    assert bool(presence["membership_change_confirmed"]) is False
+    assert bool(absence["membership_change_confirmed"]) is False
 
 
 def test_etf_holding_event_builder_cli_outputs_summary() -> None:
@@ -108,6 +128,7 @@ def test_etf_holding_event_builder_cli_outputs_summary() -> None:
         assert payload["status"] == "completed", payload
         assert payload["event_rows"] == 6
         assert payload["ticker_count"] == 3
+        assert payload["schema_version"] == "etf-holding-events-v2"
         saved = pd.read_parquet(pit)
         assert len(saved) == 6
         summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
@@ -116,5 +137,6 @@ def test_etf_holding_event_builder_cli_outputs_summary() -> None:
 
 if __name__ == "__main__":
     test_etf_holding_event_builder_detects_inclusion_weight_change_and_removal()
+    test_partial_coverage_does_not_prove_membership_change()
     test_etf_holding_event_builder_cli_outputs_summary()
     print("etf_holding_event_builder_smoke: PASS")
