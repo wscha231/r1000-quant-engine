@@ -191,6 +191,56 @@ def test_full_to_full_can_create_recent_add_signal() -> None:
     assert float(signals.loc["B", "etf_recent_add_score"]) == 1.0
 
 
+def test_refresh_preserves_existing_pit_history() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        pit_dir = root / "data_pit" / "etf_holdings"
+        pit_dir.mkdir(parents=True, exist_ok=True)
+        pit_file = pit_dir / "etf_holdings.parquet"
+        pd.DataFrame(
+            [
+                {
+                    "etf_ticker": "ETF1",
+                    "etf_label": "ETF One",
+                    "theme": "fixture",
+                    "holding_ticker": "OLD",
+                    "holding_name": "Old Holding",
+                    "holding_weight": 0.20,
+                    "coverage_kind": "NPORT",
+                    "source": "historical",
+                    "as_of_date": "2026-08-01T00:00:00Z",
+                    "available_from": "2026-08-01T00:00:00Z",
+                }
+            ]
+        ).to_parquet(pit_file, index=False)
+
+        fixture = root / "current.csv"
+        pd.DataFrame(
+            [
+                {
+                    "etf_ticker": "ETF1",
+                    "holding_ticker": "NEW",
+                    "holding_weight": 0.30,
+                    "theme": "fixture",
+                }
+            ]
+        ).to_csv(fixture, index=False)
+
+        args = parse_args()
+        args.input_holdings = str(fixture)
+        args.pit_dir = str(pit_dir)
+        args.output_dir = str(root / "outputs" / "etf_thematic_signals")
+        args.as_of = "2026-09-15T00:00:00Z"
+        args.max_holdings = 25
+        payload = run(args)
+
+        saved = pd.read_parquet(pit_file)
+        assert set(saved["holding_ticker"]) == {"OLD", "NEW"}
+        assert set(saved["available_from"]) == {"2026-08-01T00:00:00Z", "2026-09-15T00:00:00Z"}
+        assert payload["historical_rows_retained"] == 1
+        assert payload["pit_rows_after_refresh"] == 2
+
+
 def main() -> None:
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_") and callable(value)]
     for test in tests:
