@@ -17,9 +17,7 @@ except ImportError:  # direct CLI/test import with runtime directory on sys.path
 ContractError = _core.ContractError
 build_holding_events = _core.build_holding_events
 compose_universe = _core.compose_universe
-discover_terms = _core.discover_terms
 latest_asof_by_fund = _core.latest_asof_by_fund
-resolve_memberships = _core.resolve_memberships
 digest = _core.digest
 
 
@@ -35,7 +33,14 @@ def normalize_snapshot(raw: dict[str, Any]) -> dict[str, Any]:
     unit = str(raw.get("weight_unit") or "").upper().strip()
     for row in raw.get("rows", []):
         normalize_weight(row.get("weight"), unit)
-    return _core.normalize_snapshot(raw)
+    snapshot = _core.normalize_snapshot(raw)
+    try:
+        holdings_as_of = date.fromisoformat(str(snapshot.get("holdings_as_of") or ""))
+    except ValueError as exc:
+        raise ContractError("holdings_as_of must be an ISO date") from exc
+    if holdings_as_of > _core.utc(snapshot["available_at"]).date():
+        raise ContractError("holdings_as_of cannot be later than available_at")
+    return snapshot
 
 
 def validate_normalized_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
@@ -54,7 +59,13 @@ def validate_normalized_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
         raise ContractError("normalized snapshot hash mismatch")
     if str(snapshot.get("coverage_kind") or "").upper() not in _core.ALLOWED_COVERAGE:
         raise ContractError("normalized snapshot coverage_kind invalid")
-    _core.utc(str(snapshot["available_at"]))
+    available = _core.utc(str(snapshot["available_at"]))
+    try:
+        holdings_as_of = date.fromisoformat(str(snapshot.get("holdings_as_of") or ""))
+    except ValueError as exc:
+        raise ContractError("normalized holdings_as_of must be an ISO date") from exc
+    if holdings_as_of > available.date():
+        raise ContractError("normalized holdings_as_of cannot be later than available_at")
     rows = list(snapshot.get("rows") or [])
     if not rows:
         raise ContractError("normalized snapshot rows required")
@@ -108,17 +119,18 @@ def validate_price_rows(rows: Iterable[dict[str, Any]], decision_at: str) -> lis
             raise ContractError("invalid price session or total_return_index") from exc
         if session_date > cutoff.date():
             raise ContractError("future price session at decision time")
-        if _core.utc(str(available_at)) > cutoff:
+        available = _core.utc(str(available_at))
+        if available > cutoff:
             raise ContractError("price row was not available at decision time")
+        if available.date() < session_date:
+            raise ContractError("price row cannot be available before its session")
         if not math.isfinite(value) or value <= 0:
             raise ContractError("total_return_index must be finite and positive")
     return out
 
 
-def compute_leadership(price_rows: Iterable[dict[str, Any]], benchmark_id: str, *, decision_at: str | None = None) -> list[dict[str, Any]]:
-    rows = list(price_rows)
-    if decision_at is not None:
-        validate_price_rows(rows, decision_at)
+def compute_leadership(price_rows: Iterable[dict[str, Any]], benchmark_id: str, *, decision_at: str) -> list[dict[str, Any]]:
+    rows = validate_price_rows(price_rows, decision_at)
     return _core.compute_leadership(rows, benchmark_id)
 
 
@@ -137,6 +149,11 @@ def validate_documents(documents: Iterable[dict[str, Any]], decision_at: str) ->
         if _core.utc(str(available_at)) > cutoff:
             raise ContractError("future document at decision time")
     return out
+
+
+def discover_terms(documents: Iterable[dict[str, Any]], *, decision_at: str, max_terms: int = 30) -> list[dict[str, Any]]:
+    docs = validate_documents(documents, decision_at)
+    return _core.discover_terms(docs, max_terms=max_terms)
 
 
 def validate_membership_events(events: Iterable[dict[str, Any]], decision_at: str) -> list[dict[str, Any]]:
@@ -158,9 +175,18 @@ def validate_membership_events(events: Iterable[dict[str, Any]], decision_at: st
             reviewed_at = event.get("reviewed_at")
             if not reviewed_at:
                 raise ContractError("reviewed membership event requires reviewed_at")
-            if _core.utc(str(reviewed_at)) > cutoff:
+            reviewed_ts = _core.utc(str(reviewed_at))
+            observed_ts = _core.utc(str(observed_at))
+            if reviewed_ts > cutoff:
                 raise ContractError("membership event was not reviewed at decision time")
+            if reviewed_ts < observed_ts:
+                raise ContractError("membership review cannot predate observation")
     return out
+
+
+def resolve_memberships(events: Iterable[dict[str, Any]], decision_at: str) -> dict[str, dict[str, Any]]:
+    validated = validate_membership_events(events, decision_at)
+    return _core.resolve_memberships(validated, decision_at)
 
 
 def run_payload(payload: dict[str, Any]) -> dict[str, Any]:
