@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -311,8 +312,24 @@ def test_strict_contract_rejects_top_manager_after_close() -> None:
     assert "top_manager_available_after_decision_close:1" in failures
 
 
+def test_candidate_universe_contract_suites() -> None:
+    for rel in [
+        "tests/test_candidate_universe_registry.py",
+        "tests/test_candidate_universe_pipeline.py",
+    ]:
+        result = subprocess.run(
+            [sys.executable, str(ROOT / rel)],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, f"{rel} failed\n{result.stdout}\n{result.stderr}"
+
+
 if __name__ == "__main__":
     test_sec_candidate_enrichment_is_pit_and_research_only()
     test_strict_contract_rejects_missing_candidate_provenance()
     test_strict_contract_rejects_top_manager_after_close()
+    test_candidate_universe_contract_suites()
     print("sec_candidate_enrichment_smoke: PASS")
