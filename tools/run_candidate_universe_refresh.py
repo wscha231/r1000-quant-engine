@@ -3,7 +3,8 @@
 
 This is a discovery/monitoring artifact, not a portfolio target. Form4 expansion
 fails closed until a dedicated H1 validation receipt explicitly authorizes it.
-13F expansion is labelled H2-manager-skill-pending.
+13F expansion is labelled H2-manager-skill-pending and, in the CLI path, is
+recomputed only from hash-verified canonical holdings.
 """
 from __future__ import annotations
 
@@ -26,6 +27,9 @@ from tools.candidate_universe_registry import (
     reasons_from_form4,
 )
 
+SEC_13F_PUBLICATION_SCHEMA = "sec-13f-publication-verification-v2"
+SEC_13F_STOCK_SCOPE = "CASH_EQUITY_ONLY_OPTIONS_AND_PRN_EXCLUDED_FROM_STOCK_SCORE"
+
 
 def _read_json(path: Path) -> dict[str, Any]:
     value = json.loads(path.read_text(encoding="utf-8"))
@@ -38,6 +42,105 @@ def _read_table(path: Path) -> pd.DataFrame:
     if path.suffix.lower() == ".parquet":
         return pd.read_parquet(path)
     return pd.read_csv(path, low_memory=False)
+
+
+def _load_verified_13f_events(
+    *,
+    holdings_path: Path,
+    verification_path: Path,
+    as_of: str,
+    lookback_days: int = 210,
+) -> tuple[pd.DataFrame, dict[str, Any], str, dict[str, Any]]:
+    """Recompute candidate-discovery 13F events from a verified holdings artifact.
+
+    The candidate-universe path must not trust mutable ``13f_latest.csv`` or a
+    hand-authored summary. It consumes the existing publication-verification
+    receipt, verifies the exact holdings bytes, then derives stock-level events
+    again with the current H1 security-identity code.
+    """
+    if not verification_path.exists():
+        raise UniverseIntegrityError("13f_publication_verification_missing")
+    if not holdings_path.exists():
+        raise UniverseIntegrityError("13f_verified_holdings_missing")
+
+    verification = _read_json(verification_path)
+    if verification.get("schema_version") != SEC_13F_PUBLICATION_SCHEMA:
+        raise UniverseIntegrityError("13f_publication_verification_schema_mismatch")
+    if verification.get("status") != "ready":
+        raise UniverseIntegrityError("13f_publication_verification_not_ready")
+    if verification.get("kind") != "sec":
+        raise UniverseIntegrityError("13f_publication_verification_wrong_kind")
+    if verification.get("research_only") is not True:
+        raise UniverseIntegrityError("13f_publication_verification_not_research_only")
+    if verification.get("production_activation_allowed") not in (False, None):
+        raise UniverseIntegrityError("13f_publication_verification_allows_production")
+    if verification.get("live_trading_enabled") not in (False, None):
+        raise UniverseIntegrityError("13f_publication_verification_allows_live_trading")
+    failures = verification.get("failures")
+    if failures not in (None, []):
+        raise UniverseIntegrityError("13f_publication_verification_has_failures")
+
+    expected = verification.get("expected_identity")
+    observed = verification.get("observed_identity")
+    if not isinstance(expected, dict) or not isinstance(observed, dict):
+        raise UniverseIntegrityError("13f_publication_identity_missing")
+    for key in ("workflow_run_id", "head_sha", "head_branch"):
+        lhs = str(expected.get(key) or "").strip()
+        rhs = str(observed.get(key) or "").strip()
+        if not lhs or rhs != lhs:
+            raise UniverseIntegrityError(f"13f_publication_identity_mismatch:{key}")
+    head_sha = str(expected["head_sha"]).lower()
+    if len(head_sha) != 40 or any(ch not in "0123456789abcdef" for ch in head_sha):
+        raise UniverseIntegrityError("13f_publication_head_sha_invalid")
+
+    holdings_sha = file_sha256(holdings_path)
+    if holdings_sha != str(verification.get("holdings_sha256") or "").lower():
+        raise UniverseIntegrityError("13f_publication_holdings_sha256_mismatch")
+
+    cutoff = pd.to_datetime(as_of, errors="coerce", utc=True)
+    if pd.isna(cutoff):
+        raise UniverseIntegrityError("invalid_13f_candidate_as_of")
+    lookback_days = int(lookback_days)
+    if lookback_days <= 0 or lookback_days > 3660:
+        raise UniverseIntegrityError("invalid_13f_candidate_lookback_days")
+
+    from tools.run_sec_institutional_signals import build_13f_signal
+
+    holdings = _read_table(holdings_path)
+    try:
+        signals = build_13f_signal(
+            holdings,
+            as_of=cutoff.isoformat(),
+            lookback_days=lookback_days,
+        )
+    except ValueError as exc:
+        raise UniverseIntegrityError(f"13f_verified_holdings_signal_rebuild_failed:{exc}") from exc
+
+    trusted_summary = {
+        "research_only": True,
+        "production_activation_allowed": False,
+        "score_total_changed": False,
+        "security_identity_preserved": True,
+        "stock_signal_scope": SEC_13F_STOCK_SCOPE,
+    }
+    receipt_sha = file_sha256(verification_path)
+    signal_content_sha = hashlib.sha256(signals.to_csv(index=False).encode("utf-8")).hexdigest()
+    source_identity = {
+        "verification_schema": SEC_13F_PUBLICATION_SCHEMA,
+        "verification_receipt_sha256": receipt_sha,
+        "holdings_sha256": holdings_sha,
+        "signal_content_sha256": signal_content_sha,
+        "workflow_run_id": str(expected["workflow_run_id"]),
+        "head_sha": head_sha,
+        "head_branch": str(expected["head_branch"]),
+        "candidate_as_of": cutoff.isoformat(),
+        "lookback_days": lookback_days,
+        "signal_derivation": "tools.run_sec_institutional_signals.build_13f_signal",
+    }
+    source_hash = hashlib.sha256(
+        json.dumps(source_identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return signals, trusted_summary, source_hash, source_identity
 
 
 def build_from_inputs(
@@ -158,15 +261,17 @@ def main(argv=None) -> int:
     p.add_argument("--as-of", required=True)
     p.add_argument("--output-dir", required=True, type=Path)
     p.add_argument(
-        "--institutional-signals",
+        "--institutional-holdings",
         type=Path,
-        default=Path("outputs/sec_institutional_signals/13f_latest.csv"),
+        default=Path("data_pit/sec/institutional_13f_holdings.parquet"),
     )
     p.add_argument(
-        "--institutional-summary",
+        "--13f-publication-verification",
+        dest="publication_verification",
         type=Path,
-        default=Path("outputs/sec_institutional_signals/institutional_signal_summary.json"),
+        default=Path("outputs/full_rebuild_logs/sec_upstream_publication_verification.json"),
     )
+    p.add_argument("--13f-lookback-days", dest="lookback_days", type=int, default=210)
     p.add_argument(
         "--form4-signals",
         type=Path,
@@ -184,14 +289,23 @@ def main(argv=None) -> int:
         inst = None
         inst_summary = None
         inst_hash = ""
-        if args.institutional_signals.exists() and args.institutional_summary.exists():
-            inst = _read_table(args.institutional_signals)
-            inst_summary = _read_json(args.institutional_summary)
-            inst_hash = hashlib.sha256(
-                (file_sha256(args.institutional_signals) + file_sha256(args.institutional_summary)).encode()
-            ).hexdigest()
+        inst_identity: dict[str, Any] | None = None
+        inst_block_reason = ""
+        has_holdings = args.institutional_holdings.exists()
+        has_verification = args.publication_verification.exists()
+        if has_holdings and has_verification:
+            inst, inst_summary, inst_hash, inst_identity = _load_verified_13f_events(
+                holdings_path=args.institutional_holdings,
+                verification_path=args.publication_verification,
+                as_of=args.as_of,
+                lookback_days=args.lookback_days,
+            )
+        elif has_holdings or has_verification:
+            inst_block_reason = "BLOCKED_UNVERIFIED_INCOMPLETE_EVIDENCE_CHAIN"
+            if args.require_13f:
+                raise UniverseIntegrityError("13f_verified_inputs_must_arrive_together")
         elif args.require_13f:
-            raise UniverseIntegrityError("required_13f_inputs_missing")
+            raise UniverseIntegrityError("required_verified_13f_inputs_missing")
 
         form4 = None
         form4_validation = None
@@ -215,6 +329,10 @@ def main(argv=None) -> int:
             form4_validation=form4_validation,
             form4_source_hash=form4_hash,
         )
+        if inst_identity is not None:
+            manifest["sec_13f_evidence_identity"] = inst_identity
+        elif inst_block_reason:
+            manifest["source_status"]["sec_13f"] = inst_block_reason
         manifest = write_artifact(args.output_dir, reasons, universe, queue, manifest)
         print(
             json.dumps(
