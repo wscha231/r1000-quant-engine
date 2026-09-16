@@ -1,0 +1,9 @@
+{
+  "benchmark_ticker": "SPY",
+  "entry_delays": [0, 2, 5],
+  "horizons": [63, 126, 252, 504],
+  "per_side_cost_bps": 10.0,
+  "research_only": true,
+  "status": "PREREGISTERED_BASELINE_NOT_OPTIMIZED",
+  "usage": "event-level matured evidence only; not a continuous clone NAV and not a manager performance rank"
+}
