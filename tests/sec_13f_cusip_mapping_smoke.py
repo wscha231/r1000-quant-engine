@@ -17,6 +17,17 @@ from tools.run_sec_13f_parser import read_cusip_map  # noqa: E402
 from tools.run_sec_institutional_signals import build_13f_signal  # noqa: E402
 
 
+def _cash_identity() -> dict[str, str]:
+    """Explicit exact-security identity for synthetic cash-equity fixtures."""
+    return {
+        "title_of_class": "COM",
+        "put_call": "",
+        "share_type": "SH",
+        "investment_discretion": "SOLE",
+        "other_manager": "",
+    }
+
+
 def _holdings() -> pd.DataFrame:
     return pd.DataFrame(
         [
@@ -32,6 +43,7 @@ def _holdings() -> pd.DataFrame:
                 "ticker_mapped": "",
                 "shares": 100000.0,
                 "market_value_usd": 10_000_000.0,
+                **_cash_identity(),
             },
             {
                 "manager_cik": "0001067983",
@@ -45,6 +57,7 @@ def _holdings() -> pd.DataFrame:
                 "ticker_mapped": "",
                 "shares": 180000.0,
                 "market_value_usd": 18_000_000.0,
+                **_cash_identity(),
             },
             {
                 "manager_cik": "0001067983",
@@ -58,6 +71,7 @@ def _holdings() -> pd.DataFrame:
                 "ticker_mapped": "",
                 "shares": 10.0,
                 "market_value_usd": 10.0,
+                **_cash_identity(),
             },
         ]
     )

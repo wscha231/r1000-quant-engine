@@ -18,6 +18,23 @@ from tools.run_sec_13f_parser import amendment_type_from_text, market_value_usd,
 from tools.run_sec_institutional_signals import add_13f_position_deltas, build_13f_signal, prepare_13f_holdings  # noqa: E402
 
 
+def _identity_frame(rows: list[dict[str, object]]) -> pd.DataFrame:
+    """Supply explicit cash-security identity for hand-built legacy fixtures."""
+    cusips = {"AAPL": "037833100", "MSFT": "594918104", "NVDA": "67066G104"}
+    out = []
+    for source in rows:
+        row = dict(source)
+        ticker = str(row.get("ticker_mapped") or "").upper()
+        row.setdefault("cusip", cusips.get(ticker, "999999999"))
+        row.setdefault("title_of_class", "COM")
+        row.setdefault("put_call", "")
+        row.setdefault("share_type", "SH")
+        row.setdefault("investment_discretion", "SOLE")
+        row.setdefault("other_manager", "")
+        out.append(row)
+    return pd.DataFrame(out)
+
+
 SAMPLE_13F = """<?xml version="1.0" encoding="UTF-8"?>
 <informationTable>
   <infoTable>
@@ -280,10 +297,10 @@ def test_amendment_type_and_restatement_snapshot_semantics() -> None:
             "amendment_type": "NEW HOLDINGS",
         }
     )
-    prepared = prepare_13f_holdings(pd.DataFrame(rows))
+    prepared = prepare_13f_holdings(_identity_frame(rows))
     assert set(prepared["ticker"]) == {"AAPL", "NVDA"}
     assert "MSFT" not in set(prepared["ticker"])
-    historical = prepare_13f_holdings(pd.DataFrame(rows), as_of="2026-08-15T00:00:00+00:00")
+    historical = prepare_13f_holdings(_identity_frame(rows), as_of="2026-08-15T00:00:00+00:00")
     assert set(historical["ticker"]) == {"AAPL", "MSFT"}
 
 
@@ -318,7 +335,7 @@ def test_restatement_removal_emits_latest_exit_in_signal() -> None:
         "shares": 20.0,
         "market_value_usd": 200.0,
     }
-    holdings = pd.DataFrame([prior, current_msft, current_aapl, restated_aapl])
+    holdings = _identity_frame([prior, current_msft, current_aapl, restated_aapl])
     before = build_13f_signal(holdings, as_of="2026-08-15T00:00:00+00:00", lookback_days=210).set_index("ticker")
     assert int(before.loc["MSFT", "sec_13f_manager_count"]) == 1
 
@@ -358,7 +375,7 @@ def test_new_holdings_only_period_does_not_emit_false_exits() -> None:
         "form_type": "13F-HR/A",
         "amendment_type": "NEW HOLDINGS",
     }
-    holdings = pd.DataFrame([prior, incremental])
+    holdings = _identity_frame([prior, incremental])
     deltas = add_13f_position_deltas(holdings, as_of="2026-08-18T00:00:00+00:00")
     assert not deltas["synthetic_exit"].astype(bool).any()
     latest = build_13f_signal(holdings, as_of="2026-08-18T00:00:00+00:00", lookback_days=210).set_index("ticker")
@@ -397,7 +414,7 @@ def test_late_prior_period_restatement_cannot_resurrect_position() -> None:
         "shares": 20.0,
         "market_value_usd": 200.0,
     }
-    holdings = pd.DataFrame([prior, current, late_prior_restatement])
+    holdings = _identity_frame([prior, current, late_prior_restatement])
     deltas = add_13f_position_deltas(holdings, as_of="2026-09-02T00:00:00+00:00")
     exit_row = deltas[deltas["ticker"].eq("AAPL")].sort_values(
         ["available_from_ts", "report_period_ts"]
@@ -413,6 +430,7 @@ def test_late_prior_period_restatement_cannot_resurrect_position() -> None:
 def test_h1_13f_contract_suites() -> None:
     suites = [
         "tests/test_sec_13f_parser_integration.py",
+        "tests/test_sec_13f_security_identity.py",
     ]
     for rel in suites:
         result = subprocess.run(
