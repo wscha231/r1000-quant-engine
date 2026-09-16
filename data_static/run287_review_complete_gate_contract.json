@@ -12,7 +12,11 @@
   "branch_protection_configuration": {
     "required_status_checks": {
       "strict": true,
-      "contexts": ["portfolio_guard", "review_complete", "validate"],
+      "contexts": [
+        "portfolio_guard",
+        "review_complete",
+        "validate"
+      ],
       "checks": [
         {"context": "portfolio_guard", "app_id": 15368},
         {"context": "review_complete", "app_id": 15368},
@@ -44,26 +48,10 @@
   "required_status_checks": ["validate", "portfolio_guard", "review_complete"],
   "strict_status_checks": true,
   "risk_tiers": {
-    "R0": {
-      "description": "documentation/general-test-only or equivalent non-mutating changes",
-      "independent_review_required": false,
-      "maintainer_attestation_required": true
-    },
-    "R1": {
-      "description": "research/data/PIT/tooling and side-effect-free workflow changes",
-      "independent_review_required": false,
-      "maintainer_attestation_required": true
-    },
-    "R2": {
-      "description": "portfolio, target, sizing, allocation, selector, regime, risk or execution-policy changes",
-      "independent_review_required": true,
-      "maintainer_attestation_required": true
-    },
-    "R3": {
-      "description": "governance/safety gates, broker/live/order/ledger/accepted-state/secrets, scheduler activation or mutation-authority changes",
-      "independent_review_required": true,
-      "maintainer_attestation_required": true
-    }
+    "R0": {"description": "documentation/general-test-only or equivalent non-mutating changes", "independent_review_required": false, "maintainer_attestation_required": true},
+    "R1": {"description": "research/data/PIT/tooling and side-effect-free workflow changes", "independent_review_required": false, "maintainer_attestation_required": true},
+    "R2": {"description": "portfolio, target, sizing, allocation, selector, regime, risk or execution-policy changes", "independent_review_required": true, "maintainer_attestation_required": true},
+    "R3": {"description": "governance/safety gates, broker/live/order/ledger/accepted-state/secrets, scheduler activation or mutation-authority changes", "independent_review_required": true, "maintainer_attestation_required": true}
   },
   "classification": {
     "source": "actual PR changed filenames plus available patches",
@@ -71,26 +59,20 @@
     "unknown_executable_default": "R2",
     "missing_changed_files_default": "R3",
     "workflow_patch_unavailable_default": "R3",
-    "governance_gate_changes_always": "R3"
+    "governance_gate_changes_always": "R3",
+    "unclassified_tool_executable_default": "R2",
+    "unclassified_workflow_default": "R2",
+    "safe_side_effect_free_workflow_name_markers": ["ci", "test", "tests", "smoke", "validate", "validation", "research", "preflight"]
   },
   "accepted_reviewers": ["chatgpt-codex-connector", "chatgpt-codex-connector[bot]"],
   "accepted_codex_reviewers": ["chatgpt-codex-connector", "chatgpt-codex-connector[bot]"],
-  "accepted_human_reviewer_associations": ["OWNER", "MEMBER", "COLLABORATOR"],
-  "accepted_evidence": [
-    "MAINTAINER_ATTESTED_LOW_RISK",
-    "ATTESTED_EXACT_HEAD_CODEX_REVIEW",
-    "ATTESTED_EXACT_HEAD_HUMAN_APPROVAL",
-    "MAINTAINER_BOUND_CODEX_CLEAN_REACTION"
-  ],
+  "accepted_evidence": ["MAINTAINER_ATTESTED_LOW_RISK", "ATTESTED_EXACT_HEAD_CODEX_REVIEW", "MAINTAINER_BOUND_CODEX_CLEAN_REACTION"],
   "exact_head_review_policy": {
     "R0": "maintainer exact-head attestation is sufficient",
     "R1": "maintainer exact-head attestation is sufficient unless classifier escalates",
     "R2": "independent exact-head review plus maintainer attestation required",
     "R3": "independent exact-head review plus maintainer attestation required"
   },
-  "human_review_must_be_approved": true,
-  "human_reviewer_must_not_be_pr_author": true,
-  "trusted_human_associations": ["OWNER", "MEMBER", "COLLABORATOR"],
   "trusted_head_observation_check": "review_head_observed",
   "review_evidence_must_postdate_head_observation": true,
   "maintainer_attestation_required": true,
@@ -112,5 +94,8 @@
   "fullrun_required": false,
   "production_activation_allowed": false,
   "live_trading_enabled": false,
-  "r3_operational_activation_requires_separate_explicit_user_approval": true
+  "r3_operational_activation_requires_separate_explicit_user_approval": true,
+  "required_code_checks_verified_inside_review_gate": ["validate", "portfolio_guard"],
+  "unresolved_review_threads_verified_inside_review_gate": true,
+  "independent_review_provider_for_r2_r3": "Codex exact-head review or fresh Codex clean reaction"
 }

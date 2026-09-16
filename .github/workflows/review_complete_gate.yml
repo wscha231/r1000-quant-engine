@@ -118,10 +118,19 @@ jobs:
           gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" > "$ROOT/reviews.json"
           gh api --paginate --slurp -H "Accept: application/vnd.github+json" "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/reactions" > "$ROOT/reactions.json"
           gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" > "$ROOT/files.json"
+          gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs?per_page=100" > "$ROOT/checks.json"
+          OWNER="${GITHUB_REPOSITORY%%/*}"
+          NAME="${GITHUB_REPOSITORY#*/}"
+          gh api graphql --paginate --slurp \
+            -f owner="$OWNER" -f name="$NAME" -F number="$PR_NUMBER" \
+            -f query='query($owner:String!,$name:String!,$number:Int!,$endCursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100,after:$endCursor){nodes{isResolved}pageInfo{hasNextPage endCursor}}}}}' \
+            > "$ROOT/threads.json"
+
           ARGS=(); if [ -f "$ROOT/attestation.json" ]; then ARGS+=(--attestation "$ROOT/attestation.json"); fi
           set +e
           python tools/check_pr_review_complete.py --pull-request "$ROOT/pr.json" --head-observation "$ROOT/head-observation.json" \
-            --reviews "$ROOT/reviews.json" --reactions "$ROOT/reactions.json" --files "$ROOT/files.json" "${ARGS[@]}" --output "$ROOT/result.json"
+            --reviews "$ROOT/reviews.json" --reactions "$ROOT/reactions.json" --files "$ROOT/files.json" \
+            --checks "$ROOT/checks.json" --threads "$ROOT/threads.json" "${ARGS[@]}" --output "$ROOT/result.json"
           GATE_RC=$?; set -e
           echo "gate_rc=$GATE_RC" >> "$GITHUB_OUTPUT"
           python - <<'PY' "$ROOT/result.json" >> "$GITHUB_OUTPUT"

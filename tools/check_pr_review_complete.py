@@ -4,7 +4,7 @@
 v3 separates low-risk research/data publication from portfolio/live-policy changes.
 All tiers require a trusted exact-head observation and maintainer attestation.
 R0/R1 may complete without Codex. R2/R3 additionally require independent exact-head
-review evidence from Codex or a non-author GitHub collaborator approval.
+review evidence from Codex.
 """
 
 from __future__ import annotations
@@ -26,9 +26,8 @@ DEFAULT_CODEX_REVIEWERS = {
     "chatgpt-codex-connector[bot]",
 }
 CODEX_REVIEW_STATES = {"APPROVED", "COMMENTED"}
-HUMAN_REVIEW_STATES = {"APPROVED"}
-TRUSTED_HUMAN_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
 WRITE_PERMISSIONS = {"admin", "maintain", "write"}
+REQUIRED_CODE_CHECKS = ("validate", "portfolio_guard")
 
 GOVERNANCE_R3_PATHS = {
     "agents.md",
@@ -42,7 +41,7 @@ GOVERNANCE_R3_PATHS = {
     ".github/workflows/portfolio_system_guard.yml",
 }
 R3_PATH_RE = re.compile(
-    r"(^|[/_.-])(broker|orders?|fills?|ledger|kill[-_]?switch|secrets?|credentials?|production|live)([/_.-]|$)"
+    r"(^|[/_.-])(broker|brokerage|orders?|fills?|ledger|kill[-_]?switch|secrets?|credentials?|production|live|trade|trading)([/_.-]|$)"
     r"|accepted[-_](paper|account|ledger|publication|state)",
     re.I,
 )
@@ -57,6 +56,7 @@ R1_PATH_RE = re.compile(
     re.I,
 )
 EXECUTABLE_SUFFIXES = {".py", ".sh", ".ps1", ".yml", ".yaml", ".json", ".toml"}
+SAFE_WORKFLOW_RE = re.compile(r"(^|[_-])(ci|test|tests|smoke|validate|validation|research|preflight)([_\.-]|$)", re.I)
 R3_ADDED_LINE_RE = re.compile(
     r"(^|\s)(schedule\s*:|secrets\.|orders_allowed\s*[:=]\s*true|"
     r"target_mutation_allowed\s*[:=]\s*true|canonical_regime_mutation_allowed\s*[:=]\s*true|"
@@ -107,6 +107,55 @@ def parse_time(value: Any) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def extract_check_runs(value: Any) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    if isinstance(value, dict):
+        if isinstance(value.get("check_runs"), list):
+            for item in value["check_runs"]:
+                rows.extend(extract_check_runs(item))
+        elif value.get("name"):
+            rows.append(value)
+    elif isinstance(value, list):
+        for item in value:
+            rows.extend(extract_check_runs(item))
+    return rows
+
+
+def extract_review_threads(value: Any) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    if isinstance(value, dict):
+        if "isResolved" in value or "is_resolved" in value:
+            rows.append(value)
+        for item in value.values():
+            if isinstance(item, (dict, list)):
+                rows.extend(extract_review_threads(item))
+    elif isinstance(value, list):
+        for item in value:
+            rows.extend(extract_review_threads(item))
+    return rows
+
+
+def required_check_failures(value: Any, *, head_sha: str) -> list[str]:
+    rows = extract_check_runs(value)
+    failures: list[str] = []
+    for name in REQUIRED_CODE_CHECKS:
+        candidates = [
+            row for row in rows
+            if str(row.get("name") or "") == name
+            and (not row.get("head_sha") or str(row.get("head_sha")).lower() == head_sha)
+        ]
+        if not candidates:
+            failures.append("missing_required_check:" + name)
+            continue
+        def key(row: dict[str, Any]):
+            return (parse_time(row.get("completed_at")) or parse_time(row.get("started_at"))
+                    or datetime.min.replace(tzinfo=timezone.utc), int(row.get("id") or 0))
+        latest = max(candidates, key=key)
+        if latest.get("status") != "completed" or latest.get("conclusion") != "success":
+            failures.append("required_check_not_green:" + name)
+    return failures
+
+
 def added_patch_lines(patch: Any) -> list[str]:
     if not isinstance(patch, str):
         return []
@@ -126,40 +175,35 @@ def classify_file(record: dict[str, Any]) -> dict[str, Any]:
         return {"filename": path, "tier": "R3", "reasons": ["missing_filename"]}
 
     if lower in GOVERNANCE_R3_PATHS:
-        tier = "R3"
-        reasons.append("governance_or_gate_path")
+        tier = "R3"; reasons.append("governance_or_gate_path")
     elif R3_PATH_RE.search(lower):
-        tier = "R3"
-        reasons.append("live_durable_or_secret_path")
+        tier = "R3"; reasons.append("live_durable_or_secret_path")
     elif R2_PATH_RE.search(lower):
-        tier = "R2"
-        reasons.append("portfolio_or_policy_path")
+        tier = "R2"; reasons.append("portfolio_or_policy_path")
     elif lower.startswith(".github/workflows/"):
-        tier = "R1"
-        reasons.append("workflow_change")
-    elif R1_PATH_RE.search(lower) or lower.startswith("tools/") or lower.startswith("data_static/"):
-        tier = "R1"
-        reasons.append("research_data_or_tool_path")
+        name = Path(lower).name
+        if record.get("patch") is None:
+            tier = "R3"; reasons.append("workflow_patch_unavailable")
+        elif SAFE_WORKFLOW_RE.search(name):
+            tier = "R1"; reasons.append("side_effect_free_workflow_name")
+        else:
+            tier = "R2"; reasons.append("unclassified_workflow")
+    elif R1_PATH_RE.search(lower) or lower.startswith("data_static/"):
+        tier = "R1"; reasons.append("research_data_or_tool_path")
     elif lower.startswith("docs/") or lower.startswith("tests/") or lower.endswith(".md"):
-        tier = "R0"
-        reasons.append("documentation_or_general_test")
+        tier = "R0"; reasons.append("documentation_or_general_test")
+    elif lower.startswith("tools/") and Path(lower).suffix in EXECUTABLE_SUFFIXES:
+        tier = "R2"; reasons.append("unclassified_tool_code")
     elif Path(lower).suffix in EXECUTABLE_SUFFIXES:
-        tier = "R2"
-        reasons.append("unclassified_executable_code")
+        tier = "R2"; reasons.append("unclassified_executable_code")
     else:
-        tier = "R1"
-        reasons.append("unclassified_nonexecuting_asset")
+        tier = "R1"; reasons.append("unclassified_nonexecuting_asset")
 
     additions = added_patch_lines(record.get("patch"))
-    if lower.startswith(".github/workflows/") and record.get("patch") is None:
-        tier = "R3"
-        reasons.append("workflow_patch_unavailable")
     if any(R3_ADDED_LINE_RE.search(line) for line in additions):
-        tier = "R3"
-        reasons.append("r3_mutation_or_schedule_marker")
+        tier = "R3"; reasons.append("r3_mutation_or_schedule_marker")
     elif any(R2_ADDED_LINE_RE.search(line) for line in additions):
-        tier = tier_max(tier, "R2")
-        reasons.append("r2_portfolio_policy_marker")
+        tier = tier_max(tier, "R2"); reasons.append("r2_portfolio_policy_marker")
     return {"filename": path, "tier": tier, "reasons": sorted(set(reasons))}
 
 
@@ -206,30 +250,6 @@ def exact_codex_reviews(
     return matched
 
 
-def exact_human_approvals(
-    reviews: Iterable[dict[str, Any]], *, head_sha: str, head_observed_at: datetime,
-    attested_at: datetime, author_login: str,
-) -> list[dict[str, Any]]:
-    matched: list[dict[str, Any]] = []
-    for review in reviews:
-        reviewer = login(review)
-        if not reviewer or reviewer == author_login:
-            continue
-        if reviewer in DEFAULT_CODEX_REVIEWERS:
-            continue
-        if str(review.get("state") or "").upper() not in HUMAN_REVIEW_STATES:
-            continue
-        if str(review.get("author_association") or "").upper() not in TRUSTED_HUMAN_ASSOCIATIONS:
-            continue
-        if str(review.get("commit_id") or "").lower() != head_sha:
-            continue
-        submitted_at = parse_time(review.get("submitted_at"))
-        if submitted_at is None or submitted_at < head_observed_at or submitted_at > attested_at:
-            continue
-        matched.append(review)
-    return matched
-
-
 def fresh_codex_clean_reactions(
     reactions: Iterable[dict[str, Any]], *, head_observed_at: datetime,
     attested_at: datetime, reviewers: set[str],
@@ -245,10 +265,8 @@ def fresh_codex_clean_reactions(
     return matched
 
 
-def trusted_change_requests(
-    reviews: Iterable[dict[str, Any]], *, head_sha: str, author_login: str,
-    codex_reviewers: set[str],
-) -> list[dict[str, Any]]:
+def trusted_change_requests(reviews: Iterable[dict[str, Any]], *, head_sha: str,
+                            author_login: str, codex_reviewers: set[str]) -> list[dict[str, Any]]:
     blocked: list[dict[str, Any]] = []
     for review in reviews:
         if str(review.get("state") or "").upper() != "CHANGES_REQUESTED":
@@ -258,18 +276,16 @@ def trusted_change_requests(
         reviewer = login(review)
         association = str(review.get("author_association") or "").upper()
         if reviewer in codex_reviewers or (
-            reviewer and reviewer != author_login and association in TRUSTED_HUMAN_ASSOCIATIONS
+            reviewer and reviewer != author_login and association in {"OWNER", "MEMBER", "COLLABORATOR"}
         ):
             blocked.append(review)
     return blocked
 
 
-def evaluate(
-    *, pull_request: dict[str, Any], head_observation: dict[str, Any],
-    attestation: dict[str, Any] | None, reviews: list[dict[str, Any]],
-    reactions: list[dict[str, Any]], files: list[dict[str, Any]],
-    reviewers: set[str] | None = None,
-) -> dict[str, Any]:
+def evaluate(*, pull_request: dict[str, Any], head_observation: dict[str, Any],
+             attestation: dict[str, Any] | None, reviews: list[dict[str, Any]],
+             reactions: list[dict[str, Any]], files: list[dict[str, Any]],
+             checks: Any, threads: Any, reviewers: set[str] | None = None) -> dict[str, Any]:
     allowed = {value.lower() for value in (reviewers or DEFAULT_CODEX_REVIEWERS)}
     head = pull_request.get("head")
     head_sha = str(head.get("sha") if isinstance(head, dict) else "").strip().lower()
@@ -283,6 +299,14 @@ def evaluate(
     change = classify_change_set(files)
     if not change["classification_complete"]:
         failures.append("risk_classification_incomplete")
+
+    failures.extend(required_check_failures(checks, head_sha=head_sha))
+    unresolved_threads = [
+        row for row in extract_review_threads(threads)
+        if not bool(row.get("isResolved", row.get("is_resolved", False)))
+    ]
+    if unresolved_threads:
+        failures.append("unresolved_review_threads")
 
     observed_sha = str(head_observation.get("head_sha") or "").strip().lower()
     observed_at = parse_time(head_observation.get("observed_at"))
@@ -311,26 +335,15 @@ def evaluate(
             failures.append("attestation_predates_head_observation")
 
     codex_reviews: list[dict[str, Any]] = []
-    human_approvals: list[dict[str, Any]] = []
     clean_reactions: list[dict[str, Any]] = []
     if head_sha and observed_at is not None and attested_at is not None:
-        codex_reviews = exact_codex_reviews(
-            reviews, head_sha=head_sha, head_observed_at=observed_at,
-            attested_at=attested_at, reviewers=allowed,
-        )
-        human_approvals = exact_human_approvals(
-            reviews, head_sha=head_sha, head_observed_at=observed_at,
-            attested_at=attested_at, author_login=author_login,
-        )
-        clean_reactions = fresh_codex_clean_reactions(
-            reactions, head_observed_at=observed_at, attested_at=attested_at,
-            reviewers=allowed,
-        )
+        codex_reviews = exact_codex_reviews(reviews, head_sha=head_sha,
+            head_observed_at=observed_at, attested_at=attested_at, reviewers=allowed)
+        clean_reactions = fresh_codex_clean_reactions(reactions,
+            head_observed_at=observed_at, attested_at=attested_at, reviewers=allowed)
 
-    change_requests = trusted_change_requests(
-        reviews, head_sha=head_sha, author_login=author_login,
-        codex_reviewers=allowed,
-    ) if head_sha else []
+    change_requests = trusted_change_requests(reviews, head_sha=head_sha,
+        author_login=author_login, codex_reviewers=allowed) if head_sha else []
     if change_requests:
         failures.append("trusted_current_head_changes_requested")
 
@@ -339,26 +352,12 @@ def evaluate(
     evidence_id: int | str | None = None
     evidence_at = ""
     if codex_reviews:
-        selected = max(
-            codex_reviews,
-            key=lambda row: parse_time(row.get("submitted_at")) or datetime.min.replace(tzinfo=timezone.utc),
-        )
+        selected = max(codex_reviews, key=lambda row: parse_time(row.get("submitted_at")) or datetime.min.replace(tzinfo=timezone.utc))
         evidence_type = "ATTESTED_EXACT_HEAD_CODEX_REVIEW"
         evidence_id = selected.get("id")
         evidence_at = str(selected.get("submitted_at") or "")
-    elif human_approvals:
-        selected = max(
-            human_approvals,
-            key=lambda row: parse_time(row.get("submitted_at")) or datetime.min.replace(tzinfo=timezone.utc),
-        )
-        evidence_type = "ATTESTED_EXACT_HEAD_HUMAN_APPROVAL"
-        evidence_id = selected.get("id")
-        evidence_at = str(selected.get("submitted_at") or "")
     elif clean_reactions:
-        selected = max(
-            clean_reactions,
-            key=lambda row: parse_time(row.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc),
-        )
+        selected = max(clean_reactions, key=lambda row: parse_time(row.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc))
         evidence_type = "MAINTAINER_BOUND_CODEX_CLEAN_REACTION"
         evidence_id = selected.get("id")
         evidence_at = str(selected.get("created_at") or "")
@@ -386,16 +385,16 @@ def evaluate(
         "attested_at": attested_at.isoformat() if attested_at else None,
         "attestation_source": attestation.get("source") or None,
         "accepted_codex_reviewer_logins": sorted(allowed),
-        "accepted_human_associations": sorted(TRUSTED_HUMAN_ASSOCIATIONS),
         "evidence_type": evidence_type or None,
         "evidence_id": evidence_id,
         "evidence_at": evidence_at or None,
         "exact_head_codex_review_count": len(codex_reviews),
-        "exact_head_human_approval_count": len(human_approvals),
         "fresh_codex_clean_reaction_count": len(clean_reactions),
         "trusted_changes_requested_count": len(change_requests),
+        "unresolved_review_thread_count": len(unresolved_threads),
+        "required_code_checks": list(REQUIRED_CODE_CHECKS),
         "failures": sorted(set(failures)),
-        "unresolved_conversations_checked_by": "github_branch_protection_or_pr_thread_query",
+        "unresolved_conversations_checked_by": "review_complete_gate_graphql",
         "automatic_merge_authorized": False,
         "production_activation_allowed": False,
         "live_trading_enabled": False,
@@ -411,6 +410,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--reviews", required=True)
     parser.add_argument("--reactions", required=True)
     parser.add_argument("--files", required=True)
+    parser.add_argument("--checks", required=True)
+    parser.add_argument("--threads", required=True)
     parser.add_argument("--reviewer", action="append", default=[])
     parser.add_argument("--output")
     return parser.parse_args()
@@ -425,6 +426,8 @@ def main() -> int:
         reviews=flatten_records(read_json(args.reviews)),
         reactions=flatten_records(read_json(args.reactions)),
         files=flatten_records(read_json(args.files)),
+        checks=read_json(args.checks),
+        threads=read_json(args.threads),
         reviewers=set(args.reviewer) if args.reviewer else None,
     )
     text = json.dumps(payload, indent=2, sort_keys=True) + "\n"
