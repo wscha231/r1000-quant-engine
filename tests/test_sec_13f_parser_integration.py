@@ -1,18 +1,23 @@
-"""Parser -> H1 adapter -> batch -> writer tests; no API calls or alpha tests.
+'''Parser -> H1 adapter -> batch -> writer tests; no API calls or alpha tests.
 
 Run in the repository with its real submissions collector. The delivery-only
 harness can supply a clearly labelled transport import shim when no authorized
 worktree is mounted. Never copy that shim into tools/ in the repository.
-"""
+'''
 from __future__ import annotations
 import contextlib
 import hashlib
 import io
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 import pandas as pd
 from tools import run_sec_13f_parser as p
