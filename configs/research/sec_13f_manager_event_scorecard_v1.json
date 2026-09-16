@@ -1,0 +1,11 @@
+{
+  "horizons": [63, 126, 252, 504],
+  "base_delay": 0,
+  "robustness_delays": [2, 5],
+  "minimum_events_per_horizon": 5,
+  "minimum_unique_tickers": 3,
+  "recent_window_months": 36,
+  "research_only": true,
+  "status": "PREREGISTERED_DESCRIPTIVE_BASELINE_NOT_RANKING",
+  "usage": "manager event-study scorecards only; not account CAGR, not continuous clone NAV, not a production manager rank"
+}
