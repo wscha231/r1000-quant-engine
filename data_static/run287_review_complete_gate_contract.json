@@ -1,5 +1,5 @@
 {
-  "schema_version": "run287-review-complete-gate-contract-v2",
+  "schema_version": "run287-review-complete-gate-contract-v3",
   "protected_branch": "master",
   "authority_observation": {
     "repository": "wscha231/r1000-quant-engine",
@@ -12,24 +12,11 @@
   "branch_protection_configuration": {
     "required_status_checks": {
       "strict": true,
-      "contexts": [
-        "portfolio_guard",
-        "review_complete",
-        "validate"
-      ],
+      "contexts": ["portfolio_guard", "review_complete", "validate"],
       "checks": [
-        {
-          "context": "portfolio_guard",
-          "app_id": 15368
-        },
-        {
-          "context": "review_complete",
-          "app_id": 15368
-        },
-        {
-          "context": "validate",
-          "app_id": 15368
-        }
+        {"context": "portfolio_guard", "app_id": 15368},
+        {"context": "review_complete", "app_id": 15368},
+        {"context": "validate", "app_id": 15368}
       ]
     },
     "required_pull_request_reviews": {
@@ -37,16 +24,8 @@
       "require_code_owner_reviews": false,
       "require_last_push_approval": false,
       "required_approving_review_count": 0,
-      "dismissal_restrictions": {
-        "users": [],
-        "teams": [],
-        "apps": []
-      },
-      "bypass_pull_request_allowances": {
-        "users": [],
-        "teams": [],
-        "apps": []
-      }
+      "dismissal_restrictions": {"users": [], "teams": [], "apps": []},
+      "bypass_pull_request_allowances": {"users": [], "teams": [], "apps": []}
     },
     "required_signatures": false,
     "enforce_admins": true,
@@ -57,51 +36,71 @@
     "required_conversation_resolution": true,
     "lock_branch": false,
     "allow_fork_syncing": false,
-    "restrictions": {
-      "users": [],
-      "teams": [],
-      "apps": []
-    },
-    "bypass_force_push_allowances": {
-      "users": [],
-      "teams": [],
-      "apps": []
-    }
+    "restrictions": {"users": [], "teams": [], "apps": []},
+    "bypass_force_push_allowances": {"users": [], "teams": [], "apps": []}
   },
   "matching_branch_rules": [],
   "repository_rulesets": [],
-  "required_status_checks": [
-    "validate",
-    "portfolio_guard",
-    "review_complete"
-  ],
+  "required_status_checks": ["validate", "portfolio_guard", "review_complete"],
   "strict_status_checks": true,
-  "accepted_reviewers": [
-    "chatgpt-codex-connector",
-    "chatgpt-codex-connector[bot]"
-  ],
+  "risk_tiers": {
+    "R0": {
+      "description": "documentation/general-test-only or equivalent non-mutating changes",
+      "independent_review_required": false,
+      "maintainer_attestation_required": true
+    },
+    "R1": {
+      "description": "research/data/PIT/tooling and side-effect-free workflow changes",
+      "independent_review_required": false,
+      "maintainer_attestation_required": true
+    },
+    "R2": {
+      "description": "portfolio, target, sizing, allocation, selector, regime, risk or execution-policy changes",
+      "independent_review_required": true,
+      "maintainer_attestation_required": true
+    },
+    "R3": {
+      "description": "governance/safety gates, broker/live/order/ledger/accepted-state/secrets, scheduler activation or mutation-authority changes",
+      "independent_review_required": true,
+      "maintainer_attestation_required": true
+    }
+  },
+  "classification": {
+    "source": "actual PR changed filenames plus available patches",
+    "self_declared_pr_label_can_downgrade": false,
+    "unknown_executable_default": "R2",
+    "missing_changed_files_default": "R3",
+    "workflow_patch_unavailable_default": "R3",
+    "governance_gate_changes_always": "R3"
+  },
+  "accepted_reviewers": ["chatgpt-codex-connector", "chatgpt-codex-connector[bot]"],
+  "accepted_codex_reviewers": ["chatgpt-codex-connector", "chatgpt-codex-connector[bot]"],
+  "accepted_human_reviewer_associations": ["OWNER", "MEMBER", "COLLABORATOR"],
   "accepted_evidence": [
-    "ATTESTED_EXACT_HEAD_REVIEW",
-    "MAINTAINER_BOUND_CLEAN_REACTION"
+    "MAINTAINER_ATTESTED_LOW_RISK",
+    "ATTESTED_EXACT_HEAD_CODEX_REVIEW",
+    "ATTESTED_EXACT_HEAD_HUMAN_APPROVAL",
+    "MAINTAINER_BOUND_CODEX_CLEAN_REACTION"
   ],
-  "exact_head_review_required_when_review_exists": true,
+  "exact_head_review_policy": {
+    "R0": "maintainer exact-head attestation is sufficient",
+    "R1": "maintainer exact-head attestation is sufficient unless classifier escalates",
+    "R2": "independent exact-head review plus maintainer attestation required",
+    "R3": "independent exact-head review plus maintainer attestation required"
+  },
+  "human_review_must_be_approved": true,
+  "human_reviewer_must_not_be_pr_author": true,
+  "trusted_human_associations": ["OWNER", "MEMBER", "COLLABORATOR"],
   "trusted_head_observation_check": "review_head_observed",
   "review_evidence_must_postdate_head_observation": true,
   "maintainer_attestation_required": true,
-  "maintainer_attestation_permissions": [
-    "admin",
-    "maintain",
-    "write"
-  ],
+  "maintainer_attestation_permissions": ["admin", "maintain", "write"],
   "maintainer_attestation_exact_sha_required": true,
   "clean_reaction_manual_refresh_command": "/review-complete <40-char-head-sha>",
-  "trusted_writable_triggers": [
-    "pull_request_target",
-    "issue_comment",
-    "workflow_dispatch"
-  ],
+  "trusted_writable_triggers": ["pull_request_target", "issue_comment", "workflow_dispatch"],
   "pull_request_review_trigger_allowed": false,
   "required_conversation_resolution": true,
+  "trusted_current_head_changes_requested_blocks": true,
   "dismiss_stale_reviews": true,
   "required_approving_review_count": 0,
   "enforce_admins": true,
@@ -112,5 +111,6 @@
   "admin_merge_bypass_allowed": false,
   "fullrun_required": false,
   "production_activation_allowed": false,
-  "live_trading_enabled": false
+  "live_trading_enabled": false,
+  "r3_operational_activation_requires_separate_explicit_user_approval": true
 }
