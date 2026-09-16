@@ -90,6 +90,24 @@ class Tests(unittest.TestCase):
     def test_nonfinite_rejected(self):
         p=fixture();p['datasets']['SOFR']['rows'][-1]['value']=float('nan')
         with self.assertRaises(ValueError): run(p)
+    def test_alfred_vintage_cannot_enter_before_next_ny_day(self):
+        p=fixture();ds=p['datasets']['SOFR']
+        ds['rows']=[dict(series='SOFR',observation_date='2026-09-10',value=4.,
+            vintage_date='2026-09-11',realtime_end='9999-12-31',retrieved_at=AT,
+            available_at='2026-09-12T04:00:00Z',evidence='alfred_date_archive')]
+        self.assertEqual(select_series(ds,'SOFR',stamp('2026-09-11T20:00:00Z'))['status'],'NOT_AVAILABLE_AS_OF')
+        self.assertEqual(select_series(ds,'SOFR',stamp(AT))['status'],'OK')
+        ds['rows'][0]['available_at']='2026-09-11T20:00:00Z'
+        with self.assertRaises(ContractError): select_series(ds,'SOFR',stamp(AT))
+    def test_alfred_expiry_uses_delayed_successor_boundary(self):
+        p=fixture();ds=p['datasets']['SOFR']
+        ds['rows']=[dict(series='SOFR',observation_date='2026-09-10',value=4.,
+            vintage_date='2026-09-11',realtime_end='2026-09-12',retrieved_at=AT,
+            available_at='2026-09-12T04:00:00Z',evidence='alfred_date_archive')]
+        before=select_series(ds,'SOFR',stamp('2026-09-13T20:00:00Z'))
+        after=select_series(ds,'SOFR',stamp(AT))
+        self.assertEqual(before['status'],'OK');self.assertEqual(before['rows'][-1]['value'],4.)
+        self.assertEqual(after['status'],'WITHDRAWN')
     def test_future_prior_blocked(self):
         prior=run();prior['as_of']='2026-09-17T00:00:00Z'
         with self.assertRaises(ContractError):run(prior=prior)
