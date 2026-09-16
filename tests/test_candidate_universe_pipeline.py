@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import types
@@ -12,7 +13,12 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.run_candidate_universe_refresh import build_from_inputs, write_artifact  # noqa: E402
+from tools.candidate_universe_registry import file_sha256  # noqa: E402
+from tools.run_candidate_universe_refresh import (  # noqa: E402
+    _load_verified_13f_events,
+    build_from_inputs,
+    write_artifact,
+)
 from tools.run_candidate_universe_scan import (  # noqa: E402
     eligible_tickers,
     load_candidate_artifact,
@@ -43,6 +49,62 @@ def signal(
         "sec_13f_new_position_manager_count": new,
         "sec_13f_value_delta_usd": delta,
     }
+
+
+def verified_holding(ticker: str = "ZZZZ") -> dict[str, object]:
+    return {
+        "manager_cik": "0000000001",
+        "manager_name": "Fixture Manager",
+        "ticker_mapped": ticker,
+        "report_period": "2026-06-30",
+        "filing_date": "2026-08-14",
+        "accepted_at": "2026-08-14T20:00:00Z",
+        "available_from": "2026-08-14T20:00:00Z",
+        "cusip": "123456789",
+        "issuer_name": "Fixture Issuer",
+        "title_of_class": "COM",
+        "shares": 100.0,
+        "share_type": "SH",
+        "market_value_usd": 1_000.0,
+        "put_call": "",
+        "investment_discretion": "SOLE",
+        "other_manager": "",
+        "source_accession": "0000000001-26-000001",
+        "form_type": "13F-HR",
+        "amendment_type": "",
+    }
+
+
+def write_verified_source(root: Path, *, receipt_mutator=None) -> tuple[Path, Path]:
+    holdings = root / "holdings.csv"
+    pd.DataFrame([verified_holding()]).to_csv(holdings, index=False)
+    receipt = {
+        "schema_version": "sec-13f-publication-verification-v2",
+        "status": "ready",
+        "kind": "sec",
+        "expected_identity": {
+            "workflow_run_id": "123456",
+            "head_sha": "a" * 40,
+            "head_branch": "master",
+        },
+        "observed_identity": {
+            "workflow_run_id": "123456",
+            "head_sha": "a" * 40,
+            "head_branch": "master",
+        },
+        "filings_index_sha256": "b" * 64,
+        "holdings_sha256": file_sha256(holdings),
+        "evidence_sha256": {},
+        "failures": [],
+        "research_only": True,
+        "production_activation_allowed": False,
+        "live_trading_enabled": False,
+    }
+    if receipt_mutator:
+        receipt_mutator(receipt)
+    verification = root / "verification.json"
+    verification.write_text(json.dumps(receipt, sort_keys=True) + "\n", encoding="utf-8")
+    return holdings, verification
 
 
 class FakeCandidate:
@@ -182,6 +244,74 @@ class CandidateUniversePipelineTests(unittest.TestCase):
         )
         self.assertEqual(list(universe["ticker"]), ["AAPL"])
         self.assertEqual(len(reasons[reasons["ticker"].eq("AAPL")]), 3)
+
+    def test_verified_13f_receipt_recomputes_event_from_exact_holdings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            holdings, verification = write_verified_source(Path(tmp))
+            expected_holdings_sha = file_sha256(holdings)
+            signals, summary, source_hash, identity = _load_verified_13f_events(
+                holdings_path=holdings,
+                verification_path=verification,
+                as_of=ASOF,
+            )
+        self.assertIn("ZZZZ", set(signals["ticker"]))
+        self.assertTrue(summary["security_identity_preserved"])
+        self.assertEqual(identity["holdings_sha256"], expected_holdings_sha)
+        self.assertEqual(len(identity["signal_content_sha256"]), 64)
+        self.assertEqual(len(source_hash), 64)
+
+    def test_verified_13f_rejects_wrong_holdings_hash(self) -> None:
+        def mutate(receipt):
+            receipt["holdings_sha256"] = "0" * 64
+
+        with tempfile.TemporaryDirectory() as tmp:
+            holdings, verification = write_verified_source(Path(tmp), receipt_mutator=mutate)
+            with self.assertRaisesRegex(Exception, "holdings_sha256_mismatch"):
+                _load_verified_13f_events(
+                    holdings_path=holdings,
+                    verification_path=verification,
+                    as_of=ASOF,
+                )
+
+    def test_verified_13f_rejects_blocked_receipt(self) -> None:
+        def mutate(receipt):
+            receipt["status"] = "blocked"
+            receipt["failures"] = ["freshness_not_ready"]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            holdings, verification = write_verified_source(Path(tmp), receipt_mutator=mutate)
+            with self.assertRaisesRegex(Exception, "not_ready"):
+                _load_verified_13f_events(
+                    holdings_path=holdings,
+                    verification_path=verification,
+                    as_of=ASOF,
+                )
+
+    def test_verified_13f_rejects_identity_mismatch(self) -> None:
+        def mutate(receipt):
+            receipt["observed_identity"]["head_sha"] = "b" * 40
+
+        with tempfile.TemporaryDirectory() as tmp:
+            holdings, verification = write_verified_source(Path(tmp), receipt_mutator=mutate)
+            with self.assertRaisesRegex(Exception, "identity_mismatch:head_sha"):
+                _load_verified_13f_events(
+                    holdings_path=holdings,
+                    verification_path=verification,
+                    as_of=ASOF,
+                )
+
+    def test_verified_13f_rejects_receipt_with_failures_even_if_status_ready(self) -> None:
+        def mutate(receipt):
+            receipt["failures"] = ["holdings_sha256_mismatch"]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            holdings, verification = write_verified_source(Path(tmp), receipt_mutator=mutate)
+            with self.assertRaisesRegex(Exception, "has_failures"):
+                _load_verified_13f_events(
+                    holdings_path=holdings,
+                    verification_path=verification,
+                    as_of=ASOF,
+                )
 
 
 if __name__ == "__main__":
