@@ -29,6 +29,23 @@ Event polarity is independent from membership:
 
 An event-only `RISK_WATCH` security is retained in the monitoring/data queue but is not passed to the buy-candidate scanner solely because of the negative event. A base R1000/ADR member remains scan-eligible even when a risk event is attached.
 
+## 13F provenance boundary
+
+The candidate-universe CLI does **not** trust mutable `13f_latest.csv` or a hand-authored boolean summary as proof of H1 verification.
+
+For 13F expansion it now consumes the existing `sec-13f-publication-verification-v2` receipt plus the exact canonical holdings artifact and verifies:
+
+- receipt schema and `ready` status;
+- research-only / no-production / no-live-trading boundary;
+- empty verification failure list;
+- exact expected/observed workflow run, head SHA and branch identity;
+- exact holdings SHA256 against the receipt;
+- current H1 security-identity/numeric semantics while rebuilding the stock-level signal directly from holdings.
+
+The manifest records the verification-receipt SHA, holdings SHA, recomputed signal-content SHA, upstream workflow identity, candidate cutoff and lookback. Therefore an arbitrary summary file alone cannot expand the CLI-produced universe.
+
+If only part of the 13F evidence chain is present, the R1000/ADR base remains available while `sec_13f` is labelled `BLOCKED_UNVERIFIED_INCOMPLETE_EVIDENCE_CHAIN`. With `--require-13f`, the run fails closed instead.
+
 ## Actual scanner connection
 
 `tools/run_candidate_universe_scan.py` reads the hash-bound `candidate_universe.csv`, selects only `candidate_scan_eligible=true`, then invokes the existing `aggressive.scanner.scan(tickers=<explicit union>, universe_source="custom")`.
@@ -48,22 +65,26 @@ The refresh emits `data_queue.csv` for every active monitoring ticker:
 ## Source gates
 
 - R1000 `themes_fallback` is rejected for this registry. A deprecated theme fallback must not masquerade as the requested R1000 base.
-- 13F requires the H1.2 summary fields `security_identity_preserved=true` and `stock_signal_scope=CASH_EQUITY_ONLY_OPTIONS_AND_PRN_EXCLUDED_FROM_STOCK_SCORE`.
+- The CLI 13F path requires a verified publication receipt + exact holdings hash and recomputes the event signal using current H1 code.
 - 13F membership reason is labelled `H1_VERIFIED_H2_MANAGER_SKILL_PENDING`; it is not a verified top-manager alpha claim.
 - Form4 stays `BLOCKED_UNVERIFIED` until its separate collector/freshness/semantic H1 work produces the required receipt.
 - Future-dated events, malformed tickers/numerics, duplicate reason identities and hash-tampered universe artifacts fail closed.
 
 ## Validation
 
-New tests:
-- `tests/test_candidate_universe_registry.py`: 16 unique cases.
-- `tests/test_candidate_universe_pipeline.py`: 9 unique cases.
+Existing/new contract coverage includes:
 
-Total new H1.3 contract cases: **25 PASS** in normal and Python `-O` modes; compile passes in the chat execution environment.
+- base-reason union and no duplicate ticker;
+- event-only risk monitoring vs buy-candidate eligibility;
+- event-discovered ticker propagation into the existing scanner with zero event score bonus;
+- manifest tamper detection, themes-fallback rejection and overwrite blocking;
+- verified holdings successfully recomputing an event-discovered security;
+- wrong holdings hash rejection;
+- blocked publication receipt rejection;
+- expected/observed upstream identity mismatch rejection;
+- receipt failure-list rejection even when the status string says `ready`.
 
-The pipeline acceptance includes a synthetic ticker outside the R1000/ADR base. A validated positive 13F event adds it to the registry and the test verifies that exact ticker is passed to the existing scanner's explicit `tickers=` argument with `universe_source="custom"` and zero event score bonus.
-
-The two suites are invoked from existing `tests/sec_candidate_enrichment_smoke.py`, which is already registered in `tools/run_pr_validation.py`.
+The candidate-universe suites are invoked from existing `tests/sec_candidate_enrichment_smoke.py`, already registered in `tools/run_pr_validation.py`. Exact-head CI is authoritative; earlier pre-provenance test counts are historical evidence only.
 
 ## Explicit non-claims / next work
 
