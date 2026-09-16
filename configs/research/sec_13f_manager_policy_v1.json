@@ -1,0 +1,32 @@
+{
+  "automatic_promotion": false,
+  "components": {
+    "clone_excess_36m": 0.35,
+    "delay_robustness": 0.15,
+    "downside_recovery": 0.2,
+    "independent_information": 0.1,
+    "new_add_incremental_excess": 0.2
+  },
+  "policy": {
+    "entry_rank": 10,
+    "entry_score": 70.0,
+    "exit_rank": 15,
+    "minimum_independent_events": 20,
+    "minimum_matured_quarters": 8,
+    "minimum_tenure_months": 12,
+    "replacement_gap": 10.0,
+    "replacements_per_halfyear": 2,
+    "shrinkage_prior_events": 20,
+    "source_cluster_cap": 0.35,
+    "source_manager_cap": 0.15,
+    "target_seats": 10
+  },
+  "policy_limits_are_source_influence_not_broker_weights": true,
+  "research_only": true,
+  "review_cadence": {
+    "monthly": "monitor_only",
+    "quarterly": "evaluate",
+    "semiannual": "June/December review proposal; reuse existing scheduler, not a new cron"
+  },
+  "status": "PREREGISTERED_DRAFT_NOT_EMPIRICALLY_OPTIMIZED"
+}
