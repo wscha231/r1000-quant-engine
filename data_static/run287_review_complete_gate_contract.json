@@ -1,101 +1,83 @@
 {
   "schema_version": "run287-review-complete-gate-contract-v3",
   "protected_branch": "master",
-  "authority_observation": {
-    "repository": "wscha231/r1000-quant-engine",
-    "audit_master_sha": "916a02ac0612d64d41f71690cf667a90dfd0531a",
-    "branch_namespace_sha256": "e70683436b46b133d93b66b47acde2565c6889bc654edce01e60182eb6afc126",
-    "observed_at_utc": "2026-08-25T09:58:24.4626105Z",
-    "scope": "CLASSIC_PROTECTION_REVIEW_AND_PUSH_ACTORS_MATCHING_BRANCH_RULES_AND_REPOSITORY_RULESETS",
-    "publication_delta_handling": "EXPECTED_CENSUS_PUBLICATION_BRANCH_EXCLUDED_FROM_FROZEN_NAMESPACE_COMPARISON"
-  },
-  "branch_protection_configuration": {
-    "required_status_checks": {
-      "strict": true,
-      "contexts": [
-        "portfolio_guard",
-        "review_complete",
-        "validate"
-      ],
-      "checks": [
-        {"context": "portfolio_guard", "app_id": 15368},
-        {"context": "review_complete", "app_id": 15368},
-        {"context": "validate", "app_id": 15368}
-      ]
-    },
-    "required_pull_request_reviews": {
-      "dismiss_stale_reviews": true,
-      "require_code_owner_reviews": false,
-      "require_last_push_approval": false,
-      "required_approving_review_count": 0,
-      "dismissal_restrictions": {"users": [], "teams": [], "apps": []},
-      "bypass_pull_request_allowances": {"users": [], "teams": [], "apps": []}
-    },
-    "required_signatures": false,
-    "enforce_admins": true,
-    "required_linear_history": false,
-    "allow_force_pushes": false,
-    "allow_deletions": false,
-    "block_creations": false,
-    "required_conversation_resolution": true,
-    "lock_branch": false,
-    "allow_fork_syncing": false,
-    "restrictions": {"users": [], "teams": [], "apps": []},
-    "bypass_force_push_allowances": {"users": [], "teams": [], "apps": []}
-  },
-  "matching_branch_rules": [],
-  "repository_rulesets": [],
-  "required_status_checks": ["validate", "portfolio_guard", "review_complete"],
+  "required_status_checks": [
+    "validate",
+    "portfolio_guard",
+    "review_complete"
+  ],
   "strict_status_checks": true,
   "risk_tiers": {
-    "R0": {"description": "documentation/general-test-only or equivalent non-mutating changes", "independent_review_required": false, "maintainer_attestation_required": true},
-    "R1": {"description": "research/data/PIT/tooling and side-effect-free workflow changes", "independent_review_required": false, "maintainer_attestation_required": true},
-    "R2": {"description": "portfolio, target, sizing, allocation, selector, regime, risk or execution-policy changes", "independent_review_required": true, "maintainer_attestation_required": true},
-    "R3": {"description": "governance/safety gates, broker/live/order/ledger/accepted-state/secrets, scheduler activation or mutation-authority changes", "independent_review_required": true, "maintainer_attestation_required": true}
+    "R0": {
+      "description": "documentation/general-test-only non-mutating changes",
+      "independent_review_required": false,
+      "maintainer_attestation_required": true
+    },
+    "R1": {
+      "description": "data/PIT/non-executing research assets and isolated research_only code",
+      "independent_review_required": false,
+      "maintainer_attestation_required": true
+    },
+    "R2": {
+      "description": "all workflows, tools/scripts/executables, portfolio/target/risk/execution policy",
+      "independent_review_required": true,
+      "maintainer_attestation_required": true
+    },
+    "R3": {
+      "description": "governance/safety, broker/live/order/ledger/accepted-state/secrets/schedulers/mutation authority",
+      "independent_review_required": true,
+      "maintainer_attestation_required": true
+    }
   },
   "classification": {
-    "source": "actual PR changed filenames plus available patches",
+    "source": "complete PR changed-file inventory plus both added and removed patch lines",
     "self_declared_pr_label_can_downgrade": false,
     "unknown_executable_default": "R2",
-    "missing_changed_files_default": "R3",
+    "workflow_default": "R2",
     "workflow_patch_unavailable_default": "R3",
+    "executable_patch_unavailable_default": "R3",
     "governance_gate_changes_always": "R3",
-    "unclassified_tool_executable_default": "R2",
-    "unclassified_workflow_default": "R2",
-    "safe_side_effect_free_workflow_name_markers": ["ci", "test", "tests", "smoke", "validate", "validation", "research", "preflight"]
+    "all_scoped_agents_md_changes": "R3",
+    "renames_classify_old_and_new_paths": true,
+    "inventory_count_must_match_pr_changed_files": true
   },
-  "accepted_reviewers": ["chatgpt-codex-connector", "chatgpt-codex-connector[bot]"],
-  "accepted_codex_reviewers": ["chatgpt-codex-connector", "chatgpt-codex-connector[bot]"],
-  "accepted_evidence": ["MAINTAINER_ATTESTED_LOW_RISK", "ATTESTED_EXACT_HEAD_CODEX_REVIEW", "MAINTAINER_BOUND_CODEX_CLEAN_REACTION"],
+  "canonical_required_workflows": {
+    "validate": ".github/workflows/pr_validation.yml",
+    "portfolio_guard": ".github/workflows/portfolio_system_guard.yml"
+  },
+  "accepted_codex_reviewers": [
+    "chatgpt-codex-connector",
+    "chatgpt-codex-connector[bot]"
+  ],
+  "accepted_evidence": [
+    "MAINTAINER_ATTESTED_LOW_RISK",
+    "ATTESTED_EXACT_HEAD_CODEX_REVIEW",
+    "MAINTAINER_BOUND_CODEX_CLEAN_REACTION"
+  ],
   "exact_head_review_policy": {
-    "R0": "maintainer exact-head attestation is sufficient",
-    "R1": "maintainer exact-head attestation is sufficient unless classifier escalates",
-    "R2": "independent exact-head review plus maintainer attestation required",
-    "R3": "independent exact-head review plus maintainer attestation required"
+    "R0": "maintainer exact-head attestation is sufficient after canonical checks and thread gate",
+    "R1": "maintainer exact-head attestation is sufficient after canonical checks and thread gate",
+    "R2": "Codex exact-head review/reaction plus maintainer attestation required",
+    "R3": "Codex exact-head review/reaction plus maintainer attestation required"
   },
   "trusted_head_observation_check": "review_head_observed",
   "review_evidence_must_postdate_head_observation": true,
   "maintainer_attestation_required": true,
-  "maintainer_attestation_permissions": ["admin", "maintain", "write"],
+  "maintainer_attestation_permissions": [
+    "admin",
+    "maintain",
+    "write"
+  ],
   "maintainer_attestation_exact_sha_required": true,
   "clean_reaction_manual_refresh_command": "/review-complete <40-char-head-sha>",
-  "trusted_writable_triggers": ["pull_request_target", "issue_comment", "workflow_dispatch"],
-  "pull_request_review_trigger_allowed": false,
   "required_conversation_resolution": true,
   "trusted_current_head_changes_requested_blocks": true,
-  "dismiss_stale_reviews": true,
-  "required_approving_review_count": 0,
-  "enforce_admins": true,
-  "allow_force_pushes": false,
-  "allow_deletions": false,
-  "required_linear_history": false,
   "automatic_merge_allowed": false,
   "admin_merge_bypass_allowed": false,
   "fullrun_required": false,
   "production_activation_allowed": false,
   "live_trading_enabled": false,
   "r3_operational_activation_requires_separate_explicit_user_approval": true,
-  "required_code_checks_verified_inside_review_gate": ["validate", "portfolio_guard"],
-  "unresolved_review_threads_verified_inside_review_gate": true,
-  "independent_review_provider_for_r2_r3": "Codex exact-head review or fresh Codex clean reaction"
+  "required_code_checks_verified_by_canonical_workflow_path": true,
+  "unresolved_review_threads_verified_inside_review_gate": true
 }

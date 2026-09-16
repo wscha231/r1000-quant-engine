@@ -21,6 +21,7 @@ permissions:
   pull-requests: read
   issues: read
   checks: write
+  actions: read
 
 jobs:
   evaluate:
@@ -60,18 +61,28 @@ jobs:
             python - <<'PY' > "$ROOT/observation-request.json"
           import json, os
           print(json.dumps({
-              "name": "review_head_observed", "head_sha": os.environ["HEAD_SHA"],
-              "status": "completed", "conclusion": "success",
+              "name": "review_head_observed",
+              "head_sha": os.environ["HEAD_SHA"],
+              "status": "completed",
+              "conclusion": "success",
               "external_id": "head-observation:" + os.environ["GITHUB_RUN_ID"],
-              "output": {"title": "Trusted default-branch workflow observed this PR head",
-                         "summary": "A later maintainer attestation binds review policy to this exact observation."},
+              "output": {
+                  "title": "Trusted default-branch workflow observed this PR head",
+                  "summary": "A later maintainer attestation binds review policy to this exact observation.",
+              },
           }))
           PY
-            gh api --method POST "repos/$GITHUB_REPOSITORY/check-runs" --input "$ROOT/observation-request.json" > "$ROOT/observation-response.json"
+            gh api --method POST "repos/$GITHUB_REPOSITORY/check-runs" \
+              --input "$ROOT/observation-request.json" > "$ROOT/observation-response.json"
             python - <<'PY' "$ROOT/observation-response.json" "$ROOT/head-observation.json"
           import json, sys
           source=json.load(open(sys.argv[1], encoding="utf-8"))
-          json.dump({"head_sha":source["head_sha"],"observed_at":source["started_at"],"check_run_id":source["id"],"source":"pull_request_target"},open(sys.argv[2],"w",encoding="utf-8"))
+          json.dump({
+              "head_sha": source["head_sha"],
+              "observed_at": source["started_at"],
+              "check_run_id": source["id"],
+              "source": "pull_request_target",
+          }, open(sys.argv[2], "w", encoding="utf-8"))
           PY
             exit 0
           fi
@@ -89,20 +100,44 @@ jobs:
             ATTESTED_AT="$(python -c 'from datetime import datetime,timezone; print(datetime.now(timezone.utc).isoformat())')"
             SOURCE=workflow_dispatch
           fi
+
           PERMISSION="$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$ACTOR/permission" --jq .permission)"
-          case "$PERMISSION" in admin|maintain|write) ;; *) echo "actor lacks write permission: $ACTOR ($PERMISSION)" >&2; exit 2 ;; esac
-          gh api -H "Accept: application/vnd.github+json" "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs?check_name=review_head_observed&filter=latest&per_page=100" > "$ROOT/observation-runs.json"
+          case "$PERMISSION" in
+            admin|maintain|write) ;;
+            *) echo "actor lacks write permission: $ACTOR ($PERMISSION)" >&2; exit 2 ;;
+          esac
+
+          gh api -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs?check_name=review_head_observed&filter=latest&per_page=100" \
+            > "$ROOT/observation-runs.json"
           python - <<'PY' "$ROOT/observation-runs.json" "$ROOT/head-observation.json" "$HEAD_SHA"
           import json,sys
           source=json.load(open(sys.argv[1],encoding="utf-8")); head=sys.argv[3].lower()
-          rows=[r for r in source.get("check_runs",[]) if r.get("name")=="review_head_observed" and str(r.get("head_sha") or "").lower()==head and r.get("conclusion")=="success" and (r.get("app") or {}).get("slug")=="github-actions" and r.get("started_at")]
-          if not rows: raise SystemExit("missing trusted review_head_observed check")
-          r=max(rows,key=lambda x:x["started_at"]); json.dump({"head_sha":r["head_sha"],"observed_at":r["started_at"],"check_run_id":r["id"],"source":"review_head_observed"},open(sys.argv[2],"w",encoding="utf-8"))
+          rows=[
+              r for r in source.get("check_runs",[])
+              if r.get("name")=="review_head_observed"
+              and str(r.get("head_sha") or "").lower()==head
+              and r.get("conclusion")=="success"
+              and (r.get("app") or {}).get("slug")=="github-actions"
+              and r.get("started_at")
+          ]
+          if not rows:
+              raise SystemExit("missing trusted review_head_observed check")
+          row=max(rows,key=lambda x:x["started_at"])
+          json.dump({
+              "head_sha":row["head_sha"],"observed_at":row["started_at"],
+              "check_run_id":row["id"],"source":"review_head_observed",
+          },open(sys.argv[2],"w",encoding="utf-8"))
           PY
+
           export ACTOR ATTESTED_AT PERMISSION SOURCE
           python - <<'PY' > "$ROOT/attestation.json"
           import json,os
-          print(json.dumps({"head_sha":os.environ["HEAD_SHA"],"created_at":os.environ["ATTESTED_AT"],"actor":os.environ["ACTOR"],"permission":os.environ["PERMISSION"],"source":os.environ["SOURCE"]}))
+          print(json.dumps({
+              "head_sha":os.environ["HEAD_SHA"],"created_at":os.environ["ATTESTED_AT"],
+              "actor":os.environ["ACTOR"],"permission":os.environ["PERMISSION"],
+              "source":os.environ["SOURCE"],
+          }))
           PY
 
       - name: Evaluate risk tier and exact-head review evidence
@@ -116,9 +151,14 @@ jobs:
           set -euo pipefail
           ROOT="$RUNNER_TEMP/review-complete"
           gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" > "$ROOT/reviews.json"
-          gh api --paginate --slurp -H "Accept: application/vnd.github+json" "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/reactions" > "$ROOT/reactions.json"
-          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" > "$ROOT/files.json"
-          gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs?per_page=100" > "$ROOT/checks.json"
+          gh api --paginate --slurp -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/reactions" > "$ROOT/reactions.json"
+          gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" > "$ROOT/files.json"
+          gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$HEAD_SHA&event=pull_request&per_page=100" \
+            > "$ROOT/runs.json"
+
           OWNER="${GITHUB_REPOSITORY%%/*}"
           NAME="${GITHUB_REPOSITORY#*/}"
           gh api graphql --paginate --slurp \
@@ -126,19 +166,32 @@ jobs:
             -f query='query($owner:String!,$name:String!,$number:Int!,$endCursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100,after:$endCursor){nodes{isResolved}pageInfo{hasNextPage endCursor}}}}}' \
             > "$ROOT/threads.json"
 
-          ARGS=(); if [ -f "$ROOT/attestation.json" ]; then ARGS+=(--attestation "$ROOT/attestation.json"); fi
+          ARGS=()
+          if [ -f "$ROOT/attestation.json" ]; then
+            ARGS+=(--attestation "$ROOT/attestation.json")
+          fi
           set +e
-          python tools/check_pr_review_complete.py --pull-request "$ROOT/pr.json" --head-observation "$ROOT/head-observation.json" \
-            --reviews "$ROOT/reviews.json" --reactions "$ROOT/reactions.json" --files "$ROOT/files.json" \
-            --checks "$ROOT/checks.json" --threads "$ROOT/threads.json" "${ARGS[@]}" --output "$ROOT/result.json"
-          GATE_RC=$?; set -e
+          python tools/check_pr_review_complete.py \
+            --pull-request "$ROOT/pr.json" \
+            --head-observation "$ROOT/head-observation.json" \
+            --reviews "$ROOT/reviews.json" \
+            --reactions "$ROOT/reactions.json" \
+            --files "$ROOT/files.json" \
+            --runs "$ROOT/runs.json" \
+            --threads "$ROOT/threads.json" \
+            "${ARGS[@]}" \
+            --output "$ROOT/result.json"
+          GATE_RC=$?
+          set -e
           echo "gate_rc=$GATE_RC" >> "$GITHUB_OUTPUT"
           python - <<'PY' "$ROOT/result.json" >> "$GITHUB_OUTPUT"
           import json,sys
           p=json.load(open(sys.argv[1],encoding="utf-8"))
-          print("status="+p["status"]); print("risk_tier="+p["risk_tier"])
+          print("status="+p["status"])
+          print("risk_tier="+p["risk_tier"])
           print("independent_review_required="+str(p["independent_review_required"]).lower())
-          print("evidence_type="+str(p.get("evidence_type") or "none")); print("failures="+",".join(p["failures"]))
+          print("evidence_type="+str(p.get("evidence_type") or "none"))
+          print("failures="+",".join(p["failures"]))
           PY
 
       - name: Publish required review_complete check on PR head
@@ -156,6 +209,18 @@ jobs:
           set -euo pipefail
           python - <<'PY' > "$RUNNER_TEMP/review-complete-check.json"
           import json,os
-          print(json.dumps({"name":"review_complete","head_sha":os.environ["HEAD_SHA"],"status":"completed","conclusion":os.environ["CONCLUSION"],"output":{"title":os.environ.get("GATE_STATUS") or "review gate evaluation failed","summary":"Risk tier: "+(os.environ.get("RISK_TIER") or "unknown")+"\n\nIndependent review required: "+(os.environ.get("INDEPENDENT_REQUIRED") or "unknown")+"\n\nEvidence: "+(os.environ.get("EVIDENCE_TYPE") or "none")+"\n\nFailures: "+(os.environ.get("FAILURES") or "none")+"\n\nUnresolved conversations remain a separate merge condition."}}))
+          print(json.dumps({
+              "name":"review_complete","head_sha":os.environ["HEAD_SHA"],
+              "status":"completed","conclusion":os.environ["CONCLUSION"],
+              "output":{
+                  "title":os.environ.get("GATE_STATUS") or "review gate evaluation failed",
+                  "summary":"Risk tier: "+(os.environ.get("RISK_TIER") or "unknown")
+                    +"\n\nIndependent review required: "+(os.environ.get("INDEPENDENT_REQUIRED") or "unknown")
+                    +"\n\nEvidence: "+(os.environ.get("EVIDENCE_TYPE") or "none")
+                    +"\n\nFailures: "+(os.environ.get("FAILURES") or "none")
+                    +"\n\nUnresolved conversations remain a separate merge condition.",
+              },
+          }))
           PY
-          gh api --method POST "repos/$GITHUB_REPOSITORY/check-runs" --input "$RUNNER_TEMP/review-complete-check.json"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/check-runs" \
+            --input "$RUNNER_TEMP/review-complete-check.json"
