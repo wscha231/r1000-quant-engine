@@ -261,6 +261,34 @@ CONCENTRATED_SCORE_SIZING_REWEIGHT_BLEND = DEFAULT_CONCENTRATED_SCORE_SIZING_BLE
 CONCENTRATED_SCORE_SIZING_REWEIGHT_RANK_POWER = DEFAULT_CONCENTRATED_SCORE_SIZING_RANK_POWER
 CONCENTRATED_SCORE_SIZING_REWEIGHT_CAP_MODE = DEFAULT_CONCENTRATED_SCORE_SIZING_CAP_MODE
 CONCENTRATED_SCORE_SIZING_REWEIGHT_SINGLE_CAP = DEFAULT_CONCENTRATED_SCORE_SIZING_SINGLE_CAP
+CONCENTRATED_CASHFUNDED_EARLY_ENTRY_SIGNAL = "future_winner_scout_score"
+CONCENTRATED_CASHFUNDED_EARLY_ENTRY_ADD_WEIGHT = 0.058
+CONCENTRATED_CASHFUNDED_EARLY_ENTRY_MIN_BREAKOUT_QUALITY = 0.50
+FORBIDDEN_EARLY_ENTRY_SIGNAL_EXACT = {
+    "period_forward_return",
+    "forward_return",
+    "forward_return_coverage_score",
+    "future_return",
+    "future_63d_return",
+    "future_126d_return",
+    "next_63d_return",
+    "next_126d_return",
+    "audit_forward_return",
+    "audit_forward_63d_excess",
+    "audit_forward_126d_excess",
+    "forward_63d_excess",
+    "forward_126d_excess",
+}
+FORBIDDEN_EARLY_ENTRY_SIGNAL_PATTERNS = (
+    "period_forward",
+    "forward_return",
+    "future_return",
+    "audit_forward",
+    "forward_excess",
+    "future_excess",
+    "next_63d_return",
+    "next_126d_return",
+)
 MAIN_GREEN_BULL_LOW_CONFIRM_HIGH_VOL_NEW_ENTRY_CAP = 0.05
 MAIN_GREEN_BULL_LOW_CONFIRM_HIGH_VOL_ATR_THRESHOLD = 0.06
 MAIN_GREEN_BULL_LOW_CONFIRM_CONFIRMATION_THRESHOLD = 0.50
@@ -619,6 +647,42 @@ def concentrated_score_sizing_single_cap() -> float:
     raw = os.environ.get("R1000_CONC_SCORE_SIZING_SINGLE_CAP", "")
     value = safe_float(raw, CONCENTRATED_SCORE_SIZING_REWEIGHT_SINGLE_CAP)
     return float(max(0.0, value))
+
+
+def concentrated_cashfunded_early_entry_enabled() -> bool:
+    return bool(phase_is_enabled("concentrated_cashfunded_early_entry", default=False))
+
+
+def concentrated_cashfunded_early_entry_signal() -> str:
+    raw = os.environ.get("R1000_CONC_CASHFUNDED_EARLY_ENTRY_SIGNAL", "").strip()
+    return raw or CONCENTRATED_CASHFUNDED_EARLY_ENTRY_SIGNAL
+
+
+def concentrated_cashfunded_early_entry_add_weight() -> float:
+    raw = os.environ.get("R1000_CONC_CASHFUNDED_EARLY_ENTRY_ADD_WEIGHT", "")
+    value = safe_float(raw, CONCENTRATED_CASHFUNDED_EARLY_ENTRY_ADD_WEIGHT)
+    return float(max(0.0, min(0.30, value)))
+
+
+def concentrated_cashfunded_early_entry_min_breakout_quality() -> float:
+    raw = os.environ.get("R1000_CONC_CASHFUNDED_EARLY_ENTRY_MIN_BREAKOUT_QUALITY", "")
+    value = safe_float(raw, CONCENTRATED_CASHFUNDED_EARLY_ENTRY_MIN_BREAKOUT_QUALITY)
+    return float(max(0.0, min(1.0, value)))
+
+
+def concentrated_cashfunded_early_entry_allow_crisis_deployment() -> bool:
+    raw = os.environ.get("R1000_CONC_CASHFUNDED_EARLY_ENTRY_ALLOW_CRISIS", "").strip().lower()
+    return raw in {"1", "true", "yes", "on", "enabled"}
+
+
+def validate_cashfunded_early_entry_signal(signal: str) -> None:
+    name = str(signal or "").strip().lower()
+    if not name:
+        raise ValueError("cash-funded early-entry signal is blank")
+    if name in FORBIDDEN_EARLY_ENTRY_SIGNAL_EXACT or any(
+        pattern in name for pattern in FORBIDDEN_EARLY_ENTRY_SIGNAL_PATTERNS
+    ):
+        raise ValueError(f"cash-funded early-entry cannot use forward-return/audit-label signal: {signal}")
 
 
 @dataclass(frozen=True)
@@ -2063,6 +2127,99 @@ def apply_concentrated_score_sizing_reweight(
     return out
 
 
+def apply_concentrated_cashfunded_early_entry(
+    weighted: list[dict[str, Any]],
+    month_records: list[dict[str, Any]],
+    portfolio_kind: str,
+) -> list[dict[str, Any]]:
+    """Add one small Concentrated early-entry position funded only from cash.
+
+    Default OFF. The hook preserves all existing selected names and weights.
+    When enabled it uses a PIT candidate score to pick the highest-ranked
+    unheld candidate, then deploys at most the configured add weight and never
+    more than available cash.
+    """
+    if portfolio_kind != "concentrated" or not weighted:
+        return weighted
+    if not concentrated_cashfunded_early_entry_enabled():
+        return weighted
+    signal = concentrated_cashfunded_early_entry_signal()
+    validate_cashfunded_early_entry_signal(signal)
+    add_weight = concentrated_cashfunded_early_entry_add_weight()
+    min_breakout = concentrated_cashfunded_early_entry_min_breakout_quality()
+    allow_crisis = concentrated_cashfunded_early_entry_allow_crisis_deployment()
+    out = [dict(row) for row in weighted]
+    held = {clean_ticker(row.get("ticker")) for row in out if clean_ticker(row.get("ticker")) not in CASH_TICKERS}
+    cash_before = max(0.0, 1.0 - sum(safe_float(row.get("weight")) for row in out))
+    for row in out:
+        row["concentrated_cashfunded_early_entry_enabled"] = True
+        row["concentrated_cashfunded_early_entry_applied"] = False
+        row["concentrated_cashfunded_early_entry_status"] = "existing_position_unchanged"
+        row["concentrated_cashfunded_early_entry_signal"] = signal
+        row["concentrated_cashfunded_early_entry_add_weight"] = add_weight
+        row["concentrated_cashfunded_early_entry_min_breakout_quality"] = min_breakout
+        row["concentrated_cashfunded_early_entry_cash_before"] = cash_before
+    if cash_before <= 1e-12 or add_weight <= 1e-12:
+        for row in out:
+            row["concentrated_cashfunded_early_entry_status"] = "blocked_no_cash"
+        return out
+    candidates: list[dict[str, Any]] = []
+    for rec in month_records:
+        ticker = clean_ticker(rec.get("ticker"))
+        if not ticker or ticker in CASH_TICKERS or ticker in held:
+            continue
+        if signal not in rec or pd.isna(rec.get(signal)):
+            continue
+        if not allow_crisis and "crisis_state" in rec:
+            crisis_state = str(rec.get("crisis_state") or "").upper()
+            if "CRISIS" in crisis_state or "DEFENSE" in crisis_state:
+                continue
+        candidate = dict(rec)
+        candidate["_cashfunded_signal_value"] = safe_float(rec.get(signal))
+        candidates.append(candidate)
+    if not candidates:
+        for row in out:
+            row["concentrated_cashfunded_early_entry_status"] = "blocked_no_unheld_candidate"
+        return out
+    chosen = max(candidates, key=lambda row: safe_float(row.get("_cashfunded_signal_value")))
+    chosen_breakout = safe_float(chosen.get("breakout_setup_quality_score"))
+    if chosen_breakout < min_breakout:
+        for row in out:
+            row["concentrated_cashfunded_early_entry_status"] = "blocked_top_candidate_low_breakout_quality"
+            row["concentrated_cashfunded_early_entry_top_candidate"] = clean_ticker(chosen.get("ticker"))
+            row["concentrated_cashfunded_early_entry_top_breakout_quality"] = chosen_breakout
+        return out
+    inject = min(add_weight, cash_before)
+    entry = dict(chosen)
+    entry.pop("_cashfunded_signal_value", None)
+    entry["ticker"] = clean_ticker(chosen.get("ticker"))
+    entry["weight"] = inject
+    entry["target_weight"] = inject
+    entry["holding_state"] = "NEW"
+    entry["holding_state_reason"] = "cashfunded_early_entry_candidate"
+    entry["hold_replace_decision"] = "cashfunded_early_entry"
+    entry["prior_weight"] = 0.0
+    entry["concentrated_cashfunded_early_entry_enabled"] = True
+    entry["concentrated_cashfunded_early_entry_applied"] = True
+    entry["concentrated_cashfunded_early_entry_status"] = "applied"
+    entry["concentrated_cashfunded_early_entry_signal"] = signal
+    entry["concentrated_cashfunded_early_entry_signal_value"] = safe_float(chosen.get(signal))
+    entry["concentrated_cashfunded_early_entry_add_weight"] = add_weight
+    entry["concentrated_cashfunded_early_entry_min_breakout_quality"] = min_breakout
+    entry["concentrated_cashfunded_early_entry_breakout_quality"] = safe_float(
+        chosen.get("breakout_setup_quality_score")
+    )
+    entry["concentrated_cashfunded_early_entry_added_weight"] = inject
+    entry["concentrated_cashfunded_early_entry_cash_before"] = cash_before
+    entry["concentrated_cashfunded_early_entry_non_sticky"] = True
+    entry["selection_reason"] = (
+        str(chosen.get("selection_reason") or chosen.get("primary_lane") or "alphaops_vnext_score")
+        + f"|concentrated_cashfunded_early_entry:{signal}:{inject:.4f}"
+    )
+    out.append(entry)
+    return out
+
+
 def row_for_target(rec: dict[str, Any], dt: pd.Timestamp, portfolio_kind: str, variant_id: str, target_n: int, crisis_row: dict[str, Any]) -> dict[str, Any]:
     ticker = clean_ticker(rec.get("ticker"))
     return {
@@ -2259,7 +2416,12 @@ def build_variant_book(
         weighted = apply_concentrated_unconfirmed_high_vol_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_concentrated_high_vol_weak_timing_new_entry_cap(weighted, portfolio_kind)
         weighted = apply_concentrated_score_sizing_reweight(weighted, portfolio_kind)
-        prev = {clean_ticker(row.get("ticker")): row for row in weighted}
+        weighted = apply_concentrated_cashfunded_early_entry(weighted, month_records, portfolio_kind)
+        prev = {
+            clean_ticker(row.get("ticker")): row
+            for row in weighted
+            if not bool(row.get("concentrated_cashfunded_early_entry_non_sticky"))
+        }
         lane_totals: dict[str, float] = {}
         for rec in weighted:
             lane = str(rec.get("primary_lane") or "")
