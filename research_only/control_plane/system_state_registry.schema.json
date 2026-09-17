@@ -1,0 +1,18 @@
+{
+  "$id": "https://example.invalid/run287/system_state_registry.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "as_of": {"type": "string"},
+    "authority": {"const": "RESEARCH_ONLY"},
+    "books": {"type": "object"},
+    "durable_data": {"type": "object"},
+    "repositories": {"type": "object"},
+    "schema_version": {"const": "system-state-registry-v1"},
+    "stop_conditions": {"items": {"type": "string"}, "type": "array"},
+    "workstreams": {"type": "array"}
+  },
+  "required": ["schema_version", "as_of", "authority", "repositories", "durable_data", "books", "workstreams", "stop_conditions"],
+  "title": "Run287 System State Registry",
+  "type": "object"
+}
