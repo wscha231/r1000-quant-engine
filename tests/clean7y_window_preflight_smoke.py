@@ -62,6 +62,7 @@ def write_manifest(root: Path, start: str = "2019-05-09") -> None:
 
 
 def main() -> int:
+    subprocess.run([sys.executable,str(REPO/'tests/run287_source_archive_audit_smoke.py')],cwd=REPO,check=True)
     effective_override = annotate_effective_portfolio_candidate_gate(
         pd.DataFrame(
             [{

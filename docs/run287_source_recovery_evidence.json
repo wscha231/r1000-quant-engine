@@ -1,0 +1,1382 @@
+{
+  "evidence_run_id": 34452252116,
+  "evidence_job_id": 102790421533,
+  "evidence_artifact_id": 10142019017,
+  "evidence_artifact_zip_sha256": "12e07ccc36df0a24359d9f2577ad7cc251b4fda6d602a585111ba3c9cf1728f9",
+  "prior_evidence_run_id": 34450814925,
+  "report": {
+    "accepted_state_modified": false,
+    "archive_bytes": 369243166,
+    "archive_matches_expected": true,
+    "archive_sha256": "ebdbbe7e764b735ca129f662c42ec80b68659f4e3196b5a364cf32c506c4c818",
+    "artifact_id": 8088582521,
+    "artifact_identity_verified": true,
+    "audit_source_commit": "9179ec46d20bd4ba9074b6a1e4c3cf946b0f8b02",
+    "books": [
+      {
+        "dates": {
+          "rebalance_date": {
+            "first": "2019-05-31",
+            "invalid_or_missing": 0,
+            "last": "2026-07-02"
+          }
+        },
+        "decision_sessions": 86,
+        "features_after_decision_day_rows": 0,
+        "has_2019_05_31_decision": true,
+        "intraday_pit_verified": false,
+        "member_id": "a4089e89c36e42177539f366e07a5cb3c1c5c54f2bbb2d081efa4f0b142d1b47",
+        "name": "official_concentrated_target_book.csv",
+        "prices_after_decision_day_rows": 0,
+        "required_provenance_columns_present": false,
+        "rows": 545,
+        "unique_tickers": 188
+      },
+      {
+        "dates": {
+          "rebalance_date": {
+            "first": "2019-05-31",
+            "invalid_or_missing": 0,
+            "last": "2026-07-02"
+          }
+        },
+        "decision_sessions": 86,
+        "features_after_decision_day_rows": 0,
+        "has_2019_05_31_decision": true,
+        "intraday_pit_verified": false,
+        "member_id": "e508f69387c0dbf639148372243bbfac4a599ac217931d0e5b95a6337001c574",
+        "name": "official_main_target_book.csv",
+        "prices_after_decision_day_rows": 0,
+        "required_provenance_columns_present": false,
+        "rows": 1207,
+        "unique_tickers": 317
+      },
+      {
+        "dates": {
+          "rebalance_date": {
+            "first": "2019-05-31",
+            "invalid_or_missing": 0,
+            "last": "2026-05-29"
+          }
+        },
+        "decision_sessions": 85,
+        "features_after_decision_day_rows": 0,
+        "has_2019_05_31_decision": true,
+        "intraday_pit_verified": false,
+        "member_id": "49a990d9d86b0d1396bdf686fa2393ed86a3af13201fa7da23f815b0d0148de0",
+        "name": "candidate_replay_book.csv",
+        "prices_after_decision_day_rows": 0,
+        "required_provenance_columns_present": false,
+        "rows": 47435,
+        "unique_tickers": 981
+      },
+      {
+        "dates": {
+          "rebalance_date": {
+            "first": "2019-05-31",
+            "invalid_or_missing": 0,
+            "last": "2026-05-29"
+          }
+        },
+        "decision_sessions": 85,
+        "features_after_decision_day_rows": 0,
+        "has_2019_05_31_decision": true,
+        "intraday_pit_verified": false,
+        "member_id": "2c0f62aaa82ee307dd0f66eb77343c776c863ef606c038a5921142c575fe336b",
+        "name": "candidate_replay_book_sec_enriched.csv",
+        "prices_after_decision_day_rows": 0,
+        "required_provenance_columns_present": false,
+        "rows": 47435,
+        "unique_tickers": 981
+      }
+    ],
+    "contract_files": {
+      "candidate_replay_book": {
+        "hash_verified": true,
+        "match_count": 1,
+        "sha256": "7ffa0b27382d303008ffca55878b259ccf7f11beaee28be6f1e4653c30e97989"
+      },
+      "long_crisis_features": {
+        "hash_verified": false,
+        "match_count": 0
+      },
+      "long_crisis_thresholds": {
+        "hash_verified": true,
+        "match_count": 1,
+        "sha256": "d108c017e301f6929e1441827d5a19c02beb0d89727dbbff40f94f3e504d2da2"
+      },
+      "raw_candidate_replay_book": {
+        "hash_verified": true,
+        "match_count": 1,
+        "sha256": "2b4bc9db22e573f07e91bcdd94db51c6ce4381dacc7e4268618b189d09eaaafc"
+      },
+      "selector_metadata": {
+        "hash_verified": true,
+        "match_count": 1,
+        "sha256": "dff267f66964c499ad8095f456949648aae29d8111de66f4d5c3a85a620b644a"
+      },
+      "target_generation_input_manifest": {
+        "hash_verified": true,
+        "match_count": 1,
+        "sha256": "7451166d8132c7e3fbd3eb75f7ecdd095e86e482b9202c2e0e0a2b1189ba6ff7"
+      }
+    },
+    "data_kind": "REAL",
+    "expanded_bytes": 1349507015,
+    "format_inventory": {
+      "all_formats_decoded": false,
+      "csv_headers": [
+        {
+          "column_count": 46,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 7,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 9,
+          "file_count": 2,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "date"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 4,
+          "file_count": 98,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "date"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 7,
+          "file_count": 99,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "date"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 8,
+          "file_count": 96,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 9,
+          "file_count": 96,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 9,
+          "file_count": 99,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 7,
+          "file_count": 92,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 14,
+          "file_count": 96,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 29,
+          "file_count": 4,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 47,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 27,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 19,
+          "file_count": 5,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 7,
+          "file_count": 3,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 21,
+          "file_count": 2,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 14,
+          "file_count": 3,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 6,
+          "file_count": 4,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 5,
+          "file_count": 2,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 15,
+          "file_count": 4,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 13,
+          "file_count": 2,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "crisis_state"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 16,
+          "file_count": 2,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "crisis_state",
+            "date"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 20,
+          "file_count": 3,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 36,
+          "file_count": 2,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 75,
+          "file_count": 3,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "rebalance_date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 4,
+          "file_count": 2,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 6,
+          "file_count": 4,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "rebalance_date"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 20,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 22,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 18,
+          "file_count": 4,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 16,
+          "file_count": 2,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 18,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "crisis_state"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 36,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "crisis_state",
+            "rebalance_date"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 18,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "rebalance_date"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 3,
+          "file_count": 2,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 7,
+          "file_count": 2,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "date",
+            "portfolio_return"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 4,
+          "file_count": 2,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 33,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 30,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 34,
+          "file_count": 2,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "high",
+            "low",
+            "open",
+            "ticker",
+            "volume"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 15,
+          "file_count": 2,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 11,
+          "file_count": 3,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 23,
+          "file_count": 2,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "crisis_state",
+            "date"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 10,
+          "file_count": 2,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "rebalance_date"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 0,
+          "file_count": 11,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 428,
+          "file_count": 4,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "crisis_state",
+            "rebalance_date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 383,
+          "file_count": 3,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "crisis_state",
+            "rebalance_date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 8,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "rebalance_date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 13,
+          "file_count": 3,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "rebalance_date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 467,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "crisis_state",
+            "rebalance_date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 381,
+          "file_count": 2,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "crisis_state",
+            "rebalance_date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 379,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "crisis_state",
+            "rebalance_date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 140,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "rebalance_date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 11,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "rebalance_date"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 9,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "portfolio_return"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 65,
+          "file_count": 63,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "rebalance_date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 13,
+          "file_count": 3,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 30,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 13,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "rebalance_date"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 17,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "rebalance_date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 9,
+          "file_count": 2,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 80,
+          "file_count": 2,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "rebalance_date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 198,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "rebalance_date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 22,
+          "file_count": 2,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "rebalance_date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 10,
+          "file_count": 3,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 41,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 5,
+          "file_count": 3,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 433,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "crisis_state",
+            "rebalance_date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 388,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "crisis_state",
+            "rebalance_date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 72,
+          "file_count": 4,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "crisis_state",
+            "rebalance_date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 224,
+          "file_count": 2,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "rebalance_date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 230,
+          "file_count": 2,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "crisis_state",
+            "rebalance_date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 5,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "crisis_state",
+            "date"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 3,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 25,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "date"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 488,
+          "file_count": 9,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "crisis_state",
+            "rebalance_date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 21,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 12,
+          "file_count": 3,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "rebalance_date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 9,
+          "file_count": 3,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "rebalance_date"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 219,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "rebalance_date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 6,
+          "file_count": 2,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "rebalance_date",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 12,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 6,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 12,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 8,
+          "file_count": 3,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 40,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 15,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 14,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 7,
+          "file_count": 2,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "rebalance_date"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 54,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "close",
+            "crisis_state",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        },
+        {
+          "column_count": 30,
+          "file_count": 1,
+          "observations_verified": false,
+          "price_header_candidate": false,
+          "recognized_fields": [
+            "close",
+            "ticker"
+          ],
+          "status": "HEADER_INSPECTED"
+        }
+      ],
+      "csv_price_header_candidates": 0,
+      "formats": {
+        ".csv": 914,
+        ".json": 335,
+        ".log": 5,
+        ".md": 134,
+        ".parquet": 1,
+        "other": 2
+      },
+      "other_parquet": [
+        {
+          "column_count": 26,
+          "date_column_found": true,
+          "date_observations": 1797,
+          "first": "2019-05-09",
+          "has_close_column": false,
+          "invalid_dates": 0,
+          "last": "2026-07-02",
+          "matches_missing_macro_anchor_hash": false,
+          "member_id": "9f2a3e1b580a6926f1e140362296e0bab6e4276e59b50846fd6f6735e271ee87",
+          "recognized_fields": [
+            "Date"
+          ],
+          "rows": 1797,
+          "sha256": "0ef3bdaa313f0956bb74db2d2c85e01d8988c111d9be36f7cc27995e6c4537db"
+        }
+      ]
+    },
+    "frozen_static_archive": {
+      "accepted_state_modified": false,
+      "archive_bytes": 38646212,
+      "archive_matches_expected": true,
+      "archive_sha256": "66ca4b6a6a61cb7e9a3a47e2f6d26aa42f30a9b96a25d07699c6cdeb8faf1d84",
+      "artifact_id": null,
+      "artifact_identity_verified": true,
+      "books": [
+        {
+          "dates": {
+            "rebalance_date": {
+              "first": "2019-05-31",
+              "invalid_or_missing": 0,
+              "last": "2026-07-02"
+            }
+          },
+          "decision_sessions": 86,
+          "features_after_decision_day_rows": 0,
+          "has_2019_05_31_decision": true,
+          "intraday_pit_verified": false,
+          "member_id": "82abfcd740d0f2d06d1cb9d11f1f9ecebc5121d743b6d4e9e6761b49c8a3ff83",
+          "name": "official_concentrated_target_book.csv",
+          "prices_after_decision_day_rows": 0,
+          "required_provenance_columns_present": false,
+          "rows": 545,
+          "unique_tickers": 188
+        },
+        {
+          "dates": {
+            "rebalance_date": {
+              "first": "2019-05-31",
+              "invalid_or_missing": 0,
+              "last": "2026-07-02"
+            }
+          },
+          "decision_sessions": 86,
+          "features_after_decision_day_rows": 0,
+          "has_2019_05_31_decision": true,
+          "intraday_pit_verified": false,
+          "member_id": "eb9dca0aaac0e331410c32ff3ee446009fd45298bbe8aebd32bc430be3fd6dba",
+          "name": "official_main_target_book.csv",
+          "prices_after_decision_day_rows": 0,
+          "required_provenance_columns_present": false,
+          "rows": 1207,
+          "unique_tickers": 317
+        }
+      ],
+      "contract_files": {
+        "candidate_replay_book": {
+          "hash_verified": false,
+          "match_count": 0
+        },
+        "long_crisis_features": {
+          "hash_verified": false,
+          "match_count": 0
+        },
+        "long_crisis_thresholds": {
+          "hash_verified": false,
+          "match_count": 0
+        },
+        "raw_candidate_replay_book": {
+          "hash_verified": false,
+          "match_count": 0
+        },
+        "selector_metadata": {
+          "hash_verified": false,
+          "match_count": 0
+        },
+        "target_generation_input_manifest": {
+          "hash_verified": true,
+          "match_count": 1,
+          "sha256": "7451166d8132c7e3fbd3eb75f7ecdd095e86e482b9202c2e0e0a2b1189ba6ff7"
+        }
+      },
+      "data_kind": "REAL",
+      "expanded_bytes": 62960487,
+      "format_inventory": {
+        "all_formats_decoded": false,
+        "csv_headers": [
+          {
+            "column_count": 16,
+            "file_count": 1,
+            "observations_verified": false,
+            "price_header_candidate": false,
+            "recognized_fields": [
+              "ticker"
+            ],
+            "status": "HEADER_INSPECTED"
+          },
+          {
+            "column_count": 7,
+            "file_count": 1,
+            "observations_verified": false,
+            "price_header_candidate": false,
+            "recognized_fields": [],
+            "status": "HEADER_INSPECTED"
+          },
+          {
+            "column_count": 6,
+            "file_count": 3,
+            "observations_verified": false,
+            "price_header_candidate": false,
+            "recognized_fields": [],
+            "status": "HEADER_INSPECTED"
+          },
+          {
+            "column_count": 5,
+            "file_count": 2,
+            "observations_verified": false,
+            "price_header_candidate": false,
+            "recognized_fields": [],
+            "status": "HEADER_INSPECTED"
+          },
+          {
+            "column_count": 9,
+            "file_count": 1,
+            "observations_verified": false,
+            "price_header_candidate": false,
+            "recognized_fields": [],
+            "status": "HEADER_INSPECTED"
+          },
+          {
+            "column_count": 25,
+            "file_count": 1,
+            "observations_verified": false,
+            "price_header_candidate": false,
+            "recognized_fields": [
+              "ticker"
+            ],
+            "status": "HEADER_INSPECTED"
+          },
+          {
+            "column_count": 3,
+            "file_count": 1,
+            "observations_verified": false,
+            "price_header_candidate": false,
+            "recognized_fields": [],
+            "status": "HEADER_INSPECTED"
+          },
+          {
+            "column_count": 8,
+            "file_count": 1,
+            "observations_verified": false,
+            "price_header_candidate": false,
+            "recognized_fields": [],
+            "status": "HEADER_INSPECTED"
+          },
+          {
+            "column_count": 8,
+            "file_count": 1,
+            "observations_verified": false,
+            "price_header_candidate": false,
+            "recognized_fields": [
+              "ticker"
+            ],
+            "status": "HEADER_INSPECTED"
+          },
+          {
+            "column_count": 14,
+            "file_count": 1,
+            "observations_verified": false,
+            "price_header_candidate": false,
+            "recognized_fields": [
+              "ticker"
+            ],
+            "status": "HEADER_INSPECTED"
+          },
+          {
+            "column_count": 4,
+            "file_count": 1,
+            "observations_verified": false,
+            "price_header_candidate": false,
+            "recognized_fields": [],
+            "status": "HEADER_INSPECTED"
+          },
+          {
+            "column_count": 23,
+            "file_count": 1,
+            "observations_verified": false,
+            "price_header_candidate": false,
+            "recognized_fields": [
+              "crisis_state",
+              "date"
+            ],
+            "status": "HEADER_INSPECTED"
+          },
+          {
+            "column_count": 428,
+            "file_count": 1,
+            "observations_verified": false,
+            "price_header_candidate": false,
+            "recognized_fields": [
+              "crisis_state",
+              "rebalance_date",
+              "ticker"
+            ],
+            "status": "HEADER_INSPECTED"
+          },
+          {
+            "column_count": 383,
+            "file_count": 1,
+            "observations_verified": false,
+            "price_header_candidate": false,
+            "recognized_fields": [
+              "crisis_state",
+              "rebalance_date",
+              "ticker"
+            ],
+            "status": "HEADER_INSPECTED"
+          }
+        ],
+        "csv_price_header_candidates": 0,
+        "formats": {
+          ".csv": 17,
+          ".json": 6,
+          ".parquet": 365
+        },
+        "other_parquet": [
+          {
+            "column_count": 2,
+            "date_column_found": true,
+            "date_observations": 2609,
+            "first": "2016-07-11",
+            "has_close_column": false,
+            "invalid_dates": 0,
+            "last": "2026-07-09",
+            "matches_missing_macro_anchor_hash": false,
+            "member_id": "0f614c52af9d333e477cc3169ade3f9182cb65dc1b56d4b098e59571dbb30ed7",
+            "recognized_fields": [
+              "date"
+            ],
+            "rows": 2609,
+            "sha256": "99efdbd7dc7b014ad984abc895389e9c2571e6da67671f971deb7cf334c9a8db"
+          },
+          {
+            "column_count": 665,
+            "date_column_found": false,
+            "date_observations": 0,
+            "first": null,
+            "has_close_column": false,
+            "invalid_dates": 0,
+            "last": null,
+            "matches_missing_macro_anchor_hash": false,
+            "member_id": "7f327ae8a836eb26fcb93ff5ae3b51900f4e76a24a3fdb5f64ab6a7cffaed632",
+            "recognized_fields": [
+              "feature_available_from",
+              "rebalance_date",
+              "ticker",
+              "valuation_price_cutoff_date"
+            ],
+            "rows": 989,
+            "sha256": "68e1c77535f960f12ddb1cc78a4ad12085c148c19a0853e5718fe28c504a9614"
+          }
+        ]
+      },
+      "historical_pit_certified": false,
+      "member_count": 388,
+      "next_gate": "source_only_and_post_book_preflight_with_verified_price_lifecycle_and_pit_inputs",
+      "orders_allowed": false,
+      "performance_recomputed": false,
+      "price_cache": {
+        "all_files_dated": true,
+        "common_end": "2026-07-10",
+        "common_start": "2025-02-13",
+        "date_scanned_files": 363,
+        "earliest_date": "2011-03-07",
+        "file_observations_hash": "e5c212adf7ab4fee18999d2872f1c282e69ccb10608ae181bb64bc41616268c2",
+        "latest_date": "2026-07-10",
+        "missing_session_and_lifecycle_checks_completed": false,
+        "other_parquet_files": 2,
+        "parquet_files": 363,
+        "total_rows": 1091464
+      },
+      "reported_metric_files": [],
+      "research_replay_ready": false,
+      "schema_version": "run287-source-archive-audit-v1",
+      "source_profile": "frozen_static",
+      "source_run_head": null,
+      "source_run_id": null,
+      "status": "AUDIT_COMPLETED"
+    },
+    "historical_pit_certified": false,
+    "member_count": 1391,
+    "next_gate": "source_only_and_post_book_preflight_with_verified_price_lifecycle_and_pit_inputs",
+    "orders_allowed": false,
+    "performance_recomputed": false,
+    "price_cache": {
+      "all_files_dated": false,
+      "common_end": null,
+      "common_start": null,
+      "date_scanned_files": 0,
+      "earliest_date": null,
+      "file_observations_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "latest_date": null,
+      "missing_session_and_lifecycle_checks_completed": false,
+      "other_parquet_files": 1,
+      "parquet_files": 0,
+      "total_rows": 0
+    },
+    "reported_metric_files": [],
+    "research_replay_ready": false,
+    "schema_version": "run287-source-archive-audit-v1",
+    "source_profile": "official",
+    "source_run_head": "15176b588d5bb0792bce1df6367758d795a8a33a",
+    "source_run_id": 28725350727,
+    "status": "AUDIT_COMPLETED"
+  }
+}
