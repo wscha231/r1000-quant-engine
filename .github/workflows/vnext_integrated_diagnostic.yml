@@ -52,7 +52,7 @@ jobs:
           set -euo pipefail
           rm -rf "${RUNNER_TEMP}/vnext-output"
           mkdir -p "${RUNNER_TEMP}/vnext-output"
-          python research/vnext_integrated/run_diagnostic.py \
+          python research/vnext_integrated/run_diagnostic_v2.py \
             --source-zip "${RUNNER_TEMP}/run287_source_archive.zip" \
             --experiment research/vnext_integrated/experiment.json \
             --output-dir "${RUNNER_TEMP}/vnext-output"
