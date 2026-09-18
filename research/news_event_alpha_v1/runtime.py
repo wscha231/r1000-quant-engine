@@ -769,6 +769,12 @@ def run_payload(payload: dict[str, Any]) -> dict[str, Any]:
     checkpoint_rows = build_checkpoint_rows(events, prices, sessions, benchmark_id=benchmark_id)
     outcomes = attach_forward_outcomes(checkpoint_rows, prices, sessions)
     summaries = summarize_impacts(outcomes)
+    from .walk_forward import (
+        build_walk_forward_impact_estimates,
+        summarize_walk_forward_performance,
+    )
+    walk_forward_estimates = build_walk_forward_impact_estimates(checkpoint_rows, outcomes)
+    walk_forward_performance = summarize_walk_forward_performance(walk_forward_estimates)
     proposal = build_challenger_proposal(summaries, checkpoint=int(payload.get("promotion_checkpoint", 5)))
     top_events = top_current_events(
         checkpoint_rows,
@@ -790,6 +796,8 @@ def run_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "checkpoint_rows": checkpoint_rows,
         "outcomes": outcomes,
         "impact_summaries": summaries,
+        "walk_forward_impact_estimates": walk_forward_estimates,
+        "walk_forward_performance": walk_forward_performance,
         "challenger_proposal": proposal,
         "top_current_events": top_events,
     }
