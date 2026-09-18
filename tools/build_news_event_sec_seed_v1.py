@@ -64,6 +64,20 @@ def classify_items(items: list[str]) -> tuple[str | None, str | None]:
     return None, None
 
 
+def text_value(value: Any) -> str:
+    if value is None or pd.isna(value):
+        return ""
+    text = str(value).strip()
+    return "" if text.lower() in {"nan", "nat", "none"} else text
+
+
+def first_nonempty(*values: Any) -> Any:
+    for value in values:
+        if text_value(value):
+            return value
+    return ""
+
+
 def parse_date(value: Any) -> pd.Timestamp:
     return pd.to_datetime(value, errors="coerce", utc=True)
 
@@ -153,10 +167,12 @@ def build_events(
     end = parse_date(history_end) if history_end else pd.NaT
 
     for _, row in filings.iterrows():
-        ticker = str(row.get("ticker") or "").upper().strip()
-        accession = str(row.get("accession_number") or "").strip()
-        form_type = str(row.get("form_type") or "").upper().strip()
-        available = parse_date(row.get("available_from") or row.get("accepted_at"))
+        ticker = text_value(row.get("ticker")).upper()
+        accession = text_value(row.get("accession_number"))
+        form_type = text_value(row.get("form_type")).upper()
+        available = parse_date(
+            first_nonempty(row.get("available_from"), row.get("accepted_at"))
+        )
         items = parse_items(row.get("items"))
         primary_item, event_type = classify_items(items)
 
@@ -195,7 +211,7 @@ def build_events(
             )
             continue
 
-        cik = str(row.get("cik10") or "").strip()
+        cik = text_value(row.get("cik10"))
         event_id = f"sec:{cik or ticker}:{accession}"
         event = {
             "event_id": event_id,
@@ -226,8 +242,8 @@ def build_events(
             "sec_form_type": form_type,
             "sec_primary_item": primary_item,
             "sec_items": items,
-            "source_url": str(row.get("filing_url") or ""),
-            "filing_url": str(row.get("filing_url") or ""),
+            "source_url": text_value(row.get("filing_url")),
+            "filing_url": text_value(row.get("filing_url")),
         }
         events.append(event)
 
