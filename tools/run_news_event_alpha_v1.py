@@ -214,6 +214,7 @@ def main(argv: list[str] | None = None) -> int:
     walk_forward_perf_path = output_dir / "walk_forward_performance.csv"
     proposal_path = output_dir / "challenger_proposal.json"
     top_path = output_dir / "top_current_events.json"
+    top_impact_path = output_dir / "top_event_impact_outlook.json"
 
     write_jsonl(ledger_path, ledger)
     write_csv(features_path, result["checkpoint_rows"])
@@ -223,6 +224,7 @@ def main(argv: list[str] | None = None) -> int:
     write_csv(walk_forward_perf_path, result["walk_forward_performance"])
     write_json(proposal_path, result["challenger_proposal"])
     write_json(top_path, result["top_current_events"])
+    write_json(top_impact_path, result["top_event_impact_outlook"])
 
     artifacts = [
         ledger_path,
@@ -233,6 +235,7 @@ def main(argv: list[str] | None = None) -> int:
         walk_forward_perf_path,
         proposal_path,
         top_path,
+        top_impact_path,
     ]
     manifest = {
         "schema": "news-event-alpha-manifest-v1",
