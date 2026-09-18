@@ -781,6 +781,10 @@ def run_payload(payload: dict[str, Any]) -> dict[str, Any]:
         top_n=int(payload.get("report_top_n", 5)),
         checkpoint=int(payload.get("report_checkpoint", 5)),
     )
+    from .reporting import build_top_event_impact_outlook
+    top_event_impact_outlook = build_top_event_impact_outlook(
+        top_events, walk_forward_estimates
+    )
     result = {
         "schema": RESULT_SCHEMA,
         "research_only": True,
@@ -800,6 +804,7 @@ def run_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "walk_forward_performance": walk_forward_performance,
         "challenger_proposal": proposal,
         "top_current_events": top_events,
+        "top_event_impact_outlook": top_event_impact_outlook,
     }
     result["result_sha256"] = digest(result)
     return result
