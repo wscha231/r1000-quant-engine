@@ -176,6 +176,13 @@ def main(argv: list[str] | None = None) -> int:
     session_path = Path(args.market_sessions)
     output_dir = Path(args.output_dir)
 
+    if args.mode == "HISTORICAL_BACKFILL":
+        if not args.source_commit or len(args.source_commit.strip()) < 7:
+            raise ContractError("HISTORICAL_BACKFILL requires --source-commit")
+        receipt = args.data_receipt_sha256.strip().lower()
+        if len(receipt) != 64 or any(c not in "0123456789abcdef" for c in receipt):
+            raise ContractError("HISTORICAL_BACKFILL requires a verified 64-hex --data-receipt-sha256")
+
     incoming_raw = force_origin(load_rows(event_path), args.mode)
     incoming = normalize_events(incoming_raw)
     existing: list[dict[str, Any]] = []
