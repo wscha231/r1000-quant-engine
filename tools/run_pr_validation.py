@@ -280,7 +280,9 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/public_portfolio_dashboard_smoke.py", []),
     ("tests/top_manager_discovery_signals_smoke.py", []),
     ("tests/etf_nport_history_smoke.py", []),
-    ("tests/news_event_alpha_v1_smoke.py", []),\n    ("tests/news_event_sec_seed_v1_smoke.py", []),\n]
+    ("tests/news_event_alpha_v1_smoke.py", []),
+    ("tests/news_event_sec_seed_v1_smoke.py", []),
+]
 
 
 def run_one(rel_path: str, extra_args: list[str], quiet: bool) -> tuple[bool, float, str]:
