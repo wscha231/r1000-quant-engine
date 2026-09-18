@@ -33,6 +33,10 @@ selector, target book, portfolio, 주문, champion을 변경할 권한은 없다
 핵심 필드:
 
 - event_id / economic_event_id / security_id / issuer_id
+- instrument: COMMON / ADR
+- exchange: XNYS / XNAS / XASE
+- listing_country=US
+- eligibility_verified_asof=true: 그 사건 시점의 상장/증권 자격을 실제 검증
 - available_at: 실제 이용 가능해진 timezone-aware timestamp
 - event_type
 - role: DIRECT / ENABLER / INDIRECT / NARRATIVE
@@ -116,6 +120,9 @@ official DIRECT + 경제적 실체(금액 또는 신규 관계) + 양의 post RS
 - +5%p / +10%p hit rate
 - q25 / q75
 - mean 95% CI
+- issuer-year cluster mean/median/95% CI: 같은 기업의 반복 뉴스가 표본수를 부풀리지 않도록 보수적으로 재집계
+
+승격 gate에서는 단순 event-row CI가 아니라 issuer-year cluster CI를 사용한다.
 
 따라서 향후 화면은 “63일 예상 +12%” 같은 단정값보다
 “유사 사건군 63세션 median excess X, IQR [Y,Z], n=N” 형태를 기본으로 한다.
@@ -133,6 +140,19 @@ official DIRECT + 경제적 실체(금액 또는 신규 관계) + 양의 post RS
 따라서 검색 결과 몇 개를 과거 전체 뉴스 corpus로 가장하지 않는다.
 Drive current verified catalog/execution receipt에서 실제 SEC/가격/NYSE coverage를 확인한 뒤
 bounded backfill을 실행해야 한다.
+
+### 2026-09-18 현재 verified Drive readiness
+
+최신 long-history execution은 Drive에서 study 재계산 완료를 확인했지만 quality_status=PARTIAL,
+eligible_for_selector=false이다. 해당 catalog는 1,153 datasets 중 약 1,106개가 SEC companyfacts
+계열이고, 장기 price/NYSE-session/news-event corpus는 이 catalog에서 확인되지 않았다.
+quality report도 historical_membership_verified=false,
+historical_pit_certified=false, three-statement ten-year completeness NOT_CERTIFIED를 유지한다.
+
+따라서 이 catalog만으로 5년 news-event backfill을 실행 완료했다고 주장할 수 없다.
+SEC filing-event accepted-time history, total-return price history, explicit NYSE sessions,
+그리고 당시 미국 COMMON/ADR eligibility를 함께 갖춘 verified input pack이 필요하다.
+HISTORICAL_BACKFILL CLI는 source commit과 64-hex verified data receipt가 없으면 fail closed한다.
 
 과거 백필은 empirical prior이며 그것만으로 selector 승격하지 않는다.
 chronological OOS/walk-forward, delisted/실패기업, 당시 universe, ADR eligibility,
@@ -161,7 +181,7 @@ HISTORICAL_BACKFILL과 FORWARD_SHADOW 각각:
 - distinct issuers >= 25
 - historical distinct years >= 3
 - 21/63/126 median SPY excess > 0
-- historical/forward 63D mean 95% CI lower bound > 0
+- historical/forward 63D issuer-year cluster mean 95% CI lower bound > 0
 
 모두 통과하면 RESEARCH_CHALLENGER_REVIEW_ELIGIBLE.
 
