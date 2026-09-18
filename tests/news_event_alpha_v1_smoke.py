@@ -210,6 +210,11 @@ def powered_summary(origin: str, horizon: int) -> dict:
         "issuer_year_cluster_median_excess": 0.04,
         "issuer_year_cluster_ci95_mean_low": 0.01,
         "issuer_year_cluster_ci95_mean_high": 0.09,
+        "economic_event_cluster_n": 40,
+        "economic_event_cluster_mean_excess": 0.05,
+        "economic_event_cluster_median_excess": 0.04,
+        "economic_event_cluster_ci95_mean_low": 0.01,
+        "economic_event_cluster_ci95_mean_high": 0.09,
     }
 
 
