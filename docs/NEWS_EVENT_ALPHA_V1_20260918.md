@@ -112,6 +112,22 @@ official DIRECT + 경제적 실체(금액 또는 신규 관계) + 양의 post RS
 사건마다 임의의 +15% 효과를 부여하지 않는다.
 같은 arm의 과거 실제 분포에서 구간별 영향력을 계산한다.
 
+### Walk-forward historical analogue
+
+과거 전체 표본을 한 번에 학습해서 과거 사건을 다시 예측하지 않는다.
+각 checkpoint의 analogue estimate는 그 checkpoint보다 **outcome_end_session이 먼저 끝난**
+완전 확정 표본만 training pool로 쓴다.
+
+cohort fallback:
+1. 같은 event_type + 가장 구체적인 arm: n>=15, issuer>=8
+2. 같은 arm 전체: n>=30, issuer>=12
+3. 전체 사건: n>=50, issuer>=20
+4. 미달: UNDERPOWERED, 영향 추정치 미표시
+
+표시값은 analogue_median_excess, q25/q75, positive rate, training n/issuer 수이며
+예상수익 보장값이나 selector 점수가 아니다. 과거 사건에 대해서는 실제 미래 결과와
+prediction error/direction hit를 계산해 walk-forward 성능을 별도 저장한다.
+
 각 checkpoint × horizon × arm:
 - n
 - distinct issuers / years
@@ -222,6 +238,8 @@ Forward 누적:
 - checkpoint_features.csv
 - forward_outcomes.csv
 - impact_summary.csv
+- walk_forward_impact_estimates.csv
+- walk_forward_performance.csv
 - challenger_proposal.json
 - top_current_events.json
 - manifest.json
