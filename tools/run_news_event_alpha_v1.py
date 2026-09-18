@@ -210,6 +210,8 @@ def main(argv: list[str] | None = None) -> int:
     features_path = output_dir / "checkpoint_features.csv"
     outcomes_path = output_dir / "forward_outcomes.csv"
     summary_path = output_dir / "impact_summary.csv"
+    walk_forward_path = output_dir / "walk_forward_impact_estimates.csv"
+    walk_forward_perf_path = output_dir / "walk_forward_performance.csv"
     proposal_path = output_dir / "challenger_proposal.json"
     top_path = output_dir / "top_current_events.json"
 
@@ -217,10 +219,21 @@ def main(argv: list[str] | None = None) -> int:
     write_csv(features_path, result["checkpoint_rows"])
     write_csv(outcomes_path, result["outcomes"])
     write_csv(summary_path, result["impact_summaries"])
+    write_csv(walk_forward_path, result["walk_forward_impact_estimates"])
+    write_csv(walk_forward_perf_path, result["walk_forward_performance"])
     write_json(proposal_path, result["challenger_proposal"])
     write_json(top_path, result["top_current_events"])
 
-    artifacts = [ledger_path, features_path, outcomes_path, summary_path, proposal_path, top_path]
+    artifacts = [
+        ledger_path,
+        features_path,
+        outcomes_path,
+        summary_path,
+        walk_forward_path,
+        walk_forward_perf_path,
+        proposal_path,
+        top_path,
+    ]
     manifest = {
         "schema": "news-event-alpha-manifest-v1",
         "mode": args.mode,
@@ -243,6 +256,8 @@ def main(argv: list[str] | None = None) -> int:
             "checkpoint_rows": len(result["checkpoint_rows"]),
             "resolved_outcomes": result["resolved_outcome_count"],
             "impact_summaries": len(result["impact_summaries"]),
+            "walk_forward_estimates": len(result["walk_forward_impact_estimates"]),
+            "walk_forward_performance_rows": len(result["walk_forward_performance"]),
             "top_reported_events": len(result["top_current_events"]),
         },
         "outputs": {p.name: {"sha256": file_sha256(p), "bytes": p.stat().st_size} for p in artifacts},
