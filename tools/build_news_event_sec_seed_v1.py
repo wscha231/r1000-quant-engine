@@ -94,7 +94,13 @@ def normalize_eligibility(frame: pd.DataFrame) -> pd.DataFrame:
         utc=True,
     )
     if "verified_asof" in out.columns:
-        out["verified_asof"] = out["verified_asof"].astype(bool)
+        out["verified_asof"] = out["verified_asof"].map(
+            lambda value: (
+                value
+                if isinstance(value, bool)
+                else str(value).strip().lower() in {"1", "true", "yes", "y"}
+            )
+        )
     else:
         out["verified_asof"] = False
     return out
@@ -220,6 +226,7 @@ def build_events(
             "sec_form_type": form_type,
             "sec_primary_item": primary_item,
             "sec_items": items,
+            "source_url": str(row.get("filing_url") or ""),
             "filing_url": str(row.get("filing_url") or ""),
         }
         events.append(event)
