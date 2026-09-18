@@ -196,6 +196,12 @@ def normalize_event(raw: dict[str, Any]) -> dict[str, Any]:
         "independent_source_groups": source_groups,
         "source_family": str(raw.get("source_family") or "").strip(),
         "story_id": str(raw.get("story_id") or "").strip(),
+        "event_tags": sorted({
+            str(x).strip()
+            for x in (raw.get("event_tags") or [])
+            if str(x).strip()
+        }),
+        "source_url": str(raw.get("source_url") or raw.get("filing_url") or "").strip(),
         "theme_peer_ids": peers,
         "sample_origin": sample_origin,
         **risk_fields,
@@ -212,22 +218,19 @@ def normalize_events(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     record is retained and source groups are unioned. Independent article
     rewrites therefore do not become extra statistical observations.
     """
-    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     seen_event_ids: set[str] = set()
     for raw in rows:
         event = normalize_event(raw)
         if event["event_id"] in seen_event_ids:
             raise ContractError(f"duplicate event_id: {event['event_id']}")
         seen_event_ids.add(event["event_id"])
-        grouped[event["economic_event_id"]].append(event)
+        grouped[(event["economic_event_id"], event["security_id"])].append(event)
 
     tier_rank = {"OFFICIAL": 4, "PRIMARY": 3, "TIER1_NEWS": 2, "OTHER": 1}
     role_rank = {"DIRECT": 4, "ENABLER": 3, "INDIRECT": 2, "NARRATIVE": 1}
     out: list[dict[str, Any]] = []
-    for economic_id, events in grouped.items():
-        security_ids = {e["security_id"] for e in events}
-        if len(security_ids) != 1:
-            raise ContractError(f"economic_event_id spans multiple securities: {economic_id}")
+    for (economic_id, _security_id), events in grouped.items():
         events.sort(
             key=lambda e: (
                 bool(e["official_evidence"]),
@@ -593,6 +596,31 @@ def _cluster_stats(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
         "issuer_year_cluster_ci95_mean_high": stats["ci95_mean_high"],
     }
 
+
+def _economic_event_cluster_stats(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """Average security outcomes within one economic story before inference."""
+    clusters: dict[str, list[float]] = defaultdict(list)
+    for row in rows:
+        key = str(row.get("economic_event_id") or row.get("event_id") or "UNKNOWN")
+        clusters[key].append(float(row["excess_return"]))
+    means = [statistics.fmean(values) for values in clusters.values() if values]
+    if not means:
+        return {
+            "economic_event_cluster_n": 0,
+            "economic_event_cluster_mean_excess": None,
+            "economic_event_cluster_median_excess": None,
+            "economic_event_cluster_ci95_mean_low": None,
+            "economic_event_cluster_ci95_mean_high": None,
+        }
+    stats = _sample_stats(means)
+    return {
+        "economic_event_cluster_n": stats["n"],
+        "economic_event_cluster_mean_excess": stats["mean_excess"],
+        "economic_event_cluster_median_excess": stats["median_excess"],
+        "economic_event_cluster_ci95_mean_low": stats["ci95_mean_low"],
+        "economic_event_cluster_ci95_mean_high": stats["ci95_mean_high"],
+    }
+
 def summarize_impacts(
     outcome_rows: Iterable[dict[str, Any]],
     *,
@@ -628,6 +656,7 @@ def summarize_impacts(
                         "distinct_issuers": len(issuers),
                         **_sample_stats(values),
                         **_cluster_stats(group),
+                        **_economic_event_cluster_stats(group),
                     })
                     if include_event_type_breakdown:
                         by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -647,6 +676,7 @@ def summarize_impacts(
                                 "distinct_issuers": len({str(r.get("issuer_id") or r["security_id"]) for r in typed}),
                                 **_sample_stats(tvalues),
                                 **_cluster_stats(typed),
+                                **_economic_event_cluster_stats(typed),
                             })
     return summaries
 
@@ -698,9 +728,12 @@ def build_challenger_proposal(
     for label, row in (("HISTORICAL_BACKFILL", hist63), ("FORWARD_SHADOW", fwd63)):
         if row is None:
             continue
-        cluster_low = row.get("issuer_year_cluster_ci95_mean_low")
-        if cluster_low is None or float(cluster_low) <= 0:
+        issuer_cluster_low = row.get("issuer_year_cluster_ci95_mean_low")
+        event_cluster_low = row.get("economic_event_cluster_ci95_mean_low")
+        if issuer_cluster_low is None or float(issuer_cluster_low) <= 0:
             reasons.append(f"{label}:63:ISSUER_YEAR_CLUSTER_CI95_LOW_NOT_POSITIVE")
+        if event_cluster_low is None or float(event_cluster_low) <= 0:
+            reasons.append(f"{label}:63:ECONOMIC_EVENT_CLUSTER_CI95_LOW_NOT_POSITIVE")
 
     eligible = not reasons
     return {
