@@ -141,6 +141,17 @@ def normalize_event(raw: dict[str, Any]) -> dict[str, Any]:
     sample_origin = str(raw.get("sample_origin") or "FORWARD_SHADOW").strip().upper()
     if sample_origin not in SAMPLE_ORIGINS:
         raise ContractError(f"unsupported sample_origin: {sample_origin}")
+    instrument = str(raw.get("instrument") or "").strip().upper()
+    exchange = str(raw.get("exchange") or "").strip().upper()
+    listing_country = str(raw.get("listing_country") or "").strip().upper()
+    if instrument not in ELIGIBLE_INSTRUMENTS:
+        raise ContractError(f"ineligible instrument: {instrument!r}")
+    if exchange not in ELIGIBLE_EXCHANGES:
+        raise ContractError(f"ineligible exchange: {exchange!r}")
+    if listing_country != "US":
+        raise ContractError(f"non-US listing is not eligible: {listing_country!r}")
+    if not bool(raw.get("eligibility_verified_asof", False)):
+        raise ContractError("eligibility_verified_asof=true required")
 
     amount = _optional_float(raw.get("economic_amount_usd"), label="economic_amount_usd", minimum=0.0)
     amount_kind = str(raw.get("economic_amount_kind") or "UNKNOWN").strip().upper()
@@ -165,6 +176,10 @@ def normalize_event(raw: dict[str, Any]) -> dict[str, Any]:
         "economic_event_id": economic_event_id,
         "security_id": security_id,
         "issuer_id": str(raw.get("issuer_id") or security_id).strip(),
+        "instrument": instrument,
+        "exchange": exchange,
+        "listing_country": listing_country,
+        "eligibility_verified_asof": True,
         "available_at": utc(available_at).isoformat(),
         "event_type": str(raw.get("event_type") or "OTHER").strip().upper(),
         "role": role,
@@ -542,6 +557,37 @@ def _sample_stats(values: Sequence[float]) -> dict[str, Any]:
     }
 
 
+
+def _cluster_stats(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """Equal-weight issuer-year clusters to reduce repeated-story pseudo-power.
+
+    This is intentionally conservative and deterministic. It does not claim to
+    be a full two-way dependence model, but promotion uses this cluster-level CI
+    rather than the naive event-row CI.
+    """
+    clusters: dict[str, list[float]] = defaultdict(list)
+    for row in rows:
+        issuer = str(row.get("issuer_id") or row.get("security_id") or "UNKNOWN")
+        year = str(row.get("event_session") or "")[:4]
+        clusters[f"{issuer}:{year}"].append(float(row["excess_return"]))
+    means = [statistics.fmean(values) for values in clusters.values() if values]
+    if not means:
+        return {
+            "issuer_year_cluster_n": 0,
+            "issuer_year_cluster_mean_excess": None,
+            "issuer_year_cluster_median_excess": None,
+            "issuer_year_cluster_ci95_mean_low": None,
+            "issuer_year_cluster_ci95_mean_high": None,
+        }
+    stats = _sample_stats(means)
+    return {
+        "issuer_year_cluster_n": stats["n"],
+        "issuer_year_cluster_mean_excess": stats["mean_excess"],
+        "issuer_year_cluster_median_excess": stats["median_excess"],
+        "issuer_year_cluster_ci95_mean_low": stats["ci95_mean_low"],
+        "issuer_year_cluster_ci95_mean_high": stats["ci95_mean_high"],
+    }
+
 def summarize_impacts(
     outcome_rows: Iterable[dict[str, Any]],
     *,
@@ -576,6 +622,7 @@ def summarize_impacts(
                         "distinct_years": len(years),
                         "distinct_issuers": len(issuers),
                         **_sample_stats(values),
+                        **_cluster_stats(group),
                     })
                     if include_event_type_breakdown:
                         by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -594,6 +641,7 @@ def summarize_impacts(
                                 "distinct_years": len({str(r["event_session"])[:4] for r in typed}),
                                 "distinct_issuers": len({str(r.get("issuer_id") or r["security_id"]) for r in typed}),
                                 **_sample_stats(tvalues),
+                                **_cluster_stats(typed),
                             })
     return summaries
 
@@ -643,8 +691,11 @@ def build_challenger_proposal(
     hist63 = _summary_lookup(summaries, "HISTORICAL_BACKFILL", checkpoint, 63)
     fwd63 = _summary_lookup(summaries, "FORWARD_SHADOW", checkpoint, 63)
     for label, row in (("HISTORICAL_BACKFILL", hist63), ("FORWARD_SHADOW", fwd63)):
-        if row is not None and float(row["ci95_mean_low"]) <= 0:
-            reasons.append(f"{label}:63:CI95_LOW_NOT_POSITIVE")
+        if row is None:
+            continue
+        cluster_low = row.get("issuer_year_cluster_ci95_mean_low")
+        if cluster_low is None or float(cluster_low) <= 0:
+            reasons.append(f"{label}:63:ISSUER_YEAR_CLUSTER_CI95_LOW_NOT_POSITIVE")
 
     eligible = not reasons
     return {
