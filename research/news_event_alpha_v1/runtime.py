@@ -188,6 +188,7 @@ def normalize_event(raw: dict[str, Any]) -> dict[str, Any]:
         "source_tier": source_tier,
         "official_evidence": bool(raw.get("official_evidence", source_tier == "OFFICIAL")),
         "business_relation_new": bool(raw.get("business_relation_new", False)),
+        "material_agreement_confirmed": bool(raw.get("material_agreement_confirmed", False)),
         "economic_value_confirmed": bool(raw.get("economic_value_confirmed", amount is not None)),
         "economic_amount_usd": amount,
         "economic_amount_kind": amount_kind,
@@ -425,7 +426,9 @@ def build_checkpoint_rows(
 
             official_direct = bool(event["official_evidence"] and event["role"] == "DIRECT")
             business_substance = bool(
-                event["economic_value_confirmed"] or event["business_relation_new"]
+                event["economic_value_confirmed"]
+                or event["business_relation_new"]
+                or event["material_agreement_confirmed"]
             )
             price_confirmed = bool(post_rs is not None and post_rs > 0)
             breadth_confirmed = bool(breadth is not None and breadth >= 0.50)
