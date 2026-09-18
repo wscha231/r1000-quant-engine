@@ -18,6 +18,9 @@ from research.news_event_alpha_v1.runtime import (  # noqa: E402
     normalize_events,
     run_payload,
 )
+from research.news_event_alpha_v1.walk_forward import (  # noqa: E402
+    build_walk_forward_impact_estimates,
+)
 
 
 def sessions(n: int = 430) -> list[dict]:
@@ -296,6 +299,66 @@ def test_historical_cli_requires_verified_receipt():
         assert proc.returncode != 0
         assert "verified 64-hex" in (proc.stderr + proc.stdout)
 
+
+def test_walk_forward_excludes_not_yet_resolved_training_outcomes():
+    current = {
+        "economic_event_id": "current",
+        "security_id": "CUR",
+        "issuer_id": "CUR",
+        "event_type": "CONTRACT",
+        "checkpoint": 5,
+        "checkpoint_session": "2025-06-30",
+        "confirmed_combo": True,
+        "official_direct": True,
+        "business_substance": True,
+    }
+    outcomes = []
+    for i in range(60):
+        outcomes.append({
+            "economic_event_id": f"old-{i}",
+            "security_id": f"T{i}",
+            "issuer_id": f"I{i}",
+            "event_type": "CONTRACT",
+            "checkpoint": 5,
+            "horizon": 63,
+            "outcome_status": "RESOLVED",
+            "outcome_end_session": f"2025-{1 + (i // 28):02d}-{1 + (i % 28):02d}",
+            "excess_return": 0.02 + (i % 5) * 0.005,
+            "confirmed_combo": True,
+            "official_direct": True,
+            "business_substance": True,
+            "event_session": "2024-12-01",
+        })
+    # This spectacular result is not fully known at the current checkpoint and
+    # must not enter the analogue distribution.
+    outcomes.append({
+        "economic_event_id": "future-outcome",
+        "security_id": "FUT",
+        "issuer_id": "FUT",
+        "event_type": "CONTRACT",
+        "checkpoint": 5,
+        "horizon": 63,
+        "outcome_status": "RESOLVED",
+        "outcome_end_session": "2025-07-15",
+        "excess_return": 9.99,
+        "confirmed_combo": True,
+        "official_direct": True,
+        "business_substance": True,
+        "event_session": "2025-04-01",
+    })
+    estimates = build_walk_forward_impact_estimates(
+        [current],
+        outcomes,
+        min_event_type_arm_n=15,
+        min_arm_n=30,
+        min_all_n=50,
+    )
+    row = next(x for x in estimates if x["horizon"] == 63)
+    assert row["analogue_status"] == "AVAILABLE"
+    assert row["training_n"] == 60
+    assert row["training_latest_outcome_end_session"] < current["checkpoint_session"]
+    assert row["analogue_median_excess"] < 0.1
+
 def main() -> int:
     test_source_reprints_do_not_double_count()
     test_checkpoint_timing_and_combo_separate_gnrc_from_psql()
@@ -304,6 +367,7 @@ def main() -> int:
     test_cli_ledger_is_immutable_and_writes_manifest()
     test_non_us_or_unverified_listing_fails_closed()
     test_historical_cli_requires_verified_receipt()
+    test_walk_forward_excludes_not_yet_resolved_training_outcomes()
     print("news_event_alpha_v1_smoke: PASS")
     return 0
 
