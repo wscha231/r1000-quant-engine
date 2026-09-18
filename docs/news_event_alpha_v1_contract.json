@@ -93,5 +93,34 @@
     "verified_64_hex_data_receipt_required": true,
     "search_results_are_not_a_historical_news_corpus": true,
     "historical_support_cannot_promote_alone": true
+  },
+  "walk_forward_learning": {
+    "enabled": true,
+    "training_rule": "only resolved outcomes with outcome_end_session earlier than current checkpoint_session",
+    "cohort_fallback": [
+      {
+        "tier": "EVENT_TYPE_ARM",
+        "min_n": 15,
+        "min_issuers": 8
+      },
+      {
+        "tier": "ARM",
+        "min_n": 30,
+        "min_issuers": 12
+      },
+      {
+        "tier": "ALL",
+        "min_n": 50,
+        "min_issuers": 20
+      }
+    ],
+    "estimate": "median SPY excess return",
+    "uncertainty": [
+      "q25",
+      "q75",
+      "positive_rate",
+      "issuer_year_cluster_ci95"
+    ],
+    "underpowered_behavior": "do not emit an impact estimate"
   }
 }
