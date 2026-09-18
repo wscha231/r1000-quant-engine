@@ -65,6 +65,10 @@ def fixture():
             "security_id": "GNRC",
             "issuer_id": "GNRC",
             "available_at": available,
+            "instrument": "COMMON",
+            "exchange": "XNAS",
+            "listing_country": "US",
+            "eligibility_verified_asof": True,
             "event_type": "CONTRACT",
             "role": "DIRECT",
             "source_tier": "TIER1_NEWS",
@@ -100,6 +104,10 @@ def fixture():
             "economic_event_id": "psql-rnd",
             "security_id": "PSQL",
             "available_at": after_close,
+            "instrument": "COMMON",
+            "exchange": "XNAS",
+            "listing_country": "US",
+            "eligibility_verified_asof": True,
             "event_type": "RND_PARTNERSHIP",
             "role": "ENABLER",
             "source_tier": "PRIMARY",
@@ -190,6 +198,11 @@ def powered_summary(origin: str, horizon: int) -> dict:
         "q75_excess": 0.12,
         "ci95_mean_low": 0.01,
         "ci95_mean_high": 0.11,
+        "issuer_year_cluster_n": 40,
+        "issuer_year_cluster_mean_excess": 0.05,
+        "issuer_year_cluster_median_excess": 0.04,
+        "issuer_year_cluster_ci95_mean_low": 0.01,
+        "issuer_year_cluster_ci95_mean_high": 0.09,
     }
 
 
@@ -246,12 +259,51 @@ def test_cli_ledger_is_immutable_and_writes_manifest():
         assert "immutable event conflict" in (proc.stderr + proc.stdout)
 
 
+
+def test_non_us_or_unverified_listing_fails_closed():
+    _, _, events, _ = fixture()
+    bad = [dict(events[0])]
+    bad[0]["economic_event_id"] = "bad-korea"
+    bad[0]["event_id"] = "bad-korea"
+    bad[0]["listing_country"] = "KR"
+    try:
+        normalize_events(bad)
+    except Exception as exc:
+        assert "non-US listing" in str(exc)
+    else:
+        raise AssertionError("non-US listing was accepted")
+
+
+def test_historical_cli_requires_verified_receipt():
+    cal, prices, events, _ = fixture()
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        paths = {}
+        for name, rows in (("events", events), ("prices", prices), ("sessions", cal)):
+            path = root / f"{name}.jsonl"
+            path.write_text("".join(json.dumps(x) + "\n" for x in rows), encoding="utf-8")
+            paths[name] = path
+        cmd = [
+            sys.executable, str(ROOT / "tools/run_news_event_alpha_v1.py"),
+            "--events", str(paths["events"]),
+            "--prices", str(paths["prices"]),
+            "--market-sessions", str(paths["sessions"]),
+            "--output-dir", str(root / "out"),
+            "--mode", "HISTORICAL_BACKFILL",
+            "--source-commit", "abcdef1",
+        ]
+        proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
+        assert proc.returncode != 0
+        assert "verified 64-hex" in (proc.stderr + proc.stdout)
+
 def main() -> int:
     test_source_reprints_do_not_double_count()
     test_checkpoint_timing_and_combo_separate_gnrc_from_psql()
     test_top_report_is_bounded_and_gate_is_fail_closed()
     test_gate_can_propose_manual_challenger_but_never_activate()
     test_cli_ledger_is_immutable_and_writes_manifest()
+    test_non_us_or_unverified_listing_fails_closed()
+    test_historical_cli_requires_verified_receipt()
     print("news_event_alpha_v1_smoke: PASS")
     return 0
 
