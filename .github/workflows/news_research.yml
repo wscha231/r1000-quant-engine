@@ -72,8 +72,34 @@ jobs:
             python "$test"
             python -O "$test"
           done
+  rclone_contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          sparse-checkout: |
+            research/news_event_alpha_v1
+            tests
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install same hash-pinned rclone as durable history workflow
+        env:
+          RCLONE_RELEASE: 1.75.0
+          RCLONE_SHA256: aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location "https://downloads.rclone.org/v${RCLONE_RELEASE}/rclone-v${RCLONE_RELEASE}-linux-amd64.zip" -o "$RUNNER_TEMP/news-rclone.zip"
+          printf '%s  %s\n' "$RCLONE_SHA256" "$RUNNER_TEMP/news-rclone.zip" | sha256sum --check --strict
+          unzip -q "$RUNNER_TEMP/news-rclone.zip" -d "$RUNNER_TEMP/news-rclone-bin"
+          echo "NEWS_RCLONE_BIN=$RUNNER_TEMP/news-rclone-bin/rclone-v${RCLONE_RELEASE}-linux-amd64/rclone" >> "$GITHUB_ENV"
+      - name: Real pinned binary against loopback synthetic API (no account credentials)
+        run: python tests/news_rclone_binary_contract_smoke.py --rclone-bin "$NEWS_RCLONE_BIN"
   capture:
-    needs: test
+    needs: [test, rclone_contract]
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && github.repository == 'wscha231/r1000-quant-engine'
     runs-on: ubuntu-latest
     timeout-minutes: 30
