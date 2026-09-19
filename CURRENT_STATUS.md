@@ -1,5 +1,19 @@
 # R1000 Quant Engine Current Status
 
+## 2026-09-14 research-input integration addendum
+
+This branch implements the first read-only subscription model-cycle history
+input. An authenticated Drive download and unchanged-reader restore verified
+27 packs (503,129,850 bytes); the actual input retains all 1,118 securities and
+is labelled PARTIAL_RESEARCH_INPUT. A newly stored private input bundle was
+authenticated re-downloaded and byte-verified. No model journal, target,
+schedule, live execution or promotion changed. Source publication/review and
+continuing operation remain separate gates. See
+[the implementation and execution handoff](docs/SUBSCRIPTION_HISTORY_ADAPTER_20260914.md).
+
+The older system-wide snapshot below remains dated evidence, not a fresh
+attestation of all workflows or current investment readiness.
+
 Status snapshot: `2026-08-23 10:05 KST` (`2026-08-23 01:05 UTC`)
 
 Tracking issue: [#382](https://github.com/wscha231/r1000-quant-engine/issues/382)

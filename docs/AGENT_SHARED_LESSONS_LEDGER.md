@@ -1,5 +1,34 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-14 — History input needs full restore and a truly read-only transport
+
+- Scope: current-master subscription history adapter; no collector, account,
+  accepted journal, target, schedule or promotion changes.
+- The existing Rclone transport constructor can create a missing research
+  directory. The read-only subclass rejects mkdir/write/upload before a remote
+  mutation; tests cover this constructor failure path.
+- Match the exact restored commit/catalog/execution and report bytes, recompute
+  semantic coverage, and compare the complete caller security set and preserved
+  issuer mapping. A fresh execution does not make a stale dataset fresh.
+- Actual authenticated Drive download: 39 files, including all 27 retained
+  packs / 503,129,850 bytes. The unchanged master reader restored them; model
+  input kept 1,118 securities, with 1,115 linked to readable financial archives.
+  HOLX/IBN/OZK remain in the denominator. Output is PARTIAL_RESEARCH_INPUT.
+- An authenticated re-download verified the newly saved research input ZIP and
+  all members. This is not an accepted model-head restore or rclone credential
+  probe; LocalTransport.remote_verified remains false.
+- Validation: 27 adapter/CLI tests plus 30 unchanged-scope journal regressions,
+  normal/-O. The registered runner takes repeated --include/--only options,
+  not comma-separated names; verify that the intended test files actually ran.
+- The reused Git object database omits unrelated historical blobs; ordinary
+  commit creation detects them. Preserve their exact master object IDs rather
+  than manufacturing frozen artifacts. Verify the scoped local/remote tree
+  and leave full repository CI as a distinct gate.
+- Source port: PR426 continuous.py retains exact blob
+  913452d7153a42dba9b97b9af6a4e1bba656995d. REAL event replay is blocked until
+  actual quote/calendar/review/delivery adapters are integrated.
+- Evidence and remaining work: docs/SUBSCRIPTION_HISTORY_ADAPTER_20260914.md.
+
 This is the shared "mistake notebook" for Codex, Claude, GPT Pro, and any other
 agent working on `wscha231/r1000-quant-engine`.
 
