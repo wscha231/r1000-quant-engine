@@ -1,0 +1,63 @@
+name: Mission v3 Exact Compute Checks
+on:
+  pull_request:
+    paths:
+      - 'research_only/mission_v3/**'
+      - 'contracts/mission_v3.research.json'
+      - 'tests/compute_runtime_test.py'
+      - 'tests/compute_benchmark.py'
+      - '.github/workflows/mission_v3_compute_checks.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  exact-compute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        python: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /research_only/mission_v3/
+            /contracts/mission_v3.research.json
+            /tests/mission_v3_metrics_test.py
+            /tests/mission_v3_boundaries_test.py
+            /tests/compute_runtime_test.py
+            /tests/compute_benchmark.py
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Compile and require exact test inventory
+        run: |
+          python -m py_compile research_only/mission_v3/compute_runtime.py research_only/mission_v3/compute_m0.py tests/compute_runtime_test.py tests/compute_benchmark.py
+          python - <<'PY'
+          import unittest
+          suite = unittest.defaultTestLoader.discover('tests', pattern='compute_runtime_test.py')
+          count = suite.countTestCases()
+          if count != 38:
+              raise SystemExit(f'expected 38 compute test methods, found {count}')
+          print(f'discovered {count} compute test methods')
+          PY
+      - name: Serial parallel cache resume and M0 integration
+        run: |
+          python -W error::ResourceWarning -m unittest discover -s tests -p 'compute_runtime_test.py' -v
+          python -O -W error::ResourceWarning -m unittest discover -s tests -p 'compute_runtime_test.py' -v
+          python -W error::ResourceWarning -m unittest discover -s tests -p 'mission_v3_*test.py' -v
+      - name: Bounded synthetic benchmark, not strategy performance
+        if: matrix.python == '3.13'
+        run: python tests/compute_benchmark.py --out "${RUNNER_TEMP}/compute-benchmark" --cases 32
+      - uses: actions/upload-artifact@v4
+        if: matrix.python == '3.13' && success()
+        with:
+          name: exact-compute-synthetic-benchmark
+          path: ${{ runner.temp }}/compute-benchmark/benchmark_summary.json
+          if-no-files-found: error
+          retention-days: 14
