@@ -1,4 +1,4 @@
-"""Synthetic, offline P0 regressions. No market data or alpha evidence.
+"""Offline synthetic P0 regressions. No market data or alpha evidence.
 
 Run directly; unittest assertions still execute under python -O.
 """
@@ -36,7 +36,8 @@ def fixture():
                             ("P1", .001), ("P2", .001), ("P3", .001)):
             prices.append({"security_id": sid, "session": sess["session"],
                            "total_return_index": 100 * (1 + growth) ** i,
-                           "volume": 1000 if i != 70 else 3000})
+                           "volume": 1000 if i != 70 else 3000,
+                           "available_at": sess["market_close_utc"]})
     events = []
     for sid in ("AAA", "BBB"):
         events.append({"event_id": "filing-1", "economic_event_id": "shared-contract",
@@ -351,26 +352,18 @@ class EndToEndTests(unittest.TestCase):
             self.assertIn("BLOCKED_PENDING_VERIFIED_INPUT_MANIFEST", result.stderr)
             self.assertFalse((Path(tmp) / "out").exists())
 
-    def test_cli_fresh_run_and_incremental_rerun(self):
+    def test_cli_unattested_forward_run_never_writes(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            e = [dict(x, sample_origin="FORWARD_SHADOW") for x in EVENTS]
-            for name, content in (("events", e), ("prices", PRICES), ("sessions", CAL)):
-                (root / f"{name}.json").write_text(json.dumps(content), encoding="utf-8")
             cmd = [sys.executable, str(ROOT / "tools/run_news_event_alpha_v1.py"),
-                   "--events", str(root / "events.json"), "--prices", str(root / "prices.json"),
-                   "--market-sessions", str(root / "sessions.json"), "--mode", "FORWARD_SHADOW"]
-            out1 = root / "run1"; out2 = root / "run2"
-            result = subprocess.run(cmd + ["--output-dir", str(out1)], capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            ledger = out1 / "event_ledger.jsonl"; original = ledger.read_bytes()
-            result = subprocess.run(cmd + ["--output-dir", str(out2), "--existing-ledger", str(ledger)], capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual((out2 / "event_ledger.jsonl").read_bytes(), original)
-            self.assertEqual(ledger.read_bytes(), original)
-            result = subprocess.run(cmd + ["--output-dir", str(out1)], capture_output=True, text=True)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertEqual(ledger.read_bytes(), original)
+                   "--events", "missing.json", "--prices", "missing.json",
+                   "--market-sessions", "missing.json", "--mode", "FORWARD_SHADOW",
+                   "--output-dir", str(root / "out")]
+            for _ in range(2):
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("FORWARD_OBSERVATION_BLOCKED", result.stderr)
+                self.assertFalse((root / "out").exists())
 
 
 class WalkForwardTimingTests(unittest.TestCase):
@@ -382,7 +375,8 @@ class WalkForwardTimingTests(unittest.TestCase):
                        stable_security_id=f"TESTSEC:PRIOR{i}", issuer_id=f"issuer-{i}",
                        sample_origin=origin, horizon=21, outcome_status="RESOLVED",
                        outcome_end_session=CAL[76 if late else 74]["session"],
-                       excess_return=.03, event_session=CAL[30]["session"])
+                       excess_return=.03, event_session=CAL[30]["session"],
+                       label_available_at=CAL[76 if late else 74]["market_close_utc"])
             prior.append(row)
         return current, prior
 
@@ -397,14 +391,14 @@ class WalkForwardTimingTests(unittest.TestCase):
 
     def test_historical_cannot_train_on_later_forward_lane(self):
         current, prior = self.make_prior(origin="FORWARD_SHADOW")
-        row = next(r for r in WF.build_walk_forward_impact_estimates([current], prior) if r["horizon"] == 21)
-        self.assertEqual(row["analogue_status"], "UNDERPOWERED")
+        with self.assertRaisesRegex(R.ContractError, "FORWARD_OBSERVATION_BLOCKED"):
+            WF.build_walk_forward_impact_estimates([current], prior)
 
-    def test_forward_can_use_mature_historical_prior(self):
+    def test_unattested_forward_cannot_use_mature_historical_prior(self):
         current, prior = self.make_prior()
         current = dict(current, sample_origin="FORWARD_SHADOW")
-        row = next(r for r in WF.build_walk_forward_impact_estimates([current], prior) if r["horizon"] == 21)
-        self.assertEqual(row["training_n"], 15)
+        with self.assertRaisesRegex(R.ContractError, "FORWARD_OBSERVATION_BLOCKED"):
+            WF.build_walk_forward_impact_estimates([current], prior)
 
     def test_same_economic_event_excluded_across_other_securities(self):
         current, prior = self.make_prior()
@@ -424,9 +418,9 @@ class WalkForwardTimingTests(unittest.TestCase):
                  analogue_median_excess=.03, prediction_error=.02, direction_correct=True)
         b = dict(a, sample_origin="FORWARD_SHADOW", actual_excess_return=-.2,
                  prediction_error=-.23, direction_correct=False)
-        summaries = WF.summarize_walk_forward_performance([a,b])
-        self.assertEqual(len(summaries), 2)
-        self.assertEqual({r["n_predictions"] for r in summaries}, {1})
+        with self.assertRaisesRegex(R.ContractError, "FORWARD_OBSERVATION_BLOCKED"):
+            WF.summarize_walk_forward_performance([a,b])
+        self.assertEqual(WF.summarize_walk_forward_performance([a])[0]["n_predictions"], 1)
 
     def test_same_day_maturity_not_in_training(self):
         current, prior = self.make_prior()

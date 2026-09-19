@@ -121,6 +121,7 @@ def validate_price_rows(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
             "session": session,
             "total_return_index": tri,
             "volume": volume,
+            "available_at": utc(_text(raw.get("available_at"), "price.available_at")).isoformat(),
         })
         seen.add(key)
     return out
@@ -128,8 +129,8 @@ def validate_price_rows(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
 
 # P0-1: one immutable assertion revision, not one mutable strongest article.
 IDENTITY_CONTRACT = "news-event-identity-p0.1"
-LABEL_CONTRACT = "checkpoint-close-observation-p0.1"
-ANALOGUE_MODEL_VERSION = "historical-analogue-p0.1"
+LABEL_CONTRACT = "checkpoint-close-availability-p0.2"
+ANALOGUE_MODEL_VERSION = "historical-analogue-availability-p0.2"
 
 
 def strict_bool(value: Any, label: str) -> bool:
@@ -142,6 +143,25 @@ def _text(value: Any, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ContractError(f"{label}: nonempty string required")
     return value.strip()
+
+
+def require_sample_origin(row: dict[str, Any]) -> str:
+    """Parse explicit provenance only. This is not forward admission.
+
+    Computational/reporting consumers separately require_learning_origin;
+    no reviewed forward-issuance receipt consumer is connected yet.
+    """
+    origin = _text(row.get("sample_origin"), "sample_origin").upper()
+    if origin not in SAMPLE_ORIGINS:
+        raise ContractError("unsupported sample_origin")
+    return origin
+
+
+def require_learning_origin(row: dict[str, Any]) -> str:
+    origin = require_sample_origin(row)
+    if origin == "FORWARD_SHADOW":
+        raise ContractError("FORWARD_OBSERVATION_BLOCKED_PENDING_REVIEWED_RECEIPT_CONSUMER")
+    return origin
 
 
 def _version(value: Any) -> int:
@@ -223,7 +243,7 @@ def normalize_event(raw: dict[str, Any]) -> dict[str, Any]:
         raise ContractError("future field in evidence revision")
     role = _text(raw.get("role", "INDIRECT"), "role").upper()
     tier = _text(raw.get("source_tier", "OTHER"), "source_tier").upper()
-    origin = _text(raw.get("sample_origin", "FORWARD_SHADOW"), "sample_origin").upper()
+    origin = require_sample_origin(raw)
     instrument = _text(raw.get("instrument"), "instrument").upper()
     exchange = _text(raw.get("exchange"), "exchange").upper()
     country = _text(raw.get("listing_country"), "listing_country").upper()
@@ -358,13 +378,17 @@ class PriceBook:
         self.sessions = [r["session"] for r in sessions]
         self.session_pos = {s: i for i, s in enumerate(self.sessions)}
         self.close_at = {r["session"]: utc(r["market_close_utc"]) for r in sessions}
-        self.data: dict[str, dict[str, dict[str, float | None]]] = defaultdict(dict)
+        self.knowledge_cutoff: datetime | None = None
+        self.data: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
         for row in validate_price_rows(rows):
             if row["session"] not in self.session_pos:
                 raise ContractError(f"price session missing from calendar: {row['session']}")
+            if utc(row["available_at"]) < self.close_at[row["session"]]:
+                raise ContractError("PRICE_BEFORE_SESSION_CLOSE")
             self.data[row["security_id"]][row["session"]] = {
                 "tri": float(row["total_return_index"]),
                 "volume": row["volume"],
+                "available_at": row["available_at"],
             }
 
     def decision_session(self, available_at: str) -> str | None:
@@ -385,11 +409,15 @@ class PriceBook:
 
     def tri(self, security_id: str, session: str) -> float | None:
         row = self.data.get(security_id.upper(), {}).get(session)
-        return None if row is None else float(row["tri"])
+        if row is None or (self.knowledge_cutoff is not None
+                           and utc(row["available_at"]) > self.knowledge_cutoff):
+            return None
+        return float(row["tri"])
 
     def volume(self, security_id: str, session: str) -> float | None:
         row = self.data.get(security_id.upper(), {}).get(session)
-        if row is None or row["volume"] is None:
+        if row is None or row["volume"] is None or (
+                self.knowledge_cutoff is not None and utc(row["available_at"]) > self.knowledge_cutoff):
             return None
         return float(row["volume"])
 
@@ -498,15 +526,16 @@ def build_checkpoint_rows(
         previous = book.shift(event_session, -1)
         if previous is None:
             continue
-        event_return = book.ret(security_id, previous, event_session)
-        event_excess = book.excess(security_id, benchmark_id, previous, event_session)
-        pre20 = _pre_excess(book, security_id, benchmark_id, event_session, 20)
-        pre60 = _pre_excess(book, security_id, benchmark_id, event_session, 60)
         for cp in CHECKPOINTS:
             cp_session = book.shift(event_session, cp)
             if cp_session is None or book.close_at[cp_session] > cutoff:
                 continue
             decision_at = book.close_at[cp_session]
+            book.knowledge_cutoff = decision_at
+            event_return = book.ret(security_id, previous, event_session)
+            event_excess = book.excess(security_id, benchmark_id, previous, event_session)
+            pre20 = _pre_excess(book, security_id, benchmark_id, event_session, 20)
+            pre60 = _pre_excess(book, security_id, benchmark_id, event_session, 60)
             known = [r for r in versions if utc(r["available_at"]) <= decision_at]
             if not known:
                 continue
@@ -545,21 +574,34 @@ def attach_forward_outcomes(
     checkpoint_rows: Iterable[dict[str, Any]],
     price_rows: Iterable[dict[str, Any]],
     market_sessions: Iterable[dict[str, Any]],
+    *, as_of: str | None = None,
 ) -> list[dict[str, Any]]:
     sessions = validate_sessions(market_sessions)
     book = PriceBook(price_rows, sessions)
+    cutoff = utc(as_of) if as_of is not None else book.close_at[book.sessions[-1]]
+    book.knowledge_cutoff = cutoff
     checkpoint_rows = list(checkpoint_rows)
     unique_index(checkpoint_rows, checkpoint_key, "checkpoint")
     out: list[dict[str, Any]] = []
     for row in checkpoint_rows:
+        require_learning_origin(row)
         start = str(row["checkpoint_session"])
         security_id = str(row["security_id"]).upper()
         benchmark_id = str(row["benchmark_id"]).upper()
         for horizon in HORIZONS:
             end = book.shift(start, horizon)
+            label_at = None
+            if end is not None:
+                endpoints = [book.data.get(sid, {}).get(session)
+                             for sid in (security_id, benchmark_id) for session in (start, end)]
+                if all(p is not None for p in endpoints):
+                    label_at = max(book.close_at[end], *(utc(p["available_at"]) for p in endpoints))
             if end is None:
                 excess = absolute = benchmark = mfe = mae = None
                 status = "PENDING_HORIZON"
+            elif label_at is not None and label_at > cutoff:
+                excess = absolute = benchmark = mfe = mae = None
+                status = "PENDING_LABEL_AVAILABILITY"
             else:
                 absolute = book.ret(security_id, start, end)
                 benchmark = book.ret(benchmark_id, start, end)
@@ -574,6 +616,7 @@ def attach_forward_outcomes(
                 **row,
                 "horizon": horizon,
                 "outcome_end_session": end,
+                "label_available_at": label_at.isoformat() if label_at is not None else None,
                 "absolute_return": absolute,
                 "benchmark_return": benchmark,
                 "excess_return": excess,
@@ -696,6 +739,9 @@ def summarize_impacts(
     include_event_type_breakdown: bool = True,
     minimum_breakdown_n: int = 20,
 ) -> list[dict[str, Any]]:
+    outcome_rows = list(outcome_rows)
+    for row in outcome_rows:
+        require_learning_origin(row)
     resolved = [
         r for r in outcome_rows
         if r.get("outcome_status") == "RESOLVED" and r.get("excess_return") is not None
@@ -874,7 +920,7 @@ def run_payload(payload: dict[str, Any]) -> dict[str, Any]:
     sessions = payload.get("market_sessions", [])
     benchmark_id = str(payload.get("benchmark_id") or "SPY").upper()
     checkpoint_rows = build_checkpoint_rows(events, prices, sessions, benchmark_id=benchmark_id, as_of=payload.get("as_of"))
-    outcomes = attach_forward_outcomes(checkpoint_rows, prices, sessions)
+    outcomes = attach_forward_outcomes(checkpoint_rows, prices, sessions, as_of=payload.get("as_of"))
     summaries = summarize_impacts(outcomes)
     from .walk_forward import (
         build_walk_forward_impact_estimates,

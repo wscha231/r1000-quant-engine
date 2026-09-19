@@ -16,7 +16,7 @@ from .runtime import (
     _cluster_stats,
     _sample_stats,
     digest,
-    checkpoint_key, outcome_key, prediction_key, unique_index,
+    checkpoint_key, outcome_key, prediction_key, unique_index, utc, require_learning_origin,
 )
 
 
@@ -50,6 +50,8 @@ def build_walk_forward_impact_estimates(
     """
     checkpoints = list(checkpoint_rows)
     outcome_rows = list(outcome_rows)
+    for row in checkpoints + outcome_rows:
+        require_learning_origin(row)
     unique_index(outcome_rows, outcome_key, "input outcome")
     outcomes = [
         r
@@ -57,6 +59,8 @@ def build_walk_forward_impact_estimates(
         if r.get("outcome_status") == "RESOLVED"
         and r.get("excess_return") is not None
         and r.get("outcome_end_session")
+        and r.get("label_available_at")
+        and utc(r["label_available_at"]).date().isoformat() >= str(r["outcome_end_session"])
     ]
     unique_index(checkpoints, checkpoint_key, "walk-forward checkpoint")
     actual_index = unique_index(outcomes, outcome_key, "walk-forward outcome")
@@ -76,6 +80,7 @@ def build_walk_forward_impact_estimates(
                 and int(r.get("checkpoint", -1)) == int(row["checkpoint"])
                 and int(r.get("horizon", -1)) == horizon
                 and str(r.get("outcome_end_session")) < current_session
+                and utc(r["label_available_at"]) < utc(row["decision_at"])
                 and str(r.get("economic_event_id"))
                 != str(row.get("economic_event_id"))
             ]
@@ -162,6 +167,8 @@ def build_walk_forward_impact_estimates(
                         }
                     ),
                     "training_latest_outcome_end_session": training_latest,
+                    "training_latest_label_available_at": max(
+                        (x["label_available_at"] for x in selected), key=utc),
                     "analogue_median_excess": estimate,
                     "analogue_mean_excess": float(stats["mean_excess"]),
                     "analogue_q25_excess": float(stats["q25_excess"]),
@@ -190,6 +197,7 @@ def build_walk_forward_impact_estimates(
                     "training_n": 0,
                     "training_distinct_issuers": 0,
                     "training_latest_outcome_end_session": None,
+                    "training_latest_label_available_at": None,
                     "analogue_median_excess": None,
                     "analogue_mean_excess": None,
                     "analogue_q25_excess": None,
@@ -221,6 +229,9 @@ def summarize_walk_forward_performance(
     estimate_rows: Iterable[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Score only estimates that were available before their outcomes."""
+    estimate_rows = list(estimate_rows)
+    for row in estimate_rows:
+        require_learning_origin(row)
     resolved = [
         r
         for r in estimate_rows

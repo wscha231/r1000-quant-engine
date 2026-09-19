@@ -29,6 +29,7 @@ from research.news_event_alpha_v1.source_checkpoint import (
     code_fingerprint, freeze_cache, restore_cache, validate_checkpoint_manifest, check_pin,
 )
 from research.news_event_alpha_v1.shared_reader import build_shared_capture, read_shared_capture
+from research.news_event_alpha_v1.review_guards import DriveReferences, checkpoint_lifetime, enforce_retry
 
 FOLDER_ID = "1GdikTcHjAnhWLFXLiaVO4zcpUgetVFdH"
 REGISTRY_ID = "1i0f0cQ4BfreWiFJdMl7okO9kJkChOn08"
@@ -65,7 +66,8 @@ class Drive:
         return result.stdout
 
     def parity(self):
-        registry = json_load(self.call("cat", "gdrive:news_research_access.json"))
+        registry = json_load(DriveReferences(self.call, FOLDER_ID).read_path(
+            "gdrive:news_research_access.json", expected_id=REGISTRY_ID))
         require(registry.get("repository") == "wscha231/r1000-quant-engine" and
                 registry.get("access", {}).get("drive_folder_id") == FOLDER_ID,
                 "DRIVE_ROOT_REGISTRY_MISMATCH")
@@ -103,41 +105,47 @@ def run_id(value):
 
 
 def parent_unused(drive, parent):
-    # Only this workflow's serialized writer is supported, not a distributed lock.
-    names = drive.call("lsf", "gdrive:source_captures/", "--dirs-only").decode("utf-8").splitlines()
-    require(len(names) <= 2000, "RESUME_ATTEMPT_LIST_BUDGET")
-    for name in names:
-        key = name.rstrip("/")
+    # A duplicate name/ID anywhere in the parent set is ambiguous, never pick first.
+    refs = DriveReferences(drive.call, FOLDER_ID)
+    root = refs.directory("source_captures")
+    children = refs.children(root)
+    require(len(children) <= 2001, "RESUME_ATTEMPT_LIST_BUDGET")
+    for key, entry in children.items():
         if key == "_objects":
+            require(entry["IsDir"], "RESUME_OBJECT_POOL_TYPE")
             continue
         run_id(key)
-        prior = json_load(drive.call("cat", "gdrive:source_captures/" + key + "/STARTED.json"))
+        require(entry["IsDir"], "RESUME_ATTEMPT_FOLDER_TYPE")
+        prior = json_load(refs.read_child(entry["ID"], "STARTED.json"))
         require(prior.get("run_key") == key, "RESUME_ATTEMPT_IDENTITY")
         require(prior.get("resume_from") != parent, "RESUME_PARENT_ALREADY_CONTINUED_USE_CHILD")
+    require(refs.children(root) == children, "RESUME_ATTEMPT_SET_CHANGED")
 
 
 def load_resume(drive, workspace, *, parent, pin, code_hash):
     run_id(parent); check_pin(pin)
-    base = "gdrive:source_captures/" + parent
-    start_raw = drive.call("cat", base + "/STARTED.json")
+    refs = DriveReferences(drive.call, FOLDER_ID)
+    parent_id = refs.directory("source_captures/" + parent)
+    start_raw = refs.read_child(parent_id, "STARTED.json")
     start = json_load(start_raw)
-    terminal = json_load(drive.call("cat", base + "/TERMINAL.json"))
+    terminal = json_load(refs.read_child(parent_id, "TERMINAL.json"))
     require(start.get("schema") == "news-capture-attempt-v1" and
             terminal.get("schema") == "news-capture-terminal-v1", "RESUME_ATTEMPT_SCHEMA")
     require(start.get("run_key") == terminal.get("run_key") == parent and
             sha256(start_raw) == terminal.get("started_sha256"), "RESUME_ATTEMPT_LINK")
     require(start.get("source_commit") == terminal.get("source_commit") and
             start.get("selector_eligible") is False, "RESUME_SOURCE_AUTHORITY")
-    if terminal.get("retry_not_before") is not None:
-        require(utc(terminal["retry_not_before"]) <= utc(now()), "RESUME_RETRY_AFTER_NOT_REACHED")
+    enforce_retry(terminal, as_of=now())
     require(terminal.get("resume_checkpoint_verified") is True
             and terminal.get("checkpoint_sha256") == pin, "RESUME_CHECKPOINT_NOT_VERIFIED")
     require(terminal.get("status") in {"BLOCKED", "PARTIAL_SOURCE_CAPTURE", "SOURCE_CAPTURE_REVIEW_REQUIRED"}
             and terminal.get("selector_eligible") is False and terminal.get("model_training_eligible") is False,
             "RESUME_TERMINAL_AUTHORITY")
     require(utc(start["started_at"]) <= utc(terminal["finished_at"]) <= utc(now()), "RESUME_ATTEMPT_CLOCK")
-    raw = drive.call("cat", base + "/CHECKPOINT.json")
+    raw = refs.read_child(parent_id, "CHECKPOINT.json")
     manifest = validate_checkpoint_manifest(raw, expected_hash=pin, code_hash=code_hash, as_of=now())
+    checkpoint_lifetime(start, manifest, terminal)
+    require(refs.directory("source_captures/" + parent) == parent_id, "RESUME_PARENT_ID_CHANGED")
     require(manifest["plan_sha256"] == start["plan_sha256"] == terminal["plan_sha256"], "RESUME_PLAN_LINK")
     require(manifest.get("parent_checkpoint_sha256") == start.get("parent_checkpoint_sha256"), "RESUME_PARENT_LINK")
     snapshot = workspace / "previous-checkpoint"
@@ -159,7 +167,7 @@ def publish_checkpoint(drive, cap, workspace, remote, *, code_hash, parent_pin):
                "--immutable", "--checksum", "--max-transfer", "144M")
     drive.call("check", str(snapshot / "objects"), "gdrive:source_captures/_objects", "--download", "--one-way")
     drive.call("copyto", str(snapshot / "CHECKPOINT.json"), remote + "/CHECKPOINT.json", "--immutable", "--checksum")
-    require(drive.call("cat", remote + "/CHECKPOINT.json") == (snapshot / "CHECKPOINT.json").read_bytes(),
+    require(DriveReferences(drive.call, FOLDER_ID).read_path(remote + "/CHECKPOINT.json") == (snapshot / "CHECKPOINT.json").read_bytes(),
             "CHECKPOINT_MANIFEST_READBACK")
     return cp
 
@@ -174,7 +182,8 @@ def run_capture_to_drive(drive, plan, workspace, *, run_key, user_agent,
     else:
         require(type(plan) is dict, "CAPTURE_PLAN_REQUIRED")
     drive.parity()
-    fingerprint = code_fingerprint(ROOT)
+    fingerprint = sha256(canonical_bytes({"base": code_fingerprint(ROOT),
+        "review_guards": sha256(read_bounded(ROOT / "research/news_event_alpha_v1/review_guards.py"))}))
     if resume_from:
         parent_unused(drive, resume_from)
         plan = load_resume(drive, workspace, parent=resume_from, pin=resume_pin, code_hash=fingerprint)
@@ -189,6 +198,8 @@ def run_capture_to_drive(drive, plan, workspace, *, run_key, user_agent,
                "code_fingerprint": fingerprint}
     marker = workspace / "STARTED.json"; exclusive_bytes(marker, canonical_bytes(started))
     drive.call("copyto", str(marker), remote + "/STARTED.json", "--immutable", "--checksum")
+    require(DriveReferences(drive.call, FOLDER_ID).read_path(remote + "/STARTED.json") == marker.read_bytes(),
+            "STARTED_ID_READBACK_FAILED")
     terminal = {"schema": "news-capture-terminal-v1", "run_key": run_key,
                 "started_sha256": sha256(canonical_bytes(started)), "plan_sha256": started["plan_sha256"],
                 "source_commit": executing_sha, "status": "BLOCKED", "consumer_readback_verified": False,
@@ -199,10 +210,12 @@ def run_capture_to_drive(drive, plan, workspace, *, run_key, user_agent,
         cap = workspace / "capture"
         result = capture(plan, cap, user_agent=user_agent, lock_path=workspace / "sec.lock",
                          resume=bool(resume_from), execution_source_commit=executing_sha)
-        retry_seconds = [int(b["retry_after_seconds"]) for b in result.get("blockers", [])
-                         if b.get("retry_after_seconds") is not None]
-        if retry_seconds:
-            terminal["retry_not_before"] = (utc(now()) + timedelta(seconds=max(retry_seconds))).isoformat()
+        directives = result.get("blockers", [])
+        terminal["retry_manual_review_required"] = any(
+            b.get("retry_manual_review_required", False) is not False for b in directives)
+        deadlines = [utc(b["retry_not_before"]) for b in directives if b.get("retry_not_before")]
+        if deadlines:
+            terminal["retry_not_before"] = max(deadlines).isoformat()
         if progressive:
             cp = publish_checkpoint(drive, cap, workspace, remote, code_hash=fingerprint, parent_pin=resume_pin)
             terminal.update(resume_checkpoint_verified=True, checkpoint_sha256=cp["checkpoint_sha256"],
@@ -224,7 +237,7 @@ def run_capture_to_drive(drive, plan, workspace, *, run_key, user_agent,
     terminal["finished_at"] = now()
     final = workspace / "TERMINAL.json"; exclusive_bytes(final, canonical_bytes(terminal))
     drive.call("copyto", str(final), remote + "/TERMINAL.json", "--immutable", "--checksum")
-    require(drive.call("cat", remote + "/TERMINAL.json") == final.read_bytes(), "TERMINAL_READBACK_FAILED")
+    require(DriveReferences(drive.call, FOLDER_ID).read_path(remote + "/TERMINAL.json") == final.read_bytes(), "TERMINAL_READBACK_FAILED")
     return terminal
 
 

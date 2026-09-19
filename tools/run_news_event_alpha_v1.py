@@ -29,6 +29,7 @@ from research.news_event_alpha_v1.runtime import (  # noqa: E402
     run_payload,
     SCHEMA_VERSION,
     merge_immutable_events,
+    require_sample_origin,
 )
 
 
@@ -155,7 +156,8 @@ def force_origin(rows: list[dict[str, Any]], origin: str) -> list[dict[str, Any]
     out = []
     for row in rows:
         item = dict(row)
-        if item.get("sample_origin", origin) != origin:
+        declared = require_sample_origin(item)
+        if declared != origin:
             raise ContractError("cannot relabel historical/forward sample origin")
         item["sample_origin"] = origin
         out.append(item)
@@ -198,6 +200,8 @@ def main(argv: list[str] | None = None) -> int:
         raise ContractError("output-dir must be fresh; immutable run output")
     if args.mode == "HISTORICAL_BACKFILL":
         raise ContractError("HISTORICAL_BACKFILL_BLOCKED_PENDING_VERIFIED_INPUT_MANIFEST")
+    if args.mode == "FORWARD_SHADOW":
+        raise ContractError("FORWARD_OBSERVATION_BLOCKED_PENDING_REVIEWED_RECEIPT_CONSUMER")
     incoming_raw = force_origin(load_rows(event_path), args.mode)
     incoming = normalize_events(incoming_raw)
     existing: list[dict[str, Any]] = []

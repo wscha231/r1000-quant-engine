@@ -103,11 +103,24 @@ class ReaderTests(unittest.TestCase):
 
 
 class FakeDrive:
-    def __init__(self,root,fail_check=False):self.root=root;self.ops=[];self.fail_check=fail_check
+    def __init__(self,root,fail_check=False):
+        self.root=root;self.ops=[];self.fail_check=fail_check;self.object_paths={W.FOLDER_ID:root}
     def parity(self):self.ops.append(('parity',))
-    def path(self,p):return self.root/p.removeprefix('gdrive:') if p.startswith('gdrive:') else Path(p)
+    def path(self,p):
+        if p.startswith('gdrive,root_folder_id='):
+            return self.object_paths[p.split('=')[1].rstrip(':')]
+        return self.root/p.removeprefix('gdrive:') if p.startswith('gdrive:') else Path(p)
     def call(self,*args):
         self.ops.append(args);cmd=args[0]
+        if cmd=='lsjson':
+            rows=[]
+            for p in sorted(self.path(args[1]).iterdir()):
+                oid=R.digest(str(p));self.object_paths[oid]=p
+                rows.append({'ID':oid,'Name':p.name,'Path':p.name,'IsDir':p.is_dir(),
+                             'Size':-1 if p.is_dir() else p.stat().st_size})
+            return R.canonical_bytes(rows)
+        if args[:2]==('backend','copyid'):
+            shutil.copyfile(self.object_paths[args[3]],Path(args[4]));return b''
         if cmd=='cat':return self.path(args[1]).read_bytes()
         a,b=self.path(args[1]),self.path(args[2])
         if cmd=='copyto':

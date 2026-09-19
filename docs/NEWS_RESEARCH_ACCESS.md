@@ -148,3 +148,35 @@ This check is author-side regression verification, NOT independent approval.
 No deployment, real SEC/Drive execution, historical fit or score change occurs.
 The changed reader/source-validator fingerprint blocks old cache continuation
 until a reviewed migration; existing checkpoint requirements are not relaxed.
+
+## 2026-09-20 Codex review findings repaired (author-side validation)
+
+Independent review 5255426599 on eeab8272 reported five actionable findings.
+This update addresses them without another coding-agent invocation:
+- Missing sample_origin is rejected, never defaulted to FORWARD_SHADOW. The old
+  CLI and statistical consumers now BLOCK unadmitted forward rows until a
+  reviewed forward-receipt consumer exists. Parsing an explicit origin is not
+  admission. This intentionally closes a previously unsafe execution path;
+  it does not implement real forward publication or remove its review gate.
+- Price available_at is required and preserved; features use only quotes known
+  at the decision. Endpoint labels retain the latest stock/benchmark price
+  availability. Prior labels must be strictly available before decision_at.
+  Availability-aware label/model versions prevent pooling with old labels.
+- DriveReferences lists names AND IDs per parent, rejects duplicates/shortcuts,
+  reads small metadata via backend copyid, and checks unchanged identity after
+  reading. Registry ID is pinned; checkpoint/STARTED/TERMINAL reads are by ID.
+  This detects ambiguous references; it is NOT a transactional distributed lock
+  or a proof that bulk Drive transfer and real OAuth already succeeded.
+- A resume checkpoint must have been generated inside its parent's lifetime.
+- Both seconds and HTTP-date Retry-After become absolute UTC deadlines. Invalid
+  nonempty directives require manual review before retry; raw headers are not
+  logged. The same constraints survive continuation in a fresh cloud runner.
+
+45 new offline methods exercise these boundaries, including a Drive test double
+that can contain same-name/different-ID objects. Existing filesystem test doubles
+now implement ID listings and exact-ID reads; they are not real Drive evidence.
+The changed timing fixtures explicitly supply availability rather than guessing
+it. Existing tests of unreviewed forward execution now require rejection.
+Run the exact-head PR suite before re-review/merge. No new cron, dataset, model
+weight, universe, portfolio, order, secret, or actual collection is changed.
+Relevant code fingerprint changes require reviewed migration of any old cache.

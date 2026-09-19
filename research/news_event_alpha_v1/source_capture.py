@@ -29,8 +29,14 @@ MAX_STORED = 128 * 1024 * 1024
 class CaptureBlocked(ContractError):
     def __init__(self, code: str, retry_after: str | None = None):
         self.code = code
+        self._retry_after_raw = retry_after
         self.retry_after = retry_after if retry_after and re.fullmatch(r"\d{1,8}",retry_after) else None
         super().__init__(code)
+
+
+def retry_metadata(exc, received_at: str) -> dict:
+    from .review_guards import retry_directive
+    return retry_directive(getattr(exc, "_retry_after_raw", None), received_at=received_at)
 
 
 class _NoRedirects(HTTPRedirectHandler):
@@ -219,7 +225,8 @@ def capture(plan: dict, output: Path, *, user_agent: str, lock_path: Path,
                 queue.extend({"url":h["source_url"],"cik":h["cik"]} for h in ix["history_requests"])
             except ContractError as exc:
                 blockers.append({"stage":"SUBMISSIONS","source_url":task["url"],"reason":str(exc),
-                                 "retry_after_seconds":getattr(exc,"retry_after",None)})
+                                 "retry_after_seconds":getattr(exc,"retry_after",None),
+                                 **retry_metadata(exc, clock())})
                 break   # no bypass/retry storms, preserve unfinished queue below
         merged=merge_indexes(indexes,set(captured))
         metadata_complete = (not queue and not blockers and merged["declared_history_pages_complete"])
@@ -250,7 +257,8 @@ def capture(plan: dict, output: Path, *, user_agent: str, lock_path: Path,
                     new_documents += int(not was_cached)
                 except ContractError as exc:
                     blockers.append({"stage":"PRIMARY_DOCUMENT","candidate_id":c["candidate_id"],"reason":str(exc),
-                                     "retry_after_seconds":getattr(exc,"retry_after",None)})
+                                     "retry_after_seconds":getattr(exc,"retry_after",None),
+                                 **retry_metadata(exc, clock())})
                     break
         done = {d["candidate_id"] for d in documents if d["status"] == "CAPTURED_NOT_REVIEWED"}
         missing_path = {c["candidate_id"] for c in candidates if not c["primary_document_url"]}
