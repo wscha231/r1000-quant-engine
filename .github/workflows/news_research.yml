@@ -27,6 +27,12 @@ on:
       end:
         type: string
         description: 'Collection window YYYY-MM-DD, at most 732 days'
+      resume_from:
+        type: string
+        description: 'Previous run-attempt ID; leave CIK/window empty to resume the frozen plan'
+      resume_checkpoint:
+        type: string
+        description: 'SHA256 from that run TERMINAL checkpoint_sha256; both resume fields required'
       confirm:
         type: string
         description: 'For capture enter capture-source-only; otherwise leave empty'
@@ -59,7 +65,7 @@ jobs:
       - name: Offline regression suite (no credentials, no market data)
         run: |
           set -euo pipefail
-          for test in tests/news_event_p0_integrity_smoke.py tests/news_event_p0_receipt_execution_smoke.py tests/news_event_p0_source_bridge_smoke.py tests/news_event_p0_source_capture_smoke.py tests/news_research_cloud_smoke.py; do
+          for test in tests/news_event_p0_integrity_smoke.py tests/news_event_p0_receipt_execution_smoke.py tests/news_event_p0_source_bridge_smoke.py tests/news_event_p0_source_capture_smoke.py tests/news_research_cloud_smoke.py tests/news_research_resume_smoke.py; do
             python "$test"
             python -O "$test"
           done
@@ -99,5 +105,7 @@ jobs:
           START: ${{ inputs.start }}
           END: ${{ inputs.end }}
           CONFIRM: ${{ inputs.confirm }}
+          RESUME_FROM: ${{ inputs.resume_from }}
+          RESUME_CHECKPOINT: ${{ inputs.resume_checkpoint }}
         run: |
-          python tools/run_news_research_cloud.py --mode "$MODE" --expected-sha "$EXPECTED_SHA" --ciks "$CIKS" --start "$START" --end "$END" --confirm "$CONFIRM"
+          python tools/run_news_research_cloud.py --mode "$MODE" --expected-sha "$EXPECTED_SHA" --ciks "$CIKS" --start "$START" --end "$END" --confirm "$CONFIRM" --resume-from "$RESUME_FROM" --resume-checkpoint "$RESUME_CHECKPOINT"

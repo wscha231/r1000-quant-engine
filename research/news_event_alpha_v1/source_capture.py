@@ -114,7 +114,13 @@ class CaptureStore:
         self.fetcher=fetcher or fetch_sec
         self.monotonic=monotonic or time.monotonic; self.sleeper=sleeper or time.sleep
         self.calls=0; self.reused=0; self.last=None
+        self.started_monotonic = self.monotonic()
         self.root.mkdir(parents=True,exist_ok=True)
+
+    def is_cached(self, url: str) -> bool:
+        path = self.root / "receipts" / (sha256(sec_url(url).encode("ascii")) + ".json")
+        require(not reparse_point(path), "CAPTURE_REPARSE_POINT")
+        return path.is_file()
 
     def get(self, url: str) -> tuple[bytes,dict]:
         url=sec_url(url)
@@ -131,6 +137,8 @@ class CaptureStore:
             require(utc(r["ingested_at"])<=utc(self.clock()), "CAPTURE_FUTURE_RECEIPT")
             self.reused+=1
             return data,r
+        if self.monotonic() - self.started_monotonic >= 600:
+            raise CaptureBlocked("TIME_BUDGET_EXHAUSTED")
         if self.calls>=self.request_budget:
             raise CaptureBlocked("REQUEST_BUDGET_EXHAUSTED")
         if self.last is not None:
@@ -156,8 +164,14 @@ class CaptureStore:
         return data,r
 
 
-def capture(plan: dict, output: Path, *, user_agent: str, lock_path: Path,
-            resume: bool = False, clock=None, fetcher=None, monotonic=None, sleeper=None) -> dict:
+def validate_capture_plan(plan: dict, *, as_of: str) -> tuple[list[str], int, int]:
+    """Validate without I/O; reused when restoring the exact frozen plan."""
+    require(type(plan) is dict, "CAPTURE_PLAN_TYPE")
+    allowed = {"schema", "ciks", "window_start", "window_end", "source_commit", "data_cutoff",
+               "max_filings", "max_requests", "selection_rule", "document_progression"}
+    require(set(plan).issubset(allowed), "CAPTURE_UNKNOWN_PLAN_FIELD")
+    require(plan.get("document_progression", "FIXED_PREFIX") in
+            {"FIXED_PREFIX", "REMAINING_UNCAPTURED"}, "CAPTURE_PROGRESSION_POLICY")
     require(plan.get("schema")=="news-sec-capture-plan-p0.3", "CAPTURE_PLAN_SCHEMA")
     ids=plan.get("ciks")
     require(type(ids) is list and 0<len(ids)<=10, "CAPTURE_CIK_BUDGET")
@@ -170,9 +184,18 @@ def capture(plan: dict, output: Path, *, user_agent: str, lock_path: Path,
     require(type(request_limit) is int and 1<=request_limit<=150,"REQUEST_BUDGET")
     require(plan.get("selection_rule")=="EARLIEST_BY_FILED_DATE_THEN_CIK_ACCESSION_NO_RETURNS", "CAPTURE_SELECTION_RULE")
     cutoff=utc(plan["data_cutoff"])
-    clock=clock or (lambda:datetime.now(timezone.utc).isoformat())
-    require(cutoff<=utc(clock()),"CAPTURE_CUTOFF")
+    require(cutoff<=utc(as_of),"CAPTURE_CUTOFF")
     require(end<=cutoff.date(),"CAPTURE_END_AFTER_CUTOFF")
+    return ids, limit, request_limit
+
+
+def capture(plan: dict, output: Path, *, user_agent: str, lock_path: Path,
+            resume: bool = False, clock=None, fetcher=None, monotonic=None, sleeper=None,
+            execution_source_commit: str | None = None) -> dict:
+    clock=clock or (lambda:datetime.now(timezone.utc).isoformat())
+    ids, limit, request_limit = validate_capture_plan(plan, as_of=clock())
+    executing_sha = execution_source_commit or plan["source_commit"]
+    require(HEX40.fullmatch(executing_sha) is not None, "CAPTURE_EXECUTING_SHA")
     output=Path(output); _outside_git(output)
     require(not output.exists() or resume,"CAPTURE_EXISTS_USE_EXPLICIT_RESUME")
     require(not resume or (output/"CAPTURE_PLAN.json").is_file(), "CAPTURE_RESUME_PLAN_MISSING")
@@ -199,20 +222,45 @@ def capture(plan: dict, output: Path, *, user_agent: str, lock_path: Path,
                                  "retry_after_seconds":getattr(exc,"retry_after",None)})
                 break   # no bypass/retry storms, preserve unfinished queue below
         merged=merge_indexes(indexes,set(captured))
-        selected=merged["candidates"][:limit]
-        documents=[]
+        metadata_complete = (not queue and not blockers and merged["declared_history_pages_complete"])
+        progressive = plan.get("document_progression") == "REMAINING_UNCAPTURED"
+        documents, pending = [], []
+        candidates = merged["candidates"]
+        for c in candidates:
+            url = c["primary_document_url"]
+            if not url:
+                documents.append({"candidate_id": c["candidate_id"], "status": "PRIMARY_PATH_MISSING"})
+            elif progressive and store.is_cached(url):
+                raw, r = store.get(url)  # validates bytes; never requests this URL again
+                captured[url] = (raw, r, c["cik"], "raw_object")
+                documents.append({"candidate_id": c["candidate_id"], "status": "CAPTURED_NOT_REVIEWED", **r})
+            else:
+                pending.append(c)
+        selected = pending[:limit] if progressive else candidates[:limit]
+        new_documents = 0
         if not blockers:
             for c in selected:
                 if not c["primary_document_url"]:
-                    documents.append({"candidate_id":c["candidate_id"],"status":"PRIMARY_PATH_MISSING"}); continue
+                    continue
                 try:
+                    was_cached = store.is_cached(c["primary_document_url"])
                     raw,r=store.get(c["primary_document_url"])
                     captured[r["source_url"]]=(raw,r,c["cik"],"raw_object")
                     documents.append({"candidate_id":c["candidate_id"],"status":"CAPTURED_NOT_REVIEWED",**r})
+                    new_documents += int(not was_cached)
                 except ContractError as exc:
                     blockers.append({"stage":"PRIMARY_DOCUMENT","candidate_id":c["candidate_id"],"reason":str(exc),
                                      "retry_after_seconds":getattr(exc,"retry_after",None)})
                     break
+        done = {d["candidate_id"] for d in documents if d["status"] == "CAPTURED_NOT_REVIEWED"}
+        missing_path = {c["candidate_id"] for c in candidates if not c["primary_document_url"]}
+        remaining = [c["candidate_id"] for c in candidates
+                     if c["candidate_id"] not in done | missing_path]
+        # Capture completeness is only for the specified CIK/window, not US market or business review.
+        coverage_counts = {"indexed": len(candidates), "captured": len(done),
+                           "pending_download": len(remaining), "missing_primary_path": len(missing_path)}
+        require(sum(coverage_counts[k] for k in ("captured", "pending_download", "missing_primary_path"))
+                == coverage_counts["indexed"], "CAPTURE_DENOMINATOR")
         attempt=uuid.uuid4().hex
         export=output/"exports"/attempt; export.mkdir(parents=True,exist_ok=False)
         files=[]
@@ -223,7 +271,7 @@ def capture(plan: dict, output: Path, *, user_agent: str, lock_path: Path,
                           "role":role,"cik":cik,"source_url":url,"ingested_at":r["ingested_at"]})
         generated=clock()
         manifest={"schema":"news-source-export-p0.3","origin":"HISTORICAL_RECONSTRUCTION",
-                  "source_commit":plan["source_commit"],"data_cutoff":plan["data_cutoff"],
+                  "source_commit":executing_sha,"data_cutoff":plan["data_cutoff"],
                   "generated_at":generated,"window_start":plan["window_start"],"window_end":plan["window_end"],
                   "selection_rule":plan["selection_rule"],"files":files,"stage":"RAW_INDEX_EXPORT_REVIEW_NOT_READY"}
         exclusive_bytes(export/"export_manifest.json",canonical_bytes(manifest))
@@ -231,8 +279,13 @@ def capture(plan: dict, output: Path, *, user_agent: str, lock_path: Path,
                 "attempt_id":attempt,"new_requests":store.calls,"reused_verified_receipts":store.reused,
                 "indexed_filing_candidates":len(merged["candidates"]),"selected_document_budget":len(selected),
                 "captured_documents":len([d for d in documents if d["status"]=="CAPTURED_NOT_REVIEWED"]),
-                "deferred_document_candidates":max(0,len(merged["candidates"])-limit),
-                "history_pages_complete":not queue and not blockers and merged["declared_history_pages_complete"],
+                "deferred_document_candidates":len(remaining) if progressive else max(0,len(merged["candidates"])-limit),
+                "history_pages_complete":metadata_complete,
+                "document_progression":plan.get("document_progression", "FIXED_PREFIX"),
+                "new_documents_captured":new_documents,
+                "coverage_counts":coverage_counts,
+                "pending_document_ids":remaining,
+                "source_complete_for_declared_selection":metadata_complete and not blockers and not remaining and not missing_path,
                 "unfinished_submissions_queue":queue,"missing_history_urls":merged["unresolved_history_urls"],
                 "blockers":blockers,"export_manifest_sha256":sha256(canonical_bytes(manifest)),
                 "export_dir":str(export),"generated_at":generated,

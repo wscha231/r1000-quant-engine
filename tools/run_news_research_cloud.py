@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import configparser
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import json
 import os
 from pathlib import Path
@@ -20,11 +20,14 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from research.news_event_alpha_v1.runtime import ContractError, canonical_bytes
+from research.news_event_alpha_v1.runtime import ContractError, canonical_bytes, utc
 from research.news_event_alpha_v1.admission import json_load, read_bounded, sha256
 from research.news_event_alpha_v1.execution import require
 from research.news_event_alpha_v1.source_capture import capture, exclusive_bytes
 from research.news_event_alpha_v1.source_bridge import cik10, day
+from research.news_event_alpha_v1.source_checkpoint import (
+    code_fingerprint, freeze_cache, restore_cache, validate_checkpoint_manifest, check_pin,
+)
 from research.news_event_alpha_v1.shared_reader import build_shared_capture, read_shared_capture
 
 FOLDER_ID = "1GdikTcHjAnhWLFXLiaVO4zcpUgetVFdH"
@@ -44,7 +47,8 @@ def make_plan(ciks, start, end, source_sha, *, cutoff):
     return {"schema": "news-sec-capture-plan-p0.3", "ciks": ids,
             "window_start": start, "window_end": end, "data_cutoff": cutoff,
             "source_commit": source_sha, "max_filings": 100, "max_requests": 150,
-            "selection_rule": "EARLIEST_BY_FILED_DATE_THEN_CIK_ACCESSION_NO_RETURNS"}
+            "selection_rule": "EARLIEST_BY_FILED_DATE_THEN_CIK_ACCESSION_NO_RETURNS",
+            "document_progression": "REMAINING_UNCAPTURED"}
 
 
 class Drive:
@@ -93,42 +97,133 @@ def transport(workspace: Path):
         path.unlink(missing_ok=True)  # only this execution's temporary credential file
 
 
-def run_capture_to_drive(drive, plan, workspace, *, run_key, user_agent):
-    require(re.fullmatch(r"[0-9]+-[0-9]+", run_key) is not None, "CLOUD_RUN_ID")
+def run_id(value):
+    require(type(value) is str and re.fullmatch(r"[0-9]{1,24}-[0-9]{1,8}", value) is not None, "CLOUD_RUN_ID")
+    return value
+
+
+def parent_unused(drive, parent):
+    # Only this workflow's serialized writer is supported, not a distributed lock.
+    names = drive.call("lsf", "gdrive:source_captures/", "--dirs-only").decode("utf-8").splitlines()
+    require(len(names) <= 2000, "RESUME_ATTEMPT_LIST_BUDGET")
+    for name in names:
+        key = name.rstrip("/")
+        if key == "_objects":
+            continue
+        run_id(key)
+        prior = json_load(drive.call("cat", "gdrive:source_captures/" + key + "/STARTED.json"))
+        require(prior.get("run_key") == key, "RESUME_ATTEMPT_IDENTITY")
+        require(prior.get("resume_from") != parent, "RESUME_PARENT_ALREADY_CONTINUED_USE_CHILD")
+
+
+def load_resume(drive, workspace, *, parent, pin, code_hash):
+    run_id(parent); check_pin(pin)
+    base = "gdrive:source_captures/" + parent
+    start_raw = drive.call("cat", base + "/STARTED.json")
+    start = json_load(start_raw)
+    terminal = json_load(drive.call("cat", base + "/TERMINAL.json"))
+    require(start.get("schema") == "news-capture-attempt-v1" and
+            terminal.get("schema") == "news-capture-terminal-v1", "RESUME_ATTEMPT_SCHEMA")
+    require(start.get("run_key") == terminal.get("run_key") == parent and
+            sha256(start_raw) == terminal.get("started_sha256"), "RESUME_ATTEMPT_LINK")
+    require(start.get("source_commit") == terminal.get("source_commit") and
+            start.get("selector_eligible") is False, "RESUME_SOURCE_AUTHORITY")
+    if terminal.get("retry_not_before") is not None:
+        require(utc(terminal["retry_not_before"]) <= utc(now()), "RESUME_RETRY_AFTER_NOT_REACHED")
+    require(terminal.get("resume_checkpoint_verified") is True
+            and terminal.get("checkpoint_sha256") == pin, "RESUME_CHECKPOINT_NOT_VERIFIED")
+    require(terminal.get("status") in {"BLOCKED", "PARTIAL_SOURCE_CAPTURE", "SOURCE_CAPTURE_REVIEW_REQUIRED"}
+            and terminal.get("selector_eligible") is False and terminal.get("model_training_eligible") is False,
+            "RESUME_TERMINAL_AUTHORITY")
+    require(utc(start["started_at"]) <= utc(terminal["finished_at"]) <= utc(now()), "RESUME_ATTEMPT_CLOCK")
+    raw = drive.call("cat", base + "/CHECKPOINT.json")
+    manifest = validate_checkpoint_manifest(raw, expected_hash=pin, code_hash=code_hash, as_of=now())
+    require(manifest["plan_sha256"] == start["plan_sha256"] == terminal["plan_sha256"], "RESUME_PLAN_LINK")
+    require(manifest.get("parent_checkpoint_sha256") == start.get("parent_checkpoint_sha256"), "RESUME_PARENT_LINK")
+    snapshot = workspace / "previous-checkpoint"
+    exclusive_bytes(snapshot / "CHECKPOINT.json", raw)
+    wanted = workspace / "resume-object-list.txt"
+    wanted.write_text("".join(h + "\n" for h in sorted({e["sha256"] for e in manifest["files"]})), encoding="ascii")
+    # Restore only referenced hashes. Never download the whole shared object pool.
+    drive.call("copy", "gdrive:source_captures/_objects", str(snapshot / "objects"),
+               "--files-from-raw", str(wanted), "--immutable", "--checksum", "--max-transfer", "144M")
+    return restore_cache(snapshot, workspace / "capture", expected_hash=pin,
+                         code_hash=code_hash, as_of=now())
+
+
+def publish_checkpoint(drive, cap, workspace, remote, *, code_hash, parent_pin):
+    snapshot = workspace / "checkpoint"
+    cp = freeze_cache(cap, snapshot, as_of=now(), code_hash=code_hash, parent_checkpoint=parent_pin)
+    # Hash filenames allow identical source objects to be reused across runs.
+    drive.call("copy", str(snapshot / "objects"), "gdrive:source_captures/_objects",
+               "--immutable", "--checksum", "--max-transfer", "144M")
+    drive.call("check", str(snapshot / "objects"), "gdrive:source_captures/_objects", "--download", "--one-way")
+    drive.call("copyto", str(snapshot / "CHECKPOINT.json"), remote + "/CHECKPOINT.json", "--immutable", "--checksum")
+    require(drive.call("cat", remote + "/CHECKPOINT.json") == (snapshot / "CHECKPOINT.json").read_bytes(),
+            "CHECKPOINT_MANIFEST_READBACK")
+    return cp
+
+
+def run_capture_to_drive(drive, plan, workspace, *, run_key, user_agent,
+                         resume_from=None, resume_pin=None, source_commit=None):
+    run_id(run_key)
+    require(bool(resume_from) == bool(resume_pin), "RESUME_PARENT_AND_HASH_REQUIRED")
+    if resume_from:
+        run_id(resume_from); check_pin(resume_pin)
+        require(resume_from != run_key and plan is None, "RESUME_CANNOT_OVERRIDE_PLAN_OR_SELF")
+    else:
+        require(type(plan) is dict, "CAPTURE_PLAN_REQUIRED")
+    drive.parity()
+    fingerprint = code_fingerprint(ROOT)
+    if resume_from:
+        parent_unused(drive, resume_from)
+        plan = load_resume(drive, workspace, parent=resume_from, pin=resume_pin, code_hash=fingerprint)
+    executing_sha = source_commit or plan["source_commit"]
+    require(re.fullmatch(r"[0-9a-f]{40}", executing_sha) is not None, "CLOUD_SHA")
+    progressive = plan.get("document_progression") == "REMAINING_UNCAPTURED"
     remote = "gdrive:source_captures/" + run_key
     started = {"schema": "news-capture-attempt-v1", "run_key": run_key,
-               "started_at": now(), "source_commit": plan["source_commit"],
-               "plan_sha256": sha256(canonical_bytes(plan)), "selector_eligible": False}
+               "started_at": now(), "source_commit": executing_sha,
+               "plan_sha256": sha256(canonical_bytes(plan)), "selector_eligible": False,
+               "resume_from": resume_from, "parent_checkpoint_sha256": resume_pin,
+               "code_fingerprint": fingerprint}
     marker = workspace / "STARTED.json"; exclusive_bytes(marker, canonical_bytes(started))
-    drive.parity()
-    drive.call("copyto", str(marker), remote + "/STARTED.json", "--immutable")
+    drive.call("copyto", str(marker), remote + "/STARTED.json", "--immutable", "--checksum")
+    terminal = {"schema": "news-capture-terminal-v1", "run_key": run_key,
+                "started_sha256": sha256(canonical_bytes(started)), "plan_sha256": started["plan_sha256"],
+                "source_commit": executing_sha, "status": "BLOCKED", "consumer_readback_verified": False,
+                "model_training_eligible": False, "selector_eligible": False,
+                "resume_checkpoint_verified": False, "checkpoint_sha256": None,
+                "whole_market_coverage_certified": False}
     try:
         cap = workspace / "capture"
-        result = capture(plan, cap, user_agent=user_agent, lock_path=workspace / "sec.lock")
+        result = capture(plan, cap, user_agent=user_agent, lock_path=workspace / "sec.lock",
+                         resume=bool(resume_from), execution_source_commit=executing_sha)
+        retry_seconds = [int(b["retry_after_seconds"]) for b in result.get("blockers", [])
+                         if b.get("retry_after_seconds") is not None]
+        if retry_seconds:
+            terminal["retry_not_before"] = (utc(now()) + timedelta(seconds=max(retry_seconds))).isoformat()
+        if progressive:
+            cp = publish_checkpoint(drive, cap, workspace, remote, code_hash=fingerprint, parent_pin=resume_pin)
+            terminal.update(resume_checkpoint_verified=True, checkpoint_sha256=cp["checkpoint_sha256"],
+                            coverage_counts=result["coverage_counts"], new_requests=result["new_requests"],
+                            new_documents_captured=result["new_documents_captured"],
+                            source_complete_for_declared_selection=result["source_complete_for_declared_selection"])
         bundle = workspace / "shared"
         shared = build_shared_capture(cap, result["attempt_id"], bundle, as_of=now())
-        drive.call("copy", str(bundle), remote + "/bundle", "--immutable")
+        drive.call("copy", str(bundle), remote + "/bundle", "--immutable", "--checksum")
         drive.call("check", str(bundle), remote + "/bundle", "--download", "--one-way")
-        # Restore separately and run the exact consumer, not just an upload exit code.
         restored = workspace / "restored"
-        drive.call("copy", remote + "/bundle", str(restored), "--immutable")
+        drive.call("copy", remote + "/bundle", str(restored), "--immutable", "--checksum", "--max-transfer", "160M")
         view = read_shared_capture(restored, expected_manifest_sha256=shared["manifest_sha256"], as_of=now())
-        terminal = {"schema": "news-capture-terminal-v1", "run_key": run_key,
-                    "started_sha256": sha256(canonical_bytes(started)),
-                    "status": view["status"], "finished_at": now(),
-                    "manifest_sha256": shared["manifest_sha256"],
-                    "source_commit": plan["source_commit"], "consumer_readback_verified": True,
-                    "captured_primary_count": view["captured_primary_count"],
-                    "model_training_eligible": False, "selector_eligible": False,
-                    "whole_market_coverage_certified": False}
+        terminal.update(status=view["status"], manifest_sha256=shared["manifest_sha256"],
+                        consumer_readback_verified=True, captured_primary_count=view["captured_primary_count"])
     except Exception:
-        terminal = {"schema": "news-capture-terminal-v1", "run_key": run_key,
-                    "started_sha256": sha256(canonical_bytes(started)), "finished_at": now(),
-                    "status": "BLOCKED", "reason": "CAPTURE_OR_PUBLICATION_FAILED",
-                    "consumer_readback_verified": False, "model_training_eligible": False,
-                    "selector_eligible": False}
+        # A verified checkpoint may survive a blocked source/consumer stage. Not a successful analysis.
+        terminal.update(status="BLOCKED", reason="CAPTURE_OR_PUBLICATION_FAILED", consumer_readback_verified=False)
+    terminal["finished_at"] = now()
     final = workspace / "TERMINAL.json"; exclusive_bytes(final, canonical_bytes(terminal))
-    drive.call("copyto", str(final), remote + "/TERMINAL.json", "--immutable")
+    drive.call("copyto", str(final), remote + "/TERMINAL.json", "--immutable", "--checksum")
     require(drive.call("cat", remote + "/TERMINAL.json") == final.read_bytes(), "TERMINAL_READBACK_FAILED")
     return terminal
 
@@ -140,6 +235,8 @@ def main(argv=None):
     p.add_argument("--ciks", default="")
     p.add_argument("--start", default=""); p.add_argument("--end", default="")
     p.add_argument("--confirm", default="")
+    p.add_argument("--resume-from", default="")
+    p.add_argument("--resume-checkpoint", default="")
     args = p.parse_args(argv)
     head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     require(args.expected_sha == head and re.fullmatch(r"[0-9a-f]{40}", head), "EXACT_SOURCE_SHA_REQUIRED")
@@ -148,18 +245,26 @@ def main(argv=None):
     plan = None
     if args.mode == "capture":
         require(args.confirm == "capture-source-only", "CAPTURE_CONFIRMATION_REQUIRED")
-        plan = make_plan(args.ciks, args.start, args.end, head, cutoff=now())
+        require(bool(args.resume_from) == bool(args.resume_checkpoint), "RESUME_PARENT_AND_HASH_REQUIRED")
+        if args.resume_from:
+            require(not args.ciks and not args.start and not args.end, "RESUME_SCOPE_OVERRIDE_BLOCKED")
+        else:
+            plan = make_plan(args.ciks, args.start, args.end, head, cutoff=now())
+    else:
+        require(not args.resume_from and not args.resume_checkpoint, "INSPECT_CANNOT_RESUME")
     with tempfile.TemporaryDirectory(prefix="news-cloud-", dir=os.environ.get("RUNNER_TEMP")) as temp:
         work = Path(temp)
         with transport(work) as drive:
-            if plan is None:
+            if args.mode == "inspect":
                 drive.parity()
                 result = {"status": "ROOT_READ_PARITY_ONLY", "source_commit": head,
                           "capture_run": False, "model_training_eligible": False, "selector_eligible": False}
             else:
                 result = run_capture_to_drive(drive, plan, work,
                     run_key=os.environ.get("GITHUB_RUN_ID", "") + "-" + os.environ.get("GITHUB_RUN_ATTEMPT", ""),
-                    user_agent=os.environ.get("SEC_USER_AGENT", ""))
+                    user_agent=os.environ.get("SEC_USER_AGENT", ""),
+                    resume_from=args.resume_from or None, resume_pin=args.resume_checkpoint or None,
+                    source_commit=head)
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     return 0 if result["status"] in {"ROOT_READ_PARITY_ONLY", "SOURCE_CAPTURE_REVIEW_REQUIRED"} else 2
 
