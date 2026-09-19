@@ -125,3 +125,26 @@ offline tests. Actual GitHub OAuth, SEC access and remote Drive data readback
 remain unexecuted. A 24-month multi-company shard planner, non-SEC history feeds,
 company/market impact models and score/lifecycle consumers remain later work.
 This update neither certifies historical PIT data nor changes scoring authority.
+
+## 2026-09-19 release-boundary repair and reusable lesson
+
+Exact `ac9dc9e` reader bytes accepted semantically inconsistent, hash-valid
+fixtures: coverage/type mismatches, a synthetic inner export marked as real,
+primary-source timing/identity conflicts, and publication outside run lifetime.
+It could also interpret different bytes after validating an outer manifest.
+`load_export_snapshot` now shares the existing export validator while consuming
+immutable verified bytes; the reader never reopens those files for semantics.
+Coverage is recomputed from indexed primary references, not copied from reports.
+Publication must occur inside STARTED/TERMINAL; source ingestion cannot follow
+publication. Captured history cannot claim FORWARD_OBSERVED through this reader.
+Source-only captures reject unbound/duplicate primary URLs and wrong issuer IDs.
+
+The new 30-test suite first failed in 22 methods on the exact original reader;
+after repair all 30 passed. These are deliberately malformed/synthetic fixtures,
+not 22 observed failures in real market data. Archived P0-3 regression suites
+also passed locally, but the current cloud/resume suites still require the PR
+CI run. Local work covers scoped sources, not a clone of the whole repository.
+This check is author-side regression verification, NOT independent approval.
+No deployment, real SEC/Drive execution, historical fit or score change occurs.
+The changed reader/source-validator fingerprint blocks old cache continuation
+until a reviewed migration; existing checkpoint requirements are not relaxed.

@@ -262,11 +262,44 @@ EXPORT_EXTRA = {"sec_submissions", "raw_object", "rights_evidence", "calendar_ev
 def load_export(root: Path, *, now: str, index_only: bool = False) -> tuple[dict, dict[str,bytes], dict]:
     root = Path(root)
     require(root.is_dir() and not reparse_point(root), "EXPORT_ROOT")
-    raw = read_bounded(checked_file(root,"export_manifest.json"))
+    raw = read_bounded(checked_file(root, "export_manifest.json"))
+    manifest = json_load(raw)
+    require(type(manifest) is dict, "EXPORT_MANIFEST_OBJECT")
+    entries = manifest.get("files")
+    require(type(entries) is list and 0 < len(entries) <= MAX_INPUT_FILES, "EXPORT_FILE_COUNT")
+    members, total = {}, 0
+    for entry in entries:
+        require(type(entry) is dict, "EXPORT_ROLE")
+        name = safe_rel(entry.get("path"))
+        require(name != "export_manifest.json" and name not in members, "EXPORT_DUPLICATE_PATH")
+        data = read_bounded(checked_file(root, name))
+        total += len(data)
+        require(total <= MAX_BUNDLE_BYTES, "EXPORT_BYTES_BUDGET")
+        members[name] = data
+    actual = set()
+    for path in root.rglob("*"):
+        require(not reparse_point(path), "EXPORT_REPARSE_POINT")
+        if path.is_file():
+            actual.add(path.relative_to(root).as_posix())
+    require(actual == set(members) | {"export_manifest.json"}, "EXPORT_UNDECLARED_FILE")
+    return load_export_snapshot(raw, members, now=now, index_only=index_only)
+
+
+def load_export_snapshot(raw: bytes, members: dict[str, bytes], *, now: str,
+                         index_only: bool = False) -> tuple[dict, dict[str,bytes], dict]:
+    """Validate already frozen bytes; semantic consumers must not reread disk.
+
+    This is the same export contract as load_export, not a weaker admission path.
+    Byte snapshots prevent filesystem updates between hashing and interpretation.
+    """
+    require(type(raw) is bytes and len(raw) <= MAX_FILE_BYTES, "EXPORT_MANIFEST_BYTES")
+    require(type(members) is dict and len(members) <= MAX_INPUT_FILES, "EXPORT_MEMBER_COUNT")
+    members = dict(members)
     m = json_load(raw)
+    require(type(m) is dict, "EXPORT_MANIFEST_OBJECT")
     require(m.get("schema") == "news-source-export-p0.3", "EXPORT_SCHEMA")
     require(m.get("origin") in {"SYNTHETIC_TEST", "HISTORICAL_RECONSTRUCTION", "FORWARD_OBSERVED"}, "EXPORT_ORIGIN")
-    require(HEX40.fullmatch(str(m.get("source_commit",""))) is not None, "EXPORT_SOURCE_COMMIT")
+    require(HEX40.fullmatch(str(m.get("source_commit",""))) is not None,"EXPORT_SOURCE_COMMIT")
     require(utc(m["data_cutoff"]) <= utc(m["generated_at"]) <= utc(now), "EXPORT_CLOCK")
     require(day(m["window_start"]) <= day(m["window_end"]), "EXPORT_WINDOW")
     require(type(m.get("selection_rule")) is str and bool(m["selection_rule"].strip()), "EXPORT_SELECTION_RULE")
@@ -281,7 +314,8 @@ def load_export(root: Path, *, now: str, index_only: bool = False) -> tuple[dict
         require(type(e.get("bytes")) is int and 0 <= e["bytes"] <= MAX_FILE_BYTES, "EXPORT_FILE_BYTES")
         total += e["bytes"]
         require(total <= MAX_BUNDLE_BYTES, "EXPORT_BYTES_BUDGET")
-        data = read_bounded(checked_file(root,path))
+        data = members.get(path)
+        require(type(data) is bytes and len(data) <= MAX_FILE_BYTES, "EXPORT_MEMBER_BYTES")
         require(len(data) == e["bytes"] and sha256(data) == e.get("sha256"), "EXPORT_HASH_MISMATCH:"+path)
         require(type(e.get("source_id")) is str and bool(e["source_id"]), "EXPORT_SOURCE_ID")
         files[path] = data
@@ -290,11 +324,7 @@ def load_export(root: Path, *, now: str, index_only: bool = False) -> tuple[dict
             roles[e["role"]] = path
         if e["role"] == "sec_submissions":
             require(utc(e["ingested_at"]) <= utc(m["generated_at"]), "CAPTURE_CLOCK")
-    actual = set()
-    for p in root.rglob("*"):
-        require(not reparse_point(p), "EXPORT_REPARSE_POINT")
-        if p.is_file(): actual.add(p.relative_to(root).as_posix())
-    require(actual == set(files) | {"export_manifest.json"}, "EXPORT_UNDECLARED_FILE")
+    require(set(members) == set(files), "EXPORT_UNDECLARED_FILE")
     require(any(e["role"] == "sec_submissions" for e in entries), "SEC_SOURCE_MISSING")
     require(index_only or set(roles) == EXPORT_SINGLE, "EXPORT_MISSING_ROLES")
     m["_export_sha256"] = sha256(raw)

@@ -65,7 +65,7 @@ jobs:
       - name: Offline regression suite (no credentials, no market data)
         run: |
           set -euo pipefail
-          for test in tests/news_event_p0_integrity_smoke.py tests/news_event_p0_receipt_execution_smoke.py tests/news_event_p0_source_bridge_smoke.py tests/news_event_p0_source_capture_smoke.py tests/news_research_cloud_smoke.py tests/news_research_resume_smoke.py; do
+          for test in tests/news_event_p0_integrity_smoke.py tests/news_event_p0_receipt_execution_smoke.py tests/news_event_p0_source_bridge_smoke.py tests/news_event_p0_source_capture_smoke.py tests/news_research_cloud_smoke.py tests/news_research_resume_smoke.py tests/news_research_release_boundary_smoke.py; do
             python "$test"
             python -O "$test"
           done
