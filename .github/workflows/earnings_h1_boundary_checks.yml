@@ -1,0 +1,40 @@
+name: Earnings H1 Boundary Checks
+on:
+  pull_request:
+    paths:
+      - 'tools/earnings_consensus_h1.py'
+      - 'tools/collect_earnings_estimates_h1.py'
+      - 'tests/earnings_consensus_h1_boundary_test.py'
+      - 'tests/earnings_collector_h1_boundary_test.py'
+      - '.github/workflows/earnings_h1_boundary_checks.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  boundary-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /tools/earnings_consensus_h1.py
+            /tools/collect_earnings_estimates_h1.py
+            /tests/earnings_consensus_h1_boundary_test.py
+            /tests/earnings_collector_h1_boundary_test.py
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install pandas==2.3.3
+      - name: Test normal and optimized interpreters
+        run: |
+          python tests/earnings_consensus_h1_boundary_test.py
+          python -O tests/earnings_consensus_h1_boundary_test.py
+          python tests/earnings_collector_h1_boundary_test.py
+          python -O tests/earnings_collector_h1_boundary_test.py
