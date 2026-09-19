@@ -31,6 +31,63 @@ class HistoryTest(unittest.TestCase):
         lake.dataset('sec/0000000001',[b'original'],[dict(end='2016-12-31',filed='2017-02-01',value=value,concept='Revenue',unit='USD')],
             dict(evidence='SEC_FILED_DATE_CURRENT_ARCHIVE_NOT_CERTIFIED_PIT',rows=1))
 
+    def test_chunked_normalization_roundtrip_idempotency_and_sql(self):
+        rows=[dict(observation_date='2020-01-01',value=i,details='x'*150) for i in range(7)]
+        from tools import long_history_lake as module
+        with patch.object(module,'NORMALIZED_CHUNK_BYTES',256):
+            self.lake.dataset('alfred/NFCI',[b'raw-vintages'],rows,dict(rows=len(rows),evidence='alfred_date_archive'))
+            entry=self.lake.catalog['datasets']['alfred/NFCI']
+            self.assertEqual(entry['encoding'],'gzip_jsonl_chunks_v1')
+            self.lake.publish('one',{})
+            reader=Lake(self.t,self.root/'reader')
+            self.assertEqual(reader.get_records('alfred/NFCI'),rows)
+            self.assertEqual(materialize(reader,self.root/'cache.sqlite',['alfred/NFCI'],'2026-09-11'),7)
+            reader.dataset('alfred/NFCI',[b'raw-vintages'],rows,dict(rows=len(rows),evidence='alfred_date_archive'))
+            self.assertFalse(reader.pending)
+            self.assertEqual(reader.publish('two',{})['new_packs'],0)
+
+    def test_normalization_above_old_decompressed_limit(self):
+        # Over 128 MiB after normalization, even though gzip bytes are small.
+        rows=(dict(index=i,text='x'*(1024*1024)) for i in range(129))
+        self.lake.dataset('alfred/NFCI',[b'raw-vintages'],rows,dict(rows=129))
+        self.lake.publish('one',{})
+        reader=Lake(self.t,self.root/'reader')
+        self.assertEqual(len(reader.get_records('alfred/NFCI')),129)
+
+    def test_chunk_manifest_rejects_missing_members_and_wrong_count(self):
+        from tools import long_history_lake as module
+        with patch.object(module,'NORMALIZED_CHUNK_BYTES',100):
+            self.lake.dataset('alfred/NFCI',[b'raw'],[dict(x='a'*60),dict(x='b'*60)],dict(rows=2))
+            entry=self.lake.catalog['datasets']['alfred/NFCI']
+            original=copy.deepcopy(entry)
+            manifest=json.loads(module.unpacked(self.lake.get_bytes(entry['normalized'])))
+            entry['objects'].remove(manifest['chunks'][0])
+            with self.assertRaisesRegex(ValueError,'normalized_dependency'):
+                self.lake.get_records('alfred/NFCI')
+            entry.update(original)
+            changed=dict(manifest,rows=3)
+            entry['normalized']=self.lake.object(module.packed(encoded(changed)))
+            with self.assertRaisesRegex(ValueError,'normalized_row_count'):
+                self.lake.get_records('alfred/NFCI')
+
+    def test_chunk_corruption_cannot_hide_behind_local_cache(self):
+        from tools import long_history_lake as module
+        with patch.object(module,'NORMALIZED_CHUNK_BYTES',100):
+            self.lake.dataset('alfred/NFCI',[b'raw'],[dict(x='a'*60),dict(x='b'*60)],dict(rows=2))
+            self.lake.publish('one',{})
+            pack=next((self.root/'remote'/PREFIX/'packs').iterdir())
+            pack.write_bytes(b'corrupt')
+            with self.assertRaisesRegex(ValueError,'remote_hash'):
+                Lake(self.t,self.root/'reader')
+
+    def test_small_normalization_keeps_existing_hash_and_encoding(self):
+        from tools import long_history_lake as module
+        rows=[dict(value=1),dict(value=2)]
+        self.lake.dataset('tiny',[b'raw'],rows,dict(rows=2))
+        entry=self.lake.catalog['datasets']['tiny']
+        self.assertEqual(entry['normalized'],digest(module.packed(b''.join(encoded(r) for r in rows))))
+        self.assertEqual(entry['encoding'],'gzip_jsonl')
+
     def test_roundtrip_and_version_preservation(self):
         self.put(); first=self.lake.publish('one',{})
         next_lake=Lake(self.t,self.root/'second'); self.put(next_lake,90)

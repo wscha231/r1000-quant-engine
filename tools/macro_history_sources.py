@@ -25,11 +25,15 @@ from zoneinfo import ZoneInfo
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = ROOT / "docs/macro_indicator_registry.json"
 MAX_BYTES = 16 * 1024 * 1024
-MAX_PAGES = 20
+PAGE_ROWS = 10000
+MAX_PAGES = 200
+MAX_RECORDS = MAX_PAGES * PAGE_ROWS
+# Keep the previous aggregate raw-byte ceiling while allowing more small pages.
+MAX_TOTAL_BYTES = 320 * 1024 * 1024
 PUBLIC_ERRORS = frozenset({"fred_key_unavailable", "alfred_output_contract", "alfred_page_offset",
     "alfred_count", "alfred_count_changed", "alfred_empty_page", "alfred_date_bounds",
     "alfred_duplicate_vintage", "alfred_incomplete_pagination", "alfred_overlapping_vintages",
-    "alfred_page_limit", "graph_schema", "graph_row", "duplicate_or_future_observation",
+    "alfred_page_limit", "alfred_total_bytes", "graph_schema", "graph_row", "duplicate_or_future_observation",
     "nonfinite_value", "empty_series", "source_bounds", "observation_window",
     "credential_echo_rejected", "redirect_rejected", "response_size"})
 
@@ -107,22 +111,32 @@ def parse_graph(raw, series, start, through, retrieved):
     return records, missing
 
 
+def alfred_page(payload, offset, total):
+    """Validate pagination before another request or a partial result is accepted."""
+    require(payload.get("units") == "lin" and payload.get("output_type") == 1,
+            "alfred_output_contract")
+    require(type(payload.get("offset")) is int and payload["offset"] == offset,
+            "alfred_page_offset")
+    count = payload.get("count")
+    require(type(count) is int and 0 < count <= MAX_RECORDS, "alfred_count")
+    require(total is None or count == total, "alfred_count_changed")
+    rows = payload.get("observations")
+    require(isinstance(rows, list) and 0 < len(rows) <= PAGE_ROWS, "alfred_empty_page")
+    require(offset + len(rows) <= count, "alfred_count")
+    return rows, count
+
+
 def parse_alfred(pages, series, start, through, retrieved):
     """Parse complete output_type=1 pages; keep every revision and withdrawal."""
     first, last = date.fromisoformat(start), date.fromisoformat(through)
     require(first <= last <= stamp(retrieved).date(), "observation_window")
+    require(0 < len(pages) <= MAX_PAGES and all(0 < len(p) <= MAX_BYTES for p in pages),
+            "source_bounds")
+    require(sum(map(len, pages)) <= MAX_TOTAL_BYTES, "alfred_total_bytes")
     seen, records, expected_offset, total = set(), [], 0, None
     for raw in pages:
         payload = json.loads(raw)
-        require(payload.get("units") == "lin" and payload.get("output_type") == 1,
-                "alfred_output_contract")
-        require(payload.get("offset") == expected_offset, "alfred_page_offset")
-        count = payload.get("count")
-        require(isinstance(count, int) and 0 < count <= MAX_PAGES * 10000, "alfred_count")
-        require(total is None or count == total, "alfred_count_changed")
-        total = count
-        rows = payload.get("observations", [])
-        require(isinstance(rows, list) and bool(rows), "alfred_empty_page")
+        rows, total = alfred_page(payload, expected_offset, total)
         for row in rows:
             day = date.fromisoformat(row["date"])
             vintage = date.fromisoformat(row["realtime_start"])
@@ -172,21 +186,22 @@ def fetch(series, start, through, mode):
         return [request_bytes(url)], utc_now()
     key = os.environ.get("FRED_API_KEY")
     require(bool(key), "fred_key_unavailable")
-    pages, offset = [], 0
+    pages, offset, total, raw_bytes = [], 0, None, 0
     for _ in range(MAX_PAGES):
         url = "https://api.stlouisfed.org/fred/series/observations?" + urlencode(dict(
             series_id=series, api_key=key, file_type="json", units="lin", output_type=1,
             observation_start=start, observation_end=through, realtime_start="1776-07-04",
-            realtime_end=through, limit=10000, offset=offset))
+            realtime_end=through, limit=PAGE_ROWS, offset=offset))
         raw = request_bytes(url, secret=key)
+        require(0 < len(raw) <= MAX_BYTES, "response_size")
+        raw_bytes += len(raw)
+        require(raw_bytes <= MAX_TOTAL_BYTES, "alfred_total_bytes")
         data = json.loads(raw)
+        rows, total = alfred_page(data, offset, total)
         pages.append(raw)
-        rows = data.get("observations", [])
-        require(bool(rows), "alfred_empty_page")
         offset += len(rows)
-        if offset == data.get("count"):
+        if offset == total:
             return pages, utc_now()
-        require(offset < data.get("count", 0), "alfred_count")
     raise ValueError("alfred_page_limit")
 
 

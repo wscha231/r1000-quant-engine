@@ -2,7 +2,7 @@
 """Offline regressions: publication leakage, revised data, labels and inference."""
 from __future__ import annotations
 
-from datetime import timezone
+from datetime import date, timedelta, timezone
 from pathlib import Path
 import os
 import sys
@@ -25,6 +25,59 @@ def alfred_page(rows):
 
 
 class EvidenceTests(unittest.TestCase):
+    def test_alfred_more_than_twenty_pages_keeps_all_revisions(self):
+        total=200001
+        calls=[]
+        def fake(url, secret=None):
+            q=parse_qs(urlparse(url).query); offset=int(q['offset'][0])
+            calls.append(offset)
+            self.assertEqual(int(q['limit'][0]),10000)
+            # 1,001 observed dates with successive nonoverlapping daily vintages.
+            rows=[]
+            for i in range(offset,min(offset+10000,total)):
+                observed=date(2000,1,1)+timedelta(days=i//200)
+                vintage=observed+timedelta(days=i%200)
+                rows.append(dict(date=observed.isoformat(),value=str(i),
+                    realtime_start=vintage.isoformat(),realtime_end=vintage.isoformat()))
+            return source.encoded(dict(units='lin',output_type=1,count=total,
+                offset=offset,observations=rows))
+        with patch.dict(os.environ,{'FRED_API_KEY':'synthetic-test-key'}), patch.object(source,'request_bytes',fake):
+            pages,retrieved=source.fetch('NFCI','1996-01-01','2026-09-11','alfred')
+        records=source.parse_alfred(pages,'NFCI','1996-01-01','2026-09-11',retrieved)
+        self.assertEqual(calls,list(range(0,total,10000)))
+        self.assertEqual(len(records),total)
+        self.assertEqual(records[-1]['value'],200000)
+        self.assertTrue(all(r['published_at'] is None for r in records))
+
+    def test_alfred_fetch_rejects_count_drift_wrong_offset_and_bad_counts(self):
+        row=dict(date='2020-01-01',value='1',realtime_start='2020-01-01',realtime_end='2020-01-01')
+        first=dict(units='lin',output_type=1,count=2,offset=0,observations=[row])
+        for changed,reason in [(dict(count=3),'alfred_count_changed'),
+            (dict(offset=0),'alfred_page_offset'),(dict(count=True),'alfred_count'),
+            (dict(count=source.MAX_RECORDS+1),'alfred_count'),
+            (dict(observations=[]),'alfred_empty_page'),(dict(output_type=2),'alfred_output_contract')]:
+            second=dict(first,offset=1); second.update(changed)
+            pages=[source.encoded(first),source.encoded(second)]
+            with self.subTest(reason=reason), patch.dict(os.environ,{'FRED_API_KEY':'synthetic-test-key'}), patch.object(source,'request_bytes',side_effect=pages) as fetcher:
+                with self.assertRaisesRegex(ValueError,reason):
+                    source.fetch('NFCI','2020-01-01','2020-03-31','alfred')
+                self.assertEqual(fetcher.call_count,2)
+
+    def test_alfred_byte_and_request_budgets_fail_closed(self):
+        row=dict(date='2020-01-01',value='1',realtime_start='2020-01-01',realtime_end='2020-01-01')
+        raw=alfred_page([row])
+        with patch.object(source,'MAX_TOTAL_BYTES',len(raw)-1):
+            with self.assertRaisesRegex(ValueError,'alfred_total_bytes'):
+                source.parse_alfred([raw],'NFCI','2020-01-01','2020-03-31','2026-09-11T00:00:00Z')
+            with patch.dict(os.environ,{'FRED_API_KEY':'synthetic-test-key'}), patch.object(source,'request_bytes',return_value=raw):
+                with self.assertRaisesRegex(ValueError,'alfred_total_bytes'):
+                    source.fetch('NFCI','2020-01-01','2020-03-31','alfred')
+        incomplete=source.encoded(dict(units='lin',output_type=1,count=2,offset=0,observations=[row]))
+        with patch.object(source,'MAX_PAGES',1), patch.dict(os.environ,{'FRED_API_KEY':'synthetic-test-key'}), patch.object(source,'request_bytes',return_value=incomplete) as fetcher:
+            with self.assertRaisesRegex(ValueError,'alfred_page_limit'):
+                source.fetch('NFCI','2020-01-01','2020-03-31','alfred')
+            self.assertEqual(fetcher.call_count,1)
+
     def test_current_history_is_not_backdated(self):
         rows, missing = source.parse_graph(b"observation_date,UNRATE\n2020-01-01,3.5\n2020-02-01,.\n", "UNRATE", "2020-01-01", "2020-02-28", "2026-09-11T12:00:00Z")
         self.assertEqual(rows[0]["available_at"], "2026-09-11T12:00:00Z")

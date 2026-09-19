@@ -5045,3 +5045,36 @@ Expected contract:
 - Preserve missing dates outside a rolling price window together with retained raw lineage. The window begins at the first returned date including missing values, so a new leading gap cannot resurrect an old price. Added four regression cases; history suite now has 39 tests.
 - PR423 Tier-1 run 34715585754 rejected the newly registered research suites with post_publication_protected_delta:tools/run_pr_validation.py. Following the existing protected-publication protocol, advance only verifier/regression pins to causal ancestor 346d93c713eaa539db7d10ebd0fb34b0d54626b9, reviewed by Codex in review 5187824659. Keep all protected paths, frozen artifacts, hashes, registered tests, and mutation rejection rules unchanged.
 - Further PR423 review found the same leading-missing price boundary in the separate macro cycle. Carry provider_window_start and missing dates from source collection; refuse ambiguous fresh boundaries, retain only earlier rows/gaps, and mark legacy missing-date evidence incomplete. World Bank coverage now compares every requested country/year, including entirely omitted countries and boundary years, rather than counting only returned nulls. The research suites pass 40 history + 17 cycle + 14 source tests.
+
+## 2026-09-14 — Large vintage archives need bounded pagination and chunked normalization
+
+- History run 34719702944/job 103623160703 finished the Drive consumer but
+  remained PARTIAL. The latest execution receipt bbc28eac3c21a859e0be22b21d34079119299599a2e6e818aadba4a98c58c76b
+  was downloaded and its SHA256 rechecked; this is prior-run evidence, not a
+  successful run of this patch or a fresh audit of every remote pack.
+- The original ALFRED fetch and parser both cap data at 20 x 10,000 rows.
+  Allow up to 200 pages/2,000,000 rows with the prior aggregate 320 MiB raw
+  budget retained. Validate count/offset stability while fetching, not only
+  after collecting all pages. Missing, excessive or drifting responses still fail.
+- Increasing the source limit alone can publish a gzip whose normalized content
+  exceeds the reader's 128 MiB decompression ceiling. Normalize into 8 MiB
+  chunks with an immutable ordered manifest and hash-bound catalog dependencies;
+  preserve old small-object hashes and stream SQL ingestion.
+- Offline regressions include 200,001 revisions across 21 requests, a normalized
+  dataset above 128 MiB, clean restore, no-change reuse, missing/corrupt chunks,
+  count/offset/byte limits and unchanged date-level availability. Synthetic rows
+  are not observed NFCI coverage. Live NFCI recovery still needs a reviewed
+  master run and its exact dataset plus execution receipt.
+- SEC Companyfacts 404 does not establish delisting or justify silently changing
+  CIKs. ICICI Bank and Bank OZK need verified alternative filing adapters;
+  retain explicit missing coverage. Do not mark the whole cohort complete or
+  activate rankings after fixing only one macro source.
+- Publication was blocked by automatic approval review: broad continuation was
+  judged insufficient authorization to disclose the code/docs to GitHub. No
+  alternate publication route was attempted; the tested seven-file local commit
+  and dated handoff are prepared for explicit repository/branch authorization.
+- The user explicitly approved that seven-file branch/PR publication on
+  September 14. After the transient workspace disappeared, reconstruction on the
+  same master reproduced the exact prior tree 4947323f56305814d24f2d9c9080a1eb10cabe0f;
+  all 79 focused regressions passed again. This establishes source recovery,
+  not new remote data coverage, a merge, or a successful live collector run.

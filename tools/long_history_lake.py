@@ -41,6 +41,8 @@ SCHEMA = 'long-history-catalog-v1'
 PREFIX = 'long-history-v1'
 MAX_OBJECT = 18 * 1024 * 1024
 PACK_BYTES = 18 * 1024 * 1024
+NORMALIZED_CHUNK_BYTES = 8 * 1024 * 1024
+MAX_NORMALIZED_CHUNKS = 1024
 COHORT_SHA = '4e1eb090f8137395603228dbc55c35907307ad6d049ec778f2722d1cbb87f4b4'
 ARCHIVES = ('UNRATE','PAYEMS','CPIAUCSL','PCEPILFE','RSAFS','DSPIC96','PSAVERT','M2SL','ICSA','NFCI','WALCL','WRESBAL')
 COUNTRIES = ('USA','CHN','JPN','KOR','EMU')
@@ -359,11 +361,29 @@ class Lake:
 
     def dataset(self,key,pages,rows,metadata):
         raw_hashes=[self.object(packed(p)) for p in pages]
-        normalized=self.object(packed(b''.join(encoded(r) for r in rows)))
+        # Split before compression: a small gzip can exceed the reader's
+        # decompression bound. Small datasets retain their original byte identity.
+        chunks=[]; buffer=bytearray(); row_count=0
+        for row in rows:
+            line=encoded(row)
+            require(len(line)<=NORMALIZED_CHUNK_BYTES,'normalized_row_size')
+            if buffer and len(buffer)+len(line)>NORMALIZED_CHUNK_BYTES:
+                chunks.append(self.object(packed(bytes(buffer)))); buffer.clear()
+                require(len(chunks)<MAX_NORMALIZED_CHUNKS,'normalized_chunk_limit')
+            buffer.extend(line); row_count+=1
+        chunks.append(self.object(packed(bytes(buffer))))
+        if len(chunks)==1:
+            normalized=chunks[0]; encoding='gzip_jsonl'
+        else:
+            manifest=dict(schema='normalized-jsonl-chunks-v1',chunks=chunks,rows=row_count)
+            normalized=self.object(packed(encoded(manifest)))
+            encoding='gzip_jsonl_chunks_v1'
+        objects=(raw_hashes+[normalized] if len(chunks)==1
+                 else list(dict.fromkeys(raw_hashes+chunks+[normalized])))
         old=self.catalog['datasets'].get(key,{})
-        self.catalog['datasets'][key]=dict(metadata,status='COLLECTED',objects=raw_hashes+[normalized],
-            raw_objects=raw_hashes,normalized=normalized,encoding='gzip_jsonl',
-            changed=old.get('objects')!=raw_hashes+[normalized],checked_at=utc_now())
+        self.catalog['datasets'][key]=dict(metadata,status='COLLECTED',objects=objects,
+            raw_objects=raw_hashes,normalized=normalized,encoding=encoding,
+            changed=old.get('objects')!=objects,checked_at=utc_now())
 
     def blocked(self,key,exc):
         old=self.catalog['datasets'].get(key,{})
@@ -389,8 +409,31 @@ class Lake:
         return raw
 
     def get_records(self,key):
-        raw=self.get_bytes(self.catalog['datasets'][key]['normalized'])
-        return [json.loads(line) for line in unpacked(raw).splitlines()]
+        return list(self.iter_records(key))
+
+    def iter_records(self,key):
+        entry=self.catalog['datasets'][key]
+        raw=unpacked(self.get_bytes(entry['normalized']))
+        if entry.get('encoding')=='gzip_jsonl':
+            for line in raw.splitlines(): yield json.loads(line)
+            return
+        require(entry.get('encoding')=='gzip_jsonl_chunks_v1','normalized_encoding')
+        manifest=json.loads(raw)
+        chunks=manifest.get('chunks')
+        require(manifest.get('schema')=='normalized-jsonl-chunks-v1'
+            and isinstance(chunks,list) and 1<len(chunks)<=MAX_NORMALIZED_CHUNKS,
+            'normalized_manifest')
+        require(type(manifest.get('rows')) is int and manifest['rows']>0,'normalized_row_count')
+        count=0
+        for sha in chunks:
+            require(isinstance(sha,str) and sha in entry['objects'],'normalized_dependency')
+            data=unpacked(self.get_bytes(sha))
+            require(0<len(data)<=NORMALIZED_CHUNK_BYTES,'normalized_chunk_size')
+            for line in data.splitlines():
+                count+=1
+                require(count<=manifest['rows'],'normalized_row_count')
+                yield json.loads(line)
+        require(count==manifest['rows'],'normalized_row_count')
 
     def verified_execution(self):
         """Bind shared consumption to this restored commit's completed receipt.
@@ -607,7 +650,7 @@ def materialize(lake,destination,keys,cutoff):
             require(entry['status'] in ('COLLECTED','UNCHANGED'),'stale_dataset')
             require(entry.get('evidence')!='current_only' or cutoff>=entry['retrieved_at'][:10],
                     'current_vintage_historical_cutoff_forbidden')
-            for row in lake.get_records(key):
+            for row in lake.iter_records(key):
                 observed=row.get('observation_date',row.get('end'))
                 if observed and observed>cutoff: continue
                 if row.get('filed') and row['filed']>cutoff: continue
