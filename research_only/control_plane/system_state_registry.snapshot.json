@@ -1,0 +1,52 @@
+{
+  "as_of": "2026-09-17T14:14:00+09:00",
+  "authority": "RESEARCH_ONLY",
+  "books": {
+    "actual_broker_book": {"authority_rank": 1, "status": "NOT_VERIFIED_OR_CONNECTED_AS_CANONICAL_HERE"},
+    "paper_book": {"authority_rank": 3, "status": "CURRENT_DURABLE_HEAD_NOT_REVERIFIED_IN_THIS_SLICE"},
+    "research_signal": {"authority_rank": 5, "status": "AVAILABLE_IN_MULTIPLE_RESEARCH_BRANCHES"},
+    "simulated_execution": {"authority_rank": 4, "status": "RESEARCH_ONLY"},
+    "target_book": {"authority_rank": 2, "status": "CURRENT_ACCEPTED_STATE_NOT_REVERIFIED_IN_THIS_SLICE"}
+  },
+  "durable_data": {
+    "archive_commit_sha256": "cf6f88321a2c1f86da5719af1771cf711668059e06203202d2c6e00bcf1c9475",
+    "catalog_sha256": "23ebbf52f26b5ea46ff8b82e59f7ad41942d93fde627123049cf4735b8812227",
+    "cohort_requested_securities": 1118,
+    "contract_merge_pr": 423,
+    "execution_receipt_sha256": "bbc28eac3c21a859e0be22b21d34079119299599a2e6e818aadba4a98c58c76b",
+    "historical_pit_complete": false,
+    "issuers_with_collected_archives": 1104,
+    "known_collector_through": "2026-09-12",
+    "known_fact_count": 15173078,
+    "known_price_snapshot": "2026-09-09",
+    "mapped_issuers": 1106,
+    "namespace": "research/macro_technical_evidence/v1/scheduled/long-history-v1/",
+    "note": "Known verified PR#429 read-only history evidence; resolve newer freshness from current Drive receipts.",
+    "readable_financial_archive_securities": 1115,
+    "status": "PARTIAL",
+    "ten_year_statements_complete": false
+  },
+  "repositories": {
+    "global_control": {"creation_gate": "GLOBAL_BOOK_CONTRACT_ACCEPTED", "repository": "wscha231/global-portfolio-control", "status": "NOT_CANONICAL_OR_NOT_FOUND"},
+    "kr": {"default_branch": "main", "integration_surface": "PR#2 research decision export", "legacy_challenger_surface": "PR#1", "production_authority": false, "repo_head_date": "2026-05-06", "repo_head_sha": "80cb0721896a834a45d257fc4f65255134338f36", "repository": "wscha231/kr-quant-engine"},
+    "us": {"current_status_file_as_of": "2026-08-23", "current_status_file_status": "STALE_SNAPSHOT", "default_branch": "master", "repo_head_kind": "AUTOMATED_AFTER_CLOSE_COMMIT", "repo_head_sha": "d5a9cb11627d42432bddc7a72dfb7ff9d8dae30d", "repository": "wscha231/r1000-quant-engine", "reviewed_feature_baseline_note": "Theme/ETF runtime #435 merged after ETF H1 #436", "reviewed_feature_baseline_sha": "74765812b8f198818289ae1e082ee0ac70b18c2a"}
+  },
+  "schema_version": "system-state-registry-v1",
+  "source_of_truth_priority": ["actual_broker_book", "approved_target_book", "verified_paper_book", "simulated_execution", "research_signal"],
+  "stop_conditions": ["G0_DATA_OR_PIT_INTEGRITY_FAILURE", "MISSING_OR_STALE_DATA_MUST_NOT_BECOME_ZERO_OR_FAVORABLE_SIGNAL", "NO_THEME_13F_FORM4_COMMODITY_OR_SHORT_RS_STANDALONE_SELL_AUTHORITY", "NO_H1_H2_MIXED_CAUSAL_PR", "NO_FINAL_HOLDOUT_TARGET_TUNING", "NO_TARGET_LEDGER_BROKER_LIVE_MUTATION_FROM_CONTROL_PLANE", "NO_REVIEW_GATE_BYPASS_WHILE_CODEX_EVIDENCE_IS_REQUIRED"],
+  "workstreams": [
+    {"economic_authority": "NONE", "id": "DATA_LAKE", "owner": "shared", "refs": ["PR#423"], "status": "MERGED_PARTIAL"},
+    {"economic_authority": "CANDIDATE_ONLY", "id": "THEME_ETF", "owner": "theme", "refs": ["Issue#433", "PR#435", "PR#436"], "status": "MERGED_RESEARCH_ONLY"},
+    {"economic_authority": "CANDIDATE_ONLY", "id": "13F_H1", "owner": "13f", "refs": ["PR#437", "PR#439", "PR#445"], "status": "DRAFT_CI_GREEN_REVIEW_BLOCKED"},
+    {"economic_authority": "NONE", "id": "13F_H2", "owner": "13f", "refs": ["PR#443", "PR#444", "PR#442"], "status": "DRAFT_EVIDENCE_INCOMPLETE"},
+    {"economic_authority": "NONE", "id": "FORM4_H1", "owner": "integration", "refs": [], "status": "BLOCKED_NOT_IMPLEMENTED"},
+    {"economic_authority": "RESEARCH_ONLY", "id": "COMPANY_QUALITY_VALUE", "owner": "quality", "refs": ["PR#400", "PR#401", "PR#405"], "status": "DRAFT_RECONSTRUCT_ON_CURRENT_MASTER"},
+    {"economic_authority": "RESEARCH_ONLY", "id": "EARNINGS_CONSENSUS", "owner": "data", "refs": ["PR#305"], "status": "PARTIAL_FORWARD_EVIDENCE"},
+    {"economic_authority": "NO_CANONICAL_REGIME_MUTATION", "id": "MACRO_LIQUIDITY", "owner": "integration", "refs": ["PR#431", "PR#441", "Issue#447"], "status": "DRAFT_RESEARCH_ONLY"},
+    {"economic_authority": "CANDIDATE_ONLY", "id": "COMMODITY_RESOURCE", "owner": "integration", "refs": ["Issue#448"], "status": "RESEARCH_DESIGN"},
+    {"economic_authority": "PUBLICATION_ONLY_AFTER_GATES", "id": "SUBSCRIPTION", "owner": "product", "refs": ["PR#426", "PR#429"], "status": "DRAFT_DEFERRED"},
+    {"economic_authority": "RESEARCH_ONLY", "id": "KR_PARITY", "owner": "kr", "refs": ["kr-quant-engine#2", "kr-quant-engine#1"], "status": "DRAFT_INTERFACE"},
+    {"economic_authority": "GOVERNANCE_ONLY", "id": "GOVERNANCE_V3", "owner": "governance", "refs": ["PR#446"], "status": "DRAFT_CODEX_REVIEW_BLOCKED"},
+    {"economic_authority": "NONE", "id": "GLOBAL_BOOK", "owner": "integration", "refs": ["Issue#448"], "status": "CONTRACT_ONLY_NOT_CANONICAL"}
+  ]
+}
