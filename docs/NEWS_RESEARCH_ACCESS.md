@@ -180,3 +180,20 @@ it. Existing tests of unreviewed forward execution now require rejection.
 Run the exact-head PR suite before re-review/merge. No new cron, dataset, model
 weight, universe, portfolio, order, secret, or actual collection is changed.
 Relevant code fingerprint changes require reviewed migration of any old cache.
+
+## PR artifact comparison repair after the review-fix CI
+
+Run35454052480 on bbe5cbf failed before Tier1: its event base90b55fe was
+compared with synthetic merge2d54fa5, whose actual base parent was f204105.
+The90b55fe->f204105 difference is only the upstream bot's latest_regime.txt;
+that artifact was not a news PR source change. The unchanged artifact guard
+correctly flagged the wrong supplied comparison. Do not whitelist the file.
+
+`resolve_pr_merge_base.py` now requires an exact two-parent PR merge, binds its
+second parent to the event head, and verifies the event base is an ancestor of
+the actual first parent. It prints that actual base for the existing unchanged
+guard. Wrong head, missing history, unrelated base or non-merge checkout blocks.
+Eleven real temporary-Git tests reproduce the stale-base false positive and
+verify actual PR runtime additions/edits and oversized files still fail. The
+same tests run immediately before the existing guard in PR Validation. No
+artifact is deleted, excluded or automatically approved by this adjustment.
