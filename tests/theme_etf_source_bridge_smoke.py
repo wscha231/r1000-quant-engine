@@ -574,6 +574,28 @@ class BridgeTests(unittest.TestCase):
                 self.parts["etf_snapshots"][-1]["rows"][0]["quantity"] = value
                 self.check_blocked("nonfinite_or_boolean_numeric")
 
+    def test_etf_instruments_cannot_bypass_full_snapshot_identity_gate(self):
+        original = copy.deepcopy(self.parts)
+        for value in (True, 1, {}, [], None, "UNKNOWN", "TRUE", "CASH", "FUTURE"):
+            with self.subTest(instrument=value):
+                self.parts = copy.deepcopy(original)
+                self.parts["etf_snapshots"][0]["rows"][0].update(instrument=value, identity_verified=False)
+                self.check_blocked("etf_instrument_not_supported")
+        for key in ("issuer_id", "ticker"):
+            self.parts = copy.deepcopy(original)
+            self.parts["etf_snapshots"][0]["rows"][0][key] = True
+            self.check_blocked("invalid_source_identity")
+        self.parts = copy.deepcopy(original)
+        self.parts["etf_snapshots"][0]["revision_id"] = True
+        self.check_blocked("invalid_source_identity")
+        self.parts = copy.deepcopy(original)
+        self.parts["etf_snapshots"][0]["rows"][0]["identity_verified"] = False
+        self.parts["etf_snapshots"][-1]["coverage_kind"] = "FULL"
+        out = self.read()
+        self.assertEqual(out["status"], "ADMITTED_RESEARCH_ONLY", out)
+        self.assertFalse(any(e["event_type"] in {"INCLUSION", "REMOVAL"}
+                             for e in out["result"]["holding_events"]))
+
     def test_fixture_origin_requires_explicit_test_policy(self):
         self.policy["allowed_sample_origins"] = CONTRACT["theme_etf_bridge"]["allowed_sample_origins"]
         self.check_blocked("sample_origin_not_admitted")

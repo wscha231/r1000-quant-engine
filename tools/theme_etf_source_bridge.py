@@ -236,6 +236,8 @@ def _payload(parts, bundle, policy, expected_session, now):
     from research.theme_etf_runtime_v1.strict import normalize_snapshot
     for snapshot in snapshots:
         require(snapshot.get("schema") != "etf-snapshot-v2", "raw_etf_evidence_required")
+        if "revision_id" in snapshot:
+            _source_id(snapshot["revision_id"])
         require(isinstance(snapshot.get("holdings_as_of"), str)
                 and re.fullmatch(r"\d{4}-\d{2}-\d{2}", snapshot["holdings_as_of"]) is not None,
                 "noncanonical_holdings_date")
@@ -249,6 +251,12 @@ def _payload(parts, bundle, policy, expected_session, now):
         for row in snapshot["rows"]:
             if row.get("security_id"):
                 _security_id(row["security_id"])
+            instrument = row.get("instrument")
+            require(isinstance(instrument, str) and instrument.strip().upper() in {"COMMON", "ADR", "ETF"},
+                    "etf_instrument_not_supported")
+            for key in ("issuer_id", "ticker"):
+                if key in row:
+                    _source_id(row[key])
             require(isinstance(row.get("identity_verified"), bool), "etf_identity_not_boolean")
             if row.get("quantity") not in (None, ""):
                 _finite_number(row["quantity"])

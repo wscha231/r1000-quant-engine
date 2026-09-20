@@ -134,7 +134,7 @@ it is not included in the byte-verification claim.
 
 ## Validation and next boundary
 
-52 new unittest methods pass, including an authenticated artifact-to-strict
+53 new unittest methods pass, including an authenticated artifact-to-strict
 runtime synthetic cycle with 1,118 base IDs plus one ADR candidate. Tests cover
 complete ID reconciliation, hash/receipt/document/event binding, producer and
 attempt mismatches, units/partial holdings, calendar/freshness, authority
@@ -172,6 +172,11 @@ than numeric/boolean/container coercion. Optional reader failures, including
 deep JSON and decompression/source-shape errors, return a blocked bridge while
 preserving the monitor's required upstream/market/price evidence. Missing code
 dependencies have a distinct blocked reason and fail positive-path tests.
+ETF rows currently admit COMMON/ADR/ETF, whose identity semantics are explicitly
+checked by V1. Cash/derivative/unknown rows block until their separate semantics
+are supported; they must never be discarded to claim a complete portfolio.
+Optional row issuer/ticker and snapshot revision IDs require explicit text.
+Unverified supported instruments remain incomplete and cannot confirm removals.
 
 19 existing monitor tests, 11 existing strict-runtime checks, one benchmark
 anchor check and eight public-output tests also pass. New tests run through the

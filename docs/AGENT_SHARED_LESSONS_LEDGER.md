@@ -5086,3 +5086,7 @@ Expected contract:
   the optional reader, which erased required monitor evidence in its outer
   error handler. Require typed provenance identities and isolate all optional
   reader failures; malformed optional data must not suppress primary evidence.
+- V1 checks full-snapshot identity only for COMMON/ADR/ETF. A boolean/unknown
+  instrument bypassed that predicate. Admit only those supported ETF-row types
+  here; cash/derivatives need a separate reviewed semantics extension. Preserve
+  unverified supported rows as incomplete, never discard them for completeness.
