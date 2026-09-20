@@ -1,5 +1,13 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-20 — Qualitative moat evidence is not a selector weight
+
+- The existing `moat_proxy_score`, `moat_quality_blueprint_score`, and manual moat overrides are model/proxy surfaces; do not relabel them as reviewed evidence of a durable competitive advantage.
+- Current issuer research must keep qualification/switching cost, market structure, IP/patent durability, pricing power, replacement difficulty, and next-generation relevance explicit and evidence-bound.
+- Missing dimensions fail closed. Preserve genuine zeroes; never impute missing Korean or U.S. qualitative inputs to neutral.
+- Keep evidence confidence separate from the unweighted six-dimension research index. Do not create arbitrary weights, alpha, targets, or portfolio effects before PIT availability and purged walk-forward/OOS validation.
+- Current reviewed opinions are not historical PIT data. Historical use requires the evidence to have been genuinely available at each decision date.
+
 ## 2026-09-20 — Observed commodity/network data is not calibrated alpha
 
 - Multi-asset issue #465: EIA storage has a weekly observation date and a
