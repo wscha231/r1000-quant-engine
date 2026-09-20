@@ -54,7 +54,8 @@ def fixture():
     run = {"id": 123, "run_attempt": 2, "head_sha": "a" * 40, "head_branch": "master",
            "head_repository": {"full_name": CONTRACT["repository"]}, "event": "schedule",
            "path": ".github/workflows/daily_operating_selection_refresh.yml",
-           "status": "completed", "conclusion": "success", "created_at": "2026-09-18T21:31:00Z"}
+           "status": "completed", "conclusion": "success", "created_at": "2026-09-18T21:31:00Z",
+           "updated_at": "2026-09-18T22:05:00Z"}
     policy = copy.deepcopy(CONTRACT["theme_etf_bridge"])
     policy["allowed_sample_origins"] = ["SYNTHETIC_FIXTURE"]
     policy["approved_membership_reviews"] = {bridge.sha(bridge.canonical(event)): {
@@ -100,6 +101,7 @@ def package(parts, run, policy, path, alter=None):
         for name, raw in files.items():
             out.writestr(name, raw)
     artifact = {"id": 456, "name": "daily-operating-selection-refresh-123", "expired": False,
+                "created_at": "2026-09-18T22:02:00Z",
                 "digest": "sha256:" + bridge.sha(path.read_bytes()), "size_in_bytes": path.stat().st_size,
                 "workflow_run": {"id": run["id"], "head_sha": run["head_sha"]}}
     return artifact
@@ -205,6 +207,7 @@ class BridgeTests(unittest.TestCase):
         contract = copy.deepcopy(CONTRACT)
         contract["theme_etf_bridge"] = self.policy
         run = self.run
+        run["event"] = "workflow_dispatch"
         recovery_path = contract["sources"]["operating"]["members"]["recovery"]
         artifact, raw = None, None
         class Client:
@@ -213,14 +216,35 @@ class BridgeTests(unittest.TestCase):
             def archive(self, artifact_id, destination, limit):
                 destination.write_bytes(raw)
                 return "sha256:" + hashlib.sha256(raw).hexdigest()
-        valid = {"status": "READY_ONE_TIME_GENESIS", "authorization": {"satisfied": True},
-                 "blockers": [], "exit_code": 0}
-        cases = [(valid, True), ({**valid, "status": "READY_ONE_TIME_LEGACY_QUARANTINE"}, True)]
+        valid = {"schema_version": "run287-risk-outcome-parent-preflight-v1",
+                 "status": "READY_ONE_TIME_GENESIS", "generated_at_utc": "2026-09-18T21:38:00Z",
+                 "source": {"event_name": "workflow_dispatch", "source_commit_sha": run["head_sha"],
+                     "source_run_id": str(run["id"]), "source_run_attempt": str(run["run_attempt"]),
+                     "source_job_key": "refresh", "session_date": SESSION},
+                 "authorization": {"mode": "genesis", "required_event_name": "workflow_dispatch",
+                     "required_input": "allow_risk_outcome_genesis_bootstrap", "requested": True,
+                     "conflicting_authorization_requested": False, "satisfied": True,
+                     "one_time_only": True, "separate_user_approval_required": True},
+                 "review_only": True, "blockers": [], "exit_code": 0}
+        from tools.build_run287_risk_outcome_parent_preflight import FALSE_SAFETY_FLAGS
+        valid.update({k: False for k in FALSE_SAFETY_FLAGS})
+        legacy = copy.deepcopy(valid)
+        legacy["status"] = "READY_ONE_TIME_LEGACY_QUARANTINE"
+        legacy["authorization"].update(mode="legacy_quarantine", required_input="allow_quarantined_legacy_outcome_parent")
+        cases = [(valid, True), (legacy, True)]
         cases += [({**valid, "status": state}, False) for state in ("FAILED", "ERROR", {}, [], None, 1)]
         cases += [({**valid, "authorization": auth}, False) for auth in ({}, {"satisfied": False},
                    {"satisfied": "true"}, None, True)]
         cases += [({}, False), ({**valid, "blockers": ["conflict"]}, False),
                   ({**valid, "exit_code": False}, False), ({**valid, "exit_code": 2}, False)]
+        for field, value in (("event_name", "schedule"), ("source_commit_sha", "b" * 40),
+                             ("source_run_id", "122"), ("source_run_attempt", "1"),
+                             ("source_job_key", "other"), ("session_date", "2026-09-17")):
+            cases.append(({**valid, "source": {**valid["source"], field: value}}, False))
+        for field, value in (("schema_version", "other"), ("source", {}), ("ledger_mutated", True),
+                             ("generated_at_utc", "2026-09-18T21:30:00Z"),
+                             ("generated_at_utc", "2026-09-18T22:03:00Z")):
+            cases.append(({**valid, field: value}, False))
         for receipt, admitted in cases:
             with self.subTest(receipt=receipt):
                 artifact = package(self.parts, run, self.policy, self.path,
@@ -232,6 +256,13 @@ class BridgeTests(unittest.TestCase):
                 self.assertEqual(out["runtime_executed"], admitted, out)
                 if not admitted:
                     self.assertEqual(out["reason"], "upstream_contract_not_ready")
+        run["event"] = "schedule"
+        artifact = package(self.parts, run, self.policy, self.path,
+            lambda files, bundle, name: files.__setitem__(recovery_path, bridge.canonical(valid)))
+        raw = self.path.read_bytes()
+        source = monitor.collect_source(Client(), "operating", contract["sources"]["operating"], contract,
+                                        now=NOW, session=SESSION)
+        self.assertEqual(source["data"]["theme_etf_bridge"]["reason"], "upstream_contract_not_ready")
 
     def test_canonical_document_ids_cannot_inflate_source_counts(self):
         doc = self.parts["documents"][0]
@@ -248,6 +279,36 @@ class BridgeTests(unittest.TestCase):
         self.check_blocked("decision_predates_producer")
         self.run["run_started_at"] = "2026-09-18T21:41:00Z"
         self.check_blocked("receipt_predates_producer")
+
+    def test_decision_cannot_postdate_artifact_or_predate_prerequisite(self):
+        artifact = package(self.parts, self.run, self.policy, self.path)
+        artifact["created_at"] = "2026-09-18T21:45:00Z"
+        out = bridge.read_bundle(self.path, self.run, artifact, self.policy, SESSION, NOW)
+        self.assertEqual(out["reason"], "decision_postdates_artifact")
+        artifact["created_at"] = "2026-09-18T22:02:00Z"
+        self.run["updated_at"] = "2026-09-18T21:45:00Z"
+        out = bridge.read_bundle(self.path, self.run, artifact, self.policy, SESSION, NOW)
+        self.assertEqual(out["reason"], "invalid_artifact_timeline")
+        self.run["updated_at"] = "2026-09-18T22:05:00Z"
+        out = bridge.read_bundle(self.path, self.run, artifact, self.policy, SESSION, NOW,
+                                 prerequisite_at="2026-09-18T22:01:00Z")
+        self.assertEqual(out["reason"], "decision_predates_prerequisite")
+
+    def test_all_security_references_require_canonical_identity(self):
+        pristine = copy.deepcopy(self.parts)
+        for role, container in (("securities", None), ("membership_events", None),
+                                ("prices", "rows"), ("etf_snapshots", "rows")):
+            for bad in (" SYN_NEW ", "syn_new"):
+                with self.subTest(role=role, bad=bad):
+                    self.parts = copy.deepcopy(pristine)
+                    if role == "etf_snapshots":
+                        row = self.parts[role][0][container][0]
+                    elif container:
+                        row = self.parts[role][container][-1]
+                    else:
+                        row = self.parts[role][-1]
+                    row["security_id"] = bad
+                    self.check_blocked("noncanonical_security_id")
 
     def test_review_pin_binds_document_bytes(self):
         self.parts["documents"][0]["title"] = "forged replacement"
@@ -327,6 +388,21 @@ class BridgeTests(unittest.TestCase):
             files[name] = bridge.canonical(bundle)
         self.check_blocked("raw_source_reference_invalid", alter)
 
+    def test_cross_role_data_cannot_masquerade_as_raw_source(self):
+        def alter(files, bundle, name):
+            refs = bundle["components"]
+            data = refs["base_universe"]["data"]
+            raw_path = "outputs/theme_etf_bridge/prices/raw/alias.json"
+            files[raw_path] = files[data["path"]]
+            data["path"] = raw_path
+            receipt_ref = refs["prices"]["receipt"]
+            receipt = json.loads(files[receipt_ref["path"]])
+            receipt["raw_objects"] = [dict(data)]
+            files[receipt_ref["path"]] = bridge.canonical(receipt)
+            receipt_ref["sha256"] = bridge.sha(files[receipt_ref["path"]])
+            files[name] = bridge.canonical(bundle)
+        self.check_blocked("component_namespace_mismatch", alter)
+
     def test_archive_hash_mismatch(self):
         artifact = package(self.parts, self.run, self.policy, self.path)
         artifact["digest"] = "sha256:" + "b" * 64
@@ -352,7 +428,7 @@ class BridgeTests(unittest.TestCase):
         def alter(files, bundle, name):
             bundle["components"]["prices"]["data"]["path"] = "outputs/theme_etf_bridge/../secret.json"
             files[name] = bridge.canonical(bundle)
-        self.check_blocked("invalid_member_path", alter)
+        self.check_blocked("component_namespace_mismatch", alter)
 
     def test_duplicate_json_key_rejected(self):
         self.check_blocked("duplicate_json_key", lambda f, b, n: f.__setitem__(n, b'{"schema":1,"schema":2}'))
@@ -411,6 +487,19 @@ class BridgeTests(unittest.TestCase):
         self.check_blocked("late_etf_history_requires_separate_adapter")
         self.parts["etf_snapshots"][1]["revision_number"] = 2
         self.check_blocked("ambiguous_etf_revision_order")
+
+    def test_same_date_etf_revision_must_advance_without_reuse(self):
+        old, new = self.parts["etf_snapshots"]
+        old["holdings_as_of"] = SESSION
+        old.update(observed_at=SESSION + "T21:00:00Z", validated_at=SESSION + "T21:00:00Z", revision_number=2)
+        new.update(observed_at=SESSION + "T21:10:00Z", validated_at=SESSION + "T21:10:00Z", coverage_kind="FULL")
+        for revision in (1, 2):
+            new["revision_number"] = revision
+            self.check_blocked("etf_revision_not_advancing")
+        new["revision_number"] = 3
+        out = self.read()
+        self.assertEqual(out["status"], "ADMITTED_RESEARCH_ONLY", out)
+        self.assertEqual(out["result"]["latest_snapshots"]["SYN_ETF"]["revision_number"], 3)
 
     def test_missing_or_incompatible_portfolio_scope_cannot_prove_removal(self):
         for scope in (None, "UNKNOWN", "SLEEVE", "PCF"):

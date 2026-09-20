@@ -34,6 +34,8 @@ The manifest uses schema `theme-etf-source-bundle-v1`, with `decision_at`,
 `sample_origin`, `producer` and `components`. Producer fields are repository, workflow, head_sha,
 run_id and run_attempt. Each of the six components has `data` and `receipt`
 references, each containing an exact member `path` and actual-byte `sha256`.
+Data and receipts use exactly `outputs/theme_etf_bridge/<role>/data.json` and
+`outputs/theme_etf_bridge/<role>/receipt.json`; raw paths cannot overlap any role.
 
 Each `theme-etf-component-receipt-v1` binds the same producer, role, data hash,
 validation timestamp and nonempty raw-object references. Usable receipt states
@@ -63,6 +65,11 @@ ordered by the latest publication/observation/validation time, not observation
 alone. The shipped origin policy accepts only FORWARD_OBSERVED; synthetic
 tests require an explicit fixture policy and retain SYNTHETIC_FIXTURE labels.
 The standalone output binds consumer code SHA, contract hash and output hash.
+The decision and component validation times lie between authenticated attempt
+start and artifact creation; artifact creation must precede run completion.
+Present recovery receipts must match the producer schema, dispatch event,
+commit/run/attempt/job/session, affirmative authorization, inactive mutation
+flags, and current run timeline. Recovery evidence must precede the decision.
 
 The base requires at least 1,000 distinct IDs with registry coverage. This
 rejects small/theme fallback cohorts but does not certify Russell membership;
@@ -127,7 +134,7 @@ it is not included in the byte-verification claim.
 
 ## Validation and next boundary
 
-44 new unittest methods pass, including an authenticated artifact-to-strict
+48 new unittest methods pass, including an authenticated artifact-to-strict
 runtime synthetic cycle with 1,118 base IDs plus one ADR candidate. Tests cover
 complete ID reconciliation, hash/receipt/document/event binding, producer and
 attempt mismatches, units/partial holdings, calendar/freshness, authority
@@ -151,6 +158,11 @@ Further review requires affirmative recovery-ready status and satisfied
 authorization when the optional recovery receipt exists, binds decisions and
 validation receipts to the authenticated producer attempt's start time, and
 rejects canonical duplicate or padded document IDs before source counts grow.
+Adversarial follow-up additionally rejects cross-component raw aliases, copied
+recovery identities, same-date ETF revision regression/reuse, padded/lowercase
+security IDs across registry/events/prices/holdings, and post-artifact decisions.
+Repeated observations of an unchanged ETF revision must retain the existing
+snapshot, not append a new transition with the same revision.
 
 19 existing monitor tests, 11 existing strict-runtime checks, one benchmark
 anchor check and eight public-output tests also pass. New tests run through the

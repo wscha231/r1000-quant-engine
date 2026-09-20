@@ -151,6 +151,43 @@ def read_members(path: Path, members: dict[str, str], limit: int) -> tuple[dict,
     return data, evidence
 
 
+def recovery_receipt_ready(receipt: dict, run: dict, artifact: dict, session: str) -> bool:
+    """Consume the existing preflight's exact producer identity and approval."""
+    status = receipt.get("status")
+    modes = {"READY_ONE_TIME_LEGACY_QUARANTINE": ("legacy_quarantine", "allow_quarantined_legacy_outcome_parent"),
+             "READY_ONE_TIME_GENESIS": ("genesis", "allow_risk_outcome_genesis_bootstrap")}
+    if not isinstance(status, str) or status not in modes:
+        return False
+    mode, required_input = modes[status]
+    expected_source = {"event_name": "workflow_dispatch", "source_commit_sha": run.get("head_sha"),
+                       "source_run_id": str(run.get("id")), "source_run_attempt": str(run.get("run_attempt")),
+                       "source_job_key": "refresh", "session_date": session}
+    expected_authorization = {"mode": mode, "required_event_name": "workflow_dispatch",
+                              "required_input": required_input, "requested": True,
+                              "conflicting_authorization_requested": False, "satisfied": True,
+                              "one_time_only": True, "separate_user_approval_required": True}
+    authorization = receipt.get("authorization")
+    inactive_flags = ("accepted_head_created", "parent_anchor_created", "target_books_mutated",
+                      "orders_generated", "ledger_mutated", "historical_cagr_mdd_evidence_changed",
+                      "fullrun_executed", "production_activation_allowed", "live_trading_enabled",
+                      "automatic_promotion_allowed")
+    ready = (receipt.get("schema_version") == "run287-risk-outcome-parent-preflight-v1"
+            and run.get("event") == "workflow_dispatch" and receipt.get("source") == expected_source
+            and isinstance(authorization, dict)
+            and all(type(authorization.get(k)) is type(v) and authorization.get(k) == v
+                    for k, v in expected_authorization.items())
+            and receipt.get("review_only") is True and receipt.get("blockers") == []
+            and all(receipt.get(k) is False for k in inactive_flags)
+            and type(receipt.get("exit_code")) is int and receipt["exit_code"] == 0)
+    if not ready:
+        return False
+    try:
+        return (timestamp(run.get("run_started_at") or run["created_at"])
+                <= timestamp(receipt["generated_at_utc"]) <= timestamp(artifact["created_at"]))
+    except (KeyError, AttributeError, TypeError, ValueError):
+        return False
+
+
 def collect_source(client: GitHub, key: str, spec: dict, contract: dict, *, now=None, session=None) -> dict:
     result: dict[str, Any] = {"source": key, "status": "MISSING_RUN", "data": {}}
     try:
@@ -191,13 +228,8 @@ def collect_source(client: GitHub, key: str, spec: dict, contract: dict, *, now=
                 prerequisites = set(members) - set(spec.get("optional_members", []))
                 upstream = result["data"].get("upstream", {})
                 recovery = result["data"].get("recovery", {})
-                recovery_ready = "recovery" not in result["data"] or (
-                    isinstance(recovery.get("status"), str)
-                    and recovery["status"] in {"READY_ONE_TIME_LEGACY_QUARANTINE", "READY_ONE_TIME_GENESIS"}
-                    and isinstance(recovery.get("authorization"), dict)
-                    and recovery["authorization"].get("satisfied") is True
-                    and recovery.get("blockers") == []
-                    and type(recovery.get("exit_code")) is int and recovery["exit_code"] == 0)
+                recovery_ready = "recovery" not in result["data"] or recovery_receipt_ready(
+                    recovery, run, artifact, bridge_session)
                 upstream_ready = (upstream.get("status") in READY_UPSTREAM
                     and upstream.get("upstream_ready") is True
                     and date_state(upstream.get("valuation_price_cutoff_date"), bridge_session) == "CURRENT"
@@ -205,7 +237,8 @@ def collect_source(client: GitHub, key: str, spec: dict, contract: dict, *, now=
                 if (run.get("conclusion") == "success" and prerequisites.issubset(result["data"])
                         and upstream_ready):
                     bridge = theme_etf_source_bridge.read_bundle(
-                        path, run, artifact, contract["theme_etf_bridge"], bridge_session, bridge_now)
+                        path, run, artifact, contract["theme_etf_bridge"], bridge_session, bridge_now,
+                        prerequisite_at=recovery.get("generated_at_utc"))
                 else:
                     bridge = theme_etf_source_bridge.blocked("upstream_contract_not_ready", bridge_session)
                 result["data"]["theme_etf_bridge"] = bridge

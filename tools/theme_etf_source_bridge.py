@@ -107,6 +107,11 @@ def _finite_number(value):
         raise AdmissionError("nonfinite_or_boolean_numeric") from None
 
 
+def _security_id(value):
+    require(isinstance(value, str) and value and value == value.strip().upper(),
+            "noncanonical_security_id")
+
+
 def blocked(reason, session):
     return {"schema": SCHEMA, "status": "BLOCKED", "reason": reason,
             "expected_session": session, "runtime_executed": False,
@@ -157,6 +162,7 @@ def _calendar_prices(prices, expected_session, cutoff, now):
     require(benchmark == [d for d in closes if benchmark[0] <= d <= expected_session],
             "benchmark_session_gap")
     for row in rows:
+        _security_id(row["security_id"])
         require(row["session"] in closes and row["session"] <= expected_session,
                 "nontrading_or_future_session")
         require(closes[row["session"]] <= utc(row["available_at"]) <= cutoff,
@@ -178,6 +184,8 @@ def _payload(parts, bundle, policy, expected_session, now):
     require(base.get("scope") == "FULL_BASE_UNIVERSE" and len(ids) >= policy["min_base_count"],
             "partial_base_universe")
     securities = parts["securities"]
+    for row in securities:
+        _security_id(row["security_id"])
     registry = {r["security_id"]: r for r in securities}
     require(len(registry) == len(securities) and set(ids).issubset(registry), "registry_coverage")
     for row in securities:
@@ -194,6 +202,7 @@ def _payload(parts, bundle, policy, expected_session, now):
     events = parts["membership_events"]
     theme_by_security = {}
     for event in events:
+        _security_id(event["security_id"])
         require(isinstance(event.get("reviewed"), bool), "membership_review_not_boolean")
         require(event["security_id"] in registry, "membership_identity_missing")
         if "relevance" in event:
@@ -224,6 +233,8 @@ def _payload(parts, bundle, policy, expected_session, now):
                 and snapshot["expected_unique_rows"] == len(snapshot.get("rows", [])),
                 "etf_expected_rows_mismatch")
         for row in snapshot["rows"]:
+            if row.get("security_id"):
+                _security_id(row["security_id"])
             require(isinstance(row.get("identity_verified"), bool), "etf_identity_not_boolean")
             if row.get("quantity") not in (None, ""):
                 _finite_number(row["quantity"])
@@ -240,6 +251,11 @@ def _payload(parts, bundle, policy, expected_session, now):
         ordered = sorted(rows, key=lambda r: (utc(r["available_at"]), r["revision_number"]))
         dates = [r["holdings_as_of"] for r in ordered]
         require(dates == sorted(dates), "late_etf_history_requires_separate_adapter")
+        revisions = {}
+        for row in ordered:
+            day, revision = row["holdings_as_of"], row["revision_number"]
+            require(day not in revisions or revision > revisions[day], "etf_revision_not_advancing")
+            revisions[day] = revision
     return {"schema": "theme-etf-runtime-v1", "decision_at": bundle["decision_at"],
             "base_universe": ids, "base_universe_available_at": base["available_at"],
             "securities": securities, "prices": _calendar_prices(parts["prices"], expected_session, cutoff, now),
@@ -248,7 +264,7 @@ def _payload(parts, bundle, policy, expected_session, now):
 
 
 def read_bundle(path: Path, run: dict, artifact: dict, policy: dict,
-                expected_session: str, now: datetime) -> dict:
+                expected_session: str, now: datetime, *, prerequisite_at=None) -> dict:
     """Called only at the existing monitor's authenticated artifact boundary.
 
     Missing producer support is BLOCKED, never an old-success fallback. Public
@@ -271,6 +287,9 @@ def read_bundle(path: Path, run: dict, artifact: dict, policy: dict,
         require(origin.get("id") == run["id"] and origin.get("head_sha") == run["head_sha"]
                 and not artifact.get("expired") and type(artifact.get("id")) is int,
                 "artifact_identity_mismatch")
+        artifact_created = utc(artifact["created_at"])
+        require(producer_start <= artifact_created <= utc(run["updated_at"]) <= now,
+                "invalid_artifact_timeline")
         require(path.stat().st_size <= policy["max_artifact_bytes"], "artifact_size_limit")
         with path.open("rb") as handle:
             archive_hash = hashlib.file_digest(handle, "sha256").hexdigest()
@@ -290,9 +309,15 @@ def read_bundle(path: Path, run: dict, artifact: dict, policy: dict,
                         "head_sha": run["head_sha"], "run_id": run["id"], "run_attempt": run["run_attempt"]}
             require(bundle.get("producer") == producer, "bundle_producer_mismatch")
             require(producer_start <= utc(bundle["decision_at"]), "decision_predates_producer")
+            require(utc(bundle["decision_at"]) <= artifact_created, "decision_postdates_artifact")
+            require(prerequisite_at is None or utc(prerequisite_at) <= utc(bundle["decision_at"]),
+                    "decision_predates_prerequisite")
             parts = {}
             for role in ROLES:
                 refs = bundle["components"][role]
+                require(refs["data"]["path"] == policy["member_root"] + role + "/data.json"
+                        and refs["receipt"]["path"] == policy["member_root"] + role + "/receipt.json",
+                        "component_namespace_mismatch")
                 component = _member(archive, refs["data"], policy, evidence)
                 receipt = _json(_member(archive, refs["receipt"], policy, evidence))
                 require(receipt.get("schema") == "theme-etf-component-receipt-v1"

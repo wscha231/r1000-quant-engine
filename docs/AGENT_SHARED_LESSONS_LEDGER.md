@@ -5071,3 +5071,8 @@ Expected contract:
   Optional recovery receipts need affirmative ready/authorization semantics,
   decision and validation times cannot precede their authenticated producer,
   and whitespace variants of document IDs must not inflate evidence counts.
+- Check both ends of provenance: a decision cannot postdate its already-created
+  artifact, and a copied recovery receipt must match the current authenticated
+  dispatch/commit/run/attempt/job/session and decision timeline. Fix all component
+  data/receipt namespaces to prevent cross-role raw aliases. Canonicalize every
+  security-reference boundary and reject same-date ETF revision regression/reuse.
