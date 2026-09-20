@@ -45,6 +45,7 @@ import json
 import os
 import re
 import sys
+import subprocess
 import time
 from pathlib import Path
 from typing import Callable
@@ -4015,6 +4016,20 @@ def test_daily_crisis_monitor_uses_canonical_state_and_shakeout_guard() -> None:
     assert "cron:" in wf and "run_daily_crisis_monitor.py" in wf
     assert "outputs/long_crisis_learning" in wf and "data_pit/macro" in wf
 
+
+
+@_test("data.alpaca_research_adjustment_contract")
+def test_data_alpaca_research_adjustment_contract() -> None:
+    """Run split-adjustment/cache-basis regression through registered smoke."""
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "tests" / "data_alpaca_adjustment_smoke.py")],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
 
 # ======================================================================
 # main

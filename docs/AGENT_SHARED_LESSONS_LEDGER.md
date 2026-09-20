@@ -1,5 +1,24 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-21 — Research RS price caches must bind the corporate-action basis
+
+- The aggressive Alpaca research fetcher omitted the Historical API adjustment field.
+  Alpaca therefore supplied raw bars by default; a stock split could look like a price
+  crash and corrupt momentum/RS even when the business thesis was unchanged.
+- APH's 2024 and 2026 2-for-1 splits are the current real-data counterexample. Do not
+  fix this with a ticker branch: make the research request basis explicit for every
+  security and bind it into cache identity.
+- Research RS/momentum now defaults to split-adjusted bars. Raw bars remain an explicit
+  diagnostic mode. Broker/execution exact-close semantics are a separate path and are
+  not changed by this H1 fix.
+- Never reuse a raw cache as adjusted evidence. Cache filenames must include the
+  adjustment basis, and unsupported bases fail before provider access.
+- ADR/share-basis normalization (for example TSM ordinary shares versus the US ADR)
+  is a separate issuer-identity problem and must not be conflated with price adjustment.
+- Local no-network regression: 4 focused checks passed. Exact-head CI/review remain
+  required before merge; no live provider call, fullrun, target, ledger or order ran.
+- Issue: #474.
+
 ## 2026-09-20 — Control-plane proposals need current identity, not old baseline labels
 
 - Replace the board's May role/baseline authority with explicit A0–A8 contracts;
