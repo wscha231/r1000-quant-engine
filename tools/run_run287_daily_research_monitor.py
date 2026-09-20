@@ -30,6 +30,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from tools.run287_research_score_handoff import read_score_handoff, evaluate_score_handoff
 from tools.run287_research_report_html import render_html
+from tools import theme_etf_source_bridge
+from tools.theme_etf_upstream_admission import read_upstream_prerequisite, recovery_observed_ready
 
 CONTRACT = ROOT / "docs/run287_daily_research_monitor_contract.json"
 SCHEMA = "run287-daily-research-monitor-v1"
@@ -143,14 +145,53 @@ def read_members(path: Path, members: dict[str, str], limit: int) -> tuple[dict,
             evidence[label] = {"member": name, "sha256": hashlib.sha256(raw).hexdigest(),
                                "bytes": len(raw)}
             value = raw.decode("utf-8-sig")
-            parsed = json.loads(value) if name.endswith(".json") else list(csv.DictReader(io.StringIO(value)))
+            parsed = (theme_etf_source_bridge.decode_evidence_json(value) if name.endswith(".json")
+                      else list(csv.DictReader(io.StringIO(value))))
             if name.endswith(".json") and not isinstance(parsed, dict):
                 raise ValueError("manifest_must_be_object")
             data[label] = parsed
     return data, evidence
 
 
-def collect_source(client: GitHub, key: str, spec: dict, contract: dict) -> dict:
+def recovery_receipt_ready(receipt: dict, run: dict, artifact: dict, session: str) -> bool:
+    """Consume the existing preflight's exact producer identity and approval."""
+    status = receipt.get("status")
+    modes = {"READY_ONE_TIME_LEGACY_QUARANTINE": ("legacy_quarantine", "allow_quarantined_legacy_outcome_parent"),
+             "READY_ONE_TIME_GENESIS": ("genesis", "allow_risk_outcome_genesis_bootstrap")}
+    if not isinstance(status, str) or status not in modes:
+        return False
+    mode, required_input = modes[status]
+    expected_source = {"event_name": "workflow_dispatch", "source_commit_sha": run.get("head_sha"),
+                       "source_run_id": str(run.get("id")), "source_run_attempt": str(run.get("run_attempt")),
+                       "source_job_key": "refresh", "session_date": session}
+    expected_authorization = {"mode": mode, "required_event_name": "workflow_dispatch",
+                              "required_input": required_input, "requested": True,
+                              "conflicting_authorization_requested": False, "satisfied": True,
+                              "one_time_only": True, "separate_user_approval_required": True}
+    authorization = receipt.get("authorization")
+    inactive_flags = ("accepted_head_created", "parent_anchor_created", "target_books_mutated",
+                      "orders_generated", "ledger_mutated", "historical_cagr_mdd_evidence_changed",
+                      "fullrun_executed", "production_activation_allowed", "live_trading_enabled",
+                      "automatic_promotion_allowed")
+    ready = (receipt.get("schema_version") == "run287-risk-outcome-parent-preflight-v1"
+            and run.get("event") == "workflow_dispatch" and receipt.get("source") == expected_source
+            and isinstance(authorization, dict)
+            and all(type(authorization.get(k)) is type(v) and authorization.get(k) == v
+                    for k, v in expected_authorization.items())
+            and receipt.get("review_only") is True and receipt.get("blockers") == []
+            and all(receipt.get(k) is False for k in inactive_flags)
+            and type(receipt.get("exit_code")) is int and receipt["exit_code"] == 0
+            and recovery_observed_ready(receipt))
+    if not ready:
+        return False
+    try:
+        return (timestamp(run.get("run_started_at") or run["created_at"])
+                <= timestamp(receipt["generated_at_utc"]) <= timestamp(artifact["created_at"]))
+    except (KeyError, AttributeError, TypeError, ValueError):
+        return False
+
+
+def collect_source(client: GitHub, key: str, spec: dict, contract: dict, *, now=None, session=None) -> dict:
     result: dict[str, Any] = {"source": key, "status": "MISSING_RUN", "data": {}}
     try:
         runs = client.json(f"/actions/workflows/{spec['workflow']}/runs?branch=master&per_page=30")
@@ -184,7 +225,40 @@ def collect_source(client: GitHub, key: str, spec: dict, contract: dict) -> dict
             members = {k: v.format(run_id=run["id"], run_attempt=run.get("run_attempt", 1))
                        for k, v in spec["members"].items()}
             result["data"], result["files"] = read_members(path, members, contract["max_member_bytes"])
-            if key == "operating" and result["data"].get("upstream", {}).get("status") in READY_UPSTREAM:
+            if key == "operating" and contract.get("theme_etf_bridge"):
+                bridge_now = now if now is not None else datetime.now(timezone.utc)
+                bridge_session = session if session is not None else completed_session(bridge_now)
+                prerequisites = set(members) - set(spec.get("optional_members", []))
+                upstream = result["data"].get("upstream", {})
+                recovery = result["data"].get("recovery", {})
+                recovery_ready = "recovery" not in result["data"] or recovery_receipt_ready(
+                    recovery, run, artifact, bridge_session)
+                upstream_ready, prerequisite_at = False, recovery.get("generated_at_utc")
+                if recovery_ready:
+                    try:
+                        upstream_at, upstream_evidence = read_upstream_prerequisite(
+                            path, upstream, run, artifact, bridge_session, contract)
+                        handoff, hashes = read_score_handoff(path, upstream,
+                            contract["repository"], contract["max_member_bytes"])
+                        result["data"]["score_handoff"] = handoff
+                        result["files"].update(hashes)
+                        result["files"].update(upstream_evidence)
+                        prerequisite_at = max((x for x in (prerequisite_at, upstream_at) if x), key=timestamp)
+                        upstream_ready = True
+                    except Exception as exc:
+                        # Optional admission cannot erase the primary monitor evidence.
+                        result["theme_upstream_error"] = (str(exc) if isinstance(exc, ValueError)
+                            and re.fullmatch(r"[a-z_]+", str(exc)) else "upstream_evidence_invalid")
+                if (run.get("conclusion") == "success" and prerequisites.issubset(result["data"])
+                        and upstream_ready):
+                    bridge = theme_etf_source_bridge.read_bundle(
+                        path, run, artifact, contract["theme_etf_bridge"], bridge_session, bridge_now,
+                        prerequisite_at=prerequisite_at)
+                else:
+                    bridge = theme_etf_source_bridge.blocked("upstream_contract_not_ready", bridge_session)
+                result["data"]["theme_etf_bridge"] = bridge
+            if (key == "operating" and result["data"].get("upstream", {}).get("status") in READY_UPSTREAM
+                    and "score_handoff" not in result["data"]):
                 try:
                     handoff, hashes = read_score_handoff(path, result["data"]["upstream"],
                                                        contract["repository"], contract["max_member_bytes"])
@@ -225,6 +299,10 @@ def completed_session(now: datetime) -> str:
 
 def evaluate(sources: dict, session: str, now: datetime, contract: dict) -> dict:
     alerts, observations = [], {}
+    observations["theme_etf_bridge"] = theme_etf_source_bridge.observation(sources.get("operating", {}), session)
+    bridge_observation = observations["theme_etf_bridge"]
+    if not bridge_observation["runtime_executed"]:
+        alerts.append("theme_etf:" + str(bridge_observation["reason"]))
     for key in contract["sources"]:
         source = sources.get(key, {})
         if source.get("status") != "VERIFIED_ARTIFACT":
@@ -409,13 +487,23 @@ def main() -> int:
     args.output_dir.mkdir(parents=True, exist_ok=False)
     now = datetime.now(timezone.utc)
     client = GitHub(contract["repository"], os.environ.get("GH_TOKEN", ""))
-    sources = {k: collect_source(client, k, spec, contract) for k, spec in contract["sources"].items()}
-    report = evaluate(sources, completed_session(now), now, contract)
+    session = completed_session(now)
+    sources = {k: collect_source(client, k, spec, contract, now=now, session=session)
+               for k, spec in contract["sources"].items()}
+    report = evaluate(sources, session, now, contract)
     report["code_sha"] = os.environ.get("GITHUB_SHA", "local-unpublished")
     report["contract_sha256"] = hashlib.sha256(args.contract.read_bytes()).hexdigest()
     (args.output_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (args.output_dir / "report.md").write_text(render(report), encoding="utf-8")
     (args.output_dir / "report.html").write_text(render_html(report), encoding="utf-8")
+    bridge = sources.get("operating", {}).get("data", {}).get("theme_etf_bridge")
+    if bridge is None:
+        bridge = report["observations"]["theme_etf_bridge"]
+    bridge = theme_etf_source_bridge.publication(
+        bridge, code_sha=report["code_sha"], contract_hash=report["contract_sha256"])
+    (args.output_dir / "theme_etf_bridge.json").write_text(
+        json.dumps(bridge, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False) + "\n",
+        encoding="utf-8")
     with (args.output_dir / "research_queue.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(report["watchlist"][0]))
         writer.writeheader()

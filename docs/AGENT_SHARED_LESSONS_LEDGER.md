@@ -15,6 +15,10 @@
 - Provider credit/connectivity failures and existing durable-state failures
   are not fixed by making a test fixture pass. No live rank or historical CAGR
   is inferred. See docs/MULTI_ASSET_LEADERSHIP_V1_20260920.md for exact scope.
+- Separately pinned evaluator bytes still need feature-availability ordering
+  and an explicit model/evaluation/policy/registry benchmark identity. Complete
+  universe identity is not complete evaluation coverage; suppress global ranks
+  on missing evaluations and reject impossible historical rank sequences.
 
 This is the shared "mistake notebook" for Codex, Claude, GPT Pro, and any other
 agent working on `wscha231/r1000-quant-engine`.
@@ -5135,3 +5139,73 @@ Expected contract:
   must revoke retained Drive destinations. Preserve explicit no-ranking flags
   and upload success artifacts only after durable publication succeeds.
   Early/late failure and missing-source regressions pass; focused total85.
+
+## 2026-09-20 — Theme source admission is not company evaluation
+
+- Reuse the monitor's authenticated GitHub artifact path and the existing strict
+  runtime. Hashes and VERIFIED/reviewed booleans cannot certify economic truth;
+  business approvals need separately reviewed event/document pins.
+- Whole-base candidate accounting must retain a missing evaluator receipt for
+  every ID. A queue preview is not a company evaluation or a completed live cycle.
+- Runtime V1 keys membership by security and sorts ETF snapshots by availability.
+  Until separate fixes are reviewed, block multi-theme histories and decreasing
+  holdings-as-of sequences rather than silently erasing links or reversing time.
+- The authenticated 2026-09-18 monitor report still has a failed operating source
+  and 1/6 estimate coverage. Adapter success on 1,118 synthetic base IDs plus one
+  candidate does not repair these real dependencies or authorize account recovery.
+- See docs/THEME_ETF_SOURCE_BRIDGE_20260920.md for contracts, hashes, tests and
+  pending #445/#451/#459 interfaces. No target/account/fullrun/champion change.
+- Independent review: join relationships by security ID, never ticker reuse;
+  require ready receipt states as well as member presence; validation cannot
+  predate its data and review cannot predate its documents. Use the runtime's
+  canonical fund IDs/availability order and reject NaN/Infinity numeric strings
+  before serialization. These boundaries now have explicit regressions.
+- Follow-up review: match the runtime's ETF revision tie-breaker and require
+  an explicit portfolio scope; retain distinct raw members per component.
+  Optional recovery receipts need affirmative ready/authorization semantics,
+  decision and validation times cannot precede their authenticated producer,
+  and whitespace variants of document IDs must not inflate evidence counts.
+- Check both ends of provenance: a decision cannot postdate its already-created
+  artifact, and a copied recovery receipt must match the current authenticated
+  dispatch/commit/run/attempt/job/session and decision timeline. Fix all component
+  data/receipt namespaces to prevent cross-role raw aliases. Canonicalize every
+  security-reference boundary and reject same-date ETF revision regression/reuse.
+- Identity_verified=true alone allowed boolean issuer/ticker fields into a
+  synthetic admitted queue. Require nonempty canonical text as well as the
+  verified flag; the reproduced case and whitespace variants now block.
+- Python accepts basic/week ISO dates as well as YYYY-MM-DD. The former spellings
+  split one ETF holdings date into separate revision histories and admitted a
+  regressing revision in a reproduced case. Require canonical dates at admission.
+- Final review reproduced coerced non-string fund IDs and deep JSON escaping
+  the optional reader, which erased required monitor evidence in its outer
+  error handler. Require typed provenance identities and isolate all optional
+  reader failures; malformed optional data must not suppress primary evidence.
+- V1 checks full-snapshot identity only for COMMON/ADR/ETF. A boolean/unknown
+  instrument bypassed that predicate. Admit only those supported ETF-row types
+  here; cash/derivatives need a separate reviewed semantics extension. Preserve
+  unverified supported rows as incomplete, never discard them for completeness.
+- PR463 merged during review. PR metadata still exposed the old base SHA while
+  an append-only shared-ledger conflict prevented pull_request CI from starting.
+  Read the live master branch; preserve both full ledger additions and validate
+  against the merged baseline. Exact-head observation alone does not prove CI ran.
+- Required upstream/recovery JSON still used permissive last-key-wins parsing.
+  Share strict duplicate-key/nonfinite decoding across both evidence boundaries,
+  keeping authority rules separate. Business review pins also require a typed,
+  nonempty canonical reviewer identity rather than a truthy label.
+- Recovery-ready labels can contradict observed accepted-head discovery/count
+  and legacy/genesis mode. Validate those invariants and coherent paper verifier
+  metadata without claiming a new durable account verification.
+- Upstream status/date/ready labels are not the producer contract. Read the v3
+  receipt, bound bundle, exact successful stage manifests/logs, dynamic outputs
+  and lineage; check fixed policy hash pins without opening portfolio inputs.
+  Same-close reuse retains original paths and must bind the same dated bytes.
+- A matching sum of request counts can still exceed the producer's plan. Archive
+  and rehash the exact plan and bind its canonical identity before enforcing
+  total/per-stage caps and matching stage counts to source manifests.
+- Partial dependency checks miss decision benchmark/SEC/Companyfacts and score
+  stage substitutions. Bind every declared inter-stage manifest edge to its
+  audited stage and require the existing score handoff reader before admission.
+- A preflight cutoff precedes computation and is not prerequisite availability.
+  Record stage/final completion after evidence production, enforce monotonic
+  completion within the authenticated artifact timeline, and bound Theme
+  decisions by that final completion. Legacy receipts lacking this proof block.

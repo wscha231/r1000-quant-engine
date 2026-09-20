@@ -71,14 +71,18 @@ def event_memory(events, assets, cutoff, policy):
     return out
 
 
-def evaluation(row, asset, cutoff, policy, feature_hash):
+def evaluation(row, asset, cutoff, policy, feature_hash, feature_available_at):
     pinned(row,policy,"evaluation",cutoff)
     require(row.get("asset_id") == asset["asset_id"], "evaluation_identity")
     require(row.get("feature_sha256") == feature_hash, "evaluation_feature_mismatch")
+    require(feature_available_at is not None and stamp(row["observed_at"]) >= stamp(feature_available_at),
+            "evaluation_predates_feature_inputs")
     require(row.get("unit") == "RETURN_FRACTION" and row.get("currency") == "USD", "evaluation_unit")
     require(row.get("validation_status") == "WALK_FORWARD_VALIDATED", "unvalidated_model")
     require(row.get("model_id") in policy["validated_models"], "model_not_admitted")
     model=policy["validated_models"][row["model_id"]]
+    require(row.get("benchmark_id") == model.get("benchmark_id") == policy["benchmark_id"] == asset["benchmark"],
+            "evaluation_benchmark_mismatch")
     require(asset["asset_class"] in model["asset_classes"], "unsupported_model_asset_class")
     require(row.get("validation_sha256") == model["validation_sha256"], "validation_identity")
     require(stamp(row["training_labels_available_before"]) < stamp(row["observed_at"]), "label_leakage")

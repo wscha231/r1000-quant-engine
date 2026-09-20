@@ -18,7 +18,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from research.multi_asset_v1.contracts import ContractError,digest,encoded,load_json,metadata,registry_rows
 from research.multi_asset_v1.prices import grid,admit_prices
-from research.multi_asset_v1.runtime import run,feature_identity
+from research.multi_asset_v1.runtime import run,feature_identity,feature_availability
 from research.multi_asset_v1.decisions import classify,evaluation,event_memory,lookthrough,propose
 from tools.run_multi_asset_leadership import parse_chart,publish,read_latest,configuration_bytes,verified_source_hashes
 from research.multi_asset_v1.sources import candles,capture_spot_metrics,crypto_chart
@@ -56,7 +56,7 @@ def meta(source):
 
 def reviewed(p,r,policy):
     feature_hash=feature_identity(p,r)
-    policy["validated_models"]={"TEST_MODEL":{"asset_classes":["US_EQUITY","COMMODITY_EQUITY"],"validation_sha256":"c"*64}}
+    policy["validated_models"]={"TEST_MODEL":{"asset_classes":["US_EQUITY","COMMODITY_EQUITY"],"validation_sha256":"c"*64,"benchmark_id":"US:SPY"}}
     policy["reviewed_pins"]["company_evidence"]=["d"*64]
     policy["reviewed_pins"]["underlying_evidence"]=["e"*64]
     p["evaluations"]=[]
@@ -67,6 +67,7 @@ def reviewed(p,r,policy):
             e["scenarios"][h]={"bear":{"return":-.1,"probability":.2},"base":{"return":.2,"probability":.6},"bull":{"return":.5,"probability":.2}}
             e["expected_return_"+h]=.2
             e["benchmark_expected_return_"+h]=.05
+        e.update(observed_at=CUTOFF,benchmark_id="US:SPY")
         policy["reviewed_pins"]["evaluation"].append(digest(e))
         p["evaluations"].append(e)
     receipt={**meta("CANONICAL_UNIVERSE"),"asset_ids":sorted(p["base_equity_ids"]),"as_of":list(SESSIONS)[-1]}
@@ -77,6 +78,7 @@ def reviewed(p,r,policy):
 
 def risk(p,r,policy):
     risk=dict(**meta("REVIEWED_RISK"),feature_sha256=feature_identity(p,r),regime="RISK_OFF",max_gross=.4,max_security_weight=.1,max_pair_correlation=1.0,minimum_expected_alpha=.01,risk_multipliers={"US_EQUITY":1,"COMMODITY_EQUITY":1},risk_group_limits={g:.3 for a in r["assets"] for g in a["risk_group_ids"]})
+    risk["observed_at"]=CUTOFF
     policy["reviewed_pins"]["risk"].append(digest(risk))
     p["risk"]=risk
     return risk
@@ -264,7 +266,69 @@ class Decisions(unittest.TestCase):
             with self.subTest(field=field):
                 e=copy.deepcopy(row);e[field]=value
                 self.policy["reviewed_pins"]["evaluation"].append(digest(e))
-                with self.assertRaises(ContractError):evaluation(e,a,CUTOFF,self.policy,feature_identity(self.p,self.r))
+                with self.assertRaises(ContractError):evaluation(e,a,CUTOFF,self.policy,feature_identity(self.p,self.r),feature_availability(self.p))
+
+    def test_evaluation_cannot_predate_any_bound_feature(self):
+        close=list(SESSIONS.values())[-1]
+        early=(close+timedelta(minutes=10)).isoformat()
+        late=(close+timedelta(minutes=30)).isoformat()
+        for kind in ("price","metric","event"):
+            with self.subTest(kind=kind):
+                p,r,policy=fixture()
+                if kind=="price":p["prices"][-1]["available_at"]=late
+                elif kind=="metric":
+                    p["metrics"]=[{**meta("EIA"),"available_at":late,"subject_id":"NATURAL_GAS","metric":"inventory","unit":"BCF","value":100}]
+                else:
+                    p["events"]=[{**meta("CANONICAL_NEWS"),"available_at":late,"published_at":late,"event_id":"EVENT:1","event_type":"MINE_OUTAGE","confidence":.9,"materiality":.8,"confirmed":True,"thesis_effect":"REVIEW_NEGATIVE","estimated_duration":"2_WEEKS","asset_ids":[],"commodity_ids":["COPPER"],"theme_ids":[],"duplicate_cluster":"OUTAGE:1"}]
+                reviewed(p,r,policy)
+                for e in p["evaluations"]:
+                    e.update(observed_at=early,available_at=early)
+                    policy["reviewed_pins"]["evaluation"].append(digest(e))
+                risk(p,r,policy)
+                out=run(p,r,policy)
+                self.assertTrue(all(x["expected_return_12m"] is None and "evaluation:evaluation_predates_feature_inputs" in x["blockers"] for x in out["multi_asset_leadership_latest"]))
+                self.assertEqual(out["proposal"]["status"],"BLOCKED")
+
+    def test_benchmark_identity_must_match_evaluation_model_policy_and_asset(self):
+        for location in ("evaluation","model","registry"):
+            for bad in (None,"US:CASH"):
+                with self.subTest(location=location,bad=bad):
+                    p,r,policy=fixture()
+                    aid=next(a["asset_id"] for a in r["assets"] if a["symbol"]!="SPY")
+                    if location=="registry":next(a for a in r["assets"] if a["asset_id"]==aid)["benchmark"]=bad or "US:UNKNOWN"
+                    reviewed(p,r,policy)
+                    e=next(e for e in p["evaluations"] if e["asset_id"]==aid)
+                    if location=="evaluation":
+                        e["benchmark_id"]=bad;policy["reviewed_pins"]["evaluation"].append(digest(e))
+                    elif location=="model":policy["validated_models"]["TEST_MODEL"]["benchmark_id"]=bad
+                    out=run(p,r,policy)
+                    row=next(x for x in out["multi_asset_leadership_latest"] if x["asset_id"]==aid)
+                    self.assertIsNone(row["expected_return_12m"])
+                    self.assertIn("evaluation:evaluation_benchmark_mismatch",row["blockers"])
+
+    def test_incomplete_evaluation_coverage_suppresses_all_global_ranks(self):
+        for aid in ("US:FTI","US:FCX"):
+            for missing in ("prices","evaluation"):
+                with self.subTest(aid=aid,missing=missing):
+                    p,r,policy=fixture()
+                    if missing=="prices":p["prices"]=[x for x in p["prices"] if x["asset_id"]!=aid]
+                    reviewed(p,r,policy)
+                    if missing=="evaluation":p["evaluations"]=[x for x in p["evaluations"] if x["asset_id"]!=aid]
+                    risk(p,r,policy);out=run(p,r,policy)
+                    self.assertTrue(any(x["expected_return_12m"] is not None for x in out["multi_asset_leadership_latest"]))
+                    self.assertFalse(out["global_ranking_ready"])
+                    self.assertEqual(out["ranking_scope"],"INCOMPLETE_EVALUATION_COVERAGE")
+                    self.assertTrue(all(x["rank"] is None for x in out["multi_asset_leadership_latest"]))
+                    self.assertTrue(all(x["best_vehicle"] is None and x["best_equity"] is None for x in out["commodity_market_latest"]))
+                    self.assertEqual(out["proposal"]["status"],"BLOCKED")
+
+    def test_risk_packet_cannot_predate_bound_features(self):
+        riskrow=risk(self.p,self.r,self.policy)
+        riskrow["observed_at"]=list(SESSIONS.values())[-1].isoformat()
+        self.policy["reviewed_pins"]["risk"].append(digest(riskrow))
+        out=run(self.p,self.r,self.policy)
+        self.assertTrue(out["global_ranking_ready"])
+        self.assertEqual(out["proposal"]["reasons"],["risk_predates_feature_inputs"])
 
     def test_short_rs_does_not_sell_or_remove_held_thesis(self):
         f={"RS20":-.15,"RS60":.05,"RS120":.2,"RS240":.3,"RS20_change_5d":-.1,"RS60_change_5d":-.1}
@@ -414,6 +478,20 @@ class Decisions(unittest.TestCase):
             with self.subTest(history_order=[digest(s) for s in snapshots]):
                 self.p["history"]=snapshots
                 with self.assertRaisesRegex(ContractError,"duplicate_history_session"):
+                    run(self.p,self.r,self.policy)
+
+    def test_impossible_historical_ranks_are_rejected_even_when_pinned(self):
+        current=run(self.p,self.r,self.policy)
+        old_session=list(SESSIONS)[-6];close=SESSIONS[old_session];then=(close+timedelta(hours=1)).isoformat()
+        for ranks in ([1,1,3],[1.5,2,3],[True,2,3],[0,2,3],[1,2,5]):
+            with self.subTest(ranks=ranks):
+                old_rows=[{"asset_id":r["asset_id"],"as_of":old_session,"latest_session":old_session,"rank":rank,"RS_composite":.1} for r,rank in zip(current["multi_asset_leadership_latest"],ranks)]
+                previous={"as_of":old_session,"computed_at":then,"registry_sha256":digest(self.r),"multi_asset_leadership_latest":old_rows}
+                receipt={**meta("CANONICAL_HISTORY"),"observed_at":close.isoformat(),"available_at":then,"evidence_kind":"PIT_ARCHIVE","snapshot_sha256":digest(previous)}
+                previous["availability_receipt"]=receipt
+                self.policy["reviewed_pins"]["history_availability"].append(digest(receipt))
+                self.policy["reviewed_pins"]["history"].append(digest(previous));self.p["history"]=[previous]
+                with self.assertRaisesRegex(ContractError,"invalid_history_ranks"):
                     run(self.p,self.r,self.policy)
 
     def test_event_reprints_never_multiply_score(self):

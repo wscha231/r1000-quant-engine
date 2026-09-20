@@ -1,0 +1,226 @@
+# [PROJECT_HANDOFF] Theme/ETF source admission and monitor connection
+
+Scope: issue #433, T01 consumer implementation; global coordination remains
+#448. Initial audited source: `f20410549464e3f2557ae6d90ba8b20ee8bcc42e`.
+Integration baseline: `4494d108a7ee535bae0bb50b594bd8cfb8164402`, after PR #463
+merged. The append-only shared-ledger conflict preserves both complete entries.
+
+## Implemented connection
+
+The existing daily research monitor routes an optional, exact-path bundle from
+its authenticated operating artifact into
+`research.theme_etf_runtime_v1.strict.run_payload`. It writes an internal
+`theme_etf_bridge.json` and adds admission/coverage observations to its report.
+There is no new collector, cron, universe engine, company evaluator, candidate
+packet or backtester. No target, ledger, champion or selector policy is changed.
+
+The adapter verifies GitHub-provided producer identity and actual ZIP bytes,
+then exact component, receipt and raw-object bytes. Six components are required:
+base universe, securities, prices, ETF snapshots, documents and membership
+events. Even empty lists must have explicit receipts. Failed, missing or
+running upstream work cannot be replaced by an older successful artifact.
+
+Every proposed ID receives an evaluation reconciliation row, including
+`BLOCKED_COMPANY_EVALUATOR_RECEIPT_MISSING` and null 1/3/6/12-month returns. No
+model score, neutral missing value, investment rank or evaluation success is
+fabricated. This complements input-integrity PR #463, now part of the canonical
+master baseline. Its legacy input/target admission remains intact.
+
+## Source contract and trust boundary
+
+The extension is in the existing monitor contract under `theme_etf_bridge`.
+The optional manifest path is
+`outputs/theme_etf_bridge/attempts/{run_id}-{run_attempt}/source_bundle.json`.
+
+The manifest uses schema `theme-etf-source-bundle-v1`, with `decision_at`,
+`sample_origin`, `producer` and `components`. Producer fields are repository, workflow, head_sha,
+run_id and run_attempt. Each of the six components has `data` and `receipt`
+references, each containing an exact member `path` and actual-byte `sha256`.
+Data and receipts use exactly `outputs/theme_etf_bridge/<role>/data.json` and
+`outputs/theme_etf_bridge/<role>/receipt.json`; raw paths cannot overlap any role.
+
+Each `theme-etf-component-receipt-v1` binds the same producer, role, data hash,
+validation timestamp and nonempty raw-object references. Usable receipt states
+are COLLECTED/UNCHANGED, with no failures and a research-only boundary. Paths
+are confined to the fixed research prefix. Duplicate keys/members, oversized
+objects, traversal, nonfinite JSON and nested execution authority are rejected.
+Raw objects live below `outputs/theme_etf_bridge/<role>/raw/` and cannot alias
+normalized data, receipts or another role's evidence. This is structural
+separation; source and normalization truth still need the reviewed producer.
+
+The public monitor obtains metadata from GitHub, not from the ZIP. The pure
+reader assumes its caller supplies this authenticated metadata and reviewed
+repository policy. Calling it directly with fabricated metadata is not an
+authentication mechanism. Hashes/receipt labels do not certify economic truth,
+provider rights or normalization methodology. A reviewed upstream producer and
+normalizer are still required before real data can be published here.
+
+In particular, source `reviewed=true` cannot authorize a business LINK.
+`approved_membership_reviews` is a separately reviewed repository mapping from
+canonical event hashes to reviewer identity, review timestamp, decision and
+exact document hashes. **The shipped mapping is empty.** No real relationship
+is approved by this PR. A future reviewer service must preserve that independent
+trust boundary; it must not build the mapping from the untrusted bundle.
+
+Review time must follow every pinned document's availability. ETF history is
+ordered by the latest publication/observation/validation time, not observation
+alone. The shipped origin policy accepts only FORWARD_OBSERVED; synthetic
+tests require an explicit fixture policy and retain SYNTHETIC_FIXTURE labels.
+The standalone output binds consumer code SHA, contract hash and output hash.
+The decision and component validation times lie between authenticated attempt
+start and artifact creation; artifact creation must precede run completion.
+Present recovery receipts must match the producer schema, dispatch event,
+commit/run/attempt/job/session, affirmative authorization, inactive mutation
+flags, and current run timeline. Recovery evidence must precede the decision.
+
+The base requires at least 1,000 distinct IDs with registry coverage. This
+rejects small/theme fallback cohorts but does not certify Russell membership;
+the producer must establish the actual cohort identity. Prices require USD/SPY,
+a declared distributions-reinvested total-return methodology, the current
+settled NYSE session, after-close availability and contiguous benchmark
+sessions. Adjusted close is never inferred to be total return. Methodology
+claims still need the reviewed normalizer described above.
+
+## Whole-system interfaces
+
+| Existing owner | Bridge output/use | Remaining boundary |
+|---|---|---|
+| #435/#436 | Existing strict runtime; raw ETF units/coverage | Live issuer adapter |
+| #445, head `9f0f63e4…` | Existing reason fields plus stable security_id | Preview only; identity-aware consumer adapter still needed |
+| #451, head `2125c0c7…` | Existing candidate-data-queue-v1 shape | Preview only; no canonical writer/packet |
+| #459, head `803a4442…` | Documents treated as data | Unmerged news producer; not invoked |
+| Existing company evaluator | Every ID reconciled with missing receipt | No evaluator execution or return claim |
+| Monitor / Pages | Internal admission status; public allowlist retained | No raw bridge/source publication to Pages |
+| #458/#460/#461, regime/account | Separate downstream authority | No fullrun, OOS, account or metric change |
+
+The membership score bonus is zero and selector authority is false. Queue
+preview rows remain DATA_PENDING until genuine per-channel receipts exist.
+100% accounting of requested IDs is not 100% completed company analysis.
+Expected-return evaluation and portfolio risk remain separate from leadership.
+Consumers must recheck current versions before canonical integration.
+
+## Additional V1 limitations found
+
+1. Membership resolution is keyed by security, not `(theme, security)`. A
+   second theme's UNLINK can erase another relationship. Multi-theme histories
+   are blocked here until a separate lifecycle fix is reviewed.
+2. ETF snapshots are primarily ordered by availability. A late historical
+   report can look like the newest composition. Decreasing holdings-as-of
+   sequences are blocked until the historical adapter is reviewed.
+
+Neither block deletes the base or permits a sale. Partial ETF absence remains
+ABSENCE_UNCONFIRMED; an independently approved business relationship can remain.
+
+## Actual evidence inspected
+
+#435 merged as `74765812b8f198818289ae1e082ee0ac70b18c2a`; #436 merged as
+`580deea81a2ef47fae0bdbfe5d50663e07d45449`.
+
+Latest inspected [monitor run 35443247344, attempt 1](https://github.com/wscha231/r1000-quant-engine/actions/runs/35443247344)
+used audited master. Artifact 10584611169 matches locally available ZIP bytes:
+`b0249034cdd2ec7d81e3bd8f7fd781d756409a8ea596d8703e97cba55007e665`.
+Its report's expected session is 2026-09-18. The report states:
+
+- operating run 35424976962 / attempt 1 / `90b55fe92f25236c663a71cad7ab9138da497919` failed;
+- recovery is BLOCKED_ONE_TIME_LEGACY_QUARANTINE_AUTHORIZATION_REQUIRED;
+- operating upstream, market and price members are missing;
+- estimates coverage is 1/6, with blocked_partial_coverage;
+- verified current engine-score count is zero.
+
+Replaying that authenticated report's operating-source status at the new
+observation boundary returns BLOCKED / upstream_not_verified. This verifies
+monitor ZIP bytes and its reported state, not a new upstream source-byte audit,
+Drive accepted-state audit or live evaluator cycle. No transactional job was
+rerun. The separate operating ZIP download could not be materialized locally;
+it is not included in the byte-verification claim.
+
+## Validation and next boundary
+
+63 new unittest methods pass, including an authenticated artifact-to-strict
+runtime synthetic cycle with 1,118 base IDs plus one ADR candidate. Tests cover
+complete ID reconciliation, hash/receipt/document/event binding, producer and
+attempt mismatches, units/partial holdings, calendar/freshness, authority
+injection, replay and the lifecycle blocks. They also pass under Python -O;
+repeated executions are not additional test counts.
+
+The first independent review identified seven P2 boundaries. Fixes bind queue
+reasons by stable security ID, require semantic upstream readiness, order ETF
+history by effective availability and canonical fund ID, reject receipts that
+predate their data, require documents before review, and reject nonfinite values
+created from numeric strings before serialization. All have focused regression
+coverage. The adapter retains the security_id extension when previewing #445's
+reason fields; it does not instantiate the unmerged ticker-only dataclass.
+Subsequent review adds the runtime's revision tie-breaker, rejects ambiguous
+same-fund/time/revision histories, requires explicit PORTFOLIO scope, and keeps
+raw references in a distinct role namespace. A synthetic equal-time revision
+counterexample reproduced an older holdings date replacing the latest one
+before this fix; it now blocks. Existing strict normalization is reused to
+derive these keys instead of maintaining a second interpretation of timestamps.
+Further review requires affirmative recovery-ready status and satisfied
+authorization when the optional recovery receipt exists, binds decisions and
+validation receipts to the authenticated producer attempt's start time, and
+rejects canonical duplicate or padded document IDs before source counts grow.
+Adversarial follow-up additionally rejects cross-component raw aliases, copied
+recovery identities, same-date ETF revision regression/reuse, padded/lowercase
+security IDs across registry/events/prices/holdings, and post-artifact decisions.
+Repeated observations of an unchanged ETF revision must retain the existing
+snapshot, not append a new transition with the same revision.
+A reproduced boolean ticker/issuer input is rejected; verified identity flags
+cannot replace typed, nonempty canonical identity text.
+ETF holdings dates require YYYY-MM-DD so ISO basic/week-date aliases cannot
+split one day's revision history and admit a regressing revision.
+Fund/source/group/event/theme identities require explicit nonempty text rather
+than numeric/boolean/container coercion. Optional reader failures, including
+deep JSON and decompression/source-shape errors, return a blocked bridge while
+preserving the monitor's required upstream/market/price evidence. Missing code
+dependencies have a distinct blocked reason and fail positive-path tests.
+ETF rows currently admit COMMON/ADR/ETF, whose identity semantics are explicitly
+checked by V1. Cash/derivative/unknown rows block until their separate semantics
+are supported; they must never be discarded to claim a complete portfolio.
+Optional row issuer/ticker and snapshot revision IDs require explicit text.
+Unverified supported instruments remain incomplete and cannot confirm removals.
+Required monitor JSON uses the same duplicate-key/finite-number decoder as the
+optional bundle, without applying the bundle's separate authority rules to
+primary evidence. Conflicting upstream/recovery keys cannot become ready by
+last-value selection. Independent reviewer IDs require canonical nonempty text.
+Recovery admission now also requires proven accepted-head absence, exact integer
+head counts, a parent mode consistent with its ready status, the repository's
+legacy allowlist identity where applicable, and coherent paper verifier metadata.
+These are receipt-consistency checks, not a new accepted-account verification.
+The upstream prerequisite reader validates the actual v3 producer schema,
+research boundaries, current code identity/session/time, every ordered successful
+stage and its original manifest/log bytes, the hash-bound source bundle, all six
+dynamic manifests and required outputs, their lineage, and frozen fixed-input
+hash pins. Fixed portfolio inputs are not opened. Same-close reuse must bind the
+same dated bundle bytes and declare no new network execution. Missing original
+dynamic bytes block the bridge; no latest-file search or producer execution is
+introduced. Readiness labels alone never authorize runtime execution.
+The existing upstream producer now archives the exact plan bytes and records
+stage and final completion times after their evidence exists. It rehashes the
+archived plan before readiness publication. The consumer binds that archive to
+the canonical plan fingerprint, enforces the total and stage request ceilings,
+and compares all declared inter-stage manifest dependencies, including decision
+benchmark/SEC/Companyfacts and both score stages. The existing score handoff
+reader must also accept the graph before Theme runtime admission. The final
+producer completion time, not the earlier preflight cutoff, bounds the Theme
+decision. Old receipts without completion/archived-plan evidence stay blocked.
+This adds evidence metadata to the existing producer; it does not run another
+collector or change its model, network execution, selection, or account policy.
+
+19 existing monitor tests, 11 existing strict-runtime checks, one benchmark
+anchor check and eight public-output tests also pass. New tests run through the
+existing monitor CI entry point. The protected Tier-1 registry and review gates
+are unchanged. Monitor/Pages sparse checkouts include the strict runtime.
+Compilation, YAML parsing and explicit diff checks pass. No cron or permission
+is changed; only PR path matching is extended for the new code/tests.
+The upstream producer's 13 offline tests also pass, including archive mutation
+and completion-after-manifest checks. Focused coverage totals 115 distinct checks
+(63 bridge, 19 monitor, 12 runtime/anchor, 8 public, 13 upstream producer).
+
+Exact-head remote CI and independent review are separate publication gates.
+The synthetic cycle is not live-data completion. A real producer bundle does
+not yet exist, business-review pins are empty, company evaluation is unconnected
+and #445/#451/#459 canonical consumers remain pending. Next causal work must
+supply genuine producer/normalizer/reviewer receipts, fix the isolated lifecycle
+defects, then verify a bounded real cycle, following-session replay and restore.
+Durable account recovery remains a separate authorized workflow.

@@ -196,8 +196,8 @@ There were **zero BUY_CONSIDERATION** rows. No fundamentals or news score was
 invented to turn these observations into a buy proposal.
 
 Local initial publication evidence: 45 distinct new tests plus 12 existing
-tests passed. Follow-up regressions bring this to **67 distinct new tests plus
-12 existing tests**. Python `-O` repeats the same 67 cases. The first remote
+tests passed. Follow-up regressions bring this to **72 distinct new tests plus
+12 existing tests**. Python `-O` repeats the same 72 cases. The first remote
 matrix run `35489119713` exposed one packaging omission: the test reads its
 workflow YAML but sparse checkout omitted `.github`. Added the declared path;
 the test remains mandatory and unchanged. This does not weaken a data gate.
@@ -276,3 +276,17 @@ authorization covers this sequence; no gate is removed to finish it.
 Fourth review corrections: historical row session fields must match their claimed wrapper; SPY-relative discovery rejects mixed return bases; unsupported declared RS or commodity baseline weights are rejected; project source bytes (including shared HTTP/calendar/normalization dependencies) must match the claimed commit before capture/publication and latest-result consumption. Publication tests now use actual committed code identities; the dirty-source regression simulates a byte mismatch without changing repository files.
 
 Fifth review corrections: every positive carried-position pair must satisfy the reviewed correlation ceiling even without a new entry signal; otherwise proposal publication is blocked rather than inventing a liquidation policy. Duplicate historical session snapshots are rejected, including separately pinned conflicting versions in either order. Full accepted-book alpha replacement and production target integration remain future work.
+
+Sixth review corrections: an evaluation's observation must follow the latest
+availability of every price, metric and event bound into its feature hash. The
+same temporal boundary applies to a feature-bound risk packet. Expected benchmark
+returns must identify the same benchmark in the evaluation, validated model,
+reviewed policy and asset registry. Prior non-null ranks must be a unique,
+contiguous positive-integer ordering. Current global ranks, best vehicles and
+proposals are suppressed until the complete declared comparison cohort has
+admitted prices and evaluations; a valid base receipt alone is insufficient.
+
+During final review, master advanced to `3c07a1a3f21de7558d7eea6622c59e10c7ebbdda`
+when #464 merged. The audited-state references above describe the starting point.
+The latest master integration is conflict-free and is tested separately; the
+source bridge's merge does not establish live company-evaluator readiness.

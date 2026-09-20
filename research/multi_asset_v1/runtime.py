@@ -17,6 +17,13 @@ def feature_identity(payload, registry):
                    **{k:payload.get(k,[]) for k in ("prices","metrics","events","base_equity_ids")}})
 
 
+def feature_availability(payload):
+    """Latest availability among the actual observations bound into feature_identity."""
+    rows=[r for kind in ("prices","metrics","events") for r in payload.get(kind,[])]
+    require(bool(rows),"missing_feature_inputs")
+    return max(stamp(r.get("available_at")) for r in rows).isoformat()
+
+
 def metric_rows(rows, cutoff, policy):
     result=[]
     seen=set()
@@ -62,6 +69,10 @@ def run(payload, registry, policy):
     sessions=grid(cutoff)
     as_of=list(sessions)[-1]
     identity=feature_identity(payload,registry)
+    try:
+        feature_time=feature_availability(payload)
+    except (ContractError,ValueError):
+        feature_time=None
     base_ids=payload.get("base_equity_ids",[])
     require(isinstance(base_ids,list) and len(base_ids)==len(set(base_ids)),"base_universe_identity")
     for aid in base_ids:
@@ -132,7 +143,7 @@ def run(payload, registry, policy):
         if aid in by_eval:
             try:
                 require(row["data_quality"]=="PRICE_OBSERVED_RESEARCH_ONLY","price_proxy_or_missing_cannot_admit_er")
-                ev=evaluation(by_eval[aid],a,cutoff,policy,identity)
+                ev=evaluation(by_eval[aid],a,cutoff,policy,identity,feature_time)
                 fields={"fundamental_score","expected_alpha_12m","expected_drawdown","downside_probability","signal_confidence","thesis_confidence","thesis_id","thesis_status","valuation_acceptable","scenarios","model_id","validation_sha256"}
                 fields.update("expected_return_"+h for h in ER_HORIZONS)
                 row.update({k:v for k,v in ev.items() if k in fields})
@@ -152,7 +163,9 @@ def run(payload, registry, policy):
     # Expected-return rank and discovery rank are separate columns.
     ranking=sorted([r for r in rows if "risk_adjusted_expected_alpha" in r and r["portfolio_status"] in {"CANDIDATE","HOLD","WATCH"}],
                    key=lambda r:(-r["risk_adjusted_expected_alpha"],r["asset_id"]))
-    if complete_base:
+    global_ranking_ready=complete_base and bool(ranking) and all(
+        r["data_quality"]=="PRICE_OBSERVED_RESEARCH_ONLY" and "risk_adjusted_expected_alpha" in r for r in rows)
+    if global_ranking_ready:
         for i,r in enumerate(ranking,1): r["rank"]=i
     events=event_memory(payload.get("events",[]),assets,cutoff,policy)
     metrics=metric_rows(payload.get("metrics",[]),cutoff,policy)
@@ -163,6 +176,8 @@ def run(payload, registry, policy):
         try:
             require(complete_base,"incomplete_base_universe")
             require(all(r["data_quality"]=="PRICE_OBSERVED_RESEARCH_ONLY" and "risk_adjusted_expected_alpha" in r for r in rows if r["asset_id"] in base_ids),"incomplete_equity_comparison")
+            require(global_ranking_ready,"incomplete_cross_asset_comparison")
+            require(feature_time is not None and stamp(payload["risk"].get("observed_at"))>=stamp(feature_time),"risk_predates_feature_inputs")
             proposal=propose(rows,assets,payload["risk"],payload.get("holdings",{}),cutoff,policy,identity,
                              {aid:r["weight"] for aid,r in positions.items()})
         except (ContractError,KeyError,ValueError) as exc:
@@ -208,8 +223,8 @@ def run(payload, registry, policy):
         if uid in {"BTC","ETH"}: continue
         candidates=[r for r in ranking if r["underlying"]==uid]
         commodity.append({"commodity":uid,"metrics":[r for r in metrics if r["subject_id"]==uid],
-                          "best_vehicle":candidates[0]["asset_id"] if candidates and complete_base else None,
-                          "best_equity":next((r["asset_id"] for r in candidates if r["asset_class"]=="COMMODITY_EQUITY"),None) if complete_base else None,
+                          "best_vehicle":candidates[0]["asset_id"] if candidates and global_ranking_ready else None,
+                          "best_equity":next((r["asset_id"] for r in candidates if r["asset_class"]=="COMMODITY_EQUITY"),None) if global_ranking_ready else None,
                           "status":"RESEARCH_ONLY"})
     history=payload.get("history",[])
     history_sessions=[day(previous.get("as_of")) for previous in history]
@@ -229,6 +244,9 @@ def run(payload, registry, policy):
         require(historical_close<=stamp(previous["computed_at"])<=stamp(receipt["available_at"])<=historical_close+timedelta(hours=24),"retrospective_history_not_admitted")
         old=unique(previous["multi_asset_leadership_latest"],"asset_id")
         require(set(old)=={r["asset_id"] for r in rows},"history_cohort_changed")
+        historical_ranks=[r["rank"] for r in old.values() if r.get("rank") is not None]
+        require(all(type(rank) is int and rank>0 for rank in historical_ranks)
+                and sorted(historical_ranks)==list(range(1,len(historical_ranks)+1)),"invalid_history_ranks")
         for historical_row in old.values():
             require(historical_row.get("as_of")==previous["as_of"],"history_row_session_mismatch")
             has_signal=historical_row.get("rank") is not None or historical_row.get("RS_composite") is not None
@@ -246,8 +264,9 @@ def run(payload, registry, policy):
     for a in alerts:a["kind"]="TOP10_DISCOVERY_OBSERVATION"
     result={"schema":"multi-asset-leadership-v1","as_of":as_of,"computed_at":cutoff,"mode":"RESEARCH_ONLY",
             "feature_sha256":identity,"registry_sha256":digest(registry),"policy_sha256":digest(policy),
-            "ranking_scope":"SUBMITTED_COHORT" if complete_base else "INCOMPLETE_BASE_UNIVERSE",
-            "global_ranking_ready":complete_base and bool(ranking) and all("risk_adjusted_expected_alpha" in r for r in rows),
+            "feature_available_at":feature_time,
+            "ranking_scope":"SUBMITTED_COHORT" if global_ranking_ready else "INCOMPLETE_EVALUATION_COVERAGE" if complete_base else "INCOMPLETE_BASE_UNIVERSE",
+            "global_ranking_ready":global_ranking_ready,
             "base_universe_blockers":base_blockers,
             "collection_receipts":[{k:v for k,v in r.items() if k in {"asset_id","subject_id","series","clock","source","status","rows","reason","raw_sha256","missing_dates","missing_completed_session"}} for r in payload.get("collection_receipts",[])],
             "normalization":normalization,"multi_asset_leadership_latest":rows,
