@@ -230,8 +230,14 @@ def build_tasks(state: dict, root: Path, contract: dict, now: datetime,
             try:
                 if set(receipt['outputs']) != set(spec['outputs']):
                     raise ContractError('output_roles_mismatch')
+                causal_inputs = list(request['inputs'].values())
+                causal_inputs += [artifact for dependency in dependencies.values()
+                                  for artifact in dependency['outputs'].values()]
+                causal_ready = max(timestamp(artifact['collected_at']) for artifact in causal_inputs)
                 for artifact in receipt['outputs'].values():
                     verify_artifact(root, artifact, cutoff, now)
+                    if timestamp(artifact['available_at']) < causal_ready:
+                        raise ContractError('completion_predates_inputs')
                 completed[agent] = receipt
                 status = 'SKIP_UNCHANGED'
             except (OSError, ValueError):

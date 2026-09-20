@@ -39,10 +39,18 @@ def test_research_handoff_package_writes_manifest_and_zip() -> None:
         assert data["research_only"] is True
         assert data["production_activation_allowed"] is False
         assert data["bundle_sha256"]
+        restore = data['restore']
+        assert all('run_agent_board' not in command for command in restore['commands'])
+        assert '--system-state outputs/control_plane/system_state.json' in restore['agent_board_after_state_ready']
+        assert 'system_state_schema.json' in restore['agent_board_prerequisite']
         with zipfile.ZipFile(bundle) as zf:
             names = set(zf.namelist())
             assert "sample_handoff.manifest.json" in names
             assert "sample_handoff.README.md" in names
+            readme = zf.read('sample_handoff.README.md').decode()
+            assert restore['agent_board_prerequisite'] in readme
+            assert restore['agent_board_after_state_ready'] in readme
+            assert 'BLOCKED/exit 2' in readme
             assert any(name.endswith("sample.json") for name in names)
 
 

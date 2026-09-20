@@ -121,25 +121,31 @@ def default_bundle_name() -> str:
     return f"r1000_research_handoff_{stamp}.zip"
 
 
+BOARD_RESTORE_COMMAND = (
+    "python tools/run_agent_board.py --latest-run outputs "
+    "--system-state outputs/control_plane/system_state.json --output-dir outputs/agent_board"
+)
+BOARD_STATE_REQUIREMENT = (
+    "Prepare a fresh operator-supplied v2 state using research/control_plane/system_state_schema.json "
+    "at outputs/control_plane/system_state.json, with the restored code SHA and every referenced "
+    "input/completion artifact under outputs. This bundle does not create or certify that state. "
+    "Use --include to carry the required artifacts; revalidate their hashes and freshness after restore."
+)
+
+
 def restore_readme(manifest_name: str) -> str:
-    return "\n".join(
-        [
-            "# R1000 Research Handoff Bundle",
-            "",
-            "Unzip this archive at the repository root on another computer or runner.",
-            "",
-            "```powershell",
-            "Expand-Archive .\\r1000_research_handoff_*.zip -DestinationPath . -Force",
-            "python tools\\run_agent_board.py --latest-run outputs --output-dir outputs\\agent_board",
-            "python tools\\run_pr_validation.py --only sec_form4_parser_smoke --only agent_board_smoke",
-            "```",
-            "",
-            f"Read `{manifest_name}` for exact file checksums, source commit, and included artifact paths.",
-            "",
-            "The bundle is research-only. It does not activate production defaults.",
-            "",
-        ]
-    )
+    return "\n".join([
+        "# R1000 Research Handoff Bundle", "",
+        "Unzip this archive at the repository root on another computer or runner.", "",
+        "```powershell",
+        "Expand-Archive .\\r1000_research_handoff_*.zip -DestinationPath . -Force",
+        "python tools/run_pr_validation.py --only sec_form4_parser_smoke --only agent_board_smoke",
+        "```", "", f"Read `{manifest_name}` for exact file checksums, source commit, and included artifact paths.",
+        "", "## Agent Board v2 — only after preparing current state", "",
+        BOARD_STATE_REQUIREMENT, "", "Missing/stale state returns BLOCKED/exit 2; legacy metrics are insufficient.",
+        "", "```powershell", BOARD_RESTORE_COMMAND, "```", "",
+        "The bundle is research-only. It does not activate production defaults.", "",
+    ])
 
 
 def write_json(path: Path, payload: Any) -> None:
@@ -178,9 +184,10 @@ def build_manifest(
         "files": file_rows,
         "restore": {
             "destination": "repository root",
+            "agent_board_prerequisite": BOARD_STATE_REQUIREMENT,
+            "agent_board_after_state_ready": BOARD_RESTORE_COMMAND,
             "commands": [
                 "Expand-Archive .\\r1000_research_handoff_*.zip -DestinationPath . -Force",
-                "python tools\\run_agent_board.py --latest-run outputs --output-dir outputs\\agent_board",
             ],
         },
     }

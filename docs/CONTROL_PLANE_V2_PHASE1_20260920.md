@@ -34,6 +34,8 @@ review-gate change is unmerged. Current exact-head Codex review remains required
   `tests/agent_board_smoke.py`: new boundaries run through the already registered
   Tier-1 entrypoint. Frozen runner and workflow files are unchanged.
 - `requirements_github.txt`: JSON Schema validator for the checked-in schemas.
+- `tools/package_research_handoff.py` and its existing smoke: restore instructions
+  explicitly require a fresh v2 state and its referenced artifacts before the board command.
 - Shared lessons and this handoff record the causal change and remaining boundary.
 
 Mission: Main net CAGR >=35%, MDD loss <=25%; Concentrated >=50%, <=25%.
@@ -56,6 +58,8 @@ exact input roles from its contract. All dependent tasks need matching successfu
 completion receipts with actual output bytes; a queued task is not completion.
 Every dependent input role must match its upstream output reference, hash and
 metadata. A valid upstream receipt cannot authorize unrelated downstream bytes.
+A completion output must become available no earlier than collection of every
+causal input/dependency result; pre-input output receipts cannot be reused.
 A1 and A6 can diagnose G0 failures. A6 is read-only and has no prerequisite-success
 requirement, so it can inspect failed work independently. Every result returns to
 A0; peers cannot dispatch. Phase 1 invokes no specialist/model/workflow/API.
@@ -77,7 +81,7 @@ and are obsolete. No empty or blocked board certifies strategy readiness.
 
 ## Validation and limits
 
-Focused smoke: 28 distinct synthetic unittest cases, including CLI integration,
+Focused smoke: 29 distinct synthetic unittest cases, including CLI integration,
 strict schemas/JSON, time/identity, A0-only routing, read-only QA, dependency
 completion, all cache dimensions, corruption, missing state and interrupted build.
 The existing handoff/agent-standard/lesson smokes are also run through Tier-1.

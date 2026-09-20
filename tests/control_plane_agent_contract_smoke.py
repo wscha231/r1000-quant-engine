@@ -56,6 +56,9 @@ class ControlPlaneTests(unittest.TestCase):
         packet = next(t for t in self.tasks() if t['agent'] == agent)
         receipt = dict(agent=agent, task_key=packet['task_key'], status='SUCCEEDED',
                        outputs={role:self.artifact(agent+'_result_'+role) for role in packet['outputs']})
+        for output in receipt['outputs'].values():
+            output['available_at']=self.at(-8)
+            output['collected_at']=self.at(-8)
         self.state['completed_tasks'].append(receipt)
         for request in self.state['requests']:
             if agent in self.contract['agents'][request['agent']]['dependencies']:
@@ -128,6 +131,13 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertEqual(self.tasks()[0]['status'],'BLOCKED')
         p.unlink()
         self.assertEqual(self.tasks()[0]['status'],'BLOCKED')
+
+    def test_completion_cannot_predate_any_causal_input(self):
+        self.add_request('A2'); self.complete(); receipt=self.complete('A2')
+        receipt['outputs']['leadership_events']['available_at']=self.at(-9)
+        self.assertEqual(self.tasks()[1]['status'],'BLOCKED')
+        receipt['outputs']['leadership_events']['collected_at']=self.at(-9)
+        self.assertEqual(self.tasks()[1]['status'],'BLOCKED')
 
     def test_wrong_receipt_identity_does_not_skip(self):
         r=self.complete(); r['task_key']='a'*64
