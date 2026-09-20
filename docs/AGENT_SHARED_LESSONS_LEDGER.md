@@ -5079,3 +5079,6 @@ Expected contract:
 - Identity_verified=true alone allowed boolean issuer/ticker fields into a
   synthetic admitted queue. Require nonempty canonical text as well as the
   verified flag; the reproduced case and whitespace variants now block.
+- Python accepts basic/week ISO dates as well as YYYY-MM-DD. The former spellings
+  split one ETF holdings date into separate revision histories and admitted a
+  regressing revision in a reproduced case. Require canonical dates at admission.

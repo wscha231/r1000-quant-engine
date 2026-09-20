@@ -228,6 +228,9 @@ def _payload(parts, bundle, policy, expected_session, now):
     from research.theme_etf_runtime_v1.strict import normalize_snapshot
     for snapshot in snapshots:
         require(snapshot.get("schema") != "etf-snapshot-v2", "raw_etf_evidence_required")
+        require(isinstance(snapshot.get("holdings_as_of"), str)
+                and re.fullmatch(r"\d{4}-\d{2}-\d{2}", snapshot["holdings_as_of"]) is not None,
+                "noncanonical_holdings_date")
         require(str(snapshot.get("portfolio_scope", "")).strip().upper() == "PORTFOLIO",
                 "etf_portfolio_scope_unverified")
         require(type(snapshot.get("revision_number", 0)) is int

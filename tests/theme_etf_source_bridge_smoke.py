@@ -511,6 +511,16 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(out["status"], "ADMITTED_RESEARCH_ONLY", out)
         self.assertEqual(out["result"]["latest_snapshots"]["SYN_ETF"]["revision_number"], 3)
 
+    def test_alternate_iso_date_cannot_hide_revision_regression(self):
+        old, new = self.parts["etf_snapshots"]
+        old.update(holdings_as_of=SESSION, observed_at=SESSION + "T21:00:00Z",
+                   validated_at=SESSION + "T21:00:00Z", revision_number=2)
+        new.update(observed_at=SESSION + "T21:10:00Z", validated_at=SESSION + "T21:10:00Z",
+                   revision_number=1, coverage_kind="FULL")
+        for day in ("20260918", "2026-W38-5"):
+            new["holdings_as_of"] = day
+            self.check_blocked("noncanonical_holdings_date")
+
     def test_missing_or_incompatible_portfolio_scope_cannot_prove_removal(self):
         for scope in (None, "UNKNOWN", "SLEEVE", "PCF"):
             with self.subTest(scope=scope):
