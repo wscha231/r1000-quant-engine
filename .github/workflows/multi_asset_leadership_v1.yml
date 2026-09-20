@@ -8,6 +8,9 @@ on:
       - 'tests/multi_asset_leadership_smoke.py'
       - 'docs/multi_asset_*_v1.json'
       - '.github/workflows/multi_asset_leadership_v1.yml'
+      - 'research/theme_etf_runtime_v1/**'
+      - 'r1000_legacy_input_guard.py'
+      - 'tools/macro_history_sources.py'
   workflow_dispatch:
   push:
     branches: [master]
@@ -16,6 +19,9 @@ on:
       - 'tools/run_multi_asset_leadership.py'
       - 'docs/multi_asset_*_v1.json'
       - '.github/workflows/multi_asset_leadership_v1.yml'
+      - 'research/theme_etf_runtime_v1/**'
+      - 'r1000_legacy_input_guard.py'
+      - 'tools/macro_history_sources.py'
   workflow_run:
     workflows: ['Run287 Daily Research Monitor']
     types: [completed]

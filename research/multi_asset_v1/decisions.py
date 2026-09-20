@@ -46,7 +46,8 @@ def event_memory(events, assets, cutoff, policy):
         target["first_seen"] = min(target["first_seen"],row["available_at"],key=stamp)
         target["last_seen"] = max(target["last_seen"],row["available_at"],key=stamp)
         target["published_at"] = min(target["published_at"],row["published_at"],key=stamp)
-        target["available_at"] = target["first_seen"]
+        # Merged attributes include every contributing report, not only the first.
+        target["available_at"] = target["last_seen"]
         target["commodity_ids"].update(row["commodity_ids"])
         target["theme_ids"].update(row["theme_ids"])
         target["evidence"].append({k:row[k] for k in ("event_id","published_at","available_at","source","raw_sha256","estimated_duration")})
@@ -198,7 +199,8 @@ def propose(rows, assets, risk, holdings, cutoff, policy, input_hash, current_we
         aid=r["asset_id"]
         if r["portfolio_status"] not in {"CANDIDATE","HOLD"}: continue
         a=assets[aid]
-        if not a["tradable"] or not a.get("identity_verified",False): continue
+        if a["tradable"] is not True or a.get("identity_verified") is not True: continue
+        if r.get("thesis_status") not in {"POSITIVE","INTACT"} or r.get("valuation_acceptable") is not True: continue
         if r["expected_alpha_12m"]<=threshold or r["liquidity_pass"] is not True: continue
         # Entry requires both short improvement and acceptable longer strength.
         if not (r["RS20_change_5d"]>0 and r["RS60_change_5d"]>0 and r["RS120"]>=0 and r["RS240"]>=0): continue
@@ -207,6 +209,7 @@ def propose(rows, assets, risk, holdings, cutoff, policy, input_hash, current_we
         if raw>0: eligible.append((r,raw))
     eligible.sort(key=lambda x:(-x[1],x[0]["asset_id"]))
     selected=[]
+    require({aid for aid,w in current_weights.items() if w>0}<={r["asset_id"] for r in rows},"held_comparison_missing")
     existing_rows=[r for r in rows if current_weights.get(r["asset_id"],0)>0]
     for r in existing_rows:
         require(len(r.get("daily_log_returns",[]))==60,"held_correlation_history_required")

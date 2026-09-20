@@ -62,7 +62,7 @@ def reviewed(p,r,policy):
             e["benchmark_expected_return_"+h]=.05
         policy["reviewed_pins"]["evaluation"].append(digest(e))
         p["evaluations"].append(e)
-    receipt={"asset_ids":sorted(p["base_equity_ids"]),"as_of":list(SESSIONS)[-1]}
+    receipt={**meta("CANONICAL_UNIVERSE"),"asset_ids":sorted(p["base_equity_ids"]),"as_of":list(SESSIONS)[-1]}
     p["base_universe_receipt"]=receipt
     policy["reviewed_pins"]["base_universe"].append(digest(receipt))
     return p,r,policy
@@ -125,8 +125,10 @@ class Integrity(unittest.TestCase):
         self.assertEqual(g["2026-11-27"].hour,18)
 
     def test_boolean_registry_flag_rejected(self):
-        self.r["assets"][0]["tradable"]="true"
-        with self.assertRaises(ContractError):registry_rows(self.r)
+        for field in ("tradable","identity_verified","corporate_action_quarantine"):
+            with self.subTest(field=field):
+                altered=copy.deepcopy(self.r);altered["assets"][0][field]="false"
+                with self.assertRaises(ContractError):registry_rows(altered)
 
     def test_price_rs_matches_independent_ratio(self):
         out=run(self.p,self.r,self.policy)
@@ -236,7 +238,7 @@ class Decisions(unittest.TestCase):
     def test_no_commodity_floor(self):
         riskrow=risk(self.p,self.r,self.policy)
         assets={a["asset_id"]:a for a in self.r["assets"]}
-        row=dict(asset_id="US:FTI",portfolio_status="CANDIDATE",expected_alpha_12m=.3,liquidity_pass=True,RS20_change_5d=.1,RS60_change_5d=.1,RS120=.1,RS240=.1,signal_confidence=.8,thesis_confidence=.8,expected_drawdown=.2,daily_log_returns=[math.sin(i) for i in range(60)])
+        row=dict(asset_id="US:FTI",portfolio_status="CANDIDATE",thesis_status="POSITIVE",valuation_acceptable=True,expected_alpha_12m=.3,liquidity_pass=True,RS20_change_5d=.1,RS60_change_5d=.1,RS120=.1,RS240=.1,signal_confidence=.8,thesis_confidence=.8,expected_drawdown=.2,daily_log_returns=[math.sin(i) for i in range(60)])
         proposal=propose([row],assets,riskrow,{},CUTOFF,self.policy,feature_identity(self.p,self.r))
         self.assertEqual(set(proposal["proposed_weights"]),{"US:FTI"})
         self.assertGreater(proposal["cash"],.8)
@@ -264,6 +266,44 @@ class Decisions(unittest.TestCase):
         out=run(self.p,self.r,self.policy)
         self.assertEqual(out["proposal"]["status"],"BLOCKED")
         self.assertTrue(all(x["rank"] is None for x in out["multi_asset_leadership_latest"]))
+
+    def test_missing_future_or_stale_base_receipt_blocks_ranking(self):
+        risk(self.p,self.r,self.policy)
+        for field,value in (("available_at",None),("available_at","2026-09-20T00:00:00Z"),("observed_at","2026-08-01T00:00:00Z")):
+            with self.subTest(field=field,value=value):
+                bad=copy.deepcopy(self.p);bad["base_universe_receipt"][field]=value
+                self.policy["reviewed_pins"]["base_universe"].append(digest(bad["base_universe_receipt"]))
+                out=run(bad,self.r,self.policy)
+                self.assertFalse(out["global_ranking_ready"])
+                self.assertEqual(out["proposal"]["status"],"BLOCKED")
+                self.assertTrue(all(r["rank"] is None for r in out["multi_asset_leadership_latest"]))
+
+    def test_held_benchmark_without_comparator_blocks_proposal(self):
+        risk(self.p,self.r,self.policy)
+        self.p["positions"]=[{"asset_id":"US:SPY","weight":.08}]
+        self.p["position_book_kind"]="PAPER"
+        receipt={**meta("CANONICAL_BOOK"),"as_of":list(SESSIONS)[-1],"book_kind":"PAPER","positions_sha256":digest(self.p["positions"])}
+        self.policy["reviewed_pins"]["positions"].append(digest(receipt));self.p["position_receipt"]=receipt
+        out=run(self.p,self.r,self.policy)
+        self.assertEqual(out["proposal"]["status"],"BLOCKED")
+        self.assertIn("held_comparison_missing",out["proposal"]["reasons"])
+
+    def test_future_position_receipt_cannot_pass_its_pin(self):
+        self.p["positions"]=[{"asset_id":"US:FTI","weight":.08}];self.p["position_book_kind"]="PAPER"
+        receipt={**meta("CANONICAL_BOOK"),"as_of":list(SESSIONS)[-1],"book_kind":"PAPER","positions_sha256":digest(self.p["positions"])}
+        receipt["available_at"]="2026-09-20T00:00:00Z"
+        self.policy["reviewed_pins"]["positions"].append(digest(receipt));self.p["position_receipt"]=receipt
+        with self.assertRaisesRegex(ContractError,"future_or_conflicting_time"):run(self.p,self.r,self.policy)
+
+    def test_held_negative_thesis_or_bad_valuation_never_adds(self):
+        riskrow=risk(self.p,self.r,self.policy);assets={a["asset_id"]:a for a in self.r["assets"]}
+        row=dict(asset_id="US:FTI",portfolio_status="HOLD",thesis_status="POSITIVE",valuation_acceptable=True,expected_alpha_12m=.3,liquidity_pass=True,RS20_change_5d=.1,RS60_change_5d=.1,RS120=.1,RS240=.1,signal_confidence=.8,thesis_confidence=.8,expected_drawdown=.2,daily_log_returns=[math.sin(i) for i in range(60)])
+        for field,value in (("thesis_status","NEGATIVE"),("valuation_acceptable",False),("thesis_status",None)):
+            with self.subTest(field=field,value=value):
+                changed={**row,field:value}
+                proposal=propose([changed],assets,riskrow,{},CUTOFF,self.policy,feature_identity(self.p,self.r),{"US:FTI":.08})
+                self.assertEqual(proposal["proposed_weights"],{"US:FTI":.08})
+                self.assertEqual(changed["portfolio_status"],"HOLD")
 
     def test_position_book_must_be_pinned(self):
         self.p["positions"]=[{"asset_id":"US:FTI","weight":.2}]
@@ -294,6 +334,17 @@ class Decisions(unittest.TestCase):
     def test_news_future_time_rejected(self):
         event=dict(**meta("CANONICAL_NEWS"),event_id="EVENT:1",published_at="2027-01-01T00:00:00Z")
         with self.assertRaises(ContractError):event_memory([event],{},CUTOFF,self.policy)
+
+    def test_later_event_attributes_are_not_available_at_first_seen(self):
+        assets={a["asset_id"]:a for a in self.r["assets"]}
+        first=dict(**meta("CANONICAL_NEWS"),event_id="EVENT:1",published_at="2026-09-18T21:00:00Z",event_type="MINE_OUTAGE",confidence=.5,materiality=.4,confirmed=False,thesis_effect="REVIEW_UNKNOWN",estimated_duration="UNKNOWN",asset_ids=[],commodity_ids=[],theme_ids=[],duplicate_cluster="OUTAGE:1")
+        first["available_at"]="2026-09-18T21:00:00Z"
+        later={**first,"event_id":"EVENT:2","available_at":CUTOFF,"confirmed":True,"commodity_ids":["COPPER"]}
+        merged=event_memory([later,first],assets,CUTOFF,self.policy)[0]
+        self.assertEqual(merged["first_seen"],first["available_at"])
+        self.assertEqual(merged["available_at"],CUTOFF)
+        self.assertTrue(merged["confirmed"])
+        self.assertEqual(merged["affected_asset_ids"],["US:FCX"])
 
 
 class ExposureAndPublication(unittest.TestCase):
@@ -392,6 +443,29 @@ class ExposureAndPublication(unittest.TestCase):
             self.assertEqual(proc.returncode,2)
             self.assertEqual(json.loads((out/"latest_attempt.json").read_bytes())["status"],"BLOCKED")
 
+    def test_cli_retains_noncanonical_authorized_input_byte_hash(self):
+        p,r,policy=reviewed(*fixture());risk(p,r,policy)
+        with tempfile.TemporaryDirectory() as temp:
+            out=Path(temp)
+            for name,obj in (("input",p),("registry",r),("policy",policy)):
+                (out/(name+".json")).write_text(json.dumps(obj,indent=2))
+            authorized=hashlib.sha256((out/"input.json").read_bytes()).hexdigest()
+            self.assertNotEqual(authorized,digest(p))
+            proc=subprocess.run([sys.executable,str(ROOT/"tools/run_multi_asset_leadership.py"),"--input",str(out/"input.json"),"--expected-input-sha256",authorized,"--registry",str(out/"registry.json"),"--policy",str(out/"policy.json"),"--output-dir",str(out),"--attempt-id","pretty"],capture_output=True,text=True)
+            self.assertEqual(proc.returncode,0,proc.stdout+proc.stderr)
+            receipt=json.loads((out/"latest_attempt.json").read_bytes())
+            self.assertEqual(receipt["input_sha256"],authorized)
+            self.assertEqual(receipt["canonical_payload_sha256"],digest(p))
+
+    def test_source_failure_receipts_reach_published_diagnostics(self):
+        p,r,policy=fixture()
+        receipt={"asset_id":"US:FCX","clock":"NYSE_CLOSE","status":"BLOCKED","reason":"provider_unavailable_or_schema"}
+        p["collection_receipts"]=[{**receipt,"raw_response":"should-not-publish","url":"should-not-publish"}]
+        with tempfile.TemporaryDirectory() as temp:
+            out=Path(temp);publish(p,r,policy,out,"diagnostics","fixture-code")
+            result=json.loads((out/"attempts/diagnostics/result.json").read_bytes())
+            self.assertEqual(result["collection_receipts"],[receipt])
+
     def test_parser_never_uses_close_when_adjusted_missing(self):
         _,r,_=fixture();a=r["assets"][0]
         close=list(SESSIONS.values())[-1]
@@ -404,6 +478,8 @@ class ExposureAndPublication(unittest.TestCase):
         self.assertIn("github.event_name != 'pull_request'",text)
         self.assertIn("workflows: ['Run287 Daily Research Monitor']",text)
         self.assertNotIn("schedule:",text)
+        for path in ("research/theme_etf_runtime_v1/**","r1000_legacy_input_guard.py","tools/macro_history_sources.py"):
+            self.assertIn("- '"+path+"'",text.split("workflow_dispatch:")[0])
 
     def test_crypto_adapter_distinguishes_hour_volume_and_daily_volume(self):
         r=json.loads((ROOT/"docs/multi_asset_registry_v1.json").read_bytes())

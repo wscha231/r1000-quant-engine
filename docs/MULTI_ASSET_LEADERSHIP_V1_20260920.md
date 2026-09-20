@@ -192,8 +192,8 @@ There were **zero BUY_CONSIDERATION** rows. No fundamentals or news score was
 invented to turn these observations into a buy proposal.
 
 Local initial publication evidence: 45 distinct new tests plus 12 existing
-tests passed. Follow-up regressions bring this to **51 distinct new tests plus
-12 existing tests**. Python `-O` repeats the same 51 cases. The first remote
+tests passed. Follow-up regressions bring this to **58 distinct new tests plus
+12 existing tests**. Python `-O` repeats the same 58 cases. The first remote
 matrix run `35489119713` exposed one packaging omission: the test reads its
 workflow YAML but sparse checkout omitted `.github`. Added the declared path;
 the test remains mandatory and unchanged. This does not weaken a data gate.
@@ -204,6 +204,17 @@ results cannot return CLI success or be consumed, normalized ETF availability
 must precede the cutoff, carried ETF vehicle weights obey the security ceiling,
 and payload flags cannot override a registry corporate-action quarantine.
 The updated head requires its own CI and independent review before merge.
+
+The second independent review (`f7b9587fe3`) found seven further issues, all
+addressed with focused coverage: fail closed when a held benchmark lacks a
+correlation comparator; require full source/time metadata on base-universe
+and position receipts; retain the authorized input byte hash separately from
+canonical payload identity; strictly type identity flags; date merged event
+attributes at their latest contributing availability; publish sanitized source
+receipts in result artifacts; and trigger integration tests on shared dependency
+changes. A held asset also cannot receive an addition when its reviewed thesis
+is negative/missing or valuation is unacceptable. Short-RS hold preservation
+and separately authorized risk reduction still apply.
 
 No verified current Top Leaders, BUY_CONSIDERATION, replacement trades or
 CAGR/MDD are reported. The replay preflight exposes A–E comparisons and six

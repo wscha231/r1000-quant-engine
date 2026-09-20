@@ -110,6 +110,7 @@ def registry_rows(registry):
         require(row.get("price_unit")==expected_unit,"vehicle_price_unit")
         require(row["underlying"] is None or row["underlying"] in underlyings, "unknown_underlying")
         require(type(row.get("tradable")) is bool and type(row.get("research_only")) is bool, "boolean_metadata")
+        require(type(row.get("identity_verified")) is bool and type(row.get("corporate_action_quarantine")) is bool,"boolean_identity_metadata")
         require(row["research_only"] is True, "research_only_required")
         for key in ("news_keywords", "theme_ids", "risk_group_ids"):
             require(isinstance(row.get(key), list) and all(isinstance(x, str) and x for x in row[key]), "list_metadata:"+key)

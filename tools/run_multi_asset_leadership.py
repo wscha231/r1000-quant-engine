@@ -110,7 +110,7 @@ def fully_admitted(result):
     return result.get("global_ranking_ready") is True and result.get("proposal",{}).get("status")=="RESEARCH_PROPOSAL"
 
 
-def publish(payload, registry, policy, out, attempt_id, code_sha):
+def publish(payload, registry, policy, out, attempt_id, code_sha, *, input_sha256=None):
     require(attempt_id and all(c.isalnum() or c in "-_" for c in attempt_id),"attempt_id")
     # Revoke consumption before validation, preserving last-success and its bytes.
     atomic(out/"latest_attempt.json",encoded({"status":"STARTED","attempt_id":attempt_id,"last_success_retained":True}))
@@ -130,7 +130,8 @@ def publish(payload, registry, policy, out, attempt_id, code_sha):
             exclusive(target/(name+".json"),encoded({"as_of":result["as_of"],"computed_at":result["computed_at"],
                       "code_sha":code_sha,"config_sha256":result["policy_sha256"],"data_sha256":result["feature_sha256"],"rows":result[name]}))
         receipt={"status":result["status"],"attempt_id":attempt_id,"as_of":result["as_of"],
-                 "result_sha256":hashlib.sha256(raw).hexdigest(),"input_sha256":digest(payload),
+                 "result_sha256":hashlib.sha256(raw).hexdigest(),"input_sha256":input_sha256 or digest(payload),
+                 "canonical_payload_sha256":digest(payload),
                  "global_ranking_ready":result["global_ranking_ready"],"consumable":fully_admitted(result)}
         exclusive(target/"receipt.json",encoded(receipt))
         # Only fully admitted global research output can advance last-success.
@@ -173,15 +174,17 @@ def main():
         policy=load_json(args.policy.read_bytes())
         if args.input:
             raw=args.input.read_bytes()
-            require(args.expected_input_sha256==hashlib.sha256(raw).hexdigest(),"input_hash_required_or_mismatch")
+            input_sha256=hashlib.sha256(raw).hexdigest()
+            require(args.expected_input_sha256==input_sha256,"input_hash_required_or_mismatch")
             payload=load_json(raw)
         else:
             require(args.attempt_id and all(c.isalnum() or c in "-_" for c in args.attempt_id),"attempt_id")
             capture_dir=args.output_dir/"captures"/args.attempt_id
             capture_dir.mkdir(parents=True,exist_ok=False)
             payload=capture(registry,capture_dir)
+            input_sha256=hashlib.sha256((capture_dir/"input.json").read_bytes()).hexdigest()
         sha=subprocess.check_output(["git","rev-parse","HEAD"],cwd=ROOT,text=True).strip()
-        result=publish(payload,registry,policy,args.output_dir,args.attempt_id,sha)
+        result=publish(payload,registry,policy,args.output_dir,args.attempt_id,sha,input_sha256=input_sha256)
         print(json.dumps({"status":result["status"],"assets":len(result["multi_asset_leadership_latest"]),"global_ranking_ready":result["global_ranking_ready"]}))
         return 0 if fully_admitted(result) else 2
     except Exception as exc:

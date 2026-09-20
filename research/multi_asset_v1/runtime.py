@@ -6,7 +6,7 @@ from datetime import timedelta
 import math
 
 from .contracts import (ContractError, ER_HORIZONS, HORIZONS, day, digest, identifier,
-                        metadata, number, registry_rows, require, stamp, unique)
+                        metadata, number, pinned, registry_rows, require, stamp, unique)
 from .prices import admit_prices, cross_section, grid, one_asset
 from .decisions import classify, evaluation, event_memory, lookthrough, propose
 
@@ -65,7 +65,15 @@ def run(payload, registry, policy):
     for aid in base_ids:
         require(aid in assets and assets[aid]["asset_class"] in {"US_EQUITY","COMMODITY_EQUITY","CRYPTO_EQUITY"},"missing_base_equity")
     base_pin=payload.get("base_universe_receipt")
-    complete_base=bool(base_ids) and base_pin is not None and digest(base_pin) in policy["reviewed_pins"]["base_universe"] and base_pin.get("asset_ids")==sorted(base_ids) and base_pin.get("as_of")==as_of
+    complete_base=False
+    base_blockers=[]
+    try:
+        require(bool(base_ids) and base_pin is not None,"missing_base_universe")
+        pinned(base_pin,policy,"base_universe",cutoff)
+        require(base_pin.get("asset_ids")==sorted(base_ids) and base_pin.get("as_of")==as_of,"base_universe_receipt_mismatch")
+        complete_base=True
+    except (ContractError,KeyError,ValueError) as exc:
+        base_blockers.append(str(exc))
     groups=defaultdict(list)
     for r in payload.get("prices",[]):
         require(r.get("asset_id") in assets,"unregistered_price_asset")
@@ -76,7 +84,8 @@ def run(payload, registry, policy):
     require(not position_rows or payload.get("position_book_kind") in {"ACTUAL_BROKER","APPROVED_TARGET","PAPER"},"position_book_kind")
     if position_rows:
         receipt=payload.get("position_receipt")
-        require(receipt is not None and digest(receipt) in policy["reviewed_pins"]["positions"],"unreviewed_position_book")
+        require(receipt is not None,"unreviewed_position_book")
+        pinned(receipt,policy,"positions",cutoff)
         require(receipt.get("positions_sha256")==digest(position_rows) and receipt.get("as_of")==as_of
                 and receipt.get("book_kind")==payload["position_book_kind"],"position_receipt_mismatch")
         require(stamp(receipt["available_at"])<=stamp(cutoff),"future_position_book")
@@ -213,6 +222,8 @@ def run(payload, registry, policy):
             "feature_sha256":identity,"registry_sha256":digest(registry),"policy_sha256":digest(policy),
             "ranking_scope":"SUBMITTED_COHORT" if complete_base else "INCOMPLETE_BASE_UNIVERSE",
             "global_ranking_ready":complete_base and bool(ranking) and all("risk_adjusted_expected_alpha" in r for r in rows),
+            "base_universe_blockers":base_blockers,
+            "collection_receipts":[{k:v for k,v in r.items() if k in {"asset_id","subject_id","series","clock","source","status","rows","reason","raw_sha256","missing_dates","missing_completed_session"}} for r in payload.get("collection_receipts",[])],
             "normalization":normalization,"multi_asset_leadership_latest":rows,
             "commodity_market_latest":commodity,"crypto_market_latest":crypto,"asset_event_latest":events,
             "metrics":metrics,"proposal":proposal,"portfolio_exposure":observed_exposure,"alerts":alerts,
