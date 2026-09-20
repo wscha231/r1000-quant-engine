@@ -500,7 +500,16 @@ def main() -> int:
             print(f"ERROR {test.__name__}: {exc!r}")
             failed += 1
     print(f"\n{len(tests) - failed}/{len(tests)} passed")
-    return 1 if failed else 0
+    # Keep legacy input regression coverage inside the already registered
+    # freshness smoke. Do not change the frozen Tier-1 publication registry.
+    import unittest
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    suite = unittest.TestSuite(
+        unittest.defaultTestLoader.loadTestsFromName(name)
+        for name in ('test_unified_bridge_integrity', 'test_legacy_input_integrity')
+    )
+    result = unittest.TextTestRunner().run(suite)
+    return 1 if failed or not result.wasSuccessful() or result.testsRun == 0 else 0
 
 
 if __name__ == "__main__":

@@ -1,53 +1,13 @@
-"""r1000_layer4_swap — Layer 4 (RS-based position swap) bridge + executor.
+"""Legacy Layer 4 diagnostics and paper utility compatibility.
 
-Provides current-holdings + candidate-pool inputs for
-r1000_risk_sensing.evaluate_layer4_swap. Layer 4 swaps weak holdings
-(rs_12m_pct < 0, held >= 60 days) for strong alts (rs_12m_pct >= 30).
-
-History:
-  c8b5773 (Phase 2)  4-layer risk sensing system (logic)
-  6540ec6 (Layer 3)  VIX/SPY-200MA bridge
-  977fcd0 (Layer 3)  paper_executor pre-flight wiring
-  78766da (Layer 4)  RS-based swap bridge (suggestions only)
-  this    (Phase 3)  --execute flag, 30d throttle, Telegram alert
-
-Data sources:
-  Portfolio holdings:
-    1st choice: portfolio_latest.csv (production 정석 portfolio)
-    2nd choice: outputs_advisor/new_top12_proposed.csv (advisor v1)
-    columns expected: ticker, weight, agent_entry_date OR entry_date
-  Candidate pool:
-    scored_unified.csv (1012 names, 정석 + Finnhub synthetic)
-    columns expected: ticker, rs_benchmark_12m
-
-Usage as library:
-    from r1000_layer4_swap import layer4_swap_suggestions
-    swaps = layer4_swap_suggestions()
-    for s in swaps: print(s["ticker"], "->", s["swap_to"])
-
-CLI:
-    py -3 r1000_layer4_swap.py                  # dry-run, default Drive paths
-    py -3 r1000_layer4_swap.py --portfolio outputs_advisor/new_top12_proposed.csv
-    py -3 r1000_layer4_swap.py --json           # machine-readable
-    py -3 r1000_layer4_swap.py --execute        # ACTUALLY place Alpaca paper orders
-    py -3 r1000_layer4_swap.py --execute --confirm  # bypass interactive prompt
-
-Safety guards (--execute):
-  - Throttle: same ticker can't be swapped more than once per 30 days
-    (state in outputs/layer4_swap_history.json)
-  - Cap: max 2 swaps per call (RiskConfig.swap_max_per_cycle, already enforced)
-  - Refuse if Alpaca creds missing or portfolio < 5 positions
-  - Telegram alert before + after execution (uses existing secrets)
-
-Design notes:
-  - Layer 4 uses ONLY rs_12m_pct + days_held (not rs_at_entry, peak_price).
-    So we don't need historical RS lookups, just current.
-  - days_held computed from agent_entry_date / entry_date column.
-    Falls back to 90 days if missing (passes swap_weak_min_held_days=60).
-  - rs_12m_pct input is in PERCENT (not decimal) — RiskConfig defaults
-    swap_strong_rs_threshold=30 mean +30 percentage-point excess vs SPY.
+RS-only swap suggestions are disabled: this bridge has no thesis, earnings, or
+independent portfolio-risk evidence. Its public suggestion API and CLI return
+an explicit blocked result. Current-score reads additionally use the shared
+input-integrity guard. Retained low-level utilities confer no trading approval.
 """
 from __future__ import annotations
+
+from r1000_legacy_input_guard import load_current_csv
 
 import argparse
 import json
@@ -164,7 +124,7 @@ def build_candidate_pool(scored_csv: Path) -> tuple[list[dict], dict[str, float]
         print(f"[layer4] scored CSV missing at {scored_csv}", file=sys.stderr)
         return [], {}
 
-    df = pd.read_csv(scored_csv)
+    df = load_current_csv(scored_csv)
 
     # rs_benchmark_12m is in DECIMAL (e.g. 0.32 for +32%).
     # Layer 4 RiskConfig thresholds are in PERCENTAGE POINTS (e.g. 30.0).
@@ -204,40 +164,10 @@ def layer4_swap_suggestions(
 
     Each dict: {ticker, swap_to, reason, layer, priority}
     """
-    pcsv = Path(portfolio_csv or DEFAULT_PORTFOLIO)
-    scsv = Path(scored_csv or DEFAULT_SCORED_CSV)
-
-    candidates, rs_lookup = build_candidate_pool(scsv)
-    if not candidates:
-        return [{"error": f"could not build candidate pool from {scsv}"}]
-
-    positions = build_position_list(pcsv, rs_lookup)
-    if not positions:
-        return [{"error": f"could not build position list from {pcsv}"}]
-
-    try:
-        from r1000_risk_sensing import (
-            PortfolioState, RiskConfig, evaluate_layer4_swap,
-        )
-    except ImportError as e:
-        return [{"error": f"risk_sensing import failed: {e}"}]
-
-    state = PortfolioState(
-        nav=1.0, nav_peak_recent=1.0, cash_weight=0.10,
-        spy_above_200ma=True, vix_level=20.0,
-        positions=positions,
-    )
-    actions = evaluate_layer4_swap(
-        state, candidates, RiskConfig(), held_for_action=set(),
-    )
-    return [
-        {
-            "ticker": a.ticker, "swap_to": a.swap_to,
-            "type": a.type, "layer": a.layer, "priority": a.priority,
-            "reason": a.reason,
-        }
-        for a in actions
-    ]
+    # This legacy evaluator has only RS and holding-age inputs. Those are
+    # insufficient to establish thesis damage or justify a sell/swap decision.
+    # Retain callable compatibility while refusing to emit actionable swaps.
+    return [{"error": "RS_ONLY_SWAP_DISABLED: thesis and independent risk evidence required"}]
 
 
 # ---------------------------------------------------------------------------
@@ -458,6 +388,10 @@ def main() -> int:
     args = p.parse_args()
 
     raw_swaps = layer4_swap_suggestions(args.portfolio, args.scored_csv)
+    errors = [s['error'] for s in raw_swaps if 'error' in s]
+    if errors:
+        print(json.dumps({'status': 'BLOCKED', 'errors': errors, 'swap_suggestions': []}))
+        return 2
 
     # Apply throttle
     if args.no_throttle:

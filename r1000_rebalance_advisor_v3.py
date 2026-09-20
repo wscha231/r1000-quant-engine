@@ -25,6 +25,8 @@ Output: outputs_advisor_v3/new_top12_proposed.csv
 """
 from __future__ import annotations
 
+from r1000_legacy_input_guard import load_current_csv, write_advisor_targets, begin_target_build
+
 import argparse
 import json
 import sys
@@ -301,11 +303,11 @@ def print_report(picks: list[HybridPick]) -> None:
     print(f"  v2 exclusive:           {sum(1 for p in picks if p.philosophy=='v2_only')}")
 
 
-def save_results(picks: list[HybridPick], out_dir: Path) -> None:
+def save_results(picks: list[HybridPick], out_dir: Path, *, score_provenance: pd.DataFrame) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     rows = [asdict(p) for p in picks]
     df = pd.DataFrame(rows)
-    df.to_csv(out_dir / "new_top12_proposed.csv", index=False)
+    write_advisor_targets(df, score_provenance, out_dir / "new_top12_proposed.csv")
     print(f"\n[save] wrote {out_dir / 'new_top12_proposed.csv'}")
 
 
@@ -317,13 +319,14 @@ def main() -> int:
     parser.add_argument("--portfolio-csv", default=r"G:/내 드라이브/r1000_top30_institutional/outputs/portfolio_latest.csv")
     parser.add_argument("--output-dir", default="outputs_advisor_v3")
     args = parser.parse_args()
+    begin_target_build(Path(args.output_dir) / "new_top12_proposed.csv")
 
     print("=" * 70)
     print(f"r1000 Rebalance Advisor v3 (Hybrid) - {datetime.now():%Y-%m-%d %H:%M}")
     print("=" * 70)
 
     # Load
-    scored = pd.read_csv(args.scored_csv)
+    scored = load_current_csv(args.scored_csv)
     align_p = Path(args.portfolio_csv).parent / "portfolio_theme_alignment.csv"
     if align_p.exists():
         align = pd.read_csv(align_p)
@@ -372,7 +375,7 @@ def main() -> int:
 
     # Report + save
     print_report(portfolio_picks)
-    save_results(portfolio_picks, Path(args.output_dir))
+    save_results(portfolio_picks, Path(args.output_dir), score_provenance=scored)
 
     # Diff vs current
     old_tickers = {t for t, w in current_weights.items() if w > 0 and t != "CASH"}

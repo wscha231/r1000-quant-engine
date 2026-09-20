@@ -27,6 +27,8 @@ Output: outputs_advisor_v4/new_top12_proposed.csv (kept but unreliable)
 """
 from __future__ import annotations
 
+from r1000_legacy_input_guard import load_current_csv, write_advisor_targets, begin_target_build
+
 import argparse
 import sys
 from dataclasses import asdict, dataclass, field
@@ -69,6 +71,12 @@ class V4Pick:
     warnings: list[str] = field(default_factory=list)
 
 
+def save_results(picks: list[V4Pick], out_dir: Path, *, score_provenance: pd.DataFrame) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    write_advisor_targets(pd.DataFrame([asdict(p) for p in picks]), score_provenance,
+                          out_dir / "new_top12_proposed.csv")
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--scored-csv", default=r"G:/내 드라이브/r1000_top30_institutional/outputs/scored_unified.csv")
@@ -103,7 +111,8 @@ def main() -> int:
     print("=" * 70)
 
     # Load unified scored
-    scored = pd.read_csv(args.scored_csv)
+    begin_target_build(Path(args.output_dir) / "new_top12_proposed.csv")
+    scored = load_current_csv(args.scored_csv)
     print(f"[load] unified scored: {len(scored)} rows")
 
     # Load current portfolio
@@ -200,8 +209,7 @@ def main() -> int:
     # Save
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    df_picks = pd.DataFrame([asdict(p) for p in picks])
-    df_picks.to_csv(out_dir / "new_top12_proposed.csv", index=False)
+    save_results(picks, out_dir, score_provenance=scored)
 
     # Transparency: show prediction distribution
     pred_min = fs_latest["pred_r3m"].min()

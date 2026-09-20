@@ -1684,9 +1684,11 @@ def test_paper_executor_workflow() -> None:
         "tools/run_theme_leadership_tape.py",
         "tools/explosive_mover_scan_daily.py",
         "r1000_tactical_alpha.py",
-        "r1000_layer4_swap.py",
+        "RS_ONLY_SWAP_DISABLED",
+        "layer4_disabled.json",
     ):
         assert token in wf, f"after_close_daily.yml missing: {token}"
+    assert "python r1000_layer4_swap.py" not in wf, "retired RS-only CLI must not run daily"
     assert "yfinance" in (ROOT / "requirements_github.txt").read_text(encoding="utf-8"), (
         "yfinance missing from requirements_github.txt — Layer 3 VIX fetch will fall back"
     )
@@ -2607,22 +2609,14 @@ def test_layer4_executor_guards() -> None:
 
 @_test("regression.layer4_monthly_workflow_exists")
 def test_layer4_monthly_workflow() -> None:
-    """layer4_monthly_swap.yml must stay proposal/dry-run by default, while
-    preserving manual execution wiring.
-    """
-    wf_path = ROOT / ".github" / "workflows" / "layer4_monthly_swap.yml"
-    assert wf_path.exists(), "layer4_monthly_swap.yml missing"
-    wf = wf_path.read_text(encoding="utf-8")
-    for token in (
-        "schedule:",
-        "45 22 5 * *",
-        "workflow_dispatch:",
-        "default: false",
-        "secrets.ALPACA_API_KEY",
-        "secrets.TELEGRAM_BOT_TOKEN",
-        "r1000_layer4_swap.py",
-    ):
-        assert token in wf, f"layer4_monthly_swap.yml missing: {token}"
+    """The retired monthly caller must not report execution as completed."""
+    wf = (ROOT / ".github/workflows/layer4_monthly_swap.yml").read_text(encoding="utf-8")
+    for token in ("schedule:", "45 22 5 * *", "workflow_dispatch:", "default: false",
+                  "RS_ONLY_SWAP_DISABLED", "execution_completed", "contents: read",
+                  "SystemExit(2 if requested else 0)"):
+        assert token in wf, f"monthly disabled contract missing: {token}"
+    assert "r1000_layer4_swap.py" not in wf
+    assert "secrets." not in wf and "git push" not in wf
 
 
 @_test("regression.full_rebuild_workflow_exists")
@@ -3282,24 +3276,21 @@ def test_global_alpha_universe_window_audit_wired() -> None:
 
 @_test("regression.layer4_swap_bridge_wired")
 def test_layer4_swap_bridge() -> None:
-    """r1000_layer4_swap.py must exist and provide layer4_swap_suggestions()
-    that bridges portfolio CSV + scored CSV into Layer 4 of risk_sensing.
-
-    Layer 4 RS-based swap (weak rs<0 + held>=60d -> strong rs>=30 candidate)
-    is dormant in production until this bridge feeds it data.
-
-    History:
-      c8b5773 Layer 4 logic shipped (evaluate_layer4_swap)
-      this    Layer 4 bridge — reads portfolio_latest.csv + scored_unified.csv
-
-    This guard prevents the bridge from being silently removed.
-    """
+    """Keep compatibility helpers, but the public RS-only path must fail closed."""
     swap_path = ROOT / "r1000_layer4_swap.py"
     assert swap_path.exists(), "r1000_layer4_swap.py missing — Layer 4 has no data feed"
     src = swap_path.read_text(encoding="utf-8")
     for sym in ("def layer4_swap_suggestions", "def build_position_list",
-                "def build_candidate_pool", "evaluate_layer4_swap"):
+                "def build_candidate_pool"):
         assert sym in src, f"{sym} missing from r1000_layer4_swap.py"
+    from unittest.mock import patch
+    import r1000_layer4_swap as swap
+    with patch.object(swap, 'build_candidate_pool', side_effect=AssertionError('RS ranking reached')):
+        actions = swap.layer4_swap_suggestions('unused', 'unused')
+        assert actions and all('error' in row and 'swap_to' not in row for row in actions)
+        assert 'RS_ONLY_SWAP_DISABLED' in actions[0]['error']
+        with patch.object(sys, 'argv', ['layer4', '--json']):
+            assert swap.main() == 2, 'RS-only CLI must report BLOCKED with nonzero exit'
     # Cross-check evaluator still exists
     rs_src = (ROOT / "r1000_risk_sensing.py").read_text(encoding="utf-8")
     assert "def evaluate_layer4_swap" in rs_src, (
