@@ -178,9 +178,10 @@ class Phase2A(unittest.TestCase):
                         "sha256": sha(self.paths["proposal"]),
                         "bytes": self.paths["proposal"].stat().st_size,
                     }
-                }
+                },
             },
         )
+
     def args(self):
         return argparse.Namespace(
             contract=str(self.paths["contract"]),
