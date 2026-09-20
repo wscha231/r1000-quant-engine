@@ -112,6 +112,10 @@ def _security_id(value):
             "noncanonical_security_id")
 
 
+def _source_id(value):
+    require(isinstance(value, str) and value and value == value.strip(), "invalid_source_identity")
+
+
 def blocked(reason, session):
     return {"schema": SCHEMA, "status": "BLOCKED", "reason": reason,
             "expected_session": session, "runtime_executed": False,
@@ -196,6 +200,8 @@ def _payload(parts, bundle, policy, expected_session, now):
                 and row.get("identity_verified") is True
                 and isinstance(row.get("research_eligible"), bool), "security_identity_unverified")
     documents = parts["documents"]
+    for document in documents:
+        _source_id(document.get("source_group"))
     document_ids = [d["document_id"].strip() for d in documents]
     require(all(document_ids) and len(document_ids) == len(set(document_ids)), "duplicate_document")
     require(all(d["document_id"] == key for d, key in zip(documents, document_ids)),
@@ -206,6 +212,8 @@ def _payload(parts, bundle, policy, expected_session, now):
     theme_by_security = {}
     for event in events:
         _security_id(event["security_id"])
+        _source_id(event["event_id"])
+        _source_id(event["theme_id"])
         require(isinstance(event.get("reviewed"), bool), "membership_review_not_boolean")
         require(event["security_id"] in registry, "membership_identity_missing")
         if "relevance" in event:
@@ -244,8 +252,10 @@ def _payload(parts, bundle, policy, expected_session, now):
             require(isinstance(row.get("identity_verified"), bool), "etf_identity_not_boolean")
             if row.get("quantity") not in (None, ""):
                 _finite_number(row["quantity"])
-        fund = str(snapshot["fund_id"]).strip().upper()
-        require(bool(fund), "fund_identity_missing")
+        require(isinstance(snapshot.get("fund_id"), str) and snapshot["fund_id"].strip(),
+                "fund_identity_missing")
+        _source_id(snapshot.get("source_id"))
+        fund = snapshot["fund_id"].strip().upper()
         # Use the supported normalizer, then still call strict.run_payload for
         # the complete cycle. Do not approximate its time/revision semantics.
         by_fund.setdefault(fund, []).append(normalize_snapshot(snapshot))
@@ -397,8 +407,13 @@ def read_bundle(path: Path, run: dict, artifact: dict, policy: dict,
                 "membership_policy": {"score_bonus": 0.0, "eligible_for_selector": False},
                 "data_queue_preview": queue,
                 "evaluation_inventory": inventory, "safety": dict(SAFETY)}
-    except (AdmissionError, ValueError, KeyError, TypeError, AttributeError, OverflowError,
-            OSError, zipfile.BadZipFile) as exc:
+    except ImportError:
+        return blocked("bridge_dependency_unavailable", expected_session)
+    except Exception as exc:
+        # Failure isolation is part of this optional reader's contract. Deep
+        # JSON, unsupported compression and other source-shape/runtime errors
+        # must not escape and erase the monitor's required upstream evidence.
+        # Positive-path tests still fail when a dependency/runtime bug blocks.
         # No external text, filesystem paths or signed URLs in diagnostics.
         reason = str(exc) if isinstance(exc, AdmissionError) else "invalid_source_bundle"
         return blocked(reason, expected_session)

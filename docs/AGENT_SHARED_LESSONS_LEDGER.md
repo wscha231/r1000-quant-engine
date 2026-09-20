@@ -5082,3 +5082,7 @@ Expected contract:
 - Python accepts basic/week ISO dates as well as YYYY-MM-DD. The former spellings
   split one ETF holdings date into separate revision histories and admitted a
   regressing revision in a reproduced case. Require canonical dates at admission.
+- Final review reproduced coerced non-string fund IDs and deep JSON escaping
+  the optional reader, which erased required monitor evidence in its outer
+  error handler. Require typed provenance identities and isolate all optional
+  reader failures; malformed optional data must not suppress primary evidence.

@@ -134,7 +134,7 @@ it is not included in the byte-verification claim.
 
 ## Validation and next boundary
 
-50 new unittest methods pass, including an authenticated artifact-to-strict
+52 new unittest methods pass, including an authenticated artifact-to-strict
 runtime synthetic cycle with 1,118 base IDs plus one ADR candidate. Tests cover
 complete ID reconciliation, hash/receipt/document/event binding, producer and
 attempt mismatches, units/partial holdings, calendar/freshness, authority
@@ -167,6 +167,11 @@ A reproduced boolean ticker/issuer input is rejected; verified identity flags
 cannot replace typed, nonempty canonical identity text.
 ETF holdings dates require YYYY-MM-DD so ISO basic/week-date aliases cannot
 split one day's revision history and admit a regressing revision.
+Fund/source/group/event/theme identities require explicit nonempty text rather
+than numeric/boolean/container coercion. Optional reader failures, including
+deep JSON and decompression/source-shape errors, return a blocked bridge while
+preserving the monitor's required upstream/market/price evidence. Missing code
+dependencies have a distinct blocked reason and fail positive-path tests.
 
 19 existing monitor tests, 11 existing strict-runtime checks, one benchmark
 anchor check and eight public-output tests also pass. New tests run through the

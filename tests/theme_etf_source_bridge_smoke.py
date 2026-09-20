@@ -443,6 +443,46 @@ class BridgeTests(unittest.TestCase):
     def test_duplicate_json_key_rejected(self):
         self.check_blocked("duplicate_json_key", lambda f, b, n: f.__setitem__(n, b'{"schema":1,"schema":2}'))
 
+    def test_deep_optional_json_does_not_erase_required_monitor_evidence(self):
+        def alter(files, bundle, name):
+            refs = bundle["components"]["documents"]
+            data = b"[" * 2000 + b"0" + b"]" * 2000
+            files[refs["data"]["path"]] = data
+            refs["data"]["sha256"] = bridge.sha(data)
+            receipt = json.loads(files[refs["receipt"]["path"]])
+            receipt["data_sha256"] = bridge.sha(data)
+            files[refs["receipt"]["path"]] = bridge.canonical(receipt)
+            refs["receipt"]["sha256"] = bridge.sha(files[refs["receipt"]["path"]])
+            files[name] = bridge.canonical(bundle)
+        artifact = package(self.parts, self.run, self.policy, self.path, alter)
+        raw, run = self.path.read_bytes(), self.run
+        class Client:
+            def json(self, path):
+                return {"workflow_runs": [run]} if "/workflows/" in path else {"artifacts": [artifact]}
+            def archive(self, artifact_id, destination, limit):
+                destination.write_bytes(raw)
+                return "sha256:" + hashlib.sha256(raw).hexdigest()
+        contract = copy.deepcopy(CONTRACT)
+        contract["theme_etf_bridge"] = self.policy
+        source = monitor.collect_source(Client(), "operating", contract["sources"]["operating"], contract,
+                                        now=NOW, session=SESSION)
+        self.assertEqual(source["status"], "VERIFIED_ARTIFACT", source)
+        self.assertTrue({"upstream", "market", "prices"}.issubset(source["data"]))
+        self.assertTrue(source["data"]["upstream"]["upstream_ready"])
+        self.assertEqual(source["data"]["theme_etf_bridge"]["reason"], "invalid_source_bundle")
+        self.assertFalse(source["data"]["theme_etf_bridge"]["runtime_executed"])
+
+    def test_provenance_ids_cannot_be_fabricated_by_string_coercion(self):
+        original = copy.deepcopy(self.parts)
+        for role, field in (("etf_snapshots", "fund_id"), ("etf_snapshots", "source_id"),
+                            ("documents", "source_group"), ("membership_events", "event_id"),
+                            ("membership_events", "theme_id")):
+            for value in (True, 123, {}, [], None, " "):
+                with self.subTest(role=role, field=field, value=value):
+                    self.parts = copy.deepcopy(original)
+                    self.parts[role][0][field] = value
+                    self.check_blocked("fund_identity_missing" if field == "fund_id" else "invalid_source_identity")
+
     def test_stale_benchmark_is_not_current_by_run_time(self):
         self.parts["prices"]["rows"] = [r for r in self.parts["prices"]["rows"] if r["session"] != SESSION]
         self.check_blocked("stale_benchmark")
