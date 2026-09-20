@@ -67,6 +67,7 @@ jobs:
             .github/workflows/long_history_research.yml
             tools
             tests
+            research/theme_etf_runtime_v1
             data_static/run287_promotion_state.json
           sparse-checkout-cone-mode: false
 

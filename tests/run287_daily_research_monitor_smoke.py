@@ -452,7 +452,14 @@ class MonitorTests(unittest.TestCase):
 
 
 def main() -> int:
-    result = unittest.TextTestRunner(verbosity=1).run(unittest.defaultTestLoader.loadTestsFromTestCase(MonitorTests))
+    # This existing CI path also exercises the optional strict Theme/ETF reader.
+    # No frozen Tier-1 registry or gate definition is changed.
+    import theme_etf_source_bridge_smoke
+    suite = unittest.TestSuite([
+        unittest.defaultTestLoader.loadTestsFromTestCase(MonitorTests),
+        unittest.defaultTestLoader.loadTestsFromModule(theme_etf_source_bridge_smoke),
+    ])
+    result = unittest.TextTestRunner(verbosity=1).run(suite)
     return 0 if result.wasSuccessful() else 1
 
 

@@ -189,6 +189,9 @@ class UpstreamSmoke(unittest.TestCase):
                 "CASH",
             )
             self.assertFalse(ready["network_execution_authorized"])
+            archived = ready["preflight"]["archived_plan"]
+            self.assertEqual(Path(archived["path"]).read_bytes(), plan.read_bytes())
+            self.assertEqual(archived["sha256"], ready["preflight"]["plan"]["sha256"])
             self.assertEqual(
                 len(ready["preflight"]["code_identity"]["identity_sha256"]),
                 64,
@@ -336,6 +339,10 @@ class UpstreamSmoke(unittest.TestCase):
             self.assertEqual(result["status"], REUSED_STATUS)
             self.assertEqual(result["network_requests_executed"], 0)
             self.assertFalse(result["network_execution_authorized"])
+            from datetime import datetime, timezone
+            finished = datetime.fromisoformat(result["completed_at_utc"])
+            self.assertLessEqual(datetime.fromisoformat(result["stage_audit"][0]["completed_at_utc"]), finished)
+            self.assertLessEqual(finished, datetime.now(timezone.utc))
             publisher.assert_called_once()
             self.assertEqual(
                 publisher.call_args.kwargs["expected_code_identity"],
@@ -452,6 +459,44 @@ class UpstreamSmoke(unittest.TestCase):
                 "preflight_price_cache_changed:AAPL",
                 result["stage_audit"][-1]["failures"],
             )
+
+    def test_stage_completion_is_recorded_after_the_manifest_exists(self) -> None:
+        from datetime import datetime, timezone
+        from types import SimpleNamespace
+        from tools.run_run287_exact_packet_upstream import run_stage
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); manifest = root / "stage" / "manifest.json"
+            stamps = []
+            def complete(*args, **kwargs):
+                manifest.parent.mkdir()
+                manifest.write_text(json.dumps({"status": "READY_FIXTURE"}))
+                stamps.append(datetime.now(timezone.utc))
+                return SimpleNamespace(returncode=0, stdout="synthetic fixture", stderr="")
+            with patch("tools.run_run287_exact_packet_upstream.subprocess.run", side_effect=complete):
+                _, audit = run_stage(name="scored_latest", command=[sys.executable, "tools/run_run287_scored_latest_refresh.py"],
+                    manifest_path=manifest, expected_status="READY_FIXTURE", expected_date_field="",
+                    valuation_date="2026-07-13", attempt_root=root, timeout_seconds=1)
+            self.assertEqual(audit["failures"], [])
+            self.assertLessEqual(stamps[0], datetime.fromisoformat(audit["completed_at_utc"]))
+            self.assertEqual(audit["manifest"]["sha256"], sha256_file(manifest))
+
+    def test_archived_plan_mutation_blocks_reused_ready(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); plan = make_plan(root); args = arguments(root, plan, "archive-change")
+            args.allow_network = True; args.preflight_only = False
+            dated = Path(args.source_bundle_output) / "by_date" / "2026-07-13" / "source_bundle.json"
+            dated.parent.mkdir(parents=True)
+            dated.write_text(json.dumps({"valuation_price_cutoff_date": "2026-07-13", "inputs": {"decision_manifest": {"path": "exact.json"}}}))
+            def mutate(**kwargs):
+                (Path(args.output_root) / "attempts" / args.attempt_id / "plan.json").write_text("{}")
+                return {"status": "READY_EXISTING_EXACT_PACKET_INPUT_SOURCE_BUNDLE_REVIEW_ONLY",
+                        "current_source_bundle": {"path": str(dated), "sha256": "abc"}}
+            with patch.dict("os.environ", {"SEC_USER_AGENT": "research test@example.com"}), patch(
+                    "tools.run_run287_exact_packet_upstream.publish_bundle", side_effect=mutate):
+                result = build(args)
+            self.assertEqual(result["status"], BLOCKED_STATUS)
+            self.assertIn("preflight_input_changed:archived_plan", result["stage_audit"][-1]["failures"])
+            self.assertNotIn("completed_at_utc", result)
 
 
 if __name__ == "__main__":
