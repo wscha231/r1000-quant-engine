@@ -19,6 +19,10 @@ on:
         description: 'Exact reviewed master SHA required for manual capture'
         type: string
         required: false
+      bootstrap_from_seed:
+        description: 'Allow the one-time initial seed only when latest state is empty'
+        type: boolean
+        default: false
   schedule:
     - cron: '17 * * * *'
 
@@ -111,6 +115,8 @@ jobs:
           echo "RCLONE_CONFIG_PATH=$RCLONE_CONFIG_PATH" >> "$GITHUB_ENV"
 
       - name: Restore durable state without converting Drive errors into bootstrap
+        env:
+          BOOTSTRAP_FROM_SEED: ${{ inputs.bootstrap_from_seed || false }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/telegram-state" "$RUNNER_TEMP/telegram-out"
@@ -134,6 +140,11 @@ jobs:
               raise SystemExit('unexpected_latest_members:'+','.join(sorted(unknown)))
           if names and names != required:
               raise SystemExit('partial_latest_state:'+','.join(sorted(names)))
+          allow=os.environ.get('BOOTSTRAP_FROM_SEED','false').lower() == 'true'
+          if not names and (os.environ.get('GITHUB_EVENT_NAME') != 'workflow_dispatch' or not allow):
+              raise SystemExit('empty_latest_requires_explicit_manual_bootstrap')
+          if names and allow:
+              raise SystemExit('bootstrap_requested_but_state_exists')
           (root/'bootstrap.txt').write_text('true\n' if not names else 'false\n')
           PY
 
@@ -192,12 +203,8 @@ jobs:
           RUN_DEST="$DRIVE_ROOT/runs/$RUN_KEY"
           VERIFY_DIR="$RUNNER_TEMP/telegram-verify"
           mkdir -p "$VERIFY_DIR"
-          "$RCLONE_BIN" --config "$RCLONE_CONFIG_PATH" mkdir "$DRIVE_ROOT/runs"
-          "$RCLONE_BIN" --config "$RCLONE_CONFIG_PATH" lsf --dirs-only "$DRIVE_ROOT/runs" > "$RUNNER_TEMP/run-dirs.txt"
-          if grep -Fxq "$RUN_KEY/" "$RUNNER_TEMP/run-dirs.txt"; then
-            echo "immutable run destination already exists: $RUN_KEY" >&2
-            exit 1
-          fi
+          # GitHub run_id + run_attempt is unique per execution attempt, so the
+          # immutable destination does not require an O(history) directory scan.
           for name in checkpoint.json events.ndjson a2_discovery_inputs.json receipt.json; do
             src="$RUNNER_TEMP/telegram-out/$name"
             test -f "$src"

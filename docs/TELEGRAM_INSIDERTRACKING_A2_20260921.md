@@ -51,7 +51,7 @@ Only after that readback passes are these four `latest/` members advanced:
 - `a2_discovery_inputs.json`
 - `receipt.json`
 
-Before restoration the workflow proves Drive access, creates/inspects `latest/`, and accepts only either an entirely empty bootstrap directory or the complete four-file latest state. Transport/auth failures and partial latest state fail closed instead of being reinterpreted as first bootstrap.
+Before restoration the workflow proves Drive access, creates/inspects `latest/`, and accepts the complete four-file latest state. An empty state is accepted only for an exact-head manual `workflow_dispatch` with `bootstrap_from_seed=true`; scheduled runs can never seed or reset continuity. Transport/auth failures, partial latest state, repeated bootstrap requests, and empty scheduled state all fail closed.
 
 A gap-blocked run preserves its diagnostic immutable receipt but never advances
 `latest`. The workflow has fixed single-writer concurrency. It writes no target,
@@ -115,7 +115,7 @@ Stop if Drive credentials are unavailable, Telegram HTML no longer satisfies the
 parser contract, the source interval cannot be closed, exact immutable readback
 fails, CI is non-green, or exact-head review is missing.
 
-After merge, run one exact-head manual capture before relying on the hourly
+After merge, run one exact-head manual capture with `bootstrap_from_seed=true` before relying on the hourly
 schedule. Confirm Drive latest checkpoint, immutable run receipt and a compact
 GitHub health artifact. Then update the ChatGPT watcher to treat this durable
 checkpoint as the continuity source and use its web access only for semantic
