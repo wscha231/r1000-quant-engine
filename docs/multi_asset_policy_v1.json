@@ -1,0 +1,225 @@
+{
+  "schema": "multi-asset-policy-v1",
+  "benchmark_id": "US:SPY",
+  "min_dollar_volume_20d": 1000000,
+  "baseline_rs_weights": {
+    "20": 0.2,
+    "60": 0.3,
+    "120": 0.3,
+    "240": 0.2
+  },
+  "baseline_commodity_weights": {
+    "price": 0.25,
+    "supply_demand": 0.25,
+    "inventory": 0.1,
+    "forward_supply": 0.1,
+    "technology": 0.1,
+    "valuation": 0.1,
+    "catalyst": 0.1
+  },
+  "sources": {
+    "CANONICAL_HISTORY": {
+      "kinds": ["history_availability"],
+      "max_age_days": 40
+    },
+    "CANONICAL_UNIVERSE": {
+      "kinds": ["base_universe"],
+      "max_age_days": 4
+    },
+    "CANONICAL_BOOK": {
+      "kinds": ["positions"],
+      "max_age_days": 4
+    },
+    "YAHOO_CHART": {
+      "return_bases": ["PROVIDER_ADJUSTED_CLOSE_PROXY"],
+      "kinds": [
+        "price"
+      ],
+      "max_age_days": 4
+    },
+    "CANONICAL_PRICE_ARCHIVE": {
+      "return_bases": ["TOTAL_RETURN"],
+      "kinds": [
+        "price"
+      ],
+      "max_age_days": 4
+    },
+    "REVIEWED_EVALUATOR": {
+      "kinds": [
+        "evaluation"
+      ],
+      "max_age_days": 4
+    },
+    "REVIEWED_RISK": {
+      "kinds": [
+        "risk"
+      ],
+      "max_age_days": 4
+    },
+    "ISSUER_HOLDINGS": {
+      "kinds": [
+        "holdings"
+      ],
+      "max_age_days": 7
+    },
+    "CANONICAL_NEWS": {
+      "kinds": [
+        "event"
+      ],
+      "max_age_days": 7
+    },
+    "FRED_ARCHIVE": {
+      "kinds": [
+        "metric"
+      ],
+      "max_age_days": 40
+    },
+    "EIA": {
+      "kinds": [
+        "metric"
+      ],
+      "max_age_days": 10
+    },
+    "USDA": {
+      "kinds": [
+        "metric"
+      ],
+      "max_age_days": 40
+    },
+    "CFTC": {
+      "kinds": [
+        "metric"
+      ],
+      "max_age_days": 10
+    },
+    "REVIEWED_NETWORK": {
+      "kinds": [
+        "metric"
+      ],
+      "max_age_days": 4
+    },
+    "COINBASE_EXCHANGE": {
+      "return_bases": ["TOTAL_RETURN"],
+      "kinds": [
+        "price"
+      ],
+      "max_age_days": 4
+    },
+    "FRED_CURRENT": {
+      "kinds": [
+        "metric"
+      ],
+      "max_age_days": 10
+    }
+  },
+  "reviewed_pins": {
+    "evaluation": [],
+    "risk": [],
+    "holdings": [],
+    "company_evidence": [],
+    "underlying_evidence": [],
+    "base_universe": [],
+    "positions": [],
+    "history": [],
+    "history_availability": []
+  },
+  "validated_models": {},
+  "metric_units": {
+    "spot": [
+      "USD_PER_OUNCE",
+      "USD_PER_POUND",
+      "USD_PER_TONNE",
+      "USD_PER_MMBTU",
+      "USD_PER_BARREL"
+    ],
+    "inventory": [
+      "TONNE",
+      "POUND",
+      "BCF",
+      "BUSHEL"
+    ],
+    "inventory_percentile": [
+      "PERCENTILE"
+    ],
+    "supply_growth": [
+      "FRACTION"
+    ],
+    "demand_growth": [
+      "FRACTION"
+    ],
+    "stocks_to_use": [
+      "FRACTION"
+    ],
+    "capacity_utilization": [
+      "FRACTION"
+    ],
+    "capex": [
+      "USD"
+    ],
+    "front": [
+      "USD_PER_CONTRACT_UNIT"
+    ],
+    "3m": [
+      "USD_PER_CONTRACT_UNIT"
+    ],
+    "6m": [
+      "USD_PER_CONTRACT_UNIT"
+    ],
+    "12m": [
+      "USD_PER_CONTRACT_UNIT"
+    ],
+    "roll_yield": [
+      "FRACTION"
+    ],
+    "cftc_net_position": [
+      "CONTRACT"
+    ],
+    "etf_flow": [
+      "USD"
+    ],
+    "staking_ratio": [
+      "FRACTION"
+    ],
+    "issuance": [
+      "TOKEN"
+    ],
+    "burn": [
+      "TOKEN"
+    ],
+    "net_issuance": [
+      "TOKEN"
+    ],
+    "fees": [
+      "USD"
+    ],
+    "stablecoin_supply": [
+      "USD"
+    ],
+    "hashrate": [
+      "HASH_PER_SECOND"
+    ],
+    "difficulty": [
+      "INDEX"
+    ],
+    "mvrv": [
+      "RATIO"
+    ],
+    "realized_cap": [
+      "USD"
+    ],
+    "exchange_balance": [
+      "TOKEN"
+    ],
+    "rwa": [
+      "USD"
+    ],
+    "l2_activity": [
+      "COUNT"
+    ],
+    "blob_activity": [
+      "COUNT"
+    ]
+  },
+  "production_activation_allowed": false,
+  "orders_generated": false
+}

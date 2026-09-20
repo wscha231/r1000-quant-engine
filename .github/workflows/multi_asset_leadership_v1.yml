@@ -1,0 +1,104 @@
+name: Multi Asset Leadership V1 Research
+
+on:
+  pull_request:
+    paths:
+      - 'research/multi_asset_v1/**'
+      - 'tools/run_multi_asset_leadership.py'
+      - 'tests/multi_asset_leadership_smoke.py'
+      - 'docs/multi_asset_*_v1.json'
+      - '.github/workflows/multi_asset_leadership_v1.yml'
+      - 'research/theme_etf_runtime_v1/**'
+      - 'r1000_legacy_input_guard.py'
+      - 'tools/macro_history_sources.py'
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - 'research/multi_asset_v1/**'
+      - 'tools/run_multi_asset_leadership.py'
+      - 'docs/multi_asset_*_v1.json'
+      - '.github/workflows/multi_asset_leadership_v1.yml'
+      - 'research/theme_etf_runtime_v1/**'
+      - 'r1000_legacy_input_guard.py'
+      - 'tools/macro_history_sources.py'
+  workflow_run:
+    workflows: ['Run287 Daily Research Monitor']
+    types: [completed]
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: multi-asset-research-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            research/multi_asset_v1
+            research/theme_etf_runtime_v1
+            tools
+            tests
+            docs
+            .github
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install 'numpy==2.2.6' 'pandas==2.2.3' 'pandas_market_calendars==4.6.1'
+      - name: Synthetic contract regressions
+        run: |
+          python -W error::ResourceWarning tests/multi_asset_leadership_smoke.py
+          python -O -W error::ResourceWarning tests/multi_asset_leadership_smoke.py
+          python tests/theme_etf_runtime_v1_smoke.py
+  capture:
+    needs: contract
+    # Public, bounded, credential-free source diagnostics. Never runs from PR code.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'schedule' || github.event.workflow_run.event == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          persist-credentials: false
+          sparse-checkout: |
+            research/multi_asset_v1
+            research/theme_etf_runtime_v1
+            tools
+            docs
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'numpy==2.2.6' 'pandas==2.2.3' 'pandas_market_calendars==4.6.1'
+      - name: Capture current research prices and explicit blocked inputs
+        run: >-
+          python tools/run_multi_asset_leadership.py --capture
+          --output-dir outputs/multi_asset
+          --attempt-id run-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Publish monitoring report
+        if: always()
+        env:
+          REPORT: outputs/multi_asset/attempts/run-${{ github.run_id }}-${{ github.run_attempt }}/daily_monitoring_report.md
+        run: |
+          if [ -f "$REPORT" ]; then cat "$REPORT" >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Upload diagnostic attempts, not accepted targets
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: multi-asset-research-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            outputs/multi_asset/attempts/
+            outputs/multi_asset/latest_attempt.json
+          if-no-files-found: error
+          retention-days: 45

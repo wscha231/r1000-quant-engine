@@ -1,5 +1,28 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-20 — Multi-asset discovery is not a new allocation authority
+
+- Issue465 extends merged strict log-RS and the existing completed-session
+  calendar without adding a fixed commodity/crypto allocation or RS-only exits.
+- Keep source-adjusted equity price proxies visibly distinct from admitted
+  total-return evidence. A freshly downloaded historical series is not a PIT
+  archive. UTC crypto bars cannot stand in for NY-close observations, and
+  hourly volume cannot stand in for daily liquidity.
+- Reviewed ER/risk/holdings pins belong outside the input. Missing evaluators
+  and incomplete existing-equity coverage must block global ranking/proposals,
+  even when discovery features are calculable. Complete ETF look-through must
+  add direct and indirect issuer exposure once; partial coverage is unknown.
+- Provider credit/connectivity failures and existing durable-state failures
+  are not fixed by making a test fixture pass. No live rank or historical CAGR
+  is inferred. See docs/MULTI_ASSET_LEADERSHIP_V1_20260920.md for exact scope.
+- Separately pinned evaluator bytes still need feature-availability ordering
+  and an explicit model/evaluation/policy/registry benchmark identity. Complete
+  universe identity is not complete evaluation coverage; suppress global ranks
+  on missing evaluations and reject impossible historical rank sequences.
+- A rejected fundamental observation must also invalidate an evaluator bound
+  to those same raw feature bytes; a separate review pin cannot erase a stale,
+  missing, unit-invalid or unapproved-source metric admission failure.
+
 This is the shared "mistake notebook" for Codex, Claude, GPT Pro, and any other
 agent working on `wscha231/r1000-quant-engine`.
 
