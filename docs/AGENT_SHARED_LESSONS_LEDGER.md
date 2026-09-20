@@ -9,6 +9,10 @@
   dependency results and context in identity; a changed receipt invalidates reuse.
   Also bind each downstream input role to the upstream output, not just its status.
   Result availability must follow every causal input collection time.
+- Null data_as_of is diagnostic-only. Bind QA PASS to the actual artifacts it
+  reviewed, not just a qa_report filename; changed/uncovered inputs block consumers.
+  Dirty specialist/transitive code and untracked source bytes must invalidate reuse,
+  even while the Git HEAD string remains unchanged.
 - A6 must inspect failures read-only without waiting for failed upstream work to
   succeed. Peer dispatch, model calls and automatic promotion are absent.
 - Existing manual workflow defaults point at legacy metrics. Without a v2 state,

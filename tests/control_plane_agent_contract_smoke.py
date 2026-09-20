@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -46,8 +47,22 @@ class ControlPlaneTests(unittest.TestCase):
         request = dict(agent=agent, inputs={role: self.artifact(agent + '_' + role)
             for role in self.contract['agents'][agent]['inputs']},
             model=dict(name='synthetic-operator', version='v1'), parameters={'fixture': True})
+        if agent == 'A6':
+            self.set_payload(request['inputs']['review_bundle'], {'schema_version':'qa-review-bundle-v2','artifacts':{}})
         self.state['requests'].append(request)
         return request
+
+    def set_payload(self, artifact, payload):
+        path=self.root/artifact['path']; path.write_text(json.dumps(payload))
+        artifact['sha256']=board.file_hash(path)
+
+    def bind_qa_scope(self):
+        qa=next(r for r in self.state['requests'] if r['agent']=='A6')
+        covered={}
+        for request in self.state['requests']:
+            if 'A6' in self.contract['agents'][request['agent']]['dependencies']:
+                covered.update({k:copy.deepcopy(v) for k,v in request['inputs'].items() if k!='qa_report'})
+        self.set_payload(qa['inputs']['review_bundle'], {'schema_version':'qa-review-bundle-v2','artifacts':covered})
 
     def tasks(self):
         return board.build_tasks(self.state, self.root, self.contract, self.now, self.sha, self.config)
@@ -56,9 +71,18 @@ class ControlPlaneTests(unittest.TestCase):
         packet = next(t for t in self.tasks() if t['agent'] == agent)
         receipt = dict(agent=agent, task_key=packet['task_key'], status='SUCCEEDED',
                        outputs={role:self.artifact(agent+'_result_'+role) for role in packet['outputs']})
+        request=next(r for r in self.state['requests'] if r['agent']==agent)
+        causal=list(request['inputs'].values())
+        if agent=='A6':
+            bundle=board.read_json(self.root/request['inputs']['review_bundle']['path'])
+            causal+=list(bundle['artifacts'].values())
+            self.set_payload(receipt['outputs']['qa_report'], {'schema_version':'qa-report-v2',
+                'review_bundle_sha256':request['inputs']['review_bundle']['sha256'],
+                'reviewed_artifacts':bundle['artifacts'],'verdict':'PASS'})
+        ready=max(board.timestamp(a['collected_at']) for a in causal).isoformat()
         for output in receipt['outputs'].values():
-            output['available_at']=self.at(-8)
-            output['collected_at']=self.at(-8)
+            output['available_at']=ready
+            output['collected_at']=ready
         self.state['completed_tasks'].append(receipt)
         for request in self.state['requests']:
             if agent in self.contract['agents'][request['agent']]['dependencies']:
@@ -134,9 +158,9 @@ class ControlPlaneTests(unittest.TestCase):
 
     def test_completion_cannot_predate_any_causal_input(self):
         self.add_request('A2'); self.complete(); receipt=self.complete('A2')
-        receipt['outputs']['leadership_events']['available_at']=self.at(-9)
+        receipt['outputs']['leadership_events']['available_at']=self.at(-11)
         self.assertEqual(self.tasks()[1]['status'],'BLOCKED')
-        receipt['outputs']['leadership_events']['collected_at']=self.at(-9)
+        receipt['outputs']['leadership_events']['collected_at']=self.at(-11)
         self.assertEqual(self.tasks()[1]['status'],'BLOCKED')
 
     def test_wrong_receipt_identity_does_not_skip(self):
@@ -173,10 +197,58 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertIn('PORTFOLIO_CONTEXT_NOT_VERIFIED',blocked['A5']['reasons'])
         for key in ('actual_book','approved_target','thesis'): self.state['context'][key]='VERIFIED'
         for agent in ('A1','A2','A3','A4','A6','A5','A7','A8'):
+            if agent=='A6': self.bind_qa_scope()
             pending={t['agent']:t for t in self.tasks()}
             self.assertEqual(pending[agent]['status'],'READY',agent)
             self.complete(agent)
         self.assertTrue(all(t['status']=='SKIP_UNCHANGED' for t in self.tasks()))
+
+    def test_missing_data_snapshot_blocks_only_non_diagnostic_agents(self):
+        self.add_request('A2'); self.add_request('A6'); self.state['context']['data_as_of']=None
+        result={t['agent']:t for t in self.tasks()}
+        self.assertEqual(result['A1']['status'],'READY')
+        self.assertEqual(result['A6']['status'],'READY')
+        self.assertIn('DATA_AS_OF_MISSING',result['A2']['reasons'])
+
+    def test_qa_cannot_authorize_unreviewed_downstream_inputs(self):
+        for n in range(2,9): self.add_request('A'+str(n))
+        for key in ('actual_book','approved_target','thesis'): self.state['context'][key]='VERIFIED'
+        for agent in ('A1','A2','A3','A4','A6'): self.complete(agent)
+        result={t['agent']:t for t in self.tasks()}
+        for agent in ('A5','A7','A8'):
+            self.assertEqual(result[agent]['status'],'BLOCKED')
+            self.assertTrue(any(r.startswith('QA_INPUT_NOT_REVIEWED:') for r in result[agent]['reasons']))
+
+    def test_failed_qa_report_blocks_consumers(self):
+        self.add_request('A6'); self.add_request('A7'); self.bind_qa_scope()
+        receipt=self.complete('A6'); artifact=receipt['outputs']['qa_report']
+        report=board.read_json(self.root/artifact['path']); report['verdict']='FAIL'
+        self.set_payload(artifact,report)
+        for req in self.state['requests']:
+            if req['agent']=='A7':req['inputs']['qa_report']=copy.deepcopy(artifact)
+        result={t['agent']:t for t in self.tasks()}
+        self.assertEqual(result['A6']['status'],'SKIP_UNCHANGED')
+        self.assertIn('QA_NOT_PASS',result['A7']['reasons'])
+
+    def test_dirty_specialist_or_untracked_source_changes_identity(self):
+        root=self.root/'git-fixture'; root.mkdir()
+        paths=['tools/run_agent_board.py','r1000_config.py','requirements_github.txt']
+        paths+=['research/control_plane/'+n for n in ('agent_contracts_v2.yaml','task_packet_schema.json','system_state_schema.json')]
+        for name in paths:
+            dest=root/name; dest.parent.mkdir(parents=True,exist_ok=True); shutil.copyfile(ROOT/name,dest)
+        specialist='tools/run_multi_asset_leadership.py'; (root/specialist).write_text('version = 1\n'); paths.append(specialist)
+        def git(*args):
+            subprocess.run(['git',*args],cwd=root,check=True,capture_output=True)
+        git('init'); git('add','--',*paths)
+        git('-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-m','synthetic fixture')
+        with patch.object(board,'REPO_ROOT',root):
+            original=board.source_identity()
+            (root/specialist).write_text('version = 2\n')
+            dirty=board.source_identity()
+            self.assertEqual(original[0],dirty[0]); self.assertNotEqual(original[1],dirty[1])
+            (root/specialist).write_text('version = 1\n')
+            (root/'tools/new_helper.py').write_text('version = 1\n')
+            self.assertNotEqual(original[1],board.source_identity()[1])
 
     def test_g0_blocks_non_diagnostic_agents(self):
         self.add_request('A2'); self.add_request('A6'); self.state['g0']['status']='BLOCKED'

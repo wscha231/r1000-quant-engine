@@ -72,8 +72,10 @@ def repo_path(value: str | Path) -> Path:
     return path if path.is_absolute() else REPO_ROOT / path
 
 
-def schema_validate(payload: Any, filename: str) -> None:
+def schema_validate(payload: Any, filename: str, definition: str | None = None) -> None:
     schema = read_json(CONTRACT_DIR / filename)
+    if definition is not None:
+        schema = {'$schema': schema['$schema'], '$defs': schema['$defs'], '$ref': '#/$defs/' + definition}
     Draft202012Validator.check_schema(schema)
     errors = list(Draft202012Validator(schema, format_checker=FormatChecker()).iter_errors(payload))
     if errors:
@@ -93,7 +95,16 @@ def source_identity() -> tuple[str, str]:
     paths = ['tools/run_agent_board.py', 'r1000_config.py', 'requirements_github.txt']
     paths += ['research/control_plane/' + name for name in
               ('agent_contracts_v2.yaml', 'task_packet_schema.json', 'system_state_schema.json')]
-    return sha, digest({name: file_hash(REPO_ROOT / name) for name in paths})
+    identity = {name: file_hash(REPO_ROOT / name) for name in paths}
+    # Cover dirty tracked specialist code and its transitive local dependencies,
+    # not only the board's own files. Never print or publish patch contents.
+    delta = subprocess.check_output(['git', 'diff', '--no-ext-diff', '--no-textconv', '--binary', 'HEAD', '--'], cwd=REPO_ROOT)
+    identity['tracked_worktree_diff'] = hashlib.sha256(delta).hexdigest()
+    untracked = subprocess.check_output(['git', 'ls-files', '--others', '--exclude-standard', '-z'], cwd=REPO_ROOT).decode().split('\0')
+    identity['untracked_files'] = {name: file_hash(REPO_ROOT / name) for name in sorted(untracked)
+                                   if name and Path(name).suffix in ('.py', '.pyi', '.sh', '.so', '.pyd')
+                                   and (REPO_ROOT / name).is_file()}
+    return sha, digest(identity)
 
 
 def operating_gates() -> dict[str, Any]:
@@ -184,7 +195,7 @@ def build_tasks(state: dict, root: Path, contract: dict, now: datetime,
     receipts = {r['agent']: r for r in state['completed_tasks']}
     if len(receipts) != len(state['completed_tasks']):
         raise ContractError('duplicate_completion_receipt')
-    tasks, completed, visiting = {}, {}, set()
+    tasks, completed, visiting, qa_reports = {}, {}, set(), {}
     def plan(agent):
         if agent in tasks:
             return tasks[agent]
@@ -200,6 +211,21 @@ def build_tasks(state: dict, root: Path, contract: dict, now: datetime,
                 verify_artifact(root, artifact, cutoff, now)
             except (OSError, ValueError):
                 reasons.append('input_invalid:' + role)
+        reviewed_inputs = {}
+        if agent == 'A6':
+            try:
+                bundle = read_json(artifact_path(root, request['inputs']['review_bundle']['path']))
+                schema_validate(bundle, 'system_state_schema.json', 'qa_bundle')
+                reviewed_inputs = bundle['artifacts']
+                for artifact in reviewed_inputs.values():
+                    if file_hash(artifact_path(root, artifact['path'])) != artifact['sha256']:
+                        raise ContractError('qa_reviewed_bytes_mismatch')
+                    if timestamp(artifact['collected_at']) > timestamp(request['inputs']['review_bundle']['collected_at']):
+                        raise ContractError('qa_bundle_predates_reviewed_input')
+            except (OSError, ValueError, KeyError):
+                reasons.append('QA_BUNDLE_INVALID')
+        if state['context']['data_as_of'] is None and agent not in ('A1', 'A6'):
+            reasons.append('DATA_AS_OF_MISSING')
         if state['g0']['status'] != 'PASS' and agent not in ('A1', 'A6'):
             reasons.append('G0_NOT_PASS')
         if state['context']['blockers'] and agent not in ('A1', 'A6'):
@@ -219,6 +245,13 @@ def build_tasks(state: dict, root: Path, contract: dict, now: datetime,
                 for role, artifact in completed[dep]['outputs'].items():
                     if request['inputs'].get(role) != artifact:
                         reasons.append('dependency_input_mismatch:' + dep + ':' + role)
+        if 'A6' in spec['dependencies'] and 'A6' in completed:
+            report = qa_reports['A6']
+            if report['verdict'] != 'PASS':
+                reasons.append('QA_NOT_PASS')
+            for role, artifact in request['inputs'].items():
+                if role != 'qa_report' and report['reviewed_artifacts'].get(role) != artifact:
+                    reasons.append('QA_INPUT_NOT_REVIEWED:' + role)
         identity = {'input_hash': digest({'inputs': request['inputs'], 'dependencies': dependencies,
                     'context': state['context'], 'g0': state['g0'], 'master_sha': state['master_sha']}),
                     'code_sha': code_sha, 'config_hash': config_hash,
@@ -230,7 +263,7 @@ def build_tasks(state: dict, root: Path, contract: dict, now: datetime,
             try:
                 if set(receipt['outputs']) != set(spec['outputs']):
                     raise ContractError('output_roles_mismatch')
-                causal_inputs = list(request['inputs'].values())
+                causal_inputs = list(request['inputs'].values()) + list(reviewed_inputs.values())
                 causal_inputs += [artifact for dependency in dependencies.values()
                                   for artifact in dependency['outputs'].values()]
                 causal_ready = max(timestamp(artifact['collected_at']) for artifact in causal_inputs)
@@ -238,6 +271,12 @@ def build_tasks(state: dict, root: Path, contract: dict, now: datetime,
                     verify_artifact(root, artifact, cutoff, now)
                     if timestamp(artifact['available_at']) < causal_ready:
                         raise ContractError('completion_predates_inputs')
+                if agent == 'A6':
+                    report = read_json(artifact_path(root, receipt['outputs']['qa_report']['path']))
+                    schema_validate(report, 'system_state_schema.json', 'qa_report')
+                    if report['review_bundle_sha256'] != request['inputs']['review_bundle']['sha256'] or report['reviewed_artifacts'] != reviewed_inputs:
+                        raise ContractError('qa_report_scope_mismatch')
+                    qa_reports[agent] = report
                 completed[agent] = receipt
                 status = 'SKIP_UNCHANGED'
             except (OSError, ValueError):

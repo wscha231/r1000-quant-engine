@@ -335,6 +335,56 @@
           "const": "VERIFIED"
         }
       }
+    },
+    "qa_bundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "artifacts"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "qa-review-bundle-v2"
+        },
+        "artifacts": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/artifact"
+          }
+        }
+      }
+    },
+    "qa_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "review_bundle_sha256",
+        "reviewed_artifacts",
+        "verdict"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "qa-report-v2"
+        },
+        "review_bundle_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "reviewed_artifacts": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/artifact"
+          }
+        },
+        "verdict": {
+          "enum": [
+            "PASS",
+            "FAIL"
+          ]
+        }
+      }
     }
   }
 }

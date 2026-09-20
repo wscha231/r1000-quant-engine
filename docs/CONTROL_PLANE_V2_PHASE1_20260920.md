@@ -62,10 +62,14 @@ A completion output must become available no earlier than collection of every
 causal input/dependency result; pre-input output receipts cannot be reused.
 A1 and A6 can diagnose G0 failures. A6 is read-only and has no prerequisite-success
 requirement, so it can inspect failed work independently. Every result returns to
-A0; peers cannot dispatch. Phase 1 invokes no specialist/model/workflow/API.
+A0; peers cannot dispatch. Phase 1 invokes no specialist/model/workflow/API. Missing data_as_of permits only
+A1/A6 diagnostic work. A6 bundles and reports carry exact reviewed artifact
+identities; PASS QA can support A5/A7/A8 only when all their non-QA inputs are
+covered. FAIL or unrelated QA remains diagnostic and blocks downstream proposals.
 
 A task key binds agent + input hashes/metadata, dependency output receipts,
-context/G0/master identity, code SHA, actual control/config bytes, model name and
+context/G0/master identity, code SHA, actual control/config bytes plus dirty tracked
+and untracked source bytes, model name and
 version, and parameters. Same identity plus valid successful result bytes yields
 SKIP_UNCHANGED. Changed context/code/config/model/parameters/input/dependency
 invalidates reuse. Missing, stale, future or changed result bytes block reuse.
@@ -81,7 +85,7 @@ and are obsolete. No empty or blocked board certifies strategy readiness.
 
 ## Validation and limits
 
-Focused smoke: 29 distinct synthetic unittest cases, including CLI integration,
+Focused smoke: 33 distinct synthetic unittest cases, including CLI integration,
 strict schemas/JSON, time/identity, A0-only routing, read-only QA, dependency
 completion, all cache dimensions, corruption, missing state and interrupted build.
 The existing handoff/agent-standard/lesson smokes are also run through Tier-1.
