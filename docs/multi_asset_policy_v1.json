@@ -18,6 +18,10 @@
     "catalyst": 0.1
   },
   "sources": {
+    "CANONICAL_HISTORY": {
+      "kinds": ["history_availability"],
+      "max_age_days": 40
+    },
     "CANONICAL_UNIVERSE": {
       "kinds": ["base_universe"],
       "max_age_days": 4
@@ -27,12 +31,14 @@
       "max_age_days": 4
     },
     "YAHOO_CHART": {
+      "return_bases": ["PROVIDER_ADJUSTED_CLOSE_PROXY"],
       "kinds": [
         "price"
       ],
       "max_age_days": 4
     },
     "CANONICAL_PRICE_ARCHIVE": {
+      "return_bases": ["TOTAL_RETURN"],
       "kinds": [
         "price"
       ],
@@ -93,6 +99,7 @@
       "max_age_days": 4
     },
     "COINBASE_EXCHANGE": {
+      "return_bases": ["TOTAL_RETURN"],
       "kinds": [
         "price"
       ],
@@ -113,7 +120,8 @@
     "underlying_evidence": [],
     "base_universe": [],
     "positions": [],
-    "history": []
+    "history": [],
+    "history_availability": []
   },
   "validated_models": {},
   "metric_units": {

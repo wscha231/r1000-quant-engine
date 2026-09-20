@@ -68,7 +68,11 @@ the historical FTI/CACI/FLEX/NVT/CLS/ONTO/RBRK research examples.
 | `.github/workflows/multi_asset_leadership_v1.yml` | Python 3.11/3.13 PR checks and read-only capture after existing daily monitor |
 
 The normalized input is `multi-asset-input-v1`. Required input hash is supplied
-outside the payload. Evaluator/model/risk/holdings approvals live in a separately
+outside the payload. Default registry/policy bytes must match the repository
+HEAD blobs; custom configurations require independently expected byte hashes
+through `--expected-registry-sha256` and `--expected-policy-sha256`. Actual
+configuration byte hashes and semantic hashes are recorded separately.
+Evaluator/model/risk/holdings approvals live in a separately
 reviewed policy; an input cannot approve itself. These pins still depend on
 reviewed producers: byte hashes alone do not authenticate economic claims.
 
@@ -192,8 +196,8 @@ There were **zero BUY_CONSIDERATION** rows. No fundamentals or news score was
 invented to turn these observations into a buy proposal.
 
 Local initial publication evidence: 45 distinct new tests plus 12 existing
-tests passed. Follow-up regressions bring this to **58 distinct new tests plus
-12 existing tests**. Python `-O` repeats the same 58 cases. The first remote
+tests passed. Follow-up regressions bring this to **63 distinct new tests plus
+12 existing tests**. Python `-O` repeats the same 63 cases. The first remote
 matrix run `35489119713` exposed one packaging omission: the test reads its
 workflow YAML but sparse checkout omitted `.github`. Added the declared path;
 the test remains mandatory and unchanged. This does not weaken a data gate.
@@ -215,6 +219,14 @@ receipts in result artifacts; and trigger integration tests on shared dependency
 changes. A held asset also cannot receive an addition when its reviewed thesis
 is negative/missing or valuation is unacceptable. Short-RS hold preservation
 and separately authorized risk reduction still apply.
+
+The third review (`e7d4f9f3ba`) adds configuration-byte admission, a separately
+pinned PIT availability receipt for prior rank snapshots (published within 24
+hours of the claimed session close), source-specific allowed return bases and
+matching BTC/subject bases for crypto RS. Missing or retrospective history is
+rejected, not converted into a historical rank change. A read-time session gate
+also prevents a previously successful historical attempt from being consumed
+as the current latest result. These changes require fresh exact-head review.
 
 No verified current Top Leaders, BUY_CONSIDERATION, replacement trades or
 CAGR/MDD are reported. The replay preflight exposes A–E comparisons and six

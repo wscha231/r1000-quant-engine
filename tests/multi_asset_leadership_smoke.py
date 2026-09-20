@@ -19,11 +19,16 @@ from research.multi_asset_v1.contracts import ContractError,digest,encoded,load_
 from research.multi_asset_v1.prices import grid,admit_prices
 from research.multi_asset_v1.runtime import run,feature_identity
 from research.multi_asset_v1.decisions import classify,evaluation,event_memory,lookthrough,propose
-from tools.run_multi_asset_leadership import parse_chart,publish,read_latest
+from tools.run_multi_asset_leadership import parse_chart,publish,read_latest,configuration_bytes
 from research.multi_asset_v1.sources import candles,capture_spot_metrics,crypto_chart
 
 CUTOFF="2026-09-19T10:00:00+00:00"
 SESSIONS=grid(CUTOFF)
+
+
+def configuration_args(out):
+    return ["--expected-registry-sha256",hashlib.sha256((out/"registry.json").read_bytes()).hexdigest(),
+            "--expected-policy-sha256",hashlib.sha256((out/"policy.json").read_bytes()).hexdigest()]
 
 
 def fixture():
@@ -169,7 +174,7 @@ class Integrity(unittest.TestCase):
 
     def test_proxy_rs_is_labeled_and_cannot_enter_expected_return(self):
         reviewed(self.p,self.r,self.policy)
-        for x in self.p["prices"]:x["return_basis"]="PROVIDER_ADJUSTED_CLOSE_PROXY"
+        for x in self.p["prices"]:x.update(return_basis="PROVIDER_ADJUSTED_CLOSE_PROXY",source="YAHOO_CHART")
         out=run(self.p,self.r,self.policy)
         self.assertTrue(all(x["RS20"] is not None and x["data_quality"]=="PRICE_PROXY_RESEARCH_ONLY" and x["expected_return_12m"] is None for x in out["multi_asset_leadership_latest"]))
 
@@ -194,7 +199,30 @@ class Integrity(unittest.TestCase):
         a=self.r["assets"][0]
         rows=[x for x in self.p["prices"] if x["asset_id"]==a["asset_id"]]
         rows[0]["return_basis"]="PROVIDER_ADJUSTED_CLOSE_PROXY"
+        rows[0]["source"]="YAHOO_CHART"
         with self.assertRaisesRegex(ContractError,"mixed_return_basis"):admit_prices(rows,a,CUTOFF,self.policy,SESSIONS)
+
+    def test_yahoo_cannot_self_declare_total_return(self):
+        a=self.r["assets"][0]
+        rows=[{**x,"source":"YAHOO_CHART"} for x in self.p["prices"] if x["asset_id"]==a["asset_id"]]
+        with self.assertRaisesRegex(ContractError,"source_return_basis_not_approved"):
+            admit_prices(rows,a,CUTOFF,self.policy,SESSIONS)
+
+    def test_crypto_relative_returns_require_matching_source_basis(self):
+        from research.multi_asset_v1.contracts import stamp
+        real=json.loads((ROOT/"docs/multi_asset_registry_v1.json").read_bytes())
+        end=stamp(CUTOFF).replace(hour=0,minute=0,second=0)
+        for aid,basis,source in (("CRYPTO:BTC-USD","TOTAL_RETURN","CANONICAL_PRICE_ARCHIVE"),("CRYPTO:ETH-USD","PROVIDER_ADJUSTED_CLOSE_PROXY","YAHOO_CHART")):
+            a=next(a for a in real["assets"] if a["asset_id"]==aid);self.r["assets"].append(a)
+            for i in range(261):
+                close=end-timedelta(days=260-i)
+                row=dict(**meta(source),asset_id=aid,session=(close-timedelta(days=1)).date().isoformat(),clock="UTC_DAY",price=100+i,total_return_index=100+i,volume=1000,return_basis=basis,unit=a["price_unit"],currency="USD",corporate_action_quarantine=False)
+                row["observed_at"]=close.isoformat();self.p["prices"].append(row)
+        out=run(self.p,self.r,self.policy)
+        eth=next(x for x in out["crypto_market_latest"] if x["asset_id"]=="CRYPTO:ETH-USD")["utc_calendar"]
+        self.assertIsNone(eth["RS_BTC"])
+        self.assertEqual(eth["BTC_return_basis"],"TOTAL_RETURN")
+        self.assertEqual(eth["RS_BTC_blocker"],"crypto_benchmark_return_basis_mismatch")
 
 
 class Decisions(unittest.TestCase):
@@ -320,6 +348,28 @@ class Decisions(unittest.TestCase):
         out=run(self.p,self.r,self.policy)
         self.assertTrue(all(x["rank_change_5d"] is None and x["score_change_20d"] is None for x in out["multi_asset_leadership_latest"]))
 
+    def test_retrospective_history_cannot_claim_old_rank_changes(self):
+        current=run(self.p,self.r,self.policy)
+        old_session=list(SESSIONS)[-6];close=SESSIONS[old_session];then=(close+timedelta(hours=1)).isoformat()
+        previous={"as_of":old_session,"computed_at":then,"registry_sha256":digest(self.r),"multi_asset_leadership_latest":current["multi_asset_leadership_latest"]}
+        receipt={**meta("CANONICAL_HISTORY"),"observed_at":close.isoformat(),"available_at":then,"evidence_kind":"PIT_ARCHIVE","snapshot_sha256":digest(previous)}
+        previous["availability_receipt"]=receipt
+        self.policy["reviewed_pins"]["history_availability"].append(digest(receipt))
+        self.policy["reviewed_pins"]["history"].append(digest(previous));self.p["history"]=[previous]
+        out=run(self.p,self.r,self.policy)
+        self.assertTrue(all(x["rank_change_5d"]==0 for x in out["multi_asset_leadership_latest"]))
+        for mode in ("missing","retrospective"):
+            with self.subTest(mode=mode):
+                altered=copy.deepcopy(previous)
+                if mode=="missing":altered.pop("availability_receipt")
+                else:
+                    later=(list(SESSIONS.values())[-1]+timedelta(hours=1)).isoformat()
+                    altered["computed_at"]=later;altered["availability_receipt"]["available_at"]=later
+                    altered["availability_receipt"]["snapshot_sha256"]=digest({k:v for k,v in altered.items() if k!="availability_receipt"})
+                    self.policy["reviewed_pins"]["history_availability"].append(digest(altered["availability_receipt"]))
+                self.policy["reviewed_pins"]["history"].append(digest(altered));self.p["history"]=[altered]
+                with self.assertRaises(ContractError):run(self.p,self.r,self.policy)
+
     def test_event_reprints_never_multiply_score(self):
         assets={a["asset_id"]:a for a in self.r["assets"]}
         event=dict(**meta("CANONICAL_NEWS"),event_id="EVENT:1",published_at=CUTOFF,event_type="MINE_OUTAGE",confidence=.9,materiality=.8,confirmed=True,thesis_effect="REVIEW_NEGATIVE",estimated_duration="2_WEEKS",asset_ids=[],commodity_ids=["COPPER"],theme_ids=[],duplicate_cluster="OUTAGE:1")
@@ -418,7 +468,7 @@ class ExposureAndPublication(unittest.TestCase):
         p,r,policy=reviewed(*fixture());risk(p,r,policy)
         with tempfile.TemporaryDirectory() as temp:
             out=Path(temp);publish(p,r,policy,out,"good","fixture-code")
-            self.assertEqual(read_latest(out)["proposal"]["status"],"RESEARCH_PROPOSAL")
+            self.assertEqual(read_latest(out,consumed_at=CUTOFF)["proposal"]["status"],"RESEARCH_PROPOSAL")
             saved=(out/"last_success.json").read_bytes()
             for mode in ("missing","invalid"):
                 with self.subTest(mode=mode):
@@ -432,7 +482,7 @@ class ExposureAndPublication(unittest.TestCase):
                     with self.assertRaisesRegex(ContractError,"not_ready"):read_latest(out)
                     for name,obj in (("input",bad),("registry",r),("policy",policy)):
                         (out/(name+".json")).write_bytes(encoded(obj))
-                    proc=subprocess.run([sys.executable,str(ROOT/"tools/run_multi_asset_leadership.py"),"--input",str(out/"input.json"),"--expected-input-sha256",hashlib.sha256(encoded(bad)).hexdigest(),"--registry",str(out/"registry.json"),"--policy",str(out/"policy.json"),"--output-dir",str(out),"--attempt-id",mode+"-cli"],capture_output=True,text=True)
+                    proc=subprocess.run([sys.executable,str(ROOT/"tools/run_multi_asset_leadership.py"),"--input",str(out/"input.json"),"--expected-input-sha256",hashlib.sha256(encoded(bad)).hexdigest(),"--registry",str(out/"registry.json"),"--policy",str(out/"policy.json"),"--output-dir",str(out),"--attempt-id",mode+"-cli"]+configuration_args(out),capture_output=True,text=True)
                     self.assertEqual(proc.returncode,2,proc.stdout+proc.stderr)
                     self.assertEqual((out/"last_success.json").read_bytes(),saved)
 
@@ -443,6 +493,16 @@ class ExposureAndPublication(unittest.TestCase):
             self.assertEqual(proc.returncode,2)
             self.assertEqual(json.loads((out/"latest_attempt.json").read_bytes())["status"],"BLOCKED")
 
+    def test_successful_old_attempt_cannot_be_read_as_current(self):
+        p,r,policy=reviewed(*fixture());risk(p,r,policy)
+        with tempfile.TemporaryDirectory() as temp:
+            out=Path(temp);publish(p,r,policy,out,"historical","fixture-code")
+            self.assertEqual(read_latest(out,consumed_at=CUTOFF)["as_of"],list(SESSIONS)[-1])
+            with self.assertRaisesRegex(ContractError,"latest_session_stale"):
+                read_latest(out,consumed_at="2026-10-01T22:00:00Z")
+            with self.assertRaisesRegex(ContractError,"latest_decision_in_future"):
+                read_latest(out,consumed_at="2026-09-18T22:00:00Z")
+
     def test_cli_retains_noncanonical_authorized_input_byte_hash(self):
         p,r,policy=reviewed(*fixture());risk(p,r,policy)
         with tempfile.TemporaryDirectory() as temp:
@@ -451,11 +511,23 @@ class ExposureAndPublication(unittest.TestCase):
                 (out/(name+".json")).write_text(json.dumps(obj,indent=2))
             authorized=hashlib.sha256((out/"input.json").read_bytes()).hexdigest()
             self.assertNotEqual(authorized,digest(p))
-            proc=subprocess.run([sys.executable,str(ROOT/"tools/run_multi_asset_leadership.py"),"--input",str(out/"input.json"),"--expected-input-sha256",authorized,"--registry",str(out/"registry.json"),"--policy",str(out/"policy.json"),"--output-dir",str(out),"--attempt-id","pretty"],capture_output=True,text=True)
+            proc=subprocess.run([sys.executable,str(ROOT/"tools/run_multi_asset_leadership.py"),"--input",str(out/"input.json"),"--expected-input-sha256",authorized,"--registry",str(out/"registry.json"),"--policy",str(out/"policy.json"),"--output-dir",str(out),"--attempt-id","pretty"]+configuration_args(out),capture_output=True,text=True)
             self.assertEqual(proc.returncode,0,proc.stdout+proc.stderr)
             receipt=json.loads((out/"latest_attempt.json").read_bytes())
             self.assertEqual(receipt["input_sha256"],authorized)
             self.assertEqual(receipt["canonical_payload_sha256"],digest(p))
+
+    def test_custom_configuration_cannot_approve_itself(self):
+        with tempfile.TemporaryDirectory() as temp:
+            for name in ("policy","registry"):
+                with self.subTest(name=name):
+                    path=Path(temp)/(name+".json");raw=b'{"caller_created":true}\n';path.write_bytes(raw)
+                    repository_path="docs/multi_asset_"+name+"_v1.json"
+                    with self.assertRaisesRegex(ContractError,"requires_external_hash"):
+                        configuration_bytes(path,None,repository_path)
+                    with self.assertRaisesRegex(ContractError,"configuration_hash_mismatch"):
+                        configuration_bytes(path,"0"*64,repository_path)
+                    self.assertEqual(configuration_bytes(path,hashlib.sha256(raw).hexdigest(),repository_path),raw)
 
     def test_source_failure_receipts_reach_published_diagnostics(self):
         p,r,policy=fixture()

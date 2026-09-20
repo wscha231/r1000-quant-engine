@@ -33,6 +33,7 @@ def admit_prices(rows, asset, cutoff, policy, sessions, clock="NYSE_CLOSE"):
         require(row.get("return_basis") in {"TOTAL_RETURN","PROVIDER_ADJUSTED_CLOSE_PROXY"}, "total_return_required")
         require(row.get("corporate_action_quarantine") is False, "corporate_action_quarantine")
         obs, _, _ = metadata(row, cutoff, policy, "price", fresh=False)
+        require(row["return_basis"] in policy["sources"][row["source"]].get("return_bases",[]),"source_return_basis_not_approved")
         session = row.get("session")
         day(session)
         require(session not in values, "duplicate_price_session")

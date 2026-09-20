@@ -181,15 +181,19 @@ def run(payload, registry, policy):
                 "return_basis":series[end]["return_basis"],
                 **{f"ret{h}_calendar_days":series[end]["total_return_index"]/series[keys[-1-h]]["total_return_index"]-1 for h in HORIZONS}}
             item["utc_calendar"]["RS_BTC"] = None
+            item["utc_calendar"]["BTC_return_basis"] = None
             if aid=="CRYPTO:BTC-USD":
+                item["utc_calendar"]["BTC_return_basis"]=series[end]["return_basis"]
                 item["utc_calendar"]["RS_BTC"]={str(h):0.0 for h in HORIZONS}
             else:
                 btc_id="CRYPTO:BTC-USD"
                 if btc_id in assets:
                     try:
                         btc=admit_prices(groups[(btc_id,"UTC_DAY")],assets[btc_id],cutoff,policy,sessions,"UTC_DAY")
+                        item["utc_calendar"]["BTC_return_basis"]=btc[end]["return_basis"]
+                        require(series[end]["return_basis"]==btc[end]["return_basis"],"crypto_benchmark_return_basis_mismatch")
                         item["utc_calendar"]["RS_BTC"]={str(h):math.log(series[end]["total_return_index"]/series[keys[-1-h]]["total_return_index"])-math.log(btc[end]["total_return_index"]/btc[keys[-1-h]]["total_return_index"]) for h in HORIZONS}
-                    except (ContractError,ValueError):pass
+                    except (ContractError,ValueError) as exc:item["utc_calendar"]["RS_BTC_blocker"]=str(exc)
             item["status"]="UTC_ONLY" if aid not in admitted else "BOTH_CLOCKS"
         except (ContractError,ValueError) as exc:item["reason"]=str(exc)
         crypto.append(item)
@@ -205,6 +209,15 @@ def run(payload, registry, policy):
         require(digest(previous) in policy["reviewed_pins"].get("history",[]),"unreviewed_history")
         require(previous.get("registry_sha256")==digest(registry),"history_universe_changed")
         require(stamp(previous["computed_at"])<stamp(cutoff),"future_history")
+        receipt=previous.get("availability_receipt")
+        require(receipt is not None,"missing_history_availability")
+        pinned(receipt,policy,"history_availability",cutoff)
+        require(receipt.get("evidence_kind")=="PIT_ARCHIVE","history_requires_pit_archive")
+        require(receipt.get("snapshot_sha256")==digest({k:v for k,v in previous.items() if k!="availability_receipt"}),"history_receipt_mismatch")
+        require(previous["as_of"] in sessions,"history_non_session")
+        historical_close=sessions[previous["as_of"]]
+        require(stamp(receipt["observed_at"])==historical_close,"history_observation_mismatch")
+        require(historical_close<=stamp(previous["computed_at"])<=stamp(receipt["available_at"])<=historical_close+timedelta(hours=24),"retrospective_history_not_admitted")
         old=unique(previous["multi_asset_leadership_latest"],"asset_id")
         require(set(old)=={r["asset_id"] for r in rows},"history_cohort_changed")
         for lag in (5,20):

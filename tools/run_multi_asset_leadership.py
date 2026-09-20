@@ -20,7 +20,7 @@ from urllib.parse import urlencode
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 
-from research.multi_asset_v1.contracts import ContractError, digest, encoded, load_json, number, require
+from research.multi_asset_v1.contracts import ContractError, digest, encoded, load_json, number, require, stamp
 from research.multi_asset_v1.runtime import render, run
 from research.multi_asset_v1.prices import grid
 from research.multi_asset_v1.sources import capture_crypto,capture_spot_metrics
@@ -110,7 +110,18 @@ def fully_admitted(result):
     return result.get("global_ranking_ready") is True and result.get("proposal",{}).get("status")=="RESEARCH_PROPOSAL"
 
 
-def publish(payload, registry, policy, out, attempt_id, code_sha, *, input_sha256=None):
+def configuration_bytes(path, expected_sha256, repository_path):
+    raw=path.read_bytes()
+    if expected_sha256 is not None:
+        require(hashlib.sha256(raw).hexdigest()==expected_sha256,"configuration_hash_mismatch")
+    else:
+        require(path.resolve()==(ROOT/repository_path).resolve(),"custom_configuration_requires_external_hash")
+        reviewed=subprocess.check_output(["git","show","HEAD:"+repository_path],cwd=ROOT)
+        require(raw==reviewed,"configuration_differs_from_repository_head")
+    return raw
+
+
+def publish(payload, registry, policy, out, attempt_id, code_sha, *, input_sha256=None, configuration_sha256=None):
     require(attempt_id and all(c.isalnum() or c in "-_" for c in attempt_id),"attempt_id")
     # Revoke consumption before validation, preserving last-success and its bytes.
     atomic(out/"latest_attempt.json",encoded({"status":"STARTED","attempt_id":attempt_id,"last_success_retained":True}))
@@ -119,6 +130,7 @@ def publish(payload, registry, policy, out, attempt_id, code_sha, *, input_sha25
     try:
         result=run(payload,registry,policy)
         result["code_sha"]=code_sha
+        result["configuration_input_sha256"]=configuration_sha256
         paths=[*sorted((ROOT/"research/multi_asset_v1").glob("*.py")),ROOT/"tools/run_multi_asset_leadership.py",ROOT/"research/theme_etf_runtime_v1/strict.py",ROOT/"research/theme_etf_runtime_v1/runtime.py",ROOT/"r1000_legacy_input_guard.py"]
         result["code_file_sha256"]={str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
         result.pop("result_sha256",None)
@@ -144,7 +156,7 @@ def publish(payload, registry, policy, out, attempt_id, code_sha, *, input_sha25
         raise
 
 
-def read_latest(out):
+def read_latest(out, *, consumed_at=None):
     receipt=load_json((out/"latest_attempt.json").read_bytes())
     require(receipt.get("global_ranking_ready") is True and receipt.get("consumable") is True,"latest_attempt_not_ready")
     aid=receipt["attempt_id"]
@@ -153,6 +165,11 @@ def read_latest(out):
     require(hashlib.sha256(raw).hexdigest()==receipt["result_sha256"],"output_tampered")
     result=load_json(raw)
     require(fully_admitted(result),"latest_proposal_not_ready")
+    # Read-time freshness is separate from admission at the original decision.
+    # Historical attempts remain inspectable by path, not as current latest.
+    consumed_at=consumed_at or datetime.now(timezone.utc).isoformat()
+    require(stamp(result["computed_at"])<=stamp(consumed_at),"latest_decision_in_future")
+    require(result["as_of"]==list(grid(consumed_at))[-1],"latest_session_stale")
     return result
 
 
@@ -164,14 +181,18 @@ def main():
     p.add_argument("--expected-input-sha256")
     p.add_argument("--registry",type=Path,default=ROOT/"docs/multi_asset_registry_v1.json")
     p.add_argument("--policy",type=Path,default=ROOT/"docs/multi_asset_policy_v1.json")
+    p.add_argument("--expected-registry-sha256")
+    p.add_argument("--expected-policy-sha256")
     p.add_argument("--output-dir",type=Path,required=True)
     p.add_argument("--attempt-id",required=True)
     args=p.parse_args()
     # CLI revocation starts before reading inputs or collecting providers.
     atomic(args.output_dir/"latest_attempt.json",encoded({"status":"STARTED","attempt_id":args.attempt_id,"last_success_retained":True}))
     try:
-        registry=load_json(args.registry.read_bytes())
-        policy=load_json(args.policy.read_bytes())
+        registry_raw=configuration_bytes(args.registry,args.expected_registry_sha256,"docs/multi_asset_registry_v1.json")
+        policy_raw=configuration_bytes(args.policy,args.expected_policy_sha256,"docs/multi_asset_policy_v1.json")
+        registry=load_json(registry_raw)
+        policy=load_json(policy_raw)
         if args.input:
             raw=args.input.read_bytes()
             input_sha256=hashlib.sha256(raw).hexdigest()
@@ -184,7 +205,8 @@ def main():
             payload=capture(registry,capture_dir)
             input_sha256=hashlib.sha256((capture_dir/"input.json").read_bytes()).hexdigest()
         sha=subprocess.check_output(["git","rev-parse","HEAD"],cwd=ROOT,text=True).strip()
-        result=publish(payload,registry,policy,args.output_dir,args.attempt_id,sha,input_sha256=input_sha256)
+        result=publish(payload,registry,policy,args.output_dir,args.attempt_id,sha,input_sha256=input_sha256,
+                       configuration_sha256={"registry":hashlib.sha256(registry_raw).hexdigest(),"policy":hashlib.sha256(policy_raw).hexdigest()})
         print(json.dumps({"status":result["status"],"assets":len(result["multi_asset_leadership_latest"]),"global_ranking_ready":result["global_ranking_ready"]}))
         return 0 if fully_admitted(result) else 2
     except Exception as exc:
