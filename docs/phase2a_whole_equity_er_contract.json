@@ -1,0 +1,62 @@
+{
+  "schema_version": "phase2a-whole-equity-er-contract-v1",
+  "expected_return_family_id": "future_expected_excess_return_multihorizon_v1",
+  "objective": "bind_complete_verified_us_equity_cohort_to_existing_run287_expected_return_outputs",
+  "reuse_only": {
+    "existing_model_required": true,
+    "new_model_training_in_adapter_allowed": false,
+    "horizons_nyse_sessions": {
+      "1m": 21,
+      "3m": 63,
+      "6m": 126
+    }
+  },
+  "a1_identity_gate": {
+    "required": [
+      "security_id",
+      "issuer_id",
+      "ticker",
+      "identity_verified",
+      "research_eligible",
+      "available_at",
+      "instrument",
+      "corporate_action_basis",
+      "corporate_action_verified"
+    ],
+    "allowed_instruments": ["COMMON", "ADR"],
+    "accepted_corporate_action_basis": [
+      "SPLIT_AND_DIVIDEND_ADJUSTED_TOTAL_RETURN",
+      "SPLIT_DIVIDEND_ADJUSTED_TOTAL_RETURN"
+    ],
+    "adr_additional_required": [
+      "adr_ratio",
+      "adr_share_basis_verified",
+      "underlying_currency"
+    ],
+    "missing_or_future_or_conflicting_identity": "BLOCK"
+  },
+  "a3_output": {
+    "expected_return_1m": "existing_21_session_absolute_prediction",
+    "expected_return_3m": "existing_63_session_absolute_prediction",
+    "expected_return_6m": "existing_126_session_absolute_prediction",
+    "benchmark_expected_return": "implied_absolute_minus_benchmark_excess_when_both_exist",
+    "expected_alpha": "existing_challenger_expected_alpha_by_horizon",
+    "downside_probability": "existing_challenger_classifier_output",
+    "expected_drawdown": null,
+    "signal_confidence": null,
+    "thesis_confidence": null,
+    "valuation_status": null,
+    "thesis_status": null
+  },
+  "12m_policy": "BLOCKED_MODEL_NOT_VALIDATED",
+  "partial_coverage_policy": "PRESERVE_ROW_AND_NULL_ER",
+  "global_ranking_ready": false,
+  "safety": {
+    "research_only": true,
+    "target_authority": false,
+    "order_authority": false,
+    "portfolio_mutation_allowed": false,
+    "automatic_promotion_allowed": false,
+    "fullrun_allowed": false
+  }
+}
