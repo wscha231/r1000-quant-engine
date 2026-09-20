@@ -348,6 +348,19 @@ class Decisions(unittest.TestCase):
                 self.assertEqual(proposal["proposed_weights"],{"US:FTI":.08})
                 self.assertEqual(changed["portfolio_status"],"HOLD")
 
+    def test_carried_pairs_must_obey_correlation_ceiling_without_entry_signal(self):
+        riskrow=risk(self.p,self.r,self.policy);riskrow["max_pair_correlation"]=.5
+        self.policy["reviewed_pins"]["risk"].append(digest(riskrow))
+        assets={a["asset_id"]:a for a in self.r["assets"]}
+        first=dict(asset_id="US:FTI",portfolio_status="HOLD",thesis_status="POSITIVE",valuation_acceptable=True,expected_alpha_12m=.3,liquidity_pass=True,RS20_change_5d=-.1,RS60_change_5d=-.1,RS120=.1,RS240=.1,signal_confidence=.8,thesis_confidence=.8,expected_drawdown=.2,daily_log_returns=[math.sin(i) for i in range(60)])
+        second={**first,"asset_id":"US:FCX"}
+        weights={"US:FTI":.05,"US:FCX":.05}
+        with self.assertRaisesRegex(ContractError,"carried_pair_correlation_limit"):
+            propose([first,second],assets,riskrow,{},CUTOFF,self.policy,feature_identity(self.p,self.r),weights)
+        second["daily_log_returns"]=[math.cos(i) for i in range(60)]
+        proposal=propose([first,second],assets,riskrow,{},CUTOFF,self.policy,feature_identity(self.p,self.r),weights)
+        self.assertEqual(proposal["proposed_weights"],weights)
+
     def test_position_book_must_be_pinned(self):
         self.p["positions"]=[{"asset_id":"US:FTI","weight":.2}]
         self.p["position_book_kind"]="ACTUAL_BROKER"
@@ -391,6 +404,17 @@ class Decisions(unittest.TestCase):
                     self.policy["reviewed_pins"]["history_availability"].append(digest(altered["availability_receipt"]))
                 self.policy["reviewed_pins"]["history"].append(digest(altered));self.p["history"]=[altered]
                 with self.assertRaises(ContractError):run(self.p,self.r,self.policy)
+
+        conflict=copy.deepcopy(previous)
+        conflict["multi_asset_leadership_latest"][0]["rank"]+=1
+        conflict["availability_receipt"]["snapshot_sha256"]=digest({k:v for k,v in conflict.items() if k!="availability_receipt"})
+        self.policy["reviewed_pins"]["history_availability"].append(digest(conflict["availability_receipt"]))
+        self.policy["reviewed_pins"]["history"].append(digest(conflict))
+        for snapshots in ([previous,previous],[previous,conflict],[conflict,previous]):
+            with self.subTest(history_order=[digest(s) for s in snapshots]):
+                self.p["history"]=snapshots
+                with self.assertRaisesRegex(ContractError,"duplicate_history_session"):
+                    run(self.p,self.r,self.policy)
 
     def test_event_reprints_never_multiply_score(self):
         assets={a["asset_id"]:a for a in self.r["assets"]}

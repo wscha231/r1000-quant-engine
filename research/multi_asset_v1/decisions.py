@@ -211,8 +211,12 @@ def propose(rows, assets, risk, holdings, cutoff, policy, input_hash, current_we
     selected=[]
     require({aid for aid,w in current_weights.items() if w>0}<={r["asset_id"] for r in rows},"held_comparison_missing")
     existing_rows=[r for r in rows if current_weights.get(r["asset_id"],0)>0]
-    for r in existing_rows:
+    for i,r in enumerate(existing_rows):
         require(len(r.get("daily_log_returns",[]))==60,"held_correlation_history_required")
+        require(np.std(r["daily_log_returns"])>1e-12,"undefined_held_correlation")
+        for other in existing_rows[:i]:
+            correlation=float(np.corrcoef(r["daily_log_returns"],other["daily_log_returns"])[0,1])
+            require(math.isfinite(correlation) and abs(correlation)<=max_corr,"carried_pair_correlation_limit")
     for r,raw in eligible:
         vector=np.asarray(r["daily_log_returns"])
         require(np.std(vector)>1e-12,"undefined_correlation")

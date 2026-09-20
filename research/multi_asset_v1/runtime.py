@@ -211,7 +211,10 @@ def run(payload, registry, policy):
                           "best_vehicle":candidates[0]["asset_id"] if candidates and complete_base else None,
                           "best_equity":next((r["asset_id"] for r in candidates if r["asset_class"]=="COMMODITY_EQUITY"),None) if complete_base else None,
                           "status":"RESEARCH_ONLY"})
-    for previous in payload.get("history",[]):
+    history=payload.get("history",[])
+    history_sessions=[day(previous.get("as_of")) for previous in history]
+    require(len(history_sessions)==len(set(history_sessions)),"duplicate_history_session")
+    for previous in history:
         require(digest(previous) in policy["reviewed_pins"].get("history",[]),"unreviewed_history")
         require(previous.get("registry_sha256")==digest(registry),"history_universe_changed")
         require(stamp(previous["computed_at"])<stamp(cutoff),"future_history")
