@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
@@ -19,11 +20,12 @@ from research.multi_asset_v1.contracts import ContractError,digest,encoded,load_
 from research.multi_asset_v1.prices import grid,admit_prices
 from research.multi_asset_v1.runtime import run,feature_identity
 from research.multi_asset_v1.decisions import classify,evaluation,event_memory,lookthrough,propose
-from tools.run_multi_asset_leadership import parse_chart,publish,read_latest,configuration_bytes
+from tools.run_multi_asset_leadership import parse_chart,publish,read_latest,configuration_bytes,verified_source_hashes
 from research.multi_asset_v1.sources import candles,capture_spot_metrics,crypto_chart
 
 CUTOFF="2026-09-19T10:00:00+00:00"
 SESSIONS=grid(CUTOFF)
+CODE_SHA=subprocess.check_output(["git","rev-parse","HEAD"],cwd=ROOT,text=True).strip()
 
 
 def configuration_args(out):
@@ -208,6 +210,19 @@ class Integrity(unittest.TestCase):
         with self.assertRaisesRegex(ContractError,"source_return_basis_not_approved"):
             admit_prices(rows,a,CUTOFF,self.policy,SESSIONS)
 
+    def test_spy_relative_returns_require_same_basis(self):
+        for x in self.p["prices"]:
+            if x["asset_id"]=="US:SPY":x.update(source="YAHOO_CHART",return_basis="PROVIDER_ADJUSTED_CLOSE_PROXY")
+        out=run(self.p,self.r,self.policy)
+        self.assertTrue(all(x["RS20"] is None and x["discovery_rank"] is None and "benchmark_return_basis_mismatch" in x["blockers"] for x in out["multi_asset_leadership_latest"]))
+
+    def test_unsupported_baseline_policy_does_not_mislabel_results(self):
+        for field,key in (("baseline_rs_weights","20"),("baseline_commodity_weights","price")):
+            with self.subTest(field=field):
+                policy=copy.deepcopy(self.policy);policy[field][key]=.5
+                with self.assertRaisesRegex(ContractError,"unsupported_.*_baseline"):
+                    run(self.p,self.r,policy)
+
     def test_crypto_relative_returns_require_matching_source_basis(self):
         from research.multi_asset_v1.contracts import stamp
         real=json.loads((ROOT/"docs/multi_asset_registry_v1.json").read_bytes())
@@ -351,20 +366,27 @@ class Decisions(unittest.TestCase):
     def test_retrospective_history_cannot_claim_old_rank_changes(self):
         current=run(self.p,self.r,self.policy)
         old_session=list(SESSIONS)[-6];close=SESSIONS[old_session];then=(close+timedelta(hours=1)).isoformat()
-        previous={"as_of":old_session,"computed_at":then,"registry_sha256":digest(self.r),"multi_asset_leadership_latest":current["multi_asset_leadership_latest"]}
+        # Explicit synthetic historical observations, not relabeled current rows.
+        old_rows=[{"asset_id":r["asset_id"],"as_of":old_session,"latest_session":old_session,"rank":i+1,"RS_composite":i*.1} for i,r in enumerate(current["multi_asset_leadership_latest"])]
+        previous={"as_of":old_session,"computed_at":then,"registry_sha256":digest(self.r),"multi_asset_leadership_latest":old_rows}
         receipt={**meta("CANONICAL_HISTORY"),"observed_at":close.isoformat(),"available_at":then,"evidence_kind":"PIT_ARCHIVE","snapshot_sha256":digest(previous)}
         previous["availability_receipt"]=receipt
         self.policy["reviewed_pins"]["history_availability"].append(digest(receipt))
         self.policy["reviewed_pins"]["history"].append(digest(previous));self.p["history"]=[previous]
         out=run(self.p,self.r,self.policy)
-        self.assertTrue(all(x["rank_change_5d"]==0 for x in out["multi_asset_leadership_latest"]))
-        for mode in ("missing","retrospective"):
+        old_by_id={r["asset_id"]:r for r in old_rows}
+        self.assertTrue(all(x["rank_change_5d"]==old_by_id[x["asset_id"]]["rank"]-x["rank"] for x in out["multi_asset_leadership_latest"]))
+        for mode in ("missing","retrospective","as_of","latest_session"):
             with self.subTest(mode=mode):
                 altered=copy.deepcopy(previous)
                 if mode=="missing":altered.pop("availability_receipt")
-                else:
+                elif mode=="retrospective":
                     later=(list(SESSIONS.values())[-1]+timedelta(hours=1)).isoformat()
                     altered["computed_at"]=later;altered["availability_receipt"]["available_at"]=later
+                    altered["availability_receipt"]["snapshot_sha256"]=digest({k:v for k,v in altered.items() if k!="availability_receipt"})
+                    self.policy["reviewed_pins"]["history_availability"].append(digest(altered["availability_receipt"]))
+                else:
+                    altered["multi_asset_leadership_latest"][0][mode]=list(SESSIONS)[-1]
                     altered["availability_receipt"]["snapshot_sha256"]=digest({k:v for k,v in altered.items() if k!="availability_receipt"})
                     self.policy["reviewed_pins"]["history_availability"].append(digest(altered["availability_receipt"]))
                 self.policy["reviewed_pins"]["history"].append(digest(altered));self.p["history"]=[altered]
@@ -449,10 +471,10 @@ class ExposureAndPublication(unittest.TestCase):
     def test_failed_attempt_preserves_previous_bytes_and_revokes_read(self):
         p,r,policy=reviewed(*fixture());risk(p,r,policy)
         with tempfile.TemporaryDirectory() as temp:
-            out=Path(temp);publish(p,r,policy,out,"one","fixture-code")
+            out=Path(temp);publish(p,r,policy,out,"one",CODE_SHA)
             saved=(out/"last_success.json").read_bytes();result=(out/"attempts/one/result.json").read_bytes()
             bad=copy.deepcopy(p);bad["schema"]="wrong"
-            with self.assertRaises(ContractError):publish(bad,r,policy,out,"two","fixture-code")
+            with self.assertRaises(ContractError):publish(bad,r,policy,out,"two",CODE_SHA)
             self.assertEqual((out/"last_success.json").read_bytes(),saved)
             self.assertEqual((out/"attempts/one/result.json").read_bytes(),result)
             with self.assertRaises(ContractError):read_latest(out)
@@ -460,14 +482,14 @@ class ExposureAndPublication(unittest.TestCase):
     def test_result_tampering_rejected(self):
         p,r,policy=reviewed(*fixture());risk(p,r,policy)
         with tempfile.TemporaryDirectory() as temp:
-            out=Path(temp);publish(p,r,policy,out,"one","fixture-code")
+            out=Path(temp);publish(p,r,policy,out,"one",CODE_SHA)
             (out/"attempts/one/result.json").write_text('{}')
             with self.assertRaisesRegex(ContractError,"tampered"):read_latest(out)
 
     def test_complete_rank_with_missing_or_invalid_risk_is_not_consumable(self):
         p,r,policy=reviewed(*fixture());risk(p,r,policy)
         with tempfile.TemporaryDirectory() as temp:
-            out=Path(temp);publish(p,r,policy,out,"good","fixture-code")
+            out=Path(temp);publish(p,r,policy,out,"good",CODE_SHA)
             self.assertEqual(read_latest(out,consumed_at=CUTOFF)["proposal"]["status"],"RESEARCH_PROPOSAL")
             saved=(out/"last_success.json").read_bytes()
             for mode in ("missing","invalid"):
@@ -475,7 +497,7 @@ class ExposureAndPublication(unittest.TestCase):
                     bad=copy.deepcopy(p)
                     if mode=="missing":bad.pop("risk")
                     else:bad["risk"]["max_gross"]=.9
-                    result=publish(bad,r,policy,out,mode,"fixture-code")
+                    result=publish(bad,r,policy,out,mode,CODE_SHA)
                     self.assertTrue(result["global_ranking_ready"])
                     self.assertEqual(result["proposal"]["status"],"BLOCKED")
                     self.assertEqual((out/"last_success.json").read_bytes(),saved)
@@ -496,7 +518,7 @@ class ExposureAndPublication(unittest.TestCase):
     def test_successful_old_attempt_cannot_be_read_as_current(self):
         p,r,policy=reviewed(*fixture());risk(p,r,policy)
         with tempfile.TemporaryDirectory() as temp:
-            out=Path(temp);publish(p,r,policy,out,"historical","fixture-code")
+            out=Path(temp);publish(p,r,policy,out,"historical",CODE_SHA)
             self.assertEqual(read_latest(out,consumed_at=CUTOFF)["as_of"],list(SESSIONS)[-1])
             with self.assertRaisesRegex(ContractError,"latest_session_stale"):
                 read_latest(out,consumed_at="2026-10-01T22:00:00Z")
@@ -529,12 +551,30 @@ class ExposureAndPublication(unittest.TestCase):
                         configuration_bytes(path,"0"*64,repository_path)
                     self.assertEqual(configuration_bytes(path,hashlib.sha256(raw).hexdigest(),repository_path),raw)
 
+    def test_dirty_source_revokes_publication_and_latest_consumption(self):
+        p,r,policy=reviewed(*fixture());risk(p,r,policy)
+        source=ROOT/"research/multi_asset_v1/prices.py"
+        actual_read=Path.read_bytes
+        def changed_read(path):
+            raw=actual_read(path)
+            return raw+b'\n# simulated uncommitted source change\n' if path==source else raw
+        with tempfile.TemporaryDirectory() as temp:
+            out=Path(temp);publish(p,r,policy,out,"clean",CODE_SHA)
+            saved=(out/"last_success.json").read_bytes()
+            with patch.object(Path,"read_bytes",changed_read):
+                with self.assertRaisesRegex(ContractError,"source_differs_from_claimed_commit"):
+                    read_latest(out,consumed_at=CUTOFF)
+                with self.assertRaisesRegex(ContractError,"source_differs_from_claimed_commit"):
+                    publish(p,r,policy,out,"dirty",CODE_SHA)
+            self.assertEqual((out/"last_success.json").read_bytes(),saved)
+            with self.assertRaisesRegex(ContractError,"not_ready"):read_latest(out,consumed_at=CUTOFF)
+
     def test_source_failure_receipts_reach_published_diagnostics(self):
         p,r,policy=fixture()
         receipt={"asset_id":"US:FCX","clock":"NYSE_CLOSE","status":"BLOCKED","reason":"provider_unavailable_or_schema"}
         p["collection_receipts"]=[{**receipt,"raw_response":"should-not-publish","url":"should-not-publish"}]
         with tempfile.TemporaryDirectory() as temp:
-            out=Path(temp);publish(p,r,policy,out,"diagnostics","fixture-code")
+            out=Path(temp);publish(p,r,policy,out,"diagnostics",CODE_SHA)
             result=json.loads((out/"attempts/diagnostics/result.json").read_bytes())
             self.assertEqual(result["collection_receipts"],[receipt])
 

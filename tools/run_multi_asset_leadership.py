@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -107,7 +108,7 @@ def capture(registry, attempt, fetcher=request_bytes):
 
 
 def fully_admitted(result):
-    return result.get("global_ranking_ready") is True and result.get("proposal",{}).get("status")=="RESEARCH_PROPOSAL"
+    return result.get("global_ranking_ready") is True and result.get("proposal",{}).get("status")=="RESEARCH_PROPOSAL" and result.get("code_identity_verified") is True
 
 
 def configuration_bytes(path, expected_sha256, repository_path):
@@ -121,6 +122,24 @@ def configuration_bytes(path, expected_sha256, repository_path):
     return raw
 
 
+def verified_source_hashes(code_sha):
+    require(isinstance(code_sha,str) and re.fullmatch(r"[a-f0-9]{40}",code_sha),"commit_identity_required")
+    paths={*sorted((ROOT/"research/multi_asset_v1").glob("*.py")),ROOT/"tools/run_multi_asset_leadership.py",
+           ROOT/"tools/macro_history_sources.py",ROOT/"research/theme_etf_runtime_v1/strict.py",
+           ROOT/"research/theme_etf_runtime_v1/runtime.py",ROOT/"r1000_legacy_input_guard.py"}
+    paths.update(p for p in (ROOT/"research/__init__.py",ROOT/"tools/__init__.py",ROOT/"research/theme_etf_runtime_v1/__init__.py") if p.exists())
+    hashes={}
+    for path in sorted(paths):
+        relative=str(path.relative_to(ROOT));raw=path.read_bytes()
+        try:
+            expected=subprocess.check_output(["git","show",code_sha+":"+relative],cwd=ROOT,stderr=subprocess.DEVNULL)
+        except subprocess.CalledProcessError:
+            raise ContractError("source_not_in_claimed_commit:"+relative) from None
+        require(raw==expected,"source_differs_from_claimed_commit:"+relative)
+        hashes[relative]=hashlib.sha256(raw).hexdigest()
+    return hashes
+
+
 def publish(payload, registry, policy, out, attempt_id, code_sha, *, input_sha256=None, configuration_sha256=None):
     require(attempt_id and all(c.isalnum() or c in "-_" for c in attempt_id),"attempt_id")
     # Revoke consumption before validation, preserving last-success and its bytes.
@@ -128,11 +147,13 @@ def publish(payload, registry, policy, out, attempt_id, code_sha, *, input_sha25
     target=out/"attempts"/attempt_id
     target.mkdir(parents=True,exist_ok=False)
     try:
+        source_hashes=verified_source_hashes(code_sha)
         result=run(payload,registry,policy)
         result["code_sha"]=code_sha
         result["configuration_input_sha256"]=configuration_sha256
-        paths=[*sorted((ROOT/"research/multi_asset_v1").glob("*.py")),ROOT/"tools/run_multi_asset_leadership.py",ROOT/"research/theme_etf_runtime_v1/strict.py",ROOT/"research/theme_etf_runtime_v1/runtime.py",ROOT/"r1000_legacy_input_guard.py"]
-        result["code_file_sha256"]={str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
+        require(verified_source_hashes(code_sha)==source_hashes,"source_changed_during_run")
+        result["code_file_sha256"]=source_hashes
+        result["code_identity_verified"]=True
         result.pop("result_sha256",None)
         result["result_sha256"]=digest(result)
         raw=encoded(result)
@@ -170,6 +191,7 @@ def read_latest(out, *, consumed_at=None):
     consumed_at=consumed_at or datetime.now(timezone.utc).isoformat()
     require(stamp(result["computed_at"])<=stamp(consumed_at),"latest_decision_in_future")
     require(result["as_of"]==list(grid(consumed_at))[-1],"latest_session_stale")
+    require(verified_source_hashes(result["code_sha"])==result["code_file_sha256"],"output_source_identity_mismatch")
     return result
 
 
@@ -189,6 +211,8 @@ def main():
     # CLI revocation starts before reading inputs or collecting providers.
     atomic(args.output_dir/"latest_attempt.json",encoded({"status":"STARTED","attempt_id":args.attempt_id,"last_success_retained":True}))
     try:
+        sha=subprocess.check_output(["git","rev-parse","HEAD"],cwd=ROOT,text=True).strip()
+        verified_source_hashes(sha)
         registry_raw=configuration_bytes(args.registry,args.expected_registry_sha256,"docs/multi_asset_registry_v1.json")
         policy_raw=configuration_bytes(args.policy,args.expected_policy_sha256,"docs/multi_asset_policy_v1.json")
         registry=load_json(registry_raw)
@@ -204,7 +228,6 @@ def main():
             capture_dir.mkdir(parents=True,exist_ok=False)
             payload=capture(registry,capture_dir)
             input_sha256=hashlib.sha256((capture_dir/"input.json").read_bytes()).hexdigest()
-        sha=subprocess.check_output(["git","rev-parse","HEAD"],cwd=ROOT,text=True).strip()
         result=publish(payload,registry,policy,args.output_dir,args.attempt_id,sha,input_sha256=input_sha256,
                        configuration_sha256={"registry":hashlib.sha256(registry_raw).hexdigest(),"policy":hashlib.sha256(policy_raw).hexdigest()})
         print(json.dumps({"status":result["status"],"assets":len(result["multi_asset_leadership_latest"]),"global_ranking_ready":result["global_ranking_ready"]}))

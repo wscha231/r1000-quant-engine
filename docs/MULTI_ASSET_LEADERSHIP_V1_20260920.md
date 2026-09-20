@@ -196,8 +196,8 @@ There were **zero BUY_CONSIDERATION** rows. No fundamentals or news score was
 invented to turn these observations into a buy proposal.
 
 Local initial publication evidence: 45 distinct new tests plus 12 existing
-tests passed. Follow-up regressions bring this to **63 distinct new tests plus
-12 existing tests**. Python `-O` repeats the same 63 cases. The first remote
+tests passed. Follow-up regressions bring this to **66 distinct new tests plus
+12 existing tests**. Python `-O` repeats the same 66 cases. The first remote
 matrix run `35489119713` exposed one packaging omission: the test reads its
 workflow YAML but sparse checkout omitted `.github`. Added the declared path;
 the test remains mandatory and unchanged. This does not weaken a data gate.
@@ -272,3 +272,5 @@ authorization covers this sequence; no gate is removed to finish it.
   evaluator/risk/holdings evidence, failed accepted-state or replay preflight.
 - Confidence: high only for the tested rejection and deterministic calculation
   boundaries; no current investment ranking or return target is certified.
+
+Fourth review corrections: historical row session fields must match their claimed wrapper; SPY-relative discovery rejects mixed return bases; unsupported declared RS or commodity baseline weights are rejected; project source bytes (including shared HTTP/calendar/normalization dependencies) must match the claimed commit before capture/publication and latest-result consumption. Publication tests now use actual committed code identities; the dirty-source regression simulates a byte mismatch without changing repository files.

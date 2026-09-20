@@ -7,8 +7,8 @@ import math
 
 from .contracts import (ContractError, ER_HORIZONS, HORIZONS, day, digest, identifier,
                         metadata, number, pinned, registry_rows, require, stamp, unique)
-from .prices import admit_prices, cross_section, grid, one_asset
-from .decisions import classify, evaluation, event_memory, lookthrough, propose
+from .prices import BASE_RS_WEIGHTS, admit_prices, cross_section, grid, one_asset
+from .decisions import COMPONENTS, classify, evaluation, event_memory, lookthrough, propose
 
 
 def feature_identity(payload, registry):
@@ -54,6 +54,8 @@ def historical_readiness(payload):
 def run(payload, registry, policy):
     require(payload.get("schema")=="multi-asset-input-v1","input_schema")
     require(policy.get("schema")=="multi-asset-policy-v1","policy_schema")
+    require(policy.get("baseline_rs_weights")==BASE_RS_WEIGHTS,"unsupported_rs_baseline")
+    require(policy.get("baseline_commodity_weights")==COMPONENTS,"unsupported_commodity_baseline")
     cutoff=payload["as_of"]
     stamp(cutoff)
     underlyings,assets=registry_rows(registry)
@@ -113,14 +115,18 @@ def run(payload, registry, policy):
              **{f"{prefix}{h}":None for prefix in ("ret","RS") for h in HORIZONS}}
         features=None
         if aid in admitted and benchmark in admitted:
-            features=one_asset(admitted[aid],admitted[benchmark],cutoff,benchmark,sessions)
+            try:
+                features=one_asset(admitted[aid],admitted[benchmark],cutoff,benchmark,sessions)
+            except (ContractError,ValueError) as exc:
+                row["blockers"].append(str(exc))
+        if features is not None:
             row.update(features)
             row["data_quality"]="PRICE_OBSERVED_RESEARCH_ONLY" if features["return_basis"]==features["benchmark_return_basis"]=="TOTAL_RETURN" else "PRICE_PROXY_RESEARCH_ONLY"
             hist=[admitted[aid][s] for s in list(sessions)[-20:]]
             if all(r.get("volume") is not None for r in hist):
                 row["dollar_volume_20d"]=sum(r["price"]*r["volume"] for r in hist)/20
                 row["liquidity_pass"]=row["dollar_volume_20d"]>=policy["min_dollar_volume_20d"]
-        else:
+        elif not row["blockers"]:
             row["blockers"].append(errors.get(aid,"benchmark_unavailable"))
         ev=None
         if aid in by_eval:
@@ -220,6 +226,10 @@ def run(payload, registry, policy):
         require(historical_close<=stamp(previous["computed_at"])<=stamp(receipt["available_at"])<=historical_close+timedelta(hours=24),"retrospective_history_not_admitted")
         old=unique(previous["multi_asset_leadership_latest"],"asset_id")
         require(set(old)=={r["asset_id"] for r in rows},"history_cohort_changed")
+        for historical_row in old.values():
+            require(historical_row.get("as_of")==previous["as_of"],"history_row_session_mismatch")
+            has_signal=historical_row.get("rank") is not None or historical_row.get("RS_composite") is not None
+            require((not has_signal and historical_row.get("latest_session") is None) or historical_row.get("latest_session")==previous["as_of"],"history_row_latest_session_mismatch")
         for lag in (5,20):
             if previous["as_of"]!=list(sessions)[-1-lag]:continue
             for r in rows:

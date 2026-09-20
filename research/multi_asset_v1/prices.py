@@ -14,6 +14,8 @@ from r1000_legacy_input_guard import latest_completed_close
 from research.theme_etf_runtime_v1.strict import compute_leadership
 from .contracts import HORIZONS, ContractError, day, metadata, number, require, stamp
 
+BASE_RS_WEIGHTS={"20":.2,"60":.3,"120":.3,"240":.2}
+
 
 def grid(cutoff, count=281):
     session, _, _ = latest_completed_close(cutoff)
@@ -61,6 +63,8 @@ def admit_prices(rows, asset, cutoff, policy, sessions, clock="NYSE_CLOSE"):
 
 
 def one_asset(values, benchmark, cutoff, benchmark_id, sessions):
+    end=list(sessions)[-1]
+    require(values[end]["return_basis"]==benchmark[end]["return_basis"],"benchmark_return_basis_mismatch")
     rows = []
     for ident, series in (("ASSET", values), (benchmark_id, benchmark)):
         rows.extend({"security_id": ident, "session": s,
@@ -108,7 +112,7 @@ def cross_section(rows):
         return {"status":"DEGENERATE_CROSS_SECTION", "effective_weights":None}
     z = (clipped-np.mean(clipped,axis=0))/std
     corr = np.corrcoef(z,rowvar=False)
-    base = np.array([.2,.3,.3,.2])
+    base = np.array([BASE_RS_WEIGHTS[str(h)] for h in HORIZONS])
     weights = base/(1+(np.abs(corr)-np.eye(4))@base)
     weights /= sum(weights)
     for i, row in enumerate(eligible):
