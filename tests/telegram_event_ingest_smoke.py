@@ -68,19 +68,19 @@ class TestTelegramIngest(unittest.TestCase):
 
     def test_unresolved_gap_does_not_advance_or_mutate_log(self):
         old_event={
-            "schema_version":"telegram-insidertracking-event-v1","channel":"insidertracking","post_id":64207,
+            "schema_version":"telegram-insidertracking-event-v1","channel":"insidertracking","post_id":64208,
             "published_at":"2026-09-20T17:00:00Z","collected_at":"2026-09-20T17:01:00Z","available_from":"2026-09-20T17:01:00Z",
-            "source_url":"https://t.me/insidertracking/64207","text":"old","text_sha256":"x","content_status":"TEXT",
+            "source_url":"https://t.me/insidertracking/64208","text":"old","text_sha256":"x","content_status":"TEXT",
             "relevance_categories":[],"tickers_detected":[],"a2_discovery_eligible":False,"verification_status":"UNVERIFIED_TELEGRAM_ONLY",
             "score_contribution":0.0,"a3_er_eligible":False,"selector_eligible":False,"target_authority":False,"order_authority":False,
         }
         old_log=canonical_json_bytes(old_event)
-        old_cp=canonical_json_bytes({"schema_version":CHECKPOINT_SCHEMA,"channel":"insidertracking","last_post_id":64207})
+        old_cp=canonical_json_bytes({"schema_version":CHECKPOINT_SCHEMA,"channel":"insidertracking","last_post_id":64208})
         p=page([(65000,"2026-09-20T19:00:00+00:00","NVDA")])
-        out=build_outputs(channel="insidertracking",source_url="https://t.me/s/insidertracking",checkpoint_raw=old_cp,event_log_raw=old_log,initial_last_post_id=0,max_pages=2,fetcher=lambda u:p,collected_at="2026-09-20T19:01:00Z")
+        out=build_outputs(channel="insidertracking",source_url="https://t.me/s/insidertracking",checkpoint_raw=old_cp,event_log_raw=old_log,initial_last_post_id=64207,max_pages=2,fetcher=lambda u:p,collected_at="2026-09-20T19:01:00Z")
         cp=json.loads(out["checkpoint.json"])
         self.assertTrue(cp["gap_unresolved"])
-        self.assertEqual(cp["last_post_id"],64207)
+        self.assertEqual(cp["last_post_id"],64208)
         self.assertEqual(out["events.ndjson"],old_log)
         self.assertEqual(json.loads(out["a2_discovery_inputs.json"])["events"],[])
 
@@ -99,7 +99,7 @@ class TestTelegramIngest(unittest.TestCase):
         }
         cp=canonical_json_bytes({"schema_version":CHECKPOINT_SCHEMA,"channel":"insidertracking","last_post_id":8})
         with self.assertRaisesRegex(ValueError,"event_log_ahead_of_checkpoint"):
-            build_outputs(channel="insidertracking",source_url="https://t.me/s/insidertracking",checkpoint_raw=cp,event_log_raw=canonical_json_bytes(event),initial_last_post_id=0,fetcher=lambda u:page([(10,"2026-09-20T19:00:00+00:00","Oil")]))
+            build_outputs(channel="insidertracking",source_url="https://t.me/s/insidertracking",checkpoint_raw=cp,event_log_raw=canonical_json_bytes(event),initial_last_post_id=8,fetcher=lambda u:page([(10,"2026-09-20T19:00:00+00:00","Oil")]))
 
     def test_void_html_tags_do_not_break_message_boundaries(self):
         raw=b'<div class="tgme_widget_message" data-post="insidertracking/64208"><div class="tgme_widget_message_text js-message_text">Oil<br>up<img src="x"> now</div><time datetime="2026-09-20T18:00:00+00:00"></time></div>'
@@ -111,6 +111,41 @@ class TestTelegramIngest(unittest.TestCase):
         cp=canonical_json_bytes({"schema_version":CHECKPOINT_SCHEMA,"channel":"insidertracking","last_post_id":64207,"event_log_sha256":"0"*64})
         with self.assertRaisesRegex(ValueError,"checkpoint_event_log_hash_mismatch"):
             build_outputs(channel="insidertracking",source_url="https://t.me/s/insidertracking",checkpoint_raw=cp,event_log_raw=b"",initial_last_post_id=0,fetcher=lambda u:page([(64208,"2026-09-20T19:00:00+00:00","Oil")]))
+
+    def test_checkpoint_ahead_of_event_log_fails_closed(self):
+        event={
+            "schema_version":"telegram-insidertracking-event-v1","channel":"insidertracking","post_id":64208,
+            "published_at":None,"collected_at":"2026-09-20T17:01:00Z","available_from":"2026-09-20T17:01:00Z",
+            "source_url":"https://t.me/insidertracking/64208","text":"old","text_sha256":"x","content_status":"TEXT",
+            "relevance_categories":[],"tickers_detected":[],"a2_discovery_eligible":False,"verification_status":"UNVERIFIED_TELEGRAM_ONLY",
+            "score_contribution":0.0,"a3_er_eligible":False,"selector_eligible":False,"target_authority":False,"order_authority":False,
+        }
+        log=canonical_json_bytes(event)
+        import hashlib
+        cp=canonical_json_bytes({"schema_version":CHECKPOINT_SCHEMA,"channel":"insidertracking","last_post_id":64209,"event_log_sha256":hashlib.sha256(log).hexdigest()})
+        with self.assertRaisesRegex(ValueError,"checkpoint_ahead_of_event_log"):
+            build_outputs(channel="insidertracking",source_url="https://t.me/s/insidertracking",checkpoint_raw=cp,event_log_raw=log,initial_last_post_id=64207,fetcher=lambda u:page([(64210,"2026-09-20T19:00:00+00:00","Oil")]))
+
+    def test_internal_event_log_gap_fails_closed(self):
+        def row(pid):
+            return {
+                "schema_version":"telegram-insidertracking-event-v1","channel":"insidertracking","post_id":pid,
+                "published_at":None,"collected_at":"2026-09-20T17:01:00Z","available_from":"2026-09-20T17:01:00Z",
+                "source_url":f"https://t.me/insidertracking/{pid}","text":"old","text_sha256":"x","content_status":"TEXT",
+                "relevance_categories":[],"tickers_detected":[],"a2_discovery_eligible":False,"verification_status":"UNVERIFIED_TELEGRAM_ONLY",
+                "score_contribution":0.0,"a3_er_eligible":False,"selector_eligible":False,"target_authority":False,"order_authority":False,
+            }
+        log=canonical_json_bytes(row(64208))+canonical_json_bytes(row(64210))
+        import hashlib
+        cp=canonical_json_bytes({"schema_version":CHECKPOINT_SCHEMA,"channel":"insidertracking","last_post_id":64210,"event_log_sha256":hashlib.sha256(log).hexdigest()})
+        with self.assertRaisesRegex(ValueError,"event_log_internal_gap"):
+            build_outputs(channel="insidertracking",source_url="https://t.me/s/insidertracking",checkpoint_raw=cp,event_log_raw=log,initial_last_post_id=64207,fetcher=lambda u:page([(64211,"2026-09-20T19:00:00+00:00","Oil")]))
+
+    def test_nonseed_checkpoint_with_empty_log_fails_closed(self):
+        import hashlib
+        cp=canonical_json_bytes({"schema_version":CHECKPOINT_SCHEMA,"channel":"insidertracking","last_post_id":64208,"event_log_sha256":hashlib.sha256(b"").hexdigest()})
+        with self.assertRaisesRegex(ValueError,"checkpoint_ahead_of_empty_event_log"):
+            build_outputs(channel="insidertracking",source_url="https://t.me/s/insidertracking",checkpoint_raw=cp,event_log_raw=b"",initial_last_post_id=64207,fetcher=lambda u:page([(64209,"2026-09-20T19:00:00+00:00","Oil")]))
 
     def test_unapproved_source_url_fails_closed(self):
         with self.assertRaisesRegex(ValueError,"unapproved_source_url"):

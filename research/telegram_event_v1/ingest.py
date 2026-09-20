@@ -334,6 +334,22 @@ def encode_ndjson(rows: Iterable[dict]) -> bytes:
     return b"".join(canonical_json_bytes(row) for row in rows)
 
 
+def validate_event_chain(*, events: list[dict], last_post_id: int, initial_last_post_id: int) -> None:
+    if not events:
+        if last_post_id != initial_last_post_id:
+            raise ValueError("checkpoint_ahead_of_empty_event_log")
+        return
+    if events[0]["post_id"] != initial_last_post_id + 1:
+        raise ValueError("event_log_initial_gap")
+    for prior, current in zip(events, events[1:]):
+        if current["post_id"] != prior["post_id"] + 1:
+            raise ValueError("event_log_internal_gap")
+    if events[-1]["post_id"] != last_post_id:
+        if events[-1]["post_id"] > last_post_id:
+            raise ValueError("event_log_ahead_of_checkpoint")
+        raise ValueError("checkpoint_ahead_of_event_log")
+
+
 def build_outputs(*, channel: str, source_url: str, checkpoint_raw: bytes | None, event_log_raw: bytes | None, initial_last_post_id: int, max_pages: int = MAX_PAGES_DEFAULT, fetcher=fetch_page, collected_at: str | None = None) -> dict[str, bytes]:
     if not CHANNEL_RE.fullmatch(channel):
         raise ValueError("invalid_channel")
@@ -345,8 +361,7 @@ def build_outputs(*, channel: str, source_url: str, checkpoint_raw: bytes | None
     if expected_log_sha is not None and expected_log_sha != old_log_sha:
         raise ValueError("checkpoint_event_log_hash_mismatch")
     last_post_id = old_checkpoint["last_post_id"]
-    if old_events and old_events[-1]["post_id"] > last_post_id:
-        raise ValueError("event_log_ahead_of_checkpoint")
+    validate_event_chain(events=old_events, last_post_id=last_post_id, initial_last_post_id=initial_last_post_id)
     posts, fetch_meta = collect_since(source_url=source_url, channel=channel, last_post_id=last_post_id, max_pages=max_pages, fetcher=fetcher)
     new_rows = [build_event(post, collected_at) for post in posts]
     existing_ids = {row["post_id"] for row in old_events}

@@ -110,19 +110,41 @@ jobs:
           chmod 600 "$RCLONE_CONFIG_PATH"
           echo "RCLONE_CONFIG_PATH=$RCLONE_CONFIG_PATH" >> "$GITHUB_ENV"
 
-      - name: Restore durable checkpoint and append-only event log
+      - name: Restore durable state without converting Drive errors into bootstrap
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/telegram-state" "$RUNNER_TEMP/telegram-out"
-          if "$RCLONE_BIN" --config "$RCLONE_CONFIG_PATH" cat "$DRIVE_ROOT/latest/checkpoint.json" > "$RUNNER_TEMP/telegram-state/checkpoint.json" 2>/dev/null; then
+
+          # Prove the Drive connection is writable/readable before deciding that
+          # an empty latest/ directory really means first bootstrap. A transport,
+          # auth or wrong-remote error must fail here instead of silently resetting
+          # continuity to the static seed.
+          "$RCLONE_BIN" --config "$RCLONE_CONFIG_PATH" mkdir "$DRIVE_ROOT/latest"
+          "$RCLONE_BIN" --config "$RCLONE_CONFIG_PATH" lsf --files-only "$DRIVE_ROOT/latest" \
+            > "$RUNNER_TEMP/telegram-state/latest-files.txt"
+
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'telegram-state'
+          names={line.strip() for line in (root/'latest-files.txt').read_text().splitlines() if line.strip()}
+          required={'checkpoint.json','events.ndjson','a2_discovery_inputs.json','receipt.json'}
+          unknown=names-required
+          if unknown:
+              raise SystemExit('unexpected_latest_members:'+','.join(sorted(unknown)))
+          if names and names != required:
+              raise SystemExit('partial_latest_state:'+','.join(sorted(names)))
+          (root/'bootstrap.txt').write_text('true\n' if not names else 'false\n')
+          PY
+
+          if [ "$(cat "$RUNNER_TEMP/telegram-state/bootstrap.txt")" = "false" ]; then
+            for name in checkpoint.json events.ndjson a2_discovery_inputs.json receipt.json; do
+              "$RCLONE_BIN" --config "$RCLONE_CONFIG_PATH" copyto \
+                "$DRIVE_ROOT/latest/$name" "$RUNNER_TEMP/telegram-state/$name"
+            done
             test -s "$RUNNER_TEMP/telegram-state/checkpoint.json"
-          else
-            rm -f "$RUNNER_TEMP/telegram-state/checkpoint.json"
-          fi
-          if "$RCLONE_BIN" --config "$RCLONE_CONFIG_PATH" cat "$DRIVE_ROOT/latest/events.ndjson" > "$RUNNER_TEMP/telegram-state/events.ndjson" 2>/dev/null; then
-            true
-          else
-            rm -f "$RUNNER_TEMP/telegram-state/events.ndjson"
+            test -s "$RUNNER_TEMP/telegram-state/a2_discovery_inputs.json"
+            test -s "$RUNNER_TEMP/telegram-state/receipt.json"
           fi
 
       - name: Capture public Telegram page and build A2 discovery input
@@ -166,9 +188,16 @@ jobs:
           INGEST_RC: ${{ steps.ingest.outputs.ingest_rc }}
         run: |
           set -euo pipefail
-          RUN_DEST="$DRIVE_ROOT/runs/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          RUN_KEY="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          RUN_DEST="$DRIVE_ROOT/runs/$RUN_KEY"
           VERIFY_DIR="$RUNNER_TEMP/telegram-verify"
           mkdir -p "$VERIFY_DIR"
+          "$RCLONE_BIN" --config "$RCLONE_CONFIG_PATH" mkdir "$DRIVE_ROOT/runs"
+          "$RCLONE_BIN" --config "$RCLONE_CONFIG_PATH" lsf --dirs-only "$DRIVE_ROOT/runs" > "$RUNNER_TEMP/run-dirs.txt"
+          if grep -Fxq "$RUN_KEY/" "$RUNNER_TEMP/run-dirs.txt"; then
+            echo "immutable run destination already exists: $RUN_KEY" >&2
+            exit 1
+          fi
           for name in checkpoint.json events.ndjson a2_discovery_inputs.json receipt.json; do
             src="$RUNNER_TEMP/telegram-out/$name"
             test -f "$src"
