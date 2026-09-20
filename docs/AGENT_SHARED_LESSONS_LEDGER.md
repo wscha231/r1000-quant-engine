@@ -5046,6 +5046,80 @@ Expected contract:
 - PR423 Tier-1 run 34715585754 rejected the newly registered research suites with post_publication_protected_delta:tools/run_pr_validation.py. Following the existing protected-publication protocol, advance only verifier/regression pins to causal ancestor 346d93c713eaa539db7d10ebd0fb34b0d54626b9, reviewed by Codex in review 5187824659. Keep all protected paths, frozen artifacts, hashes, registered tests, and mutation rejection rules unchanged.
 - Further PR423 review found the same leading-missing price boundary in the separate macro cycle. Carry provider_window_start and missing dates from source collection; refuse ambiguous fresh boundaries, retain only earlier rows/gaps, and mark legacy missing-date evidence incomplete. World Bank coverage now compares every requested country/year, including entirely omitted countries and boundary years, rather than counting only returned nulls. The research suites pass 40 history + 17 cycle + 14 source tests.
 
+## 2026-09-20 — Legacy score freshness needs producer and consumer checks
+
+- Audited master f20410549464e3f2557ae6d90ba8b20ee8bcc42e still fabricated
+  missing model scores, fixed $10B caps and TTM-as-forward PE. Reconstructed
+  the relevant PR415 bridge capability on current master, without its stale
+  collector stack, then extended it under issue462.
+- Preserving a previous output on failure is insufficient: consumers may
+  silently read it. Start builds with a blocked receipt, publish successful
+  output hashes last, and validate the exact read bytes plus row observation,
+  pricing and availability dates at legacy consumers.
+- A recent run or price does not refresh an old model score. Explicit
+  valuation/corporate-action rejection must survive downstream loaders.
+- The legacy Layer4 bridge has only RS and holding age; it cannot justify a
+  sell. Its suggestion API/CLI now reports BLOCKED rather than actionable swaps.
+- 58 distinct offline checks passed; new suites run through the already
+  registered freshness smoke without modifying frozen publication gates.
+- No live coverage, financial adapter, fullrun, target/account/Drive mutation
+  or production activation is established. See docs/INPUT_INTEGRITY_FIX_20260920.md.
+
+- Publication outcome: automatic approval review rejected the issue462 branch
+  push as insufficiently authorized source/document egress. The local code
+  commit f29d585 remains preserved; no alternate route was attempted. The
+  remote branch did not exist at that check. The user explicitly authorized
+  publishing this prepared patch, PR review, gated merge and post-merge
+  verification on 2026-09-20; the authorization blocker is now resolved.
+
+- PR463 Codex review found that receipt protection must survive artifact and
+  repository transport. Require bridge receipts at readers, copy CSV/receipt
+  together, validate the pair before a single publication, and reserve an
+  explicit mode for direct legacy sources. Check score availability separately
+  from feature availability. Update the existing behavioral regression when
+  retiring RS-only evaluation; focused suites alone missed its old wiring rule.
+  Five added cases bring focused checks to63. The full local smoke cannot stand
+  in for CI when sparse fixtures or optional dependencies are absent.
+
+- The second PR463 review followed the packet through two additional Drive
+  transports and found the same missing sidecar. Update every allowlist and
+  exercise round-trip/interruption behavior, not only publisher text. Intentional
+  no-action retirement belongs in scheduled diagnostics, while execution CLI
+  failures remain nonzero. Ignored generated outputs require explicit forced
+  staging. A historical membership union is not a current cohort even above
+  the size floor; reject that fallback in the current bridge. Seven more focused
+  regressions pass (70 total), including a real temporary Git staging probe.
+
+- The third review traced admitted scores into advisor serialization: propagate
+  their genuine dates into each target and bind target bytes to a receipt, rather
+  than blocking every newly generated proposal or restamping old observations.
+  Keep archive transport hash validation separate from current admission.
+  Retire every scheduled caller of the RS-only execution path, including the
+  monthly manual-execute option; disabled diagnostics cannot claim execution
+  completed. All75 focused checks pass, including three serializer round trips.
+
+- Target receipt revocation must occur at advisor entry, not only during save:
+  a missing input or ranking exception can happen first. A regression exercises
+  all three actual CLIs with missing sources and proves the retained CSV cannot
+  be consumed. Focused checks total76 and pass.
+
+- A target's date alone does not bind the price used for sizing. Persist the
+  admitted execution reference price, require it at admission, and never replace
+  it with historical cost basis or a later quote. Require generation time across
+  every executable producer, including core/concentrated latest exports, while
+  preserving historical observation dates. A failure receipt left only in an
+  ephemeral workflow runner cannot revoke a retained remote success: publish
+  revocation from a clean remote tree without any pending success CSV changes.
+  Four new regressions cover these boundaries; all80 focused checks pass.
+
+- Receipt requirements must cover core/concentrated targets and the entire
+  outer producer lifecycle, not only advisor serialization. Revoke at build
+  entry, keep nested outputs blocked, and release only newly written targets
+  after successful completion. Missing source directories and absent packets
+  must revoke retained Drive destinations. Preserve explicit no-ranking flags
+  and upload success artifacts only after durable publication succeeds.
+  Early/late failure and missing-source regressions pass; focused total85.
+
 ## 2026-09-20 — Theme source admission is not company evaluation
 
 - Reuse the monitor's authenticated GitHub artifact path and the existing strict
@@ -5090,3 +5164,7 @@ Expected contract:
   instrument bypassed that predicate. Admit only those supported ETF-row types
   here; cash/derivatives need a separate reviewed semantics extension. Preserve
   unverified supported rows as incomplete, never discard them for completeness.
+- PR463 merged during review. PR metadata still exposed the old base SHA while
+  an append-only shared-ledger conflict prevented pull_request CI from starting.
+  Read the live master branch; preserve both full ledger additions and validate
+  against the merged baseline. Exact-head observation alone does not prove CI ran.

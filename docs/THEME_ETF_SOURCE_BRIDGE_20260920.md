@@ -1,7 +1,9 @@
 # [PROJECT_HANDOFF] Theme/ETF source admission and monitor connection
 
 Scope: issue #433, T01 consumer implementation; global coordination remains
-#448. Audited source: `f20410549464e3f2557ae6d90ba8b20ee8bcc42e`.
+#448. Initial audited source: `f20410549464e3f2557ae6d90ba8b20ee8bcc42e`.
+Integration baseline: `4494d108a7ee535bae0bb50b594bd8cfb8164402`, after PR #463
+merged. The append-only shared-ledger conflict preserves both complete entries.
 
 ## Implemented connection
 
@@ -21,8 +23,8 @@ running upstream work cannot be replaced by an older successful artifact.
 Every proposed ID receives an evaluation reconciliation row, including
 `BLOCKED_COMPANY_EVALUATOR_RECEIPT_MISSING` and null 1/3/6/12-month returns. No
 model score, neutral missing value, investment rank or evaluation success is
-fabricated. This complements the separate input-integrity PR #463, whose
-unmerged code is not imported here.
+fabricated. This complements input-integrity PR #463, now part of the canonical
+master baseline. Its legacy input/target admission remains intact.
 
 ## Source contract and trust boundary
 

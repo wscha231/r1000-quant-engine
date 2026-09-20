@@ -22,6 +22,8 @@ Usage:
 """
 from __future__ import annotations
 
+from r1000_legacy_input_guard import load_current_csv
+
 import argparse
 import json
 import sys
@@ -71,8 +73,9 @@ ADVISOR_PATHS = {
 def load_advisor_picks(advisor: str) -> pd.DataFrame:
     """Load picks CSV for the given advisor mode.
 
-    Iterates through fallback paths so cloud workflows can find recent rebuild
-    outputs in cloud_results/ even when the user's Drive path is unavailable.
+    Finds the first existing path, then validates its observation and price
+    dates before planning. An invalid existing file fails closed; it cannot be
+    skipped in favor of a different historical target.
     """
     paths = ADVISOR_PATHS.get(advisor, [])
     if isinstance(paths, str):
@@ -80,21 +83,18 @@ def load_advisor_picks(advisor: str) -> pd.DataFrame:
     for p_str in paths:
         p = Path(p_str)
         if p.exists():
-            return pd.read_csv(p)
+            return load_current_csv(p, kind="targets")
     raise FileNotFoundError(
         f"Advisor {advisor} output not found in any of: {paths}. "
         f"Run advisor (or full_rebuild) first."
     )
-    return pd.read_csv(path)
 
 
 def normalize_picks(df: pd.DataFrame, capital: float, advisor: str = "v3") -> list[dict]:
     """Normalize columns across v1/v3/v4/core/concentrated schemas. Returns list of dicts.
 
-    Schemas:
-      v1/v3/v4:     ticker, proposed_weight, entry_price (or current_price_live), action
-      concentrated: ticker, weight, entry_price, reference_price (premade portfolio)
-      core:         ticker, weight (production portfolio_latest.csv)
+    All modes require a cutoff-bound execution_reference_price. Historical
+    entry_price/reference_price fields are never used for sizing.
     """
     out = []
     for _, r in df.iterrows():
@@ -107,30 +107,13 @@ def normalize_picks(df: pd.DataFrame, capital: float, advisor: str = "v3") -> li
         if weight <= 0:
             continue
 
-        # Entry price: prefer 'entry_price', fallback 'reference_price', then 'current_price_live'
-        entry = 0.0
-        for col in ("entry_price", "reference_price", "current_price_live"):
-            v = r.get(col)
-            if v and pd.notna(v):
-                try:
-                    entry = float(v)
-                    if entry > 0:
-                        break
-                except (TypeError, ValueError):
-                    continue
-
-        # If still no price, query Alpaca live
-        if entry <= 0:
-            try:
-                from aggressive.data_alpaca import fetch_daily_bars
-                bars = fetch_daily_bars(ticker, days=5)
-                if not bars.empty:
-                    entry = float(bars["close"].iloc[-1])
-            except Exception:
-                continue
-
-        if entry <= 0:
-            continue
+        # Admission binds this price to the target's valuation cutoff. Historical
+        # entry_price is cost basis, and a later live quote cannot replace it.
+        from r1000_legacy_input_guard import InputIntegrityError, _finite
+        value = r.get("execution_reference_price")
+        if not _finite(value) or float(value) <= 0:
+            raise InputIntegrityError("invalid_execution_reference_price:" + ticker)
+        entry = float(value)
 
         target_dollars = capital * weight
         target_shares = target_dollars / entry

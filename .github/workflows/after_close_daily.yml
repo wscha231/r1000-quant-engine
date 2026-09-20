@@ -250,41 +250,18 @@ jobs:
           echo "exit_status=$STATUS" >> "$GITHUB_OUTPUT"
           exit "$STATUS"
 
-      - name: Layer 4 swap suggestions
+      - name: Layer 4 disabled diagnostic
         if: always()
-        env:
-          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
-          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
         run: |
-          PORTFOLIO_CSV=""
-          for p in \
-            outputs/portfolio_latest.csv \
-            cloud_results/full_rebuild/latest_global_alpha_universe/portfolio_latest.csv \
-            cloud_results/full_rebuild/latest/portfolio_latest.csv \
-            outputs_advisor_v3/new_top12_proposed.csv
-          do
-            if [ -f "$p" ]; then PORTFOLIO_CSV="$p"; break; fi
-          done
-
-          SCORED_CSV=""
-          for p in \
-            outputs/scored_unified.csv \
-            outputs/scored_latest.csv \
-            cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv \
-            cloud_results/full_rebuild/latest/scored_latest.csv
-          do
-            if [ -f "$p" ]; then SCORED_CSV="$p"; break; fi
-          done
-
-          if [ -n "$PORTFOLIO_CSV" ] && [ -n "$SCORED_CSV" ]; then
-            mkdir -p outputs/paper_runs
-            python r1000_layer4_swap.py \
-              --portfolio "$PORTFOLIO_CSV" \
-              --scored-csv "$SCORED_CSV" \
-              | tee outputs/paper_runs/layer4_$(date +%Y%m%d_%H%M%S).log
-          else
-            echo "[layer4] skipped: portfolio or scored CSV unavailable"
-          fi
+          mkdir -p outputs/paper_runs
+          python - <<'PY_DIAGNOSTIC'
+          import json
+          from pathlib import Path
+          payload = {"status": "DISABLED", "reason": "RS_ONLY_SWAP_DISABLED", "swap_suggestions": []}
+          text = json.dumps(payload) + "\n"
+          Path("outputs/paper_runs/layer4_disabled.json").write_text(text)
+          print(text, end="")
+          PY_DIAGNOSTIC
 
       - name: Upload daily artifacts
         if: always()
