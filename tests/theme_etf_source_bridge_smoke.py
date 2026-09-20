@@ -89,6 +89,9 @@ def package(parts, run, policy, path, alter=None):
     for key, name in CONTRACT["sources"]["operating"]["members"].items():
         name = name.format(run_id=run["id"], run_attempt=run["run_attempt"])
         files[name] = b"ticker,previous_close,latest_price_date,currency\n" if name.endswith(".csv") else b"{}\n"
+        if key == "upstream":
+            files[name] = bridge.canonical({"status": "READY_EXACT_PACKET_UPSTREAM_SOURCE_BUNDLE_REVIEW_ONLY",
+                "upstream_ready": True, "valuation_price_cutoff_date": SESSION})
     if alter:
         alter(files, bundle, bundle_name)
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as out:
@@ -177,6 +180,20 @@ class BridgeTests(unittest.TestCase):
                                         now=NOW, session=SESSION)
         self.assertEqual(failed["status"], "MISSING_CONTRACT_MEMBERS")
         self.assertFalse(failed["data"]["theme_etf_bridge"]["runtime_executed"])
+        # Names alone are insufficient when the receipt says blocked or stale.
+        upstream = contract["sources"]["operating"]["members"]["upstream"].format(
+            run_id=run["id"], run_attempt=run["run_attempt"])
+        for change in ({"status": "BLOCKED"}, {"upstream_ready": False},
+                       {"valuation_price_cutoff_date": "2026-09-17"}):
+            def bad_receipt(files, bundle, name):
+                value = json.loads(files[upstream]); value.update(change)
+                files[upstream] = bridge.canonical(value)
+            artifact = package(self.parts, self.run, self.policy, self.path, bad_receipt)
+            raw = self.path.read_bytes()
+            failed = monitor.collect_source(Client(), "operating", contract["sources"]["operating"], contract,
+                                            now=NOW, session=SESSION)
+            self.assertEqual(failed["data"]["theme_etf_bridge"]["reason"], "upstream_contract_not_ready")
+            self.assertFalse(failed["data"]["theme_etf_bridge"]["runtime_executed"])
 
     def test_reviewed_boolean_without_external_pin_cannot_add_security(self):
         self.policy["approved_membership_reviews"] = {}
@@ -189,6 +206,14 @@ class BridgeTests(unittest.TestCase):
     def test_review_pin_binds_event_identity(self):
         self.parts["membership_events"][0]["security_id"] = self.parts["base_universe"]["security_ids"][0]
         self.check_blocked("membership_review_not_anchored")
+
+    def test_ticker_reuse_does_not_copy_business_reason_to_other_identity(self):
+        self.parts["securities"][0]["ticker"] = "SYN_NEW"
+        out = self.read()
+        self.assertEqual(out["status"], "ADMITTED_RESEARCH_ONLY")
+        rows = {r["security_id"]: r for r in out["data_queue_preview"]["items"]}
+        self.assertEqual(rows["SYN_BASE_0000"]["membership_reasons"], [])
+        self.assertEqual(rows["SYN_NEW"]["membership_reasons"][0]["security_id"], "SYN_NEW")
 
     def test_review_cannot_predate_its_pinned_document(self):
         doc = self.parts["documents"][0]
@@ -230,6 +255,16 @@ class BridgeTests(unittest.TestCase):
     def test_receipt_bytes_mismatch(self):
         self.check_blocked("member_hash_mismatch", lambda f, b, n: f.__setitem__(
             "outputs/theme_etf_bridge/prices/receipt.json", b'{"status":"VERIFIED"}'))
+
+    def test_receipt_cannot_validate_data_before_it_was_available(self):
+        def alter(files, bundle, name):
+            ref = bundle["components"]["prices"]["receipt"]
+            receipt = json.loads(files[ref["path"]])
+            receipt["validated_at"] = "2026-09-18T19:00:00Z"
+            files[ref["path"]] = bridge.canonical(receipt)
+            ref["sha256"] = bridge.sha(files[ref["path"]])
+            files[name] = bridge.canonical(bundle)
+        self.check_blocked("receipt_predates_component", alter)
 
     def test_archive_hash_mismatch(self):
         artifact = package(self.parts, self.run, self.policy, self.path)
@@ -300,6 +335,17 @@ class BridgeTests(unittest.TestCase):
     def test_late_publication_cannot_reverse_etf_order(self):
         self.parts["etf_snapshots"][0]["published_at"] = "2026-09-18T21:30:00Z"
         self.check_blocked("late_etf_history_requires_separate_adapter")
+
+    def test_fund_case_or_spaces_cannot_bypass_history_order(self):
+        self.parts["etf_snapshots"][-1]["fund_id"] = " syn_etf "
+        self.parts["etf_snapshots"][-1]["holdings_as_of"] = "2026-09-01"
+        self.check_blocked("late_etf_history_requires_separate_adapter")
+
+    def test_numeric_strings_cannot_create_nonfinite_runtime_outputs(self):
+        for value in ("NaN", "Infinity", "-Infinity", "1e999", True):
+            with self.subTest(value=value):
+                self.parts["etf_snapshots"][-1]["rows"][0]["quantity"] = value
+                self.check_blocked("nonfinite_or_boolean_numeric")
 
     def test_fixture_origin_requires_explicit_test_policy(self):
         self.policy["allowed_sample_origins"] = CONTRACT["theme_etf_bridge"]["allowed_sample_origins"]

@@ -74,7 +74,7 @@ claims still need the reviewed normalizer described above.
 | Existing owner | Bridge output/use | Remaining boundary |
 |---|---|---|
 | #435/#436 | Existing strict runtime; raw ETF units/coverage | Live issuer adapter |
-| #445, head `9f0f63e4…` | Existing MembershipReason field shape | Preview only; unmerged composer |
+| #445, head `9f0f63e4…` | Existing reason fields plus stable security_id | Preview only; identity-aware consumer adapter still needed |
 | #451, head `2125c0c7…` | Existing candidate-data-queue-v1 shape | Preview only; no canonical writer/packet |
 | #459, head `803a4442…` | Documents treated as data | Unmerged news producer; not invoked |
 | Existing company evaluator | Every ID reconciled with missing receipt | No evaluator execution or return claim |
@@ -124,12 +124,20 @@ it is not included in the byte-verification claim.
 
 ## Validation and next boundary
 
-34 new unittest methods pass, including an authenticated artifact-to-strict
+38 new unittest methods pass, including an authenticated artifact-to-strict
 runtime synthetic cycle with 1,118 base IDs plus one ADR candidate. Tests cover
 complete ID reconciliation, hash/receipt/document/event binding, producer and
 attempt mismatches, units/partial holdings, calendar/freshness, authority
 injection, replay and the lifecycle blocks. They also pass under Python -O;
 repeated executions are not additional test counts.
+
+The first independent review identified seven P2 boundaries. Fixes bind queue
+reasons by stable security ID, require semantic upstream readiness, order ETF
+history by effective availability and canonical fund ID, reject receipts that
+predate their data, require documents before review, and reject nonfinite values
+created from numeric strings before serialization. All have focused regression
+coverage. The adapter retains the security_id extension when previewing #445's
+reason fields; it does not instantiate the unmerged ticker-only dataclass.
 
 19 existing monitor tests, 11 existing strict-runtime checks, one benchmark
 anchor check and eight public-output tests also pass. New tests run through the

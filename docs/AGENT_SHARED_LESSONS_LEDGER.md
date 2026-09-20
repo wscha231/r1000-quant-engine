@@ -5061,3 +5061,8 @@ Expected contract:
   candidate does not repair these real dependencies or authorize account recovery.
 - See docs/THEME_ETF_SOURCE_BRIDGE_20260920.md for contracts, hashes, tests and
   pending #445/#451/#459 interfaces. No target/account/fullrun/champion change.
+- Independent review: join relationships by security ID, never ticker reuse;
+  require ready receipt states as well as member presence; validation cannot
+  predate its data and review cannot predate its documents. Use the runtime's
+  canonical fund IDs/availability order and reject NaN/Infinity numeric strings
+  before serialization. These boundaries now have explicit regressions.

@@ -189,7 +189,14 @@ def collect_source(client: GitHub, key: str, spec: dict, contract: dict, *, now=
                 bridge_now = now if now is not None else datetime.now(timezone.utc)
                 bridge_session = session if session is not None else completed_session(bridge_now)
                 prerequisites = set(members) - set(spec.get("optional_members", []))
-                if run.get("conclusion") == "success" and prerequisites.issubset(result["data"]):
+                upstream = result["data"].get("upstream", {})
+                recovery = result["data"].get("recovery", {})
+                upstream_ready = (upstream.get("status") in READY_UPSTREAM
+                    and upstream.get("upstream_ready") is True
+                    and date_state(upstream.get("valuation_price_cutoff_date"), bridge_session) == "CURRENT"
+                    and not str(recovery.get("status", "")).startswith("BLOCKED"))
+                if (run.get("conclusion") == "success" and prerequisites.issubset(result["data"])
+                        and upstream_ready):
                     bridge = theme_etf_source_bridge.read_bundle(
                         path, run, artifact, contract["theme_etf_bridge"], bridge_session, bridge_now)
                 else:

@@ -83,6 +83,30 @@ def _json(raw):
     return value
 
 
+def _availability_times(value):
+    """Known source timestamps; effective dates may legitimately be in future."""
+    times = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key in {"available_at", "observed_at", "first_observed_at", "collected_at",
+                       "published_at", "validated_at", "reviewed_at"} and item not in (None, ""):
+                times.append(utc(item))
+            elif isinstance(item, (dict, list)):
+                times.extend(_availability_times(item))
+    elif isinstance(value, list):
+        for item in value:
+            times.extend(_availability_times(item))
+    return times
+
+
+def _finite_number(value):
+    require(not isinstance(value, bool), "nonfinite_or_boolean_numeric")
+    try:
+        require(math.isfinite(float(value)), "nonfinite_or_boolean_numeric")
+    except (TypeError, ValueError, OverflowError):
+        raise AdmissionError("nonfinite_or_boolean_numeric") from None
+
+
 def blocked(reason, session):
     return {"schema": SCHEMA, "status": "BLOCKED", "reason": reason,
             "expected_session": session, "runtime_executed": False,
@@ -169,6 +193,8 @@ def _payload(parts, bundle, policy, expected_session, now):
     for event in events:
         require(isinstance(event.get("reviewed"), bool), "membership_review_not_boolean")
         require(event["security_id"] in registry, "membership_identity_missing")
+        if "relevance" in event:
+            _finite_number(event["relevance"])
         if event["reviewed"]:
             approval = policy["approved_membership_reviews"].get(sha(canonical(event)))
             require(isinstance(approval, dict) and approval.get("decision") == "APPROVED_BUSINESS_RELATIONSHIP"
@@ -186,11 +212,16 @@ def _payload(parts, bundle, policy, expected_session, now):
     by_fund = {}
     for snapshot in snapshots:
         require(snapshot.get("schema") != "etf-snapshot-v2", "raw_etf_evidence_required")
-        require(snapshot.get("expected_unique_rows") == len(snapshot.get("rows", [])),
+        require(type(snapshot.get("expected_unique_rows")) is int
+                and snapshot["expected_unique_rows"] == len(snapshot.get("rows", [])),
                 "etf_expected_rows_mismatch")
         for row in snapshot["rows"]:
             require(isinstance(row.get("identity_verified"), bool), "etf_identity_not_boolean")
-        by_fund.setdefault(snapshot["fund_id"], []).append(snapshot)
+            if row.get("quantity") not in (None, ""):
+                _finite_number(row["quantity"])
+        fund = str(snapshot["fund_id"]).strip().upper()
+        require(bool(fund), "fund_identity_missing")
+        by_fund.setdefault(fund, []).append(snapshot)
     for rows in by_fund.values():
         ordered = sorted(rows, key=lambda r: max(utc(r["observed_at"]),
                          utc(r.get("validated_at") or r["observed_at"]),
@@ -259,21 +290,26 @@ def read_bundle(path: Path, run: dict, artifact: dict, policy: dict,
                 require(receipt.get("raw_objects"), "raw_source_evidence_missing")
                 for ref in receipt["raw_objects"]:
                     _member(archive, ref, policy, evidence)
-                parts[role] = _json(component)
+                part = _json(component)
+                require(all(t <= utc(receipt["validated_at"]) for t in _availability_times(part)),
+                        "receipt_predates_component")
+                parts[role] = part
         payload = _payload(parts, bundle, policy, expected_session, now)
         # Import only after admission. Missing sparse-checkout runtime is a
         # deployment error, never silently substituted with the permissive core.
         from research.theme_etf_runtime_v1.strict import run_payload
         result = run_payload(payload)
+        canonical(result)  # Reject any nonfinite value introduced by conversion.
         proposal = result["summary"]["universe"]["research_universe_proposal"]
         registry = {r["security_id"]: r for r in parts["securities"]}
         event_map = {e["event_id"]: e for e in parts["membership_events"]}
-        # Emit the pending #445 MembershipReason shape; do not introduce another
-        # composer or import its unmerged branch as a canonical dependency.
+        # Preserve #445's reason fields with a stable security_id extension.
+        # Its later adapter must retain this identity rather than join on ticker.
+        # Do not import the unmerged composer as a canonical dependency.
         reasons = []
         for sid, entry in sorted(result["active_memberships"].items()):
             event = event_map[entry["membership_event_id"]]
-            reasons.append({"ticker": registry[sid]["ticker"],
+            reasons.append({"security_id": sid, "ticker": registry[sid]["ticker"],
                 "reason_type": "REVIEWED_THEME_RESEARCH", "source_kind": "THEME",
                 "polarity": "CANDIDATE", "status": "ACTIVE",
                 "first_seen_at": event["observed_at"], "last_observed_at": event["observed_at"],
@@ -290,7 +326,7 @@ def read_bundle(path: Path, run: dict, artifact: dict, policy: dict,
         queue = {"schema_version": "candidate-data-queue-v1", "as_of": bundle["decision_at"],
                  "items": [{"security_id": sid, "ticker": registry[sid]["ticker"],
                     "state": "DATA_PENDING", "membership_reasons": [r for r in reasons
-                        if r["ticker"] == registry[sid]["ticker"]],
+                        if r["security_id"] == sid],
                     "required_channels": channels,
                     "channel_status": {c: "CONSUMER_RECEIPT_MISSING" for c in channels},
                     "next_action": "VERIFY_COMPANY_INPUTS_THEN_RUN_EXISTING_EVALUATOR",
