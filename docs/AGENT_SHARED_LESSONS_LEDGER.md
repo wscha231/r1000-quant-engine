@@ -1,5 +1,26 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-20 — Observed commodity/network data is not calibrated alpha
+
+- Multi-asset issue #465: EIA storage has a weekly observation date and a
+  separate release-date label. Preserve both; use actual retrieval as availability
+  for this forward capture. The JSON midnight label is not a release timestamp.
+- Coin Metrics public metric coverage differs by asset/metric. One unavailable
+  request must not suppress available metrics. Missing latest values stay missing.
+  BTC HashRate is TH/s (multiply by 10^12); native fees remain BTC/ETH, not USD.
+- The public coinmetrics/data CSV probe ended 2026-05-24 with missing network
+  fields; never substitute it for current September network observations.
+- Keep exact raw responses and normalized capture inputs in diagnostic artifacts.
+  Their 45-day retention is not a durable PIT archive or accepted Drive state.
+- General Drive search omitted opaque objects; direct folder listing found them.
+  Latest commit/catalog/execution/quality/context byte hashes were verified,
+  but full-chain/all-pack restore remains unverified and quality is PARTIAL.
+- Failed fundamental receipts must be bound to the evaluator feature identity
+  and reject ER admission, even when the remaining metric list is empty.
+  A successful receipt must match the complete producer request set and its
+  actual admitted subject/series/metric/unit/count/raw-hash evidence.
+  Malformed metric fields must not prevent diagnostic report publication.
+
 ## 2026-09-20 — Multi-asset discovery is not a new allocation authority
 
 - Issue465 extends merged strict log-RS and the existing completed-session

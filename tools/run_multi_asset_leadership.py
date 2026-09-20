@@ -25,6 +25,7 @@ from research.multi_asset_v1.contracts import ContractError, digest, encoded, lo
 from research.multi_asset_v1.runtime import render, run
 from research.multi_asset_v1.prices import grid
 from research.multi_asset_v1.sources import capture_crypto,capture_spot_metrics
+from research.multi_asset_v1.fundamentals import capture_fundamentals
 from tools.macro_history_sources import request_bytes, exclusive
 
 
@@ -101,6 +102,9 @@ def capture(registry, attempt, fetcher=request_bytes):
             # Provider exceptions can contain URLs/credentials. Persist only controlled labels.
             receipts.append({"asset_id":asset["asset_id"],"status":"BLOCKED","reason":str(exc) if isinstance(exc,ContractError) else "provider_unavailable_or_schema"})
     metrics,metric_receipts=capture_spot_metrics(attempt,fetcher)
+    fundamental_rows,fundamental_receipts=capture_fundamentals(attempt,fetcher)
+    metrics.extend(fundamental_rows)
+    metric_receipts.extend(fundamental_receipts)
     payload={"schema":"multi-asset-input-v1","as_of":datetime.now(timezone.utc).isoformat(),
              "prices":rows,"metrics":metrics,"events":[],"evaluations":[],"base_equity_ids":[],"collection_receipts":receipts+metric_receipts}
     exclusive(attempt/"input.json",encoded(payload))

@@ -9,12 +9,13 @@ from .contracts import (ContractError, ER_HORIZONS, HORIZONS, day, digest, ident
                         metadata, number, pinned, registry_rows, require, stamp, unique)
 from .prices import BASE_RS_WEIGHTS, admit_prices, cross_section, grid, one_asset
 from .decisions import COMPONENTS, classify, evaluation, event_memory, lookthrough, propose
+from .fundamentals import receipt_blockers
 
 
 def feature_identity(payload, registry):
     # Evaluator and risk pins bind exactly the same input snapshot without a cycle.
     return digest({"registry":registry,"as_of":payload["as_of"],
-                   **{k:payload.get(k,[]) for k in ("prices","metrics","events","base_equity_ids")}})
+                   **{k:payload.get(k,[]) for k in ("prices","metrics","events","base_equity_ids","collection_receipts")}})
 
 
 def feature_availability(payload):
@@ -36,6 +37,9 @@ def metric_rows(rows, cutoff, policy):
             identifier(row.get("subject_id"))
             spec=policy["metric_units"].get(row.get("metric"))
             require(spec is not None and row.get("unit") in spec,"metric_unit")
+            if row.get("unit")=="TOKEN":
+                require(row.get("subject_id") in {"BTC","ETH"}
+                        and row.get("currency")==row["subject_id"],"metric_token_currency")
             number(row.get("value"))
             result.append({**row,"admission":"OBSERVED"})
         except ContractError as exc:
@@ -116,6 +120,8 @@ def run(payload, registry, policy):
     require(benchmark in assets,"benchmark_registry")
     events=event_memory(payload.get("events",[]),assets,cutoff,policy)
     metrics=metric_rows(payload.get("metrics",[]),cutoff,policy)
+    fundamental_collection_blockers=receipt_blockers(metrics,payload.get("collection_receipts",[]))
+    fundamental_collection_blocked=bool(fundamental_collection_blockers)
     for metric in metrics:
         require(metric["subject_id"] in assets or metric["subject_id"] in underlyings,"unknown_metric_subject")
     rows=[]
@@ -147,6 +153,7 @@ def run(payload, registry, policy):
         if aid in by_eval:
             try:
                 require(row["data_quality"]=="PRICE_OBSERVED_RESEARCH_ONLY","price_proxy_or_missing_cannot_admit_er")
+                require(not fundamental_collection_blocked,"fundamental_collection_incomplete")
                 require(all(metric["admission"]=="OBSERVED" for metric in metrics),"feature_metric_not_admitted")
                 ev=evaluation(by_eval[aid],a,cutoff,policy,identity,feature_time)
                 fields={"fundamental_score","expected_alpha_12m","expected_drawdown","downside_probability","signal_confidence","thesis_confidence","thesis_id","thesis_status","valuation_acceptable","scenarios","model_id","validation_sha256"}
@@ -193,7 +200,9 @@ def run(payload, registry, policy):
     crypto=[]
     for aid,a in assets.items():
         if a["asset_class"]!="CRYPTO":continue
-        item={"asset_id":aid,"utc_calendar":None,"nyse_snapshot":next((r for r in rows if r["asset_id"]==aid),None),"status":"BLOCKED"}
+        item={"asset_id":aid,"utc_calendar":None,"nyse_snapshot":next((r for r in rows if r["asset_id"]==aid),None),"status":"BLOCKED",
+              "metrics":[r for r in metrics if r["subject_id"]==a["underlying"]],
+              "network_score":None,"network_score_status":"NO_VALIDATED_NETWORK_MODEL"}
         try:
             series=admit_prices(groups[(aid,"UTC_DAY")],a,cutoff,policy,sessions,"UTC_DAY")
             keys=sorted(series)
@@ -266,6 +275,8 @@ def run(payload, registry, policy):
     result={"schema":"multi-asset-leadership-v1","as_of":as_of,"computed_at":cutoff,"mode":"RESEARCH_ONLY",
             "feature_sha256":identity,"registry_sha256":digest(registry),"policy_sha256":digest(policy),
             "feature_available_at":feature_time,
+            "fundamental_collection_blocked":fundamental_collection_blocked,
+            "fundamental_collection_blockers":fundamental_collection_blockers,
             "ranking_scope":"SUBMITTED_COHORT" if global_ranking_ready else "INCOMPLETE_EVALUATION_COVERAGE" if complete_base else "INCOMPLETE_BASE_UNIVERSE",
             "global_ranking_ready":global_ranking_ready,
             "base_universe_blockers":base_blockers,
@@ -289,6 +300,15 @@ def render(result):
            "", "| Asset | Price status | Discovery rank | ER 12m | Portfolio status |", "|---|---|---:|---:|---|"]
     for r in rows:
         lines.append(f"| {r['symbol']} | {r['data_quality']} | {r['discovery_rank']} | {r['expected_return_12m']} | {r['portfolio_status']} |")
+    lines.extend(["", "## Commodity and network observations", "",
+                  "Current observations only; source history is not certified PIT. Network activity is not an adoption or expected-return score.",
+                  "", "| Subject | Metric | Value | Unit | Observation | Admission |", "|---|---|---:|---|---|---|"])
+    for r in result["metrics"]:
+        # Invalid observations still belong in the diagnostic report. Escape
+        # external labels and never turn a missing report field into a number.
+        cells=[str(r.get(k,"MISSING")).replace("|","\\|").replace("\n"," ").replace("\r"," ")
+               for k in ("subject_id","metric","value","unit","observed_at","admission")]
+        lines.append("| "+" | ".join(cells)+" |")
     lines.extend(["", "## Blockers", ""])
     lines.extend(f"- {r['symbol']}: {', '.join(r['blockers'])}" for r in rows if r["blockers"])
     lines.extend(["", "## Portfolio exposure changes", "", f"Proposal: {result['proposal']['status']}. Accepted targets and orders: unchanged.",

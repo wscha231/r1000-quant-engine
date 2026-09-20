@@ -159,7 +159,7 @@ class Integrity(unittest.TestCase):
         self.assertTrue(all(x["RS20"] is None for x in out["multi_asset_leadership_latest"]))
 
     def test_genuine_zero_metric_preserved_missing_blocked(self):
-        self.p["metrics"]=[dict(**meta("REVIEWED_NETWORK"),subject_id="BTC",metric="net_issuance",unit="TOKEN",value=0)]
+        self.p["metrics"]=[dict(**meta("REVIEWED_NETWORK"),subject_id="BTC",metric="net_issuance",unit="TOKEN",currency="BTC",value=0)]
         out=run(self.p,self.r,self.policy);self.assertEqual(out["metrics"][0]["value"],0)
         self.p["metrics"][0]["value"]=None
         out=run(self.p,self.r,self.policy);self.assertIsNone(out["metrics"][0]["value"])
@@ -758,6 +758,240 @@ class ExposureAndPublication(unittest.TestCase):
         asset={'symbol':'BTC-USD','asset_id':'CRYPTO:BTC-USD'}
         raw=encoded({'chart':{'result':[{'meta':{'symbol':'ETH-USD','currency':'USD','instrumentType':'CRYPTOCURRENCY','exchangeTimezoneName':'UTC'}}],'error':None}})
         with self.assertRaises(ContractError):crypto_chart(raw,asset,CUTOFF)
+
+
+class FundamentalSources(unittest.TestCase):
+    def setUp(self):
+        from research.multi_asset_v1.fundamentals import gas_storage, network_metrics
+        self.gas=gas_storage
+        self.network=network_metrics
+        self.collected="2026-09-20T08:00:00Z"
+        self.gas_data={"release_name":"Weekly Natural Gas Storage Report","fuel_type":"natural gas",
+            "process":"storage","periodicity":"weekly","current_week":"2026-09-11",
+            "week_ago":"2026-09-04","release_date":"2026-Sep-17 00:00:00","5yr_avg":"5-year (2021-25) average",
+            "series":[{"series_id":"png.nw2_epg0_swo_r48_bcf.w","source":"U.S. Energy Information Administration",
+            "units":"billion cubic feet","unitsshort":"bcf","data":[["2026-09-11",3000],["2026-09-04",2950]],
+            "calculated":{"5yr-avg":2500,"net_change":50},"revision_flag":["false","false"]}]}
+
+    def cm(self,subject="btc",metric="HashRate",value="1000",date="2026-09-19"):
+        return {"data":[{"asset":subject,"time":date+"T00:00:00.000000000Z",metric:value}]}
+
+    def parse(self,data,subject="BTC",metric="HashRate"):
+        return self.network(encoded(data),subject,metric,self.collected,"2026-09-13","2026-09-19")
+
+    def test_storage_units_comparison_and_retrieval_availability(self):
+        rows=self.gas(encoded(self.gas_data),self.collected)
+        self.assertEqual([r['value'] for r in rows[:3]],[3000,2500,50])
+        self.assertAlmostEqual(rows[3]['value'],.2)
+        self.assertTrue(all(r['available_at']==self.collected and r['evidence_kind']=='FORWARD_CAPTURE' for r in rows))
+        self.assertEqual(rows[0]['observed_at'],'2026-09-11T00:00:00Z')
+        self.assertIsNone(rows[0]['currency'])
+
+    def test_storage_does_not_sum_regional_and_total_rows(self):
+        extra=copy.deepcopy(self.gas_data['series'][0]);extra['series_id']='regional'
+        self.gas_data['series'].append(extra)
+        self.assertEqual(self.gas(encoded(self.gas_data),self.collected)[0]['value'],3000)
+
+    def test_storage_rejects_wrong_unit_identity_and_duplicates(self):
+        for field,value in [('units','million cubic feet'),('source','unknown'),('series_id','regional')]:
+            data=copy.deepcopy(self.gas_data);data['series'][0][field]=value
+            with self.subTest(field=field),self.assertRaises(ContractError):self.gas(encoded(data),self.collected)
+        self.gas_data['series']*=2
+        with self.assertRaises(ContractError):self.gas(encoded(self.gas_data),self.collected)
+
+    def test_storage_rejects_missing_zero_inconsistent_comparison(self):
+        for average,change in [(None,50),(0,50),(2500,90)]:
+            data=copy.deepcopy(self.gas_data);data['series'][0]['calculated'].update({'5yr-avg':average,'net_change':change})
+            with self.subTest(average=average,change=change),self.assertRaises(ContractError):self.gas(encoded(data),self.collected)
+
+    def test_storage_stale_and_future_release_block(self):
+        for collected in ['2026-09-16T12:00:00Z','2026-09-27T12:00:00Z']:
+            with self.subTest(collected=collected),self.assertRaises(ContractError):self.gas(encoded(self.gas_data),collected)
+
+    def test_storage_preserves_revision_without_claiming_pit(self):
+        self.gas_data['series'][0]['revision_flag'][0]='true'
+        row=self.gas(encoded(self.gas_data),self.collected)[0]
+        self.assertEqual(row['source_revision_flags'][0],'true')
+        self.assertEqual(row['evidence_kind'],'FORWARD_CAPTURE')
+
+    def test_eia_redirect_only_allows_same_host_fixed_document(self):
+        from research.multi_asset_v1.fundamentals import eia_url
+        self.assertEqual(eia_url('https://ir.eia.gov/secure/ngs/wngsr.json?Signature=test'),
+                         'https://ir.eia.gov/secure/ngs/wngsr.json?Signature=test')
+        for url in ['http://ir.eia.gov/ngs/wngsr.json','https://evil.test/ngs/wngsr.json',
+                    'https://ir.eia.gov@evil.test/ngs/wngsr.json','https://ir.eia.gov/other',
+                    'https://ir.eia.gov:443/ngs/wngsr.json','https://ir.eia.gov/ngs/wngsr.json#bad']:
+            with self.subTest(url=url),self.assertRaises(ContractError):eia_url(url)
+
+    def test_network_hashrate_ths_to_hs(self):
+        row=self.parse(self.cm())[0]
+        self.assertEqual(row['value'],1e15)
+        self.assertEqual(row['unit'],'HASH_PER_SECOND')
+        self.assertEqual(row['observed_at'],'2026-09-20T00:00:00+00:00')
+        self.assertEqual(row['available_at'],self.collected)
+
+    def test_network_native_fees_keep_token_currency(self):
+        row=self.parse(self.cm('eth','FeeTotNtv','12.5'),'ETH','FeeTotNtv')[0]
+        self.assertEqual((row['value'],row['unit'],row['currency']),(12.5,'TOKEN','ETH'))
+
+    def test_network_missing_latest_not_filled_with_old_value(self):
+        data=self.cm(value=None)
+        data['data']+=self.cm(value='9999',date='2026-09-18')['data']
+        row=self.parse(data)[0]
+        self.assertIsNone(row['value'])
+        self.assertEqual(row['data_quality'],'MISSING')
+
+    def test_network_rejects_partial_pagination(self):
+        data=self.cm();data['next_page_token']='more'
+        with self.assertRaises(ContractError):self.parse(data)
+
+    def test_network_rejects_wrong_asset_duplicate_or_future_dates(self):
+        for data in [self.cm(subject='eth'),self.cm(date='2026-09-20'),{'data':self.cm()['data']*2}]:
+            with self.subTest(data=data),self.assertRaises(ContractError):self.parse(data)
+
+    def test_network_rejects_nonfinite_negative_numeric_coercion(self):
+        for value in ['NaN','Infinity','-1',True,1000,'1e999',' 10']:
+            with self.subTest(value=value),self.assertRaises(ContractError):self.parse(self.cm(value=value))
+
+    def test_network_rejects_fractional_counts(self):
+        with self.assertRaises(ContractError):self.parse(self.cm('eth','TxCnt','1.1'),'ETH','TxCnt')
+
+    def test_network_no_eth_mining_metric(self):
+        from research.multi_asset_v1.fundamentals import NETWORK
+        self.assertNotIn('HashRate',NETWORK['ETH'])
+
+    def test_network_stale_and_token_currency_admission(self):
+        from research.multi_asset_v1.runtime import metric_rows
+        row=self.parse(self.cm('eth','FeeTotNtv','1'),'ETH','FeeTotNtv')[0]
+        policy=json.loads((ROOT/'docs/multi_asset_policy_v1.json').read_bytes())
+        self.assertEqual(metric_rows([row],self.collected,policy)[0]['admission'],'OBSERVED')
+        self.assertEqual(metric_rows([row],'2026-09-25T12:00:00Z',policy)[0]['admission'],'BLOCKED')
+        for currency in [None,'USD','BTC']:
+            row['currency']=currency
+            self.assertEqual(metric_rows([row],self.collected,policy)[0]['reason'],'metric_token_currency')
+
+    def test_collectors_preserve_raw_bytes_and_isolate_one_failure(self):
+        from research.multi_asset_v1.fundamentals import capture_fundamentals
+        from research.multi_asset_v1.contracts import stamp
+        from urllib.parse import urlsplit,parse_qs
+        def fetch(url):
+            q=parse_qs(urlsplit(url).query);subject=q['assets'][0];metric=q['metrics'][0]
+            if metric=='CapMVRVCur':raise ValueError('secret-bearing provider exception')
+            return encoded(self.cm(subject,metric,'10'))
+        with tempfile.TemporaryDirectory() as tmp:
+            rows,receipts=capture_fundamentals(Path(tmp),fetch,lambda _:encoded(self.gas_data),lambda:stamp(self.collected))
+            self.assertEqual(len(rows),10)
+            self.assertEqual(len(receipts),8)
+            self.assertEqual(sum(r['status']=='BLOCKED' for r in receipts),1)
+            self.assertNotIn('secret-bearing',json.dumps(receipts))
+            for r in rows:
+                raw=(Path(tmp)/'raw'/r['raw_sha256']).read_bytes()
+                self.assertEqual(hashlib.sha256(raw).hexdigest(),r['raw_sha256'])
+
+    def test_capture_parser_failure_preserves_raw_receipt(self):
+        from research.multi_asset_v1.fundamentals import capture_fundamentals
+        from research.multi_asset_v1.contracts import stamp
+        with tempfile.TemporaryDirectory() as tmp:
+            rows,receipts=capture_fundamentals(Path(tmp),lambda _:b'{}',lambda _:b'{}',lambda:stamp(self.collected))
+            self.assertEqual(rows,[])
+            self.assertTrue(all(r['status']=='BLOCKED' and 'raw_sha256' in r for r in receipts))
+            self.assertTrue((Path(tmp)/'raw'/hashlib.sha256(b'{}').hexdigest()).is_file())
+
+    def test_runtime_keeps_network_metrics_separate_from_score(self):
+        from research.multi_asset_v1.runtime import render
+        p,r,policy=fixture();p['as_of']=self.collected
+        registry=json.loads((ROOT/'docs/multi_asset_registry_v1.json').read_bytes())
+        r['assets'] += [a for a in registry['assets'] if a['asset_class']=='CRYPTO']
+        p['metrics']=self.parse(self.cm('eth','FeeTotNtv','12.5'),'ETH','FeeTotNtv')
+        result=run(p,r,policy)
+        eth=next(a for a in result['crypto_market_latest'] if a['asset_id']=='CRYPTO:ETH-USD')
+        self.assertEqual(eth['metrics'][0]['value'],12.5)
+        self.assertIsNone(eth['network_score'])
+        self.assertFalse(result['global_ranking_ready'])
+        self.assertIn('Commodity and network observations',render(result))
+
+    def test_workflow_archives_capture_input_and_raw_objects(self):
+        workflow=(ROOT/'.github/workflows/multi_asset_leadership_v1.yml').read_text()
+        self.assertIn('outputs/multi_asset/captures/',workflow)
+
+    def complete_capture_fixture(self):
+        from research.multi_asset_v1.fundamentals import capture_fundamentals
+        from research.multi_asset_v1.contracts import stamp
+        from urllib.parse import urlsplit,parse_qs
+        def fetch(url):
+            q=parse_qs(urlsplit(url).query)
+            return encoded(self.cm(q['assets'][0],q['metrics'][0],'10',q['end_time'][0]))
+        with tempfile.TemporaryDirectory() as tmp:
+            rows,receipts=capture_fundamentals(Path(tmp),fetch,lambda _:encoded(self.gas_data),lambda:stamp(CUTOFF))
+        p,r,policy=fixture();p.update(metrics=rows,collection_receipts=receipts)
+        return p,r,policy
+
+    def test_complete_fundamental_receipts_match_all_admitted_rows(self):
+        p,r,policy=self.complete_capture_fixture();reviewed(p,r,policy);risk(p,r,policy)
+        result=run(p,r,policy)
+        self.assertEqual(len(result['metrics']),11)
+        self.assertEqual(result['fundamental_collection_blockers'],[])
+        self.assertTrue(result['global_ranking_ready'])
+        self.assertEqual(result['proposal']['status'],'RESEARCH_PROPOSAL')
+
+    def test_success_receipt_contradictions_block_reviewed_sparse_er(self):
+        for mutation in ['missing_gas','missing_network','wrong_count','wrong_hash','wrong_series',
+                         'duplicate_receipt','missing_receipt','unclaimed_metric','all_metrics_removed']:
+            p,r,policy=self.complete_capture_fixture()
+            if mutation=='missing_gas':p['metrics'].pop(0)
+            elif mutation=='missing_network':p['metrics'].pop()
+            elif mutation=='wrong_count':p['collection_receipts'][0]['rows']=3
+            elif mutation=='wrong_hash':p['collection_receipts'][0]['raw_sha256']='f'*64
+            elif mutation=='wrong_series':p['collection_receipts'][1]['series']='FeeTotNtv'
+            elif mutation=='duplicate_receipt':p['collection_receipts'].append(copy.deepcopy(p['collection_receipts'][0]))
+            elif mutation=='missing_receipt':p['collection_receipts'].pop()
+            elif mutation=='unclaimed_metric':
+                extra=copy.deepcopy(p['metrics'][-1]);extra['source_metric']='Other';extra['metric']='issuance';p['metrics'].append(extra)
+            elif mutation=='all_metrics_removed':p['metrics']=[]
+            reviewed(p,r,policy);risk(p,r,policy)
+            with self.subTest(mutation=mutation):
+                result=run(p,r,policy)
+                self.assertTrue(result['fundamental_collection_blocked'])
+                self.assertFalse(result['global_ranking_ready'])
+                self.assertEqual(result['proposal']['status'],'BLOCKED')
+
+    def test_fundamental_rows_without_receipts_cannot_authorize_er(self):
+        p,r,policy=self.complete_capture_fixture();p['collection_receipts']=[]
+        reviewed(p,r,policy)
+        result=run(p,r,policy)
+        self.assertTrue(result['fundamental_collection_blocked'])
+        self.assertFalse(result['global_ranking_ready'])
+
+    def test_failed_fundamental_receipt_blocks_even_reviewed_sparse_er(self):
+        for status in ['BLOCKED','PARTIAL_MISSING']:
+            p,r,policy=fixture()
+            p['collection_receipts']=[{'source':'COINMETRICS_COMMUNITY','subject_id':'ETH',
+                                      'series':'FeeTotNtv','status':status}]
+            reviewed(p,r,policy);risk(p,r,policy)
+            result=run(p,r,policy)
+            self.assertTrue(result['fundamental_collection_blocked'])
+            self.assertFalse(result['global_ranking_ready'])
+            self.assertEqual(result['proposal']['status'],'BLOCKED')
+            self.assertTrue(all('evaluation:fundamental_collection_incomplete' in x['blockers']
+                                for x in result['multi_asset_leadership_latest']))
+
+    def test_collection_receipts_bound_to_evaluator_feature_identity(self):
+        p,r,policy=fixture();before=feature_identity(p,r)
+        p['collection_receipts']=[{'source':'EIA_STORAGE','status':'BLOCKED'}]
+        self.assertNotEqual(before,feature_identity(p,r))
+
+    def test_malformed_metric_still_publishes_diagnostics(self):
+        for missing in ['metric','unit','observed_at']:
+            p,r,policy=fixture()
+            row=dict(**meta('EIA'),subject_id='NATURAL_GAS',metric='inventory',unit='BCF',value=100)
+            row.pop(missing);p['metrics']=[row]
+            with self.subTest(missing=missing),tempfile.TemporaryDirectory() as tmp:
+                out=Path(tmp)
+                result=publish(p,r,policy,out,'invalid-metric',CODE_SHA)
+                self.assertEqual(result['metrics'][0]['admission'],'BLOCKED')
+                self.assertTrue((out/'attempts/invalid-metric/receipt.json').is_file())
+                report=(out/'attempts/invalid-metric/daily_monitoring_report.md').read_text()
+                self.assertIn('MISSING',report)
 
 
 if __name__=="__main__":unittest.main()
