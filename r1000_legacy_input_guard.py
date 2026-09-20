@@ -116,6 +116,14 @@ def validate_current_frame(frame, *, kind='scores', now=None):
             if not result[name].map(_finite).all():
                 raise InputIntegrityError('nonfinite_model_score:' + name)
     else:
+        if 'target_available_from' in result:
+            target_available = result['target_available_from'].map(_utc)
+            if ((target_available < available) | (target_available > decision)).any():
+                raise InputIntegrityError('target_not_available_for_current_close')
+            if 'score_available_from' in result:
+                source_available = result['score_available_from'].map(_utc)
+                if (target_available < source_available).any():
+                    raise InputIntegrityError('target_predates_source_score')
         weights = [c for c in ('weight', 'proposed_weight') if c in result]
         if not weights:
             raise InputIntegrityError('target_weight_required')
@@ -144,7 +152,8 @@ def read_csv_packet(path, *, receipt_policy='required'):
     raw = path.read_bytes()
     frame = pd.read_csv(io.BytesIO(raw))
     is_bridge = (path.name == 'scored_unified.csv' or
-                 ('input_packet_kind' in frame and frame['input_packet_kind'].eq('unified_bridge_v1').any()))
+                 ('input_packet_kind' in frame and frame['input_packet_kind'].isin(
+                     ['unified_bridge_v1', 'advisor_target_v1']).any()))
     if receipt is None and (receipt_policy == 'required' or is_bridge):
         raise InputIntegrityError('coverage_receipt_required')
     if receipt is not None:
@@ -192,3 +201,34 @@ def copy_bridge_packet(source, destination):
     _atomic_packet_bytes(destination, raw)
     _atomic_packet_bytes(receipt_path, receipt)
     read_csv_packet(destination)
+
+
+def write_advisor_targets(targets, scored, path, *, now=None):
+    """Carry admitted input provenance into a newly generated proposal.
+
+    The generation timestamp is new; score/price/feature observations are copied
+    unchanged. Unknown candidate provenance blocks rather than inventing dates.
+    """
+    path = Path(path)
+    receipt_path = Path(str(path) + '.coverage.json')
+    _atomic_packet_bytes(receipt_path, b'{"status":"BLOCKED_TARGET_BUILD_IN_PROGRESS"}')
+    decision = _utc(now if now is not None else datetime.now(timezone.utc))
+    source = validate_current_frame(scored, now=decision).set_index('ticker')
+    result = targets.copy()
+    if result.empty or 'ticker' not in result:
+        raise InputIntegrityError('missing_target_identity')
+    result['ticker'] = result['ticker'].astype(str).str.strip().str.upper()
+    if not result['ticker'].isin(source.index).all():
+        raise InputIntegrityError('target_source_provenance_missing')
+    for name in ('valuation_price_cutoff_date', 'feature_available_from', 'score_available_from'):
+        result[name] = result['ticker'].map(source[name])
+    result['target_as_of'] = result['valuation_price_cutoff_date']
+    result['target_available_from'] = decision.isoformat()
+    result['input_packet_kind'] = 'advisor_target_v1'
+    result = validate_current_frame(result, kind='targets', now=decision)
+    raw = result.to_csv(index=False).encode('utf-8')
+    _atomic_packet_bytes(path, raw)
+    receipt = {'status': 'LEGACY_COMPATIBILITY_ONLY', 'investment_approved': False,
+               'compatible_sha256': hashlib.sha256(raw).hexdigest()}
+    _atomic_packet_bytes(receipt_path, json.dumps(receipt).encode('utf-8'))
+    return result

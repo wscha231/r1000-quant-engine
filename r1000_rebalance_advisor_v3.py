@@ -25,7 +25,7 @@ Output: outputs_advisor_v3/new_top12_proposed.csv
 """
 from __future__ import annotations
 
-from r1000_legacy_input_guard import load_current_csv
+from r1000_legacy_input_guard import load_current_csv, write_advisor_targets
 
 import argparse
 import json
@@ -303,11 +303,11 @@ def print_report(picks: list[HybridPick]) -> None:
     print(f"  v2 exclusive:           {sum(1 for p in picks if p.philosophy=='v2_only')}")
 
 
-def save_results(picks: list[HybridPick], out_dir: Path) -> None:
+def save_results(picks: list[HybridPick], out_dir: Path, *, score_provenance: pd.DataFrame) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     rows = [asdict(p) for p in picks]
     df = pd.DataFrame(rows)
-    df.to_csv(out_dir / "new_top12_proposed.csv", index=False)
+    write_advisor_targets(df, score_provenance, out_dir / "new_top12_proposed.csv")
     print(f"\n[save] wrote {out_dir / 'new_top12_proposed.csv'}")
 
 
@@ -374,7 +374,7 @@ def main() -> int:
 
     # Report + save
     print_report(portfolio_picks)
-    save_results(portfolio_picks, Path(args.output_dir))
+    save_results(portfolio_picks, Path(args.output_dir), score_provenance=scored)
 
     # Diff vs current
     old_tickers = {t for t, w in current_weights.items() if w > 0 and t != "CASH"}

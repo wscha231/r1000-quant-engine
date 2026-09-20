@@ -1805,7 +1805,7 @@ jobs:
           if [ -f outputs/scored_unified.csv ]; then
             cp outputs/scored_unified.csv "$DEST/"
             cp outputs/scored_unified.csv.coverage.json "$DEST/"
-            python -c "import sys; from r1000_legacy_input_guard import load_current_csv; load_current_csv(sys.argv[1])" "$DEST/scored_unified.csv"
+            python -c "import sys; from r1000_legacy_input_guard import read_csv_packet; read_csv_packet(sys.argv[1])" "$DEST/scored_unified.csv"
           fi
           # Portfolio outputs (production main + concentrated 3-name)
           cp outputs/portfolio_latest.csv "$DEST/" 2>/dev/null || true

@@ -33,7 +33,7 @@ Usage:
 """
 from __future__ import annotations
 
-from r1000_legacy_input_guard import load_current_csv
+from r1000_legacy_input_guard import load_current_csv, write_advisor_targets
 
 import argparse
 import sys
@@ -555,6 +555,7 @@ def save_rebalance_files(
     new_portfolio: list[RankedCandidate],
     old_portfolio: pd.DataFrame,
     output_dir: Path,
+    *, score_provenance: pd.DataFrame,
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -582,7 +583,7 @@ def save_rebalance_files(
             "warnings": "; ".join(c.warnings),
         })
     new_df = pd.DataFrame(rows)
-    new_df.to_csv(output_dir / "new_top12_proposed.csv", index=False)
+    new_df = write_advisor_targets(new_df, score_provenance, output_dir / "new_top12_proposed.csv")
 
     # 2. Side-by-side diff CSV
     old_w = {}
@@ -680,7 +681,7 @@ def main() -> int:
 
     # Report + save
     print_rebalance_report(new_portfolio, portfolio_df)
-    save_rebalance_files(new_portfolio, portfolio_df, Path(args.output_dir))
+    save_rebalance_files(new_portfolio, portfolio_df, Path(args.output_dir), score_provenance=scored_df)
 
     return 0
 

@@ -5089,3 +5089,11 @@ Expected contract:
   staging. A historical membership union is not a current cohort even above
   the size floor; reject that fallback in the current bridge. Seven more focused
   regressions pass (70 total), including a real temporary Git staging probe.
+
+- The third review traced admitted scores into advisor serialization: propagate
+  their genuine dates into each target and bind target bytes to a receipt, rather
+  than blocking every newly generated proposal or restamping old observations.
+  Keep archive transport hash validation separate from current admission.
+  Retire every scheduled caller of the RS-only execution path, including the
+  monthly manual-execute option; disabled diagnostics cannot claim execution
+  completed. All75 focused checks pass, including three serializer round trips.

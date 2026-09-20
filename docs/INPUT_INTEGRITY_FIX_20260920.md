@@ -140,3 +140,22 @@ in a temporary Git repository, and historical-union rejection. Focused checks
 now total70 (53 input/bridge,14 existing freshness,3 SEC), all passing. The
 registered Layer4 and daily/monthly workflow regressions also pass in isolation.
 No real Drive transport or daily workflow was dispatched as part of these tests.
+
+The third review found the final producer/consumer provenance gap: advisor
+v1/v3/v4 serializers discarded validated input dates. A shared target writer now
+copies the exact source price/feature/score provenance for each selected security,
+records actual target generation time, and publishes a hash-bound receipt last.
+Unknown or stale source provenance revokes the old receipt and blocks output;
+dates are never stamped onto an old score to make it current. The corresponding
+paper loaders require receipts for these three advisor modes. This is proposal
+serialization, not target approval or trading authorization.
+
+Full-rebuild archive transport now verifies packet hashes without requiring the
+archived research date to equal today's close. Current consumers still reject
+stale dates. The monthly Layer4 workflow is retired to a read-only disabled
+diagnostic; execute=true produces BLOCKED and exit2, no broker/history writes.
+Five further regressions cover all three advisor serializers, unknown-source
+revocation, target-time conflicts, historical archive copy, and scheduled/manual
+monthly diagnostics. Focused checks total75 and pass. The full remote run on the
+earlier `3acb049` head passed; the final updated head still requires its own CI
+and independent review.

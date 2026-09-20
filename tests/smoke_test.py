@@ -2609,22 +2609,14 @@ def test_layer4_executor_guards() -> None:
 
 @_test("regression.layer4_monthly_workflow_exists")
 def test_layer4_monthly_workflow() -> None:
-    """layer4_monthly_swap.yml must stay proposal/dry-run by default, while
-    preserving manual execution wiring.
-    """
-    wf_path = ROOT / ".github" / "workflows" / "layer4_monthly_swap.yml"
-    assert wf_path.exists(), "layer4_monthly_swap.yml missing"
-    wf = wf_path.read_text(encoding="utf-8")
-    for token in (
-        "schedule:",
-        "45 22 5 * *",
-        "workflow_dispatch:",
-        "default: false",
-        "secrets.ALPACA_API_KEY",
-        "secrets.TELEGRAM_BOT_TOKEN",
-        "r1000_layer4_swap.py",
-    ):
-        assert token in wf, f"layer4_monthly_swap.yml missing: {token}"
+    """The retired monthly caller must not report execution as completed."""
+    wf = (ROOT / ".github/workflows/layer4_monthly_swap.yml").read_text(encoding="utf-8")
+    for token in ("schedule:", "45 22 5 * *", "workflow_dispatch:", "default: false",
+                  "RS_ONLY_SWAP_DISABLED", "execution_completed", "contents: read",
+                  "SystemExit(2 if requested else 0)"):
+        assert token in wf, f"monthly disabled contract missing: {token}"
+    assert "r1000_layer4_swap.py" not in wf
+    assert "secrets." not in wf and "git push" not in wf
 
 
 @_test("regression.full_rebuild_workflow_exists")

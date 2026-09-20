@@ -274,6 +274,79 @@ class CurrentInputTests(unittest.TestCase):
                 with self.assertRaisesRegex(bridge.IncompleteUniverseError,'universe_coverage'):
                     bridge.build_unified_scored(source,Path(folder)/'out.csv')
 
+    def test_advisor_target_writers_round_trip_all_three_modes(self):
+        import dataclasses
+        import r1000_rebalance_advisor as v1
+        import r1000_rebalance_advisor_v3 as v3
+        import r1000_rebalance_advisor_v4 as v4
+        for module, cls in [(v1,v1.RankedCandidate),(v3,v3.HybridPick),(v4,v4.V4Pick)]:
+            with self.subTest(module=module.__name__), tempfile.TemporaryDirectory() as folder:
+                values={f.name:0 for f in dataclasses.fields(cls)}
+                values.update(ticker='AAPL',proposed_weight=0.5)
+                if 'warnings' in values: values['warnings']=[]
+                candidate=cls(**values);dest=Path(folder)
+                def writer(frame,source,path): return guard.write_advisor_targets(frame,source,path,now=NOW)
+                with patch.object(module,'write_advisor_targets',side_effect=writer), contextlib.redirect_stdout(io.StringIO()):
+                    if module is v1: module.save_rebalance_files([candidate],pd.DataFrame(),dest,score_provenance=scores())
+                    else: module.save_results([candidate],dest,score_provenance=scores())
+                result=guard.load_current_csv(dest/'new_top12_proposed.csv',kind='targets',now=NOW)
+                self.assertEqual(result['target_as_of'].tolist(),['2026-09-18'])
+                for field in ['valuation_price_cutoff_date','feature_available_from','score_available_from']:
+                    self.assertEqual(result[field].tolist(),scores()[field].tolist())
+                self.assertEqual(result['proposed_weight'].tolist(),[0.5])
+
+    def test_unknown_target_provenance_revokes_retained_proposal(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'target.csv'
+            guard.write_advisor_targets(pd.DataFrame({'ticker':['AAPL'],'weight':[0.5]}),scores(),path,now=NOW)
+            raw=path.read_bytes()
+            with self.assertRaisesRegex(guard.InputIntegrityError,'target_source_provenance_missing'):
+                guard.write_advisor_targets(pd.DataFrame({'ticker':['OTHER'],'weight':[0.5]}),scores(),path,now=NOW)
+            self.assertEqual(path.read_bytes(),raw)
+            with self.assertRaisesRegex(guard.InputIntegrityError,'blocked_coverage'):
+                guard.load_current_csv(path,kind='targets',now=NOW)
+
+    def test_target_generation_time_cannot_precede_score_or_follow_decision(self):
+        for value in ['2026-09-21T00:00:00Z','2026-09-18T20:00:00Z','bad']:
+            with self.subTest(value=value):
+                frame=scores();frame['weight']=0.5;frame['target_available_from']=value
+                self.reject(frame,kind='targets')
+
+    def test_archive_transport_keeps_old_dates_without_current_admission(self):
+        import yaml, os
+        wf=yaml.safe_load((ROOT/'.github/workflows/full_rebuild_manual.yml').read_text())
+        run=next(s['run'] for j in wf['jobs'].values() for s in j['steps'] if 'run' in s and 'cp outputs/scored_unified.csv.coverage.json "$DEST/"' in s['run'])
+        start=run.index('if [ -f outputs/scored_unified.csv ]; then')
+        # Select the complete small if-block irrespective of YAML indentation.
+        lines=run[start:].splitlines();end=next(i for i,line in enumerate(lines) if line.strip()=='fi');snippet='\n'.join(lines[:end+1])
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);source=root/'outputs/scored_unified.csv';write_packet(source)
+            frame=pd.read_csv(source);frame['rebalance_date']='2026-07-13';frame['valuation_price_cutoff_date']='2026-07-13';frame.to_csv(source,index=False)
+            receipt={'status':'LEGACY_COMPATIBILITY_ONLY','compatible_sha256':hashlib.sha256(source.read_bytes()).hexdigest()}
+            Path(str(source)+'.coverage.json').write_text(json.dumps(receipt))
+            dest=root/'archive';dest.mkdir()
+            env=dict(os.environ,DEST=str(dest),PYTHONPATH=str(ROOT))
+            result=subprocess.run(['bash','-e','-o','pipefail','-c',snippet],cwd=root,env=env,capture_output=True,text=True)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertEqual(source.read_bytes(),(dest/source.name).read_bytes())
+            with self.assertRaisesRegex(guard.InputIntegrityError,'date'):
+                guard.load_current_csv(dest/source.name,now=NOW)
+
+    def test_monthly_retirement_rejects_execute_and_marks_scheduled_diagnostic(self):
+        import yaml, os
+        wf=yaml.safe_load((ROOT/'.github/workflows/layer4_monthly_swap.yml').read_text())
+        step=wf['jobs']['layer4_swap']['steps'][0]
+        self.assertEqual(wf['permissions'],{'contents':'read'})
+        self.assertNotIn('r1000_layer4_swap.py',step['run'])
+        for value, code, status in [('false',0,'DISABLED'),('true',2,'BLOCKED')]:
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as folder:
+                result=subprocess.run(['bash','-e','-o','pipefail','-c',step['run']],cwd=folder,env=dict(os.environ,EXECUTE_REQUESTED=value),capture_output=True,text=True)
+                self.assertEqual(result.returncode,code,result.stderr)
+                packet=json.loads((Path(folder)/'outputs/layer4_logs/disabled.json').read_text())
+                self.assertEqual(packet['status'],status)
+                self.assertFalse(packet['execution_completed'] or packet['paper_ledger_mutated'])
+                self.assertEqual(packet['swap_suggestions'],[])
+
     def test_bridge_full_coverage_stale_scores_still_block(self):
         with tempfile.TemporaryDirectory() as folder:
             source=Path(folder)/'source.csv';out=Path(folder)/'out.csv'
