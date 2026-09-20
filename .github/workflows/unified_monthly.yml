@@ -103,17 +103,6 @@ jobs:
           python tests/validate_system.py --quick || echo "Validation warnings, non-fatal"
           python -c "from r1000_legacy_input_guard import load_current_csv; load_current_csv('outputs/scored_unified.csv')"
 
-      - name: Upload unified artifact
-        if: steps.check_scored.outputs.found == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: scored-unified-${{ github.run_id }}
-          path: |
-            outputs/scored_unified.csv
-            outputs/scored_unified.csv.coverage.json
-          if-no-files-found: error
-          retention-days: 90
-
       - name: Commit unified CSV + snapshot
         if: steps.check_scored.outputs.found == 'true'
         run: |
@@ -128,6 +117,17 @@ jobs:
           git diff --cached --quiet || \
             git commit -m "chore(bot): unified universe $(date +%Y-%m-%d) [skip ci]"
           git push
+
+      - name: Upload unified artifact
+        if: steps.check_scored.outputs.found == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: scored-unified-${{ github.run_id }}
+          path: |
+            outputs/scored_unified.csv
+            outputs/scored_unified.csv.coverage.json
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Publish blocked receipt after failed rebuild
         if: ${{ always() && (failure() || cancelled()) }}

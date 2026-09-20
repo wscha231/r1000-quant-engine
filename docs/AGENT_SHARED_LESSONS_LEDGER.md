@@ -5111,3 +5111,11 @@ Expected contract:
   ephemeral workflow runner cannot revoke a retained remote success: publish
   revocation from a clean remote tree without any pending success CSV changes.
   Four new regressions cover these boundaries; all80 focused checks pass.
+
+- Receipt requirements must cover core/concentrated targets and the entire
+  outer producer lifecycle, not only advisor serialization. Revoke at build
+  entry, keep nested outputs blocked, and release only newly written targets
+  after successful completion. Missing source directories and absent packets
+  must revoke retained Drive destinations. Preserve explicit no-ranking flags
+  and upload success artifacts only after durable publication succeeds.
+  Early/late failure and missing-source regressions pass; focused total85.

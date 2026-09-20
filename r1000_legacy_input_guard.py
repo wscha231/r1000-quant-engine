@@ -14,6 +14,8 @@ import hashlib
 import io
 import os
 import tempfile
+from contextvars import ContextVar
+from functools import wraps
 
 import pandas as pd
 
@@ -87,7 +89,7 @@ def validate_current_frame(frame, *, kind='scores', now=None):
         if ((score_available < close) | (score_available > decision)
                 | (score_available < available)).any():
             raise InputIntegrityError('score_not_available_for_current_close')
-    for name in ('ranking_eligible', 'model_eligible'):
+    for name in ('ranking_eligible', 'model_eligible', 'decision_ranking_allowed'):
         if name in result and not result[name].map(lambda v: str(v).strip().lower() == 'true').all():
             raise InputIntegrityError('upstream_ineligible:' + name)
     if 'valuation_approved' in result and not result['valuation_approved'].map(
@@ -162,7 +164,7 @@ def read_csv_packet(path, *, receipt_policy='required'):
     frame = pd.read_csv(io.BytesIO(raw))
     is_bridge = (path.name == 'scored_unified.csv' or
                  ('input_packet_kind' in frame and frame['input_packet_kind'].isin(
-                     ['unified_bridge_v1', 'advisor_target_v1']).any()))
+                     ['unified_bridge_v1', 'advisor_target_v1', 'pipeline_target_v1']).any()))
     if receipt is None and (receipt_policy == 'required' or is_bridge):
         raise InputIntegrityError('coverage_receipt_required')
     if receipt is not None:
@@ -216,6 +218,55 @@ def begin_target_build(path):
     """Revoke retained proposals before any source load or ranking can fail."""
     _atomic_packet_bytes(Path(str(path) + '.coverage.json'),
                          b'{"status":"BLOCKED_TARGET_BUILD_IN_PROGRESS"}')
+
+
+PIPELINE_TARGET_NAMES = ('portfolio_latest.csv', 'concentrated_portfolio_latest.csv')
+_target_builds = ContextVar('target_builds', default=None)
+
+
+def protect_target_build(resolve_output_directory):
+    """Revoke at entry and publish only files written by a successful outer build."""
+    def decorate(function):
+        @wraps(function)
+        def wrapped(*args, **kwargs):
+            root = Path(resolve_output_directory(*args, **kwargs)).resolve()
+            active = _target_builds.get() or {}
+            if root in active:
+                return function(*args, **kwargs)
+            paths = [root / name for name in PIPELINE_TARGET_NAMES]
+            for path in paths:
+                begin_target_build(path)
+            written = set()
+            token = _target_builds.set({**active, root: written})
+            try:
+                result = function(*args, **kwargs)
+                for path in written:
+                    raw = path.read_bytes()
+                    frame = pd.read_csv(io.BytesIO(raw))
+                    receipt = {'status': 'BLOCKED_EMPTY_TARGET' if frame.empty else 'LEGACY_COMPATIBILITY_ONLY',
+                               'investment_approved': False, 'compatible_sha256': hashlib.sha256(raw).hexdigest()}
+                    _atomic_packet_bytes(Path(str(path) + '.coverage.json'), json.dumps(receipt).encode())
+                return result
+            except BaseException:
+                for path in paths:
+                    begin_target_build(path)
+                raise
+            finally:
+                _target_builds.reset(token)
+        return wrapped
+    return decorate
+
+
+def write_pipeline_target(frame, path):
+    """Write a newly generated target inside its protected build transaction."""
+    path = Path(path).resolve()
+    active = _target_builds.get() or {}
+    if path.parent not in active or path.name not in PIPELINE_TARGET_NAMES:
+        raise InputIntegrityError('target_build_transaction_required')
+    result = frame.copy()
+    result['input_packet_kind'] = 'pipeline_target_v1'
+    _atomic_packet_bytes(path, result.to_csv(index=False).encode('utf-8'))
+    active[path.parent].add(path)
 
 
 def stamp_target_generation(frame, *, now=None):

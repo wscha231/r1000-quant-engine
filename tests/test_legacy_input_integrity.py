@@ -216,11 +216,21 @@ class CurrentInputTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder);source=root/'cloud_results/full_rebuild/latest_r1000/scored_unified.csv'
             write_packet(source);destination=root/'drive'
+            @guard.protect_target_build(lambda:source.parent)
+            def produce_targets():
+                frame=guard.stamp_target_generation(scores(),now=NOW);frame['weight']=0.5
+                for name in guard.PIPELINE_TARGET_NAMES: guard.write_pipeline_target(frame,source.parent/name)
+            produce_targets()
             with patch.object(sync,'ROOT',root), patch.object(sys,'argv',['sync','--mode','r1000','--drive-base',str(destination)]), contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(sync.main(),0)
             result=destination/'outputs/scored_unified.csv'
             self.assertEqual(result.read_bytes(),source.read_bytes())
             self.assertEqual(len(guard.load_current_csv(result,now=NOW)),1)
+            for name in guard.PIPELINE_TARGET_NAMES:
+                target=destination/'outputs'/name
+                admitted=guard.load_current_csv(target,kind='targets',now=NOW)
+                self.assertEqual(admitted['execution_reference_price'].tolist(),[100])
+                self.assertEqual(target.read_bytes(),(source.parent/name).read_bytes())
 
     def test_local_drive_transport_fails_before_unrelated_copies(self):
         from tools import sync_cloud_to_drive as sync
@@ -380,6 +390,82 @@ class CurrentInputTests(unittest.TestCase):
             if getattr(node.value.func,'id',None)=='stamp_target_generation':
                 exports.append(node.targets[0].id)
         self.assertCountEqual(exports,['portfolio_operational','portfolio_operational','concentrated_latest_holdings'])
+
+    def test_pipeline_target_transaction_revokes_early_and_late_failures(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);path=root/'portfolio_latest.csv'
+            frame=guard.stamp_target_generation(scores(),now=NOW);frame['weight']=0.5
+            @guard.protect_target_build(lambda:root)
+            def export():
+                for name in guard.PIPELINE_TARGET_NAMES: guard.write_pipeline_target(frame,root/name)
+                with self.assertRaisesRegex(guard.InputIntegrityError,'blocked_coverage'):
+                    guard.load_current_csv(path,kind='targets',now=NOW)
+            export()
+            self.assertEqual(len(guard.load_current_csv(path,kind='targets',now=NOW)),1)
+            original=path.read_bytes()
+            for when in ['before','after']:
+                @guard.protect_target_build(lambda:root)
+                def failed_build():
+                    if when=='after': export()
+                    raise RuntimeError('build failed')
+                with self.assertRaises(RuntimeError): failed_build()
+                self.assertEqual(path.read_bytes(),original)
+                with self.assertRaisesRegex(guard.InputIntegrityError,'blocked_coverage'):
+                    guard.load_current_csv(path,kind='targets',now=NOW)
+                export()
+            @guard.protect_target_build(lambda:root)
+            def no_new_target(): pass
+            no_new_target()
+            with self.assertRaisesRegex(guard.InputIntegrityError,'blocked_coverage'):
+                guard.load_current_csv(path,kind='targets',now=NOW)
+
+    def test_pipeline_entrypoints_use_outer_target_transaction(self):
+        import ast
+        tree=ast.parse((ROOT/'r1000_pipeline.py').read_text())
+        for name in ['run_all','export_outputs']:
+            node=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name==name)
+            self.assertTrue(any(isinstance(d,ast.Call) and getattr(d.func,'id',None)=='protect_target_build' for d in node.decorator_list))
+        self.assertNotIn('legacy_source',(ROOT/'r1000_paper_executor.py').read_text())
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'target.csv';frame=guard.stamp_target_generation(scores(),now=NOW);frame['weight']=0.5
+            frame['input_packet_kind']='pipeline_target_v1';frame.to_csv(path,index=False)
+            with self.assertRaisesRegex(guard.InputIntegrityError,'coverage_receipt_required'):
+                guard.load_current_csv(path,kind='targets',now=NOW,receipt_policy='legacy_source')
+
+    def test_absent_drive_source_revokes_retained_current_packets(self):
+        from tools import sync_cloud_to_drive as sync
+        for source_dir_exists in [False,True]:
+            with self.subTest(source_dir_exists=source_dir_exists), tempfile.TemporaryDirectory() as folder:
+                root=Path(folder);destination=root/'drive';dest=destination/'outputs/scored_unified.csv';write_packet(dest)
+                original=dest.read_bytes()
+                src=root/'cloud_results/full_rebuild/latest_r1000'
+                if source_dir_exists:
+                    src.mkdir(parents=True);(src/'scored_latest.csv').write_text('must not copy')
+                with patch.object(sync,'ROOT',root),patch.object(sys,'argv',['sync','--mode','r1000','--drive-base',str(destination)]),contextlib.redirect_stdout(io.StringIO()),contextlib.redirect_stderr(io.StringIO()):
+                    if source_dir_exists:
+                        with self.assertRaises(FileNotFoundError): sync.main()
+                    else: self.assertEqual(sync.main(),1)
+                self.assertEqual(dest.read_bytes(),original)
+                self.assertFalse((dest.parent/'scored_latest.csv').exists())
+                with self.assertRaisesRegex(guard.InputIntegrityError,'blocked_coverage'):
+                    guard.load_current_csv(dest,now=NOW)
+
+    def test_explicit_decision_ranking_prohibition_blocks_all_score_admission(self):
+        for value in [False,None,0,'false']:
+            frame=scores();frame['decision_ranking_allowed']=value
+            self.reject(frame,'upstream_ineligible:decision_ranking_allowed')
+        frame=scores();frame['decision_ranking_allowed']=True
+        self.assertEqual(len(guard.validate_current_frame(frame,now=NOW)),1)
+
+    def test_success_artifact_follows_durable_publication_and_targets_keep_receipts(self):
+        import yaml
+        wf=yaml.safe_load((ROOT/'.github/workflows/unified_monthly.yml').read_text())
+        names=[step.get('name') for step in wf['jobs']['unify']['steps']]
+        self.assertLess(names.index('Commit unified CSV + snapshot'),names.index('Upload unified artifact'))
+        source=(ROOT/'.github/workflows/full_rebuild_manual.yml').read_text()
+        for name in guard.PIPELINE_TARGET_NAMES:
+            self.assertIn('outputs/'+name+'.coverage.json',source)
+            self.assertEqual(source.count('cp outputs/'+name+' "$DEST/"'),source.count('cp outputs/'+name+'.coverage.json "$DEST/"'))
 
     def test_failed_monthly_workflow_publishes_only_remote_revocation(self):
         import yaml,os

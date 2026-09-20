@@ -83,8 +83,7 @@ def load_advisor_picks(advisor: str) -> pd.DataFrame:
     for p_str in paths:
         p = Path(p_str)
         if p.exists():
-            policy = "required" if advisor in {"v1", "v3", "v4"} else "legacy_source"
-            return load_current_csv(p, kind="targets", receipt_policy=policy)
+            return load_current_csv(p, kind="targets")
     raise FileNotFoundError(
         f"Advisor {advisor} output not found in any of: {paths}. "
         f"Run advisor (or full_rebuild) first."

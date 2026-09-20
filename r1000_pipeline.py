@@ -64,7 +64,7 @@ except Exception:
 
 import numpy as np
 import pandas as pd
-from r1000_legacy_input_guard import stamp_target_generation
+from r1000_legacy_input_guard import stamp_target_generation, protect_target_build, write_pipeline_target
 import requests
 import yfinance as yf
 from sklearn.linear_model import LogisticRegression, Ridge
@@ -16781,6 +16781,12 @@ def update_operational_tracking(
     }
 
 
+def _target_build_output_directory(cfg=None, *args, **kwargs):
+    mount_drive_if_colab()
+    return Path(to_cfg(cfg).base_dir) / "outputs"
+
+
+@protect_target_build(_target_build_output_directory)
 def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[str, str]:
     cfg = to_cfg(cfg)
     paths = get_paths(cfg)
@@ -17958,7 +17964,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     top30_operational.head(20).to_csv(top20_path, index=False)
     portfolio_operational = drop_actionable_leakage_columns(portfolio_operational)
     portfolio_operational = stamp_target_generation(portfolio_operational)
-    portfolio_operational.to_csv(portfolio_path, index=False)
+    write_pipeline_target(portfolio_operational, portfolio_path)
     # Phase 15-C export hygiene (2026-04-28): prune ALL-NaN + all-zero columns
     # from scored_latest.csv export to keep the file scannable. Audit on the
     # SHIPPED 2026-04-28 file showed 97 / 638 cols all-NaN and 22% empty cells.
@@ -18027,7 +18033,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         concentrated_latest_holdings = _enrich_with_live_state(concentrated_latest_holdings)
         concentrated_latest_holdings = drop_actionable_leakage_columns(concentrated_latest_holdings)
         concentrated_latest_holdings = stamp_target_generation(concentrated_latest_holdings)
-        concentrated_latest_holdings.to_csv(concentrated_portfolio_path, index=False)
+        write_pipeline_target(concentrated_latest_holdings, concentrated_portfolio_path)
         concentrated_top1_path.write_text(
             concentrated_latest_holdings.head(1).to_csv(index=False),
             encoding="utf-8",
@@ -18367,7 +18373,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     top30_operational.to_csv(top30_path, index=False)
     top30_operational.head(20).to_csv(top20_path, index=False)
     portfolio_operational = stamp_target_generation(portfolio_operational)
-    portfolio_operational.to_csv(portfolio_path, index=False)
+    write_pipeline_target(portfolio_operational, portfolio_path)
     # Phase 15-C export hygiene (2026-04-28): prune ALL-NaN + all-zero columns
     # from scored_latest.csv export to keep the file scannable. Audit on the
     # SHIPPED 2026-04-28 file showed 97 / 638 cols all-NaN and 22% empty cells.
@@ -19394,6 +19400,7 @@ def show_output_table_previews(output_paths: dict[str, str]) -> None:
         _show(df.head(limit).copy())
 
 
+@protect_target_build(_target_build_output_directory)
 def run_all(cfg: Optional[dict | EngineConfig] = None) -> dict[str, Any]:
     cfg = to_cfg(cfg)
     validate_config(cfg)

@@ -183,3 +183,18 @@ uploads the diagnostic receipt. Four added regressions exercise price-bound
 sizing, mandatory target metadata, all latest export paths, and the actual Bash
 revocation step against a temporary bare Git remote. All80 focused checks pass.
 Remote full CI and independent review remain mandatory for this updated head.
+
+
+Further review found four retained-output gaps. Core/concentrated targets now
+require receipts too: pipeline run/export entry revokes both previous packets,
+nested exports keep receipts blocked, and only files written by a successful
+outer build receive hash-bound receipts. Early failures, late failures and runs
+that do not produce a new target cannot reapprove old bytes. Full-rebuild archive
+and artifact paths include both target sidecars; Drive copies verify all present
+packets and revoke old destinations before checking missing source directories
+or absent bridge files. Explicit decision_ranking_allowed=False also blocks
+score admission. Monthly success artifact upload follows the repository push,
+so a failed durable publication cannot expose an immutable success artifact.
+Five more regressions bring focused checks to85, including early/late nested
+build failures, missing-source Drive revocation, ranking prohibition, and
+publication ordering. The Drive round-trip also covers both target packets.
