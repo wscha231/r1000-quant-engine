@@ -136,7 +136,7 @@ it is not included in the byte-verification claim.
 
 ## Validation and next boundary
 
-60 new unittest methods pass, including an authenticated artifact-to-strict
+63 new unittest methods pass, including an authenticated artifact-to-strict
 runtime synthetic cycle with 1,118 base IDs plus one ADR candidate. Tests cover
 complete ID reconciliation, hash/receipt/document/event binding, producer and
 attempt mismatches, units/partial holdings, calendar/freshness, authority
@@ -195,6 +195,17 @@ hash pins. Fixed portfolio inputs are not opened. Same-close reuse must bind the
 same dated bundle bytes and declare no new network execution. Missing original
 dynamic bytes block the bridge; no latest-file search or producer execution is
 introduced. Readiness labels alone never authorize runtime execution.
+The existing upstream producer now archives the exact plan bytes and records
+stage and final completion times after their evidence exists. It rehashes the
+archived plan before readiness publication. The consumer binds that archive to
+the canonical plan fingerprint, enforces the total and stage request ceilings,
+and compares all declared inter-stage manifest dependencies, including decision
+benchmark/SEC/Companyfacts and both score stages. The existing score handoff
+reader must also accept the graph before Theme runtime admission. The final
+producer completion time, not the earlier preflight cutoff, bounds the Theme
+decision. Old receipts without completion/archived-plan evidence stay blocked.
+This adds evidence metadata to the existing producer; it does not run another
+collector or change its model, network execution, selection, or account policy.
 
 19 existing monitor tests, 11 existing strict-runtime checks, one benchmark
 anchor check and eight public-output tests also pass. New tests run through the
@@ -202,6 +213,9 @@ existing monitor CI entry point. The protected Tier-1 registry and review gates
 are unchanged. Monitor/Pages sparse checkouts include the strict runtime.
 Compilation, YAML parsing and explicit diff checks pass. No cron or permission
 is changed; only PR path matching is extended for the new code/tests.
+The upstream producer's 13 offline tests also pass, including archive mutation
+and completion-after-manifest checks. Focused coverage totals 115 distinct checks
+(63 bridge, 19 monitor, 12 runtime/anchor, 8 public, 13 upstream producer).
 
 Exact-head remote CI and independent review are separate publication gates.
 The synthetic cycle is not live-data completion. A real producer bundle does

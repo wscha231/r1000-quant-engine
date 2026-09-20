@@ -106,13 +106,14 @@ def upstream_fixture(files, run):
         return {"path": path, "sha256": bridge.sha(raw), "bytes": len(raw), "exists": True}
     root = f"outputs/run287_exact_packet_upstream/attempts/{run['id']}-{run['run_attempt']}"
     inputs, stages, by_stage = {}, [], {}
-    for name, tool, status, date_field, label in admission.STAGES:
+    for index, (name, tool, status, date_field, label) in enumerate(admission.STAGES):
         obj = {"status": status, "research_only": True, **{k: False for k in admission.SAFE_FALSE}}
         if date_field:
             obj[date_field] = SESSION
-        obj["outputs"] = {key: add(root + "/" + name + "/" + key,
+        obj["outputs"] = {key: add(root + "/" + name + "/" + (key + ".csv" if key == "ticker_order_score_stack" else key),
                            b"security_id,value\nSYN_FIXTURE,1\n") for key in admission.OUTPUTS.get(label, ())}
         obj["source_inputs"] = {key: inputs[source] for owner, key, source in admission.EDGES if owner == label}
+        obj["source_inputs"].update({key: by_stage[source] for owner, key, source in admission.STAGE_EDGES if owner == name})
         if name in ("score_only", "score_stack"):
             obj["source_inputs"]["decision_frame_manifest"] = inputs["decision_manifest"]
         if name == "score_stack":
@@ -123,10 +124,12 @@ def upstream_fixture(files, run):
             inputs[label] = {k: record[k] for k in ("path", "sha256")}
         stages.append({"name": name, "tool": "tools/" + tool + ".py", "status": status,
                        "return_code": 0, "failures": [], "network_requests_executed": 0,
-                       "elapsed_seconds": .1, "manifest": record,
+                       "elapsed_seconds": .1, "completed_at_utc": f"2026-09-18T21:{40 + index}:00Z", "manifest": record,
                        "log": add(root + "/logs/" + name + ".log", b"synthetic fixture only\n")})
     policy = json.loads((ROOT / "docs/run287_exact_packet_producer_contract.json").read_text())
     plan = json.loads((ROOT / "docs/run287_exact_packet_upstream_plan.json").read_text())
+    plan_raw = (ROOT / "docs/run287_exact_packet_upstream_plan.json").read_bytes()
+    plan_record = add(root + "/plan.json", plan_raw)
     inputs.update({label: {"path": plan["paths"][label]["path"], "sha256": pin}
                    for label, pin in policy["required_fixed_inputs"].items()})
     bundle = {"schema_version": admission.BUNDLE_SCHEMA, "status": admission.BUNDLE_STATUS,
@@ -136,8 +139,9 @@ def upstream_fixture(files, run):
     return {"schema_version": "run287-exact-packet-upstream-orchestrator-v3", "status": admission.READY,
             "upstream_ready": True, "valuation_price_cutoff_date": SESSION, "research_only": True,
             **{k: False for k in admission.SAFE_FALSE}, "historical_cagr_mdd_evidence_changed": False,
-            "network_requests_executed": 0, "elapsed_seconds": 1,
-            "preflight": {"code_identity": identity, "decision_time_utc": "2026-09-18T21:38:00Z"},
+            "network_requests_executed": 0, "elapsed_seconds": 1, "completed_at_utc": "2026-09-18T21:55:00Z",
+            "preflight": {"code_identity": identity, "decision_time_utc": "2026-09-18T21:38:00Z",
+                "archived_plan": plan_record, "plan": {**plan_record, "path": "docs/run287_exact_packet_upstream_plan.json"}},
             "source_bundle": record, "stage_audit": stages}
 
 
@@ -407,22 +411,121 @@ class BridgeTests(unittest.TestCase):
                 upstream.update(status=admission.REUSED, network_execution_authorized=False,
                     stage_audit=[{"name": "existing_source_bundle",
                         "status": "READY_EXISTING_EXACT_PACKET_INPUT_SOURCE_BUNDLE_REVIEW_ONLY",
-                        "network_requests_executed": 0, "failures": [], "manifest": {**ref, "path": dated}}])
+                        "network_requests_executed": 0, "completed_at_utc": "2026-09-18T21:54:00Z",
+                        "failures": [], "manifest": {**ref, "path": dated}}])
                 files[path] = bridge.canonical(upstream)
             source = self.collect(alter)
             self.assertEqual(source["data"]["theme_etf_bridge"]["runtime_executed"], not corrupted)
             if not corrupted:
                 self.assertIn("theme_upstream_reused_bundle", source["files"])
 
-    def test_runtime_decision_must_follow_upstream_preflight(self):
+    def test_runtime_decision_must_follow_upstream_completion(self):
         path = CONTRACT["sources"]["operating"]["members"]["upstream"].format(
             run_id=self.run["id"], run_attempt=self.run["run_attempt"])
         def alter(files, bundle, name):
-            upstream = json.loads(files[path]); upstream["preflight"]["decision_time_utc"] = "2026-09-18T22:01:00Z"
+            upstream = json.loads(files[path]); upstream["completed_at_utc"] = "2026-09-18T22:01:00Z"
             files[path] = bridge.canonical(upstream)
         source = self.collect(alter)
         self.assertEqual(source["data"]["theme_etf_bridge"]["reason"], "decision_predates_prerequisite")
         self.assertFalse(source["data"]["theme_etf_bridge"]["runtime_executed"])
+
+    def test_upstream_plan_identity_and_request_budgets_are_required(self):
+        path = CONTRACT["sources"]["operating"]["members"]["upstream"].format(
+            run_id=self.run["id"], run_attempt=self.run["run_attempt"])
+        for mutation in ("total_cap", "stage_cap", "stage_count", "plan_missing", "plan_hash", "plan_identity", "raised_cap"):
+            def alter(files, bundle, name):
+                upstream = json.loads(files[path]); plan = upstream["preflight"]["archived_plan"]
+                if mutation in ("total_cap", "stage_cap", "stage_count"):
+                    count = {"total_cap": 131, "stage_cap": 33, "stage_count": 1}[mutation]
+                    upstream["stage_audit"][0]["network_requests_executed"] = count
+                    upstream["network_requests_executed"] = count
+                elif mutation == "plan_missing":
+                    files.pop(plan["path"])
+                elif mutation == "plan_hash":
+                    files[plan["path"]] += b" "
+                elif mutation == "plan_identity":
+                    upstream["preflight"]["plan"]["sha256"] = "c" * 64
+                else:
+                    obj = json.loads(files[plan["path"]]); obj["network_budgets"]["maximum_total_recorded_requests"] = 999
+                    raw = bridge.canonical(obj); files[plan["path"]] = raw
+                    for ref in (plan, upstream["preflight"]["plan"]):
+                        ref.update(sha256=bridge.sha(raw), bytes=len(raw))
+                files[path] = bridge.canonical(upstream)
+            with self.subTest(mutation=mutation):
+                source = self.collect(alter)
+                self.assertEqual(source["status"], "VERIFIED_ARTIFACT")
+                self.assertFalse(source["data"]["theme_etf_bridge"]["runtime_executed"])
+
+    def test_all_producer_stage_dependencies_match_the_audited_manifests(self):
+        path = CONTRACT["sources"]["operating"]["members"]["upstream"].format(
+            run_id=self.run["id"], run_attempt=self.run["run_attempt"])
+        for owner, key, dependency in admission.STAGE_EDGES:
+            def alter(files, bundle, name):
+                upstream = json.loads(files[path]); audits = {a["name"]: a for a in upstream["stage_audit"]}
+                obj = json.loads(files[audits[owner]["manifest"]["path"]])
+                other = copy.deepcopy(audits[dependency]["manifest"])
+                other["path"] = other["path"].replace("/" + dependency + "/", "/other_" + dependency + "/")
+                files[other["path"]] = files[audits[dependency]["manifest"]["path"]]
+                obj["source_inputs"][key] = other
+                files[audits[owner]["manifest"]["path"]] = bridge.canonical(obj)
+                # Rehash every downstream reference so byte checks alone pass.
+                updated = {}
+                def rebind(value):
+                    if isinstance(value, dict):
+                        if isinstance(value.get("path"), str) and value["path"] in updated:
+                            value["sha256"] = updated[value["path"]]["sha256"]
+                            if "bytes" in value:
+                                value["bytes"] = updated[value["path"]]["bytes"]
+                        for child in value.values():
+                            rebind(child)
+                    elif isinstance(value, list):
+                        for child in value:
+                            rebind(child)
+                for audit in upstream["stage_audit"]:
+                    ref = audit["manifest"]; obj = json.loads(files[ref["path"]]); rebind(obj)
+                    raw = bridge.canonical(obj); files[ref["path"]] = raw
+                    ref.update(sha256=bridge.sha(raw), bytes=len(raw)); updated[ref["path"]] = ref
+                ref = upstream["source_bundle"]; obj = json.loads(files[ref["path"]]); rebind(obj)
+                raw = bridge.canonical(obj); files[ref["path"]] = raw; ref.update(sha256=bridge.sha(raw), bytes=len(raw))
+                files[path] = bridge.canonical(upstream)
+            with self.subTest(edge=(owner, key, dependency)):
+                source = self.collect(alter)
+                self.assertEqual(source["status"], "VERIFIED_ARTIFACT")
+                self.assertFalse(source["data"]["theme_etf_bridge"]["runtime_executed"])
+
+    def test_upstream_completion_order_and_existing_score_graph_gate_runtime(self):
+        path = CONTRACT["sources"]["operating"]["members"]["upstream"].format(
+            run_id=self.run["id"], run_attempt=self.run["run_attempt"])
+        for mutation in ("completion_missing", "completion_before_stages", "completion_after_artifact", "stage_time_missing",
+                         "stage_time_reversed", "score_csv_shape"):
+            def alter(files, bundle, name):
+                upstream = json.loads(files[path])
+                if mutation == "completion_missing":
+                    upstream.pop("completed_at_utc")
+                elif mutation == "completion_before_stages":
+                    upstream["completed_at_utc"] = "2026-09-18T21:39:00Z"
+                elif mutation == "completion_after_artifact":
+                    upstream["completed_at_utc"] = "2026-09-18T22:03:00Z"
+                elif mutation == "stage_time_missing":
+                    upstream["stage_audit"][0].pop("completed_at_utc")
+                elif mutation == "stage_time_reversed":
+                    upstream["stage_audit"][0]["completed_at_utc"] = "2026-09-18T21:54:00Z"
+                else:
+                    # Use a byte-consistent graph with duplicate CSV headers.
+                    audit = next(a for a in upstream["stage_audit"] if a["name"] == "score_stack")
+                    manifest = json.loads(files[audit["manifest"]["path"]]); output = manifest["outputs"]["ticker_order_score_stack"]
+                    raw = b"ticker,ticker\nSYN_A,SYN_B\n"; files[output["path"]] = raw
+                    output.update(sha256=bridge.sha(raw), bytes=len(raw))
+                    raw = bridge.canonical(manifest); files[audit["manifest"]["path"]] = raw
+                    audit["manifest"].update(sha256=bridge.sha(raw), bytes=len(raw))
+                    ref = upstream["source_bundle"]; obj = json.loads(files[ref["path"]])
+                    obj["inputs"]["score_stack_manifest"]["sha256"] = bridge.sha(raw)
+                    raw = bridge.canonical(obj); files[ref["path"]] = raw; ref.update(sha256=bridge.sha(raw), bytes=len(raw))
+                files[path] = bridge.canonical(upstream)
+            with self.subTest(mutation=mutation):
+                source = self.collect(alter)
+                self.assertEqual(source["status"], "VERIFIED_ARTIFACT")
+                self.assertFalse(source["data"]["theme_etf_bridge"]["runtime_executed"])
 
     def test_optional_recovery_requires_affirmative_producer_semantics(self):
         contract = copy.deepcopy(CONTRACT)

@@ -45,6 +45,21 @@ EDGES = (("decision_manifest", "scored_latest_manifest", "price_manifest"),
          ("score_stack_manifest", "decision_frame_manifest", "decision_manifest"),
          ("crisis_manifest", "macro_manifest", "macro_manifest"),
          ("soxx_manifest", "crisis_manifest", "crisis_manifest"))
+STAGE_EDGES = (("benchmark_event", "macro_manifest", "macro"),
+               ("recent_companyfacts", "delta_manifest", "recent_sec"),
+               ("decision_frame", "scored_latest_manifest", "scored_latest"),
+               ("decision_frame", "macro_manifest", "macro"),
+               ("decision_frame", "benchmark_manifest", "benchmark_event"),
+               ("decision_frame", "sec_delta_manifest", "recent_sec"),
+               ("decision_frame", "companyfacts_manifest", "recent_companyfacts"),
+               ("score_only", "decision_frame_manifest", "decision_frame"),
+               ("score_stack", "decision_frame_manifest", "decision_frame"),
+               ("score_stack", "score_only_manifest", "score_only"),
+               ("crisis", "macro_manifest", "macro"),
+               ("selector_benchmark", "crisis_manifest", "crisis"))
+STAGE_BUDGETS = {"scored_latest": "scored_latest_provider_batches", "macro": "macro",
+                 "benchmark_event": "benchmark", "recent_sec": "recent_sec",
+                 "recent_companyfacts": "companyfacts", "selector_benchmark": "selector_benchmark"}
 
 
 def integer(value, minimum=0):
@@ -53,6 +68,14 @@ def integer(value, minimum=0):
 
 def digest(value):
     return isinstance(value, str) and re.fullmatch(r"[a-f0-9]{64}", value) is not None
+
+
+def declared_requests(obj):
+    for key in ("network_requests_executed", "network_download_batch_count"):
+        if obj.get(key) is not None:
+            require(integer(obj[key]), "upstream_manifest_requests_invalid")
+            return obj[key]
+    return 0
 
 
 def same_fields(actual, expected):
@@ -131,7 +154,8 @@ def read_upstream_prerequisite(path, upstream, run, artifact, session, contract)
     require(all(isinstance(record, dict) and digest(record.get("sha256"))
                 for record in identity["files"].values()), "upstream_code_files_invalid")
     decision = preflight.get("decision_time_utc")
-    require(utc(run.get("run_started_at") or run["created_at"]) <= utc(decision) <= utc(artifact["created_at"]),
+    completed = upstream.get("completed_at_utc")
+    require(utc(run.get("run_started_at") or run["created_at"]) <= utc(decision) <= utc(completed) <= utc(artifact["created_at"]),
             "upstream_preflight_time_invalid")
     require(integer(upstream.get("network_requests_executed"))
             and type(upstream.get("elapsed_seconds")) in (int, float)
@@ -162,6 +186,22 @@ def read_upstream_prerequisite(path, upstream, run, artifact, session, contract)
             obj = decode_evidence_json(raw.decode("utf-8-sig"))
             require(isinstance(obj, dict), "upstream_manifest_not_object")
             return obj
+        attempt = f"outputs/run287_exact_packet_upstream/attempts/{run['id']}-{run['run_attempt']}"
+        plan_ref = preflight.get("archived_plan")
+        require(reference(plan_ref, contract["repository"])[0] == attempt + "/plan.json", "upstream_plan_attempt_mismatch")
+        plan = read("plan", plan_ref)
+        plan_path = "docs/run287_exact_packet_upstream_plan.json"
+        trusted_plan_raw = (ROOT / plan_path).read_bytes()
+        expected_plan_hash = hashlib.sha256(trusted_plan_raw).hexdigest()
+        original_plan = preflight.get("plan")
+        runner_root = "/home/runner/work/" + "/".join([contract["repository"].split("/")[-1]] * 2) + "/"
+        require(same_fields(original_plan, {"sha256": expected_plan_hash, "bytes": len(trusted_plan_raw), "exists": True})
+                and original_plan.get("path") in (plan_path, runner_root + plan_path)
+                and plan_ref["sha256"] == expected_plan_hash, "upstream_plan_identity_mismatch")
+        budgets = plan["network_budgets"]
+        require(integer(budgets.get("maximum_total_recorded_requests"))
+                and upstream["network_requests_executed"] <= budgets["maximum_total_recorded_requests"],
+                "upstream_request_budget_exceeded")
         bundle = read("bundle", upstream.get("source_bundle"))
         require(bundle.get("schema_version") == BUNDLE_SCHEMA and bundle.get("status") == BUNDLE_STATUS
                 and bundle.get("valuation_price_cutoff_date") == session and bundle.get("research_only") is True
@@ -187,6 +227,26 @@ def read_upstream_prerequisite(path, upstream, run, artifact, session, contract)
         for owner, key, source in EDGES:
             require(reference((manifests[owner].get("source_inputs") or {}).get(key), contract["repository"])
                     == reference(inputs[source], contract["repository"]), "upstream_lineage_mismatch")
+        stage_refs = {name: inputs[label] for name, _, _, _, label in STAGES if label}
+        for name, owner, key in (("benchmark_event", "decision_manifest", "benchmark_manifest"),
+                                 ("recent_sec", "decision_manifest", "sec_delta_manifest"),
+                                 ("recent_companyfacts", "decision_manifest", "companyfacts_manifest"),
+                                 ("score_only", "score_stack_manifest", "score_only_manifest")):
+            stage_refs[name] = (manifests[owner].get("source_inputs") or {}).get(key)
+        stage_objects = {}
+        for name, _, status, date_field, label in STAGES:
+            obj = stage_objects[name] = manifests[label] if label else read("stage_" + name, stage_refs[name])
+            require(obj.get("status") == status and (not date_field or obj.get(date_field) == session)
+                    and all(k not in obj or obj[k] is False for k in SAFE_FALSE + ("source_inputs_mutated",)),
+                    "upstream_stage_manifest_invalid")
+            require(all(k not in obj or type(obj[k]) is list and obj[k] == []
+                        for k in ("blockers", "failures", "contract_failures", "skip_reasons")), "upstream_stage_blocked")
+            for key in ("executed_at_utc", "generated_at_utc", "completed_at_utc"):
+                if key in obj:
+                    require(utc(obj[key]) <= utc(completed), "upstream_completion_predates_stage")
+        for owner, key, source in STAGE_EDGES:
+            require(reference((stage_objects[owner].get("source_inputs") or {}).get(key), contract["repository"])
+                    == reference(stage_refs[source], contract["repository"]), "upstream_stage_lineage_mismatch")
         audits = upstream.get("stage_audit")
         require(isinstance(audits, list) and all(isinstance(a, dict) for a in audits), "upstream_stage_audit_missing")
         if upstream["status"] == REUSED:
@@ -197,23 +257,36 @@ def read_upstream_prerequisite(path, upstream, run, artifact, session, contract)
                     and upstream.get("network_execution_authorized") is False, "upstream_reuse_invalid")
             require(read("reused_bundle", audits[0].get("manifest")) == bundle
                     and audits[0]["manifest"]["sha256"] == upstream["source_bundle"]["sha256"], "upstream_reuse_mismatch")
+            require(utc(decision) <= utc(audits[0].get("completed_at_utc")) <= utc(completed), "upstream_completion_order_invalid")
         else:
             require([a.get("name") for a in audits] == [s[0] for s in STAGES], "upstream_stages_incomplete")
+            prior_completion = utc(decision)
             for audit, (name, tool, status, date_field, label) in zip(audits, STAGES):
                 require(same_fields(audit, {"tool": "tools/" + tool + ".py", "status": status,
                         "return_code": 0, "failures": []}) and integer(audit.get("network_requests_executed")),
                         "upstream_stage_failed")
-                attempt = f"outputs/run287_exact_packet_upstream/attempts/{run['id']}-{run['run_attempt']}"
                 require(reference(audit.get("manifest"), contract["repository"])[0] == attempt + "/" + name + "/manifest.json"
                         and reference(audit.get("log"), contract["repository"])[0] == attempt + "/logs/" + name + ".log",
                         "upstream_stage_attempt_mismatch")
+                require(reference(audit["manifest"], contract["repository"]) == reference(stage_refs[name], contract["repository"]),
+                        "upstream_stage_graph_mismatch")
+                cap = budgets[STAGE_BUDGETS[name]] if name in STAGE_BUDGETS else 0
+                require(integer(cap) and audit["network_requests_executed"] <= cap, "upstream_stage_budget_exceeded")
+                require(audit["network_requests_executed"] == declared_requests(stage_objects[name]),
+                        "upstream_stage_request_count_mismatch")
+                stage_completed = utc(audit.get("completed_at_utc"))
+                require(prior_completion <= stage_completed <= utc(completed), "upstream_completion_order_invalid")
+                prior_completion = stage_completed
                 obj = read("stage_" + name, audit.get("manifest"))
                 read("log_" + name, audit.get("log"), False)
                 require(obj.get("status") == status and (not date_field or obj.get(date_field) == session)
                         and all(k not in obj or obj[k] is False for k in SAFE_FALSE), "upstream_stage_manifest_invalid")
+                for key in ("executed_at_utc", "generated_at_utc", "completed_at_utc"):
+                    if key in obj:
+                        require(utc(obj[key]) <= stage_completed, "upstream_completion_predates_stage")
                 if label:
                     require(reference(audit["manifest"], contract["repository"]) == reference(inputs[label], contract["repository"]),
                             "upstream_stage_bundle_mismatch")
             require(upstream["network_requests_executed"] == sum(a["network_requests_executed"] for a in audits),
                     "upstream_network_count_mismatch")
-    return decision, evidence
+    return completed, evidence

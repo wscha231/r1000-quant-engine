@@ -238,6 +238,10 @@ def collect_source(client: GitHub, key: str, spec: dict, contract: dict, *, now=
                     try:
                         upstream_at, upstream_evidence = read_upstream_prerequisite(
                             path, upstream, run, artifact, bridge_session, contract)
+                        handoff, hashes = read_score_handoff(path, upstream,
+                            contract["repository"], contract["max_member_bytes"])
+                        result["data"]["score_handoff"] = handoff
+                        result["files"].update(hashes)
                         result["files"].update(upstream_evidence)
                         prerequisite_at = max((x for x in (prerequisite_at, upstream_at) if x), key=timestamp)
                         upstream_ready = True
@@ -253,7 +257,8 @@ def collect_source(client: GitHub, key: str, spec: dict, contract: dict, *, now=
                 else:
                     bridge = theme_etf_source_bridge.blocked("upstream_contract_not_ready", bridge_session)
                 result["data"]["theme_etf_bridge"] = bridge
-            if key == "operating" and result["data"].get("upstream", {}).get("status") in READY_UPSTREAM:
+            if (key == "operating" and result["data"].get("upstream", {}).get("status") in READY_UPSTREAM
+                    and "score_handoff" not in result["data"]):
                 try:
                     handoff, hashes = read_score_handoff(path, result["data"]["upstream"],
                                                        contract["repository"], contract["max_member_bytes"])

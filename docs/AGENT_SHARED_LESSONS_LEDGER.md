@@ -5179,3 +5179,13 @@ Expected contract:
   receipt, bound bundle, exact successful stage manifests/logs, dynamic outputs
   and lineage; check fixed policy hash pins without opening portfolio inputs.
   Same-close reuse retains original paths and must bind the same dated bytes.
+- A matching sum of request counts can still exceed the producer's plan. Archive
+  and rehash the exact plan and bind its canonical identity before enforcing
+  total/per-stage caps and matching stage counts to source manifests.
+- Partial dependency checks miss decision benchmark/SEC/Companyfacts and score
+  stage substitutions. Bind every declared inter-stage manifest edge to its
+  audited stage and require the existing score handoff reader before admission.
+- A preflight cutoff precedes computation and is not prerequisite availability.
+  Record stage/final completion after evidence production, enforce monotonic
+  completion within the authenticated artifact timeline, and bound Theme
+  decisions by that final completion. Legacy receipts lacking this proof block.
