@@ -15,6 +15,7 @@
     "max_member_bytes": 16777216,
     "max_bundle_bytes": 67108864,
     "min_base_count": 1000,
+    "allowed_sample_origins": ["FORWARD_OBSERVED"],
     "approved_membership_reviews": {},
     "approval_policy": "Only separately reviewed repository pins may approve business relationships. Source reviewed/VERIFIED flags cannot approve them.",
     "status": "CONSUMER_IMPLEMENTED_PRODUCER_NOT_CONNECTED",

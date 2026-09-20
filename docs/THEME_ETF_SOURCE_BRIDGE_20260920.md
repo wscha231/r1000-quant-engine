@@ -31,7 +31,7 @@ The optional manifest path is
 `outputs/theme_etf_bridge/attempts/{run_id}-{run_attempt}/source_bundle.json`.
 
 The manifest uses schema `theme-etf-source-bundle-v1`, with `decision_at`,
-`producer` and `components`. Producer fields are repository, workflow, head_sha,
+`sample_origin`, `producer` and `components`. Producer fields are repository, workflow, head_sha,
 run_id and run_attempt. Each of the six components has `data` and `receipt`
 references, each containing an exact member `path` and actual-byte `sha256`.
 
@@ -54,6 +54,12 @@ canonical event hashes to reviewer identity, review timestamp, decision and
 exact document hashes. **The shipped mapping is empty.** No real relationship
 is approved by this PR. A future reviewer service must preserve that independent
 trust boundary; it must not build the mapping from the untrusted bundle.
+
+Review time must follow every pinned document's availability. ETF history is
+ordered by the latest publication/observation/validation time, not observation
+alone. The shipped origin policy accepts only FORWARD_OBSERVED; synthetic
+tests require an explicit fixture policy and retain SYNTHETIC_FIXTURE labels.
+The standalone output binds consumer code SHA, contract hash and output hash.
 
 The base requires at least 1,000 distinct IDs with registry coverage. This
 rejects small/theme fallback cohorts but does not certify Russell membership;
@@ -118,7 +124,7 @@ it is not included in the byte-verification claim.
 
 ## Validation and next boundary
 
-30 new unittest methods pass, including an authenticated artifact-to-strict
+34 new unittest methods pass, including an authenticated artifact-to-strict
 runtime synthetic cycle with 1,118 base IDs plus one ADR candidate. Tests cover
 complete ID reconciliation, hash/receipt/document/event binding, producer and
 attempt mismatches, units/partial holdings, calendar/freshness, authority

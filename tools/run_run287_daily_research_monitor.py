@@ -436,6 +436,8 @@ def main() -> int:
     bridge = sources.get("operating", {}).get("data", {}).get("theme_etf_bridge")
     if bridge is None:
         bridge = report["observations"]["theme_etf_bridge"]
+    bridge = theme_etf_source_bridge.publication(
+        bridge, code_sha=report["code_sha"], contract_hash=report["contract_sha256"])
     (args.output_dir / "theme_etf_bridge.json").write_text(
         json.dumps(bridge, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False) + "\n",
         encoding="utf-8")

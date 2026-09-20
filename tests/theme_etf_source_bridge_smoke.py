@@ -56,6 +56,7 @@ def fixture():
            "path": ".github/workflows/daily_operating_selection_refresh.yml",
            "status": "completed", "conclusion": "success", "created_at": "2026-09-18T21:31:00Z"}
     policy = copy.deepcopy(CONTRACT["theme_etf_bridge"])
+    policy["allowed_sample_origins"] = ["SYNTHETIC_FIXTURE"]
     policy["approved_membership_reviews"] = {bridge.sha(bridge.canonical(event)): {
         "decision": "APPROVED_BUSINESS_RELATIONSHIP", "reviewer_id": "synthetic-reviewer",
         "reviewed_at": stamp, "document_hashes": {doc["document_id"]: bridge.sha(bridge.canonical(doc))}}}
@@ -80,6 +81,7 @@ def package(parts, run, policy, path, alter=None):
             "validated_at": "2026-09-18T21:40:00Z"})
         components[role] = {"data": data, "receipt": receipt}
     bundle = {"schema": bridge.SCHEMA, "producer": producer,
+              "sample_origin": "SYNTHETIC_FIXTURE",
               "decision_at": "2026-09-18T22:00:00Z", "components": components}
     bundle_name = policy["bundle_member"].format(run_id=run["id"], run_attempt=run["run_attempt"])
     add(bundle_name, bundle)
@@ -188,6 +190,13 @@ class BridgeTests(unittest.TestCase):
         self.parts["membership_events"][0]["security_id"] = self.parts["base_universe"]["security_ids"][0]
         self.check_blocked("membership_review_not_anchored")
 
+    def test_review_cannot_predate_its_pinned_document(self):
+        doc = self.parts["documents"][0]
+        doc["available_at"] = "2026-09-18T21:39:00Z"
+        approval = next(iter(self.policy["approved_membership_reviews"].values()))
+        approval["document_hashes"][doc["document_id"]] = bridge.sha(bridge.canonical(doc))
+        self.check_blocked("review_predates_document")
+
     def test_partial_etf_absence_does_not_remove_business_link(self):
         out = self.read()
         rows = [e for e in out["result"]["holding_events"] if e["security_id"] == "SYN_NEW"]
@@ -287,6 +296,23 @@ class BridgeTests(unittest.TestCase):
     def test_late_historical_etf_cannot_become_new_latest(self):
         self.parts["etf_snapshots"][-1]["holdings_as_of"] = "2026-09-01"
         self.check_blocked("late_etf_history_requires_separate_adapter")
+
+    def test_late_publication_cannot_reverse_etf_order(self):
+        self.parts["etf_snapshots"][0]["published_at"] = "2026-09-18T21:30:00Z"
+        self.check_blocked("late_etf_history_requires_separate_adapter")
+
+    def test_fixture_origin_requires_explicit_test_policy(self):
+        self.policy["allowed_sample_origins"] = CONTRACT["theme_etf_bridge"]["allowed_sample_origins"]
+        self.check_blocked("sample_origin_not_admitted")
+
+    def test_standalone_artifact_binds_consumer_code_config_and_output(self):
+        source = self.read()
+        out = bridge.publication(source, code_sha="a" * 40, contract_hash="b" * 64)
+        self.assertEqual(out["bridge_sha256"], bridge.sha(bridge.canonical(
+            {k: v for k, v in out.items() if k != "bridge_sha256"})))
+        self.assertNotIn("bridge_sha256", source)
+        self.assertNotEqual(out["bridge_sha256"], bridge.publication(source,
+            code_sha="c" * 40, contract_hash="b" * 64)["bridge_sha256"])
 
     def test_blocked_upstream_cannot_reuse_admitted_result(self):
         out = bridge.observation({"status": "UPSTREAM_FAILED", "data": {"theme_etf_bridge": self.read()}}, SESSION)

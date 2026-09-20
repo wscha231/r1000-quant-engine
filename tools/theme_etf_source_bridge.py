@@ -146,6 +146,7 @@ def _calendar_prices(prices, expected_session, cutoff, now):
 def _payload(parts, bundle, policy, expected_session, now):
     cutoff = utc(bundle["decision_at"])
     require(cutoff <= now, "future_decision")
+    require(bundle.get("sample_origin") in policy["allowed_sample_origins"], "sample_origin_not_admitted")
     base = parts["base_universe"]
     ids = base["security_ids"]
     require(isinstance(ids, list) and all(isinstance(x, str) and x and x == x.strip().upper()
@@ -161,6 +162,7 @@ def _payload(parts, bundle, policy, expected_session, now):
                 and isinstance(row.get("research_eligible"), bool), "security_identity_unverified")
     documents = parts["documents"]
     docs = {d["document_id"]: sha(canonical(d)) for d in documents}
+    document_times = {d["document_id"]: utc(d["available_at"]) for d in documents}
     require(len(docs) == len(documents), "duplicate_document")
     events = parts["membership_events"]
     theme_by_security = {}
@@ -174,6 +176,8 @@ def _payload(parts, bundle, policy, expected_session, now):
             require(approval.get("reviewed_at") == event.get("reviewed_at"), "membership_review_time_mismatch")
             require(approval.get("document_hashes") and all(docs.get(k) == v for k, v in
                     approval["document_hashes"].items()), "membership_review_evidence_mismatch")
+            require(all(document_times[k] <= utc(event["reviewed_at"])
+                        for k in approval["document_hashes"]), "review_predates_document")
         # V1's resolver keys by security, not (theme, security). Fail closed
         # until that separate lifecycle fix is reviewed; never lose another link.
         theme_by_security.setdefault(event["security_id"], set()).add(event["theme_id"])
@@ -188,7 +192,9 @@ def _payload(parts, bundle, policy, expected_session, now):
             require(isinstance(row.get("identity_verified"), bool), "etf_identity_not_boolean")
         by_fund.setdefault(snapshot["fund_id"], []).append(snapshot)
     for rows in by_fund.values():
-        ordered = sorted(rows, key=lambda r: utc(r["observed_at"]))
+        ordered = sorted(rows, key=lambda r: max(utc(r["observed_at"]),
+                         utc(r.get("validated_at") or r["observed_at"]),
+                         utc(r.get("published_at") or r["observed_at"])))
         dates = [r["holdings_as_of"] for r in ordered]
         require(dates == sorted(dates), "late_etf_history_requires_separate_adapter")
     return {"schema": "theme-etf-runtime-v1", "decision_at": bundle["decision_at"],
@@ -292,6 +298,7 @@ def read_bundle(path: Path, run: dict, artifact: dict, policy: dict,
                     "last_checked_at": bundle["decision_at"]} for sid in proposal]}
         return {"schema": SCHEMA, "status": "ADMITTED_RESEARCH_ONLY", "reason": None,
                 "expected_session": expected_session, "decision_at": bundle["decision_at"],
+                "sample_origin": bundle["sample_origin"],
                 "runtime_executed": True, "company_evaluator_executed": False,
                 "end_to_end_ready": False, "producer": producer,
                 "artifact_id": artifact["id"], "artifact_sha256": archive_hash,
@@ -316,7 +323,7 @@ def observation(source, session):
     # Keep the full evidence/identities in the internal source object; reporting
     # exposes only explicit nonranking readiness and coverage fields.
     fields = ("schema", "status", "reason", "expected_session", "decision_at",
-              "runtime_executed", "company_evaluator_executed", "end_to_end_ready", "safety")
+              "sample_origin", "runtime_executed", "company_evaluator_executed", "end_to_end_ready", "safety")
     out = {key: bridge.get(key) for key in fields}
     if bridge.get("expected_session") != session:
         return blocked("stale_source_bundle", session)
@@ -324,3 +331,10 @@ def observation(source, session):
     out["evaluated_security_count"] = 0
     out["evaluation_blocked_count"] = out["requested_security_count"]
     return out
+
+
+def publication(bridge, *, code_sha, contract_hash):
+    """Bind the standalone monitor artifact to consumer code/config and bytes."""
+    output = {**bridge, "consumer_code_sha": code_sha, "contract_sha256": contract_hash}
+    output["bridge_sha256"] = sha(canonical(output))
+    return output
