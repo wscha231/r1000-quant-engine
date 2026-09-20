@@ -37,8 +37,11 @@ Run287 contract hash; a raw-file hash is not substituted for that identity.
 A1 fail-closed checks require issuer/security identity, public availability,
 research eligibility, COMMON/ADR share-basis classification, an explicitly
 attested split/dividend-adjusted total-return corporate-action basis, and ADR
-ratio/currency evidence for ADRs. Any failure keeps the row but nulls all 1/3/6m
-ER fields. Missing ER rows are not converted to zero or neutral values.
+ratio/currency evidence for ADRs. Any A1/identity or row-level evidence failure keeps the row but nulls all 1/3/6m
+ER fields. A failure isolated to one validated horizon nulls only that horizon and
+preserves independently validated horizons; the security remains PARTIAL and
+whole-equity readiness stays false. Missing ER rows are never converted to zero
+or neutral values.
 
 For admitted rows A3 maps the existing 21/63/126-session absolute return,
 benchmark-excess, alpha and downside outputs. An implied benchmark expected
@@ -79,10 +82,11 @@ The focused synthetic smoke suite covers:
 - output artifact hash binding;
 - canonical-JSON challenger-contract hash parity versus raw-file hashing;
 - summary byte/hash and decision/candidate-count binding;
-- canonical U0 artifact and feature-store identity presence.
+- canonical U0 artifact and feature-store identity presence;
+- horizon-specific failure isolation without erasing independently validated ER horizons.
 
-The final focused suite after the provenance/date self-audit passes 19/19 tests
-in normal Python and 19/19 under `python -O`. The suite now also verifies
+The final focused suite after the provenance/date/horizon-isolation self-audit passes 20/20 tests
+in normal Python and 20/20 under `python -O`. The suite now also verifies
 producer Timestamp-to-session normalization, U0 workflow-path binding and the
 raw contract-input fingerprint recorded separately from the canonical contract
 identity. Earlier 12- and 16-test passes predated these fixes and are not

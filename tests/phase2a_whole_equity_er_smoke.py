@@ -251,6 +251,7 @@ class Phase2A(unittest.TestCase):
         self.assertTrue(out["whole_equity_er_ready_1_3_6m"])
         self.assertEqual(out["requested_security_count"], 3)
         self.assertEqual(out["evaluated_security_count"], 3)
+        self.assertEqual(out["partially_evaluated_security_count"], 0)
         row = out["rows"][0]
         self.assertAlmostEqual(row["expected_return_1m"], 0.01)
         self.assertAlmostEqual(row["expected_return_3m"], 0.02)
@@ -289,6 +290,9 @@ class Phase2A(unittest.TestCase):
         row = next(row for row in out["rows"] if row["ticker"] == "AAA")
         self.assertIn("corporate_action_basis_unverified", row["blockers"])
         self.assertIsNone(row["expected_return_1m"])
+        self.assertIsNone(row["expected_return_3m"])
+        self.assertIsNone(row["expected_return_6m"])
+        self.assertEqual(row["status"], MOD.ROW_BLOCKED)
         self.assertFalse(out["whole_equity_er_ready_1_3_6m"])
 
     def test_adr_without_ratio_is_blocked(self):
@@ -346,9 +350,26 @@ class Phase2A(unittest.TestCase):
         out = MOD.run(self.args())
         row = next(row for row in out["rows"] if row["ticker"] == "AAA")
         self.assertIn("missing_or_nonfinite_expected_return_63d", row["blockers"])
-        self.assertIsNone(row["expected_return_1m"])
+        self.assertAlmostEqual(row["expected_return_1m"], 0.01)
         self.assertIsNone(row["expected_return_3m"])
-        self.assertIsNone(row["expected_return_6m"])
+        self.assertAlmostEqual(row["expected_return_6m"], 0.03)
+        self.assertEqual(row["status"], MOD.ROW_PARTIAL)
+        self.assertEqual(row["horizon_status"]["3m"], MOD.HORIZON_BLOCKED)
+        self.assertEqual(out["partially_evaluated_security_count"], 1)
+        self.assertFalse(out["whole_equity_er_ready_1_3_6m"])
+
+    def test_one_horizon_failure_does_not_erase_other_validated_horizons(self):
+        rows = proposal_rows()
+        rows[1]["downside_probability_21d"] = "NaN"
+        self.write_proposal(rows)
+        self.write_manifest()
+        out = MOD.run(self.args())
+        row = next(row for row in out["rows"] if row["ticker"] == "BBB")
+        self.assertIsNone(row["expected_return_1m"])
+        self.assertAlmostEqual(row["expected_return_3m"], 0.04)
+        self.assertAlmostEqual(row["expected_return_6m"], 0.06)
+        self.assertEqual(row["status"], MOD.ROW_PARTIAL)
+        self.assertEqual(row["horizon_status"]["1m"], MOD.HORIZON_BLOCKED)
 
     def test_official_expected_return_contract_hash_constant_is_pinned(self):
         self.assertEqual(

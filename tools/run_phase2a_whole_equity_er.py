@@ -28,7 +28,9 @@ FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 OVERALL_READY = "READY_WHOLE_EQUITY_ER_1_3_6M"
 OVERALL_PARTIAL = "PARTIAL_BLOCKED_WHOLE_EQUITY_ER"
 ROW_READY = "READY_ER_1_3_6M_RESEARCH_ONLY"
+ROW_PARTIAL = "PARTIAL_ER_HORIZON_BLOCKED_RESEARCH_ONLY"
 ROW_BLOCKED = "BLOCKED_A1_OR_ER_EVIDENCE"
+HORIZON_BLOCKED = "BLOCKED_HORIZON_ER_EVIDENCE"
 TWELVE_MONTH_BLOCKER = "BLOCKED_MODEL_NOT_VALIDATED"
 HORIZONS: dict[str, int] = {"1m": 21, "3m": 63, "6m": 126}
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -363,7 +365,7 @@ def null_horizon() -> dict[str, Any]:
         "signal_confidence": None,
         "model_disagreement": None,
         "feature_coverage": None,
-        "status": ROW_BLOCKED,
+        "status": HORIZON_BLOCKED,
     }
 
 
@@ -423,38 +425,48 @@ def build_output(
 
     rows: list[dict[str, Any]] = []
     evaluated = 0
+    partially_evaluated = 0
     blocked = 0
     for security_id in cohort_ids:
         queue_row = queue_by_id[security_id]
         ticker = canonical_ticker(queue_row.get("ticker"))
         identity = registry.get(security_id)
-        blockers: list[str] = []
+        row_blockers: list[str] = []
         if identity is None:
-            blockers.append("security_identity_registry_missing")
+            row_blockers.append("security_identity_registry_missing")
         else:
             if identity.get("ticker") != ticker:
-                blockers.append("security_identity_ticker_mismatch")
-            blockers.extend(identity_blockers(identity, decision_at))
+                row_blockers.append("security_identity_ticker_mismatch")
+            row_blockers.extend(identity_blockers(identity, decision_at))
         proposal = proposal_by_ticker.get(ticker)
         if proposal is None:
-            blockers.append("expected_return_row_missing")
+            row_blockers.append("expected_return_row_missing")
         horizons: dict[str, Any] = {}
-        if not blockers and proposal is not None:
+        horizon_blockers: list[str] = []
+        if not row_blockers and proposal is not None:
             for name, days in HORIZONS.items():
-                horizon, horizon_blockers = horizon_from_proposal(proposal, days)
+                horizon, current_blockers = horizon_from_proposal(proposal, days)
                 horizons[name] = horizon
-                blockers.extend(horizon_blockers)
+                horizon_blockers.extend(current_blockers)
         else:
             horizons = {name: null_horizon() for name in HORIZONS}
-        blockers = sorted(set(blockers))
-        if blockers:
+        row_blockers = sorted(set(row_blockers))
+        horizon_blockers = sorted(set(horizon_blockers))
+        if row_blockers:
             blocked += 1
-            # Fail closed: no ER values survive an A1 / evidence blocker.
+            # A1 or row-evidence failures invalidate all horizons for the security.
             horizons = {name: null_horizon() for name in HORIZONS}
             row_status = ROW_BLOCKED
+            blockers = row_blockers
+        elif horizon_blockers:
+            partially_evaluated += 1
+            # Preserve independently validated horizons; null only the invalid horizon.
+            row_status = ROW_PARTIAL
+            blockers = horizon_blockers
         else:
             evaluated += 1
             row_status = ROW_READY
+            blockers = []
         rows.append(
             {
                 "security_id": security_id,
@@ -499,7 +511,12 @@ def build_output(
             }
         )
 
-    whole_ready = blocked == 0 and evaluated == len(cohort_ids) and len(cohort_ids) > 0
+    whole_ready = (
+        blocked == 0
+        and partially_evaluated == 0
+        and evaluated == len(cohort_ids)
+        and len(cohort_ids) > 0
+    )
     output: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "status": OVERALL_READY if whole_ready else OVERALL_PARTIAL,
@@ -509,7 +526,9 @@ def build_output(
         "expected_return_family_id": EXPECTED_FAMILY_ID,
         "requested_security_count": len(cohort_ids),
         "evaluated_security_count": evaluated,
+        "partially_evaluated_security_count": partially_evaluated,
         "blocked_security_count": blocked,
+        "not_ready_security_count": blocked + partially_evaluated,
         "whole_equity_er_ready_1_3_6m": whole_ready,
         "expected_return_12m_status": TWELVE_MONTH_BLOCKER,
         "global_ranking_ready": False,

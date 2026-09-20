@@ -49,7 +49,7 @@
     "thesis_status": null
   },
   "12m_policy": "BLOCKED_MODEL_NOT_VALIDATED",
-  "partial_coverage_policy": "PRESERVE_ROW_AND_NULL_ER",
+  "partial_coverage_policy": "A1_OR_ROW_EVIDENCE_FAILURE_NULLS_ALL_HORIZONS;HORIZON_FAILURE_NULLS_ONLY_THAT_HORIZON",
   "global_ranking_ready": false,
   "safety": {
     "research_only": true,
