@@ -54,6 +54,8 @@ is committed.
 Only explicitly requested specialists are planned. Each request must name the
 exact input roles from its contract. All dependent tasks need matching successful
 completion receipts with actual output bytes; a queued task is not completion.
+Every dependent input role must match its upstream output reference, hash and
+metadata. A valid upstream receipt cannot authorize unrelated downstream bytes.
 A1 and A6 can diagnose G0 failures. A6 is read-only and has no prerequisite-success
 requirement, so it can inspect failed work independently. Every result returns to
 A0; peers cannot dispatch. Phase 1 invokes no specialist/model/workflow/API.
@@ -75,7 +77,7 @@ and are obsolete. No empty or blocked board certifies strategy readiness.
 
 ## Validation and limits
 
-Focused smoke: 26 distinct synthetic unittest cases, including CLI integration,
+Focused smoke: 28 distinct synthetic unittest cases, including CLI integration,
 strict schemas/JSON, time/identity, A0-only routing, read-only QA, dependency
 completion, all cache dimensions, corruption, missing state and interrupted build.
 The existing handoff/agent-standard/lesson smokes are also run through Tier-1.

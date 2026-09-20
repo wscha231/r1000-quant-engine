@@ -185,6 +185,7 @@
       "name": "Learning",
       "role": "Matured outcomes and failed experiments; challenger proposals only",
       "inputs": [
+        "data_pit",
         "matured_outcomes",
         "failed_experiments",
         "qa_report"

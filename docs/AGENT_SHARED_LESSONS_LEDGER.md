@@ -7,6 +7,7 @@
 - Queue creation is not task success. Exact reuse requires the five identity
   dimensions plus matching successful output bytes and fresh provenance. Include
   dependency results and context in identity; a changed receipt invalidates reuse.
+  Also bind each downstream input role to the upstream output, not just its status.
 - A6 must inspect failures read-only without waiting for failed upstream work to
   succeed. Peer dispatch, model calls and automatic promotion are absent.
 - Existing manual workflow defaults point at legacy metrics. Without a v2 state,

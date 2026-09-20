@@ -57,6 +57,9 @@ class ControlPlaneTests(unittest.TestCase):
         receipt = dict(agent=agent, task_key=packet['task_key'], status='SUCCEEDED',
                        outputs={role:self.artifact(agent+'_result_'+role) for role in packet['outputs']})
         self.state['completed_tasks'].append(receipt)
+        for request in self.state['requests']:
+            if agent in self.contract['agents'][request['agent']]['dependencies']:
+                request['inputs'].update(copy.deepcopy(receipt['outputs']))
         return receipt
 
     def args(self):
@@ -145,7 +148,25 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertEqual(self.tasks()[1]['status'],'SKIP_UNCHANGED')
         output=r['outputs']['data_pit']; path=self.root/output['path']; path.write_text('recomputed')
         output['sha256']=board.file_hash(path)
+        self.assertEqual(self.tasks()[1]['status'],'BLOCKED')
+        self.state['requests'][1]['inputs']['data_pit']=copy.deepcopy(output)
         self.assertEqual(self.tasks()[1]['status'],'READY')
+
+    def test_completed_dependency_cannot_authorize_unrelated_input(self):
+        req=self.add_request('A2'); self.complete()
+        req['inputs']['data_pit']=self.artifact('unrelated_data_pit')
+        self.assertIn('dependency_input_mismatch:A1:data_pit',self.tasks()[1]['reasons'])
+
+    def test_all_specialists_follow_exact_dependency_contract(self):
+        for n in range(2,9): self.add_request('A'+str(n))
+        blocked={t['agent']:t for t in self.tasks()}
+        self.assertIn('PORTFOLIO_CONTEXT_NOT_VERIFIED',blocked['A5']['reasons'])
+        for key in ('actual_book','approved_target','thesis'): self.state['context'][key]='VERIFIED'
+        for agent in ('A1','A2','A3','A4','A6','A5','A7','A8'):
+            pending={t['agent']:t for t in self.tasks()}
+            self.assertEqual(pending[agent]['status'],'READY',agent)
+            self.complete(agent)
+        self.assertTrue(all(t['status']=='SKIP_UNCHANGED' for t in self.tasks()))
 
     def test_g0_blocks_non_diagnostic_agents(self):
         self.add_request('A2'); self.add_request('A6'); self.state['g0']['status']='BLOCKED'

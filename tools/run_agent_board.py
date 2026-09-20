@@ -216,6 +216,9 @@ def build_tasks(state: dict, root: Path, contract: dict, now: datetime,
                 reasons.append('dependency_incomplete:' + dep)
             else:
                 dependencies[dep] = completed[dep]
+                for role, artifact in completed[dep]['outputs'].items():
+                    if request['inputs'].get(role) != artifact:
+                        reasons.append('dependency_input_mismatch:' + dep + ':' + role)
         identity = {'input_hash': digest({'inputs': request['inputs'], 'dependencies': dependencies,
                     'context': state['context'], 'g0': state['g0'], 'master_sha': state['master_sha']}),
                     'code_sha': code_sha, 'config_hash': config_hash,
