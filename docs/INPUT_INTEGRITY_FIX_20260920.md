@@ -141,7 +141,7 @@ now total70 (53 input/bridge,14 existing freshness,3 SEC), all passing. The
 registered Layer4 and daily/monthly workflow regressions also pass in isolation.
 No real Drive transport or daily workflow was dispatched as part of these tests.
 
-The third review found the final producer/consumer provenance gap: advisor
+The third review found a producer/consumer provenance gap: advisor
 v1/v3/v4 serializers discarded validated input dates. A shared target writer now
 copies the exact source price/feature/score provenance for each selected security,
 records actual target generation time, and publishes a hash-bound receipt last.
@@ -164,3 +164,22 @@ An additional entrypoint regression covers failure before serialization:
 v1/v3/v4 now revoke retained target receipts before loading inputs or ranking.
 Missing source files preserve prior CSV bytes but make them unreadable as an
 accepted proposal. All76 focused checks pass after this lifecycle correction.
+
+
+The next independent review identified execution-price binding, failed monthly
+publication, and missing target generation times in core/concentrated exports.
+All executable targets now require an aware generation timestamp and an explicit
+`execution_reference_price` tied to the existing valuation cutoff. Advisors copy
+that price from the admitted score row. Sizing uses only that price and rejects
+missing/invalid values; it never fetches a later quote or substitutes historical
+cost basis. Core/concentrated latest-target export paths stamp actual generation
+time and copy the source price, without modifying source observation dates or
+historical replay generation.
+
+The monthly workflow fails on missing scored inputs. Its always-run failure path
+publishes only a blocked receipt from a clean remote tree, including when an
+unpublished local success commit exists. It preserves the failure result and
+uploads the diagnostic receipt. Four added regressions exercise price-bound
+sizing, mandatory target metadata, all latest export paths, and the actual Bash
+revocation step against a temporary bare Git remote. All80 focused checks pass.
+Remote full CI and independent review remain mandatory for this updated head.

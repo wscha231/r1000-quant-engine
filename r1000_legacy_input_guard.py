@@ -116,14 +116,23 @@ def validate_current_frame(frame, *, kind='scores', now=None):
             if not result[name].map(_finite).all():
                 raise InputIntegrityError('nonfinite_model_score:' + name)
     else:
-        if 'target_available_from' in result:
-            target_available = result['target_available_from'].map(_utc)
-            if ((target_available < available) | (target_available > decision)).any():
-                raise InputIntegrityError('target_not_available_for_current_close')
-            if 'score_available_from' in result:
-                source_available = result['score_available_from'].map(_utc)
-                if (target_available < source_available).any():
-                    raise InputIntegrityError('target_predates_source_score')
+        if 'target_available_from' not in result:
+            raise InputIntegrityError('target_available_from_required')
+        target_available = result['target_available_from'].map(_utc)
+        if ((target_available < available) | (target_available > decision)).any():
+            raise InputIntegrityError('target_not_available_for_current_close')
+        if 'score_available_from' in result:
+            source_available = result['score_available_from'].map(_utc)
+            if (target_available < source_available).any():
+                raise InputIntegrityError('target_predates_source_score')
+        if 'execution_reference_price' not in result:
+            raise InputIntegrityError('execution_reference_price_required')
+        prices = [c for c in ('execution_reference_price', 'px', 'current_price_live') if c in result]
+        for name in prices:
+            if not result[name].map(lambda v: _finite(v) and float(v) > 0).all():
+                raise InputIntegrityError('invalid_target_price:' + name)
+            if not result[name].astype(float).eq(result['execution_reference_price'].astype(float)).all():
+                raise InputIntegrityError('conflicting_target_prices')
         weights = [c for c in ('weight', 'proposed_weight') if c in result]
         if not weights:
             raise InputIntegrityError('target_weight_required')
@@ -209,6 +218,19 @@ def begin_target_build(path):
                          b'{"status":"BLOCKED_TARGET_BUILD_IN_PROGRESS"}')
 
 
+def stamp_target_generation(frame, *, now=None):
+    """Stamp newly produced latest targets, preserving observation dates/cost basis.
+
+    Historical research exports retain historical cutoffs and are still rejected
+    by current consumers. This helper does not approve or refresh input data.
+    """
+    result = frame.copy()
+    result['target_available_from'] = _utc(now if now is not None else datetime.now(timezone.utc)).isoformat()
+    price = next((c for c in ('px', 'current_price_live') if c in result), None)
+    result['execution_reference_price'] = result[price] if price else float('nan')
+    return result
+
+
 def write_advisor_targets(targets, scored, path, *, now=None):
     """Carry admitted input provenance into a newly generated proposal.
 
@@ -228,6 +250,8 @@ def write_advisor_targets(targets, scored, path, *, now=None):
         raise InputIntegrityError('target_source_provenance_missing')
     for name in ('valuation_price_cutoff_date', 'feature_available_from', 'score_available_from'):
         result[name] = result['ticker'].map(source[name])
+    price = 'px' if 'px' in source else 'current_price_live'
+    result['execution_reference_price'] = result['ticker'].map(source[price])
     result['target_as_of'] = result['valuation_price_cutoff_date']
     result['target_available_from'] = decision.isoformat()
     result['input_packet_kind'] = 'advisor_target_v1'

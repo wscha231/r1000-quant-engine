@@ -5102,3 +5102,12 @@ Expected contract:
   a missing input or ranking exception can happen first. A regression exercises
   all three actual CLIs with missing sources and proves the retained CSV cannot
   be consumed. Focused checks total76 and pass.
+
+- A target's date alone does not bind the price used for sizing. Persist the
+  admitted execution reference price, require it at admission, and never replace
+  it with historical cost basis or a later quote. Require generation time across
+  every executable producer, including core/concentrated latest exports, while
+  preserving historical observation dates. A failure receipt left only in an
+  ephemeral workflow runner cannot revoke a retained remote success: publish
+  revocation from a clean remote tree without any pending success CSV changes.
+  Four new regressions cover these boundaries; all80 focused checks pass.

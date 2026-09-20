@@ -24,6 +24,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: unified-publication-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   unify:
     runs-on: ubuntu-latest
@@ -64,7 +68,7 @@ jobs:
             alpaca-bars-${{ runner.os }}-
 
       # Check if scored_latest.csv is in the repo (committed by user's monthly run).
-      # In cloud mode, we read from committed path. If missing, skip and alert.
+      # Missing inputs fail and revoke the retained packet below.
       - name: Verify scored_latest.csv available
         id: check_scored
         run: |
@@ -75,6 +79,7 @@ jobs:
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
             echo "scored_latest.csv not in repo. Commit it from your local run."
+            exit 1
           fi
 
       - name: Run unified universe builder
@@ -124,6 +129,46 @@ jobs:
             git commit -m "chore(bot): unified universe $(date +%Y-%m-%d) [skip ci]"
           git push
 
+      - name: Publish blocked receipt after failed rebuild
+        if: ${{ always() && (failure() || cancelled()) }}
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path('outputs/scored_unified.csv.coverage.json')
+          try:
+              receipt = json.loads(path.read_text())
+          except (OSError, ValueError):
+              receipt = {}
+          if not isinstance(receipt, dict) or not str(receipt.get('status', '')).startswith('BLOCKED'):
+              receipt = {'status': 'BLOCKED_WORKFLOW_FAILURE', 'investment_approved': False}
+          path.parent.mkdir(parents=True, exist_ok=True)
+          path.write_text(json.dumps(receipt, indent=2) + '\n')
+          PY
+          # Publish only revocation from a clean remote tree, even if a failed
+          # success publication left local CSV/snapshot changes or commits.
+          git fetch origin "$GITHUB_REF_NAME"
+          REVOKE_ROOT=$(mktemp -d)
+          git worktree add --detach "$REVOKE_ROOT" FETCH_HEAD
+          trap 'git worktree remove --force "$REVOKE_ROOT"' EXIT
+          mkdir -p "$REVOKE_ROOT/outputs"
+          cp outputs/scored_unified.csv.coverage.json "$REVOKE_ROOT/outputs/"
+          git -C "$REVOKE_ROOT" config user.name github-actions-bot
+          git -C "$REVOKE_ROOT" config user.email actions@github.com
+          git -C "$REVOKE_ROOT" add -f outputs/scored_unified.csv.coverage.json
+          git -C "$REVOKE_ROOT" diff --cached --quiet || \
+            git -C "$REVOKE_ROOT" commit -m "chore(bot): revoke failed unified packet [skip ci]"
+          git -C "$REVOKE_ROOT" push origin "HEAD:$GITHUB_REF_NAME"
+
+      - name: Upload blocked receipt
+        if: ${{ always() && (failure() || cancelled()) }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: blocked-unified-${{ github.run_id }}
+          path: outputs/scored_unified.csv.coverage.json
+          if-no-files-found: error
+          retention-days: 90
+
       - name: Telegram summary
         if: always()
         env:
@@ -139,7 +184,7 @@ jobs:
           status = os.environ.get('STATUS', 'unknown')
           found = os.environ.get('FOUND', 'false')
           if found != 'true':
-              msg = ('[UNIFIED SKIP] scored_latest.csv not in repo. '
+              msg = ('[UNIFIED FAIL] scored_latest.csv not in repo. '
                      'Run 정석 engine locally + commit outputs/scored_latest.csv.')
           elif status == 'success':
               msg = '[UNIFIED OK] scored_unified rebuild complete.'

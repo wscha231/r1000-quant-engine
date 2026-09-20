@@ -64,6 +64,7 @@ except Exception:
 
 import numpy as np
 import pandas as pd
+from r1000_legacy_input_guard import stamp_target_generation
 import requests
 import yfinance as yf
 from sklearn.linear_model import LogisticRegression, Ridge
@@ -17956,6 +17957,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
     top30_operational.to_csv(top30_path, index=False)
     top30_operational.head(20).to_csv(top20_path, index=False)
     portfolio_operational = drop_actionable_leakage_columns(portfolio_operational)
+    portfolio_operational = stamp_target_generation(portfolio_operational)
     portfolio_operational.to_csv(portfolio_path, index=False)
     # Phase 15-C export hygiene (2026-04-28): prune ALL-NaN + all-zero columns
     # from scored_latest.csv export to keep the file scannable. Audit on the
@@ -18024,6 +18026,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
         # be wired here if/when split-yaml mode is adopted.
         concentrated_latest_holdings = _enrich_with_live_state(concentrated_latest_holdings)
         concentrated_latest_holdings = drop_actionable_leakage_columns(concentrated_latest_holdings)
+        concentrated_latest_holdings = stamp_target_generation(concentrated_latest_holdings)
         concentrated_latest_holdings.to_csv(concentrated_portfolio_path, index=False)
         concentrated_top1_path.write_text(
             concentrated_latest_holdings.head(1).to_csv(index=False),
@@ -18363,6 +18366,7 @@ def export_outputs(cfg: dict | EngineConfig, artifacts: dict[str, Any]) -> dict[
 
     top30_operational.to_csv(top30_path, index=False)
     top30_operational.head(20).to_csv(top20_path, index=False)
+    portfolio_operational = stamp_target_generation(portfolio_operational)
     portfolio_operational.to_csv(portfolio_path, index=False)
     # Phase 15-C export hygiene (2026-04-28): prune ALL-NaN + all-zero columns
     # from scored_latest.csv export to keep the file scannable. Audit on the

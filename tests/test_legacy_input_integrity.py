@@ -37,6 +37,16 @@ def write_packet(path):
     Path(str(path)+'.coverage.json').write_text(json.dumps(receipt))
 
 
+def normalize_fixture(frame, capital):
+    # Execute the real sizing function without importing broker clients.
+    import ast
+    tree=ast.parse((ROOT/'r1000_paper_executor.py').read_text())
+    node=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='normalize_picks')
+    scope={'pd':pd}
+    exec(compile(ast.Module(body=[node],type_ignores=[]),'sizing','exec'),scope)
+    return scope['normalize_picks'](frame,capital)
+
+
 class CurrentInputTests(unittest.TestCase):
     def reject(self, frame, pattern=None, **kwargs):
         with self.assertRaisesRegex(guard.InputIntegrityError, pattern or '.'):
@@ -123,14 +133,14 @@ class CurrentInputTests(unittest.TestCase):
             with self.subTest(now=now): self.assertEqual(guard.latest_completed_close(now)[0],expected)
 
     def test_target_requires_current_observation_and_valid_weights(self):
-        frame=scores();frame['weight']=1
+        frame=guard.stamp_target_generation(scores(),now=NOW);frame['weight']=1
         self.assertEqual(len(guard.validate_current_frame(frame, kind='targets',now=NOW)),1)
         for value in [-0.1, float('nan'), 1.2, 0, True]:
             with self.subTest(value=value):
                 frame['weight']=value;self.reject(frame,kind='targets')
 
     def test_conflicting_weight_fields_block(self):
-        frame=scores();frame['weight']=0.2;frame['proposed_weight']=0.8
+        frame=guard.stamp_target_generation(scores(),now=NOW);frame['weight']=0.2;frame['proposed_weight']=0.8
         self.reject(frame,'conflicting',kind='targets')
 
     def test_blocked_coverage_vetoes_even_current_retained_csv(self):
@@ -294,6 +304,10 @@ class CurrentInputTests(unittest.TestCase):
                 for field in ['valuation_price_cutoff_date','feature_available_from','score_available_from']:
                     self.assertEqual(result[field].tolist(),scores()[field].tolist())
                 self.assertEqual(result['proposed_weight'].tolist(),[0.5])
+                self.assertEqual(result['execution_reference_price'].tolist(),[100.0])
+                picks=normalize_fixture(result,1000)
+                self.assertEqual(picks[0]['entry_price'],100.0)
+                self.assertEqual(picks[0]['target_shares'],5.0)
 
     def test_unknown_target_provenance_revokes_retained_proposal(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -328,6 +342,80 @@ class CurrentInputTests(unittest.TestCase):
             with self.subTest(value=value):
                 frame=scores();frame['weight']=0.5;frame['target_available_from']=value
                 self.reject(frame,kind='targets')
+
+    def test_every_target_requires_aware_generation_time_and_bound_price(self):
+        frame=guard.stamp_target_generation(scores(),now=NOW);frame['weight']=0.5
+        for field in ['target_available_from','execution_reference_price']:
+            self.reject(frame.drop(columns=field),field+'_required',kind='targets')
+        for value in [None,'bad','2026-09-20T01:00:00']:
+            bad=frame.copy();bad['target_available_from']=value
+            self.reject(bad,kind='targets')
+        for value in [None,0,-1,True,float('inf'),200]:
+            bad=frame.copy();bad['execution_reference_price']=value
+            self.reject(bad,kind='targets')
+
+    def test_sizing_preserves_bound_price_and_ignores_historical_cost_basis(self):
+        frame=guard.stamp_target_generation(scores(),now=NOW);frame['weight']=0.5
+        frame['entry_price']=20;frame['reference_price']=25
+        admitted=guard.validate_current_frame(frame,kind='targets',now=NOW)
+        quotes=types.ModuleType('aggressive.data_alpaca')
+        quotes.fetch_daily_bars=lambda *a,**kw:self.fail('later quote must not be fetched')
+        with patch.dict(sys.modules,{'aggressive.data_alpaca':quotes}):
+            self.assertEqual(normalize_fixture(admitted,1000)[0]['target_shares'],5)
+            with self.assertRaises(guard.InputIntegrityError):
+                normalize_fixture(admitted.drop(columns='execution_reference_price'),1000)
+
+    def test_latest_target_producers_stamp_time_without_refreshing_history(self):
+        import ast
+        before=pd.Timestamp.now(tz='UTC');frame=scores();frame['entry_price']=20
+        result=guard.stamp_target_generation(frame);after=pd.Timestamp.now(tz='UTC')
+        generated=pd.Timestamp(result['target_available_from'].iloc[0])
+        self.assertTrue(before<=generated<=after)
+        pd.testing.assert_frame_equal(result[frame.columns],frame)
+        self.assertEqual(result['execution_reference_price'].tolist(),[100])
+        tree=ast.parse((ROOT/'r1000_pipeline.py').read_text())
+        exports=[]
+        for node in ast.walk(tree):
+            if not isinstance(node,ast.Assign) or not isinstance(node.value,ast.Call): continue
+            if getattr(node.value.func,'id',None)=='stamp_target_generation':
+                exports.append(node.targets[0].id)
+        self.assertCountEqual(exports,['portfolio_operational','portfolio_operational','concentrated_latest_holdings'])
+
+    def test_failed_monthly_workflow_publishes_only_remote_revocation(self):
+        import yaml,os
+        wf=yaml.safe_load((ROOT/'.github/workflows/unified_monthly.yml').read_text())
+        steps={s.get('name'):s for s in wf['jobs']['unify']['steps']}
+        step=steps['Publish blocked receipt after failed rebuild']
+        self.assertIn('always()',step['if']);self.assertIn('failure()',step['if'])
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);remote=root/'remote.git';repo=root/'checkout';repo.mkdir()
+            def git(*args,cwd=repo):
+                r=subprocess.run(['git',*args],cwd=cwd,capture_output=True,text=True)
+                self.assertEqual(r.returncode,0,r.stderr);return r.stdout
+            git('init','--bare',str(remote),cwd=root);git('init','-b','fixture')
+            git('config','user.name','fixture');git('config','user.email','fixture@example.invalid')
+            source=repo/'outputs/scored_unified.csv';write_packet(source);original=source.read_bytes()
+            git('add','.');git('commit','-m','original');git('remote','add','origin',str(remote));git('push','-u','origin','fixture')
+            # Simulate an earlier success commit that could not be pushed.
+            source.write_text('unpublished replacement');git('add','.');git('commit','-m','unpublished')
+            receipt_path=Path(str(source)+'.coverage.json')
+            for receipt in [{'status':'BLOCKED_MISSING_MODEL_COVERAGE'},{'status':'LEGACY_COMPATIBILITY_ONLY'},None]:
+                if receipt is None: receipt_path.unlink(missing_ok=True)
+                else: receipt_path.write_text(json.dumps(receipt))
+                env=dict(os.environ,GITHUB_REF_NAME='fixture')
+                r=subprocess.run(['bash','-e','-o','pipefail','-c',step['run']],cwd=repo,env=env,capture_output=True,text=True)
+                self.assertEqual(r.returncode,0,r.stderr)
+                published=git('show','origin/fixture:outputs/scored_unified.csv')
+                self.assertEqual(published.encode(),original)
+                blocked=git('show','origin/fixture:outputs/scored_unified.csv.coverage.json')
+                self.assertTrue(json.loads(blocked)['status'].startswith('BLOCKED'))
+                check=root/'download.csv';check.write_bytes(original)
+                Path(str(check)+'.coverage.json').write_text(blocked)
+                with self.assertRaisesRegex(guard.InputIntegrityError,'blocked_coverage'):
+                    guard.load_current_csv(check,now=NOW)
+            env=dict(os.environ,GITHUB_OUTPUT=str(root/'step-output'))
+            r=subprocess.run(['bash','-e','-o','pipefail','-c',steps['Verify scored_latest.csv available']['run']],cwd=repo,env=env,capture_output=True,text=True)
+            self.assertNotEqual(r.returncode,0)
 
     def test_archive_transport_keeps_old_dates_without_current_admission(self):
         import yaml, os
