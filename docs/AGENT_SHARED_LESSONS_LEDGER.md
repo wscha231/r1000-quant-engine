@@ -19,6 +19,9 @@
   and an explicit model/evaluation/policy/registry benchmark identity. Complete
   universe identity is not complete evaluation coverage; suppress global ranks
   on missing evaluations and reject impossible historical rank sequences.
+- A rejected fundamental observation must also invalidate an evaluator bound
+  to those same raw feature bytes; a separate review pin cannot erase a stale,
+  missing, unit-invalid or unapproved-source metric admission failure.
 
 This is the shared "mistake notebook" for Codex, Claude, GPT Pro, and any other
 agent working on `wscha231/r1000-quant-engine`.

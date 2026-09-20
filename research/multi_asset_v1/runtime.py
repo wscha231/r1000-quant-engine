@@ -114,6 +114,10 @@ def run(payload, registry, policy):
             errors[aid]=str(exc)
     benchmark=policy["benchmark_id"]
     require(benchmark in assets,"benchmark_registry")
+    events=event_memory(payload.get("events",[]),assets,cutoff,policy)
+    metrics=metric_rows(payload.get("metrics",[]),cutoff,policy)
+    for metric in metrics:
+        require(metric["subject_id"] in assets or metric["subject_id"] in underlyings,"unknown_metric_subject")
     rows=[]
     for aid,a in assets.items():
         if aid==benchmark: continue
@@ -143,6 +147,7 @@ def run(payload, registry, policy):
         if aid in by_eval:
             try:
                 require(row["data_quality"]=="PRICE_OBSERVED_RESEARCH_ONLY","price_proxy_or_missing_cannot_admit_er")
+                require(all(metric["admission"]=="OBSERVED" for metric in metrics),"feature_metric_not_admitted")
                 ev=evaluation(by_eval[aid],a,cutoff,policy,identity,feature_time)
                 fields={"fundamental_score","expected_alpha_12m","expected_drawdown","downside_probability","signal_confidence","thesis_confidence","thesis_id","thesis_status","valuation_acceptable","scenarios","model_id","validation_sha256"}
                 fields.update("expected_return_"+h for h in ER_HORIZONS)
@@ -167,10 +172,6 @@ def run(payload, registry, policy):
         r["data_quality"]=="PRICE_OBSERVED_RESEARCH_ONLY" and "risk_adjusted_expected_alpha" in r for r in rows)
     if global_ranking_ready:
         for i,r in enumerate(ranking,1): r["rank"]=i
-    events=event_memory(payload.get("events",[]),assets,cutoff,policy)
-    metrics=metric_rows(payload.get("metrics",[]),cutoff,policy)
-    for r in metrics:
-        require(r["subject_id"] in assets or r["subject_id"] in underlyings,"unknown_metric_subject")
     proposal={"status":"BLOCKED","reasons":["missing_reviewed_risk_packet"],"proposed_weights":None,"orders_generated":False}
     if payload.get("risk") is not None:
         try:

@@ -330,6 +330,19 @@ class Decisions(unittest.TestCase):
         self.assertTrue(out["global_ranking_ready"])
         self.assertEqual(out["proposal"]["reasons"],["risk_predates_feature_inputs"])
 
+    def test_invalid_bound_metric_blocks_evaluation_and_proposal(self):
+        for field,value in (("observed_at","2026-08-01T00:00:00Z"),("unit","MW"),("value",None),("source","UNAPPROVED"),("data_quality","SYNTHETIC")):
+            with self.subTest(field=field):
+                p,r,policy=fixture()
+                metric=dict(**meta("EIA"),subject_id="NATURAL_GAS",metric="inventory",unit="BCF",value=100)
+                metric[field]=value;p["metrics"]=[metric]
+                reviewed(p,r,policy);risk(p,r,policy)
+                out=run(p,r,policy)
+                self.assertEqual(out["metrics"][0]["admission"],"BLOCKED")
+                self.assertTrue(all(x["expected_return_12m"] is None and x["rank"] is None and "evaluation:feature_metric_not_admitted" in x["blockers"] for x in out["multi_asset_leadership_latest"]))
+                self.assertFalse(out["global_ranking_ready"])
+                self.assertEqual(out["proposal"]["status"],"BLOCKED")
+
     def test_short_rs_does_not_sell_or_remove_held_thesis(self):
         f={"RS20":-.15,"RS60":.05,"RS120":.2,"RS240":.3,"RS20_change_5d":-.1,"RS60_change_5d":-.1}
         state,status=classify(f,self.p["evaluations"][0],True)

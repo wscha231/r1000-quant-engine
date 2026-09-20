@@ -196,8 +196,8 @@ There were **zero BUY_CONSIDERATION** rows. No fundamentals or news score was
 invented to turn these observations into a buy proposal.
 
 Local initial publication evidence: 45 distinct new tests plus 12 existing
-tests passed. Follow-up regressions bring this to **72 distinct new tests plus
-12 existing tests**. Python `-O` repeats the same 72 cases. The first remote
+tests passed. Follow-up regressions bring this to **73 distinct new tests plus
+12 existing tests**. Python `-O` repeats the same 73 cases. The first remote
 matrix run `35489119713` exposed one packaging omission: the test reads its
 workflow YAML but sparse checkout omitted `.github`. Added the declared path;
 the test remains mandatory and unchanged. This does not weaken a data gate.
@@ -290,3 +290,9 @@ During final review, master advanced to `3c07a1a3f21de7558d7eea6622c59e10c7ebbdd
 when #464 merged. The audited-state references above describe the starting point.
 The latest master integration is conflict-free and is tested separately; the
 source bridge's merge does not establish live company-evaluator readiness.
+
+Additional reproduced integrity correction: a stale metric was individually
+blocked but its feature-bound evaluation could still pass. Metric admission now
+precedes ER admission; any bound stale/unit-invalid/missing/unapproved/synthetic
+metric blocks that evaluation, global rank and proposal. The valid price
+discovery output remains available with the explicit ER blocker.
