@@ -171,7 +171,7 @@ def build_unified_scored(scored_csv=DEFAULT_SCORED_CSV, output_csv=DEFAULT_OUTPU
     from aggressive.finnhub_cache_loader import load_finnhub_features_dict
     scored = pd.read_csv(scored_csv)
     universe, universe_meta = load_universe('r1000')
-    if len(universe) < 1000 or universe_meta.get('source_used') == 'themes_fallback':
+    if len(universe) < 1000 or universe_meta.get('source_used') != 'iwb_live':
         _atomic_text(Path(str(output_csv) + '.coverage.json'), json.dumps({
             'status': 'BLOCKED_UNIVERSE_SOURCE', 'requested_securities': len(universe),
             'source_used': universe_meta.get('source_used'), 'investment_approved': False,

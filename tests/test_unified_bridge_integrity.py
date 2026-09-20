@@ -79,7 +79,7 @@ class BridgeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             folder=Path(folder);source=folder/'source.csv';output=folder/'output.csv'
             source.write_text('ticker,score\nA,1\n');output.write_bytes(b'old-output-unchanged\n')
-            universe=types.ModuleType('aggressive.universe');universe.load_universe=lambda _: (['A']+['T'+str(i) for i in range(1117)],{'source_used':'fixture'})
+            universe=types.ModuleType('aggressive.universe');universe.load_universe=lambda _: (['A']+['T'+str(i) for i in range(1117)],{'source_used':'iwb_live'})
             features=types.ModuleType('aggressive.finnhub_cache_loader');features.load_finnhub_features_dict=lambda: {}
             with patch.dict(sys.modules,{'aggressive.universe':universe,'aggressive.finnhub_cache_loader':features}):
                 with self.assertRaises(b.IncompleteUniverseError):

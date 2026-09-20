@@ -1684,9 +1684,11 @@ def test_paper_executor_workflow() -> None:
         "tools/run_theme_leadership_tape.py",
         "tools/explosive_mover_scan_daily.py",
         "r1000_tactical_alpha.py",
-        "r1000_layer4_swap.py",
+        "RS_ONLY_SWAP_DISABLED",
+        "layer4_disabled.json",
     ):
         assert token in wf, f"after_close_daily.yml missing: {token}"
+    assert "python r1000_layer4_swap.py" not in wf, "retired RS-only CLI must not run daily"
     assert "yfinance" in (ROOT / "requirements_github.txt").read_text(encoding="utf-8"), (
         "yfinance missing from requirements_github.txt — Layer 3 VIX fetch will fall back"
     )

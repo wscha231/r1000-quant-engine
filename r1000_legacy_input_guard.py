@@ -12,6 +12,8 @@ import json
 import math
 import hashlib
 import io
+import os
+import tempfile
 
 import pandas as pd
 
@@ -128,8 +130,8 @@ def validate_current_frame(frame, *, kind='scores', now=None):
     return result
 
 
-def load_current_csv(path, *, kind='scores', now=None, receipt_policy='required'):
-    """Require a hash-bound receipt unless the caller names a legacy source.
+def read_csv_packet(path, *, receipt_policy='required'):
+    """Read hash-bound bytes; historical transport does not certify freshness.
 
     Legacy mode is for direct producers without bridge receipts. It cannot
     exempt a named or marked bridge output, and any existing receipt is binding.
@@ -156,4 +158,37 @@ def load_current_csv(path, *, kind='scores', now=None, receipt_policy='required'
             raise InputIntegrityError('coverage_output_hash_mismatch')
     if (coverage_path.read_bytes() if coverage_path.exists() else None) != receipt:
         raise InputIntegrityError('coverage_changed_during_read')
+    return frame, raw, receipt
+
+
+def load_current_csv(path, *, kind='scores', now=None, receipt_policy='required'):
+    frame, _, _ = read_csv_packet(path, receipt_policy=receipt_policy)
     return validate_current_frame(frame, kind=kind, now=now)
+
+
+def _atomic_packet_bytes(path, raw):
+    path = Path(path)
+    if any(p.is_symlink() for p in (path, *path.parents)):
+        raise InputIntegrityError('symlink_output')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=path.name + '.', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(raw)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def copy_bridge_packet(source, destination):
+    """Transport immutable bytes, publishing the success receipt last."""
+    source, destination = Path(source), Path(destination)
+    if source.resolve() == destination.resolve():
+        raise InputIntegrityError('same_packet_destination')
+    receipt_path = Path(str(destination) + '.coverage.json')
+    _atomic_packet_bytes(receipt_path, b'{"status":"BLOCKED_COPY_IN_PROGRESS"}')
+    _, raw, receipt = read_csv_packet(source)
+    _atomic_packet_bytes(destination, raw)
+    _atomic_packet_bytes(receipt_path, receipt)
+    read_csv_packet(destination)

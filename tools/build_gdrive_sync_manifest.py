@@ -159,6 +159,7 @@ RESEARCH_FILES = [
     *sorted(REQUIRED_RUNTIME_IDENTITY_FILES),
     "scored_latest.csv",
     "scored_unified.csv",
+    "scored_unified.csv.coverage.json",
     "reports/candidate_replay_book.csv",
     "universe_health/summary.json",
     "universe_health/universe_source_audit.json",
@@ -314,6 +315,13 @@ def build_entries(args: argparse.Namespace) -> list[dict[str, Any]]:
             )
 
     if mode == "research":
+        from r1000_legacy_input_guard import read_csv_packet
+        packet_names = {'scored_unified.csv', 'scored_unified.csv.coverage.json'}
+        packet_present = any((latest_run / name).exists() for name in packet_names)
+        if packet_present:
+            # Archive dated research bytes without claiming current eligibility.
+            # Both members become required so failed transport aborts publication.
+            read_csv_packet(latest_run / 'scored_unified.csv')
         for name in RESEARCH_FILES:
             semantic = "deprecated" if Path(name).name in DEPRECATED_NAMES else "research"
             entries.append(
@@ -321,7 +329,7 @@ def build_entries(args: argparse.Namespace) -> list[dict[str, Any]]:
                     latest_run=latest_run,
                     rel_source=name,
                     rel_dest=f"research_runs/{args.safe_branch}/{args.run_id}/research_full/{name}",
-                    required=False,
+                    required=packet_present and name in packet_names,
                     semantic_type=semantic,
                     production_valid=False,
                     metric_mode="" if semantic == "research" else "weight_level_research_deprecated",

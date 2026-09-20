@@ -119,7 +119,7 @@ jobs:
           cp outputs/scored_unified.csv "$SNAPSHOT"
           cp outputs/scored_unified.csv.coverage.json "$SNAPSHOT.coverage.json"
           python -c "import sys; from r1000_legacy_input_guard import load_current_csv; load_current_csv(sys.argv[1])" "$SNAPSHOT"
-          git add outputs/scored_unified.csv outputs/scored_unified.csv.coverage.json "$SNAPSHOT" "$SNAPSHOT.coverage.json"
+          git add -f outputs/scored_unified.csv outputs/scored_unified.csv.coverage.json "$SNAPSHOT" "$SNAPSHOT.coverage.json"
           git diff --cached --quiet || \
             git commit -m "chore(bot): unified universe $(date +%Y-%m-%d) [skip ci]"
           git push

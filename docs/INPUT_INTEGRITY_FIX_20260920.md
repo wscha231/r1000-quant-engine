@@ -121,3 +121,22 @@ Five additional methods cover these gaps: 63 focused checks (46 input/bridge,
 in isolation. A broader local smoke run encounters missing sparse-checkout
 fixtures and optional dependencies including yfinance; it is not reported as
 passing. GitHub's fully provisioned exact-head validation remains required.
+
+The second review identified four additional transport/runtime gaps. The local
+Drive-mirror helper now copies verified packet bytes with a blocked destination
+receipt during transport and publishes success last. Research Drive manifests
+include and require both packet members when present and validate their hashes;
+historical transport does not relabel rows as current. The daily workflow records
+the retired Layer4 state as a no-action diagnostic instead of executing its
+intentionally failing CLI. Explicit ignored publication paths use `git add -f`.
+The bridge admits only the upstream `iwb_live` universe family with at least
+1,000 names; historical-membership unions and other fallback sources are rejected.
+That upstream label still includes its bounded IWB cache and is not a new
+independent certification of index membership or live financial coverage.
+
+Seven additional regressions exercise actual temporary-directory Drive copies,
+interrupted copies, manifest admission, the daily Bash step, ignored-file staging
+in a temporary Git repository, and historical-union rejection. Focused checks
+now total70 (53 input/bridge,14 existing freshness,3 SEC), all passing. The
+registered Layer4 and daily/monthly workflow regressions also pass in isolation.
+No real Drive transport or daily workflow was dispatched as part of these tests.

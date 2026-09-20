@@ -5080,3 +5080,12 @@ Expected contract:
   retiring RS-only evaluation; focused suites alone missed its old wiring rule.
   Five added cases bring focused checks to63. The full local smoke cannot stand
   in for CI when sparse fixtures or optional dependencies are absent.
+
+- The second PR463 review followed the packet through two additional Drive
+  transports and found the same missing sidecar. Update every allowlist and
+  exercise round-trip/interruption behavior, not only publisher text. Intentional
+  no-action retirement belongs in scheduled diagnostics, while execution CLI
+  failures remain nonzero. Ignored generated outputs require explicit forced
+  staging. A historical membership union is not a current cohort even above
+  the size floor; reject that fallback in the current bridge. Seven more focused
+  regressions pass (70 total), including a real temporary Git staging probe.

@@ -6,6 +6,9 @@ from pathlib import Path
 import sys
 import tempfile
 import types
+import subprocess
+import contextlib
+import io
 import unittest
 from unittest.mock import patch
 
@@ -24,6 +27,14 @@ def scores():
         rebalance_date='2026-09-18', valuation_price_cutoff_date='2026-09-18',
         feature_available_from='2026-09-18T20:00:00Z',
         score_available_from='2026-09-18T20:01:00Z', ranking_eligible=True)])
+
+
+def write_packet(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    frame=scores();frame['input_packet_kind']='unified_bridge_v1'
+    frame.to_csv(path,index=False)
+    receipt={'status':'LEGACY_COMPATIBILITY_ONLY','compatible_sha256':hashlib.sha256(path.read_bytes()).hexdigest()}
+    Path(str(path)+'.coverage.json').write_text(json.dumps(receipt))
 
 
 class CurrentInputTests(unittest.TestCase):
@@ -169,11 +180,99 @@ class CurrentInputTests(unittest.TestCase):
         self.assertIn("load_current_csv('outputs/scored_unified.csv')",steps['Run validation after unify']['run'])
         commit=steps['Commit unified CSV + snapshot']['run']
         self.assertIn('cp outputs/scored_unified.csv.coverage.json "$SNAPSHOT.coverage.json"',commit)
-        self.assertIn('git add outputs/scored_unified.csv outputs/scored_unified.csv.coverage.json "$SNAPSHOT" "$SNAPSHOT.coverage.json"',commit)
+        self.assertIn('git add -f outputs/scored_unified.csv outputs/scored_unified.csv.coverage.json "$SNAPSHOT" "$SNAPSHOT.coverage.json"',commit)
         self.assertNotIn('git push || true',commit)
         rebuild=(ROOT/'.github/workflows/full_rebuild_manual.yml').read_text()
         self.assertIn('cp outputs/scored_unified.csv.coverage.json "$DEST/"',rebuild)
         self.assertIn('"$DEST/scored_unified.csv"',rebuild)
+
+    def test_copy_bridge_packet_preserves_bytes_and_invalidates_interrupted_copy(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source=Path(folder)/'source.csv';dest=Path(folder)/'dest.csv';write_packet(source)
+            guard.copy_bridge_packet(source,dest)
+            self.assertEqual(source.read_bytes(),dest.read_bytes())
+            self.assertEqual(len(guard.load_current_csv(dest,now=NOW)),1)
+            original=guard._atomic_packet_bytes
+            def interrupted(path,raw):
+                if Path(path)==dest: raise OSError('simulated interrupted transport')
+                return original(path,raw)
+            with patch.object(guard,'_atomic_packet_bytes',side_effect=interrupted):
+                with self.assertRaises(OSError): guard.copy_bridge_packet(source,dest)
+            with self.assertRaisesRegex(guard.InputIntegrityError,'blocked_coverage'):
+                guard.load_current_csv(dest,now=NOW)
+
+    def test_local_drive_transport_round_trip(self):
+        from tools import sync_cloud_to_drive as sync
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);source=root/'cloud_results/full_rebuild/latest_r1000/scored_unified.csv'
+            write_packet(source);destination=root/'drive'
+            with patch.object(sync,'ROOT',root), patch.object(sys,'argv',['sync','--mode','r1000','--drive-base',str(destination)]), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(sync.main(),0)
+            result=destination/'outputs/scored_unified.csv'
+            self.assertEqual(result.read_bytes(),source.read_bytes())
+            self.assertEqual(len(guard.load_current_csv(result,now=NOW)),1)
+
+    def test_local_drive_transport_fails_before_unrelated_copies(self):
+        from tools import sync_cloud_to_drive as sync
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);source=root/'cloud_results/full_rebuild/latest_r1000/scored_unified.csv'
+            write_packet(source);Path(str(source)+'.coverage.json').unlink()
+            (source.parent/'portfolio_latest.csv').write_text('should not copy')
+            destination=root/'drive'
+            with patch.object(sync,'ROOT',root), patch.object(sys,'argv',['sync','--mode','r1000','--drive-base',str(destination)]), contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaisesRegex(guard.InputIntegrityError,'coverage_receipt_required'): sync.main()
+            self.assertFalse((destination/'outputs/portfolio_latest.csv').exists())
+
+    def test_manifest_transport_requires_valid_packet_members(self):
+        from tools import build_gdrive_sync_manifest as manifest
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);source=root/'scored_unified.csv';write_packet(source)
+            args=types.SimpleNamespace(latest_run=str(root),mode='research',run_id='fixture',safe_branch='fixture')
+            entries=manifest.build_entries(args)
+            packet=[r for r in entries if r['relative_source'].startswith('scored_unified.csv')]
+            self.assertEqual(len(packet),2)
+            self.assertTrue(all(r['required'] and r['exists'] and not r['production_valid'] for r in packet))
+            source.write_bytes(source.read_bytes()+b'\n')
+            with self.assertRaisesRegex(guard.InputIntegrityError,'hash_mismatch'): manifest.build_entries(args)
+
+    def test_disabled_daily_step_is_successful_no_action_diagnostic(self):
+        import yaml
+        workflow=yaml.safe_load((ROOT/'.github/workflows/after_close_daily.yml').read_text())
+        step=next(s for job in workflow['jobs'].values() for s in job['steps'] if s.get('name')=='Layer 4 disabled diagnostic')
+        self.assertNotIn('r1000_layer4_swap.py',step['run'])
+        with tempfile.TemporaryDirectory() as folder:
+            result=subprocess.run(['bash','-e','-o','pipefail','-c',step['run']],cwd=folder,capture_output=True,text=True)
+            self.assertEqual(result.returncode,0,result.stderr)
+            packet=json.loads((Path(folder)/'outputs/paper_runs/layer4_disabled.json').read_text())
+            self.assertEqual(packet,{'status':'DISABLED','reason':'RS_ONLY_SWAP_DISABLED','swap_suggestions':[]})
+
+    def test_explicit_publication_stages_ignored_packet_pair(self):
+        import yaml, os
+        workflow=yaml.safe_load((ROOT/'.github/workflows/unified_monthly.yml').read_text())
+        commit=next(s['run'] for s in workflow['jobs']['unify']['steps'] if s.get('name')=='Commit unified CSV + snapshot')
+        add=next(line for line in commit.splitlines() if line.startswith('git add '))
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            subprocess.run(['git','init','-q'],cwd=root,check=True)
+            (root/'.gitignore').write_text('outputs/\ncloud_results/\n')
+            write_packet(root/'outputs/scored_unified.csv');write_packet(root/'cloud_results/unified/fixture.csv')
+            (root/'outputs/unrelated.txt').write_text('do not stage')
+            env=dict(os.environ,SNAPSHOT='cloud_results/unified/fixture.csv')
+            subprocess.run(['bash','-e','-c',add],cwd=root,env=env,check=True,capture_output=True)
+            staged=subprocess.check_output(['git','diff','--cached','--name-only'],cwd=root,text=True).splitlines()
+            self.assertEqual(len(staged),4)
+            self.assertNotIn('outputs/unrelated.txt',staged)
+
+    def test_historical_membership_union_is_not_current_universe(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source=Path(folder)/'scores.csv';scores().to_csv(source,index=False)
+            universe=types.ModuleType('aggressive.universe')
+            universe.load_universe=lambda _: (['T'+str(i) for i in range(1200)],{'source_used':'main_engine_cache'})
+            features=types.ModuleType('aggressive.finnhub_cache_loader')
+            features.load_finnhub_features_dict=lambda: self.fail('archive union must be rejected before features')
+            with patch.dict(sys.modules,{'aggressive.universe':universe,'aggressive.finnhub_cache_loader':features}):
+                with self.assertRaisesRegex(bridge.IncompleteUniverseError,'universe_coverage'):
+                    bridge.build_unified_scored(source,Path(folder)/'out.csv')
 
     def test_bridge_full_coverage_stale_scores_still_block(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -182,7 +281,7 @@ class CurrentInputTests(unittest.TestCase):
             frame['ticker']=['T'+str(i) for i in range(1000)]
             frame['rebalance_date']='2026-07-13';frame.to_csv(source,index=False);out.write_text('preserve')
             universe=types.ModuleType('aggressive.universe')
-            universe.load_universe=lambda _: (frame['ticker'].tolist(),{'source_used':'fixture'})
+            universe.load_universe=lambda _: (frame['ticker'].tolist(),{'source_used':'iwb_live'})
             features=types.ModuleType('aggressive.finnhub_cache_loader');features.load_finnhub_features_dict=lambda: {}
             with patch.dict(sys.modules,{'aggressive.universe':universe,'aggressive.finnhub_cache_loader':features}):
                 with self.assertRaises(bridge.IncompleteUniverseError): bridge.build_unified_scored(source,out)
@@ -195,7 +294,7 @@ class CurrentInputTests(unittest.TestCase):
             frame=pd.concat([scores()]*1000,ignore_index=True);frame['ticker']=['T'+str(i) for i in range(1000)]
             frame.to_csv(source,index=False)
             universe=types.ModuleType('aggressive.universe')
-            universe.load_universe=lambda _: (frame['ticker'].tolist(),{'source_used':'fixture'})
+            universe.load_universe=lambda _: (frame['ticker'].tolist(),{'source_used':'iwb_live'})
             features=types.ModuleType('aggressive.finnhub_cache_loader');features.load_finnhub_features_dict=lambda: {}
             with patch.dict(sys.modules,{'aggressive.universe':universe,'aggressive.finnhub_cache_loader':features}), patch.object(
                     bridge,'validate_current_frame',side_effect=lambda f: guard.validate_current_frame(f,now=NOW)):
