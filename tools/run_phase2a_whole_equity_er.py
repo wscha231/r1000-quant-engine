@@ -22,6 +22,9 @@ SCHEMA_VERSION = "phase2a-whole-equity-er-a3-v1"
 CONTRACT_SCHEMA = "phase2a-whole-equity-er-contract-v1"
 READY_CHALLENGER_STATUS = "READY_EXPECTED_RETURN_FORWARD_REVIEW_ONLY"
 EXPECTED_FAMILY_ID = "future_expected_excess_return_multihorizon_v1"
+EXPECTED_ER_CONTRACT_SHA256 = "ef61acafc2c42b86d75d85becea816a4bca8e05fbbc392e77fa92b075c728b63"
+RUN287_SCHEMA_VERSION = "run287-expected-return-challenger-v1"
+FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 OVERALL_READY = "READY_WHOLE_EQUITY_ER_1_3_6M"
 OVERALL_PARTIAL = "PARTIAL_BLOCKED_WHOLE_EQUITY_ER"
 ROW_READY = "READY_ER_1_3_6M_RESEARCH_ONLY"
@@ -71,6 +74,10 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def canonical_json_sha256(path: Path) -> str:
+    return sha256_bytes(canonical_bytes(read_json(path)))
 
 
 def fingerprint(path: Path) -> dict[str, Any]:
@@ -234,21 +241,61 @@ def verify_er_evidence(
     manifest = read_json(manifest_path)
     if not isinstance(summary, dict) or summary.get("status") != READY_CHALLENGER_STATUS:
         raise ValueError("er_summary_not_ready")
+    if summary.get("schema_version") != RUN287_SCHEMA_VERSION:
+        raise ValueError("er_summary_schema_mismatch")
     if summary.get("family_id") != EXPECTED_FAMILY_ID:
         raise ValueError("er_summary_family_mismatch")
+    if summary.get("historical_model_fit_executed") is not True:
+        raise ValueError("er_summary_historical_fit_not_executed")
+    if summary.get("historical_backtest_executed") is not False:
+        raise ValueError("er_summary_backtest_authority_mismatch")
     if not isinstance(manifest, dict) or manifest.get("status") != READY_CHALLENGER_STATUS:
         raise ValueError("er_manifest_not_ready")
+    if manifest.get("schema_version") != RUN287_SCHEMA_VERSION:
+        raise ValueError("er_manifest_schema_mismatch")
     if manifest.get("historical_fit_executed") is not True:
         raise ValueError("er_historical_fit_not_executed")
-    contract_hash = sha256_file(contract_path)
+    if manifest.get("historical_backtest_executed") is not False:
+        raise ValueError("er_manifest_backtest_authority_mismatch")
+    producer_sha = str(manifest.get("git_commit_sha") or "").lower()
+    if not FULL_SHA_RE.fullmatch(producer_sha):
+        raise ValueError("er_manifest_producer_git_sha_invalid")
+    utc(manifest.get("created_at_utc"), "er_manifest.created_at_utc")
+    contract_hash = canonical_json_sha256(contract_path)
+    if contract_hash != EXPECTED_ER_CONTRACT_SHA256:
+        raise ValueError("er_contract_not_canonical_run287_contract")
     if manifest.get("contract_sha256") != contract_hash:
         raise ValueError("er_contract_hash_mismatch")
+    inputs = manifest.get("inputs")
+    if not isinstance(inputs, dict):
+        raise ValueError("er_manifest_inputs_missing")
+    canonical_u0 = inputs.get("u0_canonical_artifact")
+    if not isinstance(canonical_u0, dict):
+        raise ValueError("er_manifest_u0_canonical_artifact_missing")
+    if not FULL_SHA_RE.fullmatch(str(canonical_u0.get("head_sha") or "").lower()):
+        raise ValueError("er_manifest_u0_head_sha_invalid")
+    if type(canonical_u0.get("artifact_id")) is not int or canonical_u0["artifact_id"] <= 0:
+        raise ValueError("er_manifest_u0_artifact_id_invalid")
+    if type(canonical_u0.get("workflow_run_id")) is not int or canonical_u0["workflow_run_id"] <= 0:
+        raise ValueError("er_manifest_u0_workflow_run_id_invalid")
+    feature_store = inputs.get("feature_store")
+    if not isinstance(feature_store, dict) or not SHA256_RE.fullmatch(str(feature_store.get("sha256") or "")):
+        raise ValueError("er_manifest_feature_store_identity_invalid")
+    if feature_store.get("exists") is not True or int(feature_store.get("bytes") or 0) <= 0:
+        raise ValueError("er_manifest_feature_store_not_verified")
     outputs = manifest.get("outputs")
     if not isinstance(outputs, dict):
         raise ValueError("er_manifest_outputs_missing")
     proposal_ref = outputs.get("latest_expected_return_proposal.csv")
     if not isinstance(proposal_ref, dict) or proposal_ref.get("sha256") != sha256_file(proposal_path):
         raise ValueError("er_proposal_hash_mismatch")
+    if int(proposal_ref.get("bytes") or -1) != proposal_path.stat().st_size:
+        raise ValueError("er_proposal_size_mismatch")
+    summary_ref = outputs.get("summary.json")
+    if not isinstance(summary_ref, dict) or summary_ref.get("sha256") != sha256_file(summary_path):
+        raise ValueError("er_summary_hash_mismatch")
+    if int(summary_ref.get("bytes") or -1) != summary_path.stat().st_size:
+        raise ValueError("er_summary_size_mismatch")
     fields, rows = read_csv_rows(proposal_path)
     forbidden = sorted(field for field in fields if FORBIDDEN_PROPOSAL_RE.search(field))
     if forbidden:
@@ -276,6 +323,10 @@ def verify_er_evidence(
         tickers.add(ticker)
         if row.get("feature_date") != decision_session:
             raise ValueError("proposal_stale_or_future_decision_date")
+    if summary.get("latest_decision_date") != decision_session:
+        raise ValueError("er_summary_decision_date_mismatch")
+    if summary.get("latest_candidate_count") != len(rows):
+        raise ValueError("er_summary_candidate_count_mismatch")
     return manifest, rows
 
 

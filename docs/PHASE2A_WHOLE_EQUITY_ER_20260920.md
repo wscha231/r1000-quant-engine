@@ -25,10 +25,14 @@ trainer. It consumes:
 - the challenger summary and source manifest;
 - the existing challenger contract.
 
-It verifies the exact proposal hash against the challenger source manifest,
-requires the current cohort session, rejects realized/label/target/outcome
+It verifies the exact proposal and summary bytes against the challenger source
+manifest, requires the current cohort session, rejects realized/label/target/outcome
 columns, preserves every cohort `security_id`, and maps ticker only when the
-identity registry proves a one-to-one relation.
+identity registry proves a one-to-one relation. The source manifest must carry the
+existing Run287 schema, producer Git SHA, canonical U0 artifact identity and
+feature-store fingerprint. The challenger contract is checked with the same
+canonical-JSON SHA-256 semantics used by the existing runner, including the pinned
+Run287 contract hash; a raw-file hash is not substituted for that identity.
 
 A1 fail-closed checks require issuer/security identity, public availability,
 research eligibility, COMMON/ADR share-basis classification, an explicitly
@@ -72,7 +76,22 @@ The focused synthetic smoke suite covers:
 - stale/future decision dates;
 - forward/realized label leakage in the public proposal;
 - nonfinite ER values;
-- output artifact hash binding.
+- output artifact hash binding;
+- canonical-JSON challenger-contract hash parity versus raw-file hashing;
+- summary byte/hash and decision/candidate-count binding;
+- canonical U0 artifact and feature-store identity presence.
+
+The final focused suite after the provenance self-audit passes 16/16 tests in
+normal Python and 16/16 under `python -O`. An earlier 12-test pass predated the
+canonical-contract/hash fix and is not final-head evidence.
+
+## Self-audit correction
+
+Before independent review, a provenance mismatch was found: the existing Run287
+challenger records `contract_sha256` over canonical JSON, while the first adapter
+draft compared it with a raw file SHA-256. Synthetic fixtures had mirrored the
+wrong raw-hash behavior. The adapter and fixtures were corrected before review so
+real challenger output is checked with the producer's actual hash semantics.
 
 ## Next action / stop condition
 

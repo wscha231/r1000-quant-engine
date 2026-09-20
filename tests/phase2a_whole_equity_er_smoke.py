@@ -30,6 +30,12 @@ def sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def canonical_json_sha(path: Path) -> str:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    raw = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
 def contract():
     return {
         "schema_version": "phase2a-whole-equity-er-contract-v1",
@@ -145,18 +151,29 @@ class Phase2A(unittest.TestCase):
         write_json(self.paths["contract"], contract())
         write_json(self.paths["cohort"], cohort())
         write_json(self.paths["registry"], registry())
-        self.paths["er_contract"].write_text('{"test":"existing-run287-contract"}\n', encoding="utf-8")
+        self.paths["er_contract"].write_text(
+            '{\n  "schema_version": "synthetic-run287-contract",\n  "family_id": "future_expected_excess_return_multihorizon_v1"\n}\n',
+            encoding="utf-8",
+        )
+        self.original_expected_contract_sha = MOD.EXPECTED_ER_CONTRACT_SHA256
+        MOD.EXPECTED_ER_CONTRACT_SHA256 = canonical_json_sha(self.paths["er_contract"])
         write_json(
             self.paths["summary"],
             {
+                "schema_version": MOD.RUN287_SCHEMA_VERSION,
                 "status": MOD.READY_CHALLENGER_STATUS,
                 "family_id": MOD.EXPECTED_FAMILY_ID,
+                "latest_decision_date": SESSION,
+                "latest_candidate_count": 3,
+                "historical_model_fit_executed": True,
+                "historical_backtest_executed": False,
             },
         )
         self.write_proposal(proposal_rows())
         self.write_manifest()
 
     def tearDown(self):
+        MOD.EXPECTED_ER_CONTRACT_SHA256 = self.original_expected_contract_sha
         self.tmp.cleanup()
 
     def write_proposal(self, rows):
@@ -167,17 +184,45 @@ class Phase2A(unittest.TestCase):
             writer.writerows(rows)
 
     def write_manifest(self):
+        with self.paths["proposal"].open("r", encoding="utf-8", newline="") as handle:
+            candidate_count = sum(1 for _ in csv.DictReader(handle))
+        summary = json.loads(self.paths["summary"].read_text(encoding="utf-8"))
+        summary["latest_candidate_count"] = candidate_count
+        write_json(self.paths["summary"], summary)
         write_json(
             self.paths["manifest"],
             {
+                "schema_version": MOD.RUN287_SCHEMA_VERSION,
                 "status": MOD.READY_CHALLENGER_STATUS,
+                "created_at_utc": "2026-09-18T22:00:00Z",
+                "git_commit_sha": "a" * 40,
                 "historical_fit_executed": True,
-                "contract_sha256": sha(self.paths["er_contract"]),
+                "historical_backtest_executed": False,
+                "contract_sha256": canonical_json_sha(self.paths["er_contract"]),
+                "inputs": {
+                    "u0_canonical_artifact": {
+                        "artifact_id": 123,
+                        "workflow_run_id": 456,
+                        "workflow_path": ".github/workflows/run287_u0_v3_acceptance.yml",
+                        "head_sha": "b" * 40,
+                        "artifact_digest": "sha256:" + "c" * 64,
+                    },
+                    "feature_store": {
+                        "path": "feature_store.parquet",
+                        "exists": True,
+                        "bytes": 12345,
+                        "sha256": "d" * 64,
+                    },
+                },
                 "outputs": {
                     "latest_expected_return_proposal.csv": {
                         "sha256": sha(self.paths["proposal"]),
                         "bytes": self.paths["proposal"].stat().st_size,
-                    }
+                    },
+                    "summary.json": {
+                        "sha256": sha(self.paths["summary"]),
+                        "bytes": self.paths["summary"].stat().st_size,
+                    },
                 },
             },
         )
@@ -298,6 +343,31 @@ class Phase2A(unittest.TestCase):
         self.assertIsNone(row["expected_return_1m"])
         self.assertIsNone(row["expected_return_3m"])
         self.assertIsNone(row["expected_return_6m"])
+
+    def test_official_expected_return_contract_hash_constant_is_pinned(self):
+        self.assertEqual(
+            self.original_expected_contract_sha,
+            "ef61acafc2c42b86d75d85becea816a4bca8e05fbbc392e77fa92b075c728b63",
+        )
+
+    def test_contract_manifest_uses_canonical_json_hash_not_raw_file_hash(self):
+        self.assertNotEqual(sha(self.paths["er_contract"]), canonical_json_sha(self.paths["er_contract"]))
+        out = MOD.run(self.args())
+        self.assertEqual(out["status"], MOD.OVERALL_READY)
+
+    def test_summary_bytes_must_match_source_manifest(self):
+        summary = json.loads(self.paths["summary"].read_text(encoding="utf-8"))
+        summary["latest_candidate_count"] = 999
+        write_json(self.paths["summary"], summary)
+        with self.assertRaisesRegex(ValueError, "er_summary_hash_mismatch"):
+            MOD.run(self.args())
+
+    def test_manifest_requires_canonical_u0_artifact_identity(self):
+        manifest = json.loads(self.paths["manifest"].read_text(encoding="utf-8"))
+        manifest["inputs"].pop("u0_canonical_artifact")
+        write_json(self.paths["manifest"], manifest)
+        with self.assertRaisesRegex(ValueError, "er_manifest_u0_canonical_artifact_missing"):
+            MOD.run(self.args())
 
     def test_artifact_hash_binds_payload_without_self_reference(self):
         out = MOD.run(self.args())
