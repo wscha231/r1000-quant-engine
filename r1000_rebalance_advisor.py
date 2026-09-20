@@ -631,7 +631,7 @@ def main() -> int:
     args = parser.parse_args()
 
     # Load inputs
-    scored_df = load_current_csv(args.scored_csv)
+    scored_df = load_current_csv(args.scored_csv, receipt_policy="legacy_source")
     portfolio_df = pd.read_csv(args.portfolio_csv)
     print(f"[load] scored: {len(scored_df)} rows")
     print(f"[load] portfolio: {len(portfolio_df)} rows")

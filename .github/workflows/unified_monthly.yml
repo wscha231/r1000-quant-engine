@@ -1,8 +1,8 @@
 name: Unified Universe Monthly Rebuild
 
-# Rebuilds scored_unified.csv combining:
-#   - 정석 engine scored_latest.csv (from gdrive, manually synced to repo)
-#   - Finnhub synthesized rows for the 402 R1000 names not in scored_latest
+# Reconciles real model scores against the full universe. Missing names remain
+# diagnostic inventory; no synthetic scores are published. The compatibility
+# CSV and its hash-bound coverage receipt are one publication packet.
 #
 # Schedule: 1st and 15th of each month after the US close.
 # Rationale: 정석 engine typically runs monthly locally; unified should refresh
@@ -96,13 +96,17 @@ jobs:
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
         run: |
           python tests/validate_system.py --quick || echo "Validation warnings, non-fatal"
+          python -c "from r1000_legacy_input_guard import load_current_csv; load_current_csv('outputs/scored_unified.csv')"
 
       - name: Upload unified artifact
         if: steps.check_scored.outputs.found == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: scored-unified-${{ github.run_id }}
-          path: outputs/scored_unified.csv
+          path: |
+            outputs/scored_unified.csv
+            outputs/scored_unified.csv.coverage.json
+          if-no-files-found: error
           retention-days: 90
 
       - name: Commit unified CSV + snapshot
@@ -111,12 +115,14 @@ jobs:
           git config user.name  "github-actions-bot"
           git config user.email "actions@github.com"
           mkdir -p cloud_results/unified
-          cp outputs/scored_unified.csv \
-             "cloud_results/unified/$(date +%Y%m%d).csv" 2>/dev/null || true
-          git add outputs/scored_unified.csv cloud_results/unified/ 2>/dev/null || true
+          SNAPSHOT="cloud_results/unified/$(date +%Y%m%d).csv"
+          cp outputs/scored_unified.csv "$SNAPSHOT"
+          cp outputs/scored_unified.csv.coverage.json "$SNAPSHOT.coverage.json"
+          python -c "import sys; from r1000_legacy_input_guard import load_current_csv; load_current_csv(sys.argv[1])" "$SNAPSHOT"
+          git add outputs/scored_unified.csv outputs/scored_unified.csv.coverage.json "$SNAPSHOT" "$SNAPSHOT.coverage.json"
           git diff --cached --quiet || \
             git commit -m "chore(bot): unified universe $(date +%Y-%m-%d) [skip ci]"
-          git push || true
+          git push
 
       - name: Telegram summary
         if: always()

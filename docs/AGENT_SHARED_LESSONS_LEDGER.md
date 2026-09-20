@@ -5071,3 +5071,12 @@ Expected contract:
   remote branch did not exist at that check. The user explicitly authorized
   publishing this prepared patch, PR review, gated merge and post-merge
   verification on 2026-09-20; the authorization blocker is now resolved.
+
+- PR463 Codex review found that receipt protection must survive artifact and
+  repository transport. Require bridge receipts at readers, copy CSV/receipt
+  together, validate the pair before a single publication, and reserve an
+  explicit mode for direct legacy sources. Check score availability separately
+  from feature availability. Update the existing behavioral regression when
+  retiring RS-only evaluation; focused suites alone missed its old wiring rule.
+  Five added cases bring focused checks to63. The full local smoke cannot stand
+  in for CI when sparse fixtures or optional dependencies are absent.

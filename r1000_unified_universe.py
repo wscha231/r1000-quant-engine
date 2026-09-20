@@ -191,6 +191,7 @@ def build_unified_scored(scored_csv=DEFAULT_SCORED_CSV, output_csv=DEFAULT_OUTPU
         summary['integrity_failure'] = str(exc)
         _atomic_text(Path(str(path) + '.coverage.json'), json.dumps(summary, indent=2, allow_nan=False))
         raise IncompleteUniverseError(str(exc)) from exc
+    compatible['input_packet_kind'] = 'unified_bridge_v1'
     csv_text = compatible.to_csv(index=False)
     _atomic_text(path, csv_text)
     summary['compatible_sha256'] = hashlib.sha256(csv_text.encode('utf-8')).hexdigest()

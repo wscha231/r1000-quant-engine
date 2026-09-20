@@ -78,6 +78,13 @@ def validate_current_frame(frame, *, kind='scores', now=None):
     available = result['feature_available_from'].map(_utc)
     if ((available < close) | (available > decision)).any():
         raise InputIntegrityError('feature_not_available_for_current_close')
+    if kind == 'scores':
+        if 'score_available_from' not in result:
+            raise InputIntegrityError('score_available_from_required')
+        score_available = result['score_available_from'].map(_utc)
+        if ((score_available < close) | (score_available > decision)
+                | (score_available < available)).any():
+            raise InputIntegrityError('score_not_available_for_current_close')
     for name in ('ranking_eligible', 'model_eligible'):
         if name in result and not result[name].map(lambda v: str(v).strip().lower() == 'true').all():
             raise InputIntegrityError('upstream_ineligible:' + name)
@@ -121,12 +128,23 @@ def validate_current_frame(frame, *, kind='scores', now=None):
     return result
 
 
-def load_current_csv(path, *, kind='scores', now=None):
-    """Validate the exact bytes read; a blocked bridge receipt vetoes old output."""
+def load_current_csv(path, *, kind='scores', now=None, receipt_policy='required'):
+    """Require a hash-bound receipt unless the caller names a legacy source.
+
+    Legacy mode is for direct producers without bridge receipts. It cannot
+    exempt a named or marked bridge output, and any existing receipt is binding.
+    """
+    if receipt_policy not in ('required', 'legacy_source'):
+        raise InputIntegrityError('invalid_receipt_policy')
     path = Path(path)
     coverage_path = Path(str(path) + '.coverage.json')
     receipt = coverage_path.read_bytes() if coverage_path.exists() else None
     raw = path.read_bytes()
+    frame = pd.read_csv(io.BytesIO(raw))
+    is_bridge = (path.name == 'scored_unified.csv' or
+                 ('input_packet_kind' in frame and frame['input_packet_kind'].eq('unified_bridge_v1').any()))
+    if receipt is None and (receipt_policy == 'required' or is_bridge):
+        raise InputIntegrityError('coverage_receipt_required')
     if receipt is not None:
         try:
             coverage = json.loads(receipt)
@@ -138,4 +156,4 @@ def load_current_csv(path, *, kind='scores', now=None):
             raise InputIntegrityError('coverage_output_hash_mismatch')
     if (coverage_path.read_bytes() if coverage_path.exists() else None) != receipt:
         raise InputIntegrityError('coverage_changed_during_read')
-    return validate_current_frame(pd.read_csv(io.BytesIO(raw)), kind=kind, now=now)
+    return validate_current_frame(frame, kind=kind, now=now)

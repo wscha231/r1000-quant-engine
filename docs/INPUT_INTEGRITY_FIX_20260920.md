@@ -98,3 +98,26 @@ to wscha231/r1000-quant-engine, PR creation, merge after code review and require
 validation, and post-merge verification on 2026-09-20. The earlier authorization
 blocker is resolved. Remote PR, exact-head CI/review and merge results must be
 recorded from the actual GitHub evidence; authorization alone is not completion.
+
+## PR463 exact-head review corrections
+
+The patch was published as [PR463](https://github.com/wscha231/r1000-quant-engine/pull/463)
+at `bd4d6070cd47d2e681b8ac8a971c8ef53a1bbd3b`, whose tree exactly matches the
+validated local tree. Codex review identified three gaps, corrected together:
+
+- Bridge reads require the coverage receipt by default; direct legacy producers
+  use an explicit `legacy_source` mode, which cannot exempt named or marked
+  bridge packets. The monthly artifact and single repository commit include
+  both CSV and receipt, as do full-rebuild snapshots. Publication validates the
+  copied pair and does not suppress missing-receipt or push failures.
+- Score packets require aware `score_available_from` at or after feature
+  availability/current close and no later than the decision time.
+- The existing registered Layer4 regression now executes the API and CLI and
+  asserts blocked, nonzero, no-action behavior instead of requiring RS evaluator
+  wiring. Its registration and all merge gates remain unchanged.
+
+Five additional methods cover these gaps: 63 focused checks (46 input/bridge,
+14 existing freshness, 3 SEC) pass. The registered Layer4 regression also passes
+in isolation. A broader local smoke run encounters missing sparse-checkout
+fixtures and optional dependencies including yfinance; it is not reported as
+passing. GitHub's fully provisioned exact-head validation remains required.

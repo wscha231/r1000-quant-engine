@@ -22,7 +22,8 @@ NOW = datetime(2026, 9, 20, 1, 0, tzinfo=timezone.utc)
 def scores():
     return pd.DataFrame([dict(ticker='AAPL', score=1.0, score_source='model', current_price_live=100.0,
         rebalance_date='2026-09-18', valuation_price_cutoff_date='2026-09-18',
-        feature_available_from='2026-09-18T20:00:00Z', ranking_eligible=True)])
+        feature_available_from='2026-09-18T20:00:00Z',
+        score_available_from='2026-09-18T20:01:00Z', ranking_eligible=True)])
 
 
 class CurrentInputTests(unittest.TestCase):
@@ -55,6 +56,16 @@ class CurrentInputTests(unittest.TestCase):
         for value in ['2026-09-18T20:00:00', None, 'bad', '2026-09-21T20:00:00Z', '2026-09-17T20:00:00Z']:
             with self.subTest(value=value):
                 frame=scores();frame['feature_available_from']=value;self.reject(frame)
+
+    def test_missing_or_invalid_score_availability_rejected(self):
+        self.reject(scores().drop(columns='score_available_from'), 'score_available_from_required')
+        for value in [None, 'bad', '2026-09-18T20:01:00', '2026-09-21T00:00:00Z', '2026-09-18T19:59:00Z']:
+            with self.subTest(value=value):
+                frame=scores();frame['score_available_from']=value;self.reject(frame)
+
+    def test_score_cannot_predate_its_features(self):
+        frame=scores();frame['feature_available_from']='2026-09-18T20:02:00Z'
+        self.reject(frame, 'score_not_available')
 
     def test_synthetic_source_cannot_be_laundered(self):
         for value in [' Finnhub_SYNTHETIC ', 'UNSCORED_INVENTORY', 'legacy_model_source_unverified', None]:
@@ -127,6 +138,42 @@ class CurrentInputTests(unittest.TestCase):
             path.write_bytes(path.read_bytes()+b'\n')
             with self.assertRaisesRegex(guard.InputIntegrityError,'hash_mismatch'):
                 guard.load_current_csv(path,now=NOW)
+
+    def test_missing_receipt_requires_explicit_legacy_source(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'scores.csv';scores().to_csv(path,index=False)
+            with self.assertRaisesRegex(guard.InputIntegrityError,'coverage_receipt_required'):
+                guard.load_current_csv(path,now=NOW)
+            self.assertEqual(len(guard.load_current_csv(path,now=NOW,receipt_policy='legacy_source')),1)
+            frame=scores();frame['rebalance_date']='2026-07-13';frame.to_csv(path,index=False)
+            with self.assertRaisesRegex(guard.InputIntegrityError,'date'):
+                guard.load_current_csv(path,now=NOW,receipt_policy='legacy_source')
+
+    def test_named_or_renamed_bridge_cannot_use_legacy_exemption(self):
+        with tempfile.TemporaryDirectory() as folder:
+            for name, marked in [('scored_unified.csv',False),('20260918.csv',True)]:
+                with self.subTest(name=name):
+                    path=Path(folder)/name;frame=scores()
+                    if marked: frame['input_packet_kind']='unified_bridge_v1'
+                    frame.to_csv(path,index=False)
+                    with self.assertRaisesRegex(guard.InputIntegrityError,'coverage_receipt_required'):
+                        guard.load_current_csv(path,now=NOW,receipt_policy='legacy_source')
+
+    def test_workflow_publication_keeps_csv_and_receipt_together(self):
+        import yaml
+        workflow=yaml.safe_load((ROOT/'.github/workflows/unified_monthly.yml').read_text())
+        steps={step.get('name'):step for step in workflow['jobs']['unify']['steps']}
+        paths=steps['Upload unified artifact']['with']['path'].split()
+        self.assertIn('outputs/scored_unified.csv',paths)
+        self.assertIn('outputs/scored_unified.csv.coverage.json',paths)
+        self.assertIn("load_current_csv('outputs/scored_unified.csv')",steps['Run validation after unify']['run'])
+        commit=steps['Commit unified CSV + snapshot']['run']
+        self.assertIn('cp outputs/scored_unified.csv.coverage.json "$SNAPSHOT.coverage.json"',commit)
+        self.assertIn('git add outputs/scored_unified.csv outputs/scored_unified.csv.coverage.json "$SNAPSHOT" "$SNAPSHOT.coverage.json"',commit)
+        self.assertNotIn('git push || true',commit)
+        rebuild=(ROOT/'.github/workflows/full_rebuild_manual.yml').read_text()
+        self.assertIn('cp outputs/scored_unified.csv.coverage.json "$DEST/"',rebuild)
+        self.assertIn('"$DEST/scored_unified.csv"',rebuild)
 
     def test_bridge_full_coverage_stale_scores_still_block(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -201,7 +248,7 @@ class CurrentInputTests(unittest.TestCase):
     def test_all_legacy_cli_score_loaders_use_shared_guard(self):
         for name in ('r1000_rebalance_advisor.py','r1000_rebalance_advisor_v3.py','r1000_rebalance_advisor_v4.py'):
             source=(ROOT/name).read_text()
-            self.assertIn('load_current_csv(args.scored_csv)',source)
+            self.assertIn('load_current_csv(args.scored_csv',source)
             self.assertNotIn('pd.read_csv(args.scored_csv)',source)
 
 

@@ -83,7 +83,7 @@ def load_advisor_picks(advisor: str) -> pd.DataFrame:
     for p_str in paths:
         p = Path(p_str)
         if p.exists():
-            return load_current_csv(p, kind="targets")
+            return load_current_csv(p, kind="targets", receipt_policy="legacy_source")
     raise FileNotFoundError(
         f"Advisor {advisor} output not found in any of: {paths}. "
         f"Run advisor (or full_rebuild) first."

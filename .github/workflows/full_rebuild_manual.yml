@@ -1802,7 +1802,11 @@ jobs:
           else
           # Score + universe outputs
           cp outputs/scored_latest.csv "$DEST/" 2>/dev/null || true
-          cp outputs/scored_unified.csv "$DEST/" 2>/dev/null || true
+          if [ -f outputs/scored_unified.csv ]; then
+            cp outputs/scored_unified.csv "$DEST/"
+            cp outputs/scored_unified.csv.coverage.json "$DEST/"
+            python -c "import sys; from r1000_legacy_input_guard import load_current_csv; load_current_csv(sys.argv[1])" "$DEST/scored_unified.csv"
+          fi
           # Portfolio outputs (production main + concentrated 3-name)
           cp outputs/portfolio_latest.csv "$DEST/" 2>/dev/null || true
           cp outputs/concentrated_portfolio_latest.csv "$DEST/" 2>/dev/null || true
