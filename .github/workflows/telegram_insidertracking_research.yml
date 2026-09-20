@@ -8,6 +8,14 @@ on:
       - 'tests/telegram_event_ingest_smoke.py'
       - '.github/workflows/telegram_insidertracking_research.yml'
       - 'docs/TELEGRAM_INSIDERTRACKING_A2_20260921.md'
+  push:
+    branches: [master]
+    paths:
+      - 'research/telegram_event_v1/**'
+      - 'tools/run_telegram_event_ingest.py'
+      - 'tests/telegram_event_ingest_smoke.py'
+      - '.github/workflows/telegram_insidertracking_research.yml'
+      - 'docs/TELEGRAM_INSIDERTRACKING_A2_20260921.md'
   workflow_dispatch:
     inputs:
       mode:
@@ -19,10 +27,6 @@ on:
         description: 'Exact reviewed master SHA required for manual capture'
         type: string
         required: false
-      bootstrap_from_seed:
-        description: 'Allow the one-time initial seed only when latest state is empty'
-        type: boolean
-        default: false
   schedule:
     - cron: '17 * * * *'
 
@@ -60,7 +64,8 @@ jobs:
     if: >-
       github.repository == 'wscha231/r1000-quant-engine' &&
       github.ref == 'refs/heads/master' &&
-      (github.event_name == 'schedule' ||
+      (github.event_name == 'push' ||
+       github.event_name == 'schedule' ||
        (github.event_name == 'workflow_dispatch' && inputs.mode == 'capture'))
     runs-on: ubuntu-latest
     timeout-minutes: 12
@@ -114,48 +119,50 @@ jobs:
           chmod 600 "$RCLONE_CONFIG_PATH"
           echo "RCLONE_CONFIG_PATH=$RCLONE_CONFIG_PATH" >> "$GITHUB_ENV"
 
-      - name: Restore durable state without converting Drive errors into bootstrap
-        env:
-          BOOTSTRAP_FROM_SEED: ${{ inputs.bootstrap_from_seed || false }}
+      - name: Restore durable state from a single committed pointer
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/telegram-state" "$RUNNER_TEMP/telegram-out"
+          "$RCLONE_BIN" --config "$RCLONE_CONFIG_PATH" mkdir "$DRIVE_ROOT"
+          "$RCLONE_BIN" --config "$RCLONE_CONFIG_PATH" lsf --files-only "$DRIVE_ROOT" \
+            > "$RUNNER_TEMP/telegram-state/root-files.txt"
 
-          # Prove the Drive connection is writable/readable before deciding that
-          # an empty latest/ directory really means first bootstrap. A transport,
-          # auth or wrong-remote error must fail here instead of silently resetting
-          # continuity to the static seed.
-          "$RCLONE_BIN" --config "$RCLONE_CONFIG_PATH" mkdir "$DRIVE_ROOT/latest"
-          "$RCLONE_BIN" --config "$RCLONE_CONFIG_PATH" lsf --files-only "$DRIVE_ROOT/latest" \
-            > "$RUNNER_TEMP/telegram-state/latest-files.txt"
-
-          python - <<'PY'
-          import os
+          if grep -Fxq 'latest.json' "$RUNNER_TEMP/telegram-state/root-files.txt"; then
+            "$RCLONE_BIN" --config "$RCLONE_CONFIG_PATH" copyto \
+              "$DRIVE_ROOT/latest.json" "$RUNNER_TEMP/telegram-state/latest.json"
+            python - <<'PY'
+          import json, os, sys
           from pathlib import Path
+          sys.path.insert(0, os.environ['GITHUB_WORKSPACE'])
+          from research.telegram_event_v1.ingest import parse_latest_pointer
           root=Path(os.environ['RUNNER_TEMP'])/'telegram-state'
-          names={line.strip() for line in (root/'latest-files.txt').read_text().splitlines() if line.strip()}
-          required={'checkpoint.json','events.ndjson','a2_discovery_inputs.json','receipt.json'}
-          unknown=names-required
-          if unknown:
-              raise SystemExit('unexpected_latest_members:'+','.join(sorted(unknown)))
-          if names and names != required:
-              raise SystemExit('partial_latest_state:'+','.join(sorted(names)))
-          allow=os.environ.get('BOOTSTRAP_FROM_SEED','false').lower() == 'true'
-          if not names and (os.environ.get('GITHUB_EVENT_NAME') != 'workflow_dispatch' or not allow):
-              raise SystemExit('empty_latest_requires_explicit_manual_bootstrap')
-          if names and allow:
-              raise SystemExit('bootstrap_requested_but_state_exists')
-          (root/'bootstrap.txt').write_text('true\n' if not names else 'false\n')
+          pointer=parse_latest_pointer(
+              (root/'latest.json').read_bytes(),
+              channel=os.environ['CHANNEL'],
+              source_url=os.environ['SOURCE_URL'],
+          )
+          (root/'run-key.txt').write_text(pointer['run_key']+'\n')
           PY
-
-          if [ "$(cat "$RUNNER_TEMP/telegram-state/bootstrap.txt")" = "false" ]; then
+            RUN_KEY="$(cat "$RUNNER_TEMP/telegram-state/run-key.txt")"
             for name in checkpoint.json events.ndjson a2_discovery_inputs.json receipt.json; do
               "$RCLONE_BIN" --config "$RCLONE_CONFIG_PATH" copyto \
-                "$DRIVE_ROOT/latest/$name" "$RUNNER_TEMP/telegram-state/$name"
+                "$DRIVE_ROOT/runs/$RUN_KEY/$name" "$RUNNER_TEMP/telegram-state/$name"
             done
-            test -s "$RUNNER_TEMP/telegram-state/checkpoint.json"
-            test -s "$RUNNER_TEMP/telegram-state/a2_discovery_inputs.json"
-            test -s "$RUNNER_TEMP/telegram-state/receipt.json"
+            python - <<'PY'
+          import os, sys
+          from pathlib import Path
+          sys.path.insert(0, os.environ['GITHUB_WORKSPACE'])
+          from research.telegram_event_v1.ingest import parse_latest_pointer, verify_latest_pointer_files
+          root=Path(os.environ['RUNNER_TEMP'])/'telegram-state'
+          pointer=parse_latest_pointer((root/'latest.json').read_bytes(), channel=os.environ['CHANNEL'], source_url=os.environ['SOURCE_URL'])
+          files={name:(root/name).read_bytes() for name in ('checkpoint.json','events.ndjson','a2_discovery_inputs.json','receipt.json')}
+          verify_latest_pointer_files(pointer, files)
+          (root/'bootstrap.txt').write_text('false\n')
+          PY
+          else
+            # No pointer means no committed state. Rebuild conservatively from the
+            # fixed known seed. Fifty pages bounds recovery; failure leaves no pointer.
+            printf 'true\n' > "$RUNNER_TEMP/telegram-state/bootstrap.txt"
           fi
 
       - name: Capture public Telegram page and build A2 discovery input
@@ -167,7 +174,7 @@ jobs:
             --source-url "$SOURCE_URL"
             --output-dir "$RUNNER_TEMP/telegram-out"
             --initial-last-post-id "$INITIAL_LAST_POST_ID"
-            --max-pages 10
+            --max-pages "$( [ "$(cat "$RUNNER_TEMP/telegram-state/bootstrap.txt")" = "true" ] && echo 50 || echo 10 )"
           )
           if [ -f "$RUNNER_TEMP/telegram-state/checkpoint.json" ]; then
             args+=(--checkpoint "$RUNNER_TEMP/telegram-state/checkpoint.json")
@@ -217,19 +224,35 @@ jobs:
             exit 2
           fi
 
-      - name: Advance durable latest state only after verified immutable publication
+      - name: Commit latest state with one verified pointer write
         run: |
           set -euo pipefail
-          for name in checkpoint.json events.ndjson a2_discovery_inputs.json receipt.json; do
-            "$RCLONE_BIN" --config "$RCLONE_CONFIG_PATH" copyto \
-              "$RUNNER_TEMP/telegram-out/$name" "$DRIVE_ROOT/latest/$name"
-          done
-          VERIFY_LATEST="$RUNNER_TEMP/telegram-latest-verify"
-          mkdir -p "$VERIFY_LATEST"
-          for name in checkpoint.json events.ndjson a2_discovery_inputs.json receipt.json; do
-            "$RCLONE_BIN" --config "$RCLONE_CONFIG_PATH" copyto "$DRIVE_ROOT/latest/$name" "$VERIFY_LATEST/$name"
-            test "$(sha256sum "$RUNNER_TEMP/telegram-out/$name" | cut -d' ' -f1)" = "$(sha256sum "$VERIFY_LATEST/$name" | cut -d' ' -f1)"
-          done
+          RUN_KEY="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          export RUN_KEY
+          python - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          sys.path.insert(0, os.environ['GITHUB_WORKSPACE'])
+          from research.telegram_event_v1.ingest import build_latest_pointer
+          out=Path(os.environ['RUNNER_TEMP'])/'telegram-out'
+          receipt=json.loads((out/'receipt.json').read_text())
+          files={name:(out/name).read_bytes() for name in ('checkpoint.json','events.ndjson','a2_discovery_inputs.json','receipt.json')}
+          pointer=build_latest_pointer(
+              channel=os.environ['CHANNEL'],
+              source_url=os.environ['SOURCE_URL'],
+              run_key=os.environ['RUN_KEY'],
+              head_sha=os.environ['GITHUB_SHA'],
+              generated_at=receipt['generated_at'],
+              outputs=files,
+          )
+          (out/'latest.json').write_bytes(pointer)
+          PY
+          "$RCLONE_BIN" --config "$RCLONE_CONFIG_PATH" copyto \
+            "$RUNNER_TEMP/telegram-out/latest.json" "$DRIVE_ROOT/latest.json"
+          "$RCLONE_BIN" --config "$RCLONE_CONFIG_PATH" copyto \
+            "$DRIVE_ROOT/latest.json" "$RUNNER_TEMP/latest-readback.json"
+          test "$(sha256sum "$RUNNER_TEMP/telegram-out/latest.json" | cut -d' ' -f1)" = \
+               "$(sha256sum "$RUNNER_TEMP/latest-readback.json" | cut -d' ' -f1)"
 
       - name: Upload compact GitHub evidence
         if: always()
@@ -242,6 +265,7 @@ jobs:
             ${{ runner.temp }}/telegram-out/checkpoint.json
             ${{ runner.temp }}/telegram-out/a2_discovery_inputs.json
             ${{ runner.temp }}/telegram-out/receipt.json
+            ${{ runner.temp }}/telegram-out/latest.json
 
       - name: Remove temporary credential file
         if: always()

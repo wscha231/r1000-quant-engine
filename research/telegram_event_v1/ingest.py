@@ -7,13 +7,18 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from html.parser import HTMLParser
-from typing import Iterable
+from typing import Iterable, Mapping
 from urllib.parse import urlencode, urlparse, urlunparse, parse_qsl
 from urllib.request import Request, urlopen
 
 CHECKPOINT_SCHEMA = "telegram-insidertracking-checkpoint-v1"
 EVENT_SCHEMA = "telegram-insidertracking-event-v1"
 A2_SCHEMA = "a2-telegram-discovery-input-v1"
+LATEST_POINTER_SCHEMA = "telegram-insidertracking-latest-pointer-v1"
+POINTER_FILES = ("checkpoint.json", "events.ndjson", "a2_discovery_inputs.json", "receipt.json")
+RUN_KEY_RE = re.compile(r"^[0-9]+-[0-9]+$")
+HEX40_RE = re.compile(r"^[0-9a-f]{40}$")
+HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
 MAX_PAGE_BYTES = 5 * 1024 * 1024
 MAX_TEXT_CHARS = 50_000
 MAX_PAGES_DEFAULT = 10
@@ -46,6 +51,64 @@ def canonical_json_bytes(value: object) -> bytes:
 
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def build_latest_pointer(*, channel: str, source_url: str, run_key: str, head_sha: str, generated_at: str, outputs: Mapping[str, bytes]) -> bytes:
+    if not CHANNEL_RE.fullmatch(channel):
+        raise ValueError("invalid_channel")
+    validate_source_url(source_url, channel)
+    if not RUN_KEY_RE.fullmatch(run_key):
+        raise ValueError("invalid_pointer_run_key")
+    if not HEX40_RE.fullmatch(head_sha):
+        raise ValueError("invalid_pointer_head_sha")
+    _parse_aware_utc(generated_at, "pointer_generated_at")
+    if set(outputs) != set(POINTER_FILES):
+        raise ValueError("invalid_pointer_output_set")
+    pointer = {
+        "schema_version": LATEST_POINTER_SCHEMA,
+        "channel": channel.lower(),
+        "source_url": source_url,
+        "run_key": run_key,
+        "head_sha": head_sha,
+        "generated_at": generated_at,
+        "files": {name: sha256_bytes(outputs[name]) for name in POINTER_FILES},
+    }
+    return canonical_json_bytes(pointer)
+
+
+def parse_latest_pointer(raw: bytes, *, channel: str, source_url: str) -> dict:
+    try:
+        value = json.loads(raw.decode("utf-8"))
+    except Exception as exc:
+        raise ValueError("invalid_latest_pointer_json") from exc
+    if value.get("schema_version") != LATEST_POINTER_SCHEMA:
+        raise ValueError("invalid_latest_pointer_schema")
+    if value.get("channel") != channel.lower():
+        raise ValueError("latest_pointer_channel_mismatch")
+    if value.get("source_url") != source_url:
+        raise ValueError("latest_pointer_source_mismatch")
+    if not RUN_KEY_RE.fullmatch(str(value.get("run_key") or "")):
+        raise ValueError("invalid_pointer_run_key")
+    if not HEX40_RE.fullmatch(str(value.get("head_sha") or "")):
+        raise ValueError("invalid_pointer_head_sha")
+    _parse_aware_utc(str(value.get("generated_at") or ""), "pointer_generated_at")
+    files = value.get("files")
+    if not isinstance(files, dict) or set(files) != set(POINTER_FILES):
+        raise ValueError("invalid_pointer_files")
+    if any(not HEX64_RE.fullmatch(str(files[name])) for name in POINTER_FILES):
+        raise ValueError("invalid_pointer_file_hash")
+    return value
+
+
+def verify_latest_pointer_files(pointer: Mapping[str, object], files: Mapping[str, bytes]) -> None:
+    if set(files) != set(POINTER_FILES):
+        raise ValueError("pointer_file_set_mismatch")
+    expected = pointer.get("files")
+    if not isinstance(expected, dict):
+        raise ValueError("invalid_pointer_files")
+    for name in POINTER_FILES:
+        if sha256_bytes(files[name]) != expected.get(name):
+            raise ValueError(f"pointer_file_hash_mismatch:{name}")
 
 
 def normalize_text(value: str) -> str:

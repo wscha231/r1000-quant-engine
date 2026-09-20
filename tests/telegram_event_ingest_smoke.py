@@ -13,9 +13,12 @@ if str(ROOT) not in sys.path:
 from research.telegram_event_v1.ingest import (
     A2_SCHEMA,
     CHECKPOINT_SCHEMA,
+    build_latest_pointer,
     build_outputs,
     canonical_json_bytes,
+    parse_latest_pointer,
     parse_telegram_html,
+    verify_latest_pointer_files,
 )
 
 
@@ -158,6 +161,42 @@ class TestTelegramIngest(unittest.TestCase):
         cp=canonical_json_bytes({"schema_version":CHECKPOINT_SCHEMA,"channel":"insidertracking","last_post_id":64208,"event_log_sha256":hashlib.sha256(b"").hexdigest()})
         with self.assertRaisesRegex(ValueError,"checkpoint_ahead_of_empty_event_log"):
             build_outputs(channel="insidertracking",source_url="https://t.me/s/insidertracking",checkpoint_raw=cp,event_log_raw=b"",initial_last_post_id=64207,fetcher=lambda u:page([(64209,"2026-09-20T19:00:00+00:00","Oil")]))
+
+    def test_latest_pointer_binds_exact_immutable_run_files(self):
+        outputs={
+            "checkpoint.json":b"cp\n",
+            "events.ndjson":b"events\n",
+            "a2_discovery_inputs.json":b"a2\n",
+            "receipt.json":b"receipt\n",
+        }
+        raw=build_latest_pointer(channel="insidertracking",source_url="https://t.me/s/insidertracking",run_key="12345-1",head_sha="a"*40,generated_at="2026-09-20T18:00:00Z",outputs=outputs)
+        pointer=parse_latest_pointer(raw,channel="insidertracking",source_url="https://t.me/s/insidertracking")
+        verify_latest_pointer_files(pointer,outputs)
+        self.assertEqual(pointer["run_key"],"12345-1")
+
+    def test_latest_pointer_detects_tampered_run_file(self):
+        outputs={
+            "checkpoint.json":b"cp\n",
+            "events.ndjson":b"events\n",
+            "a2_discovery_inputs.json":b"a2\n",
+            "receipt.json":b"receipt\n",
+        }
+        raw=build_latest_pointer(channel="insidertracking",source_url="https://t.me/s/insidertracking",run_key="12345-1",head_sha="a"*40,generated_at="2026-09-20T18:00:00Z",outputs=outputs)
+        pointer=parse_latest_pointer(raw,channel="insidertracking",source_url="https://t.me/s/insidertracking")
+        tampered=dict(outputs)
+        tampered["events.ndjson"]=b"tampered\n"
+        with self.assertRaisesRegex(ValueError,"pointer_file_hash_mismatch:events.ndjson"):
+            verify_latest_pointer_files(pointer,tampered)
+
+    def test_latest_pointer_rejects_unsafe_run_key(self):
+        outputs={
+            "checkpoint.json":b"cp\n",
+            "events.ndjson":b"events\n",
+            "a2_discovery_inputs.json":b"a2\n",
+            "receipt.json":b"receipt\n",
+        }
+        with self.assertRaisesRegex(ValueError,"invalid_pointer_run_key"):
+            build_latest_pointer(channel="insidertracking",source_url="https://t.me/s/insidertracking",run_key="../escape",head_sha="a"*40,generated_at="2026-09-20T18:00:00Z",outputs=outputs)
 
     def test_unapproved_source_url_fails_closed(self):
         with self.assertRaisesRegex(ValueError,"unapproved_source_url"):

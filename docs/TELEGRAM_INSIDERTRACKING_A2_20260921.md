@@ -44,17 +44,11 @@ Durable Drive path:
 
 Each run first writes immutable evidence under
 `runs/<github_run_id>-<attempt>/`, downloads it again and verifies exact SHA-256.
-Only after that readback passes are these four `latest/` members advanced:
+Only after that readback passes is a single `latest.json` pointer advanced. The pointer binds the exact GitHub `run_id-attempt`, source/channel, head SHA and SHA-256 of all four immutable run files. Restore always follows that pointer back to the immutable run and verifies every file hash before reuse. This avoids partial multi-file `latest/` updates: a failure before pointer replacement leaves the previously committed state intact.
 
-- `checkpoint.json`
-- `events.ndjson`
-- `a2_discovery_inputs.json`
-- `receipt.json`
+If no pointer exists, the collector performs a bounded first/recovery rebuild from seed `64207` using at most 50 public pages; it publishes a pointer only if the entire interval closes. Normal pointed runs use at most 10 pages. A missing/corrupt pointer target, Drive/auth/transport failure, hash mismatch or source gap fails closed.
 
-Before restoration the workflow proves Drive access, creates/inspects `latest/`, and accepts the complete four-file latest state. An empty state is accepted only for an exact-head manual `workflow_dispatch` with `bootstrap_from_seed=true`; scheduled runs can never seed or reset continuity. Transport/auth failures, partial latest state, repeated bootstrap requests, and empty scheduled state all fail closed.
-
-A gap-blocked run preserves its diagnostic immutable receipt but never advances
-`latest`. The workflow has fixed single-writer concurrency. It writes no target,
+A gap-blocked run preserves its diagnostic immutable receipt but never advances `latest.json`. The workflow has fixed single-writer concurrency. It writes no target,
 ledger, broker, champion, selector, current portfolio or repository content.
 
 ## A2 trust boundary
@@ -96,8 +90,8 @@ separate causal change and must not be inferred from a Telegram source label.
 
 Local isolated source validation before publication:
 
-- `python tests/telegram_event_ingest_smoke.py`: 14/14 PASS
-- `python -O tests/telegram_event_ingest_smoke.py`: 14/14 PASS
+- `python tests/telegram_event_ingest_smoke.py`: 17/17 PASS
+- `python -O tests/telegram_event_ingest_smoke.py`: 17/17 PASS
 
 Regressions cover HTML identity/time/text parsing, HTML void elements, A2
 zero-score authority boundary, multi-page gap recovery, unresolved-gap state
@@ -115,8 +109,6 @@ Stop if Drive credentials are unavailable, Telegram HTML no longer satisfies the
 parser contract, the source interval cannot be closed, exact immutable readback
 fails, CI is non-green, or exact-head review is missing.
 
-After merge, run one exact-head manual capture with `bootstrap_from_seed=true` before relying on the hourly
-schedule. Confirm Drive latest checkpoint, immutable run receipt and a compact
-GitHub health artifact. Then update the ChatGPT watcher to treat this durable
+After merge, the new master `push` event performs the first bounded capture immediately; the hourly schedule then continues from `latest.json`. Confirm the first master run, immutable run receipt, `latest.json` readback and compact GitHub health artifact before declaring durable collection operational. Then update the ChatGPT watcher to treat this durable
 checkpoint as the continuity source and use its web access only for semantic
 cross-verification and user alerts.
