@@ -30,6 +30,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from tools.run287_research_score_handoff import read_score_handoff, evaluate_score_handoff
 from tools.run287_research_report_html import render_html
+from tools import theme_etf_source_bridge
 
 CONTRACT = ROOT / "docs/run287_daily_research_monitor_contract.json"
 SCHEMA = "run287-daily-research-monitor-v1"
@@ -150,7 +151,7 @@ def read_members(path: Path, members: dict[str, str], limit: int) -> tuple[dict,
     return data, evidence
 
 
-def collect_source(client: GitHub, key: str, spec: dict, contract: dict) -> dict:
+def collect_source(client: GitHub, key: str, spec: dict, contract: dict, *, now=None, session=None) -> dict:
     result: dict[str, Any] = {"source": key, "status": "MISSING_RUN", "data": {}}
     try:
         runs = client.json(f"/actions/workflows/{spec['workflow']}/runs?branch=master&per_page=30")
@@ -184,6 +185,16 @@ def collect_source(client: GitHub, key: str, spec: dict, contract: dict) -> dict
             members = {k: v.format(run_id=run["id"], run_attempt=run.get("run_attempt", 1))
                        for k, v in spec["members"].items()}
             result["data"], result["files"] = read_members(path, members, contract["max_member_bytes"])
+            if key == "operating" and contract.get("theme_etf_bridge"):
+                bridge_now = now if now is not None else datetime.now(timezone.utc)
+                bridge_session = session if session is not None else completed_session(bridge_now)
+                prerequisites = set(members) - set(spec.get("optional_members", []))
+                if run.get("conclusion") == "success" and prerequisites.issubset(result["data"]):
+                    bridge = theme_etf_source_bridge.read_bundle(
+                        path, run, artifact, contract["theme_etf_bridge"], bridge_session, bridge_now)
+                else:
+                    bridge = theme_etf_source_bridge.blocked("upstream_contract_not_ready", bridge_session)
+                result["data"]["theme_etf_bridge"] = bridge
             if key == "operating" and result["data"].get("upstream", {}).get("status") in READY_UPSTREAM:
                 try:
                     handoff, hashes = read_score_handoff(path, result["data"]["upstream"],
@@ -225,6 +236,10 @@ def completed_session(now: datetime) -> str:
 
 def evaluate(sources: dict, session: str, now: datetime, contract: dict) -> dict:
     alerts, observations = [], {}
+    observations["theme_etf_bridge"] = theme_etf_source_bridge.observation(sources.get("operating", {}), session)
+    bridge_observation = observations["theme_etf_bridge"]
+    if not bridge_observation["runtime_executed"]:
+        alerts.append("theme_etf:" + str(bridge_observation["reason"]))
     for key in contract["sources"]:
         source = sources.get(key, {})
         if source.get("status") != "VERIFIED_ARTIFACT":
@@ -409,13 +424,21 @@ def main() -> int:
     args.output_dir.mkdir(parents=True, exist_ok=False)
     now = datetime.now(timezone.utc)
     client = GitHub(contract["repository"], os.environ.get("GH_TOKEN", ""))
-    sources = {k: collect_source(client, k, spec, contract) for k, spec in contract["sources"].items()}
-    report = evaluate(sources, completed_session(now), now, contract)
+    session = completed_session(now)
+    sources = {k: collect_source(client, k, spec, contract, now=now, session=session)
+               for k, spec in contract["sources"].items()}
+    report = evaluate(sources, session, now, contract)
     report["code_sha"] = os.environ.get("GITHUB_SHA", "local-unpublished")
     report["contract_sha256"] = hashlib.sha256(args.contract.read_bytes()).hexdigest()
     (args.output_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (args.output_dir / "report.md").write_text(render(report), encoding="utf-8")
     (args.output_dir / "report.html").write_text(render_html(report), encoding="utf-8")
+    bridge = sources.get("operating", {}).get("data", {}).get("theme_etf_bridge")
+    if bridge is None:
+        bridge = report["observations"]["theme_etf_bridge"]
+    (args.output_dir / "theme_etf_bridge.json").write_text(
+        json.dumps(bridge, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False) + "\n",
+        encoding="utf-8")
     with (args.output_dir / "research_queue.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(report["watchlist"][0]))
         writer.writeheader()

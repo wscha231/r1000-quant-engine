@@ -5045,3 +5045,19 @@ Expected contract:
 - Preserve missing dates outside a rolling price window together with retained raw lineage. The window begins at the first returned date including missing values, so a new leading gap cannot resurrect an old price. Added four regression cases; history suite now has 39 tests.
 - PR423 Tier-1 run 34715585754 rejected the newly registered research suites with post_publication_protected_delta:tools/run_pr_validation.py. Following the existing protected-publication protocol, advance only verifier/regression pins to causal ancestor 346d93c713eaa539db7d10ebd0fb34b0d54626b9, reviewed by Codex in review 5187824659. Keep all protected paths, frozen artifacts, hashes, registered tests, and mutation rejection rules unchanged.
 - Further PR423 review found the same leading-missing price boundary in the separate macro cycle. Carry provider_window_start and missing dates from source collection; refuse ambiguous fresh boundaries, retain only earlier rows/gaps, and mark legacy missing-date evidence incomplete. World Bank coverage now compares every requested country/year, including entirely omitted countries and boundary years, rather than counting only returned nulls. The research suites pass 40 history + 17 cycle + 14 source tests.
+
+## 2026-09-20 — Theme source admission is not company evaluation
+
+- Reuse the monitor's authenticated GitHub artifact path and the existing strict
+  runtime. Hashes and VERIFIED/reviewed booleans cannot certify economic truth;
+  business approvals need separately reviewed event/document pins.
+- Whole-base candidate accounting must retain a missing evaluator receipt for
+  every ID. A queue preview is not a company evaluation or a completed live cycle.
+- Runtime V1 keys membership by security and sorts ETF snapshots by availability.
+  Until separate fixes are reviewed, block multi-theme histories and decreasing
+  holdings-as-of sequences rather than silently erasing links or reversing time.
+- The authenticated 2026-09-18 monitor report still has a failed operating source
+  and 1/6 estimate coverage. Adapter success on 1,118 synthetic base IDs plus one
+  candidate does not repair these real dependencies or authorize account recovery.
+- See docs/THEME_ETF_SOURCE_BRIDGE_20260920.md for contracts, hashes, tests and
+  pending #445/#451/#459 interfaces. No target/account/fullrun/champion change.

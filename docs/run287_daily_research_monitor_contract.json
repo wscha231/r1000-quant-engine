@@ -5,6 +5,27 @@
   "purpose": "Read-only research handoff; workflow success is not data freshness or investment approval.",
   "max_artifact_bytes": 536870912,
   "max_member_bytes": 16777216,
+  "theme_etf_bridge": {
+    "schema": "theme-etf-source-bundle-v1",
+    "repository": "wscha231/r1000-quant-engine",
+    "producer_workflow": ".github/workflows/daily_operating_selection_refresh.yml",
+    "bundle_member": "outputs/theme_etf_bridge/attempts/{run_id}-{run_attempt}/source_bundle.json",
+    "member_root": "outputs/theme_etf_bridge/",
+    "max_artifact_bytes": 536870912,
+    "max_member_bytes": 16777216,
+    "max_bundle_bytes": 67108864,
+    "min_base_count": 1000,
+    "approved_membership_reviews": {},
+    "approval_policy": "Only separately reviewed repository pins may approve business relationships. Source reviewed/VERIFIED flags cannot approve them.",
+    "status": "CONSUMER_IMPLEMENTED_PRODUCER_NOT_CONNECTED",
+    "output": "theme_etf_bridge.json",
+    "downstream": {
+      "universe_reason_consumer": "PR445_PENDING",
+      "candidate_packet_consumer": "PR451_PENDING",
+      "news_consumer": "PR459_PENDING",
+      "company_evaluator": "NOT_CONNECTED"
+    }
+  },
   "score_handoff": {
     "root": "operating upstream.source_bundle path and SHA-256",
     "graph": "bundle -> decision manifest, score-stack manifest -> score-only manifest, ticker-order score CSV",
