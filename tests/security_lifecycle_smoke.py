@@ -24,6 +24,12 @@ from tools.security_lifecycle import (
     verified_settlement_by_ticker,
 )
 
+from tools.build_security_basis_registry import (
+    PARTIAL as BASIS_PARTIAL,
+    READY as BASIS_READY,
+    build_registry as build_security_basis_registry,
+)
+
 
 def event(**overrides: str) -> dict[str, str]:
     row = {
@@ -301,6 +307,192 @@ def test_scorer_and_ledger_share_component_without_ticker_branches() -> None:
             ), f"ticker-specific branch in {path.name}"
 
 
+
+
+def basis_identity(
+    security_id: str,
+    ticker: str,
+    *,
+    instrument: str = "COMMON",
+    available_at: str = "2026-09-18T21:00:00Z",
+) -> dict[str, object]:
+    return {
+        "security_id": security_id,
+        "issuer_id": "ISSUER:" + ticker,
+        "ticker": ticker,
+        "instrument": instrument,
+        "currency": "USD",
+        "available_at": available_at,
+        "identity_verified": True,
+        "research_eligible": True,
+    }
+
+
+def basis_proof(
+    *,
+    adr: bool = False,
+    corporate_basis: str = "SPLIT_AND_DIVIDEND_ADJUSTED_TOTAL_RETURN",
+    corporate_available_at: str = "2026-09-18T21:30:00Z",
+) -> dict[str, object]:
+    value: dict[str, object] = {
+        "corporate_action": {
+            "verified": True,
+            "review_status": "approved",
+            "exact_available_from": True,
+            "available_at": corporate_available_at,
+            "source_url": "https://example.test/price-basis",
+            "source_sha256": "a" * 64,
+            "basis": corporate_basis,
+        }
+    }
+    if adr:
+        value["adr_share_basis"] = {
+            "verified": True,
+            "review_status": "approved",
+            "exact_available_from": True,
+            "available_at": "2026-09-18T21:40:00Z",
+            "source_url": "https://example.test/adr-basis",
+            "source_sha256": "b" * 64,
+            "adr_ratio": 5,
+            "underlying_currency": "TWD",
+        }
+    return value
+
+
+def test_security_basis_common_and_adr_require_reviewed_pit_evidence() -> None:
+    identities = {
+        "securities": [
+            basis_identity("SECURITY:AAA", "AAA"),
+            basis_identity("SECURITY:TSM", "TSM", instrument="ADR"),
+        ]
+    }
+    evidence = {
+        "evidence": [
+            {"security_id": "SECURITY:AAA", **basis_proof()},
+            {
+                "security_id": "SECURITY:TSM",
+                **basis_proof(adr=True),
+            },
+        ]
+    }
+    output = build_security_basis_registry(
+        identities,
+        evidence,
+        "2026-09-18T22:30:00Z",
+    )
+    assert output["status"] == BASIS_READY
+    assert output["ready_security_count"] == 2
+    tsm = next(row for row in output["securities"] if row["ticker"] == "TSM")
+    assert tsm["adr_share_basis_verified"] is True
+    assert tsm["adr_ratio"] == 5.0
+    assert tsm["underlying_currency"] == "TWD"
+    assert tsm["available_at"] == "2026-09-18T21:40:00Z"
+
+
+def test_security_basis_missing_adr_ratio_preserves_row_and_blocks_it() -> None:
+    identities = {
+        "securities": [
+            basis_identity("SECURITY:AAA", "AAA"),
+            basis_identity("SECURITY:TSM", "TSM", instrument="ADR"),
+        ]
+    }
+    evidence = {
+        "evidence": [
+            {"security_id": "SECURITY:AAA", **basis_proof()},
+            {"security_id": "SECURITY:TSM", **basis_proof()},
+        ]
+    }
+    output = build_security_basis_registry(
+        identities,
+        evidence,
+        "2026-09-18T22:30:00Z",
+    )
+    assert output["status"] == BASIS_PARTIAL
+    tsm = next(row for row in output["securities"] if row["ticker"] == "TSM")
+    assert "adr_share_basis_evidence_missing" in tsm["basis_blockers"]
+    assert tsm["adr_share_basis_verified"] is False
+    assert tsm["adr_ratio"] is None
+
+
+def test_security_basis_future_or_raw_evidence_is_not_promoted() -> None:
+    identities = {
+        "securities": [basis_identity("SECURITY:AAA", "AAA")]
+    }
+    future = {
+        "evidence": [
+            {
+                "security_id": "SECURITY:AAA",
+                **basis_proof(
+                    corporate_available_at="2026-09-19T00:00:00Z"
+                ),
+            }
+        ]
+    }
+    output = build_security_basis_registry(
+        identities,
+        future,
+        "2026-09-18T22:30:00Z",
+    )
+    row = output["securities"][0]
+    assert "corporate_action_future_availability" in row["basis_blockers"]
+    assert row["corporate_action_verified"] is False
+
+    raw = {
+        "evidence": [
+            {
+                "security_id": "SECURITY:AAA",
+                **basis_proof(corporate_basis="RAW"),
+            }
+        ]
+    }
+    output = build_security_basis_registry(
+        identities,
+        raw,
+        "2026-09-18T22:30:00Z",
+    )
+    row = output["securities"][0]
+    assert "corporate_action_basis_unverified" in row["basis_blockers"]
+    assert row["corporate_action_verified"] is False
+
+
+def test_security_basis_duplicate_identity_or_unknown_evidence_fails_closed() -> None:
+    duplicate = {
+        "securities": [
+            basis_identity("SECURITY:AAA", "AAA"),
+            basis_identity("SECURITY:BBB", "AAA"),
+        ]
+    }
+    try:
+        build_security_basis_registry(
+            duplicate,
+            {"evidence": []},
+            "2026-09-18T22:30:00Z",
+        )
+    except ValueError as exc:
+        assert "ticker_not_one_to_one" in str(exc)
+    else:
+        raise AssertionError("duplicate ticker identity was accepted")
+
+    identities = {
+        "securities": [basis_identity("SECURITY:AAA", "AAA")]
+    }
+    unknown = {
+        "evidence": [
+            {"security_id": "SECURITY:ZZZ", **basis_proof()}
+        ]
+    }
+    try:
+        build_security_basis_registry(
+            identities,
+            unknown,
+            "2026-09-18T22:30:00Z",
+        )
+    except ValueError as exc:
+        assert "unknown_security_id" in str(exc)
+    else:
+        raise AssertionError("orphan basis evidence was accepted")
+
+
 if __name__ == "__main__":
     test_verified_cash_merger_is_actionable_and_ordinary_ticker_is_untouched()
     test_event_after_decision_time_and_before_effective_date_do_not_rewrite_history()
@@ -313,4 +505,8 @@ if __name__ == "__main__":
     test_identity_cutover_must_follow_last_predecessor_trade()
     test_lifecycle_context_count_is_dynamic_not_magic_number()
     test_scorer_and_ledger_share_component_without_ticker_branches()
+    test_security_basis_common_and_adr_require_reviewed_pit_evidence()
+    test_security_basis_missing_adr_ratio_preserves_row_and_blocks_it()
+    test_security_basis_future_or_raw_evidence_is_not_promoted()
+    test_security_basis_duplicate_identity_or_unknown_evidence_fails_closed()
     print("security lifecycle smoke: PASS")
