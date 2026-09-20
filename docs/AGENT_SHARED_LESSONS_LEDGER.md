@@ -5172,3 +5172,10 @@ Expected contract:
   Share strict duplicate-key/nonfinite decoding across both evidence boundaries,
   keeping authority rules separate. Business review pins also require a typed,
   nonempty canonical reviewer identity rather than a truthy label.
+- Recovery-ready labels can contradict observed accepted-head discovery/count
+  and legacy/genesis mode. Validate those invariants and coherent paper verifier
+  metadata without claiming a new durable account verification.
+- Upstream status/date/ready labels are not the producer contract. Read the v3
+  receipt, bound bundle, exact successful stage manifests/logs, dynamic outputs
+  and lineage; check fixed policy hash pins without opening portfolio inputs.
+  Same-close reuse retains original paths and must bind the same dated bytes.

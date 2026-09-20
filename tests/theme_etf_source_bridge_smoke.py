@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from tools import theme_etf_source_bridge as bridge
 from tools import run_run287_daily_research_monitor as monitor
+from tools import theme_etf_upstream_admission as admission
 
 NOW = datetime(2026, 9, 18, 22, 30, tzinfo=timezone.utc)
 SESSION = "2026-09-18"
@@ -74,10 +75,70 @@ def recovery_fixture(run):
                  "required_input": "allow_risk_outcome_genesis_bootstrap", "requested": True,
                  "conflicting_authorization_requested": False, "satisfied": True,
                  "one_time_only": True, "separate_user_approval_required": True},
-             "review_only": True, "blockers": [], "exit_code": 0}
+             "review_only": True, "blockers": [], "exit_code": 0,
+             "observed_state": {"remote_accepted_head_discovery_confirmed": True,
+                 "remote_committed_accepted_head_count": 0, "remote_committed_accepted_head_absence_proven": True,
+                 "legacy_parent": {"state": "PROVEN_ABSENT", "summary_sha256": "", "summary_bytes": 0,
+                     "event_log_sha256": bridge.sha(b""), "event_log_bytes": 0, "event_count": 0,
+                     "byte_exact_allowlist_match": False, "review_only": True},
+                 "paper_ledger": {"schema_version": "run287-paper-ledger-snapshot-integrity-v2", "status": "VERIFIED",
+                     "verifier_receipt_schema_version": "run287-paper-ledger-integrity-verifier-receipt-v1",
+                     "file_sha256": "b" * 64, "files_sha256": "b" * 64, "snapshot_hash": "b" * 64,
+                     "genesis_identity_sha256": "b" * 64, "verifier_receipt_sha256": "b" * 64,
+                     "immutable_head_selection_sha256": "b" * 64, "immutable_root_snapshot_hash": "b" * 64,
+                     "immutable_terminal_snapshot_hash": "b" * 64, "file_bytes": 123, "file_count": 1,
+                     "verifier_receipt_bytes": 123, "immutable_head_count": 1, "ancestor_snapshot_count": 0,
+                     "immutable_chain_snapshot_hashes": ["b" * 64], "previous_snapshot_hash": "", "as_of_date": SESSION}}}
     from tools.build_run287_risk_outcome_parent_preflight import FALSE_SAFETY_FLAGS
     valid.update({k: False for k in FALSE_SAFETY_FLAGS})
     return valid
+
+
+def upstream_fixture(files, run):
+    from tools.run287_code_identity import IDENTITY_FILES, identity_sha256
+    identity = {"schema_version": "run287-exact-packet-code-identity-v1", "source_commit_sha": run["head_sha"],
+                "source_tree_sha": "b" * 40, "files": {label: {"path": path, "sha256": "b" * 64}
+                    for label, path in IDENTITY_FILES.items()}}
+    identity["identity_sha256"] = identity_sha256(identity)
+    def add(path, obj):
+        raw = bridge.canonical(obj) if not isinstance(obj, bytes) else obj
+        files[path] = raw
+        return {"path": path, "sha256": bridge.sha(raw), "bytes": len(raw), "exists": True}
+    root = f"outputs/run287_exact_packet_upstream/attempts/{run['id']}-{run['run_attempt']}"
+    inputs, stages, by_stage = {}, [], {}
+    for name, tool, status, date_field, label in admission.STAGES:
+        obj = {"status": status, "research_only": True, **{k: False for k in admission.SAFE_FALSE}}
+        if date_field:
+            obj[date_field] = SESSION
+        obj["outputs"] = {key: add(root + "/" + name + "/" + key,
+                           b"security_id,value\nSYN_FIXTURE,1\n") for key in admission.OUTPUTS.get(label, ())}
+        obj["source_inputs"] = {key: inputs[source] for owner, key, source in admission.EDGES if owner == label}
+        if name in ("score_only", "score_stack"):
+            obj["source_inputs"]["decision_frame_manifest"] = inputs["decision_manifest"]
+        if name == "score_stack":
+            obj["source_inputs"]["score_only_manifest"] = by_stage["score_only"]
+        record = add(root + "/" + name + "/manifest.json", obj)
+        by_stage[name] = record
+        if label:
+            inputs[label] = {k: record[k] for k in ("path", "sha256")}
+        stages.append({"name": name, "tool": "tools/" + tool + ".py", "status": status,
+                       "return_code": 0, "failures": [], "network_requests_executed": 0,
+                       "elapsed_seconds": .1, "manifest": record,
+                       "log": add(root + "/logs/" + name + ".log", b"synthetic fixture only\n")})
+    policy = json.loads((ROOT / "docs/run287_exact_packet_producer_contract.json").read_text())
+    plan = json.loads((ROOT / "docs/run287_exact_packet_upstream_plan.json").read_text())
+    inputs.update({label: {"path": plan["paths"][label]["path"], "sha256": pin}
+                   for label, pin in policy["required_fixed_inputs"].items()})
+    bundle = {"schema_version": admission.BUNDLE_SCHEMA, "status": admission.BUNDLE_STATUS,
+              "valuation_price_cutoff_date": SESSION, "research_only": True, "network_requests_executed": 0,
+              **{k: False for k in admission.SAFE_FALSE}, "code_identity": identity, "inputs": inputs}
+    record = add("outputs/run287_exact_packet_input_sources/source_bundle.json", bundle)
+    return {"schema_version": "run287-exact-packet-upstream-orchestrator-v3", "status": admission.READY,
+            "upstream_ready": True, "valuation_price_cutoff_date": SESSION, "research_only": True,
+            **{k: False for k in admission.SAFE_FALSE}, "historical_cagr_mdd_evidence_changed": False,
+            "network_requests_executed": 0, "elapsed_seconds": 1,
+            "preflight": {"code_identity": identity, "decision_time_utc": "2026-09-18T21:38:00Z"},
+            "source_bundle": record, "stage_audit": stages}
 
 
 def package(parts, run, policy, path, alter=None):
@@ -109,8 +170,7 @@ def package(parts, run, policy, path, alter=None):
         name = name.format(run_id=run["id"], run_attempt=run["run_attempt"])
         files[name] = b"ticker,previous_close,latest_price_date,currency\n" if name.endswith(".csv") else b"{}\n"
         if key == "upstream":
-            files[name] = bridge.canonical({"status": "READY_EXACT_PACKET_UPSTREAM_SOURCE_BUNDLE_REVIEW_ONLY",
-                "upstream_ready": True, "valuation_price_cutoff_date": SESSION})
+            files[name] = bridge.canonical(upstream_fixture(files, run))
     if alter:
         alter(files, bundle, bundle_name)
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as out:
@@ -133,6 +193,20 @@ class BridgeTests(unittest.TestCase):
     def read(self, alter=None):
         artifact = package(self.parts, self.run, self.policy, self.path, alter)
         return bridge.read_bundle(self.path, self.run, artifact, self.policy, SESSION, NOW)
+
+    def collect(self, alter=None):
+        artifact = package(self.parts, self.run, self.policy, self.path, alter)
+        raw, run = self.path.read_bytes(), self.run
+        class Client:
+            def json(self, path):
+                return {"workflow_runs": [run]} if "/workflows/" in path else {"artifacts": [artifact]}
+            def archive(self, artifact_id, destination, limit):
+                destination.write_bytes(raw)
+                return "sha256:" + bridge.sha(raw)
+        contract = copy.deepcopy(CONTRACT)
+        contract["theme_etf_bridge"] = self.policy
+        return monitor.collect_source(Client(), "operating", contract["sources"]["operating"], contract,
+                                      now=NOW, session=SESSION)
 
     def check_blocked(self, reason=None, alter=None):
         out = self.read(alter)
@@ -219,6 +293,137 @@ class BridgeTests(unittest.TestCase):
         self.policy["approved_membership_reviews"] = {}
         self.check_blocked("membership_review_not_anchored")
 
+    def test_recovery_observation_contradictions_cannot_authorize_runtime(self):
+        self.run["event"] = "workflow_dispatch"
+        valid = recovery_fixture(self.run)
+        mutations = [("remote_accepted_head_discovery_confirmed", False),
+                     ("remote_committed_accepted_head_count", 1), ("remote_committed_accepted_head_count", False),
+                     ("remote_committed_accepted_head_absence_proven", False), ("legacy_parent", {}), ("paper_ledger", {})]
+        receipts = []
+        for key, value in mutations:
+            receipt = copy.deepcopy(valid); receipt["observed_state"][key] = value; receipts.append(receipt)
+        for key, value in (("state", "PRESENT_FETCHED"), ("summary_sha256", "a" * 64),
+                           ("event_count", 1), ("summary_bytes", False), ("byte_exact_allowlist_match", True)):
+            receipt = copy.deepcopy(valid); receipt["observed_state"]["legacy_parent"][key] = value; receipts.append(receipt)
+        for key, value in (("status", "BLOCKED"), ("immutable_head_count", 2), ("snapshot_hash", "a" * 64),
+                           ("previous_snapshot_hash", "a" * 64), ("as_of_date", "2026-02-30"), ("file_bytes", True)):
+            receipt = copy.deepcopy(valid); receipt["observed_state"]["paper_ledger"][key] = value; receipts.append(receipt)
+        receipts += [{**valid, "observed_state": value} for value in ({}, None, True)]
+        path = CONTRACT["sources"]["operating"]["members"]["recovery"]
+        for receipt in receipts:
+            with self.subTest(receipt=receipt):
+                source = self.collect(lambda files, bundle, name: files.__setitem__(path, bridge.canonical(receipt)))
+                self.assertEqual(source["status"], "VERIFIED_ARTIFACT")
+                self.assertFalse(source["data"]["theme_etf_bridge"]["runtime_executed"])
+
+    def test_upstream_producer_contract_requires_more_than_ready_labels(self):
+        path = CONTRACT["sources"]["operating"]["members"]["upstream"].format(
+            run_id=self.run["id"], run_attempt=self.run["run_attempt"])
+        mutations = [{"schema_version": "wrong"}, {"research_only": False}, {"orders_generated": True},
+                     {"historical_cagr_mdd_evidence_changed": True}, {"preflight": {}},
+                     {"stage_audit": []}, {"source_bundle": {}}, {"network_requests_executed": True},
+                     {"network_requests_executed": 1}, {"elapsed_seconds": -1}, {"contract_failures": ["broken"]}]
+        for mutation in mutations + [None]:
+            def alter(files, bundle, name):
+                upstream = json.loads(files[path])
+                if mutation is None:
+                    upstream = {k: upstream[k] for k in ("status", "upstream_ready", "valuation_price_cutoff_date")}
+                else:
+                    upstream.update(mutation)
+                files[path] = bridge.canonical(upstream)
+            with self.subTest(mutation=mutation):
+                source = self.collect(alter)
+                self.assertEqual(source["status"], "VERIFIED_ARTIFACT")
+                self.assertTrue({"upstream", "market", "prices"}.issubset(source["data"]))
+                self.assertFalse(source["data"]["theme_etf_bridge"]["runtime_executed"])
+
+    def test_upstream_graph_reads_bound_original_bytes_and_stage_identity(self):
+        upstream_path = CONTRACT["sources"]["operating"]["members"]["upstream"].format(
+            run_id=self.run["id"], run_attempt=self.run["run_attempt"])
+        for mutation in ("bundle_hash", "bundle_missing", "dynamic_hash", "output_hash", "log_hash",
+                         "stage_failure", "stage_return", "stage_order", "stage_duplicate", "stage_copy",
+                         "code_identity", "code_files", "bundle_schema", "bundle_unsafe", "fixed_pin", "lineage", "duplicate_json"):
+            def alter(files, bundle, name):
+                upstream = json.loads(files[upstream_path]); ref = upstream["source_bundle"]
+                source_bundle = json.loads(files[ref["path"]]); first = upstream["stage_audit"][0]
+                if mutation == "bundle_hash":
+                    files[ref["path"]] += b" "
+                elif mutation == "bundle_missing":
+                    files.pop(ref["path"])
+                elif mutation == "dynamic_hash":
+                    files[source_bundle["inputs"]["price_manifest"]["path"]] += b" "
+                elif mutation == "output_hash":
+                    manifest = json.loads(files[first["manifest"]["path"]])
+                    files[next(iter(manifest["outputs"].values()))["path"]] += b" "
+                elif mutation == "log_hash":
+                    files[first["log"]["path"]] += b" "
+                elif mutation == "stage_failure":
+                    first["failures"] = ["failed"]
+                elif mutation == "stage_return":
+                    first["return_code"] = False
+                elif mutation == "stage_order":
+                    upstream["stage_audit"].reverse()
+                elif mutation == "stage_duplicate":
+                    upstream["stage_audit"].append(copy.deepcopy(first))
+                elif mutation == "stage_copy":
+                    first["manifest"]["path"] = first["manifest"]["path"].replace("123-2", "122-1")
+                elif mutation == "code_identity":
+                    upstream["preflight"]["code_identity"]["source_commit_sha"] = "c" * 40
+                elif mutation == "code_files":
+                    from tools.run287_code_identity import identity_sha256
+                    identity = upstream["preflight"]["code_identity"]
+                    identity["files"] = {key: None for key in identity["files"]}
+                    identity["identity_sha256"] = identity_sha256(identity)
+                else:
+                    if mutation == "bundle_schema":
+                        source_bundle["schema_version"] = "wrong"
+                    elif mutation == "bundle_unsafe":
+                        source_bundle["orders_generated"] = True
+                    elif mutation == "fixed_pin":
+                        source_bundle["inputs"]["main_prior_book"]["sha256"] = "c" * 64
+                    elif mutation == "lineage":
+                        record = source_bundle["inputs"]["decision_manifest"]
+                        obj = json.loads(files[record["path"]]); obj["source_inputs"]["macro_manifest"] = record
+                        files[record["path"]] = bridge.canonical(obj); record["sha256"] = bridge.sha(files[record["path"]])
+                    raw = bridge.canonical(source_bundle)
+                    if mutation == "duplicate_json":
+                        raw = raw[:-1] + b',"status":"READY_EXACT_PACKET_INPUT_SOURCE_PATHS_REVIEW_ONLY"}'
+                    files[ref["path"]] = raw; ref.update(sha256=bridge.sha(raw), bytes=len(raw))
+                files[upstream_path] = bridge.canonical(upstream)
+            with self.subTest(mutation=mutation):
+                source = self.collect(alter)
+                self.assertEqual(source["status"], "VERIFIED_ARTIFACT")
+                self.assertFalse(source["data"]["theme_etf_bridge"]["runtime_executed"])
+                self.assertIn("theme_upstream_error", source)
+
+    def test_upstream_same_close_reuse_verifies_dated_source_bytes(self):
+        path = CONTRACT["sources"]["operating"]["members"]["upstream"].format(
+            run_id=self.run["id"], run_attempt=self.run["run_attempt"])
+        for corrupted in (False, True):
+            def alter(files, bundle, name):
+                upstream = json.loads(files[path]); ref = upstream["source_bundle"]
+                dated = "outputs/run287_exact_packet_input_sources/by_date/" + SESSION + "/source_bundle.json"
+                files[dated] = files[ref["path"]] + (b" " if corrupted else b"")
+                upstream.update(status=admission.REUSED, network_execution_authorized=False,
+                    stage_audit=[{"name": "existing_source_bundle",
+                        "status": "READY_EXISTING_EXACT_PACKET_INPUT_SOURCE_BUNDLE_REVIEW_ONLY",
+                        "network_requests_executed": 0, "failures": [], "manifest": {**ref, "path": dated}}])
+                files[path] = bridge.canonical(upstream)
+            source = self.collect(alter)
+            self.assertEqual(source["data"]["theme_etf_bridge"]["runtime_executed"], not corrupted)
+            if not corrupted:
+                self.assertIn("theme_upstream_reused_bundle", source["files"])
+
+    def test_runtime_decision_must_follow_upstream_preflight(self):
+        path = CONTRACT["sources"]["operating"]["members"]["upstream"].format(
+            run_id=self.run["id"], run_attempt=self.run["run_attempt"])
+        def alter(files, bundle, name):
+            upstream = json.loads(files[path]); upstream["preflight"]["decision_time_utc"] = "2026-09-18T22:01:00Z"
+            files[path] = bridge.canonical(upstream)
+        source = self.collect(alter)
+        self.assertEqual(source["data"]["theme_etf_bridge"]["reason"], "decision_predates_prerequisite")
+        self.assertFalse(source["data"]["theme_etf_bridge"]["runtime_executed"])
+
     def test_optional_recovery_requires_affirmative_producer_semantics(self):
         contract = copy.deepcopy(CONTRACT)
         contract["theme_etf_bridge"] = self.policy
@@ -236,6 +441,13 @@ class BridgeTests(unittest.TestCase):
         legacy = copy.deepcopy(valid)
         legacy["status"] = "READY_ONE_TIME_LEGACY_QUARANTINE"
         legacy["authorization"].update(mode="legacy_quarantine", required_input="allow_quarantined_legacy_outcome_parent")
+        from tools.build_run287_risk_outcome_parent_anchor import KNOWN_LEGACY_SAFETY_MIGRATIONS
+        pin_hash, pin = next(iter(KNOWN_LEGACY_SAFETY_MIGRATIONS.items()))
+        legacy["observed_state"]["legacy_parent"] = {"state": "PRESENT_FETCHED", "summary_sha256": pin_hash,
+            "summary_bytes": 123, "as_of_date": pin["as_of_date"], "status": pin["status"],
+            "event_log_sha256": bridge.sha(b""), "event_log_bytes": 0, "event_count": 0,
+            "allowlist_evidence_workflow_run_id": pin["evidence_workflow_run_id"],
+            "byte_exact_allowlist_match": True, "review_only": True}
         cases = [(valid, True), (legacy, True)]
         cases += [({**valid, "status": state}, False) for state in ("FAILED", "ERROR", {}, [], None, 1)]
         cases += [({**valid, "authorization": auth}, False) for auth in ({}, {"satisfied": False},

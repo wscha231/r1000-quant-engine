@@ -31,6 +31,7 @@ if str(ROOT) not in sys.path:
 from tools.run287_research_score_handoff import read_score_handoff, evaluate_score_handoff
 from tools.run287_research_report_html import render_html
 from tools import theme_etf_source_bridge
+from tools.theme_etf_upstream_admission import read_upstream_prerequisite, recovery_observed_ready
 
 CONTRACT = ROOT / "docs/run287_daily_research_monitor_contract.json"
 SCHEMA = "run287-daily-research-monitor-v1"
@@ -179,7 +180,8 @@ def recovery_receipt_ready(receipt: dict, run: dict, artifact: dict, session: st
                     for k, v in expected_authorization.items())
             and receipt.get("review_only") is True and receipt.get("blockers") == []
             and all(receipt.get(k) is False for k in inactive_flags)
-            and type(receipt.get("exit_code")) is int and receipt["exit_code"] == 0)
+            and type(receipt.get("exit_code")) is int and receipt["exit_code"] == 0
+            and recovery_observed_ready(receipt))
     if not ready:
         return False
     try:
@@ -231,15 +233,23 @@ def collect_source(client: GitHub, key: str, spec: dict, contract: dict, *, now=
                 recovery = result["data"].get("recovery", {})
                 recovery_ready = "recovery" not in result["data"] or recovery_receipt_ready(
                     recovery, run, artifact, bridge_session)
-                upstream_ready = (upstream.get("status") in READY_UPSTREAM
-                    and upstream.get("upstream_ready") is True
-                    and date_state(upstream.get("valuation_price_cutoff_date"), bridge_session) == "CURRENT"
-                    and recovery_ready)
+                upstream_ready, prerequisite_at = False, recovery.get("generated_at_utc")
+                if recovery_ready:
+                    try:
+                        upstream_at, upstream_evidence = read_upstream_prerequisite(
+                            path, upstream, run, artifact, bridge_session, contract)
+                        result["files"].update(upstream_evidence)
+                        prerequisite_at = max((x for x in (prerequisite_at, upstream_at) if x), key=timestamp)
+                        upstream_ready = True
+                    except Exception as exc:
+                        # Optional admission cannot erase the primary monitor evidence.
+                        result["theme_upstream_error"] = (str(exc) if isinstance(exc, ValueError)
+                            and re.fullmatch(r"[a-z_]+", str(exc)) else "upstream_evidence_invalid")
                 if (run.get("conclusion") == "success" and prerequisites.issubset(result["data"])
                         and upstream_ready):
                     bridge = theme_etf_source_bridge.read_bundle(
                         path, run, artifact, contract["theme_etf_bridge"], bridge_session, bridge_now,
-                        prerequisite_at=recovery.get("generated_at_utc"))
+                        prerequisite_at=prerequisite_at)
                 else:
                     bridge = theme_etf_source_bridge.blocked("upstream_contract_not_ready", bridge_session)
                 result["data"]["theme_etf_bridge"] = bridge

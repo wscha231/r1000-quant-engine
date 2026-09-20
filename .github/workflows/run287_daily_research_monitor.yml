@@ -9,6 +9,7 @@ on:
       - '.github/workflows/run287_daily_research_monitor.yml'
       - 'tools/run_run287_daily_research_monitor.py'
       - 'tools/theme_etf_source_bridge.py'
+      - 'tools/theme_etf_upstream_admission.py'
       - 'tests/theme_etf_source_bridge_smoke.py'
       - 'research/theme_etf_runtime_v1/**'
       - 'tools/run287_research_score_handoff.py'

@@ -136,7 +136,7 @@ it is not included in the byte-verification claim.
 
 ## Validation and next boundary
 
-55 new unittest methods pass, including an authenticated artifact-to-strict
+60 new unittest methods pass, including an authenticated artifact-to-strict
 runtime synthetic cycle with 1,118 base IDs plus one ADR candidate. Tests cover
 complete ID reconciliation, hash/receipt/document/event binding, producer and
 attempt mismatches, units/partial holdings, calendar/freshness, authority
@@ -183,6 +183,18 @@ Required monitor JSON uses the same duplicate-key/finite-number decoder as the
 optional bundle, without applying the bundle's separate authority rules to
 primary evidence. Conflicting upstream/recovery keys cannot become ready by
 last-value selection. Independent reviewer IDs require canonical nonempty text.
+Recovery admission now also requires proven accepted-head absence, exact integer
+head counts, a parent mode consistent with its ready status, the repository's
+legacy allowlist identity where applicable, and coherent paper verifier metadata.
+These are receipt-consistency checks, not a new accepted-account verification.
+The upstream prerequisite reader validates the actual v3 producer schema,
+research boundaries, current code identity/session/time, every ordered successful
+stage and its original manifest/log bytes, the hash-bound source bundle, all six
+dynamic manifests and required outputs, their lineage, and frozen fixed-input
+hash pins. Fixed portfolio inputs are not opened. Same-close reuse must bind the
+same dated bundle bytes and declare no new network execution. Missing original
+dynamic bytes block the bridge; no latest-file search or producer execution is
+introduced. Readiness labels alone never authorize runtime execution.
 
 19 existing monitor tests, 11 existing strict-runtime checks, one benchmark
 anchor check and eight public-output tests also pass. New tests run through the
