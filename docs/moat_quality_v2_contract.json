@@ -21,7 +21,8 @@
     "each_dimension_requires_counter_argument": true,
     "each_dimension_requires_invalidation_conditions": true,
     "published_at_must_not_exceed_available_at": true,
-    "available_at_must_not_exceed_review_time_or_cutoff": true,
+    "available_at_must_not_exceed_as_of": true,
+    "as_of_must_not_exceed_review_time_or_cutoff": true,
     "raw_sha256_required": true,
     "global_evidence_id_unique": true,
     "missing_evidence_imputation_allowed": false

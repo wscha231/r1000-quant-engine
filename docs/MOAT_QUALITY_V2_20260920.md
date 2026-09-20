@@ -26,7 +26,7 @@ or challenging a company thesis.
 6. `next_generation_relevance` — whether the advantage remains relevant as technology and architecture move to the next generation.
 
 Every dimension requires a 0..1 assessment, separate 0..1 evidence confidence,
-primary-source evidence with publication/availability timestamps and raw hashes,
+primary-source evidence with publication/availability timestamps and raw hashes (availability must be no later than the packet `as_of`),
 a counter-argument, and explicit invalidation conditions. Missing dimensions do
 not receive a neutral zero and do not contribute a partial average; the packet
 fails closed.

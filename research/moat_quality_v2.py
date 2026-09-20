@@ -91,7 +91,7 @@ def canonical_sha256(value: Any) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _normalize_evidence(row: Any, cutoff: datetime, reviewed_at: datetime) -> dict[str, Any]:
+def _normalize_evidence(row: Any, as_of: datetime, cutoff: datetime, reviewed_at: datetime) -> dict[str, Any]:
     _require(isinstance(row, dict), "evidence_object")
     evidence_id = _identifier(row.get("evidence_id"), "evidence_id")
     source_id = _identifier(row.get("source_id"), "source_id")
@@ -103,7 +103,7 @@ def _normalize_evidence(row: Any, cutoff: datetime, reviewed_at: datetime) -> di
     published_at = _stamp(row.get("published_at"), "evidence_published_at")
     available_at = _stamp(row.get("available_at"), "evidence_available_at")
     _require(published_at <= available_at, "evidence_publication_after_availability")
-    _require(available_at <= reviewed_at <= cutoff, "future_evidence")
+    _require(available_at <= as_of <= reviewed_at <= cutoff, "future_evidence")
     raw_sha256 = _hash(row.get("raw_sha256"), "evidence_raw_sha256")
     claim = _text(row.get("claim"), "evidence_claim", limit=1000)
     return {
@@ -167,7 +167,7 @@ def evaluate_packet(packet: Any, cutoff: str | None = None) -> dict[str, Any]:
         _require(isinstance(evidence, list) and bool(evidence), f"evidence_required:{dimension}")
         normalized_evidence = []
         for item in evidence:
-            normalized = _normalize_evidence(item, cutoff_stamp, reviewed_at)
+            normalized = _normalize_evidence(item, as_of, cutoff_stamp, reviewed_at)
             _require(normalized["evidence_id"] not in evidence_ids, "duplicate_evidence_id")
             evidence_ids.add(normalized["evidence_id"])
             independence_groups.add(normalized["independence_group"])

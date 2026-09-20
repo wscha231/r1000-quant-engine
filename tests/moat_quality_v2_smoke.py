@@ -88,6 +88,12 @@ class MoatQualityV2Smoke(unittest.TestCase):
         with self.assertRaisesRegex(MoatQualityContractError, "future_evidence"):
             evaluate_packet(value, "2026-09-19T02:00:00Z")
 
+    def test_evidence_after_as_of_but_before_review_is_rejected(self):
+        value = packet()
+        value["dimensions"][DIMENSIONS[0]]["evidence"][0]["available_at"] = "2026-09-18T21:00:00Z"
+        with self.assertRaisesRegex(MoatQualityContractError, "future_evidence"):
+            evaluate_packet(value, "2026-09-19T02:00:00Z")
+
     def test_publication_must_precede_availability(self):
         value = packet()
         evidence = value["dimensions"][DIMENSIONS[0]]["evidence"][0]
@@ -150,6 +156,7 @@ class MoatQualityV2Smoke(unittest.TestCase):
         self.assertFalse(contract["safety"]["selector_weight_change_allowed"])
         self.assertFalse(contract["safety"]["target_book_write_allowed"])
         self.assertFalse(contract["safety"]["orders_allowed"])
+        self.assertTrue(contract["evidence_requirements"]["available_at_must_not_exceed_as_of"])
 
 
 if __name__ == "__main__":
