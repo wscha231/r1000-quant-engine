@@ -306,6 +306,23 @@ class CurrentInputTests(unittest.TestCase):
             with self.assertRaisesRegex(guard.InputIntegrityError,'blocked_coverage'):
                 guard.load_current_csv(path,kind='targets',now=NOW)
 
+    def test_all_advisor_entrypoints_revoke_old_target_before_source_failure(self):
+        import r1000_rebalance_advisor as v1
+        import r1000_rebalance_advisor_v3 as v3
+        import r1000_rebalance_advisor_v4 as v4
+        for module in [v1,v3,v4]:
+            with self.subTest(module=module.__name__), tempfile.TemporaryDirectory() as folder:
+                root=Path(folder);path=root/'new_top12_proposed.csv'
+                guard.write_advisor_targets(pd.DataFrame({'ticker':['AAPL'],'weight':[0.5]}),scores(),path,now=NOW)
+                raw=path.read_bytes()
+                argv=['advisor','--scored-csv',str(root/'missing.csv'),'--output-dir',str(root)]
+                if module is v4: argv.append('--i-understand-deprecated')
+                with patch.object(sys,'argv',argv), contextlib.redirect_stdout(io.StringIO()):
+                    with self.assertRaises(FileNotFoundError): module.main()
+                self.assertEqual(path.read_bytes(),raw)
+                with self.assertRaisesRegex(guard.InputIntegrityError,'blocked_coverage'):
+                    guard.load_current_csv(path,kind='targets',now=NOW)
+
     def test_target_generation_time_cannot_precede_score_or_follow_decision(self):
         for value in ['2026-09-21T00:00:00Z','2026-09-18T20:00:00Z','bad']:
             with self.subTest(value=value):

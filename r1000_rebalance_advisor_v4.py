@@ -27,7 +27,7 @@ Output: outputs_advisor_v4/new_top12_proposed.csv (kept but unreliable)
 """
 from __future__ import annotations
 
-from r1000_legacy_input_guard import load_current_csv, write_advisor_targets
+from r1000_legacy_input_guard import load_current_csv, write_advisor_targets, begin_target_build
 
 import argparse
 import sys
@@ -111,6 +111,7 @@ def main() -> int:
     print("=" * 70)
 
     # Load unified scored
+    begin_target_build(Path(args.output_dir) / "new_top12_proposed.csv")
     scored = load_current_csv(args.scored_csv)
     print(f"[load] unified scored: {len(scored)} rows")
 

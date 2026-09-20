@@ -25,7 +25,7 @@ Output: outputs_advisor_v3/new_top12_proposed.csv
 """
 from __future__ import annotations
 
-from r1000_legacy_input_guard import load_current_csv, write_advisor_targets
+from r1000_legacy_input_guard import load_current_csv, write_advisor_targets, begin_target_build
 
 import argparse
 import json
@@ -319,6 +319,7 @@ def main() -> int:
     parser.add_argument("--portfolio-csv", default=r"G:/내 드라이브/r1000_top30_institutional/outputs/portfolio_latest.csv")
     parser.add_argument("--output-dir", default="outputs_advisor_v3")
     args = parser.parse_args()
+    begin_target_build(Path(args.output_dir) / "new_top12_proposed.csv")
 
     print("=" * 70)
     print(f"r1000 Rebalance Advisor v3 (Hybrid) - {datetime.now():%Y-%m-%d %H:%M}")

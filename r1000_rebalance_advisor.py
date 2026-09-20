@@ -33,7 +33,7 @@ Usage:
 """
 from __future__ import annotations
 
-from r1000_legacy_input_guard import load_current_csv, write_advisor_targets
+from r1000_legacy_input_guard import load_current_csv, write_advisor_targets, begin_target_build
 
 import argparse
 import sys
@@ -630,6 +630,7 @@ def main() -> int:
                         help="min market cap in $B (default 5)")
     parser.add_argument("--min-model-score", type=float, default=1.0)
     args = parser.parse_args()
+    begin_target_build(Path(args.output_dir) / "new_top12_proposed.csv")
 
     # Load inputs
     scored_df = load_current_csv(args.scored_csv, receipt_policy="legacy_source")

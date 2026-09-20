@@ -203,6 +203,12 @@ def copy_bridge_packet(source, destination):
     read_csv_packet(destination)
 
 
+def begin_target_build(path):
+    """Revoke retained proposals before any source load or ranking can fail."""
+    _atomic_packet_bytes(Path(str(path) + '.coverage.json'),
+                         b'{"status":"BLOCKED_TARGET_BUILD_IN_PROGRESS"}')
+
+
 def write_advisor_targets(targets, scored, path, *, now=None):
     """Carry admitted input provenance into a newly generated proposal.
 
@@ -211,7 +217,7 @@ def write_advisor_targets(targets, scored, path, *, now=None):
     """
     path = Path(path)
     receipt_path = Path(str(path) + '.coverage.json')
-    _atomic_packet_bytes(receipt_path, b'{"status":"BLOCKED_TARGET_BUILD_IN_PROGRESS"}')
+    begin_target_build(path)
     decision = _utc(now if now is not None else datetime.now(timezone.utc))
     source = validate_current_frame(scored, now=decision).set_index('ticker')
     result = targets.copy()

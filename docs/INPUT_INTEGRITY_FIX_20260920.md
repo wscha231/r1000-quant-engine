@@ -159,3 +159,8 @@ revocation, target-time conflicts, historical archive copy, and scheduled/manual
 monthly diagnostics. Focused checks total75 and pass. The full remote run on the
 earlier `3acb049` head passed; the final updated head still requires its own CI
 and independent review.
+
+An additional entrypoint regression covers failure before serialization:
+v1/v3/v4 now revoke retained target receipts before loading inputs or ranking.
+Missing source files preserve prior CSV bytes but make them unreadable as an
+accepted proposal. All76 focused checks pass after this lifecycle correction.

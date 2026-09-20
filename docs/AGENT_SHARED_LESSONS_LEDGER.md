@@ -5097,3 +5097,8 @@ Expected contract:
   Retire every scheduled caller of the RS-only execution path, including the
   monthly manual-execute option; disabled diagnostics cannot claim execution
   completed. All75 focused checks pass, including three serializer round trips.
+
+- Target receipt revocation must occur at advisor entry, not only during save:
+  a missing input or ranking exception can happen first. A regression exercises
+  all three actual CLIs with missing sources and proves the retained CSV cannot
+  be consumed. Focused checks total76 and pass.
