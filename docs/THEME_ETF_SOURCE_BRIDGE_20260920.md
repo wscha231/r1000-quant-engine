@@ -40,6 +40,9 @@ validation timestamp and nonempty raw-object references. Usable receipt states
 are COLLECTED/UNCHANGED, with no failures and a research-only boundary. Paths
 are confined to the fixed research prefix. Duplicate keys/members, oversized
 objects, traversal, nonfinite JSON and nested execution authority are rejected.
+Raw objects live below `outputs/theme_etf_bridge/<role>/raw/` and cannot alias
+normalized data, receipts or another role's evidence. This is structural
+separation; source and normalization truth still need the reviewed producer.
 
 The public monitor obtains metadata from GitHub, not from the ZIP. The pure
 reader assumes its caller supplies this authenticated metadata and reviewed
@@ -124,7 +127,7 @@ it is not included in the byte-verification claim.
 
 ## Validation and next boundary
 
-38 new unittest methods pass, including an authenticated artifact-to-strict
+44 new unittest methods pass, including an authenticated artifact-to-strict
 runtime synthetic cycle with 1,118 base IDs plus one ADR candidate. Tests cover
 complete ID reconciliation, hash/receipt/document/event binding, producer and
 attempt mismatches, units/partial holdings, calendar/freshness, authority
@@ -138,6 +141,16 @@ predate their data, require documents before review, and reject nonfinite values
 created from numeric strings before serialization. All have focused regression
 coverage. The adapter retains the security_id extension when previewing #445's
 reason fields; it does not instantiate the unmerged ticker-only dataclass.
+Subsequent review adds the runtime's revision tie-breaker, rejects ambiguous
+same-fund/time/revision histories, requires explicit PORTFOLIO scope, and keeps
+raw references in a distinct role namespace. A synthetic equal-time revision
+counterexample reproduced an older holdings date replacing the latest one
+before this fix; it now blocks. Existing strict normalization is reused to
+derive these keys instead of maintaining a second interpretation of timestamps.
+Further review requires affirmative recovery-ready status and satisfied
+authorization when the optional recovery receipt exists, binds decisions and
+validation receipts to the authenticated producer attempt's start time, and
+rejects canonical duplicate or padded document IDs before source counts grow.
 
 19 existing monitor tests, 11 existing strict-runtime checks, one benchmark
 anchor check and eight public-output tests also pass. New tests run through the

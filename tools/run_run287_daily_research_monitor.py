@@ -191,10 +191,17 @@ def collect_source(client: GitHub, key: str, spec: dict, contract: dict, *, now=
                 prerequisites = set(members) - set(spec.get("optional_members", []))
                 upstream = result["data"].get("upstream", {})
                 recovery = result["data"].get("recovery", {})
+                recovery_ready = "recovery" not in result["data"] or (
+                    isinstance(recovery.get("status"), str)
+                    and recovery["status"] in {"READY_ONE_TIME_LEGACY_QUARANTINE", "READY_ONE_TIME_GENESIS"}
+                    and isinstance(recovery.get("authorization"), dict)
+                    and recovery["authorization"].get("satisfied") is True
+                    and recovery.get("blockers") == []
+                    and type(recovery.get("exit_code")) is int and recovery["exit_code"] == 0)
                 upstream_ready = (upstream.get("status") in READY_UPSTREAM
                     and upstream.get("upstream_ready") is True
                     and date_state(upstream.get("valuation_price_cutoff_date"), bridge_session) == "CURRENT"
-                    and not str(recovery.get("status", "")).startswith("BLOCKED"))
+                    and recovery_ready)
                 if (run.get("conclusion") == "success" and prerequisites.issubset(result["data"])
                         and upstream_ready):
                     bridge = theme_etf_source_bridge.read_bundle(

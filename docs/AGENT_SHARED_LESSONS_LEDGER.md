@@ -5066,3 +5066,8 @@ Expected contract:
   predate its data and review cannot predate its documents. Use the runtime's
   canonical fund IDs/availability order and reject NaN/Infinity numeric strings
   before serialization. These boundaries now have explicit regressions.
+- Follow-up review: match the runtime's ETF revision tie-breaker and require
+  an explicit portfolio scope; retain distinct raw members per component.
+  Optional recovery receipts need affirmative ready/authorization semantics,
+  decision and validation times cannot precede their authenticated producer,
+  and whitespace variants of document IDs must not inflate evidence counts.

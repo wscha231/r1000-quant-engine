@@ -73,7 +73,7 @@ def package(parts, run, policy, path, alter=None):
         return {"path": name, "sha256": bridge.sha(raw)}
     for role, part in parts.items():
         root = f"outputs/theme_etf_bridge/{role}"
-        raw = add(root + "/raw.json", part)
+        raw = add(root + "/raw/source.json", part)
         data = add(root + "/data.json", part)
         receipt = add(root + "/receipt.json", {"schema": "theme-etf-component-receipt-v1",
             "producer": producer, "role": role, "data_sha256": data["sha256"], "raw_objects": [raw],
@@ -87,6 +87,8 @@ def package(parts, run, policy, path, alter=None):
     add(bundle_name, bundle)
     # Existing monitor contract members, with no claim of ready engine scores.
     for key, name in CONTRACT["sources"]["operating"]["members"].items():
+        if key == "recovery":
+            continue  # Optional receipt is absent for normal accepted-parent runs.
         name = name.format(run_id=run["id"], run_attempt=run["run_attempt"])
         files[name] = b"ticker,previous_close,latest_price_date,currency\n" if name.endswith(".csv") else b"{}\n"
         if key == "upstream":
@@ -199,6 +201,54 @@ class BridgeTests(unittest.TestCase):
         self.policy["approved_membership_reviews"] = {}
         self.check_blocked("membership_review_not_anchored")
 
+    def test_optional_recovery_requires_affirmative_producer_semantics(self):
+        contract = copy.deepcopy(CONTRACT)
+        contract["theme_etf_bridge"] = self.policy
+        run = self.run
+        recovery_path = contract["sources"]["operating"]["members"]["recovery"]
+        artifact, raw = None, None
+        class Client:
+            def json(self, path):
+                return {"workflow_runs": [run]} if "/workflows/" in path else {"artifacts": [artifact]}
+            def archive(self, artifact_id, destination, limit):
+                destination.write_bytes(raw)
+                return "sha256:" + hashlib.sha256(raw).hexdigest()
+        valid = {"status": "READY_ONE_TIME_GENESIS", "authorization": {"satisfied": True},
+                 "blockers": [], "exit_code": 0}
+        cases = [(valid, True), ({**valid, "status": "READY_ONE_TIME_LEGACY_QUARANTINE"}, True)]
+        cases += [({**valid, "status": state}, False) for state in ("FAILED", "ERROR", {}, [], None, 1)]
+        cases += [({**valid, "authorization": auth}, False) for auth in ({}, {"satisfied": False},
+                   {"satisfied": "true"}, None, True)]
+        cases += [({}, False), ({**valid, "blockers": ["conflict"]}, False),
+                  ({**valid, "exit_code": False}, False), ({**valid, "exit_code": 2}, False)]
+        for receipt, admitted in cases:
+            with self.subTest(receipt=receipt):
+                artifact = package(self.parts, run, self.policy, self.path,
+                    lambda files, bundle, name: files.__setitem__(recovery_path, bridge.canonical(receipt)))
+                raw = self.path.read_bytes()
+                source = monitor.collect_source(Client(), "operating", contract["sources"]["operating"],
+                                                contract, now=NOW, session=SESSION)
+                out = source["data"]["theme_etf_bridge"]
+                self.assertEqual(out["runtime_executed"], admitted, out)
+                if not admitted:
+                    self.assertEqual(out["reason"], "upstream_contract_not_ready")
+
+    def test_canonical_document_ids_cannot_inflate_source_counts(self):
+        doc = self.parts["documents"][0]
+        self.parts["documents"].append({**doc, "document_id": " " + doc["document_id"] + " "})
+        self.check_blocked("duplicate_document")
+        self.parts["documents"] = [self.parts["documents"][-1]]
+        self.check_blocked("noncanonical_document_id")
+
+    def test_decision_and_receipts_cannot_predate_authenticated_run(self):
+        self.run["created_at"] = "2026-09-18T22:01:00Z"
+        self.check_blocked("decision_predates_producer")
+        self.run["created_at"] = "2026-09-18T21:31:00Z"
+        self.run["run_started_at"] = "2026-09-18T22:01:00Z"
+        self.check_blocked("decision_predates_producer")
+        self.run["run_started_at"] = "2026-09-18T21:41:00Z"
+        self.check_blocked("receipt_predates_producer")
+
     def test_review_pin_binds_document_bytes(self):
         self.parts["documents"][0]["title"] = "forged replacement"
         self.check_blocked("membership_review_evidence_mismatch")
@@ -250,7 +300,7 @@ class BridgeTests(unittest.TestCase):
 
     def test_raw_bytes_mismatch(self):
         self.check_blocked("member_hash_mismatch", lambda f, b, n: f.__setitem__(
-            "outputs/theme_etf_bridge/prices/raw.json", b"tampered"))
+            "outputs/theme_etf_bridge/prices/raw/source.json", b"tampered"))
 
     def test_receipt_bytes_mismatch(self):
         self.check_blocked("member_hash_mismatch", lambda f, b, n: f.__setitem__(
@@ -260,11 +310,22 @@ class BridgeTests(unittest.TestCase):
         def alter(files, bundle, name):
             ref = bundle["components"]["prices"]["receipt"]
             receipt = json.loads(files[ref["path"]])
-            receipt["validated_at"] = "2026-09-18T19:00:00Z"
+            receipt["validated_at"] = "2026-09-18T21:32:00Z"
             files[ref["path"]] = bridge.canonical(receipt)
             ref["sha256"] = bridge.sha(files[ref["path"]])
             files[name] = bridge.canonical(bundle)
+        self.parts["prices"]["rows"][-1]["available_at"] = "2026-09-18T21:35:00Z"
         self.check_blocked("receipt_predates_component", alter)
+
+    def test_normalized_data_cannot_substitute_for_distinct_raw_source(self):
+        def alter(files, bundle, name):
+            refs = bundle["components"]["prices"]
+            receipt = json.loads(files[refs["receipt"]["path"]])
+            receipt["raw_objects"] = [refs["data"]]
+            files[refs["receipt"]["path"]] = bridge.canonical(receipt)
+            refs["receipt"]["sha256"] = bridge.sha(files[refs["receipt"]["path"]])
+            files[name] = bridge.canonical(bundle)
+        self.check_blocked("raw_source_reference_invalid", alter)
 
     def test_archive_hash_mismatch(self):
         artifact = package(self.parts, self.run, self.policy, self.path)
@@ -340,6 +401,23 @@ class BridgeTests(unittest.TestCase):
         self.parts["etf_snapshots"][-1]["fund_id"] = " syn_etf "
         self.parts["etf_snapshots"][-1]["holdings_as_of"] = "2026-09-01"
         self.check_blocked("late_etf_history_requires_separate_adapter")
+
+    def test_equal_availability_respects_revisions_and_rejects_ambiguity(self):
+        for row in self.parts["etf_snapshots"]:
+            row["observed_at"] = SESSION + "T21:00:00Z"
+            row["validated_at"] = SESSION + "T21:00:00Z"
+        self.parts["etf_snapshots"][0]["revision_number"] = 2
+        self.parts["etf_snapshots"][1]["revision_number"] = 1
+        self.check_blocked("late_etf_history_requires_separate_adapter")
+        self.parts["etf_snapshots"][1]["revision_number"] = 2
+        self.check_blocked("ambiguous_etf_revision_order")
+
+    def test_missing_or_incompatible_portfolio_scope_cannot_prove_removal(self):
+        for scope in (None, "UNKNOWN", "SLEEVE", "PCF"):
+            with self.subTest(scope=scope):
+                self.parts["etf_snapshots"][-1]["coverage_kind"] = "FULL"
+                self.parts["etf_snapshots"][-1]["portfolio_scope"] = scope
+                self.check_blocked("etf_portfolio_scope_unverified")
 
     def test_numeric_strings_cannot_create_nonfinite_runtime_outputs(self):
         for value in ("NaN", "Infinity", "-Infinity", "1e999", True):

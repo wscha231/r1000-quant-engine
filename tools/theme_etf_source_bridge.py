@@ -185,9 +185,12 @@ def _payload(parts, bundle, policy, expected_session, now):
                 and row.get("identity_verified") is True
                 and isinstance(row.get("research_eligible"), bool), "security_identity_unverified")
     documents = parts["documents"]
+    document_ids = [d["document_id"].strip() for d in documents]
+    require(all(document_ids) and len(document_ids) == len(set(document_ids)), "duplicate_document")
+    require(all(d["document_id"] == key for d, key in zip(documents, document_ids)),
+            "noncanonical_document_id")
     docs = {d["document_id"]: sha(canonical(d)) for d in documents}
     document_times = {d["document_id"]: utc(d["available_at"]) for d in documents}
-    require(len(docs) == len(documents), "duplicate_document")
     events = parts["membership_events"]
     theme_by_security = {}
     for event in events:
@@ -210,8 +213,13 @@ def _payload(parts, bundle, policy, expected_session, now):
     require(all(len(v) == 1 for v in theme_by_security.values()), "multi_theme_lifecycle_not_supported")
     snapshots = parts["etf_snapshots"]
     by_fund = {}
+    from research.theme_etf_runtime_v1.strict import normalize_snapshot
     for snapshot in snapshots:
         require(snapshot.get("schema") != "etf-snapshot-v2", "raw_etf_evidence_required")
+        require(str(snapshot.get("portfolio_scope", "")).strip().upper() == "PORTFOLIO",
+                "etf_portfolio_scope_unverified")
+        require(type(snapshot.get("revision_number", 0)) is int
+                and snapshot.get("revision_number", 0) >= 0, "invalid_etf_revision")
         require(type(snapshot.get("expected_unique_rows")) is int
                 and snapshot["expected_unique_rows"] == len(snapshot.get("rows", [])),
                 "etf_expected_rows_mismatch")
@@ -221,11 +229,15 @@ def _payload(parts, bundle, policy, expected_session, now):
                 _finite_number(row["quantity"])
         fund = str(snapshot["fund_id"]).strip().upper()
         require(bool(fund), "fund_identity_missing")
-        by_fund.setdefault(fund, []).append(snapshot)
+        # Use the supported normalizer, then still call strict.run_payload for
+        # the complete cycle. Do not approximate its time/revision semantics.
+        by_fund.setdefault(fund, []).append(normalize_snapshot(snapshot))
     for rows in by_fund.values():
-        ordered = sorted(rows, key=lambda r: max(utc(r["observed_at"]),
-                         utc(r.get("validated_at") or r["observed_at"]),
-                         utc(r.get("published_at") or r["observed_at"])))
+        keys = [(utc(r["available_at"]), r["revision_number"]) for r in rows]
+        # Same fund/time/revision has no unique transition ordering. This also
+        # prevents duplicate snapshots from manufacturing duplicate events.
+        require(len(keys) == len(set(keys)), "ambiguous_etf_revision_order")
+        ordered = sorted(rows, key=lambda r: (utc(r["available_at"]), r["revision_number"]))
         dates = [r["holdings_as_of"] for r in ordered]
         require(dates == sorted(dates), "late_etf_history_requires_separate_adapter")
     return {"schema": "theme-etf-runtime-v1", "decision_at": bundle["decision_at"],
@@ -253,6 +265,8 @@ def read_bundle(path: Path, run: dict, artifact: dict, policy: dict,
                 and type(run.get("id")) is int and type(run.get("run_attempt")) is int,
                 "producer_identity_missing")
         require(utc(run["created_at"]) <= now, "future_producer")
+        producer_start = utc(run.get("run_started_at") or run["created_at"])
+        require(utc(run["created_at"]) <= producer_start <= now, "invalid_producer_timeline")
         origin = artifact.get("workflow_run") or {}
         require(origin.get("id") == run["id"] and origin.get("head_sha") == run["head_sha"]
                 and not artifact.get("expired") and type(artifact.get("id")) is int,
@@ -275,6 +289,7 @@ def read_bundle(path: Path, run: dict, artifact: dict, policy: dict,
             producer = {"repository": policy["repository"], "workflow": run["path"],
                         "head_sha": run["head_sha"], "run_id": run["id"], "run_attempt": run["run_attempt"]}
             require(bundle.get("producer") == producer, "bundle_producer_mismatch")
+            require(producer_start <= utc(bundle["decision_at"]), "decision_predates_producer")
             parts = {}
             for role in ROLES:
                 refs = bundle["components"][role]
@@ -287,8 +302,16 @@ def read_bundle(path: Path, run: dict, artifact: dict, policy: dict,
                         and receipt.get("failures") == [] and receipt.get("research_only") is True,
                         "component_not_usable")
                 require(utc(receipt["validated_at"]) <= utc(bundle["decision_at"]), "future_receipt")
+                require(producer_start <= utc(receipt["validated_at"]), "receipt_predates_producer")
                 require(receipt.get("raw_objects"), "raw_source_evidence_missing")
+                raw_paths = set()
                 for ref in receipt["raw_objects"]:
+                    raw_path = ref.get("path", "")
+                    require(isinstance(raw_path, str)
+                            and raw_path.startswith(policy["member_root"] + role + "/raw/")
+                            and raw_path not in {refs["data"]["path"], refs["receipt"]["path"]}
+                            and raw_path not in raw_paths, "raw_source_reference_invalid")
+                    raw_paths.add(raw_path)
                     _member(archive, ref, policy, evidence)
                 part = _json(component)
                 require(all(t <= utc(receipt["validated_at"]) for t in _availability_times(part)),
