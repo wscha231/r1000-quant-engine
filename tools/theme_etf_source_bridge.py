@@ -74,11 +74,20 @@ def _authority(value):
             _authority(item)
 
 
-def _json(raw):
+def decode_evidence_json(value):
+    """Strict JSON syntax for receipts; authority rules remain caller-specific."""
     def reject_constant(_):
         raise AdmissionError("nonfinite_json")
-    value = json.loads(raw.decode("utf-8"), object_pairs_hook=_pairs,
-                       parse_constant=reject_constant)
+    def finite_float(raw):
+        parsed = float(raw)
+        require(math.isfinite(parsed), "nonfinite_json")
+        return parsed
+    return json.loads(value, object_pairs_hook=_pairs,
+                      parse_constant=reject_constant, parse_float=finite_float)
+
+
+def _json(raw):
+    value = decode_evidence_json(raw.decode("utf-8"))
     _authority(value)
     return value
 
@@ -220,8 +229,9 @@ def _payload(parts, bundle, policy, expected_session, now):
             _finite_number(event["relevance"])
         if event["reviewed"]:
             approval = policy["approved_membership_reviews"].get(sha(canonical(event)))
-            require(isinstance(approval, dict) and approval.get("decision") == "APPROVED_BUSINESS_RELATIONSHIP"
-                    and approval.get("reviewer_id"), "membership_review_not_anchored")
+            require(isinstance(approval, dict) and approval.get("decision") == "APPROVED_BUSINESS_RELATIONSHIP",
+                    "membership_review_not_anchored")
+            _source_id(approval.get("reviewer_id"))
             require(approval.get("reviewed_at") == event.get("reviewed_at"), "membership_review_time_mismatch")
             require(approval.get("document_hashes") and all(docs.get(k) == v for k, v in
                     approval["document_hashes"].items()), "membership_review_evidence_mismatch")

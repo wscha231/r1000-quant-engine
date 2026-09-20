@@ -64,6 +64,22 @@ def fixture():
     return parts, run, policy
 
 
+def recovery_fixture(run):
+    valid = {"schema_version": "run287-risk-outcome-parent-preflight-v1",
+             "status": "READY_ONE_TIME_GENESIS", "generated_at_utc": "2026-09-18T21:38:00Z",
+             "source": {"event_name": "workflow_dispatch", "source_commit_sha": run["head_sha"],
+                 "source_run_id": str(run["id"]), "source_run_attempt": str(run["run_attempt"]),
+                 "source_job_key": "refresh", "session_date": SESSION},
+             "authorization": {"mode": "genesis", "required_event_name": "workflow_dispatch",
+                 "required_input": "allow_risk_outcome_genesis_bootstrap", "requested": True,
+                 "conflicting_authorization_requested": False, "satisfied": True,
+                 "one_time_only": True, "separate_user_approval_required": True},
+             "review_only": True, "blockers": [], "exit_code": 0}
+    from tools.build_run287_risk_outcome_parent_preflight import FALSE_SAFETY_FLAGS
+    valid.update({k: False for k in FALSE_SAFETY_FLAGS})
+    return valid
+
+
 def package(parts, run, policy, path, alter=None):
     producer = {"repository": CONTRACT["repository"], "workflow": run["path"],
                 "head_sha": run["head_sha"], "run_id": run["id"], "run_attempt": run["run_attempt"]}
@@ -216,18 +232,7 @@ class BridgeTests(unittest.TestCase):
             def archive(self, artifact_id, destination, limit):
                 destination.write_bytes(raw)
                 return "sha256:" + hashlib.sha256(raw).hexdigest()
-        valid = {"schema_version": "run287-risk-outcome-parent-preflight-v1",
-                 "status": "READY_ONE_TIME_GENESIS", "generated_at_utc": "2026-09-18T21:38:00Z",
-                 "source": {"event_name": "workflow_dispatch", "source_commit_sha": run["head_sha"],
-                     "source_run_id": str(run["id"]), "source_run_attempt": str(run["run_attempt"]),
-                     "source_job_key": "refresh", "session_date": SESSION},
-                 "authorization": {"mode": "genesis", "required_event_name": "workflow_dispatch",
-                     "required_input": "allow_risk_outcome_genesis_bootstrap", "requested": True,
-                     "conflicting_authorization_requested": False, "satisfied": True,
-                     "one_time_only": True, "separate_user_approval_required": True},
-                 "review_only": True, "blockers": [], "exit_code": 0}
-        from tools.build_run287_risk_outcome_parent_preflight import FALSE_SAFETY_FLAGS
-        valid.update({k: False for k in FALSE_SAFETY_FLAGS})
+        valid = recovery_fixture(run)
         legacy = copy.deepcopy(valid)
         legacy["status"] = "READY_ONE_TIME_LEGACY_QUARANTINE"
         legacy["authorization"].update(mode="legacy_quarantine", required_input="allow_quarantined_legacy_outcome_parent")
@@ -313,6 +318,45 @@ class BridgeTests(unittest.TestCase):
     def test_review_pin_binds_document_bytes(self):
         self.parts["documents"][0]["title"] = "forged replacement"
         self.check_blocked("membership_review_evidence_mismatch")
+
+    def test_business_pin_requires_canonical_textual_reviewer(self):
+        approval = next(iter(self.policy["approved_membership_reviews"].values()))
+        for value in (True, 1, {"name": "reviewer"}, ["reviewer"], None, " ", " reviewer "):
+            with self.subTest(reviewer=value):
+                approval["reviewer_id"] = value
+                self.check_blocked("invalid_source_identity")
+
+    def test_prerequisite_json_rejects_conflicts_and_nonfinite_values(self):
+        contract = copy.deepcopy(CONTRACT)
+        contract["theme_etf_bridge"] = self.policy
+        run = self.run
+        run["event"] = "workflow_dispatch"
+        artifact, raw = None, None
+        class Client:
+            def json(self, path):
+                return {"workflow_runs": [run]} if "/workflows/" in path else {"artifacts": [artifact]}
+            def archive(self, artifact_id, destination, limit):
+                destination.write_bytes(raw)
+                return "sha256:" + hashlib.sha256(raw).hexdigest()
+        spec = contract["sources"]["operating"]
+        for kind in ("upstream_status", "recovery_status", "recovery_authorization", "NaN", "1e999"):
+            def alter(files, bundle, name):
+                role = "recovery" if kind.startswith("recovery") else "upstream"
+                path = spec["members"][role].format(run_id=run["id"], run_attempt=run["run_attempt"])
+                value = bridge.canonical(recovery_fixture(run)) if role == "recovery" else files[path]
+                if kind.endswith("status"):
+                    value = b'{"status":"BLOCKED",' + value[1:]
+                elif kind == "recovery_authorization":
+                    value = value.replace(b'"satisfied":true', b'"satisfied":false,"satisfied":true')
+                else:
+                    value = b'{"diagnostic":' + kind.encode() + b',' + value[1:]
+                files[path] = value
+            with self.subTest(kind=kind):
+                artifact = package(self.parts, run, self.policy, self.path, alter)
+                raw = self.path.read_bytes()
+                source = monitor.collect_source(Client(), "operating", spec, contract, now=NOW, session=SESSION)
+                self.assertEqual(source["status"], "BLOCKED_SOURCE", source)
+                self.assertFalse(bridge.observation(source, SESSION)["runtime_executed"])
 
     def test_review_pin_binds_event_identity(self):
         self.parts["membership_events"][0]["security_id"] = self.parts["base_universe"]["security_ids"][0]

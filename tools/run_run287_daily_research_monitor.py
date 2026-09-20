@@ -144,7 +144,8 @@ def read_members(path: Path, members: dict[str, str], limit: int) -> tuple[dict,
             evidence[label] = {"member": name, "sha256": hashlib.sha256(raw).hexdigest(),
                                "bytes": len(raw)}
             value = raw.decode("utf-8-sig")
-            parsed = json.loads(value) if name.endswith(".json") else list(csv.DictReader(io.StringIO(value)))
+            parsed = (theme_etf_source_bridge.decode_evidence_json(value) if name.endswith(".json")
+                      else list(csv.DictReader(io.StringIO(value))))
             if name.endswith(".json") and not isinstance(parsed, dict):
                 raise ValueError("manifest_must_be_object")
             data[label] = parsed

@@ -5168,3 +5168,7 @@ Expected contract:
   an append-only shared-ledger conflict prevented pull_request CI from starting.
   Read the live master branch; preserve both full ledger additions and validate
   against the merged baseline. Exact-head observation alone does not prove CI ran.
+- Required upstream/recovery JSON still used permissive last-key-wins parsing.
+  Share strict duplicate-key/nonfinite decoding across both evidence boundaries,
+  keeping authority rules separate. Business review pins also require a typed,
+  nonempty canonical reviewer identity rather than a truthy label.

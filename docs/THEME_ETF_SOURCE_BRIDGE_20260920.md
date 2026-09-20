@@ -136,7 +136,7 @@ it is not included in the byte-verification claim.
 
 ## Validation and next boundary
 
-53 new unittest methods pass, including an authenticated artifact-to-strict
+55 new unittest methods pass, including an authenticated artifact-to-strict
 runtime synthetic cycle with 1,118 base IDs plus one ADR candidate. Tests cover
 complete ID reconciliation, hash/receipt/document/event binding, producer and
 attempt mismatches, units/partial holdings, calendar/freshness, authority
@@ -179,6 +179,10 @@ checked by V1. Cash/derivative/unknown rows block until their separate semantics
 are supported; they must never be discarded to claim a complete portfolio.
 Optional row issuer/ticker and snapshot revision IDs require explicit text.
 Unverified supported instruments remain incomplete and cannot confirm removals.
+Required monitor JSON uses the same duplicate-key/finite-number decoder as the
+optional bundle, without applying the bundle's separate authority rules to
+primary evidence. Conflicting upstream/recovery keys cannot become ready by
+last-value selection. Independent reviewer IDs require canonical nonempty text.
 
 19 existing monitor tests, 11 existing strict-runtime checks, one benchmark
 anchor check and eight public-output tests also pass. New tests run through the
