@@ -25,6 +25,8 @@ Output: outputs_advisor_v3/new_top12_proposed.csv
 """
 from __future__ import annotations
 
+from r1000_legacy_input_guard import load_current_csv
+
 import argparse
 import json
 import sys
@@ -323,7 +325,7 @@ def main() -> int:
     print("=" * 70)
 
     # Load
-    scored = pd.read_csv(args.scored_csv)
+    scored = load_current_csv(args.scored_csv)
     align_p = Path(args.portfolio_csv).parent / "portfolio_theme_alignment.csv"
     if align_p.exists():
         align = pd.read_csv(align_p)

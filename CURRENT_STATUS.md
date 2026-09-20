@@ -4,6 +4,13 @@ Status snapshot: `2026-08-23 10:05 KST` (`2026-08-23 01:05 UTC`)
 
 Tracking issue: [#382](https://github.com/wscha231/r1000-quant-engine/issues/382)
 
+## Source-integrity follow-up — 2026-09-20
+
+See [the H1 input-integrity handoff](docs/INPUT_INTEGRITY_FIX_20260920.md) for
+a source audit at master `f20410549464e3f2557ae6d90ba8b20ee8bcc42e` and the
+proposed legacy-input repair. This is code/test evidence; it does not advance
+the operational data dates, accepted book, or performance evidence below.
+
 ## Executive status
 
 | Boundary | Current status |

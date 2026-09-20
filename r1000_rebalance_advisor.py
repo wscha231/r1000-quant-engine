@@ -33,6 +33,8 @@ Usage:
 """
 from __future__ import annotations
 
+from r1000_legacy_input_guard import load_current_csv
+
 import argparse
 import sys
 from dataclasses import dataclass
@@ -629,7 +631,7 @@ def main() -> int:
     args = parser.parse_args()
 
     # Load inputs
-    scored_df = pd.read_csv(args.scored_csv)
+    scored_df = load_current_csv(args.scored_csv)
     portfolio_df = pd.read_csv(args.portfolio_csv)
     print(f"[load] scored: {len(scored_df)} rows")
     print(f"[load] portfolio: {len(portfolio_df)} rows")

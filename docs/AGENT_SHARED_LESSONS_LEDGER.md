@@ -5045,3 +5045,29 @@ Expected contract:
 - Preserve missing dates outside a rolling price window together with retained raw lineage. The window begins at the first returned date including missing values, so a new leading gap cannot resurrect an old price. Added four regression cases; history suite now has 39 tests.
 - PR423 Tier-1 run 34715585754 rejected the newly registered research suites with post_publication_protected_delta:tools/run_pr_validation.py. Following the existing protected-publication protocol, advance only verifier/regression pins to causal ancestor 346d93c713eaa539db7d10ebd0fb34b0d54626b9, reviewed by Codex in review 5187824659. Keep all protected paths, frozen artifacts, hashes, registered tests, and mutation rejection rules unchanged.
 - Further PR423 review found the same leading-missing price boundary in the separate macro cycle. Carry provider_window_start and missing dates from source collection; refuse ambiguous fresh boundaries, retain only earlier rows/gaps, and mark legacy missing-date evidence incomplete. World Bank coverage now compares every requested country/year, including entirely omitted countries and boundary years, rather than counting only returned nulls. The research suites pass 40 history + 17 cycle + 14 source tests.
+
+## 2026-09-20 — Legacy score freshness needs producer and consumer checks
+
+- Audited master f20410549464e3f2557ae6d90ba8b20ee8bcc42e still fabricated
+  missing model scores, fixed $10B caps and TTM-as-forward PE. Reconstructed
+  the relevant PR415 bridge capability on current master, without its stale
+  collector stack, then extended it under issue462.
+- Preserving a previous output on failure is insufficient: consumers may
+  silently read it. Start builds with a blocked receipt, publish successful
+  output hashes last, and validate the exact read bytes plus row observation,
+  pricing and availability dates at legacy consumers.
+- A recent run or price does not refresh an old model score. Explicit
+  valuation/corporate-action rejection must survive downstream loaders.
+- The legacy Layer4 bridge has only RS and holding age; it cannot justify a
+  sell. Its suggestion API/CLI now reports BLOCKED rather than actionable swaps.
+- 58 distinct offline checks passed; new suites run through the already
+  registered freshness smoke without modifying frozen publication gates.
+- No live coverage, financial adapter, fullrun, target/account/Drive mutation
+  or production activation is established. See docs/INPUT_INTEGRITY_FIX_20260920.md.
+
+- Publication outcome: automatic approval review rejected the issue462 branch
+  push as insufficiently authorized source/document egress. The local code
+  commit f29d585 remains preserved; no alternate route was attempted. The
+  remote branch did not exist at that check. The user explicitly authorized
+  publishing this prepared patch, PR review, gated merge and post-merge
+  verification on 2026-09-20; the authorization blocker is now resolved.
