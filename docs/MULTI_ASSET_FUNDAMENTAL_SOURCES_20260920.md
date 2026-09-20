@@ -71,11 +71,12 @@ fundamental confidence or expected returns.
 
 ## Validation and remaining scope
 
-Twenty new offline regressions live in the existing registered multi-asset
+Twenty-three new offline regressions live in the existing registered multi-asset
 smoke file: units/times, source identity, totals, revisions, stale/future data,
 redirect allowlist, pagination, missing latest values, numerical boundaries,
 partial failures, raw byte recovery, artifact/report integration and workflow
-retention. Fixture values are synthetic test cases, never live results.
+retention. Review regressions bind failed receipts to ER admission and preserve
+report publication for malformed metrics. Fixture values are synthetic test cases, never live results.
 
 Real provider probes retrieved current EIA and all seven network metrics.
 Reproduce the actual run and inspect its receipts; preliminary probes alone do

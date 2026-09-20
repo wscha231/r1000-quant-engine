@@ -914,5 +914,36 @@ class FundamentalSources(unittest.TestCase):
         workflow=(ROOT/'.github/workflows/multi_asset_leadership_v1.yml').read_text()
         self.assertIn('outputs/multi_asset/captures/',workflow)
 
+    def test_failed_fundamental_receipt_blocks_even_reviewed_sparse_er(self):
+        for status in ['BLOCKED','PARTIAL_MISSING']:
+            p,r,policy=fixture()
+            p['collection_receipts']=[{'source':'COINMETRICS_COMMUNITY','subject_id':'ETH',
+                                      'series':'FeeTotNtv','status':status}]
+            reviewed(p,r,policy);risk(p,r,policy)
+            result=run(p,r,policy)
+            self.assertTrue(result['fundamental_collection_blocked'])
+            self.assertFalse(result['global_ranking_ready'])
+            self.assertEqual(result['proposal']['status'],'BLOCKED')
+            self.assertTrue(all('evaluation:fundamental_collection_incomplete' in x['blockers']
+                                for x in result['multi_asset_leadership_latest']))
+
+    def test_collection_receipts_bound_to_evaluator_feature_identity(self):
+        p,r,policy=fixture();before=feature_identity(p,r)
+        p['collection_receipts']=[{'source':'EIA_STORAGE','status':'BLOCKED'}]
+        self.assertNotEqual(before,feature_identity(p,r))
+
+    def test_malformed_metric_still_publishes_diagnostics(self):
+        for missing in ['metric','unit','observed_at']:
+            p,r,policy=fixture()
+            row=dict(**meta('EIA'),subject_id='NATURAL_GAS',metric='inventory',unit='BCF',value=100)
+            row.pop(missing);p['metrics']=[row]
+            with self.subTest(missing=missing),tempfile.TemporaryDirectory() as tmp:
+                out=Path(tmp)
+                result=publish(p,r,policy,out,'invalid-metric',CODE_SHA)
+                self.assertEqual(result['metrics'][0]['admission'],'BLOCKED')
+                self.assertTrue((out/'attempts/invalid-metric/receipt.json').is_file())
+                report=(out/'attempts/invalid-metric/daily_monitoring_report.md').read_text()
+                self.assertIn('MISSING',report)
+
 
 if __name__=="__main__":unittest.main()

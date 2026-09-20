@@ -12,8 +12,12 @@
   fields; never substitute it for current September network observations.
 - Keep exact raw responses and normalized capture inputs in diagnostic artifacts.
   Their 45-day retention is not a durable PIT archive or accepted Drive state.
-- Current connected Drive searches exposed the long-history folders but no
-  commit/execution objects. Folder discovery alone does not verify data readiness.
+- General Drive search omitted opaque objects; direct folder listing found them.
+  Latest commit/catalog/execution/quality/context byte hashes were verified,
+  but full-chain/all-pack restore remains unverified and quality is PARTIAL.
+- Failed fundamental receipts must be bound to the evaluator feature identity
+  and reject ER admission, even when the remaining metric list is empty.
+  Malformed metric fields must not prevent diagnostic report publication.
 
 ## 2026-09-20 — Multi-asset discovery is not a new allocation authority
 
