@@ -81,9 +81,12 @@ The focused synthetic smoke suite covers:
 - summary byte/hash and decision/candidate-count binding;
 - canonical U0 artifact and feature-store identity presence.
 
-The final focused suite after the provenance self-audit passes 16/16 tests in
-normal Python and 16/16 under `python -O`. An earlier 12-test pass predated the
-canonical-contract/hash fix and is not final-head evidence.
+The final focused suite after the provenance/date self-audit passes 19/19 tests
+in normal Python and 19/19 under `python -O`. The suite now also verifies
+producer Timestamp-to-session normalization, U0 workflow-path binding and the
+raw contract-input fingerprint recorded separately from the canonical contract
+identity. Earlier 12- and 16-test passes predated these fixes and are not
+final-head evidence.
 
 ## Self-audit correction
 
@@ -92,6 +95,11 @@ challenger records `contract_sha256` over canonical JSON, while the first adapte
 draft compared it with a raw file SHA-256. Synthetic fixtures had mirrored the
 wrong raw-hash behavior. The adapter and fixtures were corrected before review so
 real challenger output is checked with the producer's actual hash semantics.
+A second pre-review compatibility audit found that the producer summary may
+serialize a pandas decision Timestamp as an ISO datetime rather than a bare date;
+the adapter now normalizes both the proposal and summary decision value to a
+NYSE session date. U0 workflow path/digest and the producer-recorded raw contract
+input fingerprint are also bound to the pinned contract.
 
 ## Next action / stop condition
 

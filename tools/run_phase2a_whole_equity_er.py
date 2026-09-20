@@ -97,6 +97,16 @@ def utc(value: Any, field: str) -> datetime:
     return stamp.astimezone(timezone.utc)
 
 
+def session_date(value: Any, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"missing_session_date:{field}")
+    try:
+        stamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"invalid_session_date:{field}") from exc
+    return stamp.date().isoformat()
+
+
 def finite(value: Any) -> float | None:
     if value is None or value == "":
         return None
@@ -261,7 +271,8 @@ def verify_er_evidence(
     if not FULL_SHA_RE.fullmatch(producer_sha):
         raise ValueError("er_manifest_producer_git_sha_invalid")
     utc(manifest.get("created_at_utc"), "er_manifest.created_at_utc")
-    contract_hash = canonical_json_sha256(contract_path)
+    contract_doc = read_json(contract_path)
+    contract_hash = sha256_bytes(canonical_bytes(contract_doc))
     if contract_hash != EXPECTED_ER_CONTRACT_SHA256:
         raise ValueError("er_contract_not_canonical_run287_contract")
     if manifest.get("contract_sha256") != contract_hash:
@@ -278,6 +289,18 @@ def verify_er_evidence(
         raise ValueError("er_manifest_u0_artifact_id_invalid")
     if type(canonical_u0.get("workflow_run_id")) is not int or canonical_u0["workflow_run_id"] <= 0:
         raise ValueError("er_manifest_u0_workflow_run_id_invalid")
+    historical_gate = contract_doc.get("historical_gate") if isinstance(contract_doc, dict) else None
+    expected_workflow = historical_gate.get("accepted_workflow_path") if isinstance(historical_gate, dict) else None
+    if not isinstance(expected_workflow, str) or canonical_u0.get("workflow_path") != expected_workflow:
+        raise ValueError("er_manifest_u0_workflow_path_mismatch")
+    digest = str(canonical_u0.get("artifact_digest") or "")
+    if not digest.startswith("sha256:") or not SHA256_RE.fullmatch(digest[7:]):
+        raise ValueError("er_manifest_u0_artifact_digest_invalid")
+    contract_input = inputs.get("contract")
+    if not isinstance(contract_input, dict) or contract_input.get("sha256") != sha256_file(contract_path):
+        raise ValueError("er_manifest_contract_input_hash_mismatch")
+    if contract_input.get("exists") is not True or int(contract_input.get("bytes") or 0) != contract_path.stat().st_size:
+        raise ValueError("er_manifest_contract_input_size_mismatch")
     feature_store = inputs.get("feature_store")
     if not isinstance(feature_store, dict) or not SHA256_RE.fullmatch(str(feature_store.get("sha256") or "")):
         raise ValueError("er_manifest_feature_store_identity_invalid")
@@ -321,9 +344,9 @@ def verify_er_evidence(
         if ticker in tickers:
             raise ValueError("proposal_duplicate_ticker")
         tickers.add(ticker)
-        if row.get("feature_date") != decision_session:
+        if session_date(row.get("feature_date"), "proposal.feature_date") != decision_session:
             raise ValueError("proposal_stale_or_future_decision_date")
-    if summary.get("latest_decision_date") != decision_session:
+    if session_date(summary.get("latest_decision_date"), "summary.latest_decision_date") != decision_session:
         raise ValueError("er_summary_decision_date_mismatch")
     if summary.get("latest_candidate_count") != len(rows):
         raise ValueError("er_summary_candidate_count_mismatch")

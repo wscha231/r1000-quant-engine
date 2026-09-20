@@ -6,6 +6,7 @@
 - Whole-equity readiness requires security/issuer identity, availability, corporate-action basis and ADR ratio/share-basis evidence. Unresolved APH split or TSM ADR/FX/share-basis style cases remain rows with null ER, not neutral/default scores.
 - Bind the public latest ER proposal to the existing challenger manifest/contract bytes and reject realized/label/target/outcome columns at the A3 boundary.
 - Match the producer's identity semantics exactly: the Run287 challenger manifest uses canonical-JSON contract SHA-256, not the raw contract-file hash. Bind proposal and summary bytes plus canonical U0/feature-store identities so synthetic manifests cannot masquerade as real producer evidence.
+- Normalize producer decision timestamps to the session date before equality checks; pandas JSON serialization may emit midnight ISO datetimes. Also bind the U0 workflow path/digest and the raw contract-input fingerprint separately from the canonical contract identity.
 - Partial coverage is explicitly PARTIAL/BLOCKED; it cannot authorize global ranking, A5, targets, orders, champion changes or a fullrun.
 
 ## 2026-09-20 — Control-plane proposals need current identity, not old baseline labels

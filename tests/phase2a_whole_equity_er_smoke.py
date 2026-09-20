@@ -152,7 +152,7 @@ class Phase2A(unittest.TestCase):
         write_json(self.paths["cohort"], cohort())
         write_json(self.paths["registry"], registry())
         self.paths["er_contract"].write_text(
-            '{\n  "schema_version": "synthetic-run287-contract",\n  "family_id": "future_expected_excess_return_multihorizon_v1"\n}\n',
+            '{\n  "schema_version": "synthetic-run287-contract",\n  "family_id": "future_expected_excess_return_multihorizon_v1",\n  "historical_gate": {"accepted_workflow_path": ".github/workflows/run287_u0_acceptance.yml"}\n}\n',
             encoding="utf-8",
         )
         self.original_expected_contract_sha = MOD.EXPECTED_ER_CONTRACT_SHA256
@@ -163,7 +163,7 @@ class Phase2A(unittest.TestCase):
                 "schema_version": MOD.RUN287_SCHEMA_VERSION,
                 "status": MOD.READY_CHALLENGER_STATUS,
                 "family_id": MOD.EXPECTED_FAMILY_ID,
-                "latest_decision_date": SESSION,
+                "latest_decision_date": SESSION + "T00:00:00",
                 "latest_candidate_count": 3,
                 "historical_model_fit_executed": True,
                 "historical_backtest_executed": False,
@@ -200,10 +200,16 @@ class Phase2A(unittest.TestCase):
                 "historical_backtest_executed": False,
                 "contract_sha256": canonical_json_sha(self.paths["er_contract"]),
                 "inputs": {
+                    "contract": {
+                        "path": str(self.paths["er_contract"]),
+                        "exists": True,
+                        "bytes": self.paths["er_contract"].stat().st_size,
+                        "sha256": sha(self.paths["er_contract"]),
+                    },
                     "u0_canonical_artifact": {
                         "artifact_id": 123,
                         "workflow_run_id": 456,
-                        "workflow_path": ".github/workflows/run287_u0_v3_acceptance.yml",
+                        "workflow_path": ".github/workflows/run287_u0_acceptance.yml",
                         "head_sha": "b" * 40,
                         "artifact_digest": "sha256:" + "c" * 64,
                     },
@@ -354,6 +360,28 @@ class Phase2A(unittest.TestCase):
         self.assertNotEqual(sha(self.paths["er_contract"]), canonical_json_sha(self.paths["er_contract"]))
         out = MOD.run(self.args())
         self.assertEqual(out["status"], MOD.OVERALL_READY)
+
+    def test_producer_timestamp_decision_date_normalizes_to_session(self):
+        summary = json.loads(self.paths["summary"].read_text(encoding="utf-8"))
+        summary["latest_decision_date"] = SESSION + "T00:00:00"
+        write_json(self.paths["summary"], summary)
+        self.write_manifest()
+        out = MOD.run(self.args())
+        self.assertEqual(out["status"], MOD.OVERALL_READY)
+
+    def test_u0_workflow_path_must_match_pinned_contract(self):
+        manifest = json.loads(self.paths["manifest"].read_text(encoding="utf-8"))
+        manifest["inputs"]["u0_canonical_artifact"]["workflow_path"] = ".github/workflows/fake.yml"
+        write_json(self.paths["manifest"], manifest)
+        with self.assertRaisesRegex(ValueError, "er_manifest_u0_workflow_path_mismatch"):
+            MOD.run(self.args())
+
+    def test_raw_contract_input_fingerprint_is_bound_separately(self):
+        manifest = json.loads(self.paths["manifest"].read_text(encoding="utf-8"))
+        manifest["inputs"]["contract"]["sha256"] = "0" * 64
+        write_json(self.paths["manifest"], manifest)
+        with self.assertRaisesRegex(ValueError, "er_manifest_contract_input_hash_mismatch"):
+            MOD.run(self.args())
 
     def test_summary_bytes_must_match_source_manifest(self):
         summary = json.loads(self.paths["summary"].read_text(encoding="utf-8"))
