@@ -106,6 +106,10 @@ def capture(registry, attempt, fetcher=request_bytes):
     return payload
 
 
+def fully_admitted(result):
+    return result.get("global_ranking_ready") is True and result.get("proposal",{}).get("status")=="RESEARCH_PROPOSAL"
+
+
 def publish(payload, registry, policy, out, attempt_id, code_sha):
     require(attempt_id and all(c.isalnum() or c in "-_" for c in attempt_id),"attempt_id")
     # Revoke consumption before validation, preserving last-success and its bytes.
@@ -127,10 +131,10 @@ def publish(payload, registry, policy, out, attempt_id, code_sha):
                       "code_sha":code_sha,"config_sha256":result["policy_sha256"],"data_sha256":result["feature_sha256"],"rows":result[name]}))
         receipt={"status":result["status"],"attempt_id":attempt_id,"as_of":result["as_of"],
                  "result_sha256":hashlib.sha256(raw).hexdigest(),"input_sha256":digest(payload),
-                 "global_ranking_ready":result["global_ranking_ready"]}
+                 "global_ranking_ready":result["global_ranking_ready"],"consumable":fully_admitted(result)}
         exclusive(target/"receipt.json",encoded(receipt))
         # Only fully admitted global research output can advance last-success.
-        if result["global_ranking_ready"] and result["proposal"]["status"]=="RESEARCH_PROPOSAL":
+        if fully_admitted(result):
             atomic(out/"last_success.json",encoded(receipt))
         atomic(out/"latest_attempt.json",encoded(receipt))
         return result
@@ -141,12 +145,14 @@ def publish(payload, registry, policy, out, attempt_id, code_sha):
 
 def read_latest(out):
     receipt=load_json((out/"latest_attempt.json").read_bytes())
-    require(receipt.get("global_ranking_ready") is True,"latest_attempt_not_ready")
+    require(receipt.get("global_ranking_ready") is True and receipt.get("consumable") is True,"latest_attempt_not_ready")
     aid=receipt["attempt_id"]
     require(aid and all(c.isalnum() or c in "-_" for c in aid),"attempt_id")
     raw=(out/"attempts"/aid/"result.json").read_bytes()
     require(hashlib.sha256(raw).hexdigest()==receipt["result_sha256"],"output_tampered")
-    return load_json(raw)
+    result=load_json(raw)
+    require(fully_admitted(result),"latest_proposal_not_ready")
+    return result
 
 
 def main():
@@ -177,7 +183,7 @@ def main():
         sha=subprocess.check_output(["git","rev-parse","HEAD"],cwd=ROOT,text=True).strip()
         result=publish(payload,registry,policy,args.output_dir,args.attempt_id,sha)
         print(json.dumps({"status":result["status"],"assets":len(result["multi_asset_leadership_latest"]),"global_ranking_ready":result["global_ranking_ready"]}))
-        return 0 if result["global_ranking_ready"] else 2
+        return 0 if fully_admitted(result) else 2
     except Exception as exc:
         atomic(args.output_dir/"latest_attempt.json",encoded({"status":"BLOCKED","attempt_id":args.attempt_id,"reason":"input_or_runtime_failure","last_success_retained":True}))
         print(json.dumps({"status":"BLOCKED","reason":str(exc) if isinstance(exc,ContractError) else type(exc).__name__}))

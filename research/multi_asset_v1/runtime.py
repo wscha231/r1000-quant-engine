@@ -169,6 +169,7 @@ def run(payload, registry, policy):
             end=(stamp(cutoff)-timedelta(days=1)).date().isoformat()
             require(keys[-1]==end,"crypto_stale")
             item["utc_calendar"]={"as_of":end,"clock":"UTC_DAY","price":series[end]["price"],
+                "return_basis":series[end]["return_basis"],
                 **{f"ret{h}_calendar_days":series[end]["total_return_index"]/series[keys[-1-h]]["total_return_index"]-1 for h in HORIZONS}}
             item["utc_calendar"]["RS_BTC"] = None
             if aid=="CRYPTO:BTC-USD":

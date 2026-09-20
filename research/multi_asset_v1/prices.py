@@ -24,6 +24,7 @@ def grid(cutoff, count=281):
 
 
 def admit_prices(rows, asset, cutoff, policy, sessions, clock="NYSE_CLOSE"):
+    require(asset.get("corporate_action_quarantine") is False, "registry_corporate_action_quarantine")
     values = {}
     for row in rows:
         require(row.get("asset_id") == asset["asset_id"], "price_identity")

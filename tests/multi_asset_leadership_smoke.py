@@ -20,7 +20,7 @@ from research.multi_asset_v1.prices import grid,admit_prices
 from research.multi_asset_v1.runtime import run,feature_identity
 from research.multi_asset_v1.decisions import classify,evaluation,event_memory,lookthrough,propose
 from tools.run_multi_asset_leadership import parse_chart,publish,read_latest
-from research.multi_asset_v1.sources import candles,capture_spot_metrics
+from research.multi_asset_v1.sources import candles,capture_spot_metrics,crypto_chart
 
 CUTOFF="2026-09-19T10:00:00+00:00"
 SESSIONS=grid(CUTOFF)
@@ -104,6 +104,15 @@ class Integrity(unittest.TestCase):
         a=self.r["assets"][0];rows=[x for x in self.p["prices"] if x["asset_id"]==a["asset_id"]]
         del rows[-12]
         with self.assertRaisesRegex(ContractError,"incomplete_price"):admit_prices(rows,a,CUTOFF,self.policy,SESSIONS)
+
+    def test_registry_quarantine_cannot_be_cleared_by_payload(self):
+        a=self.r["assets"][0]
+        rows=[x for x in self.p["prices"] if x["asset_id"]==a["asset_id"]]
+        for flag in (True,None):
+            with self.subTest(flag=flag):
+                a["corporate_action_quarantine"]=flag
+                with self.assertRaisesRegex(ContractError,"registry_corporate_action_quarantine"):
+                    admit_prices(rows,a,CUTOFF,self.policy,SESSIONS)
 
     def test_duplicate_price_blocks(self):
         self.p["prices"].append(copy.deepcopy(self.p["prices"][0]))
@@ -279,6 +288,8 @@ class Decisions(unittest.TestCase):
         self.assertEqual(len(events),1);self.assertEqual(events[0]["source_count"],1)
         self.assertEqual(events[0]["affected_asset_ids"],["US:FCX"])
         self.assertIsNone(events[0]["score_change"])
+        self.assertEqual(events[0]["available_at"],CUTOFF)
+        self.assertEqual(len(events[0]["evidence"]),2)
 
     def test_news_future_time_rejected(self):
         event=dict(**meta("CANONICAL_NEWS"),event_id="EVENT:1",published_at="2027-01-01T00:00:00Z")
@@ -310,6 +321,24 @@ class ExposureAndPublication(unittest.TestCase):
         assets,raw,policy=self.holdings_fixture()
         with self.assertRaises(ContractError):lookthrough({"US:URNM":.2},assets,{},CUTOFF,policy)
 
+    def test_normalized_holdings_future_publication_and_validation_block(self):
+        assets,raw,policy=self.holdings_fixture()
+        for field in ("published_at","validated_at"):
+            with self.subTest(field=field):
+                altered={**raw,field:"2026-09-20T00:00:00Z"}
+                policy["reviewed_pins"]["holdings"].append(digest(altered))
+                with self.assertRaisesRegex(ContractError,"future_normalized_holdings"):
+                    lookthrough({"US:URNM":.2},assets,{"US:URNM":altered},CUTOFF,policy)
+
+    def test_carried_etf_vehicle_cap_applies_even_when_leaves_are_below_cap(self):
+        assets,raw,policy=self.holdings_fixture()
+        p,r,_=fixture();riskrow=risk(p,r,policy)
+        row=dict(asset_id="US:URNM",portfolio_status="HOLD",expected_alpha_12m=.3,liquidity_pass=True,RS20_change_5d=-.1,RS60_change_5d=-.1,RS120=.1,RS240=.1,signal_confidence=.8,thesis_confidence=.8,expected_drawdown=.2,daily_log_returns=[math.sin(i) for i in range(60)])
+        proposal=propose([row],assets,riskrow,{"US:URNM":raw},CUTOFF,policy,feature_identity(p,r),{"US:URNM":.14})
+        self.assertAlmostEqual(proposal["proposed_weights"]["US:URNM"],.1)
+        self.assertAlmostEqual(proposal["exposure"]["security_exposure"]["US:FCX"],.07)
+        self.assertEqual(proposal["reduction_basis"],"REVIEWED_RISK_CEILINGS_ONLY")
+
     def test_etf_cycle_rejected(self):
         assets,raw,policy=self.holdings_fixture()
         raw["rows"]=[{"security_id":"US:URNM","instrument":"ETF","identity_verified":True,"weight":1.0}]
@@ -333,6 +362,28 @@ class ExposureAndPublication(unittest.TestCase):
             out=Path(temp);publish(p,r,policy,out,"one","fixture-code")
             (out/"attempts/one/result.json").write_text('{}')
             with self.assertRaisesRegex(ContractError,"tampered"):read_latest(out)
+
+    def test_complete_rank_with_missing_or_invalid_risk_is_not_consumable(self):
+        p,r,policy=reviewed(*fixture());risk(p,r,policy)
+        with tempfile.TemporaryDirectory() as temp:
+            out=Path(temp);publish(p,r,policy,out,"good","fixture-code")
+            self.assertEqual(read_latest(out)["proposal"]["status"],"RESEARCH_PROPOSAL")
+            saved=(out/"last_success.json").read_bytes()
+            for mode in ("missing","invalid"):
+                with self.subTest(mode=mode):
+                    bad=copy.deepcopy(p)
+                    if mode=="missing":bad.pop("risk")
+                    else:bad["risk"]["max_gross"]=.9
+                    result=publish(bad,r,policy,out,mode,"fixture-code")
+                    self.assertTrue(result["global_ranking_ready"])
+                    self.assertEqual(result["proposal"]["status"],"BLOCKED")
+                    self.assertEqual((out/"last_success.json").read_bytes(),saved)
+                    with self.assertRaisesRegex(ContractError,"not_ready"):read_latest(out)
+                    for name,obj in (("input",bad),("registry",r),("policy",policy)):
+                        (out/(name+".json")).write_bytes(encoded(obj))
+                    proc=subprocess.run([sys.executable,str(ROOT/"tools/run_multi_asset_leadership.py"),"--input",str(out/"input.json"),"--expected-input-sha256",hashlib.sha256(encoded(bad)).hexdigest(),"--registry",str(out/"registry.json"),"--policy",str(out/"policy.json"),"--output-dir",str(out),"--attempt-id",mode+"-cli"],capture_output=True,text=True)
+                    self.assertEqual(proc.returncode,2,proc.stdout+proc.stderr)
+                    self.assertEqual((out/"last_success.json").read_bytes(),saved)
 
     def test_cli_missing_input_revokes_prior_success(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -389,6 +440,21 @@ class ExposureAndPublication(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:rows,receipts=capture_spot_metrics(Path(temp),fail)
         self.assertEqual(rows,[])
         self.assertTrue(all(r['status']=='BLOCKED' for r in receipts))
+
+    def test_crypto_fallback_is_utc_proxy_and_excludes_partial_day(self):
+        from research.multi_asset_v1.contracts import stamp
+        asset={'symbol':'BTC-USD','asset_id':'CRYPTO:BTC-USD'}
+        end=int(stamp('2026-09-19T00:00:00Z').timestamp())
+        raw=encoded({'chart':{'result':[{'meta':{'symbol':'BTC-USD','currency':'USD','instrumentType':'CRYPTOCURRENCY','exchangeTimezoneName':'UTC'},'timestamp':[end-86400,end], 'indicators':{'quote':[{'close':[100,110],'volume':[10,20]}]}}],'error':None}})
+        rows=crypto_chart(raw,asset,CUTOFF)
+        self.assertEqual(len(rows),1)
+        self.assertEqual(rows[0]['clock'],'UTC_DAY')
+        self.assertEqual(rows[0]['return_basis'],'PROVIDER_ADJUSTED_CLOSE_PROXY')
+
+    def test_crypto_fallback_requires_correct_identity_and_clock(self):
+        asset={'symbol':'BTC-USD','asset_id':'CRYPTO:BTC-USD'}
+        raw=encoded({'chart':{'result':[{'meta':{'symbol':'ETH-USD','currency':'USD','instrumentType':'CRYPTOCURRENCY','exchangeTimezoneName':'UTC'}}],'error':None}})
+        with self.assertRaises(ContractError):crypto_chart(raw,asset,CUTOFF)
 
 
 if __name__=="__main__":unittest.main()

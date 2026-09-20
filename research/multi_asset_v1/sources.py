@@ -55,7 +55,50 @@ def capture_crypto(asset,sessions,attempt,fetcher=request_bytes):
             receipts.append(dict(asset_id=asset["asset_id"],clock=clock,status="CAPTURED_CURRENT_ONLY",rows=len(parsed),raw_sha256=raw_hash))
         except Exception:
             receipts.append(dict(asset_id=asset["asset_id"],clock=clock,status="BLOCKED",reason="provider_unavailable_or_schema"))
+    if not any(r["clock"]=="UTC_DAY" for r in rows):
+        # An explicit provider fallback retains the failed primary receipt.
+        # It can supply UTC research observations only, never NY snapshots.
+        try:
+            url="https://query1.finance.yahoo.com/v8/finance/chart/"+asset["symbol"]+"?"+urlencode({"range":"2y","interval":"1d"})
+            raw=fetcher(url);collected=datetime.now(timezone.utc).isoformat()
+            parsed=crypto_chart(raw,asset,collected)
+            raw_hash=hashlib.sha256(raw).hexdigest();exclusive(attempt/"raw"/raw_hash,raw)
+            rows.extend(parsed)
+            receipts.append(dict(asset_id=asset["asset_id"],clock="UTC_DAY",source="YAHOO_CHART",status="CAPTURED_CURRENT_PROXY",rows=len(parsed),raw_sha256=raw_hash))
+        except Exception:
+            receipts.append(dict(asset_id=asset["asset_id"],clock="UTC_DAY",source="YAHOO_CHART",status="BLOCKED",reason="fallback_provider_unavailable_or_schema"))
     return rows,receipts
+
+
+def crypto_chart(raw,asset,collected):
+    data=load_json(raw)
+    require(not data["chart"].get("error"),"crypto_chart_error")
+    result=data["chart"]["result"]
+    require(isinstance(result,list) and len(result)==1,"crypto_chart_result")
+    chart=result[0];meta=chart["meta"]
+    require(meta.get("symbol")==asset["symbol"] and asset["symbol"] in {"BTC-USD","ETH-USD"},"crypto_chart_identity")
+    require(meta.get("currency")=="USD" and meta.get("instrumentType")=="CRYPTOCURRENCY","crypto_chart_units")
+    require(meta.get("exchangeTimezoneName") in {"UTC","Etc/UTC"},"crypto_chart_clock")
+    quote=chart["indicators"]["quote"][0];times=chart["timestamp"]
+    require(len(times)==len(quote["close"])==len(quote["volume"]),"crypto_chart_arrays")
+    rows=[];seen=set()
+    for i,t in enumerate(times):
+        number(t,0)
+        # Yahoo can include a current partial bar; exclude it using its end time.
+        observed=datetime.fromtimestamp(t+86400,timezone.utc)
+        if observed>stamp(collected):continue
+        require(t%86400==0 and t not in seen,"crypto_chart_daily_grid")
+        seen.add(t)
+        if quote["close"][i] is None:continue
+        price=number(quote["close"][i],0)
+        require(price>0,"crypto_chart_price")
+        rows.append(dict(asset_id=asset["asset_id"],session=datetime.fromtimestamp(t,timezone.utc).date().isoformat(),
+            clock="UTC_DAY",price=price,total_return_index=price,
+            volume=None if quote["volume"][i] is None else number(quote["volume"][i],0),
+            return_basis="PROVIDER_ADJUSTED_CLOSE_PROXY",return_method="UNSTAKED_SPOT_PRICE_PROXY",unit="USD_PER_TOKEN",currency="USD",
+            corporate_action_quarantine=False,observed_at=observed.isoformat(),available_at=collected,collected_at=collected,
+            source="YAHOO_CHART",data_quality="OBSERVED",evidence_kind="FORWARD_CAPTURE",raw_sha256=hashlib.sha256(raw).hexdigest()))
+    return sorted(rows,key=lambda r:r["session"])
 
 
 def capture_spot_metrics(attempt,fetcher=request_bytes):

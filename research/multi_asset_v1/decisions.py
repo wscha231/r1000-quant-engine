@@ -38,11 +38,18 @@ def event_memory(events, assets, cutoff, policy):
         cluster = identifier(row.get("duplicate_cluster"))
         target = clusters.setdefault(cluster,{"event_id":cluster, "first_seen":row["available_at"],
                       "last_seen":row["available_at"], "source_ids":set(), "member_ids":[],
+                      "published_at":row["published_at"],"available_at":row["available_at"],
+                      "commodity_ids":set(),"theme_ids":set(),"evidence":[],
                       "affected_asset_ids":set(), "event_types":set(), "thesis_effects":set(),
                       "confidence":0.0, "materiality":0.0, "confirmed":False,
                       "score_change":None, "requires_thesis_review":True})
         target["first_seen"] = min(target["first_seen"],row["available_at"],key=stamp)
         target["last_seen"] = max(target["last_seen"],row["available_at"],key=stamp)
+        target["published_at"] = min(target["published_at"],row["published_at"],key=stamp)
+        target["available_at"] = target["first_seen"]
+        target["commodity_ids"].update(row["commodity_ids"])
+        target["theme_ids"].update(row["theme_ids"])
+        target["evidence"].append({k:row[k] for k in ("event_id","published_at","available_at","source","raw_sha256","estimated_duration")})
         target["source_ids"].add(row["source"])
         target["member_ids"].append(ident)
         target["event_types"].add(row["event_type"])
@@ -154,6 +161,7 @@ def lookthrough(weights, assets, holdings, cutoff, policy):
                 number(r.get("weight"),0)
                 require(r.get("security_id") in assets,"unknown_holding")
             snap=normalize_snapshot(raw)
+            require(stamp(snap["available_at"]) <= stamp(cutoff),"future_normalized_holdings")
             require(snap["complete"] and abs(snap["weight_sum"]-1)<1e-8,"incomplete_holdings")
             for r in snap["rows"]:
                 expand(r["security_id"],weight*r["weight"],chain+[aid])
@@ -224,7 +232,7 @@ def propose(rows, assets, risk, holdings, cutoff, policy, input_hash, current_we
     for group,value in exposure["risk_group_exposure"].items():
         limit=number(risk["risk_group_limits"].get(group),0,1)
         if value>limit: scale=min(scale,limit/value)
-    for value in exposure["security_exposure"].values():
+    for value in [*weights.values(),*exposure["security_exposure"].values()]:
         if value>cap: scale=min(scale,cap/value)
     weights={k:v*scale for k,v in weights.items()}
     # No redistribution to force a commodity/crypto minimum; unused budget stays cash.

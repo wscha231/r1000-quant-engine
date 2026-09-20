@@ -1,6 +1,7 @@
 # Multi-Asset Leadership Engine V1 — implementation and remaining gates
 
 Tracking issue: [#465](https://github.com/wscha231/r1000-quant-engine/issues/465).
+Implementation PR: [#466](https://github.com/wscha231/r1000-quant-engine/pull/466).
 Audited master: `4494d108a7ee535bae0bb50b594bd8cfb8164402`.
 Branch: `codex/multi-asset-leadership-v1-20260920`.
 
@@ -60,7 +61,7 @@ the historical FTI/CACI/FLEX/NVT/CLS/ONTO/RBRK research examples.
 | `research/multi_asset_v1/prices.py` | Complete session grids, reused log-RS, volatility/drawdown/MA, acceleration, winsorized z/percentiles and correlated horizon block |
 | `research/multi_asset_v1/decisions.py` | Event clusters, reviewed multi-horizon ER, candidate states, recursive ETF exposure, constrained research proposals |
 | `research/multi_asset_v1/runtime.py` | Common candidate table, underlying/network metrics, separate crypto clocks, diagnostics and replay blockers |
-| `research/multi_asset_v1/sources.py` | Coinbase UTC bars/recent NY snapshots and FRED oil/gas observations |
+| `research/multi_asset_v1/sources.py` | Coinbase UTC bars/recent NY snapshots, explicit UTC proxy fallback and FRED oil/gas observations |
 | `tools/run_multi_asset_leadership.py` | Pinned input/capture CLI, immutable attempts and failure revocation |
 | `docs/multi_asset_registry_v1.json` | 12 underlying research seeds and 32 instruments including SPY benchmark |
 | `docs/multi_asset_policy_v1.json` | Fixed baseline, source roles, units; empty evaluator/risk/holdings approval pins |
@@ -123,6 +124,10 @@ close; no ratio is inferred. ETHA stays in corporate-action quarantine.
   V1 capture requests 280 daily bars and 120 hourly bars per token. That is **not**
   a full NY-close history or multi-venue admission. Missing history remains
   blocked. [Official candle semantics](https://docs.cdp.coinbase.com/api-reference/exchange-api/rest-api/products/get-product-candles).
+- When Coinbase fails, a separately labeled Yahoo crypto UTC proxy may be
+  captured. Partial calendar days and null closes are omitted, never filled.
+  Failed primary-source receipts remain visible. This fallback cannot supply
+  NY snapshots, network fundamentals or a total-return admission.
 - [FRED gas](https://fred.stlouisfed.org/series/DHHNGSP) and
   [FRED WTI](https://fred.stlouisfed.org/series/DCOILWTICO) adapters reuse the
   current-history reader. Observation date is a date label; availability is
@@ -160,8 +165,45 @@ exact-head independent review remain separate from local results.
 
 At the first direct probe the Financial Datasets SPY history request returned
 an insufficient-credit response. Local public Yahoo/Coinbase HTTP probes could
-not connect. Official issuer/FRED pages could be read through web retrieval;
-that is not a complete engine price history or a calibrated ranking.
+not initially connect. A subsequent real capture completed on
+`2026-09-20T04:26:16.884123+00:00`, through the `2026-09-18` NYSE close:
+
+- 30 US-listed instruments including SPY, 281 rows each: **8,430 price rows**.
+- 28 non-benchmark assets have computed proxy RS20/60/120/240. ETHA remains
+  quarantined; direct BTC/ETH source calls failed on both clocks.
+- Two actual FRED observations: gas **2.97 USD/MMBtu**, WTI **107.02 USD/barrel**,
+  both observed **2026-09-15**, collected on September 20. Their observation
+  dates were not advanced to the collection date.
+- Input SHA256: `e4bd9a0d666129f9b3263f0486d68a1ac9a2f2d3d0dd8f2b6a3a38ed9ff2b682`.
+- Reprocessed the exact captured input from the committed implementation tree;
+  output remains `PARTIAL_RESEARCH`, global rank false and all ER fields null.
+- A separate real BTC/ETH UTC fallback probe captured 729 rows per token.
+  Both feeds had no September 19 close; the unfinished September 20 quote was
+  excluded. These histories therefore remain blocked as current inputs.
+  Combined input contains 9,888 price rows, SHA256
+  `92a7438d61e4dd8e998e14155a7462c560a0dd26749c98cdf7efc7448fbdad6a`.
+
+Within this **28-name seed cohort only**, the proxy discovery order began
+RBRK, FCX, NTR, WPM, XLE, CPER, IBIT, NVT. This is a measured price/volatility
+screen, not the requested whole-universe expected-return investment rank.
+RBRK and CPER were classified Emerging; FCX and WPM Established. NTR and XLE
+had weaker acceleration/longer-horizon state despite a high composite rank.
+There were **zero BUY_CONSIDERATION** rows. No fundamentals or news score was
+invented to turn these observations into a buy proposal.
+
+Local initial publication evidence: 45 distinct new tests plus 12 existing
+tests passed. Follow-up regressions bring this to **51 distinct new tests plus
+12 existing tests**. Python `-O` repeats the same 51 cases. The first remote
+matrix run `35489119713` exposed one packaging omission: the test reads its
+workflow YAML but sparse checkout omitted `.github`. Added the declared path;
+the test remains mandatory and unchanged. This does not weaken a data gate.
+
+Independent Codex review of initial head `516c15fc2faf2f2f31ebfd0726630dcf5a303796`
+identified four P1 defects. The follow-up adds regressions and fixes: risk-blocked
+results cannot return CLI success or be consumed, normalized ETF availability
+must precede the cutoff, carried ETF vehicle weights obey the security ceiling,
+and payload flags cannot override a registry corporate-action quarantine.
+The updated head requires its own CI and independent review before merge.
 
 No verified current Top Leaders, BUY_CONSIDERATION, replacement trades or
 CAGR/MDD are reported. The replay preflight exposes A–E comparisons and six
