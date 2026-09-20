@@ -226,8 +226,12 @@ def collect_since(*, source_url: str, channel: str, last_post_id: int, max_pages
         if min_seen is None or min_seen > last_post_id + 1:
             gap_unresolved = True
     new_posts = [all_posts[k] for k in sorted(all_posts) if k > last_post_id]
-    if new_posts and new_posts[0].post_id > last_post_id + 1:
-        gap_unresolved = True
+    expected_post_id = last_post_id + 1
+    for post in new_posts:
+        if post.post_id != expected_post_id:
+            gap_unresolved = True
+            break
+        expected_post_id += 1
     meta = {
         "pages_fetched": len(page_hashes),
         "page_receipts": page_hashes,

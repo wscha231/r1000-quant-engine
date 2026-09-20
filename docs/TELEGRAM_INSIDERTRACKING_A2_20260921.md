@@ -96,13 +96,13 @@ separate causal change and must not be inferred from a Telegram source label.
 
 Local isolated source validation before publication:
 
-- `python tests/telegram_event_ingest_smoke.py`: 13/13 PASS
-- `python -O tests/telegram_event_ingest_smoke.py`: 13/13 PASS
+- `python tests/telegram_event_ingest_smoke.py`: 14/14 PASS
+- `python -O tests/telegram_event_ingest_smoke.py`: 14/14 PASS
 
 Regressions cover HTML identity/time/text parsing, HTML void elements, A2
 zero-score authority boundary, multi-page gap recovery, unresolved-gap state
 preservation, malformed checkpoint rejection, checkpoint/event-log hash mismatch,
-event-log/checkpoint ordering, fixed approved-source URL enforcement, rejection of future Telegram timestamps, checkpoint-ahead/log-behind rejection, internal event-log gap rejection, and refusal to bootstrap a non-seed checkpoint from an empty log.
+event-log/checkpoint ordering, fixed approved-source URL enforcement, rejection of future Telegram timestamps, checkpoint-ahead/log-behind rejection, new-source/internal event-log gap rejection, and refusal to bootstrap a non-seed checkpoint from an empty log.
 
 A local native clone was attempted but the execution environment could not
 resolve `github.com`. Publication therefore must use the repository's established

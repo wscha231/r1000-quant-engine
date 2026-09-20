@@ -112,6 +112,18 @@ class TestTelegramIngest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"checkpoint_event_log_hash_mismatch"):
             build_outputs(channel="insidertracking",source_url="https://t.me/s/insidertracking",checkpoint_raw=cp,event_log_raw=b"",initial_last_post_id=0,fetcher=lambda u:page([(64208,"2026-09-20T19:00:00+00:00","Oil")]))
 
+    def test_new_source_internal_gap_does_not_advance(self):
+        p=page([
+            (64208,"2026-09-20T18:00:00+00:00","Fed"),
+            (64210,"2026-09-20T18:02:00+00:00","Oil"),
+        ])
+        out=build_outputs(channel="insidertracking",source_url="https://t.me/s/insidertracking",checkpoint_raw=None,event_log_raw=None,initial_last_post_id=64207,max_pages=1,fetcher=lambda u:p,collected_at="2026-09-20T18:03:00Z")
+        cp=json.loads(out["checkpoint.json"])
+        self.assertTrue(cp["gap_unresolved"])
+        self.assertEqual(cp["last_post_id"],64207)
+        self.assertEqual(out["events.ndjson"],b"")
+        self.assertEqual(json.loads(out["a2_discovery_inputs.json"])["events"],[])
+
     def test_checkpoint_ahead_of_event_log_fails_closed(self):
         event={
             "schema_version":"telegram-insidertracking-event-v1","channel":"insidertracking","post_id":64208,
