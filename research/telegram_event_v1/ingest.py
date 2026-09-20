@@ -289,12 +289,11 @@ def collect_since(*, source_url: str, channel: str, last_post_id: int, max_pages
         if min_seen is None or min_seen > last_post_id + 1:
             gap_unresolved = True
     new_posts = [all_posts[k] for k in sorted(all_posts) if k > last_post_id]
-    expected_post_id = last_post_id + 1
-    for post in new_posts:
-        if post.post_id != expected_post_id:
-            gap_unresolved = True
-            break
-        expected_post_id += 1
+    # Telegram message IDs can legitimately have holes (for example deleted or
+    # non-public messages). Completeness is therefore defined by crossing the
+    # durable checkpoint boundary in the public archive, not by requiring every
+    # integer ID to exist. If bounded pagination never reaches that boundary,
+    # fail closed instead of advancing.
     meta = {
         "pages_fetched": len(page_hashes),
         "page_receipts": page_hashes,
@@ -350,14 +349,43 @@ def build_event(post: ParsedPost, collected_at: str) -> dict:
     }
 
 
-def parse_checkpoint(raw: bytes | None, *, channel: str, initial_last_post_id: int) -> tuple[dict, str | None]:
+def _seed_event_chain(channel: str, initial_last_post_id: int) -> str:
+    return sha256_bytes(canonical_json_bytes({
+        "domain": "telegram-event-chain-seed-v1",
+        "channel": channel.lower(),
+        "seed_last_post_id": initial_last_post_id,
+    }))
+
+
+def _extend_event_chain(previous_chain: str, *, event_delta_sha256: str, first_post_id: int, last_post_id: int, event_count: int) -> str:
+    if not HEX64_RE.fullmatch(previous_chain):
+        raise ValueError("invalid_previous_event_chain")
+    if not HEX64_RE.fullmatch(event_delta_sha256):
+        raise ValueError("invalid_event_delta_sha256")
+    if event_count < 1 or first_post_id < 0 or last_post_id < first_post_id:
+        raise ValueError("invalid_event_chain_delta_range")
+    return sha256_bytes(canonical_json_bytes({
+        "domain": "telegram-event-chain-link-v1",
+        "previous_event_chain_sha256": previous_chain,
+        "event_delta_sha256": event_delta_sha256,
+        "first_post_id": first_post_id,
+        "last_post_id": last_post_id,
+        "event_count": event_count,
+    }))
+
+
+def parse_checkpoint(raw: bytes | None, *, channel: str, source_url: str, initial_last_post_id: int) -> tuple[dict, str | None]:
+    validate_source_url(source_url, channel)
+    seed_chain = _seed_event_chain(channel, initial_last_post_id)
     if raw is None or not raw.strip():
         if initial_last_post_id < 0:
             raise ValueError("invalid_initial_last_post_id")
         return {
             "schema_version": CHECKPOINT_SCHEMA,
             "channel": channel.lower(),
+            "source_url": source_url,
             "last_post_id": initial_last_post_id,
+            "event_chain_sha256": seed_chain,
             "bootstrap_seed": True,
         }, None
     try:
@@ -368,15 +396,18 @@ def parse_checkpoint(raw: bytes | None, *, channel: str, initial_last_post_id: i
         raise ValueError("invalid_checkpoint_schema")
     if value.get("channel") != channel.lower():
         raise ValueError("checkpoint_channel_mismatch")
+    if value.get("source_url") != source_url:
+        raise ValueError("checkpoint_source_mismatch")
     pid = value.get("last_post_id")
-    if isinstance(pid, bool) or not isinstance(pid, int) or pid < 0:
+    if isinstance(pid, bool) or not isinstance(pid, int) or pid < initial_last_post_id:
         raise ValueError("invalid_checkpoint_post_id")
+    chain = str(value.get("event_chain_sha256") or "")
+    if not HEX64_RE.fullmatch(chain):
+        raise ValueError("invalid_checkpoint_event_chain")
     return value, sha256_bytes(raw)
 
 
-def parse_existing_events(raw: bytes | None, channel: str) -> list[dict]:
-    if raw is None or not raw.strip():
-        return []
+def parse_event_delta(raw: bytes, *, channel: str, previous_last_post_id: int, current_last_post_id: int) -> list[dict]:
     out = []
     seen = set()
     for lineno, line in enumerate(raw.splitlines(), 1):
@@ -385,15 +416,22 @@ def parse_existing_events(raw: bytes | None, channel: str) -> list[dict]:
         try:
             row = json.loads(line)
         except Exception as exc:
-            raise ValueError(f"invalid_event_log_json:{lineno}") from exc
+            raise ValueError(f"invalid_event_delta_json:{lineno}") from exc
         if row.get("schema_version") != EVENT_SCHEMA or row.get("channel") != channel.lower():
-            raise ValueError(f"invalid_event_log_row:{lineno}")
+            raise ValueError(f"invalid_event_delta_row:{lineno}")
         pid = row.get("post_id")
-        if isinstance(pid, bool) or not isinstance(pid, int) or pid < 0 or pid in seen:
-            raise ValueError(f"invalid_or_duplicate_event_id:{lineno}")
+        if isinstance(pid, bool) or not isinstance(pid, int) or pid <= previous_last_post_id or pid in seen:
+            raise ValueError(f"invalid_or_duplicate_event_delta_id:{lineno}")
+        if out and pid <= out[-1]["post_id"]:
+            raise ValueError(f"event_delta_not_strictly_ascending:{lineno}")
         seen.add(pid)
         out.append(row)
-    out.sort(key=lambda r: r["post_id"])
+    if not out:
+        if current_last_post_id != previous_last_post_id:
+            raise ValueError("empty_delta_with_advanced_checkpoint")
+        return []
+    if out[-1]["post_id"] != current_last_post_id:
+        raise ValueError("event_delta_last_post_mismatch")
     return out
 
 
@@ -401,60 +439,97 @@ def encode_ndjson(rows: Iterable[dict]) -> bytes:
     return b"".join(canonical_json_bytes(row) for row in rows)
 
 
-def validate_event_chain(*, events: list[dict], last_post_id: int, initial_last_post_id: int) -> None:
-    if not events:
-        if last_post_id != initial_last_post_id:
-            raise ValueError("checkpoint_ahead_of_empty_event_log")
-        return
-    if events[0]["post_id"] != initial_last_post_id + 1:
-        raise ValueError("event_log_initial_gap")
-    for prior, current in zip(events, events[1:]):
-        if current["post_id"] != prior["post_id"] + 1:
-            raise ValueError("event_log_internal_gap")
-    if events[-1]["post_id"] != last_post_id:
-        if events[-1]["post_id"] > last_post_id:
-            raise ValueError("event_log_ahead_of_checkpoint")
-        raise ValueError("checkpoint_ahead_of_event_log")
+def verify_run_bundle(*, checkpoint_raw: bytes, event_delta_raw: bytes, a2_raw: bytes, receipt_raw: bytes, channel: str, source_url: str, initial_last_post_id: int) -> None:
+    checkpoint, _ = parse_checkpoint(
+        checkpoint_raw,
+        channel=channel,
+        source_url=source_url,
+        initial_last_post_id=initial_last_post_id,
+    )
+    try:
+        receipt = json.loads(receipt_raw.decode("utf-8"))
+        a2 = json.loads(a2_raw.decode("utf-8"))
+    except Exception as exc:
+        raise ValueError("invalid_run_bundle_json") from exc
+    if receipt.get("schema_version") != "telegram-insidertracking-receipt-v1":
+        raise ValueError("invalid_receipt_schema")
+    if receipt.get("channel") != channel.lower() or a2.get("channel") != channel.lower():
+        raise ValueError("run_bundle_channel_mismatch")
+    if a2.get("schema_version") != A2_SCHEMA or a2.get("source_url") != source_url:
+        raise ValueError("invalid_a2_bundle")
+    if receipt.get("checkpoint_sha256") != sha256_bytes(checkpoint_raw):
+        raise ValueError("receipt_checkpoint_hash_mismatch")
+    if receipt.get("event_delta_sha256") != sha256_bytes(event_delta_raw):
+        raise ValueError("receipt_event_delta_hash_mismatch")
+    if receipt.get("a2_discovery_sha256") != sha256_bytes(a2_raw):
+        raise ValueError("receipt_a2_hash_mismatch")
+    if receipt.get("event_chain_sha256") != checkpoint.get("event_chain_sha256"):
+        raise ValueError("receipt_event_chain_mismatch")
+    if checkpoint.get("event_delta_committed") is not True or receipt.get("event_delta_committed") is not True:
+        raise ValueError("uncommitted_event_delta_in_latest_bundle")
+    previous_last = checkpoint.get("previous_last_post_id")
+    if isinstance(previous_last, bool) or not isinstance(previous_last, int):
+        raise ValueError("invalid_checkpoint_previous_last_post_id")
+    parse_event_delta(
+        event_delta_raw,
+        channel=channel,
+        previous_last_post_id=previous_last,
+        current_last_post_id=checkpoint["last_post_id"],
+    )
+    if a2.get("score_contribution") != 0.0 or a2.get("research_only") is not True:
+        raise ValueError("invalid_a2_authority_boundary")
+    for row in a2.get("events") or []:
+        if row.get("score_contribution") != 0.0 or row.get("requires_independent_verification") is not True:
+            raise ValueError("invalid_a2_event_authority_boundary")
 
 
-def build_outputs(*, channel: str, source_url: str, checkpoint_raw: bytes | None, event_log_raw: bytes | None, initial_last_post_id: int, max_pages: int = MAX_PAGES_DEFAULT, fetcher=fetch_page, collected_at: str | None = None) -> dict[str, bytes]:
+def build_outputs(*, channel: str, source_url: str, checkpoint_raw: bytes | None, initial_last_post_id: int, max_pages: int = MAX_PAGES_DEFAULT, fetcher=fetch_page, collected_at: str | None = None) -> dict[str, bytes]:
     if not CHANNEL_RE.fullmatch(channel):
         raise ValueError("invalid_channel")
     collected_at = collected_at or _utc_now()
-    old_checkpoint, old_checkpoint_sha = parse_checkpoint(checkpoint_raw, channel=channel, initial_last_post_id=initial_last_post_id)
-    old_events = parse_existing_events(event_log_raw, channel)
-    old_log_sha = sha256_bytes(event_log_raw or b"")
-    expected_log_sha = old_checkpoint.get("event_log_sha256")
-    if expected_log_sha is not None and expected_log_sha != old_log_sha:
-        raise ValueError("checkpoint_event_log_hash_mismatch")
+    _parse_aware_utc(collected_at, "collected_at")
+    old_checkpoint, old_checkpoint_sha = parse_checkpoint(
+        checkpoint_raw,
+        channel=channel,
+        source_url=source_url,
+        initial_last_post_id=initial_last_post_id,
+    )
     last_post_id = old_checkpoint["last_post_id"]
-    validate_event_chain(events=old_events, last_post_id=last_post_id, initial_last_post_id=initial_last_post_id)
-    posts, fetch_meta = collect_since(source_url=source_url, channel=channel, last_post_id=last_post_id, max_pages=max_pages, fetcher=fetcher)
+    previous_event_chain = old_checkpoint["event_chain_sha256"]
+    posts, fetch_meta = collect_since(
+        source_url=source_url,
+        channel=channel,
+        last_post_id=last_post_id,
+        max_pages=max_pages,
+        fetcher=fetcher,
+    )
     new_rows = [build_event(post, collected_at) for post in posts]
-    existing_ids = {row["post_id"] for row in old_events}
-    duplicate_new = [row["post_id"] for row in new_rows if row["post_id"] in existing_ids]
-    if duplicate_new:
-        raise ValueError(f"new_event_already_exists:{duplicate_new[0]}")
-    combined = old_events + new_rows
-    combined.sort(key=lambda r: r["post_id"])
-    new_log_raw = encode_ndjson(combined)
-    new_log_sha = sha256_bytes(new_log_raw)
+    event_delta_raw = encode_ndjson(new_rows)
+    event_delta_sha = sha256_bytes(event_delta_raw)
 
     if fetch_meta["gap_unresolved"]:
         new_last_post_id = last_post_id
+        new_event_chain = previous_event_chain
         status = "BLOCKED_GAP_UNRESOLVED"
         publish_rows = []
         checkpoint_advanced = False
+        event_delta_committed = False
     else:
-        new_last_post_id = max([last_post_id] + [r["post_id"] for r in new_rows])
+        new_last_post_id = max([last_post_id] + [row["post_id"] for row in new_rows])
         status = "READY_DISCOVERY_ONLY" if new_rows else "UNCHANGED"
         publish_rows = new_rows
         checkpoint_advanced = new_last_post_id != last_post_id
-
-    if fetch_meta["gap_unresolved"]:
-        # Preserve durable state exactly when the source interval is incomplete.
-        new_log_raw = event_log_raw or b""
-        new_log_sha = sha256_bytes(new_log_raw)
+        event_delta_committed = True
+        if new_rows:
+            new_event_chain = _extend_event_chain(
+                previous_event_chain,
+                event_delta_sha256=event_delta_sha,
+                first_post_id=new_rows[0]["post_id"],
+                last_post_id=new_rows[-1]["post_id"],
+                event_count=len(new_rows),
+            )
+        else:
+            new_event_chain = previous_event_chain
 
     checkpoint = {
         "schema_version": CHECKPOINT_SCHEMA,
@@ -465,8 +540,10 @@ def build_outputs(*, channel: str, source_url: str, checkpoint_raw: bytes | None
         "checkpoint_advanced": checkpoint_advanced,
         "collected_at": collected_at,
         "previous_checkpoint_sha256": old_checkpoint_sha,
-        "previous_event_log_sha256": old_log_sha,
-        "event_log_sha256": new_log_sha,
+        "previous_event_chain_sha256": previous_event_chain,
+        "event_chain_sha256": new_event_chain,
+        "event_delta_sha256": event_delta_sha,
+        "event_delta_committed": event_delta_committed,
         "status": status,
         "gap_unresolved": bool(fetch_meta["gap_unresolved"]),
         "first_new_post_id": fetch_meta["first_new_post_id"],
@@ -522,8 +599,10 @@ def build_outputs(*, channel: str, source_url: str, checkpoint_raw: bytes | None
         "status": status,
         "previous_checkpoint_sha256": old_checkpoint_sha,
         "checkpoint_sha256": sha256_bytes(checkpoint_bytes),
-        "previous_event_log_sha256": old_log_sha,
-        "event_log_sha256": new_log_sha,
+        "previous_event_chain_sha256": previous_event_chain,
+        "event_chain_sha256": new_event_chain,
+        "event_delta_sha256": event_delta_sha,
+        "event_delta_committed": event_delta_committed,
         "a2_discovery_sha256": sha256_bytes(a2_bytes),
         "new_post_count": len(new_rows),
         "a2_event_count": len(leadership_events),
@@ -539,7 +618,8 @@ def build_outputs(*, channel: str, source_url: str, checkpoint_raw: bytes | None
     }
     return {
         "checkpoint.json": checkpoint_bytes,
-        "events.ndjson": new_log_raw,
+        "events.ndjson": event_delta_raw,
         "a2_discovery_inputs.json": a2_bytes,
         "receipt.json": canonical_json_bytes(receipt),
     }
+

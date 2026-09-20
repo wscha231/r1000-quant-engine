@@ -152,11 +152,20 @@ jobs:
           import os, sys
           from pathlib import Path
           sys.path.insert(0, os.environ['GITHUB_WORKSPACE'])
-          from research.telegram_event_v1.ingest import parse_latest_pointer, verify_latest_pointer_files
+          from research.telegram_event_v1.ingest import parse_latest_pointer, verify_latest_pointer_files, verify_run_bundle
           root=Path(os.environ['RUNNER_TEMP'])/'telegram-state'
           pointer=parse_latest_pointer((root/'latest.json').read_bytes(), channel=os.environ['CHANNEL'], source_url=os.environ['SOURCE_URL'])
           files={name:(root/name).read_bytes() for name in ('checkpoint.json','events.ndjson','a2_discovery_inputs.json','receipt.json')}
           verify_latest_pointer_files(pointer, files)
+          verify_run_bundle(
+              checkpoint_raw=files['checkpoint.json'],
+              event_delta_raw=files['events.ndjson'],
+              a2_raw=files['a2_discovery_inputs.json'],
+              receipt_raw=files['receipt.json'],
+              channel=os.environ['CHANNEL'],
+              source_url=os.environ['SOURCE_URL'],
+              initial_last_post_id=int(os.environ['INITIAL_LAST_POST_ID']),
+          )
           (root/'bootstrap.txt').write_text('false\n')
           PY
           else
@@ -178,9 +187,6 @@ jobs:
           )
           if [ -f "$RUNNER_TEMP/telegram-state/checkpoint.json" ]; then
             args+=(--checkpoint "$RUNNER_TEMP/telegram-state/checkpoint.json")
-          fi
-          if [ -f "$RUNNER_TEMP/telegram-state/events.ndjson" ]; then
-            args+=(--events "$RUNNER_TEMP/telegram-state/events.ndjson")
           fi
           set +e
           python tools/run_telegram_event_ingest.py "${args[@]}"
