@@ -134,7 +134,7 @@ it is not included in the byte-verification claim.
 
 ## Validation and next boundary
 
-48 new unittest methods pass, including an authenticated artifact-to-strict
+49 new unittest methods pass, including an authenticated artifact-to-strict
 runtime synthetic cycle with 1,118 base IDs plus one ADR candidate. Tests cover
 complete ID reconciliation, hash/receipt/document/event binding, producer and
 attempt mismatches, units/partial holdings, calendar/freshness, authority
@@ -163,6 +163,8 @@ recovery identities, same-date ETF revision regression/reuse, padded/lowercase
 security IDs across registry/events/prices/holdings, and post-artifact decisions.
 Repeated observations of an unchanged ETF revision must retain the existing
 snapshot, not append a new transition with the same revision.
+A reproduced boolean ticker/issuer input is rejected; verified identity flags
+cannot replace typed, nonempty canonical identity text.
 
 19 existing monitor tests, 11 existing strict-runtime checks, one benchmark
 anchor check and eight public-output tests also pass. New tests run through the

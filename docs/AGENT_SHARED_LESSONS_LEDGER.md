@@ -5076,3 +5076,6 @@ Expected contract:
   dispatch/commit/run/attempt/job/session and decision timeline. Fix all component
   data/receipt namespaces to prevent cross-role raw aliases. Canonicalize every
   security-reference boundary and reject same-date ETF revision regression/reuse.
+- Identity_verified=true alone allowed boolean issuer/ticker fields into a
+  synthetic admitted queue. Require nonempty canonical text as well as the
+  verified flag; the reproduced case and whitespace variants now block.

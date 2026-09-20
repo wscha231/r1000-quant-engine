@@ -189,7 +189,10 @@ def _payload(parts, bundle, policy, expected_session, now):
     registry = {r["security_id"]: r for r in securities}
     require(len(registry) == len(securities) and set(ids).issubset(registry), "registry_coverage")
     for row in securities:
-        require(row.get("issuer_id") and row.get("ticker") and row.get("currency") == "USD"
+        issuer, ticker = row.get("issuer_id"), row.get("ticker")
+        require(isinstance(issuer, str) and issuer and issuer == issuer.strip()
+                and isinstance(ticker, str) and ticker and ticker == ticker.strip().upper()
+                and row.get("currency") == "USD"
                 and row.get("identity_verified") is True
                 and isinstance(row.get("research_eligible"), bool), "security_identity_unverified")
     documents = parts["documents"]

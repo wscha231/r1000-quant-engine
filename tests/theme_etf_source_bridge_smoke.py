@@ -359,6 +359,16 @@ class BridgeTests(unittest.TestCase):
         self.parts["securities"][0]["identity_verified"] = "false"
         self.check_blocked("security_identity_unverified")
 
+    def test_issuer_and_ticker_are_canonical_text(self):
+        row = self.parts["securities"][-1]
+        original = copy.deepcopy(row)
+        for key, bad in (("issuer_id", True), ("issuer_id", " "), ("issuer_id", " issuer "),
+                         ("ticker", True), ("ticker", " "), ("ticker", "syn_new"), ("ticker", " SYN_NEW ")):
+            with self.subTest(key=key, bad=bad):
+                row.update(original)
+                row[key] = bad
+                self.check_blocked("security_identity_unverified")
+
     def test_raw_bytes_mismatch(self):
         self.check_blocked("member_hash_mismatch", lambda f, b, n: f.__setitem__(
             "outputs/theme_etf_bridge/prices/raw/source.json", b"tampered"))
