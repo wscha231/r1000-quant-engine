@@ -1,0 +1,207 @@
+{
+  "schema_version": "agent-contracts-v2",
+  "phase": "CONTRACT_ONLY",
+  "orchestrator": "A0",
+  "specialist_dispatch_enabled": false,
+  "authority": {
+    "research_only": true,
+    "execute": false,
+    "target": false,
+    "broker": false,
+    "scheduler": false,
+    "promotion": false,
+    "peer_dispatch": false
+  },
+  "mission": {
+    "main": {
+      "net_cagr_min": 0.35,
+      "mdd_loss_max": 0.25
+    },
+    "concentrated": {
+      "net_cagr_min": 0.5,
+      "mdd_loss_max": 0.25
+    }
+  },
+  "operating_gate_source": "r1000_config.py:PORTFOLIO_GOAL_TARGETS",
+  "agents": {
+    "A0": {
+      "name": "Orchestrator",
+      "role": "State, dependencies and task assignment",
+      "inputs": [
+        "system_state"
+      ],
+      "outputs": [
+        "agent_task_queue",
+        "board_summary"
+      ],
+      "dependencies": [],
+      "mode": "PROPOSAL_ONLY",
+      "dispatch_via": "A0",
+      "can_call_agents": false,
+      "reuse_candidates": []
+    },
+    "A1": {
+      "name": "Data/PIT",
+      "role": "Freshness, identity, PIT, corporate actions and availability",
+      "inputs": [
+        "source_inventory"
+      ],
+      "outputs": [
+        "data_pit"
+      ],
+      "dependencies": [],
+      "mode": "PROPOSAL_ONLY",
+      "dispatch_via": "A0",
+      "can_call_agents": false,
+      "reuse_candidates": [
+        "r1000_legacy_input_guard.py"
+      ]
+    },
+    "A2": {
+      "name": "Leadership/Event",
+      "role": "RS, breadth, themes, ETF, SEC and news discovery",
+      "inputs": [
+        "data_pit",
+        "discovery_inputs"
+      ],
+      "outputs": [
+        "leadership_events"
+      ],
+      "dependencies": [
+        "A1"
+      ],
+      "mode": "PROPOSAL_ONLY",
+      "dispatch_via": "A0",
+      "can_call_agents": false,
+      "reuse_candidates": [
+        "tools/theme_etf_source_bridge.py",
+        "tools/run_multi_asset_leadership.py"
+      ]
+    },
+    "A3": {
+      "name": "Expected Return/Thesis",
+      "role": "Equity, commodity and BTC/ETH ER1/3/6/12m; no invented missing horizon",
+      "inputs": [
+        "data_pit",
+        "leadership_events",
+        "thesis_inputs"
+      ],
+      "outputs": [
+        "expected_return"
+      ],
+      "dependencies": [
+        "A1",
+        "A2"
+      ],
+      "mode": "PROPOSAL_ONLY",
+      "dispatch_via": "A0",
+      "can_call_agents": false,
+      "reuse_candidates": [
+        "research/multi_asset_v1/decisions.py"
+      ]
+    },
+    "A4": {
+      "name": "Macro/Regime",
+      "role": "Rates, credit, liquidity, volatility and regime evidence",
+      "inputs": [
+        "data_pit",
+        "macro_inputs"
+      ],
+      "outputs": [
+        "regime"
+      ],
+      "dependencies": [
+        "A1"
+      ],
+      "mode": "PROPOSAL_ONLY",
+      "dispatch_via": "A0",
+      "can_call_agents": false,
+      "reuse_candidates": [
+        "r1000_regime_data.py"
+      ]
+    },
+    "A5": {
+      "name": "Portfolio",
+      "role": "Risk-adjusted competition of verified ER; proposal only",
+      "inputs": [
+        "expected_return",
+        "regime",
+        "qa_report",
+        "portfolio_context"
+      ],
+      "outputs": [
+        "target_proposal"
+      ],
+      "dependencies": [
+        "A3",
+        "A4",
+        "A6"
+      ],
+      "mode": "PROPOSAL_ONLY",
+      "dispatch_via": "A0",
+      "can_call_agents": false,
+      "reuse_candidates": [
+        "research/multi_asset_v1/decisions.py"
+      ]
+    },
+    "A6": {
+      "name": "Independent QA",
+      "role": "Read-only PIT/leakage/claims and Red Team; return findings to A0",
+      "inputs": [
+        "review_bundle"
+      ],
+      "outputs": [
+        "qa_report"
+      ],
+      "dependencies": [],
+      "mode": "READ_ONLY",
+      "dispatch_via": "A0",
+      "can_call_agents": false,
+      "reuse_candidates": [
+        "tools/run_pr_validation.py"
+      ]
+    },
+    "A7": {
+      "name": "Ops/Publishing",
+      "role": "Artifact, receipt, Drive and daily report proposal",
+      "inputs": [
+        "qa_report",
+        "publishing_inputs"
+      ],
+      "outputs": [
+        "publication_proposal"
+      ],
+      "dependencies": [
+        "A6"
+      ],
+      "mode": "PROPOSAL_ONLY",
+      "dispatch_via": "A0",
+      "can_call_agents": false,
+      "reuse_candidates": [
+        "tools/run_run287_daily_research_monitor.py"
+      ]
+    },
+    "A8": {
+      "name": "Learning",
+      "role": "Matured outcomes and failed experiments; challenger proposals only",
+      "inputs": [
+        "matured_outcomes",
+        "failed_experiments",
+        "qa_report"
+      ],
+      "outputs": [
+        "challenger_proposal"
+      ],
+      "dependencies": [
+        "A1",
+        "A6"
+      ],
+      "mode": "PROPOSAL_ONLY",
+      "dispatch_via": "A0",
+      "can_call_agents": false,
+      "reuse_candidates": [
+        "docs/run287_do_not_repeat_registry.json"
+      ]
+    }
+  }
+}

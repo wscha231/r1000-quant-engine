@@ -1,5 +1,19 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-20 — Control-plane proposals need current identity, not old baseline labels
+
+- Replace the board's May role/baseline authority with explicit A0–A8 contracts;
+  mission and the existing temporary operating gate are separate fields.
+- Queue creation is not task success. Exact reuse requires the five identity
+  dimensions plus matching successful output bytes and fresh provenance. Include
+  dependency results and context in identity; a changed receipt invalidates reuse.
+- A6 must inspect failures read-only without waiting for failed upstream work to
+  succeed. Peer dispatch, model calls and automatic promotion are absent.
+- Existing manual workflow defaults point at legacy metrics. Without a v2 state,
+  block explicitly rather than silently treating those files as current evidence.
+- Reuse the registered board smoke entrypoint; do not alter the frozen Tier-1
+  runner or install a second scheduler. See CONTROL_PLANE_V2_PHASE1_20260920.md.
+
 ## 2026-09-20 — Observed commodity/network data is not calibrated alpha
 
 - Multi-asset issue #465: EIA storage has a weekly observation date and a
