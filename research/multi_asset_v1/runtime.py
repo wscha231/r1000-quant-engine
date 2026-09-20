@@ -36,6 +36,9 @@ def metric_rows(rows, cutoff, policy):
             identifier(row.get("subject_id"))
             spec=policy["metric_units"].get(row.get("metric"))
             require(spec is not None and row.get("unit") in spec,"metric_unit")
+            if row.get("unit")=="TOKEN":
+                require(row.get("subject_id") in {"BTC","ETH"}
+                        and row.get("currency")==row["subject_id"],"metric_token_currency")
             number(row.get("value"))
             result.append({**row,"admission":"OBSERVED"})
         except ContractError as exc:
@@ -193,7 +196,9 @@ def run(payload, registry, policy):
     crypto=[]
     for aid,a in assets.items():
         if a["asset_class"]!="CRYPTO":continue
-        item={"asset_id":aid,"utc_calendar":None,"nyse_snapshot":next((r for r in rows if r["asset_id"]==aid),None),"status":"BLOCKED"}
+        item={"asset_id":aid,"utc_calendar":None,"nyse_snapshot":next((r for r in rows if r["asset_id"]==aid),None),"status":"BLOCKED",
+              "metrics":[r for r in metrics if r["subject_id"]==a["underlying"]],
+              "network_score":None,"network_score_status":"NO_VALIDATED_NETWORK_MODEL"}
         try:
             series=admit_prices(groups[(aid,"UTC_DAY")],a,cutoff,policy,sessions,"UTC_DAY")
             keys=sorted(series)
@@ -289,6 +294,11 @@ def render(result):
            "", "| Asset | Price status | Discovery rank | ER 12m | Portfolio status |", "|---|---|---:|---:|---|"]
     for r in rows:
         lines.append(f"| {r['symbol']} | {r['data_quality']} | {r['discovery_rank']} | {r['expected_return_12m']} | {r['portfolio_status']} |")
+    lines.extend(["", "## Commodity and network observations", "",
+                  "Current observations only; source history is not certified PIT. Network activity is not an adoption or expected-return score.",
+                  "", "| Subject | Metric | Value | Unit | Observation | Admission |", "|---|---|---:|---|---|---|"])
+    for r in result["metrics"]:
+        lines.append(f"| {r['subject_id']} | {r['metric']} | {r['value']} | {r['unit']} | {r['observed_at']} | {r['admission']} |")
     lines.extend(["", "## Blockers", ""])
     lines.extend(f"- {r['symbol']}: {', '.join(r['blockers'])}" for r in rows if r["blockers"])
     lines.extend(["", "## Portfolio exposure changes", "", f"Proposal: {result['proposal']['status']}. Accepted targets and orders: unchanged.",

@@ -99,6 +99,7 @@ jobs:
           name: multi-asset-research-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             outputs/multi_asset/attempts/
+            outputs/multi_asset/captures/
             outputs/multi_asset/latest_attempt.json
           if-no-files-found: error
           retention-days: 45

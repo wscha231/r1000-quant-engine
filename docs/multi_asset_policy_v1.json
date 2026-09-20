@@ -19,26 +19,36 @@
   },
   "sources": {
     "CANONICAL_HISTORY": {
-      "kinds": ["history_availability"],
+      "kinds": [
+        "history_availability"
+      ],
       "max_age_days": 40
     },
     "CANONICAL_UNIVERSE": {
-      "kinds": ["base_universe"],
+      "kinds": [
+        "base_universe"
+      ],
       "max_age_days": 4
     },
     "CANONICAL_BOOK": {
-      "kinds": ["positions"],
+      "kinds": [
+        "positions"
+      ],
       "max_age_days": 4
     },
     "YAHOO_CHART": {
-      "return_bases": ["PROVIDER_ADJUSTED_CLOSE_PROXY"],
+      "return_bases": [
+        "PROVIDER_ADJUSTED_CLOSE_PROXY"
+      ],
       "kinds": [
         "price"
       ],
       "max_age_days": 4
     },
     "CANONICAL_PRICE_ARCHIVE": {
-      "return_bases": ["TOTAL_RETURN"],
+      "return_bases": [
+        "TOTAL_RETURN"
+      ],
       "kinds": [
         "price"
       ],
@@ -99,7 +109,9 @@
       "max_age_days": 4
     },
     "COINBASE_EXCHANGE": {
-      "return_bases": ["TOTAL_RETURN"],
+      "return_bases": [
+        "TOTAL_RETURN"
+      ],
       "kinds": [
         "price"
       ],
@@ -110,6 +122,18 @@
         "metric"
       ],
       "max_age_days": 10
+    },
+    "EIA_STORAGE": {
+      "kinds": [
+        "metric"
+      ],
+      "max_age_days": 14
+    },
+    "COINMETRICS_COMMUNITY": {
+      "kinds": [
+        "metric"
+      ],
+      "max_age_days": 4
     }
   },
   "reviewed_pins": {
@@ -190,7 +214,8 @@
       "TOKEN"
     ],
     "fees": [
-      "USD"
+      "USD",
+      "TOKEN"
     ],
     "stablecoin_supply": [
       "USD"
@@ -218,6 +243,24 @@
     ],
     "blob_activity": [
       "COUNT"
+    ],
+    "inventory_5y_average": [
+      "BCF"
+    ],
+    "inventory_weekly_change": [
+      "BCF"
+    ],
+    "inventory_vs_5y_average": [
+      "FRACTION"
+    ],
+    "active_addresses": [
+      "COUNT"
+    ],
+    "transactions": [
+      "COUNT"
+    ],
+    "circulating_supply": [
+      "TOKEN"
     ]
   },
   "production_activation_allowed": false,
