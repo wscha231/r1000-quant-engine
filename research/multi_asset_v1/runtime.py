@@ -9,6 +9,7 @@ from .contracts import (ContractError, ER_HORIZONS, HORIZONS, day, digest, ident
                         metadata, number, pinned, registry_rows, require, stamp, unique)
 from .prices import BASE_RS_WEIGHTS, admit_prices, cross_section, grid, one_asset
 from .decisions import COMPONENTS, classify, evaluation, event_memory, lookthrough, propose
+from .fundamentals import receipt_blockers
 
 
 def feature_identity(payload, registry):
@@ -119,10 +120,8 @@ def run(payload, registry, policy):
     require(benchmark in assets,"benchmark_registry")
     events=event_memory(payload.get("events",[]),assets,cutoff,policy)
     metrics=metric_rows(payload.get("metrics",[]),cutoff,policy)
-    fundamental_collection_blocked=any(
-        r.get("source") in {"EIA_STORAGE","COINMETRICS_COMMUNITY"}
-        and r.get("status")!="CAPTURED_CURRENT_ONLY"
-        for r in payload.get("collection_receipts",[]))
+    fundamental_collection_blockers=receipt_blockers(metrics,payload.get("collection_receipts",[]))
+    fundamental_collection_blocked=bool(fundamental_collection_blockers)
     for metric in metrics:
         require(metric["subject_id"] in assets or metric["subject_id"] in underlyings,"unknown_metric_subject")
     rows=[]
@@ -277,6 +276,7 @@ def run(payload, registry, policy):
             "feature_sha256":identity,"registry_sha256":digest(registry),"policy_sha256":digest(policy),
             "feature_available_at":feature_time,
             "fundamental_collection_blocked":fundamental_collection_blocked,
+            "fundamental_collection_blockers":fundamental_collection_blockers,
             "ranking_scope":"SUBMITTED_COHORT" if global_ranking_ready else "INCOMPLETE_EVALUATION_COVERAGE" if complete_base else "INCOMPLETE_BASE_UNIVERSE",
             "global_ranking_ready":global_ranking_ready,
             "base_universe_blockers":base_blockers,

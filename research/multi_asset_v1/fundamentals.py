@@ -12,7 +12,7 @@ from urllib.parse import urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from tools.macro_history_sources import exclusive, request_bytes
-from .contracts import day, load_json, number, require, stamp
+from .contracts import ContractError, day, load_json, number, require, stamp
 
 EIA_URL = "https://ir.eia.gov/ngs/wngsr.json"
 NETWORK = {
@@ -24,6 +24,50 @@ NETWORK = {
             "TxCnt": ("transactions", "COUNT", 1),
             "SplyCur": ("circulating_supply", "TOKEN", 1)},
 }
+
+
+def receipt_blockers(metrics, receipts):
+    """A claimed capture must contain the entire fixed request/observation set.
+
+    Generic reviewed metric inputs predate this producer and remain supported;
+    once either its rows or receipts appear, partial producer evidence cannot
+    authorize an evaluator even if a caller separately reviewed sparse inputs.
+    """
+    sources = {"EIA_STORAGE", "COINMETRICS_COMMUNITY"}
+    observations = [r for r in metrics if r.get("source") in sources]
+    collected = [r for r in receipts if r.get("source") in sources]
+    if not observations and not collected:
+        return []
+    expected = {("EIA_STORAGE", "NATURAL_GAS", "WNGSR"):
+                {"inventory": "BCF", "inventory_5y_average": "BCF",
+                 "inventory_weekly_change": "BCF", "inventory_vs_5y_average": "FRACTION"}}
+    for subject, specs in NETWORK.items():
+        for series, (metric, unit, _) in specs.items():
+            expected[("COINMETRICS_COMMUNITY", subject, series)] = {metric: unit}
+    try:
+        keys = [(r.get("source"), r.get("subject_id"), r.get("series")) for r in collected]
+        require(len(keys) == len(set(keys)), "fundamental_receipt_duplicate")
+        require(set(keys) == set(expected), "fundamental_receipt_set")
+        used = set()
+        for receipt, key in zip(collected, keys):
+            require(receipt.get("status") == "CAPTURED_CURRENT_ONLY", "fundamental_receipt_status")
+            spec = expected[key]
+            matching = [(i, r) for i, r in enumerate(observations)
+                        if r.get("source") == key[0] and r.get("subject_id") == key[1]
+                        and (key[0] == "EIA_STORAGE" or r.get("source_metric") == key[2])]
+            require(type(receipt.get("rows")) is int
+                    and receipt["rows"] == len(matching) == len(spec), "fundamental_receipt_count")
+            require({r.get("metric") for _, r in matching} == set(spec), "fundamental_receipt_metrics")
+            for i, row in matching:
+                require(row.get("admission") == "OBSERVED"
+                        and row.get("unit") == spec[row["metric"]]
+                        and row.get("raw_sha256") == receipt.get("raw_sha256"),
+                        "fundamental_receipt_evidence")
+                used.add(i)
+        require(len(used) == len(observations), "fundamental_unclaimed_metric")
+    except (ContractError, TypeError, KeyError) as exc:
+        return [str(exc) if isinstance(exc, ContractError) else "fundamental_receipt_schema"]
+    return []
 
 
 def eia_url(url):

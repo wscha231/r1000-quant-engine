@@ -914,6 +914,54 @@ class FundamentalSources(unittest.TestCase):
         workflow=(ROOT/'.github/workflows/multi_asset_leadership_v1.yml').read_text()
         self.assertIn('outputs/multi_asset/captures/',workflow)
 
+    def complete_capture_fixture(self):
+        from research.multi_asset_v1.fundamentals import capture_fundamentals
+        from research.multi_asset_v1.contracts import stamp
+        from urllib.parse import urlsplit,parse_qs
+        def fetch(url):
+            q=parse_qs(urlsplit(url).query)
+            return encoded(self.cm(q['assets'][0],q['metrics'][0],'10',q['end_time'][0]))
+        with tempfile.TemporaryDirectory() as tmp:
+            rows,receipts=capture_fundamentals(Path(tmp),fetch,lambda _:encoded(self.gas_data),lambda:stamp(CUTOFF))
+        p,r,policy=fixture();p.update(metrics=rows,collection_receipts=receipts)
+        return p,r,policy
+
+    def test_complete_fundamental_receipts_match_all_admitted_rows(self):
+        p,r,policy=self.complete_capture_fixture();reviewed(p,r,policy);risk(p,r,policy)
+        result=run(p,r,policy)
+        self.assertEqual(len(result['metrics']),11)
+        self.assertEqual(result['fundamental_collection_blockers'],[])
+        self.assertTrue(result['global_ranking_ready'])
+        self.assertEqual(result['proposal']['status'],'RESEARCH_PROPOSAL')
+
+    def test_success_receipt_contradictions_block_reviewed_sparse_er(self):
+        for mutation in ['missing_gas','missing_network','wrong_count','wrong_hash','wrong_series',
+                         'duplicate_receipt','missing_receipt','unclaimed_metric','all_metrics_removed']:
+            p,r,policy=self.complete_capture_fixture()
+            if mutation=='missing_gas':p['metrics'].pop(0)
+            elif mutation=='missing_network':p['metrics'].pop()
+            elif mutation=='wrong_count':p['collection_receipts'][0]['rows']=3
+            elif mutation=='wrong_hash':p['collection_receipts'][0]['raw_sha256']='f'*64
+            elif mutation=='wrong_series':p['collection_receipts'][1]['series']='FeeTotNtv'
+            elif mutation=='duplicate_receipt':p['collection_receipts'].append(copy.deepcopy(p['collection_receipts'][0]))
+            elif mutation=='missing_receipt':p['collection_receipts'].pop()
+            elif mutation=='unclaimed_metric':
+                extra=copy.deepcopy(p['metrics'][-1]);extra['source_metric']='Other';extra['metric']='issuance';p['metrics'].append(extra)
+            elif mutation=='all_metrics_removed':p['metrics']=[]
+            reviewed(p,r,policy);risk(p,r,policy)
+            with self.subTest(mutation=mutation):
+                result=run(p,r,policy)
+                self.assertTrue(result['fundamental_collection_blocked'])
+                self.assertFalse(result['global_ranking_ready'])
+                self.assertEqual(result['proposal']['status'],'BLOCKED')
+
+    def test_fundamental_rows_without_receipts_cannot_authorize_er(self):
+        p,r,policy=self.complete_capture_fixture();p['collection_receipts']=[]
+        reviewed(p,r,policy)
+        result=run(p,r,policy)
+        self.assertTrue(result['fundamental_collection_blocked'])
+        self.assertFalse(result['global_ranking_ready'])
+
     def test_failed_fundamental_receipt_blocks_even_reviewed_sparse_er(self):
         for status in ['BLOCKED','PARTIAL_MISSING']:
             p,r,policy=fixture()
