@@ -25,6 +25,75 @@ ARTIFACT_KINDS = {
     "SOURCE_GRAPH",
     "VALIDATED_ER_EVALUATION",
 }
+SOURCE_GRAPH_TYPES = {
+    "SEC_FILING",
+    "COMPANY_IR",
+    "CUSTOMER_DISCLOSURE",
+    "GOVERNMENT",
+    "REGULATOR",
+    "CENTRAL_BANK",
+    "EXCHANGE",
+    "COURT",
+    "PATENT_RECORD",
+    "INDUSTRY_DATA",
+    "MARKET_DATA",
+    "REUTERS",
+    "OTHER_INDEPENDENT_MEDIA",
+    "TELEGRAM_SECONDARY",
+}
+SOURCE_AFFILIATIONS = {
+    "ISSUER",
+    "CUSTOMER",
+    "GOVERNMENT",
+    "REGULATOR",
+    "CENTRAL_BANK",
+    "EXCHANGE",
+    "COURT",
+    "PATENT_OFFICE",
+    "INDUSTRY_THIRD_PARTY",
+    "INDEPENDENT_MEDIA",
+    "COMMUNITY_SECONDARY",
+}
+SOURCE_TYPE_AFFILIATIONS = {
+    "SEC_FILING": {"ISSUER"},
+    "COMPANY_IR": {"ISSUER"},
+    "CUSTOMER_DISCLOSURE": {"CUSTOMER"},
+    "GOVERNMENT": {"GOVERNMENT"},
+    "REGULATOR": {"REGULATOR"},
+    "CENTRAL_BANK": {"CENTRAL_BANK"},
+    "EXCHANGE": {"EXCHANGE"},
+    "COURT": {"COURT"},
+    "PATENT_RECORD": {"PATENT_OFFICE"},
+    "INDUSTRY_DATA": {"INDUSTRY_THIRD_PARTY"},
+    "MARKET_DATA": {"INDUSTRY_THIRD_PARTY"},
+    "REUTERS": {"INDEPENDENT_MEDIA"},
+    "OTHER_INDEPENDENT_MEDIA": {"INDEPENDENT_MEDIA"},
+    "TELEGRAM_SECONDARY": {"COMMUNITY_SECONDARY"},
+}
+INDEPENDENT_AFFILIATIONS = {
+    "CUSTOMER",
+    "GOVERNMENT",
+    "REGULATOR",
+    "CENTRAL_BANK",
+    "EXCHANGE",
+    "COURT",
+    "PATENT_OFFICE",
+    "INDUSTRY_THIRD_PARTY",
+    "INDEPENDENT_MEDIA",
+}
+VERIFICATION_TIERS = {"V0", "V1", "V2"}
+CANONICAL_PILLARS = {
+    "industry_structure_bottleneck",
+    "moat_durability",
+    "growth_runway_customer_product",
+    "profitability_reinvestment_capital_efficiency",
+    "valuation_margin_of_safety",
+    "earnings_revision_operating_acceleration",
+    "market_leadership_price_volume_rs",
+    "management_governance_capital_allocation",
+    "catalyst_ownership_information_edge",
+    "downside_balance_sheet_cycle_regime",
+}
 MOAT_APPLICABILITY = {"REQUIRED", "NOT_APPLICABLE_UNDERLYING"}
 THESIS_STATUSES = {"POSITIVE", "INTACT", "WATCH", "NEGATIVE", "INVALID"}
 ER_HORIZONS = ("1m", "3m", "6m", "12m")
@@ -172,11 +241,108 @@ def _validate_market(value: dict[str, Any], as_of: datetime) -> None:
         _require(abs(rs - expected_rs) <= 1e-10, f"market_rs_formula:{h}d")
 
 
-def _validate_source_graph(value: dict[str, Any]) -> None:
+def _validate_source_graph(
+    value: dict[str, Any],
+    as_of: datetime,
+    resolver: ArtifactResolver,
+) -> None:
     _require(value.get("schema") == "a3-source-graph-v1", "source_graph_schema")
     _require(value.get("review_status") == "REVIEWED", "source_graph_status")
     _require(value.get("research_only") is True, "source_graph_research_only")
-    _require(isinstance(value.get("sources"), list) and bool(value["sources"]), "source_graph_sources")
+    graph_as_of = _stamp(value.get("as_of"), "source_graph_as_of")
+    _require(graph_as_of <= as_of, "future_source_graph_as_of")
+    sources = value.get("sources")
+    _require(isinstance(sources, list) and bool(sources), "source_graph_sources")
+
+    source_ids: set[str] = set()
+    claim_ids: set[str] = set()
+    assessment_groups: set[str] = set()
+    assessment_affiliations: set[str] = set()
+
+    for row in sources:
+        _require(isinstance(row, dict), "source_graph_row")
+        source_id = _identifier(row.get("source_id"), "source_graph_source_id")
+        claim_id = _identifier(row.get("claim_id"), "source_graph_claim_id")
+        _require(source_id not in source_ids, "duplicate_source_graph_source_id")
+        _require(claim_id not in claim_ids, "duplicate_source_graph_claim_id")
+        source_ids.add(source_id)
+        claim_ids.add(claim_id)
+
+        source_type = row.get("source_type")
+        affiliation = row.get("source_affiliation")
+        tier = row.get("verification_tier")
+        _require(source_type in SOURCE_GRAPH_TYPES, "source_graph_source_type")
+        _require(affiliation in SOURCE_AFFILIATIONS, "source_graph_source_affiliation")
+        _require(
+            affiliation in SOURCE_TYPE_AFFILIATIONS[source_type],
+            "source_graph_type_affiliation_mismatch",
+        )
+        _require(tier in VERIFICATION_TIERS, "source_graph_verification_tier")
+        independence_group = _identifier(
+            row.get("independence_group"),
+            "source_graph_independence_group",
+        )
+        published_at = _stamp(row.get("published_at"), "source_graph_published_at")
+        available_at = _stamp(row.get("available_at"), "source_graph_available_at")
+        _require(
+            published_at <= available_at <= graph_as_of,
+            "source_graph_time_order",
+        )
+        raw_artifact_id = _identifier(
+            row.get("raw_artifact_id"),
+            "source_graph_raw_artifact_id",
+        )
+        raw_sha256 = _hash(row.get("raw_sha256"), "source_graph_raw_sha256")
+        _require(callable(resolver), "artifact_resolver_required")
+        try:
+            raw = resolver(raw_artifact_id, raw_sha256)
+        except Exception as exc:
+            raise A3CandidatePacketError("source_graph_raw_unavailable") from exc
+        _require(
+            isinstance(raw, bytes) and 0 < len(raw) <= MAX_ARTIFACT_BYTES,
+            "source_graph_raw_bytes",
+        )
+        _require(
+            hashlib.sha256(raw).hexdigest() == raw_sha256,
+            "source_graph_raw_hash_mismatch",
+        )
+
+        _text(row.get("claim"), "source_graph_claim", 1800)
+        pillars = row.get("supports_pillars")
+        _require(
+            isinstance(pillars, list)
+            and bool(pillars)
+            and set(pillars) <= CANONICAL_PILLARS,
+            "source_graph_supports_pillars",
+        )
+        used = row.get("used_for_assessment")
+        contributes = row.get("investment_score_contribution_allowed")
+        _require(type(used) is bool, "source_graph_used_type")
+        _require(type(contributes) is bool, "source_graph_contribution_type")
+
+        # Telegram/community discovery remains zero-credit even if the event is
+        # later corroborated elsewhere; independent sources carry the evidence.
+        if source_type == "TELEGRAM_SECONDARY" or tier == "V0":
+            _require(used is False, "source_graph_v0_not_assessment")
+            _require(contributes is False, "source_graph_v0_zero_contribution")
+        if used:
+            _require(tier in {"V1", "V2"}, "source_graph_assessment_not_verified")
+            _require(contributes is True, "source_graph_assessment_contribution")
+            _require(
+                affiliation != "COMMUNITY_SECONDARY",
+                "source_graph_secondary_not_assessment",
+            )
+            assessment_groups.add(independence_group)
+            assessment_affiliations.add(affiliation)
+
+    _require(
+        len(assessment_groups) >= 2,
+        "source_graph_insufficient_independent_groups",
+    )
+    _require(
+        bool(assessment_affiliations & INDEPENDENT_AFFILIATIONS),
+        "source_graph_independent_corroboration_required",
+    )
 
 
 def _validate_bridge(bridge: Any) -> dict[str, Any]:
@@ -258,7 +424,7 @@ def evaluate_packet(packet: Any, cutoff: str, artifact_resolver: ArtifactResolve
         refs["source_graph"], expected_kind="SOURCE_GRAPH",
         asset_id=asset_id, issuer_id=issuer_id, as_of=as_of, resolver=artifact_resolver,
     )
-    _validate_source_graph(graph)
+    _validate_source_graph(graph, as_of, artifact_resolver)
 
     moat_applicability = packet.get("moat_applicability")
     _require(moat_applicability in MOAT_APPLICABILITY, "moat_applicability")

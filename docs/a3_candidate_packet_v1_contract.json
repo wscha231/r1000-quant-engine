@@ -77,5 +77,52 @@
     "rs_method": "LOG_RELATIVE_RETURN",
     "rs_formula": "log(1 + asset_return_h) - log(1 + benchmark_return_h)",
     "formula_recomputed_by_validator": true
+  },
+  "source_graph": {
+    "schema": "a3-source-graph-v1",
+    "source_types": [
+      "SEC_FILING",
+      "COMPANY_IR",
+      "CUSTOMER_DISCLOSURE",
+      "GOVERNMENT",
+      "REGULATOR",
+      "CENTRAL_BANK",
+      "EXCHANGE",
+      "COURT",
+      "PATENT_RECORD",
+      "INDUSTRY_DATA",
+      "MARKET_DATA",
+      "REUTERS",
+      "OTHER_INDEPENDENT_MEDIA",
+      "TELEGRAM_SECONDARY"
+    ],
+    "verification_tiers": [
+      "V0",
+      "V1",
+      "V2"
+    ],
+    "telegram_secondary_policy": "V0 discovery only; used_for_assessment=false and investment_score_contribution_allowed=false.",
+    "assessment_sources_require_verified_tier": true,
+    "minimum_independent_assessment_groups": 2,
+    "independent_noncommunity_corroboration_required": true,
+    "each_source_requires": [
+      "source_id",
+      "claim_id",
+      "source_type",
+      "source_affiliation",
+      "verification_tier",
+      "independence_group",
+      "published_at",
+      "available_at",
+      "raw_artifact_id",
+      "raw_sha256",
+      "claim",
+      "supports_pillars",
+      "used_for_assessment",
+      "investment_score_contribution_allowed"
+    ],
+    "raw_source_bytes_must_resolve_and_match_sha256": true,
+    "source_available_at_must_not_exceed_graph_as_of": true,
+    "graph_as_of_must_not_exceed_packet_as_of": true
   }
 }

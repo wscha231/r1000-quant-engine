@@ -49,8 +49,25 @@ def market():
     return d
 
 def graph():
-    return {"schema":"a3-source-graph-v1","asset_id":"US:EXAMPLE","issuer_id":"CIK:1",
-            "review_status":"REVIEWED","research_only":True,"sources":[{"id":"IR:1"}]}
+    ir_raw=add("RAW:IR",{"document":"issuer primary"})
+    news_raw=add("RAW:NEWS",{"document":"independent verification"})
+    return {
+      "schema":"a3-source-graph-v1","asset_id":"US:EXAMPLE","issuer_id":"CIK:1",
+      "review_status":"REVIEWED","research_only":True,"as_of":"2026-09-18T20:30:00Z",
+      "sources":[
+        {"source_id":"IR:1","claim_id":"CLAIM:1","source_type":"COMPANY_IR","source_affiliation":"ISSUER",
+         "verification_tier":"V2","independence_group":"ISSUER:EXAMPLE",
+         "published_at":"2026-09-18T18:00:00Z","available_at":"2026-09-18T18:00:00Z",
+         "raw_artifact_id":ir_raw["artifact_id"],"raw_sha256":ir_raw["sha256"],
+         "claim":"Issuer-reported operating evidence","supports_pillars":["earnings_revision_operating_acceleration"],
+         "used_for_assessment":True,"investment_score_contribution_allowed":True},
+        {"source_id":"NEWS:1","claim_id":"CLAIM:2","source_type":"REUTERS","source_affiliation":"INDEPENDENT_MEDIA",
+         "verification_tier":"V1","independence_group":"REUTERS",
+         "published_at":"2026-09-18T19:00:00Z","available_at":"2026-09-18T19:00:00Z",
+         "raw_artifact_id":news_raw["artifact_id"],"raw_sha256":news_raw["sha256"],
+         "claim":"Independent corroboration","supports_pillars":["earnings_revision_operating_acceleration"],
+         "used_for_assessment":True,"investment_score_contribution_allowed":True},
+      ]}
 
 def valid_er():
     d={"asset_id":"US:EXAMPLE","validation_status":"WALK_FORWARD_VALIDATED",
@@ -119,6 +136,34 @@ class Tests(unittest.TestCase):
     obj=market(); obj["rs_20d"]=0.05
     new=add("MKT2",obj); v["artifacts"]["market_valuation"]={"kind":"MARKET_VALUATION_SNAPSHOT",**new}
     with self.assertRaisesRegex(A3CandidatePacketError,"market_rs_formula"):
+      evaluate_packet(v,"2026-09-19T02:00:00Z",resolver)
+  def test_source_graph_requires_independent_groups(self):
+    v=packet()
+    obj=graph(); obj["sources"]=obj["sources"][:1]
+    new=add("SRC2",obj); v["artifacts"]["source_graph"]={"kind":"SOURCE_GRAPH",**new}
+    with self.assertRaisesRegex(A3CandidatePacketError,"source_graph_insufficient_independent_groups"):
+      evaluate_packet(v,"2026-09-19T02:00:00Z",resolver)
+  def test_telegram_v0_is_zero_credit(self):
+    v=packet()
+    obj=graph()
+    raw=add("RAW:TG",{"telegram":"secondary claim"})
+    obj["sources"].append({
+      "source_id":"TG:1","claim_id":"CLAIM:TG","source_type":"TELEGRAM_SECONDARY",
+      "source_affiliation":"COMMUNITY_SECONDARY","verification_tier":"V0","independence_group":"TELEGRAM",
+      "published_at":"2026-09-18T19:10:00Z","available_at":"2026-09-18T19:10:00Z",
+      "raw_artifact_id":raw["artifact_id"],"raw_sha256":raw["sha256"],"claim":"Secondary discovery claim",
+      "supports_pillars":["catalyst_ownership_information_edge"],
+      "used_for_assessment":True,"investment_score_contribution_allowed":True})
+    new=add("SRC3",obj); v["artifacts"]["source_graph"]={"kind":"SOURCE_GRAPH",**new}
+    with self.assertRaisesRegex(A3CandidatePacketError,"source_graph_v0_not_assessment"):
+      evaluate_packet(v,"2026-09-19T02:00:00Z",resolver)
+  def test_source_graph_raw_hash_is_verified(self):
+    v=packet()
+    ref=v["artifacts"]["source_graph"]
+    obj=json.loads(RAW[(ref["artifact_id"],ref["sha256"])])
+    row=obj["sources"][0]
+    RAW[(row["raw_artifact_id"],row["raw_sha256"])]=b"tampered"
+    with self.assertRaisesRegex(A3CandidatePacketError,"source_graph_raw_hash_mismatch"):
       evaluate_packet(v,"2026-09-19T02:00:00Z",resolver)
   def test_contract_preserves_scenario_er_boundary(self):
     contract=json.loads((ROOT/"docs"/"a3_candidate_packet_v1_contract.json").read_text())

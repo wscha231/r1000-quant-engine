@@ -25,6 +25,24 @@ Only a validated ER artifact may populate 1/3/6/12-month expected return, benchm
 
 Every artifact reference is checked against resolved immutable bytes and SHA-256. Artifact availability must be no later than packet `as_of`, and asset/issuer identity is bound where applicable.
 
+## Source graph verification
+
+The A3 packet does not accept a non-empty source list as sufficient evidence.
+Each source row records source/claim identity, type, affiliation, verification
+tier, independence group, publication/availability time, raw-artifact identity
+and SHA-256, linked Methodology pillars, and whether it may contribute to an
+assessment.
+
+The validator resolves and hashes each raw source artifact. Sources actually
+used for assessment must be V1/V2 and the reviewed graph must contain at least
+two independent evidence groups with non-community corroboration.
+
+Telegram/community material remains discovery-only: a
+`TELEGRAM_SECONDARY/V0` row must have `used_for_assessment=false` and
+`investment_score_contribution_allowed=false`. If a Telegram claim is later
+confirmed, the independent official/news sources carry the research evidence;
+the Telegram row itself still receives zero credit.
+
 ## Market snapshot identity
 
 The market artifact must use a completed trading session and disclose its return
