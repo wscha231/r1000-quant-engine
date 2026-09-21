@@ -1,0 +1,64 @@
+{
+  "schema": "a3-candidate-packet-v1-contract",
+  "version": 1,
+  "purpose": "Aggregate reviewed Methodology V1, Moat V2, market/valuation, source graph, scenario research and optional walk-forward validated ER without granting selector/portfolio/order authority.",
+  "required_artifacts": [
+    "METHODOLOGY_RESULT",
+    "MARKET_VALUATION_SNAPSHOT",
+    "SOURCE_GRAPH"
+  ],
+  "conditional_artifacts": {
+    "moat": "Required for company/securities when moat_applicability=REQUIRED; omitted for non-company underlyings.",
+    "validated_er": "Optional; only WALK_FORWARD_VALIDATED, net-of-costs ER may populate validated expected-return fields."
+  },
+  "scenario_research": {
+    "horizons": [
+      "12m",
+      "24m"
+    ],
+    "cases": [
+      "bear",
+      "base",
+      "bull"
+    ],
+    "probabilities_allowed": false,
+    "reason": "Unvalidated scenario probabilities must not be converted into statistical expected return.",
+    "ordered_returns_required": true
+  },
+  "validated_er": {
+    "horizons": [
+      "1m",
+      "3m",
+      "6m",
+      "12m"
+    ],
+    "validation_status": "WALK_FORWARD_VALIDATED",
+    "net_of_costs_required": true,
+    "benchmark_identity_must_match_market_snapshot": true,
+    "unit": "RETURN_FRACTION"
+  },
+  "artifact_integrity": {
+    "reviewed_status_required": true,
+    "actual_bytes_must_resolve": true,
+    "sha256_must_match_resolved_bytes": true,
+    "available_at_must_not_exceed_packet_as_of": true,
+    "asset_identity_must_match": true,
+    "issuer_identity_required_for": [
+      "METHODOLOGY_RESULT",
+      "MOAT_RESULT",
+      "SOURCE_GRAPH"
+    ]
+  },
+  "statuses": [
+    "SCENARIO_RESEARCH_COMPLETE",
+    "VALIDATED_ER_LINKED"
+  ],
+  "authority": {
+    "historical_pit_certified": false,
+    "selector_eligible": false,
+    "portfolio_weight_effect": 0,
+    "target_book_write_allowed": false,
+    "orders_allowed": false,
+    "production_authority": false
+  }
+}
