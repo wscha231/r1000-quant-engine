@@ -315,7 +315,7 @@ class Phase2A(unittest.TestCase):
     def test_corporate_action_basis_missing_fail_closes_row(self):
         value = registry()
         value["securities"][0].pop("corporate_action_basis")
-        write_json(self.paths["registry"], value)
+        self.write_registry(value)
         out = MOD.run(self.args())
         row = next(row for row in out["rows"] if row["ticker"] == "AAA")
         self.assertIn("corporate_action_basis_unverified", row["blockers"])
@@ -328,7 +328,7 @@ class Phase2A(unittest.TestCase):
     def test_adr_without_ratio_is_blocked(self):
         value = registry()
         value["securities"][2].pop("adr_ratio")
-        write_json(self.paths["registry"], value)
+        self.write_registry(value)
         out = MOD.run(self.args())
         row = next(row for row in out["rows"] if row["ticker"] == "ADR")
         self.assertIn("adr_share_basis_unverified", row["blockers"])
@@ -337,7 +337,7 @@ class Phase2A(unittest.TestCase):
     def test_future_identity_availability_is_blocked(self):
         value = registry()
         value["securities"][1]["available_at"] = "2026-09-19T00:00:00Z"
-        write_json(self.paths["registry"], value)
+        self.write_registry(value)
         out = MOD.run(self.args())
         row = next(row for row in out["rows"] if row["ticker"] == "BBB")
         self.assertIn("future_identity_availability", row["blockers"])
@@ -359,7 +359,7 @@ class Phase2A(unittest.TestCase):
     def test_duplicate_ticker_identity_fails_before_mapping(self):
         value = registry()
         value["securities"][1]["ticker"] = "AAA"
-        write_json(self.paths["registry"], value)
+        self.write_registry(value)
         with self.assertRaisesRegex(ValueError, "ticker_not_one_to_one"):
             MOD.run(self.args())
 
