@@ -216,22 +216,65 @@ def _validate_moat(value: dict[str, Any]) -> None:
     _require(value.get("oos_validated") is False, "moat_oos_authority")
 
 
-def _validate_market(value: dict[str, Any], as_of: datetime) -> None:
+def _validate_market(
+    value: dict[str, Any],
+    as_of: datetime,
+    resolver: ArtifactResolver,
+) -> None:
     _require(value.get("schema") == "a3-market-valuation-snapshot-v1", "market_schema")
     _require(value.get("data_quality") == "REVIEWED_OBSERVED", "market_data_quality")
     _require(value.get("research_only") is True, "market_research_only")
     _require(value.get("completed_session") is True, "market_completed_session")
     session_date = _day(value.get("session_date"), "market_session_date")
     _require(session_date <= as_of.date(), "future_market_session")
-    _require(_stamp(value.get("available_at"), "market_available_at") <= as_of, "future_market_snapshot")
-    _number(value.get("price"), "market_price", 0.0)
+    observed_at = _stamp(value.get("observed_at"), "market_observed_at")
+    available_at = _stamp(value.get("available_at"), "market_available_at")
+    collected_at = _stamp(value.get("collected_at"), "market_collected_at")
+    _require(
+        observed_at <= available_at <= collected_at <= as_of,
+        "market_time_order",
+    )
+    _require(_number(value.get("price"), "market_price", 0.0) > 0.0, "market_price_positive")
     _text(value.get("currency"), "market_currency", 12)
     _identifier(value.get("benchmark_id"), "market_benchmark_id")
+    _identifier(value.get("source_identity"), "market_source_identity")
+    raw_artifact_id = _identifier(
+        value.get("raw_artifact_id"),
+        "market_raw_artifact_id",
+    )
+    raw_sha256 = _hash(value.get("raw_sha256"), "market_raw_sha256")
+    _require(callable(resolver), "artifact_resolver_required")
+    try:
+        raw = resolver(raw_artifact_id, raw_sha256)
+    except Exception as exc:
+        raise A3CandidatePacketError("market_raw_unavailable") from exc
+    _require(
+        isinstance(raw, bytes) and 0 < len(raw) <= MAX_ARTIFACT_BYTES,
+        "market_raw_bytes",
+    )
+    _require(
+        hashlib.sha256(raw).hexdigest() == raw_sha256,
+        "market_raw_hash_mismatch",
+    )
+    _require(
+        value.get("basis_review_status") == "REVIEWED",
+        "market_basis_review_status",
+    )
+    _require(
+        value.get("corporate_action_quarantine") is False,
+        "market_corporate_action_quarantine",
+    )
     _require(
         value.get("return_basis") in {"TOTAL_RETURN", "PROVIDER_ADJUSTED_CLOSE_PROXY"},
         "market_return_basis",
     )
     _require(value.get("rs_method") == "LOG_RELATIVE_RETURN", "market_rs_method")
+    historical_pit = value.get("historical_pit_certified")
+    _require(type(historical_pit) is bool, "market_historical_pit_type")
+    proxy_er_eligible = value.get("validated_er_eligible")
+    _require(type(proxy_er_eligible) is bool, "market_validated_er_eligible_type")
+    if value.get("return_basis") == "PROVIDER_ADJUSTED_CLOSE_PROXY":
+        _require(proxy_er_eligible is False, "market_proxy_not_validated_er")
     for h in (20, 60, 120, 240):
         asset_ret = _number(value.get(f"return_{h}d"), f"market_return_{h}d", -1.0)
         bench_ret = _number(value.get(f"benchmark_return_{h}d"), f"benchmark_return_{h}d", -1.0)
@@ -418,7 +461,7 @@ def evaluate_packet(packet: Any, cutoff: str, artifact_resolver: ArtifactResolve
         refs["market_valuation"], expected_kind="MARKET_VALUATION_SNAPSHOT",
         asset_id=asset_id, issuer_id=issuer_id, as_of=as_of, resolver=artifact_resolver,
     )
-    _validate_market(market, as_of)
+    _validate_market(market, as_of, artifact_resolver)
 
     graph, graph_hash = _load_ref(
         refs["source_graph"], expected_kind="SOURCE_GRAPH",

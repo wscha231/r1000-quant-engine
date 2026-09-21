@@ -37,10 +37,18 @@ def moat():
     }
 
 def market():
+    raw=add("RAW:MKT",{"provider":"fixture market bytes","asset_id":"US:EXAMPLE"})
     d={"schema":"a3-market-valuation-snapshot-v1","asset_id":"US:EXAMPLE",
        "data_quality":"REVIEWED_OBSERVED","research_only":True,
        "completed_session":True,"session_date":"2026-09-18",
-       "available_at":"2026-09-18T20:00:00Z","price":100.0,"currency":"USD","benchmark_id":"US:SPY",
+       "observed_at":"2026-09-18T20:00:00Z",
+       "available_at":"2026-09-18T20:05:00Z",
+       "collected_at":"2026-09-18T20:10:00Z",
+       "price":100.0,"currency":"USD","benchmark_id":"US:SPY",
+       "source_identity":"FIXTURE_MARKET_DATA",
+       "raw_artifact_id":raw["artifact_id"],"raw_sha256":raw["sha256"],
+       "basis_review_status":"REVIEWED","corporate_action_quarantine":False,
+       "historical_pit_certified":False,"validated_er_eligible":True,
        "return_basis":"TOTAL_RETURN","rs_method":"LOG_RELATIVE_RETURN"}
     for h in (20,60,120,240):
         d[f"return_{h}d"]=0.1
@@ -136,6 +144,33 @@ class Tests(unittest.TestCase):
     obj=market(); obj["rs_20d"]=0.05
     new=add("MKT2",obj); v["artifacts"]["market_valuation"]={"kind":"MARKET_VALUATION_SNAPSHOT",**new}
     with self.assertRaisesRegex(A3CandidatePacketError,"market_rs_formula"):
+      evaluate_packet(v,"2026-09-19T02:00:00Z",resolver)
+  def test_market_raw_source_bytes_are_hash_bound(self):
+    v=packet()
+    ref=v["artifacts"]["market_valuation"]
+    obj=json.loads(RAW[(ref["artifact_id"],ref["sha256"])])
+    RAW[(obj["raw_artifact_id"],obj["raw_sha256"])]=b"tampered"
+    with self.assertRaisesRegex(A3CandidatePacketError,"market_raw_hash_mismatch"):
+      evaluate_packet(v,"2026-09-19T02:00:00Z",resolver)
+  def test_market_source_time_and_corporate_action_guards(self):
+    for field,value,code in (
+      ("collected_at","2026-09-18T19:00:00Z","market_time_order"),
+      ("basis_review_status","UNREVIEWED","market_basis_review_status"),
+      ("corporate_action_quarantine",True,"market_corporate_action_quarantine"),
+    ):
+      with self.subTest(field=field):
+        v=packet(); obj=market(); obj[field]=value
+        new=add("MKT-GUARD-"+field,obj)
+        v["artifacts"]["market_valuation"]={"kind":"MARKET_VALUATION_SNAPSHOT",**new}
+        with self.assertRaisesRegex(A3CandidatePacketError,code):
+          evaluate_packet(v,"2026-09-19T02:00:00Z",resolver)
+  def test_adjusted_close_proxy_cannot_self_declare_validated_er_eligibility(self):
+    v=packet(); obj=market()
+    obj["return_basis"]="PROVIDER_ADJUSTED_CLOSE_PROXY"
+    obj["validated_er_eligible"]=True
+    new=add("MKT-PROXY",obj)
+    v["artifacts"]["market_valuation"]={"kind":"MARKET_VALUATION_SNAPSHOT",**new}
+    with self.assertRaisesRegex(A3CandidatePacketError,"market_proxy_not_validated_er"):
       evaluate_packet(v,"2026-09-19T02:00:00Z",resolver)
   def test_source_graph_requires_independent_groups(self):
     v=packet()
