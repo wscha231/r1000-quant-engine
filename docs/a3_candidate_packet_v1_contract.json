@@ -76,7 +76,25 @@
     ],
     "rs_method": "LOG_RELATIVE_RETURN",
     "rs_formula": "log(1 + asset_return_h) - log(1 + benchmark_return_h)",
-    "formula_recomputed_by_validator": true
+    "formula_recomputed_by_validator": true,
+    "required_provenance": [
+      "observed_at",
+      "available_at",
+      "collected_at",
+      "source_identity",
+      "raw_artifact_id",
+      "raw_sha256",
+      "basis_review_status",
+      "corporate_action_quarantine",
+      "historical_pit_certified",
+      "validated_er_eligible"
+    ],
+    "time_order": "observed_at <= available_at <= collected_at <= packet.as_of",
+    "raw_source_bytes_must_resolve_and_match_sha256": true,
+    "basis_review_status": "REVIEWED",
+    "corporate_action_quarantine_required_false": true,
+    "proxy_validated_er_eligible": false,
+    "proxy_scope": "Discovery/RS research only; never self-promotes to validated ER or target evidence."
   },
   "source_graph": {
     "schema": "a3-source-graph-v1",
