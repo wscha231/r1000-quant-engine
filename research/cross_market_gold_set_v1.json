@@ -114,6 +114,20 @@
       "priority": "P1"
     },
     {
+      "id": "US:NVT",
+      "name": "nVent Electric",
+      "ticker": "NVT",
+      "market": "NYSE",
+      "country": "US",
+      "asset_class": "EQUITY",
+      "sector_profile": "POWER_UTILITIES_INFRA",
+      "validation_role": "AI_LIQUID_COOLING_ELECTRICAL_INFRA",
+      "peer_group_key": "DATA_CENTER_POWER_COOLING",
+      "benchmark": "SPY",
+      "currency": "USD",
+      "priority": "P1"
+    },
+    {
       "id": "US:GEV",
       "name": "GE Vernova",
       "ticker": "GEV",
