@@ -4074,6 +4074,21 @@ def test_a3_candidate_packet_v1() -> None:
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
+
+@_test("data.alpaca_research_adjustment_contract")
+def test_data_alpaca_research_adjustment_contract() -> None:
+    """Run split-adjustment/cache-basis regression through registered smoke."""
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "tests" / "data_alpaca_adjustment_smoke.py")],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
 # ======================================================================
 # main
 # ======================================================================

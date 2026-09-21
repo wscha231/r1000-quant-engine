@@ -310,19 +310,19 @@ def format_trade_card_full(card: TradeCard) -> str:
 # --- Smoke test ------------------------------------------------------------
 
 if __name__ == "__main__":
-    from aggressive.data_alpaca import fetch_daily_bars, fetch_spy_benchmark
+    from aggressive.data_alpaca import fetch_research_daily_bars, fetch_research_spy_benchmark
     from aggressive.signals_technical import evaluate_ticker
 
     print("=" * 70)
     print("Entry Precision - Smoke Test")
     print("=" * 70)
 
-    spy = fetch_spy_benchmark(days=260)
+    spy = fetch_research_spy_benchmark(days=260)
     test_tickers = ["AMD", "AVGO", "ETSY", "TXN", "CSCO", "MCHP", "WDC", "COHR"]
 
     print()
     for t in test_tickers:
-        df = fetch_daily_bars(t, days=260)
+        df = fetch_research_daily_bars(t, days=260)
         if df.empty:
             print(f"{t}: NO DATA")
             continue
@@ -333,7 +333,7 @@ if __name__ == "__main__":
 
     print()
     print("--- Full card example (AMD) ---")
-    df = fetch_daily_bars("AMD", days=260)
+    df = fetch_research_daily_bars("AMD", days=260)
     sig = evaluate_ticker("AMD", df, spy)
     best_tier_obj = max(sig.tiers, key=lambda x: x.score)
     card = build_trade_card("AMD", df, sig.best_tier, best_tier_obj.name)

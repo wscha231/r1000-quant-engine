@@ -58,11 +58,11 @@ def fetch_alpaca_returns(ticker: str, days: int) -> "pd.Series":
     """
     try:
         import pandas as pd
-        from aggressive.data_alpaca import fetch_daily_bars
+        from aggressive.data_alpaca import fetch_research_daily_bars
     except Exception:
         import pandas as pd
         return pd.Series(dtype=float)
-    df = fetch_daily_bars(ticker, days=days + 30)
+    df = fetch_research_daily_bars(ticker, days=days + 30)
     if df is None or df.empty:
         import pandas as pd
         return pd.Series(dtype=float)
@@ -88,8 +88,8 @@ def fetch_macro_series(feature: str, days: int) -> "pd.Series":
                 return pd.Series(dtype=float)
         elif feature == "spy_mom":
             try:
-                from aggressive.data_alpaca import fetch_spy_benchmark
-                spy = fetch_spy_benchmark(days=days + 30)
+                from aggressive.data_alpaca import fetch_research_spy_benchmark
+                spy = fetch_research_spy_benchmark(days=days + 30)
                 return spy["close"].pct_change(periods=days).dropna()
             except Exception:
                 return pd.Series(dtype=float)
