@@ -46,11 +46,16 @@ whole-equity readiness stays false. Missing ER rows are never converted to zero
 or neutral values.
 
 For admitted rows A3 maps the existing 21/63/126-session absolute return,
-benchmark-excess, alpha and downside outputs. An implied benchmark expected
+benchmark-excess and alpha outputs. The challenger balanced-logistic downside
+probability is retained only as `raw_model_downside_probability_*` diagnostic
+evidence; no explicit probability calibration gate/transform is validated, so
+standard A3 `downside_probability_*` remains null with
+`BLOCKED_DOWNSIDE_CALIBRATION_NOT_VALIDATED`. An implied benchmark expected
 return is reported only as `absolute - benchmark_excess` and is explicitly
-labelled with that basis. Expected drawdown, calibrated signal confidence,
+labelled with that basis. Expected drawdown, calibrated signal confidence, calibrated downside,
 valuation/thesis status and thesis confidence remain null because this slice
-does not validate them.
+does not validate them. Existing alpha is explicitly labelled gross research,
+not after-cost portfolio alpha.
 
 All 12-month ER/alpha/benchmark/downside fields remain null and carry
 `BLOCKED_MODEL_NOT_VALIDATED`. No 6m extension or momentum conversion exists.
@@ -109,7 +114,15 @@ the adapter now normalizes both the proposal and summary decision value to a
 NYSE session date. U0 workflow path/digest and the producer-recorded raw contract
 input fingerprint are also bound to the pinned contract.
 
-## A6 provenance correction
+## A6 semantic/provenance corrections
+
+A second pre-review A6 audit found that balanced logistic output plus a Brier
+diagnostic is not the same as a validated probability-calibration layer. The
+adapter no longer publishes that raw value as calibrated A3 downside probability;
+it preserves the raw model probability separately and leaves the canonical field
+null. This also keeps `a3_quant_contract_ready=false` and A5 blocked.
+
+### Registry provenance
 
 A pre-review A6 audit found that the earlier adapter compared registry IDs and
 tickers but did not prove that the registry bytes came from the admitted cohort.

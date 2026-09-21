@@ -32,6 +32,7 @@ ROW_PARTIAL = "PARTIAL_ER_HORIZON_BLOCKED_RESEARCH_ONLY"
 ROW_BLOCKED = "BLOCKED_A1_OR_ER_EVIDENCE"
 HORIZON_BLOCKED = "BLOCKED_HORIZON_ER_EVIDENCE"
 TWELVE_MONTH_BLOCKER = "BLOCKED_MODEL_NOT_VALIDATED"
+DOWNSIDE_CALIBRATION_BLOCKER = "BLOCKED_DOWNSIDE_CALIBRATION_NOT_VALIDATED"
 HORIZONS: dict[str, int] = {"1m": 21, "3m": 63, "6m": 126}
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 FORBIDDEN_PROPOSAL_RE = re.compile(r"(^|_)(realized|label|target|outcome)(_|$)|^y_", re.IGNORECASE)
@@ -399,6 +400,8 @@ def null_horizon() -> dict[str, Any]:
         "benchmark_expected_return": None,
         "expected_alpha": None,
         "downside_probability": None,
+        "raw_model_downside_probability": None,
+        "downside_probability_status": DOWNSIDE_CALIBRATION_BLOCKER,
         "expected_drawdown": None,
         "signal_confidence": None,
         "model_disagreement": None,
@@ -418,7 +421,6 @@ def horizon_from_proposal(row: Mapping[str, str], days: int) -> tuple[dict[str, 
     values = {
         "expected_return": absolute,
         "expected_alpha": alpha,
-        "downside_probability": downside,
         "feature_coverage": coverage,
         "model_disagreement": disagreement,
     }
@@ -439,7 +441,9 @@ def horizon_from_proposal(row: Mapping[str, str], days: int) -> tuple[dict[str, 
         "benchmark_expected_return": benchmark_expected,
         "benchmark_expected_return_basis": "IMPLIED_ABSOLUTE_MINUS_BENCHMARK_EXCESS",
         "expected_alpha": alpha,
-        "downside_probability": downside,
+        "downside_probability": None,
+        "raw_model_downside_probability": downside,
+        "downside_probability_status": DOWNSIDE_CALIBRATION_BLOCKER,
         "expected_drawdown": None,
         "signal_confidence": None,
         "model_disagreement": disagreement,
@@ -524,10 +528,13 @@ def build_output(
                 "expected_alpha_3m": horizons["3m"]["expected_alpha"],
                 "expected_alpha_6m": horizons["6m"]["expected_alpha"],
                 "expected_alpha_12m": None,
-                "downside_probability_1m": horizons["1m"]["downside_probability"],
-                "downside_probability_3m": horizons["3m"]["downside_probability"],
-                "downside_probability_6m": horizons["6m"]["downside_probability"],
+                "downside_probability_1m": None,
+                "downside_probability_3m": None,
+                "downside_probability_6m": None,
                 "downside_probability_12m": None,
+                "raw_model_downside_probability_1m": horizons["1m"].get("raw_model_downside_probability"),
+                "raw_model_downside_probability_3m": horizons["3m"].get("raw_model_downside_probability"),
+                "raw_model_downside_probability_6m": horizons["6m"].get("raw_model_downside_probability"),
                 "expected_drawdown": None,
                 "signal_confidence": None,
                 "thesis_confidence": None,
@@ -542,6 +549,7 @@ def build_output(
                 "blockers": blockers
                 + [
                     TWELVE_MONTH_BLOCKER,
+                    DOWNSIDE_CALIBRATION_BLOCKER,
                     "expected_drawdown_not_validated",
                     "signal_confidence_not_calibrated",
                     "fundamental_thesis_layer_not_integrated",
@@ -569,6 +577,9 @@ def build_output(
         "not_ready_security_count": blocked + partially_evaluated,
         "whole_equity_er_ready_1_3_6m": whole_ready,
         "expected_return_12m_status": TWELVE_MONTH_BLOCKER,
+        "downside_probability_status": DOWNSIDE_CALIBRATION_BLOCKER,
+        "expected_alpha_basis": "GROSS_RESEARCH_NOT_AFTER_COSTS",
+        "a3_quant_contract_ready": False,
         "global_ranking_ready": False,
         "a5_execution_allowed": False,
         "target_authority": False,

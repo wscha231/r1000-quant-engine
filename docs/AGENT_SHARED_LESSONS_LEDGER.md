@@ -10,6 +10,7 @@
 - Partial coverage is explicitly PARTIAL/BLOCKED; it cannot authorize global ranking, A5, targets, orders, champion changes or a fullrun.
 - Fail closed at the narrowest validated boundary: an A1/identity or missing-row failure nulls all ER horizons for that security, while a horizon-specific model/output failure nulls only that horizon and preserves other independently validated horizons. Either case still blocks whole-equity readiness.
 - A derived identity file is not authoritative merely because its IDs/tickers match the cohort. Bind its exact bytes to the authenticated `securities/data.json` cohort evidence (or require a separately authenticated A1 producer); otherwise corporate-action/ADR fields can be fabricated downstream.
+- A balanced-logistic classifier output is not automatically a calibrated downside probability. Without an explicit calibration method/gate, keep canonical A3 downside probability null and retain the raw model probability only as a diagnostic; gross expected alpha must also be labelled as not after-cost.
 
 ## 2026-09-21 — Investment styles are lenses over canonical pillars, not additive alpha
 
