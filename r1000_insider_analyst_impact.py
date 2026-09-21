@@ -30,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import numpy as np
 import pandas as pd
 
-from aggressive.data_alpaca import fetch_daily_bars, fetch_spy_benchmark
+from aggressive.data_alpaca import fetch_research_daily_bars, fetch_research_spy_benchmark
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +168,7 @@ def compute_insider_forward_returns(
     for i, (ticker, ticker_clusters) in enumerate(by_ticker.items(), 1):
         if verbose and i % 50 == 0:
             print(f"  insider fwd: {i}/{len(by_ticker)} tickers...")
-        df = fetch_daily_bars(ticker, days=400)
+        df = fetch_research_daily_bars(ticker, days=400)
         if df.empty or len(df) < 200:
             continue
         close = df["close"]
@@ -256,7 +256,7 @@ def compute_analyst_forward_returns(
     for i, (ticker, ticker_events) in enumerate(by_ticker.items(), 1):
         if verbose and i % 50 == 0:
             print(f"  analyst fwd: {i}/{len(by_ticker)} tickers...")
-        df = fetch_daily_bars(ticker, days=400)
+        df = fetch_research_daily_bars(ticker, days=400)
         if df.empty or len(df) < 200:
             continue
         close = df["close"]

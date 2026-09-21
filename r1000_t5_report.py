@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import numpy as np
 import pandas as pd
 
-from aggressive.data_alpaca import fetch_daily_bars, fetch_spy_benchmark
+from aggressive.data_alpaca import fetch_research_daily_bars, fetch_research_spy_benchmark
 from aggressive.finnhub_cache_loader import load_finnhub_features_dict
 from aggressive.signals_technical import evaluate_ticker
 from aggressive.universe import load_universe
@@ -33,7 +33,7 @@ from aggressive.universe import load_universe
 
 def build_t5_report(min_score: float = 70.0, verbose: bool = True) -> pd.DataFrame:
     r1000, _ = load_universe("r1000")
-    spy = fetch_spy_benchmark(days=400)
+    spy = fetch_research_spy_benchmark(days=400)
     fh = load_finnhub_features_dict()
 
     # Load IWB names + sector
@@ -51,7 +51,7 @@ def build_t5_report(min_score: float = 70.0, verbose: bool = True) -> pd.DataFra
     for i, t in enumerate(r1000, 1):
         if verbose and i % 100 == 0:
             print(f"  [{i}/{len(r1000)}]")
-        df = fetch_daily_bars(t, days=400)
+        df = fetch_research_daily_bars(t, days=400)
         if df.empty or len(df) < 252:
             continue
         res = evaluate_ticker(t, df, spy)

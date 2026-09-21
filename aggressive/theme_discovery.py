@@ -43,7 +43,7 @@ import numpy as np
 import pandas as pd
 
 from aggressive.agg_config import load_agg_config
-from aggressive.data_alpaca import fetch_daily_bars, fetch_spy_benchmark
+from aggressive.data_alpaca import fetch_research_daily_bars, fetch_research_spy_benchmark
 from aggressive.universe import (
     annotate_with_themes,
     fetch_iwb_holdings,
@@ -103,7 +103,7 @@ def compute_returns_matrix(
     for i, t in enumerate(tickers, 1):
         if verbose and i % 100 == 0:
             print(f"[returns] {i}/{len(tickers)}...")
-        df = fetch_daily_bars(t, days=days + 10)
+        df = fetch_research_daily_bars(t, days=days + 10)
         if df.empty or len(df) < days:
             continue
         ret = df["close"].pct_change().dropna().tail(days)
@@ -195,7 +195,7 @@ def compute_momentum_and_rs(
 
     spy_close = spy_df["close"]
     for t in tickers:
-        df = fetch_daily_bars(t, days=RS_LOOKBACK_DAYS + 20)
+        df = fetch_research_daily_bars(t, days=RS_LOOKBACK_DAYS + 20)
         if df.empty or len(df) < RS_LOOKBACK_DAYS:
             continue
         c = df["close"]
@@ -320,7 +320,7 @@ def discover_themes(
     # 5. Momentum / RS per ticker (one-time)
     if verbose:
         print("[discover] computing RS/momentum per ticker...")
-    spy_df = fetch_spy_benchmark(days=RS_LOOKBACK_DAYS + 20)
+    spy_df = fetch_research_spy_benchmark(days=RS_LOOKBACK_DAYS + 20)
     all_members = [t for mems in clusters.values() for t in mems if 3 <= len(mems) <= 25]
     rs_by_ticker, mom_by_ticker = compute_momentum_and_rs(all_members, spy_df)
 

@@ -41,7 +41,7 @@ import numpy as np
 import pandas as pd
 
 from aggressive.agg_config import load_agg_config
-from aggressive.data_alpaca import fetch_daily_bars, fetch_spy_benchmark
+from aggressive.data_alpaca import fetch_research_daily_bars, fetch_research_spy_benchmark
 from aggressive.entry_precision import (
     TradeCard,
     build_trade_card,
@@ -340,7 +340,7 @@ def scan(
               f"unknown-theme: {unknown_count}")
 
     # Fetch SPY benchmark once
-    spy_df = fetch_spy_benchmark(days=260)
+    spy_df = fetch_research_spy_benchmark(days=260)
     if spy_df.empty:
         raise RuntimeError("Could not fetch SPY benchmark")
 
@@ -352,7 +352,7 @@ def scan(
     for i, t in enumerate(tickers, 1):
         if verbose and i % 10 == 0:
             print(f"[scan] {i}/{len(tickers)}...")
-        df = fetch_daily_bars(t, days=260)
+        df = fetch_research_daily_bars(t, days=260)
         if df.empty or len(df) < 30:
             continue
         stats = _compute_ticker_stats(df, spy_df)

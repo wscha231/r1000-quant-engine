@@ -626,17 +626,17 @@ def evaluate_ticker(
 # --- Smoke test ------------------------------------------------------------
 
 if __name__ == "__main__":
-    from aggressive.data_alpaca import fetch_daily_bars, fetch_spy_benchmark
+    from aggressive.data_alpaca import fetch_research_daily_bars, fetch_research_spy_benchmark
 
     print("=" * 60)
     print("Technical Signals - Smoke Test")
     print("=" * 60)
 
-    spy = fetch_spy_benchmark(days=260)
+    spy = fetch_research_spy_benchmark(days=260)
     # test tickers: NVDA (expected momentum), WDC (memory leader), BKNG (travel, peaking)
     test_tickers = ["NVDA", "AMD", "AVGO", "WDC", "STX", "LITE", "COHR", "PLTR", "BKNG"]
     for t in test_tickers:
-        df = fetch_daily_bars(t, days=260)
+        df = fetch_research_daily_bars(t, days=260)
         if df.empty:
             print(f"{t}: NO DATA")
             continue
