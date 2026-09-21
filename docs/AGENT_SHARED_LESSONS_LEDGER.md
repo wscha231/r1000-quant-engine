@@ -1,5 +1,14 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-21 — Scenario research is not validated expected return
+
+- A3 Bull/Base/Bear scenarios may express 12/24-month conditional outcomes and assumptions, but they must not carry unvalidated probabilities or be labeled statistical expected return.
+- Only a separately reviewed, net-of-costs `WALK_FORWARD_VALIDATED` ER artifact may populate 1/3/6/12-month expected-return, benchmark-return, alpha and downside fields.
+- A candidate packet is an evidence aggregator, not a new selector. Bind Methodology V1, Moat V2, market/valuation and source-graph artifacts by exact bytes/hash and identity.
+- Company/securities require Moat V2 where competitive advantage is economically applicable; non-company underlyings may explicitly mark moat not applicable rather than receiving a neutral score.
+- Missing validated ER means `SCENARIO_RESEARCH_COMPLETE`, not blocked research and not BUY_CONSIDERATION. Selector/portfolio/target/order authority remains zero.
+- Market snapshots must use a completed session and recompute 20/60/120/240D RS as log-relative return from the disclosed asset and benchmark returns.
+
 ## 2026-09-21 — Gold sets calibrate methodology; they are not recommendation lists
 
 - A cross-market gold set is a bounded research calibration surface, not a hidden portfolio or approved universe.
