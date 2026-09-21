@@ -24,7 +24,7 @@ The goal is not sector quota parity. The goal is to test whether the same ten
 canonical pillars and Moat V2 evidence rules remain coherent across very
 different economic models.
 
-Maximum size is 30. V1 contains 29 candidates.
+Maximum size is 30. V1 contains 30 candidates.
 
 ## Gold set
 
@@ -37,6 +37,7 @@ Maximum size is 30. V1 contains 29 candidates.
 - VRT — AI power/cooling
 - ETN — electrification/power distribution
 - GEV — generation/grid equipment
+- NVT — AI liquid cooling + electrical infrastructure
 - EME — electrical/mechanical contractor exposure to data-center buildout
 - BWXT — nuclear components/defense
 - CEG — nuclear generation / power-demand sensitivity
