@@ -4032,6 +4032,20 @@ def test_moat_quality_v2_contract() -> None:
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
+@_test("structural.investment_methodology_v1_contract")
+def test_investment_methodology_v1_contract() -> None:
+    """Run the cross-method equal-pillar research contract."""
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "tests" / "investment_methodology_v1_smoke.py")],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
 # ======================================================================
 # main
 # ======================================================================
