@@ -64,10 +64,10 @@ All ten are required. Missing evidence is not imputed.
 
 Two equal-weight diagnostic scores are reported separately:
 
-- **absolute score**: business/investment quality versus fixed research anchors;
-- **peer-relative score**: standing versus a reviewed peer group.
+- **absolute score**: business/investment quality versus the common `canonical-pillar-anchor-v1` scale;
+- **peer-relative score**: a percentile computed from reviewed peer rank, not a manually entered relative score.
 
-They are never blended automatically. This prevents a globally weak company from
+The peer percentile is computed as `(N-rank)/(N-1)`, where rank 1 is best. The reviewed peer snapshot is byte/hash verified. They are never blended automatically. This prevents a globally weak company from
 looking strong only because its local peer set is weak, while still allowing
 sector-specific economics to be judged fairly.
 
@@ -76,8 +76,18 @@ is **research-only** and is not a claim that equal weighting maximizes alpha. An
 future selector weighting requires PIT/OOS validation.
 
 Peer groups should prefer global industry peers where comparable data exists.
-Lifecycle-stage peers may be used for pre-commercial biotech or other structurally
-different business stages, but the adjustment must be explicit.
+Any non-global peer scope requires an explicit exception reason. Lifecycle-stage
+peers may be used for pre-commercial biotech or other structurally different
+business stages, but the adjustment must be explicit.
+
+Common absolute-score anchors are:
+- 0.00: severe impairment / thesis-negative;
+- 0.25: materially below investable/global standard;
+- 0.50: neutral/mixed or ordinary economics;
+- 0.75: strong, durable and evidence-backed;
+- 1.00: exceptional/global best-in-class with durable multi-source evidence.
+
+Intermediate values interpolate between these anchors.
 
 ## 4. Sector profiles — interpretation only
 
@@ -198,9 +208,13 @@ Every pillar requires:
 - separate confidence 0..1;
 - absolute and peer rationale;
 - counter-argument and invalidation conditions;
-- reviewed peer group identity/snapshot;
-- one or more hash-bound reviewed upstream artifacts available no later than
-  the packet `as_of`.
+- reviewed peer group identity, rank and snapshot;
+- one or more reviewed upstream artifacts available no later than the packet
+  `as_of`.
+
+The evaluator resolves the peer snapshot and each upstream artifact from the
+trusted artifact store and recomputes SHA-256 before admission. A syntactically
+valid hash string without matching bytes is rejected.
 
 `STAGE_ADJUSTED` is allowed only with an explicit reason. It changes the
 economic interpretation, not the weight.

@@ -6,6 +6,7 @@ factors. Sector profiles change interpretation/evidence, not weights.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 import hashlib
 import json
@@ -15,6 +16,9 @@ from typing import Any
 
 SCHEMA = "investment-methodology-v1"
 RESULT_SCHEMA = "investment-methodology-v1-result"
+ASSESSMENT_ANCHOR_VERSION = "canonical-pillar-anchor-v1"
+MAX_ARTIFACT_BYTES = 64 * 1024 * 1024
+ArtifactResolver = Callable[[str, str], bytes]
 
 PILLARS = (
     "industry_structure_bottleneck",
@@ -252,6 +256,26 @@ def canonical_sha256(value: Any) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _verify_artifact(
+    artifact_id: str,
+    expected_sha256: str,
+    resolver: ArtifactResolver,
+) -> None:
+    _require(callable(resolver), "artifact_resolver_required")
+    try:
+        raw = resolver(artifact_id, expected_sha256)
+    except Exception as exc:
+        raise MethodologyContractError("artifact_unavailable") from exc
+    _require(
+        isinstance(raw, bytes) and 0 < len(raw) <= MAX_ARTIFACT_BYTES,
+        "artifact_bytes_invalid",
+    )
+    _require(
+        hashlib.sha256(raw).hexdigest() == expected_sha256,
+        "artifact_hash_mismatch",
+    )
+
+
 def _mean(values: list[float]) -> float:
     return sum(values) / len(values)
 
@@ -263,9 +287,17 @@ def _lens_scores(pillar_scores: dict[str, float]) -> dict[str, float]:
     }
 
 
-def evaluate_packet(packet: Any, cutoff: str) -> dict[str, Any]:
+def evaluate_packet(
+    packet: Any,
+    cutoff: str,
+    artifact_resolver: ArtifactResolver,
+) -> dict[str, Any]:
     _require(isinstance(packet, dict), "packet_object")
     _require(packet.get("schema") == SCHEMA, "schema")
+    _require(
+        packet.get("assessment_anchor_version") == ASSESSMENT_ANCHOR_VERSION,
+        "assessment_anchor_version",
+    )
     asset_id = _identifier(packet.get("asset_id"), "asset_id")
     issuer_id = _identifier(packet.get("issuer_id"), "issuer_id")
     country = _identifier(packet.get("country"), "country")
@@ -294,7 +326,6 @@ def evaluate_packet(packet: Any, cutoff: str) -> dict[str, Any]:
         row = pillars[pillar]
         _require(isinstance(row, dict), f"pillar_object:{pillar}")
         absolute[pillar] = _number(row.get("absolute_assessment"), f"absolute:{pillar}")
-        peer[pillar] = _number(row.get("peer_relative_assessment"), f"peer:{pillar}")
         confidence[pillar] = _number(row.get("confidence"), f"confidence:{pillar}")
 
         mode = row.get("assessment_mode")
@@ -319,10 +350,31 @@ def evaluate_packet(packet: Any, cutoff: str) -> dict[str, Any]:
         peer_group_id = _identifier(row.get("peer_group_id"), f"peer_group_id:{pillar}")
         peer_scope = row.get("peer_scope")
         _require(peer_scope in PEER_SCOPES, f"peer_scope:{pillar}")
-        _hash(row.get("peer_snapshot_sha256"), f"peer_snapshot_sha256:{pillar}")
+        if peer_scope != "GLOBAL_INDUSTRY":
+            _text(
+                row.get("peer_scope_exception_reason"),
+                f"peer_scope_exception_reason:{pillar}",
+                1200,
+            )
+        peer_snapshot_artifact_id = _identifier(
+            row.get("peer_snapshot_artifact_id"),
+            f"peer_snapshot_artifact_id:{pillar}",
+        )
+        peer_snapshot_sha256 = _hash(
+            row.get("peer_snapshot_sha256"),
+            f"peer_snapshot_sha256:{pillar}",
+        )
         peer_as_of = _stamp(row.get("peer_as_of"), f"peer_as_of:{pillar}")
         _require(peer_as_of <= as_of, f"future_peer_snapshot:{pillar}")
         member_count = _integer(row.get("peer_member_count"), f"peer_member_count:{pillar}", 3)
+        peer_rank = _integer(row.get("peer_rank"), f"peer_rank:{pillar}", 1)
+        _require(peer_rank <= member_count, f"peer_rank:{pillar}")
+        peer[pillar] = (member_count - peer_rank) / (member_count - 1)
+        _verify_artifact(
+            peer_snapshot_artifact_id,
+            peer_snapshot_sha256,
+            artifact_resolver,
+        )
         thin_peer_group_count += int(member_count < 5)
 
         refs = row.get("evidence_refs")
@@ -339,6 +391,7 @@ def evaluate_packet(packet: Any, cutoff: str) -> dict[str, Any]:
             available_at = _stamp(ref.get("available_at"), f"artifact_available_at:{pillar}")
             _require(available_at <= as_of, f"future_artifact:{pillar}")
             _require(ref.get("review_status") == "REVIEWED", f"artifact_review_status:{pillar}")
+            _verify_artifact(artifact_id, sha, artifact_resolver)
             artifact_ids.add(artifact_id)
             artifact_hashes.add(sha)
 
@@ -358,6 +411,7 @@ def evaluate_packet(packet: Any, cutoff: str) -> dict[str, Any]:
         "country": country,
         "asset_class": asset_class,
         "sector_profile": sector_profile,
+        "assessment_anchor_version": ASSESSMENT_ANCHOR_VERSION,
         "as_of": packet["as_of"],
         "reviewed_at": packet["reviewed_at"],
         "equal_absolute_score": equal_absolute,
@@ -381,6 +435,7 @@ def evaluate_packet(packet: Any, cutoff: str) -> dict[str, Any]:
         "method_lenses_are_explanatory_only": True,
         "sector_profiles_change_interpretation_not_weight": True,
         "absolute_and_peer_scores_not_blended": True,
+        "peer_relative_method": "RANK_PERCENTILE_FROM_VERIFIED_PEER_SNAPSHOT",
         "historical_pit_certified": False,
         "oos_validated": False,
         "selector_eligible": False,
@@ -399,6 +454,7 @@ for _lens, _pillars in METHOD_LENSES.items():
 
 
 __all__ = [
+    "ASSESSMENT_ANCHOR_VERSION",
     "ARTIFACT_TYPES",
     "ASSESSMENT_MODES",
     "CLASSIC_LENSES",
