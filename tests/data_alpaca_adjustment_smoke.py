@@ -72,6 +72,7 @@ def test_default_research_request_is_split_adjusted() -> None:
     capture: dict[str, object] = {}
     with patch.dict(sys.modules, fake_alpaca(capture)), \
             patch.object(bars, "_cache_is_fresh", return_value=False), \
+            patch.object(bars, "get_alpaca_credentials", return_value=("key", "secret")), \
             patch.object(pd.DataFrame, "to_parquet", return_value=None):
         frame = bars.fetch_daily_bars("APH", days=1, force_refresh=True)
     assert not frame.empty
@@ -82,6 +83,7 @@ def test_raw_request_remains_explicitly_available() -> None:
     capture: dict[str, object] = {}
     with patch.dict(sys.modules, fake_alpaca(capture)), \
             patch.object(bars, "_cache_is_fresh", return_value=False), \
+            patch.object(bars, "get_alpaca_credentials", return_value=("key", "secret")), \
             patch.object(pd.DataFrame, "to_parquet", return_value=None):
         frame = bars.fetch_daily_bars(
             "APH", days=1, force_refresh=True, adjustment="raw"
