@@ -13,6 +13,16 @@
 - A balanced-logistic classifier output is not automatically a calibrated downside probability. Without an explicit calibration method/gate, keep canonical A3 downside probability null and retain the raw model probability only as a diagnostic; gross expected alpha must also be labelled as not after-cost.
 - A self-hash on a derived cohort file is not an authority receipt. Verify the GitHub Actions artifact/run/workflow/API digest and exact ZIP member bytes before accepting the cohort; only then use its internal evidence hashes to bind downstream components.
 
+
+## 2026-09-21 — Gold sets calibrate methodology; they are not recommendation lists
+
+- A cross-market gold set is a bounded research calibration surface, not a hidden portfolio or approved universe.
+- Include heterogeneous business models and explicit falsification/control cases so methodology quality can be tested, not merely confirmed.
+- Preserve one shared Methodology V1 pillar contract while allowing sector/lifecycle interpretation adapters.
+- Candidate priority is research sequencing only. Do not encode buy/sell/rank/target/weight/ER fields in the registry.
+- Global peer snapshots and reviewed evidence must be built later; registry membership alone never confers moat, valuation or expected-return credit.
+- Do not claim global ranking until U.S., Korea and multi-asset coverage flows through the same ER/downside competition.
+
 ## 2026-09-21 — Investment styles are lenses over canonical pillars, not additive alpha
 
 - Do not add Buffett, Graham, O'Neil, Minervini, GARP, Greenblatt, etc. as separate weighted factors when they reuse the same ROIC, growth, valuation, revision or RS evidence.
