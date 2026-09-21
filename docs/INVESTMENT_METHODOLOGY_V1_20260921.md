@@ -160,6 +160,43 @@ The following lenses are encoded over canonical pillars:
 These names are explanatory taxonomy only. Their lens scores are not added to the
 canonical equal-pillar score.
 
+## 5A. Academic empirical lenses
+
+The diagnostic registry also maps well-established empirical research onto the
+same pillars without creating new additive factors:
+
+- **Fama-French value/profitability/investment** — valuation, profitability,
+  capital allocation/investment discipline and balance-sheet risk.
+- **Jegadeesh-Titman momentum** — sustained market leadership with operating/
+  catalyst confirmation.
+- **Novy-Marx gross profitability** — underlying profitability and reinvestment
+  quality considered alongside growth and price paid.
+- **Asness quality/value/momentum** — quality, valuation, trend and risk as a
+  multi-style cross-check.
+- **Post-earnings-announcement drift (PEAD)** — earnings surprise/revision,
+  subsequent price confirmation and catalyst persistence.
+
+These remain lenses over canonical pillars, not extra points.
+
+## 5B. Portfolio theories belong to A5, not company scoring
+
+Several important investment theories answer a different question — how to size
+and combine already-reviewed opportunities — and therefore must not be added to
+the company score:
+
+- **Markowitz mean-variance**: expected return, covariance and constraints.
+- **Fractional Kelly**: edge relative to uncertainty/downside, constrained by
+  the project's hard MDD ceiling.
+- **Black-Litterman**: equilibrium/prior plus explicitly reviewed views and
+  confidence.
+- **Risk budgeting / correlation control**: marginal risk, common-factor and
+  theme/customer/country/FX concentration.
+- **Factor-residual alpha**: separate market, size, value, momentum, sector and
+  other common exposures from idiosyncratic alpha.
+
+These are A5 portfolio-analysis candidates only and require their own OOS
+validation before production use.
+
 ## 6. Existing project-native lenses
 
 - `PROJECT_QUALITY_COMPOUNDER`

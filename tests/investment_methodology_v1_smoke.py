@@ -11,10 +11,12 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from research.investment_methodology_v1 import (
+    ACADEMIC_LENSES,
     ASSESSMENT_ANCHOR_VERSION,
     CLASSIC_LENSES,
     METHOD_LENSES,
     PILLARS,
+    PORTFOLIO_THEORIES_A5_ONLY,
     PROJECT_LENSES,
     MethodologyContractError,
     evaluate_packet,
@@ -107,6 +109,7 @@ class InvestmentMethodologyV1Smoke(unittest.TestCase):
         self.assertEqual(result["portfolio_weight_effect"], 0.0)
         self.assertFalse(result["orders_allowed"])
         self.assertTrue(result["method_lenses_are_explanatory_only"])
+        self.assertIn("FRACTIONAL_KELLY", result["portfolio_theories_deferred_to_a5"])
         self.assertTrue(result["absolute_and_peer_scores_not_blended"])
 
     def test_missing_pillar_fails_closed(self):
@@ -200,10 +203,14 @@ class InvestmentMethodologyV1Smoke(unittest.TestCase):
     def test_named_method_registry_has_classic_and_project_lenses(self):
         self.assertGreaterEqual(len(CLASSIC_LENSES), 12)
         self.assertGreaterEqual(len(PROJECT_LENSES), 6)
+        self.assertGreaterEqual(len(ACADEMIC_LENSES), 5)
         self.assertIn("BUFFETT_MUNGER_COMPOUNDER", METHOD_LENSES)
         self.assertIn("ONEIL_CANSLIM", METHOD_LENSES)
         self.assertIn("MINERVINI_SUPERPERFORMANCE", METHOD_LENSES)
         self.assertIn("PROJECT_MARKET_LEADER", METHOD_LENSES)
+        self.assertIn("FAMA_FRENCH_VALUE_PROFITABILITY_INVESTMENT", METHOD_LENSES)
+        self.assertIn("JEGADEESH_TITMAN_MOMENTUM", METHOD_LENSES)
+        self.assertIn("MARKOWITZ_MEAN_VARIANCE", PORTFOLIO_THEORIES_A5_ONLY)
         for lens, pillars in METHOD_LENSES.items():
             self.assertEqual(len(pillars), len(set(pillars)), lens)
             self.assertTrue(set(pillars).issubset(PILLARS), lens)

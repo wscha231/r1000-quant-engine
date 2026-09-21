@@ -150,6 +150,45 @@ CLASSIC_LENSES = {
     ),
 }
 
+ACADEMIC_LENSES = {
+    "FAMA_FRENCH_VALUE_PROFITABILITY_INVESTMENT": (
+        "valuation_margin_of_safety",
+        "profitability_reinvestment_capital_efficiency",
+        "management_governance_capital_allocation",
+        "downside_balance_sheet_cycle_regime",
+    ),
+    "JEGADEESH_TITMAN_MOMENTUM": (
+        "market_leadership_price_volume_rs",
+        "earnings_revision_operating_acceleration",
+        "catalyst_ownership_information_edge",
+    ),
+    "NOVY_MARX_GROSS_PROFITABILITY": (
+        "profitability_reinvestment_capital_efficiency",
+        "growth_runway_customer_product",
+        "valuation_margin_of_safety",
+    ),
+    "ASNESS_QUALITY_VALUE_MOMENTUM": (
+        "profitability_reinvestment_capital_efficiency",
+        "management_governance_capital_allocation",
+        "valuation_margin_of_safety",
+        "market_leadership_price_volume_rs",
+        "downside_balance_sheet_cycle_regime",
+    ),
+    "POST_EARNINGS_ANNOUNCEMENT_DRIFT": (
+        "earnings_revision_operating_acceleration",
+        "market_leadership_price_volume_rs",
+        "catalyst_ownership_information_edge",
+    ),
+}
+
+PORTFOLIO_THEORIES_A5_ONLY = (
+    "MARKOWITZ_MEAN_VARIANCE",
+    "FRACTIONAL_KELLY",
+    "BLACK_LITTERMAN",
+    "RISK_BUDGETING",
+    "FACTOR_RESIDUAL_ALPHA",
+)
+
 PROJECT_LENSES = {
     "PROJECT_QUALITY_COMPOUNDER": (
         "moat_durability",
@@ -191,7 +230,7 @@ PROJECT_LENSES = {
         "valuation_margin_of_safety",
     ),
 }
-METHOD_LENSES = {**CLASSIC_LENSES, **PROJECT_LENSES}
+METHOD_LENSES = {**CLASSIC_LENSES, **ACADEMIC_LENSES, **PROJECT_LENSES}
 
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}$")
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
@@ -433,6 +472,7 @@ def evaluate_packet(
         "packet_sha256": canonical_sha256(packet),
         "score_method": "UNWEIGHTED_MEAN_TEN_CANONICAL_PILLARS_DIAGNOSTIC_ONLY",
         "method_lenses_are_explanatory_only": True,
+        "portfolio_theories_deferred_to_a5": list(PORTFOLIO_THEORIES_A5_ONLY),
         "sector_profiles_change_interpretation_not_weight": True,
         "absolute_and_peer_scores_not_blended": True,
         "peer_relative_method": "RANK_PERCENTILE_FROM_VERIFIED_PEER_SNAPSHOT",
@@ -454,6 +494,7 @@ for _lens, _pillars in METHOD_LENSES.items():
 
 
 __all__ = [
+    "ACADEMIC_LENSES",
     "ASSESSMENT_ANCHOR_VERSION",
     "ARTIFACT_TYPES",
     "ASSESSMENT_MODES",
@@ -462,6 +503,7 @@ __all__ = [
     "MethodologyContractError",
     "PEER_SCOPES",
     "PILLARS",
+    "PORTFOLIO_THEORIES_A5_ONLY",
     "PROJECT_LENSES",
     "RESULT_SCHEMA",
     "SCHEMA",

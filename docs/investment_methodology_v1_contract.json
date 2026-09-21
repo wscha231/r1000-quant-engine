@@ -62,7 +62,14 @@
       "PROJECT_SMART_MONEY_EVENT",
       "PROJECT_REGIME_RESILIENCE"
     ],
-    "policy": "Lens scores are unweighted means of referenced canonical pillars for interpretation only. They are not summed into the equal-pillar score and have zero selector authority."
+    "policy": "Lens scores are unweighted means of referenced canonical pillars for interpretation only. They are not summed into the equal-pillar score and have zero selector authority.",
+    "academic": [
+      "FAMA_FRENCH_VALUE_PROFITABILITY_INVESTMENT",
+      "JEGADEESH_TITMAN_MOMENTUM",
+      "NOVY_MARX_GROSS_PROFITABILITY",
+      "ASNESS_QUALITY_VALUE_MOMENTUM",
+      "POST_EARNINGS_ANNOUNCEMENT_DRIFT"
+    ]
   },
   "evidence": {
     "each_pillar_requires_absolute_assessment": true,
@@ -101,5 +108,16 @@
     "0.50": "neutral or mixed; approximately ordinary/median economics",
     "0.75": "strong, durable and evidence-backed",
     "1.00": "exceptional/global best-in-class with durable multi-source evidence"
+  },
+  "portfolio_theories": {
+    "stage": "A5_ONLY_NOT_COMPANY_SCORE",
+    "methods": [
+      "MARKOWITZ_MEAN_VARIANCE",
+      "FRACTIONAL_KELLY",
+      "BLACK_LITTERMAN",
+      "RISK_BUDGETING",
+      "FACTOR_RESIDUAL_ALPHA"
+    ],
+    "policy": "Portfolio construction theories are evaluated after reviewed expected returns and downside; they do not add company-selection points."
   }
 }
