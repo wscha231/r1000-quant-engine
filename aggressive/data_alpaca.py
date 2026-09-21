@@ -9,9 +9,10 @@ Usage:
 
 Caching:
     Bars are cached to aggressive/cache/bars/{TICKER}_{PERIOD}_{ADJUSTMENT}.parquet
-    with a 12h freshness check. Research RS/momentum uses split-adjusted bars
-    by default; raw bars remain explicit diagnostics. Cache identity includes
-    the adjustment basis so legacy raw bytes cannot satisfy adjusted requests.
+    with a 12h freshness check. Legacy fetch APIs preserve raw-bar defaults.
+    Research RS/momentum must use the explicit split-adjusted research wrappers.
+    Cache identity includes the adjustment basis so raw bytes cannot satisfy
+    split-adjusted requests.
 """
 from __future__ import annotations
 
@@ -40,7 +41,7 @@ def _normalize_adjustment(value: str) -> str:
     return adjustment
 
 
-def _cache_path(ticker: str, days: int, adjustment: str = "split") -> Path:
+def _cache_path(ticker: str, days: int, adjustment: str = "raw") -> Path:
     adjustment = _normalize_adjustment(adjustment)
     cfg = load_agg_config()
     cache_dir = cfg.cache_dir / _CACHE_SUBDIR
@@ -65,7 +66,7 @@ def fetch_daily_bars(
     ticker: str,
     days: int = 260,
     force_refresh: bool = False,
-    adjustment: str = "split",
+    adjustment: str = "raw",
 ) -> pd.DataFrame:
     """Fetch daily OHLCV bars for a single ticker.
 
@@ -74,9 +75,9 @@ def fetch_daily_bars(
 
     Returns empty DataFrame if fetch fails.
 
-    Split adjustment is the research default so stock splits cannot masquerade
-    as momentum/RS crashes. Raw remains available for explicit diagnostics.
-    Broker/execution replay uses a separate exact-close path.
+    The legacy/default basis remains raw to avoid silently changing execution,
+    backtest, sizing or other historical callers. Research RS/momentum should
+    use fetch_research_daily_bars(), which explicitly requests split adjustment.
     """
     adjustment = _normalize_adjustment(adjustment)
     cache = _cache_path(ticker, days, adjustment)
@@ -148,7 +149,7 @@ def fetch_latest_bars(
     tickers: list[str],
     days: int = 60,
     force_refresh: bool = False,
-    adjustment: str = "split",
+    adjustment: str = "raw",
 ) -> dict[str, pd.DataFrame]:
     """Batch fetch. Returns dict[ticker, DataFrame] on one adjustment basis."""
     adjustment = _normalize_adjustment(adjustment)
@@ -165,9 +166,25 @@ def fetch_latest_bars(
     return out
 
 
-def fetch_spy_benchmark(days: int = 260, adjustment: str = "split") -> pd.DataFrame:
-    """Fetch SPY on the same adjustment basis used by ticker RS."""
+def fetch_spy_benchmark(days: int = 260, adjustment: str = "raw") -> pd.DataFrame:
+    """Fetch SPY with explicit basis; legacy/default basis remains raw."""
     return fetch_daily_bars("SPY", days=days, adjustment=adjustment)
+
+
+def fetch_research_daily_bars(
+    ticker: str,
+    days: int = 260,
+    force_refresh: bool = False,
+) -> pd.DataFrame:
+    """Fetch split-adjusted daily bars for return/RS/momentum research only."""
+    return fetch_daily_bars(
+        ticker, days=days, force_refresh=force_refresh, adjustment="split"
+    )
+
+
+def fetch_research_spy_benchmark(days: int = 260) -> pd.DataFrame:
+    """Fetch split-adjusted SPY bars for research relative-return calculations."""
+    return fetch_spy_benchmark(days=days, adjustment="split")
 
 
 if __name__ == "__main__":

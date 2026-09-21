@@ -68,13 +68,24 @@ def test_cache_basis_is_part_of_identity() -> None:
     assert raw_path.name.endswith("_raw.parquet")
 
 
-def test_default_research_request_is_split_adjusted() -> None:
+def test_legacy_default_remains_raw() -> None:
     capture: dict[str, object] = {}
     with patch.dict(sys.modules, fake_alpaca(capture)), \
             patch.object(bars, "_cache_is_fresh", return_value=False), \
             patch.object(bars, "get_alpaca_credentials", return_value=("key", "secret")), \
             patch.object(pd.DataFrame, "to_parquet", return_value=None):
         frame = bars.fetch_daily_bars("APH", days=1, force_refresh=True)
+    assert not frame.empty
+    assert capture["adjustment"] == "RAW", capture
+
+
+def test_research_wrapper_is_split_adjusted() -> None:
+    capture: dict[str, object] = {}
+    with patch.dict(sys.modules, fake_alpaca(capture)), \
+            patch.object(bars, "_cache_is_fresh", return_value=False), \
+            patch.object(bars, "get_alpaca_credentials", return_value=("key", "secret")), \
+            patch.object(pd.DataFrame, "to_parquet", return_value=None):
+        frame = bars.fetch_research_daily_bars("APH", days=1, force_refresh=True)
     assert not frame.empty
     assert capture["adjustment"] == "SPLIT", capture
 
@@ -103,7 +114,8 @@ def test_unknown_adjustment_fails_before_provider_use() -> None:
 
 if __name__ == "__main__":
     test_cache_basis_is_part_of_identity()
-    test_default_research_request_is_split_adjusted()
+    test_legacy_default_remains_raw()
+    test_research_wrapper_is_split_adjusted()
     test_raw_request_remains_explicitly_available()
     test_unknown_adjustment_fails_before_provider_use()
     print("data alpaca adjustment smoke: PASS")

@@ -356,13 +356,13 @@ def format_decision_full(dec: ExitDecision) -> str:
 # --- Smoke test ------------------------------------------------------------
 
 if __name__ == "__main__":
-    from aggressive.data_alpaca import fetch_daily_bars, fetch_spy_benchmark
+    from aggressive.data_alpaca import fetch_research_daily_bars, fetch_research_spy_benchmark
 
     print("=" * 78)
     print("Exit Management - Smoke Test")
     print("=" * 78)
 
-    spy = fetch_spy_benchmark(days=260)
+    spy = fetch_research_spy_benchmark(days=260)
 
     # Simulate holding positions at various entry points
     test_positions = [
@@ -385,7 +385,7 @@ if __name__ == "__main__":
 
     print()
     for pos in test_positions:
-        df = fetch_daily_bars(pos.ticker, days=260)
+        df = fetch_research_daily_bars(pos.ticker, days=260)
         if df.empty:
             print(f"{pos.ticker}: NO DATA")
             continue
@@ -396,7 +396,7 @@ if __name__ == "__main__":
     print()
     print("--- Full decision example (WDC) ---")
     pos = test_positions[2]
-    df = fetch_daily_bars(pos.ticker, days=260)
+    df = fetch_research_daily_bars(pos.ticker, days=260)
     dec = evaluate_position(pos, df, spy)
     print(format_decision_full(dec))
 
