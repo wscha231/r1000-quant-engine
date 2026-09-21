@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from datetime import datetime, timezone
+import hashlib
 import math
 from pathlib import Path
 import sys
@@ -11,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from research.a3_candidate_packet_v1 import _validate_market
 from research.us_strict_market_snapshot_v1 import (
     UsStrictMarketError,
     compute_snapshot,
@@ -23,6 +26,9 @@ def frame(growth: float, periods: int = 281) -> pd.DataFrame:
     return pd.DataFrame({"date": dates, "close": closes, "volume": [1000] * periods})
 
 
+RAW_BYTES = b"fixture-us-gold-set-market-evidence"
+
+
 def base_kwargs() -> dict:
     return {
         "asset_id": "US:AVGO",
@@ -33,7 +39,7 @@ def base_kwargs() -> dict:
         "collected_at": "2026-09-18T20:06:00+00:00",
         "source_identity": "ALPACA_V2_IEX_RAW_SPLIT_CONCORDANCE_V1",
         "raw_artifact_id": "RAW-MKT:US:AVGO:2026-09-18:v1",
-        "raw_sha256": "a" * 64,
+        "raw_sha256": hashlib.sha256(RAW_BYTES).hexdigest(),
     }
 
 
@@ -53,6 +59,23 @@ def test_reviewed_proxy_and_exact_rs() -> None:
             - math.log1p(out[f"benchmark_return_{horizon}d"])
         )
         assert abs(out[f"rs_{horizon}d"] - expected) <= 1e-12
+
+
+def test_snapshot_is_admitted_by_a3_market_contract() -> None:
+    asset = frame(0.0014)
+    bench = frame(0.0006)
+    out = compute_snapshot(asset, asset.copy(), bench, bench.copy(), **base_kwargs())
+
+    def resolver(artifact_id: str, digest: str) -> bytes:
+        assert artifact_id == out["raw_artifact_id"]
+        assert digest == out["raw_sha256"]
+        return RAW_BYTES
+
+    _validate_market(
+        out,
+        datetime(2026, 9, 19, 2, 0, tzinfo=timezone.utc),
+        resolver,
+    )
 
 
 def test_raw_split_mismatch_fails_closed() -> None:
@@ -97,6 +120,7 @@ def test_time_order_fails_closed() -> None:
 
 if __name__ == "__main__":
     test_reviewed_proxy_and_exact_rs()
+    test_snapshot_is_admitted_by_a3_market_contract()
     test_raw_split_mismatch_fails_closed()
     test_missing_session_fails_closed()
     test_time_order_fails_closed()
