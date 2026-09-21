@@ -449,6 +449,7 @@ def run_stage(
         "log": fingerprint(log_path),
         "network_requests_executed": manifest_request_count(manifest),
         "elapsed_seconds": time.perf_counter() - started,
+        "completed_at_utc": datetime.now(timezone.utc).isoformat(),
         "failures": failures,
     }
     return manifest, audit
@@ -466,10 +467,14 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     attempt_root.mkdir(parents=True)
     plan_path = repo_path(args.plan)
     plan = read_json(plan_path)
+    archived_plan_path = attempt_root / "plan.json"
+    archived_plan_path.write_bytes(plan_path.read_bytes())
     overrides = parse_input_records(args.path_override)
     directory_overrides = parse_input_records(args.directory_override)
     paths, input_audit, failures = plan_paths(plan, overrides)
     failures = validate_plan(plan) + failures
+    if read_json(archived_plan_path) != plan:
+        failures.append("plan_changed_before_archive")
     try:
         code_identity = current_code_identity()
         failures.extend(
@@ -577,6 +582,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
 
     preflight = {
         "plan": fingerprint(plan_path),
+        "archived_plan": fingerprint(archived_plan_path),
         "code_identity": code_identity,
         "input_audit": input_audit,
         "directory_audit": directory_audit,
@@ -587,6 +593,8 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         "decision_time_utc": decision_time.isoformat(),
         "sec_user_agent_configured": bool(sec_user_agent and "@" in sec_user_agent),
     }
+    if preflight["plan"]["sha256"] != preflight["archived_plan"]["sha256"]:
+        failures.append("plan_archive_hash_mismatch")
     if failures:
         payload = base_payload(SKIPPED_STATUS, valuation_date, started)
         payload["skip_reasons"] = failures
@@ -624,7 +632,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         input_changes = [
             *changed_code_identity_failures(code_identity),
             *changed_preflight_input_failures(
-                input_audit, preflight.get("plan") or {}
+                {**input_audit, "archived_plan": preflight["archived_plan"]}, preflight.get("plan") or {}
             ),
             *changed_price_cache_inputs(
                 price_cache_input_audit,
@@ -669,7 +677,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         input_changes = [
             *changed_code_identity_failures(code_identity),
             *changed_preflight_input_failures(
-                input_audit, preflight.get("plan") or {}
+                {**input_audit, "archived_plan": preflight["archived_plan"]}, preflight.get("plan") or {}
             ),
             *changed_price_cache_inputs(
                 price_cache_input_audit,
@@ -698,12 +706,14 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 "status": BUNDLE_REUSED_STATUS,
                 "manifest": fingerprint(dated),
                 "network_requests_executed": 0,
+                "completed_at_utc": datetime.now(timezone.utc).isoformat(),
                 "failures": [],
             }
         ]
         payload["source_bundle"] = reused.get("current_source_bundle")
         payload["network_execution_authorized"] = False
         payload["historical_cagr_mdd_evidence_changed"] = False
+        payload["completed_at_utc"] = datetime.now(timezone.utc).isoformat()
         write_json(attempt_root / "status.json", payload)
         return payload
 
@@ -986,7 +996,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     input_changes = [
         *changed_code_identity_failures(code_identity),
         *changed_preflight_input_failures(
-            input_audit, preflight.get("plan") or {}
+            {**input_audit, "archived_plan": preflight["archived_plan"]}, preflight.get("plan") or {}
         ),
         *changed_price_cache_inputs(
             price_cache_input_audit,
@@ -1017,7 +1027,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     input_changes = [
         *changed_code_identity_failures(code_identity),
         *changed_preflight_input_failures(
-            input_audit, preflight.get("plan") or {}
+            {**input_audit, "archived_plan": preflight["archived_plan"]}, preflight.get("plan") or {}
         ),
         *changed_price_cache_inputs(
             price_cache_input_audit,
@@ -1044,6 +1054,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     )
     payload["source_bundle"] = bundle.get("current_source_bundle")
     payload["historical_cagr_mdd_evidence_changed"] = False
+    payload["completed_at_utc"] = datetime.now(timezone.utc).isoformat()
     write_json(attempt_root / "status.json", payload)
     return payload
 

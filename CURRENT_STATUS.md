@@ -4,6 +4,44 @@ Status snapshot: `2026-08-23 10:05 KST` (`2026-08-23 01:05 UTC`)
 
 Tracking issue: [#382](https://github.com/wscha231/r1000-quant-engine/issues/382)
 
+## Research-architecture addendum — 2026-09-21
+
+This addendum updates **research architecture only**. It does not advance the
+older operational paper/broker/data-freshness/performance dates documented below.
+
+- Current U.S./multi-asset master at the start of the gold-set work:
+  `3e9e468195f4cf3954b24d40f441ef8fa206b30e` (Investment Methodology V1 merge).
+- Moat/Quality V2 rev3 is merged in the U.S. engine via PR #472.
+- Investment Methodology V1 is merged in the U.S. engine via PR #478 and in the
+  Korean engine via KR PR #9. The common methodology module/contract were
+  verified byte-identical at merge time.
+- Korean PIT listing-age fail-open repair and classifier engine/byte binding are
+  merged in `wscha231/kr-quant-engine`; the Korean main observed after
+  Methodology V1 merge was `eb27ff22b0350220f0cb0ee505e3bcda2e1236cd`.
+- Issue #479 is the canonical A3 handoff for cross-market Methodology + Moat
+  candidate packets. The first bounded 29-name calibration registry is proposed
+  in PR #480. Registry inclusion is research sequencing only, not BUY/SELL,
+  rank, ER, target, portfolio weight, or approved universe.
+- Methodology/Moat outputs remain `historical_pit_certified=false`,
+  `oos_validated=false`, `selector_eligible=false`, and
+  `portfolio_weight_effect=0`.
+- The connected Financial Datasets service returned balance/authorization
+  failures during Wave-1 intake on 2026-09-21. Missing structured metrics must
+  fail closed; official public IR/filing evidence may be used for research
+  intake, but this does not establish full quantitative coverage.
+- Actual broker holdings/cash, accepted paper ledger, operational target book,
+  and a corrected current performance rebaseline remain governed by the older
+  operational sections below and are **not verified by this addendum**.
+- No fullrun, target/portfolio mutation, broker/order action, model promotion, or
+  production activation is authorized by this addendum.
+
+## Source-integrity follow-up — 2026-09-20
+
+See [the H1 input-integrity handoff](docs/INPUT_INTEGRITY_FIX_20260920.md) for
+a source audit at master `f20410549464e3f2557ae6d90ba8b20ee8bcc42e` and the
+proposed legacy-input repair. This is code/test evidence; it does not advance
+the operational data dates, accepted book, or performance evidence below.
+
 ## Executive status
 
 | Boundary | Current status |

@@ -1012,7 +1012,9 @@ jobs:
             outputs/backtest_metrics.json
             outputs/concentrated_backtest_metrics.json
             outputs/portfolio_latest.csv
+            outputs/portfolio_latest.csv.coverage.json
             outputs/concentrated_portfolio_latest.csv
+            outputs/concentrated_portfolio_latest.csv.coverage.json
             outputs/scored_latest.csv
             outputs/reports/main_monthly_weights.csv
             outputs/reports/concentrated_strategy_holdings.csv
@@ -1198,7 +1200,9 @@ jobs:
             outputs/concentrated_backtest_metrics.json
             outputs/equity_curve.csv
             outputs/portfolio_latest.csv
+            outputs/portfolio_latest.csv.coverage.json
             outputs/concentrated_portfolio_latest.csv
+            outputs/concentrated_portfolio_latest.csv.coverage.json
             outputs/run_summary.json
             outputs/orchestrator/
             outputs/reports/baseline_registry.*
@@ -1788,8 +1792,14 @@ jobs:
             done
             cp outputs/backtest_metrics.json "$DEST/" 2>/dev/null || true
             cp outputs/concentrated_backtest_metrics.json "$DEST/" 2>/dev/null || true
-            cp outputs/portfolio_latest.csv "$DEST/" 2>/dev/null || true
-            cp outputs/concentrated_portfolio_latest.csv "$DEST/" 2>/dev/null || true
+            if [ -f outputs/portfolio_latest.csv ]; then
+              cp outputs/portfolio_latest.csv "$DEST/"
+              cp outputs/portfolio_latest.csv.coverage.json "$DEST/"
+            fi
+            if [ -f outputs/concentrated_portfolio_latest.csv ]; then
+              cp outputs/concentrated_portfolio_latest.csv "$DEST/"
+              cp outputs/concentrated_portfolio_latest.csv.coverage.json "$DEST/"
+            fi
             cp outputs/scored_latest.csv "$DEST/" 2>/dev/null || true
             mkdir -p "$DEST/reports"
             cp outputs/reports/main_monthly_weights.csv "$DEST/reports/" 2>/dev/null || true
@@ -1802,10 +1812,20 @@ jobs:
           else
           # Score + universe outputs
           cp outputs/scored_latest.csv "$DEST/" 2>/dev/null || true
-          cp outputs/scored_unified.csv "$DEST/" 2>/dev/null || true
+          if [ -f outputs/scored_unified.csv ]; then
+            cp outputs/scored_unified.csv "$DEST/"
+            cp outputs/scored_unified.csv.coverage.json "$DEST/"
+            python -c "import sys; from r1000_legacy_input_guard import read_csv_packet; read_csv_packet(sys.argv[1])" "$DEST/scored_unified.csv"
+          fi
           # Portfolio outputs (production main + concentrated 3-name)
-          cp outputs/portfolio_latest.csv "$DEST/" 2>/dev/null || true
-          cp outputs/concentrated_portfolio_latest.csv "$DEST/" 2>/dev/null || true
+          if [ -f outputs/portfolio_latest.csv ]; then
+            cp outputs/portfolio_latest.csv "$DEST/"
+            cp outputs/portfolio_latest.csv.coverage.json "$DEST/"
+          fi
+          if [ -f outputs/concentrated_portfolio_latest.csv ]; then
+            cp outputs/concentrated_portfolio_latest.csv "$DEST/"
+            cp outputs/concentrated_portfolio_latest.csv.coverage.json "$DEST/"
+          fi
           cp outputs/patch_application_manifest.json "$DEST/" 2>/dev/null || true
           # Backtest metrics
           cp outputs/backtest_metrics.json "$DEST/" 2>/dev/null || true

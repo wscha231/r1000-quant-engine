@@ -1,5 +1,112 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-21 — Scenario research is not validated expected return
+
+- A3 Bull/Base/Bear scenarios may express 12/24-month conditional outcomes and assumptions, but they must not carry unvalidated probabilities or be labeled statistical expected return.
+- Only a separately reviewed, net-of-costs `WALK_FORWARD_VALIDATED` ER artifact may populate 1/3/6/12-month expected-return, benchmark-return, alpha and downside fields.
+- A candidate packet is an evidence aggregator, not a new selector. Bind Methodology V1, Moat V2, market/valuation and source-graph artifacts by exact bytes/hash and identity.
+- Company/securities require Moat V2 where competitive advantage is economically applicable; non-company underlyings may explicitly mark moat not applicable rather than receiving a neutral score.
+- Missing validated ER means `SCENARIO_RESEARCH_COMPLETE`, not BUY_CONSIDERATION.
+- Market snapshots must use a completed session and recompute 20/60/120/240D RS as log-relative return from disclosed asset/benchmark returns.
+- Telegram/community V0 evidence is discovery-only with zero assessment/score contribution; assessment evidence requires independently corroborated V1/V2 source groups and raw-byte hash verification.
+- Selector/portfolio/target/order authority remains zero.
+
+## 2026-09-21 — Gold sets calibrate methodology; they are not recommendation lists
+
+- A cross-market gold set is a bounded research calibration surface, not a hidden portfolio or approved universe.
+- Include heterogeneous business models and explicit falsification/control cases so methodology quality can be tested, not merely confirmed.
+- Preserve one shared Methodology V1 pillar contract while allowing sector/lifecycle interpretation adapters.
+- Candidate priority is research sequencing only. Do not encode buy/sell/rank/target/weight/ER fields in the registry.
+- Global peer snapshots and reviewed evidence must be built later; registry membership alone never confers moat, valuation or expected-return credit.
+- Do not claim global ranking until U.S., Korea and multi-asset coverage flows through the same ER/downside competition.
+
+## 2026-09-21 — Investment styles are lenses over canonical pillars, not additive alpha
+
+- Do not add Buffett, Graham, O'Neil, Minervini, GARP, Greenblatt, etc. as separate weighted factors when they reuse the same ROIC, growth, valuation, revision or RS evidence.
+- Compare every serious candidate on the same ten canonical pillars. Report absolute and peer-relative assessments separately; sector/lifecycle adapters change interpretation and evidence, never pillar weight.
+- Keep named investment methods as explanatory lens views over those pillars. Lens agreement/disagreement is diagnostic and must not be summed into selector alpha.
+- Pre-commercial biotech, financials, commodities and project businesses may use explicit stage/sector-adjusted economics, but missing universal pillars are not imputed or removed.
+- Global industry peers are preferred where economically comparable. Small or lifecycle-specific peer sets remain visible as thin-peer diagnostics.
+- Any future unequal pillar weights or method-consensus signal require preregistered PIT-safe purged walk-forward/OOS evidence. Current equal-pillar scores remain research-only.
+
+## 2026-09-21 — Qualitative moat evidence needs a trusted evidence graph before alpha
+
+- Existing `moat_proxy_score`, `moat_quality_blueprint_score`, manual overrides and financial quality factors are model/proxy surfaces; do not relabel them as reviewed evidence of durable competitive advantage.
+- A qualitative packet cannot authorize its own clock. Require a caller-supplied trusted cutoff and bind every evidence row to the reviewed asset and issuer.
+- A syntactically valid hash is not evidence integrity. Resolve immutable raw bytes and recompute SHA-256 before admission; missing or mismatched bytes fail closed.
+- Freshness means current verification of the fact. Preserve publication/availability/verification/valid-through separately, and reject stale or expired evidence.
+- Management-only support cannot establish a positive moat assessment. Require independent corroboration, reconcile SUPPORT/CHALLENGE direction with the assessment, and keep confidence separate from the unweighted research index.
+- Current reviewed evidence is not historical PIT data. No selector or portfolio weight may use this layer before timestamped history and a preregistered purged walk-forward/OOS incremental-alpha test.
+- Reuse an already registered generic smoke entrypoint for focused regression coverage; do not edit the frozen Tier-1 registry merely to register one research-only test.
+
+## 2026-09-20 — Control-plane proposals need current identity, not old baseline labels
+
+- Replace the board's May role/baseline authority with explicit A0–A8 contracts;
+  mission and the existing temporary operating gate are separate fields.
+- Queue creation is not task success. Exact reuse requires the five identity
+  dimensions plus matching successful output bytes and fresh provenance. Include
+  dependency results and context in identity; a changed receipt invalidates reuse.
+  Also bind each downstream input role to the upstream output, not just its status.
+  Result availability must follow every causal input collection time.
+- Null data_as_of is diagnostic-only. Bind QA PASS to the actual artifacts it
+  reviewed, not just a qa_report filename; changed/uncovered inputs block consumers.
+  Dirty specialist/transitive code and untracked source bytes must invalidate reuse,
+  even while the Git HEAD string remains unchanged.
+- A6 must inspect failures read-only without waiting for failed upstream work to
+  succeed. Peer dispatch, model calls and automatic promotion are absent.
+- Existing manual workflow defaults point at legacy metrics. Without a v2 state,
+  block explicitly rather than silently treating those files as current evidence.
+- Repository PR-open automation ran a Codex review before CI finished. Create
+  future PRs as Draft until final CI to avoid this unrequested intermediate review.
+  Restore instructions must explicitly request fresh v2 state rather than run the
+  new board unconditionally on a legacy bundle.
+- Reuse the registered board smoke entrypoint; do not alter the frozen Tier-1
+  runner or install a second scheduler. See CONTROL_PLANE_V2_PHASE1_20260920.md.
+
+## 2026-09-20 — Observed commodity/network data is not calibrated alpha
+
+- Multi-asset issue #465: EIA storage has a weekly observation date and a
+  separate release-date label. Preserve both; use actual retrieval as availability
+  for this forward capture. The JSON midnight label is not a release timestamp.
+- Coin Metrics public metric coverage differs by asset/metric. One unavailable
+  request must not suppress available metrics. Missing latest values stay missing.
+  BTC HashRate is TH/s (multiply by 10^12); native fees remain BTC/ETH, not USD.
+- The public coinmetrics/data CSV probe ended 2026-05-24 with missing network
+  fields; never substitute it for current September network observations.
+- Keep exact raw responses and normalized capture inputs in diagnostic artifacts.
+  Their 45-day retention is not a durable PIT archive or accepted Drive state.
+- General Drive search omitted opaque objects; direct folder listing found them.
+  Latest commit/catalog/execution/quality/context byte hashes were verified,
+  but full-chain/all-pack restore remains unverified and quality is PARTIAL.
+- Failed fundamental receipts must be bound to the evaluator feature identity
+  and reject ER admission, even when the remaining metric list is empty.
+  A successful receipt must match the complete producer request set and its
+  actual admitted subject/series/metric/unit/count/raw-hash evidence.
+  Malformed metric fields must not prevent diagnostic report publication.
+
+## 2026-09-20 — Multi-asset discovery is not a new allocation authority
+
+- Issue465 extends merged strict log-RS and the existing completed-session
+  calendar without adding a fixed commodity/crypto allocation or RS-only exits.
+- Keep source-adjusted equity price proxies visibly distinct from admitted
+  total-return evidence. A freshly downloaded historical series is not a PIT
+  archive. UTC crypto bars cannot stand in for NY-close observations, and
+  hourly volume cannot stand in for daily liquidity.
+- Reviewed ER/risk/holdings pins belong outside the input. Missing evaluators
+  and incomplete existing-equity coverage must block global ranking/proposals,
+  even when discovery features are calculable. Complete ETF look-through must
+  add direct and indirect issuer exposure once; partial coverage is unknown.
+- Provider credit/connectivity failures and existing durable-state failures
+  are not fixed by making a test fixture pass. No live rank or historical CAGR
+  is inferred. See docs/MULTI_ASSET_LEADERSHIP_V1_20260920.md for exact scope.
+- Separately pinned evaluator bytes still need feature-availability ordering
+  and an explicit model/evaluation/policy/registry benchmark identity. Complete
+  universe identity is not complete evaluation coverage; suppress global ranks
+  on missing evaluations and reject impossible historical rank sequences.
+- A rejected fundamental observation must also invalidate an evaluator bound
+  to those same raw feature bytes; a separate review pin cannot erase a stale,
+  missing, unit-invalid or unapproved-source metric admission failure.
+
 This is the shared "mistake notebook" for Codex, Claude, GPT Pro, and any other
 agent working on `wscha231/r1000-quant-engine`.
 
@@ -5045,3 +5152,147 @@ Expected contract:
 - Preserve missing dates outside a rolling price window together with retained raw lineage. The window begins at the first returned date including missing values, so a new leading gap cannot resurrect an old price. Added four regression cases; history suite now has 39 tests.
 - PR423 Tier-1 run 34715585754 rejected the newly registered research suites with post_publication_protected_delta:tools/run_pr_validation.py. Following the existing protected-publication protocol, advance only verifier/regression pins to causal ancestor 346d93c713eaa539db7d10ebd0fb34b0d54626b9, reviewed by Codex in review 5187824659. Keep all protected paths, frozen artifacts, hashes, registered tests, and mutation rejection rules unchanged.
 - Further PR423 review found the same leading-missing price boundary in the separate macro cycle. Carry provider_window_start and missing dates from source collection; refuse ambiguous fresh boundaries, retain only earlier rows/gaps, and mark legacy missing-date evidence incomplete. World Bank coverage now compares every requested country/year, including entirely omitted countries and boundary years, rather than counting only returned nulls. The research suites pass 40 history + 17 cycle + 14 source tests.
+
+## 2026-09-20 — Legacy score freshness needs producer and consumer checks
+
+- Audited master f20410549464e3f2557ae6d90ba8b20ee8bcc42e still fabricated
+  missing model scores, fixed $10B caps and TTM-as-forward PE. Reconstructed
+  the relevant PR415 bridge capability on current master, without its stale
+  collector stack, then extended it under issue462.
+- Preserving a previous output on failure is insufficient: consumers may
+  silently read it. Start builds with a blocked receipt, publish successful
+  output hashes last, and validate the exact read bytes plus row observation,
+  pricing and availability dates at legacy consumers.
+- A recent run or price does not refresh an old model score. Explicit
+  valuation/corporate-action rejection must survive downstream loaders.
+- The legacy Layer4 bridge has only RS and holding age; it cannot justify a
+  sell. Its suggestion API/CLI now reports BLOCKED rather than actionable swaps.
+- 58 distinct offline checks passed; new suites run through the already
+  registered freshness smoke without modifying frozen publication gates.
+- No live coverage, financial adapter, fullrun, target/account/Drive mutation
+  or production activation is established. See docs/INPUT_INTEGRITY_FIX_20260920.md.
+
+- Publication outcome: automatic approval review rejected the issue462 branch
+  push as insufficiently authorized source/document egress. The local code
+  commit f29d585 remains preserved; no alternate route was attempted. The
+  remote branch did not exist at that check. The user explicitly authorized
+  publishing this prepared patch, PR review, gated merge and post-merge
+  verification on 2026-09-20; the authorization blocker is now resolved.
+
+- PR463 Codex review found that receipt protection must survive artifact and
+  repository transport. Require bridge receipts at readers, copy CSV/receipt
+  together, validate the pair before a single publication, and reserve an
+  explicit mode for direct legacy sources. Check score availability separately
+  from feature availability. Update the existing behavioral regression when
+  retiring RS-only evaluation; focused suites alone missed its old wiring rule.
+  Five added cases bring focused checks to63. The full local smoke cannot stand
+  in for CI when sparse fixtures or optional dependencies are absent.
+
+- The second PR463 review followed the packet through two additional Drive
+  transports and found the same missing sidecar. Update every allowlist and
+  exercise round-trip/interruption behavior, not only publisher text. Intentional
+  no-action retirement belongs in scheduled diagnostics, while execution CLI
+  failures remain nonzero. Ignored generated outputs require explicit forced
+  staging. A historical membership union is not a current cohort even above
+  the size floor; reject that fallback in the current bridge. Seven more focused
+  regressions pass (70 total), including a real temporary Git staging probe.
+
+- The third review traced admitted scores into advisor serialization: propagate
+  their genuine dates into each target and bind target bytes to a receipt, rather
+  than blocking every newly generated proposal or restamping old observations.
+  Keep archive transport hash validation separate from current admission.
+  Retire every scheduled caller of the RS-only execution path, including the
+  monthly manual-execute option; disabled diagnostics cannot claim execution
+  completed. All75 focused checks pass, including three serializer round trips.
+
+- Target receipt revocation must occur at advisor entry, not only during save:
+  a missing input or ranking exception can happen first. A regression exercises
+  all three actual CLIs with missing sources and proves the retained CSV cannot
+  be consumed. Focused checks total76 and pass.
+
+- A target's date alone does not bind the price used for sizing. Persist the
+  admitted execution reference price, require it at admission, and never replace
+  it with historical cost basis or a later quote. Require generation time across
+  every executable producer, including core/concentrated latest exports, while
+  preserving historical observation dates. A failure receipt left only in an
+  ephemeral workflow runner cannot revoke a retained remote success: publish
+  revocation from a clean remote tree without any pending success CSV changes.
+  Four new regressions cover these boundaries; all80 focused checks pass.
+
+- Receipt requirements must cover core/concentrated targets and the entire
+  outer producer lifecycle, not only advisor serialization. Revoke at build
+  entry, keep nested outputs blocked, and release only newly written targets
+  after successful completion. Missing source directories and absent packets
+  must revoke retained Drive destinations. Preserve explicit no-ranking flags
+  and upload success artifacts only after durable publication succeeds.
+  Early/late failure and missing-source regressions pass; focused total85.
+
+## 2026-09-20 — Theme source admission is not company evaluation
+
+- Reuse the monitor's authenticated GitHub artifact path and the existing strict
+  runtime. Hashes and VERIFIED/reviewed booleans cannot certify economic truth;
+  business approvals need separately reviewed event/document pins.
+- Whole-base candidate accounting must retain a missing evaluator receipt for
+  every ID. A queue preview is not a company evaluation or a completed live cycle.
+- Runtime V1 keys membership by security and sorts ETF snapshots by availability.
+  Until separate fixes are reviewed, block multi-theme histories and decreasing
+  holdings-as-of sequences rather than silently erasing links or reversing time.
+- The authenticated 2026-09-18 monitor report still has a failed operating source
+  and 1/6 estimate coverage. Adapter success on 1,118 synthetic base IDs plus one
+  candidate does not repair these real dependencies or authorize account recovery.
+- See docs/THEME_ETF_SOURCE_BRIDGE_20260920.md for contracts, hashes, tests and
+  pending #445/#451/#459 interfaces. No target/account/fullrun/champion change.
+- Independent review: join relationships by security ID, never ticker reuse;
+  require ready receipt states as well as member presence; validation cannot
+  predate its data and review cannot predate its documents. Use the runtime's
+  canonical fund IDs/availability order and reject NaN/Infinity numeric strings
+  before serialization. These boundaries now have explicit regressions.
+- Follow-up review: match the runtime's ETF revision tie-breaker and require
+  an explicit portfolio scope; retain distinct raw members per component.
+  Optional recovery receipts need affirmative ready/authorization semantics,
+  decision and validation times cannot precede their authenticated producer,
+  and whitespace variants of document IDs must not inflate evidence counts.
+- Check both ends of provenance: a decision cannot postdate its already-created
+  artifact, and a copied recovery receipt must match the current authenticated
+  dispatch/commit/run/attempt/job/session and decision timeline. Fix all component
+  data/receipt namespaces to prevent cross-role raw aliases. Canonicalize every
+  security-reference boundary and reject same-date ETF revision regression/reuse.
+- Identity_verified=true alone allowed boolean issuer/ticker fields into a
+  synthetic admitted queue. Require nonempty canonical text as well as the
+  verified flag; the reproduced case and whitespace variants now block.
+- Python accepts basic/week ISO dates as well as YYYY-MM-DD. The former spellings
+  split one ETF holdings date into separate revision histories and admitted a
+  regressing revision in a reproduced case. Require canonical dates at admission.
+- Final review reproduced coerced non-string fund IDs and deep JSON escaping
+  the optional reader, which erased required monitor evidence in its outer
+  error handler. Require typed provenance identities and isolate all optional
+  reader failures; malformed optional data must not suppress primary evidence.
+- V1 checks full-snapshot identity only for COMMON/ADR/ETF. A boolean/unknown
+  instrument bypassed that predicate. Admit only those supported ETF-row types
+  here; cash/derivatives need a separate reviewed semantics extension. Preserve
+  unverified supported rows as incomplete, never discard them for completeness.
+- PR463 merged during review. PR metadata still exposed the old base SHA while
+  an append-only shared-ledger conflict prevented pull_request CI from starting.
+  Read the live master branch; preserve both full ledger additions and validate
+  against the merged baseline. Exact-head observation alone does not prove CI ran.
+- Required upstream/recovery JSON still used permissive last-key-wins parsing.
+  Share strict duplicate-key/nonfinite decoding across both evidence boundaries,
+  keeping authority rules separate. Business review pins also require a typed,
+  nonempty canonical reviewer identity rather than a truthy label.
+- Recovery-ready labels can contradict observed accepted-head discovery/count
+  and legacy/genesis mode. Validate those invariants and coherent paper verifier
+  metadata without claiming a new durable account verification.
+- Upstream status/date/ready labels are not the producer contract. Read the v3
+  receipt, bound bundle, exact successful stage manifests/logs, dynamic outputs
+  and lineage; check fixed policy hash pins without opening portfolio inputs.
+  Same-close reuse retains original paths and must bind the same dated bytes.
+- A matching sum of request counts can still exceed the producer's plan. Archive
+  and rehash the exact plan and bind its canonical identity before enforcing
+  total/per-stage caps and matching stage counts to source manifests.
+- Partial dependency checks miss decision benchmark/SEC/Companyfacts and score
+  stage substitutions. Bind every declared inter-stage manifest edge to its
+  audited stage and require the existing score handoff reader before admission.
+- A preflight cutoff precedes computation and is not prerequisite availability.
+  Record stage/final completion after evidence production, enforce monotonic
+  completion within the authenticated artifact timeline, and bound Theme
+  decisions by that final completion. Legacy receipts lacking this proof block.

@@ -22,6 +22,7 @@ scipy>=1.12.0            # hierarchical clustering for theme discovery
 scikit-learn>=1.4.0      # r1000_pipeline imports LogisticRegression/Ridge at module top
 requests>=2.31.0
 pyyaml>=6.0
+jsonschema>=4.23,<5      # strict Control Plane v2 contracts
 
 # Alpaca market data + trading API
 alpaca-py>=0.21.0

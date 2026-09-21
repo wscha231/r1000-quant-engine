@@ -1,0 +1,1115 @@
+{
+  "schema": "multi-asset-registry-v1",
+  "registry_role": "RESEARCH_SEED_NOT_CURRENT_BROKER_UNIVERSE",
+  "underlyings": [
+    {
+      "underlying_id": "GOLD",
+      "asset_class": "PRECIOUS_METAL",
+      "value_chain": [
+        "monetary"
+      ],
+      "thesis_id": null
+    },
+    {
+      "underlying_id": "SILVER",
+      "asset_class": "PRECIOUS_METAL",
+      "value_chain": [
+        "industrial",
+        "monetary"
+      ],
+      "thesis_id": null
+    },
+    {
+      "underlying_id": "COPPER",
+      "asset_class": "INDUSTRIAL_METAL",
+      "value_chain": [
+        "mining",
+        "refining"
+      ],
+      "thesis_id": null
+    },
+    {
+      "underlying_id": "URANIUM",
+      "asset_class": "ENERGY",
+      "value_chain": [
+        "mining",
+        "conversion",
+        "enrichment",
+        "HALEU",
+        "fuel_fabrication",
+        "nuclear_services"
+      ],
+      "thesis_id": null,
+      "chemical_form": "U3O8; fuel-chain stages have separate prices"
+    },
+    {
+      "underlying_id": "NATURAL_GAS",
+      "asset_class": "ENERGY",
+      "value_chain": [
+        "production",
+        "LNG",
+        "power_burn"
+      ],
+      "thesis_id": null
+    },
+    {
+      "underlying_id": "OIL",
+      "asset_class": "ENERGY",
+      "value_chain": [
+        "upstream",
+        "refining"
+      ],
+      "thesis_id": null
+    },
+    {
+      "underlying_id": "LITHIUM",
+      "asset_class": "CRITICAL_MINERAL",
+      "value_chain": [
+        "mining",
+        "conversion"
+      ],
+      "thesis_id": null
+    },
+    {
+      "underlying_id": "RARE_EARTH",
+      "asset_class": "CRITICAL_MINERAL",
+      "value_chain": [
+        "mining",
+        "separation",
+        "magnets"
+      ],
+      "thesis_id": null
+    },
+    {
+      "underlying_id": "POTASH",
+      "asset_class": "FERTILIZER",
+      "value_chain": [
+        "mining"
+      ],
+      "thesis_id": null
+    },
+    {
+      "underlying_id": "NITROGEN",
+      "asset_class": "FERTILIZER",
+      "value_chain": [
+        "ammonia",
+        "urea"
+      ],
+      "thesis_id": null
+    },
+    {
+      "underlying_id": "BTC",
+      "asset_class": "CRYPTO",
+      "value_chain": [
+        "network",
+        "custody"
+      ],
+      "thesis_id": null
+    },
+    {
+      "underlying_id": "ETH",
+      "asset_class": "CRYPTO",
+      "value_chain": [
+        "network",
+        "staking",
+        "L2"
+      ],
+      "thesis_id": null
+    }
+  ],
+  "assets": [
+    {
+      "asset_id": "US:GLDM",
+      "symbol": "GLDM",
+      "asset_class": "ETF",
+      "subclass": "GOLD",
+      "underlying": "GOLD",
+      "vehicle_type": "PHYSICAL_TRUST",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "GLDM",
+        "GOLD"
+      ],
+      "theme_ids": [
+        "GOLD"
+      ],
+      "risk_group_ids": [
+        "PRECIOUS_METALS",
+        "GOLD"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": true,
+      "identity_source": "https://www.ssga.com/us/en/individual/etfs/spdr-gold-minishares-gldm",
+      "identity_checked_at": "2026-09-20",
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:WPM",
+      "symbol": "WPM",
+      "asset_class": "COMMODITY_EQUITY",
+      "subclass": "GOLD",
+      "underlying": "GOLD",
+      "vehicle_type": "COMMON",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "WPM",
+        "GOLD"
+      ],
+      "theme_ids": [
+        "GOLD"
+      ],
+      "risk_group_ids": [
+        "PRECIOUS_METALS",
+        "GOLD"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:SIVR",
+      "symbol": "SIVR",
+      "asset_class": "ETF",
+      "subclass": "SILVER",
+      "underlying": "SILVER",
+      "vehicle_type": "PHYSICAL_TRUST",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "SIVR",
+        "SILVER"
+      ],
+      "theme_ids": [
+        "SILVER"
+      ],
+      "risk_group_ids": [
+        "PRECIOUS_METALS",
+        "SILVER"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:PAAS",
+      "symbol": "PAAS",
+      "asset_class": "COMMODITY_EQUITY",
+      "subclass": "SILVER",
+      "underlying": "SILVER",
+      "vehicle_type": "COMMON",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "PAAS",
+        "SILVER"
+      ],
+      "theme_ids": [
+        "SILVER"
+      ],
+      "risk_group_ids": [
+        "PRECIOUS_METALS",
+        "SILVER"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:CPER",
+      "symbol": "CPER",
+      "asset_class": "ETF",
+      "subclass": "COPPER",
+      "underlying": "COPPER",
+      "vehicle_type": "FUTURES_FUND",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "CPER",
+        "COPPER"
+      ],
+      "theme_ids": [
+        "COPPER"
+      ],
+      "risk_group_ids": [
+        "CHINA_INDUSTRIAL_DEMAND",
+        "AI_POWER_DEMAND",
+        "COPPER"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": true,
+      "identity_source": "https://www.uscfinvestments.com/cper",
+      "identity_checked_at": "2026-09-20",
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:FCX",
+      "symbol": "FCX",
+      "asset_class": "COMMODITY_EQUITY",
+      "subclass": "COPPER",
+      "underlying": "COPPER",
+      "vehicle_type": "COMMON",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "FCX",
+        "COPPER"
+      ],
+      "theme_ids": [
+        "COPPER"
+      ],
+      "risk_group_ids": [
+        "CHINA_INDUSTRIAL_DEMAND",
+        "AI_POWER_DEMAND",
+        "COPPER"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:CCJ",
+      "symbol": "CCJ",
+      "asset_class": "COMMODITY_EQUITY",
+      "subclass": "URANIUM",
+      "underlying": "URANIUM",
+      "vehicle_type": "COMMON",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "CCJ",
+        "URANIUM"
+      ],
+      "theme_ids": [
+        "URANIUM"
+      ],
+      "risk_group_ids": [
+        "AI_POWER_DEMAND",
+        "URANIUM"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:LEU",
+      "symbol": "LEU",
+      "asset_class": "COMMODITY_EQUITY",
+      "subclass": "URANIUM",
+      "underlying": "URANIUM",
+      "vehicle_type": "COMMON",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "LEU",
+        "URANIUM"
+      ],
+      "theme_ids": [
+        "URANIUM"
+      ],
+      "risk_group_ids": [
+        "AI_POWER_DEMAND",
+        "URANIUM"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:URNM",
+      "symbol": "URNM",
+      "asset_class": "ETF",
+      "subclass": "URANIUM",
+      "underlying": "URANIUM",
+      "vehicle_type": "EQUITY_ETF",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "URNM",
+        "URANIUM"
+      ],
+      "theme_ids": [
+        "URANIUM"
+      ],
+      "risk_group_ids": [
+        "AI_POWER_DEMAND",
+        "URANIUM"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:EQT",
+      "symbol": "EQT",
+      "asset_class": "COMMODITY_EQUITY",
+      "subclass": "NATURAL_GAS",
+      "underlying": "NATURAL_GAS",
+      "vehicle_type": "COMMON",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "EQT",
+        "NATURAL_GAS"
+      ],
+      "theme_ids": [
+        "NATURAL_GAS"
+      ],
+      "risk_group_ids": [
+        "AI_POWER_DEMAND",
+        "NATURAL_GAS"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:AR",
+      "symbol": "AR",
+      "asset_class": "COMMODITY_EQUITY",
+      "subclass": "NATURAL_GAS",
+      "underlying": "NATURAL_GAS",
+      "vehicle_type": "COMMON",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "AR",
+        "NATURAL_GAS"
+      ],
+      "theme_ids": [
+        "NATURAL_GAS"
+      ],
+      "risk_group_ids": [
+        "AI_POWER_DEMAND",
+        "NATURAL_GAS"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:XLE",
+      "symbol": "XLE",
+      "asset_class": "ETF",
+      "subclass": "OIL",
+      "underlying": "OIL",
+      "vehicle_type": "EQUITY_ETF",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "XLE",
+        "OIL"
+      ],
+      "theme_ids": [
+        "OIL"
+      ],
+      "risk_group_ids": [
+        "OIL"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:XOM",
+      "symbol": "XOM",
+      "asset_class": "COMMODITY_EQUITY",
+      "subclass": "OIL",
+      "underlying": "OIL",
+      "vehicle_type": "COMMON",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "XOM",
+        "OIL"
+      ],
+      "theme_ids": [
+        "OIL"
+      ],
+      "risk_group_ids": [
+        "OIL"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:ALB",
+      "symbol": "ALB",
+      "asset_class": "COMMODITY_EQUITY",
+      "subclass": "LITHIUM",
+      "underlying": "LITHIUM",
+      "vehicle_type": "COMMON",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "ALB",
+        "LITHIUM"
+      ],
+      "theme_ids": [
+        "LITHIUM"
+      ],
+      "risk_group_ids": [
+        "CHINA_INDUSTRIAL_DEMAND",
+        "LITHIUM"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:SQM",
+      "symbol": "SQM",
+      "asset_class": "COMMODITY_EQUITY",
+      "subclass": "LITHIUM",
+      "underlying": "LITHIUM",
+      "vehicle_type": "ADR",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "SQM",
+        "LITHIUM"
+      ],
+      "theme_ids": [
+        "LITHIUM"
+      ],
+      "risk_group_ids": [
+        "CHINA_INDUSTRIAL_DEMAND",
+        "LITHIUM"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:MP",
+      "symbol": "MP",
+      "asset_class": "COMMODITY_EQUITY",
+      "subclass": "RARE_EARTH",
+      "underlying": "RARE_EARTH",
+      "vehicle_type": "COMMON",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "MP",
+        "RARE_EARTH"
+      ],
+      "theme_ids": [
+        "RARE_EARTH"
+      ],
+      "risk_group_ids": [
+        "CHINA_INDUSTRIAL_DEMAND",
+        "RARE_EARTH"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:NTR",
+      "symbol": "NTR",
+      "asset_class": "COMMODITY_EQUITY",
+      "subclass": "POTASH",
+      "underlying": "POTASH",
+      "vehicle_type": "COMMON",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "NTR",
+        "POTASH"
+      ],
+      "theme_ids": [
+        "POTASH"
+      ],
+      "risk_group_ids": [
+        "POTASH"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:MOS",
+      "symbol": "MOS",
+      "asset_class": "COMMODITY_EQUITY",
+      "subclass": "POTASH",
+      "underlying": "POTASH",
+      "vehicle_type": "COMMON",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "MOS",
+        "POTASH"
+      ],
+      "theme_ids": [
+        "POTASH"
+      ],
+      "risk_group_ids": [
+        "POTASH"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:CF",
+      "symbol": "CF",
+      "asset_class": "COMMODITY_EQUITY",
+      "subclass": "NITROGEN",
+      "underlying": "NITROGEN",
+      "vehicle_type": "COMMON",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "CF",
+        "NITROGEN"
+      ],
+      "theme_ids": [
+        "NITROGEN"
+      ],
+      "risk_group_ids": [
+        "NITROGEN"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:IBIT",
+      "symbol": "IBIT",
+      "asset_class": "ETF",
+      "subclass": "BTC",
+      "underlying": "BTC",
+      "vehicle_type": "CRYPTO_TRUST",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "IBIT",
+        "BTC"
+      ],
+      "theme_ids": [
+        "BTC"
+      ],
+      "risk_group_ids": [
+        "CRYPTO_LIQUIDITY",
+        "BTC"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": true,
+      "identity_source": "https://www.ishares.com/us/products/333011/ishares-bitcoin-trust-etf",
+      "identity_checked_at": "2026-09-20",
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:ETHA",
+      "symbol": "ETHA",
+      "asset_class": "ETF",
+      "subclass": "ETH",
+      "underlying": "ETH",
+      "vehicle_type": "CRYPTO_TRUST",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "ETHA",
+        "ETH"
+      ],
+      "theme_ids": [
+        "ETH"
+      ],
+      "risk_group_ids": [
+        "CRYPTO_LIQUIDITY",
+        "ETH"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": true,
+      "identity_source": "https://www.ishares.com/us/products/337614/ishares-ethereum-trust-etf",
+      "identity_checked_at": "2026-09-20",
+      "corporate_action_quarantine": true,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "CRYPTO:BTC-USD",
+      "symbol": "BTC-USD",
+      "asset_class": "CRYPTO",
+      "subclass": "BTC",
+      "underlying": "BTC",
+      "vehicle_type": "SPOT",
+      "exchange": "MULTI_VENUE",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "COINBASE_EXCHANGE_SINGLE_VENUE_RESEARCH",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "BTC-USD",
+        "BTC"
+      ],
+      "theme_ids": [
+        "BTC"
+      ],
+      "risk_group_ids": [
+        "CRYPTO_LIQUIDITY",
+        "BTC"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_TOKEN"
+    },
+    {
+      "asset_id": "CRYPTO:ETH-USD",
+      "symbol": "ETH-USD",
+      "asset_class": "CRYPTO",
+      "subclass": "ETH",
+      "underlying": "ETH",
+      "vehicle_type": "SPOT",
+      "exchange": "MULTI_VENUE",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "COINBASE_EXCHANGE_SINGLE_VENUE_RESEARCH",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "ETH-USD",
+        "ETH"
+      ],
+      "theme_ids": [
+        "ETH"
+      ],
+      "risk_group_ids": [
+        "CRYPTO_LIQUIDITY",
+        "ETH"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_TOKEN"
+    },
+    {
+      "asset_id": "US:COIN",
+      "symbol": "COIN",
+      "asset_class": "CRYPTO_EQUITY",
+      "subclass": "BTC",
+      "underlying": "BTC",
+      "vehicle_type": "COMMON",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "COIN",
+        "BTC"
+      ],
+      "theme_ids": [
+        "BTC"
+      ],
+      "risk_group_ids": [
+        "CRYPTO_LIQUIDITY",
+        "BTC"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:FTI",
+      "symbol": "FTI",
+      "asset_class": "US_EQUITY",
+      "subclass": "US_LISTED",
+      "underlying": null,
+      "vehicle_type": "COMMON",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "FTI"
+      ],
+      "theme_ids": [],
+      "risk_group_ids": [
+        "US_EQUITY_MARKET"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:CACI",
+      "symbol": "CACI",
+      "asset_class": "US_EQUITY",
+      "subclass": "US_LISTED",
+      "underlying": null,
+      "vehicle_type": "COMMON",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "CACI"
+      ],
+      "theme_ids": [],
+      "risk_group_ids": [
+        "US_EQUITY_MARKET"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:FLEX",
+      "symbol": "FLEX",
+      "asset_class": "US_EQUITY",
+      "subclass": "US_LISTED",
+      "underlying": null,
+      "vehicle_type": "COMMON",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "FLEX"
+      ],
+      "theme_ids": [],
+      "risk_group_ids": [
+        "US_EQUITY_MARKET"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:NVT",
+      "symbol": "NVT",
+      "asset_class": "US_EQUITY",
+      "subclass": "US_LISTED",
+      "underlying": null,
+      "vehicle_type": "COMMON",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "NVT"
+      ],
+      "theme_ids": [],
+      "risk_group_ids": [
+        "US_EQUITY_MARKET"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:CLS",
+      "symbol": "CLS",
+      "asset_class": "US_EQUITY",
+      "subclass": "US_LISTED",
+      "underlying": null,
+      "vehicle_type": "COMMON",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "CLS"
+      ],
+      "theme_ids": [],
+      "risk_group_ids": [
+        "US_EQUITY_MARKET"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:ONTO",
+      "symbol": "ONTO",
+      "asset_class": "US_EQUITY",
+      "subclass": "US_LISTED",
+      "underlying": null,
+      "vehicle_type": "COMMON",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "ONTO"
+      ],
+      "theme_ids": [],
+      "risk_group_ids": [
+        "US_EQUITY_MARKET"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:RBRK",
+      "symbol": "RBRK",
+      "asset_class": "US_EQUITY",
+      "subclass": "US_LISTED",
+      "underlying": null,
+      "vehicle_type": "COMMON",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "RBRK"
+      ],
+      "theme_ids": [],
+      "risk_group_ids": [
+        "US_EQUITY_MARKET"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    },
+    {
+      "asset_id": "US:SPY",
+      "symbol": "SPY",
+      "asset_class": "ETF",
+      "subclass": "US_LISTED",
+      "underlying": null,
+      "vehicle_type": "BENCHMARK_ETF",
+      "exchange": "US_LISTING_PENDING_VERIFICATION",
+      "currency": "USD",
+      "benchmark": "US:SPY",
+      "liquidity": null,
+      "pricing_source": "YAHOO_CHART",
+      "fundamental_source": "REVIEWED_UNDERLYING_AND_COMPANY_PACKET",
+      "news_keywords": [
+        "SPY"
+      ],
+      "theme_ids": [],
+      "risk_group_ids": [
+        "US_EQUITY_MARKET"
+      ],
+      "tradable": false,
+      "research_only": true,
+      "identity_verified": false,
+      "identity_source": null,
+      "identity_checked_at": null,
+      "corporate_action_quarantine": false,
+      "price_unit": "USD_PER_SHARE"
+    }
+  ],
+  "listing_notes": {
+    "ETHA": "Issuer notice observed 2026-09-20: reverse split announced for after 2026-10-05 close. No ratio inferred; quarantine pending corporate-action adapter.",
+    "all": "tradable=false means broker/account eligibility has not been checked. Seeds are not current holdings or the whole equity universe."
+  }
+}

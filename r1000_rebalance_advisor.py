@@ -33,6 +33,8 @@ Usage:
 """
 from __future__ import annotations
 
+from r1000_legacy_input_guard import load_current_csv, write_advisor_targets, begin_target_build
+
 import argparse
 import sys
 from dataclasses import dataclass
@@ -553,6 +555,7 @@ def save_rebalance_files(
     new_portfolio: list[RankedCandidate],
     old_portfolio: pd.DataFrame,
     output_dir: Path,
+    *, score_provenance: pd.DataFrame,
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -580,7 +583,7 @@ def save_rebalance_files(
             "warnings": "; ".join(c.warnings),
         })
     new_df = pd.DataFrame(rows)
-    new_df.to_csv(output_dir / "new_top12_proposed.csv", index=False)
+    new_df = write_advisor_targets(new_df, score_provenance, output_dir / "new_top12_proposed.csv")
 
     # 2. Side-by-side diff CSV
     old_w = {}
@@ -627,9 +630,10 @@ def main() -> int:
                         help="min market cap in $B (default 5)")
     parser.add_argument("--min-model-score", type=float, default=1.0)
     args = parser.parse_args()
+    begin_target_build(Path(args.output_dir) / "new_top12_proposed.csv")
 
     # Load inputs
-    scored_df = pd.read_csv(args.scored_csv)
+    scored_df = load_current_csv(args.scored_csv, receipt_policy="legacy_source")
     portfolio_df = pd.read_csv(args.portfolio_csv)
     print(f"[load] scored: {len(scored_df)} rows")
     print(f"[load] portfolio: {len(portfolio_df)} rows")
@@ -678,7 +682,7 @@ def main() -> int:
 
     # Report + save
     print_rebalance_report(new_portfolio, portfolio_df)
-    save_rebalance_files(new_portfolio, portfolio_df, Path(args.output_dir))
+    save_rebalance_files(new_portfolio, portfolio_df, Path(args.output_dir), score_provenance=scored_df)
 
     return 0
 

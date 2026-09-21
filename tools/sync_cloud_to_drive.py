@@ -49,6 +49,9 @@ from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from r1000_legacy_input_guard import copy_bridge_packet, read_csv_packet, begin_target_build, PIPELINE_TARGET_NAMES
 
 DEFAULT_DRIVE_BASE = r"G:/내 드라이브/r1000_top30_institutional"
 
@@ -56,8 +59,11 @@ DEFAULT_DRIVE_BASE = r"G:/내 드라이브/r1000_top30_institutional"
 SYNC_FILES = [
     "scored_latest.csv",
     "scored_unified.csv",
+    "scored_unified.csv.coverage.json",
     "portfolio_latest.csv",
+    "portfolio_latest.csv.coverage.json",
     "concentrated_portfolio_latest.csv",
+    "concentrated_portfolio_latest.csv.coverage.json",
     "backtest_metrics.json",
     "concentrated_backtest_metrics.json",
 ]
@@ -111,6 +117,14 @@ def main() -> int:
     else:
         src_dir = ROOT / "cloud_results" / "full_rebuild" / f"latest_{args.mode}"
 
+    # Invalidate every current destination before a missing source or any later
+    # copy can fail. A dry run is read-only, but still checks required sources.
+    dst_dir = Path(args.drive_base) / "outputs"
+    packet_bases = ('scored_unified.csv', *PIPELINE_TARGET_NAMES)
+    if not args.dry_run:
+        for name in packet_bases:
+            begin_target_build(dst_dir / name)
+
     if not src_dir.exists() or not src_dir.is_dir():
         print(f"ERROR: source dir missing: {src_dir}", file=sys.stderr)
         print("", file=sys.stderr)
@@ -141,7 +155,23 @@ def main() -> int:
 
     n_copied = 0
     n_skipped = 0
+    packet_names = {name + suffix for name in packet_bases for suffix in ('', '.coverage.json')}
+    # The bridge is required. Missing optional target modes stay revoked.
+    present = [name for name in packet_bases if name == 'scored_unified.csv' or
+               any((src_dir / (name + suffix)).exists() for suffix in ('', '.coverage.json'))]
+    for name in present:
+        read_csv_packet(src_dir / name)
+    for name in present:
+        if args.dry_run:
+            print(f'  WOULD {name} + coverage receipt (verified pair)')
+        else:
+            copy_bridge_packet(src_dir / name, dst_dir / name)
+            print(f'  OK    {name} + coverage receipt (verified pair)')
+            n_copied += 2
+    n_skipped += 2 * (len(packet_bases) - len(present))
     for fname in SYNC_FILES:
+        if fname in packet_names:
+            continue
         src = src_dir / fname
         dst = dst_dir / fname
         if not src.exists():
