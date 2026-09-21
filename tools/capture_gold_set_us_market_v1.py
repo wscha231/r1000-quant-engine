@@ -269,8 +269,6 @@ def capture(
     symbols = [row["ticker"] for row in candidates] + ["SPY"]
     start = (pd.Timestamp(next(iter(sessions))) - pd.Timedelta(days=5)).date().isoformat()
     end = (pd.Timestamp(session_date) + pd.Timedelta(days=1)).date().isoformat()
-    collected_at = datetime.now(timezone.utc).isoformat()
-
     split_frames, split_receipts = fetch_basis(
         symbols=symbols,
         adjustment="split",
@@ -290,6 +288,8 @@ def capture(
         secret=secret,
     )
 
+    # Collection time is recorded only after both evidence bases have arrived.
+    collected_at = datetime.now(timezone.utc).isoformat()
     registry_digest = sha256(registry_raw)
     snapshots = []
     raw_artifacts = []
