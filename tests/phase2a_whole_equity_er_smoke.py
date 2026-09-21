@@ -332,7 +332,7 @@ class Phase2A(unittest.TestCase):
 
     def test_cohort_requires_exact_github_monitor_artifact_bytes(self):
         artifact, run, zip_bytes = self._monitor_artifact_fixture()
-        original = MOD.verify_cohort_artifact
+        original = self.original_verify_cohort_artifact
         with mock.patch.object(
             MOD.subprocess,
             "check_output",
@@ -351,7 +351,7 @@ class Phase2A(unittest.TestCase):
         artifact, run, zip_bytes = self._monitor_artifact_fixture(
             workflow_path=".github/workflows/fake.yml"
         )
-        original = MOD.verify_cohort_artifact
+        original = self.original_verify_cohort_artifact
         with mock.patch.object(
             MOD.subprocess,
             "check_output",
@@ -373,7 +373,7 @@ class Phase2A(unittest.TestCase):
         changed.pop("bridge_sha256", None)
         changed["bridge_sha256"] = bridge_sha(changed)
         write_json(self.paths["cohort"], changed)
-        original = MOD.verify_cohort_artifact
+        original = self.original_verify_cohort_artifact
         with mock.patch.object(
             MOD.subprocess,
             "check_output",
