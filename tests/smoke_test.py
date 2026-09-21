@@ -4046,6 +4046,20 @@ def test_investment_methodology_v1_contract() -> None:
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
+@_test("structural.cross_market_gold_set_v1")
+def test_cross_market_gold_set_v1() -> None:
+    """Validate the bounded research-only cross-market calibration set."""
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "tests" / "cross_market_gold_set_v1_smoke.py")],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
 # ======================================================================
 # main
 # ======================================================================
