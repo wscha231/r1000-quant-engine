@@ -5,10 +5,13 @@ import copy
 import csv
 import hashlib
 import importlib.util
+import io
 import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
+import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
 SPEC = importlib.util.spec_from_file_location(
@@ -169,6 +172,22 @@ class Phase2A(unittest.TestCase):
         write_json(self.paths["contract"], contract())
         write_json(self.paths["registry"], registry())
         write_json(self.paths["cohort"], cohort(self.paths["registry"]))
+        self.original_verify_cohort_artifact = MOD.verify_cohort_artifact
+        MOD.verify_cohort_artifact = lambda artifact_id, cohort_path: {
+            "verified": True,
+            "artifact_id": artifact_id,
+            "artifact_name": "synthetic-monitor-artifact",
+            "artifact_digest": "sha256:" + "9" * 64,
+            "workflow_run_id": 321,
+            "workflow_path": MOD.MONITOR_WORKFLOW_PATH,
+            "run_attempt": 1,
+            "head_sha": "e" * 40,
+            "event": "schedule",
+            "artifact_created_at": "2026-09-18T22:00:00Z",
+            "member": MOD.COHORT_ARTIFACT_MEMBER,
+            "cohort_sha256": sha(cohort_path),
+            "cohort_bytes": cohort_path.stat().st_size,
+        }
         self.paths["er_contract"].write_text(
             '{\n  "schema_version": "synthetic-run287-contract",\n  "family_id": "future_expected_excess_return_multihorizon_v1",\n  "historical_gate": {"accepted_workflow_path": ".github/workflows/run287_u0_acceptance.yml"}\n}\n',
             encoding="utf-8",
@@ -192,6 +211,7 @@ class Phase2A(unittest.TestCase):
 
     def tearDown(self):
         MOD.EXPECTED_ER_CONTRACT_SHA256 = self.original_expected_contract_sha
+        MOD.verify_cohort_artifact = self.original_verify_cohort_artifact
         self.tmp.cleanup()
 
     def write_registry(self, value, *, rebind=True):
@@ -267,6 +287,7 @@ class Phase2A(unittest.TestCase):
         return argparse.Namespace(
             contract=str(self.paths["contract"]),
             cohort=str(self.paths["cohort"]),
+            cohort_artifact_id=456,
             identity_registry=str(self.paths["registry"]),
             er_proposal=str(self.paths["proposal"]),
             er_summary=str(self.paths["summary"]),
@@ -274,6 +295,96 @@ class Phase2A(unittest.TestCase):
             er_contract=str(self.paths["er_contract"]),
             output=str(self.paths["output"]),
         )
+
+    def _monitor_artifact_fixture(self, *, workflow_path=None, cohort_bytes=None):
+        cohort_bytes = cohort_bytes if cohort_bytes is not None else self.paths["cohort"].read_bytes()
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr(MOD.COHORT_ARTIFACT_MEMBER, cohort_bytes)
+            archive.writestr("report.json", b"{}\n")
+        zip_bytes = buffer.getvalue()
+        run_id = 321
+        attempt = 2
+        head_sha = "e" * 40
+        artifact = {
+            "id": 456,
+            "name": f"run287-daily-research-monitor-{run_id}-{attempt}",
+            "expired": False,
+            "created_at": "2026-09-18T22:00:00Z",
+            "digest": "sha256:" + hashlib.sha256(zip_bytes).hexdigest(),
+            "workflow_run": {"id": run_id, "head_sha": head_sha},
+        }
+        run = {
+            "id": run_id,
+            "path": workflow_path or MOD.MONITOR_WORKFLOW_PATH,
+            "head_branch": "master",
+            "head_sha": head_sha,
+            "event": "schedule",
+            "status": "completed",
+            "conclusion": "success",
+            "run_attempt": attempt,
+            "created_at": "2026-09-18T21:30:00Z",
+            "updated_at": "2026-09-18T22:05:00Z",
+            "repository": {"full_name": MOD.REPOSITORY},
+            "head_repository": {"full_name": MOD.REPOSITORY},
+        }
+        return artifact, run, zip_bytes
+
+    def test_cohort_requires_exact_github_monitor_artifact_bytes(self):
+        artifact, run, zip_bytes = self._monitor_artifact_fixture()
+        original = MOD.verify_cohort_artifact
+        with mock.patch.object(
+            MOD.subprocess,
+            "check_output",
+            side_effect=[
+                json.dumps(artifact).encode(),
+                json.dumps(run).encode(),
+                zip_bytes,
+            ],
+        ):
+            receipt = original(456, self.paths["cohort"])
+        self.assertTrue(receipt["verified"])
+        self.assertEqual(receipt["cohort_sha256"], sha(self.paths["cohort"]))
+        self.assertEqual(receipt["head_sha"], "e" * 40)
+
+    def test_cohort_artifact_rejects_wrong_workflow(self):
+        artifact, run, zip_bytes = self._monitor_artifact_fixture(
+            workflow_path=".github/workflows/fake.yml"
+        )
+        original = MOD.verify_cohort_artifact
+        with mock.patch.object(
+            MOD.subprocess,
+            "check_output",
+            side_effect=[
+                json.dumps(artifact).encode(),
+                json.dumps(run).encode(),
+                zip_bytes,
+            ],
+        ):
+            with self.assertRaisesRegex(ValueError, "cohort_artifact_workflow_untrusted"):
+                original(456, self.paths["cohort"])
+
+    def test_cohort_artifact_rejects_local_byte_substitution(self):
+        artifact, run, zip_bytes = self._monitor_artifact_fixture(
+            cohort_bytes=self.paths["cohort"].read_bytes()
+        )
+        changed = json.loads(self.paths["cohort"].read_text(encoding="utf-8"))
+        changed["consumer_code_sha"] = "1" * 40
+        changed.pop("bridge_sha256", None)
+        changed["bridge_sha256"] = bridge_sha(changed)
+        write_json(self.paths["cohort"], changed)
+        original = MOD.verify_cohort_artifact
+        with mock.patch.object(
+            MOD.subprocess,
+            "check_output",
+            side_effect=[
+                json.dumps(artifact).encode(),
+                json.dumps(run).encode(),
+                zip_bytes,
+            ],
+        ):
+            with self.assertRaisesRegex(ValueError, "cohort_artifact_member_mismatch"):
+                original(456, self.paths["cohort"])
 
     def test_full_verified_cohort_maps_existing_21_63_126_outputs(self):
         out = MOD.run(self.args())

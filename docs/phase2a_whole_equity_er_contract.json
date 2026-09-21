@@ -12,6 +12,10 @@
     }
   },
   "cohort_provenance": {
+    "github_monitor_artifact_required": true,
+    "monitor_workflow_path": ".github/workflows/run287_daily_research_monitor.yml",
+    "monitor_artifact_exact_cohort_bytes_required": true,
+    "monitor_artifact_api_digest_required": true,
     "published_bridge_sha256_required": true,
     "consumer_code_sha_required": true,
     "contract_sha256_required": true,

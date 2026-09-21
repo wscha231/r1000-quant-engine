@@ -12,11 +12,15 @@ import argparse
 import csv
 from datetime import datetime, timezone
 import hashlib
+import io
 import json
 import math
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
+import stat
+import subprocess
 from typing import Any, Iterable, Mapping
+import zipfile
 
 SCHEMA_VERSION = "phase2a-whole-equity-er-a3-v1"
 CONTRACT_SCHEMA = "phase2a-whole-equity-er-contract-v1"
@@ -24,6 +28,9 @@ READY_CHALLENGER_STATUS = "READY_EXPECTED_RETURN_FORWARD_REVIEW_ONLY"
 EXPECTED_FAMILY_ID = "future_expected_excess_return_multihorizon_v1"
 EXPECTED_ER_CONTRACT_SHA256 = "ef61acafc2c42b86d75d85becea816a4bca8e05fbbc392e77fa92b075c728b63"
 RUN287_SCHEMA_VERSION = "run287-expected-return-challenger-v1"
+REPOSITORY = "wscha231/r1000-quant-engine"
+MONITOR_WORKFLOW_PATH = ".github/workflows/run287_daily_research_monitor.yml"
+COHORT_ARTIFACT_MEMBER = "theme_etf_bridge.json"
 FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 OVERALL_READY = "READY_WHOLE_EQUITY_ER_1_3_6M"
 OVERALL_PARTIAL = "PARTIAL_BLOCKED_WHOLE_EQUITY_ER"
@@ -93,6 +100,114 @@ def fingerprint(path: Path) -> dict[str, Any]:
         "path": path.as_posix(),
         "bytes": path.stat().st_size,
         "sha256": sha256_file(path),
+    }
+
+
+def verify_cohort_artifact(artifact_id: int, cohort_path: Path) -> dict[str, Any]:
+    """Verify the cohort bytes against the GitHub Actions monitor artifact."""
+    if type(artifact_id) is not int or artifact_id <= 0:
+        raise ValueError("cohort_artifact_id_invalid")
+    artifact_raw = subprocess.check_output(
+        ["gh", "api", f"repos/{REPOSITORY}/actions/artifacts/{artifact_id}"],
+        timeout=30,
+    )
+    artifact = json.loads(
+        artifact_raw.decode("utf-8"), object_pairs_hook=reject_duplicate_json_keys
+    )
+    workflow_run = artifact.get("workflow_run") or {}
+    run_id = workflow_run.get("id")
+    if type(run_id) is not int or run_id <= 0:
+        raise ValueError("cohort_artifact_workflow_run_missing")
+    run_raw = subprocess.check_output(
+        ["gh", "api", f"repos/{REPOSITORY}/actions/runs/{run_id}"],
+        timeout=30,
+    )
+    run = json.loads(
+        run_raw.decode("utf-8"), object_pairs_hook=reject_duplicate_json_keys
+    )
+    run_attempt = run.get("run_attempt")
+    expected_name = (
+        f"run287-daily-research-monitor-{run_id}-{run_attempt}"
+        if type(run_attempt) is int and run_attempt > 0
+        else ""
+    )
+    repository = (run.get("repository") or {}).get("full_name")
+    head_repository = (run.get("head_repository") or {}).get("full_name")
+    head_sha = str(run.get("head_sha") or "").lower()
+    if (
+        run.get("id") != run_id
+        or run.get("path") != MONITOR_WORKFLOW_PATH
+        or run.get("head_branch") != "master"
+        or run.get("event") not in {"schedule", "workflow_dispatch"}
+        or run.get("status") != "completed"
+        or run.get("conclusion") != "success"
+        or repository != REPOSITORY
+        or head_repository != REPOSITORY
+        or not FULL_SHA_RE.fullmatch(head_sha)
+    ):
+        raise ValueError("cohort_artifact_workflow_untrusted")
+    if (
+        artifact.get("name") != expected_name
+        or artifact.get("expired") is not False
+        or (artifact.get("workflow_run") or {}).get("head_sha") != head_sha
+    ):
+        raise ValueError("cohort_artifact_identity_mismatch")
+    artifact_digest = str(artifact.get("digest") or "")
+    if not artifact_digest.startswith("sha256:") or not SHA256_RE.fullmatch(
+        artifact_digest[7:]
+    ):
+        raise ValueError("cohort_artifact_digest_missing")
+    created_at = utc(run.get("created_at"), "cohort_run.created_at")
+    updated_at = utc(run.get("updated_at"), "cohort_run.updated_at")
+    artifact_created_at = utc(
+        artifact.get("created_at"), "cohort_artifact.created_at"
+    )
+    if not created_at <= artifact_created_at <= updated_at:
+        raise ValueError("cohort_artifact_timeline_invalid")
+    zip_bytes = subprocess.check_output(
+        ["gh", "api", f"repos/{REPOSITORY}/actions/artifacts/{artifact_id}/zip"],
+        timeout=60,
+    )
+    if sha256_bytes(zip_bytes) != artifact_digest[7:]:
+        raise ValueError("cohort_artifact_zip_digest_mismatch")
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
+        matches = [
+            name
+            for name in archive.namelist()
+            if PurePosixPath(name).name == COHORT_ARTIFACT_MEMBER
+        ]
+        if len(matches) != 1:
+            raise ValueError("cohort_artifact_member_missing_or_duplicate")
+        name = matches[0]
+        path = PurePosixPath(name)
+        if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+            raise ValueError("cohort_artifact_member_path_invalid")
+        info = archive.getinfo(name)
+        if info.is_dir() or stat.S_ISLNK(info.external_attr >> 16):
+            raise ValueError("cohort_artifact_member_type_invalid")
+        raw = archive.read(info)
+    local = cohort_path.read_bytes()
+    if raw != local:
+        raise ValueError("cohort_artifact_member_mismatch")
+    cohort = json.loads(
+        raw.decode("utf-8"), object_pairs_hook=reject_duplicate_json_keys
+    )
+    if str(cohort.get("consumer_code_sha") or "").lower() != head_sha:
+        raise ValueError("cohort_artifact_consumer_code_sha_mismatch")
+    return {
+        "verified": True,
+        "artifact_id": artifact_id,
+        "artifact_name": expected_name,
+        "artifact_digest": artifact_digest,
+        "workflow_run_id": run_id,
+        "workflow_path": MONITOR_WORKFLOW_PATH,
+        "run_attempt": run_attempt,
+        "head_sha": head_sha,
+        "event": run.get("event"),
+        "artifact_created_at": artifact.get("created_at"),
+        "member": name,
+        "cohort_sha256": sha256_bytes(raw),
+        "cohort_bytes": len(raw),
     }
 
 
@@ -604,6 +719,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     output_path = Path(args.output)
 
     contract = load_contract(contract_path)
+    cohort_authority = verify_cohort_artifact(args.cohort_artifact_id, cohort_path)
     cohort = load_cohort(cohort_path)
     registry_source_member = verify_registry_binding(cohort, registry_path)
     registry = load_identity_registry(registry_path)
@@ -622,6 +738,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     evidence = {
         "phase2a_contract": fingerprint(contract_path),
         "cohort": fingerprint(cohort_path),
+        "cohort_authority": cohort_authority,
         "identity_registry": fingerprint(registry_path),
         "identity_registry_source_member": registry_source_member,
         "cohort_bridge_sha256": cohort.get("bridge_sha256"),
@@ -647,6 +764,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--contract", default="docs/phase2a_whole_equity_er_contract.json")
     parser.add_argument("--cohort", required=True)
+    parser.add_argument("--cohort-artifact-id", required=True, type=int)
     parser.add_argument("--identity-registry", required=True)
     parser.add_argument("--er-proposal", required=True)
     parser.add_argument("--er-summary", required=True)

@@ -28,9 +28,12 @@ trainer. It consumes:
 It verifies the exact proposal and summary bytes against the challenger source
 manifest, requires the current cohort session, rejects realized/label/target/outcome
 columns, preserves every cohort `security_id`, and maps ticker only when the
-identity registry proves a one-to-one relation. The cohort publication's own
-`bridge_sha256` is recomputed, and the supplied identity registry must byte-match
-the single authenticated `*/securities/data.json` member recorded in cohort evidence. The source manifest must carry the
+identity registry proves a one-to-one relation. The cohort publication must also be the exact `theme_etf_bridge.json` member of a
+GitHub Actions artifact produced by the trusted `run287_daily_research_monitor.yml`
+master workflow: artifact API digest, run identity, workflow path, head SHA and ZIP
+member bytes are all verified. The publication's own `bridge_sha256` is then
+recomputed, and the supplied identity registry must byte-match the single
+authenticated `*/securities/data.json` member recorded in cohort evidence. The source manifest must carry the
 existing Run287 schema, producer Git SHA, canonical U0 artifact identity and
 feature-store fingerprint. The challenger contract is checked with the same
 canonical-JSON SHA-256 semantics used by the existing runner, including the pinned
@@ -121,6 +124,14 @@ diagnostic is not the same as a validated probability-calibration layer. The
 adapter no longer publishes that raw value as calibrated A3 downside probability;
 it preserves the raw model probability separately and leaves the canonical field
 null. This also keeps `a3_quant_contract_ready=false` and A5 blocked.
+
+### Cohort artifact authority
+
+A further A6 audit found that `bridge_sha256` is only a self-hash and could be
+recomputed after local tampering. Phase 2A now requires the GitHub Actions
+monitor artifact ID and authenticates the workflow run plus API artifact digest,
+then compares the ZIP's `theme_etf_bridge.json` bytes exactly to the supplied
+cohort. A locally rewritten/self-rehashed cohort cannot become READY.
 
 ### Registry provenance
 
