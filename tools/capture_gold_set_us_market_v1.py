@@ -21,7 +21,7 @@ import pandas as pd
 import requests
 
 from research.multi_asset_v1.prices import grid as completed_nyse_grid
-from research.us_strict_market_snapshot_v1 import compute_snapshot
+from research.us_strict_market_snapshot_v1 import build_source_bundle, compute_snapshot
 
 
 ALPACA_BARS_URL = "https://data.alpaca.markets/v2/stocks/bars"
@@ -131,7 +131,7 @@ def fetch_basis(
     attempt: Path,
     key: str,
     secret: str,
-) -> tuple[dict[str, pd.DataFrame], list[dict[str, Any]]]:
+) -> tuple[dict[str, pd.DataFrame], list[dict[str, Any]], list[bytes]]:
     require(adjustment in {"raw", "split"}, "adjustment")
     params: dict[str, Any] = {
         "symbols": ",".join(symbols),
@@ -152,6 +152,7 @@ def fetch_basis(
 
     payloads: list[dict[str, Any]] = []
     receipts: list[dict[str, Any]] = []
+    raw_pages: list[bytes] = []
     token: str | None = None
     page = 0
     with requests.Session() as session:
@@ -174,9 +175,10 @@ def fetch_basis(
             digest = sha256(raw)
             exclusive(attempt / "raw" / f"{digest}.json", raw)
             try:
-                payload = response.json()
-            except ValueError as exc:
+                payload = json.loads(raw)
+            except (ValueError, UnicodeError) as exc:
                 raise RuntimeError("alpaca_non_json") from exc
+            raw_pages.append(raw)
             require(isinstance(payload, dict), "alpaca_payload_shape")
             payloads.append(payload)
             receipts.append({
@@ -199,43 +201,34 @@ def fetch_basis(
             require(page < 20, "alpaca_pagination_limit")
             token = next_token
 
-    return _bars_to_frames(payloads, symbols), receipts
+    return _bars_to_frames(payloads, symbols), receipts, raw_pages
 
 
-def build_evidence_bundle(
+def persist_source_bundle(
     *,
-    asset_id: str,
-    ticker: str,
     session_date: str,
     raw_receipts: list[dict[str, Any]],
+    raw_pages: list[bytes],
     split_receipts: list[dict[str, Any]],
+    split_pages: list[bytes],
     registry_sha256: str,
     attempt: Path,
-) -> tuple[str, str]:
-    artifact_id = f"RAW-MKT:{asset_id}:{session_date}:v1"
-    value = {
-        "schema": "us-gold-set-market-evidence-v1",
-        "artifact_id": artifact_id,
-        "asset_id": asset_id,
-        "ticker": ticker,
-        "session_date": session_date,
-        "source_identity": SOURCE_IDENTITY,
-        "provider": "ALPACA_MARKET_DATA_V2",
-        "feed": "iex",
-        "timeframe": "1Day",
-        "primary_adjustment": "split",
-        "basis_crosscheck": "raw_vs_split_exact_required_241_sessions",
-        "registry_sha256": registry_sha256,
-        "raw_http_pages": raw_receipts,
-        "split_http_pages": split_receipts,
-        "raw_source_claimed": True,
-        "historical_pit_certified": False,
-        "validated_er_eligible": False,
-    }
-    raw = encoded(value)
+) -> tuple[str, str, str]:
+    artifact_id, raw = build_source_bundle(
+        session_date=session_date,
+        source_identity=SOURCE_IDENTITY,
+        registry_sha256=registry_sha256,
+        raw_receipts=raw_receipts,
+        raw_pages=raw_pages,
+        split_receipts=split_receipts,
+        split_pages=split_pages,
+    )
     digest = sha256(raw)
-    exclusive(attempt / "evidence" / f"{digest}.json", raw)
-    return artifact_id, digest
+    relative = f"source/{digest}.json"
+    path = attempt / relative
+    exclusive(path, raw)
+    require(path.read_bytes() == raw, "source_bundle_roundtrip")
+    return artifact_id, digest, relative
 
 
 def _cutoff(explicit_session: str | None) -> datetime:
@@ -269,7 +262,7 @@ def capture(
     symbols = [row["ticker"] for row in candidates] + ["SPY"]
     start = (pd.Timestamp(next(iter(sessions))) - pd.Timedelta(days=5)).date().isoformat()
     end = (pd.Timestamp(session_date) + pd.Timedelta(days=1)).date().isoformat()
-    split_frames, split_receipts = fetch_basis(
+    split_frames, split_receipts, split_pages = fetch_basis(
         symbols=symbols,
         adjustment="split",
         start=start,
@@ -278,7 +271,7 @@ def capture(
         key=key,
         secret=secret,
     )
-    raw_frames, raw_receipts = fetch_basis(
+    raw_frames, raw_receipts, raw_pages = fetch_basis(
         symbols=symbols,
         adjustment="raw",
         start=start,
@@ -291,18 +284,17 @@ def capture(
     # Collection time is recorded only after both evidence bases have arrived.
     collected_at = datetime.now(timezone.utc).isoformat()
     registry_digest = sha256(registry_raw)
+    artifact_id, artifact_sha, artifact_path = persist_source_bundle(
+        session_date=session_date,
+        raw_receipts=raw_receipts,
+        raw_pages=raw_pages,
+        split_receipts=split_receipts,
+        split_pages=split_pages,
+        registry_sha256=registry_digest,
+        attempt=attempt,
+    )
     snapshots = []
-    raw_artifacts = []
     for row in candidates:
-        artifact_id, artifact_sha = build_evidence_bundle(
-            asset_id=row["id"],
-            ticker=row["ticker"],
-            session_date=session_date,
-            raw_receipts=raw_receipts,
-            split_receipts=split_receipts,
-            registry_sha256=registry_digest,
-            attempt=attempt,
-        )
         snapshot = compute_snapshot(
             split_frames[row["ticker"]],
             raw_frames[row["ticker"]],
@@ -319,12 +311,6 @@ def capture(
             raw_sha256=artifact_sha,
         )
         snapshots.append(snapshot)
-        raw_artifacts.append({
-            "asset_id": row["id"],
-            "artifact_id": artifact_id,
-            "sha256": artifact_sha,
-            "path": f"evidence/{artifact_sha}.json",
-        })
 
     require(len({row["asset_id"] for row in snapshots}) == 12, "incomplete_us_gold_set_capture")
     manifest = {
@@ -345,7 +331,12 @@ def capture(
         "production_authority": False,
         "registry_sha256": registry_digest,
         "snapshots": snapshots,
-        "raw_artifacts": raw_artifacts,
+        "source_artifact": {
+            "artifact_id": artifact_id,
+            "sha256": artifact_sha,
+            "path": artifact_path,
+            "scope": "US_GOLD_SET_12_PLUS_SPY_RAW_AND_SPLIT",
+        },
         "raw_http_pages": {
             "raw": raw_receipts,
             "split": split_receipts,

@@ -17,12 +17,13 @@ Current real counterexample: Amphenol (APH) completed 2-for-1 splits in 2024 and
 
 ## Fix
 
-- research RS/momentum defaults to adjustment=split;
-- raw remains an explicit diagnostic option;
+- legacy fetch APIs keep adjustment=raw by default so execution/backtest/sizing callers do not silently change semantics;
+- research RS/momentum uses explicit split-adjusted research wrappers;
+- raw remains explicitly available;
 - only raw or split are admitted in this H1 scope; unknown values fail closed;
 - cache identity changes to TICKER_PERIOD_ADJUSTMENT.parquet;
-- ticker and benchmark fetches share one explicit adjustment basis;
-- broker/execution exact-close price semantics are untouched.
+- research ticker and benchmark wrappers share one explicit split basis;
+- broker/execution/backtest callers retain their prior raw default unless separately reviewed.
 
 This deliberately does not claim dividend-reinvested total return, repair
 historical index membership, normalize ADR ratios, or change selection weights.

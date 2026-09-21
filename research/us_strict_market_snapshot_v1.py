@@ -8,7 +8,11 @@ basis mismatch fails closed instead of being neutral-filled or guessed.
 from __future__ import annotations
 
 from datetime import datetime
+import base64
+import hashlib
+import json
 import math
+import re
 from typing import Any
 
 import pandas as pd
@@ -17,6 +21,7 @@ HORIZONS = (20, 60, 120, 240)
 SCHEMA = "a3-market-valuation-snapshot-v1"
 RETURN_BASIS = "PROVIDER_ADJUSTED_CLOSE_PROXY"
 RS_METHOD = "LOG_RELATIVE_RETURN"
+SOURCE_BUNDLE_SCHEMA = "us-gold-set-market-source-bundle-v2"
 
 
 class UsStrictMarketError(ValueError):
@@ -79,6 +84,85 @@ def _require_raw_split_concordance(
             math.isclose(raw[day], split[day], rel_tol=1e-10, abs_tol=1e-8),
             f"{label}_corporate_action_basis_mismatch:{day.date().isoformat()}",
         )
+
+
+def build_source_bundle(
+    *,
+    session_date: str,
+    source_identity: str,
+    registry_sha256: str,
+    raw_receipts: list[dict[str, Any]],
+    raw_pages: list[bytes],
+    split_receipts: list[dict[str, Any]],
+    split_pages: list[bytes],
+) -> tuple[str, bytes]:
+    """Bind exact provider response bytes into the artifact A3 resolves.
+
+    Request metadata contains no API credentials. Each body is base64 encoded
+    only so the deterministic JSON artifact can carry the exact bytes that were
+    parsed into the market frames.
+    """
+    _require(
+        isinstance(registry_sha256, str)
+        and re.fullmatch(r"[0-9a-f]{64}", registry_sha256) is not None,
+        "source_bundle_registry_hash",
+    )
+    _require(bool(source_identity), "source_bundle_source_identity")
+
+    def basis(
+        adjustment: str,
+        receipts: list[dict[str, Any]],
+        pages: list[bytes],
+    ) -> dict[str, Any]:
+        _require(len(receipts) == len(pages) and bool(pages), f"{adjustment}_page_count")
+        out = []
+        for expected_page, (receipt, body) in enumerate(zip(receipts, pages), 1):
+            _require(isinstance(body, bytes) and bool(body), f"{adjustment}_page_bytes")
+            _require(receipt.get("adjustment") == adjustment, f"{adjustment}_receipt_basis")
+            _require(receipt.get("page") == expected_page, f"{adjustment}_receipt_order")
+            digest = hashlib.sha256(body).hexdigest()
+            _require(receipt.get("sha256") == digest, f"{adjustment}_page_hash")
+            _require(receipt.get("bytes") == len(body), f"{adjustment}_page_size")
+            out.append({
+                "page": expected_page,
+                "sha256": digest,
+                "bytes": len(body),
+                "endpoint": receipt.get("endpoint"),
+                "request": receipt.get("request"),
+                "page_token_used": receipt.get("page_token_used"),
+                "body_base64": base64.b64encode(body).decode("ascii"),
+            })
+        return {"adjustment": adjustment, "pages": out}
+
+    artifact_id = f"RAW-MKT:US-GOLD-SET:{session_date}:v2"
+    value = {
+        "schema": SOURCE_BUNDLE_SCHEMA,
+        "artifact_id": artifact_id,
+        "session_date": session_date,
+        "source_identity": source_identity,
+        "provider": "ALPACA_MARKET_DATA_V2",
+        "feed": "iex",
+        "timeframe": "1Day",
+        "registry_sha256": registry_sha256,
+        "bases": [
+            basis("raw", raw_receipts, raw_pages),
+            basis("split", split_receipts, split_pages),
+        ],
+        "raw_source_claimed": True,
+        "historical_pit_certified": False,
+        "validated_er_eligible": False,
+    }
+    raw = (
+        json.dumps(
+            value,
+            sort_keys=True,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        )
+        + "\n"
+    ).encode("utf-8")
+    return artifact_id, raw
 
 
 def compute_snapshot(
@@ -169,6 +253,8 @@ __all__ = [
     "RETURN_BASIS",
     "RS_METHOD",
     "SCHEMA",
+    "SOURCE_BUNDLE_SCHEMA",
     "UsStrictMarketError",
+    "build_source_bundle",
     "compute_snapshot",
 ]

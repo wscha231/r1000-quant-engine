@@ -35,9 +35,14 @@ candidate until a separate corporate-action review resolves it.
 
 ## Evidence
 
-Each candidate points to an immutable evidence bundle. That bundle contains the
-hashes and request metadata of the provider-raw HTTP pages for both raw and split
-queries plus the pinned Gold Set registry hash. Secrets are never written.
+All 12 candidate snapshots point to one immutable source bundle for the capture.
+That bundle contains the exact provider HTTP response bytes for both raw and split
+queries (base64 encoded inside deterministic JSON), each page SHA-256, non-secret
+request metadata, and the pinned Gold Set registry hash. The capture parses the
+same response bytes that are embedded in the bundle and verifies the bundle after
+write. A3 therefore resolves and hashes an artifact that carries the provider
+bytes themselves rather than only a list of nested page hashes. Secrets are never
+written.
 
 ## Stop conditions
 
