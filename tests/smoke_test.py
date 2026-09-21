@@ -4060,6 +4060,20 @@ def test_cross_market_gold_set_v1() -> None:
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
+@_test("structural.a3_candidate_packet_v1")
+def test_a3_candidate_packet_v1() -> None:
+    """Validate A3 evidence aggregation and scenario/ER/source boundaries."""
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "tests" / "a3_candidate_packet_v1_smoke.py")],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
 # ======================================================================
 # main
 # ======================================================================
