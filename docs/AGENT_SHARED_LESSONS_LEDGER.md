@@ -12,6 +12,7 @@
 - A derived identity file is not authoritative merely because its IDs/tickers match the cohort. Bind its exact bytes to the authenticated `securities/data.json` cohort evidence (or require a separately authenticated A1 producer); otherwise corporate-action/ADR fields can be fabricated downstream.
 - A balanced-logistic classifier output is not automatically a calibrated downside probability. Without an explicit calibration method/gate, keep canonical A3 downside probability null and retain the raw model probability only as a diagnostic; gross expected alpha must also be labelled as not after-cost.
 - A self-hash on a derived cohort file is not an authority receipt. Verify the GitHub Actions artifact/run/workflow/API digest and exact ZIP member bytes before accepting the cohort; only then use its internal evidence hashes to bind downstream components.
+- Do not inherit producer field names without semantic mapping. Run287 `expected_alpha_*` is a 70/30 benchmark-excess/sector-neutral blend; canonical A3 expected alpha is benchmark excess, while the blended value remains a separately labelled diagnostic.
 
 
 ## 2026-09-21 — Gold sets calibrate methodology; they are not recommendation lists

@@ -48,8 +48,12 @@ preserves independently validated horizons; the security remains PARTIAL and
 whole-equity readiness stays false. Missing ER rows are never converted to zero
 or neutral values.
 
-For admitted rows A3 maps the existing 21/63/126-session absolute return,
-benchmark-excess and alpha outputs. The challenger balanced-logistic downside
+For admitted rows A3 maps the existing 21/63/126-session absolute return and
+benchmark-excess outputs. Canonical A3 `expected_alpha_*` is the existing direct
+benchmark-excess prediction, matching the project definition of benchmark-relative
+excess return. The challenger's own field named `expected_alpha_*` is a separate
+0.7×benchmark-excess + 0.3×sector-neutral mixture; it is preserved only as
+`raw_challenger_expected_alpha_*` diagnostic evidence. The challenger balanced-logistic downside
 probability is retained only as `raw_model_downside_probability_*` diagnostic
 evidence; no explicit probability calibration gate/transform is validated, so
 standard A3 `downside_probability_*` remains null with
@@ -57,8 +61,8 @@ standard A3 `downside_probability_*` remains null with
 return is reported only as `absolute - benchmark_excess` and is explicitly
 labelled with that basis. Expected drawdown, calibrated signal confidence, calibrated downside,
 valuation/thesis status and thesis confidence remain null because this slice
-does not validate them. Existing alpha is explicitly labelled gross research,
-not after-cost portfolio alpha.
+does not validate them. Canonical alpha is explicitly labelled gross benchmark-excess research,
+not after-cost portfolio alpha; the blended challenger alpha is separately labelled.
 
 All 12-month ER/alpha/benchmark/downside fields remain null and carry
 `BLOCKED_MODEL_NOT_VALIDATED`. No 6m extension or momentum conversion exists.

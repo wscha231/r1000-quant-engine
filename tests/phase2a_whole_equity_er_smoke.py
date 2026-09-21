@@ -398,16 +398,26 @@ class Phase2A(unittest.TestCase):
         self.assertAlmostEqual(row["expected_return_3m"], 0.02)
         self.assertAlmostEqual(row["expected_return_6m"], 0.03)
         self.assertAlmostEqual(row["benchmark_expected_return_1m"], 0.006)
-        self.assertAlmostEqual(row["expected_alpha_6m"], 0.009)
+        self.assertAlmostEqual(row["expected_alpha_6m"], 0.012)
+        self.assertAlmostEqual(row["raw_challenger_expected_alpha_6m"], 0.009)
         self.assertIsNone(row["downside_probability_1m"])
         self.assertAlmostEqual(row["raw_model_downside_probability_1m"], 0.2)
         self.assertEqual(out["downside_probability_status"], MOD.DOWNSIDE_CALIBRATION_BLOCKER)
         self.assertFalse(out["a3_quant_contract_ready"])
-        self.assertEqual(out["expected_alpha_basis"], "GROSS_RESEARCH_NOT_AFTER_COSTS")
+        self.assertEqual(out["expected_alpha_basis"], "GROSS_BENCHMARK_EXCESS_RESEARCH_NOT_AFTER_COSTS")
+        self.assertEqual(out["raw_challenger_expected_alpha_basis"], "0.7_BENCHMARK_EXCESS_PLUS_0.3_SECTOR_NEUTRAL")
         self.assertEqual(row["horizon_status"]["12m"], MOD.TWELVE_MONTH_BLOCKER)
         self.assertIsNone(row["expected_return_12m"])
         self.assertFalse(out["global_ranking_ready"])
         self.assertFalse(out["a5_execution_allowed"])
+
+    def test_canonical_expected_alpha_is_benchmark_excess_not_mixed_challenger_alpha(self):
+        out = MOD.run(self.args())
+        row = out["rows"][0]
+        self.assertAlmostEqual(row["expected_alpha_3m"], 0.008)
+        self.assertAlmostEqual(row["raw_challenger_expected_alpha_3m"], 0.006)
+        self.assertNotEqual(row["expected_alpha_3m"], row["raw_challenger_expected_alpha_3m"])
+        self.assertEqual(out["expected_alpha_basis"], "GROSS_BENCHMARK_EXCESS_RESEARCH_NOT_AFTER_COSTS")
 
     def test_uncalibrated_downside_is_null_while_raw_probability_is_diagnostic(self):
         out = MOD.run(self.args())
@@ -530,7 +540,7 @@ class Phase2A(unittest.TestCase):
 
     def test_one_horizon_failure_does_not_erase_other_validated_horizons(self):
         rows = proposal_rows()
-        rows[1]["expected_alpha_21d"] = "NaN"
+        rows[1]["expected_benchmark_excess_21d"] = "NaN"
         self.write_proposal(rows)
         self.write_manifest()
         out = MOD.run(self.args())

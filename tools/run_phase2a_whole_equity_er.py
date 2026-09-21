@@ -514,6 +514,7 @@ def null_horizon() -> dict[str, Any]:
         "expected_return": None,
         "benchmark_expected_return": None,
         "expected_alpha": None,
+        "raw_challenger_expected_alpha": None,
         "downside_probability": None,
         "raw_model_downside_probability": None,
         "downside_probability_status": DOWNSIDE_CALIBRATION_BLOCKER,
@@ -529,13 +530,13 @@ def horizon_from_proposal(row: Mapping[str, str], days: int) -> tuple[dict[str, 
     blockers: list[str] = []
     absolute = finite(row.get(f"expected_absolute_{days}d"))
     benchmark_excess = finite(row.get(f"expected_benchmark_excess_{days}d"))
-    alpha = finite(row.get(f"expected_alpha_{days}d"))
+    challenger_alpha = finite(row.get(f"expected_alpha_{days}d"))
     downside = finite(row.get(f"downside_probability_{days}d"))
     coverage = finite(row.get(f"feature_coverage_{days}d"))
     disagreement = finite(row.get(f"model_disagreement_{days}d"))
     values = {
         "expected_return": absolute,
-        "expected_alpha": alpha,
+        "expected_alpha": benchmark_excess,
         "feature_coverage": coverage,
         "model_disagreement": disagreement,
     }
@@ -544,6 +545,8 @@ def horizon_from_proposal(row: Mapping[str, str], days: int) -> tuple[dict[str, 
             blockers.append(f"missing_or_nonfinite_{key}_{days}d")
     if benchmark_excess is None:
         blockers.append(f"missing_or_nonfinite_benchmark_excess_{days}d")
+    if challenger_alpha is None:
+        blockers.append(f"missing_or_nonfinite_raw_challenger_expected_alpha_{days}d")
     if downside is not None and not 0.0 <= downside <= 1.0:
         blockers.append(f"downside_probability_out_of_range_{days}d")
     if coverage is not None and not 0.0 <= coverage <= 1.0:
@@ -555,7 +558,10 @@ def horizon_from_proposal(row: Mapping[str, str], days: int) -> tuple[dict[str, 
         "expected_return": absolute,
         "benchmark_expected_return": benchmark_expected,
         "benchmark_expected_return_basis": "IMPLIED_ABSOLUTE_MINUS_BENCHMARK_EXCESS",
-        "expected_alpha": alpha,
+        "expected_alpha": benchmark_excess,
+        "expected_alpha_basis": "BENCHMARK_EXCESS_PREDICTION",
+        "raw_challenger_expected_alpha": challenger_alpha,
+        "raw_challenger_expected_alpha_basis": "0.7_BENCHMARK_EXCESS_PLUS_0.3_SECTOR_NEUTRAL",
         "downside_probability": None,
         "raw_model_downside_probability": downside,
         "downside_probability_status": DOWNSIDE_CALIBRATION_BLOCKER,
@@ -643,6 +649,9 @@ def build_output(
                 "expected_alpha_3m": horizons["3m"]["expected_alpha"],
                 "expected_alpha_6m": horizons["6m"]["expected_alpha"],
                 "expected_alpha_12m": None,
+                "raw_challenger_expected_alpha_1m": horizons["1m"].get("raw_challenger_expected_alpha"),
+                "raw_challenger_expected_alpha_3m": horizons["3m"].get("raw_challenger_expected_alpha"),
+                "raw_challenger_expected_alpha_6m": horizons["6m"].get("raw_challenger_expected_alpha"),
                 "downside_probability_1m": None,
                 "downside_probability_3m": None,
                 "downside_probability_6m": None,
@@ -693,7 +702,8 @@ def build_output(
         "whole_equity_er_ready_1_3_6m": whole_ready,
         "expected_return_12m_status": TWELVE_MONTH_BLOCKER,
         "downside_probability_status": DOWNSIDE_CALIBRATION_BLOCKER,
-        "expected_alpha_basis": "GROSS_RESEARCH_NOT_AFTER_COSTS",
+        "expected_alpha_basis": "GROSS_BENCHMARK_EXCESS_RESEARCH_NOT_AFTER_COSTS",
+        "raw_challenger_expected_alpha_basis": "0.7_BENCHMARK_EXCESS_PLUS_0.3_SECTOR_NEUTRAL",
         "a3_quant_contract_ready": False,
         "global_ranking_ready": False,
         "a5_execution_allowed": False,
