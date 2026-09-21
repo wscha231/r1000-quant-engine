@@ -1,5 +1,14 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-21 — Investment styles are lenses over canonical pillars, not additive alpha
+
+- Do not add Buffett, Graham, O'Neil, Minervini, GARP, Greenblatt, etc. as separate weighted factors when they reuse the same ROIC, growth, valuation, revision or RS evidence.
+- Compare every serious candidate on the same ten canonical pillars. Report absolute and peer-relative assessments separately; sector/lifecycle adapters change interpretation and evidence, never pillar weight.
+- Keep named investment methods as explanatory lens views over those pillars. Lens agreement/disagreement is diagnostic and must not be summed into selector alpha.
+- Pre-commercial biotech, financials, commodities and project businesses may use explicit stage/sector-adjusted economics, but missing universal pillars are not imputed or removed.
+- Global industry peers are preferred where economically comparable. Small or lifecycle-specific peer sets remain visible as thin-peer diagnostics.
+- Any future unequal pillar weights or method-consensus signal require preregistered PIT-safe purged walk-forward/OOS evidence. Current equal-pillar scores remain research-only.
+
 ## 2026-09-21 — Qualitative moat evidence needs a trusted evidence graph before alpha
 
 - Existing `moat_proxy_score`, `moat_quality_blueprint_score`, manual overrides and financial quality factors are model/proxy surfaces; do not relabel them as reviewed evidence of durable competitive advantage.
