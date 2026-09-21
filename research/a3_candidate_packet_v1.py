@@ -149,7 +149,7 @@ def _stamp(value: Any, code: str) -> datetime:
 
 def _day(value: Any, code: str) -> date:
     value = _text(value, code, 10)
-    _require(bool(re.fullmatch(r"\\d{4}-\\d{2}-\\d{2}", value)), code)
+    _require(bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", value)), code)
     try:
         return date.fromisoformat(value)
     except ValueError as exc:
