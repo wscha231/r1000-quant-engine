@@ -8,9 +8,10 @@ Usage:
     bars = fetch_latest_bars(["NVDA", "AMD"], days=60)  # dict[str, DataFrame]
 
 Caching:
-    Bars are cached to aggressive/cache/bars/{TICKER}_{PERIOD}.parquet
-    with a 24h freshness check. Call fetch_daily_bars(..., force_refresh=True)
-    to bypass.
+    Bars are cached to aggressive/cache/bars/{TICKER}_{PERIOD}_{ADJUSTMENT}.parquet
+    with a 12h freshness check. Research RS/momentum uses split-adjusted bars
+    by default; raw bars remain explicit diagnostics. Cache identity includes
+    the adjustment basis so legacy raw bytes cannot satisfy adjusted requests.
 """
 from __future__ import annotations
 
@@ -29,13 +30,22 @@ from aggressive.agg_config import get_alpaca_credentials, load_agg_config
 
 _CACHE_TTL_HOURS = 12   # re-fetch if cache is > 12h old
 _CACHE_SUBDIR = "bars"
+_ALLOWED_ADJUSTMENTS = {"raw", "split"}
 
 
-def _cache_path(ticker: str, days: int) -> Path:
+def _normalize_adjustment(value: str) -> str:
+    adjustment = str(value or "").strip().lower()
+    if adjustment not in _ALLOWED_ADJUSTMENTS:
+        raise ValueError(f"unsupported_price_adjustment:{adjustment}")
+    return adjustment
+
+
+def _cache_path(ticker: str, days: int, adjustment: str = "split") -> Path:
+    adjustment = _normalize_adjustment(adjustment)
     cfg = load_agg_config()
     cache_dir = cfg.cache_dir / _CACHE_SUBDIR
     cache_dir.mkdir(parents=True, exist_ok=True)
-    return cache_dir / f"{ticker.upper()}_{days}d.parquet"
+    return cache_dir / f"{ticker.upper()}_{days}d_{adjustment}.parquet"
 
 
 # Module-level "warned once" flags to suppress per-ticker spam when alpaca-py
@@ -55,6 +65,7 @@ def fetch_daily_bars(
     ticker: str,
     days: int = 260,
     force_refresh: bool = False,
+    adjustment: str = "split",
 ) -> pd.DataFrame:
     """Fetch daily OHLCV bars for a single ticker.
 
@@ -62,8 +73,13 @@ def fetch_daily_bars(
     Indexed by UTC timestamp (tz-aware).
 
     Returns empty DataFrame if fetch fails.
+
+    Split adjustment is the research default so stock splits cannot masquerade
+    as momentum/RS crashes. Raw remains available for explicit diagnostics.
+    Broker/execution replay uses a separate exact-close path.
     """
-    cache = _cache_path(ticker, days)
+    adjustment = _normalize_adjustment(adjustment)
+    cache = _cache_path(ticker, days, adjustment)
     if not force_refresh and _cache_is_fresh(cache):
         try:
             return pd.read_parquet(cache)
@@ -71,6 +87,7 @@ def fetch_daily_bars(
             pass  # fall through to refetch
 
     try:
+        from alpaca.data.enums import Adjustment
         from alpaca.data.historical import StockHistoricalDataClient
         from alpaca.data.requests import StockBarsRequest
         from alpaca.data.timeframe import TimeFrame
@@ -88,6 +105,7 @@ def fetch_daily_bars(
             _ONCE_FLAGS["creds"] = True
         return pd.DataFrame()
 
+    adjustment_enum = Adjustment.SPLIT if adjustment == "split" else Adjustment.RAW
     client = StockHistoricalDataClient(key, secret)
     # Add buffer for weekends/holidays (roughly 1.5x calendar days needed)
     lookback_cal_days = int(days * 1.5) + 10
@@ -99,6 +117,7 @@ def fetch_daily_bars(
         timeframe=TimeFrame.Day,
         start=start,
         end=end,
+        adjustment=adjustment_enum,
     )
     try:
         bars = client.get_stock_bars(req)
@@ -129,19 +148,26 @@ def fetch_latest_bars(
     tickers: list[str],
     days: int = 60,
     force_refresh: bool = False,
+    adjustment: str = "split",
 ) -> dict[str, pd.DataFrame]:
-    """Batch fetch. Returns dict[ticker, DataFrame]."""
+    """Batch fetch. Returns dict[ticker, DataFrame] on one adjustment basis."""
+    adjustment = _normalize_adjustment(adjustment)
     out: dict[str, pd.DataFrame] = {}
     for t in tickers:
-        df = fetch_daily_bars(t, days=days, force_refresh=force_refresh)
+        df = fetch_daily_bars(
+            t,
+            days=days,
+            force_refresh=force_refresh,
+            adjustment=adjustment,
+        )
         if not df.empty:
             out[t] = df
     return out
 
 
-def fetch_spy_benchmark(days: int = 260) -> pd.DataFrame:
-    """Fetch SPY daily bars for relative-strength comparisons."""
-    return fetch_daily_bars("SPY", days=days)
+def fetch_spy_benchmark(days: int = 260, adjustment: str = "split") -> pd.DataFrame:
+    """Fetch SPY on the same adjustment basis used by ticker RS."""
+    return fetch_daily_bars("SPY", days=days, adjustment=adjustment)
 
 
 if __name__ == "__main__":
