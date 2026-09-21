@@ -7,7 +7,7 @@ target, ledger, or order state.
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime
+from datetime import date, datetime
 import hashlib
 import json
 import math
@@ -77,6 +77,15 @@ def _stamp(value: Any, code: str) -> datetime:
     return out
 
 
+
+def _day(value: Any, code: str) -> date:
+    value = _text(value, code, 10)
+    _require(bool(re.fullmatch(r"\\d{4}-\\d{2}-\\d{2}", value)), code)
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise A3CandidatePacketError(code) from exc
+
 def _hash(value: Any, code: str) -> str:
     value = _text(value, code, 64).lower()
     _require(bool(_HEX64.fullmatch(value)), code)
@@ -142,14 +151,25 @@ def _validate_market(value: dict[str, Any], as_of: datetime) -> None:
     _require(value.get("schema") == "a3-market-valuation-snapshot-v1", "market_schema")
     _require(value.get("data_quality") == "REVIEWED_OBSERVED", "market_data_quality")
     _require(value.get("research_only") is True, "market_research_only")
+    _require(value.get("completed_session") is True, "market_completed_session")
+    session_date = _day(value.get("session_date"), "market_session_date")
+    _require(session_date <= as_of.date(), "future_market_session")
     _require(_stamp(value.get("available_at"), "market_available_at") <= as_of, "future_market_snapshot")
     _number(value.get("price"), "market_price", 0.0)
     _text(value.get("currency"), "market_currency", 12)
     _identifier(value.get("benchmark_id"), "market_benchmark_id")
+    _require(
+        value.get("return_basis") in {"TOTAL_RETURN", "PROVIDER_ADJUSTED_CLOSE_PROXY"},
+        "market_return_basis",
+    )
+    _require(value.get("rs_method") == "LOG_RELATIVE_RETURN", "market_rs_method")
     for h in (20, 60, 120, 240):
-        _number(value.get(f"return_{h}d"), f"market_return_{h}d", -1.0)
-        _number(value.get(f"benchmark_return_{h}d"), f"benchmark_return_{h}d", -1.0)
-        _number(value.get(f"rs_{h}d"), f"market_rs_{h}d")
+        asset_ret = _number(value.get(f"return_{h}d"), f"market_return_{h}d", -1.0)
+        bench_ret = _number(value.get(f"benchmark_return_{h}d"), f"benchmark_return_{h}d", -1.0)
+        _require(asset_ret > -1.0 and bench_ret > -1.0, f"market_total_loss_invalid:{h}d")
+        rs = _number(value.get(f"rs_{h}d"), f"market_rs_{h}d")
+        expected_rs = math.log1p(asset_ret) - math.log1p(bench_ret)
+        _require(abs(rs - expected_rs) <= 1e-10, f"market_rs_formula:{h}d")
 
 
 def _validate_source_graph(value: dict[str, Any]) -> None:

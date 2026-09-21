@@ -39,11 +39,13 @@ def moat():
 def market():
     d={"schema":"a3-market-valuation-snapshot-v1","asset_id":"US:EXAMPLE",
        "data_quality":"REVIEWED_OBSERVED","research_only":True,
-       "available_at":"2026-09-18T20:00:00Z","price":100.0,"currency":"USD","benchmark_id":"US:SPY"}
+       "completed_session":True,"session_date":"2026-09-18",
+       "available_at":"2026-09-18T20:00:00Z","price":100.0,"currency":"USD","benchmark_id":"US:SPY",
+       "return_basis":"TOTAL_RETURN","rs_method":"LOG_RELATIVE_RETURN"}
     for h in (20,60,120,240):
         d[f"return_{h}d"]=0.1
         d[f"benchmark_return_{h}d"]=0.05
-        d[f"rs_{h}d"]=0.05
+        d[f"rs_{h}d"]=__import__("math").log1p(0.1)-__import__("math").log1p(0.05)
     return d
 
 def graph():
@@ -112,6 +114,12 @@ class Tests(unittest.TestCase):
     v=packet(); v["moat_applicability"]="NOT_APPLICABLE_UNDERLYING"; v["artifacts"].pop("moat")
     out=evaluate_packet(v,"2026-09-19T02:00:00Z",resolver)
     self.assertIsNone(out["moat_sha256"])
+  def test_market_rs_must_match_log_relative_formula(self):
+    v=packet()
+    obj=market(); obj["rs_20d"]=0.05
+    new=add("MKT2",obj); v["artifacts"]["market_valuation"]={"kind":"MARKET_VALUATION_SNAPSHOT",**new}
+    with self.assertRaisesRegex(A3CandidatePacketError,"market_rs_formula"):
+      evaluate_packet(v,"2026-09-19T02:00:00Z",resolver)
   def test_contract_preserves_scenario_er_boundary(self):
     contract=json.loads((ROOT/"docs"/"a3_candidate_packet_v1_contract.json").read_text())
     self.assertFalse(contract["scenario_research"]["probabilities_allowed"])

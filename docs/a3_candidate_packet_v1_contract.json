@@ -60,5 +60,22 @@
     "target_book_write_allowed": false,
     "orders_allowed": false,
     "production_authority": false
+  },
+  "market_snapshot": {
+    "schema": "a3-market-valuation-snapshot-v1",
+    "completed_session_required": true,
+    "return_basis_allowed": [
+      "TOTAL_RETURN",
+      "PROVIDER_ADJUSTED_CLOSE_PROXY"
+    ],
+    "horizons_trading_days": [
+      20,
+      60,
+      120,
+      240
+    ],
+    "rs_method": "LOG_RELATIVE_RETURN",
+    "rs_formula": "log(1 + asset_return_h) - log(1 + benchmark_return_h)",
+    "formula_recomputed_by_validator": true
   }
 }

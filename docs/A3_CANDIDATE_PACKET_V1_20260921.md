@@ -25,6 +25,17 @@ Only a validated ER artifact may populate 1/3/6/12-month expected return, benchm
 
 Every artifact reference is checked against resolved immutable bytes and SHA-256. Artifact availability must be no later than packet `as_of`, and asset/issuer identity is bound where applicable.
 
+## Market snapshot identity
+
+The market artifact must use a completed trading session and disclose its return
+basis. For 20/60/120/240 trading-day horizons the validator recomputes relative
+strength as:
+
+`log(1 + asset return) - log(1 + benchmark return)`
+
+This matches the existing strict multi-asset leadership path rather than
+accepting a manually supplied RS number.
+
 ## Research workflow
 
 whole universe -> quantitative/leadership shortlist -> Methodology/Moat evidence -> market/valuation snapshot -> 12/24m scenario research -> optional validated ER -> A5 portfolio competition
