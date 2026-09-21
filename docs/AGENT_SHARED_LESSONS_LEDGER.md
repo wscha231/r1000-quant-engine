@@ -10,6 +10,25 @@
 - Partial coverage is explicitly PARTIAL/BLOCKED; it cannot authorize global ranking, A5, targets, orders, champion changes or a fullrun.
 - Fail closed at the narrowest validated boundary: an A1/identity or missing-row failure nulls all ER horizons for that security, while a horizon-specific model/output failure nulls only that horizon and preserves other independently validated horizons. Either case still blocks whole-equity readiness.
 
+## 2026-09-21 — Investment styles are lenses over canonical pillars, not additive alpha
+
+- Do not add Buffett, Graham, O'Neil, Minervini, GARP, Greenblatt, etc. as separate weighted factors when they reuse the same ROIC, growth, valuation, revision or RS evidence.
+- Compare every serious candidate on the same ten canonical pillars. Report absolute and peer-relative assessments separately; sector/lifecycle adapters change interpretation and evidence, never pillar weight.
+- Keep named investment methods as explanatory lens views over those pillars. Lens agreement/disagreement is diagnostic and must not be summed into selector alpha.
+- Pre-commercial biotech, financials, commodities and project businesses may use explicit stage/sector-adjusted economics, but missing universal pillars are not imputed or removed.
+- Global industry peers are preferred where economically comparable. Small or lifecycle-specific peer sets remain visible as thin-peer diagnostics.
+- Any future unequal pillar weights or method-consensus signal require preregistered PIT-safe purged walk-forward/OOS evidence. Current equal-pillar scores remain research-only.
+
+## 2026-09-21 — Qualitative moat evidence needs a trusted evidence graph before alpha
+
+- Existing `moat_proxy_score`, `moat_quality_blueprint_score`, manual overrides and financial quality factors are model/proxy surfaces; do not relabel them as reviewed evidence of durable competitive advantage.
+- A qualitative packet cannot authorize its own clock. Require a caller-supplied trusted cutoff and bind every evidence row to the reviewed asset and issuer.
+- A syntactically valid hash is not evidence integrity. Resolve immutable raw bytes and recompute SHA-256 before admission; missing or mismatched bytes fail closed.
+- Freshness means current verification of the fact. Preserve publication/availability/verification/valid-through separately, and reject stale or expired evidence.
+- Management-only support cannot establish a positive moat assessment. Require independent corroboration, reconcile SUPPORT/CHALLENGE direction with the assessment, and keep confidence separate from the unweighted research index.
+- Current reviewed evidence is not historical PIT data. No selector or portfolio weight may use this layer before timestamped history and a preregistered purged walk-forward/OOS incremental-alpha test.
+- Reuse an already registered generic smoke entrypoint for focused regression coverage; do not edit the frozen Tier-1 registry merely to register one research-only test.
+
 ## 2026-09-20 — Control-plane proposals need current identity, not old baseline labels
 
 - Replace the board's May role/baseline authority with explicit A0–A8 contracts;
