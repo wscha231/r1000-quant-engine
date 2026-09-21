@@ -11,6 +11,12 @@
       "6m": 126
     }
   },
+  "cohort_provenance": {
+    "published_bridge_sha256_required": true,
+    "consumer_code_sha_required": true,
+    "contract_sha256_required": true,
+    "identity_registry_must_match_exact_authenticated_securities_component": true
+  },
   "a1_identity_gate": {
     "required": [
       "security_id",

@@ -28,7 +28,9 @@ trainer. It consumes:
 It verifies the exact proposal and summary bytes against the challenger source
 manifest, requires the current cohort session, rejects realized/label/target/outcome
 columns, preserves every cohort `security_id`, and maps ticker only when the
-identity registry proves a one-to-one relation. The source manifest must carry the
+identity registry proves a one-to-one relation. The cohort publication's own
+`bridge_sha256` is recomputed, and the supplied identity registry must byte-match
+the single authenticated `*/securities/data.json` member recorded in cohort evidence. The source manifest must carry the
 existing Run287 schema, producer Git SHA, canonical U0 artifact identity and
 feature-store fingerprint. The challenger contract is checked with the same
 canonical-JSON SHA-256 semantics used by the existing runner, including the pinned
@@ -85,8 +87,10 @@ The focused synthetic smoke suite covers:
 - canonical U0 artifact and feature-store identity presence;
 - horizon-specific failure isolation without erasing independently validated ER horizons.
 
-The final focused suite after the provenance/date/horizon-isolation self-audit passes 20/20 tests
-in normal Python and 20/20 under `python -O`. The suite now also verifies
+The focused suite now adds adversarial cohort/registry provenance cases: a registry
+whose bytes differ from the authenticated securities component and a tampered
+bridge publication both fail before A1 mapping. Final exact-head CI is the
+authoritative test result after this correction. The suite now also verifies
 producer Timestamp-to-session normalization, U0 workflow-path binding and the
 raw contract-input fingerprint recorded separately from the canonical contract
 identity. Earlier 12- and 16-test passes predated these fixes and are not
@@ -104,6 +108,18 @@ serialize a pandas decision Timestamp as an ISO datetime rather than a bare date
 the adapter now normalizes both the proposal and summary decision value to a
 NYSE session date. U0 workflow path/digest and the producer-recorded raw contract
 input fingerprint are also bound to the pinned contract.
+
+## A6 provenance correction
+
+A pre-review A6 audit found that the earlier adapter compared registry IDs and
+tickers but did not prove that the registry bytes came from the admitted cohort.
+That allowed a separately modified registry to fabricate corporate-action or ADR
+basis fields. The adapter now binds the registry to the authenticated securities
+component in cohort evidence and verifies the cohort publication hash itself.
+This intentionally means current real inputs remain BLOCKED until the upstream
+securities producer itself carries the required corporate-action/ADR basis or a
+separately authenticated A1 producer is introduced; downstream enrichment cannot
+silently rewrite the admitted registry.
 
 ## Next action / stop condition
 

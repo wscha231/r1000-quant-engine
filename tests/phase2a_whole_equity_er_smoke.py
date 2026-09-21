@@ -36,6 +36,14 @@ def canonical_json_sha(path: Path) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def bridge_sha(value) -> str:
+    raw = (json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n").encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+SECURITIES_MEMBER = "outputs/theme_etf_source/securities/data.json"
+
+
 def contract():
     return {
         "schema_version": "phase2a-whole-equity-er-contract-v1",
@@ -44,13 +52,21 @@ def contract():
     }
 
 
-def cohort(ids=("US:A", "US:B", "US:ADR")):
-    return {
+def cohort(registry_path: Path, ids=("US:A", "US:B", "US:ADR")):
+    value = {
         "status": "ADMITTED_RESEARCH_ONLY",
         "runtime_executed": True,
         "company_evaluator_executed": False,
         "decision_at": STAMP,
         "expected_session": SESSION,
+        "consumer_code_sha": "e" * 40,
+        "contract_sha256": "f" * 64,
+        "evidence": {
+            SECURITIES_MEMBER: {
+                "sha256": sha(registry_path),
+                "bytes": registry_path.stat().st_size,
+            }
+        },
         "evaluation_inventory": [
             {
                 "security_id": sid,
@@ -69,6 +85,8 @@ def cohort(ids=("US:A", "US:B", "US:ADR")):
             ]
         },
     }
+    value["bridge_sha256"] = bridge_sha(value)
+    return value
 
 
 def registry():
@@ -149,8 +167,8 @@ class Phase2A(unittest.TestCase):
             "output": self.root / "out.json",
         }
         write_json(self.paths["contract"], contract())
-        write_json(self.paths["cohort"], cohort())
         write_json(self.paths["registry"], registry())
+        write_json(self.paths["cohort"], cohort(self.paths["registry"]))
         self.paths["er_contract"].write_text(
             '{\n  "schema_version": "synthetic-run287-contract",\n  "family_id": "future_expected_excess_return_multihorizon_v1",\n  "historical_gate": {"accepted_workflow_path": ".github/workflows/run287_u0_acceptance.yml"}\n}\n',
             encoding="utf-8",
@@ -175,6 +193,18 @@ class Phase2A(unittest.TestCase):
     def tearDown(self):
         MOD.EXPECTED_ER_CONTRACT_SHA256 = self.original_expected_contract_sha
         self.tmp.cleanup()
+
+    def write_registry(self, value, *, rebind=True):
+        write_json(self.paths["registry"], value)
+        if rebind:
+            current = json.loads(self.paths["cohort"].read_text(encoding="utf-8"))
+            current.pop("bridge_sha256", None)
+            current["evidence"][SECURITIES_MEMBER] = {
+                "sha256": sha(self.paths["registry"]),
+                "bytes": self.paths["registry"].stat().st_size,
+            }
+            current["bridge_sha256"] = bridge_sha(current)
+            write_json(self.paths["cohort"], current)
 
     def write_proposal(self, rows):
         fields = list(rows[0])
@@ -311,6 +341,20 @@ class Phase2A(unittest.TestCase):
         out = MOD.run(self.args())
         row = next(row for row in out["rows"] if row["ticker"] == "BBB")
         self.assertIn("future_identity_availability", row["blockers"])
+
+    def test_registry_bytes_must_match_authenticated_cohort_securities_member(self):
+        value = registry()
+        value["securities"][0]["corporate_action_verified"] = False
+        write_json(self.paths["registry"], value)
+        with self.assertRaisesRegex(ValueError, "cohort_registry_evidence_hash_mismatch"):
+            MOD.run(self.args())
+
+    def test_cohort_bridge_publication_hash_is_verified(self):
+        value = json.loads(self.paths["cohort"].read_text(encoding="utf-8"))
+        value["consumer_code_sha"] = "1" * 40
+        write_json(self.paths["cohort"], value)
+        with self.assertRaisesRegex(ValueError, "cohort_bridge_sha256_mismatch"):
+            MOD.run(self.args())
 
     def test_duplicate_ticker_identity_fails_before_mapping(self):
         value = registry()

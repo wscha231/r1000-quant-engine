@@ -66,6 +66,11 @@ def canonical_bytes(value: Any) -> bytes:
     ).encode("utf-8")
 
 
+def canonical_bridge_bytes(value: Any) -> bytes:
+    # theme_etf_source_bridge.canonical() includes a trailing newline.
+    return canonical_bytes(value) + b"\n"
+
+
 def sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
@@ -174,7 +179,40 @@ def load_cohort(path: Path) -> dict[str, Any]:
         raise ValueError("cohort_duplicate_queue_security_id")
     if set(inventory_ids) != set(queue_ids):
         raise ValueError("cohort_inventory_queue_identity_mismatch")
+    bridge_hash = str(value.get("bridge_sha256") or "")
+    if not SHA256_RE.fullmatch(bridge_hash):
+        raise ValueError("cohort_bridge_sha256_missing_or_invalid")
+    unsigned = dict(value)
+    unsigned.pop("bridge_sha256", None)
+    if sha256_bytes(canonical_bridge_bytes(unsigned)) != bridge_hash:
+        raise ValueError("cohort_bridge_sha256_mismatch")
+    if not FULL_SHA_RE.fullmatch(str(value.get("consumer_code_sha") or "").lower()):
+        raise ValueError("cohort_consumer_code_sha_invalid")
+    if not SHA256_RE.fullmatch(str(value.get("contract_sha256") or "").lower()):
+        raise ValueError("cohort_contract_sha256_invalid")
+    evidence = value.get("evidence")
+    if not isinstance(evidence, dict) or not evidence:
+        raise ValueError("cohort_evidence_missing")
     return value
+
+
+def verify_registry_binding(cohort: Mapping[str, Any], registry_path: Path) -> str:
+    evidence = cohort.get("evidence")
+    matches = [
+        (name, ref)
+        for name, ref in (evidence.items() if isinstance(evidence, dict) else [])
+        if isinstance(name, str) and name.endswith("/securities/data.json")
+    ]
+    if len(matches) != 1:
+        raise ValueError("cohort_securities_evidence_not_unique")
+    name, ref = matches[0]
+    if not isinstance(ref, dict):
+        raise ValueError("cohort_securities_evidence_invalid")
+    if ref.get("sha256") != sha256_file(registry_path):
+        raise ValueError("cohort_registry_evidence_hash_mismatch")
+    if int(ref.get("bytes") or -1) != registry_path.stat().st_size:
+        raise ValueError("cohort_registry_evidence_size_mismatch")
+    return name
 
 
 def load_identity_registry(path: Path) -> dict[str, dict[str, Any]]:
@@ -556,6 +594,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
     contract = load_contract(contract_path)
     cohort = load_cohort(cohort_path)
+    registry_source_member = verify_registry_binding(cohort, registry_path)
     registry = load_identity_registry(registry_path)
     manifest, proposal_rows = verify_er_evidence(
         proposal_path,
@@ -573,6 +612,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "phase2a_contract": fingerprint(contract_path),
         "cohort": fingerprint(cohort_path),
         "identity_registry": fingerprint(registry_path),
+        "identity_registry_source_member": registry_source_member,
+        "cohort_bridge_sha256": cohort.get("bridge_sha256"),
         "er_proposal": fingerprint(proposal_path),
         "er_summary": fingerprint(summary_path),
         "er_source_manifest": fingerprint(manifest_path),

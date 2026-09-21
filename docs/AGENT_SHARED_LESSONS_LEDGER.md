@@ -9,6 +9,7 @@
 - Normalize producer decision timestamps to the session date before equality checks; pandas JSON serialization may emit midnight ISO datetimes. Also bind the U0 workflow path/digest and the raw contract-input fingerprint separately from the canonical contract identity.
 - Partial coverage is explicitly PARTIAL/BLOCKED; it cannot authorize global ranking, A5, targets, orders, champion changes or a fullrun.
 - Fail closed at the narrowest validated boundary: an A1/identity or missing-row failure nulls all ER horizons for that security, while a horizon-specific model/output failure nulls only that horizon and preserves other independently validated horizons. Either case still blocks whole-equity readiness.
+- A derived identity file is not authoritative merely because its IDs/tickers match the cohort. Bind its exact bytes to the authenticated `securities/data.json` cohort evidence (or require a separately authenticated A1 producer); otherwise corporate-action/ADR fields can be fabricated downstream.
 
 ## 2026-09-21 — Investment styles are lenses over canonical pillars, not additive alpha
 
