@@ -88,6 +88,15 @@
       "pit_required": true,
       "hash_required": true,
       "matured_outcome_schema_file": "matured_outcome_cohort_v1.schema.json"
+    },
+    "candidate_data_queue": {
+      "producer": "A2",
+      "consumers": [
+        "A3"
+      ],
+      "pit_required": true,
+      "hash_required": true,
+      "schema_file": "candidate_data_queue_v1.schema.json"
     }
   },
   "rules": {

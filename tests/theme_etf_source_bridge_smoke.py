@@ -238,7 +238,13 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(out["membership_reasons"][0]["reason_type"], "REVIEWED_THEME_RESEARCH")
         queue = out["data_queue_preview"]
         self.assertEqual(queue["schema_version"], "candidate-data-queue-v1")
+        self.assertTrue(queue["research_only"])
+        self.assertEqual(queue["direct_score_contribution"], 0)
         self.assertEqual({r["security_id"] for r in queue["items"]}, {r["security_id"] for r in inventory})
+        self.assertTrue(all(r["issuer_id"] for r in queue["items"]))
+        self.assertTrue(all("form4" in r["required_channels"] for r in queue["items"]))
+        self.assertTrue(all("13f" in r["required_channels"] for r in queue["items"]))
+        self.assertTrue(all("consensus_estimates" in r["required_channels"] for r in queue["items"]))
         self.assertTrue(all(r["state"] == "DATA_PENDING" for r in queue["items"]))
         self.assertFalse(out["safety"]["orders_allowed"])
         self.assertGreater(out["result"]["leadership"][0]["rs_log_20"], 0)
