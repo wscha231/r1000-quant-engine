@@ -1,5 +1,13 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-23 — Security-basis hashes must bind actual source bytes
+
+- A syntactically valid corporate-action or ADR SHA string is not provenance.
+- Every admitted basis row now carries an immutable source artifact ID and declared SHA-256; a trusted resolver returns actual bytes and the validator recomputes the digest.
+- Corporate-action and ADR share-basis evidence are independently hash-bound. Missing/tampered bytes block only the affected security row.
+- The CLI uses a content-addressed raw-artifact root; a missing resolver is a build-level failure.
+- This repairs provenance only. It does not grant selector, target, order or portfolio authority.
+
 ## 2026-09-21 — Scenario research is not validated expected return
 
 - A3 Bull/Base/Bear scenarios may express 12/24-month conditional outcomes and assumptions, but they must not carry unvalidated probabilities or be labeled statistical expected return.

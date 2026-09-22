@@ -9,6 +9,7 @@ evidence preserves the security row and blocks only that row.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -32,6 +33,8 @@ ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@/+-]*$")
 TICKER_RE = re.compile(r"^[A-Z0-9][A-Z0-9.-]*$")
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
+MAX_SOURCE_BYTES = 16 * 1024 * 1024
+RawResolver = Callable[[str, str], bytes]
 
 
 def reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -171,6 +174,7 @@ def reviewed_evidence(
     *,
     decision_at: datetime,
     label: str,
+    raw_resolver: RawResolver,
 ) -> tuple[dict[str, Any] | None, list[str]]:
     if not isinstance(value, dict):
         return None, [f"{label}_evidence_missing"]
@@ -191,24 +195,47 @@ def reviewed_evidence(
     source_url = value.get("source_url")
     if not isinstance(source_url, str) or not source_url.startswith("https://"):
         blockers.append(f"{label}_source_url_invalid")
+    try:
+        source_artifact_id = canonical_id(
+            value.get("source_artifact_id"),
+            f"{label}.source_artifact_id",
+        )
+    except ValueError:
+        blockers.append(f"{label}_source_artifact_id_invalid")
+        source_artifact_id = None
     source_sha = str(value.get("source_sha256") or "").lower()
     if not SHA_RE.fullmatch(source_sha):
         blockers.append(f"{label}_source_sha256_invalid")
+
+    if not callable(raw_resolver):
+        raise ValueError("raw_resolver_required")
+    if not blockers:
+        try:
+            raw = raw_resolver(source_artifact_id, source_sha)  # type: ignore[arg-type]
+        except Exception:
+            blockers.append(f"{label}_raw_evidence_unavailable")
+        else:
+            if not isinstance(raw, bytes) or not (0 < len(raw) <= MAX_SOURCE_BYTES):
+                blockers.append(f"{label}_raw_evidence_bytes")
+            elif hashlib.sha256(raw).hexdigest() != source_sha:
+                blockers.append(f"{label}_raw_evidence_hash_mismatch")
+
     if blockers:
         return None, sorted(set(blockers))
     normalized = dict(value)
-    normalized["available_at"] = (
-        available.isoformat().replace("+00:00", "Z")
-    )
+    normalized["available_at"] = available.isoformat().replace("+00:00", "Z")
     normalized["source_sha256"] = source_sha
+    normalized["source_artifact_id"] = source_artifact_id
     return normalized, []
-
 
 def build_registry(
     identity_doc: Any,
     evidence_doc: Any,
     decision_at_value: Any,
+    raw_resolver: RawResolver,
 ) -> dict[str, Any]:
+    if not callable(raw_resolver):
+        raise ValueError("raw_resolver_required")
     decision_at = utc(decision_at_value, "decision_at")
     identities = load_identity_rows(identity_doc)
     evidence = load_evidence_rows(evidence_doc)
@@ -244,6 +271,7 @@ def build_registry(
             evidence_row.get("corporate_action"),
             decision_at=decision_at,
             label="corporate_action",
+            raw_resolver=raw_resolver,
         )
         blockers.extend(corporate_blockers)
         corporate_verified = False
@@ -267,6 +295,9 @@ def build_registry(
                         "available_at"
                     ],
                     "corporate_action_source_url": corporate["source_url"],
+                    "corporate_action_source_artifact_id": corporate[
+                        "source_artifact_id"
+                    ],
                     "corporate_action_source_sha256": corporate[
                         "source_sha256"
                     ],
@@ -281,6 +312,7 @@ def build_registry(
                 evidence_row.get("adr_share_basis"),
                 decision_at=decision_at,
                 label="adr_share_basis",
+                raw_resolver=raw_resolver,
             )
             blockers.extend(adr_blockers)
             if adr is not None:
@@ -305,6 +337,7 @@ def build_registry(
                     adr_fields = {
                         "adr_ratio_available_at": adr["available_at"],
                         "adr_source_url": adr["source_url"],
+                        "adr_source_artifact_id": adr["source_artifact_id"],
                         "adr_source_sha256": adr["source_sha256"],
                     }
 
@@ -359,18 +392,40 @@ def build_registry(
     return payload
 
 
+def content_addressed_resolver(root: Path) -> RawResolver:
+    trusted_root = root.resolve()
+    if not trusted_root.is_dir():
+        raise ValueError("raw_artifact_root_missing")
+
+    def resolve(_artifact_id: str, expected_sha256: str) -> bytes:
+        if not SHA_RE.fullmatch(expected_sha256):
+            raise ValueError("raw_artifact_sha256_invalid")
+        path = trusted_root / expected_sha256
+        if not path.is_file():
+            raise FileNotFoundError(expected_sha256)
+        raw = path.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != expected_sha256:
+            raise ValueError("raw_artifact_store_hash_mismatch")
+        return raw
+
+    return resolve
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
     identity_path = Path(args.identity_source)
     evidence_path = Path(args.basis_evidence)
+    raw_root = Path(args.raw_artifact_root)
     output = build_registry(
         read_json(identity_path),
         read_json(evidence_path),
         args.decision_at,
+        content_addressed_resolver(raw_root),
     )
     old_hash = output.pop("artifact_sha256")
     output["inputs"] = {
         "identity_source": fingerprint(identity_path),
         "basis_evidence": fingerprint(evidence_path),
+        "raw_artifact_root": raw_root.resolve().as_posix(),
     }
     output["pre_input_fingerprint_artifact_sha256"] = old_hash
     output["artifact_sha256"] = sha256_bytes(canonical_bytes(output))
@@ -387,6 +442,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--identity-source", required=True)
     parser.add_argument("--basis-evidence", required=True)
+    parser.add_argument("--raw-artifact-root", required=True)
     parser.add_argument("--decision-at", required=True)
     parser.add_argument("--output", required=True)
     return parser.parse_args()
