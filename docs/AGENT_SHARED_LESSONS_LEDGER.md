@@ -1,5 +1,14 @@
 # Agent Shared Lessons Ledger
 
+
+## 2026-09-23 — A2/A3/A5 lifecycle must reuse reviewed artifacts
+
+- A2 chat/news output is discovery evidence, not canonical portfolio state. V0 stays zero-credit; independently verified V1/V2 events may enter an Event Registry only with explicit source-graph identity.
+- MATERIAL/CRITICAL events should refresh only affected Methodology/Moat pillars plus valuation/ER. Price-only changes must not trigger a full moat or industry re-review; identical fingerprints must SKIP_UNCHANGED.
+- Keep one current Candidate Registry record per asset and reference immutable reviewed artifacts by hash. Superseded packets may be archived, but evidence referenced by A3/A5/decision/outcome state must never be pruned.
+- A5 consumes hash-bound A3 results and a separately WALK_FORWARD_VALIDATED, net-of-costs ER artifact. Missing ER is BLOCKED_RESEARCH_ONLY, never zero or neutral ER.
+- This connection layer adds no scheduler and has no target, paper-ledger, broker-order or production authority. A5 research readiness is not an approved target.
+
 ## 2026-09-21 — Scenario research is not validated expected return
 
 - A3 Bull/Base/Bear scenarios may express 12/24-month conditional outcomes and assumptions, but they must not carry unvalidated probabilities or be labeled statistical expected return.

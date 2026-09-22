@@ -1,0 +1,75 @@
+{
+  "schema": "candidate-lifecycle-v1-contract",
+  "version": 1,
+  "purpose": "Connect A2 discovery to reviewed A3 research, delta refresh, Candidate Registry V1, separately validated ER and a read-only A5 research input without granting target/order authority.",
+  "flow": [
+    "A2_EVENT_HANDOFF",
+    "EVENT_REGISTRY",
+    "DELTA_REFRESH_PLANNER",
+    "A3_CANDIDATE_PACKET",
+    "CANDIDATE_REGISTRY",
+    "VALIDATED_ER",
+    "A5_RESEARCH_INPUT"
+  ],
+  "event_policy": {
+    "V0": "DISCOVERY_ONLY; score contribution 0; no A3 refresh",
+    "V1_V2_WATCH": "TRACK only",
+    "V1_V2_MATERIAL_CRITICAL": "A3 refresh candidate",
+    "same_subject_family_dedup_hours": 24,
+    "active_watch_days": 90,
+    "outcome_track_days": 365
+  },
+  "canonical_methodology_pillars": [
+    "industry_structure_bottleneck",
+    "moat_durability",
+    "growth_runway_customer_product",
+    "profitability_reinvestment_capital_efficiency",
+    "valuation_margin_of_safety",
+    "earnings_revision_operating_acceleration",
+    "market_leadership_price_volume_rs",
+    "management_governance_capital_allocation",
+    "catalyst_ownership_information_edge",
+    "downside_balance_sheet_cycle_regime"
+  ],
+  "moat_dimensions": [
+    "qualification_switching_cost",
+    "market_structure_position",
+    "ip_patent_durability",
+    "pricing_power",
+    "replacement_difficulty",
+    "next_generation_relevance"
+  ],
+  "refresh_matrix": {
+    "none": "SKIP_UNCHANGED",
+    "price_only": ["MARKET_VALUATION", "ER"],
+    "earnings_guidance_consensus": ["EARNINGS_GUIDANCE_CONSENSUS", "MARKET_VALUATION", "ER"],
+    "material_event": ["AFFECTED_METHODOLOGY_PILLARS", "AFFECTED_MOAT_DIMENSIONS", "VALUATION", "ER"],
+    "regime_only": ["DOWNSIDE_REGIME", "PORTFOLIO_OVERLAY"],
+    "identity_source_accounting_integrity_break": ["FULL_A3_REVIEW", "VALUATION", "ER"]
+  },
+  "candidate_registry": {
+    "one_current_record_per_asset": true,
+    "buy_sell_rank_target_weight_fields_allowed": false,
+    "missing_validated_er_policy": "A5_BLOCK_RESEARCH_ONLY",
+    "freshness_states": ["CURRENT", "DELTA_REFRESH_DUE", "FULL_REFRESH_DUE", "STALE", "BLOCKED"]
+  },
+  "a5_consumer": {
+    "requires_a3_result_status": "VALIDATED_ER_LINKED",
+    "requires_er_validation_status": "WALK_FORWARD_VALIDATED",
+    "requires_net_of_costs": true,
+    "requires_signal_confidence": true,
+    "requires_thesis_confidence": true,
+    "requires_data_gate_pass": true,
+    "requires_pit_gate_pass": true,
+    "may_recreate_methodology_or_moat": false,
+    "portfolio_proposal_only": true
+  },
+  "authority": {
+    "research_only": true,
+    "target_book_write_allowed": false,
+    "paper_ledger_write_allowed": false,
+    "broker_orders_allowed": false,
+    "production_activation_allowed": false,
+    "new_scheduler_added": false
+  }
+}
