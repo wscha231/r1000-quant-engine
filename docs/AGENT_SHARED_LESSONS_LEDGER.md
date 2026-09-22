@@ -1,5 +1,13 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-23 — Whole-equity Phase2A output is gross research ER, not A3 validated ER
+
+- Reconstruct the reviewed #471 provenance adapter on current master; do not cherry-pick its stale stack.
+- Existing 21/63/126-session predictions are gross research evidence. Public output names use `gross_research_*` so they cannot be mistaken for the merged A3 validated ER contract.
+- The adapter remains `net_of_costs=false`, has no validated 252-session/12m return, no calibrated downside, no validated expected drawdown and no calibrated signal confidence.
+- Therefore `a3_validated_er_eligible=false` and ER promotion is blocked until the separate #503 gate is satisfied.
+- Preserve every cohort identity and all provenance/identity/corporate-action/ADR/leakage checks from the reviewed source implementation.
+
 ## 2026-09-23 — Whole-universe candidate discovery needs one data queue, not parallel selectors
 
 - A2 now declares a candidate-data-queue output in addition to leadership events; A3 must receive both.
