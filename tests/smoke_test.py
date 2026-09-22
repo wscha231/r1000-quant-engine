@@ -2669,6 +2669,11 @@ def test_full_rebuild_workflow() -> None:
         "universe_mode",
         "backtest_years",
         "skip_collector",
+        "INPUT_SKIP_COLLECTOR",
+        "fullrun release validation requires skip_collector=true",
+        "fullrun is frozen-input validation only; collector execution is not authorized here",
+        "frozen-input fullrun requires pre-refreshed cache/durable inputs",
+        "[fullrun] frozen-input validation; collector disabled",
         "leader_rescue_mode",
         "UNIVERSE_MODE",
         "BACKTEST_YEARS",
@@ -2682,6 +2687,9 @@ def test_full_rebuild_workflow() -> None:
         "run_local.py --full",
     ):
         assert token in wf, f"full_rebuild_manual.yml missing required token: {token}"
+    assert "python run_local.py --full --collector-only" not in wf, (
+        "Fullrun must not collect data; refresh/freeze inputs before dispatch"
+    )
 
 
 @_test("regression.phase14_hybrid_alpha_in_default_features")
