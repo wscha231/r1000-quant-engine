@@ -142,6 +142,22 @@ def subject_key(e: dict[str, Any]) -> str:
     return "ASSET:" + ",".join(sorted(e["asset_ids"])) if e["asset_ids"] else "THEME:" + str(e["theme_id"])
 
 
+def enforce_active_caps(cohorts: list[dict[str, Any]], cutoff: str) -> None:
+    now = stamp(cutoff, "active_cap_cutoff")
+    assets, themes = set(), set()
+    for c in cohorts:
+        if c.get("verification_tier") == "V0":
+            continue
+        until = stamp(c.get("active_watch_until"), "active_watch_until")
+        if until < now:
+            continue
+        assets.update(c.get("asset_ids", []))
+        if c.get("theme_id") is not None:
+            themes.add(c["theme_id"])
+    req(len(assets) <= 30, "event_active_ticker_cap")
+    req(len(themes) <= 10, "event_active_theme_cap")
+
+
 def admit_event(registry: Any, event: Any, cutoff: str, *, dedup_hours: int = 24) -> tuple[dict[str, Any], dict[str, Any]]:
     req(isinstance(registry, dict) and registry.get("schema") == EVENT_REGISTRY_SCHEMA and isinstance(registry.get("cohorts"), list), "event_registry_schema")
     e, out, key = validate_event(event, cutoff), deepcopy(registry), None
@@ -160,10 +176,12 @@ def admit_event(registry: Any, event: Any, cutoff: str, *, dedup_hours: int = 24
             if e["verification_tier"] in {"V1", "V2"} and e["materiality"] in {"MATERIAL", "CRITICAL"}:
                 c["active_watch_until"] = (seen + timedelta(days=90)).isoformat()
             c["cohort_sha256"] = canonical_sha256({k:v for k,v in c.items() if k != "cohort_sha256"}); out["as_of"] = cutoff
+            enforce_active_caps(out["cohorts"], cutoff)
             return out, {"action":"DEDUP_UPDATED", "cohort_id":c["cohort_id"], "a3_refresh_required":c["a3_refresh_required"]}
     cid = "COHORT:" + e["event_id"]
     c = {"cohort_id":cid, "subject_key":key, "asset_ids":e["asset_ids"], "theme_id":e["theme_id"], "event_family":e["event_family"], "first_seen_at":e["first_seen_at"], "last_seen_at":e["first_seen_at"], "first_event_id":e["event_id"], "latest_event_id":e["event_id"], "event_ids":[e["event_id"]], "verification_tier":e["verification_tier"], "materiality":e["materiality"], "affected_methodology":e["affected_methodology"], "affected_moat":e["affected_moat"], "latest_source_graph_ref":e["source_graph_ref"], "status":e["status"], "a3_refresh_required":e["a3_refresh_required"], "active_watch_until":(seen+timedelta(days=90)).isoformat(), "outcome_track_until":(seen+timedelta(days=365)).isoformat(), "assessment_score_effect":0}
     c["cohort_sha256"] = canonical_sha256(c); out["cohorts"].append(c); out["as_of"] = cutoff
+    enforce_active_caps(out["cohorts"], cutoff)
     return out, {"action":"ADDED", "cohort_id":cid, "a3_refresh_required":e["a3_refresh_required"]}
 
 

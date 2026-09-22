@@ -176,6 +176,30 @@ class Tests(unittest.TestCase):
         self.assertEqual(len(registry["cohorts"]), 1)
         self.assertEqual(len(registry["cohorts"][0]["event_ids"]), 2)
 
+    def test_active_ticker_cap_fails_closed(self):
+        registry = empty_event_registry("2026-09-22T21:00:00Z")
+        for i in range(30):
+            e = event(event_id=f"CAP-{i}")
+            e["asset_ids"] = [f"US:CAP{i}"]
+            registry, _ = admit_event(registry, e, "2026-09-22T21:00:00Z")
+        overflow = event(event_id="CAP-30")
+        overflow["asset_ids"] = ["US:CAP30"]
+        with self.assertRaisesRegex(CandidateLifecycleError, "event_active_ticker_cap"):
+            admit_event(registry, overflow, "2026-09-22T21:00:00Z")
+
+    def test_active_theme_cap_fails_closed(self):
+        registry = empty_event_registry("2026-09-22T21:00:00Z")
+        for i in range(10):
+            e = event(event_id=f"THEME-{i}")
+            e["asset_ids"] = []
+            e["theme_id"] = f"THEME_{i}"
+            registry, _ = admit_event(registry, e, "2026-09-22T21:00:00Z")
+        overflow = event(event_id="THEME-10")
+        overflow["asset_ids"] = []
+        overflow["theme_id"] = "THEME_10"
+        with self.assertRaisesRegex(CandidateLifecycleError, "event_active_theme_cap"):
+            admit_event(registry, overflow, "2026-09-22T21:00:00Z")
+
     def test_skip_unchanged(self):
         fp = fingerprints()
         out = plan_delta_refresh(fp, fp)
@@ -284,6 +308,8 @@ class Tests(unittest.TestCase):
         contract = json.loads((ROOT / "docs" / "candidate_lifecycle_v1_contract.json").read_text())
         self.assertFalse(contract["candidate_registry"]["buy_sell_rank_target_weight_fields_allowed"])
         self.assertEqual(contract["event_policy"]["same_subject_family_dedup_hours"], 24)
+        self.assertEqual(contract["event_policy"]["max_active_tickers"], 30)
+        self.assertEqual(contract["event_policy"]["max_active_themes"], 10)
         self.assertFalse(contract["a5_consumer"]["may_recreate_methodology_or_moat"])
         self.assertFalse(contract["authority"]["target_book_write_allowed"])
         self.assertFalse(contract["authority"]["new_scheduler_added"])

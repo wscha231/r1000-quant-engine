@@ -25,6 +25,7 @@ A0 must canonicalize A2 output into `a2-event-handoff-v1`.
 - V1/V2 requires an immutable source-graph reference before canonical admission.
 - same subject + event family inside 24 hours updates one cohort rather than creating another.
 - active watch is 90 days; outcome tracking is 365 days.
+- fail closed above 30 active tickers or 10 active themes; expired watches do not consume the active cap.
 
 Theme-only events are allowed. They do not become ticker candidates until a direct investable asset relationship is separately established.
 

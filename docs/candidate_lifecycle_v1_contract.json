@@ -17,7 +17,9 @@
     "V1_V2_MATERIAL_CRITICAL": "A3 refresh candidate",
     "same_subject_family_dedup_hours": 24,
     "active_watch_days": 90,
-    "outcome_track_days": 365
+    "outcome_track_days": 365,
+    "max_active_tickers": 30,
+    "max_active_themes": 10
   },
   "canonical_methodology_pillars": [
     "industry_structure_bottleneck",
@@ -41,17 +43,42 @@
   ],
   "refresh_matrix": {
     "none": "SKIP_UNCHANGED",
-    "price_only": ["MARKET_VALUATION", "ER"],
-    "earnings_guidance_consensus": ["EARNINGS_GUIDANCE_CONSENSUS", "MARKET_VALUATION", "ER"],
-    "material_event": ["AFFECTED_METHODOLOGY_PILLARS", "AFFECTED_MOAT_DIMENSIONS", "VALUATION", "ER"],
-    "regime_only": ["DOWNSIDE_REGIME", "PORTFOLIO_OVERLAY"],
-    "identity_source_accounting_integrity_break": ["FULL_A3_REVIEW", "VALUATION", "ER"]
+    "price_only": [
+      "MARKET_VALUATION",
+      "ER"
+    ],
+    "earnings_guidance_consensus": [
+      "EARNINGS_GUIDANCE_CONSENSUS",
+      "MARKET_VALUATION",
+      "ER"
+    ],
+    "material_event": [
+      "AFFECTED_METHODOLOGY_PILLARS",
+      "AFFECTED_MOAT_DIMENSIONS",
+      "VALUATION",
+      "ER"
+    ],
+    "regime_only": [
+      "DOWNSIDE_REGIME",
+      "PORTFOLIO_OVERLAY"
+    ],
+    "identity_source_accounting_integrity_break": [
+      "FULL_A3_REVIEW",
+      "VALUATION",
+      "ER"
+    ]
   },
   "candidate_registry": {
     "one_current_record_per_asset": true,
     "buy_sell_rank_target_weight_fields_allowed": false,
     "missing_validated_er_policy": "A5_BLOCK_RESEARCH_ONLY",
-    "freshness_states": ["CURRENT", "DELTA_REFRESH_DUE", "FULL_REFRESH_DUE", "STALE", "BLOCKED"]
+    "freshness_states": [
+      "CURRENT",
+      "DELTA_REFRESH_DUE",
+      "FULL_REFRESH_DUE",
+      "STALE",
+      "BLOCKED"
+    ]
   },
   "a5_consumer": {
     "requires_a3_result_status": "VALIDATED_ER_LINKED",
