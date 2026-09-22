@@ -242,6 +242,34 @@ class Tests(unittest.TestCase):
         with self.assertRaisesRegex(CandidateLifecycleError, "a5_er_hash_not_bound_to_a3"):
             build_a5_candidate_view(registry, "US:BABA", resolver)
 
+    def test_watch_event_does_not_hide_price_refresh(self):
+        previous = fingerprints()
+        current = fingerprints(market_price_hash="watch-price")
+        normalized = validate_event(event(materiality="WATCH"), "2026-09-22T21:00:00Z")
+        out = plan_delta_refresh(previous, current, event=normalized)
+        self.assertEqual(out["action"], "DELTA_REFRESH")
+        self.assertEqual(out["event_action"], "TRACK_ONLY")
+        self.assertEqual(out["refresh"], ["MARKET_VALUATION", "ER"])
+
+    def test_candidate_future_artifact_fails_closed(self):
+        er_ref = add("ER:BABA", er())
+        a3_ref = add("A3:BABA", a3_result(er_ref))
+        record = candidate_record(a3_ref, er_ref)
+        record["current_a3_result_ref"]["available_at"] = "2026-09-23T01:00:00Z"
+        registry = empty_candidate_registry("2026-09-22T21:00:00Z")
+        with self.assertRaisesRegex(CandidateLifecycleError, "candidate_future_artifact:a3"):
+            upsert_candidate(registry, record, "2026-09-22T21:00:00Z")
+
+    def test_material_dedup_extends_active_watch(self):
+        registry = empty_event_registry("2026-09-22T21:00:00Z")
+        registry, _ = admit_event(registry, event(), "2026-09-22T21:00:00Z")
+        first_until = registry["cohorts"][0]["active_watch_until"]
+        later = event(event_id="BABA-AI-LATER")
+        later["first_seen_at"] = "2026-09-22T20:00:00Z"
+        later["verified_at"] = "2026-09-22T20:30:00Z"
+        registry, _ = admit_event(registry, later, "2026-09-22T21:00:00Z")
+        self.assertGreater(registry["cohorts"][0]["active_watch_until"], first_until)
+
     def test_cli_is_network_free_and_exposes_four_commands(self):
         import subprocess
         proc = subprocess.run(

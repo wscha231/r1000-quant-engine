@@ -157,6 +157,8 @@ def admit_event(registry: Any, event: Any, cutoff: str, *, dedup_hours: int = 24
             if e["source_graph_ref"] is not None: c["latest_source_graph_ref"] = e["source_graph_ref"]
             c["a3_refresh_required"] = c["verification_tier"] in {"V1","V2"} and c["materiality"] in {"MATERIAL","CRITICAL"}
             c["status"] = "A3_REFRESH_CANDIDATE" if c["a3_refresh_required"] else ("TRACK" if c["verification_tier"] != "V0" else "DISCOVERY_ONLY")
+            if e["verification_tier"] in {"V1", "V2"} and e["materiality"] in {"MATERIAL", "CRITICAL"}:
+                c["active_watch_until"] = (seen + timedelta(days=90)).isoformat()
             c["cohort_sha256"] = canonical_sha256({k:v for k,v in c.items() if k != "cohort_sha256"}); out["as_of"] = cutoff
             return out, {"action":"DEDUP_UPDATED", "cohort_id":c["cohort_id"], "a3_refresh_required":c["a3_refresh_required"]}
     cid = "COHORT:" + e["event_id"]
@@ -172,19 +174,23 @@ def validate_fingerprints(v: Any) -> dict[str, str]:
 def plan_delta_refresh(previous: Any, current: Any, *, event: dict[str, Any] | None = None, integrity_break: bool = False) -> dict[str, Any]:
     p, c = validate_fingerprints(previous), validate_fingerprints(current); changed = sorted(k for k in FP_KEYS if p[k] != c[k])
     if integrity_break: return {"action":"FULL_A3_REFRESH", "changed":changed, "refresh":["FULL_A3_REVIEW","VALUATION","ER"], "freshness_state":"FULL_REFRESH_DUE"}
+    event_action = None
     if event is not None:
         req(event.get("schema") == EVENT_SCHEMA, "planner_event_schema")
         if event.get("verification_tier") in {"V1","V2"} and event.get("materiality") in {"MATERIAL","CRITICAL"}:
             return {"action":"AFFECTED_A3_REFRESH", "changed":changed, "refresh":["AFFECTED_METHODOLOGY_PILLARS","AFFECTED_MOAT_DIMENSIONS","VALUATION","ER"], "affected_methodology":list(event.get("affected_methodology",[])), "affected_moat":list(event.get("affected_moat",[])), "freshness_state":"DELTA_REFRESH_DUE"}
-        return {"action":"TRACK_ONLY" if event.get("verification_tier") in {"V1","V2"} else "DISCOVERY_ONLY", "changed":changed, "refresh":[], "freshness_state":"CURRENT"}
-    if not changed: return {"action":"SKIP_UNCHANGED", "changed":[], "refresh":[], "freshness_state":"CURRENT"}
+        event_action = "TRACK_ONLY" if event.get("verification_tier") in {"V1","V2"} else "DISCOVERY_ONLY"
+    if not changed:
+        return {"action":event_action or "SKIP_UNCHANGED", "changed":[], "refresh":[], "freshness_state":"CURRENT"}
     s=set(changed)
     if s == {"market_price_hash"}: refresh=["MARKET_VALUATION","ER"]
     elif s <= {"earnings_consensus_hash","market_price_hash"} and "earnings_consensus_hash" in s: refresh=["EARNINGS_GUIDANCE_CONSENSUS","MARKET_VALUATION","ER"]
     elif s == {"regime_hash"}: refresh=["DOWNSIDE_REGIME","PORTFOLIO_OVERLAY"]
     elif s & {"source_graph_hash","fundamental_hash","methodology_hash"}: refresh=["AFFECTED_A3_REVIEW","MARKET_VALUATION","ER"]
     else: refresh=["DELTA_REVIEW","MARKET_VALUATION","ER"]
-    return {"action":"DELTA_REFRESH", "changed":changed, "refresh":refresh, "freshness_state":"DELTA_REFRESH_DUE"}
+    out={"action":"DELTA_REFRESH", "changed":changed, "refresh":refresh, "freshness_state":"DELTA_REFRESH_DUE"}
+    if event_action is not None: out["event_action"] = event_action
+    return out
 
 
 def empty_candidate_registry(as_of: str) -> dict[str, Any]:
@@ -201,6 +207,8 @@ def upsert_candidate(registry: Any, record: Any, cutoff: str) -> dict[str, Any]:
     req(st in SECURITY_TYPES and fresh in FRESHNESS and thesis in THESIS, "candidate_enum")
     a3, mkt = ref(record.get("current_a3_result_ref"),"candidate_a3"), ref(record.get("latest_market_snapshot_ref"),"candidate_market_ref")
     er0=record.get("latest_validated_er_ref"); er=None if er0 is None else ref(er0,"candidate_er")
+    for name, artifact in (("a3", a3), ("market", mkt), ("er", er)):
+        if artifact is not None: req(stamp(artifact["available_at"], "candidate_"+name+"_available_at") <= cut, "candidate_future_artifact:"+name)
     fps=validate_fingerprints(record.get("fingerprints")); full=stamp(record.get("last_full_review_at"),"candidate_full_review")
     delta0=record.get("last_delta_refresh_at"); delta=None if delta0 is None else stamp(delta0,"candidate_delta")
     req(full<=cut and (delta is None or full<=delta<=cut), "candidate_time_order")
