@@ -25,6 +25,39 @@ def alfred_page(rows):
 
 
 class EvidenceTests(unittest.TestCase):
+    def test_alfred_fetch_paginates_beyond_legacy_200k_cap(self):
+        total = 225_001
+        offsets = []
+        def fake_request(url, *, secret=None):
+            query = parse_qs(urlparse(url).query)
+            limit = int(query["limit"][0])
+            offset = int(query["offset"][0])
+            offsets.append(offset)
+            size = min(limit, total - offset)
+            return source.encoded(dict(
+                units="lin", output_type=1, count=total, offset=offset,
+                observations=[{}] * size,
+            ))
+        with patch.dict(os.environ, {"FRED_API_KEY": "fixture-secret"}), \
+             patch("tools.macro_history_sources.request_bytes", side_effect=fake_request):
+            pages, _ = source.fetch("NFCI", "1996-01-01", "2026-09-22", "alfred")
+        self.assertEqual(offsets, [0, 50_000, 100_000, 150_000, 200_000])
+        self.assertEqual(len(pages), 5)
+
+    def test_alfred_fetch_keeps_hard_bounded_row_cap(self):
+        def fake_request(url, *, secret=None):
+            query = parse_qs(urlparse(url).query)
+            offset = int(query["offset"][0])
+            return source.encoded(dict(
+                units="lin", output_type=1,
+                count=source.ALFRED_MAX_ROWS + 1,
+                offset=offset, observations=[{}],
+            ))
+        with patch.dict(os.environ, {"FRED_API_KEY": "fixture-secret"}), \
+             patch("tools.macro_history_sources.request_bytes", side_effect=fake_request):
+            with self.assertRaisesRegex(ValueError, "alfred_count"):
+                source.fetch("NFCI", "1996-01-01", "2026-09-22", "alfred")
+
     def test_current_history_is_not_backdated(self):
         rows, missing = source.parse_graph(b"observation_date,UNRATE\n2020-01-01,3.5\n2020-02-01,.\n", "UNRATE", "2020-01-01", "2020-02-28", "2026-09-11T12:00:00Z")
         self.assertEqual(rows[0]["available_at"], "2026-09-11T12:00:00Z")

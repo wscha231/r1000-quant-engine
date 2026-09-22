@@ -26,6 +26,8 @@ ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = ROOT / "docs/macro_indicator_registry.json"
 MAX_BYTES = 16 * 1024 * 1024
 MAX_PAGES = 20
+ALFRED_PAGE_SIZE = 50_000
+ALFRED_MAX_ROWS = MAX_PAGES * ALFRED_PAGE_SIZE
 PUBLIC_ERRORS = frozenset({"fred_key_unavailable", "alfred_output_contract", "alfred_page_offset",
     "alfred_count", "alfred_count_changed", "alfred_empty_page", "alfred_date_bounds",
     "alfred_duplicate_vintage", "alfred_incomplete_pagination", "alfred_overlapping_vintages",
@@ -118,7 +120,7 @@ def parse_alfred(pages, series, start, through, retrieved):
                 "alfred_output_contract")
         require(payload.get("offset") == expected_offset, "alfred_page_offset")
         count = payload.get("count")
-        require(isinstance(count, int) and 0 < count <= MAX_PAGES * 10000, "alfred_count")
+        require(isinstance(count, int) and 0 < count <= ALFRED_MAX_ROWS, "alfred_count")
         require(total is None or count == total, "alfred_count_changed")
         total = count
         rows = payload.get("observations", [])
@@ -177,7 +179,7 @@ def fetch(series, start, through, mode):
         url = "https://api.stlouisfed.org/fred/series/observations?" + urlencode(dict(
             series_id=series, api_key=key, file_type="json", units="lin", output_type=1,
             observation_start=start, observation_end=through, realtime_start="1776-07-04",
-            realtime_end=through, limit=10000, offset=offset))
+            realtime_end=through, limit=ALFRED_PAGE_SIZE, offset=offset))
         raw = request_bytes(url, secret=key)
         data = json.loads(raw)
         pages.append(raw)
