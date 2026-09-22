@@ -279,12 +279,12 @@ def compute_sector_medians(df: pd.DataFrame) -> dict[str, dict]:
 def compute_live_rs_for_tickers(tickers: list[str], verbose: bool = True) -> dict[str, float]:
     """Compute live 12m RS vs SPY using Alpaca bars. Returns dict[ticker, rs_pct]."""
     try:
-        from aggressive.data_alpaca import fetch_daily_bars, fetch_spy_benchmark
+        from aggressive.data_alpaca import fetch_research_daily_bars, fetch_research_spy_benchmark
     except Exception as e:
         print(f"[rs] Alpaca not available: {e}")
         return {}
 
-    spy = fetch_spy_benchmark(days=260)
+    spy = fetch_research_spy_benchmark(days=260)
     if spy.empty or len(spy) < 252:
         return {}
 
@@ -292,7 +292,7 @@ def compute_live_rs_for_tickers(tickers: list[str], verbose: bool = True) -> dic
     for i, t in enumerate(tickers, 1):
         if verbose and i % 50 == 0:
             print(f"[rs] {i}/{len(tickers)}...")
-        df = fetch_daily_bars(t, days=260)
+        df = fetch_research_daily_bars(t, days=260)
         if df.empty or len(df) < 252:
             continue
         aligned = pd.concat([df["close"].rename("t"), spy["close"].rename("s")],

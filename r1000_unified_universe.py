@@ -50,19 +50,19 @@ def _fraction(row, field):
 
 def compute_live_rs(tickers: list[str], verbose: bool = True) -> dict[str, float]:
     """Optional legacy price diagnostic, not validated total-return model input."""
-    from aggressive.data_alpaca import fetch_daily_bars, fetch_spy_benchmark
+    from aggressive.data_alpaca import fetch_research_daily_bars, fetch_research_spy_benchmark
     class RSPrices(dict):
         pass
     result = RSPrices()
     result.prices = {}
-    spy = fetch_spy_benchmark(days=400)
+    spy = fetch_research_spy_benchmark(days=400)
     if spy.empty or len(spy) < 253:
         return result
     if not spy.index.is_unique or not spy.index.is_monotonic_increasing:
         raise ValueError('benchmark_session_identity')
     sessions = spy.index[-253:]
     for ticker in tickers:
-        frame = fetch_daily_bars(ticker, days=400)
+        frame = fetch_research_daily_bars(ticker, days=400)
         if frame.empty or not frame.index.is_unique or not frame.index.is_monotonic_increasing:
             continue
         if frame.index[-1] != sessions[-1] or not sessions.isin(frame.index).all():
