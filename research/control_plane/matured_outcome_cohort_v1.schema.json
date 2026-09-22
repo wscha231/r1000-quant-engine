@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Matured outcome cohort V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "rows",
+    "authority"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "matured-outcome-cohort-v1"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "rows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "event_id",
+          "security_id",
+          "benchmark_id",
+          "decision_at",
+          "horizon",
+          "target_session",
+          "status",
+          "asset_return",
+          "benchmark_return",
+          "excess_return",
+          "source_sha256"
+        ],
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "security_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "benchmark_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "decision_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "horizon": {
+            "enum": [
+              "1D",
+              "1W",
+              "2W",
+              "1M",
+              "3M",
+              "6M",
+              "12M"
+            ]
+          },
+          "target_session": {
+            "type": "string",
+            "minLength": 10
+          },
+          "status": {
+            "enum": [
+              "MATURED",
+              "UNRESOLVED",
+              "DELISTED_OR_EXITED_PENDING"
+            ]
+          },
+          "asset_return": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "benchmark_return": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "excess_return": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "source_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "MATURED"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            },
+            "then": {
+              "properties": {
+                "asset_return": {
+                  "type": "number"
+                },
+                "benchmark_return": {
+                  "type": "number"
+                },
+                "excess_return": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "automatic_model_update",
+        "automatic_champion_promotion",
+        "target",
+        "orders"
+      ],
+      "properties": {
+        "automatic_model_update": {
+          "const": false
+        },
+        "automatic_champion_promotion": {
+          "const": false
+        },
+        "target": {
+          "const": false
+        },
+        "orders": {
+          "const": false
+        }
+      }
+    }
+  }
+}

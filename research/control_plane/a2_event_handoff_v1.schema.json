@@ -1,0 +1,292 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "A2 verified event handoff V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "as_of",
+    "events",
+    "research_only",
+    "authority"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "a2-event-handoff-v1"
+    },
+    "as_of": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "event_id",
+          "cohort_id",
+          "observed_at",
+          "published_at",
+          "available_at",
+          "collected_at",
+          "source_graph_artifact_id",
+          "source_graph_sha256",
+          "primary_source",
+          "verification_level",
+          "claim",
+          "verified_fact",
+          "security_ids",
+          "issuer_ids",
+          "tickers",
+          "themes",
+          "industry_ids",
+          "underlyings",
+          "transmission_channel",
+          "affected_pillars",
+          "horizon",
+          "materiality",
+          "invalidation",
+          "state",
+          "assessment_eligible",
+          "direct_score_contribution",
+          "requires_a3_refresh"
+        ],
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "cohort_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "published_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "available_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "collected_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "source_graph_artifact_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_graph_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "primary_source": {
+            "type": "string",
+            "minLength": 1
+          },
+          "verification_level": {
+            "enum": [
+              "V0",
+              "V1",
+              "V2"
+            ]
+          },
+          "claim": {
+            "type": "string",
+            "minLength": 1
+          },
+          "verified_fact": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "security_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          },
+          "issuer_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          },
+          "tickers": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          },
+          "themes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          },
+          "industry_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          },
+          "underlyings": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          },
+          "transmission_channel": {
+            "type": "string",
+            "minLength": 1
+          },
+          "affected_pillars": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "industry_structure_bottleneck",
+                "moat_durability",
+                "growth_runway_customer_product",
+                "profitability_reinvestment_capital_efficiency",
+                "valuation_margin_of_safety",
+                "earnings_revision_operating_acceleration",
+                "market_leadership_price_volume_rs",
+                "management_governance_capital_allocation",
+                "catalyst_ownership_information_edge",
+                "downside_balance_sheet_cycle_regime"
+              ]
+            }
+          },
+          "horizon": {
+            "enum": [
+              "SHORT",
+              "MEDIUM",
+              "STRUCTURAL"
+            ]
+          },
+          "materiality": {
+            "enum": [
+              "LOW",
+              "WATCH",
+              "MATERIAL",
+              "CRITICAL"
+            ]
+          },
+          "invalidation": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "state": {
+            "enum": [
+              "DISCOVERED",
+              "VERIFIED",
+              "TRACK",
+              "A3_RESEARCH",
+              "ER_ELIGIBLE",
+              "PORTFOLIO_CANDIDATE",
+              "REJECTED",
+              "STALE",
+              "QUARANTINED",
+              "RISK_WATCH",
+              "EXIT_REVIEW"
+            ]
+          },
+          "assessment_eligible": {
+            "type": "boolean"
+          },
+          "direct_score_contribution": {
+            "const": 0
+          },
+          "requires_a3_refresh": {
+            "type": "boolean"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "verification_level": {
+                  "const": "V0"
+                }
+              },
+              "required": [
+                "verification_level"
+              ]
+            },
+            "then": {
+              "properties": {
+                "verified_fact": {
+                  "const": null
+                },
+                "assessment_eligible": {
+                  "const": false
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "research_only": {
+      "const": true
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "selector",
+        "er",
+        "target",
+        "portfolio",
+        "broker",
+        "orders",
+        "promotion"
+      ],
+      "properties": {
+        "selector": {
+          "const": false
+        },
+        "er": {
+          "const": false
+        },
+        "target": {
+          "const": false
+        },
+        "portfolio": {
+          "const": false
+        },
+        "broker": {
+          "const": false
+        },
+        "orders": {
+          "const": false
+        },
+        "promotion": {
+          "const": false
+        }
+      }
+    }
+  }
+}

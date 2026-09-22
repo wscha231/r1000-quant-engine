@@ -1,0 +1,325 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ER promotion gate V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "as_of",
+    "asset_id",
+    "benchmark_id",
+    "status",
+    "gates",
+    "blockers",
+    "gross_research_er",
+    "promoted_validated_er",
+    "scenario_probabilities_used",
+    "research_only",
+    "authority"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "er-promotion-gate-v1"
+    },
+    "as_of": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "asset_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "benchmark_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "TRACK",
+        "BLOCKED",
+        "ER_ELIGIBLE"
+      ]
+    },
+    "gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "independent_verification",
+        "raw_source_integrity",
+        "pit_availability",
+        "transmission_channel",
+        "market_snapshot",
+        "valuation_context",
+        "fundamental_estimate_coverage",
+        "price_implied_expectations",
+        "scenario_delta_attribution",
+        "invalidation_confidence",
+        "walk_forward_validated",
+        "benchmark_match",
+        "net_of_costs",
+        "downside_validated",
+        "expected_drawdown_validated",
+        "horizon_1m",
+        "horizon_3m",
+        "horizon_6m",
+        "horizon_12m"
+      ],
+      "properties": {
+        "independent_verification": {
+          "type": "boolean"
+        },
+        "raw_source_integrity": {
+          "type": "boolean"
+        },
+        "pit_availability": {
+          "type": "boolean"
+        },
+        "transmission_channel": {
+          "type": "boolean"
+        },
+        "market_snapshot": {
+          "type": "boolean"
+        },
+        "valuation_context": {
+          "type": "boolean"
+        },
+        "fundamental_estimate_coverage": {
+          "type": "boolean"
+        },
+        "price_implied_expectations": {
+          "type": "boolean"
+        },
+        "scenario_delta_attribution": {
+          "type": "boolean"
+        },
+        "invalidation_confidence": {
+          "type": "boolean"
+        },
+        "walk_forward_validated": {
+          "type": "boolean"
+        },
+        "benchmark_match": {
+          "type": "boolean"
+        },
+        "net_of_costs": {
+          "type": "boolean"
+        },
+        "downside_validated": {
+          "type": "boolean"
+        },
+        "expected_drawdown_validated": {
+          "type": "boolean"
+        },
+        "horizon_1m": {
+          "type": "boolean"
+        },
+        "horizon_3m": {
+          "type": "boolean"
+        },
+        "horizon_6m": {
+          "type": "boolean"
+        },
+        "horizon_12m": {
+          "type": "boolean"
+        }
+      }
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "gross_research_er": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "sha256",
+            "available_at"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "available_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "promoted_validated_er": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "sha256",
+            "available_at"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "available_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "scenario_probabilities_used": {
+      "const": false
+    },
+    "research_only": {
+      "const": true
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "portfolio",
+        "broker",
+        "orders",
+        "promotion"
+      ],
+      "properties": {
+        "target": {
+          "const": false
+        },
+        "portfolio": {
+          "const": false
+        },
+        "broker": {
+          "const": false
+        },
+        "orders": {
+          "const": false
+        },
+        "promotion": {
+          "const": false
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "ER_ELIGIBLE"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "blockers": {
+            "maxItems": 0
+          },
+          "promoted_validated_er": {
+            "type": "object"
+          },
+          "gates": {
+            "properties": {
+              "independent_verification": {
+                "const": true
+              },
+              "raw_source_integrity": {
+                "const": true
+              },
+              "pit_availability": {
+                "const": true
+              },
+              "transmission_channel": {
+                "const": true
+              },
+              "market_snapshot": {
+                "const": true
+              },
+              "valuation_context": {
+                "const": true
+              },
+              "fundamental_estimate_coverage": {
+                "const": true
+              },
+              "price_implied_expectations": {
+                "const": true
+              },
+              "scenario_delta_attribution": {
+                "const": true
+              },
+              "invalidation_confidence": {
+                "const": true
+              },
+              "walk_forward_validated": {
+                "const": true
+              },
+              "benchmark_match": {
+                "const": true
+              },
+              "net_of_costs": {
+                "const": true
+              },
+              "downside_validated": {
+                "const": true
+              },
+              "expected_drawdown_validated": {
+                "const": true
+              },
+              "horizon_1m": {
+                "const": true
+              },
+              "horizon_3m": {
+                "const": true
+              },
+              "horizon_6m": {
+                "const": true
+              },
+              "horizon_12m": {
+                "const": true
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "blockers": {
+            "minItems": 1
+          },
+          "promoted_validated_er": {
+            "const": null
+          }
+        }
+      }
+    }
+  ]
+}

@@ -34,7 +34,8 @@
         "A3"
       ],
       "pit_required": true,
-      "hash_required": true
+      "hash_required": true,
+      "schema_file": "a2_event_handoff_v1.schema.json"
     },
     "expected_return": {
       "producer": "A3",
@@ -42,7 +43,8 @@
         "A5"
       ],
       "pit_required": true,
-      "hash_required": true
+      "hash_required": true,
+      "promotion_schema_file": "er_promotion_gate_v1.schema.json"
     },
     "regime": {
       "producer": "A4",
@@ -84,7 +86,8 @@
         "A0"
       ],
       "pit_required": true,
-      "hash_required": true
+      "hash_required": true,
+      "matured_outcome_schema_file": "matured_outcome_cohort_v1.schema.json"
     }
   },
   "rules": {
