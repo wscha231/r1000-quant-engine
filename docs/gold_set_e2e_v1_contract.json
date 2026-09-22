@@ -1,0 +1,19 @@
+{
+  "schema_version": "gold-set-e2e-v1",
+  "purpose": "bounded_artifact_connectivity_validation_for_methodology_moat_a3_phase2a_and_er_gate",
+  "research_only": true,
+  "candidate_source": "research/cross_market_gold_set_v1.json",
+  "initial_rc1_scope": "P0_US_EQUITY",
+  "authority": {
+    "ranking": false,
+    "portfolio": false,
+    "target": false,
+    "orders": false,
+    "production": false
+  },
+  "boundaries": {
+    "current_phase2a_must_remain_gross_research_only": true,
+    "global_ranking_ready": false,
+    "a5_execution_allowed": false
+  }
+}

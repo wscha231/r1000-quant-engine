@@ -1,5 +1,12 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-23 — Gold Set E2E proves connectivity, not recommendation quality
+
+- Gold Set E2E binds actual Methodology/Moat/market/source-graph/A3 artifact bytes for a bounded calibration set.
+- Current RC1 Phase2A may be attached only as gross research ER evidence; it must not self-promote to validated ER.
+- A passing connectivity run creates no rank, BUY/SELL, target weight, A5 execution or production authority.
+- Start with P0 U.S. equities for RC1; KR and commodity Gold Set names remain calibration surfaces and do not block U.S. release.
+
 ## 2026-09-23 — Whole-equity Phase2A output is gross research ER, not A3 validated ER
 
 - Reconstruct the reviewed #471 provenance adapter on current master; do not cherry-pick its stale stack.
