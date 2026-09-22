@@ -49,39 +49,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements_github.txt
 
-      - name: Check latest NYSE close
+      - name: Check latest completed NYSE close
         id: market
         env:
           FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.force_run || 'false' }}
         run: |
-          python - <<'PY'
-          from datetime import datetime, timedelta, timezone
-          import os
-          import pandas as pd
-          import pandas_market_calendars as mcal
-
-          force = str(os.environ.get("FORCE_RUN", "false")).lower() == "true"
-          now = datetime.now(timezone.utc)
-          cal = mcal.get_calendar("NYSE")
-          sched = cal.schedule(start_date=(now - timedelta(days=5)).date(), end_date=now.date())
-          ready = force
-          last_close = ""
-          if not sched.empty:
-              close = sched["market_close"].max()
-              if isinstance(close, pd.Timestamp):
-                  close_utc = close.to_pydatetime()
-                  if close_utc.tzinfo is None:
-                      close_utc = close_utc.replace(tzinfo=timezone.utc)
-                  last_close = close_utc.isoformat()
-                  ready = ready or (timedelta(0) <= now - close_utc <= timedelta(hours=18))
-          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
-              handle.write(f"MARKET_READY={'yes' if ready else 'no'}\n")
-              handle.write(f"LAST_NYSE_CLOSE_UTC={last_close}\n")
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
-              handle.write(f"ready={'yes' if ready else 'no'}\n")
-              handle.write(f"last_close={last_close}\n")
-          print(f"[market] ready={ready} force={force} last_close={last_close}")
-          PY
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/free-data-market-gate"
+          ARGS=(
+            --output "$RUNNER_TEMP/free-data-market-gate/session.json"
+            --min-close-age-minutes 90
+            --max-close-age-hours 18
+          )
+          if [ "${FORCE_RUN:-false}" = "true" ]; then
+            ARGS+=(--force)
+          fi
+          python tools/run_daily_market_session_gate.py "${ARGS[@]}"
 
       - name: Restore GitHub cache
         if: steps.market.outputs.ready == 'yes'

@@ -1661,6 +1661,24 @@ def test_paper_executor_layer3_preflight() -> None:
     )
 
 
+@_test("structural.free_data_reuses_completed_session_gate")
+def test_free_data_reuses_completed_session_gate() -> None:
+    """Free Data must reuse the common completed-NYSE-session gate."""
+    wf_path = ROOT / ".github" / "workflows" / "free_data_daily_update.yml"
+    wf = wf_path.read_text(encoding="utf-8")
+    assert "tools/run_daily_market_session_gate.py" in wf, (
+        "Free Data workflow must reuse the common NYSE session gate"
+    )
+    assert 'sched["market_close"].max()' not in wf, (
+        "duplicated inline calendar logic can select a future same-day close"
+    )
+    assert "pandas_market_calendars as mcal" not in wf, (
+        "Free Data workflow should not maintain a second calendar implementation"
+    )
+    assert "--min-close-age-minutes 90" in wf
+    assert "--max-close-age-hours 18" in wf
+
+
 @_test("regression.after_close_daily_workflow_yaml_valid")
 def test_paper_executor_workflow() -> None:
     """The consolidated daily cloud workflow must run paper execution
