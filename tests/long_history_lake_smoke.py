@@ -11,7 +11,8 @@ import unittest
 from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
-from tools.long_history_lake import Lake,LocalTransport,sec_rows,fact_coverage,issuer_queue,encoded,digest,materialize,wb_rows,PREFIX
+from tools.long_history_lake import (Lake,LocalTransport,sec_rows,fact_coverage,issuer_queue,
+    sec_submissions_profile,encoded,digest,materialize,wb_rows,PREFIX)
 
 
 def source():
@@ -48,13 +49,14 @@ class HistoryTest(unittest.TestCase):
         self.assertEqual(after.publish('two',{})['new_packs'],0)
 
     def execution(self,publication,**changes):
-        quality=encoded(dict(schema='long-history-quality-v1',status='PARTIAL',eligible_for_selector=False))
+        quality_status=changes.pop('quality_status','PARTIAL')
+        quality=encoded(dict(schema='long-history-quality-v1',status=quality_status,eligible_for_selector=False))
         quality_sha=digest(quality)
         self.t.write(f'{PREFIX}/reports/{quality_sha}',quality)
         receipt=dict(schema='long-history-execution-v1',run_id='one',
             commit_sha256=publication['commit_sha256'],catalog_sha256=publication['catalog_sha256'],
             reports={'quality.json':quality_sha},consumer_rows=1,
-            study_recomputed_from_drive=False,quality_status='PARTIAL',eligible_for_selector=False)
+            study_recomputed_from_drive=False,quality_status=quality_status,eligible_for_selector=False)
         receipt.update(changes)
         raw=encoded(receipt); sha=digest(raw)
         self.t.write(f'{PREFIX}/executions/{sha}',raw)
@@ -91,6 +93,14 @@ class HistoryTest(unittest.TestCase):
         report_path.write_bytes(original)
         (self.root/'remote'/PREFIX/'executions'/sha).write_bytes(b'corrupt')
         with self.assertRaisesRegex(ValueError,'remote_hash'): reader.verified_execution()
+
+    def test_execution_accepts_partial_coverage_as_non_green_research_status(self):
+        self.put(); published=self.lake.publish('one',{})
+        self.execution(published,quality_status='PARTIAL_COVERAGE')
+        reader=Lake(self.t,self.root/'coverage-reader')
+        receipt=reader.verified_execution()
+        self.assertEqual(receipt['quality_status'],'PARTIAL_COVERAGE')
+        self.assertFalse(receipt['eligible_for_selector'])
 
     def test_stale_writer_cannot_advance(self):
         other=Lake(self.t,self.root/'second')
@@ -155,9 +165,68 @@ class HistoryTest(unittest.TestCase):
     def test_whole_cohort_and_missing_mapping(self):
         members=[dict(ticker='A'+str(i)) for i in range(1000)]
         mapping={str(i):dict(ticker='A'+str(i),cik_str=i+1) for i in range(999)}
-        groups,missing=issuer_queue(members,mapping)
+        groups,missing,resolution=issuer_queue(members,mapping)
         self.assertEqual(len(groups),999); self.assertEqual(len(missing),1)
+        self.assertEqual(sum(r['lifecycle_review_required'] for r in resolution),1)
         with self.assertRaisesRegex(ValueError,'cohort_below_1000'): issuer_queue(members[:2],mapping)
+
+    def test_prior_sec_mapping_retains_history_only_with_lifecycle_review(self):
+        members=[dict(ticker='A'+str(i)) for i in range(999)]+[dict(ticker='OLD')]
+        current={str(i):dict(ticker='A'+str(i),cik_str=i+1) for i in range(999)}
+        prior=dict(current)
+        prior['999']=dict(ticker='OLD',cik_str=999999)
+        groups,missing,resolution=issuer_queue(members,current,prior)
+        self.assertFalse(missing)
+        row=next(r for r in resolution if r['ticker']=='OLD')
+        self.assertEqual(row['cik'],'0000999999')
+        self.assertEqual(row['identity_status'],'PRIOR_SEC_MAPPING_RETAINED_LIFECYCLE_REVIEW')
+        self.assertTrue(row['lifecycle_review_required'])
+        self.assertFalse(row['current_mapping_present'])
+        self.assertIn('0000999999',groups)
+
+    def test_ambiguous_prior_sec_mapping_stays_missing(self):
+        members=[dict(ticker='A'+str(i)) for i in range(999)]+[dict(ticker='OLD')]
+        current={str(i):dict(ticker='A'+str(i),cik_str=i+1) for i in range(999)}
+        prior=dict(current)
+        prior['999']=dict(ticker='OLD',cik_str=1_000_001)
+        prior['1000']=dict(ticker='OLD',cik_str=1_000_002)
+        groups,missing,resolution=issuer_queue(members,current,prior)
+        self.assertEqual(missing[-1]['ticker'],'OLD')
+        self.assertIsNone(next(r for r in resolution if r['ticker']=='OLD')['cik'])
+        self.assertNotIn('0001000001',groups)
+        self.assertNotIn('0001000002',groups)
+
+    def test_sec_submissions_distinguishes_issuer_from_nonfundamental_role(self):
+        issuer=encoded(dict(cik='1103838',filings=dict(recent=dict(
+            form=['20-F','6-K','6-K']))))
+        profile=sec_submissions_profile(issuer,'0001103838')
+        self.assertTrue(profile['has_fundamental_issuer_role'])
+        self.assertEqual(profile['issuer_forms'],['20-F','6-K'])
+
+        ownership=encoded(dict(cik='1569650',filings=dict(recent=dict(
+            form=['13F-HR','13F-HR/A','SC 13G']))))
+        profile=sec_submissions_profile(ownership,'0001569650')
+        self.assertFalse(profile['has_fundamental_issuer_role'])
+        self.assertEqual(profile['issuer_forms'],[])
+
+    def test_coverage_gap_is_durable_but_never_selector_ready(self):
+        from tools.long_history_lake import diagnostics
+        self.lake.coverage_gap('sec/0000000001',[b'official-submission'],dict(
+            cik='0000000001',tickers=['AAA'],
+            coverage_gap_reason='SEC_COMPANYFACTS_UNAVAILABLE_ISSUER_FILINGS_PRESENT',
+            evidence='SEC_SUBMISSIONS_ROLE_EVIDENCE_NO_COMPANYFACTS'))
+        self.lake.catalog['datasets']['universe/cohort']=dict(
+            status='COLLECTED',active_issuer_keys=['sec/0000000001'],
+            missing=[],lifecycle_review_count=0)
+        report=diagnostics(self.lake)
+        self.assertEqual(report['status'],'PARTIAL_COVERAGE')
+        self.assertEqual(report['status_counts']['COVERAGE_GAP'],1)
+        self.assertFalse(report['eligible_for_selector'])
+        self.assertEqual(report['financial_fact_rows'],0)
+        self.assertEqual(report['financial_issuers_collected'],0)
+        with self.assertRaisesRegex(ValueError,'stale_dataset'):
+            materialize(self.lake,self.root/'coverage.sqlite',
+                ['sec/0000000001'],'2026-09-12')
 
     def test_schema_and_window_changes_invalidate_http_validators(self):
         from tools.long_history_lake import sec_conditional,extraction_identity
@@ -191,8 +260,10 @@ class HistoryTest(unittest.TestCase):
 
     def test_unmapped_security_keeps_cycle_partial(self):
         from tools.long_history_lake import diagnostics
-        self.lake.catalog['datasets']['universe/cohort']=dict(status='COLLECTED',active_issuer_keys=[],missing=[dict(ticker='HOLX')])
-        self.assertEqual(diagnostics(self.lake)['status'],'PARTIAL')
+        self.lake.catalog['datasets']['universe/cohort']=dict(
+            status='COLLECTED',active_issuer_keys=[],missing=[dict(ticker='HOLX')],
+            lifecycle_review_count=1)
+        self.assertEqual(diagnostics(self.lake)['status'],'PARTIAL_COVERAGE')
 
     def test_country_year_missing_coverage(self):
         from tools.long_history_lake import wb_coverage
@@ -411,7 +482,11 @@ class HistoryTest(unittest.TestCase):
         before=self.t.names(PREFIX+'/commits')
         next((self.root/'remote'/PREFIX/'packs').iterdir()).unlink()
         with patch('tools.long_history_lake.COHORT_SHA',digest(cohort.read_bytes())), \
-             patch('tools.long_history_lake.issuer_queue',return_value=({'0000000001':['A']},[])), \
+             patch('tools.long_history_lake.issuer_queue',return_value=(
+                 {'0000000001':['A']},[],
+                 [dict(ticker='A',cik='0000000001',identity_status='CURRENT_SEC_MAPPING',
+                       current_mapping_present=True,lifecycle_review_required=False,prior_ciks=[])]
+             )), \
              patch('tools.long_history_lake.get_public',side_effect=[(b'{}',{}),(None,{'etag':'v1'})]) as fetch:
             collect_financials(reader,cohort,'2016-01-01','2026-09-12')
             self.assertEqual(fetch.call_args.args[1],{'etag':'v1'})

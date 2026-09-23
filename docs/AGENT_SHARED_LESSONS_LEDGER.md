@@ -1,5 +1,15 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-23 — SEC Companyfacts 404 can be coverage or entity-role failure, not zero fundamentals
+
+- A current SEC ticker mapping does not prove that its CIK is a Companyfacts-capable operating issuer.
+- On Companyfacts 404, inspect the same CIK through official SEC submissions before classifying the failure.
+- 10-K/Q, 20-F, 40-F or 6-K issuer filings with no Companyfacts are an explicit structured-data coverage gap; do not manufacture financials.
+- Ownership/13F-only filing roles are entity-role/lifecycle review, not operating-company fundamental evidence.
+- If a ticker disappears from current SEC mapping, a unique prior official mapping may retain historical issuer archive collection only. It never proves current eligibility.
+- Coverage gaps and lifecycle reviews remain selector-ineligible and keep G0 non-green.
+- No ticker/CIK-specific exception is permitted.
+
 ## 2026-09-23 — ALFRED pagination should raise throughput without relaxing integrity
 
 - NFCI exceeded the legacy 20×10,000 observation pagination envelope.
