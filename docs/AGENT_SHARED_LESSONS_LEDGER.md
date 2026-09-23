@@ -1,5 +1,14 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-23 — Extend the merged control plane instead of adding a second state system
+
+- `system_state_schema.json` already defines the canonical A0 state boundary; do not add a competing SYSTEM_STATE implementation.
+- Add artifact-role, dependency/merge and book-namespace registries as static control contracts and bind their exact bytes into A0 source identity.
+- Registry files carry no investment authority. Research Signal, Candidate Universe, Target Proposal, Simulation, Paper and Actual Broker truth remain separate.
+- Actual Broker > Approved Target > Verified Paper > Simulation > Research is an authority ordering, not an order-execution permission.
+- A changed registry hash invalidates `SKIP_UNCHANGED`; stale branch blind merge and H1/H2 mixed PRs remain forbidden.
+- No selector score, target weight, broker order, scheduler or promotion behavior changes in this slice.
+
 ## 2026-09-23 — Release Fullrun consumes frozen inputs; it does not refresh them
 
 - RC1 separates data refresh from final strategy validation.

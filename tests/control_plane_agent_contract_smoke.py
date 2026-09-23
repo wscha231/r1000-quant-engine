@@ -96,6 +96,11 @@ class ControlPlaneTests(unittest.TestCase):
                                   run_url='', max_tasks=0)
 
     def test_nine_roles_and_current_mission_separate_from_operating_gate(self):
+        registries = board.control_registries()
+        self.assertEqual(registries['artifact']['schema_version'], 'artifact-contract-registry-v1')
+        self.assertFalse(registries['dependency']['rules']['fullrun_as_search_loop_allowed'])
+        self.assertEqual(registries['books']['truth_priority'][0], 'ACTUAL_BROKER_BOOK')
+        self.assertTrue(all(not row['may_write_orders'] for row in registries['books']['books'].values()))
         self.assertEqual(set(self.contract['agents']), {f'A{i}' for i in range(9)})
         self.assertEqual(self.contract['mission']['main'], {'net_cagr_min':.35,'mdd_loss_max':.25})
         self.assertEqual(self.contract['mission']['concentrated'], {'net_cagr_min':.50,'mdd_loss_max':.25})
@@ -233,7 +238,10 @@ class ControlPlaneTests(unittest.TestCase):
     def test_dirty_specialist_or_untracked_source_changes_identity(self):
         root=self.root/'git-fixture'; root.mkdir()
         paths=['tools/run_agent_board.py','r1000_config.py','requirements_github.txt']
-        paths+=['research/control_plane/'+n for n in ('agent_contracts_v2.yaml','task_packet_schema.json','system_state_schema.json')]
+        paths+=['research/control_plane/'+n for n in (
+            'agent_contracts_v2.yaml','task_packet_schema.json','system_state_schema.json',
+            'artifact_contract_registry_v1.json','dependency_merge_graph_v1.json',
+            'global_book_contract_v1.json')]
         for name in paths:
             dest=root/name; dest.parent.mkdir(parents=True,exist_ok=True); shutil.copyfile(ROOT/name,dest)
         specialist='tools/run_multi_asset_leadership.py'; (root/specialist).write_text('version = 1\n'); paths.append(specialist)

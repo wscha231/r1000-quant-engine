@@ -1,0 +1,96 @@
+{
+  "schema_version": "artifact-contract-registry-v1",
+  "research_only": true,
+  "authority": {
+    "execute": false,
+    "target": false,
+    "broker": false,
+    "scheduler": false,
+    "promotion": false
+  },
+  "roles": {
+    "system_state": {
+      "producer": "A0",
+      "consumers": [
+        "A0"
+      ],
+      "pit_required": true,
+      "hash_required": true
+    },
+    "data_pit": {
+      "producer": "A1",
+      "consumers": [
+        "A2",
+        "A3",
+        "A4",
+        "A8"
+      ],
+      "pit_required": true,
+      "hash_required": true
+    },
+    "leadership_events": {
+      "producer": "A2",
+      "consumers": [
+        "A3"
+      ],
+      "pit_required": true,
+      "hash_required": true
+    },
+    "expected_return": {
+      "producer": "A3",
+      "consumers": [
+        "A5"
+      ],
+      "pit_required": true,
+      "hash_required": true
+    },
+    "regime": {
+      "producer": "A4",
+      "consumers": [
+        "A5"
+      ],
+      "pit_required": true,
+      "hash_required": true
+    },
+    "qa_report": {
+      "producer": "A6",
+      "consumers": [
+        "A5",
+        "A7",
+        "A8"
+      ],
+      "pit_required": true,
+      "hash_required": true
+    },
+    "target_proposal": {
+      "producer": "A5",
+      "consumers": [
+        "A7"
+      ],
+      "pit_required": true,
+      "hash_required": true
+    },
+    "publication_proposal": {
+      "producer": "A7",
+      "consumers": [
+        "A0"
+      ],
+      "pit_required": true,
+      "hash_required": true
+    },
+    "challenger_proposal": {
+      "producer": "A8",
+      "consumers": [
+        "A0"
+      ],
+      "pit_required": true,
+      "hash_required": true
+    }
+  },
+  "rules": {
+    "missing_to_zero_allowed": false,
+    "future_input_allowed": false,
+    "self_authorization_allowed": false,
+    "hash_proves_economic_truth": false
+  }
+}
