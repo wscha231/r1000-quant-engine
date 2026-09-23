@@ -96,7 +96,8 @@ def source_identity() -> tuple[str, str]:
     paths += ['research/control_plane/' + name for name in
               ('agent_contracts_v2.yaml', 'task_packet_schema.json', 'system_state_schema.json',
                'artifact_contract_registry_v1.json', 'dependency_merge_graph_v1.json',
-               'global_book_contract_v1.json')]
+               'global_book_contract_v1.json', 'a2_event_handoff_v1.schema.json',
+               'er_promotion_gate_v1.schema.json', 'matured_outcome_cohort_v1.schema.json')]
     identity = {name: file_hash(REPO_ROOT / name) for name in paths}
     # Cover dirty tracked specialist code and its transitive local dependencies,
     # not only the board's own files. Never print or publish patch contents.

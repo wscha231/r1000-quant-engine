@@ -110,6 +110,65 @@ class ControlPlaneTests(unittest.TestCase):
             for path in agent['reuse_candidates']:
                 self.assertTrue((ROOT/path).is_file(), path)
 
+    def test_a2_event_handoff_and_er_promotion_fail_closed(self):
+        event = {
+            'schema_version':'a2-event-handoff-v1','as_of':self.at(-5),
+            'events':[{
+                'event_id':'E1','cohort_id':'C1','observed_at':self.at(-30),
+                'published_at':self.at(-29),'available_at':self.at(-28),'collected_at':self.at(-20),
+                'source_graph_artifact_id':'SG1','source_graph_sha256':'1'*64,
+                'primary_source':'TELEGRAM_SECONDARY','verification_level':'V0',
+                'claim':'secondary claim','verified_fact':None,'security_ids':[],
+                'issuer_ids':[],'tickers':['AAA'],'themes':[],'industry_ids':[],
+                'underlyings':[],'transmission_channel':'discovery_only',
+                'affected_pillars':['catalyst_ownership_information_edge'],
+                'horizon':'SHORT','materiality':'WATCH','invalidation':['verify'],
+                'state':'DISCOVERED','assessment_eligible':False,
+                'direct_score_contribution':0,'requires_a3_refresh':True,
+            }],
+            'research_only':True,
+            'authority':{'selector':False,'er':False,'target':False,'portfolio':False,
+                         'broker':False,'orders':False,'promotion':False},
+        }
+        board.schema_validate(event,'a2_event_handoff_v1.schema.json')
+        bad=copy.deepcopy(event); bad['events'][0]['assessment_eligible']=True
+        with self.assertRaises(board.ContractError):
+            board.schema_validate(bad,'a2_event_handoff_v1.schema.json')
+        bad=copy.deepcopy(event); bad['authority']['orders']=True
+        with self.assertRaises(board.ContractError):
+            board.schema_validate(bad,'a2_event_handoff_v1.schema.json')
+
+        gate_names=["independent_verification","raw_source_integrity","pit_availability","transmission_channel","market_snapshot","valuation_context","fundamental_estimate_coverage","price_implied_expectations","scenario_delta_attribution","invalidation_confidence","walk_forward_validated","benchmark_match","net_of_costs","downside_validated","expected_drawdown_validated","horizon_1m","horizon_3m","horizon_6m","horizon_12m"]
+        gate = {
+            'schema_version':'er-promotion-gate-v1','as_of':self.at(-5),
+            'asset_id':'SECURITY:AAA','benchmark_id':'SPY','status':'ER_ELIGIBLE',
+            'gates':{name:True for name in gate_names},'blockers':[],
+            'gross_research_er':{'path':'gross.json','sha256':'2'*64,'available_at':self.at(-10)},
+            'promoted_validated_er':{'path':'validated.json','sha256':'3'*64,'available_at':self.at(-9)},
+            'scenario_probabilities_used':False,'research_only':True,
+            'authority':{'target':False,'portfolio':False,'broker':False,'orders':False,'promotion':False},
+        }
+        board.schema_validate(gate,'er_promotion_gate_v1.schema.json')
+        bad=copy.deepcopy(gate); bad['gates']['net_of_costs']=False
+        with self.assertRaises(board.ContractError):
+            board.schema_validate(bad,'er_promotion_gate_v1.schema.json')
+        bad=copy.deepcopy(gate); bad['scenario_probabilities_used']=True
+        with self.assertRaises(board.ContractError):
+            board.schema_validate(bad,'er_promotion_gate_v1.schema.json')
+
+    def test_matured_outcome_never_auto_promotes(self):
+        payload={'schema_version':'matured-outcome-cohort-v1','generated_at':self.at(-5),
+            'rows':[{'event_id':'E1','security_id':'SECURITY:AAA','benchmark_id':'SPY',
+                'decision_at':self.at(-30),'horizon':'1M','target_session':'2026-09-18',
+                'status':'MATURED','asset_return':.1,'benchmark_return':.03,
+                'excess_return':.07,'source_sha256':'4'*64}],
+            'authority':{'automatic_model_update':False,'automatic_champion_promotion':False,
+                         'target':False,'orders':False}}
+        board.schema_validate(payload,'matured_outcome_cohort_v1.schema.json')
+        bad=copy.deepcopy(payload); bad['authority']['automatic_champion_promotion']=True
+        with self.assertRaises(board.ContractError):
+            board.schema_validate(bad,'matured_outcome_cohort_v1.schema.json')
+
     def test_a0_only_and_qa_read_only(self):
         self.add_request('A6')
         for packet in self.tasks():
@@ -241,7 +300,8 @@ class ControlPlaneTests(unittest.TestCase):
         paths+=['research/control_plane/'+n for n in (
             'agent_contracts_v2.yaml','task_packet_schema.json','system_state_schema.json',
             'artifact_contract_registry_v1.json','dependency_merge_graph_v1.json',
-            'global_book_contract_v1.json')]
+            'global_book_contract_v1.json','a2_event_handoff_v1.schema.json',
+            'er_promotion_gate_v1.schema.json','matured_outcome_cohort_v1.schema.json')]
         for name in paths:
             dest=root/name; dest.parent.mkdir(parents=True,exist_ok=True); shutil.copyfile(ROOT/name,dest)
         specialist='tools/run_multi_asset_leadership.py'; (root/specialist).write_text('version = 1\n'); paths.append(specialist)

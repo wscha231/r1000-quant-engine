@@ -1,5 +1,14 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-23 — Event discovery can trigger research but cannot become alpha by membership
+
+- A2 event handoff preserves claim vs verified fact, source timing/hash, transmission channel, affected pillars and invalidation.
+- Telegram/community V0 stays assessment-ineligible with direct score contribution exactly zero.
+- SEC, earnings, Form4, 13F, ETF/theme, macro, commodity and news can share the same typed handoff without becoming separate selectors.
+- ER promotion requires every gate: independent verification, raw-byte integrity, PIT, market/valuation/fundamental context, price-implied expectations, walk-forward validation, matching benchmark, net costs, downside, expected drawdown and 1/3/6/12m horizons.
+- Bull/Base/Bear probabilities cannot be smuggled into expected return.
+- Matured outcomes retain exited/delisted/unresolved identities and can inform A8 challenger proposals only; automatic model/champion promotion remains false.
+
 ## 2026-09-23 — Extend the merged control plane instead of adding a second state system
 
 - `system_state_schema.json` already defines the canonical A0 state boundary; do not add a competing SYSTEM_STATE implementation.
