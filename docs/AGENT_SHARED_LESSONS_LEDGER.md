@@ -1,5 +1,13 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-23 — Whole-universe candidate discovery needs one data queue, not parallel selectors
+
+- A2 now declares a candidate-data-queue output in addition to leadership events; A3 must receive both.
+- Price/RS, corporate actions, fundamentals, earnings, guidance, consensus, material SEC filings, Form4, 13F, industry/theme, news/IR, macro and commodity exposure are data channels on the same candidate identity.
+- Queue membership remains research-only with direct score contribution zero. Missing/provider-uncovered/fetch-failed/stale are explicit states, never favorable zero or NO_CHANGE.
+- Stable security and issuer identity are required; ticker alone is not the join key.
+- The existing Theme/ETF bridge remains one producer/preview path; this change does not create a second selector or scheduler.
+
 ## 2026-09-23 — Event discovery can trigger research but cannot become alpha by membership
 
 - A2 event handoff preserves claim vs verified fact, source timing/hash, transmission channel, affected pillars and invalidation.

@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Unified candidate data queue V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "as_of",
+    "research_only",
+    "direct_score_contribution",
+    "items"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "candidate-data-queue-v1"
+    },
+    "as_of": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "research_only": {
+      "const": true
+    },
+    "direct_score_contribution": {
+      "const": 0
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "security_id",
+          "issuer_id",
+          "ticker",
+          "state",
+          "membership_reasons",
+          "required_channels",
+          "channel_status",
+          "next_action",
+          "first_seen_at",
+          "last_checked_at"
+        ],
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "issuer_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ticker": {
+            "type": "string",
+            "minLength": 1
+          },
+          "state": {
+            "enum": [
+              "UNIVERSE",
+              "DISCOVERED",
+              "DATA_PENDING",
+              "VERIFIED",
+              "TRACK",
+              "A3_RESEARCH",
+              "ER_ELIGIBLE",
+              "PORTFOLIO_CANDIDATE",
+              "HELD",
+              "REJECTED",
+              "STALE",
+              "QUARANTINED",
+              "RISK_WATCH",
+              "EXIT_REVIEW"
+            ]
+          },
+          "membership_reasons": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "required_channels": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "price",
+                "corporate_action",
+                "fundamentals",
+                "earnings_actual",
+                "guidance",
+                "consensus_estimates",
+                "sec_material_filings",
+                "form4",
+                "13f",
+                "industry_theme",
+                "news_ir",
+                "macro_exposure",
+                "commodity_exposure",
+                "thesis",
+                "valuation",
+                "expected_return"
+              ]
+            }
+          },
+          "channel_status": {
+            "type": "object",
+            "propertyNames": {
+              "enum": [
+                "price",
+                "corporate_action",
+                "fundamentals",
+                "earnings_actual",
+                "guidance",
+                "consensus_estimates",
+                "sec_material_filings",
+                "form4",
+                "13f",
+                "industry_theme",
+                "news_ir",
+                "macro_exposure",
+                "commodity_exposure",
+                "thesis",
+                "valuation",
+                "expected_return"
+              ]
+            },
+            "additionalProperties": {
+              "enum": [
+                "CONSUMER_RECEIPT_MISSING",
+                "VERIFIED",
+                "DATA_PENDING",
+                "PROVIDER_UNCOVERED",
+                "FETCH_FAILED",
+                "STALE",
+                "QUARANTINED",
+                "NOT_APPLICABLE"
+              ]
+            }
+          },
+          "next_action": {
+            "type": "string",
+            "minLength": 1
+          },
+          "first_seen_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_checked_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    }
+  }
+}

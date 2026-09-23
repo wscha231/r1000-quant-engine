@@ -59,13 +59,14 @@
     },
     "A2": {
       "name": "Leadership/Event",
-      "role": "RS, breadth, themes, ETF, SEC and news discovery",
+      "role": "RS, breadth, themes, ETF, SEC, earnings, Form4, 13F and news discovery/data queue",
       "inputs": [
         "data_pit",
         "discovery_inputs"
       ],
       "outputs": [
-        "leadership_events"
+        "leadership_events",
+        "candidate_data_queue"
       ],
       "dependencies": [
         "A1"
@@ -84,6 +85,7 @@
       "inputs": [
         "data_pit",
         "leadership_events",
+        "candidate_data_queue",
         "thesis_inputs"
       ],
       "outputs": [

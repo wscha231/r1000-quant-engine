@@ -402,11 +402,18 @@ def read_bundle(path: Path, run: dict, artifact: dict, policy: dict,
         inventory = [{"security_id": sid, "status": "BLOCKED_COMPANY_EVALUATOR_RECEIPT_MISSING",
                       "expected_return_1m": None, "expected_return_3m": None,
                       "expected_return_6m": None, "expected_return_12m": None} for sid in proposal]
-        channels = ["price", "fundamentals", "thesis", "valuation", "expected_return"]
+        channels = [
+            "price", "corporate_action", "fundamentals", "earnings_actual",
+            "guidance", "consensus_estimates", "sec_material_filings", "form4",
+            "13f", "industry_theme", "news_ir", "macro_exposure",
+            "commodity_exposure", "thesis", "valuation", "expected_return",
+        ]
         # This is a preview of #451's existing queue schema, not a second queue
         # writer. No price/evaluation completeness is invented for an added ID.
         queue = {"schema_version": "candidate-data-queue-v1", "as_of": bundle["decision_at"],
-                 "items": [{"security_id": sid, "ticker": registry[sid]["ticker"],
+                 "research_only": True, "direct_score_contribution": 0,
+                 "items": [{"security_id": sid, "issuer_id": registry[sid]["issuer_id"],
+                    "ticker": registry[sid]["ticker"],
                     "state": "DATA_PENDING", "membership_reasons": [r for r in reasons
                         if r["security_id"] == sid],
                     "required_channels": channels,
