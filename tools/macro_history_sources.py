@@ -182,6 +182,8 @@ def fetch(series, start, through, mode):
             realtime_end=through, limit=ALFRED_PAGE_SIZE, offset=offset))
         raw = request_bytes(url, secret=key)
         data = json.loads(raw)
+        count = data.get("count")
+        require(isinstance(count, int) and 0 < count <= ALFRED_MAX_ROWS, "alfred_count")
         pages.append(raw)
         rows = data.get("observations", [])
         require(bool(rows), "alfred_empty_page")
