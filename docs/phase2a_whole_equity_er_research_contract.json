@@ -1,0 +1,55 @@
+{
+  "schema_version": "phase2a-whole-equity-er-research-contract-v2",
+  "expected_return_family_id": "future_expected_excess_return_multihorizon_v1",
+  "objective": "bind_verified_whole_us_equity_cohort_to_existing_run287_gross_research_er_without_a3_promotion",
+  "source_reconstruction": {
+    "source_commit": "13c7f55d2e625c80da04559657943ca1571b8e92",
+    "source_blobs": {
+      "tools/run_phase2a_whole_equity_er.py": "6cdc648600a01b8c7b48e5a5711fda24aabe791a",
+      "tests/phase2a_whole_equity_er_smoke.py": "c115547e947faa64e29b0820ec4d92bd05bb1e0d"
+    },
+    "stale_stack_cherry_pick_allowed": false,
+    "reconstruct_on_current_master_required": true
+  },
+  "reuse_only": {
+    "existing_model_required": true,
+    "new_model_training_in_adapter_allowed": false,
+    "horizons_nyse_sessions": {
+      "1m": 21,
+      "3m": 63,
+      "6m": 126
+    }
+  },
+  "cohort_provenance": {
+    "github_monitor_artifact_required": true,
+    "monitor_workflow_path": ".github/workflows/run287_daily_research_monitor.yml",
+    "monitor_artifact_exact_cohort_bytes_required": true,
+    "identity_registry_must_match_exact_authenticated_securities_component": true,
+    "corporate_action_basis_required": true,
+    "adr_share_basis_required": true
+  },
+  "output_semantics": {
+    "artifact_kind": "GROSS_RESEARCH_ER_EVIDENCE",
+    "validation_status": "RESEARCH_FIT_OUTPUT_NOT_A3_WALK_FORWARD_VALIDATED",
+    "net_of_costs": false,
+    "12m_policy": "BLOCKED_MODEL_NOT_VALIDATED",
+    "downside_probability_status": "BLOCKED_DOWNSIDE_CALIBRATION_NOT_VALIDATED",
+    "expected_drawdown_status": "BLOCKED_EXPECTED_DRAWDOWN_NOT_VALIDATED",
+    "signal_confidence_status": "BLOCKED_SIGNAL_CONFIDENCE_NOT_CALIBRATED"
+  },
+  "12m_policy": "BLOCKED_MODEL_NOT_VALIDATED",
+  "promotion": {
+    "a3_validated_er_eligible": false,
+    "er_promotion_gate_status": "BLOCKED_GROSS_RESEARCH_ONLY",
+    "required_next_contract": "er-promotion-gate-v1"
+  },
+  "global_ranking_ready": false,
+  "safety": {
+    "research_only": true,
+    "target_authority": false,
+    "order_authority": false,
+    "portfolio_mutation_allowed": false,
+    "automatic_promotion_allowed": false,
+    "fullrun_allowed": false
+  }
+}
