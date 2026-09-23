@@ -301,7 +301,8 @@ class ControlPlaneTests(unittest.TestCase):
             'agent_contracts_v2.yaml','task_packet_schema.json','system_state_schema.json',
             'artifact_contract_registry_v1.json','dependency_merge_graph_v1.json',
             'global_book_contract_v1.json','a2_event_handoff_v1.schema.json',
-            'er_promotion_gate_v1.schema.json','matured_outcome_cohort_v1.schema.json')]
+            'er_promotion_gate_v1.schema.json','matured_outcome_cohort_v1.schema.json',
+            'candidate_data_queue_v1.schema.json')]
         for name in paths:
             dest=root/name; dest.parent.mkdir(parents=True,exist_ok=True); shutil.copyfile(ROOT/name,dest)
         specialist='tools/run_multi_asset_leadership.py'; (root/specialist).write_text('version = 1\n'); paths.append(specialist)
