@@ -459,6 +459,7 @@ def parse_section16_index(
                 }
             )
         except Exception as exc:
+            error_text = str(exc)[:500]
             errors.append(
                 {
                     "form_type": str(filing.get("form_type") or ""),
@@ -467,7 +468,17 @@ def parse_section16_index(
                     "cik10": cik10(filing.get("cik10")),
                     "accepted_at": str(filing.get("accepted_at") or ""),
                     "available_from": str(filing.get("available_from") or ""),
-                    "error": str(exc)[:500],
+                    "error": error_text,
+                }
+            )
+            provenance.append(
+                {
+                    "accession_number": str(filing.get("accession_number") or ""),
+                    "form_type": str(filing.get("form_type") or ""),
+                    "source_xml_path": str(filing.get("source_xml_path") or ""),
+                    "source_xml_sha256": str(filing.get("source_xml_sha256") or ""),
+                    "parse_status": "error",
+                    "parse_error": error_text,
                 }
             )
 
