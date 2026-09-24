@@ -101,6 +101,12 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertFalse(registries['dependency']['rules']['fullrun_as_search_loop_allowed'])
         self.assertEqual(registries['books']['truth_priority'][0], 'ACTUAL_BROKER_BOOK')
         self.assertTrue(all(not row['may_write_orders'] for row in registries['books']['books'].values()))
+        identity = registries['books']['identity_contract']
+        self.assertEqual(identity['required_all'], ['asset_id','instrument','currency','lifecycle_state'])
+        self.assertEqual(identity['listed_security_required'], ['security_id','ticker','market','country'])
+        self.assertNotIn('issuer_id', identity['required_all'])
+        self.assertTrue(identity['issuer_identity']['not_applicable_allowed_for_non_issuer_assets'])
+        self.assertTrue(identity['underlying_vehicle_separation_required'])
         self.assertEqual(set(self.contract['agents']), {f'A{i}' for i in range(9)})
         self.assertEqual(self.contract['mission']['main'], {'net_cagr_min':.35,'mdd_loss_max':.25})
         self.assertEqual(self.contract['mission']['concentrated'], {'net_cagr_min':.50,'mdd_loss_max':.25})

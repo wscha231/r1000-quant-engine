@@ -134,6 +134,21 @@ def control_registries() -> dict[str, Any]:
         'SIMULATED_EXECUTION', 'RESEARCH_SIGNAL'
     ]:
         raise ContractError('global_book_truth_priority')
+    identity = books.get('identity_contract') or {}
+    if identity.get('required_all') != [
+        'asset_id', 'instrument', 'currency', 'lifecycle_state'
+    ]:
+        raise ContractError('global_book_identity_contract')
+    if identity.get('listed_security_required') != [
+        'security_id', 'ticker', 'market', 'country'
+    ]:
+        raise ContractError('global_book_identity_contract')
+    issuer = identity.get('issuer_identity') or {}
+    if (issuer.get('field') != 'issuer_id'
+            or issuer.get('required_for_issuer_backed_assets') is not True
+            or issuer.get('not_applicable_allowed_for_non_issuer_assets') is not True
+            or identity.get('underlying_vehicle_separation_required') is not True):
+        raise ContractError('global_book_identity_contract')
     if any(row.get('may_write_orders') is not False
            for row in (books.get('books') or {}).values()):
         raise ContractError('global_book_order_authority')

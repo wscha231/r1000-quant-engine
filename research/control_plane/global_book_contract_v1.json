@@ -34,16 +34,6 @@
       "economic_authority": "OBSERVED_TRUTH_ONLY"
     }
   },
-  "required_identity": [
-    "security_id",
-    "issuer_id",
-    "ticker",
-    "instrument",
-    "market",
-    "country",
-    "currency",
-    "lifecycle_state"
-  ],
   "portfolio_actions": [
     "NEW_ENTRY",
     "ADD",
@@ -59,5 +49,25 @@
     "etf_direct_overlap_must_aggregate": true,
     "short_term_rs_only_exit_allowed": false,
     "average_down_to_lower_cost_allowed": false
+  },
+  "identity_contract": {
+    "required_all": [
+      "asset_id",
+      "instrument",
+      "currency",
+      "lifecycle_state"
+    ],
+    "listed_security_required": [
+      "security_id",
+      "ticker",
+      "market",
+      "country"
+    ],
+    "issuer_identity": {
+      "field": "issuer_id",
+      "required_for_issuer_backed_assets": true,
+      "not_applicable_allowed_for_non_issuer_assets": true
+    },
+    "underlying_vehicle_separation_required": true
   }
 }
