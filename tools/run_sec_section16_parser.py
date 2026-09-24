@@ -376,7 +376,12 @@ def parse_section16_index(
     for col in SECTION16_HOLDING_COLUMNS:
         if col not in h.columns:
             h[col] = pd.NA
-    return (\n        filings,\n        tx[SECTION16_TRANSACTION_COLUMNS].copy(),\n        h[SECTION16_HOLDING_COLUMNS].copy(),\n        pd.DataFrame(errors, columns=SECTION16_ERROR_COLUMNS),\n    )
+    return (
+        filings,
+        tx[SECTION16_TRANSACTION_COLUMNS].copy(),
+        h[SECTION16_HOLDING_COLUMNS].copy(),
+        pd.DataFrame(errors, columns=SECTION16_ERROR_COLUMNS),
+    )
 
 
 def _owner_variants(row: pd.Series) -> list[dict[str, Any]]:
