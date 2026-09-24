@@ -18,6 +18,9 @@ from tools.run_sec_form4_merge_shards import normalize_section16_holdings, norma
 
 SAMPLE_FORM4 = """<?xml version="1.0"?>
 <ownershipDocument>
+  <documentType>4</documentType>
+  <periodOfReport>2026-05-10</periodOfReport>
+  <aff10b5One>1</aff10b5One>
   <issuer>
     <issuerCik>0000320193</issuerCik>
     <issuerTradingSymbol>AAPL</issuerTradingSymbol>
@@ -38,7 +41,7 @@ SAMPLE_FORM4 = """<?xml version="1.0"?>
     <nonDerivativeTransaction>
       <securityTitle><value>Common Stock</value></securityTitle>
       <transactionDate><value>2026-05-10</value></transactionDate>
-      <transactionCoding><transactionCode>P</transactionCode></transactionCoding>
+      <transactionCoding><transactionCode>P</transactionCode><footnoteId id="F1"/></transactionCoding>
       <transactionAmounts>
         <transactionShares><value>1000</value></transactionShares>
         <transactionPricePerShare><value>175.50</value></transactionPricePerShare>
@@ -51,6 +54,9 @@ SAMPLE_FORM4 = """<?xml version="1.0"?>
       </ownershipNature>
     </nonDerivativeTransaction>
   </nonDerivativeTable>
+  <footnotes>
+    <footnote id="F1">Purchase made pursuant to a Rule 10b5-1 trading plan.</footnote>
+  </footnotes>
 </ownershipDocument>
 """
 
@@ -115,9 +121,10 @@ SAMPLE_FORM3 = """<?xml version="1.0"?>
 <ownershipDocument>
   <documentType>3</documentType>
   <periodOfReport>2026-05-01</periodOfReport>
-  <issuer><issuerCik>0000320193</issuerCik><issuerTradingSymbol>AAPL</issuerTradingSymbol></issuer>
+  <issuer><issuerCik>0000320193</issuerCik><issuerTradingSymbol>AAPL</issuerTradingSymbol><issuerForeignTradingSymbol>AAPLX</issuerForeignTradingSymbol></issuer>
   <reportingOwner>
     <reportingOwnerId><rptOwnerCik>0002222222</rptOwnerCik><rptOwnerName>New Director</rptOwnerName></reportingOwnerId>
+    <reportingOwnerAddress><rptOwnerCountry>US</rptOwnerCountry><rptOwnerNonUSAddressFlag>0</rptOwnerNonUSAddressFlag></reportingOwnerAddress>
     <reportingOwnerRelationship><isDirector>1</isDirector><isOfficer>0</isOfficer><isTenPercentOwner>0</isTenPercentOwner></reportingOwnerRelationship>
   </reportingOwner>
   <nonDerivativeTable>
@@ -180,6 +187,25 @@ SAMPLE_MULTI_OWNER_FORM3 = """<?xml version="1.0"?>
 """
 
 
+def test_section16_preserves_10b5_footnotes_and_current_identity_fields() -> None:
+    tx, holdings = parse_section16_xml(
+        SAMPLE_FORM4,
+        filing={
+            "form_type": "4",
+            "filing_date": "2026-05-12",
+            "accepted_at": "2026-05-12T21:30:00+00:00",
+            "available_from": "2026-05-13T00:00:00+00:00",
+            "accession_number": "0000320193-26-000001",
+        },
+    )
+    assert holdings == []
+    assert len(tx) == 1
+    row = tx[0]
+    assert row["aff10b5_one"] is True
+    assert "F1" in row["record_footnote_ids"]
+    assert "10b5-1" in row["footnotes_json"]
+
+
 def test_section16_form3_preserves_initial_holdings_without_fabricating_trade() -> None:
     tx, holdings = parse_section16_xml(
         SAMPLE_FORM3,
@@ -194,6 +220,9 @@ def test_section16_form3_preserves_initial_holdings_without_fabricating_trade() 
     assert tx == []
     assert len(holdings) == 1
     assert holdings[0]["form_type"] == "3"
+    assert holdings[0]["issuer_foreign_trading_symbol"] == "AAPLX"
+    assert holdings[0]["reporting_owner_country"] == "US"
+    assert holdings[0]["reporting_owner_non_us_address"] is False
     assert holdings[0]["shares_owned"] == 250000.0
     state = build_ownership_state(pd.DataFrame(tx), pd.DataFrame(holdings))
     assert len(state) == 1
@@ -352,6 +381,7 @@ if __name__ == "__main__":
     test_form4_xml_parser_extracts_open_market_purchase()
     test_form4_signal_is_shadow_only_and_uses_available_from_filter()
     test_xsl_form4_primary_document_uses_raw_xml_and_safe_cache_name()
+    test_section16_preserves_10b5_footnotes_and_current_identity_fields()
     test_section16_form3_preserves_initial_holdings_without_fabricating_trade()
     test_section16_form5_preserves_transaction_as_data_only()
     test_section16_merge_normalizers_preserve_form_and_derivative_identity()
