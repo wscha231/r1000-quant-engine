@@ -36,6 +36,7 @@
           "verification_level",
           "claim",
           "verified_fact",
+          "asset_ids",
           "security_ids",
           "issuer_ids",
           "tickers",
@@ -221,6 +222,14 @@
           },
           "requires_a3_refresh": {
             "type": "boolean"
+          },
+          "asset_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
           }
         },
         "allOf": [
@@ -242,6 +251,42 @@
                 },
                 "assessment_eligible": {
                   "const": false
+                },
+                "state": {
+                  "enum": [
+                    "DISCOVERED",
+                    "TRACK",
+                    "REJECTED",
+                    "STALE",
+                    "QUARANTINED",
+                    "RISK_WATCH"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "assessment_eligible": {
+                  "const": true
+                }
+              },
+              "required": [
+                "assessment_eligible"
+              ]
+            },
+            "then": {
+              "properties": {
+                "verification_level": {
+                  "enum": [
+                    "V1",
+                    "V2"
+                  ]
+                },
+                "verified_fact": {
+                  "type": "string",
+                  "minLength": 1
                 }
               }
             }

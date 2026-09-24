@@ -101,6 +101,12 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertFalse(registries['dependency']['rules']['fullrun_as_search_loop_allowed'])
         self.assertEqual(registries['books']['truth_priority'][0], 'ACTUAL_BROKER_BOOK')
         self.assertTrue(all(not row['may_write_orders'] for row in registries['books']['books'].values()))
+        identity = registries['books']['identity_contract']
+        self.assertEqual(identity['required_all'], ['asset_id','instrument','currency','lifecycle_state'])
+        self.assertEqual(identity['listed_security_required'], ['security_id','ticker','market','country'])
+        self.assertNotIn('issuer_id', identity['required_all'])
+        self.assertTrue(identity['issuer_identity']['not_applicable_allowed_for_non_issuer_assets'])
+        self.assertTrue(identity['underlying_vehicle_separation_required'])
         self.assertEqual(set(self.contract['agents']), {f'A{i}' for i in range(9)})
         self.assertEqual(self.contract['mission']['main'], {'net_cagr_min':.35,'mdd_loss_max':.25})
         self.assertEqual(self.contract['mission']['concentrated'], {'net_cagr_min':.50,'mdd_loss_max':.25})
@@ -118,9 +124,9 @@ class ControlPlaneTests(unittest.TestCase):
                 'published_at':self.at(-29),'available_at':self.at(-28),'collected_at':self.at(-20),
                 'source_graph_artifact_id':'SG1','source_graph_sha256':'1'*64,
                 'primary_source':'TELEGRAM_SECONDARY','verification_level':'V0',
-                'claim':'secondary claim','verified_fact':None,'security_ids':[],
-                'issuer_ids':[],'tickers':['AAA'],'themes':[],'industry_ids':[],
-                'underlyings':[],'transmission_channel':'discovery_only',
+                'claim':'secondary claim','verified_fact':None,'asset_ids':['CRYPTO:BTC-USD'],
+                'security_ids':[],'issuer_ids':[],'tickers':[],'themes':['BTC'],
+                'industry_ids':[],'underlyings':['BTC'],'transmission_channel':'discovery_only',
                 'affected_pillars':['catalyst_ownership_information_edge'],
                 'horizon':'SHORT','materiality':'WATCH','invalidation':['verify'],
                 'state':'DISCOVERED','assessment_eligible':False,
@@ -130,44 +136,80 @@ class ControlPlaneTests(unittest.TestCase):
             'authority':{'selector':False,'er':False,'target':False,'portfolio':False,
                          'broker':False,'orders':False,'promotion':False},
         }
-        board.schema_validate(event,'a2_event_handoff_v1.schema.json')
+        board.validate_a2_event_handoff(event)
         bad=copy.deepcopy(event); bad['events'][0]['assessment_eligible']=True
         with self.assertRaises(board.ContractError):
-            board.schema_validate(bad,'a2_event_handoff_v1.schema.json')
-        bad=copy.deepcopy(event); bad['authority']['orders']=True
+            board.validate_a2_event_handoff(bad)
+        bad=copy.deepcopy(event); bad['events'][0]['state']='ER_ELIGIBLE'
         with self.assertRaises(board.ContractError):
-            board.schema_validate(bad,'a2_event_handoff_v1.schema.json')
+            board.validate_a2_event_handoff(bad)
+        bad=copy.deepcopy(event); bad['events'][0]['collected_at']=self.at(-40)
+        with self.assertRaisesRegex(board.ContractError,'event_time_order'):
+            board.validate_a2_event_handoff(bad)
 
         gate_names=["independent_verification","raw_source_integrity","pit_availability","transmission_channel","market_snapshot","valuation_context","fundamental_estimate_coverage","price_implied_expectations","scenario_delta_attribution","invalidation_confidence","walk_forward_validated","benchmark_match","net_of_costs","downside_validated","expected_drawdown_validated","horizon_1m","horizon_3m","horizon_6m","horizon_12m"]
+        validated={'path':'validated.json','sha256':'3'*64,'available_at':self.at(-9),
+            'asset_id':'CRYPTO:BTC-USD','benchmark_id':'US:SPY',
+            'validation_status':'WALK_FORWARD_VALIDATED','net_of_costs':True,
+            'unit':'RETURN_FRACTION','expected_drawdown':.2,'downside_probability':.3,
+            'signal_confidence':.8}
+        for h in ('1m','3m','6m','12m'):
+            validated['expected_return_'+h]=.1
+            validated['benchmark_expected_return_'+h]=.03
         gate = {
             'schema_version':'er-promotion-gate-v1','as_of':self.at(-5),
-            'asset_id':'SECURITY:AAA','benchmark_id':'SPY','status':'ER_ELIGIBLE',
+            'asset_id':'CRYPTO:BTC-USD','benchmark_id':'US:SPY','status':'ER_ELIGIBLE',
             'gates':{name:True for name in gate_names},'blockers':[],
             'gross_research_er':{'path':'gross.json','sha256':'2'*64,'available_at':self.at(-10)},
-            'promoted_validated_er':{'path':'validated.json','sha256':'3'*64,'available_at':self.at(-9)},
+            'promoted_validated_er':validated,
             'scenario_probabilities_used':False,'research_only':True,
             'authority':{'target':False,'portfolio':False,'broker':False,'orders':False,'promotion':False},
         }
-        board.schema_validate(gate,'er_promotion_gate_v1.schema.json')
+        board.validate_er_promotion_gate(gate)
         bad=copy.deepcopy(gate); bad['gates']['net_of_costs']=False
         with self.assertRaises(board.ContractError):
-            board.schema_validate(bad,'er_promotion_gate_v1.schema.json')
-        bad=copy.deepcopy(gate); bad['scenario_probabilities_used']=True
-        with self.assertRaises(board.ContractError):
-            board.schema_validate(bad,'er_promotion_gate_v1.schema.json')
+            board.validate_er_promotion_gate(bad)
+        bad=copy.deepcopy(gate); bad['promoted_validated_er']['benchmark_id']='OTHER'
+        with self.assertRaisesRegex(board.ContractError,'promoted_er_benchmark_mismatch'):
+            board.validate_er_promotion_gate(bad)
+        bad=copy.deepcopy(gate); bad['promoted_validated_er']['available_at']=self.at(5)
+        with self.assertRaisesRegex(board.ContractError,'future_er_artifact'):
+            board.validate_er_promotion_gate(bad)
 
-    def test_matured_outcome_never_auto_promotes(self):
+    def test_matured_outcome_never_auto_promotes_or_substitutes_session(self):
+        row={'event_id':'E1','cohort_id':'C1','decision_id':'D1',
+            'asset_id':'CRYPTO:BTC-USD','security_id':None,'issuer_id':None,
+            'model_id':'MODEL1','model_sha256':'5'*64,'config_sha256':'6'*64,
+            'data_manifest_sha256':'7'*64,'target_calendar_sha256':'8'*64,
+            'session_clock':'UTC_DAY','benchmark_id':'US:SPY',
+            'decision_at':self.at(-30),'horizon':'1M','target_session':'2026-09-18',
+            'status':'MATURED','asset_return':.1,'benchmark_return':.03,
+            'excess_return':.07,'source_sha256':'4'*64,
+            'outcome_session':'2026-09-18','outcome_available_at':self.at(-10),
+            'include_in_denominator':True}
         payload={'schema_version':'matured-outcome-cohort-v1','generated_at':self.at(-5),
-            'rows':[{'event_id':'E1','security_id':'SECURITY:AAA','benchmark_id':'SPY',
-                'decision_at':self.at(-30),'horizon':'1M','target_session':'2026-09-18',
-                'status':'MATURED','asset_return':.1,'benchmark_return':.03,
-                'excess_return':.07,'source_sha256':'4'*64}],
+            'rows':[row],'coverage_status':'COMPLETE_EXACT','learning_eligible':True,
+            'research_only':True,
             'authority':{'automatic_model_update':False,'automatic_champion_promotion':False,
                          'target':False,'orders':False}}
-        board.schema_validate(payload,'matured_outcome_cohort_v1.schema.json')
+        board.validate_matured_outcome_cohort(payload)
         bad=copy.deepcopy(payload); bad['authority']['automatic_champion_promotion']=True
         with self.assertRaises(board.ContractError):
-            board.schema_validate(bad,'matured_outcome_cohort_v1.schema.json')
+            board.validate_matured_outcome_cohort(bad)
+        bad=copy.deepcopy(payload); bad['rows'][0]['outcome_session']='2026-09-19'
+        with self.assertRaisesRegex(board.ContractError,'outcome_session_substitution'):
+            board.validate_matured_outcome_cohort(bad)
+        bad=copy.deepcopy(payload); bad['rows'][0]['outcome_available_at']=self.at(5)
+        with self.assertRaisesRegex(board.ContractError,'premature_outcome_maturity'):
+            board.validate_matured_outcome_cohort(bad)
+        pending=copy.deepcopy(payload); pending['rows'][0].update(
+            status='UNRESOLVED',asset_return=None,benchmark_return=None,excess_return=None,
+            outcome_session=None,outcome_available_at=None)
+        pending['coverage_status']='INCOMPLETE'; pending['learning_eligible']=False
+        board.validate_matured_outcome_cohort(pending)
+        pending['learning_eligible']=True
+        with self.assertRaisesRegex(board.ContractError,'premature_outcome_learning'):
+            board.validate_matured_outcome_cohort(pending)
 
     def test_a0_only_and_qa_read_only(self):
         self.add_request('A6')

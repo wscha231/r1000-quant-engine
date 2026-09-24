@@ -14,6 +14,7 @@
 - `system_state_schema.json` already defines the canonical A0 state boundary; do not add a competing SYSTEM_STATE implementation.
 - Add artifact-role, dependency/merge and book-namespace registries as static control contracts and bind their exact bytes into A0 source identity.
 - Registry files carry no investment authority. Research Signal, Candidate Universe, Target Proposal, Simulation, Paper and Actual Broker truth remain separate.
+- Global identity is asset-type aware: `asset_id` is universal; listed-security and issuer identifiers are conditional. Direct crypto/commodity underlyings must not invent security or issuer IDs.
 - Actual Broker > Approved Target > Verified Paper > Simulation > Research is an authority ordering, not an order-execution permission.
 - A changed registry hash invalidates `SKIP_UNCHANGED`; stale branch blind merge and H1/H2 mixed PRs remain forbidden.
 - No selector score, target weight, broker order, scheduler or promotion behavior changes in this slice.
