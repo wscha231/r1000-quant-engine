@@ -1,5 +1,16 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-23 — Release Fullrun consumes frozen inputs; it does not refresh them
+
+- RC1 separates data refresh from final strategy validation.
+- Refresh price/SEC/estimates/Form4/13F/theme/macro/long-history through the intended source workflows first.
+- Verify freshness, PIT, source bytes and durable receipts, then freeze the approved source/input manifest.
+- `full_rebuild_manual.yml` is frozen-input validation only and requires `skip_collector=true`.
+- The resolved `decision_time_utc` still selects the exact latest completed NYSE session; weekend/calendar yesterday is not an allowed substitute.
+- Missing/stale cache or durable input fails closed. Fullrun never silently falls back to collection.
+- This keeps A/B and release evidence reproducible and prevents source changes during the long replay.
+- No target, paper, broker, order, champion or live authority is added by this governance change.
+
 ## 2026-09-21 — Scenario research is not validated expected return
 
 - A3 Bull/Base/Bear scenarios may express 12/24-month conditional outcomes and assumptions, but they must not carry unvalidated probabilities or be labeled statistical expected return.

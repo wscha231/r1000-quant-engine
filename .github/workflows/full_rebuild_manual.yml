@@ -1,8 +1,10 @@
-name: Full Rebuild (Manual / Long-Run)
+name: Full Rebuild (Manual / Frozen-Input Validation)
 
-# FULL pipeline rebuild (collector + universe + feature_store + walk-forward
-# + backtest). Required when ENGINE_REUSE_VERSION bumps OR when feature_store
-# schema changes (new PHASE_X_COLUMNS additions like Phase 14 hybrid alpha).
+# RC1 FULL validation pipeline:
+# verified/frozen inputs -> universe -> feature_store -> walk-forward -> backtest.
+# Data collection is intentionally separated from this workflow. Refresh source
+# data first, verify freshness/PIT/provenance, freeze the approved source manifest,
+# then dispatch this workflow with skip_collector=true.
 #
 # Estimated runtime: ~3-5 hours (within GHA 6h timeout). Can use up to ~50%
 # of free-tier monthly minutes (2000) PER run, so trigger judiciously.
@@ -62,7 +64,7 @@ on:
         type: boolean
         default: false
       skip_collector:
-        description: 'skip data collection (use cached prices/SEC/macro). Saves ~1-2h.'
+        description: 'Required true. Fullrun validates frozen inputs only; refresh data before dispatch.'
         type: boolean
         default: true
       fast_mode:
@@ -160,6 +162,7 @@ jobs:
           EXPECTED_COST_MINUTES: ${{ inputs.expected_cost_minutes }}
           INPUT_UNIVERSE_MODE: ${{ inputs.universe_mode }}
           INPUT_BACKTEST_YEARS: ${{ inputs.backtest_years }}
+          INPUT_SKIP_COLLECTOR: ${{ inputs.skip_collector }}
           INPUT_FAST_MODE: ${{ inputs.fast_mode }}
           INPUT_ARTIFACT_PROFILE: ${{ inputs.artifact_profile }}
           INPUT_GDRIVE_SYNC_MODE: ${{ inputs.gdrive_sync_mode }}
@@ -206,6 +209,14 @@ jobs:
           case "$INPUT_BACKTEST_YEARS" in
             7|8|10) ;;
             *) echo "::error::invalid or blank backtest_years"; exit 2 ;;
+          esac
+          case "$INPUT_SKIP_COLLECTOR" in
+            true) ;;
+            false)
+              echo "::error::fullrun release validation requires skip_collector=true; refresh and freeze source data before dispatch"
+              exit 2
+              ;;
+            *) echo "::error::invalid or blank skip_collector"; exit 2 ;;
           esac
           case "$INPUT_FAST_MODE" in
             true|false) ;;
@@ -727,10 +738,9 @@ jobs:
           mkdir -p outputs/full_rebuild_logs
           LOG="outputs/full_rebuild_logs/$(date +%Y%m%d_%H%M%S)_${{ inputs.universe_mode }}.log"
 
-          # Auto-detect: skip_collector=true is unsafe on FIRST run (no cache).
-          # Check for collector cache markers; if absent, force collector run
-          # even when user requested skip. Prevents the "1-min crash" bug from
-          # reuse_existing_artifacts=True hitting empty parquet/csv paths.
+          # RC1 release-validation contract: collection is not allowed inside
+          # Fullrun. The approved source manifest already binds skip_collector=true.
+          # Cached/durable inputs must have been refreshed and verified first.
           SKIP_COLLECTOR=""
           CACHE_PRESENT="no"
           has_cache_files() {
@@ -758,15 +768,16 @@ jobs:
             CACHE_PRESENT="yes"
           fi
 
-          if [ "${{ inputs.skip_collector }}" = "true" ]; then
-            if [ "$CACHE_PRESENT" = "yes" ]; then
-              SKIP_COLLECTOR="--no-collector"
-              echo "[skip_collector] cache present, skipping data collection"
-            else
-              echo "::error::skip_collector=true was approved but no cache is present; refusing an unapproved collector fallback"
-              exit 2
-            fi
+          if [ "${{ inputs.skip_collector }}" != "true" ]; then
+            echo "::error::fullrun is frozen-input validation only; collector execution is not authorized here"
+            exit 2
           fi
+          if [ "$CACHE_PRESENT" != "yes" ]; then
+            echo "::error::frozen-input fullrun requires pre-refreshed cache/durable inputs"
+            exit 2
+          fi
+          SKIP_COLLECTOR="--no-collector"
+          echo "[fullrun] frozen-input validation; collector disabled"
           EFFECTIVE_SKIP_COLLECTOR="$([ -n "$SKIP_COLLECTOR" ] && echo true || echo false)"
 
           # fast_mode: true = 5 backtests + 6m retrain (~2-3h total, fits in 6h GHA limit)
@@ -808,13 +819,9 @@ jobs:
 
           # Use --base-dir to override Drive path with repo-local outputs/
           # --fast-mode passed as CLI flag (run_local.py:162 supports it natively)
-          if [ "$EFFECTIVE_SKIP_COLLECTOR" = "false" ]; then
-            python run_local.py --full --collector-only --fast-mode "$FAST_MODE_FLAG" --backtest-years "$BACKTEST_YEARS" --end-date "$LAST_NYSE_SESSION_DATE" --leader-rescue-mode "$LEADER_RESCUE_MODE" --base-dir "$(pwd)" 2>&1 | tee outputs/full_rebuild_logs/collector_only.log
-          fi
-
-          # Bind the actual engine inputs after any approved collection and
-          # immediately before computation. The engine always reuses precisely
-          # this hash-bound snapshot and cannot collect again.
+          # Bind the actual pre-refreshed engine inputs immediately before
+          # computation. The engine reuses precisely this hash-bound snapshot
+          # and cannot collect or access the network during the replay.
           python tools/build_fullrun_runtime_source_manifest.py \
             --approved-manifest "$SOURCE_MANIFEST_PATH" \
             --expected-manifest-sha256 "$SOURCE_MANIFEST_SHA256" \

@@ -2290,17 +2290,16 @@ def test_full_rebuild_binds_approved_session_and_preflight_artifacts() -> None:
     runtime_step = rebuild_step
     assert "tools/build_fullrun_runtime_source_manifest.py" in runtime_step
     assert "--stage engine_pre_run" in runtime_step
-    assert "--collector-only" in rebuild_step
+    assert "--collector-only" not in rebuild_step
     assert "run_local.py --full --no-collector" in rebuild_step
     assert "--bound-inputs-only" in rebuild_step
     assert "sudo --preserve-env unshare --net" in rebuild_step
+    assert "fullrun is frozen-input validation only; collector execution is not authorized here" in rebuild_step
+    assert "frozen-input fullrun requires pre-refreshed cache/durable inputs" in rebuild_step
+    assert "[fullrun] frozen-input validation; collector disabled" in rebuild_step
     assert rebuild_step.index("tools/build_fullrun_runtime_source_manifest.py") < rebuild_step.index(
         "sudo --preserve-env unshare --net"
-    )
-    assert rebuild_step.index("--collector-only") < rebuild_step.index(
-        "tools/build_fullrun_runtime_source_manifest.py"
     ) < rebuild_step.index("run_local.py --full --no-collector")
-    assert "refusing an unapproved collector fallback" in rebuild_step
     run_full_block = text[
         text.index("- name: Run FULL rebuild") :
         text.index("- name: Auto-learning diagnostics (sidecar)")
@@ -2318,7 +2317,7 @@ def test_full_rebuild_binds_approved_session_and_preflight_artifacts() -> None:
         "Restore collector cache"
     )
     assert '--end-date "$LAST_NYSE_SESSION_DATE"' in rebuild_step
-    assert rebuild_step.count('--end-date "$LAST_NYSE_SESSION_DATE"') == 4
+    assert rebuild_step.count('--end-date "$LAST_NYSE_SESSION_DATE"') == 3
     assert "--target-book-scope operating" in rebuild_step
     assert '--max-signal-date "$LAST_NYSE_SESSION_DATE"' in rebuild_step
     assert "tools/run_fullrun_latest_cross_section_preflight.py" in rebuild_step
