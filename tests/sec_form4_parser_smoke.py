@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT))
 from tools.run_sec_form4_parser import cache_name, form4_url_candidates, parse_form4_xml, raw_form4_primary_document  # noqa: E402
 from tools.run_sec_ownership_signals import build_form4_signal  # noqa: E402
 from tools.run_sec_section16_parser import build_ownership_state, parse_section16_xml  # noqa: E402
+from tools.run_sec_form4_merge_shards import normalize_section16_holdings, normalize_section16_transactions  # noqa: E402
 
 
 SAMPLE_FORM4 = """<?xml version="1.0"?>
@@ -218,6 +219,55 @@ def test_section16_form5_preserves_transaction_as_data_only() -> None:
     assert tx[0]["transaction_value"] == 0.0
 
 
+def test_section16_merge_normalizers_preserve_form_and_derivative_identity() -> None:
+    tx = pd.DataFrame(
+        [
+            {
+                "issuer_ticker": "abc",
+                "issuer_cik10": "123",
+                "reporting_owner_cik": "999",
+                "reporting_owners_json": "[]",
+                "form_type": "5",
+                "transaction_date": "2026-11-10",
+                "transaction_code": "G",
+                "acquired_disposed_code": "D",
+                "security_title": "Option",
+                "is_derivative": True,
+                "transaction_shares": 50,
+                "transaction_price": 0,
+                "transaction_value": None,
+                "available_from": "2027-02-10T21:00:00Z",
+                "accession_number": "0000000123-27-000005",
+            }
+        ]
+    )
+    norm_tx = normalize_section16_transactions(pd.concat([tx, tx], ignore_index=True))
+    assert len(norm_tx) == 1
+    assert norm_tx.iloc[0]["form_type"] == "5"
+    assert bool(norm_tx.iloc[0]["is_derivative"]) is True
+
+    holdings = pd.DataFrame(
+        [
+            {
+                "issuer_ticker": "abc",
+                "issuer_cik10": "123",
+                "reporting_owner_cik": "999",
+                "reporting_owners_json": "[]",
+                "form_type": "3",
+                "security_title": "Common Stock",
+                "is_derivative": False,
+                "direct_or_indirect": "D",
+                "shares_owned": 1000,
+                "available_from": "2026-05-01T20:00:00Z",
+                "accession_number": "0000000123-26-000003",
+            }
+        ]
+    )
+    norm_h = normalize_section16_holdings(pd.concat([holdings, holdings], ignore_index=True))
+    assert len(norm_h) == 1
+    assert norm_h.iloc[0]["form_type"] == "3"
+
+
 def test_section16_multi_owner_state_fails_closed_instead_of_duplicating_ownership() -> None:
     tx, holdings = parse_section16_xml(
         SAMPLE_MULTI_OWNER_FORM3,
@@ -243,5 +293,6 @@ if __name__ == "__main__":
     test_xsl_form4_primary_document_uses_raw_xml_and_safe_cache_name()
     test_section16_form3_preserves_initial_holdings_without_fabricating_trade()
     test_section16_form5_preserves_transaction_as_data_only()
+    test_section16_merge_normalizers_preserve_form_and_derivative_identity()
     test_section16_multi_owner_state_fails_closed_instead_of_duplicating_ownership()
     print("sec_form4_parser_smoke passed")
