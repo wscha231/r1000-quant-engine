@@ -1,0 +1,73 @@
+name: US Gold Set A3 Market Capture V1
+
+on:
+  pull_request:
+    paths:
+      - "research/us_strict_market_snapshot_v1.py"
+      - "tests/us_strict_market_snapshot_v1_smoke.py"
+      - "tools/capture_gold_set_us_market_v1.py"
+      - "research/cross_market_gold_set_v1.json"
+      - ".github/workflows/us_gold_set_market_capture_v1.yml"
+  push:
+    branches: [master]
+    paths:
+      - "research/us_strict_market_snapshot_v1.py"
+      - "tests/us_strict_market_snapshot_v1_smoke.py"
+      - "tools/capture_gold_set_us_market_v1.py"
+      - "research/cross_market_gold_set_v1.json"
+      - ".github/workflows/us_gold_set_market_capture_v1.yml"
+  workflow_dispatch:
+    inputs:
+      session:
+        description: "Optional completed NYSE session YYYY-MM-DD"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: offline_contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install bounded test dependencies
+        run: python -m pip install --disable-pip-version-check pandas
+      - name: Strict U.S. snapshot smoke
+        run: python tests/us_strict_market_snapshot_v1_smoke.py
+
+  capture:
+    name: live_capture
+    if: github.event_name != 'pull_request'
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+      ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+      SESSION: ${{ github.event.inputs.session || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install bounded capture dependencies
+        run: >-
+          python -m pip install --disable-pip-version-check
+          pandas numpy requests pandas-market-calendars exchange-calendars
+      - name: Capture reviewed research proxy
+        run: |
+          python tools/capture_gold_set_us_market_v1.py             --output-dir _artifacts/us_gold_set_market_v1             --attempt-id "run${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"             --session "$SESSION"
+      - name: Upload immutable capture artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: us-gold-set-market-capture-${{ github.run_id }}-${{ github.run_attempt }}
+          path: _artifacts/us_gold_set_market_v1
+          if-no-files-found: error
+          retention-days: 30
