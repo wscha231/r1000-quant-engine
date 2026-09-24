@@ -10,6 +10,7 @@ and multi-owner filing identity.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -104,6 +105,8 @@ SECTION16_TRANSACTION_COLUMNS = [
     "equity_swap_involved",
     "accession_number",
     "filing_url",
+    "source_xml_path",
+    "source_xml_sha256",
 ]
 
 SECTION16_HOLDING_COLUMNS = [
@@ -135,6 +138,8 @@ SECTION16_HOLDING_COLUMNS = [
     "expiration_date",
     "accession_number",
     "filing_url",
+    "source_xml_path",
+    "source_xml_sha256",
 ]
 
 OWNERSHIP_STATE_COLUMNS = [
@@ -160,6 +165,8 @@ OWNERSHIP_STATE_COLUMNS = [
     "expiration_date",
     "accession_number",
     "filing_url",
+    "source_xml_path",
+    "source_xml_sha256",
     "state_source",
 ]
 
@@ -251,6 +258,8 @@ def _filing_meta(root: Any, filing: dict[str, Any]) -> dict[str, Any]:
         "footnotes_json": json.dumps(footnotes, sort_keys=True, ensure_ascii=False),
         "accession_number": str(filing.get("accession_number") or ""),
         "filing_url": str(filing.get("filing_url") or ""),
+        "source_xml_path": str(filing.get("source_xml_path") or ""),
+        "source_xml_sha256": str(filing.get("source_xml_sha256") or ""),
     }
 
 
@@ -385,6 +394,14 @@ def cache_section16_document(
     return cache, cache.read_text(encoding="utf-8")
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def _normalize_index(index: pd.DataFrame) -> pd.DataFrame:
     if index.empty:
         return pd.DataFrame()
@@ -413,21 +430,34 @@ def parse_section16_index(
     transactions: list[dict[str, Any]] = []
     holdings: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
+    provenance: list[dict[str, Any]] = []
     for _, item in filings.iterrows():
         filing = item.to_dict()
         try:
-            _, xml_text = cache_section16_document(
+            cache_path, xml_text = cache_section16_document(
                 filing,
                 raw_dir,
                 user_agent=user_agent,
                 refresh=refresh,
                 sleep_s=sleep_s,
             )
-            if not xml_text:
-                continue
+            if not xml_text or cache_path is None:
+                raise RuntimeError("Section 16 source XML unavailable")
+            filing["source_xml_path"] = str(cache_path)
+            filing["source_xml_sha256"] = _sha256_file(cache_path)
             tx_rows, holding_rows = parse_section16_xml(xml_text, filing=filing)
             transactions.extend(tx_rows)
             holdings.extend(holding_rows)
+            provenance.append(
+                {
+                    "accession_number": str(filing.get("accession_number") or ""),
+                    "form_type": str(filing.get("form_type") or ""),
+                    "source_xml_path": str(cache_path),
+                    "source_xml_sha256": filing["source_xml_sha256"],
+                    "parse_status": "parsed",
+                    "parse_error": "",
+                }
+            )
         except Exception as exc:
             errors.append(
                 {
@@ -440,6 +470,19 @@ def parse_section16_index(
                     "error": str(exc)[:500],
                 }
             )
+
+    if provenance:
+        provenance_frame = pd.DataFrame(provenance).drop_duplicates(
+            ["accession_number", "form_type"], keep="last"
+        )
+        filings = filings.merge(
+            provenance_frame,
+            on=["accession_number", "form_type"],
+            how="left",
+        )
+    else:
+        for col in ["source_xml_path", "source_xml_sha256", "parse_status", "parse_error"]:
+            filings[col] = ""
 
     tx = pd.DataFrame(transactions)
     h = pd.DataFrame(holdings)
@@ -526,6 +569,8 @@ def build_ownership_state(transactions: pd.DataFrame, holdings: pd.DataFrame) ->
                     "expiration_date": row.get("expiration_date", ""),
                     "accession_number": row.get("accession_number", ""),
                     "filing_url": row.get("filing_url", ""),
+                    "source_xml_path": row.get("source_xml_path", ""),
+                    "source_xml_sha256": row.get("source_xml_sha256", ""),
                     "state_source": "transaction",
                 }
             )
@@ -607,6 +652,8 @@ def write_outputs(
     )
     summary = {
         "schema_version": "sec-section16-pit-v1",
+        "status": "completed" if errors.empty else "partial_parse_errors",
+        "data_complete": bool(errors.empty),
         "research_only": True,
         "production_activation_allowed": False,
         "forms": sorted(SECTION16_FORMS),
