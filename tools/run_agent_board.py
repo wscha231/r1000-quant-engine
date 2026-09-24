@@ -89,6 +89,84 @@ def timestamp(value: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
+def validate_a2_event_handoff(payload: Any) -> None:
+    schema_validate(payload, 'a2_event_handoff_v1.schema.json')
+    as_of = timestamp(payload['as_of'])
+    seen = set()
+    for row in payload['events']:
+        if row['event_id'] in seen:
+            raise ContractError('duplicate_event_id')
+        seen.add(row['event_id'])
+        observed, published, available, collected = [
+            timestamp(row[key]) for key in
+            ('observed_at', 'published_at', 'available_at', 'collected_at')
+        ]
+        if not (observed <= published <= available <= collected <= as_of):
+            raise ContractError('event_time_order')
+
+
+def validate_er_promotion_gate(payload: Any) -> None:
+    schema_validate(payload, 'er_promotion_gate_v1.schema.json')
+    as_of = timestamp(payload['as_of'])
+    gross = payload.get('gross_research_er')
+    promoted = payload.get('promoted_validated_er')
+    for name, ref in (('gross', gross), ('promoted', promoted)):
+        if ref is not None and timestamp(ref['available_at']) > as_of:
+            raise ContractError('future_er_artifact:' + name)
+    if promoted is not None:
+        if promoted['asset_id'] != payload['asset_id']:
+            raise ContractError('promoted_er_asset_mismatch')
+        if promoted['benchmark_id'] != payload['benchmark_id']:
+            raise ContractError('promoted_er_benchmark_mismatch')
+        if gross is not None and gross['sha256'] == promoted['sha256']:
+            raise ContractError('gross_er_cannot_self_promote')
+
+
+def validate_matured_outcome_cohort(payload: Any) -> None:
+    schema_validate(payload, 'matured_outcome_cohort_v1.schema.json')
+    generated = timestamp(payload['generated_at'])
+    seen = set()
+    for row in payload['rows']:
+        key = (row['event_id'], row['decision_id'], row['asset_id'], row['horizon'])
+        if key in seen:
+            raise ContractError('duplicate_outcome_identity')
+        seen.add(key)
+        if timestamp(row['decision_at']) > generated:
+            raise ContractError('future_outcome_decision')
+        if row['status'] == 'MATURED':
+            if row['outcome_session'] != row['target_session']:
+                raise ContractError('outcome_session_substitution')
+            if timestamp(row['outcome_available_at']) > generated:
+                raise ContractError('premature_outcome_maturity')
+            if abs((row['asset_return'] - row['benchmark_return']) - row['excess_return']) > 1e-10:
+                raise ContractError('outcome_excess_return_mismatch')
+    complete = bool(payload['rows']) and all(row['status'] == 'MATURED' for row in payload['rows'])
+    if payload['coverage_status'] == 'COMPLETE_EXACT' and not complete:
+        raise ContractError('outcome_coverage_not_complete')
+    if payload['learning_eligible'] and (
+            payload['coverage_status'] != 'COMPLETE_EXACT' or not complete):
+        raise ContractError('premature_outcome_learning')
+
+
+def validate_candidate_data_queue(payload: Any) -> None:
+    schema_validate(payload, 'candidate_data_queue_v1.schema.json')
+    as_of = timestamp(payload['as_of'])
+    seen = set()
+    for row in payload['items']:
+        asset_id = row['asset_id']
+        if asset_id in seen:
+            raise ContractError('duplicate_candidate_asset_id')
+        seen.add(asset_id)
+        first = timestamp(row['first_seen_at'])
+        checked = timestamp(row['last_checked_at'])
+        if not (first <= checked <= as_of):
+            raise ContractError('candidate_queue_time_order')
+        required = set(row['required_channels'])
+        observed = set(row['channel_status'])
+        if required != observed:
+            raise ContractError('candidate_queue_channel_mismatch')
+
+
 def source_identity() -> tuple[str, str]:
     sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=REPO_ROOT, text=True).strip()
     # Bind actual local bytes too: a dirty tree cannot reuse a clean-head task.
@@ -136,6 +214,26 @@ def control_registries() -> dict[str, Any]:
         'SIMULATED_EXECUTION', 'RESEARCH_SIGNAL'
     ]:
         raise ContractError('global_book_truth_priority')
+    identity = books.get('identity_contract') or {}
+    if identity.get('required_all') != [
+        'asset_id', 'instrument', 'currency', 'lifecycle_state'
+    ]:
+        raise ContractError('global_book_identity_contract')
+    if identity.get('listed_security_required') != [
+        'security_id', 'ticker', 'market', 'country'
+    ]:
+        raise ContractError('global_book_identity_contract')
+    issuer = identity.get('issuer_identity') or {}
+    if (issuer.get('field') != 'issuer_id'
+            or issuer.get('required_for_issuer_backed_assets') is not True
+            or issuer.get('not_applicable_allowed_for_non_issuer_assets') is not True
+            or identity.get('underlying_vehicle_separation_required') is not True):
+        raise ContractError('global_book_identity_contract')
+    queue = (artifact.get('roles') or {}).get('candidate_data_queue') or {}
+    if (queue.get('producer') != 'A2'
+            or queue.get('consumers') != ['A3']
+            or queue.get('schema_file') != 'candidate_data_queue_v1.schema.json'):
+        raise ContractError('candidate_queue_registry')
     if any(row.get('may_write_orders') is not False
            for row in (books.get('books') or {}).values()):
         raise ContractError('global_book_order_authority')

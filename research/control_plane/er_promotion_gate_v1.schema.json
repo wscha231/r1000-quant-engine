@@ -170,7 +170,23 @@
           "required": [
             "path",
             "sha256",
-            "available_at"
+            "available_at",
+            "asset_id",
+            "benchmark_id",
+            "validation_status",
+            "net_of_costs",
+            "unit",
+            "expected_return_1m",
+            "benchmark_expected_return_1m",
+            "expected_return_3m",
+            "benchmark_expected_return_3m",
+            "expected_return_6m",
+            "benchmark_expected_return_6m",
+            "expected_return_12m",
+            "benchmark_expected_return_12m",
+            "expected_drawdown",
+            "downside_probability",
+            "signal_confidence"
           ],
           "properties": {
             "path": {
@@ -184,6 +200,62 @@
             "available_at": {
               "type": "string",
               "format": "date-time"
+            },
+            "asset_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "benchmark_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "validation_status": {
+              "const": "WALK_FORWARD_VALIDATED"
+            },
+            "net_of_costs": {
+              "const": true
+            },
+            "unit": {
+              "const": "RETURN_FRACTION"
+            },
+            "expected_return_1m": {
+              "type": "number"
+            },
+            "benchmark_expected_return_1m": {
+              "type": "number"
+            },
+            "expected_return_3m": {
+              "type": "number"
+            },
+            "benchmark_expected_return_3m": {
+              "type": "number"
+            },
+            "expected_return_6m": {
+              "type": "number"
+            },
+            "benchmark_expected_return_6m": {
+              "type": "number"
+            },
+            "expected_return_12m": {
+              "type": "number"
+            },
+            "benchmark_expected_return_12m": {
+              "type": "number"
+            },
+            "expected_drawdown": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "downside_probability": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "signal_confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
             }
           }
         },

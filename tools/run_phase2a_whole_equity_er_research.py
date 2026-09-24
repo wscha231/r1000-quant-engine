@@ -265,6 +265,66 @@ def load_contract(path: Path) -> dict[str, Any]:
     return value
 
 
+A2_QUEUE_STATES = {
+    "UNIVERSE", "DISCOVERED", "DATA_PENDING", "VERIFIED", "TRACK",
+    "REJECTED", "STALE", "QUARANTINED", "RISK_WATCH",
+}
+QUEUE_AUTHORITY_KEYS = {
+    "selector", "er", "target", "portfolio", "broker", "orders", "promotion",
+}
+
+
+def validate_candidate_queue_preview(value: Any, decision_at: datetime) -> list[dict[str, Any]]:
+    if not isinstance(value, dict) or value.get("schema_version") != "candidate-data-queue-v1":
+        raise ValueError("cohort_queue_schema")
+    if value.get("research_only") is not True or value.get("direct_score_contribution") != 0:
+        raise ValueError("cohort_queue_research_authority")
+    authority = value.get("authority")
+    if (
+        not isinstance(authority, dict)
+        or set(authority) != QUEUE_AUTHORITY_KEYS
+        or any(authority[key] is not False for key in QUEUE_AUTHORITY_KEYS)
+    ):
+        raise ValueError("cohort_queue_authority")
+    if utc(value.get("as_of"), "cohort_queue.as_of") != decision_at:
+        raise ValueError("cohort_queue_as_of_mismatch")
+    rows = value.get("items")
+    if not isinstance(rows, list) or not rows:
+        raise ValueError("cohort_queue_missing")
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("cohort_queue_row")
+        asset_id = canonical_id(row.get("asset_id"), "queue.asset_id")
+        security_id = canonical_id(row.get("security_id"), "queue.security_id")
+        canonical_id(row.get("issuer_id"), "queue.issuer_id")
+        canonical_ticker(row.get("ticker"))
+        if row.get("identity_kind") != "LISTED_SECURITY" or asset_id != security_id:
+            raise ValueError("cohort_queue_equity_identity")
+        if asset_id in seen:
+            raise ValueError("cohort_duplicate_queue_asset_id")
+        seen.add(asset_id)
+        if row.get("state") not in A2_QUEUE_STATES:
+            raise ValueError("cohort_queue_a2_state_authority")
+        required = row.get("required_channels")
+        channel_status = row.get("channel_status")
+        if (
+            not isinstance(required, list)
+            or not required
+            or len(required) != len(set(required))
+            or not isinstance(channel_status, dict)
+            or set(required) != set(channel_status)
+        ):
+            raise ValueError("cohort_queue_channel_contract")
+        first = utc(row.get("first_seen_at"), "queue.first_seen_at")
+        checked = utc(row.get("last_checked_at"), "queue.last_checked_at")
+        if not first <= checked <= decision_at:
+            raise ValueError("cohort_queue_time_order")
+        out.append(row)
+    return out
+
+
 def load_cohort(path: Path) -> dict[str, Any]:
     value = read_json(path)
     if not isinstance(value, dict):
@@ -282,11 +342,9 @@ def load_cohort(path: Path) -> dict[str, Any]:
     if decision_at.date().isoformat() != expected_session:
         raise ValueError("cohort_decision_session_mismatch")
     inventory = value.get("evaluation_inventory")
-    queue = (value.get("data_queue_preview") or {}).get("items")
+    queue = validate_candidate_queue_preview(value.get("data_queue_preview"), decision_at)
     if not isinstance(inventory, list) or not inventory:
         raise ValueError("cohort_evaluation_inventory_missing")
-    if not isinstance(queue, list) or not queue:
-        raise ValueError("cohort_queue_missing")
     inventory_ids = [canonical_id(row.get("security_id"), "security_id") for row in inventory]
     queue_ids = [canonical_id(row.get("security_id"), "security_id") for row in queue]
     if len(inventory_ids) != len(set(inventory_ids)):
@@ -569,7 +627,7 @@ def horizon_from_proposal(row: Mapping[str, str], days: int) -> tuple[dict[str, 
         "signal_confidence": None,
         "model_disagreement": disagreement,
         "feature_coverage": coverage,
-        "status": "VALIDATED_EXISTING_CHALLENGER_OUTPUT",
+        "status": "ADMITTED_GROSS_RESEARCH_OUTPUT",
     }, []
 
 
@@ -600,6 +658,10 @@ def build_output(
         else:
             if identity.get("ticker") != ticker:
                 row_blockers.append("security_identity_ticker_mismatch")
+            if queue_row.get("issuer_id") != identity.get("issuer_id"):
+                row_blockers.append("security_identity_issuer_mismatch")
+            if queue_row.get("asset_id") != security_id:
+                row_blockers.append("security_identity_asset_mismatch")
             row_blockers.extend(identity_blockers(identity, decision_at))
         proposal = proposal_by_ticker.get(ticker)
         if proposal is None:
@@ -632,6 +694,8 @@ def build_output(
             blockers = []
         rows.append(
             {
+                "asset_id": security_id,
+                "identity_kind": "LISTED_SECURITY",
                 "security_id": security_id,
                 "ticker": ticker,
                 "issuer_id": identity.get("issuer_id") if identity else None,

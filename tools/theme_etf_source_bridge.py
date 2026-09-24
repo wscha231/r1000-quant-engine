@@ -412,7 +412,11 @@ def read_bundle(path: Path, run: dict, artifact: dict, policy: dict,
         # writer. No price/evaluation completeness is invented for an added ID.
         queue = {"schema_version": "candidate-data-queue-v1", "as_of": bundle["decision_at"],
                  "research_only": True, "direct_score_contribution": 0,
-                 "items": [{"security_id": sid, "issuer_id": registry[sid]["issuer_id"],
+                 "authority": {"selector": False, "er": False, "target": False,
+                    "portfolio": False, "broker": False, "orders": False,
+                    "promotion": False},
+                 "items": [{"asset_id": sid, "identity_kind": "LISTED_SECURITY",
+                    "security_id": sid, "issuer_id": registry[sid]["issuer_id"],
                     "ticker": registry[sid]["ticker"],
                     "state": "DATA_PENDING", "membership_reasons": [r for r in reasons
                         if r["security_id"] == sid],

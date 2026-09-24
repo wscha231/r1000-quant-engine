@@ -8,6 +8,7 @@
     "as_of",
     "research_only",
     "direct_score_contribution",
+    "authority",
     "items"
   ],
   "properties": {
@@ -30,6 +31,8 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
+          "asset_id",
+          "identity_kind",
           "security_id",
           "issuer_id",
           "ticker",
@@ -43,15 +46,24 @@
         ],
         "properties": {
           "security_id": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "minLength": 1
           },
           "issuer_id": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "minLength": 1
           },
           "ticker": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "minLength": 1
           },
           "state": {
@@ -61,22 +73,18 @@
               "DATA_PENDING",
               "VERIFIED",
               "TRACK",
-              "A3_RESEARCH",
-              "ER_ELIGIBLE",
-              "PORTFOLIO_CANDIDATE",
-              "HELD",
               "REJECTED",
               "STALE",
               "QUARANTINED",
-              "RISK_WATCH",
-              "EXIT_REVIEW"
+              "RISK_WATCH"
             ]
           },
           "membership_reasons": {
             "type": "array",
             "items": {
               "type": "object"
-            }
+            },
+            "minItems": 1
           },
           "required_channels": {
             "type": "array",
@@ -100,7 +108,8 @@
                 "valuation",
                 "expected_return"
               ]
-            }
+            },
+            "minItems": 1
           },
           "channel_status": {
             "type": "object",
@@ -148,7 +157,108 @@
           "last_checked_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "asset_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "identity_kind": {
+            "enum": [
+              "LISTED_SECURITY",
+              "NON_ISSUER_ASSET"
+            ]
           }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "identity_kind": {
+                  "const": "LISTED_SECURITY"
+                }
+              },
+              "required": [
+                "identity_kind"
+              ]
+            },
+            "then": {
+              "properties": {
+                "security_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "issuer_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "ticker": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "identity_kind": {
+                  "const": "NON_ISSUER_ASSET"
+                }
+              },
+              "required": [
+                "identity_kind"
+              ]
+            },
+            "then": {
+              "properties": {
+                "security_id": {
+                  "const": null
+                },
+                "issuer_id": {
+                  "const": null
+                },
+                "ticker": {
+                  "const": null
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "selector",
+        "er",
+        "target",
+        "portfolio",
+        "broker",
+        "orders",
+        "promotion"
+      ],
+      "properties": {
+        "selector": {
+          "const": false
+        },
+        "er": {
+          "const": false
+        },
+        "target": {
+          "const": false
+        },
+        "portfolio": {
+          "const": false
+        },
+        "broker": {
+          "const": false
+        },
+        "orders": {
+          "const": false
+        },
+        "promotion": {
+          "const": false
         }
       }
     }

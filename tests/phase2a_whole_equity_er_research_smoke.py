@@ -82,10 +82,37 @@ def cohort(registry_path: Path, ids=("US:A", "US:B", "US:ADR")):
             for sid in ids
         ],
         "data_queue_preview": {
+            "schema_version": "candidate-data-queue-v1",
+            "as_of": STAMP,
+            "research_only": True,
+            "direct_score_contribution": 0,
+            "authority": {
+                "selector": False, "er": False, "target": False, "portfolio": False,
+                "broker": False, "orders": False, "promotion": False,
+            },
             "items": [
-                {"security_id": sid, "ticker": {"US:A": "AAA", "US:B": "BBB", "US:ADR": "ADR"}[sid]}
+                {
+                    "asset_id": sid,
+                    "identity_kind": "LISTED_SECURITY",
+                    "security_id": sid,
+                    "issuer_id": {"US:A": "issuer:A", "US:B": "issuer:B", "US:ADR": "issuer:ADR"}[sid],
+                    "ticker": {"US:A": "AAA", "US:B": "BBB", "US:ADR": "ADR"}[sid],
+                    "state": "DATA_PENDING",
+                    "membership_reasons": [{"reason_type": "SYNTHETIC_FIXTURE"}],
+                    "required_channels": ["price", "fundamentals", "thesis", "valuation", "expected_return"],
+                    "channel_status": {
+                        "price": "VERIFIED",
+                        "fundamentals": "VERIFIED",
+                        "thesis": "CONSUMER_RECEIPT_MISSING",
+                        "valuation": "CONSUMER_RECEIPT_MISSING",
+                        "expected_return": "CONSUMER_RECEIPT_MISSING",
+                    },
+                    "next_action": "RUN_EXISTING_GROSS_RESEARCH_ER_ADAPTER",
+                    "first_seen_at": "2026-09-18T20:00:00Z",
+                    "last_checked_at": STAMP,
+                }
                 for sid in ids
-            ]
+            ],
         },
     }
     value["bridge_sha256"] = bridge_sha(value)
@@ -329,6 +356,23 @@ class Phase2A(unittest.TestCase):
             "head_repository": {"full_name": MOD.REPOSITORY},
         }
         return artifact, run, zip_bytes
+
+    def test_cohort_rejects_candidate_queue_authority_and_downstream_state(self):
+        current = json.loads(self.paths["cohort"].read_text(encoding="utf-8"))
+        current["data_queue_preview"]["authority"]["er"] = True
+        current.pop("bridge_sha256", None)
+        current["bridge_sha256"] = bridge_sha(current)
+        write_json(self.paths["cohort"], current)
+        with self.assertRaisesRegex(ValueError, "cohort_queue_authority"):
+            MOD.load_cohort(self.paths["cohort"])
+
+        current = cohort(self.paths["registry"])
+        current["data_queue_preview"]["items"][0]["state"] = "ER_ELIGIBLE"
+        current.pop("bridge_sha256", None)
+        current["bridge_sha256"] = bridge_sha(current)
+        write_json(self.paths["cohort"], current)
+        with self.assertRaisesRegex(ValueError, "cohort_queue_a2_state_authority"):
+            MOD.load_cohort(self.paths["cohort"])
 
     def test_cohort_requires_exact_github_monitor_artifact_bytes(self):
         artifact, run, zip_bytes = self._monitor_artifact_fixture()

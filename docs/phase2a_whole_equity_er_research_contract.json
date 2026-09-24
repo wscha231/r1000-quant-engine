@@ -26,7 +26,11 @@
     "monitor_artifact_exact_cohort_bytes_required": true,
     "identity_registry_must_match_exact_authenticated_securities_component": true,
     "corporate_action_basis_required": true,
-    "adr_share_basis_required": true
+    "adr_share_basis_required": true,
+    "candidate_queue_contract": "candidate-data-queue-v1",
+    "candidate_queue_research_only_required": true,
+    "candidate_queue_direct_score_contribution_required": 0,
+    "a2_state_may_not_claim_a3_er_portfolio_authority": true
   },
   "output_semantics": {
     "artifact_kind": "GROSS_RESEARCH_ER_EVIDENCE",
@@ -35,7 +39,8 @@
     "12m_policy": "BLOCKED_MODEL_NOT_VALIDATED",
     "downside_probability_status": "BLOCKED_DOWNSIDE_CALIBRATION_NOT_VALIDATED",
     "expected_drawdown_status": "BLOCKED_EXPECTED_DRAWDOWN_NOT_VALIDATED",
-    "signal_confidence_status": "BLOCKED_SIGNAL_CONFIDENCE_NOT_CALIBRATED"
+    "signal_confidence_status": "BLOCKED_SIGNAL_CONFIDENCE_NOT_CALIBRATED",
+    "horizon_status": "ADMITTED_GROSS_RESEARCH_OUTPUT"
   },
   "12m_policy": "BLOCKED_MODEL_NOT_VALIDATED",
   "promotion": {

@@ -7,6 +7,8 @@
 - The adapter remains `net_of_costs=false`, has no validated 252-session/12m return, no calibrated downside, no validated expected drawdown and no calibrated signal confidence.
 - Therefore `a3_validated_er_eligible=false` and ER promotion is blocked until the separate #503 gate is satisfied.
 - Preserve every cohort identity and all provenance/identity/corporate-action/ADR/leakage checks from the reviewed source implementation.
+- The gross-ER adapter consumes only a hardened listed-security candidate queue: research-only, direct score zero, no A2 downstream-state authority, exact queue/inventory identity.
+- Use ADMITTED_GROSS_RESEARCH_OUTPUT for 1/3/6m horizon rows; never use a status label containing VALIDATED for this research-only evidence.
 
 ## 2026-09-23 — Whole-universe candidate discovery needs one data queue, not parallel selectors
 
@@ -15,6 +17,9 @@
 - Queue membership remains research-only with direct score contribution zero. Missing/provider-uncovered/fetch-failed/stale are explicit states, never favorable zero or NO_CHANGE.
 - Stable security and issuer identity are required; ticker alone is not the join key.
 - The existing Theme/ETF bridge remains one producer/preview path; this change does not create a second selector or scheduler.
+- Queue identity is asset-first: listed securities carry security/issuer/ticker identity, while non-issuer assets use null security/issuer/ticker rather than fabricated identities.
+- Because A2 produces the queue, its state enum stops before A3/ER/portfolio authority; A2 cannot emit A3_RESEARCH, ER_ELIGIBLE, PORTFOLIO_CANDIDATE or HELD.
+- Queue channel keys must exactly match required channels and queue timestamps must be causal.
 
 ## 2026-09-23 — Event discovery can trigger research but cannot become alpha by membership
 
@@ -30,6 +35,7 @@
 - `system_state_schema.json` already defines the canonical A0 state boundary; do not add a competing SYSTEM_STATE implementation.
 - Add artifact-role, dependency/merge and book-namespace registries as static control contracts and bind their exact bytes into A0 source identity.
 - Registry files carry no investment authority. Research Signal, Candidate Universe, Target Proposal, Simulation, Paper and Actual Broker truth remain separate.
+- Global identity is asset-type aware: `asset_id` is universal; listed-security and issuer identifiers are conditional. Direct crypto/commodity underlyings must not invent security or issuer IDs.
 - Actual Broker > Approved Target > Verified Paper > Simulation > Research is an authority ordering, not an order-execution permission.
 - A changed registry hash invalidates `SKIP_UNCHANGED`; stale branch blind merge and H1/H2 mixed PRs remain forbidden.
 - No selector score, target weight, broker order, scheduler or promotion behavior changes in this slice.
