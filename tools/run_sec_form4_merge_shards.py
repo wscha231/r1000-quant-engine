@@ -204,6 +204,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     section16_filing_paths = [pit_root / "section16_filings.parquet"] + sorted((pit_root / "shards").glob("**/section16_filings.parquet"))
     section16_tx_paths = [pit_root / "section16_transactions.parquet"] + sorted((pit_root / "shards").glob("**/section16_transactions.parquet"))
     section16_holding_paths = [pit_root / "section16_holdings.parquet"] + sorted((pit_root / "shards").glob("**/section16_holdings.parquet"))
+    section16_error_paths = [pit_root / "section16_parse_errors.csv"] + sorted((pit_root / "shards").glob("**/section16_parse_errors.csv"))
 
     filings = normalize_filings(read_many(filing_paths))
     tx = normalize_transactions(read_many(tx_paths))
@@ -212,6 +213,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     section16_filings = normalize_filings(read_many(section16_filing_paths))
     section16_tx = normalize_section16_transactions(read_many(section16_tx_paths))
     section16_holdings = normalize_section16_holdings(read_many(section16_holding_paths))
+    section16_errors = read_many(section16_error_paths)
+    if not section16_errors.empty:
+        error_keys = [c for c in ["form_type", "accession_number", "error"] if c in section16_errors.columns]
+        if error_keys:
+            section16_errors = section16_errors.drop_duplicates(error_keys, keep="last")
+        section16_errors = section16_errors.drop(columns=["_source_file"], errors="ignore")
     section16_state = build_ownership_state(section16_tx, section16_holdings)
 
     write_table(filings, pit_root / "sec_filings_index.parquet")
@@ -221,6 +228,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     write_table(section16_tx, pit_root / "section16_transactions.parquet")
     write_table(section16_holdings, pit_root / "section16_holdings.parquet")
     write_table(section16_state, pit_root / "section16_ownership_state.parquet")
+    write_table(section16_errors, pit_root / "section16_parse_errors.csv")
     signals.to_csv(output_dir / "form4_latest.csv", index=False)
     signals.head(30).to_csv(output_dir / "ownership_signal_top30.csv", index=False)
 
@@ -235,6 +243,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "section16_filing_source_files": len([p for p in section16_filing_paths if p.exists()]),
         "section16_transaction_source_files": len([p for p in section16_tx_paths if p.exists()]),
         "section16_holding_source_files": len([p for p in section16_holding_paths if p.exists()]),
+        "section16_error_source_files": len([p for p in section16_error_paths if p.exists()]),
         "filing_rows": int(len(filings)),
         "transaction_rows": int(len(tx)),
         "signal_rows": int(len(signals)),
@@ -242,6 +251,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "section16_transaction_rows": int(len(section16_tx)),
         "section16_holding_rows": int(len(section16_holdings)),
         "section16_ownership_state_rows": int(len(section16_state)),
+        "section16_parse_error_rows": int(len(section16_errors)),
         "historical_as_of_dates": int(signals["as_of_date"].nunique()) if not signals.empty and "as_of_date" in signals.columns else 0,
         "outputs": {
             "sec_filings_index": str(pit_root / "sec_filings_index.parquet"),
@@ -251,6 +261,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "section16_transactions": str(pit_root / "section16_transactions.parquet"),
             "section16_holdings": str(pit_root / "section16_holdings.parquet"),
             "section16_ownership_state": str(pit_root / "section16_ownership_state.parquet"),
+            "section16_parse_errors": str(pit_root / "section16_parse_errors.csv"),
             "form4_latest": str(output_dir / "form4_latest.csv"),
         },
     }
@@ -267,6 +278,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         f"- section16_transaction_rows: {summary['section16_transaction_rows']}",
         f"- section16_holding_rows: {summary['section16_holding_rows']}",
         f"- section16_ownership_state_rows: {summary['section16_ownership_state_rows']}",
+        f"- section16_parse_error_rows: {summary['section16_parse_error_rows']}",
         "",
         "Canonical outputs are point-in-time evidence files. Section 16 data is data-foundation only and has no selector, target, or portfolio authority.",
     ]
