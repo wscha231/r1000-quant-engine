@@ -16,7 +16,8 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from r1000_helpers import normalize_cik10  # noqa: E402
-from tools.run_sec_ownership_signals import build_form4_signal  # noqa: E402\nfrom tools.run_sec_section16_parser import build_ownership_state  # noqa: E402
+from tools.run_sec_ownership_signals import build_form4_signal  # noqa: E402
+from tools.run_sec_section16_parser import build_ownership_state  # noqa: E402
 
 DEFAULT_PIT_ROOT = "data_pit/sec"
 DEFAULT_OUTPUT_DIR = "outputs/sec_ownership_signals"
