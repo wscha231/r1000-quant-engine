@@ -518,6 +518,21 @@ def select_tactical_portfolio(
     return out
 
 
+TRADE_PLAN_COLUMNS = [
+    "ticker",
+    "action",
+    "current_weight",
+    "target_weight",
+    "delta_weight",
+    "tactical_rank",
+    "tactical_rank_score",
+    "tactical_hard_exit",
+    "tactical_soft_exit",
+    "price_as_of",
+    "reason",
+]
+
+
 def build_trade_plan(target: pd.DataFrame, candidates: pd.DataFrame, prev_weights: dict[str, float]) -> pd.DataFrame:
     target_weights = {}
     if not target.empty:
@@ -581,7 +596,10 @@ def build_trade_plan(target: pd.DataFrame, candidates: pd.DataFrame, prev_weight
                 "reason": reason,
             }
         )
-    return pd.DataFrame(rows).sort_values(
+    frame = pd.DataFrame(rows, columns=TRADE_PLAN_COLUMNS)
+    if frame.empty:
+        return frame
+    return frame.sort_values(
         ["action", "delta_weight"],
         ascending=[True, False],
     ).reset_index(drop=True)
