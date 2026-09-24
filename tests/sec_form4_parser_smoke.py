@@ -11,7 +11,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from tools.run_sec_form4_parser import cache_name, form4_url_candidates, parse_form4_xml, raw_form4_primary_document  # noqa: E402
-from tools.run_sec_ownership_signals import build_form4_signal  # noqa: E402\nfrom tools.run_sec_section16_parser import build_ownership_state, parse_section16_xml  # noqa: E402
+from tools.run_sec_ownership_signals import build_form4_signal  # noqa: E402
+from tools.run_sec_section16_parser import build_ownership_state, parse_section16_xml  # noqa: E402
 
 
 SAMPLE_FORM4 = """<?xml version="1.0"?>
@@ -234,8 +235,13 @@ def test_section16_multi_owner_state_fails_closed_instead_of_duplicating_ownersh
     assert "0005555555" in holdings[0]["reporting_owners_json"]
     state = build_ownership_state(pd.DataFrame(tx), pd.DataFrame(holdings))
     assert state.empty
-\n\nif __name__ == "__main__":
+
+
+if __name__ == "__main__":
     test_form4_xml_parser_extracts_open_market_purchase()
     test_form4_signal_is_shadow_only_and_uses_available_from_filter()
     test_xsl_form4_primary_document_uses_raw_xml_and_safe_cache_name()
+    test_section16_form3_preserves_initial_holdings_without_fabricating_trade()
+    test_section16_form5_preserves_transaction_as_data_only()
+    test_section16_multi_owner_state_fails_closed_instead_of_duplicating_ownership()
     print("sec_form4_parser_smoke passed")
