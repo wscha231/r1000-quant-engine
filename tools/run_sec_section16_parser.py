@@ -386,47 +386,58 @@ def _owner_variants(row: pd.Series) -> list[dict[str, Any]]:
     return [{field: row.get(field, "") for field in OWNER_FIELDS}]
 
 
+def _single_owner_or_none(row: pd.Series) -> dict[str, Any] | None:
+    owners = _owner_variants(row)
+    if len(owners) != 1:
+        return None
+    return owners[0]
+
+
 def build_ownership_state(transactions: pd.DataFrame, holdings: pd.DataFrame) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
 
     if not holdings.empty:
         for _, row in holdings.iterrows():
-            for owner in _owner_variants(row):
-                rows.append(
-                    {
-                        **{col: row.get(col, pd.NA) for col in SECTION16_HOLDING_COLUMNS if col not in OWNER_FIELDS and col != "reporting_owner_count" and col != "reporting_owners_json"},
-                        **{field: owner.get(field, "") for field in OWNER_FIELDS},
-                        "state_source": "holding",
-                    }
-                )
+            owner = _single_owner_or_none(row)
+            if owner is None:
+                continue
+            rows.append(
+                {
+                    **{col: row.get(col, pd.NA) for col in SECTION16_HOLDING_COLUMNS if col not in OWNER_FIELDS and col != "reporting_owner_count" and col != "reporting_owners_json"},
+                    **{field: owner.get(field, "") for field in OWNER_FIELDS},
+                    "state_source": "holding",
+                }
+            )
 
     if not transactions.empty:
         tx = transactions[pd.to_numeric(transactions.get("shares_owned_after"), errors="coerce").notna()].copy()
         for _, row in tx.iterrows():
-            for owner in _owner_variants(row):
-                rows.append(
-                    {
-                        "issuer_ticker": row.get("issuer_ticker", ""),
-                        "issuer_cik10": row.get("issuer_cik10", ""),
-                        **{field: owner.get(field, "") for field in OWNER_FIELDS},
-                        "form_type": row.get("form_type", ""),
-                        "period_of_report": row.get("period_of_report", ""),
-                        "filing_date": row.get("filing_date", ""),
-                        "accepted_at": row.get("accepted_at", ""),
-                        "available_from": row.get("available_from", ""),
-                        "ownership_nature": row.get("ownership_nature", ""),
-                        "direct_or_indirect": row.get("direct_or_indirect", ""),
-                        "shares_owned": row.get("shares_owned_after"),
-                        "is_derivative": row.get("is_derivative", False),
-                        "security_title": row.get("security_title", ""),
-                        "underlying_security_title": row.get("underlying_security_title", ""),
-                        "underlying_shares": row.get("underlying_shares"),
-                        "conversion_or_exercise_price": row.get("conversion_or_exercise_price"),
-                        "accession_number": row.get("accession_number", ""),
-                        "filing_url": row.get("filing_url", ""),
-                        "state_source": "transaction",
-                    }
-                )
+            owner = _single_owner_or_none(row)
+            if owner is None:
+                continue
+            rows.append(
+                {
+                    "issuer_ticker": row.get("issuer_ticker", ""),
+                    "issuer_cik10": row.get("issuer_cik10", ""),
+                    **{field: owner.get(field, "") for field in OWNER_FIELDS},
+                    "form_type": row.get("form_type", ""),
+                    "period_of_report": row.get("period_of_report", ""),
+                    "filing_date": row.get("filing_date", ""),
+                    "accepted_at": row.get("accepted_at", ""),
+                    "available_from": row.get("available_from", ""),
+                    "ownership_nature": row.get("ownership_nature", ""),
+                    "direct_or_indirect": row.get("direct_or_indirect", ""),
+                    "shares_owned": row.get("shares_owned_after"),
+                    "is_derivative": row.get("is_derivative", False),
+                    "security_title": row.get("security_title", ""),
+                    "underlying_security_title": row.get("underlying_security_title", ""),
+                    "underlying_shares": row.get("underlying_shares"),
+                    "conversion_or_exercise_price": row.get("conversion_or_exercise_price"),
+                    "accession_number": row.get("accession_number", ""),
+                    "filing_url": row.get("filing_url", ""),
+                    "state_source": "transaction",
+                }
+            )
 
     if not rows:
         return pd.DataFrame(columns=OWNERSHIP_STATE_COLUMNS)
