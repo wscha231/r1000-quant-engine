@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,6 +15,7 @@ from tools.build_security_basis_registry import (
     PARTIAL,
     READY,
     build_registry,
+    content_addressed_resolver,
 )
 
 
@@ -226,6 +228,22 @@ def test_malformed_artifact_id_fails_closed() -> None:
     assert "corporate_action_source_artifact_id_invalid" in out["securities"][0]["basis_blockers"]
 
 
+def test_content_addressed_resolver_binds_artifact_id_to_hash() -> None:
+    payload = b"immutable-corporate-action-source"
+    digest = hashlib.sha256(payload).hexdigest()
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / digest).write_bytes(payload)
+        trusted = content_addressed_resolver(root)
+        assert trusted(f"SHA256:{digest}", digest) == payload
+        try:
+            trusted("RAW:UNBOUND-LABEL", digest)
+        except ValueError as exc:
+            assert str(exc) == "raw_artifact_id_hash_mismatch"
+        else:
+            raise AssertionError("content-addressed resolver accepted unbound artifact ID")
+
+
 def test_missing_resolver_is_build_level_failure() -> None:
     try:
         build_registry(
@@ -250,6 +268,7 @@ if __name__ == "__main__":
         test_missing_source_blocks_row,
         test_adr_source_is_independently_hash_bound,
         test_malformed_artifact_id_fails_closed,
+        test_content_addressed_resolver_binds_artifact_id_to_hash,
         test_missing_resolver_is_build_level_failure,
     ]
     for fn in tests:

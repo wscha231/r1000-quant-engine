@@ -1661,6 +1661,27 @@ def test_paper_executor_layer3_preflight() -> None:
     )
 
 
+@_test("logic.tactical_empty_trade_plan_schema")
+def test_tactical_empty_trade_plan_schema() -> None:
+    """Zero positions/candidates must return a schema-stable empty trade plan."""
+    if _args.quick:
+        return
+    import pandas as pd
+    import r1000_tactical_alpha as tactical
+
+    empty = tactical.build_trade_plan(pd.DataFrame(), pd.DataFrame(), {})
+    assert empty.empty, "empty tactical inputs must not create synthetic trades"
+    assert list(empty.columns) == list(tactical.TRADE_PLAN_COLUMNS), (
+        f"empty trade-plan columns drifted: {list(empty.columns)}"
+    )
+
+    sell = tactical.build_trade_plan(pd.DataFrame(), pd.DataFrame(), {"ABC": 0.10})
+    assert len(sell) == 1 and sell.iloc[0]["action"] == "SELL", (
+        "existing position liquidation semantics changed while fixing empty output"
+    )
+    assert abs(float(sell.iloc[0]["delta_weight"]) + 0.10) < 1e-12
+
+
 @_test("regression.after_close_daily_workflow_yaml_valid")
 def test_paper_executor_workflow() -> None:
     """The consolidated daily cloud workflow must run paper execution

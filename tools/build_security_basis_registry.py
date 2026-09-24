@@ -397,9 +397,11 @@ def content_addressed_resolver(root: Path) -> RawResolver:
     if not trusted_root.is_dir():
         raise ValueError("raw_artifact_root_missing")
 
-    def resolve(_artifact_id: str, expected_sha256: str) -> bytes:
+    def resolve(artifact_id: str, expected_sha256: str) -> bytes:
         if not SHA_RE.fullmatch(expected_sha256):
             raise ValueError("raw_artifact_sha256_invalid")
+        if artifact_id != f"SHA256:{expected_sha256}":
+            raise ValueError("raw_artifact_id_hash_mismatch")
         path = trusted_root / expected_sha256
         if not path.is_file():
             raise FileNotFoundError(expected_sha256)

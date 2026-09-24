@@ -23,7 +23,7 @@ tools/build_security_basis_registry.py consumes:
 2. reviewed basis evidence keyed by security_id.
 
 Every corporate-action or ADR evidence item must have an exact available_at,
-approved review state, HTTPS source URL and source SHA-256. Evidence available
+approved review state, HTTPS source URL, immutable source artifact ID and source SHA-256. The admitted bytes are resolved through a trusted resolver and re-hashed; the default content-addressed resolver also requires `source_artifact_id == SHA256:<source_sha256>`. Evidence available
 after the decision time is not admitted. Unknown evidence IDs and non-unique
 ticker identities fail the build.
 
