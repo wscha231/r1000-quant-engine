@@ -268,6 +268,67 @@ def test_section16_merge_normalizers_preserve_form_and_derivative_identity() -> 
     assert norm_h.iloc[0]["form_type"] == "3"
 
 
+def test_late_form5_does_not_regress_newer_effective_ownership_state() -> None:
+    owner_json = '[{"reporting_owner_cik":"0000000999","reporting_owner_name":"CEO","officer_title":"Chief Executive Officer","is_director":true,"is_officer":true,"is_ten_percent_owner":false,"is_other":false}]'
+    tx = pd.DataFrame(
+        [
+            {
+                "issuer_ticker": "ABC",
+                "issuer_cik10": "123",
+                "reporting_owner_cik": "999",
+                "reporting_owner_name": "CEO",
+                "officer_title": "Chief Executive Officer",
+                "is_director": True,
+                "is_officer": True,
+                "is_ten_percent_owner": False,
+                "is_other": False,
+                "reporting_owner_count": 1,
+                "reporting_owners_json": owner_json,
+                "form_type": "4",
+                "period_of_report": "2026-12-15",
+                "transaction_date": "2026-12-15",
+                "filing_date": "2026-12-16",
+                "accepted_at": "2026-12-16T20:00:00Z",
+                "available_from": "2026-12-16T20:00:00Z",
+                "shares_owned_after": 1200.0,
+                "is_derivative": False,
+                "security_title": "Common Stock",
+                "direct_or_indirect": "D",
+                "accession_number": "0000000123-26-000010",
+            },
+            {
+                "issuer_ticker": "ABC",
+                "issuer_cik10": "123",
+                "reporting_owner_cik": "999",
+                "reporting_owner_name": "CEO",
+                "officer_title": "Chief Executive Officer",
+                "is_director": True,
+                "is_officer": True,
+                "is_ten_percent_owner": False,
+                "is_other": False,
+                "reporting_owner_count": 1,
+                "reporting_owners_json": owner_json,
+                "form_type": "5",
+                "period_of_report": "2026-12-31",
+                "transaction_date": "2026-11-10",
+                "filing_date": "2027-02-10",
+                "accepted_at": "2027-02-10T21:00:00Z",
+                "available_from": "2027-02-10T21:00:00Z",
+                "shares_owned_after": 900.0,
+                "is_derivative": False,
+                "security_title": "Common Stock",
+                "direct_or_indirect": "D",
+                "accession_number": "0000000123-27-000005",
+            },
+        ]
+    )
+    state = build_ownership_state(tx, pd.DataFrame())
+    assert len(state) == 1
+    assert state.iloc[0]["form_type"] == "4"
+    assert state.iloc[0]["state_effective_date"] == "2026-12-15"
+    assert state.iloc[0]["shares_owned"] == 1200.0
+
+
 def test_section16_multi_owner_state_fails_closed_instead_of_duplicating_ownership() -> None:
     tx, holdings = parse_section16_xml(
         SAMPLE_MULTI_OWNER_FORM3,
@@ -294,5 +355,6 @@ if __name__ == "__main__":
     test_section16_form3_preserves_initial_holdings_without_fabricating_trade()
     test_section16_form5_preserves_transaction_as_data_only()
     test_section16_merge_normalizers_preserve_form_and_derivative_identity()
+    test_late_form5_does_not_regress_newer_effective_ownership_state()
     test_section16_multi_owner_state_fails_closed_instead_of_duplicating_ownership()
     print("sec_form4_parser_smoke passed")
