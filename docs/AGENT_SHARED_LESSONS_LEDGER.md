@@ -7,6 +7,15 @@
 - Keep the 16 MiB response cap, stable count/offset checks, complete-pagination requirement, no redirects and credential-echo rejection unchanged.
 - A larger bounded page is a transport H1 fix, not PIT certification or selector readiness.
 
+## 2026-09-23 — Security-basis hashes must bind actual source bytes
+
+- A syntactically valid corporate-action or ADR SHA string is not provenance.
+- Every admitted basis row now carries an immutable source artifact ID and declared SHA-256; a trusted resolver returns actual bytes and the validator recomputes the digest.
+- Corporate-action and ADR share-basis evidence are independently hash-bound. Missing/tampered bytes block only the affected security row.
+- The CLI uses a content-addressed raw-artifact root; a missing resolver is a build-level failure.
+- The default content-addressed resolver requires `source_artifact_id == SHA256:<source_sha256>`; a valid hash cannot be relabeled with an invented artifact ID.
+- This repairs provenance only. It does not grant selector, target, order or portfolio authority.
+
 ## 2026-09-21 — Scenario research is not validated expected return
 
 - A3 Bull/Base/Bear scenarios may express 12/24-month conditional outcomes and assumptions, but they must not carry unvalidated probabilities or be labeled statistical expected return.
