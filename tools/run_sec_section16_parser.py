@@ -42,6 +42,16 @@ DEFAULT_RAW_DIR = "data_raw/sec"
 
 SECTION16_FORMS = {"3", "3/A", "4", "4/A", "5", "5/A"}
 
+SECTION16_ERROR_COLUMNS = [
+    "form_type",
+    "accession_number",
+    "ticker",
+    "cik10",
+    "accepted_at",
+    "available_from",
+    "error",
+]
+
 OWNER_FIELDS = [
     "reporting_owner_cik",
     "reporting_owner_name",
@@ -366,7 +376,7 @@ def parse_section16_index(
     for col in SECTION16_HOLDING_COLUMNS:
         if col not in h.columns:
             h[col] = pd.NA
-    return filings, tx[SECTION16_TRANSACTION_COLUMNS].copy(), h[SECTION16_HOLDING_COLUMNS].copy(), pd.DataFrame(errors)
+    return (\n        filings,\n        tx[SECTION16_TRANSACTION_COLUMNS].copy(),\n        h[SECTION16_HOLDING_COLUMNS].copy(),\n        pd.DataFrame(errors, columns=SECTION16_ERROR_COLUMNS),\n    )
 
 
 def _owner_variants(row: pd.Series) -> list[dict[str, Any]]:
