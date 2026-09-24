@@ -17,7 +17,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from r1000_helpers import normalize_cik10  # noqa: E402
 from tools.run_sec_ownership_signals import build_form4_signal  # noqa: E402
-from tools.run_sec_section16_parser import build_ownership_state  # noqa: E402
+from tools.run_sec_section16_parser import SECTION16_ERROR_COLUMNS, build_ownership_state  # noqa: E402
 
 DEFAULT_PIT_ROOT = "data_pit/sec"
 DEFAULT_OUTPUT_DIR = "outputs/sec_ownership_signals"
@@ -219,6 +219,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         if error_keys:
             section16_errors = section16_errors.drop_duplicates(error_keys, keep="last")
         section16_errors = section16_errors.drop(columns=["_source_file"], errors="ignore")
+    else:
+        section16_errors = pd.DataFrame(columns=SECTION16_ERROR_COLUMNS)
     section16_state = build_ownership_state(section16_tx, section16_holdings)
 
     write_table(filings, pit_root / "sec_filings_index.parquet")
