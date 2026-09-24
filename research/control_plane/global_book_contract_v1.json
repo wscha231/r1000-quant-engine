@@ -1,0 +1,73 @@
+{
+  "schema_version": "global-book-contract-v1",
+  "research_only": true,
+  "truth_priority": [
+    "ACTUAL_BROKER_BOOK",
+    "APPROVED_TARGET",
+    "VERIFIED_PAPER_BOOK",
+    "SIMULATED_EXECUTION",
+    "RESEARCH_SIGNAL"
+  ],
+  "books": {
+    "RESEARCH_SIGNAL": {
+      "may_write_orders": false,
+      "economic_authority": "NONE"
+    },
+    "CANDIDATE_UNIVERSE": {
+      "may_write_orders": false,
+      "economic_authority": "NONE"
+    },
+    "TARGET_PROPOSAL": {
+      "may_write_orders": false,
+      "economic_authority": "PROPOSAL_ONLY"
+    },
+    "SIMULATED_EXECUTION": {
+      "may_write_orders": false,
+      "economic_authority": "SIMULATION_ONLY"
+    },
+    "PAPER_BOOK": {
+      "may_write_orders": false,
+      "economic_authority": "PAPER_ONLY"
+    },
+    "ACTUAL_BROKER_BOOK": {
+      "may_write_orders": false,
+      "economic_authority": "OBSERVED_TRUTH_ONLY"
+    }
+  },
+  "portfolio_actions": [
+    "NEW_ENTRY",
+    "ADD",
+    "HOLD",
+    "TRIM",
+    "REPLACE",
+    "EXIT",
+    "NO_TRADE",
+    "FORCED_EXIT"
+  ],
+  "rules": {
+    "book_namespace_mixing_allowed": false,
+    "etf_direct_overlap_must_aggregate": true,
+    "short_term_rs_only_exit_allowed": false,
+    "average_down_to_lower_cost_allowed": false
+  },
+  "identity_contract": {
+    "required_all": [
+      "asset_id",
+      "instrument",
+      "currency",
+      "lifecycle_state"
+    ],
+    "listed_security_required": [
+      "security_id",
+      "ticker",
+      "market",
+      "country"
+    ],
+    "issuer_identity": {
+      "field": "issuer_id",
+      "required_for_issuer_backed_assets": true,
+      "not_applicable_allowed_for_non_issuer_assets": true
+    },
+    "underlying_vehicle_separation_required": true
+  }
+}

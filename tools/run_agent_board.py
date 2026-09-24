@@ -94,7 +94,9 @@ def source_identity() -> tuple[str, str]:
     # Bind actual local bytes too: a dirty tree cannot reuse a clean-head task.
     paths = ['tools/run_agent_board.py', 'r1000_config.py', 'requirements_github.txt']
     paths += ['research/control_plane/' + name for name in
-              ('agent_contracts_v2.yaml', 'task_packet_schema.json', 'system_state_schema.json')]
+              ('agent_contracts_v2.yaml', 'task_packet_schema.json', 'system_state_schema.json',
+               'artifact_contract_registry_v1.json', 'dependency_merge_graph_v1.json',
+               'global_book_contract_v1.json')]
     identity = {name: file_hash(REPO_ROOT / name) for name in paths}
     # Cover dirty tracked specialist code and its transitive local dependencies,
     # not only the board's own files. Never print or publish patch contents.
@@ -105,6 +107,52 @@ def source_identity() -> tuple[str, str]:
                                    if name and Path(name).suffix in ('.py', '.pyi', '.sh', '.so', '.pyd')
                                    and (REPO_ROOT / name).is_file()}
     return sha, digest(identity)
+
+
+def control_registries() -> dict[str, Any]:
+    artifact = read_json(CONTRACT_DIR / 'artifact_contract_registry_v1.json')
+    dependency = read_json(CONTRACT_DIR / 'dependency_merge_graph_v1.json')
+    books = read_json(CONTRACT_DIR / 'global_book_contract_v1.json')
+    if artifact.get('schema_version') != 'artifact-contract-registry-v1':
+        raise ContractError('artifact_registry_schema')
+    if artifact.get('research_only') is not True:
+        raise ContractError('artifact_registry_authority')
+    if any(artifact.get('authority', {}).get(key) is not False
+           for key in ('execute', 'target', 'broker', 'scheduler', 'promotion')):
+        raise ContractError('artifact_registry_authority')
+    rules = dependency.get('rules') or {}
+    if dependency.get('schema_version') != 'dependency-merge-graph-v1':
+        raise ContractError('dependency_registry_schema')
+    if (rules.get('stale_stack_blind_merge_allowed') is not False
+            or rules.get('h1_h2_same_pr_allowed') is not False
+            or rules.get('fullrun_as_search_loop_allowed') is not False):
+        raise ContractError('dependency_registry_safety')
+    if books.get('schema_version') != 'global-book-contract-v1':
+        raise ContractError('global_book_schema')
+    if books.get('truth_priority') != [
+        'ACTUAL_BROKER_BOOK', 'APPROVED_TARGET', 'VERIFIED_PAPER_BOOK',
+        'SIMULATED_EXECUTION', 'RESEARCH_SIGNAL'
+    ]:
+        raise ContractError('global_book_truth_priority')
+    identity = books.get('identity_contract') or {}
+    if identity.get('required_all') != [
+        'asset_id', 'instrument', 'currency', 'lifecycle_state'
+    ]:
+        raise ContractError('global_book_identity_contract')
+    if identity.get('listed_security_required') != [
+        'security_id', 'ticker', 'market', 'country'
+    ]:
+        raise ContractError('global_book_identity_contract')
+    issuer = identity.get('issuer_identity') or {}
+    if (issuer.get('field') != 'issuer_id'
+            or issuer.get('required_for_issuer_backed_assets') is not True
+            or issuer.get('not_applicable_allowed_for_non_issuer_assets') is not True
+            or identity.get('underlying_vehicle_separation_required') is not True):
+        raise ContractError('global_book_identity_contract')
+    if any(row.get('may_write_orders') is not False
+           for row in (books.get('books') or {}).values()):
+        raise ContractError('global_book_order_authority')
+    return {'artifact': artifact, 'dependency': dependency, 'books': books}
 
 
 def operating_gates() -> dict[str, Any]:
@@ -143,6 +191,7 @@ def verify_artifact(root: Path, artifact: dict, cutoff: datetime, now: datetime)
 
 def contracts() -> dict:
     # JSON is a YAML subset; use strict duplicate/nonfinite parsing with no YAML tags.
+    control_registries()
     value = read_json(CONTRACT_DIR / 'agent_contracts_v2.yaml')
     agents = value['agents']
     if set(agents) != {f'A{i}' for i in range(9)} or value['authority'] != AUTHORITY:

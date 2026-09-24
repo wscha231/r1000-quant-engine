@@ -1,0 +1,32 @@
+{
+  "schema_version": "dependency-merge-graph-v1",
+  "research_only": true,
+  "rules": {
+    "stale_stack_blind_merge_allowed": false,
+    "h1_h2_same_pr_allowed": false,
+    "fullrun_as_search_loop_allowed": false,
+    "same_identity_skip_unchanged": true
+  },
+  "critical_path": [
+    "P0_OPERATING_H1",
+    "P0_PROVENANCE",
+    "P0_G0_PIT",
+    "CONTROL_PLANE_REGISTRIES",
+    "A2_A3_HANDOFF",
+    "WHOLE_EQUITY_RESEARCH_ER",
+    "VALIDATED_NET_ER",
+    "A5_PORTFOLIO",
+    "A6_QA",
+    "MATCHED_WINDOW_AB",
+    "RC1_RELEASE"
+  ],
+  "known_refs": {
+    "P0_OPERATING_H1": "PR#501",
+    "P0_PROVENANCE": "PR#494",
+    "P0_G0_PIT": "ISSUE#506",
+    "CONTROL_PLANE_REGISTRIES": "ISSUE#505",
+    "A2_A3_HANDOFF": "ISSUE#503",
+    "WHOLE_EQUITY_RESEARCH_ER": "PR#471_RECONSTRUCT_CURRENT_MASTER",
+    "RC1_RELEASE": "ISSUE#508"
+  }
+}
