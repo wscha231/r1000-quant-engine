@@ -93,6 +93,7 @@ SECTION16_HOLDING_COLUMNS = [
     "filing_date",
     "accepted_at",
     "available_from",
+    "state_effective_date",
     "ownership_nature",
     "direct_or_indirect",
     "shares_owned",
@@ -402,6 +403,7 @@ def build_ownership_state(transactions: pd.DataFrame, holdings: pd.DataFrame) ->
                 {
                     **{col: row.get(col, pd.NA) for col in SECTION16_HOLDING_COLUMNS if col not in OWNER_FIELDS and col != "reporting_owner_count" and col != "reporting_owners_json"},
                     **{field: owner.get(field, "") for field in OWNER_FIELDS},
+                    "state_effective_date": row.get("period_of_report") or row.get("filing_date", ""),
                     "state_source": "holding",
                 }
             )
@@ -422,6 +424,7 @@ def build_ownership_state(transactions: pd.DataFrame, holdings: pd.DataFrame) ->
                     "filing_date": row.get("filing_date", ""),
                     "accepted_at": row.get("accepted_at", ""),
                     "available_from": row.get("available_from", ""),
+                    "state_effective_date": row.get("transaction_date") or row.get("period_of_report") or row.get("filing_date", ""),
                     "ownership_nature": row.get("ownership_nature", ""),
                     "direct_or_indirect": row.get("direct_or_indirect", ""),
                     "shares_owned": row.get("shares_owned_after"),
@@ -446,8 +449,14 @@ def build_ownership_state(transactions: pd.DataFrame, holdings: pd.DataFrame) ->
     state["security_title"] = state["security_title"].fillna("").astype(str).str.strip()
     state["direct_or_indirect"] = state["direct_or_indirect"].fillna("").astype(str).str.upper().str.strip()
     state["available_from_ts"] = pd.to_datetime(state["available_from"], errors="coerce", utc=True)
-    state = state[state["available_from_ts"].notna()].copy()
-    state = state.sort_values(["available_from_ts", "accession_number", "state_source"])
+    state["state_effective_ts"] = pd.to_datetime(state["state_effective_date"], errors="coerce", utc=True)
+    state = state[state["available_from_ts"].notna() & state["state_effective_ts"].notna()].copy()
+    # A late Form 5 can disclose an older transaction.  Current ownership state
+    # follows the latest effective ownership event, while available_from is kept
+    # as the PIT knowledge boundary and amendment/tie-break timestamp.
+    state = state.sort_values(
+        ["state_effective_ts", "available_from_ts", "accession_number", "state_source"]
+    )
 
     keys = [
         "issuer_cik10",
@@ -456,7 +465,7 @@ def build_ownership_state(transactions: pd.DataFrame, holdings: pd.DataFrame) ->
         "is_derivative",
         "direct_or_indirect",
     ]
-    state = state.drop_duplicates(keys, keep="last").drop(columns=["available_from_ts"])
+    state = state.drop_duplicates(keys, keep="last").drop(columns=["available_from_ts", "state_effective_ts"])
     for col in OWNERSHIP_STATE_COLUMNS:
         if col not in state.columns:
             state[col] = pd.NA
