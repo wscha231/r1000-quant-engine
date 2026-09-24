@@ -12,9 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sys
-import time
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +31,6 @@ from tools.run_sec_form4_parser import (  # noqa: E402
     first_value,
     form4_url_candidates,
     nodes,
-    raw_form4_primary_document,
     read_filings_index,
     repo_path,
     sec_get_text,
@@ -202,7 +199,7 @@ def _transaction_row(
         "acquired_disposed_code": first_value(tx, "transactionAcquiredDisposedCode").upper().strip(),
         "transaction_shares": float(shares),
         "transaction_price": float(price),
-        "transaction_value": float(shares * price),
+        "transaction_value": None if is_derivative else float(shares * price),
         "ownership_nature": first_text(tx, "natureOfOwnership"),
         "direct_or_indirect": first_value(tx, "directOrIndirectOwnership"),
         "shares_owned_after": owned_after,
@@ -518,8 +515,8 @@ def write_outputs(
         "outputs": {name: str(path) for name, path in paths.items()},
     }
     summary_path = output_dir / "section16_summary.json"
-    summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
     summary["outputs"]["summary"] = str(summary_path)
+    summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
     return summary
 
 
