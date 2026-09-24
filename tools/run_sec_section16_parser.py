@@ -30,6 +30,7 @@ from tools.run_sec_form4_parser import (  # noqa: E402
     first_text,
     first_value,
     form4_url_candidates,
+    local_name,
     nodes,
     read_filings_index,
     repo_path,
@@ -60,20 +61,31 @@ OWNER_FIELDS = [
     "is_officer",
     "is_ten_percent_owner",
     "is_other",
+    "reporting_owner_country",
+    "reporting_owner_non_us_address",
+    "reporting_owner_non_us_state_territory",
 ]
 
 SECTION16_TRANSACTION_COLUMNS = [
     "issuer_ticker",
+    "issuer_foreign_trading_symbol",
     "issuer_cik10",
     *OWNER_FIELDS,
     "reporting_owner_count",
     "reporting_owners_json",
     "form_type",
     "period_of_report",
-    "transaction_date",
     "filing_date",
     "accepted_at",
     "available_from",
+    "not_subject_to_section16",
+    "aff10b5_one",
+    "remarks",
+    "footnotes_json",
+    "record_footnote_ids",
+    "transaction_date",
+    "deemed_execution_date",
+    "transaction_timeliness",
     "transaction_code",
     "acquired_disposed_code",
     "transaction_shares",
@@ -87,6 +99,8 @@ SECTION16_TRANSACTION_COLUMNS = [
     "underlying_security_title",
     "underlying_shares",
     "conversion_or_exercise_price",
+    "exercise_date",
+    "expiration_date",
     "equity_swap_involved",
     "accession_number",
     "filing_url",
@@ -94,6 +108,7 @@ SECTION16_TRANSACTION_COLUMNS = [
 
 SECTION16_HOLDING_COLUMNS = [
     "issuer_ticker",
+    "issuer_foreign_trading_symbol",
     "issuer_cik10",
     *OWNER_FIELDS,
     "reporting_owner_count",
@@ -103,6 +118,11 @@ SECTION16_HOLDING_COLUMNS = [
     "filing_date",
     "accepted_at",
     "available_from",
+    "not_subject_to_section16",
+    "aff10b5_one",
+    "remarks",
+    "footnotes_json",
+    "record_footnote_ids",
     "ownership_nature",
     "direct_or_indirect",
     "shares_owned",
@@ -111,12 +131,15 @@ SECTION16_HOLDING_COLUMNS = [
     "underlying_security_title",
     "underlying_shares",
     "conversion_or_exercise_price",
+    "exercise_date",
+    "expiration_date",
     "accession_number",
     "filing_url",
 ]
 
 OWNERSHIP_STATE_COLUMNS = [
     "issuer_ticker",
+    "issuer_foreign_trading_symbol",
     "issuer_cik10",
     *OWNER_FIELDS,
     "form_type",
@@ -153,6 +176,9 @@ def _owner_record(owner: Any) -> dict[str, Any]:
         "is_officer": as_bool(first_text(rel, "isOfficer")),
         "is_ten_percent_owner": as_bool(first_text(rel, "isTenPercentOwner")),
         "is_other": as_bool(first_text(rel, "isOther")),
+        "reporting_owner_country": first_text(owner, "rptOwnerCountry"),
+        "reporting_owner_non_us_address": as_bool(first_text(owner, "rptOwnerNonUSAddressFlag")),
+        "reporting_owner_non_us_state_territory": first_text(owner, "rptOwnerNonUSStateTerritory"),
     }
 
 
@@ -174,16 +200,49 @@ def _owner_bundle(owners: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _optional_bool(node: Any, name: str) -> bool | None:
+    value = first_text(node, name)
+    return None if value == "" else as_bool(value)
+
+
+def _footnote_map(root: Any) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for footnote in nodes(root, "footnote"):
+        ident = str(footnote.attrib.get("id") or "").strip().upper()
+        if not ident:
+            continue
+        text = " ".join("".join(footnote.itertext()).split())
+        out[ident] = text
+    return out
+
+
+def _footnote_ids(node: Any) -> list[str]:
+    ids: list[str] = []
+    for child in node.iter():
+        if local_name(child.tag) != "footnoteId":
+            continue
+        ident = str(child.attrib.get("id") or "").strip().upper()
+        if ident and ident not in ids:
+            ids.append(ident)
+    return ids
+
+
 def _filing_meta(root: Any, filing: dict[str, Any]) -> dict[str, Any]:
     form_type = str(filing.get("form_type") or first_text(root, "documentType")).upper().strip()
+    footnotes = _footnote_map(root)
     return {
         "issuer_ticker": first_text(root, "issuerTradingSymbol").upper().strip(),
+        "issuer_foreign_trading_symbol": first_text(root, "issuerForeignTradingSymbol").upper().strip(),
         "issuer_cik10": cik10(first_text(root, "issuerCik")),
         "form_type": form_type,
         "period_of_report": first_text(root, "periodOfReport"),
         "filing_date": str(filing.get("filing_date") or ""),
         "accepted_at": str(filing.get("accepted_at") or ""),
         "available_from": str(filing.get("available_from") or filing.get("accepted_at") or ""),
+        "not_subject_to_section16": _optional_bool(root, "notSubjectToSection16"),
+        "aff10b5_one": _optional_bool(root, "aff10b5One"),
+        "remarks": first_text(root, "remarks"),
+        "footnotes_json": json.dumps(footnotes, sort_keys=True, ensure_ascii=False),
         "accession_number": str(filing.get("accession_number") or ""),
         "filing_url": str(filing.get("filing_url") or ""),
     }
@@ -206,12 +265,15 @@ def _transaction_row(
         **_filing_meta(root, filing),
         **_owner_bundle(owners),
         "transaction_date": first_value(tx, "transactionDate"),
+        "deemed_execution_date": first_value(tx, "deemedExecutionDate"),
+        "transaction_timeliness": first_value(tx, "transactionTimeliness"),
+        "record_footnote_ids": json.dumps(_footnote_ids(tx)),
         "transaction_code": first_text(tx, "transactionCode").upper().strip(),
         "acquired_disposed_code": first_value(tx, "transactionAcquiredDisposedCode").upper().strip(),
         "transaction_shares": float(shares),
         "transaction_price": float(price),
         "transaction_value": None if is_derivative else float(shares * price),
-        "ownership_nature": first_text(tx, "natureOfOwnership"),
+        "ownership_nature": first_value(tx, "natureOfOwnership"),
         "direct_or_indirect": first_value(tx, "directOrIndirectOwnership"),
         "shares_owned_after": owned_after,
         "is_derivative": bool(is_derivative),
@@ -219,6 +281,8 @@ def _transaction_row(
         "underlying_security_title": first_value(tx, "underlyingSecurityTitle"),
         "underlying_shares": underlying_shares,
         "conversion_or_exercise_price": conversion,
+        "exercise_date": first_value(tx, "exerciseDate"),
+        "expiration_date": first_value(tx, "expirationDate"),
         "equity_swap_involved": as_bool(first_text(tx, "equitySwapInvolved")),
     }
 
@@ -234,7 +298,8 @@ def _holding_row(
     return {
         **_filing_meta(root, filing),
         **_owner_bundle(owners),
-        "ownership_nature": first_text(holding, "natureOfOwnership"),
+        "record_footnote_ids": json.dumps(_footnote_ids(holding)),
+        "ownership_nature": first_value(holding, "natureOfOwnership"),
         "direct_or_indirect": first_value(holding, "directOrIndirectOwnership"),
         "shares_owned": as_float(first_value(holding, "sharesOwnedFollowingTransaction")),
         "is_derivative": bool(is_derivative),
@@ -242,6 +307,8 @@ def _holding_row(
         "underlying_security_title": first_value(holding, "underlyingSecurityTitle"),
         "underlying_shares": as_float(first_value(holding, "underlyingSecurityShares")),
         "conversion_or_exercise_price": as_float(first_value(holding, "conversionOrExercisePrice")),
+        "exercise_date": first_value(holding, "exerciseDate"),
+        "expiration_date": first_value(holding, "expirationDate"),
     }
 
 
