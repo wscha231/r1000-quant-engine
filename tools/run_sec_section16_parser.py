@@ -177,7 +177,11 @@ def _owner_record(owner: Any) -> dict[str, Any]:
         "is_ten_percent_owner": as_bool(first_text(rel, "isTenPercentOwner")),
         "is_other": as_bool(first_text(rel, "isOther")),
         "reporting_owner_country": first_text(owner, "rptOwnerCountry"),
-        "reporting_owner_non_us_address": as_bool(first_text(owner, "rptOwnerNonUSAddressFlag")),
+        "reporting_owner_non_us_address": (
+            None
+            if first_text(owner, "rptOwnerNonUSAddressFlag") == ""
+            else as_bool(first_text(owner, "rptOwnerNonUSAddressFlag"))
+        ),
         "reporting_owner_non_us_state_territory": first_text(owner, "rptOwnerNonUSStateTerritory"),
     }
 
