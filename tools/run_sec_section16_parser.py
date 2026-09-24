@@ -156,6 +156,8 @@ OWNERSHIP_STATE_COLUMNS = [
     "underlying_security_title",
     "underlying_shares",
     "conversion_or_exercise_price",
+    "exercise_date",
+    "expiration_date",
     "accession_number",
     "filing_url",
     "state_source",
@@ -503,6 +505,7 @@ def build_ownership_state(transactions: pd.DataFrame, holdings: pd.DataFrame) ->
             rows.append(
                 {
                     "issuer_ticker": row.get("issuer_ticker", ""),
+                    "issuer_foreign_trading_symbol": row.get("issuer_foreign_trading_symbol", ""),
                     "issuer_cik10": row.get("issuer_cik10", ""),
                     **{field: owner.get(field, "") for field in OWNER_FIELDS},
                     "form_type": row.get("form_type", ""),
@@ -519,6 +522,8 @@ def build_ownership_state(transactions: pd.DataFrame, holdings: pd.DataFrame) ->
                     "underlying_security_title": row.get("underlying_security_title", ""),
                     "underlying_shares": row.get("underlying_shares"),
                     "conversion_or_exercise_price": row.get("conversion_or_exercise_price"),
+                    "exercise_date": row.get("exercise_date", ""),
+                    "expiration_date": row.get("expiration_date", ""),
                     "accession_number": row.get("accession_number", ""),
                     "filing_url": row.get("filing_url", ""),
                     "state_source": "transaction",
@@ -550,6 +555,10 @@ def build_ownership_state(transactions: pd.DataFrame, holdings: pd.DataFrame) ->
         "security_title",
         "is_derivative",
         "direct_or_indirect",
+        "underlying_security_title",
+        "conversion_or_exercise_price",
+        "exercise_date",
+        "expiration_date",
     ]
     state = state.drop_duplicates(keys, keep="last").drop(columns=["available_from_ts", "state_effective_ts"])
     for col in OWNERSHIP_STATE_COLUMNS:
