@@ -271,8 +271,8 @@ def _transaction_row(
     *,
     is_derivative: bool,
 ) -> dict[str, Any]:
-    shares = as_float(first_value(tx, "transactionShares")) or 0.0
-    price = as_float(first_value(tx, "transactionPricePerShare")) or 0.0
+    shares = as_float(first_value(tx, "transactionShares"))
+    price = as_float(first_value(tx, "transactionPricePerShare"))
     owned_after = as_float(first_value(tx, "sharesOwnedFollowingTransaction"))
     underlying_shares = as_float(first_value(tx, "underlyingSecurityShares"))
     conversion = as_float(first_value(tx, "conversionOrExercisePrice"))
@@ -285,9 +285,9 @@ def _transaction_row(
         "record_footnote_ids": json.dumps(_footnote_ids(tx)),
         "transaction_code": first_text(tx, "transactionCode").upper().strip(),
         "acquired_disposed_code": first_value(tx, "transactionAcquiredDisposedCode").upper().strip(),
-        "transaction_shares": float(shares),
-        "transaction_price": float(price),
-        "transaction_value": None if is_derivative else float(shares * price),
+        "transaction_shares": shares,
+        "transaction_price": price,
+        "transaction_value": None if is_derivative or shares is None or price is None else float(shares * price),
         "ownership_nature": first_value(tx, "natureOfOwnership"),
         "direct_or_indirect": first_value(tx, "directOrIndirectOwnership"),
         "shares_owned_after": owned_after,

@@ -248,6 +248,28 @@ def test_section16_form5_preserves_transaction_as_data_only() -> None:
     assert tx[0]["transaction_value"] == 0.0
 
 
+def test_section16_missing_transaction_price_remains_unknown_not_zero() -> None:
+    xml = SAMPLE_FORM4.replace(
+        "<transactionPricePerShare><value>175.50</value></transactionPricePerShare>",
+        "",
+    )
+    tx, holdings = parse_section16_xml(
+        xml,
+        filing={
+            "form_type": "4",
+            "filing_date": "2026-05-12",
+            "accepted_at": "2026-05-12T21:30:00+00:00",
+            "available_from": "2026-05-13T00:00:00+00:00",
+            "accession_number": "0000320193-26-000099",
+        },
+    )
+    assert holdings == []
+    assert len(tx) == 1
+    assert tx[0]["transaction_shares"] == 1000.0
+    assert tx[0]["transaction_price"] is None
+    assert tx[0]["transaction_value"] is None
+
+
 def test_section16_merge_normalizers_preserve_form_and_derivative_identity() -> None:
     tx = pd.DataFrame(
         [
@@ -384,6 +406,7 @@ if __name__ == "__main__":
     test_section16_preserves_10b5_footnotes_and_current_identity_fields()
     test_section16_form3_preserves_initial_holdings_without_fabricating_trade()
     test_section16_form5_preserves_transaction_as_data_only()
+    test_section16_missing_transaction_price_remains_unknown_not_zero()
     test_section16_merge_normalizers_preserve_form_and_derivative_identity()
     test_late_form5_does_not_regress_newer_effective_ownership_state()
     test_section16_multi_owner_state_fails_closed_instead_of_duplicating_ownership()
