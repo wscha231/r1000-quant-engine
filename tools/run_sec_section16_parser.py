@@ -593,7 +593,12 @@ def build_ownership_state(transactions: pd.DataFrame, holdings: pd.DataFrame) ->
     for col in ["issuer_cik10", "reporting_owner_cik"]:
         state[col] = state[col].map(cik10)
     state["issuer_ticker"] = state["issuer_ticker"].fillna("").astype(str).str.upper().str.strip()
-    state["security_title"] = state["security_title"].fillna("").astype(str).str.strip()
+    # Holdings and transactions can arrive with sparse schemas where the same
+    # missing identity field is represented as pd.NA in one source and "" in
+    # another. Normalize text identity keys before dedupe so those encodings do
+    # not fabricate two ownership positions.
+    for col in ["security_title", "underlying_security_title", "exercise_date", "expiration_date"]:
+        state[col] = state[col].fillna("").astype(str).str.strip()
     state["direct_or_indirect"] = state["direct_or_indirect"].fillna("").astype(str).str.upper().str.strip()
     state["available_from_ts"] = pd.to_datetime(state["available_from"], errors="coerce", utc=True)
     state["state_effective_ts"] = pd.to_datetime(state["state_effective_date"], errors="coerce", utc=True)
