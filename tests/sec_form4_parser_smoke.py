@@ -14,6 +14,7 @@ from tools.run_sec_form4_parser import cache_name, form4_url_candidates, parse_f
 from tools.run_sec_ownership_signals import build_form4_signal  # noqa: E402
 from tools.run_sec_section16_parser import build_ownership_state, parse_section16_xml  # noqa: E402
 from tools.run_sec_form4_merge_shards import normalize_section16_holdings, normalize_section16_transactions  # noqa: E402
+from sec_form4_merge_shards_smoke import test_merge_shards_dedupes_and_builds_signals as _run_merge_shards_smoke  # noqa: E402
 
 
 SAMPLE_FORM4 = """<?xml version="1.0"?>
@@ -410,4 +411,5 @@ if __name__ == "__main__":
     test_section16_merge_normalizers_preserve_form_and_derivative_identity()
     test_late_form5_does_not_regress_newer_effective_ownership_state()
     test_section16_multi_owner_state_fails_closed_instead_of_duplicating_ownership()
+    _run_merge_shards_smoke()
     print("sec_form4_parser_smoke passed")
