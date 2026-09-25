@@ -1,0 +1,102 @@
+{
+  "downstream_contexts": [
+    "STRUCTURAL_FISCAL_STATE",
+    "USD_CASH_REAL_VALUE",
+    "TREASURY_DURATION",
+    "FX_RISK",
+    "ASSET_TRANSMISSION",
+    "SCENARIO_CORRELATION",
+    "HIDDEN_RISK_GROUPS"
+  ],
+  "forbidden_economic_fields": [
+    "BUY",
+    "SELL",
+    "TARGET_WEIGHT",
+    "MINIMUM_SLEEVE",
+    "EXPECTED_DIRECTION",
+    "ASSET_CLASS_SCORE"
+  ],
+  "pit_classes": [
+    "HISTORICAL_EXACT_PIT",
+    "HISTORICAL_DATE_PIT",
+    "FORWARD_PIT_ONLY",
+    "HISTORICAL_BLOCKED",
+    "DERIVED_AFTER_PIT_INPUTS"
+  ],
+  "required_contract_fields": [
+    "source_contract_id",
+    "country",
+    "risk_family",
+    "source_authority",
+    "canonical_source_uri",
+    "source_timezone",
+    "frequency",
+    "pit_class",
+    "publication_precision",
+    "availability_rule",
+    "perimeter",
+    "unit_contract",
+    "currency_contract",
+    "revision_policy",
+    "methodology_policy",
+    "historical_archive_policy",
+    "raw_redistribution_policy",
+    "downstream_contexts",
+    "forbidden_uses",
+    "required_row_fields"
+  ],
+  "required_root_fields": [
+    "schema",
+    "version",
+    "mode",
+    "selector_execution_allowed",
+    "portfolio_authority",
+    "allowed_pit_classes",
+    "allowed_revision_statuses",
+    "allowed_perimeters",
+    "allowed_downstream_contexts",
+    "allowed_risk_families",
+    "forbidden_economic_fields",
+    "source_contracts"
+  ],
+  "required_row_fields": [
+    "series_id",
+    "perimeter",
+    "observation_date_or_period",
+    "published_at_source",
+    "published_at_precision",
+    "public_available_at",
+    "decision_available_at",
+    "revision_status",
+    "vintage_id",
+    "estimate_type",
+    "methodology_version",
+    "unit",
+    "currency",
+    "frequency",
+    "value",
+    "raw_sha256",
+    "parsed_row_sha256",
+    "data_quality",
+    "pit_class",
+    "reconstructed_from_release_archive"
+  ],
+  "revision_statuses": [
+    "FIRST_RELEASE",
+    "PRELIMINARY",
+    "REVISED",
+    "FINAL",
+    "ANNUAL_UPDATE",
+    "CURRENT_VINTAGE",
+    "STAFF_ESTIMATE",
+    "PROJECTION"
+  ],
+  "risk_families": [
+    "FISCAL_ARITHMETIC",
+    "CAPITAL_PRODUCTIVITY",
+    "FINANCIAL_DISTORTION",
+    "EXTERNAL_MONETARY_FISCAL_COHESION",
+    "MARKET_CONFIRMATION"
+  ],
+  "schema": "sovereign-fiscal-source-contract-schema-v1"
+}
