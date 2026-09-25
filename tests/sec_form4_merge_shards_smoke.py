@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 """Smoke test for merging SEC Form 4 shard outputs."""
 from __future__ import annotations
 
@@ -165,6 +166,14 @@ def test_merge_shards_dedupes_and_builds_signals() -> None:
         assert state.iloc[0]["reporting_owner_cik"] == "0000000999"
         assert state.iloc[0]["shares_owned"] == 1200.0
         assert state.iloc[0]["state_source"] == "transaction"
+        section16_summary = json.loads((pit_root / "section16_summary.json").read_text(encoding="utf-8"))
+        assert section16_summary["status"] == "completed"
+        assert section16_summary["data_complete"] is True
+        assert section16_summary["filing_rows"] == 1
+        assert section16_summary["transaction_rows"] == 1
+        assert section16_summary["holding_rows"] == 1
+        assert section16_summary["ownership_state_rows"] == 1
+        assert section16_summary["parse_error_rows"] == 0
 
 
 if __name__ == "__main__":

@@ -231,6 +231,27 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     write_table(section16_holdings, pit_root / "section16_holdings.parquet")
     write_table(section16_state, pit_root / "section16_ownership_state.parquet")
     write_table(section16_errors, pit_root / "section16_parse_errors.csv")
+    section16_summary = {
+        "schema_version": "sec-section16-pit-merge-v1",
+        "status": "completed" if section16_errors.empty else "partial_parse_errors",
+        "data_complete": bool(section16_errors.empty),
+        "research_only": True,
+        "production_activation_allowed": False,
+        "filing_rows": int(len(section16_filings)),
+        "transaction_rows": int(len(section16_tx)),
+        "holding_rows": int(len(section16_holdings)),
+        "ownership_state_rows": int(len(section16_state)),
+        "parse_error_rows": int(len(section16_errors)),
+        "outputs": {
+            "filings": str(pit_root / "section16_filings.parquet"),
+            "transactions": str(pit_root / "section16_transactions.parquet"),
+            "holdings": str(pit_root / "section16_holdings.parquet"),
+            "ownership_state": str(pit_root / "section16_ownership_state.parquet"),
+            "errors": str(pit_root / "section16_parse_errors.csv"),
+            "summary": str(pit_root / "section16_summary.json"),
+        },
+    }
+    write_json(pit_root / "section16_summary.json", section16_summary)
     signals.to_csv(output_dir / "form4_latest.csv", index=False)
     signals.head(30).to_csv(output_dir / "ownership_signal_top30.csv", index=False)
 
@@ -254,6 +275,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "section16_holding_rows": int(len(section16_holdings)),
         "section16_ownership_state_rows": int(len(section16_state)),
         "section16_parse_error_rows": int(len(section16_errors)),
+        "section16_status": section16_summary["status"],
+        "section16_data_complete": section16_summary["data_complete"],
         "historical_as_of_dates": int(signals["as_of_date"].nunique()) if not signals.empty and "as_of_date" in signals.columns else 0,
         "outputs": {
             "sec_filings_index": str(pit_root / "sec_filings_index.parquet"),
@@ -264,6 +287,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "section16_holdings": str(pit_root / "section16_holdings.parquet"),
             "section16_ownership_state": str(pit_root / "section16_ownership_state.parquet"),
             "section16_parse_errors": str(pit_root / "section16_parse_errors.csv"),
+            "section16_summary": str(pit_root / "section16_summary.json"),
             "form4_latest": str(output_dir / "form4_latest.csv"),
         },
     }
