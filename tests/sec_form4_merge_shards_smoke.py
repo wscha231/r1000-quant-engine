@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-import json
 """Smoke test for merging SEC Form 4 shard outputs."""
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import tempfile
 from pathlib import Path
