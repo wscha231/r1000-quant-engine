@@ -143,7 +143,7 @@ jobs:
           python tools/run_sec_submissions_collector.py \
             --tickers "$TICKERS" \
             --universe-file ./.missing_universe.csv \
-            --forms '4,4/A' \
+            --forms '3,3/A,4,4/A,5,5/A' \
             --output-dir data_pit/sec/shards/daily_latest \
             --raw-dir data_raw/sec \
             --user-agent "$SEC_USER_AGENT" \
@@ -158,6 +158,14 @@ jobs:
             --sleep 0.12 \
             --max-filings "$MAX_FILINGS" \
             2>&1 | tee outputs/full_rebuild_logs/sec_form4_parser.log
+          python tools/run_sec_section16_parser.py \
+            --filings-index data_pit/sec/shards/daily_latest/sec_filings_index.parquet \
+            --output-dir data_pit/sec/shards/daily_latest \
+            --raw-dir data_raw/sec \
+            --user-agent "$SEC_USER_AGENT" \
+            --sleep 0.12 \
+            --max-filings "$MAX_FILINGS" \
+            2>&1 | tee outputs/full_rebuild_logs/sec_section16_parser.log
           python tools/run_sec_form4_merge_shards.py \
             --pit-root data_pit/sec \
             --output-dir outputs/sec_ownership_signals \
@@ -172,6 +180,7 @@ jobs:
           path: |
             data_pit/sec/sec_filings_index.*
             data_pit/sec/form4_transactions.*
+            data_pit/sec/section16_*.*
             data_pit/sec/*summary.json
             outputs/sec_ownership_signals/
             outputs/full_rebuild_logs/sec_form4_*.log
