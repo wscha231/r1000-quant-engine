@@ -1,5 +1,12 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-23 — ALFRED pagination should raise throughput without relaxing integrity
+
+- NFCI exceeded the legacy 20×10,000 observation pagination envelope.
+- Raise only the per-request ALFRED page size to 50,000 while retaining MAX_PAGES=20, yielding a hard 1,000,000-row cap.
+- Keep the 16 MiB response cap, stable count/offset checks, complete-pagination requirement, no redirects and credential-echo rejection unchanged.
+- A larger bounded page is a transport H1 fix, not PIT certification or selector readiness.
+
 ## 2026-09-23 — Security-basis hashes must bind actual source bytes
 
 - A syntactically valid corporate-action or ADR SHA string is not provenance.
