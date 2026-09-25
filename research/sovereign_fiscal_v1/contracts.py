@@ -28,11 +28,25 @@ def schema(): return load(SCHEMA)
 
 def _unique(values,msg): require(len(values)==len(set(values)),msg)
 
+def _aware(value,msg):
+    try:
+        parsed=datetime.fromisoformat(value)
+    except (TypeError,ValueError) as e:
+        raise ContractError(msg) from e
+    require(parsed.tzinfo is not None and parsed.utcoffset() is not None,msg)
+    return parsed
+
+def _hex64(value,msg):
+    require(isinstance(value,str) and len(value)==64 and all(c in '0123456789abcdef' for c in value.lower()),msg)
+    return value
+
 def validate_registry(payload=None):
     r=registry() if payload is None else payload
     s=schema()
     require(isinstance(r,dict),'registry_root')
     for f in s['required_root_fields']: require(f in r,'missing_root:'+f)
+    require(r['schema']=='sovereign-fiscal-source-contract-registry-v1','registry_schema')
+    require(r['version']==1,'registry_version')
     require(r['mode']=='RESEARCH_ONLY','mode')
     require(r['selector_execution_allowed'] is False,'selector_authority')
     require(r['portfolio_authority'] is False,'portfolio_authority')
@@ -40,6 +54,9 @@ def validate_registry(payload=None):
     require(set(r['allowed_pit_classes'])==set(s['pit_classes']),'pit_enum_drift')
     require(set(r['allowed_revision_statuses'])==set(s['revision_statuses']),'revision_enum_drift')
     require(set(r['allowed_downstream_contexts'])==set(s['downstream_contexts']),'context_enum_drift')
+    require(set(r['allowed_risk_families'])==set(s['risk_families']),'risk_family_enum_drift')
+    require(set(r['forbidden_economic_fields'])==set(s['forbidden_economic_fields']),'forbidden_enum_drift')
+    _unique(r['allowed_perimeters'],'duplicate_perimeter')
     forbidden=set(s['forbidden_economic_fields'])
     for c in r['source_contracts']:
         validate_source_contract(c,r,s,forbidden)
@@ -49,10 +66,20 @@ def validate_source_contract(c,r,s,forbidden=None):
     forbidden=set(s['forbidden_economic_fields']) if forbidden is None else forbidden
     require(isinstance(c,dict),'contract_root')
     for f in s['required_contract_fields']: require(f in c,'missing_contract:'+f)
+    require(isinstance(c['source_contract_id'],str) and c['source_contract_id'],'contract_id')
     require(c['country'] in {'USA','CHN'},'country')
+    require(isinstance(c['source_authority'],str) and c['source_authority'].strip(),'source_authority')
+    require(isinstance(c['canonical_source_uri'],str) and c['canonical_source_uri'],'source_uri')
+    if c['pit_class'] not in {'HISTORICAL_BLOCKED','DERIVED_AFTER_PIT_INPUTS'}:
+        require(c['canonical_source_uri'].startswith('https://'),'source_uri')
+    require(isinstance(c['frequency'],str) and c['frequency'],'frequency')
     require(c['risk_family'] in r['allowed_risk_families'],'risk_family')
     require(c['pit_class'] in r['allowed_pit_classes'],'pit_class')
     require(c['perimeter'] in r['allowed_perimeters'],'perimeter')
+    require(c['unit_contract'] not in {None,''},'unit_contract')
+    require(c['currency_contract'] not in {None,''},'currency_contract')
+    for policy in ('revision_policy','methodology_policy','historical_archive_policy','raw_redistribution_policy'):
+        require(isinstance(c[policy],str) and c[policy].strip(),'policy:'+policy)
     require(bool(c['source_timezone']),'timezone')
     try: ZoneInfo(c['source_timezone'])
     except Exception as e: raise ContractError('timezone') from e
@@ -68,6 +95,11 @@ def validate_source_contract(c,r,s,forbidden=None):
     if c['pit_class']=='HISTORICAL_EXACT_PIT':
         require(c['publication_precision']=='EXACT_TIMESTAMP','exact_precision')
         require(c['availability_rule']=='OFFICIAL_TIMESTAMP','exact_availability')
+    if c['perimeter'].startswith('CN_IMF_'):
+        authority=c['source_authority'].upper()
+        require('IMF' in authority or 'INTERNATIONAL MONETARY FUND' in authority,'imf_source_authority')
+    if c['perimeter'].startswith('CN_OFFICIAL_'):
+        require('IMF' not in c['source_authority'].upper(),'official_source_not_staff_estimate')
     if c['source_contract_id']=='CN_IMF_AUGMENTED_DEBT':
         require(c['perimeter']=='CN_IMF_AUGMENTED_GENERAL_GOVERNMENT','imf_augmented_perimeter')
         require('STAFF_ESTIMATE' in c['methodology_policy'],'imf_staff_estimate')
@@ -84,11 +116,20 @@ def next_day_available(publication_date: str, timezone: str) -> str:
 def validate_row(contract,row,decision_cutoff=None):
     r=registry(); s=schema(); validate_source_contract(contract,r,s)
     for f in contract['required_row_fields']: require(f in row,'missing_row:'+f)
+    require(row['series_id']==contract['source_contract_id'],'row_series_identity')
     require(row['pit_class']==contract['pit_class'],'row_pit_class')
     require(row['perimeter']==contract['perimeter'],'row_perimeter')
+    require(row['published_at_precision']==contract['publication_precision'],'row_publication_precision')
+    require(row['frequency']==contract['frequency'],'row_frequency')
     require(row['revision_status'] in r['allowed_revision_statuses'],'revision_status')
     require(row['unit'] not in {None,'','UNKNOWN'},'unit')
     require(row['currency'] not in {None,''},'currency')
+    _hex64(row['raw_sha256'],'raw_sha256')
+    _hex64(row['parsed_row_sha256'],'parsed_row_sha256')
+    if row['revision_status']=='PROJECTION': require(row['estimate_type']=='PROJECTION','projection_estimate_type')
+    if row['revision_status']=='STAFF_ESTIMATE':
+        require(contract['perimeter'].startswith('CN_IMF_'),'staff_estimate_perimeter')
+        require(row['estimate_type'] in {'STAFF_ESTIMATE','PROJECTION'},'staff_estimate_type')
     if contract['pit_class']=='HISTORICAL_BLOCKED':
         require(row['decision_available_at'] is None,'blocked_decision_availability')
         return row
@@ -97,14 +138,28 @@ def validate_row(contract,row,decision_cutoff=None):
     else:
         require(row['public_available_at'] is not None,'public_availability')
         require(row['decision_available_at'] is not None,'decision_availability')
+    public_at=None
+    decision_at=_aware(row['decision_available_at'],'decision_availability_timestamp') if row['decision_available_at'] else None
+    if row['public_available_at']:
+        public_at=_aware(row['public_available_at'],'public_availability_timestamp')
+        require(decision_at is not None and decision_at>=public_at,'decision_before_public_availability')
     if contract['pit_class']=='HISTORICAL_DATE_PIT':
         require(row['published_at_precision']=='DATE_ONLY','row_date_precision')
+        try:
+            published=datetime.fromisoformat(row['published_at_source'])
+        except (TypeError,ValueError) as e:
+            raise ContractError('published_date') from e
+        require('T' not in row['published_at_source'],'published_date_precision')
         expected=next_day_available(row['published_at_source'],contract['source_timezone'])
         require(row['public_available_at']==expected,'same_day_or_wrong_date_availability')
+    if contract['pit_class']=='HISTORICAL_EXACT_PIT':
+        published=_aware(row['published_at_source'],'published_timestamp')
+        require(public_at==published,'exact_public_availability_mismatch')
     if row['reconstructed_from_release_archive']:
-        require(row['raw_sha256'] and row.get('publication_metadata_sha256'),'reconstruction_metadata')
+        _hex64(row.get('publication_metadata_sha256'),'publication_metadata_sha256')
+        require(row['revision_status']!='CURRENT_VINTAGE','current_vintage_historical_reconstruction')
     if decision_cutoff and row['decision_available_at']:
-        require(datetime.fromisoformat(row['decision_available_at'])<=datetime.fromisoformat(decision_cutoff),'future_availability')
+        require(decision_at<=_aware(decision_cutoff,'decision_cutoff'),'future_availability')
     return row
 
 def validate_vintage_chain(rows):

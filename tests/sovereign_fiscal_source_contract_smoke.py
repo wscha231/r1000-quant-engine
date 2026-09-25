@@ -60,6 +60,36 @@ class Contracts(unittest.TestCase):
     def test_negative_forbidden_buy_field(self):
         r=copy.deepcopy(registry()); r['source_contracts'][0]['BUY']=True
         with self.assertRaises(ContractError): validate_registry(r)
+    def test_negative_exact_public_before_publication(self):
+        c=contract('US_TIC_FOREIGN_DEMAND'); r=base_row(c,public_available_at='2026-09-24T15:59:59-04:00',decision_available_at='2026-09-24T15:59:59-04:00')
+        with self.assertRaises(ContractError): validate_row(c,r)
+    def test_negative_decision_before_public(self):
+        c=contract('US_TIC_FOREIGN_DEMAND'); r=base_row(c,decision_available_at='2026-09-24T15:59:59-04:00')
+        with self.assertRaises(ContractError): validate_row(c,r)
+    def test_negative_series_identity(self):
+        c=contract('US_TIC_FOREIGN_DEMAND'); r=base_row(c,series_id='US_NOMINAL_GDP')
+        with self.assertRaises(ContractError): validate_row(c,r)
+    def test_negative_frequency_identity(self):
+        c=contract('US_TIC_FOREIGN_DEMAND'); r=base_row(c,frequency='DAILY')
+        with self.assertRaises(ContractError): validate_row(c,r)
+    def test_negative_future_decision_cutoff(self):
+        c=contract('US_TIC_FOREIGN_DEMAND'); r=base_row(c)
+        with self.assertRaises(ContractError): validate_row(c,r,decision_cutoff='2026-09-24T15:59:59-04:00')
+    def test_negative_current_vintage_reconstruction(self):
+        c=contract('US_TIC_FOREIGN_DEMAND'); r=base_row(c,reconstructed_from_release_archive=True,revision_status='CURRENT_VINTAGE')
+        with self.assertRaises(ContractError): validate_row(c,r)
+    def test_negative_staff_estimate_official_perimeter(self):
+        c=contract('CN_MOF_LOCAL_DEBT_BALANCE'); r=base_row(c,revision_status='STAFF_ESTIMATE',estimate_type='STAFF_ESTIMATE')
+        with self.assertRaises(ContractError): validate_row(c,r)
+    def test_negative_projection_as_observed(self):
+        c=contract('US_CBO_FISCAL_BASELINE'); r=base_row(c,revision_status='PROJECTION',estimate_type='OBSERVED')
+        with self.assertRaises(ContractError): validate_row(c,r)
+    def test_negative_bad_raw_hash(self):
+        c=contract('US_TIC_FOREIGN_DEMAND'); r=base_row(c,raw_sha256='bad')
+        with self.assertRaises(ContractError): validate_row(c,r)
+    def test_negative_missing_timezone_contract(self):
+        r=copy.deepcopy(registry()); r['source_contracts'][0]['source_timezone']=''
+        with self.assertRaises(ContractError): validate_registry(r)
     def test_negative_expected_direction(self):
         r=copy.deepcopy(registry()); r['source_contracts'][0]['EXPECTED_DIRECTION']='TAILWIND'
         with self.assertRaises(ContractError): validate_registry(r)
