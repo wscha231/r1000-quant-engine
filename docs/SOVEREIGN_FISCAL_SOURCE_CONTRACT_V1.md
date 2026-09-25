@@ -14,3 +14,9 @@ Bind official source identity, perimeter, publication availability, revision sem
 
 ## Next
 After this contract is applied and independently reviewed on current master, A0 may issue U.S. exact-time archive adapters (TIC + BEA + BLS). Do not start A4 structural scoring yet.
+
+## Temporal ordering
+- Exact-time evidence binds public availability to the documented official timestamp.
+- Decision availability may not precede public availability.
+- Historical release reconstruction rejects CURRENT_VINTAGE rows and requires bound release/publication evidence.
+- Row identity, frequency and cryptographic hashes are validated before downstream use.
