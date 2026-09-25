@@ -5319,3 +5319,4 @@ Expected contract:
 - Exact-time rows must bind public availability to the documented official timestamp; decision availability must not precede public availability; historical reconstruction must reject current-vintage substitution.
 - Row identity, frequency, source perimeter, revision class and raw/parsed hashes should be validated together so a well-formed but misbound row cannot enter A4/A5 research.
 - China official-government perimeters and IMF staff-estimate/augmented perimeters remain disjoint; regression fixtures must fail if staff estimates are relabeled official.
+- When a Git-data fallback is unavoidable, inspect the published PR diff before review; string-escaped newlines or transport formatting can corrupt otherwise locally validated source bytes.
