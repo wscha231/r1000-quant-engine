@@ -101,6 +101,18 @@ def test_portfolio_system_guard_mission_boundaries_and_missing_metrics() -> None
         metrics = {"_metric_source": "broker_ledger_next_close", "valid_for_production": True,
                    "cagr": cagr, "max_dd": mdd}
         assert portfolio_status(name, metrics, .30, -.28)["target_pass"] is expected
+    metrics = {"_metric_source": "broker_ledger_next_close", "valid_for_production": False,
+               "status": "completed", "cagr": .35, "max_dd": -.25}
+    row = portfolio_status("main", metrics, .30, -.28)
+    assert row["target_pass"] is True
+    assert row["official_source_pass"] is False
+
+    failed = dict(metrics, valid_for_production=True, status="failed")
+    failed_row = portfolio_status("main", failed, .30, -.28)
+    assert failed_row["cagr_pass"] is True
+    assert failed_row["max_dd_pass"] is True
+    assert failed_row["target_pass"] is False
+
     for field in ("cagr", "max_dd"):
         for invalid in (None, True, False, float("nan"), float("inf"), -float("inf")):
             metrics = {"_metric_source": "broker_ledger_next_close", "valid_for_production": True,

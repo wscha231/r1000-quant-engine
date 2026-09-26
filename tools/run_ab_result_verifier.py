@@ -156,9 +156,11 @@ def collect_evidence(run_dir: Path, portfolio: str) -> dict[str, Any]:
     max_dd = safe_float(broker.get("max_dd"))
     is_cagr = safe_float(row.get("is_cagr"), safe_float(attr_row.get("is_cagr"), safe_float(is_window.get("cagr"))))
     oos_cagr = safe_float(row.get("oos_cagr"), safe_float(attr_row.get("oos_cagr"), safe_float(oos_window.get("cagr"))))
+    status = row.get("status") or broker.get("status") or "missing"
     source_target_pass = bool(row.get("target_pass"))
     target_pass = bool(
-        cagr is not None
+        status == "completed"
+        and cagr is not None
         and max_dd is not None
         and cagr >= target["cagr"]
         and max_dd >= target["max_dd"]
@@ -179,7 +181,7 @@ def collect_evidence(run_dir: Path, portfolio: str) -> dict[str, Any]:
         "oos_lock_path": str(oos_lock_path),
         "oos_lock_exists": oos_lock_path.exists(),
         "official_metric_mode": mode,
-        "status": row.get("status") or broker.get("status") or "missing",
+        "status": status,
         "valid_for_production": bool(row.get("valid_for_production", broker.get("valid_for_production", False))),
         "target_type": "canonical_mission",
         "target_pass": target_pass,

@@ -503,7 +503,8 @@ def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
     cagr = metric(broker_metrics, "cagr", "strategy_cagr")
     max_dd = metric(broker_metrics, "max_dd", "max_drawdown")
     sharpe = metric(broker_metrics, "sharpe")
-    replay_valid = bool(broker_metrics.get("valid_for_production")) and broker_metrics.get("status") == "completed"
+    replay_completed = broker_metrics.get("status") == "completed"
+    replay_valid = bool(broker_metrics.get("valid_for_production")) and replay_completed
     valid_for_production = replay_valid and bool(window_gate["valid"])
     cagr_pass = cagr is not None and cagr >= target["cagr"]
     dd_pass = max_dd is not None and max_dd >= target["max_dd"]
@@ -528,7 +529,7 @@ def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
         "target_type": target_contract["target_type"],
         "target_contract_status": target_contract["status"],
         "target_contract": target_contract,
-        "target_pass": bool(cagr_pass and dd_pass),
+        "target_pass": bool(replay_completed and cagr_pass and dd_pass),
         "strengthened_pass": strengthened_pass,
         "tier2_gates": tier2,
         "is_cagr": tier2.get("is_cagr"),
@@ -657,7 +658,7 @@ def render_report(payload: dict[str, Any]) -> str:
         "",
         "## Official Targets",
         "",
-        f"Active target type: `{payload.get('target_type')}`. Canonical mission targets are shown separately and remain unresolved until explicit user approval.",
+        f"Active target type: `{payload.get('target_type')}`. Canonical mission targets are approved; headline mission pass is reported separately from production/PIT/window/Tier-2 readiness.",
         "",
         "| Portfolio | Target Type | CAGR | Active Target | Canonical Target | Gap | MaxDD | Active Target | Canonical Target | Gap | Sharpe | Avg Cash | Pass |",
         "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
@@ -758,7 +759,7 @@ def render_report(payload: dict[str, Any]) -> str:
     lines.append(f"- Clean broker-ledger research window: `{MIN_BROKER_LEDGER_YEARS:.1f} years / {MIN_BROKER_LEDGER_TRADING_DAYS} trading days`")
     lines.append("- Proxy 8Y/10Y evidence is blocked until a PIT-clean historical universe label is present.")
     lines.append(f"- Mission target pass (headline CAGR/MDD): `{str(payload.get('mission_target_pass')).lower()}`")
-    lines.append("- `production_target_pass` is a deprecated compatibility alias; it does not authorize production.")
+    lines.append(f"- Production target pass (mission thresholds + production-valid replay/window): `{str(payload.get('production_target_pass')).lower()}`")
     lines.append(f"- Strengthened pass (Tier-1 AND Tier-2 IS/Sharpe/ratio/cash/recent-MDD): `{str(payload.get('strengthened_pass')).lower()}`")
     lines.append(f"- Research target pass: `{str(payload.get('research_target_pass')).lower()}`")
     lines.append(f"- Generated at: `{payload.get('generated_at_utc')}`")
@@ -772,6 +773,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     portfolios = [summarize_portfolio(latest_run, name) for name in PORTFOLIOS]
     goal_search = summarize_goal_search(latest_run)
     mission_target_pass = all(bool(row.get("target_pass")) for row in portfolios)
+    production_target_pass = all(
+        bool(row.get("target_pass")) and bool(row.get("valid_for_production"))
+        for row in portfolios
+    )
     strengthened_pass_all = all(bool(row.get("strengthened_pass")) for row in portfolios)
     research_target_pass = bool(goal_search.get("research_target_pass"))
     payload = {
@@ -789,8 +794,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "latest_run": str(latest_run),
         "generated_at_utc": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "mission_target_pass": mission_target_pass,
-        "production_target_pass": mission_target_pass,
-        "production_target_pass_alias_of": "mission_target_pass",
+        "production_target_pass": production_target_pass,
         "production_promotion_allowed": False,
         "strengthened_pass": strengthened_pass_all,
         "research_target_pass": research_target_pass,
@@ -804,8 +808,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "target_contract_status": payload["target_contract_status"],
         "target_contract": payload["target_contract"],
         "mission_target_pass": mission_target_pass,
-        "production_target_pass": mission_target_pass,
-        "production_target_pass_alias_of": "mission_target_pass",
+        "production_target_pass": production_target_pass,
         "production_promotion_allowed": False,
         "strengthened_pass": strengthened_pass_all,
         "portfolios": {row["portfolio"]: row for row in portfolios},

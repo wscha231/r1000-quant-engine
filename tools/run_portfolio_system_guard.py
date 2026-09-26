@@ -351,8 +351,9 @@ def portfolio_status(name: str, metrics: dict[str, Any], cagr_target: float, max
     mission_max_dd = float(mission["max_dd"])
     cagr_gap = None if cagr is None else mission_cagr - cagr
     maxdd_gap = None if max_dd is None else mission_max_dd - max_dd
-    cagr_pass = official_source and cagr is not None and cagr >= mission_cagr
-    max_dd_pass = official_source and max_dd is not None and max_dd >= mission_max_dd
+    replay_completed = metrics.get("status") in (None, "", "completed")
+    cagr_pass = cagr is not None and cagr >= mission_cagr
+    max_dd_pass = max_dd is not None and max_dd >= mission_max_dd
     diagnostic_cagr_pass = official_source and cagr is not None and cagr >= cagr_target
     diagnostic_max_dd_pass = official_source and max_dd is not None and max_dd >= max_dd_target
     return {
@@ -370,7 +371,7 @@ def portfolio_status(name: str, metrics: dict[str, Any], cagr_target: float, max
         "max_dd_improvement_needed_pp": None if maxdd_gap is None else pp(max(0.0, maxdd_gap)),
         "sharpe": sharpe,
         "avg_turnover_monthly": turnover,
-        "target_pass": cagr_pass and max_dd_pass,
+        "target_pass": replay_completed and cagr_pass and max_dd_pass,
         "diagnostic_target_status": {
             "cagr_target": float(cagr_target),
             "max_dd_target": float(max_dd_target),

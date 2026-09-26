@@ -190,8 +190,10 @@ def account_evidence(latest_run: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         max_dd = safe_float(broker.get("max_dd"))
         years = safe_float(row.get("years"), safe_float(broker.get("years")))
         mode = str(broker.get("metric_mode") or row.get("official_metric_mode") or "")
+        status = row.get("status") or broker.get("status") or "missing"
         target_pass = bool(
-            cagr is not None
+            status == "completed"
+            and cagr is not None
             and max_dd is not None
             and cagr >= target["cagr"]
             and max_dd >= target["max_dd"]
@@ -209,7 +211,7 @@ def account_evidence(latest_run: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         if row_type and row_type != "canonical_mission":
             mismatch_reasons.append("portfolio_target_type_mismatch")
         rows[portfolio] = {
-            "status": row.get("status") or broker.get("status") or "missing",
+            "status": status,
             "metric_mode": mode,
             "valid_for_production": bool(row.get("valid_for_production", broker.get("valid_for_production"))),
             "target_type": "canonical_mission",
@@ -278,8 +280,7 @@ def evaluate_goal_contract(latest_run: Path) -> dict[str, Any]:
         evidence={
             "target_type": "canonical_mission",
             "mission_target_pass": mission_target_pass,
-            "production_target_pass": mission_target_pass,
-            "production_target_pass_alias_of": "mission_target_pass",
+            "production_target_pass": bool(official.get("production_target_pass")),
             "source_production_target_pass": official.get("production_target_pass"),
             "strengthened_pass": official.get("strengthened_pass"),
             "failing": failing,
