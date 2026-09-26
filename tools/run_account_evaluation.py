@@ -479,7 +479,8 @@ def evaluate_window_gate(
 
 
 def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
-    broker_metrics = read_json(latest_run / "broker_replay" / portfolio / "metrics.json")
+    broker_path = latest_run / "broker_replay" / portfolio / "metrics.json"
+    broker_metrics = read_json(broker_path)
     run_manifest = read_json(latest_run / "run_manifest.json")
     if run_manifest.get("evaluation_start_date") and not broker_metrics.get("evaluation_start_date"):
         broker_metrics = dict(broker_metrics)
@@ -500,11 +501,16 @@ def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
         require_data_readiness=True,
     )
 
-    cagr = metric(broker_metrics, "cagr", "strategy_cagr")
-    max_dd = metric(broker_metrics, "max_dd", "max_drawdown")
+    cagr = metric(broker_metrics, "cagr")
+    max_dd = metric(broker_metrics, "max_dd")
     sharpe = metric(broker_metrics, "sharpe")
     replay_completed = broker_metrics.get("status") == "completed"
-    replay_valid = bool(broker_metrics.get("valid_for_production")) and replay_completed
+    mission_evidence_valid = bool(
+        broker_path.is_file() and replay_completed
+        and broker_metrics.get("metric_mode") == "broker_ledger_next_close"
+        and cagr is not None and max_dd is not None
+    )
+    replay_valid = mission_evidence_valid and bool(broker_metrics.get("valid_for_production"))
     valid_for_production = replay_valid and bool(window_gate["valid"])
     cagr_pass = cagr is not None and cagr >= target["cagr"]
     dd_pass = max_dd is not None and max_dd >= target["max_dd"]
@@ -515,7 +521,7 @@ def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
 
     return {
         "portfolio": portfolio,
-        "official_metric_mode": broker_metrics.get("metric_mode") or "broker_ledger_next_close",
+        "official_metric_mode": broker_metrics.get("metric_mode") or "",
         "official_source": f"broker_replay/{portfolio}/metrics.json",
         "status": broker_metrics.get("status") or "missing",
         "verdict_status": "ok" if valid_for_production else window_gate["status"] if replay_valid else broker_metrics.get("status") or "missing",
@@ -529,7 +535,7 @@ def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
         "target_type": target_contract["target_type"],
         "target_contract_status": target_contract["status"],
         "target_contract": target_contract,
-        "target_pass": bool(replay_completed and cagr_pass and dd_pass),
+        "target_pass": bool(mission_evidence_valid and cagr_pass and dd_pass),
         "strengthened_pass": strengthened_pass,
         "tier2_gates": tier2,
         "is_cagr": tier2.get("is_cagr"),

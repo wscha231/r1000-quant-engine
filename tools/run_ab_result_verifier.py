@@ -145,7 +145,7 @@ def collect_evidence(run_dir: Path, portfolio: str) -> dict[str, Any]:
     is_window = windows.get("is") if isinstance(windows.get("is"), dict) else {}
     oos_window = windows.get("oos") if isinstance(windows.get("oos"), dict) else {}
     window_gate = row.get("broker_ledger_window_gate") if isinstance(row.get("broker_ledger_window_gate"), dict) else {}
-    mode = str(broker.get("metric_mode") or row.get("official_metric_mode") or official.get("official_metric_mode") or "")
+    mode = str(broker.get("metric_mode") or "")
     years = safe_float(row.get("years"), safe_float(broker.get("years")))
     trading_days = safe_int(
         row.get("broker_ledger_actual_trading_days"),
@@ -156,12 +156,14 @@ def collect_evidence(run_dir: Path, portfolio: str) -> dict[str, Any]:
     max_dd = safe_float(broker.get("max_dd"))
     is_cagr = safe_float(row.get("is_cagr"), safe_float(attr_row.get("is_cagr"), safe_float(is_window.get("cagr"))))
     oos_cagr = safe_float(row.get("oos_cagr"), safe_float(attr_row.get("oos_cagr"), safe_float(oos_window.get("cagr"))))
-    status = broker.get("status") or row.get("status") or "missing"
+    status = broker.get("status") or "missing"
     source_target_pass = bool(row.get("target_pass"))
+    mission_evidence_valid = bool(
+        broker_path.is_file() and status == "completed" and mode == OFFICIAL_METRIC_MODE
+        and cagr is not None and max_dd is not None
+    )
     target_pass = bool(
-        status == "completed"
-        and cagr is not None
-        and max_dd is not None
+        mission_evidence_valid
         and cagr >= target["cagr"]
         and max_dd >= target["max_dd"]
     )
@@ -173,7 +175,8 @@ def collect_evidence(run_dir: Path, portfolio: str) -> dict[str, Any]:
         "official_metrics_path": str(official_path),
         "official_metrics_exists": official_path.exists(),
         "broker_metrics_path": str(broker_path),
-        "broker_metrics_exists": broker_path.exists(),
+        "broker_metrics_exists": broker_path.is_file(),
+        "mission_evidence_valid": mission_evidence_valid,
         "system_acceptance_path": str(system_path),
         "system_acceptance_exists": system_path.exists(),
         "is_attribution_path": str(is_attr_path),
@@ -183,8 +186,7 @@ def collect_evidence(run_dir: Path, portfolio: str) -> dict[str, Any]:
         "official_metric_mode": mode,
         "status": status,
         "valid_for_production": bool(
-            status == "completed"
-            and broker.get("valid_for_production", row.get("valid_for_production", False))
+            mission_evidence_valid and broker.get("valid_for_production", False)
         ),
         "target_type": "canonical_mission",
         "target_pass": target_pass,
@@ -477,11 +479,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     baseline = collect_evidence(repo_path(args.baseline_run), portfolio)
     baseline_ok = bool(
         baseline.get("official_metrics_exists")
-        and baseline.get("broker_metrics_exists")
-        and baseline.get("official_metric_mode") == OFFICIAL_METRIC_MODE
-        and baseline.get("status") == "completed"
-        and safe_float(baseline.get("cagr")) is not None
-        and safe_float(baseline.get("max_dd")) is not None
+        and baseline.get("mission_evidence_valid")
     )
     require_evidence = not bool(getattr(args, "allow_missing_evidence", False))
     min_cagr_delta = float(getattr(args, "min_cagr_delta_pp", 0.0)) / 100.0

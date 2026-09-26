@@ -276,7 +276,63 @@ def test_mission_surfaces_recompute_same_numeric_boundaries() -> None:
         assert [row["target_pass"] for row in rows] == [False, False, False, False]
 
 
+def test_mission_surfaces_admit_only_completed_exact_mode_broker_artifacts() -> None:
+    from tools.run_account_evaluation import summarize_portfolio
+    from tools.run_ab_result_verifier import collect_evidence
+    from tools.run_metric_hygiene_report import official_portfolio
+    from tools.run_system_acceptance_audit import account_evidence
+    from tools.run_portfolio_system_guard import broker_or_legacy_metrics, portfolio_status
+
+    cases = [("ready", {}, (), True),
+             ("not_production_ready", {"valid_for_production": False}, (), True),
+             ("missing_file", {}, (), False),
+             ("missing_mode", {}, ("metric_mode",), False),
+             ("missing_status", {}, ("status",), False)]
+    for mode in ("broker_ledger_next_close_cash_carry", "execution_capacity", "DO_NOT_USE", ""):
+        cases.append(("wrong_mode", {"metric_mode": mode}, (), False))
+    for status in ("failed", "cancelled", "incomplete", "running"):
+        cases.append(("bad_status", {"status": status}, (), False))
+    for field in ("cagr", "max_dd"):
+        cases.append(("missing_metric", {}, (field,), False))
+        for invalid in (None, True, False, float("nan"), float("inf"), -float("inf")):
+            cases.append(("invalid_metric", {field: invalid}, (), False))
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        for name, cagr in (("main", .35), ("concentrated", .50)):
+            seed_portfolio(root, name, cagr=cagr, max_dd=-.25, sharpe=1.5)
+            path = root / "broker_replay" / name / "metrics.json"
+            original = json.loads(path.read_text())
+            # Stale summaries and aliases cannot supply missing broker evidence.
+            original.update(strategy_cagr=.99, max_drawdown=-.01)
+            write_json(root / "account_evaluation" / "official_metrics.json", {
+                "official_metric_mode": "broker_ledger_next_close", "production_target_pass": True,
+                "portfolios": {name: {**original, "official_metric_mode": "broker_ledger_next_close",
+                                      "target_pass": True, "strengthened_pass": True}},
+            })
+            legacy = "backtest_metrics.json" if name == "main" else "concentrated_backtest_metrics.json"
+            write_json(root / legacy, original)
+            for label, overrides, missing, expected in cases:
+                payload = {**original, **overrides}
+                for field in missing:
+                    payload.pop(field)
+                write_json(path, payload)
+                if label == "missing_file":
+                    path.unlink()
+                rows = [summarize_portfolio(root, name), collect_evidence(root, name),
+                        official_portfolio(root, name), account_evidence(root)[1][name],
+                        portfolio_status(name, broker_or_legacy_metrics(root, name), cagr, -.25)]
+                for row in rows:
+                    assert row["target_pass"] is expected, (name, label, overrides, row)
+                if not expected or label == "not_production_ready":
+                    assert not rows[0]["valid_for_production"]
+                    assert not rows[1]["valid_for_production"]
+                    assert not rows[2]["production_valid"]
+                    assert not rows[3]["valid_for_production"]
+                    assert not rows[4]["official_source_pass"]
+
+
 if __name__ == "__main__":
+    test_mission_surfaces_admit_only_completed_exact_mode_broker_artifacts()
     test_mission_surfaces_recompute_same_numeric_boundaries()
     test_account_evaluation_uses_broker_ledger_as_official_source()
     test_account_evaluation_canonical_mission_boundaries()

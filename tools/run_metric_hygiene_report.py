@@ -143,23 +143,27 @@ def official_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
     account_row = load_account_row(latest_run, portfolio)
     account_state = read_json(latest_run / "broker_replay" / portfolio / "account_state_latest.json")
     target = target_for(portfolio)
-    cagr = metric(broker, "cagr", "strategy_cagr")
-    max_dd = metric(broker, "max_dd", "max_drawdown")
+    cagr = metric(broker, "cagr")
+    max_dd = metric(broker, "max_dd")
     metric_mode = str(broker.get("metric_mode") or "")
     status = broker.get("status") or "missing"
     replay_completed = status == "completed"
-    valid = bool(replay_completed and broker.get("valid_for_production") and metric_mode == OFFICIAL_METRIC_MODE)
+    mission_evidence_valid = bool(
+        broker_path.is_file() and replay_completed and metric_mode == OFFICIAL_METRIC_MODE
+        and cagr is not None and max_dd is not None
+    )
+    valid = mission_evidence_valid and bool(broker.get("valid_for_production"))
     cagr_pass = bool(cagr is not None and cagr >= target["cagr"])
     dd_pass = bool(max_dd is not None and max_dd >= target["max_dd"])
     return {
         "portfolio": portfolio,
         "official_source": f"broker_replay/{portfolio}/metrics.json",
         "official_source_exists": broker_path.exists(),
-        "official_metric_mode": metric_mode or OFFICIAL_METRIC_MODE,
+        "official_metric_mode": metric_mode,
         "production_valid": valid,
         "target_type": "canonical_mission",
         "status": status,
-        "target_pass": bool(replay_completed and cagr_pass and dd_pass),
+        "target_pass": bool(mission_evidence_valid and cagr_pass and dd_pass),
         "cagr": cagr,
         "cagr_target": target["cagr"],
         "cagr_gap_pp": pp(None if cagr is None else max(0.0, target["cagr"] - cagr)),

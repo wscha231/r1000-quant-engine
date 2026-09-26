@@ -184,17 +184,20 @@ def account_evidence(latest_run: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     declared_type = str(official.get("target_type") or "")
     for portfolio in PORTFOLIOS:
         row = portfolios.get(portfolio) if isinstance(portfolios.get(portfolio), dict) else {}
-        broker = read_json(latest_run / "broker_replay" / portfolio / "metrics.json")
+        broker_path = latest_run / "broker_replay" / portfolio / "metrics.json"
+        broker = read_json(broker_path)
         target = target_for(portfolio)
         cagr = safe_float(broker.get("cagr"))
         max_dd = safe_float(broker.get("max_dd"))
         years = safe_float(row.get("years"), safe_float(broker.get("years")))
-        mode = str(broker.get("metric_mode") or row.get("official_metric_mode") or "")
-        status = broker.get("status") or row.get("status") or "missing"
+        mode = str(broker.get("metric_mode") or "")
+        status = broker.get("status") or "missing"
+        mission_evidence_valid = bool(
+            broker_path.is_file() and status == "completed" and mode == OFFICIAL_METRIC_MODE
+            and cagr is not None and max_dd is not None
+        )
         target_pass = bool(
-            status == "completed"
-            and cagr is not None
-            and max_dd is not None
+            mission_evidence_valid
             and cagr >= target["cagr"]
             and max_dd >= target["max_dd"]
         )
@@ -214,8 +217,7 @@ def account_evidence(latest_run: Path) -> tuple[dict[str, Any], dict[str, Any]]:
             "status": status,
             "metric_mode": mode,
             "valid_for_production": bool(
-                status == "completed"
-                and broker.get("valid_for_production", row.get("valid_for_production"))
+                mission_evidence_valid and broker.get("valid_for_production", False)
             ),
             "target_type": "canonical_mission",
             "target_pass": target_pass,

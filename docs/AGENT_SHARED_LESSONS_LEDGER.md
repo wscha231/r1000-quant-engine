@@ -2,6 +2,8 @@
 
 ## 2026-09-27 — Recompute mission verdicts from current numeric broker evidence
 
+- WP-G01 findings A/B: the broker path alone does not certify metric mode or completion. Require the artifact itself to exist and declare completed/exact next-close mode with finite, non-boolean CAGR/MDD; never borrow missing status/mode from an account summary. Keep production validity separate from headline mission admission. Cross-surface regressions cover both portfolios and stale summaries; baseline regressions preserve admission for valid non-production-ready evidence.
+
 - Mission thresholds are not enough by themselves: a headline pass also needs a current completed broker-ledger source; deprecated legacy weight metrics must never satisfy the mission.
 - A/B comparison baselines must have their own completed finite broker replay. A stale official summary cannot stand in for missing baseline broker evidence or silently disable regression comparisons.
 - Governance/activation queues use the canonical mission; only genuine search/challenger optimization paths may retain transitional PORTFOLIO_GOAL_TARGETS.

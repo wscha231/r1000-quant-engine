@@ -346,7 +346,42 @@ def test_verifier_rejects_stale_old_target_pass_true() -> None:
         assert row["max_dd_target"] == -0.25
 
 
+def test_baseline_admission_uses_broker_status_mode_and_metrics_only() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        baseline, candidate = root / "baseline", root / "candidate"
+        seed_run(baseline, cagr=.51, max_dd=-.24, is_cagr=.30, years=8.10,
+                 target_pass=True, strengthened_pass=True)
+        seed_run(candidate, cagr=.52, max_dd=-.24, is_cagr=.31, years=8.10,
+                 target_pass=True, strengthened_pass=True)
+        path = baseline / "broker_replay" / "concentrated" / "metrics.json"
+        original = json.loads(path.read_text())
+        # seed_run's official summary remains completed throughout.
+        cases = [({}, ("status",)), ({}, ("metric_mode",)),
+                 ({"metric_mode": "broker_ledger_next_close_cash_carry"}, ())]
+        cases += [({"status": value}, ()) for value in ("failed", "cancelled", "incomplete")]
+        for field in ("cagr", "max_dd"):
+            cases.append(({}, (field,)))
+            cases += [({field: value}, ()) for value in (None, True, False, float("nan"), float("inf"))]
+        for overrides, missing in cases:
+            broker = {**original, **overrides}
+            for field in missing:
+                broker.pop(field)
+            write_json(path, broker)
+            result = run(args(baseline, [candidate], root / "out"))
+            assert result["status"] == "blocked_missing_baseline", (overrides, missing, result)
+            assert result["baseline"]["mission_evidence_valid"] is False
+            assert result["candidates"][0]["review_valid_for_promotion"] is False
+        for ready in (True, False):
+            write_json(path, {**original, "valid_for_production": ready})
+            result = run(args(baseline, [candidate], root / "out"))
+            assert result["baseline"]["mission_evidence_valid"] is True
+            assert result["status"] == "review_candidate_ready"
+            assert result["production_activation_allowed"] is False
+
+
 if __name__ == "__main__":
+    test_baseline_admission_uses_broker_status_mode_and_metrics_only()
     test_verifier_marks_clean_candidate_review_promotable()
     test_verifier_rejects_is_cagr_regression_even_if_headline_passes()
     test_verifier_invalidates_short_candidate_window()

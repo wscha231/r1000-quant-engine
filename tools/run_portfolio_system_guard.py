@@ -341,9 +341,9 @@ def metric(metrics: dict[str, Any], *names: str, default: float | None = 0.0) ->
 
 def portfolio_status(name: str, metrics: dict[str, Any], cagr_target: float, max_dd_target: float) -> dict[str, Any]:
     metric_source = metrics.get("_metric_source", "legacy_weight_backtest")
-    broker_source = metric_source == "broker_ledger_next_close"
-    official_source = broker_source and bool(metrics.get("valid_for_production", False))
-    cagr = metric(metrics, "cagr", "strategy_cagr", default=None)
+    broker_source = (metric_source == "broker_ledger_next_close"
+                     and metrics.get("metric_mode") == "broker_ledger_next_close")
+    cagr = metric(metrics, "cagr", default=None)
     max_dd = metric(metrics, "max_dd", default=None)
     sharpe = metric(metrics, "sharpe")
     turnover = metric(metrics, "avg_turnover_monthly", default=0.0)
@@ -353,6 +353,8 @@ def portfolio_status(name: str, metrics: dict[str, Any], cagr_target: float, max
     cagr_gap = None if cagr is None else mission_cagr - cagr
     maxdd_gap = None if max_dd is None else mission_max_dd - max_dd
     replay_completed = metrics.get("status") == "completed"
+    mission_evidence_valid = broker_source and replay_completed and cagr is not None and max_dd is not None
+    official_source = mission_evidence_valid and bool(metrics.get("valid_for_production", False))
     cagr_pass = cagr is not None and cagr >= mission_cagr
     max_dd_pass = max_dd is not None and max_dd >= mission_max_dd
     diagnostic_cagr_pass = official_source and cagr is not None and cagr >= cagr_target
@@ -372,7 +374,7 @@ def portfolio_status(name: str, metrics: dict[str, Any], cagr_target: float, max
         "max_dd_improvement_needed_pp": None if maxdd_gap is None else pp(max(0.0, maxdd_gap)),
         "sharpe": sharpe,
         "avg_turnover_monthly": turnover,
-        "target_pass": broker_source and replay_completed and cagr_pass and max_dd_pass,
+        "target_pass": mission_evidence_valid and cagr_pass and max_dd_pass,
         "diagnostic_target_status": {
             "cagr_target": float(cagr_target),
             "max_dd_target": float(max_dd_target),
@@ -423,12 +425,17 @@ def broker_or_legacy_metrics(latest_run: Path, portfolio: str) -> dict[str, Any]
     transaction costs when those artifacts exist.
     """
 
-    broker = read_json(latest_run / "broker_replay" / portfolio / "metrics.json")
+    broker_path = latest_run / "broker_replay" / portfolio / "metrics.json"
+    broker = read_json(broker_path)
     legacy_name = "backtest_metrics.json" if portfolio == "main" else "concentrated_backtest_metrics.json"
     legacy = read_json(latest_run / legacy_name)
     if broker:
         out = dict(broker)
-        out["_metric_source"] = "broker_ledger_next_close"
+        out["_metric_source"] = (
+            "broker_ledger_next_close"
+            if broker_path.is_file() and broker.get("metric_mode") == "broker_ledger_next_close"
+            else "invalid_broker_replay"
+        )
         out["_legacy_cagr"] = metric(legacy, "cagr", "strategy_cagr") if legacy else None
         out["_legacy_max_dd"] = metric(legacy, "max_dd", "max_drawdown") if legacy else None
         return out
