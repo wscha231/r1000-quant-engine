@@ -249,7 +249,8 @@ def test_mission_surfaces_recompute_same_numeric_boundaries() -> None:
         # Stale published successes must not override any current numeric verdict.
         write_json(root / "account_evaluation" / "official_metrics.json", {
             "production_target_pass": True,
-            "portfolios": {name: {"target_pass": True, "cagr": .99, "max_dd": -.01}
+            "portfolios": {name: {"status": "completed", "valid_for_production": True,
+                                  "target_pass": True, "cagr": .99, "max_dd": -.01}
                            for name in ("main", "concentrated")},
         })
         cases = [("main", .32, -.20, False), ("main", .36, -.26, False),

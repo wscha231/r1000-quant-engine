@@ -190,7 +190,7 @@ def account_evidence(latest_run: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         max_dd = safe_float(broker.get("max_dd"))
         years = safe_float(row.get("years"), safe_float(broker.get("years")))
         mode = str(broker.get("metric_mode") or row.get("official_metric_mode") or "")
-        status = row.get("status") or broker.get("status") or "missing"
+        status = broker.get("status") or row.get("status") or "missing"
         target_pass = bool(
             status == "completed"
             and cagr is not None
@@ -213,7 +213,10 @@ def account_evidence(latest_run: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         rows[portfolio] = {
             "status": status,
             "metric_mode": mode,
-            "valid_for_production": bool(row.get("valid_for_production", broker.get("valid_for_production"))),
+            "valid_for_production": bool(
+                status == "completed"
+                and broker.get("valid_for_production", row.get("valid_for_production"))
+            ),
             "target_type": "canonical_mission",
             "target_pass": target_pass,
             "source_target_pass": bool(row.get("target_pass", False)),
