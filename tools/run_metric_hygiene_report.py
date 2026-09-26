@@ -21,13 +21,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-try:
-    from r1000_config import PORTFOLIO_GOAL_TARGETS
-except Exception:  # pragma: no cover - isolated smoke fallback
-    PORTFOLIO_GOAL_TARGETS = {
-        "main": {"cagr": 0.35, "max_dd": -0.25},
-        "concentrated": {"cagr": 0.50, "max_dd": -0.25},
-    }
+from r1000_config import PORTFOLIO_MISSION_TARGETS
 
 
 DEFAULT_LATEST_RUN = "outputs"
@@ -71,7 +65,7 @@ def write_text(path: Path, text: str) -> None:
 
 def safe_float(value: Any, default: float | None = None) -> float | None:
     try:
-        if value is None or value == "":
+        if isinstance(value, bool) or value is None or value == "":
             return default
         out = float(value)
         if not math.isfinite(out):
@@ -101,11 +95,8 @@ def pct(value: float | None) -> str:
 
 
 def target_for(portfolio: str) -> dict[str, float]:
-    target = PORTFOLIO_GOAL_TARGETS.get(portfolio, {})
-    return {
-        "cagr": float(target.get("cagr", 0.30 if portfolio == "main" else 0.50)),
-        "max_dd": float(target.get("max_dd", -0.20 if portfolio == "main" else -0.25)),
-    }
+    target = PORTFOLIO_MISSION_TARGETS[portfolio]
+    return {"cagr": float(target["cagr"]), "max_dd": float(target["max_dd"])}
 
 
 def load_account_row(latest_run: Path, portfolio: str) -> dict[str, Any]:
@@ -152,20 +143,27 @@ def official_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
     account_row = load_account_row(latest_run, portfolio)
     account_state = read_json(latest_run / "broker_replay" / portfolio / "account_state_latest.json")
     target = target_for(portfolio)
-    cagr = metric(broker, "cagr", "strategy_cagr")
-    max_dd = metric(broker, "max_dd", "max_drawdown")
+    cagr = metric(broker, "cagr")
+    max_dd = metric(broker, "max_dd")
     metric_mode = str(broker.get("metric_mode") or "")
-    valid = bool(broker.get("status") == "completed" and broker.get("valid_for_production") and metric_mode == OFFICIAL_METRIC_MODE)
-    cagr_pass = bool(valid and cagr is not None and cagr >= target["cagr"])
-    dd_pass = bool(valid and max_dd is not None and max_dd >= target["max_dd"])
+    status = broker.get("status") or "missing"
+    replay_completed = status == "completed"
+    mission_evidence_valid = bool(
+        broker_path.is_file() and replay_completed and metric_mode == OFFICIAL_METRIC_MODE
+        and cagr is not None and max_dd is not None
+    )
+    valid = mission_evidence_valid and bool(broker.get("valid_for_production"))
+    cagr_pass = bool(cagr is not None and cagr >= target["cagr"])
+    dd_pass = bool(max_dd is not None and max_dd >= target["max_dd"])
     return {
         "portfolio": portfolio,
         "official_source": f"broker_replay/{portfolio}/metrics.json",
         "official_source_exists": broker_path.exists(),
-        "official_metric_mode": metric_mode or OFFICIAL_METRIC_MODE,
+        "official_metric_mode": metric_mode,
         "production_valid": valid,
-        "status": broker.get("status") or "missing",
-        "target_pass": bool(cagr_pass and dd_pass),
+        "target_type": "canonical_mission",
+        "status": status,
+        "target_pass": bool(mission_evidence_valid and cagr_pass and dd_pass),
         "cagr": cagr,
         "cagr_target": target["cagr"],
         "cagr_gap_pp": pp(None if cagr is None else max(0.0, target["cagr"] - cagr)),
@@ -282,15 +280,23 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         for portfolio, row in official.items()
         if not row.get("official_source_exists") or row.get("official_metric_mode") != OFFICIAL_METRIC_MODE
     ]
+    mission_target_pass = all(bool(row.get("target_pass")) for row in official.values())
+    production_valid_all = all(bool(row.get("production_valid")) for row in official.values())
+    production_target_pass = all(
+        bool(row.get("target_pass")) and bool(row.get("production_valid"))
+        for row in official.values()
+    )
     payload = {
         "schema_version": "metric-hygiene-v1",
         "generated_at_utc": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "latest_run": str(latest_run),
         "official_metric_mode": OFFICIAL_METRIC_MODE,
         "official_metric_required": OFFICIAL_METRIC_MODE,
+        "target_type": "canonical_mission",
         "official_portfolios": official,
-        "production_target_pass": all(bool(row.get("target_pass")) for row in official.values()),
-        "production_valid_all": all(bool(row.get("production_valid")) for row in official.values()),
+        "mission_target_pass": mission_target_pass,
+        "production_target_pass": production_target_pass,
+        "production_valid_all": production_valid_all,
         "deprecated_metrics": deprecated,
         "cash_trap_warning_count": int(len(cash_trap_warnings)),
         "cash_trap_warning_portfolios": cash_trap_warnings,
@@ -301,6 +307,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     write_json(output_dir / "official_metrics.json", {
         "schema_version": payload["schema_version"],
         "official_metric_mode": OFFICIAL_METRIC_MODE,
+        "target_type": "canonical_mission",
+        "mission_target_pass": payload["mission_target_pass"],
         "production_target_pass": payload["production_target_pass"],
         "production_valid_all": payload["production_valid_all"],
         "portfolios": official,

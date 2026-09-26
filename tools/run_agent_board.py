@@ -107,6 +107,19 @@ def source_identity() -> tuple[str, str]:
     return sha, digest(identity)
 
 
+def mission_targets() -> dict[str, Any]:
+    # Read the authoritative mission literal without importing investment runtime.
+    path = REPO_ROOT / 'r1000_config.py'
+    nodes = [node for node in ast.parse(path.read_text(encoding='utf-8')).body
+             if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and
+             t.id == 'PORTFOLIO_MISSION_TARGETS' for t in node.targets)]
+    if len(nodes) != 1:
+        raise ContractError('ambiguous_mission_target')
+    return {'source': 'r1000_config.py:PORTFOLIO_MISSION_TARGETS',
+            'source_sha256': file_hash(path), 'values': ast.literal_eval(nodes[0].value),
+            'meaning': 'Authoritative project mission objective; headline pass is not production authority'}
+
+
 def operating_gates() -> dict[str, Any]:
     # Read the existing literal without importing the investment runtime.
     path = REPO_ROOT / 'r1000_config.py'
@@ -117,7 +130,7 @@ def operating_gates() -> dict[str, Any]:
         raise ContractError('ambiguous_operating_gate')
     return {'source': 'r1000_config.py:PORTFOLIO_GOAL_TARGETS',
             'source_sha256': file_hash(path), 'values': ast.literal_eval(nodes[0].value),
-            'meaning': 'Existing temporary operating gates; not mission or accepted performance'}
+            'meaning': 'Legacy/interim challenger diagnostic only; not authoritative mission or accepted performance'}
 
 
 def artifact_path(root: Path, name: str) -> Path:
@@ -170,6 +183,13 @@ def contracts() -> dict:
         visit(agent)
     if agents['A6']['mode'] != 'READ_ONLY':
         raise ContractError('qa_not_read_only')
+    if value.get('mission_source') != 'r1000_config.py:PORTFOLIO_MISSION_TARGETS':
+        raise ContractError('mission_source')
+    mission = mission_targets()['values']
+    value['mission'] = {
+        name: {'net_cagr_min': float(target['cagr']), 'mdd_loss_max': abs(float(target['max_dd']))}
+        for name, target in mission.items()
+    }
     return value
 
 
@@ -305,10 +325,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     write_json(out / 'manifest.json', {'schema_version': 'agent-board-manifest-v2',
                'status': 'BLOCKED', 'reason': 'BUILD_STARTED', 'authority': AUTHORITY})
     tasks, reasons, state = [], [], None
-    contract, gates, code_sha, config_hash = {}, {}, None, None
+    contract, gates, mission_contract, code_sha, config_hash = {}, {}, {}, None, None
     try:
         contract = contracts()
         code_sha, config_hash = source_identity()
+        mission_contract = mission_targets()
         gates = operating_gates()
         state = read_json(state_path)
         tasks = build_tasks(state, root, contract, now, code_sha, config_hash)
@@ -327,7 +348,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
              'run_url': args.run_url or '', 'code_sha': code_sha, 'config_hash': config_hash,
              'state_sha256': file_hash(state_path) if state_path.is_file() else None,
              'state_as_of': state.get('as_of') if isinstance(state, dict) else None,
-             'mission': contract.get('mission'), 'operating_gate': gates,
+             'mission': contract.get('mission'), 'mission_contract': mission_contract,
+             'operating_gate': gates,
              'agent_contracts': contract.get('agents'), 'authority': AUTHORITY,
              'production_activation_allowed': False, 'promotion_gate': gate,
              'task_count': len(tasks), 'blockers': reasons,
@@ -337,7 +359,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     write_json(out / 'promotion_gate_review.json', gate)
     lines = ['# Agent Board v2', '', f'Status: {status}. A0 proposals only; no specialist was executed.',
              '', 'Mission: Main net CAGR >=35%, MDD loss <=25%; Concentrated >=50%, <=25%.',
-             'Operating gates remain separately reported from the existing configuration.', '',
+             'Mission source: r1000_config.py:PORTFOLIO_MISSION_TARGETS (authoritative objective).',
+             'Operating gates are separately reported legacy/interim challenger diagnostics only.', '',
              '| Agent | Status | Blockers |', '| --- | --- | --- |']
     lines += [f"| {t['agent']} | {t['status']} | {', '.join(t['reasons'])} |" for t in tasks]
     lines += ['', *reasons, '', 'Next P0: connect the complete US equity universe and Multi-Asset candidates to one verified ER1/3/6/12m flow.', '']

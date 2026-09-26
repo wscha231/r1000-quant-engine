@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 
-from tools.run_alphaops_policy_fusion import run  # noqa: E402
+from tools.run_alphaops_policy_fusion import run, score_policy  # noqa: E402
 
 
 def write_json(path: Path, payload: dict) -> None:
@@ -126,8 +126,41 @@ def test_policy_fusion_smoke() -> None:
         assert "idle_cash_redeploy" in matrix
 
 
+def test_policy_fusion_uses_canonical_mission_for_activation() -> None:
+    main = score_policy(
+        policy_id="style_macro_router",
+        portfolio="main",
+        evidence_type="production",
+        metrics={"cagr": 0.31, "max_dd": -0.24, "sharpe": 1.3},
+        production={"cagr": 0.30, "max_dd": -0.24, "sharpe": 1.2},
+        source="synthetic",
+        notes="mission contract smoke",
+        production_ready=True,
+    )
+    assert main["cagr_target"] == 0.35
+    assert main["max_dd_target"] == -0.25
+    assert main["target_pass"] is False
+    assert main["activation_stage"] != "ready_for_human_activation_review"
+
+    concentrated = score_policy(
+        policy_id="style_macro_router",
+        portfolio="concentrated",
+        evidence_type="production",
+        metrics={"cagr": 0.51, "max_dd": -0.27, "sharpe": 1.5},
+        production={"cagr": 0.50, "max_dd": -0.24, "sharpe": 1.4},
+        source="synthetic",
+        notes="mission contract smoke",
+        production_ready=True,
+    )
+    assert concentrated["cagr_target"] == 0.50
+    assert concentrated["max_dd_target"] == -0.25
+    assert concentrated["target_pass"] is False
+    assert concentrated["activation_stage"] != "ready_for_human_activation_review"
+
+
 def main() -> int:
     test_policy_fusion_smoke()
+    test_policy_fusion_uses_canonical_mission_for_activation()
     print("alphaops policy fusion smoke passed")
     return 0
 
