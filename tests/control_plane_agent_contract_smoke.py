@@ -99,6 +99,8 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertEqual(set(self.contract['agents']), {f'A{i}' for i in range(9)})
         self.assertEqual(self.contract['mission']['main'], {'net_cagr_min':.35,'mdd_loss_max':.25})
         self.assertEqual(self.contract['mission']['concentrated'], {'net_cagr_min':.50,'mdd_loss_max':.25})
+        self.assertEqual(self.contract['mission_source'], 'r1000_config.py:PORTFOLIO_MISSION_TARGETS')
+        self.assertEqual(board.mission_targets()['values']['main'], {'cagr':.35,'max_dd':-.25})
         self.assertEqual(board.operating_gates()['values']['main']['cagr'], .30)
         self.assertEqual(board.operating_gates()['values']['concentrated']['max_dd'], -.28)
         for agent in self.contract['agents'].values():

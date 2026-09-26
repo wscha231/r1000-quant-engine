@@ -35,13 +35,7 @@ REPO = Path(__file__).resolve().parent.parent
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-try:
-    from r1000_config import PORTFOLIO_GOAL_TARGETS
-except Exception:  # pragma: no cover - smoke fallback
-    PORTFOLIO_GOAL_TARGETS = {
-        "main": {"cagr": 0.30, "max_dd": -0.25},
-        "concentrated": {"cagr": 0.50, "max_dd": -0.28},
-    }
+from r1000_config import PORTFOLIO_MISSION_TARGETS
 
 
 PORTFOLIOS = ("main", "concentrated")
@@ -151,7 +145,7 @@ def csv_info(path: Path, required_columns: set[str] | None = None) -> dict[str, 
 
 def safe_float(value: Any, default: float | None = None) -> float | None:
     try:
-        if value in (None, ""):
+        if isinstance(value, bool) or value in (None, ""):
             return default
         out = float(value)
     except (TypeError, ValueError):
@@ -160,11 +154,8 @@ def safe_float(value: Any, default: float | None = None) -> float | None:
 
 
 def target_for(portfolio: str) -> dict[str, float]:
-    target = PORTFOLIO_GOAL_TARGETS.get(portfolio, {})
-    return {
-        "cagr": float(target.get("cagr", 0.30 if portfolio == "main" else 0.50)),
-        "max_dd": float(target.get("max_dd", -0.25 if portfolio == "main" else -0.28)),
-    }
+    target = PORTFOLIO_MISSION_TARGETS[portfolio]
+    return {"cagr": float(target["cagr"]), "max_dd": float(target["max_dd"])}
 
 
 def requirement(
@@ -190,19 +181,44 @@ def account_evidence(latest_run: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     official = read_json(latest_run / "account_evaluation" / "official_metrics.json")
     portfolios = official.get("portfolios") if isinstance(official.get("portfolios"), dict) else {}
     rows: dict[str, Any] = {}
+    declared_type = str(official.get("target_type") or "")
     for portfolio in PORTFOLIOS:
         row = portfolios.get(portfolio) if isinstance(portfolios.get(portfolio), dict) else {}
         broker = read_json(latest_run / "broker_replay" / portfolio / "metrics.json")
         target = target_for(portfolio)
-        cagr = safe_float(row.get("cagr"), safe_float(broker.get("cagr")))
-        max_dd = safe_float(row.get("max_dd"), safe_float(broker.get("max_dd")))
+        cagr = safe_float(broker.get("cagr"))
+        max_dd = safe_float(broker.get("max_dd"))
         years = safe_float(row.get("years"), safe_float(broker.get("years")))
-        mode = str(row.get("official_metric_mode") or broker.get("metric_mode") or "")
+        mode = str(broker.get("metric_mode") or row.get("official_metric_mode") or "")
+        target_pass = bool(
+            cagr is not None
+            and max_dd is not None
+            and cagr >= target["cagr"]
+            and max_dd >= target["max_dd"]
+        )
+        mismatch_reasons: list[str] = []
+        source_cagr_target = safe_float(row.get("cagr_target"))
+        source_max_dd_target = safe_float(row.get("max_dd_target"))
+        if source_cagr_target is not None and abs(source_cagr_target - target["cagr"]) > 1e-12:
+            mismatch_reasons.append("cagr_target_mismatch")
+        if source_max_dd_target is not None and abs(source_max_dd_target - target["max_dd"]) > 1e-12:
+            mismatch_reasons.append("max_dd_target_mismatch")
+        row_type = str(row.get("target_type") or "")
+        if declared_type and declared_type != "canonical_mission":
+            mismatch_reasons.append("official_target_type_mismatch")
+        if row_type and row_type != "canonical_mission":
+            mismatch_reasons.append("portfolio_target_type_mismatch")
         rows[portfolio] = {
             "status": row.get("status") or broker.get("status") or "missing",
             "metric_mode": mode,
             "valid_for_production": bool(row.get("valid_for_production", broker.get("valid_for_production"))),
-            "target_pass": bool(row.get("target_pass", False)),
+            "target_type": "canonical_mission",
+            "target_pass": target_pass,
+            "source_target_pass": bool(row.get("target_pass", False)),
+            "source_cagr_target": source_cagr_target,
+            "source_max_dd_target": source_max_dd_target,
+            "target_contract_mismatch": bool(mismatch_reasons),
+            "target_contract_mismatch_reasons": mismatch_reasons,
             "strengthened_pass": bool(row.get("strengthened_pass", False)),
             "tier2_failing": row.get("tier2_failing") or [],
             "cagr": cagr,
@@ -248,16 +264,23 @@ def evaluate_goal_contract(latest_run: Path) -> dict[str, Any]:
     for portfolio, row in rows.items():
         if not row.get("target_pass"):
             failing.append(f"{portfolio}:tier1_target")
+        if row.get("target_contract_mismatch"):
+            failing.append(f"{portfolio}:target_contract_mismatch")
         if not row.get("strengthened_pass"):
             failing.append(f"{portfolio}:tier2_strengthened")
     status = "pass" if not failing else "fail"
+    mission_target_pass = all(bool(row.get("target_pass")) for row in rows.values())
     return requirement(
         "goal_contract_main30_conc50_mdd",
         status=status,
         hard_blocker=bool(failing),
-        summary="all portfolios pass Tier-1 and Tier-2 gates" if not failing else "goal contract is not yet met",
+        summary="all portfolios pass the canonical mission and Tier-2 gates" if not failing else "canonical mission contract is not yet met",
         evidence={
-            "production_target_pass": official.get("production_target_pass"),
+            "target_type": "canonical_mission",
+            "mission_target_pass": mission_target_pass,
+            "production_target_pass": mission_target_pass,
+            "production_target_pass_alias_of": "mission_target_pass",
+            "source_production_target_pass": official.get("production_target_pass"),
             "strengthened_pass": official.get("strengthened_pass"),
             "failing": failing,
             "portfolios": rows,
@@ -1028,6 +1051,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         "generated_at_utc": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "latest_run": str(latest_run),
         "status": status,
+        "target_type": "canonical_mission",
         "production_activation_allowed": False,
         "live_trading_allowed": False,
         "hard_blocker_count": len(hard_blockers),
@@ -1129,7 +1153,7 @@ def concentrated_goal_needs_recovery(payload: dict[str, Any]) -> tuple[bool, dic
     target_pass = bool(concentrated.get("target_pass"))
     strengthened_pass = bool(concentrated.get("strengthened_pass"))
     cagr = safe_float(concentrated.get("cagr"))
-    cagr_target = safe_float(concentrated.get("cagr_target"), PORTFOLIO_GOAL_TARGETS["concentrated"]["cagr"])
+    cagr_target = safe_float(concentrated.get("cagr_target"), PORTFOLIO_MISSION_TARGETS["concentrated"]["cagr"])
     tier2_failing = concentrated.get("tier2_failing") if isinstance(concentrated.get("tier2_failing"), list) else []
     needs_recovery = (not target_pass) or (not strengthened_pass) or bool(tier2_failing)
     if cagr is not None and cagr_target is not None:
@@ -1138,7 +1162,7 @@ def concentrated_goal_needs_recovery(payload: dict[str, Any]) -> tuple[bool, dic
         "cagr": cagr,
         "cagr_target": cagr_target,
         "max_dd": safe_float(concentrated.get("max_dd")),
-        "max_dd_target": safe_float(concentrated.get("max_dd_target"), PORTFOLIO_GOAL_TARGETS["concentrated"]["max_dd"]),
+        "max_dd_target": safe_float(concentrated.get("max_dd_target"), PORTFOLIO_MISSION_TARGETS["concentrated"]["max_dd"]),
         "target_pass": target_pass,
         "strengthened_pass": strengthened_pass,
         "tier2_failing": tier2_failing,

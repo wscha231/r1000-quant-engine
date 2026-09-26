@@ -14,7 +14,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from tools.run_portfolio_system_guard import run, target_structure_checks  # noqa: E402
+from tools.run_portfolio_system_guard import portfolio_status, run, target_structure_checks  # noqa: E402
 
 
 class TestWorkspace:
@@ -72,6 +72,43 @@ def feature_source_coverage_fixture() -> dict:
         },
         "books": books,
     }
+
+
+def test_portfolio_system_guard_cli_targets_are_diagnostic_only() -> None:
+    metrics = {
+        "_metric_source": "broker_ledger_next_close",
+        "valid_for_production": True,
+        "cagr": 0.32,
+        "max_dd": -0.10,
+        "sharpe": 1.0,
+    }
+    row = portfolio_status("main", metrics, 0.30, -0.20)
+    assert row["target_type"] == "canonical_mission"
+    assert row["cagr_target"] == 0.35
+    assert row["max_dd_target"] == -0.25
+    assert row["target_pass"] is False
+    assert row["diagnostic_target_status"]["cagr_target"] == 0.30
+    assert row["diagnostic_target_status"]["max_dd_target"] == -0.20
+    assert row["diagnostic_target_status"]["target_pass"] is True
+
+
+def test_portfolio_system_guard_mission_boundaries_and_missing_metrics() -> None:
+    for name, cagr, mdd, expected in [
+        ("main", .32, -.20, False), ("main", .36, -.26, False),
+        ("concentrated", .52, -.27, False),
+        ("main", .35, -.25, True), ("concentrated", .50, -.25, True),
+    ]:
+        metrics = {"_metric_source": "broker_ledger_next_close", "valid_for_production": True,
+                   "cagr": cagr, "max_dd": mdd}
+        assert portfolio_status(name, metrics, .30, -.28)["target_pass"] is expected
+    for field in ("cagr", "max_dd"):
+        for invalid in (None, True, False, float("nan"), float("inf"), -float("inf")):
+            metrics = {"_metric_source": "broker_ledger_next_close", "valid_for_production": True,
+                       "cagr": .36, "max_dd": -.24, field: invalid}
+            row = portfolio_status("main", metrics, .30, -.28)
+            assert row["target_pass"] is False
+            assert row[field] is None
+            assert row["diagnostic_target_status"]["target_pass"] is False
 
 
 def test_portfolio_system_guard_reports_target_gaps() -> None:
@@ -508,6 +545,8 @@ def test_portfolio_system_guard_sector_fallback_group_cap_is_warn_only() -> None
 
 
 if __name__ == "__main__":
+    test_portfolio_system_guard_mission_boundaries_and_missing_metrics()
+    test_portfolio_system_guard_cli_targets_are_diagnostic_only()
     test_portfolio_system_guard_reports_target_gaps()
     test_portfolio_system_guard_blocks_stale_historical_broker_replay()
     test_portfolio_system_guard_blocks_data_readiness_failures()

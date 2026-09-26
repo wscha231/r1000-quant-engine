@@ -12,16 +12,7 @@
     "promotion": false,
     "peer_dispatch": false
   },
-  "mission": {
-    "main": {
-      "net_cagr_min": 0.35,
-      "mdd_loss_max": 0.25
-    },
-    "concentrated": {
-      "net_cagr_min": 0.5,
-      "mdd_loss_max": 0.25
-    }
-  },
+  "mission_source": "r1000_config.py:PORTFOLIO_MISSION_TARGETS",
   "operating_gate_source": "r1000_config.py:PORTFOLIO_GOAL_TARGETS",
   "agents": {
     "A0": {

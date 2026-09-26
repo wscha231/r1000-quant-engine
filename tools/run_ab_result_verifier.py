@@ -25,13 +25,11 @@ REPO = Path(__file__).resolve().parent.parent
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
+from r1000_config import PORTFOLIO_MISSION_TARGETS
+
 try:
-    from r1000_config import PORTFOLIO_GOAL_GATES, PORTFOLIO_GOAL_TARGETS
+    from r1000_config import PORTFOLIO_GOAL_GATES
 except Exception:  # pragma: no cover - smoke fallback
-    PORTFOLIO_GOAL_TARGETS = {
-        "main": {"cagr": 0.30, "max_dd": -0.25},
-        "concentrated": {"cagr": 0.50, "max_dd": -0.28},
-    }
     PORTFOLIO_GOAL_GATES = {
         "main": {"is_cagr_min": 0.25},
         "concentrated": {"is_cagr_min": 0.30},
@@ -67,7 +65,7 @@ def write_json(path: Path, payload: Any) -> None:
 
 def safe_float(value: Any, default: float | None = None) -> float | None:
     try:
-        if value in (None, ""):
+        if isinstance(value, bool) or value in (None, ""):
             return default
         out = float(value)
     except (TypeError, ValueError):
@@ -85,11 +83,8 @@ def safe_int(value: Any, default: int | None = None) -> int | None:
 
 
 def target_for(portfolio: str) -> dict[str, float]:
-    target = PORTFOLIO_GOAL_TARGETS.get(portfolio, {})
-    return {
-        "cagr": float(target.get("cagr", 0.30 if portfolio == "main" else 0.50)),
-        "max_dd": float(target.get("max_dd", -0.25 if portfolio == "main" else -0.28)),
-    }
+    target = PORTFOLIO_MISSION_TARGETS[portfolio]
+    return {"cagr": float(target["cagr"]), "max_dd": float(target["max_dd"])}
 
 
 def gate_for(portfolio: str) -> dict[str, float]:
@@ -150,20 +145,24 @@ def collect_evidence(run_dir: Path, portfolio: str) -> dict[str, Any]:
     is_window = windows.get("is") if isinstance(windows.get("is"), dict) else {}
     oos_window = windows.get("oos") if isinstance(windows.get("oos"), dict) else {}
     window_gate = row.get("broker_ledger_window_gate") if isinstance(row.get("broker_ledger_window_gate"), dict) else {}
-    mode = str(row.get("official_metric_mode") or broker.get("metric_mode") or official.get("official_metric_mode") or "")
+    mode = str(broker.get("metric_mode") or row.get("official_metric_mode") or official.get("official_metric_mode") or "")
     years = safe_float(row.get("years"), safe_float(broker.get("years")))
     trading_days = safe_int(
         row.get("broker_ledger_actual_trading_days"),
         safe_int(row.get("broker_ledger_trading_days_estimate"), safe_int(window_gate.get("trading_days_estimate"), safe_int(broker.get("days")))),
     )
     target = target_for(portfolio)
-    cagr = safe_float(row.get("cagr"), safe_float(broker.get("cagr")))
-    max_dd = safe_float(row.get("max_dd"), safe_float(broker.get("max_dd")))
+    cagr = safe_float(broker.get("cagr"))
+    max_dd = safe_float(broker.get("max_dd"))
     is_cagr = safe_float(row.get("is_cagr"), safe_float(attr_row.get("is_cagr"), safe_float(is_window.get("cagr"))))
     oos_cagr = safe_float(row.get("oos_cagr"), safe_float(attr_row.get("oos_cagr"), safe_float(oos_window.get("cagr"))))
-    target_pass = bool(row.get("target_pass"))
-    if cagr is not None and max_dd is not None:
-        target_pass = target_pass or (cagr >= target["cagr"] and max_dd >= target["max_dd"])
+    source_target_pass = bool(row.get("target_pass"))
+    target_pass = bool(
+        cagr is not None
+        and max_dd is not None
+        and cagr >= target["cagr"]
+        and max_dd >= target["max_dd"]
+    )
 
     return {
         "run_dir": str(run_dir),
@@ -182,7 +181,11 @@ def collect_evidence(run_dir: Path, portfolio: str) -> dict[str, Any]:
         "official_metric_mode": mode,
         "status": row.get("status") or broker.get("status") or "missing",
         "valid_for_production": bool(row.get("valid_for_production", broker.get("valid_for_production", False))),
+        "target_type": "canonical_mission",
         "target_pass": target_pass,
+        "source_target_pass": source_target_pass,
+        "source_cagr_target": safe_float(row.get("cagr_target")),
+        "source_max_dd_target": safe_float(row.get("max_dd_target")),
         "strengthened_pass": bool(row.get("strengthened_pass")),
         "tier2_failing": list(row.get("tier2_failing") or []),
         "cagr": cagr,
@@ -529,6 +532,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "generated_at_utc": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "status": status,
         "portfolio": portfolio,
+        "target_type": "canonical_mission",
         "baseline": baseline,
         "candidate_count": len(candidate_rows),
         "review_valid_candidate_count": sum(1 for row in candidate_rows if row.get("review_valid_for_promotion")),

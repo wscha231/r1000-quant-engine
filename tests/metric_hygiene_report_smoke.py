@@ -64,11 +64,16 @@ def test_metric_hygiene_marks_legacy_metrics_deprecated_and_cash_trap_warns() ->
         result = run(Namespace(latest_run=str(latest), output_dir=str(out)))
 
         assert result["official_metric_mode"] == "broker_ledger_next_close"
+        assert result["target_type"] == "canonical_mission"
+        assert result["mission_target_pass"] is False
         assert result["production_target_pass"] is False
+        assert result["production_target_pass_alias_of"] == "mission_target_pass"
         assert result["production_valid_all"] is True
         assert result["cash_trap_warning_count"] == 2
         assert result["official_portfolios"]["main"]["cagr"] == 0.31
         assert result["official_portfolios"]["main"]["max_dd"] == -0.37
+        assert result["official_portfolios"]["main"]["cagr_target"] == 0.35
+        assert result["official_portfolios"]["main"]["max_dd_target"] == -0.25
         assert result["deprecated_metrics"][0]["DO_NOT_USE_FOR_PRODUCTION"] is True
 
         deprecated = json.loads((out / "deprecated_legacy_backtest_metrics.json").read_text(encoding="utf-8"))

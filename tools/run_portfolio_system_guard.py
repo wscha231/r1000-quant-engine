@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -25,13 +26,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-try:
-    from r1000_config import PORTFOLIO_GOAL_TARGETS
-except Exception:  # pragma: no cover - isolated smoke fallback
-    PORTFOLIO_GOAL_TARGETS = {
-        "main": {"cagr": 0.35, "max_dd": -0.25},
-        "concentrated": {"cagr": 0.50, "max_dd": -0.25},
-    }
+from r1000_config import PORTFOLIO_MISSION_TARGETS
 
 DEFAULT_LATEST_RUN = "cloud_results/full_rebuild/latest_global_alpha_universe"
 DEFAULT_OUTPUT_DIR = "outputs/portfolio_system_guard"
@@ -321,12 +316,12 @@ def filter_value(value: Any) -> str:
     return text
 
 
-def safe_float(value: Any, default: float = 0.0) -> float:
+def safe_float(value: Any, default: float | None = 0.0) -> float | None:
     try:
-        if value is None or value == "":
+        if isinstance(value, bool) or value is None or value == "":
             return default
         out = float(value)
-        if out != out:
+        if not math.isfinite(out):
             return default
         return out
     except (TypeError, ValueError):
@@ -337,7 +332,7 @@ def pp(value: float) -> float:
     return round(value * 100.0, 4)
 
 
-def metric(metrics: dict[str, Any], *names: str, default: float = 0.0) -> float:
+def metric(metrics: dict[str, Any], *names: str, default: float | None = 0.0) -> float | None:
     for name in names:
         if name in metrics:
             return safe_float(metrics.get(name), default)
@@ -347,29 +342,42 @@ def metric(metrics: dict[str, Any], *names: str, default: float = 0.0) -> float:
 def portfolio_status(name: str, metrics: dict[str, Any], cagr_target: float, max_dd_target: float) -> dict[str, Any]:
     metric_source = metrics.get("_metric_source", "legacy_weight_backtest")
     official_source = metric_source == "broker_ledger_next_close" and bool(metrics.get("valid_for_production", False))
-    cagr = metric(metrics, "cagr", "strategy_cagr")
-    max_dd = metric(metrics, "max_dd")
+    cagr = metric(metrics, "cagr", "strategy_cagr", default=None)
+    max_dd = metric(metrics, "max_dd", default=None)
     sharpe = metric(metrics, "sharpe")
     turnover = metric(metrics, "avg_turnover_monthly", default=0.0)
-    cagr_gap = cagr_target - cagr
-    maxdd_gap = max_dd_target - max_dd
-    cagr_pass = official_source and cagr >= cagr_target
-    max_dd_pass = official_source and max_dd >= max_dd_target
+    mission = PORTFOLIO_MISSION_TARGETS[name]
+    mission_cagr = float(mission["cagr"])
+    mission_max_dd = float(mission["max_dd"])
+    cagr_gap = None if cagr is None else mission_cagr - cagr
+    maxdd_gap = None if max_dd is None else mission_max_dd - max_dd
+    cagr_pass = official_source and cagr is not None and cagr >= mission_cagr
+    max_dd_pass = official_source and max_dd is not None and max_dd >= mission_max_dd
+    diagnostic_cagr_pass = official_source and cagr is not None and cagr >= cagr_target
+    diagnostic_max_dd_pass = official_source and max_dd is not None and max_dd >= max_dd_target
     return {
         "portfolio": name,
         "metric_source": metric_source,
         "official_source_pass": official_source,
+        "target_type": "canonical_mission",
         "cagr": cagr,
-        "cagr_target": cagr_target,
+        "cagr_target": mission_cagr,
         "cagr_pass": cagr_pass,
-        "cagr_gap_pp": pp(max(0.0, cagr_gap)),
+        "cagr_gap_pp": None if cagr_gap is None else pp(max(0.0, cagr_gap)),
         "max_dd": max_dd,
-        "max_dd_target": max_dd_target,
+        "max_dd_target": mission_max_dd,
         "max_dd_pass": max_dd_pass,
-        "max_dd_improvement_needed_pp": pp(max(0.0, maxdd_gap)),
+        "max_dd_improvement_needed_pp": None if maxdd_gap is None else pp(max(0.0, maxdd_gap)),
         "sharpe": sharpe,
         "avg_turnover_monthly": turnover,
         "target_pass": cagr_pass and max_dd_pass,
+        "diagnostic_target_status": {
+            "cagr_target": float(cagr_target),
+            "max_dd_target": float(max_dd_target),
+            "cagr_pass": diagnostic_cagr_pass,
+            "max_dd_pass": diagnostic_max_dd_pass,
+            "target_pass": diagnostic_cagr_pass and diagnostic_max_dd_pass,
+        },
     }
 
 
@@ -856,8 +864,8 @@ def data_quality_update_plan(inputs: dict[str, Any], latest_run: Path) -> dict[s
     return {
         "metric_contract": {
             "official_source": "broker_ledger_next_close",
-            "main_target": PORTFOLIO_GOAL_TARGETS["main"],
-            "concentrated_target": PORTFOLIO_GOAL_TARGETS["concentrated"],
+            "main_target": PORTFOLIO_MISSION_TARGETS["main"],
+            "concentrated_target": PORTFOLIO_MISSION_TARGETS["concentrated"],
             "legacy_weight_metrics_allowed_for": "research_hints_only",
         },
         "latest_run": str(latest_run),
@@ -1072,8 +1080,8 @@ def automation_plan(inputs: dict[str, Any], targets_pass: bool) -> dict[str, Any
             "promotion_rule": "No production write without challenger pass, strict target gate, and human approval.",
         },
         "target_management": {
-            "main_target": f"CAGR >= {PORTFOLIO_GOAL_TARGETS['main']['cagr']:.0%}, MaxDD >= {PORTFOLIO_GOAL_TARGETS['main']['max_dd']:.0%}",
-            "concentrated_target": f"CAGR >= {PORTFOLIO_GOAL_TARGETS['concentrated']['cagr']:.0%}, MaxDD >= {PORTFOLIO_GOAL_TARGETS['concentrated']['max_dd']:.0%}",
+            "main_target": f"CAGR >= {PORTFOLIO_MISSION_TARGETS['main']['cagr']:.0%}, MaxDD >= {PORTFOLIO_MISSION_TARGETS['main']['max_dd']:.0%}",
+            "concentrated_target": f"CAGR >= {PORTFOLIO_MISSION_TARGETS['concentrated']['cagr']:.0%}, MaxDD >= {PORTFOLIO_MISSION_TARGETS['concentrated']['max_dd']:.0%}",
             "current_target_pass": targets_pass,
             "recommended_next_focus": [
                 "Run data quality and PIT coverage checks before interpreting CAGR/MDD.",
@@ -1268,6 +1276,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     payload = {
         "overall_status": overall_status,
         "strict_targets": args.strict_targets,
+        "target_type": "canonical_mission",
         "enforce_contracts": bool(getattr(args, "enforce_contracts", False)),
         "baseline_books": {key: str(value) for key, value in baseline_books.items()},
         "targets_pass": targets_pass,
@@ -1325,10 +1334,10 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--latest-run", default=DEFAULT_LATEST_RUN)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
-    parser.add_argument("--main-cagr-target", type=float, default=PORTFOLIO_GOAL_TARGETS["main"]["cagr"])
-    parser.add_argument("--main-max-dd-target", type=float, default=PORTFOLIO_GOAL_TARGETS["main"]["max_dd"])
-    parser.add_argument("--concentrated-cagr-target", type=float, default=PORTFOLIO_GOAL_TARGETS["concentrated"]["cagr"])
-    parser.add_argument("--concentrated-max-dd-target", type=float, default=PORTFOLIO_GOAL_TARGETS["concentrated"]["max_dd"])
+    parser.add_argument("--main-cagr-target", type=float, default=PORTFOLIO_MISSION_TARGETS["main"]["cagr"])
+    parser.add_argument("--main-max-dd-target", type=float, default=PORTFOLIO_MISSION_TARGETS["main"]["max_dd"])
+    parser.add_argument("--concentrated-cagr-target", type=float, default=PORTFOLIO_MISSION_TARGETS["concentrated"]["cagr"])
+    parser.add_argument("--concentrated-max-dd-target", type=float, default=PORTFOLIO_MISSION_TARGETS["concentrated"]["max_dd"])
     parser.add_argument("--strict-targets", action="store_true")
     parser.add_argument(
         "--require-latest-artifacts",

@@ -27,6 +27,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from r1000_config import PORTFOLIO_MISSION_TARGETS
+
 try:
     from r1000_config import (
         OFFICIAL_BACKTEST_START_DATE,
@@ -34,13 +36,8 @@ try:
         PROXY_8Y_10Y_EVIDENCE_BLOCKED,
         PROXY_WINDOW_BLOCKER_REASON,
         PORTFOLIO_GOAL_GATES,
-        PORTFOLIO_GOAL_TARGETS,
     )
 except Exception:  # pragma: no cover - fallback for isolated smoke contexts
-    PORTFOLIO_GOAL_TARGETS = {
-        "main": {"cagr": 0.30, "max_dd": -0.25},
-        "concentrated": {"cagr": 0.50, "max_dd": -0.28},
-    }
     PORTFOLIO_GOAL_GATES = {
         "main": {"is_cagr_min": 0.25, "oos_is_cagr_ratio_max": 3.0, "sharpe_min": 1.20, "avg_cash_weight_max": 0.55, "max_dd_recent_3y_min": -0.25},
         "concentrated": {"is_cagr_min": 0.30, "oos_is_cagr_ratio_max": 3.0, "sharpe_min": 1.40, "avg_cash_weight_max": 0.55, "max_dd_recent_3y_min": -0.28},
@@ -69,12 +66,8 @@ MAX_BROKER_START_EVALUATION_DRIFT_DAYS = 35
 # must key on the broker start being EARLIER than official (genuine extra history), NOT
 # on realized years > 7.05 — otherwise the canonical window self-invalidates as it ages.
 OFFICIAL_START_PROXY_GRACE_DAYS = 35
-CANONICAL_MISSION_TARGETS = {
-    "main": {"cagr": 0.35, "max_dd": -0.25},
-    "concentrated": {"cagr": 0.50, "max_dd": -0.25},
-}
-TARGET_CONTRACT_STATUS = "unresolved_user_decision_required"
-ACTIVE_TARGET_TYPE = "interim_operating_gate"
+TARGET_CONTRACT_STATUS = "approved_current_mission"
+ACTIVE_TARGET_TYPE = "canonical_mission"
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -103,7 +96,7 @@ def write_text(path: Path, text: str) -> None:
 
 def safe_float(value: Any, default: float | None = None) -> float | None:
     try:
-        if value is None or value == "":
+        if isinstance(value, bool) or value is None or value == "":
             return default
         out = float(value)
         if not math.isfinite(out):
@@ -265,24 +258,18 @@ def legacy_metrics(latest_run: Path, portfolio: str) -> dict[str, Any]:
 
 
 def target_for(portfolio: str) -> dict[str, float]:
-    target = PORTFOLIO_GOAL_TARGETS.get(portfolio, {})
-    default_cagr = 0.30 if portfolio == "main" else 0.50
-    default_max_dd = -0.25 if portfolio == "main" else -0.28
-    return {
-        "cagr": float(target.get("cagr", default_cagr)),
-        "max_dd": float(target.get("max_dd", default_max_dd)),
-    }
+    target = PORTFOLIO_MISSION_TARGETS[portfolio]
+    return {"cagr": float(target["cagr"]), "max_dd": float(target["max_dd"])}
 
 
 def target_contract_for(portfolio: str) -> dict[str, Any]:
-    active = target_for(portfolio)
-    canonical = CANONICAL_MISSION_TARGETS.get(portfolio, active)
+    mission = target_for(portfolio)
     return {
         "target_type": ACTIVE_TARGET_TYPE,
         "status": TARGET_CONTRACT_STATUS,
-        "active_gate": active,
-        "canonical_mission": canonical,
-        "rule": "Do not treat interim operating gates as a canonical mission rewrite without explicit user approval.",
+        "active_gate": mission,
+        "canonical_mission": mission,
+        "rule": "Canonical mission headline pass is separate from PIT/window/Tier-2 promotion readiness.",
     }
 
 
@@ -518,12 +505,12 @@ def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
     sharpe = metric(broker_metrics, "sharpe")
     replay_valid = bool(broker_metrics.get("valid_for_production")) and broker_metrics.get("status") == "completed"
     valid_for_production = replay_valid and bool(window_gate["valid"])
-    cagr_pass = valid_for_production and cagr is not None and cagr >= target["cagr"]
-    dd_pass = valid_for_production and max_dd is not None and max_dd >= target["max_dd"]
+    cagr_pass = cagr is not None and cagr >= target["cagr"]
+    dd_pass = max_dd is not None and max_dd >= target["max_dd"]
     cagr_gap = None if cagr is None else max(0.0, target["cagr"] - cagr)
     dd_gap = None if max_dd is None else max(0.0, target["max_dd"] - max_dd)
     tier2_pass = bool(tier2["passing"])
-    strengthened_pass = bool(cagr_pass and dd_pass and tier2_pass)
+    strengthened_pass = bool(valid_for_production and cagr_pass and dd_pass and tier2_pass)
 
     return {
         "portfolio": portfolio,
@@ -770,7 +757,8 @@ def render_report(payload: dict[str, Any]) -> str:
     lines.append("- Canonical mission targets remain Main `35% / -25%` and Concentrated `50% / -25%` until explicit user approval changes them.")
     lines.append(f"- Clean broker-ledger research window: `{MIN_BROKER_LEDGER_YEARS:.1f} years / {MIN_BROKER_LEDGER_TRADING_DAYS} trading days`")
     lines.append("- Proxy 8Y/10Y evidence is blocked until a PIT-clean historical universe label is present.")
-    lines.append(f"- Production target pass (Tier-1: full CAGR/MDD): `{str(payload.get('production_target_pass')).lower()}`")
+    lines.append(f"- Mission target pass (headline CAGR/MDD): `{str(payload.get('mission_target_pass')).lower()}`")
+    lines.append("- `production_target_pass` is a deprecated compatibility alias; it does not authorize production.")
     lines.append(f"- Strengthened pass (Tier-1 AND Tier-2 IS/Sharpe/ratio/cash/recent-MDD): `{str(payload.get('strengthened_pass')).lower()}`")
     lines.append(f"- Research target pass: `{str(payload.get('research_target_pass')).lower()}`")
     lines.append(f"- Generated at: `{payload.get('generated_at_utc')}`")
@@ -783,7 +771,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = repo_path(args.output_dir)
     portfolios = [summarize_portfolio(latest_run, name) for name in PORTFOLIOS]
     goal_search = summarize_goal_search(latest_run)
-    production_target_pass = all(bool(row.get("target_pass")) for row in portfolios)
+    mission_target_pass = all(bool(row.get("target_pass")) for row in portfolios)
     strengthened_pass_all = all(bool(row.get("strengthened_pass")) for row in portfolios)
     research_target_pass = bool(goal_search.get("research_target_pass"))
     payload = {
@@ -794,13 +782,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "target_contract": {
             "active_target_type": ACTIVE_TARGET_TYPE,
             "status": TARGET_CONTRACT_STATUS,
-            "canonical_mission": CANONICAL_MISSION_TARGETS,
+            "canonical_mission": PORTFOLIO_MISSION_TARGETS,
             "active_gate": {name: target_for(name) for name in PORTFOLIOS},
-            "rule": "Do not treat interim operating gates as a canonical mission rewrite without explicit user approval.",
+            "rule": "Canonical mission headline pass is separate from PIT/window/Tier-2 promotion readiness.",
         },
         "latest_run": str(latest_run),
         "generated_at_utc": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-        "production_target_pass": production_target_pass,
+        "mission_target_pass": mission_target_pass,
+        "production_target_pass": mission_target_pass,
+        "production_target_pass_alias_of": "mission_target_pass",
         "production_promotion_allowed": False,
         "strengthened_pass": strengthened_pass_all,
         "research_target_pass": research_target_pass,
@@ -813,7 +803,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "target_type": payload["target_type"],
         "target_contract_status": payload["target_contract_status"],
         "target_contract": payload["target_contract"],
-        "production_target_pass": production_target_pass,
+        "mission_target_pass": mission_target_pass,
+        "production_target_pass": mission_target_pass,
+        "production_target_pass_alias_of": "mission_target_pass",
         "production_promotion_allowed": False,
         "strengthened_pass": strengthened_pass_all,
         "portfolios": {row["portfolio"]: row for row in portfolios},

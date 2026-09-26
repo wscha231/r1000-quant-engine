@@ -21,13 +21,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-try:
-    from r1000_config import PORTFOLIO_GOAL_TARGETS
-except Exception:  # pragma: no cover - isolated smoke fallback
-    PORTFOLIO_GOAL_TARGETS = {
-        "main": {"cagr": 0.35, "max_dd": -0.25},
-        "concentrated": {"cagr": 0.50, "max_dd": -0.25},
-    }
+from r1000_config import PORTFOLIO_MISSION_TARGETS
 
 
 DEFAULT_LATEST_RUN = "outputs"
@@ -71,7 +65,7 @@ def write_text(path: Path, text: str) -> None:
 
 def safe_float(value: Any, default: float | None = None) -> float | None:
     try:
-        if value is None or value == "":
+        if isinstance(value, bool) or value is None or value == "":
             return default
         out = float(value)
         if not math.isfinite(out):
@@ -101,11 +95,8 @@ def pct(value: float | None) -> str:
 
 
 def target_for(portfolio: str) -> dict[str, float]:
-    target = PORTFOLIO_GOAL_TARGETS.get(portfolio, {})
-    return {
-        "cagr": float(target.get("cagr", 0.30 if portfolio == "main" else 0.50)),
-        "max_dd": float(target.get("max_dd", -0.20 if portfolio == "main" else -0.25)),
-    }
+    target = PORTFOLIO_MISSION_TARGETS[portfolio]
+    return {"cagr": float(target["cagr"]), "max_dd": float(target["max_dd"])}
 
 
 def load_account_row(latest_run: Path, portfolio: str) -> dict[str, Any]:
@@ -164,6 +155,7 @@ def official_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
         "official_source_exists": broker_path.exists(),
         "official_metric_mode": metric_mode or OFFICIAL_METRIC_MODE,
         "production_valid": valid,
+        "target_type": "canonical_mission",
         "status": broker.get("status") or "missing",
         "target_pass": bool(cagr_pass and dd_pass),
         "cagr": cagr,
@@ -288,8 +280,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "latest_run": str(latest_run),
         "official_metric_mode": OFFICIAL_METRIC_MODE,
         "official_metric_required": OFFICIAL_METRIC_MODE,
+        "target_type": "canonical_mission",
         "official_portfolios": official,
+        "mission_target_pass": all(bool(row.get("target_pass")) for row in official.values()),
         "production_target_pass": all(bool(row.get("target_pass")) for row in official.values()),
+        "production_target_pass_alias_of": "mission_target_pass",
         "production_valid_all": all(bool(row.get("production_valid")) for row in official.values()),
         "deprecated_metrics": deprecated,
         "cash_trap_warning_count": int(len(cash_trap_warnings)),
@@ -301,7 +296,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     write_json(output_dir / "official_metrics.json", {
         "schema_version": payload["schema_version"],
         "official_metric_mode": OFFICIAL_METRIC_MODE,
+        "target_type": "canonical_mission",
+        "mission_target_pass": payload["mission_target_pass"],
         "production_target_pass": payload["production_target_pass"],
+        "production_target_pass_alias_of": "mission_target_pass",
         "production_valid_all": payload["production_valid_all"],
         "portfolios": official,
     })
