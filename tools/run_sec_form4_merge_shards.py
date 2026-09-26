@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Merge SEC Form 4 shard outputs into canonical PIT evidence files."""
+"""Merge SEC Form 4 and Section 16 shard outputs into canonical PIT evidence files."""
 from __future__ import annotations
 
 import argparse
@@ -17,6 +17,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from r1000_helpers import normalize_cik10  # noqa: E402
 from tools.run_sec_ownership_signals import build_form4_signal  # noqa: E402
+from tools.run_sec_section16_parser import SECTION16_ERROR_COLUMNS, build_ownership_state  # noqa: E402
 
 DEFAULT_PIT_ROOT = "data_pit/sec"
 DEFAULT_OUTPUT_DIR = "outputs/sec_ownership_signals"
@@ -115,6 +116,64 @@ def normalize_transactions(frame: pd.DataFrame) -> pd.DataFrame:
     return d.reset_index(drop=True)
 
 
+def normalize_section16_transactions(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return frame
+    d = frame.copy()
+    for col in ["issuer_cik10", "reporting_owner_cik"]:
+        if col in d.columns:
+            d[col] = d[col].map(cik10)
+    for col in ["issuer_ticker", "form_type", "transaction_code", "acquired_disposed_code"]:
+        if col in d.columns:
+            d[col] = d[col].fillna("").astype(str).str.upper().str.strip()
+    for col in [
+        "transaction_shares", "transaction_price", "transaction_value",
+        "shares_owned_after", "underlying_shares", "conversion_or_exercise_price",
+    ]:
+        if col in d.columns:
+            d[col] = pd.to_numeric(d[col], errors="coerce")
+    keys = [
+        col for col in [
+            "accession_number", "form_type", "reporting_owners_json",
+            "transaction_date", "transaction_code", "acquired_disposed_code",
+            "security_title", "is_derivative", "transaction_shares", "transaction_price",
+        ] if col in d.columns
+    ]
+    if keys:
+        d = d.drop_duplicates(keys, keep="last")
+    sort_cols = [c for c in ["issuer_ticker", "available_from", "accession_number"] if c in d.columns]
+    if sort_cols:
+        d = d.sort_values(sort_cols)
+    return d.reset_index(drop=True)
+
+
+def normalize_section16_holdings(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return frame
+    d = frame.copy()
+    for col in ["issuer_cik10", "reporting_owner_cik"]:
+        if col in d.columns:
+            d[col] = d[col].map(cik10)
+    for col in ["issuer_ticker", "form_type"]:
+        if col in d.columns:
+            d[col] = d[col].fillna("").astype(str).str.upper().str.strip()
+    for col in ["shares_owned", "underlying_shares", "conversion_or_exercise_price"]:
+        if col in d.columns:
+            d[col] = pd.to_numeric(d[col], errors="coerce")
+    keys = [
+        col for col in [
+            "accession_number", "form_type", "reporting_owners_json",
+            "security_title", "is_derivative", "direct_or_indirect", "shares_owned",
+        ] if col in d.columns
+    ]
+    if keys:
+        d = d.drop_duplicates(keys, keep="last")
+    sort_cols = [c for c in ["issuer_ticker", "available_from", "accession_number"] if c in d.columns]
+    if sort_cols:
+        d = d.sort_values(sort_cols)
+    return d.reset_index(drop=True)
+
+
 def read_as_of_dates(path: Path, column: str) -> list[str]:
     frame = read_table(path)
     if frame.empty or column not in frame.columns:
@@ -142,48 +201,112 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
     filing_paths = [pit_root / "sec_filings_index.parquet"] + sorted((pit_root / "shards").glob("**/sec_filings_index.parquet"))
     tx_paths = [pit_root / "form4_transactions.parquet"] + sorted((pit_root / "shards").glob("**/form4_transactions.parquet"))
+    section16_filing_paths = [pit_root / "section16_filings.parquet"] + sorted((pit_root / "shards").glob("**/section16_filings.parquet"))
+    section16_tx_paths = [pit_root / "section16_transactions.parquet"] + sorted((pit_root / "shards").glob("**/section16_transactions.parquet"))
+    section16_holding_paths = [pit_root / "section16_holdings.parquet"] + sorted((pit_root / "shards").glob("**/section16_holdings.parquet"))
+    section16_error_paths = [pit_root / "section16_parse_errors.csv"] + sorted((pit_root / "shards").glob("**/section16_parse_errors.csv"))
 
     filings = normalize_filings(read_many(filing_paths))
     tx = normalize_transactions(read_many(tx_paths))
     signals = build_signals(tx, args)
 
+    section16_filings = normalize_filings(read_many(section16_filing_paths))
+    section16_tx = normalize_section16_transactions(read_many(section16_tx_paths))
+    section16_holdings = normalize_section16_holdings(read_many(section16_holding_paths))
+    section16_errors = read_many(section16_error_paths)
+    if not section16_errors.empty:
+        error_keys = [c for c in ["form_type", "accession_number", "error"] if c in section16_errors.columns]
+        if error_keys:
+            section16_errors = section16_errors.drop_duplicates(error_keys, keep="last")
+        section16_errors = section16_errors.drop(columns=["_source_file"], errors="ignore")
+    else:
+        section16_errors = pd.DataFrame(columns=SECTION16_ERROR_COLUMNS)
+    section16_state = build_ownership_state(section16_tx, section16_holdings)
+
     write_table(filings, pit_root / "sec_filings_index.parquet")
     write_table(tx, pit_root / "form4_transactions.parquet")
     write_table(signals, pit_root / "sec_ownership_signals.parquet")
+    write_table(section16_filings, pit_root / "section16_filings.parquet")
+    write_table(section16_tx, pit_root / "section16_transactions.parquet")
+    write_table(section16_holdings, pit_root / "section16_holdings.parquet")
+    write_table(section16_state, pit_root / "section16_ownership_state.parquet")
+    write_table(section16_errors, pit_root / "section16_parse_errors.csv")
+    section16_summary = {
+        "schema_version": "sec-section16-pit-merge-v1",
+        "status": "completed" if section16_errors.empty else "partial_parse_errors",
+        "data_complete": bool(section16_errors.empty),
+        "research_only": True,
+        "production_activation_allowed": False,
+        "filing_rows": int(len(section16_filings)),
+        "transaction_rows": int(len(section16_tx)),
+        "holding_rows": int(len(section16_holdings)),
+        "ownership_state_rows": int(len(section16_state)),
+        "parse_error_rows": int(len(section16_errors)),
+        "outputs": {
+            "filings": str(pit_root / "section16_filings.parquet"),
+            "transactions": str(pit_root / "section16_transactions.parquet"),
+            "holdings": str(pit_root / "section16_holdings.parquet"),
+            "ownership_state": str(pit_root / "section16_ownership_state.parquet"),
+            "errors": str(pit_root / "section16_parse_errors.csv"),
+            "summary": str(pit_root / "section16_summary.json"),
+        },
+    }
+    write_json(pit_root / "section16_summary.json", section16_summary)
     signals.to_csv(output_dir / "form4_latest.csv", index=False)
     signals.head(30).to_csv(output_dir / "ownership_signal_top30.csv", index=False)
 
     summary = {
         "status": "completed",
-        "schema_version": "sec-form4-merge-shards-v1",
+        "schema_version": "sec-form4-section16-merge-shards-v2",
         "research_only": True,
         "production_activation_allowed": False,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "filing_source_files": len([p for p in filing_paths if p.exists()]),
         "transaction_source_files": len([p for p in tx_paths if p.exists()]),
+        "section16_filing_source_files": len([p for p in section16_filing_paths if p.exists()]),
+        "section16_transaction_source_files": len([p for p in section16_tx_paths if p.exists()]),
+        "section16_holding_source_files": len([p for p in section16_holding_paths if p.exists()]),
+        "section16_error_source_files": len([p for p in section16_error_paths if p.exists()]),
         "filing_rows": int(len(filings)),
         "transaction_rows": int(len(tx)),
         "signal_rows": int(len(signals)),
+        "section16_filing_rows": int(len(section16_filings)),
+        "section16_transaction_rows": int(len(section16_tx)),
+        "section16_holding_rows": int(len(section16_holdings)),
+        "section16_ownership_state_rows": int(len(section16_state)),
+        "section16_parse_error_rows": int(len(section16_errors)),
+        "section16_status": section16_summary["status"],
+        "section16_data_complete": section16_summary["data_complete"],
         "historical_as_of_dates": int(signals["as_of_date"].nunique()) if not signals.empty and "as_of_date" in signals.columns else 0,
         "outputs": {
             "sec_filings_index": str(pit_root / "sec_filings_index.parquet"),
             "form4_transactions": str(pit_root / "form4_transactions.parquet"),
             "sec_ownership_signals": str(pit_root / "sec_ownership_signals.parquet"),
+            "section16_filings": str(pit_root / "section16_filings.parquet"),
+            "section16_transactions": str(pit_root / "section16_transactions.parquet"),
+            "section16_holdings": str(pit_root / "section16_holdings.parquet"),
+            "section16_ownership_state": str(pit_root / "section16_ownership_state.parquet"),
+            "section16_parse_errors": str(pit_root / "section16_parse_errors.csv"),
+            "section16_summary": str(pit_root / "section16_summary.json"),
             "form4_latest": str(output_dir / "form4_latest.csv"),
         },
     }
     write_json(output_dir / "ownership_signal_summary.json", summary)
     write_json(pit_root / "sec_form4_merge_manifest.json", summary)
     report = [
-        "# SEC Form 4 Shard Merge",
+        "# SEC Form 4 + Section 16 Shard Merge",
         "",
         f"- status: {summary['status']}",
         f"- filing_rows: {summary['filing_rows']}",
-        f"- transaction_rows: {summary['transaction_rows']}",
-        f"- signal_rows: {summary['signal_rows']}",
-        f"- transaction_source_files: {summary['transaction_source_files']}",
+        f"- form4_transaction_rows: {summary['transaction_rows']}",
+        f"- form4_signal_rows: {summary['signal_rows']}",
+        f"- section16_filing_rows: {summary['section16_filing_rows']}",
+        f"- section16_transaction_rows: {summary['section16_transaction_rows']}",
+        f"- section16_holding_rows: {summary['section16_holding_rows']}",
+        f"- section16_ownership_state_rows: {summary['section16_ownership_state_rows']}",
+        f"- section16_parse_error_rows: {summary['section16_parse_error_rows']}",
         "",
-        "Canonical outputs are point-in-time evidence files. They remain shadow research inputs until broker-ledger validation passes.",
+        "Canonical outputs are point-in-time evidence files. Section 16 data is data-foundation only and has no selector, target, or portfolio authority.",
     ]
     (output_dir / "report.md").write_text("\n".join(report) + "\n", encoding="utf-8")
     return summary

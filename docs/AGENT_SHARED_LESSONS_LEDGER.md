@@ -5312,3 +5312,9 @@ Expected contract:
   Record stage/final completion after evidence production, enforce monotonic
   completion within the authenticated artifact timeline, and bound Theme
   decisions by that final completion. Legacy receipts lacking this proof block.
+
+## 2026-09-24 — Section 16 multi-owner filings are not per-owner positions
+
+- Form 3/4/5 ownership documents can contain multiple reporting owners. Preserve the complete reporting-owner relationship on the normalized filing/transaction/holding record; do not duplicate one reported holding or transaction into separate per-owner economic positions unless the source explicitly resolves that attribution.
+- Canonical ownership-state materialization therefore fails closed on ambiguous multi-owner rows while retaining the underlying filing evidence for later adjudication.
+- Forms 3 and 5 are data/governance evidence in this foundation slice, not automatic buy signals. Existing Form 4 scoring and target/portfolio authority remain unchanged.
