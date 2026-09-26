@@ -77,6 +77,7 @@ def feature_source_coverage_fixture() -> dict:
 def test_portfolio_system_guard_cli_targets_are_diagnostic_only() -> None:
     metrics = {
         "_metric_source": "broker_ledger_next_close",
+        "status": "completed",
         "valid_for_production": True,
         "cagr": 0.32,
         "max_dd": -0.10,
@@ -98,8 +99,8 @@ def test_portfolio_system_guard_mission_boundaries_and_missing_metrics() -> None
         ("concentrated", .52, -.27, False),
         ("main", .35, -.25, True), ("concentrated", .50, -.25, True),
     ]:
-        metrics = {"_metric_source": "broker_ledger_next_close", "valid_for_production": True,
-                   "cagr": cagr, "max_dd": mdd}
+        metrics = {"_metric_source": "broker_ledger_next_close", "status": "completed",
+                   "valid_for_production": True, "cagr": cagr, "max_dd": mdd}
         assert portfolio_status(name, metrics, .30, -.28)["target_pass"] is expected
     metrics = {"_metric_source": "broker_ledger_next_close", "valid_for_production": False,
                "status": "completed", "cagr": .35, "max_dd": -.25}
@@ -115,8 +116,8 @@ def test_portfolio_system_guard_mission_boundaries_and_missing_metrics() -> None
 
     for field in ("cagr", "max_dd"):
         for invalid in (None, True, False, float("nan"), float("inf"), -float("inf")):
-            metrics = {"_metric_source": "broker_ledger_next_close", "valid_for_production": True,
-                       "cagr": .36, "max_dd": -.24, field: invalid}
+            metrics = {"_metric_source": "broker_ledger_next_close", "status": "completed",
+                       "valid_for_production": True, "cagr": .36, "max_dd": -.24, field: invalid}
             row = portfolio_status("main", metrics, .30, -.28)
             assert row["target_pass"] is False
             assert row[field] is None

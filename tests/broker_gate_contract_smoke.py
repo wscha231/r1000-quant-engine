@@ -81,7 +81,7 @@ def main() -> int:
 
     broker_status = portfolio_status(
         "main",
-        {"_metric_source": "broker_ledger_next_close", "valid_for_production": True, "cagr": 0.36, "max_dd": -0.24},
+        {"_metric_source": "broker_ledger_next_close", "status": "completed", "valid_for_production": True, "cagr": 0.36, "max_dd": -0.24},
         0.30,
         -0.25,
     )

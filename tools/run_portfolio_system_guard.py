@@ -341,7 +341,8 @@ def metric(metrics: dict[str, Any], *names: str, default: float | None = 0.0) ->
 
 def portfolio_status(name: str, metrics: dict[str, Any], cagr_target: float, max_dd_target: float) -> dict[str, Any]:
     metric_source = metrics.get("_metric_source", "legacy_weight_backtest")
-    official_source = metric_source == "broker_ledger_next_close" and bool(metrics.get("valid_for_production", False))
+    broker_source = metric_source == "broker_ledger_next_close"
+    official_source = broker_source and bool(metrics.get("valid_for_production", False))
     cagr = metric(metrics, "cagr", "strategy_cagr", default=None)
     max_dd = metric(metrics, "max_dd", default=None)
     sharpe = metric(metrics, "sharpe")
@@ -351,7 +352,7 @@ def portfolio_status(name: str, metrics: dict[str, Any], cagr_target: float, max
     mission_max_dd = float(mission["max_dd"])
     cagr_gap = None if cagr is None else mission_cagr - cagr
     maxdd_gap = None if max_dd is None else mission_max_dd - max_dd
-    replay_completed = metrics.get("status") in (None, "", "completed")
+    replay_completed = metrics.get("status") == "completed"
     cagr_pass = cagr is not None and cagr >= mission_cagr
     max_dd_pass = max_dd is not None and max_dd >= mission_max_dd
     diagnostic_cagr_pass = official_source and cagr is not None and cagr >= cagr_target
@@ -371,7 +372,7 @@ def portfolio_status(name: str, metrics: dict[str, Any], cagr_target: float, max
         "max_dd_improvement_needed_pp": None if maxdd_gap is None else pp(max(0.0, maxdd_gap)),
         "sharpe": sharpe,
         "avg_turnover_monthly": turnover,
-        "target_pass": replay_completed and cagr_pass and max_dd_pass,
+        "target_pass": broker_source and replay_completed and cagr_pass and max_dd_pass,
         "diagnostic_target_status": {
             "cagr_target": float(cagr_target),
             "max_dd_target": float(max_dd_target),

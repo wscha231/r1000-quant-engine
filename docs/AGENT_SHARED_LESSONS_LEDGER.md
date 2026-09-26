@@ -2,6 +2,10 @@
 
 ## 2026-09-27 — Recompute mission verdicts from current numeric broker evidence
 
+- Mission thresholds are not enough by themselves: a headline pass also needs a current completed broker-ledger source; deprecated legacy weight metrics must never satisfy the mission.
+- A/B comparison baselines must have their own completed finite broker replay. A stale official summary cannot stand in for missing baseline broker evidence or silently disable regression comparisons.
+- Governance/activation queues use the canonical mission; only genuine search/challenger optimization paths may retain transitional PORTFOLIO_GOAL_TARGETS.
+
 - The authoritative headline mission lives in `r1000_config.PORTFOLIO_MISSION_TARGETS`; transitional `PORTFOLIO_GOAL_TARGETS` remains challenger/search-only until #535.
 - Stored `target_pass=true` and old declared target values are historical metadata, not current authority. Recompute from current broker CAGR/MDD and fail closed when numeric evidence is missing.
 - Mission headline pass is distinct from PIT/window/Tier-2 promotion readiness. A mission pass must not imply production authorization.

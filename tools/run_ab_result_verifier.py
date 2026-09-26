@@ -475,7 +475,14 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 def run(args: argparse.Namespace) -> dict[str, Any]:
     portfolio = str(getattr(args, "portfolio", "concentrated"))
     baseline = collect_evidence(repo_path(args.baseline_run), portfolio)
-    baseline_ok = baseline.get("official_metrics_exists") and baseline.get("official_metric_mode") == OFFICIAL_METRIC_MODE
+    baseline_ok = bool(
+        baseline.get("official_metrics_exists")
+        and baseline.get("broker_metrics_exists")
+        and baseline.get("official_metric_mode") == OFFICIAL_METRIC_MODE
+        and baseline.get("status") == "completed"
+        and safe_float(baseline.get("cagr")) is not None
+        and safe_float(baseline.get("max_dd")) is not None
+    )
     require_evidence = not bool(getattr(args, "allow_missing_evidence", False))
     min_cagr_delta = float(getattr(args, "min_cagr_delta_pp", 0.0)) / 100.0
     min_is_delta = float(getattr(args, "min_is_cagr_delta_pp", 0.5)) / 100.0

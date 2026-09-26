@@ -312,6 +312,22 @@ def test_verifier_carries_dispatch_context_for_queue_closure() -> None:
         assert row["candidate_run"] == "candidate"
 
 
+def test_verifier_blocks_missing_baseline_broker_metrics() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        baseline = root / "baseline"
+        candidate = root / "candidate"
+        seed_run(baseline, cagr=0.51, max_dd=-0.24, is_cagr=0.30, years=8.10, target_pass=True, strengthened_pass=True)
+        seed_run(candidate, cagr=0.52, max_dd=-0.24, is_cagr=0.31, years=8.10, target_pass=True, strengthened_pass=True)
+        (baseline / "broker_replay" / "concentrated" / "metrics.json").unlink()
+        payload = run(args(baseline, [candidate], root / "out"))
+        assert payload["status"] == "blocked_missing_baseline"
+        row = payload["candidates"][0]
+        assert row["decision"] == "blocked_missing_baseline"
+        assert row["review_valid_for_promotion"] is False
+        assert "baseline_official_metrics_missing_or_invalid" in row["issues"]
+
+
 def test_verifier_rejects_stale_old_target_pass_true() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -338,5 +354,6 @@ if __name__ == "__main__":
     test_verifier_blocks_missing_oos_lock_evidence()
     test_verifier_blocks_failed_oos_lock()
     test_verifier_carries_dispatch_context_for_queue_closure()
+    test_verifier_blocks_missing_baseline_broker_metrics()
     test_verifier_rejects_stale_old_target_pass_true()
     print("ab_result_verifier_smoke: PASS")
