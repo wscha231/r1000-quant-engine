@@ -36,10 +36,10 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from r1000_config import PORTFOLIO_MISSION_TARGETS
+from mission_contract import mission_identity, mission_binding_status, OFFICIAL_METRIC_MODE
 
 
 PORTFOLIOS = ("main", "concentrated")
-OFFICIAL_METRIC_MODE = "broker_ledger_next_close"
 MIN_YEARS = 8.0
 CRISIS_ALLOWED_ACTION_TYPES = {"raise_cash", "trim_position", "block_new_buys", "reentry_watch", "no_op"}
 CONCENTRATED_RECOVERY_EXPERIMENTS = [
@@ -179,6 +179,7 @@ def requirement(
 
 def account_evidence(latest_run: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     official = read_json(latest_run / "account_evaluation" / "official_metrics.json")
+    source_contract_status = mission_binding_status(official, mission_identity(PORTFOLIO_MISSION_TARGETS))
     portfolios = official.get("portfolios") if isinstance(official.get("portfolios"), dict) else {}
     rows: dict[str, Any] = {}
     declared_type = str(official.get("target_type") or "")
@@ -200,8 +201,11 @@ def account_evidence(latest_run: Path) -> tuple[dict[str, Any], dict[str, Any]]:
             mission_evidence_valid
             and cagr >= target["cagr"]
             and max_dd >= target["max_dd"]
+            and source_contract_status == "current_mission_contract"
         )
         mismatch_reasons: list[str] = []
+        if source_contract_status != "current_mission_contract":
+            mismatch_reasons.append("historical_or_unbound_target_contract")
         source_cagr_target = safe_float(row.get("cagr_target"))
         source_max_dd_target = safe_float(row.get("max_dd_target"))
         if source_cagr_target is not None and abs(source_cagr_target - target["cagr"]) > 1e-12:
@@ -214,10 +218,14 @@ def account_evidence(latest_run: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         if row_type and row_type != "canonical_mission":
             mismatch_reasons.append("portfolio_target_type_mismatch")
         rows[portfolio] = {
+            **mission_identity(PORTFOLIO_MISSION_TARGETS),
+            "source_target_contract_status": source_contract_status,
+            "reevaluated_target_pass": bool(mission_evidence_valid and cagr >= target["cagr"] and max_dd >= target["max_dd"]),
             "status": status,
             "metric_mode": mode,
             "valid_for_production": bool(
                 mission_evidence_valid and broker.get("valid_for_production", False)
+                and source_contract_status == "current_mission_contract"
             ),
             "target_type": "canonical_mission",
             "target_pass": target_pass,
@@ -246,7 +254,8 @@ def account_evidence(latest_run: Path) -> tuple[dict[str, Any], dict[str, Any]]:
 
 def evaluate_official_metrics(latest_run: Path) -> dict[str, Any]:
     official, rows = account_evidence(latest_run)
-    missing = [p for p, row in rows.items() if row["status"] != "completed" or row["metric_mode"] != OFFICIAL_METRIC_MODE]
+    missing = [p for p, row in rows.items() if row["status"] != "completed" or row["metric_mode"] != OFFICIAL_METRIC_MODE
+               or row["source_target_contract_status"] != "current_mission_contract"]
     if missing:
         return requirement(
             "official_broker_ledger_metrics",
@@ -1054,6 +1063,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
     manual_review_tasks = collect_manual_review_tasks(latest_run)
     return {
         "schema_version": "system-acceptance-audit-v1",
+        **mission_identity(PORTFOLIO_MISSION_TARGETS),
         "generated_at_utc": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "latest_run": str(latest_run),
         "status": status,

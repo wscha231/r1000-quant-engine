@@ -12,12 +12,17 @@ import argparse
 import hashlib
 import json
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+from r1000_config import PORTFOLIO_MISSION_TARGETS
+from mission_contract import mission_identity, mission_binding_status
 SCHEMA_VERSION = "run287-fullrun-approved-source-manifest-v1"
 READY_STATUS = "APPROVED_FULLRUN_SOURCE_MANIFEST_READY"
 
@@ -160,6 +165,9 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
         failures.append("approved_commit_sha_mismatch")
     if manifest.get("schema_version") != SCHEMA_VERSION:
         failures.append("manifest_schema_mismatch")
+    mission = mission_identity(PORTFOLIO_MISSION_TARGETS)
+    if mission_binding_status(manifest, mission) != "current_mission_contract":
+        failures.append("historical_or_unbound_target_contract")
     if manifest.get("status") != READY_STATUS:
         failures.append("manifest_status_not_ready")
     if manifest.get("research_only") is not True:
@@ -235,6 +243,8 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
 
     payload = {
         "schema_version": "run287-fullrun-source-manifest-verification-v1",
+        **mission,
+        "approved_mission_contract_status": mission_binding_status(manifest, mission),
         "status": "READY_APPROVED_FULLRUN_SOURCE_MANIFEST" if not failures else "BLOCKED_APPROVED_FULLRUN_SOURCE_MANIFEST",
         "ready": not failures,
         "contract_failures": sorted(set(failures)),

@@ -427,6 +427,7 @@ def main() -> int:
         source_hashes=hashes,
         requested_state=args.request_state,
         transition_authorization=authorization,
+        broker_metrics_root=Path(args.latest_run).resolve() if args.latest_run else None,
     )
     gate["generated_at_utc"] = datetime.now(timezone.utc).isoformat()
     output = Path(args.output_dir)

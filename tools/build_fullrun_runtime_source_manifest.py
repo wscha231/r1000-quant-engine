@@ -12,12 +12,17 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+from r1000_config import PORTFOLIO_MISSION_TARGETS
+from mission_contract import mission_identity, mission_binding_status
 SCHEMA_VERSION = "run287-fullrun-runtime-source-manifest-v1"
 CONTRACT_SCHEMA_VERSION = "run287-fullrun-runtime-source-contract-v1"
 
@@ -169,6 +174,9 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     except Exception as exc:
         manifest = {}
         failures.append(f"approved_manifest_json_invalid:{exc}")
+    mission = mission_identity(PORTFOLIO_MISSION_TARGETS)
+    if mission_binding_status(manifest, mission) != "current_mission_contract":
+        failures.append("historical_or_unbound_target_contract")
 
     runtime_contract = manifest.get("runtime_source_contract")
     if not isinstance(runtime_contract, dict):
@@ -205,6 +213,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         failures.append(f"runtime_identity_invalid:{exc}")
     identity = {
         "schema_version": SCHEMA_VERSION,
+        **mission,
         "stage": stage_name,
         "approved_manifest": {
             "path": approved_relative,

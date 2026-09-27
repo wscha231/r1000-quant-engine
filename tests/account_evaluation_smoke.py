@@ -13,6 +13,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run_account_evaluation import run  # noqa: E402
+from r1000_config import PORTFOLIO_MISSION_TARGETS
+from mission_contract import mission_identity
 
 
 def write_json(path: Path, payload: dict) -> None:
@@ -248,11 +250,24 @@ def test_mission_surfaces_recompute_same_numeric_boundaries() -> None:
         root = Path(tmp)
         # Stale published successes must not override any current numeric verdict.
         write_json(root / "account_evaluation" / "official_metrics.json", {
+            **mission_identity(PORTFOLIO_MISSION_TARGETS),
             "production_target_pass": True,
             "portfolios": {name: {"status": "completed", "valid_for_production": True,
                                   "target_pass": True, "cagr": .99, "max_dd": -.01}
                            for name in ("main", "concentrated")},
         })
+        old_path = root / "account_evaluation" / "official_metrics.json"
+        old = json.loads(old_path.read_text(encoding="utf-8"))
+        old.pop("mission_contract_sha256")
+        write_json(old_path, old)
+        seed_portfolio(root, "main", cagr=.35, max_dd=-.25, sharpe=1.5)
+        assert official_portfolio(root, "main")["target_pass"] is False
+        assert account_evidence(root)[1]["main"]["target_pass"] is False
+        unbound_ab = collect_evidence(root, "main")
+        assert unbound_ab["target_pass"] is False
+        assert unbound_ab["reevaluated_target_pass"] is True
+        assert unbound_ab["valid_for_production"] is False
+        write_json(old_path, {**old, **mission_identity(PORTFOLIO_MISSION_TARGETS)})
         cases = [("main", .32, -.20, False), ("main", .36, -.26, False),
                  ("concentrated", .52, -.27, False),
                  ("main", .35, -.25, True), ("concentrated", .50, -.25, True)]
@@ -305,6 +320,7 @@ def test_mission_surfaces_admit_only_completed_exact_mode_broker_artifacts() -> 
             # Stale summaries and aliases cannot supply missing broker evidence.
             original.update(strategy_cagr=.99, max_drawdown=-.01)
             write_json(root / "account_evaluation" / "official_metrics.json", {
+                **mission_identity(PORTFOLIO_MISSION_TARGETS),
                 "official_metric_mode": "broker_ledger_next_close", "production_target_pass": True,
                 "portfolios": {name: {**original, "official_metric_mode": "broker_ledger_next_close",
                                       "target_pass": True, "strengthened_pass": True}},

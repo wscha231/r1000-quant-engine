@@ -153,6 +153,7 @@
         "input_hash",
         "code_sha",
         "config_hash",
+        "mission_contract_sha256",
         "model",
         "parameters"
       ],
@@ -166,6 +167,10 @@
           "pattern": "^[0-9a-f]{40}$"
         },
         "config_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "mission_contract_sha256": {
           "type": "string",
           "pattern": "^[0-9a-f]{64}$"
         },

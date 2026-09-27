@@ -12,6 +12,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run_metric_hygiene_report import run  # noqa: E402
+from r1000_config import PORTFOLIO_MISSION_TARGETS
+from mission_contract import mission_identity
 
 
 def write_json(path: Path, payload: dict) -> None:
@@ -51,6 +53,7 @@ def test_metric_hygiene_marks_legacy_metrics_deprecated_and_cash_trap_warns() ->
         write_json(
             latest / "account_evaluation" / "official_metrics.json",
             {
+                **mission_identity(PORTFOLIO_MISSION_TARGETS),
                 "official_metric_mode": "broker_ledger_next_close",
                 "portfolios": {
                     "main": {"target_pass": False},
@@ -97,6 +100,10 @@ def test_metric_hygiene_separates_mission_from_production_validity() -> None:
         main = json.loads(main_path.read_text(encoding="utf-8"))
         main["valid_for_production"] = False
         write_json(main_path, main)
+
+        write_json(latest / "account_evaluation" / "official_metrics.json",
+                   {**mission_identity(PORTFOLIO_MISSION_TARGETS), "target_type": "canonical_mission",
+                    "portfolios": {"main": {"target_pass": True}, "concentrated": {"target_pass": True}}})
 
         result = run(Namespace(latest_run=str(latest), output_dir=str(out)))
         assert result["official_portfolios"]["main"]["target_pass"] is True

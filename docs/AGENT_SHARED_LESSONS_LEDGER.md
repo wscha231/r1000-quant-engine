@@ -5401,3 +5401,13 @@ Expected contract:
 - A later ambiguous current mapping also must not stop verified prior CIK
   collection. Preserve those archives as history-only while blocking current
   issuer admission and lifecycle certification for that ticker.
+
+### 2026-09-27 — Mission verdicts need semantic identity, not prior PASS flags
+
+- A stored target or full-pass boolean can survive a changed mission objective.
+  Bind current acceptance to a canonical hash derived only from
+  `PORTFOLIO_MISSION_TARGETS`, the official broker metric mode, and the
+  versioned semantic contract; recheck finite broker CAGR/MDD before promotion.
+- A historical Fullrun or publication manifest without that hash remains
+  historical. Its raw broker metrics may be reevaluated for diagnosis, but its
+  old PASS flag cannot certify current acceptance or A0 reuse.

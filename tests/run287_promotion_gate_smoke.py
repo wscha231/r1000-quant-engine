@@ -18,6 +18,7 @@ import pandas_market_calendars as mcal
 
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 
 from run287_promotion_gate import (  # noqa: E402
@@ -26,13 +27,15 @@ from run287_promotion_gate import (  # noqa: E402
     DEFAULT_EVIDENCE,
     DEFAULT_STATE,
     RISK_OUTCOME_CONTRACT_SHA256,
-    evaluate_gate,
+    evaluate_gate as _evaluate_gate,
     gate_for_consumer,
     overlay_latest_run_evidence,
     read_json,
     sha256_file,
     _jsonl_rows,
 )
+from r1000_config import PORTFOLIO_MISSION_TARGETS
+from mission_contract import mission_identity
 from run287_paper_ledger_integrity import write_integrity_manifest  # noqa: E402
 from run_daily_simulated_fill_ledger import (  # noqa: E402
     canonical_hash as paper_event_hash,
@@ -64,11 +67,32 @@ def _inputs() -> tuple[dict, dict, dict]:
     return read_json(DEFAULT_CONTRACT), read_json(DEFAULT_STATE), read_json(DEFAULT_EVIDENCE)
 
 
+_broker_fixture = TemporaryDirectory()
+_broker_root = Path(_broker_fixture.name)
+
+
+def evaluate_gate(contract: dict, state: dict, evidence: dict, **kwargs: object) -> dict:
+    return _evaluate_gate(contract, state, evidence, broker_metrics_root=_broker_root, **kwargs)
+
+
 def _passing_evidence(contract: dict, evidence: dict) -> dict:
     payload = copy.deepcopy(evidence)
     payload["candidate_id"] = "single-shadow-challenger"
     for field in contract["required_historical_checks"]:
         payload["historical"][field] = True
+    payload["historical"].update(mission_identity(PORTFOLIO_MISSION_TARGETS))
+    payload["historical"]["metrics"] = {
+        "main": {"status": "completed", "metric_mode": "broker_ledger_next_close",
+                 "cagr": .35, "max_drawdown": -.25},
+        "concentrated": {"status": "completed", "metric_mode": "broker_ledger_next_close",
+                         "cagr": .50, "max_drawdown": -.25},
+    }
+    for portfolio, row in payload["historical"]["metrics"].items():
+        path = _broker_root / "broker_replay" / portfolio / "metrics.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({key: row[key] for key in ("status", "metric_mode", "cagr", "max_drawdown")}
+                                   | {"max_dd": row["max_drawdown"]}), encoding="utf-8")
+        row["broker_metrics_sha256"] = sha256_file(path)
     thresholds = contract["forward_thresholds"]
     forward = payload["forward_paper"]
     forward.update(
@@ -911,6 +935,39 @@ def test_all_evidence_only_sets_maximum_and_never_auto_advances() -> None:
     assert gate["forward_paper_gate"]["status"] == "REVIEW_READY"
     assert gate["effective_promotion_state"] == "RESEARCH_ONLY"
     assert gate["canonical_state_unchanged"] is True
+
+
+def test_historical_full_pass_requires_hash_verified_broker_metrics() -> None:
+    contract, state, evidence = _inputs()
+    passing = _passing_evidence(contract, evidence)
+    assert evaluate_gate(contract, state, passing)["historical_gate"]["checks"]["full_pass"] is True
+    assert _evaluate_gate(contract, state, passing)["historical_gate"]["checks"]["full_pass"] is False
+    missing = copy.deepcopy(passing)
+    missing["historical"]["metrics"]["main"].pop("broker_metrics_sha256")
+    assert evaluate_gate(contract, state, missing)["historical_gate"]["checks"]["full_pass"] is False
+    mismatch = copy.deepcopy(passing)
+    mismatch["historical"]["metrics"]["main"]["broker_metrics_sha256"] = "0" * 64
+    assert evaluate_gate(contract, state, mismatch)["historical_gate"]["checks"]["full_pass"] is False
+    forged = copy.deepcopy(passing)
+    forged["historical"]["metrics"]["main"]["cagr"] = .99
+    assert evaluate_gate(contract, state, forged)["historical_gate"]["checks"]["full_pass"] is False
+    wrong_mode = copy.deepcopy(passing)
+    wrong_mode["historical"]["metrics"]["main"]["metric_mode"] = "diagnostic"
+    assert evaluate_gate(contract, state, wrong_mode)["historical_gate"]["checks"]["full_pass"] is False
+    with TemporaryDirectory() as tmp:
+        Path(tmp, "broker_replay").symlink_to(_broker_root / "broker_replay", target_is_directory=True)
+        assert _evaluate_gate(contract, state, passing, broker_metrics_root=Path(tmp))["historical_gate"]["checks"]["full_pass"] is False
+    with TemporaryDirectory() as tmp:
+        duplicate = copy.deepcopy(passing)
+        root = Path(tmp)
+        for portfolio in ("main", "concentrated"):
+            path = root / "broker_replay" / portfolio / "metrics.json"
+            path.parent.mkdir(parents=True)
+            path.write_bytes((_broker_root / "broker_replay" / portfolio / "metrics.json").read_bytes())
+        main = root / "broker_replay" / "main" / "metrics.json"
+        main.write_text(main.read_text(encoding="utf-8").replace('"cagr": 0.35', '"cagr": 0.35, "cagr": 0.35'), encoding="utf-8")
+        duplicate["historical"]["metrics"]["main"]["broker_metrics_sha256"] = sha256_file(main)
+        assert _evaluate_gate(contract, state, duplicate, broker_metrics_root=root)["historical_gate"]["checks"]["full_pass"] is False
 
 
 def test_manual_transition_is_candidate_only_and_requires_exact_authorization() -> None:

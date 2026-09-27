@@ -20,8 +20,11 @@ from pathlib import Path
 from typing import Any
 
 from jsonschema import Draft202012Validator, FormatChecker
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+from mission_contract import mission_identity
+
 CONTRACT_DIR = REPO_ROOT / 'research/control_plane'
 AUTHORITY = dict(research_only=True, execute=False, target=False, broker=False,
                  scheduler=False, promotion=False, peer_dispatch=False)
@@ -116,8 +119,10 @@ def mission_targets() -> dict[str, Any]:
              t.id == 'PORTFOLIO_MISSION_TARGETS' for t in node.targets)]
     if len(nodes) != 1:
         raise ContractError('ambiguous_mission_target')
+    values = ast.literal_eval(nodes[0].value)
     return {'source': 'r1000_config.py:PORTFOLIO_MISSION_TARGETS',
-            'source_sha256': file_hash(path), 'values': ast.literal_eval(nodes[0].value),
+            'source_sha256': file_hash(path), 'values': values,
+            **mission_identity(values),
             'meaning': 'Authoritative project mission objective; headline pass is not production authority'}
 
 
@@ -423,6 +428,7 @@ def build_tasks(state: dict, root: Path, contract: dict, now: datetime,
     if len(requests) != len(state['requests']):
         raise ContractError('duplicate_agent_request')
     receipts = {r['agent']: r for r in state['completed_tasks']}
+    mission_hash = mission_targets()['mission_contract_sha256']
     if len(receipts) != len(state['completed_tasks']):
         raise ContractError('duplicate_completion_receipt')
     tasks, completed, visiting, qa_reports = {}, {}, set(), {}
@@ -484,8 +490,10 @@ def build_tasks(state: dict, root: Path, contract: dict, now: datetime,
                     reasons.append('QA_INPUT_NOT_REVIEWED:' + role)
         identity = {'input_hash': digest({'inputs': request['inputs'],
                     'dependencies': receipt_dependencies(dependencies),
-                    'context': state['context'], 'g0': state['g0'], 'master_sha': state['master_sha']}),
+                    'context': state['context'], 'g0': state['g0'], 'master_sha': state['master_sha'],
+                    'mission_contract_sha256': mission_hash}),
                     'code_sha': code_sha, 'config_hash': config_hash,
+                    'mission_contract_sha256': mission_hash,
                     'model': request['model'], 'parameters': request['parameters']}
         key = digest({'agent': agent, **identity})
         status = 'BLOCKED' if reasons else 'READY'

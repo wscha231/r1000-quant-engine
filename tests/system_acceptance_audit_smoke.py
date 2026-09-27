@@ -12,6 +12,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run_system_acceptance_audit import run  # noqa: E402
+from r1000_config import PORTFOLIO_MISSION_TARGETS
+from mission_contract import mission_identity
 
 
 def write_json(path: Path, payload: dict) -> None:
@@ -333,6 +335,7 @@ def seed_account(root: Path, *, years: float, concentrated_pass: bool) -> None:
     write_json(
         root / "account_evaluation" / "official_metrics.json",
         {
+            **mission_identity(PORTFOLIO_MISSION_TARGETS),
             "official_metric_mode": "broker_ledger_next_close",
             "production_target_pass": concentrated_pass,
             "strengthened_pass": concentrated_pass and years >= 8.0,
