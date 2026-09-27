@@ -101,7 +101,8 @@ Drive readback on 2026-09-28 KST:
 
 Use the existing runner with `--only` (not `--include`, which appends to all
 registered tests). `tests/earnings_consensus_h1_smoke.py` exercises the semantic
-cases using synthetic deterministic fixtures; it is registered in Tier-1 CI.
+cases using synthetic deterministic fixtures; the already-registered estimate-revision smoke invokes it in Tier-1 CI.
+The protected runner is unchanged from master.
 Existing collector, revision, confirmation, neutrality, queue, archive manifest,
 workflow and overlay smoke tests are run alongside it. These tests certify source
 semantics only; vendor metadata completeness and economic value are unproven.
@@ -125,3 +126,9 @@ an all-failed live refresh lost provider attribution and could bypass frozen
 latest-null invalidation. Failed rows now retain actual attempted estimate
 providers from endpoint evidence, so a failed same-security provider observation
 invalidates its older consensus without pretending that the fetch succeeded.
+
+CI on the initial head passed 232/233 tests; its sole failure was
+`post_publication_protected_delta:tools/run_pr_validation.py`. The protected
+runner was restored byte-for-byte to master. The existing registered revision
+smoke now runs all 29 H1 cases, preserving CI coverage without changing the
+protected verifier, frozen publication, hashes, registry, or review gate.

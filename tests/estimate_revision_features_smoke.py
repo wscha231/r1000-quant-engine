@@ -3,9 +3,10 @@
 from pathlib import Path
 import sys
 import pandas as pd
+import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from earnings_consensus_h1_smoke import snapshot, features
+from earnings_consensus_h1_smoke import snapshot, features, AdmissionTests
 
 
 def test_same_period_windows_are_source_only():
@@ -32,4 +33,7 @@ def test_missing_forward_estimate_cannot_confirm_revision():
 if __name__ == "__main__":
     test_same_period_windows_are_source_only()
     test_missing_forward_estimate_cannot_confirm_revision()
-    print("estimate_revision_features_smoke: PASS")
+    result = unittest.TextTestRunner(verbosity=1).run(unittest.defaultTestLoader.loadTestsFromTestCase(AdmissionTests))
+    if not result.wasSuccessful():
+        raise SystemExit(1)
+    print("estimate_revision_features_smoke: PASS (including H1 admission regressions)")
