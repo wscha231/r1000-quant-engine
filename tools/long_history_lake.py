@@ -330,12 +330,17 @@ def issuer_queue(members, mapping, prior_mapping=None):
                     else 'CURRENT_SEC_MAPPING'),
                 history_retained_ciks=history,current_mapping_present=True,
                 lifecycle_review_required=bool(history)))
-        elif not matches and len(prior_matches)==1:
-            cik=next(iter(prior_matches))
-            groups.setdefault(cik,[]).append(symbol)
-            resolution.append(dict(ticker=symbol,cik=cik,
-                identity_status='PRIOR_SEC_MAPPING_RETAINED_LIFECYCLE_REVIEW',
-                history_retained_ciks=[cik],current_mapping_present=False,
+        elif not matches and prior_matches:
+            history=sorted(prior_matches)
+            for old_cik in history:
+                groups.setdefault(old_cik,[]).append(symbol)
+            if len(history)>1:
+                missing.append(dict(ticker=symbol,reason='CIK_HISTORICAL_AMBIGUOUS',
+                    current_ciks=[],prior_ciks=history))
+            resolution.append(dict(ticker=symbol,cik=history[0] if len(history)==1 else None,
+                identity_status=('PRIOR_SEC_MAPPING_RETAINED_LIFECYCLE_REVIEW'
+                    if len(history)==1 else 'PRIOR_SEC_MAPPING_AMBIGUOUS_LIFECYCLE_REVIEW'),
+                history_retained_ciks=history,current_mapping_present=False,
                 lifecycle_review_required=True))
         else:
             missing.append(dict(ticker=symbol,reason='CIK_MISSING_OR_AMBIGUOUS',

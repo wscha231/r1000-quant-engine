@@ -5392,3 +5392,6 @@ Expected contract:
   Companyfacts history. Queue both CIKs, label the old one history-retained,
   and require lifecycle review even when both fetches succeed. Mapping history
   is collection evidence, not proof of security identity or historical PIT.
+- If that ticker subsequently disappears from the current mapping, retain all
+  verified prior CIKs for collection. Record multiple alternatives as an
+  explicit ambiguous identity gap instead of stopping their archive refresh.

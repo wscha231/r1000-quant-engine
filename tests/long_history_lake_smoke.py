@@ -263,6 +263,36 @@ class HistoryTest(unittest.TestCase):
         self.assertFalse(report['eligible_for_selector'])
         self.assertEqual(report['history_retained_issuer_count'],1)
 
+        # Both verified historical issuers must remain collectible when the
+        # ticker later disappears from the current SEC mapping entirely.
+        earlier={'0':dict(ticker='A0',cik_str=1),'1':dict(ticker='A0',cik_str=2)}
+        unrelated={'0':dict(ticker='UNRELATED',cik_str=3)}
+        groups,missing,resolution=issuer_queue(members,unrelated,earlier)
+        self.assertEqual(groups,{'0000000001':['A0'],'0000000002':['A0']})
+        self.assertEqual(missing[0]['reason'],'CIK_HISTORICAL_AMBIGUOUS')
+        self.assertIsNone(resolution[0]['cik'])
+        self.assertEqual(resolution[0]['history_retained_ciks'],['0000000001','0000000002'])
+        self.assertTrue(resolution[0]['lifecycle_review_required'])
+        later=Lake(self.t,self.root/'later')
+        def later_fetch(url,conditional=None):
+            if url.endswith('company_tickers.json'): return encoded(unrelated),{}
+            return fetch(url,conditional)
+        with patch('tools.long_history_lake.COHORT_SHA',digest(cohort.read_bytes())), \
+             patch('tools.long_history_lake.prior_sec_mapping',return_value=(earlier,[])), \
+             patch('tools.long_history_lake.get_public',side_effect=later_fetch):
+            result=collect_financials(later,cohort,'2016-01-01','2026-09-12')
+        self.assertEqual(result['mapped_issuers'],0)
+        self.assertEqual(result['history_retained_issuer_count'],2)
+        self.assertEqual(result['collection_issuer_count'],2)
+        self.assertEqual(result['lifecycle_review_count'],1000)
+        self.assertEqual(later.catalog['datasets']['sec/0000000001']['status'],'COLLECTED')
+        self.assertEqual(later.catalog['datasets']['sec/0000000002']['status'],'COLLECTED')
+        report=diagnostics(later)
+        self.assertEqual(report['status'],'PARTIAL_COVERAGE')
+        self.assertFalse(report['eligible_for_selector'])
+        self.assertEqual(report['current_mapped_issuer_count'],0)
+        self.assertEqual(report['history_retained_issuer_count'],2)
+
     def test_companyfacts_404_archives_official_role_but_never_facts(self):
         from tools.long_history_lake import collect_financials,diagnostics
         members=[dict(ticker='A'+str(i)) for i in range(1000)]

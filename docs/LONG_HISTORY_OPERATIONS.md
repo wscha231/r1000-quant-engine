@@ -80,8 +80,9 @@ source objects by role. The verified mapping source list persists across cycles;
 the first migration checks prior catalogs in the hash-verified chain. A current
 CIK that differs from a prior CIK collects both issuer archives, records the
 older one as history-retained, and requires lifecycle review. Multiple distinct
-prior CIKs are retained for evidence with the same review block; none certify
-the ticker's historical identity. A legacy
+prior CIKs are retained for evidence even if the ticker later disappears from
+the current mapping. That case records an explicit ambiguous identity blocker;
+none certify the ticker's historical identity. A legacy
 positional mapping is admitted only for exact reviewed producer SHAs after both
 source roles pass content validation. Workflow cohort restore uses the same reader.
 FRED missing observations retain both counts and dates, including omitted `.` rows.
