@@ -29,6 +29,10 @@
     "repository": {
       "const": "wscha231/r1000-quant-engine"
     },
+    "review_pr_number": {
+      "type": "integer",
+      "minimum": 1
+    },
     "master_sha": {
       "type": "string",
       "pattern": "^[0-9a-f]{40}$"

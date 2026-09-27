@@ -262,6 +262,12 @@ def lifecycle_state(packet: dict | None, event: dict | None = None) -> dict:
         state = 'BLOCKED'
     elif type(event.get('unresolved_findings', 0)) is not int:
         state = 'BLOCKED'
+    elif (('review' in event or 'review_complete' in event)
+          and (packet.get('review_scope') is None
+               or event.get('review_scope') != packet['review_scope']
+               or ('review_complete' in event and
+                   event.get('review_complete_scope') != packet['review_scope']))):
+        state = 'BLOCKED'
     elif event.get('unexpected_regression') or event.get('ci') == 'FAIL' or event.get('unresolved_findings', 0) > 0:
         state = 'CORRECTION_REQUIRED'
     elif packet['status'] == 'SKIP_UNCHANGED' and not event:
@@ -271,7 +277,15 @@ def lifecycle_state(packet: dict | None, event: dict | None = None) -> dict:
     elif event.get('running'):
         state = 'RUNNING'
     elif (event.get('ci') != 'PASS' or event.get('ci_head') != packet['identity']['code_sha']
-          or event.get('ci_checks') != {'validate': 'PASS', 'portfolio_guard': 'PASS'}):
+          or packet.get('review_scope') is None
+          or event.get('required_checks_scope') != packet['review_scope']
+          or not isinstance(event.get('required_checks'), list)
+          or any(not isinstance(name, str) or not name for name in event['required_checks'])
+          or len(set(event['required_checks'])) != len(event['required_checks'])
+          or not {'validate', 'portfolio_guard'}.issubset(event['required_checks'])
+          or not isinstance(event.get('ci_checks'), dict)
+          or any(event['ci_checks'].get(name) != 'PASS' for name in event['required_checks']
+                 if name != 'review_complete')):
         state = 'WAITING_CI'
     elif (event.get('review') != 'CLEAN' or event.get('review_head') != packet['identity']['code_sha']
           or event.get('unresolved_findings') != 0):
@@ -432,7 +446,7 @@ def build_tasks(state: dict, root: Path, contract: dict, now: datetime,
                 verify_completion(receipt, identity, request, dependencies, causal_ready, cutoff)
                 for artifact in receipt['outputs'].values():
                     verify_artifact(root, artifact, cutoff, now)
-                    if (timestamp(artifact['available_at']) < causal_ready
+                    if (timestamp(artifact['available_at']) <= causal_ready
                             or timestamp(artifact['collected_at']) >= timestamp(receipt['created_at'])):
                         raise ContractError('completion_output_time_boundary')
                 if agent == 'A6':
@@ -452,6 +466,9 @@ def build_tasks(state: dict, root: Path, contract: dict, now: datetime,
                   'authority': AUTHORITY.copy(), 'mode': spec['mode'],
                   'dependencies': spec['dependencies'], 'dependency_outputs': dependencies,
                   'identity': identity, 'task_key': key,
+                  'review_scope': ({'repository': state['repository'],
+                                    'pr_number': state['review_pr_number']}
+                                   if state.get('review_pr_number') is not None else None),
                   'dispatch_eligible': agent in ('A1', 'A2', 'A4', 'A6') and status == 'READY'
                       and spec['mode'] in ('READ_ONLY', 'PROPOSAL_ONLY')}
         schema_validate(packet, 'task_packet_schema.json')

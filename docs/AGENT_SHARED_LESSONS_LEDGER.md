@@ -7,6 +7,9 @@
 - Keep the canonical feature map's identity formula aligned with the verifier so a receipt producer cannot generate systematically rejected evidence.
 - Runtime, focused-test and CI evidence must be available after the final output collection and before the completion receipt is created; bind that availability to its identity.
 - Output SHA-256 alone cannot prevent expiry/path relabeling. Bind the full output descriptors to the evidence identity before reusing a receipt.
+- Require output availability strictly after final causal input collection; equal timestamps do not prove event order.
+- Review and attestation are PR-scoped, even when the code SHA is shared. Bind the repository/PR of each observation to the packet's independent scope.
+- Read the complete current required-check policy and require every non-attestation check to pass; two hard-coded checks alone cannot represent a later branch-protection change.
 - Python booleans are integers; an unresolved-finding count must be a real integer, so `False` cannot masquerade as zero at the review gate.
 
 ## 2026-09-27 — Exact A0 trust boundaries for merge, action and test evidence

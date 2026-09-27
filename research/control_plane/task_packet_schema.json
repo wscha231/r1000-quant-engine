@@ -16,6 +16,7 @@
     "dependency_outputs",
     "identity",
     "task_key",
+    "review_scope",
     "dispatch_eligible"
   ],
   "properties": {
@@ -39,6 +40,17 @@
     },
     "return_to": {
       "const": "A0"
+    },
+    "review_scope": {
+      "oneOf": [
+        {"type": "null"},
+        {"type": "object", "additionalProperties": false,
+         "required": ["repository", "pr_number"],
+         "properties": {
+           "repository": {"const": "wscha231/r1000-quant-engine"},
+           "pr_number": {"type": "integer", "minimum": 1}
+         }}
+      ]
     },
     "status": {
       "enum": [

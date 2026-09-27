@@ -27,7 +27,8 @@ class ControlPlaneTests(unittest.TestCase):
         self.contract = board.contracts()
         self.sha, self.config = board.source_identity()
         self.state = dict(schema_version='system-state-v2', as_of=self.at(-5), expires_at=self.at(60),
-            repository='wscha231/r1000-quant-engine', master_sha=self.sha, code_sha=self.sha,
+            repository='wscha231/r1000-quant-engine', review_pr_number=551,
+            master_sha=self.sha, code_sha=self.sha,
             context=dict(current_status_as_of=self.at(-10), current_status_freshness='VERIFIED',
                 data_as_of=self.at(-10), actual_book='UNKNOWN', approved_target='UNKNOWN',
                 thesis='UNKNOWN', market_regime='UNKNOWN', open_refs=[], handoff_ref='SYNTHETIC', blockers=[]),
@@ -206,7 +207,10 @@ class ControlPlaneTests(unittest.TestCase):
         packet=self.tasks()[0]
         head=packet['identity']['code_sha']
         event=dict(ci='PASS',ci_head=head,ci_checks={'validate':'PASS','portfolio_guard':'PASS'},
-                   review='CLEAN',review_head=head,unresolved_findings=0)
+                   required_checks=['validate','portfolio_guard','review_complete'],
+                   required_checks_scope=packet['review_scope'],
+                   review='CLEAN',review_head=head,unresolved_findings=0,
+                   review_scope=packet['review_scope'])
         self.assertNotEqual(board.lifecycle_state(packet,event)['state'],'READY_FOR_ATTESTATION')
         self.assertNotEqual(board.lifecycle_state(packet,{**event,'worker_report':'SUCCEEDED',
             'confidence':'HIGH','next_action':'MERGE',
@@ -215,12 +219,25 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertEqual(board.lifecycle_state(packet,event)['state'],'READY_FOR_ATTESTATION')
         for changes in ({'ci':'FAIL'},{'ci_head':'a'*40},{'ci_checks':{'validate':'PASS'}},
                         {'review':'OPEN'},{'review_head':'a'*40},{'unresolved_findings':1},
-                        {'unresolved_findings':False},{'unresolved_findings':True}):
+                        {'unresolved_findings':False},{'unresolved_findings':True},
+                        {'review_scope':{'repository':packet['review_scope']['repository'],
+                                         'pr_number':552}},
+                        {'required_checks_scope':{'repository':packet['review_scope']['repository'],
+                                                  'pr_number':552}}):
             with self.subTest(changes=changes):
                 self.assertNotIn(board.lifecycle_state(packet,{**event,**changes})['state'],
                                  ('READY_FOR_ATTESTATION','READY_TO_MERGE'))
-        attested={**event,'review_complete':'PASS','review_complete_head':head}
+        attested={**event,'review_complete':'PASS','review_complete_head':head,
+                  'review_complete_scope':packet['review_scope']}
         self.assertEqual(board.lifecycle_state(packet,attested)['state'],'READY_TO_MERGE')
+        self.assertEqual(board.lifecycle_state(packet,{**attested,
+            'review_complete_scope':{'repository':packet['review_scope']['repository'],
+                                     'pr_number':552}})['state'],'BLOCKED')
+        extra={**event,'required_checks':event['required_checks']+['new_required'],
+               'ci_checks':{**event['ci_checks'],'new_required':'FAIL'}}
+        self.assertEqual(board.lifecycle_state(packet,extra)['state'],'WAITING_CI')
+        self.assertEqual(board.lifecycle_state(packet,{**extra,'ci_checks':{
+            **extra['ci_checks'],'new_required':'PASS'}})['state'],'READY_FOR_ATTESTATION')
         self.assertEqual(board.lifecycle_state(packet,{**attested,'review_complete_head':'a'*40})['state'],
                          'READY_FOR_ATTESTATION')
         self.assertEqual(board.lifecycle_state(packet,{**attested,'merged':True})['state'],'POST_MERGE_VERIFY')
@@ -231,7 +248,10 @@ class ControlPlaneTests(unittest.TestCase):
         self.complete(); packet=self.tasks()[0]
         head=packet['identity']['code_sha']; merge='b'*40; previous='c'*40
         event=dict(ci='PASS',ci_head=head,ci_checks={'validate':'PASS','portfolio_guard':'PASS'},
+                   required_checks=['validate','portfolio_guard','review_complete'],
+                   required_checks_scope=packet['review_scope'],
                    review='CLEAN',review_head=head,unresolved_findings=0,
+                   review_scope=packet['review_scope'],review_complete_scope=packet['review_scope'],
                    review_complete='PASS',review_complete_head=head,merged=True,
                    merged_pr_head=head,merge_sha=merge,default_branch_head=merge)
         pass_evidence=dict(status='PASS',identity='post-merge-check-run-1',
@@ -387,6 +407,13 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertEqual(self.tasks()[1]['status'],'BLOCKED')
         receipt['outputs']['leadership_events']['collected_at']=self.at(-11)
         self.assertEqual(self.tasks()[1]['status'],'BLOCKED')
+
+    def test_output_must_strictly_follow_final_input(self):
+        receipt=self.complete()
+        final_input=max(board.timestamp(item['collected_at']) for item in
+                        self.state['requests'][0]['inputs'].values()).isoformat()
+        receipt['outputs']['data_pit']['available_at']=final_input
+        self.assertEqual(self.tasks()[0]['status'],'BLOCKED')
 
     def test_wrong_receipt_identity_does_not_skip(self):
         r=self.complete(); r['task_key']='a'*64

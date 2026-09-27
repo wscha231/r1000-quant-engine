@@ -126,6 +126,14 @@ needed for attestation readiness. `review_complete` at the current head is an
 additional requirement for READY_TO_MERGE. Neither state bypasses the existing
 repository governance gate or authorizes this PR's merge.
 
+The state may name `review_pr_number`; packets then carry the repository/PR
+scope independently of the event. The trusted GitHub event consumer must bind
+review facts, required-check policy and `review_complete` to that exact scope.
+Without it, no review-based readiness transition is available. Supply the
+complete current required-check list from branch protection and a status for
+every required check; `review_complete` is evaluated separately after review.
+An added required check cannot be omitted to claim CI readiness.
+
 After merge, the trusted event consumer must supply `merged=true`, the actual
 `merge_sha`, its observed `default_branch_head`, and `merged_pr_head` from the
 PR. The structured `post_merge_verified` record needs `status=PASS`, a nonempty
