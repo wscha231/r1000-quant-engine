@@ -162,10 +162,12 @@ def receipt_dependencies(dependencies: dict) -> dict:
 
 
 def evidence_identity(kind: str, reference: str, task_key: str,
-                      packet_identity: dict, head_sha: str) -> str:
-    """Scope an existing receipt's test/run reference to this exact task and head."""
+                      packet_identity: dict, head_sha: str,
+                      output_hashes: dict[str, str]) -> str:
+    """Scope test/run evidence to the task, head, and bytes it verified."""
     return digest({'kind': kind, 'reference': reference, 'task_key': task_key,
-                   'packet_identity': packet_identity, 'head_sha': head_sha})
+                   'packet_identity': packet_identity, 'head_sha': head_sha,
+                   'output_hashes': output_hashes})
 
 
 def verify_completion(receipt: dict, packet_identity: dict, request: dict,
@@ -188,6 +190,7 @@ def verify_completion(receipt: dict, packet_identity: dict, request: dict,
         raise ContractError('receipt_ai_reason_conflict')
     if ai_mode and not receipt['model'].get('provider'):
         raise ContractError('receipt_ai_provider_missing')
+    output_hashes = {role: item['sha256'] for role, item in receipt['outputs'].items()}
     for name in ('runtime_verification', 'focused_tests', 'ci'):
         evidence = receipt[name]
         if evidence['status'] != 'PASS':
@@ -195,7 +198,7 @@ def verify_completion(receipt: dict, packet_identity: dict, request: dict,
         if (evidence['head_sha'] != packet_identity['code_sha']
                 or evidence['identity'] != evidence_identity(
                     name, evidence['reference'], receipt['task_key'], packet_identity,
-                    evidence['head_sha'])):
+                    evidence['head_sha'], output_hashes)):
             raise ContractError('receipt_' + name + '_identity_mismatch')
     created, available = timestamp(receipt['created_at']), timestamp(receipt['available_at'])
     if not causal_ready <= created <= available <= cutoff:
@@ -254,7 +257,7 @@ def lifecycle_state(packet: dict | None, event: dict | None = None) -> dict:
         state = 'QUEUED'
     elif packet['status'] == 'BLOCKED' or event.get('integrity_failure'):
         state = 'BLOCKED'
-    elif not isinstance(event.get('unresolved_findings', 0), int):
+    elif type(event.get('unresolved_findings', 0)) is not int:
         state = 'BLOCKED'
     elif event.get('unexpected_regression') or event.get('ci') == 'FAIL' or event.get('unresolved_findings', 0) > 0:
         state = 'CORRECTION_REQUIRED'
@@ -426,8 +429,9 @@ def build_tasks(state: dict, root: Path, contract: dict, now: datetime,
                 verify_completion(receipt, identity, request, dependencies, causal_ready, cutoff)
                 for artifact in receipt['outputs'].values():
                     verify_artifact(root, artifact, cutoff, now)
-                    if timestamp(artifact['available_at']) < timestamp(receipt['available_at']):
-                        raise ContractError('completion_predates_inputs')
+                    if (timestamp(artifact['available_at']) < causal_ready
+                            or timestamp(artifact['collected_at']) > timestamp(receipt['created_at'])):
+                        raise ContractError('completion_output_time_boundary')
                 if agent == 'A6':
                     report = read_json(artifact_path(root, receipt['outputs']['qa_report']['path']))
                     schema_validate(report, 'system_state_schema.json', 'qa_report')

@@ -78,7 +78,8 @@ class ControlPlaneTests(unittest.TestCase):
         hashes={role:item['sha256'] for role,item in packet['inputs'].items()}
         def evidence(kind, reference):
             return dict(identity=board.evidence_identity(kind, reference, packet['task_key'],
-                         identity, identity['code_sha']), reference=reference,
+                         identity, identity['code_sha'],
+                         {role: item['sha256'] for role, item in receipt['outputs'].items()}), reference=reference,
                         status='PASS', head_sha=identity['code_sha'])
         receipt = dict(schema_version='verification-receipt-v2', agent=agent,
             task_key=packet['task_key'], status='SUCCEEDED', identity=copy.deepcopy(identity),
@@ -87,9 +88,7 @@ class ControlPlaneTests(unittest.TestCase):
             code_sha=identity['code_sha'], config_hash=identity['config_hash'],
             model=copy.deepcopy(identity['model']), parameter_hash=board.digest(identity['parameters']),
             outputs={role:self.artifact(agent+'_result_'+role) for role in packet['outputs']},
-            runtime_verification=evidence('runtime_verification','synthetic-runtime'),
-            focused_tests=evidence('focused_tests','synthetic-focused-test'),
-            ci=evidence('ci','synthetic-ci'),
+            runtime_verification={}, focused_tests={}, ci={},
             side_effects=[], reviewed_head=None, created_at=self.at(-9), available_at=self.at(-8),
             verification_status='VERIFIED', execution_mode='DETERMINISTIC_CODE',
             ai_invoked=False, ai_invocation_reason=None)
@@ -102,12 +101,16 @@ class ControlPlaneTests(unittest.TestCase):
                 'review_bundle_sha256':request['inputs']['review_bundle']['sha256'],
                 'reviewed_artifacts':bundle['artifacts'],'verdict':'PASS'})
         causal_ready=max(board.timestamp(a['collected_at']) for a in causal)
-        receipt['created_at']=(causal_ready+timedelta(seconds=1)).isoformat()
-        ready=(causal_ready+timedelta(seconds=2)).isoformat()
+        output_ready=(causal_ready+timedelta(seconds=1)).isoformat()
+        receipt['created_at']=(causal_ready+timedelta(seconds=2)).isoformat()
+        ready=(causal_ready+timedelta(seconds=3)).isoformat()
         receipt['available_at']=ready
         for output in receipt['outputs'].values():
-            output['available_at']=ready
-            output['collected_at']=ready
+            output['available_at']=output_ready
+            output['collected_at']=output_ready
+        for kind, reference in (('runtime_verification','synthetic-runtime'),
+                                ('focused_tests','synthetic-focused-test'), ('ci','synthetic-ci')):
+            receipt[kind]=evidence(kind, reference)
         self.state['completed_tasks'].append(receipt)
         for request in self.state['requests']:
             if agent in self.contract['agents'][request['agent']]['dependencies']:
@@ -210,7 +213,8 @@ class ControlPlaneTests(unittest.TestCase):
         self.complete(); packet=self.tasks()[0]
         self.assertEqual(board.lifecycle_state(packet,event)['state'],'READY_FOR_ATTESTATION')
         for changes in ({'ci':'FAIL'},{'ci_head':'a'*40},{'ci_checks':{'validate':'PASS'}},
-                        {'review':'OPEN'},{'review_head':'a'*40},{'unresolved_findings':1}):
+                        {'review':'OPEN'},{'review_head':'a'*40},{'unresolved_findings':1},
+                        {'unresolved_findings':False},{'unresolved_findings':True}):
             with self.subTest(changes=changes):
                 self.assertNotIn(board.lifecycle_state(packet,{**event,**changes})['state'],
                                  ('READY_FOR_ATTESTATION','READY_TO_MERGE'))
@@ -269,13 +273,30 @@ class ControlPlaneTests(unittest.TestCase):
                 receipt.clear(); receipt.update(copy.deepcopy(original))
                 record=receipt[kind]
                 record['identity']=board.evidence_identity(kind,record['reference'],
-                    'f'*64,receipt['identity'],record['head_sha'])
+                    'f'*64,receipt['identity'],record['head_sha'],
+                    {role: item['sha256'] for role, item in receipt['outputs'].items()})
                 self.assertEqual(self.tasks()[0]['status'],'BLOCKED')
         receipt.clear(); receipt.update(copy.deepcopy(original))
         receipt['ci']['head_sha']='a'*40
         self.assertEqual(self.tasks()[0]['status'],'BLOCKED')
         receipt.clear(); receipt.update(copy.deepcopy(original))
         receipt['reviewed_head']=receipt['code_sha']
+        self.assertEqual(self.tasks()[0]['status'],'SKIP_UNCHANGED')
+
+    def test_receipt_evidence_is_bound_to_output_bytes(self):
+        receipt=self.complete()
+        self.assertEqual(self.tasks()[0]['status'],'SKIP_UNCHANGED')
+        output=receipt['outputs']['data_pit']
+        self.set_payload(output, {'synthetic':'changed-result'})
+        self.assertEqual(self.tasks()[0]['status'],'BLOCKED')
+
+    def test_receipt_must_postdate_output_collection(self):
+        receipt=self.complete()
+        output=receipt['outputs']['data_pit']
+        self.assertEqual(self.tasks()[0]['status'],'SKIP_UNCHANGED')
+        output['collected_at']=receipt['available_at']
+        self.assertEqual(self.tasks()[0]['status'],'BLOCKED')
+        output['collected_at']=receipt['created_at']
         self.assertEqual(self.tasks()[0]['status'],'SKIP_UNCHANGED')
 
     def test_approval_and_notification_boundaries_no_polling(self):
@@ -362,14 +383,16 @@ class ControlPlaneTests(unittest.TestCase):
         output['sha256']=board.file_hash(path)
         self.assertEqual(self.tasks()[1]['status'],'BLOCKED')
         self.state['requests'][1]['inputs']['data_pit']=copy.deepcopy(output)
-        self.assertEqual(self.tasks()[1]['status'],'READY')
+        self.assertEqual(self.tasks()[0]['status'],'BLOCKED')
+        self.assertIn('dependency_incomplete:A1',self.tasks()[1]['reasons'])
 
     def test_dependency_receipt_metadata_does_not_change_content_identity(self):
         self.add_request('A2'); upstream=self.complete(); self.complete('A2')
         before=self.tasks()[1]['task_key']
         upstream['ci']['reference']='same-head-independent-ci-run'
         upstream['ci']['identity']=board.evidence_identity('ci',upstream['ci']['reference'],
-            upstream['task_key'],upstream['identity'],upstream['ci']['head_sha'])
+            upstream['task_key'],upstream['identity'],upstream['ci']['head_sha'],
+            {role: item['sha256'] for role, item in upstream['outputs'].items()})
         self.assertEqual(self.tasks()[1]['task_key'],before)
         self.assertEqual(self.tasks()[1]['status'],'SKIP_UNCHANGED')
 
@@ -414,8 +437,8 @@ class ControlPlaneTests(unittest.TestCase):
         for req in self.state['requests']:
             if req['agent']=='A7':req['inputs']['qa_report']=copy.deepcopy(artifact)
         result={t['agent']:t for t in self.tasks()}
-        self.assertEqual(result['A6']['status'],'SKIP_UNCHANGED')
-        self.assertIn('QA_NOT_PASS',result['A7']['reasons'])
+        self.assertEqual(result['A6']['status'],'BLOCKED')
+        self.assertIn('dependency_incomplete:A6',result['A7']['reasons'])
 
     def test_dirty_specialist_or_untracked_source_changes_identity(self):
         root=self.root/'git-fixture'; root.mkdir()

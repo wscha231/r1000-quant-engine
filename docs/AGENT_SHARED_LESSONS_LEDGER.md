@@ -1,5 +1,11 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-27 — A0 completion evidence must cover output bytes and causal time
+
+- A receipt cannot certify an output collected after the receipt was created. Require each output to follow its causal inputs and finish collection before the receipt is issued.
+- Bind runtime, focused-test and CI evidence identities to the output roles and SHA-256 values as well as task/input/dependency/code identity. Changing output bytes and their descriptor must invalidate prior evidence.
+- Python booleans are integers; an unresolved-finding count must be a real integer, so `False` cannot masquerade as zero at the review gate.
+
 ## 2026-09-27 — Exact A0 trust boundaries for merge, action and test evidence
 
 - A truthy post-merge flag can mark a failed or previous merge DONE. Require structured PASS evidence bound to the observed merge SHA and current default-branch head; a trusted caller must obtain those facts from GitHub.
