@@ -65,8 +65,9 @@ an absent receipt remains READY and cannot be called DONE. `SKIP_UNCHANGED`
 requires all identity dimensions, evidence binding and valid output bytes.
 Each runtime, focused-test and CI record retains its run/test `reference` and
 head; its `identity` is the SHA-256 of the evidence kind, reference, task key,
-complete packet identity (including inputs/dependencies), and code head. A
-copied reference or digest from another task/head fails verification. Receipt
+complete packet identity (including inputs/dependencies), code head, and the
+output-role to SHA-256 mapping. A copied reference or digest from another
+task/head fails verification. Receipt
 declarations are **not authenticated GitHub checks** or merge permission; the
 current head CI and review must be read independently from GitHub.
 

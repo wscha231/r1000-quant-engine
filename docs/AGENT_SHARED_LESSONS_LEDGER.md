@@ -4,6 +4,7 @@
 
 - A receipt cannot certify an output collected at or after the receipt was created. Require each output to follow its causal inputs and finish collection strictly before the receipt is issued.
 - Bind runtime, focused-test and CI evidence identities to the output roles and SHA-256 values as well as task/input/dependency/code identity. Changing output bytes and their descriptor must invalidate prior evidence.
+- Keep the canonical feature map's identity formula aligned with the verifier so a receipt producer cannot generate systematically rejected evidence.
 - Python booleans are integers; an unresolved-finding count must be a real integer, so `False` cannot masquerade as zero at the review gate.
 
 ## 2026-09-27 — Exact A0 trust boundaries for merge, action and test evidence
