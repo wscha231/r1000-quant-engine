@@ -170,7 +170,7 @@ def test_verifier_marks_clean_candidate_review_promotable() -> None:
         baseline = root / "baseline"
         candidate = root / "candidate"
         seed_run(baseline, cagr=0.4443, max_dd=-0.2592, is_cagr=0.2241, years=7.02, target_pass=False, strengthened_pass=False)
-        seed_run(candidate, cagr=0.52, max_dd=-0.26, is_cagr=0.31, years=8.10, target_pass=True, strengthened_pass=True)
+        seed_run(candidate, cagr=0.52, max_dd=-0.24, is_cagr=0.31, years=8.10, target_pass=True, strengthened_pass=True)
         payload = run(args(baseline, [candidate], root / "out"))
         assert payload["status"] == "review_candidate_ready"
         assert payload["production_activation_allowed"] is False
@@ -204,7 +204,7 @@ def test_verifier_invalidates_short_candidate_window() -> None:
         seed_run(
             candidate,
             cagr=0.52,
-            max_dd=-0.26,
+            max_dd=-0.24,
             is_cagr=0.31,
             years=7.50,
             trading_days=1800,
@@ -228,7 +228,7 @@ def test_verifier_blocks_missing_acceptance_evidence() -> None:
         seed_run(
             candidate,
             cagr=0.52,
-            max_dd=-0.26,
+            max_dd=-0.24,
             is_cagr=0.31,
             years=8.10,
             target_pass=True,
@@ -251,7 +251,7 @@ def test_verifier_blocks_missing_oos_lock_evidence() -> None:
         seed_run(
             candidate,
             cagr=0.52,
-            max_dd=-0.26,
+            max_dd=-0.24,
             is_cagr=0.31,
             years=8.10,
             target_pass=True,
@@ -275,7 +275,7 @@ def test_verifier_blocks_failed_oos_lock() -> None:
         seed_run(
             candidate,
             cagr=0.52,
-            max_dd=-0.26,
+            max_dd=-0.24,
             is_cagr=0.31,
             years=8.10,
             target_pass=True,
@@ -296,7 +296,7 @@ def test_verifier_carries_dispatch_context_for_queue_closure() -> None:
         baseline = root / "baseline"
         candidate = root / "candidate"
         seed_run(baseline, cagr=0.4443, max_dd=-0.2592, is_cagr=0.2241, years=7.02, target_pass=False, strengthened_pass=False)
-        seed_run(candidate, cagr=0.52, max_dd=-0.26, is_cagr=0.31, years=8.10, target_pass=True, strengthened_pass=True)
+        seed_run(candidate, cagr=0.52, max_dd=-0.24, is_cagr=0.31, years=8.10, target_pass=True, strengthened_pass=True)
         ns = args(baseline, [candidate], root / "out")
         ns.experiment_id = "conc_continuation_winner_relaxation"
         ns.payload_hash = "payload-ready"
@@ -312,7 +312,76 @@ def test_verifier_carries_dispatch_context_for_queue_closure() -> None:
         assert row["candidate_run"] == "candidate"
 
 
+def test_verifier_blocks_missing_baseline_broker_metrics() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        baseline = root / "baseline"
+        candidate = root / "candidate"
+        seed_run(baseline, cagr=0.51, max_dd=-0.24, is_cagr=0.30, years=8.10, target_pass=True, strengthened_pass=True)
+        seed_run(candidate, cagr=0.52, max_dd=-0.24, is_cagr=0.31, years=8.10, target_pass=True, strengthened_pass=True)
+        (baseline / "broker_replay" / "concentrated" / "metrics.json").unlink()
+        payload = run(args(baseline, [candidate], root / "out"))
+        assert payload["status"] == "blocked_missing_baseline"
+        row = payload["candidates"][0]
+        assert row["decision"] == "blocked_missing_baseline"
+        assert row["review_valid_for_promotion"] is False
+        assert "baseline_official_metrics_missing_or_invalid" in row["issues"]
+
+
+def test_verifier_rejects_stale_old_target_pass_true() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        baseline = root / "baseline"
+        candidate = root / "candidate"
+        seed_run(baseline, cagr=0.4443, max_dd=-0.2592, is_cagr=0.2241, years=7.02, target_pass=False, strengthened_pass=False)
+        seed_run(candidate, cagr=0.52, max_dd=-0.27, is_cagr=0.31, years=8.10, target_pass=True, strengthened_pass=True)
+        payload = run(args(baseline, [candidate], root / "out"))
+        row = payload["candidates"][0]
+        assert payload["target_type"] == "canonical_mission"
+        assert payload["status"] == "rejected"
+        assert row["decision"] == "reject_target_shortfall"
+        assert row["target_pass"] is False
+        assert row["source_target_pass"] is True
+        assert row["source_max_dd_target"] == -0.28
+        assert row["max_dd_target"] == -0.25
+
+
+def test_baseline_admission_uses_broker_status_mode_and_metrics_only() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        baseline, candidate = root / "baseline", root / "candidate"
+        seed_run(baseline, cagr=.51, max_dd=-.24, is_cagr=.30, years=8.10,
+                 target_pass=True, strengthened_pass=True)
+        seed_run(candidate, cagr=.52, max_dd=-.24, is_cagr=.31, years=8.10,
+                 target_pass=True, strengthened_pass=True)
+        path = baseline / "broker_replay" / "concentrated" / "metrics.json"
+        original = json.loads(path.read_text())
+        # seed_run's official summary remains completed throughout.
+        cases = [({}, ("status",)), ({}, ("metric_mode",)),
+                 ({"metric_mode": "broker_ledger_next_close_cash_carry"}, ())]
+        cases += [({"status": value}, ()) for value in ("failed", "cancelled", "incomplete")]
+        for field in ("cagr", "max_dd"):
+            cases.append(({}, (field,)))
+            cases += [({field: value}, ()) for value in (None, True, False, float("nan"), float("inf"))]
+        for overrides, missing in cases:
+            broker = {**original, **overrides}
+            for field in missing:
+                broker.pop(field)
+            write_json(path, broker)
+            result = run(args(baseline, [candidate], root / "out"))
+            assert result["status"] == "blocked_missing_baseline", (overrides, missing, result)
+            assert result["baseline"]["mission_evidence_valid"] is False
+            assert result["candidates"][0]["review_valid_for_promotion"] is False
+        for ready in (True, False):
+            write_json(path, {**original, "valid_for_production": ready})
+            result = run(args(baseline, [candidate], root / "out"))
+            assert result["baseline"]["mission_evidence_valid"] is True
+            assert result["status"] == "review_candidate_ready"
+            assert result["production_activation_allowed"] is False
+
+
 if __name__ == "__main__":
+    test_baseline_admission_uses_broker_status_mode_and_metrics_only()
     test_verifier_marks_clean_candidate_review_promotable()
     test_verifier_rejects_is_cagr_regression_even_if_headline_passes()
     test_verifier_invalidates_short_candidate_window()
@@ -320,4 +389,6 @@ if __name__ == "__main__":
     test_verifier_blocks_missing_oos_lock_evidence()
     test_verifier_blocks_failed_oos_lock()
     test_verifier_carries_dispatch_context_for_queue_closure()
+    test_verifier_blocks_missing_baseline_broker_metrics()
+    test_verifier_rejects_stale_old_target_pass_true()
     print("ab_result_verifier_smoke: PASS")

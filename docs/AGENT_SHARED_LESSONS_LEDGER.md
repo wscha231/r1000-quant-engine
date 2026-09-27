@@ -1,5 +1,22 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-27 — Recompute mission verdicts from current numeric broker evidence
+
+- WP-G01 findings A/B: the broker path alone does not certify metric mode or completion. Require the artifact itself to exist and declare completed/exact next-close mode with finite, non-boolean CAGR/MDD; never borrow missing status/mode from an account summary. Keep production validity separate from headline mission admission. Cross-surface regressions cover both portfolios and stale summaries; baseline regressions preserve admission for valid non-production-ready evidence.
+
+- Mission thresholds are not enough by themselves: a headline pass also needs a current completed broker-ledger source; deprecated legacy weight metrics must never satisfy the mission.
+- A/B comparison baselines must have their own completed finite broker replay. A stale official summary cannot stand in for missing baseline broker evidence or silently disable regression comparisons.
+- Governance/activation queues use the canonical mission; only genuine search/challenger optimization paths may retain transitional PORTFOLIO_GOAL_TARGETS.
+
+- The authoritative headline mission lives in `r1000_config.PORTFOLIO_MISSION_TARGETS`; transitional `PORTFOLIO_GOAL_TARGETS` remains challenger/search-only until #535.
+- Stored `target_pass=true` and old declared target values are historical metadata, not current authority. Recompute from current broker CAGR/MDD and fail closed when numeric evidence is missing.
+- Mission headline pass is distinct from PIT/window/Tier-2 promotion readiness. A mission pass must not imply production authorization.
+- Portfolio Guard CLI target overrides are diagnostics only; they cannot replace the canonical mission verdict.
+- A0 reports the canonical mission source separately from the legacy/interim operating gate.
+- Reconstructed WP-G01 on master `1d95310009c784998e05afd51c242d5ad75bb211`. Preserve #550 Tier-1 registration without a runner delta or P0-4 pin/artifact changes. Passing broker fixtures must actually meet the mission (Main .36/-.24), not reuse the old .31 CAGR expectation.
+- Mission consumers import the single canonical target; missing configuration must not silently fall back to duplicated local targets.
+- Guard probes reproduced false mission passes for missing, infinite, and boolean drawdowns. Preserve missing mission metrics and reject nonfinite/boolean evidence; add boundary and invalid-metric regressions.
+
 ## 2026-09-23 — ALFRED pagination should raise throughput without relaxing integrity
 
 - NFCI exceeded the legacy 20×10,000 observation pagination envelope.

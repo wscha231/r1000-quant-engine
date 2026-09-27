@@ -30,14 +30,14 @@ if str(REPO_ROOT) not in sys.path:
 if str(REPO_ROOT / "tools") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "tools"))
 
-from r1000_config import PORTFOLIO_GOAL_TARGETS  # noqa: E402
+from r1000_config import PORTFOLIO_MISSION_TARGETS  # noqa: E402
 from run_portfolio_goal_search import collect_candidates, invalid_metric_reason  # noqa: E402
 
 
 DEFAULT_LATEST_RUN = "outputs"
 DEFAULT_OUTPUT_DIR = "outputs/policy_fusion"
 
-TARGETS = PORTFOLIO_GOAL_TARGETS
+TARGETS = PORTFOLIO_MISSION_TARGETS
 
 
 POLICY_PRECEDENCE: list[dict[str, Any]] = [

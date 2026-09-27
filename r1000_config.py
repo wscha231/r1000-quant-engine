@@ -542,6 +542,13 @@ MANDATE_REGISTRY = {
 }
 
 
+PORTFOLIO_MISSION_TARGETS = {
+    "main": {"cagr": 0.35, "max_dd": -0.25},
+    "concentrated": {"cagr": 0.50, "max_dd": -0.25},
+}
+
+# Transitional challenger/search objective until #535. Official verdict and
+# governance paths must use PORTFOLIO_MISSION_TARGETS instead.
 PORTFOLIO_GOAL_TARGETS = {
     "main": {"cagr": 0.30, "max_dd": -0.25},
     "concentrated": {"cagr": 0.50, "max_dd": -0.28},
@@ -2820,6 +2827,7 @@ __all__ = [
     "ROBUST_Z_WINSOR_P",
     "ROBUST_Z_CLIP",
     "MANDATE_REGISTRY",
+    "PORTFOLIO_MISSION_TARGETS",
     "PORTFOLIO_GOAL_TARGETS",
     "OFFICIAL_BACKTEST_WINDOW_YEARS",
     "OFFICIAL_BACKTEST_START_DATE",

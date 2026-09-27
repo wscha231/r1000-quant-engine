@@ -322,7 +322,12 @@ def seed_common_sidecars(root: Path) -> None:
 
 def seed_account(root: Path, *, years: float, concentrated_pass: bool) -> None:
     main = broker_metrics(years=years, cagr=0.35, max_dd=-0.24, kind="main")
-    conc = broker_metrics(years=years, cagr=0.52 if concentrated_pass else 0.44, max_dd=-0.26, kind="concentrated")
+    conc = broker_metrics(
+        years=years,
+        cagr=0.52 if concentrated_pass else 0.44,
+        max_dd=-0.24 if concentrated_pass else -0.26,
+        kind="concentrated",
+    )
     write_json(root / "broker_replay" / "main" / "metrics.json", main)
     write_json(root / "broker_replay" / "concentrated" / "metrics.json", conc)
     write_json(
@@ -343,6 +348,64 @@ def seed_account(root: Path, *, years: float, concentrated_pass: bool) -> None:
             },
         },
     )
+
+
+def test_acceptance_audit_recomputes_stale_target_pass_and_blocks_contract_mismatch() -> None:
+    with TemporaryDirectory() as tmp:
+        latest = Path(tmp) / "latest"
+        seed_common_sidecars(latest)
+        seed_account(latest, years=8.10, concentrated_pass=True)
+
+        broker_path = latest / "broker_replay" / "concentrated" / "metrics.json"
+        broker = json.loads(broker_path.read_text(encoding="utf-8"))
+        broker["max_dd"] = -0.27
+        broker_path.write_text(json.dumps(broker, indent=2, sort_keys=True), encoding="utf-8")
+
+        official_path = latest / "account_evaluation" / "official_metrics.json"
+        official = json.loads(official_path.read_text(encoding="utf-8"))
+        official["target_type"] = "interim_operating_gate"
+        stale = official["portfolios"]["concentrated"]
+        stale["target_pass"] = True
+        stale["cagr_target"] = 0.50
+        stale["max_dd_target"] = -0.28
+        official_path.write_text(json.dumps(official, indent=2, sort_keys=True), encoding="utf-8")
+
+        out = Path(tmp) / "audit"
+        payload = run(Namespace(latest_run=str(latest), output_dir=str(out)))
+        goal = next(row for row in payload["requirements"] if row["requirement_id"] == "goal_contract_main30_conc50_mdd")
+        conc = goal["evidence"]["portfolios"]["concentrated"]
+        assert payload["target_type"] == "canonical_mission"
+        assert goal["status"] == "fail"
+        assert "concentrated:tier1_target" in goal["evidence"]["failing"]
+        assert "concentrated:target_contract_mismatch" in goal["evidence"]["failing"]
+        assert conc["target_pass"] is False
+        assert conc["source_target_pass"] is True
+        assert conc["source_max_dd_target"] == -0.28
+        assert conc["max_dd_target"] == -0.25
+        assert conc["target_contract_mismatch"] is True
+
+
+def test_acceptance_audit_blocks_missing_numeric_mission_metric() -> None:
+    with TemporaryDirectory() as tmp:
+        latest = Path(tmp) / "latest"
+        seed_common_sidecars(latest)
+        seed_account(latest, years=8.10, concentrated_pass=True)
+
+        broker_path = latest / "broker_replay" / "concentrated" / "metrics.json"
+        broker = json.loads(broker_path.read_text(encoding="utf-8"))
+        broker.pop("max_dd")
+        broker_path.write_text(json.dumps(broker, indent=2, sort_keys=True), encoding="utf-8")
+
+        out = Path(tmp) / "audit"
+        payload = run(Namespace(latest_run=str(latest), output_dir=str(out)))
+        goal = next(row for row in payload["requirements"] if row["requirement_id"] == "goal_contract_main30_conc50_mdd")
+        conc = goal["evidence"]["portfolios"]["concentrated"]
+        assert payload["status"] == "not_ready"
+        assert goal["status"] == "fail"
+        assert "concentrated:tier1_target" in goal["evidence"]["failing"]
+        assert conc["max_dd"] is None
+        assert conc["target_pass"] is False
+        assert goal["evidence"]["mission_target_pass"] is False
 
 
 def test_acceptance_audit_reports_not_ready_for_short_concentrated_fail() -> None:
@@ -860,6 +923,8 @@ def test_acceptance_audit_blocks_when_attribution_package_missing() -> None:
 
 
 if __name__ == "__main__":
+    test_acceptance_audit_blocks_missing_numeric_mission_metric()
+    test_acceptance_audit_recomputes_stale_target_pass_and_blocks_contract_mismatch()
     test_acceptance_audit_reports_not_ready_for_short_concentrated_fail()
     test_acceptance_audit_queues_concentrated_ab_when_8y_ready_but_goal_short()
     test_acceptance_audit_passes_when_evidence_contract_is_complete()

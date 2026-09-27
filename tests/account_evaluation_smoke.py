@@ -111,19 +111,20 @@ def test_account_evaluation_uses_broker_ledger_as_official_source() -> None:
 
         result = run(Namespace(latest_run=str(root), output_dir=str(out)))
         assert result["official_metric_mode"] == "broker_ledger_next_close"
-        assert result["target_type"] == "interim_operating_gate"
-        assert result["target_contract_status"] == "unresolved_user_decision_required"
+        assert result["target_type"] == "canonical_mission"
+        assert result["target_contract_status"] == "approved_current_mission"
         assert result["target_contract"]["canonical_mission"]["main"]["cagr"] == 0.35
+        assert result["mission_target_pass"] is False
         assert result["production_target_pass"] is False
         assert result["research_target_pass"] is True
 
         main = result["portfolios"][0]
         concentrated = result["portfolios"][1]
         assert main["portfolio"] == "main"
-        assert main["target_type"] == "interim_operating_gate"
+        assert main["target_type"] == "canonical_mission"
         assert main["canonical_cagr_target"] == 0.35
         assert main["canonical_max_dd_target"] == -0.25
-        assert main["target_pass"] is True
+        assert main["target_pass"] is False
         assert main["broker_ledger_actual_trading_days"] >= 252 * 7
         assert main["evidence_window_label"] == "research_7y"
         assert main["production_promotion_allowed"] is False
@@ -132,12 +133,209 @@ def test_account_evaluation_uses_broker_ledger_as_official_source() -> None:
         assert concentrated["canonical_max_dd_target"] == -0.25
         assert concentrated["cagr_gap_pp"] == 1.0
         official = json.loads((out / "official_metrics.json").read_text(encoding="utf-8"))
-        assert official["target_type"] == "interim_operating_gate"
+        assert official["target_type"] == "canonical_mission"
+        assert official["mission_target_pass"] is False
         assert official["target_contract"]["canonical_mission"]["concentrated"]["max_dd"] == -0.25
         assert (out / "portfolio_account_metrics.csv").exists()
-        assert (out / "account_evaluation_report.md").exists()
+        report = (out / "account_evaluation_report.md").read_text(encoding="utf-8")
+        assert "remain unresolved until explicit user approval" not in report
+        assert "Canonical mission targets are approved" in report
+
+
+def evaluate_mission_case(main_cagr: float, main_mdd: float, conc_cagr: float, conc_mdd: float) -> dict:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp) / "latest"
+        out = Path(tmp) / "account_eval"
+        seed_portfolio(root, "main", cagr=main_cagr, max_dd=main_mdd, sharpe=1.5)
+        seed_portfolio(root, "concentrated", cagr=conc_cagr, max_dd=conc_mdd, sharpe=1.6)
+        write_json(
+            root / "data_readiness" / "summary.json",
+            {
+                "status": "ready",
+                "ready_for_fullrun": True,
+                "ready_for_policy_replay": True,
+                "free_data_coverage": {"known_gaps": []},
+            },
+        )
+        return run(Namespace(latest_run=str(root), output_dir=str(out)))
+
+
+def test_account_evaluation_canonical_mission_boundaries() -> None:
+    main_cagr_fail = evaluate_mission_case(0.32, -0.20, 0.50, -0.25)
+    assert main_cagr_fail["portfolios"][0]["target_pass"] is False
+
+    main_mdd_fail = evaluate_mission_case(0.36, -0.26, 0.50, -0.25)
+    assert main_mdd_fail["portfolios"][0]["target_pass"] is False
+
+    conc_mdd_fail = evaluate_mission_case(0.35, -0.25, 0.52, -0.27)
+    assert conc_mdd_fail["portfolios"][1]["target_pass"] is False
+
+    exact_boundary = evaluate_mission_case(0.35, -0.25, 0.50, -0.25)
+    assert [row["target_pass"] for row in exact_boundary["portfolios"]] == [True, True]
+    assert exact_boundary["mission_target_pass"] is True
+    assert exact_boundary["production_target_pass"] is True
+    assert exact_boundary["production_promotion_allowed"] is False
+
+
+def test_account_evaluation_separates_mission_from_production_and_rejects_failed_replay() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp) / "latest"
+        out = Path(tmp) / "account_eval"
+        seed_portfolio(root, "main", cagr=0.35, max_dd=-0.25, sharpe=1.5)
+        seed_portfolio(root, "concentrated", cagr=0.50, max_dd=-0.25, sharpe=1.6)
+        write_json(
+            root / "data_readiness" / "summary.json",
+            {
+                "status": "ready",
+                "ready_for_fullrun": True,
+                "ready_for_policy_replay": True,
+                "free_data_coverage": {"known_gaps": []},
+            },
+        )
+
+        main_path = root / "broker_replay" / "main" / "metrics.json"
+        main = json.loads(main_path.read_text(encoding="utf-8"))
+        main["valid_for_production"] = False
+        write_json(main_path, main)
+        result = run(Namespace(latest_run=str(root), output_dir=str(out)))
+        assert result["portfolios"][0]["target_pass"] is True
+        assert result["portfolios"][0]["valid_for_production"] is False
+        assert result["mission_target_pass"] is True
+        assert result["production_target_pass"] is False
+
+        main["status"] = "failed"
+        main["valid_for_production"] = True
+        write_json(main_path, main)
+        failed = run(Namespace(latest_run=str(root), output_dir=str(out)))
+        assert failed["portfolios"][0]["target_pass"] is False
+        assert failed["mission_target_pass"] is False
+        assert failed["production_target_pass"] is False
+
+
+def test_account_evaluation_missing_numeric_metric_fails_mission() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp) / "latest"
+        out = Path(tmp) / "account_eval"
+        seed_portfolio(root, "main", cagr=0.35, max_dd=-0.25, sharpe=1.5)
+        seed_portfolio(root, "concentrated", cagr=0.50, max_dd=-0.25, sharpe=1.6)
+        metrics_path = root / "broker_replay" / "concentrated" / "metrics.json"
+        metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+        metrics.pop("max_dd")
+        write_json(metrics_path, metrics)
+        write_json(
+            root / "data_readiness" / "summary.json",
+            {
+                "status": "ready",
+                "ready_for_fullrun": True,
+                "ready_for_policy_replay": True,
+                "free_data_coverage": {"known_gaps": []},
+            },
+        )
+        result = run(Namespace(latest_run=str(root), output_dir=str(out)))
+        concentrated = result["portfolios"][1]
+        assert concentrated["max_dd"] is None
+        assert concentrated["target_pass"] is False
+        assert result["mission_target_pass"] is False
+
+
+def test_mission_surfaces_recompute_same_numeric_boundaries() -> None:
+    from tools.run_account_evaluation import summarize_portfolio
+    from tools.run_ab_result_verifier import collect_evidence
+    from tools.run_metric_hygiene_report import official_portfolio
+    from tools.run_system_acceptance_audit import account_evidence
+
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        # Stale published successes must not override any current numeric verdict.
+        write_json(root / "account_evaluation" / "official_metrics.json", {
+            "production_target_pass": True,
+            "portfolios": {name: {"status": "completed", "valid_for_production": True,
+                                  "target_pass": True, "cagr": .99, "max_dd": -.01}
+                           for name in ("main", "concentrated")},
+        })
+        cases = [("main", .32, -.20, False), ("main", .36, -.26, False),
+                 ("concentrated", .52, -.27, False),
+                 ("main", .35, -.25, True), ("concentrated", .50, -.25, True)]
+        for invalid in (None, True, False, float("nan"), float("inf"), -float("inf")):
+            cases.extend([("main", invalid, -.24, False), ("main", .36, invalid, False)])
+        for name, cagr, mdd, expected in cases:
+            seed_portfolio(root, name, cagr=cagr, max_dd=mdd, sharpe=1.5)
+            rows = [summarize_portfolio(root, name), collect_evidence(root, name),
+                    official_portfolio(root, name), account_evidence(root)[1][name]]
+            for row in rows:
+                assert row["target_type"] == "canonical_mission"
+                assert row["target_pass"] is expected, (name, cagr, mdd, row)
+
+        seed_portfolio(root, "main", cagr=.36, max_dd=-.24, sharpe=1.5)
+        failed_path = root / "broker_replay" / "main" / "metrics.json"
+        failed_metrics = json.loads(failed_path.read_text(encoding="utf-8"))
+        failed_metrics["status"] = "failed"
+        write_json(failed_path, failed_metrics)
+        rows = [summarize_portfolio(root, "main"), collect_evidence(root, "main"),
+                official_portfolio(root, "main"), account_evidence(root)[1]["main"]]
+        assert [row["target_pass"] for row in rows] == [False, False, False, False]
+
+
+def test_mission_surfaces_admit_only_completed_exact_mode_broker_artifacts() -> None:
+    from tools.run_account_evaluation import summarize_portfolio
+    from tools.run_ab_result_verifier import collect_evidence
+    from tools.run_metric_hygiene_report import official_portfolio
+    from tools.run_system_acceptance_audit import account_evidence
+    from tools.run_portfolio_system_guard import broker_or_legacy_metrics, portfolio_status
+
+    cases = [("ready", {}, (), True),
+             ("not_production_ready", {"valid_for_production": False}, (), True),
+             ("missing_file", {}, (), False),
+             ("missing_mode", {}, ("metric_mode",), False),
+             ("missing_status", {}, ("status",), False)]
+    for mode in ("broker_ledger_next_close_cash_carry", "execution_capacity", "DO_NOT_USE", ""):
+        cases.append(("wrong_mode", {"metric_mode": mode}, (), False))
+    for status in ("failed", "cancelled", "incomplete", "running"):
+        cases.append(("bad_status", {"status": status}, (), False))
+    for field in ("cagr", "max_dd"):
+        cases.append(("missing_metric", {}, (field,), False))
+        for invalid in (None, True, False, float("nan"), float("inf"), -float("inf")):
+            cases.append(("invalid_metric", {field: invalid}, (), False))
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        for name, cagr in (("main", .35), ("concentrated", .50)):
+            seed_portfolio(root, name, cagr=cagr, max_dd=-.25, sharpe=1.5)
+            path = root / "broker_replay" / name / "metrics.json"
+            original = json.loads(path.read_text())
+            # Stale summaries and aliases cannot supply missing broker evidence.
+            original.update(strategy_cagr=.99, max_drawdown=-.01)
+            write_json(root / "account_evaluation" / "official_metrics.json", {
+                "official_metric_mode": "broker_ledger_next_close", "production_target_pass": True,
+                "portfolios": {name: {**original, "official_metric_mode": "broker_ledger_next_close",
+                                      "target_pass": True, "strengthened_pass": True}},
+            })
+            legacy = "backtest_metrics.json" if name == "main" else "concentrated_backtest_metrics.json"
+            write_json(root / legacy, original)
+            for label, overrides, missing, expected in cases:
+                payload = {**original, **overrides}
+                for field in missing:
+                    payload.pop(field)
+                write_json(path, payload)
+                if label == "missing_file":
+                    path.unlink()
+                rows = [summarize_portfolio(root, name), collect_evidence(root, name),
+                        official_portfolio(root, name), account_evidence(root)[1][name],
+                        portfolio_status(name, broker_or_legacy_metrics(root, name), cagr, -.25)]
+                for row in rows:
+                    assert row["target_pass"] is expected, (name, label, overrides, row)
+                if not expected or label == "not_production_ready":
+                    assert not rows[0]["valid_for_production"]
+                    assert not rows[1]["valid_for_production"]
+                    assert not rows[2]["production_valid"]
+                    assert not rows[3]["valid_for_production"]
+                    assert not rows[4]["official_source_pass"]
 
 
 if __name__ == "__main__":
+    test_mission_surfaces_admit_only_completed_exact_mode_broker_artifacts()
+    test_mission_surfaces_recompute_same_numeric_boundaries()
     test_account_evaluation_uses_broker_ledger_as_official_source()
+    test_account_evaluation_canonical_mission_boundaries()
+    test_account_evaluation_separates_mission_from_production_and_rejects_failed_replay()
+    test_account_evaluation_missing_numeric_metric_fails_mission()
     print("account_evaluation_smoke: PASS")
