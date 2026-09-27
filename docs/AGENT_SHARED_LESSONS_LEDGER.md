@@ -5395,3 +5395,6 @@ Expected contract:
 - If that ticker subsequently disappears from the current mapping, retain all
   verified prior CIKs for collection. Record multiple alternatives as an
   explicit ambiguous identity gap instead of stopping their archive refresh.
+- A persisted historical source hash that cannot be read or validated is a
+  provenance failure, not an empty mapping. Propagate it before replacing the
+  cohort catalog; otherwise a transient read error destroys the source list.

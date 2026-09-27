@@ -189,15 +189,41 @@ class HistoryTest(unittest.TestCase):
             self.assertTrue(resolution[-1]['lifecycle_review_required'])
             self.assertEqual(len(missing),998)
             entry.pop('sec_ticker_mapping_object_sha256')
-            self.assertIsNone(prior_sec_mapping(self.lake))
+            with self.assertRaisesRegex(ValueError,'cohort_source_role'):
+                prior_sec_mapping(self.lake)
             entry.pop('source_role_contract_version')
             self.lake.catalog['code_sha']='f'*40
-            self.assertIsNone(prior_sec_mapping(self.lake))
+            with self.assertRaisesRegex(ValueError,'cohort_legacy_producer'):
+                prior_sec_mapping(self.lake)
             entry['raw_objects']=[cohort_sha,mapping_sha]
             self.lake.catalog['code_sha']='4f8ecd3186539e84d4243d01b98f29e87e902337'
             self.assertIsNotNone(prior_sec_mapping(self.lake))
             entry['raw_objects']=[mapping_sha,cohort_sha]
-            self.assertIsNone(prior_sec_mapping(self.lake))
+            with self.assertRaisesRegex(ValueError,'durable_cohort_identity'):
+                prior_sec_mapping(self.lake)
+
+    def test_missing_persisted_history_mapping_aborts_without_replacing_provenance(self):
+        from tools.long_history_lake import collect_financials,packed,prior_sec_mapping
+        members=[dict(ticker='A'+str(i)) for i in range(1000)]
+        cohort=self.root/'cohort.json'
+        cohort.write_bytes(encoded(dict(candidate_count=1000,as_of='2026-09-12',rows=members)))
+        mapping=encoded({'0':dict(ticker='A0',cik_str=1)})
+        lost='f'*64
+        self.lake.dataset('universe/cohort',[cohort.read_bytes(),mapping],members,dict(
+            evidence='CURRENT_COHORT_NOT_HISTORICAL_MEMBERSHIP',requested_securities=1000,
+            source_role_contract_version='cohort-sec-mapping-v1',
+            cohort_source_object_sha256=digest(packed(cohort.read_bytes())),
+            sec_ticker_mapping_object_sha256=digest(packed(mapping)),
+            sec_ticker_mapping_source_sha256=digest(mapping),
+            sec_ticker_mapping_retrieved_at='2026-09-12T00:00:00+00:00',
+            historical_sec_mapping_object_sha256s=[lost]))
+        original=copy.deepcopy(self.lake.catalog['datasets']['universe/cohort'])
+        with patch('tools.long_history_lake.COHORT_SHA',digest(cohort.read_bytes())):
+            with self.assertRaises(KeyError): prior_sec_mapping(self.lake)
+            with patch('tools.long_history_lake.get_public',return_value=(mapping,{})):
+                with self.assertRaises(KeyError):
+                    collect_financials(self.lake,cohort,'2016-01-01','2026-09-12')
+        self.assertEqual(self.lake.catalog['datasets']['universe/cohort'],original)
 
     def test_history_mapping_survives_a_missing_current_mapping_generation(self):
         from tools.long_history_lake import packed,prior_sec_mapping

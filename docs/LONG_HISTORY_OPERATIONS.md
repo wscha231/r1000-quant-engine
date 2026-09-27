@@ -77,7 +77,9 @@ use only the current CIK mapping. A prior official mapping may retain
 historical collection identity with `lifecycle_review_required=true`, but it never
 proves current eligibility. New catalogs name and hash the cohort and SEC mapping
 source objects by role. The verified mapping source list persists across cycles;
-the first migration checks prior catalogs in the hash-verified chain. A current
+the first migration checks prior catalogs in the hash-verified chain. Missing or
+invalid persisted mapping objects stop collection before a replacement catalog
+can be published. A current
 CIK that differs from a prior CIK collects both issuer archives, records the
 older one as history-retained, and requires lifecycle review. Multiple distinct
 prior CIKs are retained for evidence even if the ticker later disappears from

@@ -269,42 +269,38 @@ def prior_sec_mapping(lake,with_sources=False):
     if 'universe/cohort' not in lake.catalog['datasets']:
         return (None,[]) if with_sources else None
     sources=[]; seen=set()
-    try:
-        _,sha,mapping=verified_cohort_source(lake)
-        sources.append((sha,mapping)); seen.add(sha)
-        historical=lake.catalog['datasets']['universe/cohort'].get('historical_sec_mapping_object_sha256s')
-        if historical is not None:
-            require(isinstance(historical,list) and len(historical)==len(set(historical)),
-                    'historical_mapping_roles')
-            for source_sha in historical:
-                require(isinstance(source_sha,str) and re.fullmatch(r'[0-9a-f]{64}',source_sha),
-                        'historical_mapping_role_sha')
-                if source_sha in seen: continue
-                value=json.loads(unpacked(lake.get_bytes(source_sha)))
-                sec_ticker_lookup(value)
+    _,sha,mapping=verified_cohort_source(lake)
+    sources.append((sha,mapping)); seen.add(sha)
+    historical=lake.catalog['datasets']['universe/cohort'].get('historical_sec_mapping_object_sha256s')
+    if historical is not None:
+        require(isinstance(historical,list) and len(historical)==len(set(historical)),
+                'historical_mapping_roles')
+        for source_sha in historical:
+            require(isinstance(source_sha,str) and re.fullmatch(r'[0-9a-f]{64}',source_sha),
+                    'historical_mapping_role_sha')
+            if source_sha in seen: continue
+            value=json.loads(unpacked(lake.get_bytes(source_sha)))
+            sec_ticker_lookup(value)
+            sources.append((source_sha,value)); seen.add(source_sha)
+    else:
+        cursor=lake.parent
+        while cursor:
+            commit=json.loads(lake.read_hash('commits',cursor))
+            cursor=commit['parent']
+            if cursor is None: break
+            older=json.loads(lake.read_hash('commits',cursor))
+            catalog=json.loads(lake.read_hash('catalogs',older['catalog']))
+            if 'universe/cohort' not in catalog['datasets']:
+                continue
+            _,source_sha,value=verified_cohort_source(lake,catalog)
+            if source_sha not in seen:
                 sources.append((source_sha,value)); seen.add(source_sha)
-        else:
-            cursor=lake.parent
-            while cursor:
-                commit=json.loads(lake.read_hash('commits',cursor))
-                cursor=commit['parent']
-                if cursor is None: break
-                older=json.loads(lake.read_hash('commits',cursor))
-                catalog=json.loads(lake.read_hash('catalogs',older['catalog']))
-                try:
-                    _,source_sha,value=verified_cohort_source(lake,catalog)
-                except (ValueError,KeyError,TypeError,AttributeError,OSError):
-                    continue
-                if source_sha not in seen:
-                    sources.append((source_sha,value)); seen.add(source_sha)
-        rows={(row['ticker'],str(row['cik_str']).zfill(10)) for _,mapping in sources
-              for row in mapping.values()}
-        combined={str(i):dict(ticker=ticker,cik_str=cik)
-                  for i,(ticker,cik) in enumerate(sorted(rows))}
-        result=(combined if combined else None,[sha for sha,_ in sources])
-        return result if with_sources else result[0]
-    except (ValueError,KeyError,TypeError,AttributeError,OSError):
-        return (None,[]) if with_sources else None
+    rows={(row['ticker'],str(row['cik_str']).zfill(10)) for _,mapping in sources
+          for row in mapping.values()}
+    combined={str(i):dict(ticker=ticker,cik_str=cik)
+              for i,(ticker,cik) in enumerate(sorted(rows))}
+    result=(combined if combined else None,[sha for sha,_ in sources])
+    return result if with_sources else result[0]
 
 
 def issuer_queue(members, mapping, prior_mapping=None):
