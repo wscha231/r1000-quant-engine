@@ -172,6 +172,13 @@ def verify_completion(receipt: dict, packet_identity: dict, request: dict,
         raise ContractError('receipt_identity_mismatch')
     if receipt['side_effects'] or receipt['verification_status'] != 'VERIFIED':
         raise ContractError('receipt_unverified_or_mutating')
+    ai_mode = receipt['execution_mode'] in ('GENERAL_CHATGPT', 'WORK', 'CODEX')
+    if receipt['ai_invoked'] != ai_mode:
+        raise ContractError('receipt_ai_provenance_conflict')
+    if ai_mode != (receipt['ai_invocation_reason'] is not None):
+        raise ContractError('receipt_ai_reason_conflict')
+    if ai_mode and not receipt['model'].get('provider'):
+        raise ContractError('receipt_ai_provider_missing')
     for name in ('runtime_verification', 'focused_tests', 'ci'):
         if receipt[name]['status'] != 'PASS':
             raise ContractError('receipt_' + name + '_not_pass')
@@ -187,6 +194,8 @@ def verify_completion(receipt: dict, packet_identity: dict, request: dict,
 APPROVAL_ACTIONS = frozenset({'fullrun', 'actual_broker', 'paper_book', 'target_book',
     'production_activation', 'live_trading', 'new_alpha_logic', 'er_weight_change',
     'risk_limit_relaxation', 'review_gate_relaxation', 'protected_evidence_change'})
+RISK_TIERS = frozenset({'T0_READ', 'T1_COMPUTE', 'T2_PREPARE', 'T3_REVERSIBLE_WRITE',
+                        'T4_ECONOMIC_MUTATION', 'T5_IRREVERSIBLE_OR_PROTECTED'})
 NOTIFY_STATES = frozenset({'BLOCKED', 'HUMAN_APPROVAL_REQUIRED', 'CORRECTION_REQUIRED',
                            'READY_TO_MERGE', 'DONE'})
 
@@ -200,9 +209,13 @@ def lifecycle_state(packet: dict | None, event: dict | None = None) -> dict:
     event = event or {}
     action = event.get('action')
     effects = event.get('side_effects', [])
-    if not isinstance(effects, list) or not isinstance(action, (str, type(None))):
+    tier = event.get('risk_tier')
+    if (not isinstance(effects, list) or not isinstance(action, (str, type(None)))
+            or (tier is not None and (not isinstance(tier, str) or tier not in RISK_TIERS))):
         state = 'BLOCKED'
-    elif action in APPROVAL_ACTIONS or effects:
+    elif (action in APPROVAL_ACTIONS or tier in ('T4_ECONOMIC_MUTATION', 'T5_IRREVERSIBLE_OR_PROTECTED')
+          or any(effect in APPROVAL_ACTIONS for effect in effects if isinstance(effect, str))
+          or (effects and (tier != 'T3_REVERSIBLE_WRITE' or effects != ['reversible_repo_write']))):
         state = 'HUMAN_APPROVAL_REQUIRED'
     elif packet is None:
         state = 'QUEUED'
@@ -237,7 +250,7 @@ def lifecycle_state(packet: dict | None, event: dict | None = None) -> dict:
         state = 'READY_FOR_ATTESTATION'
     return {'state': state, 'notification_worthy': state in NOTIFY_STATES or
             bool(event.get('integrity_failure') or event.get('unexpected_regression')),
-            'polling_required': False}
+            'polling_required': False, 'ai_invocation_required': False}
 
 
 def contracts() -> dict:

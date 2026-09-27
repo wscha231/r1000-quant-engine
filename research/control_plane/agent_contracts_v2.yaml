@@ -17,7 +17,7 @@
   "agents": {
     "A0": {
       "name": "Orchestrator",
-      "role": "State, dependencies and task assignment",
+      "role": "ROUTE/SKIP/VERIFY/RETRY/ESCALATE/BLOCK/WAIT/READY decisions; no worker execution",
       "inputs": [
         "system_state"
       ],

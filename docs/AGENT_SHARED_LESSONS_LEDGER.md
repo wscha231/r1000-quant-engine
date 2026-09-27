@@ -1,5 +1,10 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-27 — Worker handoff metadata cannot become A0 authority
+
+- A high confidence label and suggested next action are useful handoff metadata, not evidence. Keep A0 state transitions tied to independently checked artifact bytes, dependencies, tests, current-head CI/review and post-merge verification.
+- Record whether AI was actually invoked and why in the existing completion receipt. CI waiting, hash comparison, dependency verification and state reduction require no AI call. T4/T5 and explicitly protected actions stop for human approval even if a worker labels them lower risk.
+
 ## 2026-09-27 — A0 receipt reuse must follow causality and current-head gates
 
 - Extend the existing `completed_tasks` row instead of creating a second receipt store. Recompute source/input/dependency/config/model/parameter/code identity, read output bytes, and require receipt availability after every causal input. A matching but stale or conflicting receipt blocks reuse; a missing receipt remains an uncompleted READY proposal.

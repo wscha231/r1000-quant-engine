@@ -241,7 +241,10 @@
           "reviewed_head",
           "created_at",
           "available_at",
-          "verification_status"
+          "verification_status",
+          "execution_mode",
+          "ai_invoked",
+          "ai_invocation_reason"
         ],
         "properties": {
           "agent": {
@@ -472,6 +475,38 @@
           },
           "verification_status": {
             "const": "VERIFIED"
+          },
+          "execution_mode": {
+            "enum": [
+              "DETERMINISTIC_CODE",
+              "VERIFIED_EXISTING_ARTIFACT",
+              "SKIP_UNCHANGED",
+              "GENERAL_CHATGPT",
+              "WORK",
+              "CODEX"
+            ]
+          },
+          "ai_invoked": {
+            "type": "boolean"
+          },
+          "ai_invocation_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "confidence": {
+            "enum": [
+              "LOW",
+              "MEDIUM",
+              "HIGH",
+              "UNKNOWN"
+            ]
+          },
+          "next_action": {
+            "type": "string",
+            "minLength": 1
           }
         }
       },

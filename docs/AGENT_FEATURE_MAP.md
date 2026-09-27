@@ -25,6 +25,31 @@ All A1–A8 requests originate with A0. A1/A2/A4/A6 can be marked
 Eligibility is a deterministic *future* candidate, not dispatch. A3/A5/A7/A8
 remain ineligible. The global switch stays false.
 
+## A0 decisions and worker handoff
+
+The existing packet and receipt express **Task → Work → Evidence → Confidence →
+Next Action**: A0 issues a task packet; a specialist/worker performs research,
+code or tool work outside this board; the existing `completed_tasks` receipt
+binds outputs, runtime checks, focused tests, CI and dependency hashes. Optional
+`confidence` and `next_action` are worker metadata and proposals. Neither is
+verification evidence or an authoritative transition. A0 decides the next
+state from verified bytes and independently checked current-head GitHub facts;
+DONE additionally requires an attested merge and post-merge verification.
+
+| A0 decision | Existing state or action |
+| --- | --- |
+| ROUTE | Issue a READY proposal to an eligible specialist; dispatch remains disabled |
+| SKIP | SKIP_UNCHANGED after identity and output verification |
+| VERIFY | READY_FOR_ATTESTATION or POST_MERGE_VERIFY |
+| RETRY | CORRECTION_REQUIRED after a bounded corrective change |
+| ESCALATE | HUMAN_APPROVAL_REQUIRED |
+| BLOCK | BLOCKED |
+| WAIT | WAITING_CI or WAITING_REVIEW, with no AI polling |
+| READY | READY_TO_MERGE only after the separate `review_complete` gate |
+
+A0 does not implement a specialist's code or research task. A worker's success
+report, high confidence, or proposed next action cannot produce DONE.
+
 ## AF02: one completed_tasks receipt, version 2
 
 `system_state_schema.json` extends each existing `completed_tasks` row. A
@@ -44,6 +69,30 @@ head CI and review must be read independently from GitHub.
 The board writes its existing manifest and queue. It does not write a second
 receipt store. Old `completed_tasks` rows lacking V2 fields fail the schema;
 they need fresh verification, not automatic migration or grandfathering.
+
+The same receipt records `execution_mode`, `ai_invoked`, model/provider/version
+when AI is used, and `ai_invocation_reason`. A deterministic or reused result
+records `ai_invoked=false` and no AI reason; an AI mode requires a reason and
+provider. These fields document cost provenance, not verification evidence.
+
+## Autonomy risk tiers
+
+Existing read/proposal mode and authority flags remain the packet's execution
+boundary. A0 classifies the requested operation, never a worker's claimed tier:
+
+| Tier | Meaning | Boundary |
+| --- | --- | --- |
+| T0_READ | Read-only inspection | Deterministic automation after input checks |
+| T1_COMPUTE | Reproducible computation | Automation after hash/dependency checks |
+| T2_PREPARE | Draft or proposal preparation | Verified preparation, no accepted write |
+| T3_REVERSIBLE_WRITE | Reversible repository write | Existing CI, review and `review_complete` governance |
+| T4_ECONOMIC_MUTATION | Fullrun, target/paper/broker or risk decision | HUMAN_APPROVAL_REQUIRED |
+| T5_IRREVERSIBLE_OR_PROTECTED | Production/live activation, protected evidence/hash/review gate | HUMAN_APPROVAL_REQUIRED |
+
+T0–T2 are eligible only when verification conditions pass and a future dispatch
+switch is explicitly enabled; this PR leaves it false. Explicit protected
+actions override any lower tier. Unknown side effects require human approval.
+These tiers do not authorize execution or mutation from a packet.
 
 ## A0 event reducer and boundaries
 
@@ -73,8 +122,12 @@ DONE, data integrity failure or unexpected regression are notification-worthy.
 WAITING_CI, WAITING_REVIEW and SKIP_UNCHANGED never request polling or a user
 notification. The reducer returns flags; no delivery mechanism is activated.
 
-Usage priority: deterministic Actions/code → existing verified artifact →
-SKIP_UNCHANGED → ordinary ChatGPT judgment → manual Work for multi-file code,
-complex incidents or large research/backtests → one final exact-head Codex
+The reducer returns `ai_invocation_required=false` for every deterministic
+state evaluation, including CI waits, SHA/dependency/hash checks and unchanged
+identity. This is a no-dispatch contract.
+
+Usage priority: DETERMINISTIC_CODE → VERIFIED_EXISTING_ARTIFACT →
+SKIP_UNCHANGED → GENERAL_CHATGPT → manual WORK for multi-file code,
+complex incidents or large research/backtests → one final exact-head CODEX
 review only when repository policy requires it. CI waiting, SHA comparison,
 receipt verification and status checks use deterministic code.

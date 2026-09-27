@@ -87,7 +87,8 @@ class ControlPlaneTests(unittest.TestCase):
             focused_tests={'identity':'synthetic-focused-test','status':'PASS'},
             ci={'identity':'synthetic-ci','status':'PASS','head_sha':identity['code_sha']},
             side_effects=[], reviewed_head=None, created_at=self.at(-9), available_at=self.at(-8),
-            verification_status='VERIFIED')
+            verification_status='VERIFIED', execution_mode='DETERMINISTIC_CODE',
+            ai_invoked=False, ai_invocation_reason=None)
         request=next(r for r in self.state['requests'] if r['agent']==agent)
         causal=list(request['inputs'].values())
         if agent=='A6':
@@ -147,6 +148,24 @@ class ControlPlaneTests(unittest.TestCase):
     def test_same_five_identity_fields_skip_with_verified_output(self):
         self.complete()
         self.assertEqual(self.tasks()[0]['status'],'SKIP_UNCHANGED')
+        self.assertFalse(board.lifecycle_state(self.tasks()[0])['ai_invocation_required'])
+
+    def test_receipt_ai_invocation_provenance(self):
+        receipt=self.complete()
+        receipt['ai_invoked']=True
+        self.assertEqual(self.tasks()[0]['status'],'BLOCKED')
+        receipt['execution_mode']='WORK'; receipt['ai_invocation_reason']='multi-file implementation'
+        self.assertEqual(self.tasks()[0]['status'],'BLOCKED')  # provider is required for AI
+        receipt['model']['provider']='test-provider'
+        self.assertEqual(self.tasks()[0]['status'],'BLOCKED')  # identity still differs
+        self.state['completed_tasks'].clear()
+        self.state['requests'][0]['model']['provider']='test-provider'
+        receipt=self.complete()
+        receipt.update(execution_mode='WORK',ai_invoked=True,
+                       ai_invocation_reason='multi-file implementation',
+                       confidence='HIGH',next_action='request A0 verification')
+        self.assertEqual(self.tasks()[0]['status'],'SKIP_UNCHANGED')
+        self.assertFalse(board.lifecycle_state(self.tasks()[0])['ai_invocation_required'])
 
     def test_receipt_v2_missing_stale_conflicting_and_self_report_fail_closed(self):
         self.assertEqual(self.tasks()[0]['status'],'READY')
@@ -182,6 +201,7 @@ class ControlPlaneTests(unittest.TestCase):
                    review='CLEAN',review_head=head,unresolved_findings=0)
         self.assertNotEqual(board.lifecycle_state(packet,event)['state'],'READY_FOR_ATTESTATION')
         self.assertNotEqual(board.lifecycle_state(packet,{**event,'worker_report':'SUCCEEDED',
+            'confidence':'HIGH','next_action':'MERGE',
             'merged':True,'post_merge_verified':True})['state'],'DONE')
         self.complete(); packet=self.tasks()[0]
         self.assertEqual(board.lifecycle_state(packet,event)['state'],'READY_FOR_ATTESTATION')
@@ -201,6 +221,13 @@ class ControlPlaneTests(unittest.TestCase):
         packet=self.tasks()[0]
         for action in board.APPROVAL_ACTIONS:
             self.assertEqual(board.lifecycle_state(packet,{'action':action})['state'],'HUMAN_APPROVAL_REQUIRED')
+        for tier in ('T4_ECONOMIC_MUTATION','T5_IRREVERSIBLE_OR_PROTECTED'):
+            self.assertEqual(board.lifecycle_state(packet,{'risk_tier':tier})['state'],
+                             'HUMAN_APPROVAL_REQUIRED')
+        self.assertEqual(board.lifecycle_state(packet,{'risk_tier':'T3_REVERSIBLE_WRITE',
+            'side_effects':['reversible_repo_write']})['state'],'WAITING_CI')
+        self.assertEqual(board.lifecycle_state(packet,{'risk_tier':'T3_REVERSIBLE_WRITE',
+            'side_effects':['target_book']})['state'],'HUMAN_APPROVAL_REQUIRED')
         self.assertEqual(board.lifecycle_state(packet,{'side_effects':['target_book']})['state'],
                          'HUMAN_APPROVAL_REQUIRED')
         for state in ('WAITING_CI','WAITING_REVIEW','SKIP_UNCHANGED'):
@@ -208,6 +235,9 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertEqual(board.lifecycle_state(packet,{'ci':'PENDING'})['state'],'WAITING_CI')
         self.assertFalse(board.lifecycle_state(packet,{'ci':'PENDING'})['notification_worthy'])
         self.assertFalse(board.lifecycle_state(packet,{'ci':'PENDING'})['polling_required'])
+        self.assertFalse(board.lifecycle_state(packet,{'ci':'PENDING'})['ai_invocation_required'])
+        self.assertTrue(board.lifecycle_state(packet,{'integrity_failure':True})['notification_worthy'])
+        self.assertTrue(board.lifecycle_state(packet,{'unexpected_regression':True})['notification_worthy'])
         self.assertTrue(packet['dispatch_eligible'])
         self.add_request('A3')
         self.assertFalse(next(t for t in self.tasks() if t['agent']=='A3')['dispatch_eligible'])
