@@ -151,7 +151,10 @@ def data_state(src):
              board.timestamp(ex['created_at']), 'data_causal_time_conflict')
         code = src.payloads.get('code')
         need(code is not None and code.get('g0_run', {}).get('run_id') == ex['run_id'], 'github_run_mismatch')
-        need(code['g0_run'].get('head_sha') == catalog.get('code_sha'), 'github_run_code_mismatch')
+        run_sha, catalog_sha = code['g0_run'].get('head_sha'), catalog.get('code_sha')
+        need(all(isinstance(value, str) and re.fullmatch(r'[0-9a-f]{40}', value)
+                 for value in (run_sha, catalog_sha)), 'github_run_code_missing_or_invalid')
+        need(run_sha == catalog_sha, 'github_run_code_mismatch')
         need(code['g0_run'].get('conclusion') in ('failure', 'success', 'cancelled', 'timed_out'),
              'workflow_conclusion_unknown')
         data.update(g0_status=quality['status'], drive_readback_status='VERIFIED',

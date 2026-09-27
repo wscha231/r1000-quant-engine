@@ -638,4 +638,7 @@ def main() -> int:
 
 
 if __name__ == '__main__':
+    # The lazy materializer imports this canonical name. Preserve the same
+    # ContractError class when this file is the CLI entrypoint.
+    sys.modules['tools.run_agent_board'] = sys.modules[__name__]
     raise SystemExit(main())

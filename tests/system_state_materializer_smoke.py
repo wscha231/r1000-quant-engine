@@ -238,6 +238,32 @@ class StateTests(unittest.TestCase):
         self.put('drive_readback',readback)
         self.assertEqual(self.state()['data']['drive_readback_status'],'BLOCKED')
 
+    def test_missing_or_invalid_g0_code_binding_blocks_research(self):
+        for value in (None, '', 'bad', 'a'*39, 123):
+            with self.subTest(value=value):
+                code=self.payload('code');code['g0_run']['head_sha']=value;self.put('code',code)
+                catalog=self.payload('catalog');catalog['code_sha']=value;self.put('catalog',catalog)
+                commit=self.payload('commit');commit['catalog']=self.hash('catalog');self.put('commit',commit)
+                ex=self.payload('execution');ex.update(catalog_sha256=self.hash('catalog'),commit_sha256=self.hash('commit'));self.put('execution',ex)
+                readback=self.payload('drive_readback');readback.update(catalog_sha256=self.hash('catalog'),commit_sha256=self.hash('commit'),execution_receipt_sha256=self.hash('execution'));self.put('drive_readback',readback)
+                state=self.state()
+                self.assertEqual(state['data']['g0_status'],'BLOCKED')
+                self.assertIn('github_run_code_missing_or_invalid',state['data']['g0_reasons'])
+                self.assertFalse(state['authority']['research_allowed'])
+                self.assertFalse(state['authority']['model_portfolio_allowed'])
+
+    def test_cli_preserves_stale_intake_reason(self):
+        state_path=self.root/'state.json';state_path.write_text(json.dumps(self.state()))
+        self.manifest.update(observed_at=self.at(-120),expires_at=self.at(-90))
+        intake=self.root/'intake.json';intake.write_text(json.dumps(self.manifest))
+        out=self.root/'board'
+        result=subprocess.run([sys.executable,str(ROOT/'tools/run_agent_board.py'),
+            '--latest-run',str(self.root),'--system-state',str(state_path),
+            '--canonical-inputs',str(intake),'--evidence-root',str(self.root),
+            '--output-dir',str(out)],capture_output=True,text=True)
+        self.assertEqual(result.returncode,2,result.stderr)
+        self.assertEqual(json.loads((out/'board_summary.json').read_text())['blockers'],['intake_stale_or_future'])
+
 
 def main():
     result=unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(StateTests))

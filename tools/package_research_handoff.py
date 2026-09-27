@@ -123,7 +123,9 @@ def default_bundle_name() -> str:
 
 BOARD_RESTORE_COMMAND = (
     "python tools/run_agent_board.py --latest-run outputs "
-    "--system-state outputs/control_plane/system_state.json --output-dir outputs/agent_board"
+    "--system-state outputs/control_plane/system_state.json "
+    "--canonical-inputs REPLACE_WITH_REFRESHED_INTAKE_JSON "
+    "--evidence-root REPLACE_WITH_EVIDENCE_ROOT --output-dir outputs/agent_board"
 )
 BOARD_STATE_REQUIREMENT = (
     "Materialize a fresh v2 state using tools/materialize_system_state.py and research/control_plane/system_state_schema.json "

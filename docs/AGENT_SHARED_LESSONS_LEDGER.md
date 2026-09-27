@@ -5422,3 +5422,6 @@ Expected contract:
 - Missing accepted books stay UNKNOWN; an unadmitted receipt stays BLOCKED until
   its domain verifier is bound. Model research is not current holdings, approved
   targets, A5 readiness or any economic mutation permission.
+- Receipt equality is insufficient for identity: validate both code SHAs before
+  comparing them so missing values cannot agree. Restore commands must carry new
+  consumer inputs, and CLI/module imports must share contract exception identity.
