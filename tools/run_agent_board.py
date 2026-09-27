@@ -163,11 +163,11 @@ def receipt_dependencies(dependencies: dict) -> dict:
 
 def evidence_identity(kind: str, reference: str, task_key: str,
                       packet_identity: dict, head_sha: str,
-                      output_hashes: dict[str, str]) -> str:
-    """Scope test/run evidence to the task, head, and bytes it verified."""
+                      outputs: dict[str, dict], available_at: str) -> str:
+    """Scope test/run evidence to the task, output descriptors, and causal time."""
     return digest({'kind': kind, 'reference': reference, 'task_key': task_key,
                    'packet_identity': packet_identity, 'head_sha': head_sha,
-                   'output_hashes': output_hashes})
+                   'outputs': outputs, 'available_at': available_at})
 
 
 def verify_completion(receipt: dict, packet_identity: dict, request: dict,
@@ -190,19 +190,22 @@ def verify_completion(receipt: dict, packet_identity: dict, request: dict,
         raise ContractError('receipt_ai_reason_conflict')
     if ai_mode and not receipt['model'].get('provider'):
         raise ContractError('receipt_ai_provider_missing')
-    output_hashes = {role: item['sha256'] for role, item in receipt['outputs'].items()}
+    created, available = timestamp(receipt['created_at']), timestamp(receipt['available_at'])
+    if not causal_ready <= created <= available <= cutoff:
+        raise ContractError('receipt_time_boundary')
+    output_collected = max(timestamp(item['collected_at']) for item in receipt['outputs'].values())
     for name in ('runtime_verification', 'focused_tests', 'ci'):
         evidence = receipt[name]
         if evidence['status'] != 'PASS':
             raise ContractError('receipt_' + name + '_not_pass')
+        evidence_available = timestamp(evidence['available_at'])
+        if not output_collected < evidence_available < created:
+            raise ContractError('receipt_' + name + '_time_boundary')
         if (evidence['head_sha'] != packet_identity['code_sha']
                 or evidence['identity'] != evidence_identity(
                     name, evidence['reference'], receipt['task_key'], packet_identity,
-                    evidence['head_sha'], output_hashes)):
+                    evidence['head_sha'], receipt['outputs'], evidence['available_at'])):
             raise ContractError('receipt_' + name + '_identity_mismatch')
-    created, available = timestamp(receipt['created_at']), timestamp(receipt['available_at'])
-    if not causal_ready <= created <= available <= cutoff:
-        raise ContractError('receipt_time_boundary')
     if receipt['reviewed_head'] is not None and receipt['reviewed_head'] != packet_identity['code_sha']:
         raise ContractError('receipt_old_review_head')
 

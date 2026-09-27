@@ -57,8 +57,8 @@ successful reuse must bind `task_key`, full task identity, source and input
 SHA-256 per role, dependency task keys and output hashes, code SHA, config hash,
 model name/version (provider when applicable), parameter hash, output artifact
 descriptors, runtime verification, focused tests, CI identity/head/result,
-side effects, reviewed head when applicable, created/available times, and
-verification status. The board recomputes identity and hashes, reads output
+evidence availability, side effects, reviewed head when applicable,
+created/available times, and verification status. The board recomputes identity and hashes, reads output
 bytes, checks freshness and causal timestamps, and validates A6's reviewed
 scope. Missing, conflicting, stale or tampered matching receipts become BLOCKED;
 an absent receipt remains READY and cannot be called DONE. `SKIP_UNCHANGED`
@@ -66,8 +66,10 @@ requires all identity dimensions, evidence binding and valid output bytes.
 Each runtime, focused-test and CI record retains its run/test `reference` and
 head; its `identity` is the SHA-256 of the evidence kind, reference, task key,
 complete packet identity (including inputs/dependencies), code head, and the
-output-role to SHA-256 mapping. A copied reference or digest from another
-task/head fails verification. Receipt
+complete output descriptors by role (path, SHA-256, availability, collection,
+expiry, observation and status), plus the evidence availability time. Every
+evidence result must postdate output collection and predate receipt creation.
+A copied reference or digest from another task/head fails verification. Receipt
 declarations are **not authenticated GitHub checks** or merge permission; the
 current head CI and review must be read independently from GitHub.
 

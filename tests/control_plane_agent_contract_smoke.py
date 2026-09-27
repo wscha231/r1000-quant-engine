@@ -78,9 +78,9 @@ class ControlPlaneTests(unittest.TestCase):
         hashes={role:item['sha256'] for role,item in packet['inputs'].items()}
         def evidence(kind, reference):
             return dict(identity=board.evidence_identity(kind, reference, packet['task_key'],
-                         identity, identity['code_sha'],
-                         {role: item['sha256'] for role, item in receipt['outputs'].items()}), reference=reference,
-                        status='PASS', head_sha=identity['code_sha'])
+                         identity, identity['code_sha'], receipt['outputs'], evidence_ready),
+                        reference=reference, status='PASS', head_sha=identity['code_sha'],
+                        available_at=evidence_ready)
         receipt = dict(schema_version='verification-receipt-v2', agent=agent,
             task_key=packet['task_key'], status='SUCCEEDED', identity=copy.deepcopy(identity),
             source_hashes=copy.deepcopy(hashes), input_hashes=copy.deepcopy(hashes),
@@ -102,6 +102,7 @@ class ControlPlaneTests(unittest.TestCase):
                 'reviewed_artifacts':bundle['artifacts'],'verdict':'PASS'})
         causal_ready=max(board.timestamp(a['collected_at']) for a in causal)
         output_ready=(causal_ready+timedelta(seconds=1)).isoformat()
+        evidence_ready=(causal_ready+timedelta(milliseconds=1500)).isoformat()
         receipt['created_at']=(causal_ready+timedelta(seconds=2)).isoformat()
         ready=(causal_ready+timedelta(seconds=3)).isoformat()
         receipt['available_at']=ready
@@ -274,7 +275,7 @@ class ControlPlaneTests(unittest.TestCase):
                 record=receipt[kind]
                 record['identity']=board.evidence_identity(kind,record['reference'],
                     'f'*64,receipt['identity'],record['head_sha'],
-                    {role: item['sha256'] for role, item in receipt['outputs'].items()})
+                    receipt['outputs'],record['available_at'])
                 self.assertEqual(self.tasks()[0]['status'],'BLOCKED')
         receipt.clear(); receipt.update(copy.deepcopy(original))
         receipt['ci']['head_sha']='a'*40
@@ -290,16 +291,38 @@ class ControlPlaneTests(unittest.TestCase):
         self.set_payload(output, {'synthetic':'changed-result'})
         self.assertEqual(self.tasks()[0]['status'],'BLOCKED')
 
+    def test_receipt_evidence_is_bound_to_output_metadata(self):
+        receipt=self.complete()
+        self.assertEqual(self.tasks()[0]['status'],'SKIP_UNCHANGED')
+        receipt['outputs']['data_pit']['expires_at']=self.at(55)
+        self.assertEqual(self.tasks()[0]['status'],'BLOCKED')
+
+    def test_evidence_must_postdate_outputs_and_predate_receipt(self):
+        receipt=self.complete()
+        self.assertEqual(self.tasks()[0]['status'],'SKIP_UNCHANGED')
+        original=copy.deepcopy(receipt['ci'])
+        for value in (receipt['outputs']['data_pit']['collected_at'],
+                      receipt['created_at'], receipt['available_at']):
+            with self.subTest(available_at=value):
+                receipt['ci']=copy.deepcopy(original)
+                receipt['ci']['available_at']=value
+                receipt['ci']['identity']=board.evidence_identity('ci',
+                    receipt['ci']['reference'],receipt['task_key'],receipt['identity'],
+                    receipt['ci']['head_sha'],receipt['outputs'],value)
+                self.assertEqual(self.tasks()[0]['status'],'BLOCKED')
+        receipt['ci']=original
+        self.assertEqual(self.tasks()[0]['status'],'SKIP_UNCHANGED')
+
     def test_receipt_must_postdate_output_collection(self):
         receipt=self.complete()
         output=receipt['outputs']['data_pit']
         self.assertEqual(self.tasks()[0]['status'],'SKIP_UNCHANGED')
+        original_collected=output['collected_at']
         output['collected_at']=receipt['available_at']
         self.assertEqual(self.tasks()[0]['status'],'BLOCKED')
         output['collected_at']=receipt['created_at']
         self.assertEqual(self.tasks()[0]['status'],'BLOCKED')
-        output['collected_at']=(board.timestamp(receipt['created_at'])-
-                                timedelta(microseconds=1)).isoformat()
+        output['collected_at']=original_collected
         self.assertEqual(self.tasks()[0]['status'],'SKIP_UNCHANGED')
 
     def test_approval_and_notification_boundaries_no_polling(self):
@@ -395,7 +418,7 @@ class ControlPlaneTests(unittest.TestCase):
         upstream['ci']['reference']='same-head-independent-ci-run'
         upstream['ci']['identity']=board.evidence_identity('ci',upstream['ci']['reference'],
             upstream['task_key'],upstream['identity'],upstream['ci']['head_sha'],
-            {role: item['sha256'] for role, item in upstream['outputs'].items()})
+            upstream['outputs'],upstream['ci']['available_at'])
         self.assertEqual(self.tasks()[1]['task_key'],before)
         self.assertEqual(self.tasks()[1]['status'],'SKIP_UNCHANGED')
 

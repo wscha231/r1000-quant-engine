@@ -509,7 +509,7 @@
     "task_evidence": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["identity", "reference", "status", "head_sha"],
+      "required": ["identity", "reference", "status", "head_sha", "available_at"],
       "properties": {
         "identity": {
           "type": "string",
@@ -525,6 +525,10 @@
         "head_sha": {
           "type": "string",
           "pattern": "^[0-9a-f]{40}$"
+        },
+        "available_at": {
+          "type": "string",
+          "format": "date-time"
         }
       }
     },
