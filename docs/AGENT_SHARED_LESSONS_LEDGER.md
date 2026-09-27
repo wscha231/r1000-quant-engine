@@ -5411,3 +5411,14 @@ Expected contract:
 - A historical Fullrun or publication manifest without that hash remains
   historical. Its raw broker metrics may be reevaluated for diagnosis, but its
   old PASS flag cannot certify current acceptance or A0 reuse.
+
+### 2026-09-27 — Materialized state must not attest its own freshness
+
+- Bind A0 consumption to a separately refreshed canonical intake, not the saved
+  state's own source hashes. A new master, mission or durable execution revokes
+  old-state reuse even when the generated JSON remains locally intact.
+- Preserve workflow failure, verified durable readback and PARTIAL_COVERAGE as
+  independent facts. Mixed-frequency observations have no fabricated common date.
+- Missing accepted books stay UNKNOWN; an unadmitted receipt stays BLOCKED until
+  its domain verifier is bound. Model research is not current holdings, approved
+  targets, A5 readiness or any economic mutation permission.

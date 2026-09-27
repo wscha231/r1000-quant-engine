@@ -34,7 +34,10 @@
       "minimum": 1
     },
     "master_sha": {
-      "type": "string",
+      "type": [
+        "string",
+        "null"
+      ],
       "pattern": "^[0-9a-f]{40}$"
     },
     "code_sha": {
@@ -82,14 +85,16 @@
           "enum": [
             "VERIFIED",
             "UNKNOWN",
-            "BLOCKED"
+            "BLOCKED",
+            "STALE"
           ]
         },
         "approved_target": {
           "enum": [
             "VERIFIED",
             "UNKNOWN",
-            "BLOCKED"
+            "BLOCKED",
+            "STALE"
           ]
         },
         "thesis": {
@@ -144,7 +149,11 @@
           "enum": [
             "PASS",
             "BLOCKED",
-            "UNKNOWN"
+            "UNKNOWN",
+            "STALE",
+            "PARTIAL",
+            "PARTIAL_COVERAGE",
+            "COLLECTED_NOT_PIT_CERTIFIED"
           ]
         },
         "reasons": {
@@ -508,17 +517,160 @@
         },
         "peer_dispatch": {
           "const": false
+        },
+        "research_allowed": {
+          "type": "boolean"
+        },
+        "selector_allowed": {
+          "const": false
+        },
+        "model_portfolio_allowed": {
+          "type": "boolean"
+        },
+        "account_rebalance_allowed": {
+          "const": false
+        },
+        "target_mutation_allowed": {
+          "const": false
+        },
+        "paper_mutation_allowed": {
+          "const": false
+        },
+        "broker_mutation_allowed": {
+          "const": false
+        },
+        "fullrun_allowed": {
+          "const": false
+        },
+        "production_activation_allowed": {
+          "const": false
+        }
+      }
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "default_branch": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "mission": {
+      "type": "object"
+    },
+    "data": {
+      "type": "object"
+    },
+    "books": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actual_broker",
+        "approved_target",
+        "verified_paper",
+        "model_portfolio"
+      ],
+      "properties": {
+        "actual_broker": {
+          "$ref": "#/$defs/source_state"
+        },
+        "approved_target": {
+          "$ref": "#/$defs/source_state"
+        },
+        "verified_paper": {
+          "$ref": "#/$defs/source_state"
+        },
+        "model_portfolio": {
+          "$ref": "#/$defs/source_state"
+        }
+      }
+    },
+    "regime": {
+      "$ref": "#/$defs/source_state"
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "open_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "source_identity": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/source_descriptor"
+        }
+      }
+    },
+    "source_status": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/source_state"
+      }
+    },
+    "dependency_identity": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "state_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "materialization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "intake_sha256",
+        "research_scope",
+        "runtime_sha256"
+      ],
+      "properties": {
+        "method": {
+          "const": "canonical-source-readback"
+        },
+        "intake_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "research_scope": {
+          "const": "ADMITTED_DATASETS_ONLY_NOT_RANKING_OR_A5_READINESS"
+        },
+        "runtime_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         }
       }
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "A0 operator-supplied state; declarations are not economic certification",
+  "title": "A0 canonical materialized state and internal proposal-planning fields",
   "$defs": {
     "task_evidence": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["identity", "reference", "status", "head_sha", "available_at"],
+      "required": [
+        "identity",
+        "reference",
+        "status",
+        "head_sha",
+        "available_at"
+      ],
       "properties": {
         "identity": {
           "type": "string",
@@ -632,6 +784,260 @@
           ]
         }
       }
+    },
+    "source_descriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "observed_at",
+        "available_at",
+        "collected_at",
+        "expires_at",
+        "status",
+        "identity"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "available_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "collected_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "status": {
+          "const": "VERIFIED"
+        },
+        "identity": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "source_intake": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observed_at",
+        "expires_at",
+        "sources"
+      ],
+      "properties": {
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "sources": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/source_descriptor"
+              }
+            },
+            "mission": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/source_descriptor"
+              }
+            },
+            "execution": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/source_descriptor"
+              }
+            },
+            "commit": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/source_descriptor"
+              }
+            },
+            "catalog": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/source_descriptor"
+              }
+            },
+            "quality": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/source_descriptor"
+              }
+            },
+            "drive_readback": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/source_descriptor"
+              }
+            },
+            "control": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/source_descriptor"
+              }
+            },
+            "current_status": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/source_descriptor"
+              }
+            },
+            "actual_broker": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/source_descriptor"
+              }
+            },
+            "approved_target": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/source_descriptor"
+              }
+            },
+            "verified_paper": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/source_descriptor"
+              }
+            },
+            "model_portfolio": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/source_descriptor"
+              }
+            },
+            "regime": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/source_descriptor"
+              }
+            }
+          }
+        },
+        "requests": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "completed_tasks": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "source_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "artifact_identity",
+        "sha256",
+        "as_of",
+        "availability",
+        "reason"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "VERIFIED",
+            "UNKNOWN",
+            "BLOCKED",
+            "STALE"
+          ]
+        },
+        "artifact_identity": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "as_of": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "availability": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "claim_boundary": {
+          "const": "NOT_ACTUAL_HOLDINGS"
+        },
+        "value": {
+          "const": "UNKNOWN"
+        }
+      }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "materialization"
+        ]
+      },
+      "then": {
+        "required": [
+          "generated_at",
+          "default_branch",
+          "mission",
+          "data",
+          "books",
+          "regime",
+          "blockers",
+          "dependencies",
+          "open_refs",
+          "source_identity",
+          "source_status",
+          "dependency_identity",
+          "state_sha256",
+          "materialization"
+        ]
+      }
+    }
+  ]
 }

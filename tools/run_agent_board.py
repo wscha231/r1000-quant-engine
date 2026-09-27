@@ -408,7 +408,7 @@ def contracts() -> dict:
     return value
 
 
-def build_tasks(state: dict, root: Path, contract: dict, now: datetime,
+def _plan_tasks(state: dict, root: Path, contract: dict, now: datetime,
                 code_sha: str, config_hash: str) -> list[dict]:
     schema_validate(state, 'system_state_schema.json')
     cutoff = timestamp(state['as_of'])
@@ -491,7 +491,8 @@ def build_tasks(state: dict, root: Path, contract: dict, now: datetime,
         identity = {'input_hash': digest({'inputs': request['inputs'],
                     'dependencies': receipt_dependencies(dependencies),
                     'context': state['context'], 'g0': state['g0'], 'master_sha': state['master_sha'],
-                    'mission_contract_sha256': mission_hash}),
+                    'mission_contract_sha256': mission_hash,
+                    'system_state_identity': state.get('dependency_identity')}),
                     'code_sha': code_sha, 'config_hash': config_hash,
                     'mission_contract_sha256': mission_hash,
                     'model': request['model'], 'parameters': request['parameters']}
@@ -543,6 +544,18 @@ def build_tasks(state: dict, root: Path, contract: dict, now: datetime,
     return list(tasks.values())
 
 
+
+def build_tasks(state: dict, root: Path, contract: dict, now: datetime,
+                code_sha: str, config_hash: str, *, canonical_inputs=None,
+                evidence_root=None) -> list[dict]:
+    # The public consumer cannot reuse a self-declared or self-pinned old state.
+    from tools.materialize_system_state import verify_state
+    if canonical_inputs is None or evidence_root is None:
+        raise ContractError('current_canonical_inputs_required')
+    verify_state(state, canonical_inputs, evidence_root, now, code_sha)
+    return _plan_tasks(state, root, contract, now, code_sha, config_hash)
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
     root, out = repo_path(args.latest_run), repo_path(args.output_dir)
     state_path = repo_path(args.system_state) if getattr(args, 'system_state', None) else root / 'control_plane/system_state.json'
@@ -558,7 +571,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         mission_contract = mission_targets()
         gates = operating_gates()
         state = read_json(state_path)
-        tasks = build_tasks(state, root, contract, now, code_sha, config_hash)
+        inputs_path = getattr(args, 'canonical_inputs', None)
+        evidence_root = getattr(args, 'evidence_root', None)
+        tasks = build_tasks(state, root, contract, now, code_sha, config_hash,
+                            canonical_inputs=read_json(repo_path(inputs_path)) if inputs_path else None,
+                            evidence_root=repo_path(evidence_root) if evidence_root else None)
         cap = getattr(args, 'max_tasks', 0)
         if cap < 0 or (cap and len(tasks) > cap):
             raise ContractError('task_cap_would_drop_dependencies')
@@ -608,6 +625,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--output-dir', default='outputs/agent_board')
     parser.add_argument('--run-url', default='')
     parser.add_argument('--max-tasks', type=int, default=0)
+    parser.add_argument('--canonical-inputs', help='Separately refreshed trusted source intake; never derive from saved state')
+    parser.add_argument('--evidence-root', help='Read-only local materialization of canonical source bytes')
     parser.add_argument('--system-state', help='Explicit current v2 state; otherwise <latest-run>/control_plane/system_state.json')
     return parser.parse_args()
 
