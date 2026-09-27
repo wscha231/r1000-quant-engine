@@ -123,11 +123,13 @@ def default_bundle_name() -> str:
 
 BOARD_RESTORE_COMMAND = (
     "python tools/run_agent_board.py --latest-run outputs "
-    "--system-state outputs/control_plane/system_state.json --output-dir outputs/agent_board"
+    "--system-state outputs/control_plane/system_state.json "
+    "--canonical-inputs REPLACE_WITH_REFRESHED_INTAKE_JSON "
+    "--evidence-root REPLACE_WITH_EVIDENCE_ROOT --output-dir outputs/agent_board"
 )
 BOARD_STATE_REQUIREMENT = (
-    "Prepare a fresh operator-supplied v2 state using research/control_plane/system_state_schema.json "
-    "at outputs/control_plane/system_state.json, with the restored code SHA and every referenced "
+    "Materialize a fresh v2 state using tools/materialize_system_state.py and research/control_plane/system_state_schema.json "
+    "at outputs/control_plane/system_state.json, with the restored code SHA, a separately refreshed canonical intake (--canonical-inputs / --evidence-root), and every referenced "
     "input/completion artifact under outputs. This bundle does not create or certify that state. "
     "Use --include to carry the required artifacts; revalidate their hashes and freshness after restore."
 )

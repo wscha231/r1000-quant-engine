@@ -71,7 +71,7 @@ class ControlPlaneTests(unittest.TestCase):
             qa['inputs']['review_bundle']['collected_at']=collected
 
     def tasks(self):
-        return board.build_tasks(self.state, self.root, self.contract, self.now, self.sha, self.config)
+        return board._plan_tasks(self.state, self.root, self.contract, self.now, self.sha, self.config)
 
     def complete(self, agent='A1'):
         packet = next(t for t in self.tasks() if t['agent'] == agent)
@@ -643,7 +643,7 @@ class ControlPlaneTests(unittest.TestCase):
     def test_board_manifest_binds_actual_outputs_and_ignores_old_metrics(self):
         args=self.args(); (self.root/'backtest_metrics.json').write_text('{"cagr":9.0}')
         result=board.run(args)
-        self.assertEqual(result['status'],'PROPOSAL_ONLY')
+        self.assertEqual(result['status'],'BLOCKED')
         out=Path(args.output_dir)
         for name,sha in result['members'].items(): self.assertEqual(board.file_hash(out/name),sha)
         summary=board.read_json(out/'board_summary.json')
