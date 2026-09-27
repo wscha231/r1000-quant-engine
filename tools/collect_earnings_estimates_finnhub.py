@@ -1039,6 +1039,15 @@ def fetch_estimate_payloads_by_order(
     return empty_accessible or ({}, {}, "", False, False, any_request_attempted)
 
 
+def require_collection_day(fetch_date: pd.Timestamp, rows: list[dict] = ()) -> None:
+    day = fetch_date.date().isoformat()
+    if utc_now()[:10] != day or any(
+        iso_utc(row.get(key)) is None or iso_utc(row.get(key))[:10] != day
+        for row in rows for key in ("observed_at", "collected_at")
+    ):
+        raise ValueError("collection_utc_day_rollover_or_partition_mismatch")
+
+
 def collect_live_snapshot(
     tickers: list[str],
     *,
@@ -1058,6 +1067,7 @@ def collect_live_snapshot(
     stop_reason = ""
     session = requests.Session()
     for ticker in tickers:
+        require_collection_day(fetch_date)
         eps, rev, estimate_source, eps_access, rev_access, estimate_request_attempted = fetch_estimate_payloads_by_order(
             session,
             ticker,
@@ -1097,6 +1107,7 @@ def collect_live_snapshot(
                     fetch_source=fetch_source,
                 )
             )
+        require_collection_day(fetch_date, rows[-1:])
         if rows:
             ticker_errors = [e for e in errors if e.get("ticker") == ticker]
             attempted_providers = {estimate_source} if estimate_source else set()
@@ -1192,6 +1203,7 @@ def main() -> int:
         fixture_dir = repo_path(args.fixture_dir)
         rows = []
         for ticker in tickers:
+            require_collection_day(fetch_date)
             attempted_tickers.append(ticker)
             with (fixture_dir / f"{ticker.upper()}_eps.json").open(encoding="utf-8") as handle:
                 eps = json.load(handle)
@@ -1211,6 +1223,7 @@ def main() -> int:
                     recommendation_payload=rec,
                 )
             )
+            require_collection_day(fetch_date, rows[-1:])
         snapshot = pd.DataFrame(rows)
     else:
         vendor_order = clean_vendor_order(args.vendor_order)
@@ -1247,6 +1260,7 @@ def main() -> int:
         else:  # Backward-compatible with test doubles written for the older API.
             snapshot, errors = collected  # type: ignore[misc]
             attempted_tickers = list(tickers)
+    require_collection_day(fetch_date)
     attempt_ack = acknowledge_collection_attempts(
         checkpoint_path,
         queue_path,
@@ -1295,6 +1309,7 @@ def main() -> int:
         return 0 if not vendor_estimate_access else 2
     current_snapshot = snapshot.copy()
     snapshot_path = snapshot_dir / f"estimates_{fetch_date.strftime('%Y%m%d')}.parquet"
+    require_collection_day(fetch_date)
     snapshot, same_day_merge = merge_same_day_snapshot(snapshot_path, current_snapshot)
     snapshot.to_parquet(snapshot_path, index=False)
     history = load_snapshot_history(snapshot_dir)

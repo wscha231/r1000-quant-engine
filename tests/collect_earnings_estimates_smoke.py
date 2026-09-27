@@ -269,7 +269,8 @@ def test_partial_free_vendor_success_is_not_global_block() -> None:
         assert payload["vendor_blocked_errors"] is True, payload
 
 
-def test_run_scoped_entitlement_circuit_stops_repeated_vendor_calls() -> None:
+@patch.object(collector, "utc_now", return_value="2026-07-15T21:00:00Z")
+def test_run_scoped_entitlement_circuit_stops_repeated_vendor_calls(_clock) -> None:
     calls = {"fmp": 0, "finnhub_estimate": 0, "finnhub_optional": 0}
     tickers = [f"T{i:03d}" for i in range(150)]
 
@@ -359,7 +360,8 @@ def test_run_scoped_entitlement_circuit_stops_repeated_vendor_calls() -> None:
     }
 
 
-def test_entitlement_circuit_never_trips_after_vendor_access_success() -> None:
+@patch.object(collector, "utc_now", return_value="2026-07-15T21:00:00Z")
+def test_entitlement_circuit_never_trips_after_vendor_access_success(_clock) -> None:
     calls = 0
 
     def partially_open_fmp(

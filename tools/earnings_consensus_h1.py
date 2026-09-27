@@ -94,7 +94,11 @@ def consensus_records(row: dict) -> list[dict]:
     if row.get("source_contract") != SCHEMA_VERSION:
         return []
     try:
-        return json.loads(row.get("consensus_observations_json") or "[]")
+        records = json.loads(row.get("consensus_observations_json") or "[]")
+        if (not isinstance(records, list) or not all(isinstance(r, dict) for r in records)
+                or digest(records) != row.get("source_payload_sha256")):
+            return []
+        return records
     except (TypeError, ValueError):
         return []
 
@@ -114,9 +118,11 @@ def same_period_revision(current: dict, prior: dict, prefix: str = "eps_fy1") ->
     if not now or not before or datetime.fromisoformat(before) >= datetime.fromisoformat(now):
         return None
     matches = [r for r in consensus_records(prior) if r.get("identity") == target]
-    if len(matches) != 1:
+    current_matches = [r for r in consensus_records(current) if r.get("identity") == target]
+    if (len(matches) != 1 or len(current_matches) != 1
+            or optional_float(current.get("est_" + prefix)) != optional_float(current_matches[0].get("value"))):
         return None
-    return pct_change(current.get("est_" + prefix), matches[0].get("value"))
+    return pct_change(current_matches[0].get("value"), matches[0].get("value"))
 
 
 def build_snapshot(ticker: str, *, eps_payload: Any, revenue_payload: Any,
@@ -233,8 +239,11 @@ def frozen_pre_event_consensus(snapshots: Iterable[dict], *, event_available_at:
         return None
     # Unknown publication timing in a newer observation cannot revive an old value.
     for row in snapshots:
-        observed = iso_utc(row.get("observed_at"))
-        if row.get("ticker") in tickers and not availability(row) and observed and datetime.fromisoformat(observed) < datetime.fromisoformat(cutoff):
+        known_times = [iso_utc(row.get(k)) for k in ("observed_at", "first_seen_at", "collected_at",
+                                                    "strategy_available_at", "provider_published_at")]
+        known_times = [t for t in known_times if t]
+        if (row.get("ticker") in tickers and not availability(row) and known_times
+                and max(map(datetime.fromisoformat, known_times)) < datetime.fromisoformat(cutoff)):
             return None
     latest_time = max(datetime.fromisoformat(availability(r)) for r in candidates)
     latest = [r for r in candidates if datetime.fromisoformat(availability(r)) == latest_time]
@@ -263,9 +272,10 @@ def earnings_surprise(actual: Any, frozen: dict | None, *, identity: dict,
 
 def causal_event_id(issuer_id: str, fiscal_period_end: str, announcement_at: Any) -> str | None:
     timestamp = iso_utc(announcement_at)
-    if not text_value(issuer_id) or not timestamp or not period_end({"period": fiscal_period_end}):
+    issuer, period = text_value(issuer_id), period_end({"period": fiscal_period_end})
+    if not issuer or not timestamp or not period:
         return None
-    return digest({"issuer_id": issuer_id, "period": fiscal_period_end, "announcement_at": timestamp})
+    return digest({"issuer_id": issuer, "period": period, "announcement_at": timestamp})
 
 
 def dedupe_causal_events(evidence: Iterable[dict]) -> list[dict]:

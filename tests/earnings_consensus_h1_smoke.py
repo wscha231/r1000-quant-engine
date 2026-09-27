@@ -36,6 +36,62 @@ def features(rows):
 
 
 class AdmissionTests(unittest.TestCase):
+    def setUp(self):
+        clock = patch.object(c, 'utc_now', return_value='2026-07-01T18:00:00Z')
+        clock.start()
+        self.addCleanup(clock.stop)
+
+    def test_causal_event_equivalent_formats_dedupe(self):
+        keys = [h1.causal_event_id(issuer, period, timestamp)
+                for issuer, period, timestamp in [
+                    ('CIK:1', '2026-06-30', '2026-07-01T20:00:00Z'),
+                    (' CIK:1 ', '20260630', '2026-07-01T16:00:00-04:00'),
+                    ('CIK:1', '2026-W27-2', '2026-07-01T20:00:00+00:00')]]
+        self.assertEqual(len(set(keys)), 1)
+        self.assertEqual(len(h1.dedupe_causal_events([
+            dict(causal_event_id=k, causal_link_verified=True, kind=str(i))
+            for i, k in enumerate(keys)])), 1)
+
+    def test_consensus_hash_mismatch_blocks_both_consumers(self):
+        before = snapshot(); after = snapshot('2026-05-02T18:00:00Z', 2)
+        identity = json.loads(before['eps_fy1_identity'])
+        bad = copy.deepcopy(before)
+        records = json.loads(bad['consensus_observations_json'])
+        records[0]['value'] = 999
+        bad['consensus_observations_json'] = json.dumps(records)
+        self.assertEqual(h1.consensus_records(bad), [])
+        self.assertIsNone(h1.same_period_revision(after, bad))
+        bad_current = copy.deepcopy(after)
+        bad_current['consensus_observations_json'] = bad['consensus_observations_json']
+        self.assertIsNone(h1.same_period_revision(bad_current, before))
+        self.assertIsNone(h1.frozen_pre_event_consensus([bad], event_available_at='2026-05-03T20:00:00Z', identity=identity, fetch_source='finnhub'))
+        self.assertIsNone(h1.frozen_pre_event_consensus([before, bad_current], event_available_at='2026-05-03T20:00:00Z', identity=identity, fetch_source='finnhub'))
+        tampered_view = copy.deepcopy(after); tampered_view['est_eps_fy1'] = 999
+        self.assertIsNone(h1.same_period_revision(tampered_view, before))
+
+    def test_unknown_publication_post_event_collection_cannot_invalidate(self):
+        before = snapshot('2026-07-01T18:00:00Z', 1)
+        identity = json.loads(before['eps_fy1_identity'])
+        unknown = snapshot('2026-07-01T19:59:00Z', None,
+                           collected_at='2026-07-01T20:01:00Z', provider_published_at='2026-07-01')
+        args = dict(event_available_at='2026-07-01T20:00:00Z', identity=identity, fetch_source='finnhub')
+        self.assertEqual(h1.frozen_pre_event_consensus([before, unknown], **args)['value'], 1)
+        unknown['collected_at'] = '2026-07-01T19:59:59Z'
+        self.assertIsNone(h1.frozen_pre_event_consensus([before, unknown], **args))
+        for key in ('first_seen_at', 'strategy_available_at', 'provider_published_at'):
+            delayed = {**unknown, key: '2026-07-01T20:01:00Z'}
+            self.assertEqual(h1.frozen_pre_event_consensus([before, delayed], **args)['value'], 1)
+
+    def test_live_collection_stops_at_utc_rollover(self):
+        clocks = ['2026-07-01T23:59:59Z'] * 2 + ['2026-07-02T00:00:00Z'] * 2
+        with patch.object(c, 'utc_now', side_effect=clocks), patch.object(
+                c, 'fetch_estimate_payloads_by_order', return_value=({}, {}, 'fmp', True, True, True)) as fetch:
+            with self.assertRaisesRegex(ValueError, 'collection_utc_day_rollover'):
+                c.collect_live_snapshot(['AAA', 'BBB'], finnhub_api_key='', alphavantage_api_key='',
+                    fmp_api_key='fixture', vendor_order=['fmp'], fetch_date=pd.Timestamp('2026-07-01'),
+                    sleep_seconds=0, max_errors=10)
+            self.assertEqual(fetch.call_count, 1)
+
     def test_recommendation_is_not_breadth(self):
         row = snapshot()
         self.assertEqual(row['analyst_recommendation_balance'], .75)

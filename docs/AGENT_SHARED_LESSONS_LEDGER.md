@@ -5434,3 +5434,9 @@ Expected contract:
   as prior boundaries, FY views cannot select historical annual rows, and
   recommendation endpoint errors must not change estimate coverage states.
   These are now explicit regressions; source precision metadata is preserved.
+- Codex boundary findings: normalize accepted representations before causal
+  hashing, verify stored content hashes when reading (not just when writing),
+  recheck UTC partition identity during long collections, and apply the maximum
+  known clock even when unknown publication precision prevents admission.
+  A review with findings cannot approve a corrected head; retain the gate when
+  a task limits review requests rather than reusing stale evidence.

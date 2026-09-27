@@ -130,5 +130,21 @@ invalidates its older consensus without pretending that the fetch succeeded.
 CI on the initial head passed 232/233 tests; its sole failure was
 `post_publication_protected_delta:tools/run_pr_validation.py`. The protected
 runner was restored byte-for-byte to master. The existing registered revision
-smoke now runs all 29 H1 cases, preserving CI coverage without changing the
+smoke now runs all 33 H1 cases, preserving CI coverage without changing the
 protected verifier, frozen publication, hashes, registry, or review gate.
+
+## Final Codex correction evidence
+
+The single requested Codex review of `40937587e4e40bef34e2807144010e7c104a5571`
+reported four P2 findings. Corrections now canonicalize issuer/period before
+causal hashing, recompute consensus-content hashes on admission (both revision
+sides and frozen consensus), abort collection on UTC day rollover before
+archive/checkpoint publication, and require every known availability clock to
+precede the announcement before an unknown-publication row invalidates older
+consensus. Four focused regressions cover these cases. Existing fixture clocks
+are explicit; no vendor calls or economic runs were added.
+
+This correction changes the reviewed head. A6 and CI must verify the new head;
+the earlier Codex review is not final-head approval. No second Codex request is
+authorized by the task's one-review limit. Draft and the repository merge gate
+remain blocked pending L0 disposition; no review evidence or gate is bypassed.
