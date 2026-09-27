@@ -165,10 +165,12 @@ def alphavantage_to_payloads(payload: Any) -> tuple[dict[str, Any], dict[str, An
         return {}, {}
     if payload.get("Error Message") or payload.get("Information") or payload.get("Note"):
         return {}, {}
+    period_type = "ANNUAL"
     annual = payload.get("annualEarningsEstimates") or payload.get("annualReports") or []
     rows = [x for x in annual if isinstance(x, dict)] if isinstance(annual, list) else []
     rows = sorted(rows, key=lambda x: str(first_present(x, ["fiscalDateEnding", "period", "date"], "")))
     if not rows:
+        period_type = "QUARTERLY"
         quarterly = payload.get("quarterlyEarningsEstimates") or payload.get("quarterlyReports") or []
         rows = [x for x in quarterly if isinstance(x, dict)] if isinstance(quarterly, list) else []
         rows = sorted(rows, key=lambda x: str(first_present(x, ["fiscalDateEnding", "period", "date"], "")))
@@ -180,6 +182,7 @@ def alphavantage_to_payloads(payload: Any) -> tuple[dict[str, Any], dict[str, An
             {
                 **row,
                 "period": period,
+                "period_type": row.get("period_type") or period_type,
                 "avg": first_present(
                     row,
                     [
@@ -203,6 +206,7 @@ def alphavantage_to_payloads(payload: Any) -> tuple[dict[str, Any], dict[str, An
             {
                 **row,
                 "period": period,
+                "period_type": row.get("period_type") or period_type,
                 "avg": first_present(
                     row,
                     [
@@ -245,6 +249,7 @@ def fmp_to_payloads(payload: Any) -> tuple[dict[str, Any], dict[str, Any]]:
             {
                 **row,
                 "period": period,
+                "period_type": row.get("period_type") or "ANNUAL",
                 "avg": first_present(
                     row,
                     [
@@ -268,6 +273,7 @@ def fmp_to_payloads(payload: Any) -> tuple[dict[str, Any], dict[str, Any]]:
             {
                 **row,
                 "period": period,
+                "period_type": row.get("period_type") or "ANNUAL",
                 "avg": first_present(
                     row,
                     [
@@ -344,6 +350,9 @@ def compute_estimate_revision_features(snapshots: pd.DataFrame, *, as_of_date: s
         records = group.to_dict("records")
         for row in records:
             out = {k: v for k, v in row.items() if k != "_available"}
+            peers = [r for r in records if r["_available"] == row["_available"]]
+            current_conflict = len({(r.get("fetch_source"), r.get("source_payload_sha256")) for r in peers}) != 1
+            out["current_vintage_status"] = "CONFLICTING" if current_conflict else "OBSERVED"
             # Recommendation and raw provider surprises never become canonical signals.
             out.update(est_eps_revision_breadth=None,
                        est_eps_revision_breadth_status="UNKNOWN_NO_ANALYST_REVISION_SOURCE",
@@ -358,9 +367,9 @@ def compute_estimate_revision_features(snapshots: pd.DataFrame, *, as_of_date: s
                 # Pick the actual latest vintage at the boundary, never search backwards
                 # for a favorable non-null value or an incompatible fiscal identity.
                 latest = [r for r in prior if r["_available"] == max(x["_available"] for x in prior)] if prior else []
-                unique = {r.get("source_payload_sha256") for r in latest}
+                unique = {(r.get("fetch_source"), r.get("source_payload_sha256")) for r in latest}
                 previous = latest[-1] if latest and len(unique) == 1 else None
-                out[field] = same_period_revision(row, previous, prefix) if previous else None
+                out[field] = same_period_revision(row, previous, prefix) if previous and not current_conflict else None
                 if prefix == "eps_fy1" and days == 30:
                     current_dispersion = optional_float(row.get("est_dispersion"))
                     prior_dispersion = optional_float(previous.get("est_dispersion")) if previous else None
@@ -388,7 +397,14 @@ def latest_signal_by_ticker(signals: pd.DataFrame, *, decision_date: str | pd.Ti
     d = signals.copy()
     d["_available"] = pd.to_datetime([availability(r) for r in d.to_dict("records")], utc=True, errors="coerce")
     d = d[d["_available"].notna() & (d["_available"] <= _cutoff(decision_date))]
-    return d.sort_values(["ticker", "_available"], kind="stable").groupby("ticker", as_index=False).tail(1).drop(columns="_available")
+    selected = []
+    for _, group in d.groupby("ticker", sort=True):
+        latest = group[group["_available"] == group["_available"].max()]
+        hashes = latest.get("source_payload_sha256", pd.Series(dtype=str))
+        if hashes.isna().any() or hashes.nunique() != 1 or latest["fetch_source"].nunique() != 1:
+            continue
+        selected.append(latest.sort_values("snapshot_version_id").iloc[0])
+    return pd.DataFrame(selected).drop(columns="_available", errors="ignore") if selected else pd.DataFrame(columns=["ticker", *PHASE18_ESTIMATE_REVISION_COLUMNS])
 
 
 def apply_estimate_revision_confirmation(
@@ -619,7 +635,10 @@ def fetch_json(session: requests.Session, endpoint: str, ticker: str, api_key: s
     if sleep_seconds:
         time.sleep(sleep_seconds)
     response.raise_for_status()
-    return response.json()
+    payload = response.json()
+    if endpoint in ESTIMATE_ENDPOINTS and isinstance(payload, dict) and isinstance(payload.get("data"), list):
+        payload = {**payload, "data": [{**r, "period_type": r.get("period_type") or "ANNUAL"} if isinstance(r, dict) else r for r in payload["data"]]}
+    return payload
 
 
 def fetch_url_json(
@@ -943,6 +962,7 @@ def fetch_estimate_payloads_by_order(
 ) -> tuple[dict[str, Any], dict[str, Any], str, bool, bool, bool]:
     circuits = vendor_entitlement_circuits if vendor_entitlement_circuits is not None else {}
     any_request_attempted = False
+    empty_accessible = None
     for vendor in vendor_order:
         circuit = circuits.get(vendor)
         if circuit and bool(circuit.get("tripped")):
@@ -969,8 +989,10 @@ def fetch_estimate_payloads_by_order(
                 has_estimate_data=bool(eps.get("data") or rev.get("data")),
                 threshold=entitlement_circuit_threshold,
             )
+            if accessible:
+                empty_accessible = (eps, rev, "alphavantage", True, True, any_request_attempted)
             if eps.get("data") or rev.get("data"):
-                return eps, rev, "alphavantage", bool(eps.get("data")), bool(rev.get("data")), any_request_attempted
+                return eps, rev, "alphavantage", accessible, accessible, any_request_attempted
         elif vendor == "fmp" and fmp_api_key:
             any_request_attempted = True
             eps, rev = fetch_fmp_payloads(session, ticker, fmp_api_key, sleep_seconds=sleep_seconds, errors=errors)
@@ -989,8 +1011,10 @@ def fetch_estimate_payloads_by_order(
                 has_estimate_data=bool(eps.get("data") or rev.get("data")),
                 threshold=entitlement_circuit_threshold,
             )
+            if accessible:
+                empty_accessible = (eps, rev, "fmp", True, True, any_request_attempted)
             if eps.get("data") or rev.get("data"):
-                return eps, rev, "fmp", bool(eps.get("data")), bool(rev.get("data")), any_request_attempted
+                return eps, rev, "fmp", accessible, accessible, any_request_attempted
         elif vendor == "finnhub" and finnhub_api_key:
             any_request_attempted = True
             eps = fetch_json_optional(
@@ -1012,7 +1036,7 @@ def fetch_estimate_payloads_by_order(
             )
             if eps is not None or rev is not None:
                 return eps or {}, rev or {}, "finnhub", eps is not None, rev is not None, any_request_attempted
-    return {}, {}, "", False, False, any_request_attempted
+    return empty_accessible or ({}, {}, "", False, False, any_request_attempted)
 
 
 def collect_live_snapshot(
@@ -1059,7 +1083,7 @@ def collect_live_snapshot(
             stop_reason = "no_enabled_vendor_request_after_entitlement_circuit"
             break
         if estimate_request_attempted or optional_finnhub_request_attempted:
-            fetch_source = estimate_source or ("finnhub" if any(payload is not None for payload in [earnings, rec]) else "")
+            fetch_source = estimate_source
             rows.append(
                 parse_snapshot_row(
                     ticker,
@@ -1075,12 +1099,22 @@ def collect_live_snapshot(
             )
         if rows:
             ticker_errors = [e for e in errors if e.get("ticker") == ticker]
-            if not rows[-1]["has_forward_estimate"]:
-                rows[-1]["provider_coverage_status"] = (
-                    "UNSUPPORTED" if any(e.get("vendor_entitlement_blocked") for e in ticker_errors)
-                    else "FETCH_FAILED" if ticker_errors else "NO_COVERAGE")
-            else:
-                rows[-1]["provider_coverage_status"] = "OBSERVED"
+            metric_states = []
+            for metric, endpoint in (("eps", "/stock/eps-estimate"), ("rev", "/stock/revenue-estimate")):
+                relevant = [e for e in ticker_errors
+                            if (not estimate_source or e.get("vendor", "finnhub") == estimate_source)
+                            and (e.get("endpoint") == endpoint or e.get("vendor") in {"fmp", "alphavantage"})]
+                if relevant:
+                    state = "UNSUPPORTED" if all(e.get("vendor_entitlement_blocked") for e in relevant) else "FETCH_FAILED"
+                    for view in ("fy1", "fy2"):
+                        rows[-1][f"{metric}_{view}_status"] = state
+                else:
+                    state = rows[-1][f"{metric}_fy1_status"]
+                rows[-1][f"{metric}_provider_status"] = state
+                metric_states.append(state)
+            rows[-1]["provider_coverage_status"] = metric_states[0] if len(set(metric_states)) == 1 else "PARTIAL"
+            rows[-1]["recommendation_fetch_status"] = "FETCH_FAILED" if any(e.get("endpoint") == "/stock/recommendation" for e in ticker_errors) else "OBSERVED" if rec else "NO_COVERAGE"
+            rows[-1]["snapshot_version_id"] = digest({k: v for k, v in rows[-1].items() if k != "snapshot_version_id"})
         error_budget = collection_error_budget(errors, vendor_entitlement_circuits)
         if max_errors and error_budget["error_budget_count"] >= max_errors:
             stop_reason = "max_errors_reached"

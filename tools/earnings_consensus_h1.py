@@ -62,7 +62,7 @@ def period_end(row: dict) -> str | None:
 def estimate_rows(payload: Any) -> list[dict]:
     data = payload.get("data", payload.get("estimate", [])) if isinstance(payload, dict) else payload
     return sorted([dict(x) for x in data if isinstance(x, dict)],
-                  key=lambda x: str(x.get("period") or x.get("date") or x.get("fiscalDateEnding") or "")) if isinstance(data, list) else []
+                  key=lambda x: period_end(x) or "" ) if isinstance(data, list) else []
 
 
 def canonical_identity(row: dict, metric: str) -> dict:
@@ -80,6 +80,8 @@ def identity_complete(identity: dict) -> bool:
 
 
 def availability(row: dict) -> str | None:
+    if row.get("publication_status") == "UNKNOWN_PUBLICATION_PRECISION":
+        return None
     required = [iso_utc(row.get(k)) for k in ("observed_at", "first_seen_at", "collected_at", "strategy_available_at")]
     if not all(required):
         return None
@@ -136,13 +138,19 @@ def build_snapshot(ticker: str, *, eps_payload: Any, revenue_payload: Any,
     records = []
     analyst_counts = []
     publications = []
+    raw_publications = []
+    if provider_published_at is not None:
+        raw_publications.append(str(provider_published_at))
     for metric, payload, access in (("eps", eps_payload, eps_estimate_access),
                                     ("rev", revenue_payload, revenue_estimate_access)):
         items = estimate_rows(payload)
         for item in items:
             identity = canonical_identity(item, "EPS" if metric == "eps" else "REVENUE")
             value = optional_float(item.get("avg")) if access else None
-            published = iso_utc(item.get("provider_published_at"))
+            published_raw = item.get("provider_published_at")
+            if published_raw is not None:
+                raw_publications.append(str(published_raw))
+            published = iso_utc(published_raw)
             if published:
                 publications.append(published)
             records.append({"identity": identity, "value": value,
@@ -151,15 +159,21 @@ def build_snapshot(ticker: str, *, eps_payload: Any, revenue_payload: Any,
                             "provider_published_at": published,
                             "identity_status": "VERIFIED" if identity_complete(identity) else "UNKNOWN_IDENTITY",
                             "value_status": "UNSUPPORTED" if not access else "MISSING" if value is None else "EXPLICIT_ZERO" if value == 0 else "OBSERVED"})
+        # Preserve every canonical record, but FY views require a dated annual
+        # period that has not ended at observation/collection. A pending prior
+        # period can still be used by the frozen-consensus helper, not as FY1.
+        view_date = max(observed[:10], collected[:10])
+        forward = [item for item in items if period_end(item) is not None
+                   and period_end(item) >= view_date and item.get("period_type") == "ANNUAL"]
         for index in range(2):
-            item = items[index] if index < len(items) else {}
+            item = forward[index] if index < len(forward) else {}
             prefix = f"{metric}_fy{index+1}"
             identity = canonical_identity(item, "EPS" if metric == "eps" else "REVENUE")
             value = optional_float(item.get("avg")) if access else None
             row["est_" + prefix] = value
             row[prefix + "_period_end"] = identity["fiscal_period_end"]
             row[prefix + "_identity"] = json.dumps(identity, sort_keys=True)
-            row[prefix + "_status"] = "UNSUPPORTED" if not access else "NO_COVERAGE" if not item else "MISSING" if value is None else "EXPLICIT_ZERO" if value == 0 else "OBSERVED"
+            row[prefix + "_status"] = "UNSUPPORTED" if not access else "NO_FORWARD_VIEW" if not item and items else "NO_COVERAGE" if not item else "MISSING" if value is None else "EXPLICIT_ZERO" if value == 0 else "OBSERVED"
             count = optional_float(item.get("numberAnalysts"))
             if count is not None and count >= 0 and count.is_integer():
                 analyst_counts.append(int(count))
@@ -168,14 +182,17 @@ def build_snapshot(ticker: str, *, eps_payload: Any, revenue_payload: Any,
     row["identity_status"] = "AMBIGUOUS" if len(keys) != len(set(keys)) else "VERIFIED" if records and all(identity_complete(r["identity"]) for r in records) else "UNKNOWN_IDENTITY"
     if publications:
         row["provider_published_at"] = max(publications + ([row["provider_published_at"]] if row["provider_published_at"] else []), key=datetime.fromisoformat)
+    row["provider_published_at_raw"] = json.dumps(sorted(set(raw_publications)))
+    row["publication_status"] = "UNKNOWN_PUBLICATION_PRECISION" if any(iso_utc(t) is None for t in raw_publications) else "EXACT" if raw_publications else "NOT_PROVIDED"
     row["strategy_available_at"] = availability(row)
     row["available_from"] = row["strategy_available_at"]
     row["as_of_date"] = collected[:10]
     row["consensus_observations_json"] = json.dumps(records, sort_keys=True, allow_nan=False)
     row["source_payload_sha256"] = digest(records)
-    row["has_forward_estimate"] = int(any(r["value"] is not None for r in records))
+    row["has_forward_estimate"] = int(any(row.get("est_"+prefix) is not None for prefix in ("eps_fy1", "eps_fy2", "rev_fy1", "rev_fy2")))
     row["n_analysts"] = max(analyst_counts) if analyst_counts else None
-    eps_items = estimate_rows(eps_payload)
+    eps_items = [item for item in estimate_rows(eps_payload) if period_end(item) is not None
+                 and period_end(item) >= max(observed[:10], collected[:10]) and item.get("period_type") == "ANNUAL"]
     row["est_dispersion"] = pct_change(eps_items[0].get("high"), eps_items[0].get("low")) if eps_items and eps_estimate_access else None
     recs = recommendation_payload if isinstance(recommendation_payload, list) else []
     recs = sorted([r for r in recs if isinstance(r, dict)], key=lambda r: str(r.get("period", "")))
@@ -199,24 +216,31 @@ def frozen_pre_event_consensus(snapshots: Iterable[dict], *, event_available_at:
     cutoff = iso_utc(event_available_at)
     if not cutoff or not identity_complete(identity):
         return None
-    candidates = []
-    for row in snapshots:
-        avail = availability(row)
-        if (not avail or datetime.fromisoformat(avail) >= datetime.fromisoformat(cutoff)
-                or row.get("fetch_source") != fetch_source or row.get("identity_status") != "VERIFIED"):
-            continue
-        matches = [r for r in consensus_records(row) if r.get("identity") == identity]
-        if len(matches) == 1 and optional_float(matches[0].get("value")) is not None:
-            candidates.append({"identity": identity, "value": matches[0]["value"],
-                               "strategy_available_at": avail, "snapshot_version_id": row["snapshot_version_id"],
-                               "source_payload_sha256": row["source_payload_sha256"], "fetch_source": fetch_source})
+    snapshots = [r for r in snapshots if r.get("fetch_source") == fetch_source]
+    # Discover the security's tickers only from information available pre-event.
+    eligible = [r for r in snapshots if availability(r)
+                and datetime.fromisoformat(availability(r)) < datetime.fromisoformat(cutoff)]
+    tickers = {r.get("ticker") for r in eligible
+               if any(v.get("identity") == identity for v in consensus_records(r))}
+    candidates = [r for r in eligible if r.get("ticker") in tickers]
     if not candidates:
         return None
-    latest_time = max(datetime.fromisoformat(r["strategy_available_at"]) for r in candidates)
-    latest = [r for r in candidates if datetime.fromisoformat(r["strategy_available_at"]) == latest_time]
-    if len({r["source_payload_sha256"] for r in latest}) != 1:
+    # Unknown publication timing in a newer observation cannot revive an old value.
+    for row in snapshots:
+        observed = iso_utc(row.get("observed_at"))
+        if row.get("ticker") in tickers and not availability(row) and observed and datetime.fromisoformat(observed) < datetime.fromisoformat(cutoff):
+            return None
+    latest_time = max(datetime.fromisoformat(availability(r)) for r in candidates)
+    latest = [r for r in candidates if datetime.fromisoformat(availability(r)) == latest_time]
+    if len({r.get("source_payload_sha256") for r in latest}) != 1:
         return None
-    return sorted(latest, key=lambda r: r["snapshot_version_id"])[0]
+    row = sorted(latest, key=lambda r: r["snapshot_version_id"])[0]
+    matches = [r for r in consensus_records(row) if r.get("identity") == identity]
+    if row.get("identity_status") == "AMBIGUOUS" or len(matches) != 1 or optional_float(matches[0].get("value")) is None:
+        return None
+    return {"identity": identity, "value": matches[0]["value"],
+            "strategy_available_at": availability(row), "snapshot_version_id": row["snapshot_version_id"],
+            "source_payload_sha256": row["source_payload_sha256"], "fetch_source": fetch_source}
 
 
 def earnings_surprise(actual: Any, frozen: dict | None, *, identity: dict,

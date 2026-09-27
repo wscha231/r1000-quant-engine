@@ -13,13 +13,17 @@ The contract ID is `earnings-consensus-source-v2`.
 
 - Economic identity: issuer_id + security_id + metric + fiscal_period_end +
   period_type + accounting_basis + currency + share_or_ADR_unit. FY1/FY2 are
-  sorted provider views, never identity. A year-only label is not a fiscal end.
+  sorted dated annual periods ending on/after collection, never identity.
+  Historical/quarterly/undated records remain canonical observations but do not
+  masquerade as forward annual views. A year-only label is not a fiscal end.
 - Provider metadata is preserved through normalization. Missing identity fields
   are null/UNKNOWN_IDENTITY; no ticker-to-security/ADR mapping, USD, accounting
   basis, fiscal end or period type is invented. **Current vendor responses may
   lack this metadata; observed levels are archived but revisions stay null.**
 - Missing estimate, no record/coverage, unsupported access and fetch failure are
-  distinct statuses. Explicit zero is a value. Nonfinite, boolean and malformed
+  distinct per-metric statuses derived from the relevant estimate endpoint.
+  Recommendation endpoint failures cannot relabel estimate coverage. Explicit
+  zero is a value. Nonfinite, boolean and malformed
   numerics are null. Recommendation counts require complete nonnegative counts.
 - `analyst_recommendation_balance` is separate from
   `est_eps_revision_breadth`; the latter stays null with
@@ -32,7 +36,9 @@ The contract ID is `earnings-consensus-source-v2`.
 - Availability is the maximum of exact timezone-aware observed_at, first_seen_at,
   collected_at, strategy_available_at and provider_published_at when supplied.
   A missing provider publication time stays null; date-only publication is not
-  upgraded to midnight knowledge. Date-only decision cutoffs mean UTC start of
+  upgraded to midnight knowledge. Explicit date-only/malformed publication
+  metadata is retained as raw evidence, marked UNKNOWN_PUBLICATION_PRECISION,
+  and blocks timestamp admission; it is not treated as absent metadata. Date-only decision cutoffs mean UTC start of
   day conservatively. Exchange execution/calendar decisions remain out of scope.
 - `--fetch-date` must equal the actual UTC collection day, including fixtures
   (tests freeze the clock). It cannot backdate availability. Same-day versions
@@ -45,7 +51,9 @@ The contract ID is `earnings-consensus-source-v2`.
 - Current provider surprise is unverified diagnostic metadata. Canonical surprise
   and streak remain null. `frozen_pre_event_consensus()` selects an exact identity
   and provider strictly before announcement (equality is excluded), returns the
-  selected version/hash, and rejects ambiguous same-time values.
+  selected version/hash, and rejects ambiguous same-time values. The latest
+  missing/absent vintage invalidates older consensus. Both current and prior
+  same-time conflicts are quarantined without input-order dependence.
   `earnings_surprise()` requires that frozen identity and cutoff. Nothing infers
   announcement time from a fiscal-period date or uses a revised post-event average.
 - `causal_event_id()` identifies one issuer/period/exact announcement. Verified
@@ -101,3 +109,13 @@ semantics only; vendor metadata completeness and economic value are unproven.
 No vendor HTTP smoke, fullrun, A/B, ledger mutation or H2 dispatch was performed.
 Exact-head A6, GitHub CI and final Codex review remain separate evidence gates;
 this source document does not self-attest DONE.
+
+## Independent A6 correction evidence
+
+A6 READ_ONLY review of `c46e03e9f79c47f7012f68a42ffab26dbda940e1`
+found four P2 defects: frozen-consensus null fallback, current-vintage tie
+ambiguity, historical/canonical-only FY view selection, and endpoint-state
+conflation. All four received executable regressions and corrections before
+requesting the single final Codex review. Date-only publication provenance
+was also preserved with fail-closed admission. New head review is required;
+the initial A6 result was CORRECTION_REQUIRED, not an approval.

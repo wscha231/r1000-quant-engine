@@ -115,7 +115,7 @@ class AdmissionTests(unittest.TestCase):
         self.assertEqual(h1.dedupe_causal_events([dict(causal_event_id=key)]),[])
 
     def test_provider_missing_preserves_attempted_candidate(self):
-        with patch.object(c,'fetch_estimate_payloads_by_order',return_value=({}, {}, '', False, False, True)):
+        with patch.object(c,'fetch_estimate_payloads_by_order',return_value=({}, {}, 'fmp', True, True, True)):
             rows,_,attempted,_=c.collect_live_snapshot(['AAA','BBB'],finnhub_api_key='',alphavantage_api_key='',fmp_api_key='fixture',vendor_order=['fmp'],fetch_date=pd.Timestamp('2026-07-01'),sleep_seconds=0,max_errors=10)
         self.assertEqual(rows.ticker.tolist(),['AAA','BBB'])
         self.assertEqual(attempted,['AAA','BBB'])
@@ -182,5 +182,66 @@ class AdmissionTests(unittest.TestCase):
     def test_conflicting_same_time_is_unknown(self):
         before=snapshot(); conflict=snapshot(value=3); after=snapshot('2026-05-02T18:00:00Z',2)
         self.assertTrue(pd.isna(features([before,conflict,after]).iloc[-1].est_eps_revision_30d))
+
+    def test_frozen_latest_missing_or_absent_is_not_backfilled(self):
+        before=snapshot('2026-07-01T18:00:00Z',1)
+        identity=json.loads(before['eps_fy1_identity'])
+        for latest in [snapshot('2026-07-01T19:00:00Z',None), snapshot('2026-07-01T19:00:00Z',eps_payload={},revenue_payload={})]:
+            self.assertIsNone(h1.frozen_pre_event_consensus([before,latest],event_available_at='2026-07-01T20:00:00Z',identity=identity,fetch_source='finnhub'))
+
+    def test_current_conflict_rejects_both_orders(self):
+        before=snapshot(); a=snapshot('2026-05-02T18:00:00Z',2); b=snapshot('2026-05-02T18:00:00Z',3)
+        for rows in ([before,a,b],[before,b,a]):
+            result=features(rows)
+            self.assertTrue(result.iloc[-2:].est_eps_revision_30d.isna().all())
+            self.assertTrue(c.latest_signal_by_ticker(result,decision_date='2026-05-03').empty)
+
+    def test_forward_view_preserves_history_and_sorts_canonical_period(self):
+        items=[]
+        for year in [2027,2020,2026,2021]:
+            item=estimate(year, f'{year}-12-31'); item['fiscal_period_end']=item.pop('period'); items.append(item)
+        row=snapshot('2026-07-01T18:00:00Z',eps_payload={'data':items})
+        self.assertEqual(row['est_eps_fy1'],2026)
+        self.assertEqual(row['est_eps_fy2'],2027)
+        self.assertEqual(len(h1.consensus_records(row)),5)
+        self.assertEqual(snapshot('2026-07-01T18:00:00Z',eps_payload={'data':[estimate(1,'2020-12-31')]},revenue_payload={})['has_forward_estimate'],0)
+
+    def test_missing_publication_precision_preserved_and_blocked(self):
+        row=snapshot(provider_published_at='2027-01-01')
+        self.assertEqual(row['publication_status'],'UNKNOWN_PUBLICATION_PRECISION')
+        self.assertIn('2027-01-01',row['provider_published_at_raw'])
+        self.assertIsNone(row['strategy_available_at'])
+        self.assertTrue(features([row]).empty)
+
+    def test_live_endpoint_status_separates_failures(self):
+        def fetch(_session,endpoint,ticker,_key,*,errors,**_):
+            if endpoint=='/stock/eps-estimate':
+                errors.append(dict(ticker=ticker,vendor='finnhub',endpoint=endpoint,status_code=500,vendor_entitlement_blocked=False))
+                return None
+            if endpoint=='/stock/revenue-estimate': return {'data':[estimate(100)]}
+            return []
+        args=dict(finnhub_api_key='fixture',alphavantage_api_key='',fmp_api_key='',vendor_order=['finnhub'],fetch_date=pd.Timestamp('2026-07-01'),sleep_seconds=0,max_errors=10)
+        with patch.object(c,'fetch_json_optional',side_effect=fetch), patch.object(c,'utc_now',return_value='2026-07-01T18:00:00Z'):
+            rows,_,_,_=c.collect_live_snapshot(['AAA'],**args)
+        row=rows.iloc[0]
+        self.assertEqual(row.eps_fy1_status,'FETCH_FAILED')
+        self.assertEqual(row.rev_fy1_status,'OBSERVED')
+        self.assertEqual(row.provider_coverage_status,'PARTIAL')
+        def rec_failed(_session,endpoint,ticker,_key,*,errors,**_):
+            if endpoint=='/stock/recommendation':
+                errors.append(dict(ticker=ticker,vendor='finnhub',endpoint=endpoint,status_code=500,vendor_entitlement_blocked=False))
+                return None
+            return {'data':[]} if endpoint in c.ESTIMATE_ENDPOINTS else []
+        with patch.object(c,'fetch_json_optional',side_effect=rec_failed):
+            rows,_,_,_=c.collect_live_snapshot(['AAA'],**args)
+        self.assertEqual(rows.iloc[0].provider_coverage_status,'NO_COVERAGE')
+        self.assertEqual(rows.iloc[0].recommendation_fetch_status,'FETCH_FAILED')
+
+    def test_vendor_normalization_retains_missing_and_zero(self):
+        eps,_=c.fmp_to_payloads([dict(date='2026-12-31',epsAvg=None),dict(date='2027-12-31',epsAvg=0)])
+        self.assertEqual(len(eps['data']),2)
+        self.assertIsNone(eps['data'][0]['avg'])
+        self.assertEqual(eps['data'][1]['avg'],0)
+        self.assertEqual(eps['data'][1]['period_type'],'ANNUAL')
 
 if __name__=='__main__': unittest.main()

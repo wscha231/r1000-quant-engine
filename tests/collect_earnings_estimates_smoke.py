@@ -38,15 +38,15 @@ def _write_fixture(root: Path, ticker: str = "AAA") -> None:
         json.dumps(
             {
                 "data": [
-                    {"period": "2026", "avg": 1.20, "high": 1.35, "low": 1.05, "numberAnalysts": 8},
-                    {"period": "2027", "avg": 1.45, "high": 1.60, "low": 1.20, "numberAnalysts": 7},
+                    {"period": "2026-12-31", "period_type": "ANNUAL", "avg": 1.20, "high": 1.35, "low": 1.05, "numberAnalysts": 8},
+                    {"period": "2027-12-31", "period_type": "ANNUAL", "avg": 1.45, "high": 1.60, "low": 1.20, "numberAnalysts": 7},
                 ]
             }
         ),
         encoding="utf-8",
     )
     (root / f"{ticker}_revenue.json").write_text(
-        json.dumps({"data": [{"period": "2026", "avg": 1200.0, "numberAnalysts": 6}]}),
+        json.dumps({"data": [{"period": "2026-12-31", "period_type": "ANNUAL", "avg": 1200.0, "numberAnalysts": 6}]}),
         encoding="utf-8",
     )
     (root / f"{ticker}_earnings.json").write_text(
@@ -70,8 +70,8 @@ def test_parse_snapshot_stamps_fetch_date_not_fiscal_period() -> None:
         fetch_date=pd.Timestamp("2026-07-09"),
         observed_at="2026-07-09T21:00:00Z",
         collected_at="2026-07-09T21:00:00Z",
-        eps_payload={"data": [{"period": "2027", "avg": 1.45, "high": 1.6, "low": 1.2}]},
-        revenue_payload={"data": [{"period": "2027", "avg": 1500.0}]},
+        eps_payload={"data": [{"period": "2027-12-31", "period_type": "ANNUAL", "avg": 1.45, "high": 1.6, "low": 1.2}]},
+        revenue_payload={"data": [{"period": "2027-12-31", "period_type": "ANNUAL", "avg": 1500.0}]},
         earnings_payload=[{"period": "2026-06-30", "actual": 0.34, "estimate": 0.32, "surprisePercent": 6.2}],
         recommendation_payload=[{"period": "2026-07-01", "strongBuy": 3, "buy": 4, "sell": 1, "strongSell": 0}],
     )
@@ -374,7 +374,7 @@ def test_entitlement_circuit_never_trips_after_vendor_access_success() -> None:
         del sleep_seconds
         calls += 1
         if ticker == "AAA":
-            return {"data": [{"period": "2027", "avg": 1.0}]}, {}
+            return {"data": [{"period": "2027-12-31", "period_type": "ANNUAL", "avg": 1.0}]}, {}
         errors.append(
             {
                 "ticker": ticker,

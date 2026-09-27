@@ -5429,3 +5429,8 @@ Expected contract:
 - See `docs/EARNINGS_CONSENSUS_SOURCE_V2.md`. Local sparse validation must use
   runner `--only`; `--include` appends to the complete suite and reports absent
   unmaterialized tests as failures, not product regressions.
+- Independent A6 counterexamples showed that latest-null frozen consensus must
+  invalidate earlier values, current timestamp ties need the same conflict gate
+  as prior boundaries, FY views cannot select historical annual rows, and
+  recommendation endpoint errors must not change estimate coverage states.
+  These are now explicit regressions; source precision metadata is preserved.
