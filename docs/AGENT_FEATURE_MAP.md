@@ -134,7 +134,10 @@ transition is available. Supply the complete current required-check set with
 context and integration ID, ruleset identity and observation time, PR head and
 current base SHA. The strict-policy base must be verified in PR ancestry, and
 every required check from that observation must pass on the exact head under
-the required app identity; `review_complete` is evaluated separately after review.
+the required app identity. If the observed set contains `review_complete`, that
+context is excluded from pre-attestation CI to avoid a circular wait. Its later
+PASS must carry the exact PR/head, check identity, and GitHub Actions app ID;
+the same attestation binding applies when the ruleset lists only the two CI checks.
 The pure reducer cannot authenticate GitHub itself: the trusted caller must fetch
 the live ruleset and base together, not accept a worker-provided subset or old observation.
 

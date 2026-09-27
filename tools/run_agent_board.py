@@ -267,7 +267,29 @@ def current_required_checks_pass(event: dict, packet: dict) -> bool:
         keys.append(f"{check['context']}@{check['integration_id']}")
     if len(set(keys)) != len(keys) or not {'validate@15368', 'portfolio_guard@15368'}.issubset(keys):
         return False
-    return all(event['ci_checks'].get(key) == 'PASS' for key in keys)
+    return all(event['ci_checks'].get(key) == 'PASS' for key in keys
+               if key != 'review_complete@15368')
+
+
+def review_complete_pass(event: dict, packet: dict) -> bool:
+    """Evaluate the attestation check after review, bound to its GitHub App."""
+    evidence = event.get('review_complete_evidence')
+    policy = event.get('required_checks_policy')
+    if not isinstance(evidence, dict) or not isinstance(policy, dict):
+        return False
+    checks = policy.get('checks')
+    if not isinstance(checks, list):
+        return False
+    attestation = [row for row in checks if isinstance(row, dict)
+                   and row.get('context') == 'review_complete']
+    if attestation and attestation != [{'context': 'review_complete', 'integration_id': 15368}]:
+        return False
+    return (evidence.get('context') == 'review_complete'
+            and evidence.get('integration_id') == 15368
+            and evidence.get('status') == 'PASS'
+            and evidence.get('head_sha') == packet['identity']['code_sha']
+            and evidence.get('scope') == packet.get('review_scope')
+            and isinstance(evidence.get('identity'), str) and bool(evidence['identity'].strip()))
 
 
 def lifecycle_state(packet: dict | None, event: dict | None = None) -> dict:
@@ -320,7 +342,9 @@ def lifecycle_state(packet: dict | None, event: dict | None = None) -> dict:
         state = 'WAITING_REVIEW'
     elif packet['status'] != 'SKIP_UNCHANGED':
         state = 'READY'
-    elif event.get('review_complete') == 'PASS' and event.get('review_complete_head') == packet['identity']['code_sha']:
+    elif (event.get('review_complete') == 'PASS'
+          and event.get('review_complete_head') == packet['identity']['code_sha']
+          and review_complete_pass(event, packet)):
         if event.get('merged') is True:
             state = ('DONE' if post_merge_pass(event, packet['identity']['code_sha'],
                                                packet.get('review_scope'))

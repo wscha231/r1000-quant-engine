@@ -211,7 +211,7 @@ class ControlPlaneTests(unittest.TestCase):
                     ruleset_updated_at=self.at(-10),observed_at=self.at(-1),
                     identity='github-ruleset-observation-1',
                     checks=[dict(context=name,integration_id=15368)
-                            for name in ('validate','portfolio_guard')])
+                            for name in ('validate','portfolio_guard','review_complete')])
         event=dict(ci='PASS',ci_head=head,ci_checks={'validate@15368':'PASS','portfolio_guard@15368':'PASS'},
                    required_checks_policy=policy,current_base_sha='b'*40,
                    base_ancestor_verified=True,
@@ -240,8 +240,19 @@ class ControlPlaneTests(unittest.TestCase):
                 self.assertNotIn(board.lifecycle_state(packet,{**event,**changes})['state'],
                                  ('READY_FOR_ATTESTATION','READY_TO_MERGE'))
         attested={**event,'review_complete':'PASS','review_complete_head':head,
-                  'review_complete_scope':packet['review_scope']}
+                  'review_complete_scope':packet['review_scope'],
+                  'review_complete_evidence':dict(context='review_complete',integration_id=15368,
+                      status='PASS',head_sha=head,scope=packet['review_scope'],identity='check-run-1')}
         self.assertEqual(board.lifecycle_state(packet,attested)['state'],'READY_TO_MERGE')
+        ruleset_only={**policy,'checks':policy['checks'][:2]}
+        self.assertEqual(board.lifecycle_state(packet,{**attested,
+            'required_checks_policy':ruleset_only})['state'],'READY_TO_MERGE')
+        self.assertEqual(board.lifecycle_state(packet,{**attested,
+            'review_complete_evidence':{**attested['review_complete_evidence'],
+                                        'integration_id':42}})['state'],'READY_FOR_ATTESTATION')
+        self.assertEqual(board.lifecycle_state(packet,{**attested,
+            'review_complete_evidence':{**attested['review_complete_evidence'],
+                                        'head_sha':'c'*40}})['state'],'READY_FOR_ATTESTATION')
         self.assertEqual(board.lifecycle_state(packet,{**attested,
             'review_complete_scope':{'repository':packet['review_scope']['repository'],
                                      'pr_number':552}})['state'],'BLOCKED')
@@ -265,13 +276,16 @@ class ControlPlaneTests(unittest.TestCase):
                     ruleset_updated_at=self.at(-10),observed_at=self.at(-1),
                     identity='github-ruleset-observation-1',
                     checks=[dict(context=name,integration_id=15368)
-                            for name in ('validate','portfolio_guard')])
+                            for name in ('validate','portfolio_guard','review_complete')])
         event=dict(ci='PASS',ci_head=head,ci_checks={'validate@15368':'PASS','portfolio_guard@15368':'PASS'},
                    required_checks_policy=policy,current_base_sha='b'*40,
                    base_ancestor_verified=True,
                    review='CLEAN',review_head=head,unresolved_findings=0,
                    review_scope=packet['review_scope'],review_complete_scope=packet['review_scope'],
-                   review_complete='PASS',review_complete_head=head,merged=True,
+                   review_complete='PASS',review_complete_head=head,
+                   review_complete_evidence=dict(context='review_complete',integration_id=15368,
+                       status='PASS',head_sha=head,scope=packet['review_scope'],identity='check-run-1'),
+                   merged=True,
                    merged_pr_head=head,merge_sha=merge,default_branch_head=merge,
                    merge_scope=packet['review_scope'])
         pass_evidence=dict(status='PASS',identity='post-merge-check-run-1',
