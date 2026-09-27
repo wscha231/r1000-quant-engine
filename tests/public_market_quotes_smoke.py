@@ -1,6 +1,7 @@
 """Exact-session quotes never imply a completed account or a synthetic close."""
 from __future__ import annotations
 import copy
+import hashlib
 import json
 import os
 import subprocess
@@ -17,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.refresh_public_market_quotes import collect, exact_close, fetch_deployed, fetch_json, preserve_deployed, public_tickers, yahoo_close
+from tools.refresh_public_market_quotes import collect, exact_close, fetch_deployed, fetch_json, preserve_deployed, preserve_deployed_or_bootstrap, public_tickers, yahoo_close
 from tools.refresh_public_market_quotes import main as refresh_main
 
 
@@ -151,6 +152,29 @@ def main():
         unsafe = copy.deepcopy(deployed)
         unsafe["status"]["review_only"] = False
         rejected(lambda: preserve_deployed(path, unsafe))
+        # A previously disabled Pages site has no reachable JSON. This exception
+        # is usable only with both the pinned public bytes and the workflow's
+        # one-time latest-success checkpoint; all later 404s still fail closed.
+        raw = path.read_bytes()
+        digest = hashlib.sha256(raw).hexdigest()
+        missing = HTTPError("https://example.invalid/data/dashboard.json", 404, "Not Found", None, None)
+        with patch("tools.refresh_public_market_quotes.fetch_deployed", side_effect=missing):
+            assert preserve_deployed_or_bootstrap(path, "https://example.invalid", digest, True).startswith("BOOTSTRAP")
+            assert path.read_bytes() == raw
+            for eligible, expected in [(False, digest), (True, "0" * 64), (True, "invalid")]:
+                try:
+                    preserve_deployed_or_bootstrap(path, "https://example.invalid", expected, eligible)
+                    raise AssertionError("unapproved Pages bootstrap")
+                except (HTTPError, ValueError):
+                    pass
+            path.write_text(json.dumps(unsafe))
+            rejected(lambda: preserve_deployed_or_bootstrap(path, "https://example.invalid", hashlib.sha256(path.read_bytes()).hexdigest(), True))
+        with patch("tools.refresh_public_market_quotes.fetch_deployed", side_effect=HTTPError("https://example.invalid", 503, "Unavailable", None, None)):
+            try:
+                preserve_deployed_or_bootstrap(path, "https://example.invalid", hashlib.sha256(path.read_bytes()).hexdigest(), True)
+                raise AssertionError("non-404 failure accepted")
+            except HTTPError as exc:
+                assert exc.code == 503
     unsafe = copy.deepcopy(data)
     unsafe["portfolios"]["main"]["holdings"][0]["ticker"] = "../../unsafe"
     rejected(lambda: public_tickers(unsafe))
