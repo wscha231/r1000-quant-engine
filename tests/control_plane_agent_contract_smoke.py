@@ -273,6 +273,13 @@ class ControlPlaneTests(unittest.TestCase):
         self.state['requests'][1]['inputs']['data_pit']=copy.deepcopy(output)
         self.assertEqual(self.tasks()[1]['status'],'READY')
 
+    def test_dependency_receipt_metadata_does_not_change_content_identity(self):
+        self.add_request('A2'); upstream=self.complete(); self.complete('A2')
+        before=self.tasks()[1]['task_key']
+        upstream['ci']['identity']='same-head-independent-ci-run'
+        self.assertEqual(self.tasks()[1]['task_key'],before)
+        self.assertEqual(self.tasks()[1]['status'],'SKIP_UNCHANGED')
+
     def test_completed_dependency_cannot_authorize_unrelated_input(self):
         req=self.add_request('A2'); self.complete()
         req['inputs']['data_pit']=self.artifact('unrelated_data_pit')

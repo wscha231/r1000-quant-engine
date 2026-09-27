@@ -358,7 +358,8 @@ def build_tasks(state: dict, root: Path, contract: dict, now: datetime,
             for role, artifact in request['inputs'].items():
                 if role != 'qa_report' and report['reviewed_artifacts'].get(role) != artifact:
                     reasons.append('QA_INPUT_NOT_REVIEWED:' + role)
-        identity = {'input_hash': digest({'inputs': request['inputs'], 'dependencies': dependencies,
+        identity = {'input_hash': digest({'inputs': request['inputs'],
+                    'dependencies': receipt_dependencies(dependencies),
                     'context': state['context'], 'g0': state['g0'], 'master_sha': state['master_sha']}),
                     'code_sha': code_sha, 'config_hash': config_hash,
                     'model': request['model'], 'parameters': request['parameters']}
