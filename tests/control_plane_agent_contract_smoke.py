@@ -206,9 +206,15 @@ class ControlPlaneTests(unittest.TestCase):
     def test_event_gate_requires_current_head_ci_review_and_receipt(self):
         packet=self.tasks()[0]
         head=packet['identity']['code_sha']
-        event=dict(ci='PASS',ci_head=head,ci_checks={'validate':'PASS','portfolio_guard':'PASS'},
-                   required_checks=['validate','portfolio_guard','review_complete'],
-                   required_checks_scope=packet['review_scope'],
+        policy=dict(source='GITHUB_RULESET',scope=packet['review_scope'],pr_head_sha=head,
+                    base_sha='b'*40,strict=True,ruleset_id=23762701,
+                    ruleset_updated_at=self.at(-10),observed_at=self.at(-1),
+                    identity='github-ruleset-observation-1',
+                    checks=[dict(context=name,integration_id=15368)
+                            for name in ('validate','portfolio_guard')])
+        event=dict(ci='PASS',ci_head=head,ci_checks={'validate@15368':'PASS','portfolio_guard@15368':'PASS'},
+                   required_checks_policy=policy,current_base_sha='b'*40,
+                   base_ancestor_verified=True,
                    review='CLEAN',review_head=head,unresolved_findings=0,
                    review_scope=packet['review_scope'])
         self.assertNotEqual(board.lifecycle_state(packet,event)['state'],'READY_FOR_ATTESTATION')
@@ -222,8 +228,14 @@ class ControlPlaneTests(unittest.TestCase):
                         {'unresolved_findings':False},{'unresolved_findings':True},
                         {'review_scope':{'repository':packet['review_scope']['repository'],
                                          'pr_number':552}},
-                        {'required_checks_scope':{'repository':packet['review_scope']['repository'],
-                                                  'pr_number':552}}):
+                        {'required_checks_policy':{**policy,'scope':{
+                            'repository':packet['review_scope']['repository'],'pr_number':552}}},
+                        {'required_checks_policy':{**policy,'base_sha':'c'*40}},
+                        {'base_ancestor_verified':False},
+                        {'required_checks_policy':{**policy,'observed_at':self.at(-20)}},
+                        {'required_checks_policy':{**policy,'checks':[
+                            {'context':'validate','integration_id':15368},
+                            {'context':'portfolio_guard','integration_id':42}]}}):
             with self.subTest(changes=changes):
                 self.assertNotIn(board.lifecycle_state(packet,{**event,**changes})['state'],
                                  ('READY_FOR_ATTESTATION','READY_TO_MERGE'))
@@ -233,11 +245,12 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertEqual(board.lifecycle_state(packet,{**attested,
             'review_complete_scope':{'repository':packet['review_scope']['repository'],
                                      'pr_number':552}})['state'],'BLOCKED')
-        extra={**event,'required_checks':event['required_checks']+['new_required'],
-               'ci_checks':{**event['ci_checks'],'new_required':'FAIL'}}
+        extra={**event,'required_checks_policy':{**policy,'checks':policy['checks']+[
+                   {'context':'new_required','integration_id':15368}]},
+               'ci_checks':{**event['ci_checks'],'new_required@15368':'FAIL'}}
         self.assertEqual(board.lifecycle_state(packet,extra)['state'],'WAITING_CI')
         self.assertEqual(board.lifecycle_state(packet,{**extra,'ci_checks':{
-            **extra['ci_checks'],'new_required':'PASS'}})['state'],'READY_FOR_ATTESTATION')
+            **extra['ci_checks'],'new_required@15368':'PASS'}})['state'],'READY_FOR_ATTESTATION')
         self.assertEqual(board.lifecycle_state(packet,{**attested,'review_complete_head':'a'*40})['state'],
                          'READY_FOR_ATTESTATION')
         self.assertEqual(board.lifecycle_state(packet,{**attested,'merged':True})['state'],'POST_MERGE_VERIFY')
@@ -247,9 +260,15 @@ class ControlPlaneTests(unittest.TestCase):
     def test_post_merge_requires_current_merge_and_default_head_binding(self):
         self.complete(); packet=self.tasks()[0]
         head=packet['identity']['code_sha']; merge='b'*40; previous='c'*40
-        event=dict(ci='PASS',ci_head=head,ci_checks={'validate':'PASS','portfolio_guard':'PASS'},
-                   required_checks=['validate','portfolio_guard','review_complete'],
-                   required_checks_scope=packet['review_scope'],
+        policy=dict(source='GITHUB_RULESET',scope=packet['review_scope'],pr_head_sha=head,
+                    base_sha='b'*40,strict=True,ruleset_id=23762701,
+                    ruleset_updated_at=self.at(-10),observed_at=self.at(-1),
+                    identity='github-ruleset-observation-1',
+                    checks=[dict(context=name,integration_id=15368)
+                            for name in ('validate','portfolio_guard')])
+        event=dict(ci='PASS',ci_head=head,ci_checks={'validate@15368':'PASS','portfolio_guard@15368':'PASS'},
+                   required_checks_policy=policy,current_base_sha='b'*40,
+                   base_ancestor_verified=True,
                    review='CLEAN',review_head=head,unresolved_findings=0,
                    review_scope=packet['review_scope'],review_complete_scope=packet['review_scope'],
                    review_complete='PASS',review_complete_head=head,merged=True,

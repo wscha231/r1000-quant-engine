@@ -128,11 +128,15 @@ repository governance gate or authorizes this PR's merge.
 
 The state may name `review_pr_number`; packets then carry the repository/PR
 scope independently of the event. The trusted GitHub event consumer must bind
-review facts, required-check policy and `review_complete` to that exact scope.
-Without it, no review-based readiness transition is available. Supply the
-complete current required-check list from branch protection and a status for
-every required check; `review_complete` is evaluated separately after review.
-An added required check cannot be omitted to claim CI readiness.
+review facts, a current authenticated GitHub ruleset observation and
+`review_complete` to that exact scope. Without it, no review-based readiness
+transition is available. Supply the complete current required-check set with
+context and integration ID, ruleset identity and observation time, PR head and
+current base SHA. The strict-policy base must be verified in PR ancestry, and
+every required check from that observation must pass on the exact head under
+the required app identity; `review_complete` is evaluated separately after review.
+The pure reducer cannot authenticate GitHub itself: the trusted caller must fetch
+the live ruleset and base together, not accept a worker-provided subset or old observation.
 
 After merge, the trusted event consumer must supply `merged=true`, the actual
 `merge_sha`, its observed `default_branch_head`, and `merged_pr_head` from the

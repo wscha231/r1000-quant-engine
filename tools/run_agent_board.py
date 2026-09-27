@@ -236,6 +236,40 @@ def post_merge_pass(event: dict, expected_pr_head: str, expected_scope: dict | N
             == evidence.get('default_branch_head'))
 
 
+def current_required_checks_pass(event: dict, packet: dict) -> bool:
+    """Consume a trusted, current ruleset observation, including check app identity."""
+    policy = event.get('required_checks_policy')
+    if not isinstance(policy, dict) or policy.get('source') != 'GITHUB_RULESET':
+        return False
+    try:
+        updated = timestamp(policy['ruleset_updated_at'])
+        observed = timestamp(policy['observed_at'])
+    except (KeyError, ValueError, TypeError, AttributeError, ContractError):
+        return False
+    head, scope = packet['identity']['code_sha'], packet.get('review_scope')
+    base = event.get('current_base_sha')
+    checks = policy.get('checks')
+    if (scope is None or policy.get('scope') != scope or policy.get('pr_head_sha') != head
+            or not isinstance(base, str) or re.fullmatch(r'[0-9a-f]{40}', base) is None
+            or policy.get('base_sha') != base or policy.get('strict') is not True
+            or event.get('base_ancestor_verified') is not True
+            or type(policy.get('ruleset_id')) is not int or policy['ruleset_id'] <= 0
+            or observed < updated
+            or not isinstance(policy.get('identity'), str) or not policy['identity'].strip()
+            or not isinstance(checks, list) or not isinstance(event.get('ci_checks'), dict)):
+        return False
+    keys = []
+    for check in checks:
+        if (not isinstance(check, dict) or set(check) != {'context', 'integration_id'}
+                or not isinstance(check['context'], str) or not check['context']
+                or type(check['integration_id']) is not int or check['integration_id'] <= 0):
+            return False
+        keys.append(f"{check['context']}@{check['integration_id']}")
+    if len(set(keys)) != len(keys) or not {'validate@15368', 'portfolio_guard@15368'}.issubset(keys):
+        return False
+    return all(event['ci_checks'].get(key) == 'PASS' for key in keys)
+
+
 def lifecycle_state(packet: dict | None, event: dict | None = None) -> dict:
     """Pure event reducer. Caller must obtain CI/review/merge facts from GitHub.
 
@@ -279,15 +313,7 @@ def lifecycle_state(packet: dict | None, event: dict | None = None) -> dict:
     elif event.get('running'):
         state = 'RUNNING'
     elif (event.get('ci') != 'PASS' or event.get('ci_head') != packet['identity']['code_sha']
-          or packet.get('review_scope') is None
-          or event.get('required_checks_scope') != packet['review_scope']
-          or not isinstance(event.get('required_checks'), list)
-          or any(not isinstance(name, str) or not name for name in event['required_checks'])
-          or len(set(event['required_checks'])) != len(event['required_checks'])
-          or not {'validate', 'portfolio_guard'}.issubset(event['required_checks'])
-          or not isinstance(event.get('ci_checks'), dict)
-          or any(event['ci_checks'].get(name) != 'PASS' for name in event['required_checks']
-                 if name != 'review_complete')):
+          or not current_required_checks_pass(event, packet)):
         state = 'WAITING_CI'
     elif (event.get('review') != 'CLEAN' or event.get('review_head') != packet['identity']['code_sha']
           or event.get('unresolved_findings') != 0):
