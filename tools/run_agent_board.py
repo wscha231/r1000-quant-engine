@@ -430,7 +430,7 @@ def build_tasks(state: dict, root: Path, contract: dict, now: datetime,
                 for artifact in receipt['outputs'].values():
                     verify_artifact(root, artifact, cutoff, now)
                     if (timestamp(artifact['available_at']) < causal_ready
-                            or timestamp(artifact['collected_at']) > timestamp(receipt['created_at'])):
+                            or timestamp(artifact['collected_at']) >= timestamp(receipt['created_at'])):
                         raise ContractError('completion_output_time_boundary')
                 if agent == 'A6':
                     report = read_json(artifact_path(root, receipt['outputs']['qa_report']['path']))

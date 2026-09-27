@@ -297,6 +297,9 @@ class ControlPlaneTests(unittest.TestCase):
         output['collected_at']=receipt['available_at']
         self.assertEqual(self.tasks()[0]['status'],'BLOCKED')
         output['collected_at']=receipt['created_at']
+        self.assertEqual(self.tasks()[0]['status'],'BLOCKED')
+        output['collected_at']=(board.timestamp(receipt['created_at'])-
+                                timedelta(microseconds=1)).isoformat()
         self.assertEqual(self.tasks()[0]['status'],'SKIP_UNCHANGED')
 
     def test_approval_and_notification_boundaries_no_polling(self):
