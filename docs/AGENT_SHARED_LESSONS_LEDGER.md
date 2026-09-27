@@ -9,6 +9,7 @@
 - Output SHA-256 alone cannot prevent expiry/path relabeling. Bind the full output descriptors to the evidence identity before reusing a receipt.
 - Require output availability strictly after final causal input collection; equal timestamps do not prove event order.
 - Review and attestation are PR-scoped, even when the code SHA is shared. Bind the repository/PR of each observation to the packet's independent scope.
+- Merge and post-merge PASS evidence must carry the same packet PR scope; a shared commit SHA cannot complete a different PR's task.
 - Read the complete current required-check policy and require every non-attestation check to pass; two hard-coded checks alone cannot represent a later branch-protection change.
 - Python booleans are integers; an unresolved-finding count must be a real integer, so `False` cannot masquerade as zero at the review gate.
 

@@ -139,7 +139,8 @@ After merge, the trusted event consumer must supply `merged=true`, the actual
 PR. The structured `post_merge_verified` record needs `status=PASS`, a nonempty
 verification `identity`, a matching `pr_head_sha`, `merge_sha`, and
 `default_branch_head`. DONE requires the PR head to equal the packet code SHA,
-and all four merge/default SHA values to be the same valid current merge SHA.
+the merge observation and post-merge PASS to match the packet repository/PR
+scope, and all four merge/default SHA values to be the same valid current merge SHA.
 A boolean, string, old merge, or failed check stays at POST_MERGE_VERIFY. The reducer does not
 fetch GitHub; the caller must authenticate these observations at evaluation
 time rather than accepting a worker's event claims.

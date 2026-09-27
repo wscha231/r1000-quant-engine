@@ -221,11 +221,13 @@ NOTIFY_STATES = frozenset({'BLOCKED', 'HUMAN_APPROVAL_REQUIRED', 'CORRECTION_REQ
                            'READY_TO_MERGE', 'DONE'})
 
 
-def post_merge_pass(event: dict, expected_pr_head: str) -> bool:
+def post_merge_pass(event: dict, expected_pr_head: str, expected_scope: dict | None) -> bool:
     """Use only a typed pass bound to the observed merge and default-branch head."""
     evidence = event.get('post_merge_verified')
     merge_sha, default_head = event.get('merge_sha'), event.get('default_branch_head')
-    return (isinstance(evidence, dict) and evidence.get('status') == 'PASS'
+    return (expected_scope is not None and event.get('merge_scope') == expected_scope
+            and isinstance(evidence, dict) and evidence.get('review_scope') == expected_scope
+            and evidence.get('status') == 'PASS'
             and isinstance(evidence.get('identity'), str) and bool(evidence['identity'].strip())
             and isinstance(merge_sha, str) and re.fullmatch(r'[0-9a-f]{40}', merge_sha) is not None
             and event.get('merged_pr_head') == expected_pr_head
@@ -294,7 +296,8 @@ def lifecycle_state(packet: dict | None, event: dict | None = None) -> dict:
         state = 'READY'
     elif event.get('review_complete') == 'PASS' and event.get('review_complete_head') == packet['identity']['code_sha']:
         if event.get('merged') is True:
-            state = ('DONE' if post_merge_pass(event, packet['identity']['code_sha'])
+            state = ('DONE' if post_merge_pass(event, packet['identity']['code_sha'],
+                                               packet.get('review_scope'))
                      else 'POST_MERGE_VERIFY')
         elif event.get('merged') is False or event.get('merged') is None:
             state = 'READY_TO_MERGE'

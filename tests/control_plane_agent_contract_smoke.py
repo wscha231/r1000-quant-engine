@@ -253,9 +253,11 @@ class ControlPlaneTests(unittest.TestCase):
                    review='CLEAN',review_head=head,unresolved_findings=0,
                    review_scope=packet['review_scope'],review_complete_scope=packet['review_scope'],
                    review_complete='PASS',review_complete_head=head,merged=True,
-                   merged_pr_head=head,merge_sha=merge,default_branch_head=merge)
+                   merged_pr_head=head,merge_sha=merge,default_branch_head=merge,
+                   merge_scope=packet['review_scope'])
         pass_evidence=dict(status='PASS',identity='post-merge-check-run-1',
-                           pr_head_sha=head,merge_sha=merge,default_branch_head=merge)
+                           pr_head_sha=head,merge_sha=merge,default_branch_head=merge,
+                           review_scope=packet['review_scope'])
         for evidence in ('FAIL',True,{**pass_evidence,'merge_sha':previous},
                          {**pass_evidence,'merge_sha':previous,'default_branch_head':previous}):
             with self.subTest(evidence=evidence):
@@ -267,6 +269,11 @@ class ControlPlaneTests(unittest.TestCase):
             'post_merge_verified':pass_evidence})['state'],'DONE')
         self.assertNotEqual(board.lifecycle_state(packet,{**event,
             'post_merge_verified':{**pass_evidence,'pr_head_sha':previous}})['state'],'DONE')
+        other_scope={'repository':packet['review_scope']['repository'],'pr_number':552}
+        self.assertNotEqual(board.lifecycle_state(packet,{**event,'merge_scope':other_scope,
+            'post_merge_verified':pass_evidence})['state'],'DONE')
+        self.assertNotEqual(board.lifecycle_state(packet,{**event,
+            'post_merge_verified':{**pass_evidence,'review_scope':other_scope}})['state'],'DONE')
         self.assertEqual(board.lifecycle_state(packet,{**event,
             'post_merge_verified':pass_evidence})['state'],'DONE')
 
