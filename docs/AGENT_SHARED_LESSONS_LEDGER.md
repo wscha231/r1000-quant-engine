@@ -1,5 +1,11 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-27 — Exact A0 trust boundaries for merge, action and test evidence
+
+- A truthy post-merge flag can mark a failed or previous merge DONE. Require structured PASS evidence bound to the observed merge SHA and current default-branch head; a trusted caller must obtain those facts from GitHub.
+- An optional risk tier cannot make an unrecognized action safe. Keep explicit safe actions closed, escalate unknown and economic actions, and require repository governance for reversible writes.
+- A PASS label and nonempty test/run ID do not bind evidence to its task. Scope runtime, focused-test and CI identities to the task key, complete input/dependency identity and exact code head before reusing a receipt.
+
 ## 2026-09-27 — Worker handoff metadata cannot become A0 authority
 
 - A high confidence label and suggested next action are useful handoff metadata, not evidence. Keep A0 state transitions tied to independently checked artifact bytes, dependencies, tests, current-head CI/review and post-merge verification.

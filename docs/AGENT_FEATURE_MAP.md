@@ -62,9 +62,13 @@ verification status. The board recomputes identity and hashes, reads output
 bytes, checks freshness and causal timestamps, and validates A6's reviewed
 scope. Missing, conflicting, stale or tampered matching receipts become BLOCKED;
 an absent receipt remains READY and cannot be called DONE. `SKIP_UNCHANGED`
-requires all identity dimensions and valid output bytes. Receipt declarations
-alone are **not authenticated GitHub checks** or merge permission; the current
-head CI and review must be read independently from GitHub.
+requires all identity dimensions, evidence binding and valid output bytes.
+Each runtime, focused-test and CI record retains its run/test `reference` and
+head; its `identity` is the SHA-256 of the evidence kind, reference, task key,
+complete packet identity (including inputs/dependencies), and code head. A
+copied reference or digest from another task/head fails verification. Receipt
+declarations are **not authenticated GitHub checks** or merge permission; the
+current head CI and review must be read independently from GitHub.
 
 The board writes its existing manifest and queue. It does not write a second
 receipt store. Old `completed_tasks` rows lacking V2 fields fail the schema;
@@ -91,7 +95,12 @@ boundary. A0 classifies the requested operation, never a worker's claimed tier:
 
 T0–T2 are eligible only when verification conditions pass and a future dispatch
 switch is explicitly enabled; this PR leaves it false. Explicit protected
-actions override any lower tier. Unknown side effects require human approval.
+actions override any lower tier. An explicit action is safe only when it is
+`read` (T0), `compute` (T1), `prepare` (T2), or `reversible_repo_write` (T3
+with the matching declared effect); incompatible tier/action claims block.
+Unrecognized actions and unknown side effects require human approval even
+when a worker supplies a lower tier. An absent action means no operation was
+requested by this GitHub state event.
 These tiers do not authorize execution or mutation from a packet.
 
 ## A0 event reducer and boundaries
@@ -113,6 +122,16 @@ zero unresolved findings, clean current-head review and verified receipt are
 needed for attestation readiness. `review_complete` at the current head is an
 additional requirement for READY_TO_MERGE. Neither state bypasses the existing
 repository governance gate or authorizes this PR's merge.
+
+After merge, the trusted event consumer must supply `merged=true`, the actual
+`merge_sha`, its observed `default_branch_head`, and `merged_pr_head` from the
+PR. The structured `post_merge_verified` record needs `status=PASS`, a nonempty
+verification `identity`, a matching `pr_head_sha`, `merge_sha`, and
+`default_branch_head`. DONE requires the PR head to equal the packet code SHA,
+and all four merge/default SHA values to be the same valid current merge SHA.
+A boolean, string, old merge, or failed check stays at POST_MERGE_VERIFY. The reducer does not
+fetch GitHub; the caller must authenticate these observations at evaluation
+time rather than accepting a worker's event claims.
 
 Fullrun, actual broker, paper/target book, production/live activation, new
 alpha economic logic, ER weight changes, risk limit or review gate relaxation,

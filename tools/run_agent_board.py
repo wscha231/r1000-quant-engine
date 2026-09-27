@@ -12,6 +12,7 @@ import ast
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -160,6 +161,13 @@ def receipt_dependencies(dependencies: dict) -> dict:
             for agent, receipt in dependencies.items()}
 
 
+def evidence_identity(kind: str, reference: str, task_key: str,
+                      packet_identity: dict, head_sha: str) -> str:
+    """Scope an existing receipt's test/run reference to this exact task and head."""
+    return digest({'kind': kind, 'reference': reference, 'task_key': task_key,
+                   'packet_identity': packet_identity, 'head_sha': head_sha})
+
+
 def verify_completion(receipt: dict, packet_identity: dict, request: dict,
                       dependencies: dict, causal_ready: datetime, cutoff: datetime) -> None:
     """Verify a completed_tasks V2 row; declarations alone do not grant merge authority."""
@@ -168,7 +176,8 @@ def verify_completion(receipt: dict, packet_identity: dict, request: dict,
                 'dependency_identities': receipt_dependencies(dependencies),
                 'code_sha': packet_identity['code_sha'], 'config_hash': packet_identity['config_hash'],
                 'model': packet_identity['model'], 'parameter_hash': digest(packet_identity['parameters'])}
-    if any(receipt[name] != value for name, value in expected.items()):
+    if (receipt['task_key'] != digest({'agent': request['agent'], **packet_identity})
+            or any(receipt[name] != value for name, value in expected.items())):
         raise ContractError('receipt_identity_mismatch')
     if receipt['side_effects'] or receipt['verification_status'] != 'VERIFIED':
         raise ContractError('receipt_unverified_or_mutating')
@@ -180,10 +189,14 @@ def verify_completion(receipt: dict, packet_identity: dict, request: dict,
     if ai_mode and not receipt['model'].get('provider'):
         raise ContractError('receipt_ai_provider_missing')
     for name in ('runtime_verification', 'focused_tests', 'ci'):
-        if receipt[name]['status'] != 'PASS':
+        evidence = receipt[name]
+        if evidence['status'] != 'PASS':
             raise ContractError('receipt_' + name + '_not_pass')
-    if receipt['ci']['head_sha'] != packet_identity['code_sha']:
-        raise ContractError('receipt_ci_old_head')
+        if (evidence['head_sha'] != packet_identity['code_sha']
+                or evidence['identity'] != evidence_identity(
+                    name, evidence['reference'], receipt['task_key'], packet_identity,
+                    evidence['head_sha'])):
+            raise ContractError('receipt_' + name + '_identity_mismatch')
     created, available = timestamp(receipt['created_at']), timestamp(receipt['available_at'])
     if not causal_ready <= created <= available <= cutoff:
         raise ContractError('receipt_time_boundary')
@@ -194,10 +207,25 @@ def verify_completion(receipt: dict, packet_identity: dict, request: dict,
 APPROVAL_ACTIONS = frozenset({'fullrun', 'actual_broker', 'paper_book', 'target_book',
     'production_activation', 'live_trading', 'new_alpha_logic', 'er_weight_change',
     'risk_limit_relaxation', 'review_gate_relaxation', 'protected_evidence_change'})
+SAFE_ACTION_TIERS = {'read': 'T0_READ', 'compute': 'T1_COMPUTE',
+                     'prepare': 'T2_PREPARE', 'reversible_repo_write': 'T3_REVERSIBLE_WRITE'}
 RISK_TIERS = frozenset({'T0_READ', 'T1_COMPUTE', 'T2_PREPARE', 'T3_REVERSIBLE_WRITE',
                         'T4_ECONOMIC_MUTATION', 'T5_IRREVERSIBLE_OR_PROTECTED'})
 NOTIFY_STATES = frozenset({'BLOCKED', 'HUMAN_APPROVAL_REQUIRED', 'CORRECTION_REQUIRED',
                            'READY_TO_MERGE', 'DONE'})
+
+
+def post_merge_pass(event: dict, expected_pr_head: str) -> bool:
+    """Use only a typed pass bound to the observed merge and default-branch head."""
+    evidence = event.get('post_merge_verified')
+    merge_sha, default_head = event.get('merge_sha'), event.get('default_branch_head')
+    return (isinstance(evidence, dict) and evidence.get('status') == 'PASS'
+            and isinstance(evidence.get('identity'), str) and bool(evidence['identity'].strip())
+            and isinstance(merge_sha, str) and re.fullmatch(r'[0-9a-f]{40}', merge_sha) is not None
+            and event.get('merged_pr_head') == expected_pr_head
+            and evidence.get('pr_head_sha') == expected_pr_head
+            and merge_sha == default_head == evidence.get('merge_sha')
+            == evidence.get('default_branch_head'))
 
 
 def lifecycle_state(packet: dict | None, event: dict | None = None) -> dict:
@@ -215,8 +243,13 @@ def lifecycle_state(packet: dict | None, event: dict | None = None) -> dict:
         state = 'BLOCKED'
     elif (action in APPROVAL_ACTIONS or tier in ('T4_ECONOMIC_MUTATION', 'T5_IRREVERSIBLE_OR_PROTECTED')
           or any(effect in APPROVAL_ACTIONS for effect in effects if isinstance(effect, str))
-          or (effects and (tier != 'T3_REVERSIBLE_WRITE' or effects != ['reversible_repo_write']))):
+          or (effects and (tier != 'T3_REVERSIBLE_WRITE' or effects != ['reversible_repo_write']))
+          or (action is not None and action not in SAFE_ACTION_TIERS)):
         state = 'HUMAN_APPROVAL_REQUIRED'
+    elif ((action is not None and tier is not None and tier != SAFE_ACTION_TIERS[action])
+          or (action == 'reversible_repo_write' and
+              (tier != 'T3_REVERSIBLE_WRITE' or effects != ['reversible_repo_write']))):
+        state = 'BLOCKED'
     elif packet is None:
         state = 'QUEUED'
     elif packet['status'] == 'BLOCKED' or event.get('integrity_failure'):
@@ -240,10 +273,13 @@ def lifecycle_state(packet: dict | None, event: dict | None = None) -> dict:
     elif packet['status'] != 'SKIP_UNCHANGED':
         state = 'READY'
     elif event.get('review_complete') == 'PASS' and event.get('review_complete_head') == packet['identity']['code_sha']:
-        if event.get('merged'):
-            state = 'DONE' if event.get('post_merge_verified') else 'POST_MERGE_VERIFY'
-        else:
+        if event.get('merged') is True:
+            state = ('DONE' if post_merge_pass(event, packet['identity']['code_sha'])
+                     else 'POST_MERGE_VERIFY')
+        elif event.get('merged') is False or event.get('merged') is None:
             state = 'READY_TO_MERGE'
+        else:
+            state = 'BLOCKED'
     elif event.get('merged'):
         state = 'BLOCKED'
     else:

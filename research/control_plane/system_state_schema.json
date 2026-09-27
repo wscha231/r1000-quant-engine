@@ -399,60 +399,13 @@
             "pattern": "^[0-9a-f]{64}$"
           },
           "runtime_verification": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "identity",
-              "status"
-            ],
-            "properties": {
-              "identity": {
-                "type": "string",
-                "minLength": 1
-              },
-              "status": {
-                "const": "PASS"
-              }
-            }
+            "$ref": "#/$defs/task_evidence"
           },
           "focused_tests": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "identity",
-              "status"
-            ],
-            "properties": {
-              "identity": {
-                "type": "string",
-                "minLength": 1
-              },
-              "status": {
-                "const": "PASS"
-              }
-            }
+            "$ref": "#/$defs/task_evidence"
           },
           "ci": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "identity",
-              "status",
-              "head_sha"
-            ],
-            "properties": {
-              "identity": {
-                "type": "string",
-                "minLength": 1
-              },
-              "status": {
-                "const": "PASS"
-              },
-              "head_sha": {
-                "type": "string",
-                "pattern": "^[0-9a-f]{40}$"
-              }
-            }
+            "$ref": "#/$defs/task_evidence"
           },
           "side_effects": {
             "type": "array",
@@ -553,6 +506,28 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "A0 operator-supplied state; declarations are not economic certification",
   "$defs": {
+    "task_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "reference", "status", "head_sha"],
+      "properties": {
+        "identity": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "reference": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "const": "PASS"
+        },
+        "head_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    },
     "artifact": {
       "type": "object",
       "additionalProperties": false,

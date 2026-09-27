@@ -76,6 +76,10 @@ class ControlPlaneTests(unittest.TestCase):
         packet = next(t for t in self.tasks() if t['agent'] == agent)
         identity=packet['identity']
         hashes={role:item['sha256'] for role,item in packet['inputs'].items()}
+        def evidence(kind, reference):
+            return dict(identity=board.evidence_identity(kind, reference, packet['task_key'],
+                         identity, identity['code_sha']), reference=reference,
+                        status='PASS', head_sha=identity['code_sha'])
         receipt = dict(schema_version='verification-receipt-v2', agent=agent,
             task_key=packet['task_key'], status='SUCCEEDED', identity=copy.deepcopy(identity),
             source_hashes=copy.deepcopy(hashes), input_hashes=copy.deepcopy(hashes),
@@ -83,9 +87,9 @@ class ControlPlaneTests(unittest.TestCase):
             code_sha=identity['code_sha'], config_hash=identity['config_hash'],
             model=copy.deepcopy(identity['model']), parameter_hash=board.digest(identity['parameters']),
             outputs={role:self.artifact(agent+'_result_'+role) for role in packet['outputs']},
-            runtime_verification={'identity':'synthetic-runtime','status':'PASS'},
-            focused_tests={'identity':'synthetic-focused-test','status':'PASS'},
-            ci={'identity':'synthetic-ci','status':'PASS','head_sha':identity['code_sha']},
+            runtime_verification=evidence('runtime_verification','synthetic-runtime'),
+            focused_tests=evidence('focused_tests','synthetic-focused-test'),
+            ci=evidence('ci','synthetic-ci'),
             side_effects=[], reviewed_head=None, created_at=self.at(-9), available_at=self.at(-8),
             verification_status='VERIFIED', execution_mode='DETERMINISTIC_CODE',
             ai_invoked=False, ai_invocation_reason=None)
@@ -215,7 +219,64 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertEqual(board.lifecycle_state(packet,{**attested,'review_complete_head':'a'*40})['state'],
                          'READY_FOR_ATTESTATION')
         self.assertEqual(board.lifecycle_state(packet,{**attested,'merged':True})['state'],'POST_MERGE_VERIFY')
-        self.assertEqual(board.lifecycle_state(packet,{**attested,'merged':True,'post_merge_verified':True})['state'],'DONE')
+        self.assertEqual(board.lifecycle_state(packet,{**attested,'merged':True,'post_merge_verified':True})['state'],
+                         'POST_MERGE_VERIFY')
+
+    def test_post_merge_requires_current_merge_and_default_head_binding(self):
+        self.complete(); packet=self.tasks()[0]
+        head=packet['identity']['code_sha']; merge='b'*40; previous='c'*40
+        event=dict(ci='PASS',ci_head=head,ci_checks={'validate':'PASS','portfolio_guard':'PASS'},
+                   review='CLEAN',review_head=head,unresolved_findings=0,
+                   review_complete='PASS',review_complete_head=head,merged=True,
+                   merged_pr_head=head,merge_sha=merge,default_branch_head=merge)
+        pass_evidence=dict(status='PASS',identity='post-merge-check-run-1',
+                           pr_head_sha=head,merge_sha=merge,default_branch_head=merge)
+        for evidence in ('FAIL',True,{**pass_evidence,'merge_sha':previous},
+                         {**pass_evidence,'merge_sha':previous,'default_branch_head':previous}):
+            with self.subTest(evidence=evidence):
+                self.assertNotEqual(board.lifecycle_state(packet,{**event,
+                    'post_merge_verified':evidence})['state'],'DONE')
+        self.assertNotEqual(board.lifecycle_state(packet,{**event,'default_branch_head':previous,
+            'post_merge_verified':pass_evidence})['state'],'DONE')
+        self.assertNotEqual(board.lifecycle_state(packet,{**event,'merged_pr_head':previous,
+            'post_merge_verified':pass_evidence})['state'],'DONE')
+        self.assertNotEqual(board.lifecycle_state(packet,{**event,
+            'post_merge_verified':{**pass_evidence,'pr_head_sha':previous}})['state'],'DONE')
+        self.assertEqual(board.lifecycle_state(packet,{**event,
+            'post_merge_verified':pass_evidence})['state'],'DONE')
+
+    def test_unknown_action_cannot_use_ordinary_gate(self):
+        packet=self.tasks()[0]
+        for action in ('broker_order','portfolio_weight_change','target_write','novel_operation'):
+            with self.subTest(action=action):
+                self.assertEqual(board.lifecycle_state(packet,{'action':action})['state'],
+                                 'HUMAN_APPROVAL_REQUIRED')
+                self.assertEqual(board.lifecycle_state(packet,{'action':action,
+                    'risk_tier':'T0_READ'})['state'],'HUMAN_APPROVAL_REQUIRED')
+        for action,tier in (('read','T0_READ'),('compute','T1_COMPUTE')):
+            self.assertEqual(board.lifecycle_state(packet,{'action':action,'risk_tier':tier})['state'],
+                             'WAITING_CI')
+        self.assertEqual(board.lifecycle_state(packet,{'action':'read',
+            'risk_tier':'T4_ECONOMIC_MUTATION'})['state'],'HUMAN_APPROVAL_REQUIRED')
+        self.assertEqual(board.lifecycle_state(packet,{'action':'reversible_repo_write'})['state'],
+                         'BLOCKED')
+
+    def test_receipt_evidence_identity_cannot_be_borrowed_from_another_task(self):
+        receipt=self.complete(); self.assertEqual(self.tasks()[0]['status'],'SKIP_UNCHANGED')
+        original=copy.deepcopy(receipt)
+        for kind in ('runtime_verification','focused_tests','ci'):
+            with self.subTest(kind=kind):
+                receipt.clear(); receipt.update(copy.deepcopy(original))
+                record=receipt[kind]
+                record['identity']=board.evidence_identity(kind,record['reference'],
+                    'f'*64,receipt['identity'],record['head_sha'])
+                self.assertEqual(self.tasks()[0]['status'],'BLOCKED')
+        receipt.clear(); receipt.update(copy.deepcopy(original))
+        receipt['ci']['head_sha']='a'*40
+        self.assertEqual(self.tasks()[0]['status'],'BLOCKED')
+        receipt.clear(); receipt.update(copy.deepcopy(original))
+        receipt['reviewed_head']=receipt['code_sha']
+        self.assertEqual(self.tasks()[0]['status'],'SKIP_UNCHANGED')
 
     def test_approval_and_notification_boundaries_no_polling(self):
         packet=self.tasks()[0]
@@ -306,7 +367,9 @@ class ControlPlaneTests(unittest.TestCase):
     def test_dependency_receipt_metadata_does_not_change_content_identity(self):
         self.add_request('A2'); upstream=self.complete(); self.complete('A2')
         before=self.tasks()[1]['task_key']
-        upstream['ci']['identity']='same-head-independent-ci-run'
+        upstream['ci']['reference']='same-head-independent-ci-run'
+        upstream['ci']['identity']=board.evidence_identity('ci',upstream['ci']['reference'],
+            upstream['task_key'],upstream['identity'],upstream['ci']['head_sha'])
         self.assertEqual(self.tasks()[1]['task_key'],before)
         self.assertEqual(self.tasks()[1]['status'],'SKIP_UNCHANGED')
 
