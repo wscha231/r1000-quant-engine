@@ -138,6 +138,8 @@ the required app identity. If the observed set contains `review_complete`, that
 context is excluded from pre-attestation CI to avoid a circular wait. Its later
 PASS must carry the exact PR/head, check identity, and GitHub Actions app ID;
 the same attestation binding applies when the ruleset lists only the two CI checks.
+The current `review_complete@15368` check result must also be PASS, so a stale
+structured PASS cannot override a conflicting current FAIL.
 The pure reducer cannot authenticate GitHub itself: the trusted caller must fetch
 the live ruleset and base together, not accept a worker-provided subset or old observation.
 

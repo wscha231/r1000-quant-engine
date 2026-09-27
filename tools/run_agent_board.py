@@ -284,6 +284,8 @@ def review_complete_pass(event: dict, packet: dict) -> bool:
                    and row.get('context') == 'review_complete']
     if attestation and attestation != [{'context': 'review_complete', 'integration_id': 15368}]:
         return False
+    if event.get('ci_checks', {}).get('review_complete@15368') != 'PASS':
+        return False
     return (evidence.get('context') == 'review_complete'
             and evidence.get('integration_id') == 15368
             and evidence.get('status') == 'PASS'

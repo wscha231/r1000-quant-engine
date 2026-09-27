@@ -13,6 +13,7 @@
 - Read the complete current required-check policy and require every non-attestation check to pass; two hard-coded checks alone cannot represent a later branch-protection change.
 - Bind that check set to an authenticated current ruleset observation, including app IDs, PR head and strict base freshness; a caller-supplied list alone can omit a new failing check.
 - Evaluate `review_complete` after attestation even if listed in required checks; bind its PASS to the exact PR/head and required GitHub Actions app, so it cannot deadlock pre-attestation or borrow another app's result.
+- Require the current check map to agree with the structured attestation PASS; an older PASS must not override a current FAIL for the same app/context.
 - Python booleans are integers; an unresolved-finding count must be a real integer, so `False` cannot masquerade as zero at the review gate.
 
 ## 2026-09-27 — Exact A0 trust boundaries for merge, action and test evidence

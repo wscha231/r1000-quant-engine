@@ -241,9 +241,13 @@ class ControlPlaneTests(unittest.TestCase):
                                  ('READY_FOR_ATTESTATION','READY_TO_MERGE'))
         attested={**event,'review_complete':'PASS','review_complete_head':head,
                   'review_complete_scope':packet['review_scope'],
+                  'ci_checks':{**event['ci_checks'],'review_complete@15368':'PASS'},
                   'review_complete_evidence':dict(context='review_complete',integration_id=15368,
                       status='PASS',head_sha=head,scope=packet['review_scope'],identity='check-run-1')}
         self.assertEqual(board.lifecycle_state(packet,attested)['state'],'READY_TO_MERGE')
+        self.assertEqual(board.lifecycle_state(packet,{**attested,
+            'ci_checks':{**attested['ci_checks'],'review_complete@15368':'FAIL'}})['state'],
+            'READY_FOR_ATTESTATION')
         ruleset_only={**policy,'checks':policy['checks'][:2]}
         self.assertEqual(board.lifecycle_state(packet,{**attested,
             'required_checks_policy':ruleset_only})['state'],'READY_TO_MERGE')
@@ -277,7 +281,8 @@ class ControlPlaneTests(unittest.TestCase):
                     identity='github-ruleset-observation-1',
                     checks=[dict(context=name,integration_id=15368)
                             for name in ('validate','portfolio_guard','review_complete')])
-        event=dict(ci='PASS',ci_head=head,ci_checks={'validate@15368':'PASS','portfolio_guard@15368':'PASS'},
+        event=dict(ci='PASS',ci_head=head,ci_checks={'validate@15368':'PASS',
+                   'portfolio_guard@15368':'PASS','review_complete@15368':'PASS'},
                    required_checks_policy=policy,current_base_sha='b'*40,
                    base_ancestor_verified=True,
                    review='CLEAN',review_head=head,unresolved_findings=0,
