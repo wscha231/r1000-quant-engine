@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
-from tools.long_history_lake import Lake,LocalTransport,sec_rows,fact_coverage,issuer_queue,encoded,digest,materialize,wb_rows,PREFIX
+from tools.long_history_lake import Lake,LocalTransport,SourceHTTPError,sec_rows,fact_coverage,issuer_queue,encoded,digest,materialize,wb_rows,PREFIX
 
 
 def source():
@@ -155,9 +155,110 @@ class HistoryTest(unittest.TestCase):
     def test_whole_cohort_and_missing_mapping(self):
         members=[dict(ticker='A'+str(i)) for i in range(1000)]
         mapping={str(i):dict(ticker='A'+str(i),cik_str=i+1) for i in range(999)}
-        groups,missing=issuer_queue(members,mapping)
+        groups,missing,resolution=issuer_queue(members,mapping)
         self.assertEqual(len(groups),999); self.assertEqual(len(missing),1)
+        self.assertTrue(resolution[-1]['lifecycle_review_required'])
+        with self.assertRaisesRegex(ValueError,'cik_identity'):
+            issuer_queue(members,{'0':dict(ticker='A0',cik_str=0)})
         with self.assertRaisesRegex(ValueError,'cohort_below_1000'): issuer_queue(members[:2],mapping)
+
+    def test_history_mapping_is_role_bound_and_never_current_eligibility(self):
+        from tools.long_history_lake import prior_sec_mapping
+        members=[dict(ticker='A'+str(i)) for i in range(1000)]
+        cohort=encoded(dict(candidate_count=1000,as_of='2026-09-12',rows=members))
+        prior=encoded({'0':dict(ticker='A999',cik_str=1000)})
+        self.lake.dataset('universe/cohort',[cohort,prior],members,dict(
+            evidence='CURRENT_COHORT_NOT_HISTORICAL_MEMBERSHIP',requested_securities=1000))
+        entry=self.lake.catalog['datasets']['universe/cohort']
+        cohort_sha,mapping_sha=entry['raw_objects']
+        entry.update(source_role_contract_version='cohort-sec-mapping-v1',
+            cohort_source_object_sha256=cohort_sha,sec_ticker_mapping_object_sha256=mapping_sha,
+            sec_ticker_mapping_source_sha256=digest(prior),
+            sec_ticker_mapping_retrieved_at='2026-09-12T00:00:00+00:00')
+        with patch('tools.long_history_lake.COHORT_SHA',digest(cohort)):
+            entry['raw_objects']=[mapping_sha,cohort_sha]
+            mapping=prior_sec_mapping(self.lake)
+            self.assertIsNotNone(mapping)
+            current={'0':dict(ticker='A0',cik_str=1)}
+            groups,missing,resolution=issuer_queue(members,current,mapping)
+            self.assertEqual(groups['0000001000'],['A999'])
+            self.assertEqual(resolution[-1]['identity_status'],
+                             'PRIOR_SEC_MAPPING_RETAINED_LIFECYCLE_REVIEW')
+            self.assertFalse(resolution[-1]['current_mapping_present'])
+            self.assertTrue(resolution[-1]['lifecycle_review_required'])
+            self.assertEqual(len(missing),998)
+            entry.pop('sec_ticker_mapping_object_sha256')
+            self.assertIsNone(prior_sec_mapping(self.lake))
+            entry.pop('source_role_contract_version')
+            self.lake.catalog['code_sha']='f'*40
+            self.assertIsNone(prior_sec_mapping(self.lake))
+            entry['raw_objects']=[cohort_sha,mapping_sha]
+            self.lake.catalog['code_sha']='4f8ecd3186539e84d4243d01b98f29e87e902337'
+            self.assertIsNotNone(prior_sec_mapping(self.lake))
+            entry['raw_objects']=[mapping_sha,cohort_sha]
+            self.assertIsNone(prior_sec_mapping(self.lake))
+
+    def test_companyfacts_404_archives_official_role_but_never_facts(self):
+        from tools.long_history_lake import collect_financials,diagnostics
+        members=[dict(ticker='A'+str(i)) for i in range(1000)]
+        cohort=self.root/'cohort.json'
+        cohort.write_bytes(encoded(dict(candidate_count=1000,as_of='2026-09-12',rows=members)))
+        current=encoded({'0':dict(ticker='A0',cik_str=1)})
+        resolution=[dict(ticker='A0',cik='0000000001',identity_status='CURRENT_SEC_MAPPING',
+                         lifecycle_review_required=False)]
+        submissions=encoded(dict(cik=1,filings=dict(recent=dict(
+            form=['10-K','13F-HR'],accessionNumber=['0000000001-26-000001','0000000001-26-000002']))))
+        with patch('tools.long_history_lake.COHORT_SHA',digest(cohort.read_bytes())), \
+             patch('tools.long_history_lake.issuer_queue',return_value=({'0000000001':['A0']},[],resolution)), \
+             patch('tools.long_history_lake.get_public',side_effect=[(current,{}),SourceHTTPError(404),
+                 (submissions,{})]):
+            collect_financials(self.lake,cohort,'2016-01-01','2026-09-12')
+        key='sec/0000000001'; entry=self.lake.catalog['datasets'][key]
+        self.assertEqual(entry['status'],'COVERAGE_GAP')
+        self.assertEqual(entry['coverage_gap_reason'],
+                         'SEC_COMPANYFACTS_UNAVAILABLE_ISSUER_FILINGS_PRESENT')
+        self.assertEqual(entry['submissions_source_sha256'],digest(submissions))
+        self.assertEqual(entry['issuer_accessions'],['0000000001-26-000001'])
+        self.assertIsNone(entry['normalized'])
+        with self.assertRaisesRegex(ValueError,'stale_dataset'): self.lake.get_records(key)
+        with self.assertRaisesRegex(ValueError,'stale_dataset'):
+            materialize(self.lake,self.root/'gap.sqlite',[key],'2026-09-12')
+        report=diagnostics(self.lake)
+        self.assertEqual(report['status'],'PARTIAL_COVERAGE')
+        self.assertFalse(report['eligible_for_selector'])
+        self.assertIn(key,report['provider_coverage_gaps'])
+        self.lake.publish('gap',{})
+        restored=Lake(self.t,self.root/'restored')
+        self.assertEqual(restored.catalog['datasets'][key]['submissions_source_sha256'],digest(submissions))
+
+    def test_companyfacts_404_without_valid_submissions_stays_blocked(self):
+        from tools.long_history_lake import collect_financials
+        members=[dict(ticker='A'+str(i)) for i in range(1000)]
+        cohort=self.root/'cohort.json'
+        cohort.write_bytes(encoded(dict(candidate_count=1000,as_of='2026-09-12',rows=members)))
+        resolution=[dict(ticker='A0',cik='0000000001',identity_status='CURRENT_SEC_MAPPING',
+                         lifecycle_review_required=False)]
+        with patch('tools.long_history_lake.COHORT_SHA',digest(cohort.read_bytes())), \
+             patch('tools.long_history_lake.issuer_queue',return_value=({'0000000001':['A0']},[],resolution)), \
+             patch('tools.long_history_lake.get_public',side_effect=[(b'{}',{}),SourceHTTPError(404),
+                 (encoded(dict(cik=2,filings=dict(recent=dict(form=['10-K'])))),{})]):
+            collect_financials(self.lake,cohort,'2016-01-01','2026-09-12')
+        entry=self.lake.catalog['datasets']['sec/0000000001']
+        self.assertEqual(entry['status'],'BLOCKED')
+        self.assertIsNone(entry.get('normalized'))
+
+    def test_ownership_only_submissions_do_not_prove_fundamental_issuer_role(self):
+        from tools.long_history_lake import sec_submissions_profile
+        raw=encoded(dict(cik=1,filings=dict(recent=dict(form=['13F-HR','4'],
+            accessionNumber=['0000000001-26-000001','0000000001-26-000002']))))
+        profile=sec_submissions_profile(raw,'0000000001')
+        self.assertFalse(profile['has_fundamental_issuer_role'])
+        self.assertEqual(profile['issuer_accessions'],[])
+        with self.assertRaisesRegex(ValueError,'sec_submissions_identity'):
+            sec_submissions_profile(raw,'0000000002')
+        with self.assertRaisesRegex(ValueError,'sec_submissions_accessions'):
+            sec_submissions_profile(encoded(dict(cik=1,filings=dict(recent=dict(form=['10-K'])))),
+                                    '0000000001')
 
     def test_schema_and_window_changes_invalidate_http_validators(self):
         from tools.long_history_lake import sec_conditional,extraction_identity
@@ -192,7 +293,7 @@ class HistoryTest(unittest.TestCase):
     def test_unmapped_security_keeps_cycle_partial(self):
         from tools.long_history_lake import diagnostics
         self.lake.catalog['datasets']['universe/cohort']=dict(status='COLLECTED',active_issuer_keys=[],missing=[dict(ticker='HOLX')])
-        self.assertEqual(diagnostics(self.lake)['status'],'PARTIAL')
+        self.assertEqual(diagnostics(self.lake)['status'],'PARTIAL_COVERAGE')
 
     def test_country_year_missing_coverage(self):
         from tools.long_history_lake import wb_coverage
@@ -411,7 +512,9 @@ class HistoryTest(unittest.TestCase):
         before=self.t.names(PREFIX+'/commits')
         next((self.root/'remote'/PREFIX/'packs').iterdir()).unlink()
         with patch('tools.long_history_lake.COHORT_SHA',digest(cohort.read_bytes())), \
-             patch('tools.long_history_lake.issuer_queue',return_value=({'0000000001':['A']},[])), \
+             patch('tools.long_history_lake.issuer_queue',return_value=({'0000000001':['A']},[],[
+                 dict(ticker='A',cik='0000000001',identity_status='CURRENT_SEC_MAPPING',
+                      lifecycle_review_required=False)])), \
              patch('tools.long_history_lake.get_public',side_effect=[(b'{}',{}),(None,{'etag':'v1'})]) as fetch:
             collect_financials(reader,cohort,'2016-01-01','2026-09-12')
             self.assertEqual(fetch.call_args.args[1],{'etag':'v1'})
