@@ -1,5 +1,13 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-27 — SEC coverage gaps and issuer lifecycle identity
+
+- Latest directly read durable execution `30392ac5bd890ab273deed4aeccc82a9ec6330c5015ee890aeb3b3c5767174b7` binds catalog `ec25a042c07cddc18bafdc6a8d7e89384731d69510eeda037ac084a83b7f9487`; its quality report is PARTIAL with two SEC HTTP 404s and HOLX without a current CIK match. NFCI no longer appears in its provider failures; historical PIT remains false.
+- Preserve prior SEC mapping only as a verified historical collection identity. Explicit source-role hashes prevent raw-object ordering from becoming a permanent contract; legacy recovery requires a known producer and byte-validated cohort and mapping.
+- A Companyfacts 404 with valid same-CIK submissions is an archived coverage gap, never financial facts or current eligibility. Keep current-mapped and history-retained issuer counts separate and fail the selector gate while lifecycle or source coverage remains open.
+- A consumer admission guard must not prevent the collector from rebuilding a valid price prefix after a transient stale state. Internal lineage recovery may read verified old bytes, while ordinary readers remain blocked until a fresh provider response succeeds.
+- Every producer and workflow reader of cohort/mapping raw objects must use the same source-role contract. Persist historical mapping source hashes across generations and scan the verified legacy chain at migration; the latest mapping alone cannot retain a ticker that disappeared earlier.
+
 ## 2026-09-27 — A0 completion evidence must cover output bytes and causal time
 
 - A receipt cannot certify an output collected at or after the receipt was created. Require each output to follow its causal inputs and finish collection strictly before the receipt is issued.
@@ -5376,3 +5384,20 @@ Expected contract:
 - Non-404 fetch errors, changed source bytes, and unsafe public JSON remain
   failures. This repairs site bootstrapping, not the stale paper ledger or
   portfolio/performance evidence.
+
+### 2026-09-27 — SEC ticker mapping changes require both issuer archives
+
+- A current CIK can coexist with a distinct CIK in verified prior SEC ticker
+  mappings. Choosing the current one alone silently drops the old issuer's
+  Companyfacts history. Queue both CIKs, label the old one history-retained,
+  and require lifecycle review even when both fetches succeed. Mapping history
+  is collection evidence, not proof of security identity or historical PIT.
+- If that ticker subsequently disappears from the current mapping, retain all
+  verified prior CIKs for collection. Record multiple alternatives as an
+  explicit ambiguous identity gap instead of stopping their archive refresh.
+- A persisted historical source hash that cannot be read or validated is a
+  provenance failure, not an empty mapping. Propagate it before replacing the
+  cohort catalog; otherwise a transient read error destroys the source list.
+- A later ambiguous current mapping also must not stop verified prior CIK
+  collection. Preserve those archives as history-only while blocking current
+  issuer admission and lifecycle certification for that ticker.

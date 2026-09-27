@@ -46,8 +46,25 @@ ARCHIVES = ('UNRATE','PAYEMS','CPIAUCSL','PCEPILFE','RSAFS','DSPIC96','PSAVERT',
 COUNTRIES = ('USA','CHN','JPN','KOR','EMU')
 WB_INDICATORS = ('NY.GDP.MKTP.KD.ZG','FP.CPI.TOTL.ZG','SP.POP.TOTL','SP.POP.65UP.TO.ZS')
 FORMS = {'10-K','10-K/A','10-Q','10-Q/A','20-F','20-F/A','40-F','40-F/A','6-K','6-K/A'}
+LEGACY_SEC_MAPPING_PRODUCERS = frozenset({
+    'aafcc11fab92d5cc14448652799f213aa8a26408',
+    '09ce60ff1e55ced7fb309301d67b388aa2f45dd5',
+    '1c48a92587f5b31c355804e694f03ece2cc52acd',
+    '74765812b8f198818289ae1e082ee0ac70b18c2a',
+    'd5a9cb11627d42432bddc7a72dfb7ff9d8dae30d',
+    '8af844c74521a75c71cec37a1672540dadae86e3',
+    'f20410549464e3f2557ae6d90ba8b20ee8bcc42e',
+    '2b0e9dbe7084069ecc5f1749a33d9d497483a10c',
+    '4f8ecd3186539e84d4243d01b98f29e87e902337',
+})
 _LOCK = threading.Lock()
 _LAST = 0.0
+
+
+class SourceHTTPError(ValueError):
+    def __init__(self, code):
+        self.code = code
+        super().__init__('HTTP_'+str(code))
 
 
 def packed(raw):
@@ -91,7 +108,7 @@ def get_public(url, conditional=None):
             if exc.code in (429,500,502,503,504) and attempt < 2:
                 time.sleep(2**attempt)
                 continue
-            raise ValueError('HTTP_'+str(exc.code)) from None
+            raise SourceHTTPError(exc.code) from None
         except (URLError, TimeoutError, OSError):
             if attempt < 2:
                 time.sleep(2**attempt)
@@ -193,25 +210,162 @@ def fred_missing(rows,missing):
         missing_observation_dates=dates)
 
 
-def issuer_queue(members, mapping):
+def sec_ticker_lookup(mapping):
+    require(isinstance(mapping,dict) and bool(mapping),'sec_ticker_mapping_schema')
+    lookup={}
+    for row in mapping.values():
+        require(isinstance(row,dict),'sec_ticker_mapping_row')
+        symbol=row.get('ticker')
+        require(isinstance(symbol,str) and bool(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9.-]{0,14}',symbol)),
+                'sec_ticker_identity')
+        raw_cik=row.get('cik_str')
+        require(type(raw_cik) in (int,str) and str(raw_cik).isdigit() and int(raw_cik)>0,
+                'cik_identity')
+        cik=str(raw_cik).zfill(10)
+        require(re.fullmatch(r'\d{10}',cik),'cik_identity')
+        lookup.setdefault(symbol.upper().replace('.','-'),set()).add(cik)
+    return lookup
+
+
+def verified_cohort_source(lake,catalog=None):
+    """Verify both source roles; legacy order is valid only for reviewed producers."""
+    catalog=catalog or lake.catalog
+    old=catalog['datasets'].get('universe/cohort',{})
+    objects=old.get('raw_objects')
+    require(old.get('evidence')=='CURRENT_COHORT_NOT_HISTORICAL_MEMBERSHIP'
+            and isinstance(objects,list) and len(objects)==2 and objects[0]!=objects[1],
+            'cohort_source_role')
+    role=old.get('source_role_contract_version')
+    if role=='cohort-sec-mapping-v1':
+        cohort_sha=old.get('cohort_source_object_sha256')
+        mapping_sha=old.get('sec_ticker_mapping_object_sha256')
+        require(isinstance(cohort_sha,str) and isinstance(mapping_sha,str)
+                and set(objects)=={cohort_sha,mapping_sha}
+                and isinstance(old.get('sec_ticker_mapping_retrieved_at'),str),
+                'cohort_source_role')
+    else:
+        require(role is None and catalog.get('code_sha') in LEGACY_SEC_MAPPING_PRODUCERS,
+                'cohort_legacy_producer')
+        cohort_sha,mapping_sha=objects
+    cohort=unpacked(lake.get_bytes(cohort_sha))
+    require(digest(cohort)==COHORT_SHA,'durable_cohort_identity')
+    payload=json.loads(cohort)
+    require(isinstance(payload,dict) and isinstance(payload.get('rows'),list)
+            and type(payload.get('candidate_count')) is int
+            and payload['candidate_count']==len(payload['rows'])==old.get('requested_securities')
+            and isinstance(payload.get('as_of'),str), 'durable_cohort_schema')
+    date.fromisoformat(payload['as_of'])
+    mapping_raw=unpacked(lake.get_bytes(mapping_sha))
+    if role=='cohort-sec-mapping-v1':
+        require(digest(mapping_raw)==old.get('sec_ticker_mapping_source_sha256'),
+                'sec_ticker_mapping_source_hash')
+    mapping=json.loads(mapping_raw)
+    sec_ticker_lookup(mapping)
+    return cohort,mapping_sha,mapping
+
+
+def prior_sec_mapping(lake,with_sources=False):
+    """Retain verified official mappings across generations, without current eligibility."""
+    if 'universe/cohort' not in lake.catalog['datasets']:
+        return (None,[]) if with_sources else None
+    sources=[]; seen=set()
+    _,sha,mapping=verified_cohort_source(lake)
+    sources.append((sha,mapping)); seen.add(sha)
+    historical=lake.catalog['datasets']['universe/cohort'].get('historical_sec_mapping_object_sha256s')
+    if historical is not None:
+        require(isinstance(historical,list) and len(historical)==len(set(historical)),
+                'historical_mapping_roles')
+        for source_sha in historical:
+            require(isinstance(source_sha,str) and re.fullmatch(r'[0-9a-f]{64}',source_sha),
+                    'historical_mapping_role_sha')
+            if source_sha in seen: continue
+            value=json.loads(unpacked(lake.get_bytes(source_sha)))
+            sec_ticker_lookup(value)
+            sources.append((source_sha,value)); seen.add(source_sha)
+    else:
+        cursor=lake.parent
+        while cursor:
+            commit=json.loads(lake.read_hash('commits',cursor))
+            cursor=commit['parent']
+            if cursor is None: break
+            older=json.loads(lake.read_hash('commits',cursor))
+            catalog=json.loads(lake.read_hash('catalogs',older['catalog']))
+            if 'universe/cohort' not in catalog['datasets']:
+                continue
+            _,source_sha,value=verified_cohort_source(lake,catalog)
+            if source_sha not in seen:
+                sources.append((source_sha,value)); seen.add(source_sha)
+    rows={(row['ticker'],str(row['cik_str']).zfill(10)) for _,mapping in sources
+          for row in mapping.values()}
+    combined={str(i):dict(ticker=ticker,cik_str=cik)
+              for i,(ticker,cik) in enumerate(sorted(rows))}
+    result=(combined if combined else None,[sha for sha,_ in sources])
+    return result if with_sources else result[0]
+
+
+def issuer_queue(members, mapping, prior_mapping=None):
     require(isinstance(members,list) and len(members)>=1000,'cohort_below_1000')
     symbols = [r['ticker'] for r in members]
     require(len(symbols)==len(set(symbols)), 'duplicate_security')
-    lookup = {}
-    for r in mapping.values():
-        key = r['ticker'].upper().replace('.','-')
-        cik = str(r['cik_str']).zfill(10)
-        require(re.fullmatch(r'\d{10}',cik), 'cik_identity')
-        lookup.setdefault(key,set()).add(cik)
-    groups, missing = {}, []
+    lookup=sec_ticker_lookup(mapping)
+    prior=sec_ticker_lookup(prior_mapping) if prior_mapping is not None else {}
+    groups,missing,resolution={},[],[]
     for symbol in symbols:
         require(isinstance(symbol,str) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9.-]{0,14}',symbol),'ticker_identity')
-        matches = lookup.get(symbol.upper().replace('.','-'),set())
+        key=symbol.upper().replace('.','-')
+        matches=lookup.get(key,set())
+        prior_matches=prior.get(key,set())
         if len(matches)==1:
-            groups.setdefault(next(iter(matches)),[]).append(symbol)
+            cik=next(iter(matches))
+            groups.setdefault(cik,[]).append(symbol)
+            history=sorted(prior_matches-{cik})
+            for old_cik in history:
+                groups.setdefault(old_cik,[]).append(symbol)
+            resolution.append(dict(ticker=symbol,cik=cik,
+                identity_status=('CURRENT_SEC_MAPPING_WITH_HISTORY_CONFLICT' if history
+                    else 'CURRENT_SEC_MAPPING'),
+                history_retained_ciks=history,current_mapping_present=True,
+                lifecycle_review_required=bool(history)))
+        elif not matches and prior_matches:
+            history=sorted(prior_matches)
+            for old_cik in history:
+                groups.setdefault(old_cik,[]).append(symbol)
+            if len(history)>1:
+                missing.append(dict(ticker=symbol,reason='CIK_HISTORICAL_AMBIGUOUS',
+                    current_ciks=[],prior_ciks=history))
+            resolution.append(dict(ticker=symbol,cik=history[0] if len(history)==1 else None,
+                identity_status=('PRIOR_SEC_MAPPING_RETAINED_LIFECYCLE_REVIEW'
+                    if len(history)==1 else 'PRIOR_SEC_MAPPING_AMBIGUOUS_LIFECYCLE_REVIEW'),
+                history_retained_ciks=history,current_mapping_present=False,
+                lifecycle_review_required=True))
         else:
-            missing.append(dict(ticker=symbol,reason='CIK_MISSING_OR_AMBIGUOUS'))
-    return groups, missing
+            history=sorted(prior_matches)
+            for old_cik in history:
+                groups.setdefault(old_cik,[]).append(symbol)
+            missing.append(dict(ticker=symbol,reason='CIK_MISSING_OR_AMBIGUOUS',
+                current_ciks=sorted(matches),prior_ciks=sorted(prior_matches)))
+            resolution.append(dict(ticker=symbol,cik=None,identity_status='CIK_MISSING_OR_AMBIGUOUS',
+                history_retained_ciks=history,current_mapping_present=bool(matches),
+                lifecycle_review_required=True))
+    return groups,missing,resolution
+
+
+def sec_submissions_profile(raw,cik):
+    payload=json.loads(raw)
+    require(str(payload.get('cik','')).zfill(10)==cik,'sec_submissions_identity')
+    recent=((payload.get('filings') or {}).get('recent') or {})
+    forms=recent.get('form')
+    require(isinstance(forms,list) and all(isinstance(v,str) for v in forms),'sec_submissions_forms')
+    accessions=recent.get('accessionNumber')
+    require(isinstance(accessions,list) and len(accessions)==len(forms)
+            and all(isinstance(v,str) and re.fullmatch(r'\d{10}-\d{2}-\d{6}',v)
+                    for v in accessions),
+            'sec_submissions_accessions')
+    clean=sorted(set(forms))
+    issuer_forms=sorted(set(clean)&FORMS)
+    issuer_accessions=sorted({accessions[i] for i,form in enumerate(forms) if form in FORMS})
+    return dict(cik=cik,issuer_forms=issuer_forms,has_fundamental_issuer_role=bool(issuer_forms),
+        issuer_accessions=issuer_accessions,recent_forms=clean)
 
 
 def wb_rows(raw, indicator, start, through, retrieved):
@@ -370,6 +524,15 @@ class Lake:
         self.catalog['datasets'][key]=dict(old,status='STALE_RETAINED' if old.get('objects') else 'BLOCKED',
             last_failure=safe_error(exc),checked_at=utc_now())
 
+    def coverage_gap(self,key,pages,metadata):
+        """Archive official identity bytes without inventing financial observations."""
+        require(isinstance(pages,list) and bool(pages),'coverage_gap_pages')
+        raw_hashes=[self.object(packed(page)) for page in pages]
+        old=self.catalog['datasets'].get(key,{})
+        self.catalog['datasets'][key]=dict(metadata,status='COVERAGE_GAP',
+            objects=raw_hashes,raw_objects=raw_hashes,normalized=None,
+            changed=old.get('objects')!=raw_hashes,checked_at=utc_now())
+
     def get_bytes(self,sha):
         if sha in self.pending:
             raw=self.pending[sha].read_bytes()
@@ -389,7 +552,15 @@ class Lake:
         return raw
 
     def get_records(self,key):
-        raw=self.get_bytes(self.catalog['datasets'][key]['normalized'])
+        entry=self.catalog['datasets'][key]
+        require(entry['status'] in ('COLLECTED','UNCHANGED') and isinstance(entry.get('normalized'),str),
+                'stale_dataset')
+        return self._verified_normalized_records(entry)
+
+    def _verified_normalized_records(self,entry):
+        """Internal lineage recovery; caller must never treat stale bytes as admitted input."""
+        require(isinstance(entry.get('normalized'),str),'normalized_missing')
+        raw=self.get_bytes(entry['normalized'])
         return [json.loads(line) for line in unpacked(raw).splitlines()]
 
     def verified_execution(self):
@@ -423,7 +594,7 @@ class Lake:
         quality=json.loads(verified['quality.json'])
         require(quality.get('schema')=='long-history-quality-v1' and
                 quality.get('eligible_for_selector') is False and
-                quality.get('status') in {'PARTIAL','COLLECTED_NOT_PIT_CERTIFIED'} and
+                quality.get('status') in {'PARTIAL','PARTIAL_COVERAGE','COLLECTED_NOT_PIT_CERTIFIED'} and
                 quality['status']==receipt.get('quality_status'),'execution_quality_mismatch')
         return dict(receipt,execution_receipt_sha256=sha)
 
@@ -481,10 +652,30 @@ def collect_financials(lake,cohort,start,through):
     members=payload['rows']
     require(payload['candidate_count']==len(members) and payload['as_of']<=through,'cohort_identity')
     mapping_raw,_=get_public('https://www.sec.gov/files/company_tickers.json')
-    groups,missing=issuer_queue(members,json.loads(mapping_raw))
+    prior_mapping,prior_sources=prior_sec_mapping(lake,with_sources=True)
+    groups,missing,resolution=issuer_queue(members,json.loads(mapping_raw),prior_mapping)
+    current_ciks={row['cik'] for row in resolution if row['identity_status'] in
+        ('CURRENT_SEC_MAPPING','CURRENT_SEC_MAPPING_WITH_HISTORY_CONFLICT')}
+    history_ciks={cik for row in resolution for cik in row.get('history_retained_ciks',
+        [row['cik']] if row['identity_status']=='PRIOR_SEC_MAPPING_RETAINED_LIFECYCLE_REVIEW' else [])}
+    retrieved=utc_now()
     lake.dataset('universe/cohort',[raw,mapping_raw],members,dict(evidence='CURRENT_COHORT_NOT_HISTORICAL_MEMBERSHIP',
-        rows=len(members),requested_securities=len(members),mapped_issuers=len(groups),
-        active_issuer_keys=sorted('sec/'+cik for cik in groups),missing=missing))
+        rows=len(members),requested_securities=len(members),mapped_issuers=len(current_ciks),
+        current_mapped_issuer_count=len(current_ciks),history_retained_issuer_count=len(history_ciks),
+        collection_issuer_count=len(groups),
+        current_mapping_issuer_keys=sorted('sec/'+cik for cik in current_ciks),
+        history_retained_issuer_keys=sorted('sec/'+cik for cik in history_ciks),
+        collection_issuer_keys=sorted('sec/'+cik for cik in groups),
+        active_issuer_keys=sorted('sec/'+cik for cik in groups),missing=missing,
+        lifecycle_review_count=sum(row['lifecycle_review_required'] for row in resolution),
+        sec_identity_resolution=resolution,
+        cohort_source_object_sha256=digest(packed(raw)),
+        sec_ticker_mapping_object_sha256=digest(packed(mapping_raw)),
+        sec_ticker_mapping_source_sha256=digest(mapping_raw),
+        sec_ticker_mapping_retrieved_at=retrieved,
+        historical_sec_mapping_object_sha256s=list(dict.fromkeys(
+            [digest(packed(mapping_raw))]+prior_sources)),
+        source_role_contract_version='cohort-sec-mapping-v1'))
     def one(item):
         cik,symbols=item; key='sec/'+cik
         old=lake.catalog['datasets'].get(key,{})
@@ -507,13 +698,31 @@ def collect_financials(lake,cohort,start,through):
                 rejected_rows=rejected,**fact_coverage(rows,start,through))
             return key,[data],rows,metadata
         except (ValueError,KeyError,TypeError,OSError) as exc:
+            if isinstance(exc,SourceHTTPError) and exc.code==404:
+                try:
+                    submissions,_=get_public(f'https://data.sec.gov/submissions/CIK{cik}.json')
+                    profile=sec_submissions_profile(submissions,cik)
+                    reason=('SEC_COMPANYFACTS_UNAVAILABLE_ISSUER_FILINGS_PRESENT'
+                        if profile['has_fundamental_issuer_role']
+                        else 'SEC_FUNDAMENTAL_ENTITY_ROLE_UNRESOLVED')
+                    now=utc_now()
+                    return key,[submissions],None,dict(coverage_gap=True,coverage_gap_reason=reason,
+                        tickers=symbols,start=start,through=through,
+                        evidence='SEC_SUBMISSIONS_ROLE_EVIDENCE_NO_COMPANYFACTS',
+                        retrieved_at=now,available_at=now,submissions_source_sha256=digest(submissions),
+                        **profile)
+                except (ValueError,KeyError,TypeError,OSError) as sub_exc:
+                    return key,None,None,ValueError('SEC_SUBMISSIONS_'+safe_error(sub_exc))
             return key,None,None,exc
     for count,(key,pages,rows,result) in enumerate(ThreadPoolExecutor(max_workers=6).map(one,sorted(groups.items())),1):
         if isinstance(result,Exception): lake.blocked(key,result)
+        elif result.get('coverage_gap') is True: lake.coverage_gap(key,pages,result)
         elif pages is None: lake.catalog['datasets'][key]=result
         else: lake.dataset(key,pages,rows,result)
         if count%100==0: print(json.dumps(dict(phase='SEC_COLLECTED',issuers=count,total=len(groups))),flush=True)
-    return dict(requested_securities=len(members),mapped_issuers=len(groups),missing=missing)
+    return dict(requested_securities=len(members),mapped_issuers=len(current_ciks),
+        history_retained_issuer_count=len(history_ciks),collection_issuer_count=len(groups),
+        lifecycle_review_count=sum(row['lifecycle_review_required'] for row in resolution),missing=missing)
 
 
 def collect_macros(lake,start,through):
@@ -536,7 +745,8 @@ def collect_macros(lake,start,through):
                     # The provider window includes explicit missing rows, even
                     # though parse_graph omits them from normalized records.
                     window_start=min([r['observation_date'] for r in rows]+missing)
-                    clean,retained=retain_price_prefix(lake.get_records(key),clean,old['retrieved_at'],window_start)
+                    clean,retained=retain_price_prefix(lake._verified_normalized_records(old),clean,
+                        old['retrieved_at'],window_start)
                     retained_missing=[d for d in old.get('missing_observation_dates',[])
                                       if start<=d<window_start]
                 coverage=fred_missing(rows,missing)
@@ -576,21 +786,34 @@ def collect_macros(lake,start,through):
 
 def diagnostics(lake):
     all_datasets=lake.catalog['datasets']
-    active=set(all_datasets.get('universe/cohort',{}).get('active_issuer_keys',[]))
-    datasets={k:d for k,d in all_datasets.items() if not k.startswith('sec/') or k in active}
+    universe=all_datasets.get('universe/cohort',{})
+    collection=set(universe.get('collection_issuer_keys',universe.get('active_issuer_keys',[])))
+    current=set(universe.get('current_mapping_issuer_keys',universe.get('active_issuer_keys',[])))
+    history=set(universe.get('history_retained_issuer_keys',[]))
+    datasets={k:d for k,d in all_datasets.items() if not k.startswith('sec/') or k in collection}
     sec=[d for k,d in datasets.items() if k.startswith('sec/')]
     macro={k:d for k,d in datasets.items() if k.startswith(('current/','alfred/','worldbank/'))}
-    counts={s:sum(d['status']==s for d in datasets.values()) for s in ('COLLECTED','UNCHANGED','STALE_RETAINED','BLOCKED')}
-    return dict(schema='long-history-quality-v1',as_of=utc_now(),status='PARTIAL' if counts['BLOCKED'] or counts['STALE_RETAINED'] or datasets.get('universe/cohort',{}).get('missing') else 'COLLECTED_NOT_PIT_CERTIFIED',
+    counts={s:sum(d['status']==s for d in datasets.values()) for s in
+        ('COLLECTED','UNCHANGED','COVERAGE_GAP','STALE_RETAINED','BLOCKED')}
+    gap=bool(counts['COVERAGE_GAP'] or universe.get('missing') or universe.get('lifecycle_review_count'))
+    status=('PARTIAL' if counts['BLOCKED'] or counts['STALE_RETAINED']
+            else 'PARTIAL_COVERAGE' if gap else 'COLLECTED_NOT_PIT_CERTIFIED')
+    return dict(schema='long-history-quality-v1',as_of=utc_now(),status=status,
         status_counts=counts,financial_issuers=len(sec),financial_fact_rows=sum(d.get('rows',0) for d in sec),
-        archived_inactive_issuers=sum(k.startswith('sec/') and k not in active for k in all_datasets),
+        current_mapped_issuer_count=len(current),history_retained_issuer_count=len(history),
+        collection_issuer_count=len(collection),
+        current_financial_issuers_collected=sum(all_datasets[k]['status'] in ('COLLECTED','UNCHANGED')
+            for k in current if k in all_datasets),
+        archived_inactive_issuers=sum(k.startswith('sec/') and k not in collection for k in all_datasets),
         financial_issuers_collected=sum(d['status'] in ('COLLECTED','UNCHANGED') for d in sec),
         issuers_with_ten_calendar_years=sum(len(d.get('years_with_any_facts',[]))>=10 for d in sec),
         three_statement_ten_year_completeness='NOT_CERTIFIED',
         macro_coverage={k:{f:d.get(f) for f in ('status','rows','earliest','latest','evidence','first_vintage_date','first_available_at','missing_values','missing_observation_dates','missing_country_years','omitted_country_years','expected_country_years','country_coverage','last_failure')} for k,d in macro.items()},
-        universe=datasets.get('universe/cohort',{}),eligible_for_selector=False,weights_activated=False,
+        universe=universe,eligible_for_selector=False,weights_activated=False,
         historical_membership_verified=False,historical_pit_certified=False,
-        provider_failures={k:d.get('last_failure') for k,d in datasets.items() if d['status'] in ('BLOCKED','STALE_RETAINED')})
+        provider_failures={k:d.get('last_failure') for k,d in datasets.items() if d['status'] in ('BLOCKED','STALE_RETAINED')},
+        provider_coverage_gaps={k:d.get('coverage_gap_reason') for k,d in datasets.items()
+            if d['status']=='COVERAGE_GAP'})
 
 
 def materialize(lake,destination,keys,cutoff):
@@ -720,7 +943,7 @@ def main():
     result['execution_receipt_sha256']=receipt_sha
     (reports/'publication.json').write_bytes(encoded(result))
     print('LONG_HISTORY_SUMMARY '+json.dumps(dict(result,financial_issuers=report['financial_issuers'],financial_fact_rows=report['financial_fact_rows'])),flush=True)
-    if report['status']=='PARTIAL' or not result['study_recomputed_from_drive']: return 2
+    if report['status'] in ('PARTIAL','PARTIAL_COVERAGE') or not result['study_recomputed_from_drive']: return 2
     return 0
 
 if __name__=='__main__':
