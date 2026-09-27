@@ -73,11 +73,14 @@ is re-polled to catch revisions, with content deduplication on storage. This is
 incremental storage, not a claim that every provider offers incremental APIs.
 SEC validators are reused only for the same extraction-code fingerprint and date
 window. A parser/form/coverage change forces re-extraction. Current issuer metrics
-use only the current CIK mapping. The immediately prior official mapping may retain
+use only the current CIK mapping. A prior official mapping may retain
 historical collection identity with `lifecycle_review_required=true`, but it never
 proves current eligibility. New catalogs name and hash the cohort and SEC mapping
-source objects by role. A legacy positional mapping is admitted only for exact
-reviewed producer SHAs after both source roles pass content validation.
+source objects by role. The verified mapping source list persists across cycles;
+the first migration checks prior catalogs in the hash-verified chain. Conflicting
+historical CIKs remain ambiguous and require lifecycle review. A legacy
+positional mapping is admitted only for exact reviewed producer SHAs after both
+source roles pass content validation. Workflow cohort restore uses the same reader.
 FRED missing observations retain both counts and dates, including omitted `.` rows.
 
 Every new pack is downloaded and hashed before catalog publication. The consumer
@@ -97,6 +100,9 @@ official SEC submissions identity. Verified submissions bytes are archived as
 `COVERAGE_GAP` with issuer-filing or entity-role classification, never as zero
 facts. `PARTIAL_COVERAGE` also exits nonzero; neither gap nor history-retained
 identity can make selector or historical-PIT evidence green.
+Internal rolling-price recovery may read hash-verified normalized bytes from
+`STALE_RETAINED`, but ordinary consumers still reject that state. A successful
+provider response is required before the reconstructed dataset is `COLLECTED`.
 
 ## Execution
 

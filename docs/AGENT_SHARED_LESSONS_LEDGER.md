@@ -5,6 +5,8 @@
 - Latest directly read durable execution `30392ac5bd890ab273deed4aeccc82a9ec6330c5015ee890aeb3b3c5767174b7` binds catalog `ec25a042c07cddc18bafdc6a8d7e89384731d69510eeda037ac084a83b7f9487`; its quality report is PARTIAL with two SEC HTTP 404s and HOLX without a current CIK match. NFCI no longer appears in its provider failures; historical PIT remains false.
 - Preserve prior SEC mapping only as a verified historical collection identity. Explicit source-role hashes prevent raw-object ordering from becoming a permanent contract; legacy recovery requires a known producer and byte-validated cohort and mapping.
 - A Companyfacts 404 with valid same-CIK submissions is an archived coverage gap, never financial facts or current eligibility. Keep current-mapped and history-retained issuer counts separate and fail the selector gate while lifecycle or source coverage remains open.
+- A consumer admission guard must not prevent the collector from rebuilding a valid price prefix after a transient stale state. Internal lineage recovery may read verified old bytes, while ordinary readers remain blocked until a fresh provider response succeeds.
+- Every producer and workflow reader of cohort/mapping raw objects must use the same source-role contract. Persist historical mapping source hashes across generations and scan the verified legacy chain at migration; the latest mapping alone cannot retain a ticker that disappeared earlier.
 
 ## 2026-09-27 — A0 completion evidence must cover output bytes and causal time
 

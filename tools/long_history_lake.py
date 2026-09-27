@@ -47,6 +47,13 @@ COUNTRIES = ('USA','CHN','JPN','KOR','EMU')
 WB_INDICATORS = ('NY.GDP.MKTP.KD.ZG','FP.CPI.TOTL.ZG','SP.POP.TOTL','SP.POP.65UP.TO.ZS')
 FORMS = {'10-K','10-K/A','10-Q','10-Q/A','20-F','20-F/A','40-F','40-F/A','6-K','6-K/A'}
 LEGACY_SEC_MAPPING_PRODUCERS = frozenset({
+    'aafcc11fab92d5cc14448652799f213aa8a26408',
+    '09ce60ff1e55ced7fb309301d67b388aa2f45dd5',
+    '1c48a92587f5b31c355804e694f03ece2cc52acd',
+    '74765812b8f198818289ae1e082ee0ac70b18c2a',
+    'd5a9cb11627d42432bddc7a72dfb7ff9d8dae30d',
+    '8af844c74521a75c71cec37a1672540dadae86e3',
+    'f20410549464e3f2557ae6d90ba8b20ee8bcc42e',
     '2b0e9dbe7084069ecc5f1749a33d9d497483a10c',
     '4f8ecd3186539e84d4243d01b98f29e87e902337',
 })
@@ -220,46 +227,84 @@ def sec_ticker_lookup(mapping):
     return lookup
 
 
-def prior_sec_mapping(lake):
-    """Read a verified prior official mapping by source role, or one bounded legacy producer."""
-    old=lake.catalog['datasets'].get('universe/cohort',{})
+def verified_cohort_source(lake,catalog=None):
+    """Verify both source roles; legacy order is valid only for reviewed producers."""
+    catalog=catalog or lake.catalog
+    old=catalog['datasets'].get('universe/cohort',{})
     objects=old.get('raw_objects')
-    if not isinstance(objects,list) or old.get('evidence')!='CURRENT_COHORT_NOT_HISTORICAL_MEMBERSHIP':
-        return None
+    require(old.get('evidence')=='CURRENT_COHORT_NOT_HISTORICAL_MEMBERSHIP'
+            and isinstance(objects,list) and len(objects)==2 and objects[0]!=objects[1],
+            'cohort_source_role')
     role=old.get('source_role_contract_version')
     if role=='cohort-sec-mapping-v1':
         cohort_sha=old.get('cohort_source_object_sha256')
         mapping_sha=old.get('sec_ticker_mapping_object_sha256')
-        if (len(objects)!=2 or not isinstance(cohort_sha,str) or not isinstance(mapping_sha,str)
-                or cohort_sha==mapping_sha or set(objects)!={cohort_sha,mapping_sha}
-                or not isinstance(old.get('sec_ticker_mapping_retrieved_at'),str)):
-            return None
-    elif role is None and lake.catalog.get('code_sha') in LEGACY_SEC_MAPPING_PRODUCERS:
-        # The reviewed legacy producer wrote [cohort, company_tickers] in this
-        # exact order. Migrate once, after validating both source roles by bytes.
-        if len(objects)!=2 or objects[0]==objects[1]:
-            return None
-        cohort_sha,mapping_sha=objects
+        require(isinstance(cohort_sha,str) and isinstance(mapping_sha,str)
+                and set(objects)=={cohort_sha,mapping_sha}
+                and isinstance(old.get('sec_ticker_mapping_retrieved_at'),str),
+                'cohort_source_role')
     else:
-        return None
+        require(role is None and catalog.get('code_sha') in LEGACY_SEC_MAPPING_PRODUCERS,
+                'cohort_legacy_producer')
+        cohort_sha,mapping_sha=objects
+    cohort=unpacked(lake.get_bytes(cohort_sha))
+    require(digest(cohort)==COHORT_SHA,'durable_cohort_identity')
+    payload=json.loads(cohort)
+    require(isinstance(payload,dict) and isinstance(payload.get('rows'),list)
+            and type(payload.get('candidate_count')) is int
+            and payload['candidate_count']==len(payload['rows'])==old.get('requested_securities')
+            and isinstance(payload.get('as_of'),str), 'durable_cohort_schema')
+    date.fromisoformat(payload['as_of'])
+    mapping_raw=unpacked(lake.get_bytes(mapping_sha))
+    if role=='cohort-sec-mapping-v1':
+        require(digest(mapping_raw)==old.get('sec_ticker_mapping_source_sha256'),
+                'sec_ticker_mapping_source_hash')
+    mapping=json.loads(mapping_raw)
+    sec_ticker_lookup(mapping)
+    return cohort,mapping_sha,mapping
+
+
+def prior_sec_mapping(lake,with_sources=False):
+    """Retain verified official mappings across generations, without current eligibility."""
+    if 'universe/cohort' not in lake.catalog['datasets']:
+        return (None,[]) if with_sources else None
+    sources=[]; seen=set()
     try:
-        cohort=unpacked(lake.get_bytes(cohort_sha))
-        if digest(cohort)!=COHORT_SHA:
-            return None
-        payload=json.loads(cohort)
-        if (not isinstance(payload,dict) or not isinstance(payload.get('rows'),list)
-                or payload.get('candidate_count')!=len(payload['rows'])
-                or payload['candidate_count']!=old.get('requested_securities')
-                or payload.get('as_of') is None):
-            return None
-        mapping_raw=unpacked(lake.get_bytes(mapping_sha))
-        if role=='cohort-sec-mapping-v1' and digest(mapping_raw)!=old.get('sec_ticker_mapping_source_sha256'):
-            return None
-        mapping=json.loads(mapping_raw)
-        sec_ticker_lookup(mapping)
-        return mapping
+        _,sha,mapping=verified_cohort_source(lake)
+        sources.append((sha,mapping)); seen.add(sha)
+        historical=lake.catalog['datasets']['universe/cohort'].get('historical_sec_mapping_object_sha256s')
+        if historical is not None:
+            require(isinstance(historical,list) and len(historical)==len(set(historical)),
+                    'historical_mapping_roles')
+            for source_sha in historical:
+                require(isinstance(source_sha,str) and re.fullmatch(r'[0-9a-f]{64}',source_sha),
+                        'historical_mapping_role_sha')
+                if source_sha in seen: continue
+                value=json.loads(unpacked(lake.get_bytes(source_sha)))
+                sec_ticker_lookup(value)
+                sources.append((source_sha,value)); seen.add(source_sha)
+        else:
+            cursor=lake.parent
+            while cursor:
+                commit=json.loads(lake.read_hash('commits',cursor))
+                cursor=commit['parent']
+                if cursor is None: break
+                older=json.loads(lake.read_hash('commits',cursor))
+                catalog=json.loads(lake.read_hash('catalogs',older['catalog']))
+                try:
+                    _,source_sha,value=verified_cohort_source(lake,catalog)
+                except (ValueError,KeyError,TypeError,AttributeError,OSError):
+                    continue
+                if source_sha not in seen:
+                    sources.append((source_sha,value)); seen.add(source_sha)
+        rows={(row['ticker'],str(row['cik_str']).zfill(10)) for _,mapping in sources
+              for row in mapping.values()}
+        combined={str(i):dict(ticker=ticker,cik_str=cik)
+                  for i,(ticker,cik) in enumerate(sorted(rows))}
+        result=(combined if combined else None,[sha for sha,_ in sources])
+        return result if with_sources else result[0]
     except (ValueError,KeyError,TypeError,AttributeError,OSError):
-        return None
+        return (None,[]) if with_sources else None
 
 
 def issuer_queue(members, mapping, prior_mapping=None):
@@ -498,6 +543,11 @@ class Lake:
         entry=self.catalog['datasets'][key]
         require(entry['status'] in ('COLLECTED','UNCHANGED') and isinstance(entry.get('normalized'),str),
                 'stale_dataset')
+        return self._verified_normalized_records(entry)
+
+    def _verified_normalized_records(self,entry):
+        """Internal lineage recovery; caller must never treat stale bytes as admitted input."""
+        require(isinstance(entry.get('normalized'),str),'normalized_missing')
         raw=self.get_bytes(entry['normalized'])
         return [json.loads(line) for line in unpacked(raw).splitlines()]
 
@@ -590,7 +640,7 @@ def collect_financials(lake,cohort,start,through):
     members=payload['rows']
     require(payload['candidate_count']==len(members) and payload['as_of']<=through,'cohort_identity')
     mapping_raw,_=get_public('https://www.sec.gov/files/company_tickers.json')
-    prior_mapping=prior_sec_mapping(lake)
+    prior_mapping,prior_sources=prior_sec_mapping(lake,with_sources=True)
     groups,missing,resolution=issuer_queue(members,json.loads(mapping_raw),prior_mapping)
     current_ciks={row['cik'] for row in resolution if row['identity_status']=='CURRENT_SEC_MAPPING'}
     history_ciks={row['cik'] for row in resolution if row['identity_status']=='PRIOR_SEC_MAPPING_RETAINED_LIFECYCLE_REVIEW'}
@@ -609,6 +659,8 @@ def collect_financials(lake,cohort,start,through):
         sec_ticker_mapping_object_sha256=digest(packed(mapping_raw)),
         sec_ticker_mapping_source_sha256=digest(mapping_raw),
         sec_ticker_mapping_retrieved_at=retrieved,
+        historical_sec_mapping_object_sha256s=list(dict.fromkeys(
+            [digest(packed(mapping_raw))]+prior_sources)),
         source_role_contract_version='cohort-sec-mapping-v1'))
     def one(item):
         cik,symbols=item; key='sec/'+cik
@@ -679,7 +731,8 @@ def collect_macros(lake,start,through):
                     # The provider window includes explicit missing rows, even
                     # though parse_graph omits them from normalized records.
                     window_start=min([r['observation_date'] for r in rows]+missing)
-                    clean,retained=retain_price_prefix(lake.get_records(key),clean,old['retrieved_at'],window_start)
+                    clean,retained=retain_price_prefix(lake._verified_normalized_records(old),clean,
+                        old['retrieved_at'],window_start)
                     retained_missing=[d for d in old.get('missing_observation_dates',[])
                                       if start<=d<window_start]
                 coverage=fred_missing(rows,missing)

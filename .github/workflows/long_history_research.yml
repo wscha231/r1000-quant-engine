@@ -81,15 +81,14 @@ jobs:
           python - <<'PY'
           import os
           from pathlib import Path
-          from tools.long_history_lake import Lake,RcloneTransport,PREFIX,unpacked,digest,COHORT_SHA
+          from tools.long_history_lake import Lake,RcloneTransport,PREFIX,verified_cohort_source
           remote=RcloneTransport(os.environ['MACRO_RESEARCH_REMOTE'])
           remote.call('mkdir',remote.path(PREFIX+'/commits'))
           lake=Lake(remote,Path(os.environ['RUNNER_TEMP'])/'history-cohort-restore')
           old=lake.catalog['datasets'].get('universe/cohort')
-          found=bool(old and old.get('raw_objects'))
+          found=old is not None
           if found:
-              raw=unpacked(lake.get_bytes(old['raw_objects'][0]))
-              if digest(raw)!=COHORT_SHA: raise ValueError('durable_cohort_identity')
+              raw,_,_=verified_cohort_source(lake)
               root=Path(os.environ['RUNNER_TEMP'])/'history-cohort'; root.mkdir(exist_ok=True)
               (root/'all_us_relative_strength.json').write_bytes(raw)
           with open(os.environ['GITHUB_OUTPUT'],'a') as f: f.write('restored='+str(found).lower()+'\n')

@@ -163,7 +163,7 @@ class HistoryTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'cohort_below_1000'): issuer_queue(members[:2],mapping)
 
     def test_history_mapping_is_role_bound_and_never_current_eligibility(self):
-        from tools.long_history_lake import prior_sec_mapping
+        from tools.long_history_lake import prior_sec_mapping,verified_cohort_source
         members=[dict(ticker='A'+str(i)) for i in range(1000)]
         cohort=encoded(dict(candidate_count=1000,as_of='2026-09-12',rows=members))
         prior=encoded({'0':dict(ticker='A999',cik_str=1000)})
@@ -177,6 +177,7 @@ class HistoryTest(unittest.TestCase):
             sec_ticker_mapping_retrieved_at='2026-09-12T00:00:00+00:00')
         with patch('tools.long_history_lake.COHORT_SHA',digest(cohort)):
             entry['raw_objects']=[mapping_sha,cohort_sha]
+            self.assertEqual(verified_cohort_source(self.lake)[0],cohort)
             mapping=prior_sec_mapping(self.lake)
             self.assertIsNotNone(mapping)
             current={'0':dict(ticker='A0',cik_str=1)}
@@ -197,6 +198,37 @@ class HistoryTest(unittest.TestCase):
             self.assertIsNotNone(prior_sec_mapping(self.lake))
             entry['raw_objects']=[mapping_sha,cohort_sha]
             self.assertIsNone(prior_sec_mapping(self.lake))
+
+    def test_history_mapping_survives_a_missing_current_mapping_generation(self):
+        from tools.long_history_lake import packed,prior_sec_mapping
+        members=[dict(ticker='A'+str(i)) for i in range(1000)]
+        cohort=encoded(dict(candidate_count=1000,as_of='2026-09-12',rows=members))
+        first=encoded({'0':dict(ticker='A999',cik_str=1000)})
+        later=encoded({'0':dict(ticker='A0',cik_str=1)})
+        def save(lake,mapping,sources=None):
+            metadata=dict(evidence='CURRENT_COHORT_NOT_HISTORICAL_MEMBERSHIP',
+                requested_securities=1000,source_role_contract_version='cohort-sec-mapping-v1',
+                cohort_source_object_sha256=digest(packed(cohort)),
+                sec_ticker_mapping_object_sha256=digest(packed(mapping)),
+                sec_ticker_mapping_source_sha256=digest(mapping),
+                sec_ticker_mapping_retrieved_at='2026-09-12T00:00:00+00:00')
+            if sources is not None: metadata['historical_sec_mapping_object_sha256s']=sources
+            lake.dataset('universe/cohort',[cohort,mapping],members,metadata)
+        with patch('tools.long_history_lake.COHORT_SHA',digest(cohort)):
+            save(self.lake,first); self.lake.publish('one',{})
+            second=Lake(self.t,self.root/'second')
+            save(second,later); second.publish('two',{})
+            third=Lake(self.t,self.root/'third')
+            mapping,sources=prior_sec_mapping(third,with_sources=True)
+            self.assertIn(digest(packed(first)),sources)
+            self.assertEqual(issuer_queue(members,json.loads(later),mapping)[2][-1]
+                             ['identity_status'],'PRIOR_SEC_MAPPING_RETAINED_LIFECYCLE_REVIEW')
+            save(third,later,sources); third.publish('three',{})
+            fourth=Lake(self.t,self.root/'fourth')
+            mapping,continued=prior_sec_mapping(fourth,with_sources=True)
+            self.assertIn(digest(packed(first)),continued)
+            self.assertEqual(issuer_queue(members,json.loads(later),mapping)[2][-1]
+                             ['identity_status'],'PRIOR_SEC_MAPPING_RETAINED_LIFECYCLE_REVIEW')
 
     def test_companyfacts_404_archives_official_role_but_never_facts(self):
         from tools.long_history_lake import collect_financials,diagnostics
@@ -400,6 +432,27 @@ class HistoryTest(unittest.TestCase):
             self.assertEqual(last.catalog['datasets']['current/SP500']['missing_observation_dates'],['2020-01-02'])
             self.assertEqual(last.catalog['datasets']['current/SP500']['missing_values'],1)
 
+    def test_stale_price_prefix_recovers_without_consumer_admission(self):
+        from tools.long_history_lake import collect_macros,registry
+        spec=next(s for s in registry()['series'] if s['id']=='SP500')
+        self.lake.dataset('current/SP500',[b'old'],[
+            dict(observation_date='2020-01-01',value=10,evidence='current_only')],
+            dict(evidence='current_only',retrieved_at='2026-09-10T00:00:00+00:00'))
+        self.lake.publish('one',{})
+        failed=Lake(self.t,self.root/'failed')
+        failed.blocked('current/SP500',ValueError('TRANSPORT_ERROR'))
+        failed.publish('two',{})
+        recovered=Lake(self.t,self.root/'recovered')
+        with self.assertRaisesRegex(ValueError,'stale_dataset'):
+            recovered.get_records('current/SP500')
+        with patch('tools.long_history_lake.registry',return_value={'series':[spec]}), \
+             patch('tools.long_history_lake.WB_INDICATORS',()), \
+             patch('tools.long_history_lake.fetch_fred_retry',return_value=(
+                 [b'observation_date,SP500\n2020-01-03,30\n'],'2026-09-12T00:00:00+00:00')):
+            collect_macros(recovered,'2020-01-01','2026-09-12')
+        self.assertEqual(recovered.catalog['datasets']['current/SP500']['status'],'COLLECTED')
+        self.assertEqual([r['value'] for r in recovered.get_records('current/SP500')],[10,30])
+
     def test_sql_cutoff(self):
         self.put(); self.lake.publish('one',{})
         reader=Lake(self.t,self.root/'consumer')
@@ -540,6 +593,8 @@ class HistoryTest(unittest.TestCase):
         paths=set(re.findall(r"^      - '([^']+)'$",push,re.MULTILINE))
         checkout=set(re.findall(r'^            /(.+)$',workflow,re.MULTILINE))
         self.assertFalse(checkout-paths,'Unchecked dependency changes: '+repr(sorted(checkout-paths)))
+        self.assertIn('raw,_,_=verified_cohort_source(lake)',workflow)
+        self.assertNotIn("old['raw_objects'][0]",workflow)
 
 
 if __name__=='__main__': unittest.main()
