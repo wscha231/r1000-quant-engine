@@ -244,4 +244,16 @@ class AdmissionTests(unittest.TestCase):
         self.assertEqual(eps['data'][1]['avg'],0)
         self.assertEqual(eps['data'][1]['period_type'],'ANNUAL')
 
+    def test_failed_live_refresh_invalidates_frozen_provider(self):
+        before=snapshot('2026-07-01T18:00:00Z',1)
+        def failed(_session,endpoint,ticker,_key,*,errors,**_):
+            errors.append(dict(ticker=ticker,vendor='finnhub',endpoint=endpoint,status_code=500,vendor_entitlement_blocked=False))
+            return None
+        with patch.object(c,'fetch_json_optional',side_effect=failed),patch.object(c,'utc_now',return_value='2026-07-01T19:00:00Z'):
+            rows,_,_,_=c.collect_live_snapshot(['AAA'],finnhub_api_key='fixture',alphavantage_api_key='',fmp_api_key='',vendor_order=['finnhub'],fetch_date=pd.Timestamp('2026-07-01'),sleep_seconds=0,max_errors=10)
+        failed_row=rows.iloc[0].to_dict()
+        self.assertEqual(failed_row['fetch_source'],'')
+        self.assertEqual(failed_row['attempted_estimate_providers_json'],'["finnhub"]')
+        self.assertIsNone(h1.frozen_pre_event_consensus([before,failed_row],event_available_at='2026-07-01T20:00:00Z',identity=json.loads(before['eps_fy1_identity']),fetch_source='finnhub'))
+
 if __name__=='__main__': unittest.main()

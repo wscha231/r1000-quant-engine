@@ -216,7 +216,13 @@ def frozen_pre_event_consensus(snapshots: Iterable[dict], *, event_available_at:
     cutoff = iso_utc(event_available_at)
     if not cutoff or not identity_complete(identity):
         return None
-    snapshots = [r for r in snapshots if r.get("fetch_source") == fetch_source]
+    def attributed(row):
+        try:
+            attempted = json.loads(row.get("attempted_estimate_providers_json") or "[]")
+        except (TypeError, ValueError):
+            attempted = []
+        return row.get("fetch_source") == fetch_source or fetch_source in attempted
+    snapshots = [r for r in snapshots if attributed(r)]
     # Discover the security's tickers only from information available pre-event.
     eligible = [r for r in snapshots if availability(r)
                 and datetime.fromisoformat(availability(r)) < datetime.fromisoformat(cutoff)]
@@ -236,7 +242,7 @@ def frozen_pre_event_consensus(snapshots: Iterable[dict], *, event_available_at:
         return None
     row = sorted(latest, key=lambda r: r["snapshot_version_id"])[0]
     matches = [r for r in consensus_records(row) if r.get("identity") == identity]
-    if row.get("identity_status") == "AMBIGUOUS" or len(matches) != 1 or optional_float(matches[0].get("value")) is None:
+    if row.get("fetch_source") != fetch_source or row.get("identity_status") == "AMBIGUOUS" or len(matches) != 1 or optional_float(matches[0].get("value")) is None:
         return None
     return {"identity": identity, "value": matches[0]["value"],
             "strategy_available_at": availability(row), "snapshot_version_id": row["snapshot_version_id"],

@@ -1099,6 +1099,10 @@ def collect_live_snapshot(
             )
         if rows:
             ticker_errors = [e for e in errors if e.get("ticker") == ticker]
+            attempted_providers = {estimate_source} if estimate_source else set()
+            attempted_providers.update(e.get("vendor", "finnhub") for e in ticker_errors
+                                       if e.get("endpoint") in ESTIMATE_ENDPOINTS or e.get("vendor") in {"fmp", "alphavantage"})
+            rows[-1]["attempted_estimate_providers_json"] = json.dumps(sorted(attempted_providers))
             metric_states = []
             for metric, endpoint in (("eps", "/stock/eps-estimate"), ("rev", "/stock/revenue-estimate")):
                 relevant = [e for e in ticker_errors

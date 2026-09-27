@@ -119,3 +119,9 @@ conflation. All four received executable regressions and corrections before
 requesting the single final Codex review. Date-only publication provenance
 was also preserved with fail-closed admission. New head review is required;
 the initial A6 result was CORRECTION_REQUIRED, not an approval.
+
+A6 re-review of `bcaf0ee43ed5fe3e4838fd63126c223346e65a63` found
+an all-failed live refresh lost provider attribution and could bypass frozen
+latest-null invalidation. Failed rows now retain actual attempted estimate
+providers from endpoint evidence, so a failed same-security provider observation
+invalidates its older consensus without pretending that the fetch succeeded.
