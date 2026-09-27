@@ -6,6 +6,7 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -17,12 +18,19 @@ from tools.collect_earnings_estimates_finnhub import (  # noqa: E402
     alphavantage_to_payloads,
     clean_vendor_order,
     fmp_to_payloads,
-    main,
+    main as collector_main,
     parse_snapshot_row,
     sanitize_error_message,
     vendor_estimate_access_from_errors,
 )
 import tools.collect_earnings_estimates_finnhub as collector  # noqa: E402
+
+
+def main() -> int:
+    # Freeze the fixture collection clock; production rejects historical fetch dates.
+    day = sys.argv[sys.argv.index("--fetch-date") + 1] if "--fetch-date" in sys.argv else collector.utc_now()[:10]
+    with patch.object(collector, "utc_now", return_value=day + "T21:00:00Z"):
+        return collector_main()
 
 
 def _write_fixture(root: Path, ticker: str = "AAA") -> None:
@@ -60,17 +68,21 @@ def test_parse_snapshot_stamps_fetch_date_not_fiscal_period() -> None:
     row = parse_snapshot_row(
         "AAA",
         fetch_date=pd.Timestamp("2026-07-09"),
+        observed_at="2026-07-09T21:00:00Z",
+        collected_at="2026-07-09T21:00:00Z",
         eps_payload={"data": [{"period": "2027", "avg": 1.45, "high": 1.6, "low": 1.2}]},
         revenue_payload={"data": [{"period": "2027", "avg": 1500.0}]},
         earnings_payload=[{"period": "2026-06-30", "actual": 0.34, "estimate": 0.32, "surprisePercent": 6.2}],
         recommendation_payload=[{"period": "2026-07-01", "strongBuy": 3, "buy": 4, "sell": 1, "strongSell": 0}],
     )
     assert row["as_of_date"] == "2026-07-09"
-    assert row["available_from"] == "2026-07-09"
-    assert row["actual_report_date"] == "2026-06-30"
+    assert row["available_from"] == "2026-07-09T21:00:00Z"
+    assert row["actual_fiscal_period_end"] == "2026-06-30"
+    assert row["actual_report_date"] is None
     assert row["available_from"] != row["actual_report_date"]
     assert row["est_eps_fy1"] == 1.45
-    assert row["est_eps_revision_breadth"] > 0
+    assert row["est_eps_revision_breadth"] is None
+    assert row["analyst_recommendation_balance"] > 0
     assert row["vendor_estimate_access"] is True
 
 
@@ -100,6 +112,8 @@ def test_vendor_entitlement_errors_are_redacted_and_blocking() -> None:
     row = parse_snapshot_row(
         "AAPL",
         fetch_date=pd.Timestamp("2026-07-09"),
+        observed_at="2026-07-09T21:00:00Z",
+        collected_at="2026-07-09T21:00:00Z",
         eps_payload={},
         revenue_payload={},
         earnings_payload=[],
@@ -187,7 +201,7 @@ def test_cli_fixture_writes_snapshot_and_signals() -> None:
         assert payload["backtest_acceptance_allowed"] is False
         assert payload["max_errors"] == 100
         sig = pd.read_parquet(signals)
-        assert sig["available_from"].dt.strftime("%Y-%m-%d").iloc[0] == "2026-07-09"
+        assert pd.to_datetime(sig["available_from"], utc=True).dt.strftime("%Y-%m-%d").iloc[0] == "2026-07-09"
 
 
 def test_partial_free_vendor_success_is_not_global_block() -> None:
@@ -242,7 +256,7 @@ def test_partial_free_vendor_success_is_not_global_block() -> None:
                 "--summary",
                 str(root / "summary.json"),
             ]
-            assert collector.main() == 0
+            assert main() == 0
         finally:
             collector.collect_live_snapshot = old_collect
             sys.argv = old_argv
@@ -393,7 +407,8 @@ def test_entitlement_circuit_never_trips_after_vendor_access_success() -> None:
     assert calls == 4
     assert len(errors) == 3
     assert attempted == ["AAA", "BBB", "CCC", "DDD"]
-    assert len(snapshot) == 1
+    assert len(snapshot) == 4
+    assert snapshot["has_forward_estimate"].sum() == 1
     assert diagnostics["tripped_vendor_count"] == 0
     assert diagnostics["vendors"]["fmp"]["accessible_response_ticker_count"] == 1
     assert diagnostics["vendors"]["fmp"]["trip_signature"] == ""
@@ -454,7 +469,7 @@ def test_same_day_snapshot_merges_instead_of_overwriting_existing_archive() -> N
                 "--summary",
                 str(root / "summary.json"),
             ]
-            assert collector.main() == 0
+            assert main() == 0
         finally:
             collector.collect_live_snapshot = old_collect
             sys.argv = old_argv

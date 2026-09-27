@@ -26,7 +26,10 @@ if str(REPO_ROOT) not in sys.path:
 
 from r1000_config import PHASE18_ESTIMATE_REVISION_COLUMNS  # noqa: E402
 
-SCHEMA_VERSION = "forward-earnings-estimates-v1"
+from tools.earnings_consensus_h1 import (  # noqa: E402
+    SCHEMA_VERSION, availability, build_snapshot, iso_utc, optional_float,
+    pct_change, same_period_revision, digest,
+)
 DEFAULT_SNAPSHOT_DIR = "data_pit/events/earnings_estimates"
 DEFAULT_SIGNALS = "data_pit/events/earnings_revision_signals.parquet"
 DEFAULT_SUMMARY = "outputs/earnings_estimates_daily/summary.json"
@@ -53,22 +56,9 @@ def repo_path(value: str | Path) -> Path:
     return path if path.is_absolute() else REPO_ROOT / path
 
 
-def safe_float(value: Any, default: float = 0.0) -> float:
-    try:
-        out = float(value)
-        return out if pd.notna(out) else default
-    except (TypeError, ValueError):
-        return default
-
-
-def pct_change(current: float, previous: float) -> float:
-    if previous == 0 or pd.isna(previous) or pd.isna(current):
-        return 0.0
-    return float((current - previous) / abs(previous))
-
-
-def finite_or_zero(value: float) -> float:
-    return float(value) if pd.notna(value) else 0.0
+def safe_float(value: Any, default: Any = None) -> float | None:
+    out = optional_float(value)
+    return default if out is None else out
 
 
 def sanitize_error_message(value: Any) -> str:
@@ -155,23 +145,11 @@ def first_two_estimates(payload: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     return rows[0], rows[1]
 
 
-def latest_earnings_record(payload: Any) -> tuple[dict[str, Any], int]:
+def latest_earnings_record(payload: Any) -> tuple[dict[str, Any], None]:
     rows = [x for x in payload if isinstance(x, dict)] if isinstance(payload, list) else []
     rows = sorted(rows, key=lambda x: str(x.get("period") or ""))
-    latest = rows[-1] if rows else {}
-    streak = 0
-    sign = 0
-    for row in reversed(rows):
-        surprise = safe_float(row.get("surprise") if "surprise" in row else row.get("surprisePercent"), 0.0)
-        current_sign = 1 if surprise > 0 else -1 if surprise < 0 else 0
-        if current_sign == 0:
-            break
-        if sign == 0:
-            sign = current_sign
-        if current_sign != sign:
-            break
-        streak += current_sign
-    return latest, streak
+    # A provider's current surprise field is not frozen consensus evidence.
+    return (rows[-1] if rows else {}), None
 
 
 def latest_recommendation_record(payload: Any) -> dict[str, Any]:
@@ -196,10 +174,11 @@ def alphavantage_to_payloads(payload: Any) -> tuple[dict[str, Any], dict[str, An
         rows = sorted(rows, key=lambda x: str(first_present(x, ["fiscalDateEnding", "period", "date"], "")))
     eps_rows: list[dict[str, Any]] = []
     rev_rows: list[dict[str, Any]] = []
-    for row in rows[:2]:
+    for row in rows:
         period = str(first_present(row, ["fiscalDateEnding", "period", "date"], ""))
         eps_rows.append(
             {
+                **row,
                 "period": period,
                 "avg": first_present(
                     row,
@@ -216,12 +195,13 @@ def alphavantage_to_payloads(payload: Any) -> tuple[dict[str, Any], dict[str, An
                 "numberAnalysts": first_present(
                     row,
                     ["epsEstimateAnalystCount", "epsEstimateNumberOfAnalysts", "numberAnalystsEstimatedEps", "analystCount"],
-                    0,
+                    None,
                 ),
             }
         )
         rev_rows.append(
             {
+                **row,
                 "period": period,
                 "avg": first_present(
                     row,
@@ -242,12 +222,10 @@ def alphavantage_to_payloads(payload: Any) -> tuple[dict[str, Any], dict[str, An
                         "numberAnalystsEstimatedRevenue",
                         "analystCount",
                     ],
-                    0,
+                    None,
                 ),
             }
         )
-    eps_rows = [x for x in eps_rows if x.get("avg") not in [None, ""]]
-    rev_rows = [x for x in rev_rows if x.get("avg") not in [None, ""]]
     return {"data": eps_rows}, {"data": rev_rows}
 
 
@@ -261,10 +239,11 @@ def fmp_to_payloads(payload: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     rows = sorted(rows, key=lambda x: str(first_present(x, ["date", "fiscalDateEnding", "period"], "")))
     eps_rows: list[dict[str, Any]] = []
     rev_rows: list[dict[str, Any]] = []
-    for row in rows[:2]:
+    for row in rows:
         period = str(first_present(row, ["date", "fiscalDateEnding", "period"], ""))
         eps_rows.append(
             {
+                **row,
                 "period": period,
                 "avg": first_present(
                     row,
@@ -281,12 +260,13 @@ def fmp_to_payloads(payload: Any) -> tuple[dict[str, Any], dict[str, Any]]:
                 "numberAnalysts": first_present(
                     row,
                     ["numberAnalystsEstimatedEps", "numberAnalystEstimatedEps", "numberAnalysts", "analystCount"],
-                    0,
+                    None,
                 ),
             }
         )
         rev_rows.append(
             {
+                **row,
                 "period": period,
                 "avg": first_present(
                     row,
@@ -307,170 +287,108 @@ def fmp_to_payloads(payload: Any) -> tuple[dict[str, Any], dict[str, Any]]:
                         "numberAnalysts",
                         "analystCount",
                     ],
-                    0,
+                    None,
                 ),
             }
         )
-    eps_rows = [x for x in eps_rows if x.get("avg") not in [None, ""]]
-    rev_rows = [x for x in rev_rows if x.get("avg") not in [None, ""]]
     return {"data": eps_rows}, {"data": rev_rows}
 
 
 def parse_snapshot_row(
-    ticker: str,
-    *,
-    fetch_date: pd.Timestamp,
-    eps_payload: Any,
-    revenue_payload: Any,
-    earnings_payload: Any,
-    recommendation_payload: Any,
-    eps_estimate_access: bool = True,
-    revenue_estimate_access: bool = True,
-    fetch_source: str = "finnhub",
+    ticker: str, *, fetch_date: pd.Timestamp, eps_payload: Any,
+    revenue_payload: Any, earnings_payload: Any, recommendation_payload: Any,
+    eps_estimate_access: bool = True, revenue_estimate_access: bool = True,
+    fetch_source: str = "finnhub", observed_at: str | None = None,
+    collected_at: str | None = None, first_seen_at: str | None = None,
+    provider_published_at: str | None = None,
 ) -> dict[str, Any]:
-    eps1, eps2 = first_two_estimates(eps_payload)
-    rev1 = latest_estimate_record(revenue_payload)
-    earnings, surprise_streak = latest_earnings_record(earnings_payload)
-    rec = latest_recommendation_record(recommendation_payload)
-    eps_avg = safe_float(eps1.get("avg"), float("nan"))
-    eps_high = safe_float(eps1.get("high"), float("nan"))
-    eps_low = safe_float(eps1.get("low"), float("nan"))
-    est_dispersion = pct_change(eps_high, eps_low) if pd.notna(eps_high) and pd.notna(eps_low) and eps_low != 0 else 0.0
-    strong_buy = int(safe_float(rec.get("strongBuy"), 0.0))
-    buy = int(safe_float(rec.get("buy"), 0.0))
-    sell = int(safe_float(rec.get("sell"), 0.0))
-    strong_sell = int(safe_float(rec.get("strongSell"), 0.0))
-    bull = strong_buy + buy
-    bear = sell + strong_sell
-    denom = bull + bear
-    return {
-        "ticker": ticker.upper(),
-        "as_of_date": fetch_date.date().isoformat(),
-        "available_from": fetch_date.date().isoformat(),
-        "fetch_source": fetch_source,
-        "eps_estimate_access": bool(eps_estimate_access),
-        "revenue_estimate_access": bool(revenue_estimate_access),
-        "vendor_estimate_access": bool(eps_estimate_access and revenue_estimate_access),
-        "has_forward_estimate": int(bool(eps1 or rev1)),
-        "est_eps_fy1": finite_or_zero(eps_avg),
-        "est_eps_fy2": finite_or_zero(safe_float(eps2.get("avg"), float("nan"))),
-        "est_rev_fy1": finite_or_zero(safe_float(rev1.get("avg"), float("nan"))),
-        "n_analysts": int(max(safe_float(eps1.get("numberAnalysts"), 0.0), safe_float(rev1.get("numberAnalysts"), 0.0))),
-        "est_dispersion": finite_or_zero(est_dispersion),
-        "actual_eps_last": finite_or_zero(safe_float(earnings.get("actual"), float("nan"))),
-        "actual_report_date": str(earnings.get("period") or ""),
-        "earnings_surprise_last": finite_or_zero(safe_float(earnings.get("surprisePercent", earnings.get("surprise")), 0.0)),
-        "surprise_streak": int(surprise_streak),
-        "recommendation_period": str(rec.get("period") or ""),
-        "recommendation_bull_count": bull,
-        "recommendation_bear_count": bear,
-        "est_eps_revision_breadth": float((bull - bear) / denom) if denom else 0.0,
-    }
+    # fetch_date is a partition label, never an information availability clock.
+    observed = observed_at or utc_now()
+    collected = collected_at or utc_now()
+    row = build_snapshot(
+        ticker, eps_payload=eps_payload, revenue_payload=revenue_payload,
+        recommendation_payload=recommendation_payload, observed_at=observed,
+        collected_at=collected, first_seen_at=first_seen_at,
+        provider_published_at=provider_published_at, fetch_source=fetch_source,
+        eps_estimate_access=eps_estimate_access, revenue_estimate_access=revenue_estimate_access,
+    )
+    earnings, _ = latest_earnings_record(earnings_payload)
+    row.update(requested_fetch_date=fetch_date.date().isoformat(),
+               actual_eps_last=optional_float(earnings.get("actual")),
+               actual_fiscal_period_end=earnings.get("period"),
+               actual_report_date=None,  # fiscal period is not an announcement date
+               provider_reported_surprise=optional_float(earnings.get("surprisePercent")),
+               provider_reported_surprise_status="UNVERIFIED_PRE_EVENT_CONSENSUS")
+    row["snapshot_version_id"] = digest({k: v for k, v in row.items() if k != "snapshot_version_id"})
+    return row
 
 
-def prior_value(group: pd.DataFrame, idx: int, column: str, days: int) -> float:
-    current = group.loc[idx, "as_of_date"]
-    cutoff = current - pd.Timedelta(days=days)
-    prior = group[(group["as_of_date"] <= cutoff) & (group.index < idx)]
-    if prior.empty:
-        return float("nan")
-    return safe_float(prior.iloc[-1].get(column), float("nan"))
+def _cutoff(value: Any) -> pd.Timestamp:
+    # Legacy date-only decisions mean start-of-day UTC, conservatively.
+    return pd.Timestamp(value).tz_localize("UTC") if pd.Timestamp(value).tzinfo is None else pd.Timestamp(value).tz_convert("UTC")
 
 
 def compute_estimate_revision_features(snapshots: pd.DataFrame, *, as_of_date: str | None = None) -> tuple[pd.DataFrame, dict[str, Any]]:
-    if snapshots.empty:
+    if snapshots.empty or "ticker" not in snapshots:
         return pd.DataFrame(), {"status": "blocked", "reason": "no_snapshot_rows"}
     d = snapshots.copy()
-    required = {"ticker", "as_of_date", "available_from"}
-    missing = sorted(required - set(d.columns))
-    if missing:
-        return pd.DataFrame(), {"status": "blocked", "reason": f"missing_required_columns:{','.join(missing)}"}
     d["ticker"] = d["ticker"].astype(str).str.upper().str.strip()
-    d["as_of_date"] = pd.to_datetime(d["as_of_date"], errors="coerce").dt.normalize()
-    d["available_from"] = pd.to_datetime(d["available_from"], errors="coerce").dt.normalize()
+    d["_available"] = [availability(r) for r in d.to_dict("records")]
+    d["_available"] = pd.to_datetime(d["_available"], utc=True, errors="coerce")
+    valid = d["_available"].notna() & d["ticker"].ne("")
     if as_of_date:
-        as_of = pd.Timestamp(as_of_date).normalize()
-        d = d[d["available_from"] <= as_of]
-    for col in [
-        "est_eps_fy1",
-        "est_eps_fy2",
-        "est_rev_fy1",
-        "est_dispersion",
-        "earnings_surprise_last",
-        "est_eps_revision_breadth",
-        "surprise_streak",
-        "has_forward_estimate",
-    ]:
-        if col not in d.columns:
-            d[col] = 0.0
-        d[col] = pd.to_numeric(d[col], errors="coerce").fillna(0.0)
-    d = d[d["ticker"].ne("") & d["as_of_date"].notna() & d["available_from"].notna()]
-    d = d.sort_values(["ticker", "as_of_date"]).reset_index(drop=True)
-    rows: list[dict[str, Any]] = []
+        valid &= d["_available"] <= _cutoff(as_of_date)
+    d = d[valid].sort_values(["ticker", "_available"], kind="stable").reset_index(drop=True)
+    rows = []
     for _, group in d.groupby("ticker", sort=False):
-        group = group.reset_index(drop=True)
-        for idx, row in group.iterrows():
-            eps = safe_float(row.get("est_eps_fy1"), float("nan"))
-            rev = safe_float(row.get("est_rev_fy1"), float("nan"))
-            dispersion = safe_float(row.get("est_dispersion"), 0.0)
-            prior_eps_30 = prior_value(group, idx, "est_eps_fy1", 30)
-            prior_eps_90 = prior_value(group, idx, "est_eps_fy1", 90)
-            prior_rev_30 = prior_value(group, idx, "est_rev_fy1", 30)
-            prior_dispersion_30 = prior_value(group, idx, "est_dispersion", 30)
-            out = row.to_dict()
-            out.update(
-                {
-                    "est_eps_revision_30d": pct_change(eps, prior_eps_30),
-                    "est_eps_revision_90d": pct_change(eps, prior_eps_90),
-                    "est_rev_revision_30d": pct_change(rev, prior_rev_30),
-                    "est_dispersion_change_30d": dispersion - prior_dispersion_30 if pd.notna(prior_dispersion_30) else 0.0,
-                }
-            )
-            has_forward_estimate = safe_float(out.get("has_forward_estimate"), 0.0) > 0
-            confirmed = (
-                has_forward_estimate
-                and out["est_eps_revision_breadth"] > 0
-                and out["est_dispersion_change_30d"] <= 0
-            )
-            out["estimate_revision_confirmed"] = int(confirmed)
-            out["estimate_revision_replacement_gate_pass"] = int(confirmed)
-            mult = 1.0
-            if has_forward_estimate:
-                mult += max(-0.05, min(0.05, safe_float(out["est_eps_revision_breadth"], 0.0) * 0.05))
-            out["estimate_revision_future_winner_multiplier"] = float(mult)
+        records = group.to_dict("records")
+        for row in records:
+            out = {k: v for k, v in row.items() if k != "_available"}
+            # Recommendation and raw provider surprises never become canonical signals.
+            out.update(est_eps_revision_breadth=None,
+                       est_eps_revision_breadth_status="UNKNOWN_NO_ANALYST_REVISION_SOURCE",
+                       earnings_surprise_last=None, surprise_streak=None,
+                       estimate_revision_confirmed=0, estimate_revision_replacement_gate_pass=0,
+                       estimate_revision_future_winner_multiplier=1.0, h2_eligible=False)
+            for prefix, days, field in (("eps_fy1", 30, "est_eps_revision_30d"),
+                                        ("eps_fy1", 90, "est_eps_revision_90d"),
+                                        ("rev_fy1", 30, "est_rev_revision_30d")):
+                cutoff = row["_available"] - pd.Timedelta(days=days)
+                prior = [r for r in records if r["_available"] <= cutoff]
+                # Pick the actual latest vintage at the boundary, never search backwards
+                # for a favorable non-null value or an incompatible fiscal identity.
+                latest = [r for r in prior if r["_available"] == max(x["_available"] for x in prior)] if prior else []
+                unique = {r.get("source_payload_sha256") for r in latest}
+                previous = latest[-1] if latest and len(unique) == 1 else None
+                out[field] = same_period_revision(row, previous, prefix) if previous else None
+                if prefix == "eps_fy1" and days == 30:
+                    current_dispersion = optional_float(row.get("est_dispersion"))
+                    prior_dispersion = optional_float(previous.get("est_dispersion")) if previous else None
+                    # Dispersion is attached to the FY view; a roll cannot compare
+                    # the prior FY1 dispersion even when prior FY2 matches EPS.
+                    same_view = previous and row.get("eps_fy1_identity") == previous.get("eps_fy1_identity")
+                    out["est_dispersion_change_30d"] = current_dispersion - prior_dispersion if out[field] is not None and same_view and current_dispersion is not None and prior_dispersion is not None else None
+            out["revision_status"] = "SAME_PERIOD_OBSERVED" if any(out[k] is not None for k in ("est_eps_revision_30d", "est_eps_revision_90d", "est_rev_revision_30d")) else "UNKNOWN_PRIOR_OR_IDENTITY"
+            for col in PHASE18_ESTIMATE_REVISION_COLUMNS:
+                out.setdefault(col, None)
             rows.append(out)
-    out_df = pd.DataFrame(rows)
-    for col in PHASE18_ESTIMATE_REVISION_COLUMNS:
-        if col not in out_df.columns:
-            out_df[col] = 0.0
-    summary = {
-        "status": "completed",
-        "input_rows": int(len(snapshots)),
-        "output_rows": int(len(out_df)),
-        "ticker_count": int(out_df["ticker"].nunique()) if not out_df.empty else 0,
-        "coverage_ratio": float(out_df["ticker"].nunique() / max(1, snapshots["ticker"].nunique())) if "ticker" in snapshots.columns else 0.0,
-        "available_from_is_fetch_date": bool((out_df["available_from"] == out_df["as_of_date"]).all()) if not out_df.empty else True,
-        "forward_only": True,
-        "backtest_acceptance_allowed": False,
-        "production_activation_allowed": False,
-        "live_trading_enabled": False,
-    }
-    return out_df, summary
+    columns = list(dict.fromkeys([*snapshots.columns, *PHASE18_ESTIMATE_REVISION_COLUMNS]))
+    out_df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=columns)
+    return out_df, {"status": "completed" if rows else "blocked", "input_rows": len(snapshots),
+                    "output_rows": len(out_df), "quarantined_or_unavailable_rows": len(snapshots)-len(d),
+                    "source_contract": SCHEMA_VERSION, "h2_eligible": False,
+                    "forward_only": True, "available_from_is_fetch_date": False,
+                    "backtest_acceptance_allowed": False, "production_activation_allowed": False,
+                    "live_trading_enabled": False}
 
 
 def latest_signal_by_ticker(signals: pd.DataFrame, *, decision_date: str | pd.Timestamp) -> pd.DataFrame:
-    if signals.empty:
+    if signals.empty or "ticker" not in signals or "strategy_available_at" not in signals:
         return pd.DataFrame(columns=["ticker", *PHASE18_ESTIMATE_REVISION_COLUMNS])
     d = signals.copy()
-    if "available_from" not in d.columns or "ticker" not in d.columns:
-        return pd.DataFrame(columns=["ticker", *PHASE18_ESTIMATE_REVISION_COLUMNS])
-    d["ticker"] = d["ticker"].astype(str).str.upper().str.strip()
-    d["available_from"] = pd.to_datetime(d["available_from"], errors="coerce").dt.normalize()
-    cutoff = pd.Timestamp(decision_date).normalize()
-    d = d[d["ticker"].ne("") & d["available_from"].notna() & (d["available_from"] <= cutoff)]
-    if d.empty:
-        return pd.DataFrame(columns=["ticker", *PHASE18_ESTIMATE_REVISION_COLUMNS])
-    return d.sort_values(["ticker", "available_from"]).groupby("ticker", as_index=False).tail(1)
+    d["_available"] = pd.to_datetime([availability(r) for r in d.to_dict("records")], utc=True, errors="coerce")
+    d = d[d["_available"].notna() & (d["_available"] <= _cutoff(decision_date))]
+    return d.sort_values(["ticker", "_available"], kind="stable").groupby("ticker", as_index=False).tail(1).drop(columns="_available")
 
 
 def apply_estimate_revision_confirmation(
@@ -490,7 +408,7 @@ def apply_estimate_revision_confirmation(
     out = scored.copy()
     for col in PHASE18_ESTIMATE_REVISION_COLUMNS:
         if col not in out.columns:
-            out[col] = 0.0
+            out[col] = None
     summary = {
         "enabled": bool(enabled),
         "decision_date": str(pd.Timestamp(decision_date).date()),
@@ -504,7 +422,10 @@ def apply_estimate_revision_confirmation(
     if "ticker" not in out.columns:
         summary["reason"] = "missing_ticker_column"
         return out, summary
-    latest = latest_signal_by_ticker(signals, decision_date=decision_date)
+    admitted = signals
+    if "source_contract" in admitted:
+        admitted = admitted[admitted["source_contract"].ne(SCHEMA_VERSION)]
+    latest = latest_signal_by_ticker(admitted, decision_date=decision_date)
     if latest.empty:
         summary["reason"] = "no_available_signals"
         return out, summary
@@ -517,7 +438,7 @@ def apply_estimate_revision_confirmation(
     for col in PHASE18_ESTIMATE_REVISION_COLUMNS:
         signal_col = f"{col}_estimate_signal"
         if signal_col in merged.columns:
-            merged[col] = pd.to_numeric(merged[signal_col], errors="coerce").fillna(0.0)
+            merged[col] = pd.to_numeric(merged[signal_col], errors="coerce")
             merged = merged.drop(columns=[signal_col])
     breadth = pd.to_numeric(merged["est_eps_revision_breadth"], errors="coerce").fillna(0.0)
     dispersion_change = pd.to_numeric(merged["est_dispersion_change_30d"], errors="coerce").fillna(0.0)
@@ -661,13 +582,19 @@ def merge_same_day_snapshot(existing_path: Path, current: pd.DataFrame) -> tuple
         return current, info
     try:
         existing = pd.read_parquet(existing_path)
-    except Exception:
-        return current, info
+    except Exception as exc:
+        raise ValueError("unreadable_existing_estimate_archive") from exc
     if existing.empty:
         return current, info
     info["same_day_existing_rows"] = int(len(existing))
     combined = pd.concat([existing, current], ignore_index=True, sort=False)
-    if "ticker" in combined.columns:
+    if "snapshot_version_id" in combined.columns:
+        modern = combined[combined["snapshot_version_id"].notna()].copy()
+        legacy = combined[combined["snapshot_version_id"].isna()].copy()
+        modern = modern.drop_duplicates("snapshot_version_id").sort_values(
+            ["ticker", "strategy_available_at", "snapshot_version_id"], kind="stable")
+        combined = pd.concat([legacy, modern], ignore_index=True, sort=False)
+    elif "ticker" in combined.columns:
         combined["_ticker_norm"] = combined["ticker"].astype(str).str.upper().str.strip()
         sort_cols = ["_ticker_norm"]
         if "available_from" in combined.columns:
@@ -686,6 +613,8 @@ def merge_same_day_snapshot(existing_path: Path, current: pd.DataFrame) -> tuple
 def fetch_json(session: requests.Session, endpoint: str, ticker: str, api_key: str, *, sleep_seconds: float) -> Any:
     url = f"{FINNHUB_BASE}{endpoint}"
     params = {"symbol": ticker, "token": api_key}
+    if endpoint in ESTIMATE_ENDPOINTS:
+        params["freq"] = "annual"
     response = session.get(url, params=params, timeout=20)
     if sleep_seconds:
         time.sleep(sleep_seconds)
@@ -1129,7 +1058,7 @@ def collect_live_snapshot(
         else:
             stop_reason = "no_enabled_vendor_request_after_entitlement_circuit"
             break
-        if any(payload is not None and payload != {} for payload in [eps, rev, earnings, rec]):
+        if estimate_request_attempted or optional_finnhub_request_attempted:
             fetch_source = estimate_source or ("finnhub" if any(payload is not None for payload in [earnings, rec]) else "")
             rows.append(
                 parse_snapshot_row(
@@ -1144,6 +1073,14 @@ def collect_live_snapshot(
                     fetch_source=fetch_source,
                 )
             )
+        if rows:
+            ticker_errors = [e for e in errors if e.get("ticker") == ticker]
+            if not rows[-1]["has_forward_estimate"]:
+                rows[-1]["provider_coverage_status"] = (
+                    "UNSUPPORTED" if any(e.get("vendor_entitlement_blocked") for e in ticker_errors)
+                    else "FETCH_FAILED" if ticker_errors else "NO_COVERAGE")
+            else:
+                rows[-1]["provider_coverage_status"] = "OBSERVED"
         error_budget = collection_error_budget(errors, vendor_entitlement_circuits)
         if max_errors and error_budget["error_budget_count"] >= max_errors:
             stop_reason = "max_errors_reached"
@@ -1187,6 +1124,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     fetch_date = pd.Timestamp(args.fetch_date).normalize()
+    if fetch_date.date().isoformat() != utc_now()[:10]:
+        raise ValueError("current_snapshot_historical_backfill_forbidden")
     snapshot_dir = repo_path(args.snapshot_dir)
     signals_output = repo_path(args.signals_output)
     summary_path = repo_path(args.summary)
@@ -1321,10 +1260,10 @@ def main() -> int:
     snapshot, same_day_merge = merge_same_day_snapshot(snapshot_path, current_snapshot)
     snapshot.to_parquet(snapshot_path, index=False)
     history = load_snapshot_history(snapshot_dir)
-    signals, feature_summary = compute_estimate_revision_features(history, as_of_date=fetch_date.date().isoformat())
-    if not signals.empty:
-        signals_output.parent.mkdir(parents=True, exist_ok=True)
-        signals.to_parquet(signals_output, index=False)
+    signals, feature_summary = compute_estimate_revision_features(history, as_of_date=utc_now())
+    # Overwrite even an empty result: an old unsafe signal cache is not current.
+    signals_output.parent.mkdir(parents=True, exist_ok=True)
+    signals.to_parquet(signals_output, index=False)
     coverage_ratio = len(current_snapshot) / max(1, len(tickers))
     request_has_forward_estimate_rows = (
         int(pd.to_numeric(current_snapshot["has_forward_estimate"], errors="coerce").fillna(0).sum())
@@ -1385,6 +1324,18 @@ def main() -> int:
         "snapshot_path": str(snapshot_path),
         "signals_output": str(signals_output),
         "feature_summary": feature_summary,
+        "source_contract": SCHEMA_VERSION,
+        "h2_eligible": False,
+        "source_availability_evidence": {
+            "identity_status_counts": current_snapshot.get("identity_status", pd.Series(dtype=str)).value_counts().to_dict(),
+            "observed_at_min": current_snapshot.get("observed_at", pd.Series(dtype=str)).min() if "observed_at" in current_snapshot else None,
+            "collected_at_max": current_snapshot.get("collected_at", pd.Series(dtype=str)).max() if "collected_at" in current_snapshot else None,
+            "snapshot_version_ids": sorted(current_snapshot.get("snapshot_version_id", pd.Series(dtype=str)).dropna().unique().tolist()),
+            "source_payload_sha256": sorted(current_snapshot.get("source_payload_sha256", pd.Series(dtype=str)).dropna().unique().tolist()),
+            "historical_backfill_allowed": False,
+            "canonical_breadth_source": "UNKNOWN_NO_ANALYST_REVISION_SOURCE",
+            "surprise_source": "UNKNOWN_NO_FROZEN_PRE_EVENT_CONSENSUS",
+        },
         "error_count": len(errors),
         "error_budget_count": error_budget["error_budget_count"],
         "entitlement_error_warn_only_count": error_budget["entitlement_error_warn_only_count"],

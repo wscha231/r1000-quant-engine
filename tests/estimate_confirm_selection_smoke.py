@@ -58,15 +58,15 @@ def test_confirmation_default_off_changes_nothing() -> None:
     assert out["portfolio_future_winner_engine_score"].tolist() == [1.0, 1.0]
 
 
-def test_confirmation_uses_only_available_latest_signals() -> None:
+def test_legacy_date_only_signals_are_not_admitted() -> None:
     out, summary = apply_estimate_revision_confirmation(_scored(), _signals(), decision_date="2026-07-09", enabled=True)
     assert summary["enabled"] is True
-    assert summary["selection_change_count"] == 1
+    assert summary["selection_change_count"] == 0
     aaa = out[out["ticker"].eq("AAA")].iloc[0]
     bbb = out[out["ticker"].eq("BBB")].iloc[0]
-    assert aaa["estimate_revision_replacement_gate_pass"] == 1
-    assert aaa["portfolio_future_winner_engine_score"] > 1.0
-    assert bbb["estimate_revision_replacement_gate_pass"] == 0
+    assert pd.isna(aaa["estimate_revision_replacement_gate_pass"])
+    assert aaa["portfolio_future_winner_engine_score"] == 1.0
+    assert pd.isna(bbb["estimate_revision_replacement_gate_pass"])
     assert bbb["portfolio_future_winner_engine_score"] == 1.0
 
 
@@ -95,13 +95,13 @@ def test_missing_forward_estimate_signal_is_neutral() -> None:
     out, summary = apply_estimate_revision_confirmation(_scored(), signals, decision_date="2026-07-09", enabled=True)
     assert summary["selection_change_count"] == 0
     aaa = out[out["ticker"].eq("AAA")].iloc[0]
-    assert aaa["estimate_revision_replacement_gate_pass"] == 0
+    assert pd.isna(aaa["estimate_revision_replacement_gate_pass"])
     assert aaa["portfolio_future_winner_engine_score"] == 1.0
 
 
 if __name__ == "__main__":
     test_confirmation_default_off_changes_nothing()
-    test_confirmation_uses_only_available_latest_signals()
+    test_legacy_date_only_signals_are_not_admitted()
     test_empty_archive_is_neutral()
     test_missing_forward_estimate_signal_is_neutral()
     print("estimate_confirm_selection_smoke: PASS")

@@ -115,6 +115,11 @@ def latest_signal_by_ticker(signals: pd.DataFrame, decision_date: pd.Timestamp) 
     if signals.empty or "ticker" not in signals.columns:
         return pd.DataFrame(columns=["ticker"])
     d = signals.copy()
+    if "source_contract" in d.columns:
+        # H1 source diagnostics require a separate L0 H2 admission packet.
+        d = d[d["source_contract"].ne("earnings-consensus-source-v2")]
+        if d.empty:
+            return pd.DataFrame(columns=["ticker"])
     d["ticker"] = d["ticker"].map(normalize_ticker)
     if "available_from" in d.columns:
         d["_available_from"] = pd.to_datetime(d["available_from"], errors="coerce").dt.normalize()

@@ -5411,3 +5411,21 @@ Expected contract:
 - A historical Fullrun or publication manifest without that hash remains
   historical. Its raw broker metrics may be reevaluated for diagnosis, but its
   old PASS flag cannot certify current acceptance or A0 reuse.
+
+### 2026-09-28 — Consensus revisions require identity and available vintages
+
+- #450 H1 source repair: recommendation balance is not analyst EPS revision
+  breadth; vendor current surprises are not frozen pre-announcement consensus.
+- Missing currency/basis/security/unit metadata must block revision computation,
+  even when same-period averages are present. Preserve nulls and explicit zero.
+- Same-day overwrite destroys pre-event evidence. Retain available versions and
+  reject unreadable archives; a historical fetch-date label cannot backdate a
+  current observation. Unknown causal links must not count as independent events.
+- Existing earnings workflow has a downstream paper-overlay consumer. Source V2
+  needs an admission block there while L0 H2 approval is absent; changing source
+  semantics alone must not activate the research signal.
+- Latest inspected Drive execution/quality hashes confirm PARTIAL_COVERAGE;
+  local source tests do not fix G0 or reopen the CLOSED guidance experiment.
+- See `docs/EARNINGS_CONSENSUS_SOURCE_V2.md`. Local sparse validation must use
+  runner `--only`; `--include` appends to the complete suite and reports absent
+  unmaterialized tests as failures, not product regressions.
