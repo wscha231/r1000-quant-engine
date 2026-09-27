@@ -26,6 +26,7 @@ ROLES = ('code', 'mission', 'execution', 'commit', 'catalog', 'quality',
          'approved_target', 'verified_paper', 'model_portfolio', 'regime')
 BOOKS = ('actual_broker', 'approved_target', 'verified_paper', 'model_portfolio')
 SHA = re.compile(r'[0-9a-f]{64}')
+RUN_ID = re.compile(r'history-[1-9][0-9]*-[1-9][0-9]*')
 REPOSITORY = 'wscha231/r1000-quant-engine'
 # State/current-source observations expire promptly. Artifact historical dates
 # are independent; collecting a snapshot cannot advance its observation date.
@@ -76,10 +77,10 @@ class Sources:
             observed, available, collected, expires = [board.timestamp(ref[k]) for k in
                 ('observed_at', 'available_at', 'collected_at', 'expires_at')]
             need(observed <= available <= collected <= self.observed, 'source_time_conflict')
+            need(expires > collected, 'source_expiry_conflict')
             if self.now >= expires:
                 summary.update(status='STALE', reason='source_expired')
                 return None
-            need(expires > collected, 'source_expiry_conflict')
             payload = path.read_text(encoding='utf-8') if role == 'current_status' else board.read_json(path)
             if role != 'current_status':
                 need(isinstance(payload, dict), 'source_not_object')
@@ -128,8 +129,9 @@ def data_state(src):
         need(ex.get('catalog_sha256') == commit.get('catalog') == data['catalog_sha256'], 'catalog_link_mismatch')
         need(ex.get('commit_sha256') == src.states['commit']['sha256'], 'commit_link_mismatch')
         need(ex.get('reports', {}).get('quality.json') == data['quality_sha256'], 'quality_link_mismatch')
-        need(ex.get('run_id') == commit.get('run_id') == catalog.get('run_id') and
-             isinstance(ex.get('run_id'), str), 'execution_identity_mismatch')
+        run_id = ex.get('run_id')
+        need(isinstance(run_id, str) and RUN_ID.fullmatch(run_id) and
+             run_id == commit.get('run_id') == catalog.get('run_id'), 'execution_identity_mismatch')
         need(quality.get('status') == ex.get('quality_status') and quality.get('status') in
              {'PARTIAL', 'PARTIAL_COVERAGE', 'COLLECTED_NOT_PIT_CERTIFIED'}, 'quality_status_conflict')
         # Reuse the existing long-history contract: it never grants selector/PIT.
@@ -141,6 +143,7 @@ def data_state(src):
         need(readback.get('quality_status') == quality['status'], 'readback_quality_conflict')
         need(readback.get('remote_verified') is True and readback.get('study_recomputed_from_drive') is True
              and ex.get('study_recomputed_from_drive') is True, 'readback_not_verified')
+        need(readback.get('consumer') == 'VERIFIED_SQL_RESEARCH_CACHE', 'consumer_marker_invalid')
         need(type(ex.get('consumer_rows')) is int and ex['consumer_rows'] > 0 and
              readback.get('consumer_rows') == ex['consumer_rows'], 'consumer_evidence_mismatch')
         for role, field in (('execution', 'created_at'), ('commit', 'created_at'),
@@ -260,6 +263,8 @@ def materialize(manifest, root, now=None, code_sha=None):
     if freshness != 'VERIFIED':
         reasons.append('CURRENT_STATUS_' + freshness)
     reasons += [role + ':' + books[role]['reason'] for role in BOOKS if books[role]['status'] == 'BLOCKED']
+    if regime['status'] == 'BLOCKED':
+        reasons.append('regime:' + regime['reason'])
     authority = {**board.AUTHORITY, 'research_allowed': research,
                  'selector_allowed': False, 'model_portfolio_allowed': research,
                  'account_rebalance_allowed': False, 'target_mutation_allowed': False,

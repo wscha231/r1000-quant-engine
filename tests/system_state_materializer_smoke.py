@@ -28,25 +28,26 @@ class StateTests(unittest.TestCase):
         self.put('mission', {k: mission[k] for k in ('mission_contract_id', 'mission_contract_sha256',
             'official_metric_mode', 'mission_contract_values')})
         self.put('code', dict(repository=m.REPOSITORY, default_branch='master', master_sha=self.sha,
-            observed_at=self.at(-1), g0_run=dict(run_id='history-fixture-1',head_sha=self.sha,conclusion='failure')))
+            observed_at=self.at(-1), g0_run=dict(run_id='history-123-1',head_sha=self.sha,conclusion='failure')))
         self.put('control', dict(observed_at=self.at(-1), handoff_ref='SYNTHETIC', issues=[
             dict(number=531,state='open',url='https://github.com/'+m.REPOSITORY+'/issues/531')]))
         self.put('current_status', 'Status snapshot: `2026-01-01 10:05 KST` (`2026-01-01 01:05 UTC`)')
         self.put('quality', dict(schema='long-history-quality-v1',status='PARTIAL_COVERAGE',
             eligible_for_selector=False,as_of=self.at(-30), provider_failures={},
             provider_coverage_gaps={'sec/fixture':'OFFICIAL_COVERAGE_GAP'}))
-        self.put('catalog', dict(schema='long-history-catalog-v1',run_id='history-fixture-1',
+        self.put('catalog', dict(schema='long-history-catalog-v1',run_id='history-123-1',
             created_at=self.at(-25),code_sha=self.sha,eligible_for_selector=False,
             datasets={'current/fixture':dict(latest='2026-08-01',status='COLLECTED',evidence='current_only',normalized='a'*64)}))
-        self.put('commit', dict(schema='long-history-commit-v1',run_id='history-fixture-1',
+        self.put('commit', dict(schema='long-history-commit-v1',run_id='history-123-1',
             created_at=self.at(-20),catalog=self.hash('catalog')))
-        self.put('execution', dict(schema='long-history-execution-v1',run_id='history-fixture-1',
+        self.put('execution', dict(schema='long-history-execution-v1',run_id='history-123-1',
             created_at=self.at(-15),catalog_sha256=self.hash('catalog'),commit_sha256=self.hash('commit'),
             eligible_for_selector=False,quality_status='PARTIAL_COVERAGE',consumer_rows=2,
             study_recomputed_from_drive=True,reports={'quality.json':self.hash('quality')}))
         self.put('drive_readback', dict(catalog_sha256=self.hash('catalog'),commit_sha256=self.hash('commit'),
             execution_receipt_sha256=self.hash('execution'),quality_status='PARTIAL_COVERAGE',
-            remote_verified=True,study_recomputed_from_drive=True,eligible_for_selector=False,consumer_rows=2))
+            consumer='VERIFIED_SQL_RESEARCH_CACHE',remote_verified=True,study_recomputed_from_drive=True,
+            eligible_for_selector=False,consumer_rows=2))
 
     def at(self, minutes):
         return (self.now+timedelta(minutes=minutes)).isoformat()
@@ -142,6 +143,61 @@ class StateTests(unittest.TestCase):
         state=self.state()
         for role in m.BOOKS:self.assertEqual(state['books'][role]['status'],'BLOCKED')
         self.assertEqual(state['regime']['status'],'BLOCKED')
+
+    def test_blocked_regime_reason_is_in_state_and_projection(self):
+        self.put('regime',dict(status='VERIFIED',as_of=self.at(-2)))
+        state=self.state()
+        blocker='regime:accepted_domain_receipt_verifier_not_bound'
+        self.assertEqual(state['regime']['status'],'BLOCKED')
+        self.assertIn(blocker,state['blockers'])
+        self.assertIn(blocker,state['context']['blockers'])
+        self.assertIn('- '+blocker,m.projection(state))
+
+    def test_readback_requires_verified_sql_consumer_marker(self):
+        for value in (None,'','SQL_RESEARCH_CACHE','VERIFIED_SQL_RESEARCH_CACHE_EXTRA'):
+            with self.subTest(value=value):
+                readback=self.payload('drive_readback')
+                if value is None:
+                    readback.pop('consumer',None)
+                else:
+                    readback['consumer']=value
+                self.put('drive_readback',readback)
+                state=self.state()
+                self.assertEqual(state['data']['drive_readback_status'],'BLOCKED')
+                self.assertIn('consumer_marker_invalid',state['data']['g0_reasons'])
+                self.assertFalse(state['authority']['research_allowed'])
+                self.assertFalse(state['authority']['model_portfolio_allowed'])
+                readback['consumer']='VERIFIED_SQL_RESEARCH_CACHE'
+                self.put('drive_readback',readback)
+        self.assertEqual(self.state()['data']['drive_readback_status'],'VERIFIED')
+
+    def test_g0_run_identity_requires_canonical_positive_numeric_form(self):
+        self.assertEqual(self.state()['data']['drive_readback_status'],'VERIFIED')
+        for value in ('abc','history-x-1','history-1-x','history-0-1',
+                      'history-1-0','history-1','',None):
+            with self.subTest(value=value):
+                code=self.payload('code');code['g0_run']['run_id']=value;self.put('code',code)
+                catalog=self.payload('catalog');catalog['run_id']=value;self.put('catalog',catalog)
+                commit=self.payload('commit');commit['run_id']=value;commit['catalog']=self.hash('catalog');self.put('commit',commit)
+                ex=self.payload('execution');ex['run_id']=value
+                ex.update(catalog_sha256=self.hash('catalog'),commit_sha256=self.hash('commit'));self.put('execution',ex)
+                readback=self.payload('drive_readback')
+                readback.update(catalog_sha256=self.hash('catalog'),commit_sha256=self.hash('commit'),
+                                execution_receipt_sha256=self.hash('execution'))
+                self.put('drive_readback',readback)
+                state=self.state()
+                self.assertEqual(state['data']['g0_status'],'BLOCKED')
+                self.assertIn('execution_identity_mismatch',state['data']['g0_reasons'])
+                self.assertFalse(state['authority']['research_allowed'])
+
+    def test_invalid_expiry_chronology_blocks_before_stale(self):
+        ref=self.manifest['sources']['quality'][0]
+        ref['collected_at']=self.at(-5)
+        ref['expires_at']=self.at(-6)
+        state=self.state()
+        self.assertEqual(state['source_status']['quality']['status'],'BLOCKED')
+        self.assertEqual(state['source_status']['quality']['reason'],'source_expiry_conflict')
+        self.assertEqual(state['data']['g0_status'],'BLOCKED')
 
     def test_hash_mismatch_revokes_readback_and_research(self):
         (self.root/'catalog.json').write_text('{}')
