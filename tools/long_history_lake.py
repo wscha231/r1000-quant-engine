@@ -322,14 +322,21 @@ def issuer_queue(members, mapping, prior_mapping=None):
         if len(matches)==1:
             cik=next(iter(matches))
             groups.setdefault(cik,[]).append(symbol)
-            resolution.append(dict(ticker=symbol,cik=cik,identity_status='CURRENT_SEC_MAPPING',
-                current_mapping_present=True,lifecycle_review_required=False))
+            history=sorted(prior_matches-{cik})
+            for old_cik in history:
+                groups.setdefault(old_cik,[]).append(symbol)
+            resolution.append(dict(ticker=symbol,cik=cik,
+                identity_status=('CURRENT_SEC_MAPPING_WITH_HISTORY_CONFLICT' if history
+                    else 'CURRENT_SEC_MAPPING'),
+                history_retained_ciks=history,current_mapping_present=True,
+                lifecycle_review_required=bool(history)))
         elif not matches and len(prior_matches)==1:
             cik=next(iter(prior_matches))
             groups.setdefault(cik,[]).append(symbol)
             resolution.append(dict(ticker=symbol,cik=cik,
                 identity_status='PRIOR_SEC_MAPPING_RETAINED_LIFECYCLE_REVIEW',
-                current_mapping_present=False,lifecycle_review_required=True))
+                history_retained_ciks=[cik],current_mapping_present=False,
+                lifecycle_review_required=True))
         else:
             missing.append(dict(ticker=symbol,reason='CIK_MISSING_OR_AMBIGUOUS',
                 current_ciks=sorted(matches),prior_ciks=sorted(prior_matches)))
@@ -642,8 +649,10 @@ def collect_financials(lake,cohort,start,through):
     mapping_raw,_=get_public('https://www.sec.gov/files/company_tickers.json')
     prior_mapping,prior_sources=prior_sec_mapping(lake,with_sources=True)
     groups,missing,resolution=issuer_queue(members,json.loads(mapping_raw),prior_mapping)
-    current_ciks={row['cik'] for row in resolution if row['identity_status']=='CURRENT_SEC_MAPPING'}
-    history_ciks={row['cik'] for row in resolution if row['identity_status']=='PRIOR_SEC_MAPPING_RETAINED_LIFECYCLE_REVIEW'}
+    current_ciks={row['cik'] for row in resolution if row['identity_status'] in
+        ('CURRENT_SEC_MAPPING','CURRENT_SEC_MAPPING_WITH_HISTORY_CONFLICT')}
+    history_ciks={cik for row in resolution for cik in row.get('history_retained_ciks',
+        [row['cik']] if row['identity_status']=='PRIOR_SEC_MAPPING_RETAINED_LIFECYCLE_REVIEW' else [])}
     retrieved=utc_now()
     lake.dataset('universe/cohort',[raw,mapping_raw],members,dict(evidence='CURRENT_COHORT_NOT_HISTORICAL_MEMBERSHIP',
         rows=len(members),requested_securities=len(members),mapped_issuers=len(current_ciks),

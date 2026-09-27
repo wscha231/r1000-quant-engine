@@ -230,6 +230,39 @@ class HistoryTest(unittest.TestCase):
             self.assertEqual(issuer_queue(members,json.loads(later),mapping)[2][-1]
                              ['identity_status'],'PRIOR_SEC_MAPPING_RETAINED_LIFECYCLE_REVIEW')
 
+    def test_changed_cik_retains_both_sources_and_blocks_lifecycle_certification(self):
+        from tools.long_history_lake import collect_financials,diagnostics
+        members=[dict(ticker='A'+str(i)) for i in range(1000)]
+        cohort=self.root/'cohort.json'
+        cohort.write_bytes(encoded(dict(candidate_count=1000,as_of='2026-09-12',rows=members)))
+        current={'0':dict(ticker='A0',cik_str=1)}
+        prior={'0':dict(ticker='A0',cik_str=2)}
+        groups,missing,resolution=issuer_queue(members,current,prior)
+        self.assertEqual(groups,{'0000000001':['A0'],'0000000002':['A0']})
+        self.assertEqual(len(missing),999)
+        self.assertEqual(resolution[0]['identity_status'],'CURRENT_SEC_MAPPING_WITH_HISTORY_CONFLICT')
+        self.assertEqual(resolution[0]['history_retained_ciks'],['0000000002'])
+        self.assertTrue(resolution[0]['lifecycle_review_required'])
+        def fetch(url,conditional=None):
+            if url.endswith('company_tickers.json'): return encoded(current),{}
+            cik=int(url.rsplit('CIK',1)[1].split('.')[0])
+            data=source(); data['cik']=cik
+            return encoded(data),{}
+        with patch('tools.long_history_lake.COHORT_SHA',digest(cohort.read_bytes())), \
+             patch('tools.long_history_lake.prior_sec_mapping',return_value=(prior,[])), \
+             patch('tools.long_history_lake.get_public',side_effect=fetch):
+            result=collect_financials(self.lake,cohort,'2016-01-01','2026-09-12')
+        self.assertEqual(result['mapped_issuers'],1)
+        self.assertEqual(result['history_retained_issuer_count'],1)
+        self.assertEqual(result['collection_issuer_count'],2)
+        self.assertEqual(result['lifecycle_review_count'],1000)
+        self.assertEqual(self.lake.catalog['datasets']['sec/0000000001']['status'],'COLLECTED')
+        self.assertEqual(self.lake.catalog['datasets']['sec/0000000002']['status'],'COLLECTED')
+        report=diagnostics(self.lake)
+        self.assertEqual(report['status'],'PARTIAL_COVERAGE')
+        self.assertFalse(report['eligible_for_selector'])
+        self.assertEqual(report['history_retained_issuer_count'],1)
+
     def test_companyfacts_404_archives_official_role_but_never_facts(self):
         from tools.long_history_lake import collect_financials,diagnostics
         members=[dict(ticker='A'+str(i)) for i in range(1000)]

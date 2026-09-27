@@ -77,8 +77,11 @@ use only the current CIK mapping. A prior official mapping may retain
 historical collection identity with `lifecycle_review_required=true`, but it never
 proves current eligibility. New catalogs name and hash the cohort and SEC mapping
 source objects by role. The verified mapping source list persists across cycles;
-the first migration checks prior catalogs in the hash-verified chain. Conflicting
-historical CIKs remain ambiguous and require lifecycle review. A legacy
+the first migration checks prior catalogs in the hash-verified chain. A current
+CIK that differs from a prior CIK collects both issuer archives, records the
+older one as history-retained, and requires lifecycle review. Multiple distinct
+prior CIKs are retained for evidence with the same review block; none certify
+the ticker's historical identity. A legacy
 positional mapping is admitted only for exact reviewed producer SHAs after both
 source roles pass content validation. Workflow cohort restore uses the same reader.
 FRED missing observations retain both counts and dates, including omitted `.` rows.

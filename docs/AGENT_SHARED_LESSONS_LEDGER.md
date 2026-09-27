@@ -5384,3 +5384,11 @@ Expected contract:
 - Non-404 fetch errors, changed source bytes, and unsafe public JSON remain
   failures. This repairs site bootstrapping, not the stale paper ledger or
   portfolio/performance evidence.
+
+### 2026-09-27 — SEC ticker mapping changes require both issuer archives
+
+- A current CIK can coexist with a distinct CIK in verified prior SEC ticker
+  mappings. Choosing the current one alone silently drops the old issuer's
+  Companyfacts history. Queue both CIKs, label the old one history-retained,
+  and require lifecycle review even when both fetches succeed. Mapping history
+  is collection evidence, not proof of security identity or historical PIT.
