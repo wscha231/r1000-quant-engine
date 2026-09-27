@@ -83,7 +83,8 @@ can be published. A current
 CIK that differs from a prior CIK collects both issuer archives, records the
 older one as history-retained, and requires lifecycle review. Multiple distinct
 prior CIKs are retained for evidence even if the ticker later disappears from
-the current mapping. That case records an explicit ambiguous identity blocker;
+the current mapping or the current mapping has multiple CIKs. Those cases
+record an explicit ambiguous identity blocker;
 none certify the ticker's historical identity. A legacy
 positional mapping is admitted only for exact reviewed producer SHAs after both
 source roles pass content validation. Workflow cohort restore uses the same reader.

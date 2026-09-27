@@ -319,6 +319,29 @@ class HistoryTest(unittest.TestCase):
         self.assertEqual(report['current_mapped_issuer_count'],0)
         self.assertEqual(report['history_retained_issuer_count'],2)
 
+        # Conflicting current rows cannot erase the verified historical queue.
+        conflicting={'0':dict(ticker='A0',cik_str=3),'1':dict(ticker='A0',cik_str=4)}
+        groups,missing,resolution=issuer_queue(members,conflicting,earlier)
+        self.assertEqual(groups,{'0000000001':['A0'],'0000000002':['A0']})
+        self.assertEqual(missing[0]['current_ciks'],['0000000003','0000000004'])
+        self.assertEqual(resolution[0]['history_retained_ciks'],['0000000001','0000000002'])
+        self.assertTrue(resolution[0]['current_mapping_present'])
+        self.assertTrue(resolution[0]['lifecycle_review_required'])
+        ambiguous=Lake(self.t,self.root/'ambiguous')
+        def ambiguous_fetch(url,conditional=None):
+            if url.endswith('company_tickers.json'): return encoded(conflicting),{}
+            return fetch(url,conditional)
+        with patch('tools.long_history_lake.COHORT_SHA',digest(cohort.read_bytes())), \
+             patch('tools.long_history_lake.prior_sec_mapping',return_value=(earlier,[])), \
+             patch('tools.long_history_lake.get_public',side_effect=ambiguous_fetch):
+            result=collect_financials(ambiguous,cohort,'2016-01-01','2026-09-12')
+        self.assertEqual(result['mapped_issuers'],0)
+        self.assertEqual(result['history_retained_issuer_count'],2)
+        self.assertEqual(result['collection_issuer_count'],2)
+        self.assertEqual(ambiguous.catalog['datasets']['sec/0000000001']['status'],'COLLECTED')
+        self.assertEqual(ambiguous.catalog['datasets']['sec/0000000002']['status'],'COLLECTED')
+        self.assertEqual(diagnostics(ambiguous)['status'],'PARTIAL_COVERAGE')
+
     def test_companyfacts_404_archives_official_role_but_never_facts(self):
         from tools.long_history_lake import collect_financials,diagnostics
         members=[dict(ticker='A'+str(i)) for i in range(1000)]

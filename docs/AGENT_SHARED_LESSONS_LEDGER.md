@@ -5398,3 +5398,6 @@ Expected contract:
 - A persisted historical source hash that cannot be read or validated is a
   provenance failure, not an empty mapping. Propagate it before replacing the
   cohort catalog; otherwise a transient read error destroys the source list.
+- A later ambiguous current mapping also must not stop verified prior CIK
+  collection. Preserve those archives as history-only while blocking current
+  issuer admission and lifecycle certification for that ticker.

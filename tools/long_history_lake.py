@@ -339,10 +339,14 @@ def issuer_queue(members, mapping, prior_mapping=None):
                 history_retained_ciks=history,current_mapping_present=False,
                 lifecycle_review_required=True))
         else:
+            history=sorted(prior_matches)
+            for old_cik in history:
+                groups.setdefault(old_cik,[]).append(symbol)
             missing.append(dict(ticker=symbol,reason='CIK_MISSING_OR_AMBIGUOUS',
                 current_ciks=sorted(matches),prior_ciks=sorted(prior_matches)))
             resolution.append(dict(ticker=symbol,cik=None,identity_status='CIK_MISSING_OR_AMBIGUOUS',
-                current_mapping_present=bool(matches),lifecycle_review_required=True))
+                history_retained_ciks=history,current_mapping_present=bool(matches),
+                lifecycle_review_required=True))
     return groups,missing,resolution
 
 
