@@ -26,6 +26,7 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from r1000_config import PORTFOLIO_MISSION_TARGETS
+from mission_contract import mission_identity, mission_binding_status, OFFICIAL_METRIC_MODE
 
 try:
     from r1000_config import PORTFOLIO_GOAL_GATES
@@ -36,7 +37,6 @@ except Exception:  # pragma: no cover - smoke fallback
     }
 
 
-OFFICIAL_METRIC_MODE = "broker_ledger_next_close"
 MIN_BROKER_LEDGER_YEARS = 8.0
 MIN_BROKER_LEDGER_TRADING_DAYS = 252 * 8
 ATTRIBUTION_REQUIREMENT_ID = "attribution_package_year_mdd_name"
@@ -125,6 +125,7 @@ def run_label(path: Path) -> str:
 def collect_evidence(run_dir: Path, portfolio: str) -> dict[str, Any]:
     official_path = run_dir / "account_evaluation" / "official_metrics.json"
     official = read_json(official_path)
+    contract_status = mission_binding_status(official, mission_identity(PORTFOLIO_MISSION_TARGETS))
     portfolios = official.get("portfolios") if isinstance(official.get("portfolios"), dict) else {}
     row = portfolios.get(portfolio) if isinstance(portfolios.get(portfolio), dict) else {}
 
@@ -162,14 +163,17 @@ def collect_evidence(run_dir: Path, portfolio: str) -> dict[str, Any]:
         broker_path.is_file() and status == "completed" and mode == OFFICIAL_METRIC_MODE
         and cagr is not None and max_dd is not None
     )
-    target_pass = bool(
+    reevaluated_target_pass = bool(
         mission_evidence_valid
         and cagr >= target["cagr"]
         and max_dd >= target["max_dd"]
     )
+    target_pass = bool(reevaluated_target_pass and contract_status == "current_mission_contract")
 
     return {
         "run_dir": str(run_dir),
+        **mission_identity(PORTFOLIO_MISSION_TARGETS),
+        "source_target_contract_status": contract_status,
         "run_label": run_label(run_dir),
         "portfolio": portfolio,
         "official_metrics_path": str(official_path),
@@ -187,9 +191,11 @@ def collect_evidence(run_dir: Path, portfolio: str) -> dict[str, Any]:
         "status": status,
         "valid_for_production": bool(
             mission_evidence_valid and broker.get("valid_for_production", False)
+            and contract_status == "current_mission_contract"
         ),
         "target_type": "canonical_mission",
         "target_pass": target_pass,
+        "reevaluated_target_pass": reevaluated_target_pass,
         "source_target_pass": source_target_pass,
         "source_cagr_target": safe_float(row.get("cagr_target")),
         "source_max_dd_target": safe_float(row.get("max_dd_target")),
@@ -261,6 +267,8 @@ def classify_candidate(
     issues: list[str] = []
     if not candidate.get("official_metrics_exists"):
         return "invalid_official_metrics", ["official_metrics_missing"]
+    if candidate.get("source_target_contract_status") != "current_mission_contract":
+        return "blocked_target_contract", ["historical_or_unbound_target_contract"]
     if candidate.get("official_metric_mode") != OFFICIAL_METRIC_MODE:
         return "invalid_official_metrics", [f"official_metric_mode:{candidate.get('official_metric_mode') or 'missing'}"]
     if candidate.get("system_acceptance_production_activation_allowed") is True:
@@ -480,6 +488,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     baseline_ok = bool(
         baseline.get("official_metrics_exists")
         and baseline.get("mission_evidence_valid")
+        and baseline.get("source_target_contract_status") == "current_mission_contract"
     )
     require_evidence = not bool(getattr(args, "allow_missing_evidence", False))
     min_cagr_delta = float(getattr(args, "min_cagr_delta_pp", 0.0)) / 100.0
@@ -539,6 +548,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
     payload = {
         "schema_version": "ab-result-verifier-v1",
+        **mission_identity(PORTFOLIO_MISSION_TARGETS),
         "generated_at_utc": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "status": status,
         "portfolio": portfolio,

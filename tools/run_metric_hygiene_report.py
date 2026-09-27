@@ -22,11 +22,11 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from r1000_config import PORTFOLIO_MISSION_TARGETS
+from mission_contract import mission_identity, mission_binding_status, OFFICIAL_METRIC_MODE
 
 
 DEFAULT_LATEST_RUN = "outputs"
 DEFAULT_OUTPUT_DIR = "outputs/metric_hygiene"
-OFFICIAL_METRIC_MODE = "broker_ledger_next_close"
 PORTFOLIOS = ("main", "concentrated")
 LEGACY_FILES = {
     "main": "backtest_metrics.json",
@@ -141,6 +141,8 @@ def official_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
     broker_path = latest_run / "broker_replay" / portfolio / "metrics.json"
     broker = read_json(broker_path)
     account_row = load_account_row(latest_run, portfolio)
+    account_artifact = read_json(latest_run / "account_evaluation" / "official_metrics.json")
+    source_contract_status = mission_binding_status(account_artifact, mission_identity(PORTFOLIO_MISSION_TARGETS))
     account_state = read_json(latest_run / "broker_replay" / portfolio / "account_state_latest.json")
     target = target_for(portfolio)
     cagr = metric(broker, "cagr")
@@ -157,13 +159,17 @@ def official_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
     dd_pass = bool(max_dd is not None and max_dd >= target["max_dd"])
     return {
         "portfolio": portfolio,
+        **mission_identity(PORTFOLIO_MISSION_TARGETS),
+        "source_target_contract_status": source_contract_status,
         "official_source": f"broker_replay/{portfolio}/metrics.json",
         "official_source_exists": broker_path.exists(),
         "official_metric_mode": metric_mode,
-        "production_valid": valid,
+        "production_valid": valid and source_contract_status == "current_mission_contract",
         "target_type": "canonical_mission",
         "status": status,
-        "target_pass": bool(mission_evidence_valid and cagr_pass and dd_pass),
+        "reevaluated_target_pass": bool(mission_evidence_valid and cagr_pass and dd_pass),
+        "target_pass": bool(mission_evidence_valid and cagr_pass and dd_pass
+                            and source_contract_status == "current_mission_contract"),
         "cagr": cagr,
         "cagr_target": target["cagr"],
         "cagr_gap_pp": pp(None if cagr is None else max(0.0, target["cagr"] - cagr)),
@@ -288,6 +294,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     )
     payload = {
         "schema_version": "metric-hygiene-v1",
+        **mission_identity(PORTFOLIO_MISSION_TARGETS),
         "generated_at_utc": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "latest_run": str(latest_run),
         "official_metric_mode": OFFICIAL_METRIC_MODE,
@@ -306,6 +313,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     write_json(output_dir / "summary.json", payload)
     write_json(output_dir / "official_metrics.json", {
         "schema_version": payload["schema_version"],
+        **mission_identity(PORTFOLIO_MISSION_TARGETS),
         "official_metric_mode": OFFICIAL_METRIC_MODE,
         "target_type": "canonical_mission",
         "mission_target_pass": payload["mission_target_pass"],

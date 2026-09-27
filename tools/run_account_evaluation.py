@@ -28,6 +28,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from r1000_config import PORTFOLIO_MISSION_TARGETS
+from mission_contract import mission_identity, OFFICIAL_METRIC_MODE
 
 try:
     from r1000_config import (
@@ -507,7 +508,7 @@ def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
     replay_completed = broker_metrics.get("status") == "completed"
     mission_evidence_valid = bool(
         broker_path.is_file() and replay_completed
-        and broker_metrics.get("metric_mode") == "broker_ledger_next_close"
+        and broker_metrics.get("metric_mode") == OFFICIAL_METRIC_MODE
         and cagr is not None and max_dd is not None
     )
     replay_valid = mission_evidence_valid and bool(broker_metrics.get("valid_for_production"))
@@ -521,6 +522,7 @@ def summarize_portfolio(latest_run: Path, portfolio: str) -> dict[str, Any]:
 
     return {
         "portfolio": portfolio,
+        **mission_identity(PORTFOLIO_MISSION_TARGETS),
         "official_metric_mode": broker_metrics.get("metric_mode") or "",
         "official_source": f"broker_replay/{portfolio}/metrics.json",
         "status": broker_metrics.get("status") or "missing",
@@ -787,7 +789,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     research_target_pass = bool(goal_search.get("research_target_pass"))
     payload = {
         "schema_version": "account-evaluation-v1",
-        "official_metric_mode": "broker_ledger_next_close",
+        **mission_identity(PORTFOLIO_MISSION_TARGETS),
+        "official_metric_mode": OFFICIAL_METRIC_MODE,
         "target_type": ACTIVE_TARGET_TYPE,
         "target_contract_status": TARGET_CONTRACT_STATUS,
         "target_contract": {
@@ -809,6 +812,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     }
     official_metrics = {
         "schema_version": payload["schema_version"],
+        **mission_identity(PORTFOLIO_MISSION_TARGETS),
         "official_metric_mode": payload["official_metric_mode"],
         "target_type": payload["target_type"],
         "target_contract_status": payload["target_contract_status"],

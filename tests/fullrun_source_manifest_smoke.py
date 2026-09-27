@@ -14,6 +14,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools import verify_fullrun_source_manifest as verifier
+from r1000_config import PORTFOLIO_MISSION_TARGETS
+from mission_contract import mission_identity
 
 
 def sha256(path: Path) -> str:
@@ -57,6 +59,7 @@ def fixture(root: Path) -> tuple[argparse.Namespace, Path]:
     manifest.write_text(
         json.dumps(
             {
+                **mission_identity(PORTFOLIO_MISSION_TARGETS),
                 "schema_version": verifier.SCHEMA_VERSION,
                 "status": verifier.READY_STATUS,
                 "approval_scope": scope,
@@ -113,6 +116,12 @@ def test_manifest_binds_scope_commit_session_and_tracked_inputs() -> None:
             assert ready["ready"] is True
             assert ready["contract_failures"] == []
             assert ready["manifest"]["hash_basis"] == "git_blob_bytes"
+            manifest = root / "manifests/fullrun/approved.json"
+            old = json.loads(manifest.read_text(encoding="utf-8"))
+            old.pop("mission_contract_sha256")
+            manifest.write_text(json.dumps(old), encoding="utf-8")
+            assert "historical_or_unbound_target_contract" in verifier.verify(args)["contract_failures"]
+            git(root, "checkout", "--", "manifests/fullrun/approved.json")
 
             source.write_bytes(b"pandas==2.2.0\r\n")
             eol_translated = verifier.verify(args)
@@ -132,6 +141,25 @@ def test_manifest_binds_scope_commit_session_and_tracked_inputs() -> None:
             wrong_session = verifier.verify(args)
             assert wrong_session["ready"] is False
             assert "resolved_session_date_mismatch" in wrong_session["contract_failures"]
+        finally:
+            verifier.REPO_ROOT = original_root
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        original_root = verifier.REPO_ROOT
+        try:
+            verifier.REPO_ROOT = root
+            args, _ = fixture(root)
+            path = root / args.manifest
+            old = json.loads(path.read_text(encoding="utf-8"))
+            old.pop("mission_contract_sha256")
+            path.write_text(json.dumps(old) + "\n", encoding="utf-8")
+            git(root, "add", args.manifest)
+            git(root, "commit", "-m", "historical-unbound-fixture")
+            args.expected_commit_sha = git(root, "rev-parse", "HEAD")
+            args.expected_sha256 = git_blob_sha256(root, args.manifest)
+            blocked = verifier.verify(args)
+            assert not blocked["ready"]
+            assert "historical_or_unbound_target_contract" in blocked["contract_failures"]
         finally:
             verifier.REPO_ROOT = original_root
 

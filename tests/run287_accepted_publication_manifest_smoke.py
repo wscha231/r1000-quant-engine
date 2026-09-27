@@ -25,6 +25,8 @@ from tools.build_run287_accepted_publication_manifest import (  # noqa: E402
 )
 from tools.run287_paper_ledger_integrity import write_integrity_manifest  # noqa: E402
 from tools.run_daily_simulated_fill_ledger import preview_identity  # noqa: E402
+from r1000_config import PORTFOLIO_MISSION_TARGETS
+from mission_contract import mission_identity
 
 
 def write_json(path: Path, payload: dict) -> None:
@@ -322,6 +324,7 @@ def build_fixture(root: Path) -> Path:
         latest / "run287_promotion_gate" / "promotion_gate.json",
         {
             "schema_version": "run287-promotion-gate-v1",
+            **mission_identity(PORTFOLIO_MISSION_TARGETS),
             "effective_promotion_state": "RESEARCH_ONLY",
             "source_hashes": {
                 "contract_sha256": sha256_file(
@@ -511,6 +514,7 @@ def test_manifest_binds_all_accepted_files_and_identity() -> None:
         assert manifest["status"] == READY_STATUS
         assert manifest["as_of_date"] == "2026-07-22"
         assert manifest["source_identity"]["commit_sha"] == "a" * 40
+        assert manifest["source_identity"]["mission_contract_sha256"] == mission_identity(PORTFOLIO_MISSION_TARGETS)["mission_contract_sha256"]
         assert manifest["source_identity"]["promotion_gate_sha256"] == (
             sha256_file(
                 latest / "run287_promotion_gate" / "promotion_gate.json"
@@ -999,6 +1003,29 @@ def test_duplicate_json_keys_in_bound_input_fail_closed() -> None:
             encoding="utf-8",
         )
         assert_manifest_blocked(latest, "duplicate_json_key:schema_version")
+
+
+def test_current_publication_rejects_unbound_mission_gate_and_manifest() -> None:
+    with TemporaryDirectory() as tmp:
+        latest = build_fixture(Path(tmp))
+        gate_path = latest / "run287_promotion_gate/promotion_gate.json"
+        gate = json.loads(gate_path.read_text(encoding="utf-8"))
+        gate.pop("mission_contract_sha256")
+        write_json(gate_path, gate)
+        assert_manifest_blocked(latest, "historical_or_unbound_target_contract")
+    with TemporaryDirectory() as tmp:
+        latest = build_fixture(Path(tmp))
+        manifest = accepted_manifest(latest)
+        manifest.pop("mission_contract_sha256")
+        path = latest / "run287_accepted_publication/manifest.json"
+        write_json(path, manifest)
+        try:
+            verify_manifest(latest_run=latest, manifest_path=path,
+                            expected_manifest_sha256=sha256_file(path))
+        except ValueError as exc:
+            assert "historical_or_unbound_target_contract" in str(exc)
+        else:
+            raise AssertionError("unbound accepted manifest passed")
 
 
 if __name__ == "__main__":

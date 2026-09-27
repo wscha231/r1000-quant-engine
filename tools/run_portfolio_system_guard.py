@@ -27,6 +27,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from r1000_config import PORTFOLIO_MISSION_TARGETS
+from mission_contract import mission_identity, OFFICIAL_METRIC_MODE
 
 DEFAULT_LATEST_RUN = "cloud_results/full_rebuild/latest_global_alpha_universe"
 DEFAULT_OUTPUT_DIR = "outputs/portfolio_system_guard"
@@ -341,8 +342,8 @@ def metric(metrics: dict[str, Any], *names: str, default: float | None = 0.0) ->
 
 def portfolio_status(name: str, metrics: dict[str, Any], cagr_target: float, max_dd_target: float) -> dict[str, Any]:
     metric_source = metrics.get("_metric_source", "legacy_weight_backtest")
-    broker_source = (metric_source == "broker_ledger_next_close"
-                     and metrics.get("metric_mode") == "broker_ledger_next_close")
+    broker_source = (metric_source == OFFICIAL_METRIC_MODE
+                     and metrics.get("metric_mode") == OFFICIAL_METRIC_MODE)
     cagr = metric(metrics, "cagr", default=None)
     max_dd = metric(metrics, "max_dd", default=None)
     sharpe = metric(metrics, "sharpe")
@@ -361,6 +362,7 @@ def portfolio_status(name: str, metrics: dict[str, Any], cagr_target: float, max
     diagnostic_max_dd_pass = official_source and max_dd is not None and max_dd >= max_dd_target
     return {
         "portfolio": name,
+        **mission_identity(PORTFOLIO_MISSION_TARGETS),
         "metric_source": metric_source,
         "official_source_pass": official_source,
         "target_type": "canonical_mission",
@@ -432,8 +434,8 @@ def broker_or_legacy_metrics(latest_run: Path, portfolio: str) -> dict[str, Any]
     if broker:
         out = dict(broker)
         out["_metric_source"] = (
-            "broker_ledger_next_close"
-            if broker_path.is_file() and broker.get("metric_mode") == "broker_ledger_next_close"
+            OFFICIAL_METRIC_MODE
+            if broker_path.is_file() and broker.get("metric_mode") == OFFICIAL_METRIC_MODE
             else "invalid_broker_replay"
         )
         out["_legacy_cagr"] = metric(legacy, "cagr", "strategy_cagr") if legacy else None
@@ -443,7 +445,7 @@ def broker_or_legacy_metrics(latest_run: Path, portfolio: str) -> dict[str, Any]
     if out:
         out["_metric_source"] = "legacy_weight_backtest"
         out["valid_for_production"] = False
-        out["official_metric_required"] = "broker_ledger_next_close"
+        out["official_metric_required"] = OFFICIAL_METRIC_MODE
         out["DO_NOT_USE_FOR_PRODUCTION"] = True
     return out
 
@@ -789,8 +791,8 @@ def data_quality_contract_checks(inputs: dict[str, Any]) -> list[dict[str, Any]]
         checks.append(
             {
                 "check": f"{portfolio}_official_broker_metrics_valid_for_production",
-                "passed": source == "broker_ledger_next_close" and valid,
-                "severity": "error" if metrics and (source != "broker_ledger_next_close" or not valid) else ("warn" if not metrics else "ok"),
+                "passed": source == OFFICIAL_METRIC_MODE and valid,
+                "severity": "error" if metrics and (source != OFFICIAL_METRIC_MODE or not valid) else ("warn" if not metrics else "ok"),
                 "detail": f"metric_source={source or 'missing'}; valid_for_production={valid}; fill_mode={metrics.get('fill_mode') or 'missing'}",
             }
         )
@@ -872,7 +874,7 @@ def data_quality_update_plan(inputs: dict[str, Any], latest_run: Path) -> dict[s
     feature_overall = feature_coverage.get("overall") or {}
     return {
         "metric_contract": {
-            "official_source": "broker_ledger_next_close",
+            "official_source": OFFICIAL_METRIC_MODE,
             "main_target": PORTFOLIO_MISSION_TARGETS["main"],
             "concentrated_target": PORTFOLIO_MISSION_TARGETS["concentrated"],
             "legacy_weight_metrics_allowed_for": "research_hints_only",
@@ -1283,6 +1285,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     overall_status = "target_pass" if targets_pass and not hard_errors else "blocked"
 
     payload = {
+        **mission_identity(PORTFOLIO_MISSION_TARGETS),
         "overall_status": overall_status,
         "strict_targets": args.strict_targets,
         "target_type": "canonical_mission",

@@ -159,6 +159,20 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertEqual(self.tasks()[0]['status'],'SKIP_UNCHANGED')
         self.assertFalse(board.lifecycle_state(self.tasks()[0])['ai_invocation_required'])
 
+    def test_mission_semantic_change_invalidates_task_key_and_skip(self):
+        self.complete()
+        prior = self.tasks()[0]
+        self.assertEqual(prior['status'], 'SKIP_UNCHANGED')
+        original = board.mission_targets
+        def changed():
+            row = original()
+            return {**row, 'mission_contract_sha256': 'f' * 64}
+        with patch.object(board, 'mission_targets', changed):
+            current = self.tasks()[0]
+        self.assertNotEqual(current['identity']['input_hash'], prior['identity']['input_hash'])
+        self.assertNotEqual(current['task_key'], prior['task_key'])
+        self.assertNotEqual(current['status'], 'SKIP_UNCHANGED')
+
     def test_receipt_ai_invocation_provenance(self):
         receipt=self.complete()
         receipt['ai_invoked']=True

@@ -7,12 +7,17 @@ import hashlib
 import json
 import os
 import tempfile
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 
 ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from r1000_config import PORTFOLIO_MISSION_TARGETS
+from mission_contract import mission_identity, mission_binding_status
 SCHEMA_VERSION = "run287-accepted-publication-manifest-v1"
 READY_STATUS = "READY_ACCEPTED_PUBLICATION_REVIEW_ONLY"
 OUTCOME_PARENT_ANCHOR_SCHEMA = "run287-risk-outcome-parent-anchor-v1"
@@ -798,6 +803,9 @@ def build_manifest(
     gate = read_json(latest_run / REQUIRED_FILES["promotion_gate"])
     if gate.get("schema_version") != "run287-promotion-gate-v1":
         raise ValueError("promotion_gate_schema_invalid")
+    mission = mission_identity(PORTFOLIO_MISSION_TARGETS)
+    if mission_binding_status(gate, mission) != "current_mission_contract":
+        raise ValueError("historical_or_unbound_target_contract")
     for field in (
         "automatic_forward_transition_performed",
         "automatic_production_activation_performed",
@@ -917,10 +925,12 @@ def build_manifest(
 
     return {
         "schema_version": SCHEMA_VERSION,
+        **mission,
         "status": READY_STATUS,
         "as_of_date": paper_as_of,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "source_identity": {
+            "mission_contract_sha256": mission["mission_contract_sha256"],
             "commit_sha": source_commit_sha.lower(),
             "workflow": workflow_identity,
             "run_id": run_id,
@@ -989,6 +999,10 @@ def verify_manifest(
         or not valid_sha256(source_identity.get("promotion_gate_sha256"))
     ):
         raise ValueError("accepted_publication_source_identity_invalid")
+    mission = mission_identity(PORTFOLIO_MISSION_TARGETS)
+    if (mission_binding_status(manifest, mission) != "current_mission_contract"
+            or source_identity.get("mission_contract_sha256") != mission["mission_contract_sha256"]):
+        raise ValueError("historical_or_unbound_target_contract")
 
     files = manifest.get("files")
     if not isinstance(files, dict) or not files:
@@ -1070,6 +1084,9 @@ def verify_manifest(
         raise ValueError("accepted_publication_outcome_chain_binding_invalid")
 
     gate_sha256 = str(source_identity["promotion_gate_sha256"])
+    gate = read_json(latest_run / REQUIRED_FILES["promotion_gate"])
+    if mission_binding_status(gate, mission) != "current_mission_contract":
+        raise ValueError("historical_or_unbound_target_contract")
     promotion_record = files.get("promotion_gate")
     if (
         not isinstance(promotion_record, dict)

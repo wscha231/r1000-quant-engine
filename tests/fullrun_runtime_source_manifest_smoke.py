@@ -15,6 +15,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools import build_fullrun_runtime_source_manifest as runtime  # noqa: E402
+from r1000_config import PORTFOLIO_MISSION_TARGETS
+from mission_contract import mission_identity
 
 
 def git(root: Path, *args: str) -> str:
@@ -33,6 +35,7 @@ def fixture(root: Path) -> argparse.Namespace:
     manifest.write_text(
         json.dumps(
             {
+                **mission_identity(PORTFOLIO_MISSION_TARGETS),
                 "runtime_source_contract": {
                     "schema_version": runtime.CONTRACT_SCHEMA_VERSION,
                     "stages": {
@@ -79,6 +82,7 @@ def test_mutable_runtime_inputs_change_composite_identity_and_missing_blocks() -
             args = fixture(root)
             first = runtime.build(args)
             assert first["ready"] is True
+            assert first["mission_contract_sha256"] == mission_identity(PORTFOLIO_MISSION_TARGETS)["mission_contract_sha256"]
             assert first["groups"]["prices"]["file_count"] == 1
 
             # Runtime semantics must come from the same committed bytes whose
@@ -87,6 +91,7 @@ def test_mutable_runtime_inputs_change_composite_identity_and_missing_blocks() -
             manifest.write_text("{\"runtime_source_contract\": null}\n", encoding="utf-8")
             committed = runtime.build(args)
             assert committed["ready"] is True
+            assert committed["mission_contract_sha256"] == first["mission_contract_sha256"]
             assert committed["groups"]["prices"]["file_count"] == 1
 
             price = root / "cache_prices" / "AAA.csv"
@@ -105,6 +110,27 @@ def test_mutable_runtime_inputs_change_composite_identity_and_missing_blocks() -
                 failure.startswith("runtime_source_group_below_minimum:prices")
                 for failure in blocked["contract_failures"]
             )
+        finally:
+            runtime.REPO_ROOT = original
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        original = runtime.REPO_ROOT
+        try:
+            runtime.REPO_ROOT = root
+            args = fixture(root)
+            path = root / args.approved_manifest
+            old = json.loads(path.read_text(encoding="utf-8"))
+            old.pop("mission_contract_sha256")
+            path.write_text(json.dumps(old) + "\n", encoding="utf-8")
+            git(root, "add", args.approved_manifest)
+            git(root, "commit", "-m", "historical-unbound-fixture")
+            args.expected_commit_sha = git(root, "rev-parse", "HEAD")
+            args.expected_manifest_sha256 = hashlib.sha256(
+                subprocess.check_output(["git", "show", "HEAD:" + args.approved_manifest], cwd=root)
+            ).hexdigest()
+            blocked = runtime.build(args)
+            assert not blocked["ready"]
+            assert "historical_or_unbound_target_contract" in blocked["contract_failures"]
         finally:
             runtime.REPO_ROOT = original
 

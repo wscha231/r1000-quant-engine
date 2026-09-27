@@ -8,6 +8,7 @@ import math
 import csv
 import copy
 import tempfile
+import sys
 from collections import Counter
 from datetime import date
 from pathlib import Path
@@ -15,6 +16,10 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from r1000_config import PORTFOLIO_MISSION_TARGETS
+from mission_contract import mission_identity, mission_binding_status, OFFICIAL_METRIC_MODE
 DEFAULT_CONTRACT = ROOT / "data_static" / "run287_promotion_gate_contract.json"
 DEFAULT_STATE = ROOT / "data_static" / "run287_promotion_state.json"
 DEFAULT_EVIDENCE = ROOT / "data_static" / "run287_promotion_evidence_current.json"
@@ -3575,6 +3580,7 @@ def evaluate_gate(
     source_hashes: dict[str, str] | None = None,
     requested_state: str | None = None,
     transition_authorization: dict[str, Any] | None = None,
+    broker_metrics_root: Path | None = None,
 ) -> dict[str, Any]:
     contract_errors = validate_contract(contract)
     gate_contract = contract
@@ -3594,10 +3600,57 @@ def evaluate_gate(
         else ["state_not_evaluated"]
     )
     historical = evidence.get("historical") or {}
+    mission = mission_identity(PORTFOLIO_MISSION_TARGETS)
+    historical_contract_status = mission_binding_status(historical, mission)
+    metrics = historical.get("metrics") if isinstance(historical.get("metrics"), dict) else {}
+    numeric_mission_pass = True
+    verified_broker_hashes: dict[str, str] = {}
+    for portfolio, target in PORTFOLIO_MISSION_TARGETS.items():
+        row = metrics.get(portfolio) if isinstance(metrics.get(portfolio), dict) else {}
+        cagr = row.get("cagr")
+        max_dd = row.get("max_dd", row.get("max_drawdown"))
+        expected_sha256 = row.get("broker_metrics_sha256")
+        broker_path = (broker_metrics_root / "broker_replay" / portfolio / "metrics.json"
+                       if broker_metrics_root is not None else None)
+        if (not isinstance(expected_sha256, str) or len(expected_sha256) != 64
+                or any(character not in "0123456789abcdef" for character in expected_sha256)
+                or broker_path is None or not broker_path.is_file() or broker_path.is_symlink()
+                or broker_path.parent.is_symlink() or broker_path.parent.parent.is_symlink()):
+            numeric_mission_pass = False
+            break
+        try:
+            broker_bytes = broker_path.read_bytes()
+            if hashlib.sha256(broker_bytes).hexdigest() != expected_sha256:
+                numeric_mission_pass = False
+                break
+            broker = strict_json_object(broker_bytes, label=str(broker_path))
+        except (OSError, ValueError, TypeError, UnicodeError):
+            numeric_mission_pass = False
+            break
+        if not isinstance(broker, dict):
+            numeric_mission_pass = False
+            break
+        broker_cagr = broker.get("cagr")
+        broker_max_dd = broker.get("max_dd")
+        if (row.get("status") != "completed" or row.get("metric_mode") != OFFICIAL_METRIC_MODE
+                or isinstance(cagr, bool) or not isinstance(cagr, (int, float)) or not math.isfinite(cagr)
+                or isinstance(max_dd, bool) or not isinstance(max_dd, (int, float)) or not math.isfinite(max_dd)
+                or broker.get("status") != "completed" or broker.get("metric_mode") != OFFICIAL_METRIC_MODE
+                or isinstance(broker_cagr, bool) or not isinstance(broker_cagr, (int, float)) or not math.isfinite(broker_cagr)
+                or isinstance(broker_max_dd, bool) or not isinstance(broker_max_dd, (int, float)) or not math.isfinite(broker_max_dd)
+                or cagr != broker_cagr or max_dd != broker_max_dd
+                or cagr < target["cagr"] or max_dd < target["max_dd"]):
+            numeric_mission_pass = False
+            break
+        verified_broker_hashes[f"historical_{portfolio}_broker_metrics_sha256"] = expected_sha256
     historical_checks = {
         field: historical.get(field) is True
         for field in gate_contract.get("required_historical_checks") or []
     }
+    historical_checks["full_pass"] = bool(
+        historical_checks.get("full_pass") and numeric_mission_pass
+        and historical_contract_status == "current_mission_contract"
+    )
     historical_blockers = sorted(field for field, passed in historical_checks.items() if not passed)
     historical_pass = bool(historical_checks) and not historical_blockers
 
@@ -3683,7 +3736,7 @@ def evaluate_gate(
     active_rollbacks = sorted(set(active_rollbacks))
     effective = "BLOCKED_OR_ROLLED_BACK" if active_rollbacks else current
 
-    hashes = source_hashes or {}
+    hashes = {**(source_hashes or {}), **(verified_broker_hashes if numeric_mission_pass else {})}
     transition = _transition_request(
         current,
         maximum,
@@ -3713,6 +3766,10 @@ def evaluate_gate(
         runtime_observed_file_hashes = {}
     return {
         "schema_version": GATE_SCHEMA,
+        **mission,
+        "historical_target_contract_status": historical_contract_status,
+        "historical_numeric_mission_pass": numeric_mission_pass,
+        "historical_broker_metrics_hashes": verified_broker_hashes if numeric_mission_pass else {},
         "contract_version": contract.get("contract_version"),
         "source_hashes": hashes,
         "runtime_evidence_limitations": runtime_limitations,

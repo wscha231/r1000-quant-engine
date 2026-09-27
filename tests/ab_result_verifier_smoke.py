@@ -14,6 +14,8 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from tools.run_ab_result_verifier import run  # noqa: E402
+from r1000_config import PORTFOLIO_MISSION_TARGETS
+from mission_contract import mission_identity
 
 
 def write_json(path: Path, payload: object) -> None:
@@ -69,6 +71,7 @@ def seed_run(
     write_json(
         root / "account_evaluation" / "official_metrics.json",
         {
+            **mission_identity(PORTFOLIO_MISSION_TARGETS),
             "official_metric_mode": "broker_ledger_next_close",
             "production_target_pass": target_pass,
             "strengthened_pass": strengthened_pass,
