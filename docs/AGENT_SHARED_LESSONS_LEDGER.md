@@ -1,5 +1,39 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-27 — A0 completion evidence must cover output bytes and causal time
+
+- A receipt cannot certify an output collected at or after the receipt was created. Require each output to follow its causal inputs and finish collection strictly before the receipt is issued.
+- Bind runtime, focused-test and CI evidence identities to the output roles and SHA-256 values as well as task/input/dependency/code identity. Changing output bytes and their descriptor must invalidate prior evidence.
+- Keep the canonical feature map's identity formula aligned with the verifier so a receipt producer cannot generate systematically rejected evidence.
+- Runtime, focused-test and CI evidence must be available after the final output collection and before the completion receipt is created; bind that availability to its identity.
+- Output SHA-256 alone cannot prevent expiry/path relabeling. Bind the full output descriptors to the evidence identity before reusing a receipt.
+- Require output availability strictly after final causal input collection; equal timestamps do not prove event order.
+- Review and attestation are PR-scoped, even when the code SHA is shared. Bind the repository/PR of each observation to the packet's independent scope.
+- Merge and post-merge PASS evidence must carry the same packet PR scope; a shared commit SHA cannot complete a different PR's task.
+- Read the complete current required-check policy and require every non-attestation check to pass; two hard-coded checks alone cannot represent a later branch-protection change.
+- Bind that check set to an authenticated current ruleset observation, including app IDs, PR head and strict base freshness; a caller-supplied list alone can omit a new failing check.
+- Evaluate `review_complete` after attestation even if listed in required checks; bind its PASS to the exact PR/head and required GitHub Actions app, so it cannot deadlock pre-attestation or borrow another app's result.
+- Require the current check map to agree with the structured attestation PASS; an older PASS must not override a current FAIL for the same app/context.
+- Python booleans are integers; an unresolved-finding count must be a real integer, so `False` cannot masquerade as zero at the review gate.
+
+## 2026-09-27 — Exact A0 trust boundaries for merge, action and test evidence
+
+- A truthy post-merge flag can mark a failed or previous merge DONE. Require structured PASS evidence bound to the observed merge SHA and current default-branch head; a trusted caller must obtain those facts from GitHub.
+- An optional risk tier cannot make an unrecognized action safe. Keep explicit safe actions closed, escalate unknown and economic actions, and require repository governance for reversible writes.
+- A PASS label and nonempty test/run ID do not bind evidence to its task. Scope runtime, focused-test and CI identities to the task key, complete input/dependency identity and exact code head before reusing a receipt.
+
+## 2026-09-27 — Worker handoff metadata cannot become A0 authority
+
+- A high confidence label and suggested next action are useful handoff metadata, not evidence. Keep A0 state transitions tied to independently checked artifact bytes, dependencies, tests, current-head CI/review and post-merge verification.
+- Record whether AI was actually invoked and why in the existing completion receipt. CI waiting, hash comparison, dependency verification and state reduction require no AI call. T4/T5 and explicitly protected actions stop for human approval even if a worker labels them lower risk.
+
+## 2026-09-27 — A0 receipt reuse must follow causality and current-head gates
+
+- Extend the existing `completed_tasks` row instead of creating a second receipt store. Recompute source/input/dependency/config/model/parameter/code identity, read output bytes, and require receipt availability after every causal input. A matching but stale or conflicting receipt blocks reuse; a missing receipt remains an uncompleted READY proposal.
+- Bind downstream dependency identity to upstream task keys and output hashes. A repeated CI run or receipt timestamp change with identical verified bytes must not invalidate downstream `SKIP_UNCHANGED`.
+- A worker's success declaration, local hash, or V2 receipt cannot attest a PR. Current-head GitHub CI, clean review, zero unresolved findings, and `review_complete` remain independent gates. Keep the lifecycle reducer pure and leave specialist dispatch disabled so CI waits produce neither AI polling nor automated mutation.
+- The A1/A2/A4/A6 eligibility bit is only a deterministic future dispatch candidate. No specialist runs, target/book writes, fullrun, production activation, or notification delivery follows from it.
+
 ## 2026-09-27 — Recompute mission verdicts from current numeric broker evidence
 
 - WP-G01 findings A/B: the broker path alone does not certify metric mode or completion. Require the artifact itself to exist and declare completed/exact next-close mode with finite, non-boolean CAGR/MDD; never borrow missing status/mode from an account summary. Keep production validity separate from headline mission admission. Cross-surface regressions cover both portfolios and stale summaries; baseline regressions preserve admission for valid non-production-ready evidence.

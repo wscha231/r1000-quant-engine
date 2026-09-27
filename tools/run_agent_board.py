@@ -12,6 +12,7 @@ import ast
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -154,6 +155,215 @@ def verify_artifact(root: Path, artifact: dict, cutoff: datetime, now: datetime)
         raise ContractError('artifact_time_boundary')
 
 
+def receipt_dependencies(dependencies: dict) -> dict:
+    return {agent: {'task_key': receipt['task_key'],
+                    'output_hashes': {role: item['sha256'] for role, item in receipt['outputs'].items()}}
+            for agent, receipt in dependencies.items()}
+
+
+def evidence_identity(kind: str, reference: str, task_key: str,
+                      packet_identity: dict, head_sha: str,
+                      outputs: dict[str, dict], available_at: str) -> str:
+    """Scope test/run evidence to the task, output descriptors, and causal time."""
+    return digest({'kind': kind, 'reference': reference, 'task_key': task_key,
+                   'packet_identity': packet_identity, 'head_sha': head_sha,
+                   'outputs': outputs, 'available_at': available_at})
+
+
+def verify_completion(receipt: dict, packet_identity: dict, request: dict,
+                      dependencies: dict, causal_ready: datetime, cutoff: datetime) -> None:
+    """Verify a completed_tasks V2 row; declarations alone do not grant merge authority."""
+    hashes = {role: item['sha256'] for role, item in request['inputs'].items()}
+    expected = {'identity': packet_identity, 'source_hashes': hashes, 'input_hashes': hashes,
+                'dependency_identities': receipt_dependencies(dependencies),
+                'code_sha': packet_identity['code_sha'], 'config_hash': packet_identity['config_hash'],
+                'model': packet_identity['model'], 'parameter_hash': digest(packet_identity['parameters'])}
+    if (receipt['task_key'] != digest({'agent': request['agent'], **packet_identity})
+            or any(receipt[name] != value for name, value in expected.items())):
+        raise ContractError('receipt_identity_mismatch')
+    if receipt['side_effects'] or receipt['verification_status'] != 'VERIFIED':
+        raise ContractError('receipt_unverified_or_mutating')
+    ai_mode = receipt['execution_mode'] in ('GENERAL_CHATGPT', 'WORK', 'CODEX')
+    if receipt['ai_invoked'] != ai_mode:
+        raise ContractError('receipt_ai_provenance_conflict')
+    if ai_mode != (receipt['ai_invocation_reason'] is not None):
+        raise ContractError('receipt_ai_reason_conflict')
+    if ai_mode and not receipt['model'].get('provider'):
+        raise ContractError('receipt_ai_provider_missing')
+    created, available = timestamp(receipt['created_at']), timestamp(receipt['available_at'])
+    if not causal_ready <= created <= available <= cutoff:
+        raise ContractError('receipt_time_boundary')
+    output_collected = max(timestamp(item['collected_at']) for item in receipt['outputs'].values())
+    for name in ('runtime_verification', 'focused_tests', 'ci'):
+        evidence = receipt[name]
+        if evidence['status'] != 'PASS':
+            raise ContractError('receipt_' + name + '_not_pass')
+        evidence_available = timestamp(evidence['available_at'])
+        if not output_collected < evidence_available < created:
+            raise ContractError('receipt_' + name + '_time_boundary')
+        if (evidence['head_sha'] != packet_identity['code_sha']
+                or evidence['identity'] != evidence_identity(
+                    name, evidence['reference'], receipt['task_key'], packet_identity,
+                    evidence['head_sha'], receipt['outputs'], evidence['available_at'])):
+            raise ContractError('receipt_' + name + '_identity_mismatch')
+    if receipt['reviewed_head'] is not None and receipt['reviewed_head'] != packet_identity['code_sha']:
+        raise ContractError('receipt_old_review_head')
+
+
+APPROVAL_ACTIONS = frozenset({'fullrun', 'actual_broker', 'paper_book', 'target_book',
+    'production_activation', 'live_trading', 'new_alpha_logic', 'er_weight_change',
+    'risk_limit_relaxation', 'review_gate_relaxation', 'protected_evidence_change'})
+SAFE_ACTION_TIERS = {'read': 'T0_READ', 'compute': 'T1_COMPUTE',
+                     'prepare': 'T2_PREPARE', 'reversible_repo_write': 'T3_REVERSIBLE_WRITE'}
+RISK_TIERS = frozenset({'T0_READ', 'T1_COMPUTE', 'T2_PREPARE', 'T3_REVERSIBLE_WRITE',
+                        'T4_ECONOMIC_MUTATION', 'T5_IRREVERSIBLE_OR_PROTECTED'})
+NOTIFY_STATES = frozenset({'BLOCKED', 'HUMAN_APPROVAL_REQUIRED', 'CORRECTION_REQUIRED',
+                           'READY_TO_MERGE', 'DONE'})
+
+
+def post_merge_pass(event: dict, expected_pr_head: str, expected_scope: dict | None) -> bool:
+    """Use only a typed pass bound to the observed merge and default-branch head."""
+    evidence = event.get('post_merge_verified')
+    merge_sha, default_head = event.get('merge_sha'), event.get('default_branch_head')
+    return (expected_scope is not None and event.get('merge_scope') == expected_scope
+            and isinstance(evidence, dict) and evidence.get('review_scope') == expected_scope
+            and evidence.get('status') == 'PASS'
+            and isinstance(evidence.get('identity'), str) and bool(evidence['identity'].strip())
+            and isinstance(merge_sha, str) and re.fullmatch(r'[0-9a-f]{40}', merge_sha) is not None
+            and event.get('merged_pr_head') == expected_pr_head
+            and evidence.get('pr_head_sha') == expected_pr_head
+            and merge_sha == default_head == evidence.get('merge_sha')
+            == evidence.get('default_branch_head'))
+
+
+def current_required_checks_pass(event: dict, packet: dict) -> bool:
+    """Consume a trusted, current ruleset observation, including check app identity."""
+    policy = event.get('required_checks_policy')
+    if not isinstance(policy, dict) or policy.get('source') != 'GITHUB_RULESET':
+        return False
+    try:
+        updated = timestamp(policy['ruleset_updated_at'])
+        observed = timestamp(policy['observed_at'])
+    except (KeyError, ValueError, TypeError, AttributeError, ContractError):
+        return False
+    head, scope = packet['identity']['code_sha'], packet.get('review_scope')
+    base = event.get('current_base_sha')
+    checks = policy.get('checks')
+    if (scope is None or policy.get('scope') != scope or policy.get('pr_head_sha') != head
+            or not isinstance(base, str) or re.fullmatch(r'[0-9a-f]{40}', base) is None
+            or policy.get('base_sha') != base or policy.get('strict') is not True
+            or event.get('base_ancestor_verified') is not True
+            or type(policy.get('ruleset_id')) is not int or policy['ruleset_id'] <= 0
+            or observed < updated
+            or not isinstance(policy.get('identity'), str) or not policy['identity'].strip()
+            or not isinstance(checks, list) or not isinstance(event.get('ci_checks'), dict)):
+        return False
+    keys = []
+    for check in checks:
+        if (not isinstance(check, dict) or set(check) != {'context', 'integration_id'}
+                or not isinstance(check['context'], str) or not check['context']
+                or type(check['integration_id']) is not int or check['integration_id'] <= 0):
+            return False
+        keys.append(f"{check['context']}@{check['integration_id']}")
+    if len(set(keys)) != len(keys) or not {'validate@15368', 'portfolio_guard@15368'}.issubset(keys):
+        return False
+    return all(event['ci_checks'].get(key) == 'PASS' for key in keys
+               if key != 'review_complete@15368')
+
+
+def review_complete_pass(event: dict, packet: dict) -> bool:
+    """Evaluate the attestation check after review, bound to its GitHub App."""
+    evidence = event.get('review_complete_evidence')
+    policy = event.get('required_checks_policy')
+    if not isinstance(evidence, dict) or not isinstance(policy, dict):
+        return False
+    checks = policy.get('checks')
+    if not isinstance(checks, list):
+        return False
+    attestation = [row for row in checks if isinstance(row, dict)
+                   and row.get('context') == 'review_complete']
+    if attestation and attestation != [{'context': 'review_complete', 'integration_id': 15368}]:
+        return False
+    if event.get('ci_checks', {}).get('review_complete@15368') != 'PASS':
+        return False
+    return (evidence.get('context') == 'review_complete'
+            and evidence.get('integration_id') == 15368
+            and evidence.get('status') == 'PASS'
+            and evidence.get('head_sha') == packet['identity']['code_sha']
+            and evidence.get('scope') == packet.get('review_scope')
+            and isinstance(evidence.get('identity'), str) and bool(evidence['identity'].strip()))
+
+
+def lifecycle_state(packet: dict | None, event: dict | None = None) -> dict:
+    """Pure event reducer. Caller must obtain CI/review/merge facts from GitHub.
+
+    No event fetching, scheduling, specialist invocation, notification or mutation.
+    An unverified worker report is deliberately not an input to this reducer.
+    """
+    event = event or {}
+    action = event.get('action')
+    effects = event.get('side_effects', [])
+    tier = event.get('risk_tier')
+    if (not isinstance(effects, list) or not isinstance(action, (str, type(None)))
+            or (tier is not None and (not isinstance(tier, str) or tier not in RISK_TIERS))):
+        state = 'BLOCKED'
+    elif (action in APPROVAL_ACTIONS or tier in ('T4_ECONOMIC_MUTATION', 'T5_IRREVERSIBLE_OR_PROTECTED')
+          or any(effect in APPROVAL_ACTIONS for effect in effects if isinstance(effect, str))
+          or (effects and (tier != 'T3_REVERSIBLE_WRITE' or effects != ['reversible_repo_write']))
+          or (action is not None and action not in SAFE_ACTION_TIERS)):
+        state = 'HUMAN_APPROVAL_REQUIRED'
+    elif ((action is not None and tier is not None and tier != SAFE_ACTION_TIERS[action])
+          or (action == 'reversible_repo_write' and
+              (tier != 'T3_REVERSIBLE_WRITE' or effects != ['reversible_repo_write']))):
+        state = 'BLOCKED'
+    elif packet is None:
+        state = 'QUEUED'
+    elif packet['status'] == 'BLOCKED' or event.get('integrity_failure'):
+        state = 'BLOCKED'
+    elif type(event.get('unresolved_findings', 0)) is not int:
+        state = 'BLOCKED'
+    elif (('review' in event or 'review_complete' in event)
+          and (packet.get('review_scope') is None
+               or event.get('review_scope') != packet['review_scope']
+               or ('review_complete' in event and
+                   event.get('review_complete_scope') != packet['review_scope']))):
+        state = 'BLOCKED'
+    elif event.get('unexpected_regression') or event.get('ci') == 'FAIL' or event.get('unresolved_findings', 0) > 0:
+        state = 'CORRECTION_REQUIRED'
+    elif packet['status'] == 'SKIP_UNCHANGED' and not event:
+        state = 'SKIP_UNCHANGED'
+    elif packet['status'] == 'READY' and not event:
+        state = 'READY'
+    elif event.get('running'):
+        state = 'RUNNING'
+    elif (event.get('ci') != 'PASS' or event.get('ci_head') != packet['identity']['code_sha']
+          or not current_required_checks_pass(event, packet)):
+        state = 'WAITING_CI'
+    elif (event.get('review') != 'CLEAN' or event.get('review_head') != packet['identity']['code_sha']
+          or event.get('unresolved_findings') != 0):
+        state = 'WAITING_REVIEW'
+    elif packet['status'] != 'SKIP_UNCHANGED':
+        state = 'READY'
+    elif (event.get('review_complete') == 'PASS'
+          and event.get('review_complete_head') == packet['identity']['code_sha']
+          and review_complete_pass(event, packet)):
+        if event.get('merged') is True:
+            state = ('DONE' if post_merge_pass(event, packet['identity']['code_sha'],
+                                               packet.get('review_scope'))
+                     else 'POST_MERGE_VERIFY')
+        elif event.get('merged') is False or event.get('merged') is None:
+            state = 'READY_TO_MERGE'
+        else:
+            state = 'BLOCKED'
+    elif event.get('merged'):
+        state = 'BLOCKED'
+    else:
+        state = 'READY_FOR_ATTESTATION'
+    return {'state': state, 'notification_worthy': state in NOTIFY_STATES or
+            bool(event.get('integrity_failure') or event.get('unexpected_regression')),
+            'polling_required': False, 'ai_invocation_required': False}
+
+
 def contracts() -> dict:
     # JSON is a YAML subset; use strict duplicate/nonfinite parsing with no YAML tags.
     value = read_json(CONTRACT_DIR / 'agent_contracts_v2.yaml')
@@ -272,7 +482,8 @@ def build_tasks(state: dict, root: Path, contract: dict, now: datetime,
             for role, artifact in request['inputs'].items():
                 if role != 'qa_report' and report['reviewed_artifacts'].get(role) != artifact:
                     reasons.append('QA_INPUT_NOT_REVIEWED:' + role)
-        identity = {'input_hash': digest({'inputs': request['inputs'], 'dependencies': dependencies,
+        identity = {'input_hash': digest({'inputs': request['inputs'],
+                    'dependencies': receipt_dependencies(dependencies),
                     'context': state['context'], 'g0': state['g0'], 'master_sha': state['master_sha']}),
                     'code_sha': code_sha, 'config_hash': config_hash,
                     'model': request['model'], 'parameters': request['parameters']}
@@ -287,10 +498,12 @@ def build_tasks(state: dict, root: Path, contract: dict, now: datetime,
                 causal_inputs += [artifact for dependency in dependencies.values()
                                   for artifact in dependency['outputs'].values()]
                 causal_ready = max(timestamp(artifact['collected_at']) for artifact in causal_inputs)
+                verify_completion(receipt, identity, request, dependencies, causal_ready, cutoff)
                 for artifact in receipt['outputs'].values():
                     verify_artifact(root, artifact, cutoff, now)
-                    if timestamp(artifact['available_at']) < causal_ready:
-                        raise ContractError('completion_predates_inputs')
+                    if (timestamp(artifact['available_at']) <= causal_ready
+                            or timestamp(artifact['collected_at']) >= timestamp(receipt['created_at'])):
+                        raise ContractError('completion_output_time_boundary')
                 if agent == 'A6':
                     report = read_json(artifact_path(root, receipt['outputs']['qa_report']['path']))
                     schema_validate(report, 'system_state_schema.json', 'qa_report')
@@ -307,7 +520,12 @@ def build_tasks(state: dict, root: Path, contract: dict, now: datetime,
                   'reasons': reasons, 'inputs': request['inputs'], 'outputs': spec['outputs'],
                   'authority': AUTHORITY.copy(), 'mode': spec['mode'],
                   'dependencies': spec['dependencies'], 'dependency_outputs': dependencies,
-                  'identity': identity, 'task_key': key}
+                  'identity': identity, 'task_key': key,
+                  'review_scope': ({'repository': state['repository'],
+                                    'pr_number': state['review_pr_number']}
+                                   if state.get('review_pr_number') is not None else None),
+                  'dispatch_eligible': agent in ('A1', 'A2', 'A4', 'A6') and status == 'READY'
+                      and spec['mode'] in ('READ_ONLY', 'PROPOSAL_ONLY')}
         schema_validate(packet, 'task_packet_schema.json')
         tasks[agent] = packet
         visiting.remove(agent)
@@ -351,6 +569,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
              'mission': contract.get('mission'), 'mission_contract': mission_contract,
              'operating_gate': gates,
              'agent_contracts': contract.get('agents'), 'authority': AUTHORITY,
+             'specialist_dispatch_enabled': False,
+             'lifecycle': {t['agent']: lifecycle_state(t) for t in tasks},
              'production_activation_allowed': False, 'promotion_gate': gate,
              'task_count': len(tasks), 'blockers': reasons,
              'evidence_scope': 'Local bytes and declared timestamps only; not authenticated economic or book readiness'}
