@@ -154,6 +154,92 @@ def verify_artifact(root: Path, artifact: dict, cutoff: datetime, now: datetime)
         raise ContractError('artifact_time_boundary')
 
 
+def receipt_dependencies(dependencies: dict) -> dict:
+    return {agent: {'task_key': receipt['task_key'],
+                    'output_hashes': {role: item['sha256'] for role, item in receipt['outputs'].items()}}
+            for agent, receipt in dependencies.items()}
+
+
+def verify_completion(receipt: dict, packet_identity: dict, request: dict,
+                      dependencies: dict, causal_ready: datetime, cutoff: datetime) -> None:
+    """Verify a completed_tasks V2 row; declarations alone do not grant merge authority."""
+    hashes = {role: item['sha256'] for role, item in request['inputs'].items()}
+    expected = {'identity': packet_identity, 'source_hashes': hashes, 'input_hashes': hashes,
+                'dependency_identities': receipt_dependencies(dependencies),
+                'code_sha': packet_identity['code_sha'], 'config_hash': packet_identity['config_hash'],
+                'model': packet_identity['model'], 'parameter_hash': digest(packet_identity['parameters'])}
+    if any(receipt[name] != value for name, value in expected.items()):
+        raise ContractError('receipt_identity_mismatch')
+    if receipt['side_effects'] or receipt['verification_status'] != 'VERIFIED':
+        raise ContractError('receipt_unverified_or_mutating')
+    for name in ('runtime_verification', 'focused_tests', 'ci'):
+        if receipt[name]['status'] != 'PASS':
+            raise ContractError('receipt_' + name + '_not_pass')
+    if receipt['ci']['head_sha'] != packet_identity['code_sha']:
+        raise ContractError('receipt_ci_old_head')
+    created, available = timestamp(receipt['created_at']), timestamp(receipt['available_at'])
+    if not causal_ready <= created <= available <= cutoff:
+        raise ContractError('receipt_time_boundary')
+    if receipt['reviewed_head'] is not None and receipt['reviewed_head'] != packet_identity['code_sha']:
+        raise ContractError('receipt_old_review_head')
+
+
+APPROVAL_ACTIONS = frozenset({'fullrun', 'actual_broker', 'paper_book', 'target_book',
+    'production_activation', 'live_trading', 'new_alpha_logic', 'er_weight_change',
+    'risk_limit_relaxation', 'review_gate_relaxation', 'protected_evidence_change'})
+NOTIFY_STATES = frozenset({'BLOCKED', 'HUMAN_APPROVAL_REQUIRED', 'CORRECTION_REQUIRED',
+                           'READY_TO_MERGE', 'DONE'})
+
+
+def lifecycle_state(packet: dict | None, event: dict | None = None) -> dict:
+    """Pure event reducer. Caller must obtain CI/review/merge facts from GitHub.
+
+    No event fetching, scheduling, specialist invocation, notification or mutation.
+    An unverified worker report is deliberately not an input to this reducer.
+    """
+    event = event or {}
+    action = event.get('action')
+    effects = event.get('side_effects', [])
+    if not isinstance(effects, list) or not isinstance(action, (str, type(None))):
+        state = 'BLOCKED'
+    elif action in APPROVAL_ACTIONS or effects:
+        state = 'HUMAN_APPROVAL_REQUIRED'
+    elif packet is None:
+        state = 'QUEUED'
+    elif packet['status'] == 'BLOCKED' or event.get('integrity_failure'):
+        state = 'BLOCKED'
+    elif not isinstance(event.get('unresolved_findings', 0), int):
+        state = 'BLOCKED'
+    elif event.get('unexpected_regression') or event.get('ci') == 'FAIL' or event.get('unresolved_findings', 0) > 0:
+        state = 'CORRECTION_REQUIRED'
+    elif packet['status'] == 'SKIP_UNCHANGED' and not event:
+        state = 'SKIP_UNCHANGED'
+    elif packet['status'] == 'READY' and not event:
+        state = 'READY'
+    elif event.get('running'):
+        state = 'RUNNING'
+    elif (event.get('ci') != 'PASS' or event.get('ci_head') != packet['identity']['code_sha']
+          or event.get('ci_checks') != {'validate': 'PASS', 'portfolio_guard': 'PASS'}):
+        state = 'WAITING_CI'
+    elif (event.get('review') != 'CLEAN' or event.get('review_head') != packet['identity']['code_sha']
+          or event.get('unresolved_findings') != 0):
+        state = 'WAITING_REVIEW'
+    elif packet['status'] != 'SKIP_UNCHANGED':
+        state = 'READY'
+    elif event.get('review_complete') == 'PASS' and event.get('review_complete_head') == packet['identity']['code_sha']:
+        if event.get('merged'):
+            state = 'DONE' if event.get('post_merge_verified') else 'POST_MERGE_VERIFY'
+        else:
+            state = 'READY_TO_MERGE'
+    elif event.get('merged'):
+        state = 'BLOCKED'
+    else:
+        state = 'READY_FOR_ATTESTATION'
+    return {'state': state, 'notification_worthy': state in NOTIFY_STATES or
+            bool(event.get('integrity_failure') or event.get('unexpected_regression')),
+            'polling_required': False}
+
+
 def contracts() -> dict:
     # JSON is a YAML subset; use strict duplicate/nonfinite parsing with no YAML tags.
     value = read_json(CONTRACT_DIR / 'agent_contracts_v2.yaml')
@@ -287,9 +373,10 @@ def build_tasks(state: dict, root: Path, contract: dict, now: datetime,
                 causal_inputs += [artifact for dependency in dependencies.values()
                                   for artifact in dependency['outputs'].values()]
                 causal_ready = max(timestamp(artifact['collected_at']) for artifact in causal_inputs)
+                verify_completion(receipt, identity, request, dependencies, causal_ready, cutoff)
                 for artifact in receipt['outputs'].values():
                     verify_artifact(root, artifact, cutoff, now)
-                    if timestamp(artifact['available_at']) < causal_ready:
+                    if timestamp(artifact['available_at']) < timestamp(receipt['available_at']):
                         raise ContractError('completion_predates_inputs')
                 if agent == 'A6':
                     report = read_json(artifact_path(root, receipt['outputs']['qa_report']['path']))
@@ -307,7 +394,9 @@ def build_tasks(state: dict, root: Path, contract: dict, now: datetime,
                   'reasons': reasons, 'inputs': request['inputs'], 'outputs': spec['outputs'],
                   'authority': AUTHORITY.copy(), 'mode': spec['mode'],
                   'dependencies': spec['dependencies'], 'dependency_outputs': dependencies,
-                  'identity': identity, 'task_key': key}
+                  'identity': identity, 'task_key': key,
+                  'dispatch_eligible': agent in ('A1', 'A2', 'A4', 'A6') and status == 'READY'
+                      and spec['mode'] in ('READ_ONLY', 'PROPOSAL_ONLY')}
         schema_validate(packet, 'task_packet_schema.json')
         tasks[agent] = packet
         visiting.remove(agent)
@@ -351,6 +440,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
              'mission': contract.get('mission'), 'mission_contract': mission_contract,
              'operating_gate': gates,
              'agent_contracts': contract.get('agents'), 'authority': AUTHORITY,
+             'specialist_dispatch_enabled': False,
+             'lifecycle': {t['agent']: lifecycle_state(t) for t in tasks},
              'production_activation_allowed': False, 'promotion_gate': gate,
              'task_count': len(tasks), 'blockers': reasons,
              'evidence_scope': 'Local bytes and declared timestamps only; not authenticated economic or book readiness'}

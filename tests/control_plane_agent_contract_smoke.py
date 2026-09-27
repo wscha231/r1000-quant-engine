@@ -63,14 +63,31 @@ class ControlPlaneTests(unittest.TestCase):
             if 'A6' in self.contract['agents'][request['agent']]['dependencies']:
                 covered.update({k:copy.deepcopy(v) for k,v in request['inputs'].items() if k!='qa_report'})
         self.set_payload(qa['inputs']['review_bundle'], {'schema_version':'qa-review-bundle-v2','artifacts':covered})
+        if covered:
+            collected=(max(board.timestamp(a['collected_at']) for a in covered.values())+
+                       timedelta(seconds=1)).isoformat()
+            qa['inputs']['review_bundle']['available_at']=collected
+            qa['inputs']['review_bundle']['collected_at']=collected
 
     def tasks(self):
         return board.build_tasks(self.state, self.root, self.contract, self.now, self.sha, self.config)
 
     def complete(self, agent='A1'):
         packet = next(t for t in self.tasks() if t['agent'] == agent)
-        receipt = dict(agent=agent, task_key=packet['task_key'], status='SUCCEEDED',
-                       outputs={role:self.artifact(agent+'_result_'+role) for role in packet['outputs']})
+        identity=packet['identity']
+        hashes={role:item['sha256'] for role,item in packet['inputs'].items()}
+        receipt = dict(schema_version='verification-receipt-v2', agent=agent,
+            task_key=packet['task_key'], status='SUCCEEDED', identity=copy.deepcopy(identity),
+            source_hashes=copy.deepcopy(hashes), input_hashes=copy.deepcopy(hashes),
+            dependency_identities=board.receipt_dependencies(packet['dependency_outputs']),
+            code_sha=identity['code_sha'], config_hash=identity['config_hash'],
+            model=copy.deepcopy(identity['model']), parameter_hash=board.digest(identity['parameters']),
+            outputs={role:self.artifact(agent+'_result_'+role) for role in packet['outputs']},
+            runtime_verification={'identity':'synthetic-runtime','status':'PASS'},
+            focused_tests={'identity':'synthetic-focused-test','status':'PASS'},
+            ci={'identity':'synthetic-ci','status':'PASS','head_sha':identity['code_sha']},
+            side_effects=[], reviewed_head=None, created_at=self.at(-9), available_at=self.at(-8),
+            verification_status='VERIFIED')
         request=next(r for r in self.state['requests'] if r['agent']==agent)
         causal=list(request['inputs'].values())
         if agent=='A6':
@@ -79,7 +96,10 @@ class ControlPlaneTests(unittest.TestCase):
             self.set_payload(receipt['outputs']['qa_report'], {'schema_version':'qa-report-v2',
                 'review_bundle_sha256':request['inputs']['review_bundle']['sha256'],
                 'reviewed_artifacts':bundle['artifacts'],'verdict':'PASS'})
-        ready=max(board.timestamp(a['collected_at']) for a in causal).isoformat()
+        causal_ready=max(board.timestamp(a['collected_at']) for a in causal)
+        receipt['created_at']=(causal_ready+timedelta(seconds=1)).isoformat()
+        ready=(causal_ready+timedelta(seconds=2)).isoformat()
+        receipt['available_at']=ready
         for output in receipt['outputs'].values():
             output['available_at']=ready
             output['collected_at']=ready
@@ -127,6 +147,71 @@ class ControlPlaneTests(unittest.TestCase):
     def test_same_five_identity_fields_skip_with_verified_output(self):
         self.complete()
         self.assertEqual(self.tasks()[0]['status'],'SKIP_UNCHANGED')
+
+    def test_receipt_v2_missing_stale_conflicting_and_self_report_fail_closed(self):
+        self.assertEqual(self.tasks()[0]['status'],'READY')
+        receipt=self.complete()
+        original=copy.deepcopy(receipt)
+        for field,value in [('verification_status','SELF_REPORTED'),('created_at',self.at(-40)),
+                            ('available_at',self.at(1)),('source_hashes',{}),('input_hashes',{}),
+                            ('dependency_identities',{'A2':{}}),('config_hash','b'*64),
+                            ('parameter_hash','b'*64),('side_effects',['target_book']),
+                            ('reviewed_head','a'*40)]:
+            with self.subTest(field=field):
+                receipt.clear(); receipt.update(copy.deepcopy(original)); receipt[field]=value
+                try:
+                    status=self.tasks()[0]['status']
+                except board.ContractError:
+                    status='BLOCKED'
+                self.assertEqual(status,'BLOCKED')
+        for field in ('runtime_verification','focused_tests','ci'):
+            receipt.clear(); receipt.update(copy.deepcopy(original))
+            receipt[field]['status']='FAIL'
+            try:
+                status=self.tasks()[0]['status']
+            except board.ContractError:
+                status='BLOCKED'
+            self.assertEqual(status,'BLOCKED')
+        receipt.clear(); receipt.update(copy.deepcopy(original)); receipt['ci']['head_sha']='a'*40
+        self.assertEqual(self.tasks()[0]['status'],'BLOCKED')
+
+    def test_event_gate_requires_current_head_ci_review_and_receipt(self):
+        packet=self.tasks()[0]
+        head=packet['identity']['code_sha']
+        event=dict(ci='PASS',ci_head=head,ci_checks={'validate':'PASS','portfolio_guard':'PASS'},
+                   review='CLEAN',review_head=head,unresolved_findings=0)
+        self.assertNotEqual(board.lifecycle_state(packet,event)['state'],'READY_FOR_ATTESTATION')
+        self.assertNotEqual(board.lifecycle_state(packet,{**event,'worker_report':'SUCCEEDED',
+            'merged':True,'post_merge_verified':True})['state'],'DONE')
+        self.complete(); packet=self.tasks()[0]
+        self.assertEqual(board.lifecycle_state(packet,event)['state'],'READY_FOR_ATTESTATION')
+        for changes in ({'ci':'FAIL'},{'ci_head':'a'*40},{'ci_checks':{'validate':'PASS'}},
+                        {'review':'OPEN'},{'review_head':'a'*40},{'unresolved_findings':1}):
+            with self.subTest(changes=changes):
+                self.assertNotIn(board.lifecycle_state(packet,{**event,**changes})['state'],
+                                 ('READY_FOR_ATTESTATION','READY_TO_MERGE'))
+        attested={**event,'review_complete':'PASS','review_complete_head':head}
+        self.assertEqual(board.lifecycle_state(packet,attested)['state'],'READY_TO_MERGE')
+        self.assertEqual(board.lifecycle_state(packet,{**attested,'review_complete_head':'a'*40})['state'],
+                         'READY_FOR_ATTESTATION')
+        self.assertEqual(board.lifecycle_state(packet,{**attested,'merged':True})['state'],'POST_MERGE_VERIFY')
+        self.assertEqual(board.lifecycle_state(packet,{**attested,'merged':True,'post_merge_verified':True})['state'],'DONE')
+
+    def test_approval_and_notification_boundaries_no_polling(self):
+        packet=self.tasks()[0]
+        for action in board.APPROVAL_ACTIONS:
+            self.assertEqual(board.lifecycle_state(packet,{'action':action})['state'],'HUMAN_APPROVAL_REQUIRED')
+        self.assertEqual(board.lifecycle_state(packet,{'side_effects':['target_book']})['state'],
+                         'HUMAN_APPROVAL_REQUIRED')
+        for state in ('WAITING_CI','WAITING_REVIEW','SKIP_UNCHANGED'):
+            self.assertNotIn(state,board.NOTIFY_STATES)
+        self.assertEqual(board.lifecycle_state(packet,{'ci':'PENDING'})['state'],'WAITING_CI')
+        self.assertFalse(board.lifecycle_state(packet,{'ci':'PENDING'})['notification_worthy'])
+        self.assertFalse(board.lifecycle_state(packet,{'ci':'PENDING'})['polling_required'])
+        self.assertTrue(packet['dispatch_eligible'])
+        self.add_request('A3')
+        self.assertFalse(next(t for t in self.tasks() if t['agent']=='A3')['dispatch_eligible'])
+        self.assertFalse(self.contract['specialist_dispatch_enabled'])
 
     def test_each_identity_component_invalidates_cache(self):
         self.complete()

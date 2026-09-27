@@ -15,7 +15,8 @@
     "dependencies",
     "dependency_outputs",
     "identity",
-    "task_key"
+    "task_key",
+    "dispatch_eligible"
   ],
   "properties": {
     "schema_version": {
@@ -171,6 +172,10 @@
             "version": {
               "type": "string",
               "minLength": 1
+            },
+            "provider": {
+              "type": "string",
+              "minLength": 1
             }
           }
         },
@@ -182,6 +187,9 @@
     "task_key": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"
+    },
+    "dispatch_eligible": {
+      "type": "boolean"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",

@@ -1,5 +1,11 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-27 — A0 receipt reuse must follow causality and current-head gates
+
+- Extend the existing `completed_tasks` row instead of creating a second receipt store. Recompute source/input/dependency/config/model/parameter/code identity, read output bytes, and require receipt availability after every causal input. A matching but stale or conflicting receipt blocks reuse; a missing receipt remains an uncompleted READY proposal.
+- A worker's success declaration, local hash, or V2 receipt cannot attest a PR. Current-head GitHub CI, clean review, zero unresolved findings, and `review_complete` remain independent gates. Keep the lifecycle reducer pure and leave specialist dispatch disabled so CI waits produce neither AI polling nor automated mutation.
+- The A1/A2/A4/A6 eligibility bit is only a deterministic future dispatch candidate. No specialist runs, target/book writes, fullrun, production activation, or notification delivery follows from it.
+
 ## 2026-09-27 — Recompute mission verdicts from current numeric broker evidence
 
 - WP-G01 findings A/B: the broker path alone does not certify metric mode or completion. Require the artifact itself to exist and declare completed/exact next-close mode with finite, non-boolean CAGR/MDD; never borrow missing status/mode from an account summary. Keep production validity separate from headline mission admission. Cross-surface regressions cover both portfolios and stale summaries; baseline regressions preserve admission for valid non-production-ready evidence.
