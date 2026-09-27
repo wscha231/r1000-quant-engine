@@ -90,6 +90,22 @@ def preserve_deployed(path, deployed):
         atomic_json(path, deployed)
 
 
+def preserve_deployed_or_bootstrap(path, url, expected_sha256="", eligible=False):
+    """Allow a missing Pages snapshot only at a pinned, one-time bootstrap checkpoint."""
+    try:
+        deployed, _ = fetch_deployed(url)
+    except HTTPError as exc:
+        if exc.code != 404 or not eligible or not re.fullmatch(r"[a-f0-9]{64}", expected_sha256):
+            raise
+        raw = path.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != expected_sha256:
+            raise ValueError("pages_bootstrap_source_hash_mismatch") from exc
+        validate_dashboard(json.loads(raw))
+        return "BOOTSTRAP_FROM_PINNED_TRACKED_PUBLIC_SNAPSHOT"
+    preserve_deployed(path, deployed)
+    return "PRESERVED_DEPLOYED_PUBLIC_SNAPSHOT"
+
+
 def public_tickers(dashboard):
     validate_dashboard(dashboard)
     tickers = sorted({h["ticker"] for p in dashboard["portfolios"].values() for h in p["holdings"]})
@@ -208,13 +224,19 @@ def main():
     parser.add_argument("--dashboard", type=Path, default=Path("docs/public/data/dashboard.json"))
     parser.add_argument("--output", type=Path, default=Path("docs/public/data/market-quotes.json"))
     parser.add_argument("--deployed-url", help="Canonical public dashboard URL from GitHub Pages configuration")
+    parser.add_argument("--bootstrap-404-eligible", choices=("yes", "no"), default="no")
+    parser.add_argument("--bootstrap-404-expected-sha256", default="")
     preservation = parser.add_mutually_exclusive_group()
     preservation.add_argument("--preserve-deployed", action="store_true")
     preservation.add_argument("--preserve-from", type=Path)
     args = parser.parse_args()
     if args.preserve_deployed:
-        deployed, _ = fetch_deployed(args.deployed_url)
-        preserve_deployed(args.dashboard, deployed)
+        result = preserve_deployed_or_bootstrap(
+            args.dashboard, args.deployed_url,
+            expected_sha256=args.bootstrap_404_expected_sha256,
+            eligible=args.bootstrap_404_eligible == "yes",
+        )
+        print(result)
         return
     if args.preserve_from:
         preserve_deployed(args.dashboard, json.loads(args.preserve_from.read_text(encoding="utf-8")))

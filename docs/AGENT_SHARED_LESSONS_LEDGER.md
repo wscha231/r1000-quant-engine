@@ -5360,3 +5360,16 @@ Expected contract:
   Record stage/final completion after evidence production, enforce monotonic
   completion within the authenticated artifact timeline, and bound Theme
   decisions by that final completion. Legacy receipts lacking this proof block.
+
+### 2026-09-27 — Re-enabled Pages can have no reachable prior JSON
+
+- Pages run 36244943903 attempt 2 passed `configure-pages` after the owner
+  enabled Actions publishing, then failed restoring the prior public dashboard:
+  its canonical URL returned HTTP 404 before the first new deployment.
+- A general 404 fallback would silently reset a newer published portfolio to
+  the tracked July 10 seed. Permit this restoration only while the latest
+  successful Pages run remains 34915947526 and the tracked public JSON bytes
+  match the pinned SHA-256; the next successful deployment closes the exception.
+- Non-404 fetch errors, changed source bytes, and unsafe public JSON remain
+  failures. This repairs site bootstrapping, not the stale paper ledger or
+  portfolio/performance evidence.
