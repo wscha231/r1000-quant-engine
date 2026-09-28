@@ -377,6 +377,7 @@ jobs:
             --summary outputs/earnings_estimates_daily/summary.json \
             --collection-checkpoint data_pit/events/earnings_estimates/collection_checkpoint.json \
             --collection-queue outputs/earnings_estimates_daily/collection_queue.csv \
+            --collection-attempt-id "${GITHUB_RUN_ID}" \
             --vendor-order "$ESTIMATE_VENDOR_ORDER" \
             --sleep-seconds 1.1 \
             --max-errors "${RESOLVED_MAX_ERRORS:-100}" \

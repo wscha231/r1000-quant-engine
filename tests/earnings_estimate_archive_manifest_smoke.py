@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.build_earnings_estimate_archive_manifest import build_manifest  # noqa: E402
+from tools.build_earnings_estimate_archive_manifest import build_manifest, sha256_file  # noqa: E402
 
 
 def test_manifest_records_hashes_and_append_only_index() -> None:
@@ -204,6 +204,90 @@ def test_manifest_records_hashes_and_append_only_index() -> None:
         assert missing_manifest["estimate_coverage_ratio"] == 0.0
 
 
+
+def test_acknowledged_transaction_requires_exact_run_and_file_hashes() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        snapshot_dir = root / "snapshots"
+        snapshot_dir.mkdir()
+        snapshot = snapshot_dir / "estimates_20260709.parquet"
+        signals = root / "signals.parquet"
+        summary = root / "summary.json"
+        collector_log = root / "collector.log"
+        manifest = root / "manifest.json"
+        index = root / "index.jsonl"
+        queue_summary = root / "queue_summary.json"
+        checkpoint = root / "checkpoint.json"
+        queue = root / "queue.csv"
+        report = root / "queue.md"
+
+        snapshot.write_bytes(b"snapshot-v1")
+        signals.write_bytes(b"signals-v1")
+        queue.write_text("ticker,selected\nAAA,true\n", encoding="utf-8")
+        attempt_id = "attempt-hash"
+        logical_id = "run-123"
+        ack = {
+            "status": "acknowledged",
+            "attempt_id": attempt_id,
+            "attempted_ticker_count": 1,
+            "acknowledged_ticker_count": 1,
+            "unacknowledged_tickers": [],
+        }
+        checkpoint.write_text(json.dumps({
+            "ticker_states": [{"ticker": "AAA", "selection_count": 1}],
+            "last_collection_attempt_ack": ack,
+        }), encoding="utf-8")
+        queue_summary.write_text(json.dumps({
+            "status": "ready_for_forward_archive_incremental",
+            "schema_version": "forward-estimate-collection-queue-v2",
+            "output_ticker_count": 1,
+        }), encoding="utf-8")
+        report.write_text("# queue\n", encoding="utf-8")
+        collector_log.write_text("", encoding="utf-8")
+
+        summary.write_text(json.dumps({
+            "status": "completed",
+            "snapshot_path": str(snapshot),
+            "ticker_count_requested": 1,
+            "ticker_count_attempted": 1,
+            "collection_attempt_id": attempt_id,
+            "collection_attempt_logical_id": logical_id,
+            "collection_attempt_ack": ack,
+            "transaction_commit": {
+                "schema_version": "earnings-estimate-collector-transaction-v1",
+                "logical_attempt_id": logical_id,
+                "attempt_id": attempt_id,
+                "snapshot_sha256": sha256_file(snapshot),
+                "signals_sha256": sha256_file(signals),
+                "checkpoint_sha256": sha256_file(checkpoint),
+                "queue_sha256": sha256_file(queue),
+            },
+        }), encoding="utf-8")
+
+        kwargs = dict(
+            snapshot_dir=str(snapshot_dir), signals=str(signals), summary=str(summary),
+            collector_log=str(collector_log), manifest=str(manifest), index=str(index),
+            run_id=logical_id, run_attempt="1", head_sha="abc", ref="branch",
+            workflow="Earnings Estimates Daily Archive", artifact_name="artifact",
+            queue_summary=str(queue_summary), queue_checkpoint=str(checkpoint),
+            queue_csv=str(queue), queue_report=str(report),
+        )
+        good = build_manifest(**kwargs)
+        assert good["verdict"] == "archive_manifest_written"
+        assert good["transaction_integrity"]["verified"] is True
+
+        snapshot.write_bytes(b"snapshot-v2-partial")
+        bad_hash = build_manifest(**kwargs)
+        assert bad_hash["verdict"] == "blocked_transaction_mismatch"
+        assert "snapshot_sha256_mismatch" in bad_hash["transaction_integrity"]["failures"]
+
+        snapshot.write_bytes(b"snapshot-v1")
+        wrong_run = build_manifest(**{**kwargs, "run_id": "run-456"})
+        assert wrong_run["verdict"] == "blocked_transaction_mismatch"
+        assert "run_id_mismatch" in wrong_run["transaction_integrity"]["failures"]
+
+
 if __name__ == "__main__":
     test_manifest_records_hashes_and_append_only_index()
+    test_acknowledged_transaction_requires_exact_run_and_file_hashes()
     print("earnings_estimate_archive_manifest_smoke: PASS")

@@ -548,6 +548,31 @@ def latest_signal_by_ticker(signals: pd.DataFrame, *, decision_date: str | pd.Ti
     return pd.DataFrame(selected).drop(columns="_available", errors="ignore") if selected else pd.DataFrame(columns=["ticker", *PHASE18_ESTIMATE_REVISION_COLUMNS])
 
 
+def latest_legacy_signal_by_ticker(
+    signals: pd.DataFrame,
+    *,
+    decision_date: str | pd.Timestamp,
+) -> pd.DataFrame:
+    """Select latest positively verified pre-V2 rows for the legacy H2 sidecar."""
+    if signals.empty or "ticker" not in signals or "available_from" not in signals:
+        return pd.DataFrame(columns=["ticker", *PHASE18_ESTIMATE_REVISION_COLUMNS])
+    rows = signals.to_dict("records")
+    if not all(verified_legacy_signal(row) for row in rows):
+        return pd.DataFrame(columns=["ticker", *PHASE18_ESTIMATE_REVISION_COLUMNS])
+    d = signals.copy()
+    d["_available"] = pd.to_datetime(d["available_from"], utc=True, errors="coerce")
+    d = d[d["_available"].notna() & (d["_available"] <= _cutoff(decision_date))]
+    if d.empty:
+        return pd.DataFrame(columns=["ticker", *PHASE18_ESTIMATE_REVISION_COLUMNS])
+    selected = []
+    for _, group in d.groupby("ticker", sort=True):
+        latest = group[group["_available"] == group["_available"].max()]
+        if len(latest) != 1:
+            return pd.DataFrame(columns=["ticker", *PHASE18_ESTIMATE_REVISION_COLUMNS])
+        selected.append(latest.iloc[0])
+    return pd.DataFrame(selected).drop(columns="_available", errors="ignore")
+
+
 def apply_estimate_revision_confirmation(
     scored: pd.DataFrame,
     signals: pd.DataFrame,
@@ -563,9 +588,14 @@ def apply_estimate_revision_confirmation(
     operating scoring, not historical feature-store construction.
     """
     out = scored.copy()
+    neutral_defaults = {
+        "estimate_revision_confirmed": 0,
+        "estimate_revision_replacement_gate_pass": 0,
+        "estimate_revision_future_winner_multiplier": 1.0,
+    }
     for col in PHASE18_ESTIMATE_REVISION_COLUMNS:
         if col not in out.columns:
-            out[col] = None
+            out[col] = neutral_defaults.get(col)
     summary = {
         "enabled": bool(enabled),
         "decision_date": str(pd.Timestamp(decision_date).date()),
@@ -579,10 +609,7 @@ def apply_estimate_revision_confirmation(
     if "ticker" not in out.columns:
         summary["reason"] = "missing_ticker_column"
         return out, summary
-    admitted = signals
-    if "source_contract" in admitted:
-        admitted = admitted[admitted["source_contract"].ne(SCHEMA_VERSION)]
-    latest = latest_signal_by_ticker(admitted, decision_date=decision_date)
+    latest = latest_legacy_signal_by_ticker(signals, decision_date=decision_date)
     if latest.empty:
         summary["reason"] = "no_available_signals"
         return out, summary
@@ -703,13 +730,30 @@ def _atomic_commit_staged_files(staged_files: list[tuple[Path, Path]]) -> None:
             staged.unlink(missing_ok=True)
 
 
-def collection_attempt_id(fetch_date: pd.Timestamp, attempted_tickers: list[str]) -> str:
+def collection_attempt_id(
+    fetch_date: pd.Timestamp,
+    attempted_tickers: list[str],
+    *,
+    logical_attempt_id: str = "",
+) -> str:
     attempted = sorted(set(str(t).upper().strip() for t in attempted_tickers if str(t).strip()))
     payload = json.dumps(
-        {"fetch_date": fetch_date.date().isoformat(), "attempted_tickers": attempted},
+        {
+            "logical_attempt_id": str(logical_attempt_id or "").strip(),
+            "fetch_date": fetch_date.date().isoformat(),
+            "attempted_tickers": attempted,
+        },
         sort_keys=True, separators=(",", ":"),
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _truthy(value: Any) -> bool:
@@ -1439,6 +1483,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fixture-dir", default="")
     parser.add_argument("--collection-checkpoint", default="")
     parser.add_argument("--collection-queue", default="")
+    parser.add_argument("--collection-attempt-id", default=os.environ.get("GITHUB_RUN_ID", ""))
     return parser.parse_args()
 
 
@@ -1647,7 +1692,12 @@ def main() -> int:
     if feature_summary.get("reason") == "archive_integrity_failure":
         status, reason = "blocked_data_integrity", "archive_integrity_failure"
 
-    stable_attempt_id = collection_attempt_id(fetch_date, attempted_tickers)
+    logical_attempt_id = str(args.collection_attempt_id or "").strip()
+    stable_attempt_id = collection_attempt_id(
+        fetch_date,
+        attempted_tickers,
+        logical_attempt_id=logical_attempt_id,
+    )
     if status != "blocked_data_integrity" and args.collection_checkpoint and args.collection_queue:
         attempt_ack, checkpoint_bytes, queue_bytes = prepare_collection_attempt_acknowledgement(
             checkpoint_path,
@@ -1688,6 +1738,7 @@ def main() -> int:
         "ticker_count_requested": len(tickers),
         "ticker_count_attempted": len(attempted_tickers),
         "collection_attempt_id": stable_attempt_id,
+        "collection_attempt_logical_id": logical_attempt_id,
         "collection_attempt_ack": attempt_ack,
         "request_snapshot_rows": int(len(current_snapshot)),
         "request_has_forward_estimate_rows": request_has_forward_estimate_rows,
@@ -1745,12 +1796,31 @@ def main() -> int:
 
     staged_files: list[tuple[Path, Path]] = []
     try:
-        staged_files.append((_stage_dataframe_for_target(snapshot_path, snapshot), snapshot_path))
-        staged_files.append((_stage_dataframe_for_target(signals_output, signals), signals_output))
-        staged_files.append((_stage_bytes_for_target(summary_path, _json_bytes(payload)), summary_path))
+        staged_snapshot = _stage_dataframe_for_target(snapshot_path, snapshot)
+        staged_signals = _stage_dataframe_for_target(signals_output, signals)
+        staged_files.append((staged_snapshot, snapshot_path))
+        staged_files.append((staged_signals, signals_output))
+
+        staged_checkpoint: Path | None = None
+        staged_queue: Path | None = None
         if checkpoint_bytes is not None and queue_bytes is not None:
-            staged_files.append((_stage_bytes_for_target(checkpoint_path, checkpoint_bytes), checkpoint_path))
-            staged_files.append((_stage_bytes_for_target(queue_path, queue_bytes), queue_path))
+            staged_checkpoint = _stage_bytes_for_target(checkpoint_path, checkpoint_bytes)
+            staged_queue = _stage_bytes_for_target(queue_path, queue_bytes)
+            staged_files.append((staged_checkpoint, checkpoint_path))
+            staged_files.append((staged_queue, queue_path))
+
+        payload["transaction_commit"] = {
+            "schema_version": "earnings-estimate-collector-transaction-v1",
+            "logical_attempt_id": logical_attempt_id,
+            "attempt_id": stable_attempt_id,
+            "snapshot_sha256": _sha256_file(staged_snapshot),
+            "signals_sha256": _sha256_file(staged_signals),
+            "checkpoint_sha256": _sha256_file(staged_checkpoint) if staged_checkpoint is not None else "",
+            "queue_sha256": _sha256_file(staged_queue) if staged_queue is not None else "",
+        }
+        staged_summary = _stage_bytes_for_target(summary_path, _json_bytes(payload))
+        staged_files.append((staged_summary, summary_path))
+
         require_collection_day(fetch_date)
         _atomic_commit_staged_files(staged_files)
     except Exception as exc:
