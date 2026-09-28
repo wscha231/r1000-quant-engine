@@ -9,12 +9,14 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import os
 import re
 import sys
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
+from numbers import Real
 from typing import Any
 
 import pandas as pd
@@ -29,7 +31,7 @@ from r1000_config import PHASE18_ESTIMATE_REVISION_COLUMNS  # noqa: E402
 from tools.earnings_consensus_h1 import (  # noqa: E402
     SCHEMA_VERSION, availability, build_snapshot, iso_utc, optional_float,
     pct_change, same_period_revision, snapshot_digest, snapshot_field_profiles,
-    validate_persisted_snapshot,
+    validate_persisted_snapshot, persisted_v2_snapshot_is_valid,
 )
 DEFAULT_SNAPSHOT_DIR = "data_pit/events/earnings_estimates"
 DEFAULT_SIGNALS = "data_pit/events/earnings_revision_signals.parquet"
@@ -58,16 +60,67 @@ LEGACY_ARCHIVE_FIELDS = frozenset({
     "earnings_surprise_last", "surprise_streak", "recommendation_period",
     "recommendation_bull_count", "recommendation_bear_count", "est_eps_revision_breadth",
 })
+# Exact parse_snapshot_row() output on pre-V2 master e97a8509. Its
+# finite_or_zero()/int() producer emitted no nullable numeric columns; empty
+# optional dates were strings. Do not infer a looser schema from damaged rows.
+LEGACY_REQUIRED_COLUMNS = LEGACY_ARCHIVE_FIELDS
+LEGACY_NULLABLE_FIELDS = frozenset()
+LEGACY_REQUIRED_NON_NULL_FIELDS = LEGACY_REQUIRED_COLUMNS - LEGACY_NULLABLE_FIELDS
+LEGACY_FIELD_TYPE_CONTRACT = {
+    "ticker": "text", "as_of_date": "date", "available_from": "date",
+    "fetch_source": "text", "actual_report_date": "optional_date",
+    "recommendation_period": "optional_date",
+    "eps_estimate_access": "bool", "revenue_estimate_access": "bool",
+    "vendor_estimate_access": "bool", "has_forward_estimate": "flag",
+    "n_analysts": "integer", "surprise_streak": "integer",
+    "recommendation_bull_count": "integer", "recommendation_bear_count": "integer",
+    "est_eps_fy1": "number", "est_eps_fy2": "number", "est_rev_fy1": "number",
+    "est_dispersion": "number", "actual_eps_last": "number",
+    "earnings_surprise_last": "number", "est_eps_revision_breadth": "number",
+}
+
+
+def _legacy_scalar_valid(value: Any, kind: str) -> bool:
+    if kind == "bool":
+        return isinstance(value, bool)
+    if kind in {"text", "date", "optional_date"}:
+        if not isinstance(value, str):
+            return False
+        if kind == "text":
+            return bool(value.strip())
+        if kind == "optional_date" and value == "":
+            return True
+        try:
+            return len(value) == 10 and date.fromisoformat(value).isoformat() == value
+        except ValueError:
+            return False
+    if isinstance(value, bool) or not isinstance(value, Real):
+        return False
+    try:
+        if not math.isfinite(value):
+            return False
+        if kind == "flag":
+            return value in (0, 1)
+        return kind == "number" or value == int(value)
+    except (ValueError, OverflowError):
+        return False
 
 
 def classify_persisted_archive_row(row: dict[str, Any]) -> str:
     """Positive legacy admission; all V2-derived and unknown shapes fail closed."""
+    if not isinstance(row, dict):
+        return "INVALID_OR_UNKNOWN_SCHEMA"
     fields = {key for key, value in row.items()
               if not pd.api.types.is_scalar(value) or bool(pd.notna(value))}
     base, parsed, live = snapshot_field_profiles()
     if fields & ((base | parsed | live) - LEGACY_ARCHIVE_FIELDS):
         return "V2_REQUIRES_VALIDATION"
-    if not fields <= LEGACY_ARCHIVE_FIELDS:
+    if (not fields <= LEGACY_ARCHIVE_FIELDS
+            or not LEGACY_REQUIRED_COLUMNS <= row.keys()
+            or not LEGACY_REQUIRED_NON_NULL_FIELDS <= fields):
+        return "INVALID_OR_UNKNOWN_SCHEMA"
+    if not all(_legacy_scalar_valid(row[key], kind)
+               for key, kind in LEGACY_FIELD_TYPE_CONTRACT.items()):
         return "INVALID_OR_UNKNOWN_SCHEMA"
     ticker, as_of, available = (row.get(k) for k in ("ticker", "as_of_date", "available_from"))
     if not isinstance(ticker, str) or not ticker.strip():
@@ -373,6 +426,8 @@ def compute_estimate_revision_features(snapshots: pd.DataFrame, *, as_of_date: s
     if snapshots.empty or "ticker" not in snapshots:
         return pd.DataFrame(), {"status": "blocked", "reason": "no_snapshot_rows"}
     d = snapshots.copy()
+    admitted = [persisted_v2_snapshot_is_valid(r) for r in d.to_dict("records")]
+    d = d.loc[admitted].copy()
     d["ticker"] = d["ticker"].astype(str).str.upper().str.strip()
     d["_available"] = [availability(r) for r in d.to_dict("records")]
     d["_available"] = pd.to_datetime(d["_available"], utc=True, errors="coerce")
@@ -404,7 +459,10 @@ def compute_estimate_revision_features(snapshots: pd.DataFrame, *, as_of_date: s
                 latest = [r for r in prior if r["_available"] == max(x["_available"] for x in prior)] if prior else []
                 unique = {(r.get("fetch_source"), r.get("source_payload_sha256")) for r in latest}
                 previous = latest[-1] if latest and len(unique) == 1 else None
-                out[field] = same_period_revision(row, previous, prefix) if previous and not current_conflict else None
+                out[field] = same_period_revision(
+                    {k: v for k, v in row.items() if k != "_available"},
+                    {k: v for k, v in previous.items() if k != "_available"}, prefix
+                ) if previous and not current_conflict else None
                 if prefix == "eps_fy1" and days == 30:
                     current_dispersion = optional_float(row.get("est_dispersion"))
                     prior_dispersion = optional_float(previous.get("est_dispersion")) if previous else None
@@ -430,6 +488,14 @@ def latest_signal_by_ticker(signals: pd.DataFrame, *, decision_date: str | pd.Ti
     if signals.empty or "ticker" not in signals or "strategy_available_at" not in signals:
         return pd.DataFrame(columns=["ticker", *PHASE18_ESTIMATE_REVISION_COLUMNS])
     d = signals.copy()
+    base, parsed, live = snapshot_field_profiles()
+    # Signal rows retain the signed source columns plus these derived fields.
+    # Strip only known derived columns, never unknown source/provenance fields.
+    derived = (set(PHASE18_ESTIMATE_REVISION_COLUMNS)
+               | {"current_vintage_status", "revision_status"}) - (base | parsed | live)
+    admitted = [persisted_v2_snapshot_is_valid({k: v for k, v in r.items() if k not in derived})
+                for r in d.to_dict("records")]
+    d = d.loc[admitted].copy()
     d["_available"] = pd.to_datetime([availability(r) for r in d.to_dict("records")], utc=True, errors="coerce")
     d = d[d["_available"].notna() & (d["_available"] <= _cutoff(decision_date))]
     selected = []

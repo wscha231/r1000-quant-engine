@@ -37,11 +37,135 @@ def features(rows):
     return c.compute_estimate_revision_features(pd.DataFrame(rows))[0]
 
 
+def legacy_snapshot():
+    # Complete pre-V2 parse_snapshot_row() output on master e97a8509, including
+    # its original zero-filled economics and empty optional date strings.
+    return dict(ticker='LEG', as_of_date='2026-04-01', available_from='2026-04-01',
+                fetch_source='finnhub', eps_estimate_access=True,
+                revenue_estimate_access=True, vendor_estimate_access=True,
+                has_forward_estimate=0, est_eps_fy1=0.0, est_eps_fy2=0.0,
+                est_rev_fy1=0.0, n_analysts=0, est_dispersion=0.0,
+                actual_eps_last=0.0, actual_report_date='', earnings_surprise_last=0.0,
+                surprise_streak=0, recommendation_period='', recommendation_bull_count=0,
+                recommendation_bear_count=0, est_eps_revision_breadth=0.0)
+
+
 class AdmissionTests(unittest.TestCase):
     def setUp(self):
         clock = patch.object(c, 'utc_now', return_value='2026-07-01T18:00:00Z')
         clock.start()
         self.addCleanup(clock.stop)
+
+    def test_version_integrity_precedes_every_consumer_clock(self):
+        before = snapshot('2026-04-01T18:00:00Z', 1)
+        after = snapshot('2026-05-02T18:00:00Z', 2)
+        args = dict(event_available_at='2026-07-01T20:00:00Z',
+                    identity=json.loads(before['eps_fy1_identity']), fetch_source='finnhub')
+        for field in ('observed_at', 'collected_at', 'first_seen_at',
+                      'strategy_available_at', 'provider_published_at'):
+            # Only the chosen clock puts this otherwise pre-event row after
+            # the event. Tampering it must not turn it into frozen evidence.
+            late = {**before, field: '2026-07-01T21:00:00Z'}
+            late['snapshot_version_id'] = h1.snapshot_digest(late)
+            bad = {**late, field: '2026-07-01T19:00:00Z'}
+            self.assertFalse(h1.persisted_v2_snapshot_is_valid(bad), field)
+            with patch.object(h1, 'availability', side_effect=AssertionError('clock read before version')):
+                self.assertIsNone(h1.frozen_pre_event_consensus([bad], **args), field)
+                self.assertIsNone(h1.same_period_revision(after, bad), field)
+                self.assertIsNone(h1.same_period_revision(bad, before), field)
+            for rows in ([before, bad], [bad, before]):
+                self.assertIsNone(h1.frozen_pre_event_consensus(rows, **args), field)
+            with patch.object(c, 'availability', side_effect=AssertionError('clock read before version')):
+                self.assertTrue(features([bad]).empty, field)
+                self.assertTrue(c.latest_signal_by_ticker(pd.DataFrame([bad]),
+                                decision_date=args['event_available_at']).empty, field)
+            with tempfile.TemporaryDirectory() as temp:
+                path = Path(temp) / 'estimates_20260401.parquet'
+                pd.DataFrame([bad]).to_parquet(path)
+                historical = c.load_snapshot_history(Path(temp))
+                self.assertTrue(c.compute_estimate_revision_features(historical)[0].empty, field)
+            signals = features([before])
+            signals.loc[0, field] = '2026-07-01T19:00:00Z'
+            self.assertTrue(c.latest_signal_by_ticker(signals,
+                            decision_date=args['event_available_at']).empty, field)
+        self.assertEqual(h1.frozen_pre_event_consensus([before], **args)['value'], 1)
+        self.assertEqual(h1.same_period_revision(after, before), 1)
+        self.assertEqual(features([before, after]).iloc[-1].est_eps_revision_30d, 1)
+        self.assertFalse(c.latest_signal_by_ticker(features([before, after]),
+                         decision_date=args['event_available_at']).empty)
+
+    def test_malformed_persisted_inputs_fail_without_consumer_exceptions(self):
+        valid = snapshot()
+        args = dict(event_available_at='2026-07-01T20:00:00Z',
+                    identity=json.loads(valid['eps_fy1_identity']), fetch_source='finnhub')
+        for bad in (True, [], 'row', 123, None, {},
+                    {**valid, 'consensus_observations_json': '['},
+                    {**valid, 'snapshot_version_id': '0' * 64}):
+            self.assertFalse(h1.persisted_v2_snapshot_is_valid(bad))
+            self.assertIsNone(h1.frozen_pre_event_consensus([bad], **args))
+            self.assertIsNone(h1.same_period_revision(valid, bad))
+            self.assertIsNone(h1.same_period_revision(bad, valid))
+
+    def test_nonfinite_identity_scalars_never_become_economic_identity(self):
+        fields = ('currency', 'security_id', 'issuer_id', 'accounting_basis',
+                  'period_type', 'share_or_ADR_unit')
+        for field in fields:
+            for value in (float('inf'), float('-inf'), float('nan')):
+                item = estimate(); item[field] = value
+                old = snapshot(eps_payload={'data': [item]}, revenue_payload={})
+                item = {**item, 'avg': 2}
+                new = snapshot('2026-05-02T18:00:00Z', eps_payload={'data': [item]}, revenue_payload={})
+                self.assertIsNone(h1.text_value(value))
+                self.assertNotEqual(old['identity_status'], 'VERIFIED', field)
+                self.assertNotEqual(new['identity_status'], 'VERIFIED', field)
+                self.assertIsNone(h1.same_period_revision(new, old), field)
+                identity = json.loads(old['consensus_observations_json'])[0]['identity']
+                self.assertFalse(h1.identity_complete(identity), field)
+                self.assertIsNone(h1.frozen_pre_event_consensus([old, new],
+                    event_available_at='2026-07-01T20:00:00Z', identity=identity,
+                    fetch_source='finnhub'), field)
+        for value, expected in ((1, '1'), (1.5, '1.5'), (' USD ', 'USD')):
+            self.assertEqual(h1.text_value(value), expected)
+        self.assertEqual(snapshot()['identity_status'], 'VERIFIED')
+
+    def test_legacy_requires_complete_producer_columns_and_types(self):
+        legacy = legacy_snapshot()
+        self.assertEqual(set(legacy), c.LEGACY_REQUIRED_COLUMNS)
+        self.assertEqual(set(c.LEGACY_FIELD_TYPE_CONTRACT), set(legacy))
+        self.assertEqual(c.classify_persisted_archive_row(legacy), 'VERIFIED_LEGACY')
+        sparse = {k: legacy[k] for k in ('ticker', 'as_of_date', 'available_from')}
+        invalid_rows = [sparse]
+        invalid_rows.extend({k: v for k, v in legacy.items() if k != missing} for missing in legacy)
+        for field in legacy:
+            invalid_rows.extend({**legacy, field: value} for value in ([], {'bad': 'shape'}, None))
+        invalid_rows.extend({**legacy, field: value} for field, value in (
+            ('eps_estimate_access', 1), ('has_forward_estimate', True),
+            ('has_forward_estimate', 2), ('n_analysts', 1.5),
+            ('est_eps_fy1', '1.2'), ('est_eps_fy1', float('inf')),
+            ('est_eps_fy1', True), ('as_of_date', '2026-02-30'),
+            ('actual_report_date', 'yesterday'), ('recommendation_period', '2026-07'),
+            ('fetch_source', ''), ('ticker', '')))
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'day.parquet'
+            current = pd.DataFrame([snapshot()])
+            for bad in invalid_rows:
+                self.assertEqual(c.classify_persisted_archive_row(bad), 'INVALID_OR_UNKNOWN_SCHEMA', bad)
+                # Real malformed storage is rejected before any archive write.
+                pd.DataFrame([bad]).to_parquet(path)
+                stored = path.read_bytes()
+                with self.assertRaisesRegex(ValueError, 'invalid_or_unknown_existing'):
+                    c.merge_same_day_snapshot(path, current)
+                self.assertEqual(path.read_bytes(), stored)
+            # Integral floats are the same legacy integers after Parquet union.
+            legacy['n_analysts'] = 0.0
+            union = {**legacy, **{k: None for k in snapshot() if k not in legacy}}
+            self.assertEqual(c.classify_persisted_archive_row(union), 'VERIFIED_LEGACY')
+            pd.DataFrame([union]).to_parquet(path)
+            mixed, _ = c.merge_same_day_snapshot(path, current)
+            mixed.to_parquet(path)
+            repeated, _ = c.merge_same_day_snapshot(path, current)
+            pd.testing.assert_frame_equal(mixed.reset_index(drop=True), repeated.reset_index(drop=True),
+                                          check_dtype=False)
 
     def test_causal_event_equivalent_formats_dedupe(self):
         keys = [h1.causal_event_id(issuer, period, timestamp)
@@ -79,9 +203,11 @@ class AdmissionTests(unittest.TestCase):
         args = dict(event_available_at='2026-07-01T20:00:00Z', identity=identity, fetch_source='finnhub')
         self.assertEqual(h1.frozen_pre_event_consensus([before, unknown], **args)['value'], 1)
         unknown['collected_at'] = '2026-07-01T19:59:59Z'
+        unknown['snapshot_version_id'] = h1.snapshot_digest(unknown)
         self.assertIsNone(h1.frozen_pre_event_consensus([before, unknown], **args))
         for key in ('first_seen_at', 'strategy_available_at', 'provider_published_at'):
             delayed = {**unknown, key: '2026-07-01T20:01:00Z'}
+            delayed['snapshot_version_id'] = h1.snapshot_digest(delayed)
             self.assertEqual(h1.frozen_pre_event_consensus([before, delayed], **args)['value'], 1)
 
     def test_unknown_publication_only_blocks_current_or_newer_vintage(self):
@@ -161,8 +287,7 @@ class AdmissionTests(unittest.TestCase):
             pd.DataFrame([corrupt]).to_parquet(path)
             with self.assertRaisesRegex(ValueError, 'invalid_existing_v2'):
                 c.merge_same_day_snapshot(path, current)
-            legacy = {'ticker': 'LEG', 'as_of_date': '2026-04-01',
-                      'available_from': '2026-04-01', 'has_forward_estimate': 0}
+            legacy = legacy_snapshot()
             self.assertEqual(c.classify_persisted_archive_row(legacy), 'VERIFIED_LEGACY')
             pd.DataFrame([legacy]).to_parquet(path)
             mixed, _ = c.merge_same_day_snapshot(path, pd.DataFrame([original]))
@@ -175,10 +300,7 @@ class AdmissionTests(unittest.TestCase):
 
     def test_positive_legacy_classification_rejects_remaining_v2_or_unknown_fields(self):
         v2 = snapshot()
-        legacy = {'ticker': 'LEG', 'as_of_date': '2026-04-01',
-                  'available_from': '2026-04-01', 'fetch_source': 'finnhub',
-                  'has_forward_estimate': 0, 'est_eps_fy1': 0.0,
-                  'actual_report_date': '', 'recommendation_bull_count': 0}
+        legacy = legacy_snapshot()
         self.assertEqual(c.classify_persisted_archive_row(legacy), 'VERIFIED_LEGACY')
         base, parsed, live = h1.snapshot_field_profiles()
         v2_distinct = (base | parsed | live) - c.LEGACY_ARCHIVE_FIELDS
@@ -245,8 +367,7 @@ class AdmissionTests(unittest.TestCase):
             self.assertEqual(merged['snapshot_version_id'].tolist(), repeat['snapshot_version_id'].tolist())
             # A legacy row can widen the Parquet schema; its null columns on
             # V2 rows must not become part of the original version payload.
-            legacy = {'ticker': 'LEG', 'as_of_date': '2026-04-01',
-                      'available_from': '2026-04-01', 'has_forward_estimate': 0}
+            legacy = legacy_snapshot()
             pd.DataFrame([legacy]).to_parquet(path)
             mixed, _ = c.merge_same_day_snapshot(path, pd.DataFrame([original]))
             mixed.to_parquet(path)

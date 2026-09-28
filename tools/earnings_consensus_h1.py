@@ -83,7 +83,7 @@ def snapshot_field_profiles() -> tuple[frozenset[str], frozenset[str], frozenset
 
 def validate_persisted_snapshot(row: dict) -> None:
     """Reject damaged V2 evidence before it can enter a durable day archive."""
-    if row.get("source_contract") != SCHEMA_VERSION:
+    if not isinstance(row, dict) or row.get("source_contract") != SCHEMA_VERSION:
         raise ValueError("invalid_existing_v2_source_contract")
     try:
         records = json.loads(row["consensus_observations_json"])
@@ -99,6 +99,8 @@ def validate_persisted_snapshot(row: dict) -> None:
             fields.update(parsed)
         if not storage_null(row.get("attempted_estimate_providers_json")):
             fields.update(live)
+        if not fields <= row.keys():
+            raise ValueError("invalid_existing_v2_missing_field")
         # Parquet's schema union adds null columns from older legacy rows or
         # other V2 construction stages; non-null unknown fields are corruption.
         for key, value in row.items():
@@ -110,8 +112,19 @@ def validate_persisted_snapshot(row: dict) -> None:
         raise ValueError("invalid_existing_v2_snapshot") from exc
 
 
+def persisted_v2_snapshot_is_valid(row: Any) -> bool:
+    """Consumer boundary: validate content and version before reading clocks."""
+    try:
+        validate_persisted_snapshot(row)
+        return True
+    except (TypeError, ValueError, OverflowError, RecursionError):
+        return False
+
+
 def text_value(value: Any) -> str | None:
     if isinstance(value, (bool, list, dict, tuple, set)) or not isinstance(value, (str, int, float)):
+        return None
+    if isinstance(value, float) and not math.isfinite(value):
         return None
     if value is None or str(value).strip().lower() in {"", "none", "nan", "unknown", "<na>"}:
         return None
@@ -172,6 +185,8 @@ def consensus_records(row: dict) -> list[dict]:
 
 def same_period_revision(current: dict, prior: dict, prefix: str = "eps_fy1") -> float | None:
     """Compare exact economic identities and providers, independent of FY labels."""
+    if not persisted_v2_snapshot_is_valid(current) or not persisted_v2_snapshot_is_valid(prior):
+        return None
     target = current.get(prefix + "_identity")
     if isinstance(target, str):
         try:
@@ -291,6 +306,11 @@ def frozen_pre_event_consensus(snapshots: Iterable[dict], *, event_available_at:
                                 identity: dict, fetch_source: str) -> dict | None:
     cutoff = iso_utc(event_available_at)
     if not cutoff or not identity_complete(identity):
+        return None
+    snapshots = list(snapshots)
+    # Fail the query on damaged evidence, without trusting its clocks to decide
+    # whether it can be discarded or falling back to an older favorable value.
+    if not all(persisted_v2_snapshot_is_valid(row) for row in snapshots):
         return None
     def attributed(row):
         try:

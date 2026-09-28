@@ -421,14 +421,15 @@ def test_entitlement_circuit_never_trips_after_vendor_access_success(_clock) -> 
 
 
 def test_same_day_snapshot_merges_instead_of_overwriting_existing_archive() -> None:
+    from earnings_consensus_h1_smoke import legacy_snapshot
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         snapshot_dir = root / "snapshots"
         snapshot_dir.mkdir()
         existing = pd.DataFrame(
             [
-                {"ticker": "AAA", "as_of_date": "2026-07-09", "available_from": "2026-07-09", "has_forward_estimate": 1},
-                {"ticker": "BBB", "as_of_date": "2026-07-09", "available_from": "2026-07-09", "has_forward_estimate": 0},
+                {**legacy_snapshot(), "ticker": "AAA", "as_of_date": "2026-07-09", "available_from": "2026-07-09", "has_forward_estimate": 1},
+                {**legacy_snapshot(), "ticker": "BBB", "as_of_date": "2026-07-09", "available_from": "2026-07-09", "has_forward_estimate": 0},
             ]
         )
         existing.to_parquet(snapshot_dir / "estimates_20260709.parquet", index=False)
