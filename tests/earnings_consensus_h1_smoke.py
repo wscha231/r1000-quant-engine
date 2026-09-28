@@ -139,6 +139,71 @@ class AdmissionTests(unittest.TestCase):
             self.assertTrue(pd.read_parquet(signal_path).empty)
             self.assertEqual(old.read_bytes(), old_bytes)
 
+    def test_archive_commit_waits_for_full_history_integrity(self):
+        for corrupted in (True, False):
+            with self.subTest(corrupted=corrupted), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                history = root / 'history'; history.mkdir()
+                may = history / 'estimates_20260501.parquet'
+                july = history / 'estimates_20260701.parquet'
+                older = snapshot('2026-05-01T18:00:00Z', 1)
+                if corrupted:
+                    older['snapshot_version_id'] = 'damaged'
+                row_a = snapshot('2026-07-01T17:00:00Z', 2)
+                row_b = snapshot('2026-07-01T18:00:00Z', 3)
+                pd.DataFrame([older]).to_parquet(may, index=False)
+                pd.DataFrame([row_a]).to_parquet(july, index=False)
+                may_bytes, july_bytes = may.read_bytes(), july.read_bytes()
+                signal_path = root / 'signals.parquet'
+                features([row_a]).to_parquet(signal_path)
+                original_compute = c.compute_estimate_revision_features
+                original_write = pd.DataFrame.to_parquet
+                events = []
+
+                def compute(frame, **kwargs):
+                    self.assertEqual(may.read_bytes(), may_bytes)
+                    self.assertEqual(july.read_bytes(), july_bytes)
+                    self.assertEqual(len(frame), 3)
+                    result = original_compute(frame, **kwargs)
+                    events.append('blocked' if corrupted else 'validated')
+                    return result
+
+                def write(frame, path, *args, **kwargs):
+                    if Path(path).parent == history:
+                        self.assertIn('validated', events)
+                        self.assertNotEqual(Path(path), july)
+                        events.append('archive_staged')
+                    return original_write(frame, path, *args, **kwargs)
+
+                argv = ['collector', '--tickers', 'AAA', '--api-key', 'fixture',
+                        '--fetch-date', '2026-07-01', '--snapshot-dir', str(history),
+                        '--signals-output', str(signal_path), '--summary', str(root / 'summary.json')]
+                with patch.object(c, 'collect_live_snapshot', return_value=(pd.DataFrame([row_b]), [])), \
+                     patch.object(sys, 'argv', argv), contextlib.redirect_stdout(io.StringIO()):
+                    with patch.object(c, 'compute_estimate_revision_features', side_effect=compute), \
+                         patch.object(pd.DataFrame, 'to_parquet', new=write):
+                        self.assertEqual(c.main(), 2 if corrupted else 0)
+                    summary = json.loads((root / 'summary.json').read_text())
+                    self.assertEqual(may.read_bytes(), may_bytes)
+                    if corrupted:
+                        self.assertEqual(summary['status'], 'blocked_data_integrity')
+                        self.assertEqual(summary['reason'], 'archive_integrity_failure')
+                        self.assertEqual(july.read_bytes(), july_bytes)
+                        self.assertTrue(pd.read_parquet(signal_path).empty)
+                        self.assertEqual(events, ['blocked'])
+                        self.assertNotIn(row_b['snapshot_version_id'], pd.read_parquet(july).snapshot_version_id.tolist())
+                    else:
+                        self.assertEqual(summary['status'], 'completed')
+                        self.assertEqual(events, ['validated', 'archive_staged'])
+                        self.assertEqual(set(pd.read_parquet(july).snapshot_version_id),
+                                         {row_a['snapshot_version_id'], row_b['snapshot_version_id']})
+                        committed = july.read_bytes()
+                        signal_bytes = signal_path.read_bytes()
+                        self.assertEqual(c.main(), 0)
+                        self.assertEqual(july.read_bytes(), committed)
+                        self.assertEqual(signal_path.read_bytes(), signal_bytes)
+                    self.assertEqual(sorted(p.name for p in history.iterdir()), [may.name, july.name])
+
     def test_version_integrity_precedes_every_consumer_clock(self):
         before = snapshot('2026-04-01T18:00:00Z', 1)
         after = snapshot('2026-05-02T18:00:00Z', 2)

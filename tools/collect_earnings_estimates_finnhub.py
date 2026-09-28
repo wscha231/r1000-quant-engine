@@ -13,6 +13,7 @@ import math
 import os
 import re
 import sys
+import tempfile
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -622,9 +623,11 @@ def apply_estimate_revision_confirmation(
     return merged, summary
 
 
-def load_snapshot_history(snapshot_dir: Path) -> pd.DataFrame:
+def load_snapshot_history(snapshot_dir: Path, *, exclude_path: Path | None = None) -> pd.DataFrame:
     frames = []
     for path in sorted(snapshot_dir.glob("estimates_*.parquet")):
+        if path == exclude_path:
+            continue
         frames.append(pd.read_parquet(path))
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
@@ -1455,9 +1458,20 @@ def main() -> int:
     snapshot_path = snapshot_dir / f"estimates_{fetch_date.strftime('%Y%m%d')}.parquet"
     require_collection_day(fetch_date)
     snapshot, same_day_merge = merge_same_day_snapshot(snapshot_path, current_snapshot)
-    snapshot.to_parquet(snapshot_path, index=False)
-    history = load_snapshot_history(snapshot_dir)
+    # Substitute the prospective same-day merge in memory. No archive bytes
+    # may change until the complete logical history passes integrity admission.
+    history = pd.concat([load_snapshot_history(snapshot_dir, exclude_path=snapshot_path),
+                         snapshot], ignore_index=True)
     signals, feature_summary = compute_estimate_revision_features(history, as_of_date=utc_now())
+    if feature_summary.get("reason") != "archive_integrity_failure":
+        with tempfile.NamedTemporaryFile(dir=snapshot_dir, prefix=".estimates-", suffix=".tmp", delete=False) as handle:
+            staged_path = Path(handle.name)
+        try:
+            snapshot.to_parquet(staged_path, index=False)
+            require_collection_day(fetch_date)
+            os.replace(staged_path, snapshot_path)
+        finally:
+            staged_path.unlink(missing_ok=True)
     # Overwrite even an empty result: an old unsafe signal cache is not current.
     signals_output.parent.mkdir(parents=True, exist_ok=True)
     signals.to_parquet(signals_output, index=False)
