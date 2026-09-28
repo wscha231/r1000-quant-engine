@@ -783,4 +783,112 @@ class AdmissionTests(unittest.TestCase):
         self.assertEqual(failed_row['attempted_estimate_providers_json'],'["finnhub"]')
         self.assertIsNone(h1.frozen_pre_event_consensus([before,failed_row],event_available_at='2026-07-01T20:00:00Z',identity=json.loads(before['eps_fy1_identity']),fetch_source='finnhub'))
 
+    def test_provider_attempt_ledger_keeps_accessible_empty_and_av_200_errors_fail_access(self):
+        def finnhub(_session, endpoint, _ticker, _key, *, errors, **_):
+            if endpoint in c.ESTIMATE_ENDPOINTS:
+                metric_value = 1.0 if endpoint == '/stock/eps-estimate' else 100.0
+                return {'data': [estimate(metric_value)]}
+            return []
+        with patch.object(c, 'fetch_fmp_payloads', return_value=({}, {})), \
+             patch.object(c, 'fetch_json_optional', side_effect=finnhub):
+            rows, _, _, _ = c.collect_live_snapshot(
+                ['AAA'], finnhub_api_key='fh', alphavantage_api_key='', fmp_api_key='fmp',
+                vendor_order=['fmp', 'finnhub'], fetch_date=pd.Timestamp('2026-07-01'),
+                sleep_seconds=0, max_errors=10)
+        row = rows.iloc[0].to_dict()
+        self.assertEqual(json.loads(row['attempted_estimate_providers_json']), ['finnhub', 'fmp'])
+        older = snapshot('2026-06-01T18:00:00Z', 0.5, fetch_source='fmp')
+        identity = json.loads(older['eps_fy1_identity'])
+        self.assertIsNone(h1.frozen_pre_event_consensus(
+            [older, row], event_available_at='2026-07-01T20:00:00Z',
+            identity=identity, fetch_source='fmp'))
+
+        av_errors = []
+        attempts = []
+        with patch.object(c, 'fetch_url_json', return_value={'Information': 'rate limit'}):
+            result = c.fetch_estimate_payloads_by_order(
+                object(), 'AAA', finnhub_api_key='', alphavantage_api_key='av',
+                fmp_api_key='', vendor_order=['alphavantage'], sleep_seconds=0,
+                errors=av_errors, attempted_providers=attempts)
+        self.assertEqual(attempts, ['alphavantage'])
+        self.assertTrue(result[-1])
+        self.assertFalse(result[3])
+        self.assertFalse(result[4])
+        self.assertTrue(av_errors)
+        self.assertEqual(av_errors[-1]['status_code'], 200)
+
+    def test_archive_read_failure_blocks_and_leaves_queue_unacknowledged(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            history = root / 'history'; history.mkdir()
+            current_path = history / 'estimates_20260701.parquet'
+            current_path.write_bytes(b'not-a-parquet-file')
+            current_bytes = current_path.read_bytes()
+            signal_path = root / 'signals.parquet'
+            features([snapshot('2026-06-01T18:00:00Z', 1)]).to_parquet(signal_path)
+            checkpoint = root / 'checkpoint.json'
+            queue = root / 'queue.csv'
+            checkpoint.write_text(json.dumps({'ticker_states': [
+                {'ticker': 'AAA', 'last_selected_at_utc': '', 'selection_count': 0}
+            ]}), encoding='utf-8')
+            queue.write_text(
+                'ticker,selected,last_selected_at_utc,selection_count\\nAAA,true,,0\\n',
+                encoding='utf-8')
+            checkpoint_bytes, queue_bytes = checkpoint.read_bytes(), queue.read_bytes()
+            fresh = snapshot('2026-07-01T18:00:00Z', 2)
+            argv = ['collector', '--tickers', 'AAA', '--api-key', 'fixture',
+                    '--fetch-date', '2026-07-01', '--snapshot-dir', str(history),
+                    '--signals-output', str(signal_path), '--summary', str(root / 'summary.json'),
+                    '--collection-checkpoint', str(checkpoint), '--collection-queue', str(queue)]
+            with patch.object(c, 'collect_live_snapshot',
+                              return_value=(pd.DataFrame([fresh]), [], ['AAA'], {})), \
+                 patch.object(sys, 'argv', argv), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(c.main(), 2)
+            summary = json.loads((root / 'summary.json').read_text())
+            self.assertEqual(summary['status'], 'blocked_data_integrity')
+            self.assertEqual(summary['reason'], 'archive_integrity_failure')
+            self.assertEqual(summary['collection_attempt_ack']['status'], 'deferred_until_durable_commit')
+            self.assertTrue(pd.read_parquet(signal_path).empty)
+            self.assertEqual(current_path.read_bytes(), current_bytes)
+            self.assertEqual(checkpoint.read_bytes(), checkpoint_bytes)
+            self.assertEqual(queue.read_bytes(), queue_bytes)
+
+    def test_queue_ack_runs_only_after_archive_signal_and_summary_are_durable(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            history = root / 'history'; history.mkdir()
+            signal_path = root / 'signals.parquet'
+            summary_path = root / 'summary.json'
+            checkpoint = root / 'checkpoint.json'
+            queue = root / 'queue.csv'
+            checkpoint.write_text(json.dumps({'ticker_states': []}), encoding='utf-8')
+            queue.write_text('ticker,selected\\nAAA,true\\n', encoding='utf-8')
+            fresh = snapshot('2026-07-01T18:00:00Z', 2)
+            snapshot_path = history / 'estimates_20260701.parquet'
+            events = []
+
+            def ack(*args, **kwargs):
+                self.assertTrue(snapshot_path.exists())
+                self.assertTrue(signal_path.exists())
+                self.assertTrue(summary_path.exists())
+                self.assertEqual(json.loads(summary_path.read_text())['status'], 'completed')
+                events.append('ack')
+                return {
+                    'status': 'acknowledged', 'attempted_ticker_count': 1,
+                    'acknowledged_ticker_count': 1, 'unacknowledged_tickers': [],
+                }
+
+            argv = ['collector', '--tickers', 'AAA', '--api-key', 'fixture',
+                    '--fetch-date', '2026-07-01', '--snapshot-dir', str(history),
+                    '--signals-output', str(signal_path), '--summary', str(summary_path),
+                    '--collection-checkpoint', str(checkpoint), '--collection-queue', str(queue)]
+            with patch.object(c, 'collect_live_snapshot',
+                              return_value=(pd.DataFrame([fresh]), [], ['AAA'], {})), \
+                 patch.object(c, 'acknowledge_collection_attempts', side_effect=ack), \
+                 patch.object(sys, 'argv', argv), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(c.main(), 0)
+            self.assertEqual(events, ['ack'])
+            self.assertEqual(json.loads(summary_path.read_text())['collection_attempt_ack']['status'],
+                             'acknowledged')
+
 if __name__=='__main__': unittest.main()

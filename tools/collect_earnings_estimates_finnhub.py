@@ -1106,8 +1106,10 @@ def fetch_estimate_payloads_by_order(
     errors: list[dict[str, Any]],
     vendor_entitlement_circuits: dict[str, dict[str, Any]] | None = None,
     entitlement_circuit_threshold: int = DEFAULT_ENTITLEMENT_CIRCUIT_THRESHOLD,
+    attempted_providers: list[str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], str, bool, bool, bool]:
     circuits = vendor_entitlement_circuits if vendor_entitlement_circuits is not None else {}
+    attempts = attempted_providers if attempted_providers is not None else []
     any_request_attempted = False
     empty_accessible = None
     for vendor in vendor_order:
@@ -1118,15 +1120,16 @@ def fetch_estimate_payloads_by_order(
         before_error_count = len(errors)
         if vendor == "alphavantage" and alphavantage_api_key:
             any_request_attempted = True
+            if vendor not in attempts:
+                attempts.append(vendor)
             eps, rev = fetch_alphavantage_payloads(
                 session, ticker, alphavantage_api_key, sleep_seconds=sleep_seconds, errors=errors
             )
             new_errors = errors[before_error_count:]
-            accessible = not any(
-                _error_vendor(error) == vendor
-                and (int(error.get("status_code") or 0) == 0 or int(error.get("status_code") or 0) >= 400)
-                for error in new_errors
-            )
+            # Alpha Vantage may encode API/rate-limit errors in HTTP-200 JSON
+            # envelopes. Any error emitted by fetch_alphavantage_payloads()
+            # means this estimate request was not an accessible observation.
+            accessible = not any(_error_vendor(error) == vendor for error in new_errors)
             _record_vendor_entitlement_result(
                 circuits,
                 vendor=vendor,
@@ -1142,6 +1145,8 @@ def fetch_estimate_payloads_by_order(
                 return eps, rev, "alphavantage", accessible, accessible, any_request_attempted
         elif vendor == "fmp" and fmp_api_key:
             any_request_attempted = True
+            if vendor not in attempts:
+                attempts.append(vendor)
             eps, rev = fetch_fmp_payloads(session, ticker, fmp_api_key, sleep_seconds=sleep_seconds, errors=errors)
             new_errors = errors[before_error_count:]
             accessible = not any(
@@ -1164,6 +1169,8 @@ def fetch_estimate_payloads_by_order(
                 return eps, rev, "fmp", accessible, accessible, any_request_attempted
         elif vendor == "finnhub" and finnhub_api_key:
             any_request_attempted = True
+            if vendor not in attempts:
+                attempts.append(vendor)
             eps = fetch_json_optional(
                 session, "/stock/eps-estimate", ticker, finnhub_api_key, sleep_seconds=sleep_seconds, errors=errors
             )
@@ -1215,6 +1222,7 @@ def collect_live_snapshot(
     session = requests.Session()
     for ticker in tickers:
         require_collection_day(fetch_date)
+        ticker_attempted_providers: list[str] = []
         eps, rev, estimate_source, eps_access, rev_access, estimate_request_attempted = fetch_estimate_payloads_by_order(
             session,
             ticker,
@@ -1226,6 +1234,7 @@ def collect_live_snapshot(
             errors=errors,
             vendor_entitlement_circuits=vendor_entitlement_circuits,
             entitlement_circuit_threshold=entitlement_circuit_threshold,
+            attempted_providers=ticker_attempted_providers,
         )
         optional_finnhub_request_attempted = bool(finnhub_api_key)
         earnings = fetch_json_optional(
@@ -1257,10 +1266,14 @@ def collect_live_snapshot(
         require_collection_day(fetch_date, rows[-1:])
         if rows:
             ticker_errors = [e for e in errors if e.get("ticker") == ticker]
-            attempted_providers = {estimate_source} if estimate_source else set()
-            attempted_providers.update(e.get("vendor", "finnhub") for e in ticker_errors
-                                       if e.get("endpoint") in ESTIMATE_ENDPOINTS or e.get("vendor") in {"fmp", "alphavantage"})
-            rows[-1]["attempted_estimate_providers_json"] = json.dumps(sorted(attempted_providers))
+            attempted_provider_set = set(ticker_attempted_providers)
+            if estimate_source:
+                attempted_provider_set.add(estimate_source)
+            attempted_provider_set.update(
+                e.get("vendor", "finnhub") for e in ticker_errors
+                if e.get("endpoint") in ESTIMATE_ENDPOINTS or e.get("vendor") in {"fmp", "alphavantage"}
+            )
+            rows[-1]["attempted_estimate_providers_json"] = json.dumps(sorted(attempted_provider_set))
             metric_states = []
             for metric, endpoint in (("eps", "/stock/eps-estimate"), ("rev", "/stock/revenue-estimate")):
                 relevant = [e for e in ticker_errors
@@ -1408,16 +1421,11 @@ def main() -> int:
             snapshot, errors = collected  # type: ignore[misc]
             attempted_tickers = list(tickers)
     require_collection_day(fetch_date)
-    attempt_ack = acknowledge_collection_attempts(
-        checkpoint_path,
-        queue_path,
-        attempted_tickers,
-        attempted_at_utc=utc_now(),
-    ) if args.collection_checkpoint and args.collection_queue else {
-        "status": "disabled",
+    attempt_ack = {
+        "status": "deferred_until_durable_commit",
         "attempted_ticker_count": len(attempted_tickers),
         "acknowledged_ticker_count": 0,
-        "unacknowledged_tickers": [],
+        "unacknowledged_tickers": list(dict.fromkeys(attempted_tickers)),
     }
     error_budget = vendor_entitlement_circuit.get("error_budget") or collection_error_budget(errors, {})
     vendor_order = clean_vendor_order(args.vendor_order)
@@ -1457,21 +1465,62 @@ def main() -> int:
     current_snapshot = snapshot.copy()
     snapshot_path = snapshot_dir / f"estimates_{fetch_date.strftime('%Y%m%d')}.parquet"
     require_collection_day(fetch_date)
-    snapshot, same_day_merge = merge_same_day_snapshot(snapshot_path, current_snapshot)
-    # Substitute the prospective same-day merge in memory. No archive bytes
-    # may change until the complete logical history passes integrity admission.
-    history = pd.concat([load_snapshot_history(snapshot_dir, exclude_path=snapshot_path),
-                         snapshot], ignore_index=True)
-    signals, feature_summary = compute_estimate_revision_features(history, as_of_date=utc_now())
-    if feature_summary.get("reason") != "archive_integrity_failure":
-        with tempfile.NamedTemporaryFile(dir=snapshot_dir, prefix=".estimates-", suffix=".tmp", delete=False) as handle:
-            staged_path = Path(handle.name)
-        try:
-            snapshot.to_parquet(staged_path, index=False)
-            require_collection_day(fetch_date)
-            os.replace(staged_path, snapshot_path)
-        finally:
-            staged_path.unlink(missing_ok=True)
+    same_day_merge: dict[str, Any] = {
+        "same_day_snapshot_merged": False,
+        "same_day_existing_rows": 0,
+        "same_day_current_rows": int(len(current_snapshot)),
+        "same_day_merged_rows": int(len(current_snapshot)),
+    }
+    archive_committed = False
+    integrity_error = ""
+    try:
+        snapshot, same_day_merge = merge_same_day_snapshot(snapshot_path, current_snapshot)
+        # Substitute the prospective same-day merge in memory. No archive bytes
+        # may change until the complete logical history passes integrity admission.
+        history = pd.concat(
+            [load_snapshot_history(snapshot_dir, exclude_path=snapshot_path), snapshot],
+            ignore_index=True,
+        )
+        signals, feature_summary = compute_estimate_revision_features(history, as_of_date=utc_now())
+        if feature_summary.get("reason") == "archive_integrity_failure":
+            integrity_error = "archive_integrity_failure"
+        else:
+            staged_path: Path | None = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    dir=snapshot_dir, prefix=".estimates-", suffix=".tmp", delete=False
+                ) as handle:
+                    staged_path = Path(handle.name)
+                snapshot.to_parquet(staged_path, index=False)
+                require_collection_day(fetch_date)
+                os.replace(staged_path, snapshot_path)
+                archive_committed = True
+            finally:
+                if staged_path is not None:
+                    staged_path.unlink(missing_ok=True)
+    except Exception as exc:
+        # Restored cache/Drive archives are untrusted inputs. A parquet read,
+        # schema, merge, validation, or staged-commit failure must not escape
+        # before stale signals are neutralized and a blocked summary is written.
+        integrity_error = sanitize_error_message(exc) or "archive_integrity_failure"
+        snapshot = current_snapshot
+        signals = pd.DataFrame(columns=["ticker", *PHASE18_ESTIMATE_REVISION_COLUMNS])
+        feature_summary = {
+            "status": "blocked",
+            "reason": "archive_integrity_failure",
+            "error": integrity_error,
+        }
+
+    if integrity_error:
+        archive_committed = False
+        signals = pd.DataFrame(columns=["ticker", *PHASE18_ESTIMATE_REVISION_COLUMNS])
+        feature_summary = {
+            **feature_summary,
+            "status": "blocked",
+            "reason": "archive_integrity_failure",
+            "error": integrity_error,
+        }
+
     # Overwrite even an empty result: an old unsafe signal cache is not current.
     signals_output.parent.mkdir(parents=True, exist_ok=True)
     signals.to_parquet(signals_output, index=False)
@@ -1564,6 +1613,24 @@ def main() -> int:
         "errors": errors[:10],
     }
     write_json(summary_path, payload)
+
+    # Queue/checkpoint state may advance only after the new observation has
+    # passed full-history integrity and archive/signal/summary evidence is durable.
+    if archive_committed and status != "blocked_data_integrity":
+        attempt_ack = acknowledge_collection_attempts(
+            checkpoint_path,
+            queue_path,
+            attempted_tickers,
+            attempted_at_utc=utc_now(),
+        ) if args.collection_checkpoint and args.collection_queue else {
+            "status": "disabled",
+            "attempted_ticker_count": len(attempted_tickers),
+            "acknowledged_ticker_count": 0,
+            "unacknowledged_tickers": [],
+        }
+        payload["collection_attempt_ack"] = attempt_ack
+        write_json(summary_path, payload)
+
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 2 if status == "blocked_data_integrity" else 0
 
