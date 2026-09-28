@@ -750,7 +750,7 @@ def universe_health_summary(latest_run: Path) -> dict[str, Any]:
         "exists": False,
         "path": str(candidates[0]),
         "status": "missing",
-        "promotion_allowed": None,
+        "universe_breadth_gate_pass": None,
         "r1000_base_count": None,
         "min_r1000_base": None,
     }
@@ -817,10 +817,10 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
 
     if int(scored.get("row_count") or 0) < int(args.min_scored_rows):
         blockers.append(f"scored_latest.csv row count is below threshold: {scored.get('row_count')}")
-    if universe_health.get("exists") and universe_health.get("promotion_allowed") is not True:
+    if universe_health.get("exists") and universe_health.get("universe_breadth_gate_pass") is not True:
         r1000_count = universe_health.get("r1000_base_count")
         floor = universe_health.get("min_r1000_base")
-        blockers.append(f"universe health gate failed: scored R1000 base {r1000_count} below floor {floor}")
+        blockers.append(f"universe breadth gate failed or missing scoped evidence: scored R1000 base={r1000_count}; required floor={floor}")
         next_actions.append("Repair the IWB/R1000 universe source chain before official rebuild or strategy A/B.")
     if not main_latest.get("exists"):
         blockers.append("portfolio_latest.csv is missing")
@@ -1010,7 +1010,7 @@ def render_report(payload: dict[str, Any]) -> str:
             "## Universe Health",
             "",
             f"- status: `{universe_health.get('status') or ''}`",
-            f"- promotion_allowed: `{str(universe_health.get('promotion_allowed')).lower()}`",
+            f"- universe_breadth_gate_pass: `{str(universe_health.get('universe_breadth_gate_pass')).lower()}`",
             f"- r1000_base_count: `{universe_health.get('r1000_base_count') if universe_health.get('r1000_base_count') is not None else ''}`",
             f"- min_r1000_base: `{universe_health.get('min_r1000_base') if universe_health.get('min_r1000_base') is not None else ''}`",
             f"- primary_universe_source: `{universe_health.get('primary_universe_source') or ''}`",

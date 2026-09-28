@@ -1,5 +1,21 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-28 — Partial readiness is not global promotion authority (#538)
+
+- PIT membership, universe breadth and comparison-baseline integrity prove only
+  their own prerequisites. Emit `pit_evidence_eligible`,
+  `universe_breadth_gate_pass`, `eligible_as_comparison_baseline` and
+  `baseline_integrity_ready`; keep production promotion/mutation false.
+- Migrate both full-rebuild artifact routing predicates and data readiness in
+  the same change. Never alias an old promotion field to a true scoped pass;
+  a present legacy audit without the scoped field must fail closed.
+- A technically usable control can miss the mission (Main 21%/-30%,
+  Concentrated 32%/-35%). Preserve nested broker source-validity contracts,
+  but do not label the baseline itself production-valid or promotion-eligible.
+- Regression checks for these boundaries must remain active under Python `-O`.
+  Workflow checks execute only extracted read-only predicates on temporary
+  fixtures; no fullrun, dispatch, Drive or economic mutation is required.
+
 ## 2026-09-27 — SEC coverage gaps and issuer lifecycle identity
 
 - Latest directly read durable execution `30392ac5bd890ab273deed4aeccc82a9ec6330c5015ee890aeb3b3c5767174b7` binds catalog `ec25a042c07cddc18bafdc6a8d7e89384731d69510eeda037ac084a83b7f9487`; its quality report is PARTIAL with two SEC HTTP 404s and HOLX without a current CIK match. NFCI no longer appears in its provider failures; historical PIT remains false.

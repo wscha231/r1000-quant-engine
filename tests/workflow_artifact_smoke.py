@@ -7,6 +7,8 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import unittest
 from pathlib import Path
 
 
@@ -2581,7 +2583,49 @@ def test_pages_deploy_keeps_prior_site_without_completed_session_artifact() -> N
     assert "python -m tools.refresh_public_market_quotes" in text
 
 
+def test_full_rebuild_routes_only_from_scoped_breadth_gate() -> None:
+    """Execute only the two read-only Python predicates, never the workflow."""
+    text = WORKFLOW.read_text(encoding="utf-8")
+    predicates = re.findall(r'UNIVERSE_HEALTHY="\$\(python -c \'([^\']+)\'', text)
+    checks = unittest.TestCase()
+    checks.assertEqual(len(predicates), 2)
+    for code in predicates:
+        checks.assertIn('get("universe_breadth_gate_pass") is True', code)
+        checks.assertNotIn('promotion_allowed', code)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            audit = root / "outputs/universe_health/universe_source_audit.json"
+            audit.parent.mkdir(parents=True)
+            scored = root / "outputs/scored_latest.csv"
+            scored.write_text("ticker,universe_source\n" + "".join(
+                f"T{i},current_constituents_proxy\n" for i in range(450)
+            ))
+            cases = [
+                ({"universe_breadth_gate_pass": True, "promotion_allowed": False}, "yes"),
+                ({"universe_breadth_gate_pass": False, "promotion_allowed": True}, "no"),
+                ({"promotion_allowed": True}, "no"),
+                ({"universe_breadth_gate_pass": "true"}, "no"),
+                ({"universe_breadth_gate_pass": 1}, "no"),
+                ({"universe_breadth_gate_pass": None}, "no"),
+            ]
+            for payload, expected in cases:
+                audit.write_text(json.dumps(payload))
+                result = subprocess.run([sys.executable, "-c", code], cwd=root,
+                                        capture_output=True, text=True, check=True)
+                checks.assertEqual(result.stdout.strip(), expected)
+            # Preserve the existing no-audit breadth fallback in both paths.
+            audit.unlink()
+            result = subprocess.run([sys.executable, "-c", code], cwd=root,
+                                    capture_output=True, text=True, check=True)
+            checks.assertEqual(result.stdout.strip(), "yes")
+            scored.write_text("ticker,universe_source\nA,leader_rescue_only\n")
+            result = subprocess.run([sys.executable, "-c", code], cwd=root,
+                                    capture_output=True, text=True, check=True)
+            checks.assertEqual(result.stdout.strip(), "no")
+
+
 def main() -> int:
+    test_full_rebuild_routes_only_from_scoped_breadth_gate()
     test_workflow_yaml_files_parse()
     # This registered Tier-1 smoke also executes the read-only research handoff
     # regressions; no protected validation-runner publication needs changing.
