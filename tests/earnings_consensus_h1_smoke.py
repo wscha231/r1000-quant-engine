@@ -2,6 +2,8 @@
 """Deterministic H1 admission regressions; no vendor/network/economic runs."""
 from __future__ import annotations
 import copy
+import contextlib
+import io
 import json
 import sys
 import tempfile
@@ -81,6 +83,93 @@ class AdmissionTests(unittest.TestCase):
         for key in ('first_seen_at', 'strategy_available_at', 'provider_published_at'):
             delayed = {**unknown, key: '2026-07-01T20:01:00Z'}
             self.assertEqual(h1.frozen_pre_event_consensus([before, delayed], **args)['value'], 1)
+
+    def test_unknown_publication_only_blocks_current_or_newer_vintage(self):
+        old_unknown = snapshot('2026-07-01T18:00:00Z', None, provider_published_at='2026-07-01')
+        verified = snapshot('2026-07-01T19:00:00Z', 2)
+        new_unknown = snapshot('2026-07-01T19:30:00Z', None, provider_published_at='2026-07-01')
+        equal_unknown = snapshot('2026-07-01T19:00:00Z', None, provider_published_at='2026-07-01')
+        post_event = snapshot('2026-07-01T19:30:00Z', None,
+                              collected_at='2026-07-01T20:01:00Z', provider_published_at='2026-07-01')
+        args = dict(event_available_at='2026-07-01T20:00:00Z',
+                    identity=json.loads(verified['eps_fy1_identity']), fetch_source='finnhub')
+        for rows in ([old_unknown, verified], [verified, old_unknown],
+                     [old_unknown, verified, post_event]):
+            self.assertEqual(h1.frozen_pre_event_consensus(rows, **args)['value'], 2)
+        for unknown in (new_unknown, equal_unknown):
+            for rows in ([verified, unknown], [unknown, verified]):
+                self.assertIsNone(h1.frozen_pre_event_consensus(rows, **args))
+
+    def test_malformed_identity_types_fail_closed(self):
+        before = snapshot()
+        for field, invalid in [('currency', True), ('security_id', ['ABC']),
+                               ('issuer_id', {}), ('share_or_ADR_unit', ['ADR'])]:
+            item = estimate(1.2)
+            item[field] = invalid
+            row = snapshot('2026-05-02T18:00:00Z', eps_payload={'data': [item]}, revenue_payload={})
+            self.assertNotEqual(row['identity_status'], 'VERIFIED', field)
+            self.assertIsNone(h1.same_period_revision(row, before), field)
+            self.assertIsNone(h1.frozen_pre_event_consensus(
+                [row], event_available_at='2026-05-03T20:00:00Z',
+                identity=json.loads(before['eps_fy1_identity']), fetch_source='finnhub'), field)
+            self.assertFalse(h1.identity_complete({**json.loads(before['eps_fy1_identity']), field: invalid}))
+        self.assertEqual(snapshot()['identity_status'], 'VERIFIED')
+
+    def test_persisted_v2_row_integrity_before_same_day_merge(self):
+        original = snapshot(value=None)
+        correction = snapshot('2026-04-01T19:00:00Z', 2)
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'day.parquet'
+            pd.DataFrame([original]).to_parquet(path)
+            h1.validate_persisted_snapshot(pd.read_parquet(path).to_dict('records')[0])
+            for mutation in ('records', 'source_hash', 'version', 'contract'):
+                corrupt = copy.deepcopy(original)
+                if mutation == 'records':
+                    records = json.loads(corrupt['consensus_observations_json'])
+                    records[0]['value'] = 900
+                    corrupt['consensus_observations_json'] = json.dumps(records)
+                elif mutation == 'source_hash':
+                    corrupt['source_payload_sha256'] = '0' * 64
+                elif mutation == 'version':
+                    corrupt['est_eps_fy1'] = 900
+                else:
+                    corrupt['source_contract'] = 'unsupported-contract'
+                pd.DataFrame([corrupt]).to_parquet(path)
+                with self.assertRaisesRegex(ValueError, 'invalid_existing_v2'):
+                    c.merge_same_day_snapshot(path, pd.DataFrame([correction]))
+            pd.DataFrame([original]).to_parquet(path)
+            merged, _ = c.merge_same_day_snapshot(path, pd.DataFrame([correction]))
+            self.assertEqual(len(merged), 2)
+            merged.to_parquet(path)
+            repeat, _ = c.merge_same_day_snapshot(path, pd.DataFrame([correction]))
+            self.assertEqual(len(repeat), 2)
+            self.assertEqual(merged['snapshot_version_id'].tolist(), repeat['snapshot_version_id'].tolist())
+
+    def test_vendor_access_is_independent_of_estimate_value(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for eps_access, revenue_access, errors in (
+                (True, True, []), (True, False, [{'ticker': 'AAA', 'vendor': 'finnhub',
+                    'endpoint': '/stock/revenue-estimate', 'vendor_entitlement_blocked': True,
+                    'status_code': 403}]), (False, False, [{'ticker': 'AAA', 'vendor': 'finnhub',
+                    'endpoint': '/stock/eps-estimate', 'vendor_entitlement_blocked': True,
+                    'status_code': 403}])):
+                row = snapshot('2026-07-01T18:00:00Z', None, eps_payload={'data': [estimate(None)]},
+                               revenue_payload={'data': [estimate(None)]},
+                               eps_estimate_access=eps_access, revenue_estimate_access=revenue_access)
+                with patch.object(c, 'collect_live_snapshot', return_value=(pd.DataFrame([row]), errors)), \
+                     patch.object(sys, 'argv', ['collector', '--tickers', 'AAA', '--api-key', 'fixture',
+                         '--fetch-date', '2026-07-01', '--snapshot-dir', str(root / 'snapshots'),
+                         '--signals-output', str(root / 'signals.parquet'), '--summary', str(root / 'summary.json')]), \
+                     contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(c.main(), 0)
+                payload = json.loads((root / 'summary.json').read_text())
+                self.assertEqual(payload['vendor_estimate_access'], eps_access and revenue_access)
+                self.assertEqual(payload['eps_estimate_access_rows'], int(eps_access))
+                self.assertEqual(payload['revenue_estimate_access_rows'], int(revenue_access))
+                self.assertEqual(payload['estimate_value_rows'], 0)
+                self.assertEqual(payload['status'], 'blocked_partial_coverage' if eps_access else 'blocked_vendor_entitlement')
+                self.assertEqual(payload['vendor_access_rows'], int(eps_access and revenue_access))
 
     def test_live_collection_stops_at_utc_rollover(self):
         clocks = ['2026-07-01T23:59:59Z'] * 2 + ['2026-07-02T00:00:00Z'] * 2

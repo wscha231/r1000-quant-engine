@@ -28,7 +28,7 @@ from r1000_config import PHASE18_ESTIMATE_REVISION_COLUMNS  # noqa: E402
 
 from tools.earnings_consensus_h1 import (  # noqa: E402
     SCHEMA_VERSION, availability, build_snapshot, iso_utc, optional_float,
-    pct_change, same_period_revision, digest,
+    pct_change, same_period_revision, snapshot_digest, validate_persisted_snapshot,
 )
 DEFAULT_SNAPSHOT_DIR = "data_pit/events/earnings_estimates"
 DEFAULT_SIGNALS = "data_pit/events/earnings_revision_signals.parquet"
@@ -325,7 +325,7 @@ def parse_snapshot_row(
                actual_report_date=None,  # fiscal period is not an announcement date
                provider_reported_surprise=optional_float(earnings.get("surprisePercent")),
                provider_reported_surprise_status="UNVERIFIED_PRE_EVENT_CONSENSUS")
-    row["snapshot_version_id"] = digest({k: v for k, v in row.items() if k != "snapshot_version_id"})
+    row["snapshot_version_id"] = snapshot_digest(row)
     return row
 
 
@@ -603,6 +603,9 @@ def merge_same_day_snapshot(existing_path: Path, current: pd.DataFrame) -> tuple
     if existing.empty:
         return current, info
     info["same_day_existing_rows"] = int(len(existing))
+    for row in existing.to_dict("records"):
+        if row.get("source_contract") == SCHEMA_VERSION or pd.notna(row.get("snapshot_version_id")):
+            validate_persisted_snapshot(row)
     combined = pd.concat([existing, current], ignore_index=True, sort=False)
     if "snapshot_version_id" in combined.columns:
         modern = combined[combined["snapshot_version_id"].notna()].copy()
@@ -1129,7 +1132,7 @@ def collect_live_snapshot(
                 metric_states.append(state)
             rows[-1]["provider_coverage_status"] = metric_states[0] if len(set(metric_states)) == 1 else "PARTIAL"
             rows[-1]["recommendation_fetch_status"] = "FETCH_FAILED" if any(e.get("endpoint") == "/stock/recommendation" for e in ticker_errors) else "OBSERVED" if rec else "NO_COVERAGE"
-            rows[-1]["snapshot_version_id"] = digest({k: v for k, v in rows[-1].items() if k != "snapshot_version_id"})
+            rows[-1]["snapshot_version_id"] = snapshot_digest(rows[-1])
         error_budget = collection_error_budget(errors, vendor_entitlement_circuits)
         if max_errors and error_budget["error_budget_count"] >= max_errors:
             stop_reason = "max_errors_reached"
@@ -1330,12 +1333,16 @@ def main() -> int:
         else 0
     )
     stored_estimate_coverage_ratio = has_forward_estimate_rows / max(1, len(snapshot))
-    vendor_estimate_access = request_has_forward_estimate_rows > 0
+    eps_access_rows = int(current_snapshot.get("eps_estimate_access", pd.Series(dtype=bool)).eq(True).sum())
+    revenue_access_rows = int(current_snapshot.get("revenue_estimate_access", pd.Series(dtype=bool)).eq(True).sum())
+    vendor_access_rows = int(current_snapshot.get("vendor_estimate_access", pd.Series(dtype=bool)).eq(True).sum())
+    vendor_estimate_access = vendor_access_rows > 0
+    any_endpoint_access = eps_access_rows > 0 or revenue_access_rows > 0 or vendor_estimate_access
     status = (
         "completed"
         if estimate_coverage_ratio >= 0.8
         else "blocked_vendor_entitlement"
-        if request_has_forward_estimate_rows == 0 and vendor_blocked_errors
+        if request_has_forward_estimate_rows == 0 and vendor_blocked_errors and not any_endpoint_access
         else "blocked_partial_coverage"
     )
     reason = ""
@@ -1360,6 +1367,10 @@ def main() -> int:
         "collection_attempt_ack": attempt_ack,
         "request_snapshot_rows": int(len(current_snapshot)),
         "request_has_forward_estimate_rows": request_has_forward_estimate_rows,
+        "estimate_value_rows": request_has_forward_estimate_rows,
+        "eps_estimate_access_rows": eps_access_rows,
+        "revenue_estimate_access_rows": revenue_access_rows,
+        "vendor_access_rows": vendor_access_rows,
         "request_estimate_coverage_ratio": estimate_coverage_ratio,
         "snapshot_rows": int(len(snapshot)),
         "stored_estimate_coverage_ratio": stored_estimate_coverage_ratio,

@@ -184,6 +184,25 @@ def test_manifest_records_hashes_and_append_only_index() -> None:
         rows2 = [json.loads(line) for line in index.read_text(encoding="utf-8").splitlines()]
         assert len(rows2) == 1
 
+        # An accessible endpoint with no published average remains accessible
+        # in the archive manifest; value coverage is a separate observation.
+        missing_values = json.loads(summary.read_text(encoding="utf-8"))
+        missing_values.update(request_has_forward_estimate_rows=0, has_forward_estimate_rows=0,
+                              estimate_coverage_ratio=0.0, stored_estimate_coverage_ratio=0.0,
+                              vendor_estimate_access=True)
+        summary.write_text(json.dumps(missing_values), encoding="utf-8")
+        missing_manifest = build_manifest(
+            snapshot_dir=str(snapshot_dir), signals=str(signals), summary=str(summary),
+            collector_log=str(collector_log), manifest=str(manifest), index=str(index),
+            run_id="29015925251", run_attempt="1", head_sha="abc123", ref="master",
+            workflow="Earnings Estimates Daily Archive", artifact_name="earnings-estimates-daily-29015925251",
+            shard_id="shard_000", shard_file="outputs/forward_estimate_universe_plan_20260709/shards/shard_000.csv",
+            shard_mode="rotating_shard", queue_summary=str(queue_summary), queue_checkpoint=str(queue_checkpoint),
+            queue_csv=str(queue_csv), queue_report=str(queue_report))
+        assert missing_manifest["vendor_estimate_access"] is True
+        assert missing_manifest["request_has_forward_estimate_rows"] == 0
+        assert missing_manifest["estimate_coverage_ratio"] == 0.0
+
 
 if __name__ == "__main__":
     test_manifest_records_hashes_and_append_only_index()

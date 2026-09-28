@@ -191,7 +191,8 @@ def test_cli_fixture_writes_snapshot_and_signals() -> None:
                 "--summary",
                 str(summary),
             ]
-            assert main() == 0
+            result = main()
+            assert result == 0
         finally:
             sys.argv = old_argv
         assert (snapshot_dir / "estimates_20260709.parquet").exists()
@@ -256,7 +257,8 @@ def test_partial_free_vendor_success_is_not_global_block() -> None:
                 "--summary",
                 str(root / "summary.json"),
             ]
-            assert main() == 0
+            result = main()
+            assert result == 0
         finally:
             collector.collect_live_snapshot = old_collect
             sys.argv = old_argv
@@ -471,7 +473,8 @@ def test_same_day_snapshot_merges_instead_of_overwriting_existing_archive() -> N
                 "--summary",
                 str(root / "summary.json"),
             ]
-            assert main() == 0
+            result = main()
+            assert result == 0
         finally:
             collector.collect_live_snapshot = old_collect
             sys.argv = old_argv

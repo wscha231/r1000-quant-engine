@@ -45,7 +45,44 @@ def digest(value: Any) -> str:
                                      allow_nan=False).encode()).hexdigest()
 
 
+def snapshot_digest(row: dict) -> str:
+    """Hash the canonical row, normalizing only Parquet's nullable scalars.
+
+    A nullable integer column may round-trip as a float; estimate values are
+    deliberately not coerced, since 1 and 1.0 are distinct JSON payloads.
+    """
+    def canonical(value: Any, key: str = "") -> Any:
+        if isinstance(value, float) and math.isnan(value):
+            return None
+        if key in {"has_forward_estimate", "n_analysts"} and isinstance(value, float) and value.is_integer():
+            return int(value)
+        if isinstance(value, dict):
+            return {k: canonical(v, k) for k, v in value.items()}
+        if isinstance(value, list):
+            return [canonical(v) for v in value]
+        return value
+    return digest({k: canonical(v, k) for k, v in row.items() if k != "snapshot_version_id"})
+
+
+def validate_persisted_snapshot(row: dict) -> None:
+    """Reject damaged V2 evidence before it can enter a durable day archive."""
+    if row.get("source_contract") != SCHEMA_VERSION:
+        raise ValueError("invalid_existing_v2_source_contract")
+    try:
+        records = json.loads(row["consensus_observations_json"])
+        if not isinstance(records, list) or not all(isinstance(item, dict) for item in records):
+            raise ValueError("invalid_existing_v2_consensus_records")
+        if digest(records) != row.get("source_payload_sha256"):
+            raise ValueError("invalid_existing_v2_source_payload_sha256")
+        if snapshot_digest(row) != row.get("snapshot_version_id"):
+            raise ValueError("invalid_existing_v2_snapshot_version_id")
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("invalid_existing_v2_snapshot") from exc
+
+
 def text_value(value: Any) -> str | None:
+    if isinstance(value, (bool, list, dict, tuple, set)) or not isinstance(value, (str, int, float)):
+        return None
     if value is None or str(value).strip().lower() in {"", "none", "nan", "unknown", "<na>"}:
         return None
     return str(value).strip()
@@ -213,7 +250,7 @@ def build_snapshot(ticker: str, *, eps_payload: Any, revenue_payload: Any,
                earnings_surprise_last=None, surprise_streak=None,
                earnings_surprise_status="UNKNOWN_NO_FROZEN_PRE_EVENT_CONSENSUS", causal_event_id=None,
                causal_event_status="UNKNOWN_NO_VERIFIED_EVENT_LINK")
-    row["snapshot_version_id"] = digest(row)
+    row["snapshot_version_id"] = snapshot_digest(row)
     return row
 
 
@@ -237,15 +274,16 @@ def frozen_pre_event_consensus(snapshots: Iterable[dict], *, event_available_at:
     candidates = [r for r in eligible if r.get("ticker") in tickers]
     if not candidates:
         return None
-    # Unknown publication timing in a newer observation cannot revive an old value.
+    latest_time = max(datetime.fromisoformat(availability(r)) for r in candidates)
+    # An unknown vintage can block the current consensus only when it is at
+    # least as new as the latest admissible vintage and still pre-event.
     for row in snapshots:
         known_times = [iso_utc(row.get(k)) for k in ("observed_at", "first_seen_at", "collected_at",
                                                     "strategy_available_at", "provider_published_at")]
         known_times = [t for t in known_times if t]
         if (row.get("ticker") in tickers and not availability(row) and known_times
-                and max(map(datetime.fromisoformat, known_times)) < datetime.fromisoformat(cutoff)):
+                and latest_time <= max(map(datetime.fromisoformat, known_times)) < datetime.fromisoformat(cutoff)):
             return None
-    latest_time = max(datetime.fromisoformat(availability(r)) for r in candidates)
     latest = [r for r in candidates if datetime.fromisoformat(availability(r)) == latest_time]
     if len({r.get("source_payload_sha256") for r in latest}) != 1:
         return None
