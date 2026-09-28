@@ -142,8 +142,8 @@ def canonical_identity(row: dict, metric: str) -> dict:
             "share_or_ADR_unit": text_value(row.get("share_or_ADR_unit"))}
 
 
-def identity_complete(identity: dict) -> bool:
-    return all(text_value(identity.get(k)) is not None for k in IDENTITY_FIELDS)
+def identity_complete(identity: Any) -> bool:
+    return isinstance(identity, dict) and all(text_value(identity.get(k)) is not None for k in IDENTITY_FIELDS)
 
 
 def availability(row: dict) -> str | None:
@@ -174,7 +174,10 @@ def same_period_revision(current: dict, prior: dict, prefix: str = "eps_fy1") ->
     """Compare exact economic identities and providers, independent of FY labels."""
     target = current.get(prefix + "_identity")
     if isinstance(target, str):
-        target = json.loads(target)
+        try:
+            target = json.loads(target)
+        except ValueError:
+            return None
     if not isinstance(target, dict) or not identity_complete(target):
         return None
     if current.get("identity_status") == "AMBIGUOUS" or prior.get("identity_status") == "AMBIGUOUS":

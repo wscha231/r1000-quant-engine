@@ -115,6 +115,64 @@ class AdmissionTests(unittest.TestCase):
             self.assertFalse(h1.identity_complete({**json.loads(before['eps_fy1_identity']), field: invalid}))
         self.assertEqual(snapshot()['identity_status'], 'VERIFIED')
 
+    def test_malformed_top_level_identity_never_raises_or_admits(self):
+        before = snapshot()
+        canonical = json.loads(before['eps_fy1_identity'])
+        after = snapshot('2026-05-02T18:00:00Z', 2)
+        for invalid in (True, False, [], ['ABC'], 'ABC', 123, {}):
+            self.assertFalse(h1.identity_complete(invalid))
+            self.assertIsNone(h1.frozen_pre_event_consensus(
+                [before], event_available_at='2026-05-03T20:00:00Z',
+                identity=invalid, fetch_source='finnhub'))
+            self.assertIsNone(h1.earnings_surprise(
+                2, {'identity': invalid}, identity=invalid,
+                announcement_at='2026-05-03T20:00:00Z'))
+            malformed = {**after, 'eps_fy1_identity': invalid}
+            self.assertIsNone(h1.same_period_revision(malformed, before))
+        self.assertIsNone(h1.same_period_revision({**after, 'eps_fy1_identity': '[invalid'}, before))
+        self.assertTrue(h1.identity_complete(canonical))
+        self.assertEqual(h1.frozen_pre_event_consensus(
+            [before], event_available_at='2026-05-03T20:00:00Z',
+            identity=canonical, fetch_source='finnhub')['value'], 1)
+        self.assertAlmostEqual(h1.same_period_revision(after, before), 1)
+
+    def test_stripped_v2_markers_cannot_downgrade_to_legacy(self):
+        original = snapshot()
+        current = pd.DataFrame([snapshot('2026-04-01T19:00:00Z', 2)])
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'day.parquet'
+            for stripped in (('source_contract',), ('snapshot_version_id',),
+                             ('source_contract', 'snapshot_version_id')):
+                corrupt = copy.deepcopy(original)
+                for key in stripped:
+                    corrupt.pop(key)
+                self.assertTrue(c.requires_v2_archive_validation(corrupt))
+                pd.DataFrame([corrupt]).to_parquet(path)
+                stored = path.read_bytes()
+                with self.assertRaisesRegex(ValueError, 'invalid_existing_v2'):
+                    c.merge_same_day_snapshot(path, current)
+                self.assertEqual(path.read_bytes(), stored)
+            corrupt = copy.deepcopy(original)
+            corrupt['source_contract'] = None
+            corrupt['snapshot_version_id'] = None
+            records = json.loads(corrupt['consensus_observations_json'])
+            records[0]['value'] = 999
+            corrupt['consensus_observations_json'] = json.dumps(records)
+            pd.DataFrame([corrupt]).to_parquet(path)
+            with self.assertRaisesRegex(ValueError, 'invalid_existing_v2'):
+                c.merge_same_day_snapshot(path, current)
+            legacy = {'ticker': 'LEG', 'as_of_date': '2026-04-01',
+                      'available_from': '2026-04-01', 'legacy_only': 'diagnostic'}
+            self.assertFalse(c.requires_v2_archive_validation(legacy))
+            pd.DataFrame([legacy]).to_parquet(path)
+            mixed, _ = c.merge_same_day_snapshot(path, pd.DataFrame([original]))
+            self.assertEqual(set(mixed['ticker']), {'LEG', 'AAA'})
+            mixed.to_parquet(path)
+            repeated, _ = c.merge_same_day_snapshot(path, pd.DataFrame([original]))
+            self.assertEqual(len(repeated), 2)
+            self.assertEqual(mixed['snapshot_version_id'].fillna('').tolist(),
+                             repeated['snapshot_version_id'].fillna('').tolist())
+
     def test_persisted_v2_row_integrity_before_same_day_merge(self):
         original = snapshot(value=None)
         correction = snapshot('2026-04-01T19:00:00Z', 2)

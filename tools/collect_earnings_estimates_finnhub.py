@@ -45,6 +45,22 @@ ESTIMATE_REQUESTS_PER_VENDOR_TICKER = {
     "fmp": 1,
     "finnhub": 2,
 }
+V2_ONLY_ARCHIVE_MARKERS = (
+    "snapshot_version_id", "consensus_observations_json", "source_payload_sha256",
+    "identity_status", "publication_status", "provider_published_at_raw",
+    "eps_fy1_identity", "eps_fy2_identity", "rev_fy1_identity", "rev_fy2_identity",
+)
+
+
+def requires_v2_archive_validation(row: dict[str, Any]) -> bool:
+    """A damaged V2 row cannot become legacy by losing its contract/version."""
+    if isinstance(row.get("source_contract"), str) and row["source_contract"] == SCHEMA_VERSION:
+        return True
+    for key in V2_ONLY_ARCHIVE_MARKERS:
+        value = row.get(key)
+        if not pd.api.types.is_scalar(value) or bool(pd.notna(value)):
+            return True
+    return False
 
 
 def utc_now() -> str:
@@ -604,7 +620,7 @@ def merge_same_day_snapshot(existing_path: Path, current: pd.DataFrame) -> tuple
         return current, info
     info["same_day_existing_rows"] = int(len(existing))
     for row in existing.to_dict("records"):
-        if row.get("source_contract") == SCHEMA_VERSION or pd.notna(row.get("snapshot_version_id")):
+        if requires_v2_archive_validation(row):
             validate_persisted_snapshot(row)
     combined = pd.concat([existing, current], ignore_index=True, sort=False)
     if "snapshot_version_id" in combined.columns:
