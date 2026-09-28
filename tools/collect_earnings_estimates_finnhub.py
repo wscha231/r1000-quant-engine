@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
+import io
 import json
 import math
 import os
@@ -637,36 +639,105 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
 
 
+def _json_bytes(payload: dict[str, Any]) -> bytes:
+    return (json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n").encode("utf-8")
+
+
+def _stage_bytes_for_target(target: Path, payload: bytes) -> Path:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        dir=target.parent, prefix=f".{target.name}.", suffix=".txn", delete=False
+    ) as handle:
+        handle.write(payload)
+        return Path(handle.name)
+
+
+def _stage_dataframe_for_target(target: Path, frame: pd.DataFrame) -> Path:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        dir=target.parent, prefix=f".{target.name}.", suffix=".txn", delete=False
+    ) as handle:
+        staged = Path(handle.name)
+    try:
+        frame.to_parquet(staged, index=False)
+        return staged
+    except Exception:
+        staged.unlink(missing_ok=True)
+        raise
+
+
+def _restore_target_bytes(target: Path, previous: bytes | None) -> None:
+    if previous is None:
+        target.unlink(missing_ok=True)
+        return
+    staged = _stage_bytes_for_target(target, previous)
+    try:
+        os.replace(staged, target)
+    finally:
+        staged.unlink(missing_ok=True)
+
+
+def _atomic_commit_staged_files(staged_files: list[tuple[Path, Path]]) -> None:
+    """Publish a bounded multi-file transaction or restore prior accepted bytes."""
+    targets = [target for _, target in staged_files]
+    if len(targets) != len(set(targets)):
+        raise ValueError("duplicate_transaction_target")
+    previous = {target: target.read_bytes() if target.exists() else None for target in targets}
+    committed: list[Path] = []
+    try:
+        for staged, target in staged_files:
+            os.replace(staged, target)
+            committed.append(target)
+    except Exception as exc:
+        rollback_errors: list[str] = []
+        for target in reversed(committed):
+            try:
+                _restore_target_bytes(target, previous[target])
+            except Exception as rollback_exc:
+                rollback_errors.append(f"{target}:{sanitize_error_message(rollback_exc)}")
+        if rollback_errors:
+            raise RuntimeError("collector_transaction_rollback_failure:" + "|".join(rollback_errors)) from exc
+        raise
+    finally:
+        for staged, _ in staged_files:
+            staged.unlink(missing_ok=True)
+
+
+def collection_attempt_id(fetch_date: pd.Timestamp, attempted_tickers: list[str]) -> str:
+    attempted = sorted(set(str(t).upper().strip() for t in attempted_tickers if str(t).strip()))
+    payload = json.dumps(
+        {"fetch_date": fetch_date.date().isoformat(), "attempted_tickers": attempted},
+        sort_keys=True, separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def _truthy(value: Any) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
-def acknowledge_collection_attempts(
+def prepare_collection_attempt_acknowledgement(
     checkpoint_path: Path,
     queue_path: Path,
     attempted_tickers: list[str],
     *,
     attempted_at_utc: str,
-) -> dict[str, Any]:
-    """Acknowledge only tickers the collector actually reached.
-
-    The queue planner records a proposed batch but deliberately leaves the
-    durable rotation counters unchanged.  This acknowledgement runs only after
-    the collector returns, so a missing key, runner failure, or max-error break
-    cannot make an unattempted tail look serviced.
-    """
+    attempt_id: str,
+) -> tuple[dict[str, Any], bytes | None, bytes | None]:
+    """Prepare an idempotent queue/checkpoint acknowledgement without writing it."""
     attempted = list(dict.fromkeys(str(t).upper().strip() for t in attempted_tickers if str(t).strip()))
     result: dict[str, Any] = {
         "status": "disabled",
+        "attempt_id": attempt_id,
         "attempted_ticker_count": len(attempted),
         "acknowledged_ticker_count": 0,
         "unacknowledged_tickers": attempted,
     }
     if not checkpoint_path or not str(checkpoint_path) or not queue_path or not str(queue_path):
-        return result
+        return result, None, None
     if not checkpoint_path.exists() or not queue_path.exists():
         result["status"] = "checkpoint_or_queue_missing"
-        return result
+        return result, None, None
     try:
         checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
         with queue_path.open(newline="", encoding="utf-8") as handle:
@@ -675,11 +746,22 @@ def acknowledge_collection_attempts(
             queue_rows = list(reader)
     except (OSError, json.JSONDecodeError, csv.Error) as exc:
         result.update({"status": "invalid_checkpoint_or_queue", "error": sanitize_error_message(exc)})
-        return result
+        return result, None, None
     states = checkpoint.get("ticker_states") if isinstance(checkpoint, dict) else None
     if not isinstance(states, list) or not fieldnames:
         result["status"] = "invalid_checkpoint_or_queue"
-        return result
+        return result, None, None
+
+    previous_ack = checkpoint.get("last_collection_attempt_ack")
+    if (
+        isinstance(previous_ack, dict)
+        and previous_ack.get("status") == "acknowledged"
+        and previous_ack.get("attempt_id") == attempt_id
+    ):
+        replay = dict(previous_ack)
+        replay["idempotent_replay"] = True
+        return replay, None, None
+
     selected = {
         str(row.get("ticker") or "").upper().strip()
         for row in queue_rows
@@ -697,27 +779,57 @@ def acknowledge_collection_attempts(
         if ticker in acknowledged_set:
             row["last_selected_at_utc"] = attempted_at_utc
             row["selection_count"] = str(int(row.get("selection_count") or 0) + 1)
-    result.update(
-        {
-            "status": "acknowledged",
-            "acknowledged_ticker_count": len(acknowledged),
-            "unacknowledged_tickers": [ticker for ticker in attempted if ticker not in acknowledged_set],
-        }
-    )
+
+    result.update({
+        "status": "acknowledged",
+        "acknowledged_ticker_count": len(acknowledged),
+        "unacknowledged_tickers": [ticker for ticker in attempted if ticker not in acknowledged_set],
+    })
     checkpoint["updated_at_utc"] = attempted_at_utc
     checkpoint["last_collection_attempt_ack"] = result
-    checkpoint_tmp = checkpoint_path.with_suffix(checkpoint_path.suffix + ".tmp")
-    checkpoint_tmp.write_text(
-        json.dumps(checkpoint, indent=2, sort_keys=True, default=str) + "\n",
-        encoding="utf-8",
+
+    checkpoint_bytes = _json_bytes(checkpoint)
+    queue_text = io.StringIO(newline="")
+    writer = csv.DictWriter(queue_text, fieldnames=fieldnames, extrasaction="ignore", lineterminator="\n")
+    writer.writeheader()
+    writer.writerows(queue_rows)
+    return result, checkpoint_bytes, queue_text.getvalue().encode("utf-8")
+
+
+def acknowledge_collection_attempts(
+    checkpoint_path: Path,
+    queue_path: Path,
+    attempted_tickers: list[str],
+    *,
+    attempted_at_utc: str,
+    attempt_id: str = "",
+) -> dict[str, Any]:
+    """Atomically acknowledge one stable collection attempt across queue state files."""
+    stable_id = attempt_id or hashlib.sha256(
+        json.dumps(
+            {
+                "attempted_at_utc": attempted_at_utc,
+                "attempted_tickers": sorted(set(
+                    str(t).upper().strip() for t in attempted_tickers if str(t).strip()
+                )),
+            },
+            sort_keys=True, separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    result, checkpoint_bytes, queue_bytes = prepare_collection_attempt_acknowledgement(
+        checkpoint_path,
+        queue_path,
+        attempted_tickers,
+        attempted_at_utc=attempted_at_utc,
+        attempt_id=stable_id,
     )
-    os.replace(checkpoint_tmp, checkpoint_path)
-    queue_tmp = queue_path.with_suffix(queue_path.suffix + ".tmp")
-    with queue_tmp.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(queue_rows)
-    os.replace(queue_tmp, queue_path)
+    if checkpoint_bytes is None or queue_bytes is None:
+        return result
+    staged = [
+        (_stage_bytes_for_target(checkpoint_path, checkpoint_bytes), checkpoint_path),
+        (_stage_bytes_for_target(queue_path, queue_bytes), queue_path),
+    ]
+    _atomic_commit_staged_files(staged)
     return result
 
 
@@ -1471,12 +1583,9 @@ def main() -> int:
         "same_day_current_rows": int(len(current_snapshot)),
         "same_day_merged_rows": int(len(current_snapshot)),
     }
-    archive_committed = False
     integrity_error = ""
     try:
         snapshot, same_day_merge = merge_same_day_snapshot(snapshot_path, current_snapshot)
-        # Substitute the prospective same-day merge in memory. No archive bytes
-        # may change until the complete logical history passes integrity admission.
         history = pd.concat(
             [load_snapshot_history(snapshot_dir, exclude_path=snapshot_path), snapshot],
             ignore_index=True,
@@ -1484,24 +1593,7 @@ def main() -> int:
         signals, feature_summary = compute_estimate_revision_features(history, as_of_date=utc_now())
         if feature_summary.get("reason") == "archive_integrity_failure":
             integrity_error = "archive_integrity_failure"
-        else:
-            staged_path: Path | None = None
-            try:
-                with tempfile.NamedTemporaryFile(
-                    dir=snapshot_dir, prefix=".estimates-", suffix=".tmp", delete=False
-                ) as handle:
-                    staged_path = Path(handle.name)
-                snapshot.to_parquet(staged_path, index=False)
-                require_collection_day(fetch_date)
-                os.replace(staged_path, snapshot_path)
-                archive_committed = True
-            finally:
-                if staged_path is not None:
-                    staged_path.unlink(missing_ok=True)
     except Exception as exc:
-        # Restored cache/Drive archives are untrusted inputs. A parquet read,
-        # schema, merge, validation, or staged-commit failure must not escape
-        # before stale signals are neutralized and a blocked summary is written.
         integrity_error = sanitize_error_message(exc) or "archive_integrity_failure"
         snapshot = current_snapshot
         signals = pd.DataFrame(columns=["ticker", *PHASE18_ESTIMATE_REVISION_COLUMNS])
@@ -1512,7 +1604,6 @@ def main() -> int:
         }
 
     if integrity_error:
-        archive_committed = False
         signals = pd.DataFrame(columns=["ticker", *PHASE18_ESTIMATE_REVISION_COLUMNS])
         feature_summary = {
             **feature_summary,
@@ -1521,9 +1612,6 @@ def main() -> int:
             "error": integrity_error,
         }
 
-    # Overwrite even an empty result: an old unsafe signal cache is not current.
-    signals_output.parent.mkdir(parents=True, exist_ok=True)
-    signals.to_parquet(signals_output, index=False)
     coverage_ratio = len(current_snapshot) / max(1, len(tickers))
     request_has_forward_estimate_rows = (
         int(pd.to_numeric(current_snapshot["has_forward_estimate"], errors="coerce").fillna(0).sum())
@@ -1558,6 +1646,35 @@ def main() -> int:
         reason = "coverage_below_80pct_warn_only"
     if feature_summary.get("reason") == "archive_integrity_failure":
         status, reason = "blocked_data_integrity", "archive_integrity_failure"
+
+    stable_attempt_id = collection_attempt_id(fetch_date, attempted_tickers)
+    if status != "blocked_data_integrity" and args.collection_checkpoint and args.collection_queue:
+        attempt_ack, checkpoint_bytes, queue_bytes = prepare_collection_attempt_acknowledgement(
+            checkpoint_path,
+            queue_path,
+            attempted_tickers,
+            attempted_at_utc=utc_now(),
+            attempt_id=stable_attempt_id,
+        )
+    elif status != "blocked_data_integrity":
+        checkpoint_bytes = queue_bytes = None
+        attempt_ack = {
+            "status": "disabled",
+            "attempt_id": stable_attempt_id,
+            "attempted_ticker_count": len(attempted_tickers),
+            "acknowledged_ticker_count": 0,
+            "unacknowledged_tickers": [],
+        }
+    else:
+        checkpoint_bytes = queue_bytes = None
+        attempt_ack = {
+            "status": "deferred_until_durable_commit",
+            "attempt_id": stable_attempt_id,
+            "attempted_ticker_count": len(attempted_tickers),
+            "acknowledged_ticker_count": 0,
+            "unacknowledged_tickers": list(dict.fromkeys(attempted_tickers)),
+        }
+
     payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": utc_now(),
@@ -1570,6 +1687,7 @@ def main() -> int:
         "live_trading_enabled": False,
         "ticker_count_requested": len(tickers),
         "ticker_count_attempted": len(attempted_tickers),
+        "collection_attempt_id": stable_attempt_id,
         "collection_attempt_ack": attempt_ack,
         "request_snapshot_rows": int(len(current_snapshot)),
         "request_has_forward_estimate_rows": request_has_forward_estimate_rows,
@@ -1612,27 +1730,66 @@ def main() -> int:
         "entitlement_error_probe_count": error_budget["entitlement_error_probe_count"],
         "errors": errors[:10],
     }
-    write_json(summary_path, payload)
 
-    # Queue/checkpoint state may advance only after the new observation has
-    # passed full-history integrity and archive/signal/summary evidence is durable.
-    if archive_committed and status != "blocked_data_integrity":
-        attempt_ack = acknowledge_collection_attempts(
-            checkpoint_path,
-            queue_path,
-            attempted_tickers,
-            attempted_at_utc=utc_now(),
-        ) if args.collection_checkpoint and args.collection_queue else {
-            "status": "disabled",
-            "attempted_ticker_count": len(attempted_tickers),
-            "acknowledged_ticker_count": 0,
-            "unacknowledged_tickers": [],
+    if status == "blocked_data_integrity":
+        blocked_staged: list[tuple[Path, Path]] = []
+        try:
+            blocked_staged.append((_stage_dataframe_for_target(signals_output, signals), signals_output))
+            blocked_staged.append((_stage_bytes_for_target(summary_path, _json_bytes(payload)), summary_path))
+            _atomic_commit_staged_files(blocked_staged)
+        finally:
+            for staged, _ in blocked_staged:
+                staged.unlink(missing_ok=True)
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 2
+
+    staged_files: list[tuple[Path, Path]] = []
+    try:
+        staged_files.append((_stage_dataframe_for_target(snapshot_path, snapshot), snapshot_path))
+        staged_files.append((_stage_dataframe_for_target(signals_output, signals), signals_output))
+        staged_files.append((_stage_bytes_for_target(summary_path, _json_bytes(payload)), summary_path))
+        if checkpoint_bytes is not None and queue_bytes is not None:
+            staged_files.append((_stage_bytes_for_target(checkpoint_path, checkpoint_bytes), checkpoint_path))
+            staged_files.append((_stage_bytes_for_target(queue_path, queue_bytes), queue_path))
+        require_collection_day(fetch_date)
+        _atomic_commit_staged_files(staged_files)
+    except Exception as exc:
+        transaction_error = sanitize_error_message(exc) or "collector_transaction_commit_failure"
+        blocked_payload = {
+            **payload,
+            "status": "blocked_data_integrity",
+            "reason": "collector_transaction_commit_failure",
+            "collection_attempt_ack": {
+                "status": "deferred_until_durable_commit",
+                "attempt_id": stable_attempt_id,
+                "attempted_ticker_count": len(attempted_tickers),
+                "acknowledged_ticker_count": 0,
+                "unacknowledged_tickers": list(dict.fromkeys(attempted_tickers)),
+            },
+            "feature_summary": {
+                **feature_summary,
+                "status": "blocked",
+                "reason": "collector_transaction_commit_failure",
+                "error": transaction_error,
+            },
         }
-        payload["collection_attempt_ack"] = attempt_ack
-        write_json(summary_path, payload)
+        blocked_signals = pd.DataFrame(columns=["ticker", *PHASE18_ESTIMATE_REVISION_COLUMNS])
+        blocked_staged: list[tuple[Path, Path]] = []
+        try:
+            blocked_staged.append((_stage_dataframe_for_target(signals_output, blocked_signals), signals_output))
+            blocked_staged.append((_stage_bytes_for_target(summary_path, _json_bytes(blocked_payload)), summary_path))
+            _atomic_commit_staged_files(blocked_staged)
+        finally:
+            for staged, _ in blocked_staged:
+                staged.unlink(missing_ok=True)
+        print(json.dumps(blocked_payload, indent=2, sort_keys=True))
+        return 2
+    finally:
+        for staged, _ in staged_files:
+            staged.unlink(missing_ok=True)
 
     print(json.dumps(payload, indent=2, sort_keys=True))
-    return 2 if status == "blocked_data_integrity" else 0
+    return 0
 
 
 if __name__ == "__main__":

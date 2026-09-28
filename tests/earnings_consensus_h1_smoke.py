@@ -803,19 +803,32 @@ class AdmissionTests(unittest.TestCase):
             [older, row], event_available_at='2026-07-01T20:00:00Z',
             identity=identity, fetch_source='fmp'))
 
+        for key in ('Information', 'Note', 'Error Message'):
+            av_errors = []
+            attempts = []
+            with patch.object(c, 'fetch_url_json', return_value={key: 'vendor error'}):
+                result = c.fetch_estimate_payloads_by_order(
+                    object(), 'AAA', finnhub_api_key='', alphavantage_api_key='av',
+                    fmp_api_key='', vendor_order=['alphavantage'], sleep_seconds=0,
+                    errors=av_errors, attempted_providers=attempts)
+            self.assertEqual(attempts, ['alphavantage'])
+            self.assertTrue(result[-1])
+            self.assertFalse(result[3], key)
+            self.assertFalse(result[4], key)
+            self.assertTrue(av_errors, key)
+            self.assertEqual(av_errors[-1]['status_code'], 200)
+
         av_errors = []
         attempts = []
-        with patch.object(c, 'fetch_url_json', return_value={'Information': 'rate limit'}):
-            result = c.fetch_estimate_payloads_by_order(
+        with patch.object(c, 'fetch_url_json', return_value={}):
+            empty = c.fetch_estimate_payloads_by_order(
                 object(), 'AAA', finnhub_api_key='', alphavantage_api_key='av',
                 fmp_api_key='', vendor_order=['alphavantage'], sleep_seconds=0,
                 errors=av_errors, attempted_providers=attempts)
         self.assertEqual(attempts, ['alphavantage'])
-        self.assertTrue(result[-1])
-        self.assertFalse(result[3])
-        self.assertFalse(result[4])
-        self.assertTrue(av_errors)
-        self.assertEqual(av_errors[-1]['status_code'], 200)
+        self.assertTrue(empty[3])
+        self.assertTrue(empty[4])
+        self.assertFalse(av_errors)
 
     def test_archive_read_failure_blocks_and_leaves_queue_unacknowledged(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -853,7 +866,101 @@ class AdmissionTests(unittest.TestCase):
             self.assertEqual(checkpoint.read_bytes(), checkpoint_bytes)
             self.assertEqual(queue.read_bytes(), queue_bytes)
 
-    def test_queue_ack_runs_only_after_archive_signal_and_summary_are_durable(self):
+    def test_acknowledgement_is_atomic_and_idempotent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            checkpoint = root / 'checkpoint.json'
+            queue = root / 'queue.csv'
+            checkpoint.write_text(json.dumps({'ticker_states': [
+                {'ticker': 'AAA', 'last_selected_at_utc': '', 'selection_count': 0}
+            ]}), encoding='utf-8')
+            queue.write_text(
+                'ticker,selected,last_selected_at_utc,selection_count\nAAA,true,,0\n',
+                encoding='utf-8')
+            attempt_id = 'attempt-1'
+            first = c.acknowledge_collection_attempts(
+                checkpoint, queue, ['AAA'], attempted_at_utc='2026-07-01T18:00:00Z',
+                attempt_id=attempt_id)
+            self.assertEqual(first['status'], 'acknowledged')
+            checkpoint_once, queue_once = checkpoint.read_bytes(), queue.read_bytes()
+            second = c.acknowledge_collection_attempts(
+                checkpoint, queue, ['AAA'], attempted_at_utc='2026-07-01T19:00:00Z',
+                attempt_id=attempt_id)
+            self.assertEqual(second['status'], 'acknowledged')
+            self.assertTrue(second['idempotent_replay'])
+            self.assertEqual(checkpoint.read_bytes(), checkpoint_once)
+            self.assertEqual(queue.read_bytes(), queue_once)
+            payload = json.loads(checkpoint.read_text())
+            self.assertEqual(payload['ticker_states'][0]['selection_count'], 1)
+
+            checkpoint.write_bytes(checkpoint_once)
+            queue.write_bytes(queue_once)
+            before_checkpoint, before_queue = checkpoint.read_bytes(), queue.read_bytes()
+            real_replace = c.os.replace
+            failed = {'done': False}
+            def fail_queue_once(src, dst):
+                if Path(dst) == queue and not failed['done']:
+                    failed['done'] = True
+                    raise OSError('queue replace injected failure')
+                return real_replace(src, dst)
+            with patch.object(c.os, 'replace', side_effect=fail_queue_once):
+                with self.assertRaisesRegex(OSError, 'queue replace injected failure'):
+                    c.acknowledge_collection_attempts(
+                        checkpoint, queue, ['AAA'], attempted_at_utc='2026-07-02T18:00:00Z',
+                        attempt_id='attempt-2')
+            self.assertEqual(checkpoint.read_bytes(), before_checkpoint)
+            self.assertEqual(queue.read_bytes(), before_queue)
+
+    def test_main_rolls_back_archive_on_signal_or_summary_commit_failure(self):
+        for fail_target in ('signal', 'summary'):
+            with self.subTest(fail_target=fail_target), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                history = root / 'history'; history.mkdir()
+                snapshot_path = history / 'estimates_20260701.parquet'
+                row_a = snapshot('2026-07-01T17:00:00Z', 1)
+                row_b = snapshot('2026-07-01T18:00:00Z', 2)
+                pd.DataFrame([row_a]).to_parquet(snapshot_path, index=False)
+                archive_before = snapshot_path.read_bytes()
+                signal_path = root / 'signals.parquet'
+                features([row_a]).to_parquet(signal_path)
+                summary_path = root / 'summary.json'
+                checkpoint = root / 'checkpoint.json'
+                queue = root / 'queue.csv'
+                checkpoint.write_text(json.dumps({'ticker_states': [
+                    {'ticker': 'AAA', 'last_selected_at_utc': '', 'selection_count': 0}
+                ]}), encoding='utf-8')
+                queue.write_text(
+                    'ticker,selected,last_selected_at_utc,selection_count\nAAA,true,,0\n',
+                    encoding='utf-8')
+                checkpoint_before, queue_before = checkpoint.read_bytes(), queue.read_bytes()
+                argv = ['collector', '--tickers', 'AAA', '--api-key', 'fixture',
+                        '--fetch-date', '2026-07-01', '--snapshot-dir', str(history),
+                        '--signals-output', str(signal_path), '--summary', str(summary_path),
+                        '--collection-checkpoint', str(checkpoint), '--collection-queue', str(queue)]
+                real_replace = c.os.replace
+                failed = {'done': False}
+                def fail_once(src, dst):
+                    target = signal_path if fail_target == 'signal' else summary_path
+                    if Path(dst) == target and not failed['done']:
+                        failed['done'] = True
+                        raise OSError(f'{fail_target} replace injected failure')
+                    return real_replace(src, dst)
+                with patch.object(c, 'collect_live_snapshot',
+                                  return_value=(pd.DataFrame([row_b]), [], ['AAA'], {})), \
+                     patch.object(c.os, 'replace', side_effect=fail_once), \
+                     patch.object(sys, 'argv', argv), contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(c.main(), 2)
+                self.assertEqual(snapshot_path.read_bytes(), archive_before)
+                self.assertTrue(pd.read_parquet(signal_path).empty)
+                blocked = json.loads(summary_path.read_text())
+                self.assertEqual(blocked['status'], 'blocked_data_integrity')
+                self.assertEqual(blocked['reason'], 'collector_transaction_commit_failure')
+                self.assertEqual(blocked['collection_attempt_ack']['status'],
+                                 'deferred_until_durable_commit')
+                self.assertEqual(checkpoint.read_bytes(), checkpoint_before)
+                self.assertEqual(queue.read_bytes(), queue_before)
+
+    def test_success_transaction_publishes_acknowledged_summary_once(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             history = root / 'history'; history.mkdir()
@@ -861,34 +968,43 @@ class AdmissionTests(unittest.TestCase):
             summary_path = root / 'summary.json'
             checkpoint = root / 'checkpoint.json'
             queue = root / 'queue.csv'
-            checkpoint.write_text(json.dumps({'ticker_states': []}), encoding='utf-8')
-            queue.write_text('ticker,selected\\nAAA,true\\n', encoding='utf-8')
+            checkpoint.write_text(json.dumps({'ticker_states': [
+                {'ticker': 'AAA', 'last_selected_at_utc': '', 'selection_count': 0}
+            ]}), encoding='utf-8')
+            queue.write_text(
+                'ticker,selected,last_selected_at_utc,selection_count\nAAA,true,,0\n',
+                encoding='utf-8')
             fresh = snapshot('2026-07-01T18:00:00Z', 2)
-            snapshot_path = history / 'estimates_20260701.parquet'
-            events = []
-
-            def ack(*args, **kwargs):
-                self.assertTrue(snapshot_path.exists())
-                self.assertTrue(signal_path.exists())
-                self.assertTrue(summary_path.exists())
-                self.assertEqual(json.loads(summary_path.read_text())['status'], 'completed')
-                events.append('ack')
-                return {
-                    'status': 'acknowledged', 'attempted_ticker_count': 1,
-                    'acknowledged_ticker_count': 1, 'unacknowledged_tickers': [],
-                }
-
             argv = ['collector', '--tickers', 'AAA', '--api-key', 'fixture',
                     '--fetch-date', '2026-07-01', '--snapshot-dir', str(history),
                     '--signals-output', str(signal_path), '--summary', str(summary_path),
                     '--collection-checkpoint', str(checkpoint), '--collection-queue', str(queue)]
             with patch.object(c, 'collect_live_snapshot',
                               return_value=(pd.DataFrame([fresh]), [], ['AAA'], {})), \
-                 patch.object(c, 'acknowledge_collection_attempts', side_effect=ack), \
                  patch.object(sys, 'argv', argv), contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(c.main(), 0)
-            self.assertEqual(events, ['ack'])
-            self.assertEqual(json.loads(summary_path.read_text())['collection_attempt_ack']['status'],
-                             'acknowledged')
+            payload = json.loads(summary_path.read_text())
+            self.assertEqual(payload['collection_attempt_ack']['status'], 'acknowledged')
+            attempt_id = payload['collection_attempt_id']
+            self.assertEqual(payload['collection_attempt_ack']['attempt_id'], attempt_id)
+            self.assertEqual(json.loads(checkpoint.read_text())
+                             ['last_collection_attempt_ack']['attempt_id'], attempt_id)
+            self.assertEqual(json.loads(checkpoint.read_text())
+                             ['ticker_states'][0]['selection_count'], 1)
+            archive_bytes = (history / 'estimates_20260701.parquet').read_bytes()
+            signal_bytes = signal_path.read_bytes()
+            checkpoint_bytes = checkpoint.read_bytes()
+            queue_bytes = queue.read_bytes()
+            with patch.object(c, 'collect_live_snapshot',
+                              return_value=(pd.DataFrame([fresh]), [], ['AAA'], {})), \
+                 patch.object(sys, 'argv', argv), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(c.main(), 0)
+            payload2 = json.loads(summary_path.read_text())
+            self.assertTrue(payload2['collection_attempt_ack']['idempotent_replay'])
+            self.assertEqual((history / 'estimates_20260701.parquet').read_bytes(), archive_bytes)
+            self.assertEqual(signal_path.read_bytes(), signal_bytes)
+            self.assertEqual(checkpoint.read_bytes(), checkpoint_bytes)
+            self.assertEqual(queue.read_bytes(), queue_bytes)
+
 
 if __name__=='__main__': unittest.main()
