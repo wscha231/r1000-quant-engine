@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 from datetime import date, datetime, timezone
+from functools import lru_cache
 from typing import Any, Iterable
 
 SCHEMA_VERSION = "earnings-consensus-source-v2"
@@ -64,6 +65,22 @@ def snapshot_digest(row: dict) -> str:
     return digest({k: canonical(v, k) for k, v in row.items() if k != "snapshot_version_id"})
 
 
+@lru_cache(maxsize=1)
+def snapshot_field_profiles() -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
+    """Fields hashed at each V2 construction stage, before Parquet unions schemas."""
+    base = frozenset(build_snapshot(
+        "SCHEMA", eps_payload={}, revenue_payload={}, recommendation_payload=[],
+        observed_at="2026-01-01T00:00:00Z", collected_at="2026-01-01T00:00:00Z",
+        fetch_source="schema").keys())
+    parsed = frozenset({"requested_fetch_date", "actual_eps_last", "actual_fiscal_period_end",
+                        "actual_report_date", "provider_reported_surprise",
+                        "provider_reported_surprise_status"})
+    live = frozenset({"attempted_estimate_providers_json", "eps_provider_status",
+                      "rev_provider_status", "provider_coverage_status",
+                      "recommendation_fetch_status"})
+    return base, parsed, live
+
+
 def validate_persisted_snapshot(row: dict) -> None:
     """Reject damaged V2 evidence before it can enter a durable day archive."""
     if row.get("source_contract") != SCHEMA_VERSION:
@@ -74,7 +91,20 @@ def validate_persisted_snapshot(row: dict) -> None:
             raise ValueError("invalid_existing_v2_consensus_records")
         if digest(records) != row.get("source_payload_sha256"):
             raise ValueError("invalid_existing_v2_source_payload_sha256")
-        if snapshot_digest(row) != row.get("snapshot_version_id"):
+        base, parsed, live = snapshot_field_profiles()
+        fields = set(base)
+        def storage_null(value: Any) -> bool:
+            return value is None or isinstance(value, float) and math.isnan(value)
+        if not storage_null(row.get("requested_fetch_date")):
+            fields.update(parsed)
+        if not storage_null(row.get("attempted_estimate_providers_json")):
+            fields.update(live)
+        # Parquet's schema union adds null columns from older legacy rows or
+        # other V2 construction stages; non-null unknown fields are corruption.
+        for key, value in row.items():
+            if key not in fields and not storage_null(value):
+                raise ValueError("invalid_existing_v2_extra_field")
+        if snapshot_digest({k: v for k, v in row.items() if k in fields}) != row.get("snapshot_version_id"):
             raise ValueError("invalid_existing_v2_snapshot_version_id")
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("invalid_existing_v2_snapshot") from exc

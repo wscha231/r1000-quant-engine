@@ -144,6 +144,19 @@ class AdmissionTests(unittest.TestCase):
             repeat, _ = c.merge_same_day_snapshot(path, pd.DataFrame([correction]))
             self.assertEqual(len(repeat), 2)
             self.assertEqual(merged['snapshot_version_id'].tolist(), repeat['snapshot_version_id'].tolist())
+            # A legacy row can widen the Parquet schema; its null columns on
+            # V2 rows must not become part of the original version payload.
+            legacy = {'ticker': 'LEG', 'legacy_only': 'diagnostic'}
+            pd.DataFrame([legacy]).to_parquet(path)
+            mixed, _ = c.merge_same_day_snapshot(path, pd.DataFrame([original]))
+            mixed.to_parquet(path)
+            repeated, _ = c.merge_same_day_snapshot(path, pd.DataFrame([original]))
+            self.assertEqual(len(repeated), 2)
+            tampered = repeated.copy()
+            tampered.loc[tampered['ticker'] == 'AAA', 'legacy_only'] = 'injected'
+            tampered.to_parquet(path)
+            with self.assertRaisesRegex(ValueError, 'invalid_existing_v2'):
+                c.merge_same_day_snapshot(path, pd.DataFrame([correction]))
 
     def test_vendor_access_is_independent_of_estimate_value(self):
         with tempfile.TemporaryDirectory() as temp:
