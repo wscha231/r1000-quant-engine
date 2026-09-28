@@ -5,6 +5,7 @@ import json
 import hashlib
 import sys
 import tempfile
+import unittest
 from argparse import Namespace
 from pathlib import Path
 
@@ -39,7 +40,7 @@ def write_pit_evidence_store(root: Path) -> None:
         latest / "universe_health" / "universe_source_audit.json",
         {
             "status": "ready",
-            "promotion_allowed": True,
+            "universe_breadth_gate_pass": True,
             "r1000_base_count": 1000,
             "min_r1000_base": 400,
         },
@@ -165,6 +166,21 @@ def test_data_readiness_detects_fresh_operating_books_and_snapshots() -> None:
         assert payload["ready_for_skip_collector_replay"] is True
         assert payload["ready_for_policy_replay"] is True
         assert payload["blockers"] == []
+
+        # Old promotion vocabulary (including a true value) is never a fallback.
+        checks = unittest.TestCase()
+        audit_path = latest / "universe_health" / "universe_source_audit.json"
+        scoped = json.loads(audit_path.read_text())
+        for value in (False, None, "true", 1):
+            write_json(audit_path, {**scoped, "universe_breadth_gate_pass": value, "promotion_allowed": True})
+            blocked = build_payload(args)
+            checks.assertIs(blocked["ready_for_policy_replay"], False)
+            checks.assertTrue(any("universe breadth gate failed" in x for x in blocked["blockers"]))
+        legacy = {k: v for k, v in scoped.items() if k != "universe_breadth_gate_pass"}
+        write_json(audit_path, {**legacy, "promotion_allowed": True})
+        checks.assertIs(build_payload(args)["ready_for_policy_replay"], False)
+        write_json(audit_path, {**scoped, "promotion_allowed": False})
+        checks.assertIs(build_payload(args)["ready_for_policy_replay"], True)
 
         (latest / "universe_health" / "universe_source_audit.json").unlink()
         missing_audit = build_payload(args)
@@ -599,7 +615,7 @@ def test_data_readiness_blocks_invalid_universe_health() -> None:
             latest / "universe_health" / "universe_source_audit.json",
             {
                 "status": "invalid_universe",
-                "promotion_allowed": False,
+                "universe_breadth_gate_pass": False,
                 "r1000_base_count": 259,
                 "min_r1000_base": 400,
                 "primary_universe_source": "leader_rescue_only",
@@ -622,8 +638,8 @@ def test_data_readiness_blocks_invalid_universe_health() -> None:
         payload = build_payload(args)
         assert payload["status"] == "blocked"
         assert payload["ready_for_policy_replay"] is False
-        assert payload["universe_health"]["promotion_allowed"] is False
-        assert any("universe health gate failed" in item for item in payload["blockers"])
+        assert payload["universe_health"]["universe_breadth_gate_pass"] is False
+        assert any("universe breadth gate failed" in item for item in payload["blockers"])
 
 
 if __name__ == "__main__":

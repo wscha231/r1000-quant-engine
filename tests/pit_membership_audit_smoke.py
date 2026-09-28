@@ -5,6 +5,7 @@ import csv
 import json
 import sys
 import tempfile
+import unittest
 from argparse import Namespace
 from pathlib import Path
 
@@ -64,9 +65,28 @@ def test_clean_historical_membership_passes() -> None:
         assert audit["status"] == "pass"
         assert audit["pit_universe_label_clean"] is True
         assert audit["historical_universe_pit_clean"] is True
-        assert audit["production_promotion_allowed"] is True
+        checks = unittest.TestCase()
+        for surface in (audit, result["manifest"]):
+            checks.assertIs(surface["pit_evidence_eligible"], True)
+            checks.assertIs(surface["pit_universe_label_clean"], True)
+            checks.assertIs(surface["official_pit_r1000"], False)
+            checks.assertNotIn("promotion_eligible", surface)
+            checks.assertIs(surface["production_promotion_allowed"], False)
+            checks.assertIs(surface["production_mutation_allowed"], False)
         assert pit_universe_label_clean(audit) is True
         assert load_json(root / "out" / "pit_membership_audit.json")["status"] == "pass"
+
+        official = clean_row("AAA")
+        official["membership_source"] = "official_historical_membership"
+        official["universe_label"] = "official_pit_r1000"
+        official["official_r1000_membership_proven"] = True
+        write_membership(membership, [official])
+        result = audit_membership_file(membership, root / "out", coverage_floor=1)
+        for surface in result.values():
+            checks.assertIs(surface["official_pit_r1000"], True)
+            checks.assertIs(surface["pit_evidence_eligible"], True)
+            checks.assertIs(surface["production_promotion_allowed"], False)
+            checks.assertIs(surface["production_mutation_allowed"], False)
 
 
 def test_future_membership_blocks_clean_label() -> None:
@@ -83,6 +103,8 @@ def test_future_membership_blocks_clean_label() -> None:
         assert audit["membership_available_from_future_rows"] == 1
         assert "future_membership_available_from" in audit["blockers"]
         assert pit_universe_label_clean(audit) is False
+        unittest.TestCase().assertIs(audit["pit_evidence_eligible"], False)
+        unittest.TestCase().assertIs(audit["production_promotion_allowed"], False)
 
 
 def test_missing_membership_available_from_blocks_clean_label() -> None:
@@ -178,8 +200,12 @@ def test_universe_health_wires_pit_membership_audit_without_loosening_breadth_ga
             strict=False,
         )
         payload = build_payload(args)
-        assert payload["promotion_allowed"] is True
-        assert payload["production_promotion_allowed"] is True
+        checks = unittest.TestCase()
+        checks.assertIs(payload["universe_breadth_gate_pass"], True)
+        checks.assertIs(payload["pit_membership_gate_pass"], True)
+        checks.assertIs(payload["production_promotion_allowed"], False)
+        checks.assertIs(payload["production_mutation_allowed"], False)
+        checks.assertNotIn("promotion_allowed", payload)
         assert payload["pit_universe_label_clean"] is True
         assert payload["pit_membership_audit"]["status"] == "pass"
 

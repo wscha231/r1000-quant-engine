@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audit historical universe membership for PIT-safe production evidence.
+"""Audit historical universe membership for scoped PIT evidence.
 
 This tool is diagnostic. It does not fetch data, mutate target books, change
 scoring, or enable production. A clean label is emitted only when the supplied
@@ -304,7 +304,11 @@ def audit_membership_file(
         "ticker_count": int(len({row["ticker"] for row in rows if row["ticker"]})),
         "coverage_by_date": coverage_by_date,
         "known_gaps": blockers,
-        "promotion_eligible": bool(clean),
+        "pit_evidence_eligible": bool(clean),
+        "pit_universe_label_clean": bool(clean),
+        "official_pit_r1000": bool(official_clean),
+        "authority_scope": "PIT_MEMBERSHIP_EVIDENCE_ONLY_NOT_GLOBAL_AUTHORITY",
+        "production_promotion_allowed": False,
         "production_mutation_allowed": False,
     }
     audit = {
@@ -354,7 +358,9 @@ def audit_membership_file(
         "violations_sample": violations[:25],
         "blockers": blockers,
         "production_mutation_allowed": False,
-        "production_promotion_allowed": bool(clean),
+        "production_promotion_allowed": False,
+        "pit_evidence_eligible": bool(clean),
+        "authority_scope": "PIT_MEMBERSHIP_EVIDENCE_ONLY_NOT_GLOBAL_AUTHORITY",
     }
     public_rows = [{key: value for key, value in row.items() if not key.startswith("_")} for row in rows]
     write_json(output_dir / "pit_membership_manifest.json", manifest)
@@ -373,6 +379,8 @@ def write_report(path: Path, manifest: dict[str, Any], audit: dict[str, Any]) ->
         "# PIT Membership Audit",
         "",
         f"- status: `{audit.get('status')}`",
+        f"- pit_evidence_eligible: `{str(audit.get('pit_evidence_eligible')).lower()}`",
+        "- scope: membership evidence only; no global promotion or mutation authority",
         f"- pit_universe_label_clean: `{str(audit.get('pit_universe_label_clean')).lower()}`",
         f"- historical_universe_pit_clean: `{str(audit.get('historical_universe_pit_clean')).lower()}`",
         f"- official_pit_r1000: `{str(audit.get('official_pit_r1000')).lower()}`",

@@ -4,7 +4,7 @@
 This tool is diagnostic only. It does not fetch data, rewrite target books,
 or mutate strategy state. It exists to make the INVALID_UNIVERSE class
 actionable by recording which universe source chain was visible to the run and
-whether the scored R1000 base is broad enough for official promotion.
+whether the scored R1000 base is broad enough for research artifact routing.
 """
 from __future__ import annotations
 
@@ -252,7 +252,7 @@ def count_rows_by_date(scored_path: Path, candidate_path: Path, price_cache: Pat
                 "fundamental_coverage_pct": float(fundamental_rows / len(rows)) if rows else None,
                 "universe_source": ";".join(source_counts.keys())[:500],
                 "fallback_used": any("static_seed" in key.lower() or "previous_healthy" in key.lower() for key in source_counts),
-                "promotion_allowed": bool(len(r1000_tickers) >= 400),
+                "universe_breadth_gate_pass": bool(len(r1000_tickers) >= 400),
             }
         )
     return output
@@ -362,8 +362,8 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
 
     r1000_base_count = int(scored.get("r1000_base_count") or 0)
     scored_count = int(scored.get("row_count") or 0)
-    promotion_allowed = bool(args.universe_mode == "adr" or r1000_base_count >= int(args.min_r1000_base))
-    status = "pass" if promotion_allowed else "invalid_universe"
+    universe_breadth_gate_pass = bool(args.universe_mode == "adr" or r1000_base_count >= int(args.min_r1000_base))
+    status = "pass" if universe_breadth_gate_pass else "invalid_universe"
     primary_source = infer_primary_source(scored)
     fallback_used = bool(
         primary_source == "static_iwb_seed"
@@ -401,7 +401,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
                 "Stop T3/recovery A/B until universe health passes.",
                 "Check live IWB fetch logs and restored Drive/cache IWB holdings.",
                 "Use previous healthy universe or committed static IWB seed only with explicit fallback metadata.",
-                "Rerun 8-year rebuild only after data_readiness.ready_for_policy_replay=true.",
+                "Data readiness is a prerequisite only; fullrun still requires separate explicit authorization.",
             ]
         )
 
@@ -414,8 +414,10 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         "output_dir": str(output_dir),
         "universe_mode": args.universe_mode,
         "status": status,
-        "promotion_allowed": promotion_allowed,
-        "production_promotion_allowed": bool(promotion_allowed and pit_universe_label_clean),
+        "universe_breadth_gate_pass": universe_breadth_gate_pass,
+        "production_promotion_allowed": False,
+        "authority_scope": "UNIVERSE_BREADTH_AND_PIT_EVIDENCE_ONLY_NOT_GLOBAL_AUTHORITY",
+        "pit_membership_gate_pass": bool(pit_universe_label_clean),
         "pit_universe_label_clean": bool(pit_universe_label_clean),
         "historical_universe_pit_clean": bool(
             (pit_membership_audit or {}).get("historical_universe_pit_clean", False)
@@ -442,9 +444,9 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
                 "committed_static_IWB_seed",
                 "hard_fail",
             ],
-            "promotion_rule": "non-ADR runs require scored R1000 base >= min_r1000_base and valid 8-year broker-ledger evidence",
-            "production_promotion_rule": "production also requires pit_universe_label_clean=true from a no-future-membership audit",
-            "do_not_use_for": "strategy promotion or A/B baseline when status != pass",
+            "breadth_rule": "non-ADR runs require scored R1000 base >= min_r1000_base for research artifact routing; ADR retains its existing breadth exemption",
+            "pit_rule": "pit_membership_gate_pass reports only the supplied membership audit",
+            "do_not_use_for": "mission pass, ER validation, portfolio promotion, production approval or economic mutation",
         },
     }
     write_json(output_dir / "universe_source_audit.json", payload)
@@ -461,7 +463,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
             "fundamental_coverage_pct",
             "universe_source",
             "fallback_used",
-            "promotion_allowed",
+            "universe_breadth_gate_pass",
         ],
     )
     write_csv(
@@ -476,7 +478,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
             "fundamental_coverage_pct",
             "universe_source",
             "fallback_used",
-            "promotion_allowed",
+            "universe_breadth_gate_pass",
         ],
     )
     write_json(output_dir / "iwb_fetch_status.json", fallback)
@@ -486,13 +488,13 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def write_report(path: Path, payload: dict[str, Any]) -> None:
-    action = "ALLOW_REVIEW_ONLY" if payload.get("promotion_allowed") else "DO_NOT_PROMOTE"
+    action = "BREADTH_GATE_PASS" if payload.get("universe_breadth_gate_pass") else "BREADTH_GATE_BLOCKED"
     lines = [
         "# Universe Fallback Decision",
         "",
         f"- status: `{payload.get('status')}`",
         f"- action: `{action}`",
-        f"- promotion_allowed: `{str(payload.get('promotion_allowed')).lower()}`",
+        f"- universe_breadth_gate_pass: `{str(payload.get('universe_breadth_gate_pass')).lower()}`",
         f"- production_promotion_allowed: `{str(payload.get('production_promotion_allowed')).lower()}`",
         f"- pit_universe_label_clean: `{str(payload.get('pit_universe_label_clean')).lower()}`",
         f"- universe_mode: `{payload.get('universe_mode')}`",
@@ -533,7 +535,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--universe-mode", default="global_alpha_universe")
     parser.add_argument("--pit-membership-file", default="")
     parser.add_argument("--pit-membership-coverage-floor", type=int, default=400)
-    parser.add_argument("--strict", action="store_true", help="Exit nonzero when universe promotion is not allowed.")
+    parser.add_argument("--strict", action="store_true", help="Exit nonzero when the universe breadth contract fails.")
     return parser.parse_args()
 
 
@@ -541,7 +543,7 @@ def main() -> int:
     args = parse_args()
     payload = build_payload(args)
     print(json.dumps(payload, indent=2, sort_keys=True, default=json_default))
-    if args.strict and not payload.get("promotion_allowed"):
+    if args.strict and not payload.get("universe_breadth_gate_pass"):
         return 2
     return 0
 
