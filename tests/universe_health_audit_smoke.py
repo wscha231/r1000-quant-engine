@@ -5,6 +5,8 @@ import json
 import sys
 import tempfile
 import csv
+import unittest
+from unittest.mock import patch
 from argparse import Namespace
 from pathlib import Path
 
@@ -12,7 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.run_universe_health_audit import build_payload  # noqa: E402
+from tools.run_universe_health_audit import build_payload, main  # noqa: E402
 
 
 def load_json(path: Path) -> dict:
@@ -75,7 +77,23 @@ def test_universe_health_allows_broad_r1000_base() -> None:
 
         payload = run_audit(root, latest)
         assert payload["status"] == "pass"
-        assert payload["promotion_allowed"] is True
+        checks = unittest.TestCase()
+        checks.assertIs(payload["universe_breadth_gate_pass"], True)
+        checks.assertNotIn("promotion_allowed", payload)
+        checks.assertIs(payload["production_promotion_allowed"], False)
+        checks.assertIs(payload["production_mutation_allowed"], False)
+        checks.assertIs(payload["pit_membership_gate_pass"], False)
+        output = root / "audit" / "universe_health"
+        for filename in ("scored_row_count_by_date.csv", "universe_membership_by_month.csv"):
+            with (output / filename).open() as handle:
+                row = next(csv.DictReader(handle))
+            checks.assertEqual(row["universe_breadth_gate_pass"], "True")
+            checks.assertNotIn("promotion_allowed", row)
+        checks.assertIn("BREADTH_GATE_PASS", (output / "universe_fallback_decision.md").read_text())
+        with patch("tools.run_universe_health_audit.parse_args", return_value=Namespace(strict=True)), patch(
+            "tools.run_universe_health_audit.build_payload", return_value=payload
+        ), patch("builtins.print"):
+            checks.assertEqual(main(), 0)
         assert payload["r1000_base_count"] == 450
         assert (root / "audit" / "universe_health" / "universe_source_audit.json").exists()
         assert (root / "audit" / "universe_health" / "universe_fallback_decision.md").exists()
@@ -110,11 +128,17 @@ def test_universe_health_blocks_starved_universe() -> None:
 
         payload = run_audit(root, latest)
         assert payload["status"] == "invalid_universe"
-        assert payload["promotion_allowed"] is False
+        checks = unittest.TestCase()
+        checks.assertIs(payload["universe_breadth_gate_pass"], False)
+        checks.assertIs(payload["production_promotion_allowed"], False)
+        with patch("tools.run_universe_health_audit.parse_args", return_value=Namespace(strict=True)), patch(
+            "tools.run_universe_health_audit.build_payload", return_value=payload
+        ), patch("builtins.print"):
+            checks.assertEqual(main(), 2)
         assert payload["r1000_base_count"] == 0
         assert any("below floor" in item for item in payload["blockers"])
         decision = (root / "audit" / "universe_health" / "universe_fallback_decision.md").read_text(encoding="utf-8")
-        assert "DO_NOT_PROMOTE" in decision
+        checks.assertIn("BREADTH_GATE_BLOCKED", decision)
         summary = load_json(root / "audit" / "universe_health" / "summary.json")
         assert summary["production_mutation_allowed"] is False
 

@@ -3,8 +3,9 @@
 
 The lock is deliberately conservative. It is not created unless the run has a
 broad scored universe and broker-ledger next-close official metrics. Challenger
-tools can still run research-only without it, but promotion comparison remains
-blocked.
+tools can still run research-only without it, but comparison-baseline readiness
+remains blocked. Technical readiness does not certify mission performance or
+grant promotion, production, release or economic mutation authority.
 """
 from __future__ import annotations
 
@@ -200,12 +201,15 @@ def build_lock(latest_run: Path, run_id: str, branch: str, head_sha: str, row_fl
         "official_source": "broker_replay",
         "portfolio_system_guard_path": str(guard_path),
         "broker_period_years": min(safe_float(main.get("years"), 0.0) or 0.0, safe_float(concentrated.get("years"), 0.0) or 0.0),
-        "valid_for_production": len(blockers) == 0,
-        "promotion_eligible": len(blockers) == 0,
-        "promotion_blockers": blockers,
+        "baseline_integrity_ready": len(blockers) == 0,
+        "eligible_as_comparison_baseline": len(blockers) == 0,
+        "baseline_blockers": blockers,
+        "authority_scope": "COMPARISON_BASELINE_ONLY_NOT_GLOBAL_AUTHORITY",
+        "production_promotion_allowed": False,
+        "production_mutation_allowed": False,
         "main": main,
         "concentrated": concentrated,
-        "research_only": False,
+        "research_only": True,
         "production_activation_allowed": False,
         "candidate_replay_book_present": bool(candidate_book.exists()),
         "price_latest_date": date_text(price_latest_date),

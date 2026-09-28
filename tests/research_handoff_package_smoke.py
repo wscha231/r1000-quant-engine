@@ -42,6 +42,8 @@ def test_research_handoff_package_writes_manifest_and_zip() -> None:
         restore = data['restore']
         assert all('run_agent_board' not in command for command in restore['commands'])
         assert '--system-state outputs/control_plane/system_state.json' in restore['agent_board_after_state_ready']
+        assert '--canonical-inputs REPLACE_WITH_REFRESHED_INTAKE_JSON' in restore['agent_board_after_state_ready']
+        assert '--evidence-root REPLACE_WITH_EVIDENCE_ROOT' in restore['agent_board_after_state_ready']
         assert 'system_state_schema.json' in restore['agent_board_prerequisite']
         with zipfile.ZipFile(bundle) as zf:
             names = set(zf.namelist())

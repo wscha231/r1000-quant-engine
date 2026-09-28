@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import tempfile
+import unittest
 from pathlib import Path
 
 import pandas as pd
@@ -71,7 +72,20 @@ def test_healthy_baseline_lock_requires_broker_and_broad_universe() -> None:
         (latest / "reports" / "candidate_replay_book.csv").write_text("rebalance_date,ticker\n2026-01-31,A\n", encoding="utf-8")
         payload, blockers = build_lock(latest, "123", "master", "abc", 400)
         assert blockers == []
-        assert payload["promotion_eligible"] is True
+        checks = unittest.TestCase()
+        checks.assertIs(payload["eligible_as_comparison_baseline"], True)
+        checks.assertIs(payload["baseline_integrity_ready"], True)
+        checks.assertNotIn("promotion_eligible", payload)
+        checks.assertNotIn("valid_for_production", payload)
+        checks.assertIs(payload["production_promotion_allowed"], False)
+        checks.assertIs(payload["production_mutation_allowed"], False)
+        checks.assertIs(payload["production_activation_allowed"], False)
+        checks.assertIs(payload["research_only"], True)
+        # Nested broker source validity remains scoped to its existing contract.
+        for name, cagr, mdd in (("main", 0.21, -0.30), ("concentrated", 0.32, -0.35)):
+            checks.assertEqual(payload[name]["cagr"], cagr)
+            checks.assertEqual(payload[name]["max_dd"], mdd)
+            checks.assertIs(payload[name]["valid_for_production"], True)
         assert payload["scored_row_count"] == 450
         assert payload["r1000_base_count"] == 450
         assert payload["broker_period_years"] >= 6.8
@@ -90,7 +104,12 @@ def test_baseline_lock_blocks_collapsed_universe() -> None:
         pd.DataFrame({"ticker": ["A", "B"], "universe_source": ["leader_rescue"] * 2}).to_csv(latest / "scored_latest.csv", index=False)
         payload, blockers = build_lock(latest, "123", "master", "abc", 400)
         assert "scored_row_count_below_floor" in blockers
-        assert payload["promotion_eligible"] is False
+        checks = unittest.TestCase()
+        checks.assertIs(payload["eligible_as_comparison_baseline"], False)
+        checks.assertIs(payload["baseline_integrity_ready"], False)
+        checks.assertNotIn("promotion_eligible", payload)
+        checks.assertNotIn("valid_for_production", payload)
+        checks.assertIs(payload["production_mutation_allowed"], False)
 
 
 def main() -> int:

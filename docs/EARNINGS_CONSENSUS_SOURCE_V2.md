@@ -1,7 +1,9 @@
 # Earnings / consensus H1 source admission V2
 
 Task: `R1000-H1-EARNINGS-CONSENSUS-SOURCE-ADMISSION-V2-20260928`.
-Base: `3d76ee345a3fda8c242435d70aae07f6475c8221`. Refs #450 / #448.
+Original base: `3d76ee345a3fda8c242435d70aae07f6475c8221`.
+Current-master reconstruction base: `e97a8509982335ffd8731b5faa38df89bb4f1cf1`.
+Refs #450 / #448.
 #453 (`55661460228674e56f1e15bb277179a1e64acd6f`) is design reference
 only; its Layer-B/replay work is not ported. #533 is read-only and unchanged.
 
@@ -144,7 +146,10 @@ precede the announcement before an unknown-publication row invalidates older
 consensus. Four focused regressions cover these cases. Existing fixture clocks
 are explicit; no vendor calls or economic runs were added.
 
-This correction changes the reviewed head. A6 and CI must verify the new head;
-the earlier Codex review is not final-head approval. No second Codex request is
-authorized by the task's one-review limit. Draft and the repository merge gate
-remain blocked pending L0 disposition; no review evidence or gate is bypassed.
+This correction changed the reviewed head. A6 and CI must verify the new head;
+the earlier Codex review is not final-head approval. L0 subsequently authorized
+one additional exact-head Codex review after current-master reconstruction,
+current-head CI success, A6 CLEAN and resolution of the four threads with
+new-head evidence. A new finding stops the task without an automatic review
+loop. Draft and the repository merge gate remain blocked until those conditions
+are met; no old-head evidence or gate is reused.
