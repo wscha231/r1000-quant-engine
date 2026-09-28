@@ -19,6 +19,10 @@ import pandas as pd
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+from tools.collect_earnings_estimates_finnhub import verified_legacy_signal
+
 SCHEMA_VERSION = "free-data-selection-overlay-v2"
 SIGNAL_COLUMNS = [
     "fetch_source",
@@ -115,11 +119,10 @@ def latest_signal_by_ticker(signals: pd.DataFrame, decision_date: pd.Timestamp) 
     if signals.empty or "ticker" not in signals.columns:
         return pd.DataFrame(columns=["ticker"])
     d = signals.copy()
-    if "source_contract" in d.columns:
-        # H1 source diagnostics require a separate L0 H2 admission packet.
-        d = d[d["source_contract"].ne("earnings-consensus-source-v2")]
-        if d.empty:
-            return pd.DataFrame(columns=["ticker"])
+    # Only the complete historical signal producer is admitted. Unknown,
+    # damaged and V2 inputs block the batch, including older-value fallback.
+    if not all(verified_legacy_signal(row) for row in d.to_dict("records")):
+        return pd.DataFrame(columns=["ticker"])
     d["ticker"] = d["ticker"].map(normalize_ticker)
     if "available_from" in d.columns:
         d["_available_from"] = pd.to_datetime(d["available_from"], errors="coerce").dt.normalize()

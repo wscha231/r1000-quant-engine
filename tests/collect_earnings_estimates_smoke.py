@@ -212,23 +212,11 @@ def test_partial_free_vendor_success_is_not_global_block() -> None:
         def fake_collect_live_snapshot(*_: Any, **__: Any) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
             rows = []
             for ticker, has_estimate in [("AAA", 1), ("BBB", 1), ("CCC", 1), ("DDD", 1), ("EEE", 0)]:
-                rows.append(
-                    {
-                        "ticker": ticker,
-                        "as_of_date": "2026-07-09",
-                        "available_from": "2026-07-09",
-                        "fetch_source": "fmp" if has_estimate else "finnhub",
-                        "est_eps_fy1": 1.0 if has_estimate else 0.0,
-                        "est_eps_fy2": 1.1 if has_estimate else 0.0,
-                        "est_rev_fy1": 100.0 if has_estimate else 0.0,
-                        "est_dispersion": 0.1,
-                        "earnings_surprise_last": 0.0,
-                        "est_eps_revision_breadth": 0.0,
-                        "surprise_streak": 0,
-                        "has_forward_estimate": has_estimate,
-                        "vendor_estimate_access": bool(has_estimate),
-                    }
-                )
+                from earnings_consensus_h1_smoke import snapshot
+                rows.append(snapshot('2026-07-09T21:00:00Z', ticker=ticker,
+                    fetch_source='fmp' if has_estimate else 'finnhub',
+                    eps_estimate_access=bool(has_estimate),
+                    revenue_estimate_access=bool(has_estimate)))
             return pd.DataFrame(rows), [
                 {
                     "ticker": "EEE",
@@ -435,25 +423,8 @@ def test_same_day_snapshot_merges_instead_of_overwriting_existing_archive() -> N
         existing.to_parquet(snapshot_dir / "estimates_20260709.parquet", index=False)
 
         def fake_collect_live_snapshot(*_: Any, **__: Any) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
-            return pd.DataFrame(
-                [
-                    {
-                        "ticker": "CCC",
-                        "as_of_date": "2026-07-09",
-                        "available_from": "2026-07-09",
-                        "fetch_source": "fmp",
-                        "est_eps_fy1": 1.0,
-                        "est_eps_fy2": 1.1,
-                        "est_rev_fy1": 100.0,
-                        "est_dispersion": 0.1,
-                        "earnings_surprise_last": 0.0,
-                        "est_eps_revision_breadth": 1.0,
-                        "surprise_streak": 1,
-                        "has_forward_estimate": 1,
-                        "vendor_estimate_access": True,
-                    }
-                ]
-            ), []
+            from earnings_consensus_h1_smoke import snapshot
+            return pd.DataFrame([snapshot('2026-07-09T21:00:00Z', ticker='CCC', fetch_source='fmp')]), []
 
         old_collect = collector.collect_live_snapshot
         old_argv = sys.argv[:]

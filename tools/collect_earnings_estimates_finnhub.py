@@ -139,6 +139,28 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def verified_legacy_signal(row: dict[str, Any]) -> bool:
+    """Recognize the complete pre-V2 feature producer at the H2 boundary."""
+    required = LEGACY_REQUIRED_COLUMNS | set(PHASE18_ESTIMATE_REVISION_COLUMNS)
+    if not isinstance(row, dict) or not required <= row.keys():
+        return False
+    derived = set(PHASE18_ESTIMATE_REVISION_COLUMNS) - LEGACY_ARCHIVE_FIELDS
+    source = {k: v for k, v in row.items() if k not in derived}
+    # The historical feature producer normalized these two day labels into
+    # naive midnight pandas timestamps before persisting Parquet.
+    for key in ("as_of_date", "available_from"):
+        value = source[key]
+        if isinstance(value, (datetime, pd.Timestamp)):
+            if pd.isna(value) or value.tzinfo is not None or value != pd.Timestamp(value).normalize():
+                return False
+            source[key] = value.date().isoformat()
+    if classify_persisted_archive_row(source) != "VERIFIED_LEGACY":
+        return False
+    return all(_legacy_scalar_valid(row[key], "flag" if key in {
+        "estimate_revision_confirmed", "estimate_revision_replacement_gate_pass"
+    } else "number") for key in derived)
+
+
 def repo_path(value: str | Path) -> Path:
     path = Path(value)
     return path if path.is_absolute() else REPO_ROOT / path
@@ -426,7 +448,21 @@ def compute_estimate_revision_features(snapshots: pd.DataFrame, *, as_of_date: s
     if snapshots.empty or "ticker" not in snapshots:
         return pd.DataFrame(), {"status": "blocked", "reason": "no_snapshot_rows"}
     d = snapshots.copy()
-    admitted = [persisted_v2_snapshot_is_valid(r) for r in d.to_dict("records")]
+    records = d.to_dict("records")
+    families = [classify_persisted_archive_row(r) for r in records]
+    admitted = [persisted_v2_snapshot_is_valid(r) for r in records]
+    invalid = sum(not valid and family != "VERIFIED_LEGACY"
+                  for valid, family in zip(admitted, families))
+    if invalid:
+        # Neither the ticker nor the clocks of damaged evidence can establish
+        # a safe exclusion. Block this input archive before any vintage choice.
+        return pd.DataFrame(columns=list(dict.fromkeys([*snapshots.columns, *PHASE18_ESTIMATE_REVISION_COLUMNS]))), {
+            "status": "blocked", "reason": "archive_integrity_failure",
+            "input_rows": len(snapshots), "output_rows": 0, "invalid_rows": invalid,
+            "source_contract": SCHEMA_VERSION, "h2_eligible": False,
+            "historical_backfill_allowed": False, "production_activation_allowed": False,
+            "live_trading_enabled": False,
+        }
     d = d.loc[admitted].copy()
     d["ticker"] = d["ticker"].astype(str).str.upper().str.strip()
     d["_available"] = [availability(r) for r in d.to_dict("records")]
@@ -495,7 +531,8 @@ def latest_signal_by_ticker(signals: pd.DataFrame, *, decision_date: str | pd.Ti
                | {"current_vintage_status", "revision_status"}) - (base | parsed | live)
     admitted = [persisted_v2_snapshot_is_valid({k: v for k, v in r.items() if k not in derived})
                 for r in d.to_dict("records")]
-    d = d.loc[admitted].copy()
+    if not all(admitted):
+        return pd.DataFrame(columns=["ticker", *PHASE18_ESTIMATE_REVISION_COLUMNS])
     d["_available"] = pd.to_datetime([availability(r) for r in d.to_dict("records")], utc=True, errors="coerce")
     d = d[d["_available"].notna() & (d["_available"] <= _cutoff(decision_date))]
     selected = []
@@ -1456,6 +1493,8 @@ def main() -> int:
         reason = "estimate_vendor_endpoint_forbidden_or_payment_required"
     elif status == "blocked_partial_coverage":
         reason = "coverage_below_80pct_warn_only"
+    if feature_summary.get("reason") == "archive_integrity_failure":
+        status, reason = "blocked_data_integrity", "archive_integrity_failure"
     payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": utc_now(),
@@ -1512,7 +1551,7 @@ def main() -> int:
     }
     write_json(summary_path, payload)
     print(json.dumps(payload, indent=2, sort_keys=True))
-    return 0
+    return 2 if status == "blocked_data_integrity" else 0
 
 
 if __name__ == "__main__":

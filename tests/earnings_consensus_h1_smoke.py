@@ -7,6 +7,7 @@ import io
 import json
 import sys
 import tempfile
+import itertools
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -55,6 +56,88 @@ class AdmissionTests(unittest.TestCase):
         clock = patch.object(c, 'utc_now', return_value='2026-07-01T18:00:00Z')
         clock.start()
         self.addCleanup(clock.stop)
+
+    def test_damaged_middle_vintage_blocks_archive_without_fallback(self):
+        april = snapshot('2026-04-01T18:00:00Z', 1)
+        may = snapshot('2026-05-01T18:00:00Z', None)
+        june = snapshot('2026-06-01T18:00:00Z', 2)
+        for damage in ('snapshot_version_id', 'source_payload_sha256', 'source_contract', 'observed_at', 'ticker'):
+            bad = {**may, damage: 'corrupt'}
+            for rows in itertools.permutations([april, bad, june]):
+                result, summary = c.compute_estimate_revision_features(pd.DataFrame(rows))
+                self.assertTrue(result.empty, damage)
+                self.assertEqual(summary['reason'], 'archive_integrity_failure')
+                self.assertEqual(summary['invalid_rows'], 1)
+            self.assertTrue(c.latest_signal_by_ticker(pd.DataFrame([april, bad, june]),
+                            decision_date='2026-07-01').empty)
+        control = features([april, may, june])
+        self.assertTrue(pd.isna(control.iloc[-1].est_eps_revision_30d))
+        self.assertEqual(features([april, snapshot('2026-05-01T18:00:00Z', 1.5), june]).iloc[-1].est_eps_revision_30d, 1/3)
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'estimates_20260501.parquet'
+            pd.DataFrame([{**may, 'snapshot_version_id': 'bad'}]).to_parquet(path)
+            stored = path.read_bytes()
+            result, summary = c.compute_estimate_revision_features(c.load_snapshot_history(Path(temp)))
+            self.assertTrue(result.empty)
+            self.assertEqual(summary['reason'], 'archive_integrity_failure')
+            self.assertEqual(path.read_bytes(), stored)
+
+    def test_h2_positive_legacy_contract_blocks_unknown_and_stripped_v2(self):
+        from r1000_config import PHASE18_ESTIMATE_REVISION_COLUMNS
+        legacy = {**dict.fromkeys(PHASE18_ESTIMATE_REVISION_COLUMNS, 0.0), **legacy_snapshot(),
+                  'ticker': 'AAA', 'has_forward_estimate': 1, 'estimate_revision_confirmed': 1,
+                  'estimate_revision_replacement_gate_pass': 1, 'est_eps_revision_breadth': 1.0}
+        self.assertTrue(c.verified_legacy_signal(legacy))
+        scored = pd.DataFrame([{'ticker': 'AAA', 'score': 1.0}, {'ticker': 'BBB', 'score': 1.1}])
+        args = dict(decision_date=pd.Timestamp('2026-07-01'), listing=pd.DataFrame(),
+                    earnings_calendar=pd.DataFrame(), top_n=2)
+        baseline, _ = build_overlay(scored, signals=pd.DataFrame(), **args)
+        valid, _ = build_overlay(scored, signals=pd.DataFrame([legacy]), **args)
+        self.assertGreater(valid.set_index('ticker').loc['AAA', 'free_data_forward_estimate_score'], 0)
+        v2 = features([snapshot()]).to_dict('records')[0]
+        bad_rows = [{**legacy, 'source_contract': 'unknown-source-v99'},
+                    {k:v for k,v in legacy.items() if k != 'as_of_date'},
+                    {**legacy, 'est_eps_revision_30d': float('inf')}]
+        for contract in ('earnings-consensus-source-v2', 'unknown-source-v99', None, ''):
+            bad_rows.append({**v2, 'source_contract': contract, 'estimate_revision_confirmed': 1,
+                             'estimate_revision_replacement_gate_pass': 1})
+        bad_rows.append({k:v for k,v in v2.items() if k != 'source_contract'})
+        for bad in bad_rows:
+            self.assertFalse(c.verified_legacy_signal(bad))
+            for rows in ([bad], [legacy, bad], [bad, legacy]):
+                out, _ = build_overlay(scored, signals=pd.DataFrame(rows), **args)
+                for col in ('free_data_forward_estimate_score', 'free_data_selection_score', 'free_data_selection_rank'):
+                    pd.testing.assert_series_equal(out.set_index('ticker')[col].sort_index(),
+                                                   baseline.set_index('ticker')[col].sort_index())
+        union = {**legacy, **{k:None for k in v2 if k not in legacy}}
+        self.assertTrue(c.verified_legacy_signal(union))
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'legacy.parquet'
+            legacy['as_of_date'] = legacy['available_from'] = pd.Timestamp('2026-04-01')
+            pd.DataFrame([legacy]).to_parquet(path)
+            self.assertTrue(c.verified_legacy_signal(pd.read_parquet(path).to_dict('records')[0]))
+
+    def test_collector_reports_integrity_failure_and_clears_stale_signals(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            history = root / 'history'; history.mkdir()
+            old = history / 'estimates_20260401.parquet'
+            pd.DataFrame([{**snapshot(), 'snapshot_version_id': 'damaged'}]).to_parquet(old)
+            old_bytes = old.read_bytes()
+            signal_path = root / 'signals.parquet'
+            features([snapshot()]).to_parquet(signal_path)
+            fresh = snapshot('2026-07-01T18:00:00Z', 2)
+            with patch.object(c, 'collect_live_snapshot', return_value=(pd.DataFrame([fresh]), [])), \
+                 patch.object(sys, 'argv', ['collector', '--tickers', 'AAA', '--api-key', 'fixture',
+                     '--fetch-date', '2026-07-01', '--snapshot-dir', str(history),
+                     '--signals-output', str(signal_path), '--summary', str(root / 'summary.json')]), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(c.main(), 2)
+            summary = json.loads((root / 'summary.json').read_text())
+            self.assertEqual(summary['status'], 'blocked_data_integrity')
+            self.assertEqual(summary['reason'], 'archive_integrity_failure')
+            self.assertTrue(pd.read_parquet(signal_path).empty)
+            self.assertEqual(old.read_bytes(), old_bytes)
 
     def test_version_integrity_precedes_every_consumer_clock(self):
         before = snapshot('2026-04-01T18:00:00Z', 1)
