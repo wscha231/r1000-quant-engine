@@ -146,7 +146,7 @@ class AdmissionTests(unittest.TestCase):
                 corrupt = copy.deepcopy(original)
                 for key in stripped:
                     corrupt.pop(key)
-                self.assertTrue(c.requires_v2_archive_validation(corrupt))
+                self.assertEqual(c.classify_persisted_archive_row(corrupt), 'V2_REQUIRES_VALIDATION')
                 pd.DataFrame([corrupt]).to_parquet(path)
                 stored = path.read_bytes()
                 with self.assertRaisesRegex(ValueError, 'invalid_existing_v2'):
@@ -162,8 +162,8 @@ class AdmissionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'invalid_existing_v2'):
                 c.merge_same_day_snapshot(path, current)
             legacy = {'ticker': 'LEG', 'as_of_date': '2026-04-01',
-                      'available_from': '2026-04-01', 'legacy_only': 'diagnostic'}
-            self.assertFalse(c.requires_v2_archive_validation(legacy))
+                      'available_from': '2026-04-01', 'has_forward_estimate': 0}
+            self.assertEqual(c.classify_persisted_archive_row(legacy), 'VERIFIED_LEGACY')
             pd.DataFrame([legacy]).to_parquet(path)
             mixed, _ = c.merge_same_day_snapshot(path, pd.DataFrame([original]))
             self.assertEqual(set(mixed['ticker']), {'LEG', 'AAA'})
@@ -172,6 +172,47 @@ class AdmissionTests(unittest.TestCase):
             self.assertEqual(len(repeated), 2)
             self.assertEqual(mixed['snapshot_version_id'].fillna('').tolist(),
                              repeated['snapshot_version_id'].fillna('').tolist())
+
+    def test_positive_legacy_classification_rejects_remaining_v2_or_unknown_fields(self):
+        v2 = snapshot()
+        legacy = {'ticker': 'LEG', 'as_of_date': '2026-04-01',
+                  'available_from': '2026-04-01', 'fetch_source': 'finnhub',
+                  'has_forward_estimate': 0, 'est_eps_fy1': 0.0,
+                  'actual_report_date': '', 'recommendation_bull_count': 0}
+        self.assertEqual(c.classify_persisted_archive_row(legacy), 'VERIFIED_LEGACY')
+        base, parsed, live = h1.snapshot_field_profiles()
+        v2_distinct = (base | parsed | live) - c.LEGACY_ARCHIVE_FIELDS
+        self.assertTrue({'observed_at', 'collected_at', 'first_seen_at',
+                         'strategy_available_at', 'eps_fy1_status'} <= v2_distinct)
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'day.parquet'
+            for marker in ('observed_at', 'collected_at', 'first_seen_at',
+                           'strategy_available_at', 'eps_fy1_status'):
+                thin = {k: None for k in v2}
+                thin.update({k: v2[k] for k in ('ticker', 'as_of_date', 'available_from', marker)})
+                self.assertEqual(c.classify_persisted_archive_row(thin), 'V2_REQUIRES_VALIDATION')
+                pd.DataFrame([thin]).to_parquet(path)
+                before = path.read_bytes()
+                with self.assertRaisesRegex(ValueError, 'invalid_existing_v2'):
+                    c.merge_same_day_snapshot(path, pd.DataFrame([v2]))
+                self.assertEqual(path.read_bytes(), before, marker)
+            unknown = {**legacy, 'future_v3_provenance': 'unverified'}
+            self.assertEqual(c.classify_persisted_archive_row(unknown), 'INVALID_OR_UNKNOWN_SCHEMA')
+            pd.DataFrame([unknown]).to_parquet(path)
+            before = path.read_bytes()
+            with self.assertRaisesRegex(ValueError, 'invalid_or_unknown_existing_estimate_archive_schema'):
+                c.merge_same_day_snapshot(path, pd.DataFrame([v2]))
+            self.assertEqual(path.read_bytes(), before)
+            legacy_union = {**legacy, **{key: None for key in v2_distinct}}
+            self.assertEqual(c.classify_persisted_archive_row(legacy_union), 'VERIFIED_LEGACY')
+            pd.DataFrame([legacy_union]).to_parquet(path)
+            mixed, _ = c.merge_same_day_snapshot(path, pd.DataFrame([v2]))
+            self.assertEqual(set(mixed['ticker']), {'LEG', 'AAA'})
+            mixed.to_parquet(path)
+            again, _ = c.merge_same_day_snapshot(path, pd.DataFrame([v2]))
+            self.assertEqual(len(again), 2)
+            self.assertEqual(mixed['snapshot_version_id'].fillna('').tolist(),
+                             again['snapshot_version_id'].fillna('').tolist())
 
     def test_persisted_v2_row_integrity_before_same_day_merge(self):
         original = snapshot(value=None)
@@ -204,7 +245,8 @@ class AdmissionTests(unittest.TestCase):
             self.assertEqual(merged['snapshot_version_id'].tolist(), repeat['snapshot_version_id'].tolist())
             # A legacy row can widen the Parquet schema; its null columns on
             # V2 rows must not become part of the original version payload.
-            legacy = {'ticker': 'LEG', 'legacy_only': 'diagnostic'}
+            legacy = {'ticker': 'LEG', 'as_of_date': '2026-04-01',
+                      'available_from': '2026-04-01', 'has_forward_estimate': 0}
             pd.DataFrame([legacy]).to_parquet(path)
             mixed, _ = c.merge_same_day_snapshot(path, pd.DataFrame([original]))
             mixed.to_parquet(path)

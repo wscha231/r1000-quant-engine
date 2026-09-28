@@ -13,7 +13,7 @@ import os
 import re
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +28,8 @@ from r1000_config import PHASE18_ESTIMATE_REVISION_COLUMNS  # noqa: E402
 
 from tools.earnings_consensus_h1 import (  # noqa: E402
     SCHEMA_VERSION, availability, build_snapshot, iso_utc, optional_float,
-    pct_change, same_period_revision, snapshot_digest, validate_persisted_snapshot,
+    pct_change, same_period_revision, snapshot_digest, snapshot_field_profiles,
+    validate_persisted_snapshot,
 )
 DEFAULT_SNAPSHOT_DIR = "data_pit/events/earnings_estimates"
 DEFAULT_SIGNALS = "data_pit/events/earnings_revision_signals.parquet"
@@ -45,22 +46,40 @@ ESTIMATE_REQUESTS_PER_VENDOR_TICKER = {
     "fmp": 1,
     "finnhub": 2,
 }
-V2_ONLY_ARCHIVE_MARKERS = (
-    "snapshot_version_id", "consensus_observations_json", "source_payload_sha256",
-    "identity_status", "publication_status", "provider_published_at_raw",
-    "eps_fy1_identity", "eps_fy2_identity", "rev_fy1_identity", "rev_fy2_identity",
-)
+# The pre-V2 parse_snapshot_row() on master produced only these columns.
+# Compatibility is granted by this explicit legacy shape, never by absence
+# of a particular V2 marker. Nullable columns added by Parquet schema unions
+# are ignored when classifying individual rows.
+LEGACY_ARCHIVE_FIELDS = frozenset({
+    "ticker", "as_of_date", "available_from", "fetch_source",
+    "eps_estimate_access", "revenue_estimate_access", "vendor_estimate_access",
+    "has_forward_estimate", "est_eps_fy1", "est_eps_fy2", "est_rev_fy1",
+    "n_analysts", "est_dispersion", "actual_eps_last", "actual_report_date",
+    "earnings_surprise_last", "surprise_streak", "recommendation_period",
+    "recommendation_bull_count", "recommendation_bear_count", "est_eps_revision_breadth",
+})
 
 
-def requires_v2_archive_validation(row: dict[str, Any]) -> bool:
-    """A damaged V2 row cannot become legacy by losing its contract/version."""
-    if isinstance(row.get("source_contract"), str) and row["source_contract"] == SCHEMA_VERSION:
-        return True
-    for key in V2_ONLY_ARCHIVE_MARKERS:
-        value = row.get(key)
-        if not pd.api.types.is_scalar(value) or bool(pd.notna(value)):
-            return True
-    return False
+def classify_persisted_archive_row(row: dict[str, Any]) -> str:
+    """Positive legacy admission; all V2-derived and unknown shapes fail closed."""
+    fields = {key for key, value in row.items()
+              if not pd.api.types.is_scalar(value) or bool(pd.notna(value))}
+    base, parsed, live = snapshot_field_profiles()
+    if fields & ((base | parsed | live) - LEGACY_ARCHIVE_FIELDS):
+        return "V2_REQUIRES_VALIDATION"
+    if not fields <= LEGACY_ARCHIVE_FIELDS:
+        return "INVALID_OR_UNKNOWN_SCHEMA"
+    ticker, as_of, available = (row.get(k) for k in ("ticker", "as_of_date", "available_from"))
+    if not isinstance(ticker, str) or not ticker.strip():
+        return "INVALID_OR_UNKNOWN_SCHEMA"
+    if not isinstance(as_of, str) or not isinstance(available, str) or as_of != available:
+        return "INVALID_OR_UNKNOWN_SCHEMA"
+    try:
+        if len(as_of) != 10 or date.fromisoformat(as_of).isoformat() != as_of:
+            return "INVALID_OR_UNKNOWN_SCHEMA"
+    except ValueError:
+        return "INVALID_OR_UNKNOWN_SCHEMA"
+    return "VERIFIED_LEGACY"
 
 
 def utc_now() -> str:
@@ -620,8 +639,11 @@ def merge_same_day_snapshot(existing_path: Path, current: pd.DataFrame) -> tuple
         return current, info
     info["same_day_existing_rows"] = int(len(existing))
     for row in existing.to_dict("records"):
-        if requires_v2_archive_validation(row):
+        schema_family = classify_persisted_archive_row(row)
+        if schema_family == "V2_REQUIRES_VALIDATION":
             validate_persisted_snapshot(row)
+        elif schema_family != "VERIFIED_LEGACY":
+            raise ValueError("invalid_or_unknown_existing_estimate_archive_schema")
     combined = pd.concat([existing, current], ignore_index=True, sort=False)
     if "snapshot_version_id" in combined.columns:
         modern = combined[combined["snapshot_version_id"].notna()].copy()
