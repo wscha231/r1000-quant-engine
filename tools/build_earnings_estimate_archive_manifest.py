@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import json
 import re
@@ -13,6 +14,54 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_VERSION = "earnings-estimate-archive-manifest-v1"
+TRANSACTION_MARKER_NAME = "collector_transaction.json"
+TRANSACTION_MARKER_SCHEMA = "earnings-estimate-publication-marker-v1"
+
+
+def require_complete_collector_transaction(directory: Path) -> dict[str, Any]:
+    """A retained marker travels with the archive/checkpoint in cache and Drive.
+
+    Pending or malformed evidence is never cleared by a retry. Recovery needs
+    an explicitly verified state repair; timestamps or an old summary are not proof.
+    """
+    path = directory / TRANSACTION_MARKER_NAME
+    if not path.exists():
+        return {}
+    try:
+        marker = json.loads(path.read_text(encoding="utf-8"))
+        if (not isinstance(marker, dict)
+                or marker.get("schema_version") != TRANSACTION_MARKER_SCHEMA
+                or marker.get("status") not in {"committed", "rolled_back"}
+                or not marker.get("commit_id")):
+            raise ValueError("incomplete marker")
+        return marker
+    except (OSError, ValueError) as exc:
+        raise ValueError("incomplete_collector_transaction") from exc
+
+
+def require_consistent_collection_acknowledgement(checkpoint_path: Path, queue_path: Path) -> None:
+    """Reject an observable pre-marker checkpoint/queue split before replay/replanning.
+
+    A new runner may legitimately have no output queue yet. This check does not
+    certify missing legacy evidence; persistent markers cover new transactions.
+    """
+    if not checkpoint_path.is_file() or not queue_path.is_file():
+        return
+    checkpoint = load_json(checkpoint_path)
+    ack = checkpoint.get("last_collection_attempt_ack") or {}
+    if not isinstance(ack, dict) or ack.get("status") != "acknowledged":
+        return
+    with queue_path.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    states = {str(row.get("ticker") or "").upper().strip(): row
+              for row in checkpoint.get("ticker_states", [])}
+    for row in rows:
+        prior = states.get(str(row.get("ticker") or "").upper().strip())
+        if prior is not None and (
+            int(prior.get("selection_count") or 0) != int(row.get("selection_count") or 0)
+            or str(prior.get("last_selected_at_utc") or "") != str(row.get("last_selected_at_utc") or "")
+        ):
+            raise ValueError("incomplete_legacy_collector_transaction")
 
 
 def utc_now() -> str:
@@ -250,6 +299,7 @@ def build_manifest(
             "snapshot": file_record(snapshot_path),
             "signals": file_record(signals_path),
             "summary": file_record(summary_path),
+            "collector_transaction": file_record(snapshot_dir_path / TRANSACTION_MARKER_NAME),
             "collector_log": file_record(collector_log_path),
             "collection_queue_summary": file_record(queue_summary_path),
             "collection_queue_checkpoint": file_record(queue_checkpoint_path),
@@ -267,6 +317,21 @@ def build_manifest(
     transaction = summary_payload.get("transaction_commit") or {}
     transaction_failures: list[str] = []
     transaction_required = isinstance(ack, dict) and ack.get("status") == "acknowledged"
+    marker: dict[str, Any] = {}
+    for directory in {snapshot_dir_path, queue_checkpoint_path.parent}:
+        try:
+            observed = require_complete_collector_transaction(directory)
+            if observed.get("status") == "rolled_back":
+                transaction_failures.append("collector_transaction_rolled_back")
+            if directory == snapshot_dir_path:
+                marker = observed
+        except ValueError:
+            transaction_failures.append("incomplete_collector_transaction")
+    if isinstance(transaction, dict) and transaction.get("schema_version") == "earnings-estimate-collector-transaction-v2":
+        if (marker.get("status") != "committed"
+                or marker.get("commit_id") != transaction.get("commit_id")
+                or marker.get("summary_sha256") != payload["files"]["summary"].get("sha256")):
+            transaction_failures.append("collector_final_marker_mismatch")
     if transaction_required:
         if not isinstance(transaction, dict) or not transaction:
             transaction_failures.append("missing_transaction_commit")

@@ -8,6 +8,9 @@ import json
 import sys
 import tempfile
 import itertools
+import os
+import signal
+import subprocess
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -49,6 +52,48 @@ def legacy_snapshot():
                 actual_eps_last=0.0, actual_report_date='', earnings_surprise_last=0.0,
                 surprise_streak=0, recommendation_period='', recommendation_bull_count=0,
                 recommendation_bear_count=0, est_eps_revision_breadth=0.0)
+
+
+def crash_fixture(root: Path, boundary: str = "") -> int:
+    """Run in a fresh interpreter; SIGKILL cannot execute Python rollback/finally."""
+    history = root / "history"
+    checkpoint, queue = root / "checkpoint.json", root / "queue.csv"
+    argv = ["collector", "--tickers", "AAA", "--api-key", "fixture",
+            "--fetch-date", "2026-07-01", "--snapshot-dir", str(history),
+            "--signals-output", str(root / "signals.parquet"), "--summary", str(root / "summary.json"),
+            "--collection-checkpoint", str(checkpoint), "--collection-queue", str(queue),
+            "--collection-attempt-id", "crash-run"]
+    replace = os.replace
+
+    def kill_at_replace(source, target):
+        target = Path(target)
+        label = target.name
+        if label == c.TRANSACTION_MARKER_NAME:
+            label = json.loads(Path(source).read_text())["status"]
+        if boundary == "before_pending" and label == "pending":
+            os.kill(os.getpid(), signal.SIGKILL)
+        replace(source, target)
+        if boundary == label:
+            os.kill(os.getpid(), signal.SIGKILL)
+
+    fresh = snapshot("2026-07-01T18:00:00Z", 2)
+    with patch.object(c, "utc_now", return_value="2026-07-01T18:00:00Z"), \
+         patch.object(c, "collect_live_snapshot", return_value=(pd.DataFrame([fresh]), [], ["AAA"], {})), \
+         patch.object(c.os, "replace", side_effect=kill_at_replace), \
+         patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()):
+        return c.main()
+
+
+def crash_manifest(root: Path) -> dict:
+    from tools.build_earnings_estimate_archive_manifest import build_manifest
+    return build_manifest(
+        snapshot_dir=str(root / "history"), signals=str(root / "signals.parquet"),
+        summary=str(root / "summary.json"), collector_log=str(root / "collector.log"),
+        manifest=str(root / "manifest.json"), index=str(root / "index.jsonl"),
+        run_id="crash-run", run_attempt="1", head_sha="fixture-head", ref="fixture",
+        workflow="fixture", artifact_name="fixture", queue_checkpoint=str(root / "checkpoint.json"),
+        queue_csv=str(root / "queue.csv"), queue_summary=str(root / "queue-summary.json"),
+        queue_report=str(root / "queue.md"))
 
 
 class AdmissionTests(unittest.TestCase):
@@ -202,7 +247,10 @@ class AdmissionTests(unittest.TestCase):
                         self.assertEqual(c.main(), 0)
                         self.assertEqual(july.read_bytes(), committed)
                         self.assertEqual(signal_path.read_bytes(), signal_bytes)
-                    self.assertEqual(sorted(p.name for p in history.iterdir()), [may.name, july.name])
+                    expected_files = [may.name, july.name]
+                    if not corrupted:
+                        expected_files.append(c.TRANSACTION_MARKER_NAME)
+                    self.assertEqual(sorted(p.name for p in history.iterdir()), sorted(expected_files))
 
     def test_version_integrity_precedes_every_consumer_clock(self):
         before = snapshot('2026-04-01T18:00:00Z', 1)
@@ -959,6 +1007,123 @@ class AdmissionTests(unittest.TestCase):
                                  'deferred_until_durable_commit')
                 self.assertEqual(checkpoint.read_bytes(), checkpoint_before)
                 self.assertEqual(queue.read_bytes(), queue_before)
+
+    def test_sigkill_publication_boundaries_and_restart(self):
+        boundaries = ("before_pending", "pending", "estimates_20260701.parquet",
+                      "signals.parquet", "checkpoint.json", "queue.csv", "summary.json", "committed")
+        for boundary in boundaries:
+            with self.subTest(boundary=boundary), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                (root / "history").mkdir()
+                checkpoint, queue = root / "checkpoint.json", root / "queue.csv"
+                checkpoint.write_text(json.dumps({"ticker_states": [
+                    {"ticker": "AAA", "last_selected_at_utc": "", "selection_count": 0}]}))
+                queue.write_text("ticker,selected,last_selected_at_utc,selection_count\nAAA,true,,0\n")
+                child = subprocess.run([sys.executable, "-c",
+                    "import sys; from pathlib import Path; sys.path.insert(0, 'tests'); "
+                    "from earnings_consensus_h1_smoke import crash_fixture; "
+                    "raise SystemExit(crash_fixture(Path(sys.argv[1]), sys.argv[2]))",
+                    str(root), boundary], cwd=ROOT, capture_output=True, text=True, timeout=30)
+                self.assertEqual(child.returncode, -signal.SIGKILL, child.stderr)
+                manifest = crash_manifest(root)
+                interrupted = boundary not in {"before_pending", "committed"}
+                if interrupted:
+                    self.assertEqual(manifest["verdict"], "blocked_transaction_mismatch")
+                    self.assertFalse(manifest["transaction_integrity"]["verified"])
+                    # Repeated retries preserve the incomplete evidence byte-for-byte.
+                    before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
+                    for _ in range(2):
+                        with self.assertRaisesRegex(ValueError, "incomplete_collector_transaction"):
+                            crash_fixture(root)
+                    self.assertEqual(before, {p: p.read_bytes() for p in root.rglob("*") if p.is_file()})
+                    # The planner runs BEFORE the collector in the real workflow.
+                    from tools.build_forward_estimate_incremental_universe import build_incremental_universe
+                    with self.assertRaisesRegex(ValueError, "incomplete_collector_transaction"):
+                        build_incremental_universe(snapshot_dir=str(root / "history"),
+                            shard_dir=str(root / "shards"), output=str(root / "universe.csv"),
+                            summary=str(root / "queue-summary.json"),
+                            checkpoint=str(checkpoint), queue_output=str(queue))
+                    self.assertEqual(before, {p: p.read_bytes() for p in root.rglob("*") if p.is_file()})
+                    if boundary == "summary.json":
+                        # Summary is last: the old summary-before-checkpoint window
+                        # is impossible, but finalization still must be checked.
+                        self.assertEqual(json.loads(checkpoint.read_text())["ticker_states"][0]["selection_count"], 1)
+                        self.assertIn(",1", queue.read_text())
+                else:
+                    for _ in range(2):
+                        self.assertEqual(crash_fixture(root), 0)
+                        accepted = crash_manifest(root)
+                        self.assertTrue(accepted["transaction_integrity"]["verified"], accepted)
+                    self.assertEqual(json.loads(checkpoint.read_text())["ticker_states"][0]["selection_count"], 1)
+                    self.assertIn(",1", queue.read_text())
+                    self.assertEqual(len(pd.read_parquet(root / "history" / "estimates_20260701.parquet")), 1)
+
+    def test_pending_and_missing_marker_cannot_accept_a_previous_good_summary(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "checkpoint.json").write_text(json.dumps({"ticker_states": [
+                {"ticker": "AAA", "last_selected_at_utc": "", "selection_count": 0}]}))
+            (root / "queue.csv").write_text(
+                "ticker,selected,last_selected_at_utc,selection_count\nAAA,true,,0\n")
+            self.assertEqual(crash_fixture(root), 0)
+            self.assertTrue(crash_manifest(root)["transaction_integrity"]["verified"])
+            marker = root / "history" / c.TRANSACTION_MARKER_NAME
+            good_marker = marker.read_bytes()
+            for state in ("missing", "wrong_commit_id", "wrong_summary_hash"):
+                marker.write_bytes(good_marker)
+                if state == "missing":
+                    marker.unlink()
+                else:
+                    payload = json.loads(good_marker)
+                    payload["commit_id" if state == "wrong_commit_id" else "summary_sha256"] = "wrong"
+                    marker.write_text(json.dumps(payload))
+                self.assertFalse(crash_manifest(root)["transaction_integrity"]["verified"], state)
+            marker.write_bytes(good_marker)
+            summary_before = (root / "summary.json").read_bytes()
+            child = subprocess.run([sys.executable, "-c",
+                "import sys; from pathlib import Path; sys.path.insert(0, 'tests'); "
+                "from earnings_consensus_h1_smoke import crash_fixture; "
+                "raise SystemExit(crash_fixture(Path(sys.argv[1]), 'pending'))",
+                str(root)], cwd=ROOT, capture_output=True, text=True, timeout=30)
+            self.assertEqual(child.returncode, -signal.SIGKILL, child.stderr)
+            self.assertEqual(summary_before, (root / "summary.json").read_bytes())
+            self.assertFalse(crash_manifest(root)["transaction_integrity"]["verified"])
+            with self.assertRaisesRegex(ValueError, "incomplete_collector_transaction"):
+                crash_fixture(root)
+
+    def test_old_incomplete_and_malformed_markers_remain_fail_closed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            root.mkdir(exist_ok=True)
+            path = root / c.TRANSACTION_MARKER_NAME
+            for contents in ("{", "[]", json.dumps({
+                "schema_version": c.TRANSACTION_MARKER_SCHEMA,
+                "status": "pending", "commit_id": "old-run-before-restart"})):
+                path.write_text(contents)
+                for _ in range(2):
+                    with self.assertRaisesRegex(ValueError, "incomplete_collector_transaction"):
+                        c.require_complete_collector_transaction(root)
+                    self.assertEqual(path.read_text(), contents)
+
+    def test_pre_marker_checkpoint_queue_split_cannot_replay(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            checkpoint, queue = root / "checkpoint.json", root / "queue.csv"
+            checkpoint.write_text(json.dumps({"ticker_states": [
+                {"ticker": "AAA", "last_selected_at_utc": "then", "selection_count": 1}],
+                "last_collection_attempt_ack": {"status": "acknowledged", "attempt_id": "old"}}))
+            queue.write_text("ticker,selected,last_selected_at_utc,selection_count\nAAA,true,,0\n")
+            before = checkpoint.read_bytes(), queue.read_bytes()
+            for attempt in ("old", "new"):
+                with self.assertRaisesRegex(ValueError, "incomplete_legacy_collector_transaction"):
+                    c.prepare_collection_attempt_acknowledgement(checkpoint, queue, ["AAA"],
+                        attempted_at_utc="now", attempt_id=attempt)
+            from tools.build_forward_estimate_incremental_universe import build_incremental_universe
+            with self.assertRaisesRegex(ValueError, "incomplete_legacy_collector_transaction"):
+                build_incremental_universe(snapshot_dir=str(root / "history"),
+                    checkpoint=str(checkpoint), queue_output=str(queue), shard_dir=str(root / "shards"),
+                    output=str(root / "universe.csv"), summary=str(root / "queue-summary.json"))
+            self.assertEqual(before, (checkpoint.read_bytes(), queue.read_bytes()))
 
     def test_success_transaction_publishes_acknowledged_summary_once(self):
         with tempfile.TemporaryDirectory() as temp:

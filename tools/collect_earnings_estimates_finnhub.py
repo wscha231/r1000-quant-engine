@@ -17,6 +17,7 @@ import re
 import sys
 import tempfile
 import time
+import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
 from numbers import Real
@@ -28,6 +29,11 @@ import requests
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+from tools.build_earnings_estimate_archive_manifest import (
+    TRANSACTION_MARKER_NAME, TRANSACTION_MARKER_SCHEMA,
+    require_complete_collector_transaction, require_consistent_collection_acknowledgement,
+)
 
 from r1000_config import PHASE18_ESTIMATE_REVISION_COLUMNS  # noqa: E402
 
@@ -676,6 +682,8 @@ def _stage_bytes_for_target(target: Path, payload: bytes) -> Path:
         dir=target.parent, prefix=f".{target.name}.", suffix=".txn", delete=False
     ) as handle:
         handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
         return Path(handle.name)
 
 
@@ -704,26 +712,71 @@ def _restore_target_bytes(target: Path, previous: bytes | None) -> None:
         staged.unlink(missing_ok=True)
 
 
-def _atomic_commit_staged_files(staged_files: list[tuple[Path, Path]]) -> None:
-    """Publish a bounded multi-file transaction or restore prior accepted bytes."""
+def _fsync_directory(directory: Path) -> None:
+    descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _write_transaction_marker(path: Path, marker: dict[str, Any]) -> None:
+    staged = _stage_bytes_for_target(path, _json_bytes(marker))
+    try:
+        os.replace(staged, path)
+        _fsync_directory(path.parent)
+    finally:
+        staged.unlink(missing_ok=True)
+
+
+def _atomic_commit_staged_files(
+    staged_files: list[tuple[Path, Path]], *, marker_path: Path | None = None,
+    commit_id: str = "", summary_sha256: str = "",
+) -> None:
+    """Exception rollback plus durable fail-closed process-death detection.
+
+    File replaces are NOT a multi-file atomic commit. The pending marker must
+    precede every target replace, and the final marker follows all durable files.
+    A killed writer leaves pending evidence which consumers and retries reject.
+    The workflow serializes writers. Markers are retained (not unlinked), so
+    copy-based persistence cannot resurrect an old pending marker after success.
+    """
     targets = [target for _, target in staged_files]
     if len(targets) != len(set(targets)):
         raise ValueError("duplicate_transaction_target")
     previous = {target: target.read_bytes() if target.exists() else None for target in targets}
+    marker = {
+        "schema_version": TRANSACTION_MARKER_SCHEMA,
+        "status": "pending", "commit_id": commit_id or uuid.uuid4().hex,
+        "summary_sha256": summary_sha256,
+    }
+    if marker_path is not None:
+        require_complete_collector_transaction(marker_path.parent)
+        _write_transaction_marker(marker_path, marker)
     committed: list[Path] = []
     try:
         for staged, target in staged_files:
+            with staged.open("rb") as handle:
+                os.fsync(handle.fileno())
             os.replace(staged, target)
             committed.append(target)
+            _fsync_directory(target.parent)
+        if marker_path is not None:
+            _write_transaction_marker(marker_path, {**marker, "status": "committed"})
     except Exception as exc:
+        if marker_path is not None:
+            _write_transaction_marker(marker_path, marker)
         rollback_errors: list[str] = []
         for target in reversed(committed):
             try:
                 _restore_target_bytes(target, previous[target])
+                _fsync_directory(target.parent)
             except Exception as rollback_exc:
                 rollback_errors.append(f"{target}:{sanitize_error_message(rollback_exc)}")
         if rollback_errors:
             raise RuntimeError("collector_transaction_rollback_failure:" + "|".join(rollback_errors)) from exc
+        if marker_path is not None:
+            _write_transaction_marker(marker_path, {**marker, "status": "rolled_back"})
         raise
     finally:
         for staged, _ in staged_files:
@@ -797,6 +850,7 @@ def prepare_collection_attempt_acknowledgement(
         return result, None, None
 
     previous_ack = checkpoint.get("last_collection_attempt_ack")
+    require_consistent_collection_acknowledgement(checkpoint_path, queue_path)
     if (
         isinstance(previous_ack, dict)
         and previous_ack.get("status") == "acknowledged"
@@ -860,6 +914,7 @@ def acknowledge_collection_attempts(
             sort_keys=True, separators=(",", ":"),
         ).encode("utf-8")
     ).hexdigest()
+    require_complete_collector_transaction(checkpoint_path.parent)
     result, checkpoint_bytes, queue_bytes = prepare_collection_attempt_acknowledgement(
         checkpoint_path,
         queue_path,
@@ -873,7 +928,7 @@ def acknowledge_collection_attempts(
         (_stage_bytes_for_target(checkpoint_path, checkpoint_bytes), checkpoint_path),
         (_stage_bytes_for_target(queue_path, queue_bytes), queue_path),
     ]
-    _atomic_commit_staged_files(staged)
+    _atomic_commit_staged_files(staged, marker_path=checkpoint_path.parent / TRANSACTION_MARKER_NAME)
     return result
 
 
@@ -1497,6 +1552,10 @@ def main() -> int:
     summary_path = repo_path(args.summary)
     checkpoint_path = repo_path(args.collection_checkpoint) if args.collection_checkpoint else Path()
     queue_path = repo_path(args.collection_queue) if args.collection_queue else Path()
+    require_complete_collector_transaction(snapshot_dir)
+    if args.collection_checkpoint:
+        require_complete_collector_transaction(checkpoint_path.parent)
+        require_consistent_collection_acknowledgement(checkpoint_path, queue_path)
     tickers = parse_tickers(args.tickers, args.universe_file or None, args.ticker_limit)
     if not tickers:
         payload = {
@@ -1809,20 +1868,31 @@ def main() -> int:
             staged_files.append((staged_checkpoint, checkpoint_path))
             staged_files.append((staged_queue, queue_path))
 
+        commit_id = uuid.uuid4().hex
         payload["transaction_commit"] = {
-            "schema_version": "earnings-estimate-collector-transaction-v1",
+            "schema_version": "earnings-estimate-collector-transaction-v2",
+            "commit_id": commit_id,
             "logical_attempt_id": logical_attempt_id,
             "attempt_id": stable_attempt_id,
             "snapshot_sha256": _sha256_file(staged_snapshot),
             "signals_sha256": _sha256_file(staged_signals),
-            "checkpoint_sha256": _sha256_file(staged_checkpoint) if staged_checkpoint is not None else "",
-            "queue_sha256": _sha256_file(staged_queue) if staged_queue is not None else "",
+            "checkpoint_sha256": (
+                _sha256_file(staged_checkpoint or checkpoint_path)
+                if args.collection_checkpoint and checkpoint_path.is_file() else ""
+            ),
+            "queue_sha256": (
+                _sha256_file(staged_queue or queue_path)
+                if args.collection_queue and queue_path.is_file() else ""
+            ),
         }
         staged_summary = _stage_bytes_for_target(summary_path, _json_bytes(payload))
         staged_files.append((staged_summary, summary_path))
 
         require_collection_day(fetch_date)
-        _atomic_commit_staged_files(staged_files)
+        _atomic_commit_staged_files(
+            staged_files, marker_path=snapshot_dir / TRANSACTION_MARKER_NAME,
+            commit_id=commit_id, summary_sha256=_sha256_file(staged_summary),
+        )
     except Exception as exc:
         transaction_error = sanitize_error_message(exc) or "collector_transaction_commit_failure"
         blocked_payload = {

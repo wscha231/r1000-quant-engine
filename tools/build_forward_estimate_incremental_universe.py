@@ -26,6 +26,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from tools.build_earnings_estimate_archive_manifest import (
+    require_complete_collector_transaction, require_consistent_collection_acknowledgement,
+)
+
 from tools.build_forward_estimate_universe_plan import (  # noqa: E402
     DEFAULT_EXCLUDE_TICKERS,
     display_path,
@@ -538,6 +542,10 @@ def build_incremental_universe(
     canonical_path = repo_path(canonical_universe)
     checkpoint_path = repo_path(checkpoint)
     queue_path = repo_path(queue_output)
+    # Must run before reading archives or rewriting the queue/checkpoint.
+    require_complete_collector_transaction(snapshot_dir_path)
+    require_complete_collector_transaction(checkpoint_path.parent)
+    require_consistent_collection_acknowledgement(checkpoint_path, queue_path)
     report_path = repo_path(report)
     include_file_path = repo_path(include_file) if include_file else Path("")
     generated_at = utc_now()
