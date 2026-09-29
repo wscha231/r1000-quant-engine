@@ -1,5 +1,20 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-29 — A3 reference replay is not current or economic authority (#516)
+
+- Reuse the existing A3 validator to bind saved results to exact packet and
+  upstream bytes. Keep raw artifact SHA-256 distinct from semantic packet hash;
+  canonical comparison must not equate false with numeric zero.
+- A consistent supplied bundle does not authenticate an independent reviewer,
+  current-pointer selection, domain applicability or freshness. Keep A5 and
+  reuse authority closed until the existing A0/A6 and economic gates pass.
+- Preserve identifiable rejected candidates. Do not silently pick one of
+  duplicate security rows or conflicting immutable artifact identities.
+- Expiry, catalyst/collection failures and outcome maturity need their own
+  checks; an unexpired caller declaration is not CURRENT. No new scheduler,
+  receipt store, scoring rule or protected runner change is needed here.
+- See docs/CANDIDATE_REGISTRY_V1_REFERENCE_INDEX.md for the bounded contract.
+
 ## 2026-09-28 — Partial readiness is not global promotion authority (#538)
 
 - PIT membership, universe breadth and comparison-baseline integrity prove only

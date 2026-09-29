@@ -214,4 +214,11 @@ class Tests(unittest.TestCase):
     with self.assertRaisesRegex(A3CandidatePacketError,"methodology_selector_authority"):
       evaluate_packet(v,"2026-09-19T02:00:00Z",resolver)
 
+def load_tests(loader, suite, pattern):
+    # #516 reference adapter stays on the existing registered A3 smoke route.
+    from candidate_registry_v1_smoke import RegistryTests
+    suite.addTests(loader.loadTestsFromTestCase(RegistryTests))
+    return suite
+
+
 if __name__=="__main__": unittest.main()
