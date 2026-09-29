@@ -28,6 +28,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from tools.build_earnings_estimate_archive_manifest import (
     require_complete_collector_transaction, require_consistent_collection_acknowledgement,
+    require_verified_collector_state,
 )
 
 from tools.build_forward_estimate_universe_plan import (  # noqa: E402
@@ -522,6 +523,8 @@ def build_incremental_universe(
     canonical_universe: str = "data_pit/events/earnings_estimates/collection_universe.csv",
     checkpoint: str = "data_pit/events/earnings_estimates/collection_checkpoint.json",
     queue_output: str = "outputs/earnings_estimates_daily/collection_queue.csv",
+    collector_summary: str = "outputs/earnings_estimates_daily/summary.json",
+    signals: str = "data_pit/events/earnings_revision_signals.parquet",
     report: str = "outputs/earnings_estimates_daily/collection_queue_report.md",
     include_tickers: str = "",
     include_file: str = "",
@@ -542,9 +545,18 @@ def build_incremental_universe(
     canonical_path = repo_path(canonical_universe)
     checkpoint_path = repo_path(checkpoint)
     queue_path = repo_path(queue_output)
+    collector_summary_path = repo_path(collector_summary)
+    signals_path = repo_path(signals)
     # Must run before reading archives or rewriting the queue/checkpoint.
     require_complete_collector_transaction(snapshot_dir_path)
-    require_complete_collector_transaction(checkpoint_path.parent)
+    prior_transaction = require_verified_collector_state(
+        snapshot_dir_path,
+        summary_path=collector_summary_path,
+        checkpoint_path=checkpoint_path,
+        queue_path=queue_path,
+        signals_path=signals_path,
+        allow_missing_queue=True,
+    )
     require_consistent_collection_acknowledgement(checkpoint_path, queue_path)
     report_path = repo_path(report)
     include_file_path = repo_path(include_file) if include_file else Path("")
@@ -731,6 +743,15 @@ def build_incremental_universe(
 
     write_ticker_csv(output_path, selected_tickers)
     write_queue_csv(queue_path, rows)
+    planned_queue_sha256 = sha256_file(queue_path)
+    planning_parent_transaction: dict[str, Any] = {}
+    if prior_transaction.get("state") in {"accepted", "planned"}:
+        planning_parent_transaction = {
+            "commit_id": str(prior_transaction.get("commit_id") or ""),
+            "summary_sha256": str(prior_transaction.get("summary_sha256") or ""),
+            "attempt_id": str(prior_transaction.get("attempt_id") or ""),
+            "checkpoint_sha256": str(prior_transaction.get("checkpoint_sha256") or ""),
+        }
     state_counts = dict(sorted(Counter(str(row["queue_state"]) for row in rows).items()))
     reason_counts = dict(sorted(Counter(selected.values()).items()))
     snapshot_source_hash = aggregate_source_hash(snapshot_records)
@@ -750,6 +771,8 @@ def build_incremental_universe(
         "historical_backfill_allowed": False,
         "missing_vendor_coverage_policy": "neutral",
         "selection_checkpoint_policy": "advance_only_after_collector_attempt_acknowledgement",
+        "planning_parent_transaction": planning_parent_transaction,
+        "planned_queue_sha256": planned_queue_sha256,
         "last_collection_attempt_ack": previous_checkpoint.get("last_collection_attempt_ack", {}),
         "universe": {
             "expected_ticker_count": expected_universe_count,
@@ -855,6 +878,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint", default="data_pit/events/earnings_estimates/collection_checkpoint.json")
     parser.add_argument("--output", default="outputs/earnings_estimates_daily/incremental_universe.csv")
     parser.add_argument("--queue-output", default="outputs/earnings_estimates_daily/collection_queue.csv")
+    parser.add_argument("--collector-summary", default="outputs/earnings_estimates_daily/summary.json")
+    parser.add_argument("--signals", default="data_pit/events/earnings_revision_signals.parquet")
     parser.add_argument("--summary", default="outputs/earnings_estimates_daily/incremental_universe_summary.json")
     parser.add_argument("--report", default="outputs/earnings_estimates_daily/collection_queue_report.md")
     parser.add_argument("--include-tickers", default="")
@@ -880,6 +905,8 @@ def main() -> int:
         checkpoint=args.checkpoint,
         output=args.output,
         queue_output=args.queue_output,
+        collector_summary=args.collector_summary,
+        signals=args.signals,
         summary=args.summary,
         report=args.report,
         include_tickers=args.include_tickers,

@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tools import earnings_consensus_h1 as h1
 from tools import collect_earnings_estimates_finnhub as c
+from tools import build_earnings_estimate_archive_manifest as manifest
 from tools.run_free_data_selection_overlay import build_overlay
 
 
@@ -1028,7 +1029,10 @@ class AdmissionTests(unittest.TestCase):
                 manifest = crash_manifest(root)
                 interrupted = boundary not in {"before_pending", "committed"}
                 if interrupted:
-                    self.assertEqual(manifest["verdict"], "blocked_transaction_mismatch")
+                    expected_verdict = ("blocked_transaction_mismatch" if boundary == "summary.json"
+                                        else "blocked_missing_or_invalid_summary")
+                    self.assertEqual(manifest["verdict"], expected_verdict)
+                    self.assertFalse(manifest["publishable"])
                     self.assertFalse(manifest["transaction_integrity"]["verified"])
                     # Repeated retries preserve the incomplete evidence byte-for-byte.
                     before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
@@ -1057,6 +1061,161 @@ class AdmissionTests(unittest.TestCase):
                     self.assertEqual(json.loads(checkpoint.read_text())["ticker_states"][0]["selection_count"], 1)
                     self.assertIn(",1", queue.read_text())
                     self.assertEqual(len(pd.read_parquet(root / "history" / "estimates_20260701.parquet")), 1)
+
+    def test_restart_binding_rejects_mixed_generation_and_accepts_bound_plan(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "history").mkdir()
+            checkpoint, queue = root / "checkpoint.json", root / "queue.csv"
+            checkpoint.write_text(json.dumps({"ticker_states": [
+                {"ticker": "AAA", "last_selected_at_utc": "", "selection_count": 0}]}))
+            queue.write_text("ticker,selected,last_selected_at_utc,selection_count\nAAA,true,,0\n")
+            self.assertEqual(crash_fixture(root), 0)
+
+            accepted_checkpoint = checkpoint.read_bytes()
+            accepted_queue = queue.read_bytes()
+            state = manifest.require_verified_collector_state(
+                root / "history",
+                summary_path=root / "summary.json",
+                checkpoint_path=checkpoint,
+                queue_path=queue,
+                signals_path=root / "signals.parquet",
+            )
+            self.assertEqual(state["state"], "accepted")
+
+            queue.unlink()
+            state = manifest.require_verified_collector_state(
+                root / "history",
+                summary_path=root / "summary.json",
+                checkpoint_path=checkpoint,
+                queue_path=queue,
+                signals_path=root / "signals.parquet",
+                allow_missing_queue=True,
+            )
+            self.assertEqual(state["state"], "accepted")
+
+            damaged = json.loads(accepted_checkpoint)
+            damaged["ticker_states"][0]["selection_count"] = 99
+            checkpoint.write_text(json.dumps(damaged))
+            with self.assertRaisesRegex(ValueError, "collector_transaction_state_mismatch"):
+                manifest.require_verified_collector_state(
+                    root / "history",
+                    summary_path=root / "summary.json",
+                    checkpoint_path=checkpoint,
+                    queue_path=queue,
+                    signals_path=root / "signals.parquet",
+                    allow_missing_queue=True,
+                )
+
+            checkpoint.write_bytes(accepted_checkpoint)
+            queue.write_bytes(accepted_queue + b"\n")
+            marker = json.loads(
+                (root / "history" / c.TRANSACTION_MARKER_NAME).read_text()
+            )
+            summary = json.loads((root / "summary.json").read_text())
+            tx = summary["transaction_commit"]
+            planned = json.loads(accepted_checkpoint)
+            planned["planning_parent_transaction"] = {
+                "commit_id": marker["commit_id"],
+                "summary_sha256": marker["summary_sha256"],
+                "attempt_id": tx["attempt_id"],
+                "checkpoint_sha256": tx["checkpoint_sha256"],
+            }
+            planned["planned_queue_sha256"] = manifest.sha256_file(queue)
+            checkpoint.write_text(json.dumps(planned))
+            state = manifest.require_verified_collector_state(
+                root / "history",
+                summary_path=root / "summary.json",
+                checkpoint_path=checkpoint,
+                queue_path=queue,
+                signals_path=root / "signals.parquet",
+            )
+            self.assertEqual(state["state"], "planned")
+
+            planned["planning_parent_transaction"]["commit_id"] = "wrong"
+            checkpoint.write_text(json.dumps(planned))
+            with self.assertRaisesRegex(ValueError, "collector_transaction_state_mismatch"):
+                manifest.require_verified_collector_state(
+                    root / "history",
+                    summary_path=root / "summary.json",
+                    checkpoint_path=checkpoint,
+                    queue_path=queue,
+                    signals_path=root / "signals.parquet",
+                )
+
+    def test_manifest_missing_invalid_or_pending_state_is_non_publishable(self):
+        def manifest_cli(root: Path) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "tools" / "build_earnings_estimate_archive_manifest.py"),
+                    "--snapshot-dir", str(root / "history"),
+                    "--signals", str(root / "signals.parquet"),
+                    "--summary", str(root / "summary.json"),
+                    "--collector-log", str(root / "collector.log"),
+                    "--manifest", str(root / "manifest-cli.json"),
+                    "--index", str(root / "index-cli.jsonl"),
+                    "--run-id", "crash-run",
+                    "--run-attempt", "1",
+                    "--head-sha", "fixture-head",
+                    "--ref", "fixture",
+                    "--workflow", "fixture",
+                    "--artifact-name", "fixture",
+                    "--queue-checkpoint", str(root / "checkpoint.json"),
+                    "--queue-csv", str(root / "queue.csv"),
+                    "--queue-summary", str(root / "queue-summary.json"),
+                    "--queue-report", str(root / "queue.md"),
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "history").mkdir()
+            (root / "checkpoint.json").write_text(json.dumps({"ticker_states": [
+                {"ticker": "AAA", "last_selected_at_utc": "", "selection_count": 0}]}))
+            (root / "queue.csv").write_text(
+                "ticker,selected,last_selected_at_utc,selection_count\nAAA,true,,0\n")
+            self.assertEqual(crash_fixture(root), 0)
+            self.assertTrue(crash_manifest(root)["publishable"])
+            self.assertEqual(manifest_cli(root).returncode, 0)
+
+            good_summary = (root / "summary.json").read_bytes()
+            good_marker = (root / "history" / c.TRANSACTION_MARKER_NAME).read_bytes()
+
+            (root / "summary.json").unlink()
+            missing = crash_manifest(root)
+            self.assertFalse(missing["publishable"])
+            self.assertEqual(missing["verdict"], "blocked_missing_or_invalid_summary")
+            self.assertNotEqual(manifest_cli(root).returncode, 0)
+
+            (root / "summary.json").write_text("{")
+            invalid = crash_manifest(root)
+            self.assertFalse(invalid["publishable"])
+            self.assertEqual(invalid["verdict"], "blocked_missing_or_invalid_summary")
+            self.assertNotEqual(manifest_cli(root).returncode, 0)
+
+            (root / "summary.json").write_bytes(good_summary)
+            marker = json.loads(good_marker)
+            marker["status"] = "pending"
+            (root / "history" / c.TRANSACTION_MARKER_NAME).write_text(json.dumps(marker))
+            pending = crash_manifest(root)
+            self.assertFalse(pending["publishable"])
+            self.assertEqual(pending["verdict"], "blocked_transaction_mismatch")
+            self.assertNotEqual(manifest_cli(root).returncode, 0)
+
+    def test_workflow_restores_binding_evidence_and_gates_accepted_persistence(self):
+        text = (ROOT / ".github" / "workflows" / "earnings_estimates_daily.yml").read_text()
+        self.assertIn("outputs/earnings_estimates_daily/summary.json", text)
+        self.assertIn("outputs/earnings_estimates_daily/collection_queue.csv", text)
+        cache_start = text.index("- name: Save earnings estimate archive cache")
+        upload_start = text.index("- name: Upload earnings estimate artifact")
+        cache_block = text[cache_start:upload_start]
+        self.assertIn("if: ${{ steps.build_manifest.outcome == 'success' }}", cache_block)
+        self.assertNotIn("if: always()", cache_block)
 
     def test_pending_and_missing_marker_cannot_accept_a_previous_good_summary(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1119,7 +1278,7 @@ class AdmissionTests(unittest.TestCase):
                     c.prepare_collection_attempt_acknowledgement(checkpoint, queue, ["AAA"],
                         attempted_at_utc="now", attempt_id=attempt)
             from tools.build_forward_estimate_incremental_universe import build_incremental_universe
-            with self.assertRaisesRegex(ValueError, "incomplete_legacy_collector_transaction"):
+            with self.assertRaisesRegex(ValueError, "missing_collector_transaction_marker"):
                 build_incremental_universe(snapshot_dir=str(root / "history"),
                     checkpoint=str(checkpoint), queue_output=str(queue), shard_dir=str(root / "shards"),
                     output=str(root / "universe.csv"), summary=str(root / "queue-summary.json"))

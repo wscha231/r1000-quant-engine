@@ -39,15 +39,27 @@ def require_complete_collector_transaction(directory: Path) -> dict[str, Any]:
         raise ValueError("incomplete_collector_transaction") from exc
 
 
-def require_consistent_collection_acknowledgement(checkpoint_path: Path, queue_path: Path) -> None:
-    """Reject an observable pre-marker checkpoint/queue split before replay/replanning.
+def require_consistent_collection_acknowledgement(
+    checkpoint_path: Path,
+    queue_path: Path,
+    *,
+    verify_planned_queue: bool = False,
+) -> None:
+    """Reject checkpoint/queue splits before replay or collection.
 
-    A new runner may legitimately have no output queue yet. This check does not
-    certify missing legacy evidence; persistent markers cover new transactions.
+    A planner may legitimately regenerate a missing queue from a separately
+    verified accepted checkpoint. Once a plan exists, however, the collector
+    must bind the queue bytes to the checkpoint that produced them.
     """
+    if verify_planned_queue and checkpoint_path.is_file() and not queue_path.is_file():
+        raise ValueError("planned_collection_queue_missing")
     if not checkpoint_path.is_file() or not queue_path.is_file():
         return
     checkpoint = load_json(checkpoint_path)
+    if verify_planned_queue:
+        planned_hash = str(checkpoint.get("planned_queue_sha256") or "")
+        if planned_hash and sha256_file(queue_path) != planned_hash:
+            raise ValueError("planned_collection_queue_hash_mismatch")
     ack = checkpoint.get("last_collection_attempt_ack") or {}
     if not isinstance(ack, dict) or ack.get("status") != "acknowledged":
         return
@@ -110,6 +122,153 @@ def load_json(path: Path) -> dict[str, Any]:
         return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return {}
+
+
+def require_verified_collector_state(
+    directory: Path,
+    *,
+    summary_path: Path,
+    checkpoint_path: Path,
+    queue_path: Path,
+    signals_path: Path | None = None,
+    allow_missing_queue: bool = False,
+) -> dict[str, Any]:
+    """Bind restart/planner state to the last durable collector transaction."""
+    marker = require_complete_collector_transaction(directory)
+    summary_payload = load_json(summary_path) if summary_path.is_file() else {}
+    checkpoint_payload = load_json(checkpoint_path) if checkpoint_path.is_file() else {}
+    ack = (
+        checkpoint_payload.get("last_collection_attempt_ack")
+        if isinstance(checkpoint_payload, dict)
+        else None
+    )
+    transaction_hint = (
+        summary_payload.get("transaction_commit")
+        if isinstance(summary_payload, dict)
+        else None
+    )
+
+    if not marker:
+        if (
+            isinstance(transaction_hint, dict) and transaction_hint
+        ) or (
+            isinstance(ack, dict) and ack.get("status") == "acknowledged"
+        ):
+            raise ValueError("missing_collector_transaction_marker")
+        return {
+            "state": "legacy_or_empty",
+            "commit_id": "",
+            "summary_sha256": "",
+            "attempt_id": "",
+            "checkpoint_sha256": "",
+        }
+
+    if marker.get("status") == "rolled_back":
+        return {
+            "state": "rolled_back",
+            "commit_id": str(marker.get("commit_id") or ""),
+            "summary_sha256": str(marker.get("summary_sha256") or ""),
+            "attempt_id": "",
+            "checkpoint_sha256": "",
+        }
+
+    if marker.get("status") != "committed":
+        raise ValueError("incomplete_collector_transaction")
+    if (
+        not summary_path.is_file()
+        or not isinstance(summary_payload, dict)
+        or not str(summary_payload.get("status") or "")
+    ):
+        raise ValueError("missing_or_invalid_collector_summary")
+    if (
+        not marker.get("summary_sha256")
+        or sha256_file(summary_path) != str(marker.get("summary_sha256"))
+    ):
+        raise ValueError("collector_summary_hash_mismatch")
+
+    transaction = summary_payload.get("transaction_commit")
+    if (
+        not isinstance(transaction, dict)
+        or transaction.get("schema_version") != "earnings-estimate-collector-transaction-v2"
+        or str(transaction.get("commit_id") or "") != str(marker.get("commit_id") or "")
+    ):
+        raise ValueError("collector_transaction_identity_mismatch")
+
+    expected_snapshot_hash = str(transaction.get("snapshot_sha256") or "")
+    if expected_snapshot_hash:
+        snapshot_name = Path(str(summary_payload.get("snapshot_path") or "")).name
+        snapshot_path = directory / snapshot_name if snapshot_name else Path()
+        if (
+            not snapshot_name
+            or not snapshot_path.is_file()
+            or sha256_file(snapshot_path) != expected_snapshot_hash
+        ):
+            raise ValueError("collector_snapshot_hash_mismatch")
+
+    expected_signals_hash = str(transaction.get("signals_sha256") or "")
+    if expected_signals_hash:
+        if (
+            signals_path is None
+            or not signals_path.is_file()
+            or sha256_file(signals_path) != expected_signals_hash
+        ):
+            raise ValueError("collector_signals_hash_mismatch")
+
+    expected_checkpoint_hash = str(transaction.get("checkpoint_sha256") or "")
+    expected_queue_hash = str(transaction.get("queue_sha256") or "")
+    checkpoint_hash = sha256_file(checkpoint_path) if checkpoint_path.is_file() else ""
+    queue_hash = sha256_file(queue_path) if queue_path.is_file() else ""
+    expected_attempt = str(transaction.get("attempt_id") or "")
+
+    def acknowledgement_matches() -> bool:
+        if not expected_attempt:
+            return True
+        return bool(
+            isinstance(ack, dict)
+            and ack.get("status") == "acknowledged"
+            and str(ack.get("attempt_id") or "") == expected_attempt
+        )
+
+    accepted_checkpoint = (
+        not expected_checkpoint_hash or checkpoint_hash == expected_checkpoint_hash
+    )
+    accepted_queue = (
+        not expected_queue_hash
+        or queue_hash == expected_queue_hash
+        or (allow_missing_queue and not queue_path.is_file())
+    )
+    if accepted_checkpoint and accepted_queue:
+        if not acknowledgement_matches():
+            raise ValueError("collector_checkpoint_attempt_mismatch")
+        return {
+            "state": "accepted",
+            "commit_id": str(marker.get("commit_id") or ""),
+            "summary_sha256": str(marker.get("summary_sha256") or ""),
+            "attempt_id": expected_attempt,
+            "checkpoint_sha256": expected_checkpoint_hash,
+        }
+
+    if checkpoint_path.is_file() and queue_path.is_file():
+        parent = checkpoint_payload.get("planning_parent_transaction")
+        planned_queue_hash = str(checkpoint_payload.get("planned_queue_sha256") or "")
+        if (
+            isinstance(parent, dict)
+            and str(parent.get("commit_id") or "") == str(marker.get("commit_id") or "")
+            and str(parent.get("summary_sha256") or "") == str(marker.get("summary_sha256") or "")
+            and str(parent.get("checkpoint_sha256") or "") == expected_checkpoint_hash
+            and planned_queue_hash
+            and planned_queue_hash == queue_hash
+            and acknowledgement_matches()
+        ):
+            return {
+                "state": "planned",
+                "commit_id": str(marker.get("commit_id") or ""),
+                "summary_sha256": str(marker.get("summary_sha256") or ""),
+                "attempt_id": expected_attempt,
+                "checkpoint_sha256": expected_checkpoint_hash,
+            }
+
+    raise ValueError("collector_transaction_state_mismatch")
 
 
 def latest_snapshot(snapshot_dir: Path, summary: dict[str, Any]) -> Path:
@@ -316,7 +475,16 @@ def build_manifest(
     ack = summary_payload.get("collection_attempt_ack") or {}
     transaction = summary_payload.get("transaction_commit") or {}
     transaction_failures: list[str] = []
-    transaction_required = isinstance(ack, dict) and ack.get("status") == "acknowledged"
+    summary_valid = bool(
+        summary_path.is_file()
+        and isinstance(summary_payload, dict)
+        and str(summary_payload.get("status") or "")
+    )
+    summary_failures: list[str] = []
+    if not summary_path.is_file():
+        summary_failures.append("missing_summary")
+    elif not summary_valid:
+        summary_failures.append("invalid_summary")
     marker: dict[str, Any] = {}
     for directory in {snapshot_dir_path, queue_checkpoint_path.parent}:
         try:
@@ -327,7 +495,16 @@ def build_manifest(
                 marker = observed
         except ValueError:
             transaction_failures.append("incomplete_collector_transaction")
-    if isinstance(transaction, dict) and transaction.get("schema_version") == "earnings-estimate-collector-transaction-v2":
+    transaction_present = bool(
+        isinstance(transaction, dict)
+        and transaction.get("schema_version") == "earnings-estimate-collector-transaction-v2"
+    )
+    transaction_required = bool(
+        transaction_present
+        or (isinstance(ack, dict) and ack.get("status") == "acknowledged")
+        or marker.get("status") == "committed"
+    )
+    if transaction_present:
         if (marker.get("status") != "committed"
                 or marker.get("commit_id") != transaction.get("commit_id")
                 or marker.get("summary_sha256") != payload["files"]["summary"].get("sha256")):
@@ -355,18 +532,24 @@ def build_manifest(
             "queue_sha256": payload["files"]["collection_queue_csv"].get("sha256", ""),
         }
         for field, actual_hash in expected_hashes.items():
-            if not actual_hash or str(transaction.get(field) or "") != actual_hash:
+            expected_hash = str(transaction.get(field) or "")
+            if expected_hash and (not actual_hash or expected_hash != actual_hash):
                 transaction_failures.append(f"{field}_mismatch")
 
-        checkpoint_payload = load_json(queue_checkpoint_path)
-        checkpoint_ack = checkpoint_payload.get("last_collection_attempt_ack") if isinstance(checkpoint_payload, dict) else None
-        if not isinstance(checkpoint_ack, dict):
-            transaction_failures.append("checkpoint_ack_missing")
-        else:
-            if checkpoint_ack.get("status") != "acknowledged":
-                transaction_failures.append("checkpoint_ack_not_acknowledged")
-            if str(checkpoint_ack.get("attempt_id") or "") != expected_attempt:
-                transaction_failures.append("checkpoint_attempt_id_mismatch")
+        if str(transaction.get("checkpoint_sha256") or ""):
+            checkpoint_payload = load_json(queue_checkpoint_path)
+            checkpoint_ack = (
+                checkpoint_payload.get("last_collection_attempt_ack")
+                if isinstance(checkpoint_payload, dict)
+                else None
+            )
+            if not isinstance(checkpoint_ack, dict):
+                transaction_failures.append("checkpoint_ack_missing")
+            else:
+                if checkpoint_ack.get("status") != "acknowledged":
+                    transaction_failures.append("checkpoint_ack_not_acknowledged")
+                if str(checkpoint_ack.get("attempt_id") or "") != expected_attempt:
+                    transaction_failures.append("checkpoint_attempt_id_mismatch")
 
     payload["transaction_integrity"] = {
         "required": transaction_required,
@@ -375,8 +558,24 @@ def build_manifest(
         "attempt_id": str(summary_payload.get("collection_attempt_id") or ""),
         "logical_attempt_id": str(summary_payload.get("collection_attempt_logical_id") or ""),
     }
-    if transaction_failures:
+    ack_status = str(ack.get("status") or "") if isinstance(ack, dict) else ""
+    if summary_valid and ack_status not in {"acknowledged", "disabled"}:
+        summary_failures.append("collection_attempt_not_accepted")
+    publication_failures = sorted(set(summary_failures + transaction_failures))
+    publishable = bool(not unmasked_secret and summary_valid and not publication_failures)
+    payload["publishable"] = publishable
+    payload["publication_failures"] = publication_failures
+    payload["persistence"]["accepted_publication_allowed"] = publishable
+    if unmasked_secret:
+        payload["verdict"] = "blocked_unmasked_secret_pattern"
+    elif not summary_valid:
+        payload["verdict"] = "blocked_missing_or_invalid_summary"
+    elif transaction_failures:
         payload["verdict"] = "blocked_transaction_mismatch"
+    elif summary_failures:
+        payload["verdict"] = "blocked_non_publishable_collector_state"
+    else:
+        payload["verdict"] = "archive_manifest_written"
     write_json(manifest_path, payload)
     index_entry = {
         "schema_version": SCHEMA_VERSION,
@@ -486,7 +685,9 @@ def main() -> int:
         queue_report=args.queue_report,
     )
     print(json.dumps(payload, indent=2, sort_keys=True))
-    return 1 if payload["text_secret_scan"]["unmasked_secret_pattern_found"] else 0
+    if payload["text_secret_scan"]["unmasked_secret_pattern_found"]:
+        return 1
+    return 0 if payload.get("publishable") is True else 2
 
 
 if __name__ == "__main__":

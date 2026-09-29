@@ -33,6 +33,7 @@ if str(REPO_ROOT) not in sys.path:
 from tools.build_earnings_estimate_archive_manifest import (
     TRANSACTION_MARKER_NAME, TRANSACTION_MARKER_SCHEMA,
     require_complete_collector_transaction, require_consistent_collection_acknowledgement,
+    require_verified_collector_state,
 )
 
 from r1000_config import PHASE18_ESTIMATE_REVISION_COLUMNS  # noqa: E402
@@ -1554,8 +1555,19 @@ def main() -> int:
     queue_path = repo_path(args.collection_queue) if args.collection_queue else Path()
     require_complete_collector_transaction(snapshot_dir)
     if args.collection_checkpoint:
-        require_complete_collector_transaction(checkpoint_path.parent)
-        require_consistent_collection_acknowledgement(checkpoint_path, queue_path)
+        transaction_state = require_verified_collector_state(
+            snapshot_dir,
+            summary_path=summary_path,
+            checkpoint_path=checkpoint_path,
+            queue_path=queue_path,
+            signals_path=signals_output,
+            allow_missing_queue=False,
+        )
+        require_consistent_collection_acknowledgement(
+            checkpoint_path,
+            queue_path,
+            verify_planned_queue=transaction_state.get("state") != "accepted",
+        )
     tickers = parse_tickers(args.tickers, args.universe_file or None, args.ticker_limit)
     if not tickers:
         payload = {

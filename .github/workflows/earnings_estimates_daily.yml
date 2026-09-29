@@ -168,7 +168,7 @@ jobs:
           else
             BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
           fi
-          mkdir -p data_pit/events
+          mkdir -p data_pit/events outputs/earnings_estimates_daily
           if rclone lsf "$BASE""data_pit/events/earnings_estimates" >/dev/null 2>&1; then
             timeout 8m rclone copy "$BASE""data_pit/events/earnings_estimates" data_pit/events/earnings_estimates/ \
               --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
@@ -176,6 +176,14 @@ jobs:
           if rclone lsf "$BASE""data_pit/events/earnings_revision_signals.parquet" >/dev/null 2>&1; then
             timeout 3m rclone copyto "$BASE""data_pit/events/earnings_revision_signals.parquet" \
               data_pit/events/earnings_revision_signals.parquet || true
+          fi
+          if rclone lsf "$BASE""outputs/earnings_estimates_daily/summary.json" >/dev/null 2>&1; then
+            timeout 2m rclone copyto "$BASE""outputs/earnings_estimates_daily/summary.json" \
+              outputs/earnings_estimates_daily/summary.json || true
+          fi
+          if rclone lsf "$BASE""outputs/earnings_estimates_daily/collection_queue.csv" >/dev/null 2>&1; then
+            timeout 2m rclone copyto "$BASE""outputs/earnings_estimates_daily/collection_queue.csv" \
+              outputs/earnings_estimates_daily/collection_queue.csv || true
           fi
           mkdir -p data_pit/free outputs/free_data_forward_paper_ledger \
             outputs/free_data_selection_overlay_previous cache_prices_forward_paper
@@ -296,6 +304,8 @@ jobs:
               --checkpoint data_pit/events/earnings_estimates/collection_checkpoint.json \
               --output outputs/earnings_estimates_daily/incremental_universe.csv \
               --queue-output outputs/earnings_estimates_daily/collection_queue.csv \
+              --collector-summary outputs/earnings_estimates_daily/summary.json \
+              --signals data_pit/events/earnings_revision_signals.parquet \
               --summary outputs/earnings_estimates_daily/incremental_universe_summary.json \
               --report outputs/earnings_estimates_daily/collection_queue_report.md \
               --include-tickers "${TICKERS:-${DEFAULT_TICKERS}}" \
@@ -464,7 +474,7 @@ jobs:
             --as-of-date "$LAST_NYSE_SESSION_DATE"
 
       - name: Save earnings estimate archive cache
-        if: always()
+        if: ${{ steps.build_manifest.outcome == 'success' }}
         uses: actions/cache/save@v4
         with:
           path: |
