@@ -158,8 +158,8 @@ class _Snapshot:
         if self.bytes_read + len(raw) > MAX_TOTAL_BYTES:
             self.fatal = _BatchError("total_byte_budget")
             raise self.fatal
-        _require(hashlib.sha256(raw).hexdigest() == digest, "artifact_hash_mismatch")
         self.bytes_read += len(raw)
+        _require(hashlib.sha256(raw).hexdigest() == digest, "artifact_hash_mismatch")
         self.cache[key] = raw
         return raw
 

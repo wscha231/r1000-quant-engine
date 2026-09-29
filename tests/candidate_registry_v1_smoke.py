@@ -349,6 +349,23 @@ class RegistryTests(unittest.TestCase):
             with self.assertRaisesRegex(ReferenceIndexError,"total_byte_budget"):
                 self.build(e)
 
+    def test_hash_mismatches_consume_total_byte_budget(self):
+        entries = [self.fixture(f"US:BROKEN{i}") for i in range(3)]
+        payload = b"x" * (48 * 1024 * 1024)
+
+        for entry in entries:
+            ref = entry["a3_packet_ref"]
+            ref["artifact_id"] = "BROKEN:PACKET:" + entry["asset_id"]
+            ref["sha256"] = "0" * 64
+
+        def resolver(aid, sha):
+            if aid.startswith("BROKEN:PACKET:"):
+                return payload
+            return self.resolve(aid, sha)
+
+        with self.assertRaisesRegex(ReferenceIndexError, "total_byte_budget"):
+            self.build(*entries, resolver=resolver)
+
     def test_no_network_calls_or_file_writes_from_builder(self):
         e = self.fixture()
         with patch("socket.socket", side_effect=AssertionError("network forbidden")), \
