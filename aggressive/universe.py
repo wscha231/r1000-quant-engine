@@ -10,6 +10,10 @@ Sources (in priority order):
   3. themes.yaml members (fallback only - DEPRECATED as primary source)
   4. explicit user ticker list
 
+The global-alpha mode also unions curated ADR, cycle-play, strategic hardware,
+healthcare/biotech, and tiered core-tracking overlays. Curated-only rows remain
+candidate-universe inputs and do not bypass downstream scoring or risk gates.
+
 No ticker is hardcoded in logic. All universes come from a data source.
 Smoke tests use explicit tickers but ONLY for testing, never for production.
 
@@ -18,7 +22,7 @@ Usage:
     tickers = load_universe("r1000")          # ~1000 tickers, live
     tickers = load_universe("r1000", max_age_hours=24)  # use cache if fresh
     tickers = load_universe("r1000+adr")      # R1000 + ADRs from adr_universe.yaml
-    tickers = load_universe("global_alpha_universe")  # R1000 + ADR/cycle/strategic hardware overlays
+    tickers = load_universe("global_alpha_universe")  # R1000 + curated global-alpha overlays
     tickers = load_universe("adr")            # ADRs only (whitelist)
     tickers = load_universe("themes")         # legacy: themes.yaml members only
     tickers = load_universe("custom", tickers=["AAPL", "MSFT"])  # explicit
@@ -204,6 +208,8 @@ def fetch_from_themes() -> list[str]:
 _ADR_UNIVERSE_PATH = Path(__file__).parent.parent / "adr_universe.yaml"
 _CYCLE_PLAY_UNIVERSE_PATH = Path(__file__).parent.parent / "cycle_play_universe.yaml"
 _STRATEGIC_GLOBAL_HARDWARE_UNIVERSE_PATH = Path(__file__).parent.parent / "strategic_global_hardware_universe.yaml"
+_HEALTHCARE_BIOTECH_UNIVERSE_PATH = Path(__file__).parent.parent / "healthcare_biotech_universe.yaml"
+_CORE_TRACKING_UNIVERSE_PATH = Path(__file__).parent.parent / "core_tracking_universe.yaml"
 
 
 def load_adr_universe(
@@ -333,6 +339,83 @@ def load_strategic_global_hardware_universe(
     return sorted(set(tickers)), meta_list
 
 
+def load_healthcare_biotech_universe(
+    include_skip: bool = False,
+) -> tuple[list[str], list[dict]]:
+    """Load the curated US healthcare/biotech research overlay.
+
+    The YAML is a latest candidate-universe source, not a buy list. It keeps
+    user-requested names visible even when they are outside the current IWB
+    proxy while downstream liquidity, data-quality, score, and risk gates stay
+    authoritative.
+    """
+    if not _HEALTHCARE_BIOTECH_UNIVERSE_PATH.exists():
+        return [], []
+    try:
+        import yaml
+    except ImportError:
+        return [], []
+    try:
+        payload = yaml.safe_load(_HEALTHCARE_BIOTECH_UNIVERSE_PATH.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return [], []
+    raw = payload.get("healthcare_biotech_universe", [])
+    if not isinstance(raw, list):
+        return [], []
+
+    tickers: list[str] = []
+    meta_list: list[dict] = []
+    for rec in raw:
+        if not isinstance(rec, dict):
+            continue
+        if rec.get("skip") and not include_skip:
+            continue
+        ticker = _normalize_ticker(str(rec.get("ticker", "")))
+        if not _is_valid_ticker(ticker):
+            continue
+        tickers.append(ticker)
+        meta_list.append(rec)
+    return sorted(set(tickers)), meta_list
+
+
+def load_core_tracking_universe(
+    include_skip: bool = False,
+) -> tuple[list[str], list[dict]]:
+    """Load the tiered core-tracking research overlay.
+
+    Tier metadata controls comparison cadence outside this loader; it never
+    grants portfolio eligibility. This function only supplies a deduplicated
+    candidate set and its source metadata.
+    """
+    if not _CORE_TRACKING_UNIVERSE_PATH.exists():
+        return [], []
+    try:
+        import yaml
+    except ImportError:
+        return [], []
+    try:
+        payload = yaml.safe_load(_CORE_TRACKING_UNIVERSE_PATH.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return [], []
+    raw = payload.get("core_tracking_universe", [])
+    if not isinstance(raw, list):
+        return [], []
+
+    tickers: list[str] = []
+    meta_list: list[dict] = []
+    for rec in raw:
+        if not isinstance(rec, dict):
+            continue
+        if rec.get("skip") and not include_skip:
+            continue
+        ticker = _normalize_ticker(str(rec.get("ticker", "")))
+        if not _is_valid_ticker(ticker):
+            continue
+        tickers.append(ticker)
+        meta_list.append(rec)
+    return sorted(set(tickers)), meta_list
+
+
 def load_universe(
     source: str = "r1000",
     tickers: Optional[list[str]] = None,
@@ -394,14 +477,25 @@ def load_universe(
         # (R1000 + ADR + cycle plays). r1000+adr legacy mode keeps cycle off.
         cycle_tickers: list[str] = []
         hardware_tickers: list[str] = []
+        healthcare_tickers: list[str] = []
+        core_tracking_tickers: list[str] = []
         if source == "global_alpha_universe":
             cycle_tickers, _ = load_cycle_play_universe(
                 min_mcap_usd_b=cycle_play_min_mcap_usd_b,
                 max_mcap_usd_b=cycle_play_max_mcap_usd_b,
             )
             hardware_tickers, _ = load_strategic_global_hardware_universe()
+            healthcare_tickers, _ = load_healthcare_biotech_universe()
+            core_tracking_tickers, _ = load_core_tracking_universe()
         # 4. Union, dedup, sort
-        combined = sorted(set(r1000_tickers) | set(adr_tickers) | set(cycle_tickers) | set(hardware_tickers))
+        combined = sorted(
+            set(r1000_tickers)
+            | set(adr_tickers)
+            | set(cycle_tickers)
+            | set(hardware_tickers)
+            | set(healthcare_tickers)
+            | set(core_tracking_tickers)
+        )
         meta["source_used"] = f"{r1000_meta.get('source_used', 'r1000')}+global_alpha"
         meta["count"] = len(combined)
         meta["r1000_count"] = len(r1000_tickers)
@@ -416,6 +510,25 @@ def load_universe(
             meta["strategic_global_hardware_count"] = len(hardware_tickers)
             meta["strategic_global_hardware_added"] = sorted(
                 set(hardware_tickers) - set(r1000_tickers) - set(adr_tickers) - set(cycle_tickers)
+            )
+        if healthcare_tickers:
+            meta["healthcare_biotech_count"] = len(healthcare_tickers)
+            meta["healthcare_biotech_added"] = sorted(
+                set(healthcare_tickers)
+                - set(r1000_tickers)
+                - set(adr_tickers)
+                - set(cycle_tickers)
+                - set(hardware_tickers)
+            )
+        if core_tracking_tickers:
+            meta["core_tracking_count"] = len(core_tracking_tickers)
+            meta["core_tracking_added"] = sorted(
+                set(core_tracking_tickers)
+                - set(r1000_tickers)
+                - set(adr_tickers)
+                - set(cycle_tickers)
+                - set(hardware_tickers)
+                - set(healthcare_tickers)
             )
         return combined, meta
 

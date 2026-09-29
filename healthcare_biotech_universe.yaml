@@ -1,0 +1,80 @@
+# Curated US healthcare and biotechnology research universe.
+#
+# Purpose:
+#   Keep the 20 names from the user-supplied 2026-08-19 healthcare/biotech
+#   comparison visible to global-alpha diagnostics and latest scoring. This is
+#   a universe overlay only; it is NOT a buy list and does not bypass normal
+#   liquidity, market-cap, data-quality, scoring, stale-leader, or risk gates.
+#
+# PIT safety:
+#   Rows that enter only through this current curated overlay are latest-only.
+#   They must not be projected backward into historical OOS months.
+
+healthcare_biotech_universe:
+  - ticker: HALO
+    name: Halozyme Therapeutics
+    category: drug_delivery_royalty_platform
+  - ticker: CAI
+    name: Caris Life Sciences
+    category: precision_oncology_clinical_data
+  - ticker: VCYT
+    name: Veracyte
+    category: molecular_diagnostics
+  - ticker: TMDX
+    name: TransMedics Group
+    category: organ_transplant_devices_network
+  - ticker: NBIX
+    name: Neurocrine Biosciences
+    category: commercial_cns_endocrine_biopharma
+  - ticker: ACAD
+    name: Acadia Pharmaceuticals
+    category: commercial_cns_biopharma
+  - ticker: TGTX
+    name: TG Therapeutics
+    category: commercial_multiple_sclerosis_biopharma
+  - ticker: REGN
+    name: Regeneron Pharmaceuticals
+    category: large_cap_biopharma_platform
+  - ticker: ADMA
+    name: ADMA Biologics
+    category: immunoglobulin_plasma_products
+  - ticker: EXEL
+    name: Exelixis
+    category: commercial_oncology_biopharma
+  - ticker: ILMN
+    name: Illumina
+    category: sequencing_multiomics
+  - ticker: TEM
+    name: Tempus AI
+    category: diagnostics_ai_clinical_data
+  - ticker: WGS
+    name: GeneDx Holdings
+    category: rare_disease_genomic_diagnostics
+  - ticker: CDNA
+    name: CareDx
+    category: transplant_monitoring_diagnostics
+  - ticker: CSTL
+    name: Castle Biosciences
+    category: oncology_molecular_diagnostics
+  - ticker: NTRA
+    name: Natera
+    category: cfdna_mrd_diagnostics
+  - ticker: GH
+    name: Guardant Health
+    category: liquid_biopsy_cancer_screening
+  - ticker: TWST
+    name: Twist Bioscience
+    category: synthetic_dna_life_science_tools
+  - ticker: TXG
+    name: 10x Genomics
+    category: single_cell_spatial_biology
+  - ticker: GRAL
+    name: GRAIL
+    category: multi_cancer_early_detection
+
+metadata:
+  schema_version: 2026-08-22-v1
+  source_as_of: 2026-08-19
+  source: user_supplied_healthcare_biotech_comparison
+  expected_ticker_count: 20
+

@@ -1,0 +1,162 @@
+# Tiered core tracking universe for recurring cross-sectional comparison.
+#
+# Purpose:
+#   Preserve the user-defined 22-name comparison cohort across AI physical
+#   infrastructure, defense, cyber resilience, power, semiconductors, and
+#   diversifying healthcare/industrial businesses. Membership means "evaluate"
+#   rather than "buy" and never bypasses normal data, liquidity, valuation,
+#   relative-strength, regime, scoring, or risk gates.
+#
+# Tier semantics:
+#   1 = weekly expectation-model competition
+#   2 = conditional promotion candidates
+#   3 = valuation/quality benchmarks and replacement candidates
+#
+# PIT safety:
+#   Rows that enter only through this current curated overlay are latest-only.
+#   They must not be projected backward into historical OOS months.
+
+core_tracking_universe:
+  - ticker: FTI
+    name: TechnipFMC
+    sector: Energy
+    basket: subsea_energy
+    tracking_tier: 1
+    research_origin: existing_active
+  - ticker: CACI
+    name: CACI International
+    sector: Industrials
+    basket: defense_cyber
+    tracking_tier: 1
+    research_origin: existing_active
+  - ticker: FLEX
+    name: Flex
+    sector: Information Technology
+    basket: ai_infrastructure_manufacturing
+    tracking_tier: 1
+    research_origin: existing_active
+  - ticker: NVT
+    name: nVent Electric
+    sector: Industrials
+    basket: datacenter_electrical_infrastructure
+    tracking_tier: 1
+    research_origin: existing_active
+  - ticker: CLS
+    name: Celestica
+    sector: Information Technology
+    basket: ai_infrastructure_manufacturing
+    tracking_tier: 1
+    research_origin: existing_active
+  - ticker: ONTO
+    name: Onto Innovation
+    sector: Information Technology
+    basket: advanced_packaging_metrology
+    tracking_tier: 1
+    research_origin: existing_active
+  - ticker: RBRK
+    name: Rubrik
+    sector: Information Technology
+    basket: cyber_resilience
+    tracking_tier: 1
+    research_origin: existing_active
+  - ticker: MLI
+    name: Mueller Industries
+    sector: Industrials
+    basket: industrial_copper_infrastructure
+    tracking_tier: 1
+    research_origin: existing_active
+  - ticker: EME
+    name: EMCOR Group
+    sector: Industrials
+    basket: datacenter_electrical_mechanical_construction
+    tracking_tier: 1
+    research_origin: new_priority_20260822
+  - ticker: LDOS
+    name: Leidos Holdings
+    sector: Industrials
+    basket: defense_cyber_energy
+    tracking_tier: 1
+    research_origin: new_priority_20260822
+  - ticker: CVLT
+    name: Commvault Systems
+    sector: Information Technology
+    basket: cyber_resilience
+    tracking_tier: 1
+    research_origin: new_priority_20260822
+  - ticker: CEG
+    name: Constellation Energy
+    sector: Utilities
+    basket: nuclear_247_power
+    tracking_tier: 1
+    research_origin: new_priority_20260822
+  - ticker: MEDP
+    name: Medpace Holdings
+    sector: Health Care
+    basket: biotech_cro
+    tracking_tier: 1
+    research_origin: new_priority_20260822
+  - ticker: CAMT
+    name: Camtek
+    sector: Information Technology
+    basket: advanced_packaging_inspection
+    tracking_tier: 2
+    research_origin: new_priority_20260822
+  - ticker: GNRC
+    name: Generac Holdings
+    sector: Industrials
+    basket: datacenter_backup_power
+    tracking_tier: 2
+    research_origin: new_priority_20260822
+  - ticker: KTOS
+    name: Kratos Defense & Security Solutions
+    sector: Industrials
+    basket: drones_missiles_unmanned_systems
+    tracking_tier: 2
+    research_origin: new_priority_20260822
+  - ticker: MKSI
+    name: MKS
+    sector: Information Technology
+    basket: semiconductor_optics_process_subsystems
+    tracking_tier: 2
+    research_origin: new_priority_20260822
+  - ticker: VST
+    name: Vistra
+    sector: Utilities
+    basket: merchant_power_generation
+    tracking_tier: 2
+    research_origin: new_priority_20260822
+  - ticker: MCK
+    name: McKesson
+    sector: Health Care
+    basket: pharmaceutical_distribution_oncology
+    tracking_tier: 2
+    research_origin: new_priority_20260822
+  - ticker: AMAT
+    name: Applied Materials
+    sector: Information Technology
+    basket: semiconductor_equipment_quality_benchmark
+    tracking_tier: 3
+    research_origin: new_priority_20260822
+  - ticker: GLW
+    name: Corning
+    sector: Information Technology
+    basket: optical_glass_connectivity_benchmark
+    tracking_tier: 3
+    research_origin: benchmark_replacement
+  - ticker: BWXT
+    name: BWX Technologies
+    sector: Industrials
+    basket: nuclear_components_defense_benchmark
+    tracking_tier: 3
+    research_origin: benchmark_replacement
+
+metadata:
+  schema_version: 2026-08-22-v1
+  source_as_of: 2026-08-22
+  source: user_supplied_integrated_candidate_research
+  expected_ticker_count: 22
+  expected_tier_counts:
+    1: 13
+    2: 6
+    3: 3
+

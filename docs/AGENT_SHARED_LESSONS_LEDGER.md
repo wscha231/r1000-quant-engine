@@ -4150,3 +4150,45 @@ Expected contract:
 - Fullrun executed: false. Broker comparison executed: false. Production
   enabled: false. Live trading enabled: false. Automatic promotion enabled:
   false.
+
+## 2026-08-22 - Curated healthcare membership must remain latest-only
+
+- Agent: Codex GPT-5.6.
+- Branch: `codex/healthcare-biotech-universe-20260822`.
+- Context: A user-supplied 20-name healthcare/biotech comparison was audited
+  against the tracked IWB seed and latest global-alpha scored snapshot.
+- Result: Eight names were already present and 12 were missing. The complete
+  cohort is now a deduplicated global-alpha candidate overlay.
+- Caveat: The supplied list is current research membership, not historical
+  Russell 1000 membership and not a buy list.
+- Reusable lesson: Add a user-requested current cohort through a named overlay,
+  preserve its source label, and route overlay-only rows through the existing
+  latest-only backtest filter. Never rewrite the R1000 seed or historical PIT
+  membership merely to make current candidates visible.
+- Evidence files: `healthcare_biotech_universe.yaml`,
+  `tests/healthcare_biotech_universe_smoke.py`.
+- Fullrun executed: false. Target/order/ledger mutation executed: false.
+  Production enabled: false. Live trading enabled: false. Automatic promotion
+  enabled: false.
+
+## 2026-08-22 - Tracking tiers are metadata, not portfolio authority
+
+- Agent: Codex GPT-5.6.
+- Branch: `codex/healthcare-biotech-universe-20260822`.
+- Context: The user defined a 22-name recurring comparison cohort with 13
+  weekly competitors, six conditional-promotion names, and three benchmarks.
+- Result: The exact 13/6/3 structure and basket roles are preserved in a named
+  global-alpha overlay. Seventeen names were already in the latest scored
+  snapshot; five were absent, including `GNRC`, which was already present in
+  the IWB source but had not survived downstream scoring.
+- Caveat: Tracking tier does not override source availability, data quality,
+  liquidity, valuation, RS, regime, score, or risk eligibility.
+- Reusable lesson: Preserve user research taxonomy as auditable metadata, but
+  keep universe membership separate from ranking and portfolio authority. A
+  base-universe name missing from a scored artifact needs drop diagnostics,
+  not a forced-pass exception.
+- Evidence files: `core_tracking_universe.yaml`,
+  `tests/core_tracking_universe_smoke.py`.
+- Fullrun executed: false. Target/order/ledger mutation executed: false.
+  Production enabled: false. Live trading enabled: false. Automatic promotion
+  enabled: false.

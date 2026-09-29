@@ -3181,6 +3181,116 @@ def load_strategic_global_hardware_universe_frame(cfg: EngineConfig) -> pd.DataF
     return out.drop_duplicates(subset=["ticker"]).reset_index(drop=True)
 
 
+def load_healthcare_biotech_universe_frame(cfg: EngineConfig) -> pd.DataFrame:
+    """Load curated healthcare/biotech candidates from YAML.
+
+    This current-only overlay keeps the user-requested research cohort visible
+    to latest scoring without turning membership into a buy instruction or
+    bypassing downstream eligibility and risk gates.
+    """
+    path_raw = str(getattr(cfg, "healthcare_biotech_universe_path", "") or "").strip()
+    path = Path(path_raw) if path_raw else (Path(__file__).resolve().parent / "healthcare_biotech_universe.yaml")
+    columns = ["ticker", "Name", "sector", "industry_group", "cik10", "universe_source"]
+    if not path.exists():
+        log(f"[INFO] healthcare/biotech universe missing: {path}")
+        return pd.DataFrame(columns=columns)
+    try:
+        import yaml
+    except Exception as exc:
+        log(f"[WARN] healthcare/biotech universe requested but yaml import failed: {exc}")
+        return pd.DataFrame(columns=columns)
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception as exc:
+        log(f"[WARN] healthcare/biotech universe load failed: {exc}")
+        return pd.DataFrame(columns=columns)
+    raw = payload.get("healthcare_biotech_universe", [])
+    if not isinstance(raw, list):
+        return pd.DataFrame(columns=columns)
+
+    rows: list[dict[str, Any]] = []
+    for rec in raw:
+        if not isinstance(rec, dict) or rec.get("skip"):
+            continue
+        ticker = normalize_ticker(str(rec.get("ticker", "")))
+        if not is_valid_ticker(ticker):
+            continue
+        rows.append(
+            {
+                "ticker": ticker,
+                "Name": str(rec.get("name", "")),
+                "sector": str(rec.get("sector", "Health Care")),
+                "industry_group": str(rec.get("industry_group", rec.get("category", "Healthcare/Biotech"))),
+                "cik10": np.nan,
+                "universe_source": "healthcare_biotech_overlay",
+            }
+        )
+    out = pd.DataFrame(rows, columns=columns)
+    if out.empty:
+        return out
+    return out.drop_duplicates(subset=["ticker"]).reset_index(drop=True)
+
+
+def load_core_tracking_universe_frame(cfg: EngineConfig) -> pd.DataFrame:
+    """Load the tiered 22-name recurring comparison cohort from YAML.
+
+    Tier and basket metadata remain available to dedicated comparison tools;
+    candidate-universe membership itself does not bypass scoring or risk gates.
+    """
+    path_raw = str(getattr(cfg, "core_tracking_universe_path", "") or "").strip()
+    path = Path(path_raw) if path_raw else (Path(__file__).resolve().parent / "core_tracking_universe.yaml")
+    columns = [
+        "ticker", "Name", "sector", "industry_group", "tracking_tier",
+        "research_origin", "cik10", "universe_source",
+    ]
+    if not path.exists():
+        log(f"[INFO] core tracking universe missing: {path}")
+        return pd.DataFrame(columns=columns)
+    try:
+        import yaml
+    except Exception as exc:
+        log(f"[WARN] core tracking universe requested but yaml import failed: {exc}")
+        return pd.DataFrame(columns=columns)
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception as exc:
+        log(f"[WARN] core tracking universe load failed: {exc}")
+        return pd.DataFrame(columns=columns)
+    raw = payload.get("core_tracking_universe", [])
+    if not isinstance(raw, list):
+        return pd.DataFrame(columns=columns)
+
+    rows: list[dict[str, Any]] = []
+    for rec in raw:
+        if not isinstance(rec, dict) or rec.get("skip"):
+            continue
+        ticker = normalize_ticker(str(rec.get("ticker", "")))
+        if not is_valid_ticker(ticker):
+            continue
+        try:
+            tracking_tier = int(rec.get("tracking_tier"))
+        except (TypeError, ValueError):
+            continue
+        if tracking_tier not in {1, 2, 3}:
+            continue
+        rows.append(
+            {
+                "ticker": ticker,
+                "Name": str(rec.get("name", "")),
+                "sector": str(rec.get("sector", "Unknown")),
+                "industry_group": str(rec.get("basket", "Core Tracking")),
+                "tracking_tier": tracking_tier,
+                "research_origin": str(rec.get("research_origin", "")),
+                "cik10": np.nan,
+                "universe_source": "core_tracking_overlay",
+            }
+        )
+    out = pd.DataFrame(rows, columns=columns)
+    if out.empty:
+        return out
+    return out.drop_duplicates(subset=["ticker"]).reset_index(drop=True)
+
+
 def sec_actual_root(cfg: EngineConfig, paths: dict[str, Path]) -> Path:
     explicit = (cfg.sec_actual_local_dir or "").strip()
     return Path(explicit) if explicit else (paths["data_raw"] / "sec_actual")
@@ -3678,7 +3788,17 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
         bool(getattr(cfg, "strategic_global_hardware_universe_enabled", True))
         and universe_mode in {"global_alpha_universe"}
     )
+    include_healthcare_biotech = (
+        bool(getattr(cfg, "healthcare_biotech_universe_enabled", True))
+        and universe_mode in {"global_alpha_universe"}
+    )
+    include_core_tracking = (
+        bool(getattr(cfg, "core_tracking_universe_enabled", True))
+        and universe_mode in {"global_alpha_universe"}
+    )
     strategic_global_hardware_added_to_frames = False
+    healthcare_biotech_added_to_frames = False
+    core_tracking_added_to_frames = False
     hist_membership = pd.DataFrame(columns=["ticker", "Name", "sector", "cik10", "rebalance_date", "date_from", "date_to"]) if adr_only else load_historical_universe_membership(cfg, paths)
     try:
         prev = pd.read_parquet(out_path) if out_path.exists() else pd.DataFrame()
@@ -3789,6 +3909,34 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
                     f"candidates={len(strategic_hw)}, added_pre_dedup={len(added)}"
                 )
 
+        if include_healthcare_biotech:
+            healthcare = load_healthcare_biotech_universe_frame(cfg)
+            if not healthcare.empty:
+                before = set(
+                    pd.concat(frames, ignore_index=True)["ticker"].dropna().astype(str).map(normalize_ticker).tolist()
+                ) if frames else set()
+                added = set(healthcare["ticker"].dropna().astype(str).map(normalize_ticker).tolist()) - before
+                frames.append(healthcare)
+                healthcare_biotech_added_to_frames = True
+                log(
+                    "Healthcare/biotech universe injection: "
+                    f"candidates={len(healthcare)}, added_pre_dedup={len(added)}"
+                )
+
+        if include_core_tracking:
+            core_tracking = load_core_tracking_universe_frame(cfg)
+            if not core_tracking.empty:
+                before = set(
+                    pd.concat(frames, ignore_index=True)["ticker"].dropna().astype(str).map(normalize_ticker).tolist()
+                ) if frames else set()
+                added = set(core_tracking["ticker"].dropna().astype(str).map(normalize_ticker).tolist()) - before
+                frames.append(core_tracking)
+                core_tracking_added_to_frames = True
+                log(
+                    "Core tracking universe injection: "
+                    f"candidates={len(core_tracking)}, added_pre_dedup={len(added)}"
+                )
+
         if not frames:
             raise RuntimeError("Unable to build candidate universe from sources.")
 
@@ -3841,6 +3989,30 @@ def build_candidate_universe(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
             log(
                 "Strategic global hardware overlay: "
                 f"mode={universe_mode}, candidates={len(strategic_hw)}, added={len(hw_add)}"
+            )
+
+    if include_healthcare_biotech and not adr_only and not healthcare_biotech_added_to_frames:
+        healthcare = load_healthcare_biotech_universe_frame(cfg)
+        if not healthcare.empty:
+            before = set(uni["ticker"].dropna().astype(str).map(normalize_ticker).tolist())
+            healthcare_add = healthcare[~healthcare["ticker"].astype(str).isin(before)].copy()
+            if not healthcare_add.empty:
+                uni = pd.concat([uni, healthcare_add], ignore_index=True, sort=False)
+            log(
+                "Healthcare/biotech universe overlay: "
+                f"mode={universe_mode}, candidates={len(healthcare)}, added={len(healthcare_add)}"
+            )
+
+    if include_core_tracking and not adr_only and not core_tracking_added_to_frames:
+        core_tracking = load_core_tracking_universe_frame(cfg)
+        if not core_tracking.empty:
+            before = set(uni["ticker"].dropna().astype(str).map(normalize_ticker).tolist())
+            tracking_add = core_tracking[~core_tracking["ticker"].astype(str).isin(before)].copy()
+            if not tracking_add.empty:
+                uni = pd.concat([uni, tracking_add], ignore_index=True, sort=False)
+            log(
+                "Core tracking universe overlay: "
+                f"mode={universe_mode}, candidates={len(core_tracking)}, added={len(tracking_add)}"
             )
 
     uni["ticker"] = uni["ticker"].map(normalize_ticker)
@@ -4121,11 +4293,16 @@ def _leader_rescue_only_source_mask(df: pd.DataFrame) -> pd.Series:
     ADR whitelist, cycle whitelist, or the legacy explicit Wikipedia source,
     keep that base justification. This filter only removes incremental current
     overlay rows that would otherwise use today's S&P/Nasdaq/strategic hardware
-    candidates throughout historical backtests.
+    healthcare/biotech, or core-tracking candidates throughout historical
+    backtests.
     """
     source = df.get("universe_source", pd.Series("", index=df.index, dtype=object)).fillna("").astype(str)
     has_rescue = source.str.contains("leader_rescue_", regex=False) | source.str.contains(
         "strategic_global_hardware", regex=False
+    ) | source.str.contains(
+        "healthcare_biotech_overlay", regex=False
+    ) | source.str.contains(
+        "core_tracking_overlay", regex=False
     )
     has_base = (
         source.str.contains("historical_membership_file", regex=False)

@@ -3,6 +3,59 @@
 This file is the primary handoff document for coding agents resuming work on this repo.
 All entries must be written in English. Entries must be predictable and machine-scannable.
 
+## 2026-08-22
+
+### Tiered 22-name core tracking universe
+
+- scope:
+  - Preserve the user's 13/6/3 Tier 1/2/3 comparison structure as a named
+    latest-only candidate overlay for recurring expectation-model research.
+  - Keep basket and research-origin metadata without hardcoding portfolio
+    weights, ranks, or buy approval.
+- result:
+  - Seventeen of the 22 names were already present in the latest scored
+    snapshot. `CLS`, `CVLT`, `CAMT`, `GNRC`, and `KTOS` were absent; `GNRC`
+    was already in the IWB source and remains subject to the normal downstream
+    data and eligibility gates.
+  - The complete cohort now joins `global_alpha_universe` with normal source
+    deduplication. Overlay-only rows are filtered out of historical OOS months.
+- files:
+  - `core_tracking_universe.yaml`
+  - `aggressive/universe.py`
+  - `r1000_config.py`
+  - `r1000_pipeline.py`
+  - `tests/core_tracking_universe_smoke.py`
+  - `tools/run_pr_validation.py`
+- safety:
+  - No ranking, weight, target book, order, ledger, fullrun, production/live
+    state, or automatic promotion changed.
+
+### Current-only healthcare and biotechnology universe overlay
+
+- scope:
+  - Audit the 20 tickers from the user-supplied 2026-08-19 US healthcare and
+    biotechnology comparison against the tracked IWB seed and latest
+    `global_alpha_universe` scored snapshot.
+  - Keep the complete cohort visible to latest global-alpha scoring without
+    projecting current curated membership backward into historical OOS months.
+- result:
+  - Eight tickers were already present in both sources: `HALO`, `CAI`, `NBIX`,
+    `REGN`, `EXEL`, `ILMN`, `TEM`, and `NTRA`.
+  - A 20-name YAML overlay now adds the 12 missing names after normal source
+    union and deduplication.
+  - The overlay is candidate-universe membership only; normal data, liquidity,
+    scoring, and risk gates remain authoritative.
+- files:
+  - `healthcare_biotech_universe.yaml`
+  - `aggressive/universe.py`
+  - `r1000_config.py`
+  - `r1000_pipeline.py`
+  - `tests/healthcare_biotech_universe_smoke.py`
+  - `tools/run_pr_validation.py`
+- safety:
+  - Historical PIT membership was not rewritten. No target book, order,
+    ledger, fullrun, production/live state, or automatic promotion changed.
+
 ## 2026-08-03
 
 ### P1 review hardening - portable source identity and post-mutation gates
