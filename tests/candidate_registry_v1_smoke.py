@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / "research"))
 sys.path.insert(0, str(ROOT / "tests"))
 
 import a3_candidate_packet_v1_smoke as a3_fixture
+import candidate_registry_v1 as registry
 from a3_candidate_packet_v1 import evaluate_packet
 from candidate_registry_v1 import ReferenceIndexError, build_reference_index
 
@@ -348,6 +349,58 @@ class RegistryTests(unittest.TestCase):
         with patch("candidate_registry_v1.MAX_TOTAL_BYTES",8):
             with self.assertRaisesRegex(ReferenceIndexError,"total_byte_budget"):
                 self.build(e)
+
+    def test_identity_conflicts_precede_row_metadata_errors(self):
+        a, b = self.fixture("US:A"), self.fixture("US:B")
+        for source_role in ("a3_packet_ref", "a3_result_ref"):
+            for target_role in ("a3_packet_ref", "a3_result_ref"):
+                for bad_index in (0, 1):
+                    for error in ("timestamp", "reference_fields", "entry_fields"):
+                        with self.subTest(source=source_role, target=target_role,
+                                          bad_index=bad_index, error=error):
+                            rows = deepcopy([a, b])
+                            rows[1][target_role]["artifact_id"] = rows[0][source_role]["artifact_id"]
+                            bad = rows[bad_index]
+                            if error == "timestamp":
+                                bad["a3_packet_ref"]["available_at"] = "invalid"
+                            elif error == "reference_fields":
+                                del bad["a3_packet_ref"]["expires_at"]
+                            else:
+                                bad["unexpected"] = True
+                            for ordered in (rows, rows[::-1]):
+                                with patch.object(self, "resolve") as resolver:
+                                    with self.assertRaisesRegex(ReferenceIndexError, "artifact_id_conflict"):
+                                        self.build(*ordered, resolver=resolver)
+                                    resolver.assert_not_called()
+
+    def test_shared_json_decode_outcomes_are_cached(self):
+        for payload, reason in ((b'{', "invalid_json"),
+                                (b'{"x":1,"x":2}', "duplicate_json_key"),
+                                (b'{"x":1e999}', "nonfinite_json"),
+                                (b'{}', "packet_asset_identity")):
+            with self.subTest(reason=reason):
+                entry = self.fixture()
+                self.replace(entry, "a3_packet_ref", raw=payload)
+                rows = [dict(deepcopy(entry), asset_id=f"US:SHARED{i}") for i in range(20)]
+                with patch.object(registry, "_json_object", wraps=registry._json_object) as decode:
+                    out = self.build(*rows)
+                packet_decodes = [call for call in decode.call_args_list if call.args == (payload,)]
+                self.assertEqual(len(packet_decodes), 1)
+                self.assertEqual(out["blocked_count"], len(rows))
+                self.assertTrue(all(row["blockers"] == [reason] for row in out["records"]))
+
+    def test_cached_objects_preserve_read_tracking_and_invocation_scope(self):
+        entry = self.fixture()
+        snapshot = registry._Snapshot(self.resolve)
+        ref = entry["a3_packet_ref"]
+        with patch.object(registry, "_json_object", wraps=registry._json_object) as decode:
+            first = snapshot.object(ref)
+            snapshot.current_reads.clear()
+            self.assertEqual(snapshot.object(ref), first)
+            self.assertEqual(snapshot.current_reads, {(ref["artifact_id"], ref["sha256"])})
+            self.assertEqual(decode.call_count, 1)
+            registry._Snapshot(self.resolve).object(ref)
+            self.assertEqual(decode.call_count, 2)
 
     def test_hash_mismatches_consume_total_byte_budget(self):
         entries = [self.fixture(f"US:BROKEN{i}") for i in range(3)]

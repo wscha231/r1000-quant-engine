@@ -1,5 +1,18 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-30 — Preflight immutable IDs and cache JSON outcomes (#560)
+
+- Register all syntactically valid supplied packet/result ID-hash pairs before
+  row-local metadata validation; an invalid timestamp or missing field must not
+  hide a batch-level immutable identity conflict.
+- Cache both decoded objects and bounded decode-failure reasons per invocation.
+  A resolved-byte cache alone permits repeated parsing of the same malformed
+  blob; preserve per-row read tracking on cache hits. Regression tests reproduce
+  both findings and cover packet/result cross-role conflicts and input ordering.
+- Native Python 3.12 focused/integrated tests and quick smoke pass. The broader
+  smoke runner cannot pass in this environment without numpy/pandas; do not
+  report focused validation as full repository CI or exact-head review.
+
 ## 2026-09-29 — A3 reference replay is not current or economic authority (#516)
 
 - Reuse the existing A3 validator to bind saved results to exact packet and

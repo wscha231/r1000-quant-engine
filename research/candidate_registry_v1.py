@@ -132,12 +132,14 @@ class _Snapshot:
     def __init__(self, resolver: ArtifactResolver):
         self.resolver = resolver
         self.cache: dict[tuple[str, str], bytes] = {}
+        self.objects: dict[tuple[str, str], dict[str, Any]] = {}
+        self.decode_errors: dict[tuple[str, str], str] = {}
         self.identities: dict[str, str] = {}
         self.bytes_read = 0
         self.current_reads: set[tuple[str, str]] = set()
         self.fatal: _BatchError | None = None
 
-    def read(self, aid: str, digest: str) -> bytes:
+    def register(self, aid: str, digest: str) -> None:
         _identifier(aid, "artifact_id")
         _digest(digest)
         old = self.identities.get(aid)
@@ -145,6 +147,9 @@ class _Snapshot:
             self.fatal = _BatchError("artifact_id_conflict")
             raise self.fatal
         self.identities[aid] = digest
+
+    def read(self, aid: str, digest: str) -> bytes:
+        self.register(aid, digest)
         key = (aid, digest)
         self.current_reads.add(key)
         if key in self.cache:
@@ -164,7 +169,19 @@ class _Snapshot:
         return raw
 
     def object(self, ref: dict[str, Any]) -> dict[str, Any]:
-        return _json_object(self.read(ref["artifact_id"], ref["sha256"]))
+        # Always track reads, even when decoding has already succeeded/failed.
+        raw = self.read(ref["artifact_id"], ref["sha256"])
+        key = (ref["artifact_id"], ref["sha256"])
+        if key in self.decode_errors:
+            raise ReferenceIndexError(self.decode_errors[key])
+        if key not in self.objects:
+            try:
+                self.objects[key] = _json_object(raw)
+            except ReferenceIndexError as exc:
+                # Store only the bounded reason, not a traceback retaining raw data.
+                self.decode_errors[key] = str(exc)
+                raise
+        return self.objects[key]
 
 
 def _reference(value: Any, cutoff: datetime) -> dict[str, Any]:
@@ -288,6 +305,19 @@ def build_reference_index(entries: Any, *, cutoff: str,
         _require(aid not in seen, "duplicate_asset_id")
         seen.add(aid)
     snapshot = _Snapshot(artifact_resolver)
+    # Contradictory immutable identities are a batch error, even if a row's
+    # timestamps or other metadata will prevent it from reaching resolution.
+    for entry in entries:
+        for role in ("a3_packet_ref", "a3_result_ref"):
+            ref = entry.get(role)
+            if not isinstance(ref, dict):
+                continue
+            try:
+                aid = _identifier(ref.get("artifact_id"), "artifact_id")
+                digest = _digest(ref.get("sha256"))
+            except ReferenceIndexError:
+                continue  # Malformed identity descriptors remain row-local errors.
+            snapshot.register(aid, digest)
     records = []
     for entry in sorted(entries, key=lambda e: e["asset_id"]):
         row = _closed_record(entry)
