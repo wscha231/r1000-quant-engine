@@ -1473,7 +1473,8 @@ def test_legacy_migration_root_rejects_forgery_and_reuses_exact_head() -> None:
             shutil.move(saved_alias_head, root / "paper_heads_current" / successor_sha)
 
             # Corrupted mutable alias bytes fail physical integrity verification.
-            alias_fixture = root / "paper_current/h1_fixture/file_000.json"
+            alias_relative = next(iter(successor["files"]))
+            alias_fixture = root / "paper_current" / alias_relative
             alias_fixture_raw = alias_fixture.read_bytes()
             alias_fixture.write_bytes(b"{}")
             with checks.assertRaises(Exception):

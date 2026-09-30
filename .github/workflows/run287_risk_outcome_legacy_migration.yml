@@ -239,12 +239,6 @@ jobs:
           copy_checked "$ARCHIVE/run287_daily_simulated_fill_ledger" "$ROOT/paper_current"
           copy_checked "$ARCHIVE/run287_daily_simulated_fill_ledger_heads" "$ROOT/paper_heads_current"
           copy_checked "$ARCHIVE/run287_risk_outcome_archive" "$ROOT/legacy_current"
-          python tools/run287_paper_ledger_integrity.py \
-            --select-immutable-heads-root "$ROOT/paper_heads_current" --output "$ROOT/current_selection.json"
-          python tools/run287_paper_ledger_integrity.py \
-            --state-dir "$ROOT/paper_current" --require-integrity \
-            --immutable-head-selection "$ROOT/current_selection.json" \
-            --verifier-receipt-output "$ROOT/current_verifier.json"
           if [ "$BEFORE" = EMPTY ]; then
             # First build binds the current, exact reviewed six-head source.
             cp -a "$ROOT/paper_current" "$ROOT/paper"

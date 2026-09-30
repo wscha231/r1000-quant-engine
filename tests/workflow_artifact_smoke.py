@@ -2665,6 +2665,9 @@ def test_legacy_migration_workflow_is_dispatch_only_and_manifest_last() -> None:
     checks.assertIn('python "$BUILDER" receipt', script)
     checks.assertIn('copy_checked "$ARCHIVE/run287_daily_simulated_fill_ledger" "$ROOT/paper_current"', script)
     checks.assertIn('copy_checked "$ARCHIVE/run287_risk_outcome_archive" "$ROOT/legacy_current"', script)
+    checks.assertNotIn('current_verifier.json', script)
+    checks.assertNotIn('--state-dir "$ROOT/paper_current" --require-integrity', script)
+    checks.assertIn('--state-dir "$ROOT/paper" --require-integrity', script)
     checks.assertLess(script.index('copy_checked "$ACCEPTED" "$ROOT/accepted"'),
                      script.index('python "$BUILDER" prepare'))
     checks.assertIn('HEAD_SHA="$(python "$BUILDER" prepare --root "$ROOT" --code-sha "$EXPECTED_MASTER_SHA")"', script)
