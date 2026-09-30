@@ -1534,9 +1534,32 @@ def test_legacy_migration_root_rejects_forgery_and_reuses_exact_head() -> None:
             migration.inventory(raw)
 
 
+def test_legacy_migration_security_path_under_python_optimize() -> None:
+    """Run the migration recovery regression with Python assertions disabled."""
+    import subprocess
+
+    if os.environ.get("RUN287_OPTIMIZED_MIGRATION_CHILD") == "1":
+        return
+    result = subprocess.run(
+        [sys.executable, "-O", str(Path(__file__).resolve())],
+        cwd=ROOT,
+        env={**os.environ, "RUN287_OPTIMIZED_MIGRATION_CHILD": "1"},
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            "optimized migration regression failed:\n"
+            + result.stdout[-4000:]
+            + result.stderr[-4000:]
+        )
+
+
 def main() -> None:
     tests = [
         test_legacy_migration_root_rejects_forgery_and_reuses_exact_head,
+        test_legacy_migration_security_path_under_python_optimize,
         test_normal_two_head_chain_verify_and_idempotent_stage,
         test_event_tamper_is_rejected_without_relying_on_folder_manifest,
         test_skipped_archive_allows_missing_empty_event_log,
@@ -1565,4 +1588,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    if os.environ.get("RUN287_OPTIMIZED_MIGRATION_CHILD") == "1":
+        test_legacy_migration_root_rejects_forgery_and_reuses_exact_head()
+        print("run287_risk_outcome_accepted_heads_smoke: optimized migration passed")
+    else:
+        main()
