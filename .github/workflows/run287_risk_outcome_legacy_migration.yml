@@ -236,16 +236,26 @@ jobs:
             "$RCLONE_BIN" check "$remote/" "$destination/" --checksum
           }
           BEFORE="$(discover)"
-          copy_checked "$ARCHIVE/run287_daily_simulated_fill_ledger" "$ROOT/paper"
-          copy_checked "$ARCHIVE/run287_daily_simulated_fill_ledger_heads" "$ROOT/paper_heads"
-          copy_checked "$ARCHIVE/run287_risk_outcome_archive" "$ROOT/legacy"
+          copy_checked "$ARCHIVE/run287_daily_simulated_fill_ledger" "$ROOT/paper_current"
+          copy_checked "$ARCHIVE/run287_daily_simulated_fill_ledger_heads" "$ROOT/paper_heads_current"
+          copy_checked "$ARCHIVE/run287_risk_outcome_archive" "$ROOT/legacy_current"
           python tools/run287_paper_ledger_integrity.py \
-            --select-immutable-heads-root "$ROOT/paper_heads" --output "$ROOT/selection.json"
+            --select-immutable-heads-root "$ROOT/paper_heads_current" --output "$ROOT/current_selection.json"
           python tools/run287_paper_ledger_integrity.py \
-            --state-dir "$ROOT/paper" --require-integrity \
-            --immutable-head-selection "$ROOT/selection.json" \
-            --verifier-receipt-output "$ROOT/verifier.json"
+            --state-dir "$ROOT/paper_current" --require-integrity \
+            --immutable-head-selection "$ROOT/current_selection.json" \
+            --verifier-receipt-output "$ROOT/current_verifier.json"
           if [ "$BEFORE" = EMPTY ]; then
+            # First build binds the current, exact reviewed six-head source.
+            cp -a "$ROOT/paper_current" "$ROOT/paper"
+            cp -a "$ROOT/paper_heads_current" "$ROOT/paper_heads"
+            cp -a "$ROOT/legacy_current" "$ROOT/legacy"
+            python tools/run287_paper_ledger_integrity.py \
+              --select-immutable-heads-root "$ROOT/paper_heads" --output "$ROOT/selection.json"
+            python tools/run287_paper_ledger_integrity.py \
+              --state-dir "$ROOT/paper" --require-integrity \
+              --immutable-head-selection "$ROOT/selection.json" \
+              --verifier-receipt-output "$ROOT/verifier.json"
             python tools/build_run287_risk_outcome_parent_preflight.py \
               --event-name "$GITHUB_EVENT_NAME" --source-commit-sha "$EXPECTED_MASTER_SHA" \
               --source-run-id "$GITHUB_RUN_ID" --source-run-attempt "$GITHUB_RUN_ATTEMPT" \
@@ -265,9 +275,9 @@ jobs:
             # Recheck source state before first durable write. Shared concurrency
             # serializes this writer with ordinary daily and later migration runs.
             assert_master
-            "$RCLONE_BIN" check "$ARCHIVE/run287_daily_simulated_fill_ledger/" "$ROOT/paper/" --checksum
-            "$RCLONE_BIN" check "$ARCHIVE/run287_daily_simulated_fill_ledger_heads/" "$ROOT/paper_heads/" --checksum
-            "$RCLONE_BIN" check "$ARCHIVE/run287_risk_outcome_archive/" "$ROOT/legacy/" --checksum
+            "$RCLONE_BIN" check "$ARCHIVE/run287_daily_simulated_fill_ledger/" "$ROOT/paper_current/" --checksum
+            "$RCLONE_BIN" check "$ARCHIVE/run287_daily_simulated_fill_ledger_heads/" "$ROOT/paper_heads_current/" --checksum
+            "$RCLONE_BIN" check "$ARCHIVE/run287_risk_outcome_archive/" "$ROOT/legacy_current/" --checksum
             test "$(discover)" = EMPTY
             "$RCLONE_BIN" copy "$STAGED/" "$ACCEPTED/$HEAD_SHA/" \
               --exclude manifest.json --immutable --transfers 1
@@ -285,20 +295,25 @@ jobs:
             cmp "$ROOT/expected.txt" "$ROOT/observed.txt"
             "$RCLONE_BIN" copyto "$STAGED/manifest.json" "$ACCEPTED/$HEAD_SHA/manifest.json" --immutable
             BEFORE_COUNT=0
+            EXPECTED_INVENTORY="$HEAD_SHA"
           else
-            # Never rebuild using a new run ID: verify the original exact root.
-            HEAD_SHA="$BEFORE"
-            BEFORE_COUNT=1
+            # Reconstruct the original root from its own producer/evidence and
+            # immutable paper ancestors. Current aliases may be descendants.
+            copy_checked "$ACCEPTED" "$ROOT/accepted"
+            test "$(discover)" = "$BEFORE"
+            HEAD_SHA="$(python "$BUILDER" prepare --root "$ROOT" --code-sha "$EXPECTED_MASTER_SHA")"
+            BEFORE_COUNT="$(printf '%s\n' "$BEFORE" | wc -l)"
+            EXPECTED_INVENTORY="$BEFORE"
           fi
-          test "$(discover)" = "$HEAD_SHA"
+          test "$(discover)" = "$EXPECTED_INVENTORY"
           copy_checked "$ACCEPTED" "$ROOT/accepted"
           python "$BUILDER" verify --root "$ROOT" --head "$HEAD_SHA" --code-sha "$EXPECTED_MASTER_SHA"
           # Reconfirm authoritative state after readback, including verify-only runs.
           assert_master
-          "$RCLONE_BIN" check "$ARCHIVE/run287_daily_simulated_fill_ledger/" "$ROOT/paper/" --checksum
-          "$RCLONE_BIN" check "$ARCHIVE/run287_daily_simulated_fill_ledger_heads/" "$ROOT/paper_heads/" --checksum
-          "$RCLONE_BIN" check "$ARCHIVE/run287_risk_outcome_archive/" "$ROOT/legacy/" --checksum
-          test "$(discover)" = "$HEAD_SHA"
+          "$RCLONE_BIN" check "$ARCHIVE/run287_daily_simulated_fill_ledger/" "$ROOT/paper_current/" --checksum
+          "$RCLONE_BIN" check "$ARCHIVE/run287_daily_simulated_fill_ledger_heads/" "$ROOT/paper_heads_current/" --checksum
+          "$RCLONE_BIN" check "$ARCHIVE/run287_risk_outcome_archive/" "$ROOT/legacy_current/" --checksum
+          test "$(discover)" = "$EXPECTED_INVENTORY"
           python "$BUILDER" receipt --root "$ROOT" --head "$HEAD_SHA" \
             --code-sha "$EXPECTED_MASTER_SHA" --before "$BEFORE_COUNT"
 

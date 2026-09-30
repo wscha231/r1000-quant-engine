@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -25,6 +26,7 @@ if str(ROOT) not in sys.path:
 from tools import build_run287_risk_outcome_parent_preflight as preflight
 from tools.build_run287_risk_outcome_parent_anchor import build_anchor
 from tools import manage_run287_risk_outcome_accepted_heads as heads
+from tools import run287_paper_ledger_integrity as paper_integrity
 
 PAPER_TERMINAL = "65fa6f5b4b12729811b72a90661fc744320826dfe868ec6da2632768b1ec02a7"
 PAPER_ROOT = "f904fa6bd1d4280f688f99b4562837e48ad196942f75a3b9ad0b2aeb917709a3"
@@ -77,10 +79,114 @@ def inventory(raw: str) -> list[str]:
                 and parts[1] in allowed, "unexpected_remote_file")
     committed = sorted(path.split("/")[0] for path in paths
                        if path.endswith("/manifest.json"))
-    require(len(committed) <= 1, "multiple_accepted_heads")
     require(all(path.split("/")[0] in committed for path in paths),
             "uncommitted_remote_head_requires_recovery")
     return committed
+
+
+def embedded_evidence(manifest: dict) -> dict[str, bytes]:
+    evidence = {}
+    for key, record in manifest["migration"]["evidence"].items():
+        value = base64.b64decode(record["base64"], validate=True)
+        require(sha(value) == record["sha256"] and len(value) == record["bytes"],
+                "embedded_evidence_hash_mismatch")
+        evidence[key] = value
+    require(set(evidence) == {"preflight", "legacy_summary", "legacy_events",
+                              "paper_selection", "paper_verifier"}, "evidence_set_invalid")
+    return evidence
+
+
+def accepted_chain(root: Path) -> tuple[dict, dict]:
+    selection = heads.select_heads(heads_root=root / "accepted")
+    for digest in selection["chain_accepted_manifest_sha256s"]:
+        heads.verify_head(head_dir=root / "accepted" / digest,
+                          expected_manifest_sha256=digest)
+    root_manifest = obj(read(root / "accepted" /
+                             selection["root_accepted_manifest_sha256"] / "manifest.json"))
+    require(root_manifest.get("migration", {}).get("schema_version") ==
+            "run287-legacy-migration-root-v1", "accepted_root_not_migration")
+    return selection, root_manifest
+
+
+def current_state(root: Path, selection: dict, manifest: dict,
+                  evidence: dict[str, bytes]) -> None:
+    """Verify mutable aliases against current immutable lineages, not old bytes."""
+    paper_heads = root / "paper_heads_current"
+    current_selection = paper_integrity.select_verified_immutable_paper_head(paper_heads)
+    original_selection = obj(evidence["paper_selection"])
+    original_chain = original_selection["chain_snapshot_hashes"]
+    require(original_chain == current_selection["chain_snapshot_hashes"][:len(original_chain)]
+            and original_selection["terminal_snapshot_hash"] == PAPER_TERMINAL
+            and original_selection["root_snapshot_hash"] == PAPER_ROOT,
+            "current_paper_chain_not_original_descendant")
+    current_selection_path = root / "current_selection.json"
+    current_selection_path.write_bytes(raw_json(current_selection))
+    paper_integrity.build_integrity_verifier_receipt(
+        root / "paper_current", immutable_head_selection=current_selection_path)
+    current_paper = paper_integrity.verify_integrity_manifest(
+        root / "paper_current", require=True)
+    require(current_paper["snapshot_hash"] == current_selection["terminal_snapshot_hash"],
+            "current_paper_alias_not_terminal")
+    # Every accepted outcome publication must reference a physically verified
+    # paper ancestor, not merely claim ancestry in its own manifest.
+    for digest in selection["chain_accepted_manifest_sha256s"]:
+        outcome = obj(read(root / "accepted" / digest / "manifest.json"))
+        snapshot = outcome["paper_snapshot"]
+        paper_digest = snapshot["snapshot_hash"]
+        require(paper_digest in current_selection["chain_snapshot_hashes"],
+                "accepted_outcome_paper_head_missing")
+        physical = obj(read(paper_heads / paper_digest / "snapshot_integrity.json"))
+        for key in ("snapshot_hash", "previous_snapshot_hash", "ancestor_snapshot_hashes",
+                    "genesis_identity_sha256", "file_count"):
+            require(snapshot[key] == physical[key], "accepted_outcome_paper_identity_mismatch")
+        publication = obj(read(paper_heads / paper_digest / "accepted_publication.json"))
+        require(snapshot["transaction_mode"] == publication["transaction_mode"],
+                "accepted_outcome_paper_mode_mismatch")
+    original_snapshot = manifest["paper_snapshot"]
+    require(current_paper["snapshot_hash"] == original_snapshot["snapshot_hash"] or
+            original_snapshot["snapshot_hash"] in current_paper["ancestor_snapshot_hashes"],
+            "current_paper_alias_not_original_descendant")
+
+    alias_summary = read(root / "legacy_current/summary.json")
+    event_path = root / "legacy_current/risk_outcome_events.jsonl"
+    alias_events = read(event_path) if event_path.exists() or event_path.is_symlink() else b""
+    if selection["accepted_head_count"] == 1 and (alias_summary, alias_events) == (
+            evidence["legacy_summary"], evidence["legacy_events"]):
+        return  # The migration intentionally leaves the original legacy alias in place.
+    terminal = root / "accepted" / selection["terminal_accepted_manifest_sha256"]
+    require(alias_summary == read(terminal / heads.SUMMARY_RELATIVE_PATH)
+            and alias_events == read(terminal / heads.EVENT_LOG_RELATIVE_PATH),
+            "current_legacy_alias_not_accepted_terminal")
+
+
+def prepare_recovery(root: Path, verifier_sha: str) -> str:
+    """Restore the accepted root's historical paper from immutable current heads."""
+    require(re.fullmatch(r"[0-9a-f]{40}", verifier_sha) is not None,
+            "current_verifier_sha_invalid")
+    selection, manifest = accepted_chain(root)
+    evidence = embedded_evidence(manifest)
+    old_selection = obj(evidence["paper_selection"])
+    historical_heads = root / "paper_heads"
+    require(Path(old_selection["heads_root"]) == historical_heads.resolve() and
+            Path(old_selection["selected_head_dir"]) ==
+            historical_heads.resolve() / PAPER_TERMINAL,
+            "historical_paper_selection_path_mismatch")
+    require(not historical_heads.exists() and not (root / "paper").exists(),
+            "historical_paper_recovery_destination_not_empty")
+    current_state(root, selection, manifest, evidence)
+    historical_heads.mkdir()
+    for digest in old_selection["chain_snapshot_hashes"]:
+        shutil.copytree(root / "paper_heads_current" / digest,
+                        historical_heads / digest)
+    paper_integrity.install_verified_snapshot(
+        historical_heads / PAPER_TERMINAL, root / "paper")
+    # Original absolute paths and bytes must still reproduce the saved verifier.
+    (root / "selection.json").write_bytes(evidence["paper_selection"])
+    paper_integrity.build_integrity_verifier_receipt(
+        root / "paper", immutable_head_selection=root / "selection.json")
+    verify(head=root / "accepted" / selection["root_accepted_manifest_sha256"],
+           paper_dir=root / "paper", code_sha=verifier_sha)
+    return selection["root_accepted_manifest_sha256"]
 
 
 def construct(evidence: dict[str, bytes], paper_dir: Path, code_sha: str) -> tuple[dict, bytes]:
@@ -205,15 +311,11 @@ def verify(*, head: Path, paper_dir: Path, code_sha: str) -> dict:
     heads.verify_head(head_dir=head, expected_manifest_sha256=head.name)
     raw = read(head / "manifest.json")
     manifest = obj(raw)
-    evidence = {}
-    for key, record in manifest["migration"]["evidence"].items():
-        value = base64.b64decode(record["base64"], validate=True)
-        require(sha(value) == record["sha256"] and len(value) == record["bytes"],
-                "embedded_evidence_hash_mismatch")
-        evidence[key] = value
-    require(set(evidence) == {"preflight", "legacy_summary", "legacy_events",
-                              "paper_selection", "paper_verifier"}, "evidence_set_invalid")
-    expected, summary = construct(evidence, paper_dir, code_sha)
+    require(re.fullmatch(r"[0-9a-f]{40}", code_sha) is not None,
+            "current_verifier_sha_invalid")
+    evidence = embedded_evidence(manifest)
+    producer_sha = manifest["source_identity"]["commit_sha"]
+    expected, summary = construct(evidence, paper_dir, producer_sha)
     require(raw_json(expected) == raw and read(head / heads.SUMMARY_RELATIVE_PATH) == summary,
             "migration_root_not_exact_reconstruction")
     return manifest
@@ -221,16 +323,16 @@ def verify(*, head: Path, paper_dir: Path, code_sha: str) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("inventory", "build", "verify", "receipt"))
+    parser.add_argument("mode", choices=("inventory", "build", "prepare", "verify", "receipt"))
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--code-sha", default="")
     parser.add_argument("--head", default="")
-    parser.add_argument("--before", type=int, choices=(0, 1))
+    parser.add_argument("--before", type=int)
     args = parser.parse_args()
     root = args.root
     if args.mode == "inventory":
         found = inventory(root.read_text())
-        print(found[0] if found else "EMPTY")
+        print("\n".join(found) if found else "EMPTY")
         return 0
     if args.mode == "build":
         evidence = {key: read(root / filename) for key, filename in {
@@ -241,23 +343,25 @@ def main() -> int:
         print(build(evidence=evidence, paper_dir=root / "paper", code_sha=args.code_sha,
                     output=root / "build"))
         return 0
+    if args.mode == "prepare":
+        print(prepare_recovery(root, args.code_sha))
+        return 0
     require(re.fullmatch(r"[0-9a-f]{64}", args.head) is not None, "head_invalid")
-    selection = heads.select_heads(heads_root=root / "accepted")
-    require(selection["accepted_head_count"] == 1 and
-            selection["selected_accepted_manifest_sha256"] == args.head, "readback_graph_changed")
+    selection, root_manifest = accepted_chain(root)
+    require(selection["root_accepted_manifest_sha256"] == args.head,
+            "readback_graph_changed")
     manifest = verify(head=root / "accepted" / args.head, paper_dir=root / "paper",
                       code_sha=args.code_sha)
-    current_legacy = read(root / "legacy/summary.json")
-    current_events_path = root / "legacy/risk_outcome_events.jsonl"
-    current_events = (read(current_events_path)
-                      if current_events_path.exists() or current_events_path.is_symlink() else b"")
-    require(sha(current_legacy) == LEGACY_SHA and current_events == b"",
-            "current_legacy_identity_changed")
+    require(manifest == root_manifest, "readback_root_changed")
+    current_state(root, selection, manifest, embedded_evidence(manifest))
     if args.mode == "receipt":
-        require(args.before in (0, 1), "before_count_required")
+        require(args.before is not None and args.before >= 0 and
+                selection["accepted_head_count"] == max(1, args.before),
+                "before_count_invalid")
         require(os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch", "event_invalid")
         binding = manifest["migration"]
-        receipt = {"schema_version": "run287-legacy-migration-receipt-v1",
+        producer_sha = manifest["source_identity"]["commit_sha"]
+        receipt = {"schema_version": "run287-legacy-migration-receipt-v2",
                    "status": "PERSISTED_READBACK_VERIFIED" if args.before == 0 else "IDEMPOTENT_VERIFY_ONLY",
                    "workflow_run_id": os.environ["GITHUB_RUN_ID"],
                    "workflow_run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
@@ -266,6 +370,8 @@ def main() -> int:
                    "observed_master_sha": args.code_sha,
                    "current_master_sha": args.code_sha,
                    "reviewed_code_sha": args.code_sha,
+                   "migration_producer_sha": producer_sha,
+                   "current_verifier_sha": args.code_sha,
                    "session_date": os.environ["REQUESTED_SESSION_DATE"],
                    "migration_session_date": binding["session_date"],
                    "paper_terminal": PAPER_TERMINAL, "paper_root": PAPER_ROOT,
@@ -276,7 +382,8 @@ def main() -> int:
                    "evidence_hashes": {key: value["sha256"] for key, value in binding["evidence"].items()},
                    "preflight_status": "READY_ONE_TIME_LEGACY_QUARANTINE",
                    "accepted_manifest_sha256": args.head,
-                   "before_committed_head_count": args.before, "after_committed_head_count": 1,
+                   "before_committed_head_count": args.before,
+                   "after_committed_head_count": selection["accepted_head_count"],
                    "readback_verification_status": "VERIFIED_ACCEPTED_HEAD", **envelope()}
         raw = raw_json(receipt)
         destination = root / "receipts" / (sha(raw) + ".json")

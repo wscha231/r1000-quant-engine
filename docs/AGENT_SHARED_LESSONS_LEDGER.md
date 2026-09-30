@@ -1,5 +1,23 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-30 — Migration recovery must separate producer from verifier (#563)
+
+- Exact-head Codex review found that a committed migration root could not be
+  verified after master advanced: reconstruction used the current verifier SHA
+  as the original preflight producer SHA. Preserve the producer in the immutable
+  manifest, reconstruct with that producer, and attest the current verifier
+  separately in a versioned receipt. First-build authorization still requires
+  producer and exact current master to match.
+- A later ordinary daily run may legitimately advance both mutable paper and
+  risk-outcome aliases. Recover the original six-head paper prefix from the
+  immutable head chain and the original legacy bytes from the migration
+  manifest. Verify current aliases against the descendant paper and accepted
+  outcome chains; do not require mutable aliases to remain at migration time.
+- Existing accepted namespaces may contain a linear descendant chain, so a
+  verify-only rerun must validate the whole chain and retain the original root.
+  Missing ancestors, divergent aliases, or payload-only heads still fail closed.
+  This repository correction does not authorize a Drive write or migration run.
+
 ## 2026-09-30 — Legacy outcome repair must preserve original evidence (#509)
 
 - Bash clears `errexit` inside command substitution on common runners. A

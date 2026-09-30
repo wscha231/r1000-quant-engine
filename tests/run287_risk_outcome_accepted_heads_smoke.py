@@ -1180,11 +1180,15 @@ def test_three_generation_offline_bundle_chain_is_recoverable() -> None:
 def test_legacy_migration_root_rejects_forgery_and_reuses_exact_head() -> None:
     """Entirely synthetic six-head state; no network, credentials or Drive."""
     import socket
+    import shutil
     import unittest
     from unittest.mock import patch
     from tools import build_run287_risk_outcome_legacy_migration as migration
     from tools.build_run287_risk_outcome_parent_preflight import build_receipt
-    from tests.run287_risk_outcome_parent_preflight_smoke import base_kwargs
+    from tests.run287_risk_outcome_parent_preflight_smoke import base_kwargs, PAPER_DATES
+    from tests.run287_paper_ledger_transaction_smoke import ledger_args, prepare
+    from tools.run_daily_simulated_fill_ledger import run as run_paper_ledger
+    from tools import run287_paper_ledger_integrity as paper_integrity
 
     checks = unittest.TestCase()
     with tempfile.TemporaryDirectory() as tmp, patch.object(
@@ -1192,6 +1196,13 @@ def test_legacy_migration_root_rejects_forgery_and_reuses_exact_head() -> None:
     ), patch.object(socket, "create_connection", side_effect=RuntimeError("network forbidden")):
         root = Path(tmp)
         kwargs = base_kwargs(root)
+        shutil.move(root / "heads", root / "paper_heads")
+        selection = paper_integrity.select_verified_immutable_paper_head(root / "paper_heads")
+        Path(kwargs["paper_immutable_head_selection_path"]).write_bytes(migration.raw_json(selection))
+        verifier = paper_integrity.build_integrity_verifier_receipt(
+            root / "paper", immutable_head_selection=kwargs["paper_immutable_head_selection_path"])
+        Path(kwargs["paper_integrity_verifier_receipt_path"]).write_bytes(
+            paper_integrity.integrity_verifier_receipt_bytes(verifier))
         kwargs.update(event_name="workflow_dispatch", allow_quarantined_legacy_outcome_parent=True)
         receipt, code = build_receipt(**kwargs)
         checks.assertEqual(code, 0)
@@ -1235,8 +1246,10 @@ def test_legacy_migration_root_rejects_forgery_and_reuses_exact_head() -> None:
             for key in ("legacy_summary", "legacy_events", "paper_verifier", "paper_selection"):
                 with checks.assertRaises((ValueError, KeyError)):
                     migration.construct(**{**args, "evidence": {**evidence, key: evidence[key] + b"tamper"}})
+            checks.assertEqual(migration.verify(
+                head=head, paper_dir=root / "paper", code_sha="f" * 40), manifest)
             with checks.assertRaisesRegex(ValueError, "preflight_source_mismatch"):
-                migration.verify(head=head, paper_dir=root / "paper", code_sha="f" * 40)
+                migration.construct(**{**args, "code_sha": "f" * 40})
             # A generic-manager-valid manifest with a changed migration binding is still divergent.
             divergent = json.loads((head / "manifest.json").read_bytes())
             divergent["migration"]["session_date"] = "2026-09-01"
@@ -1247,10 +1260,21 @@ def test_legacy_migration_root_rejects_forgery_and_reuses_exact_head() -> None:
             (other / "manifest.json").write_bytes(migration.raw_json(divergent))
             with checks.assertRaisesRegex(ValueError, "migration_root_not_exact_reconstruction"):
                 migration.verify(head=other, paper_dir=root / "paper", code_sha=args["code_sha"])
+            producer_changed = json.loads((head / "manifest.json").read_bytes())
+            producer_changed["source_identity"]["commit_sha"] = "f" * 40
+            producer_sha = migration.sha(migration.raw_json(producer_changed))
+            producer_head = root / "producer_changed" / producer_sha
+            shutil.copytree(head, producer_head)
+            (producer_head / "manifest.json").write_bytes(migration.raw_json(producer_changed))
+            with checks.assertRaisesRegex(ValueError, "preflight_source_mismatch"):
+                migration.verify(head=producer_head, paper_dir=root / "paper",
+                                 code_sha="f" * 40)
             # Verify-only reruns emit their own immutable receipt, never another root.
             shutil.copytree(head, root / "accepted" / digest)
-            (root / "legacy").mkdir()
-            (root / "legacy/summary.json").write_bytes(evidence["legacy_summary"])
+            shutil.copytree(root / "paper", root / "paper_current")
+            shutil.copytree(root / "paper_heads", root / "paper_heads_current")
+            (root / "legacy_current").mkdir()
+            (root / "legacy_current/summary.json").write_bytes(evidence["legacy_summary"])
             with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch",
                                          "GITHUB_RUN_ID": "999", "GITHUB_RUN_ATTEMPT": "2",
                                          "REQUESTED_SESSION_DATE": "2026-09-30"}), patch.object(
@@ -1268,20 +1292,154 @@ def test_legacy_migration_root_rejects_forgery_and_reuses_exact_head() -> None:
             checks.assertEqual(rerun["expected_master_sha"], args["code_sha"])
             checks.assertEqual(rerun["observed_master_sha"], args["code_sha"])
             checks.assertEqual(rerun["reviewed_code_sha"], args["code_sha"])
+            checks.assertEqual(rerun["migration_producer_sha"], args["code_sha"])
+            checks.assertEqual(rerun["current_verifier_sha"], args["code_sha"])
             for field, key in (("paper_verifier_receipt_sha256", "paper_verifier"),
                                ("legacy_summary_sha256", "legacy_summary"),
                                ("legacy_event_log_sha256", "legacy_events"),
                                ("preflight_receipt_sha256", "preflight")):
                 checks.assertEqual(rerun[field], sha256_bytes(evidence[key]))
             checks.assertEqual(list((root / "accepted").iterdir()), [root / "accepted" / digest])
-            # A paper file change invalidates the root, even with an unchanged saved verifier.
+            # A later current master reuses the original producer and head bytes.
+            original_manifest = (head / "manifest.json").read_bytes()
+            shutil.rmtree(root / "paper")
+            shutil.rmtree(root / "paper_heads")
+            checks.assertEqual(migration.prepare_recovery(root, "f" * 40), digest)
+            checks.assertEqual((head / "manifest.json").read_bytes(), original_manifest)
+            checks.assertEqual(migration.verify(
+                head=head, paper_dir=root / "paper", code_sha="f" * 40), manifest)
+            with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch",
+                                         "GITHUB_RUN_ID": "1000", "GITHUB_RUN_ATTEMPT": "1",
+                                         "REQUESTED_SESSION_DATE": "2026-09-30"}), patch.object(
+                sys, "argv", ["migration", "receipt", "--root", str(root), "--head", digest,
+                              "--code-sha", "f" * 40, "--before", "1"]
+            ):
+                checks.assertEqual(migration.main(), 0)
+            later = next(json.loads(path.read_bytes()) for path in (root / "receipts").glob("*.json")
+                         if json.loads(path.read_bytes())["workflow_run_id"] == "1000")
+            checks.assertEqual(later["migration_producer_sha"], args["code_sha"])
+            checks.assertEqual(later["current_verifier_sha"], "f" * 40)
+            checks.assertEqual(later["before_committed_head_count"], 1)
+            checks.assertEqual(later["after_committed_head_count"], 1)
+            checks.assertEqual([path.name for path in (root / "accepted").iterdir()], [digest])
+            def recover_with_current_state() -> None:
+                shutil.rmtree(root / "paper")
+                shutil.rmtree(root / "paper_heads")
+                checks.assertEqual(migration.prepare_recovery(root, "f" * 40), digest)
+                checks.assertEqual((head / "manifest.json").read_bytes(), original_manifest)
+
+            # Paper may advance while the original migration remains the only outcome head.
+            successor_run = root / "successor_run"
+            shutil.copytree(root / "paper_current", successor_run / "paper")
+            prepare(successor_run, [*PAPER_DATES, "2026-07-27"])
+            checks.assertEqual(run_paper_ledger(ledger_args(
+                successor_run, "2026-07-27", suppress_new_orders=True))["status"],
+                "completed")
+            successor = json.loads((successor_run / "paper/snapshot_integrity.json").read_bytes())
+            successor_sha = successor["snapshot_hash"]
+            shutil.rmtree(root / "paper_current")
+            shutil.copytree(successor_run / "paper", root / "paper_current")
+            shutil.copytree(root / "paper_current", root / "paper_heads_current" / successor_sha)
+            shutil.copytree(root / "paper_current", root / "paper_successor")
+            recover_with_current_state()
+
+            # A later outcome head may advance the mutable legacy alias while paper stays P6.
+            shutil.rmtree(root / "paper_current")
+            shutil.copytree(root / "paper", root / "paper_current")
+            shutil.rmtree(root / "paper_heads_current" / successor_sha)
+            child_latest, _ = make_latest_run(
+                root / "child_latest", as_of_date="2026-07-27",
+                parent_acceptance_status="VERIFIED_ACCEPTED_HEAD",
+                event_numbers=[1], paper_snapshot_hash=paper["snapshot_hash"],
+                paper_previous_snapshot_hash=manifest["paper_snapshot"]["previous_snapshot_hash"],
+                paper_ancestor_snapshot_hashes=manifest["paper_snapshot"]["ancestor_snapshot_hashes"],
+                **verified_parent_kwargs(root / "accepted" / digest))
+            child_manifest_path = child_latest / "run287_accepted_publication/manifest.json"
+            child_manifest = json.loads(child_manifest_path.read_bytes())
+            child_manifest["paper_snapshot"] = manifest["paper_snapshot"]
+            write_json(child_manifest_path, child_manifest)
+            child_sha = sha256_bytes(child_manifest_path.read_bytes())
+            child = stage_fixture(root / "accepted", latest=child_latest,
+                                  manifest_sha256=child_sha)
+            shutil.copyfile(child / "run287_risk_outcome_archive/summary.json",
+                            root / "legacy_current/summary.json")
+            shutil.copyfile(child / "run287_risk_outcome_archive/risk_outcome_events.jsonl",
+                            root / "legacy_current/risk_outcome_events.jsonl")
+            recover_with_current_state()
+            checks.assertEqual(migration.accepted_chain(root)[0]["accepted_head_count"], 2)
+
+            # Both mutable aliases can advance, while recovery still uses P6/L0.
+            shutil.rmtree(root / "paper_current")
+            shutil.copytree(root / "paper_successor", root / "paper_current")
+            shutil.copytree(root / "paper_successor", root / "paper_heads_current" / successor_sha)
+            recover_with_current_state()
+            checks.assertEqual(migration.verify(
+                head=head, paper_dir=root / "paper", code_sha="f" * 40), manifest)
+            checks.assertEqual(migration.inventory(
+                digest + "/manifest.json\n" + child_sha + "/manifest.json"),
+                sorted([digest, child_sha]))
+            with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch",
+                                         "GITHUB_RUN_ID": "1001", "GITHUB_RUN_ATTEMPT": "1",
+                                         "REQUESTED_SESSION_DATE": "2026-09-30"}), patch.object(
+                sys, "argv", ["migration", "receipt", "--root", str(root), "--head", digest,
+                              "--code-sha", "f" * 40, "--before", "2"]
+            ):
+                checks.assertEqual(migration.main(), 0)
+            advanced = next(json.loads(path.read_bytes()) for path in (root / "receipts").glob("*.json")
+                            if json.loads(path.read_bytes())["workflow_run_id"] == "1001")
+            checks.assertEqual((advanced["before_committed_head_count"],
+                                advanced["after_committed_head_count"]), (2, 2))
+            checks.assertEqual(advanced["migration_producer_sha"], args["code_sha"])
+            checks.assertEqual(advanced["current_verifier_sha"], "f" * 40)
+
+            # Missing immutable ancestry, a non-descendant chain and bad aliases block.
+            original_legacy_alias = (root / "legacy_current/summary.json").read_bytes()
+            (root / "legacy_current/summary.json").write_bytes(b"changed")
+            with checks.assertRaisesRegex(ValueError, "current_legacy_alias_not_accepted_terminal"):
+                migration.current_state(
+                    root, migration.accepted_chain(root)[0], manifest, evidence)
+            (root / "legacy_current/summary.json").write_bytes(original_legacy_alias)
+            (root / "legacy_current/summary.json").unlink()
+            with checks.assertRaisesRegex(ValueError, "evidence_not_regular"):
+                migration.current_state(root, migration.accepted_chain(root)[0], manifest, evidence)
+            (root / "legacy_current/summary.json").write_bytes(original_legacy_alias)
+            saved_middle = root / "saved_middle"
+            shutil.move(root / "paper_heads_current" / selection["chain_snapshot_hashes"][2],
+                        saved_middle)
+            with checks.assertRaises(Exception):
+                migration.current_state(root, migration.accepted_chain(root)[0], manifest, evidence)
+            shutil.move(saved_middle, root / "paper_heads_current" / selection["chain_snapshot_hashes"][2])
+            saved_terminal = root / "saved_terminal"
+            saved_successor = root / "saved_successor"
+            shutil.move(root / "paper_heads_current" / paper["snapshot_hash"], saved_terminal)
+            shutil.move(root / "paper_heads_current" / successor_sha, saved_successor)
+            shutil.rmtree(root / "paper_current")
+            shutil.copytree(root / "paper_heads_current" / selection["chain_snapshot_hashes"][-2],
+                            root / "paper_current")
+            with checks.assertRaisesRegex(ValueError, "current_paper_chain_not_original_descendant"):
+                migration.current_state(root, migration.accepted_chain(root)[0], manifest, evidence)
+            shutil.move(saved_terminal, root / "paper_heads_current" / paper["snapshot_hash"])
+            shutil.move(saved_successor, root / "paper_heads_current" / successor_sha)
+            shutil.rmtree(root / "paper_current")
+            shutil.copytree(root / "paper_successor", root / "paper_current")
+            (root / "paper_current/snapshot_integrity.json").unlink()
+            with checks.assertRaises(Exception):
+                migration.current_state(root, migration.accepted_chain(root)[0], manifest, evidence)
+            shutil.copyfile(root / "paper_successor/snapshot_integrity.json",
+                            root / "paper_current/snapshot_integrity.json")
+            # A historical paper file change invalidates the root even with saved verifier.
             (root / "paper/h1_fixture/file_000.json").write_text("{}")
             with checks.assertRaises(ValueError):
                 migration.verify(head=head, paper_dir=root / "paper", code_sha=args["code_sha"])
     checks.assertEqual(migration.inventory(""), [])
     valid = "a" * 64 + "/manifest.json"
     checks.assertEqual(migration.inventory(valid), ["a" * 64])
-    for raw in (valid + "\n" + valid, valid + "\n" + "b" * 64 + "/manifest.json",
+    checks.assertEqual(migration.inventory(valid + "\n" + "b" * 64 + "/manifest.json"),
+                       ["a" * 64, "b" * 64])
+    with checks.assertRaisesRegex(ValueError, "uncommitted_remote_head_requires_recovery"):
+        migration.inventory(valid + "\n" + "b" * 64 + "/manifest.json\n" +
+                            "c" * 64 + "/run287_risk_outcome_archive/summary.json")
+    for raw in (valid + "\n" + valid,
                 "a" * 64 + "/run287_risk_outcome_archive/summary.json", "unknown/manifest.json",
                 valid + "\n" + "a" * 64 + "/unexpected.json"):
         with checks.assertRaises(ValueError):

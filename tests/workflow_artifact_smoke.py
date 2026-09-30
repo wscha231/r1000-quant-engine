@@ -2663,6 +2663,13 @@ def test_legacy_migration_workflow_is_dispatch_only_and_manifest_last() -> None:
     checks.assertIn('copy_checked "$ACCEPTED" "$ROOT/accepted"', script)
     checks.assertIn('python "$BUILDER" verify', script)
     checks.assertIn('python "$BUILDER" receipt', script)
+    checks.assertIn('copy_checked "$ARCHIVE/run287_daily_simulated_fill_ledger" "$ROOT/paper_current"', script)
+    checks.assertIn('copy_checked "$ARCHIVE/run287_risk_outcome_archive" "$ROOT/legacy_current"', script)
+    checks.assertLess(script.index('copy_checked "$ACCEPTED" "$ROOT/accepted"'),
+                     script.index('python "$BUILDER" prepare'))
+    checks.assertIn('HEAD_SHA="$(python "$BUILDER" prepare --root "$ROOT" --code-sha "$EXPECTED_MASTER_SHA")"', script)
+    checks.assertIn('test "$(discover)" = "$EXPECTED_INVENTORY"', script)
+    checks.assertIn('BEFORE_COUNT="$(printf \'%s\\n\' "$BEFORE" | wc -l)"', script)
     for forbidden in ("rclone sync", "workflow_dispatch --", "run_daily_simulated_fill_ledger.py",
                       "build_run287_same_close_target_books", "full_rebuild.py", "--allow-genesis"):
         checks.assertNotIn(forbidden, text)
