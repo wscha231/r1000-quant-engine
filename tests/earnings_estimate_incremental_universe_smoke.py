@@ -50,7 +50,7 @@ def run_queue(
     )
 
 
-def test_queue_reuses_fresh_success_and_resumes_from_checkpoint() -> None:
+def test_queue_reuses_fresh_success_and_rejects_unbound_ack_checkpoint() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         snapshot_dir = root / "data_pit" / "events" / "earnings_estimates"
@@ -95,11 +95,16 @@ def test_queue_reuses_fresh_success_and_resumes_from_checkpoint() -> None:
         )
         assert ack["acknowledged_ticker_count"] == 1
 
-        second = run_queue(root, coverage_file=root / "coverage_not_restored.csv")
-
-        assert second["universe_source_mode"] == "checkpointed_canonical_reuse"
-        assert second["checkpoint_input_valid"] is True
-        assert pd.read_csv(output)["ticker"].tolist() == ["BBB", "CCC", "DDD"]
+        checkpoint_path = snapshot_dir / "collection_checkpoint.json"
+        queue_path = root / "outputs" / "earnings_estimates_daily" / "collection_queue.csv"
+        before = checkpoint_path.read_bytes(), queue_path.read_bytes()
+        try:
+            run_queue(root, coverage_file=root / "coverage_not_restored.csv")
+        except ValueError as exc:
+            assert str(exc) == "missing_or_invalid_collector_summary"
+        else:
+            raise AssertionError("ack-only marker without collector summary must not authorize replay")
+        assert (checkpoint_path.read_bytes(), queue_path.read_bytes()) == before
         checkpoint = json.loads(
             (snapshot_dir / "collection_checkpoint.json").read_text(encoding="utf-8")
         )
@@ -255,7 +260,7 @@ def test_success_becomes_stale_when_threshold_days_have_elapsed() -> None:
 
 
 if __name__ == "__main__":
-    test_queue_reuses_fresh_success_and_resumes_from_checkpoint()
+    test_queue_reuses_fresh_success_and_rejects_unbound_ack_checkpoint()
     test_queue_detects_new_universe_and_fails_closed_without_exact_source()
     test_queue_can_seed_from_exact_tracked_latest_run_union()
     test_queue_rejects_wrong_placeholder_contract_for_seed_and_checkpoint()

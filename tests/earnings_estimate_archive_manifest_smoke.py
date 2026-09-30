@@ -115,7 +115,11 @@ def test_manifest_records_hashes_and_append_only_index() -> None:
             queue_report=str(queue_report),
         )
 
-        assert payload["verdict"] == "archive_manifest_written"
+        # This historical fixture has no accepted collection acknowledgement.
+        assert payload["verdict"] == "blocked_non_publishable_collector_state"
+        assert payload["publishable"] is False
+        assert payload["persistence"]["accepted_publication_allowed"] is False
+        assert "collection_attempt_not_accepted" in payload["publication_failures"]
         assert payload["collector_status"] == "blocked_partial_coverage"
         assert payload["estimate_coverage_ratio"] == 0.04
         assert payload["request_snapshot_rows"] == 36
@@ -180,7 +184,8 @@ def test_manifest_records_hashes_and_append_only_index() -> None:
             queue_csv=str(queue_csv),
             queue_report=str(queue_report),
         )
-        assert payload2["verdict"] == "archive_manifest_written"
+        assert payload2["verdict"] == "blocked_non_publishable_collector_state"
+        assert payload2["publishable"] is False
         rows2 = [json.loads(line) for line in index.read_text(encoding="utf-8").splitlines()]
         assert len(rows2) == 1
 
@@ -202,6 +207,7 @@ def test_manifest_records_hashes_and_append_only_index() -> None:
         assert missing_manifest["vendor_estimate_access"] is True
         assert missing_manifest["request_has_forward_estimate_rows"] == 0
         assert missing_manifest["estimate_coverage_ratio"] == 0.0
+        assert missing_manifest["publishable"] is False
 
 
 
