@@ -1,5 +1,19 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-30 — Immutable publication may lead mutable aliases (#563 P1 C/D)
+
+- Publication is not atomic across immutable heads and mutable aliases. Recovery
+  must first bind a mutable paper alias to the exact physically verified
+  immutable snapshot it represents, then prove the selected terminal descends
+  from that alias. The original six-head migration chain remains a required
+  prefix, and aliases older than the migration snapshot remain invalid.
+- Risk-outcome recovery follows the same rule: mutable archive bytes may match
+  any physically verified predecessor in the accepted linear lineage, or the
+  exact embedded quarantined predecessor of the migration root. Arbitrary stale,
+  forked, orphaned, disconnected, or byte-divergent aliases remain fail-closed.
+- This is repository verification/recovery logic only. It does not authorize a
+  Drive write, migration dispatch, paper/broker mutation, or economic action.
+
 ## 2026-09-30 — Migration recovery must separate producer from verifier (#563)
 
 - Exact-head Codex review found that a committed migration root could not be

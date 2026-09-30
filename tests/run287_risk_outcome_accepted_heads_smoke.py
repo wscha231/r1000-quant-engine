@@ -1337,10 +1337,13 @@ def test_legacy_migration_root_rejects_forgery_and_reuses_exact_head() -> None:
                 "completed")
             successor = json.loads((successor_run / "paper/snapshot_integrity.json").read_bytes())
             successor_sha = successor["snapshot_hash"]
+            shutil.copytree(successor_run / "paper",
+                            root / "paper_heads_current" / successor_sha)
+            shutil.copytree(successor_run / "paper", root / "paper_successor")
+            # Interrupted publication: immutable P7 exists while mutable alias is still P6.
+            recover_with_current_state()
             shutil.rmtree(root / "paper_current")
             shutil.copytree(successor_run / "paper", root / "paper_current")
-            shutil.copytree(root / "paper_current", root / "paper_heads_current" / successor_sha)
-            shutil.copytree(root / "paper_current", root / "paper_successor")
             recover_with_current_state()
 
             # A later outcome head may advance the mutable legacy alias while paper stays P6.
@@ -1361,6 +1364,19 @@ def test_legacy_migration_root_rejects_forgery_and_reuses_exact_head() -> None:
             child_sha = sha256_bytes(child_manifest_path.read_bytes())
             child = stage_fixture(root / "accepted", latest=child_latest,
                                   manifest_sha256=child_sha)
+            # The exact quarantined predecessor may still be the mutable alias.
+            recover_with_current_state()
+            # R0 -> R1 committed while mutable alias still represents R0.
+            root_head = root / "accepted" / digest
+            shutil.copyfile(root_head / "run287_risk_outcome_archive/summary.json",
+                            root / "legacy_current/summary.json")
+            root_event = root_head / "run287_risk_outcome_archive/risk_outcome_events.jsonl"
+            alias_event = root / "legacy_current/risk_outcome_events.jsonl"
+            if root_event.is_file():
+                shutil.copyfile(root_event, alias_event)
+            else:
+                alias_event.unlink(missing_ok=True)
+            recover_with_current_state()
             shutil.copyfile(child / "run287_risk_outcome_archive/summary.json",
                             root / "legacy_current/summary.json")
             shutil.copyfile(child / "run287_risk_outcome_archive/risk_outcome_events.jsonl",
@@ -1392,10 +1408,55 @@ def test_legacy_migration_root_rejects_forgery_and_reuses_exact_head() -> None:
             checks.assertEqual(advanced["migration_producer_sha"], args["code_sha"])
             checks.assertEqual(advanced["current_verifier_sha"], "f" * 40)
 
+            # R0 -> R1 -> R2 committed while mutable alias still represents R1.
+            successor_publication = json.loads(
+                (root / "paper_successor/accepted_publication.json").read_bytes())
+            successor_snapshot = {
+                key: successor[key] for key in (
+                    "snapshot_hash", "previous_snapshot_hash",
+                    "ancestor_snapshot_hashes", "genesis_identity_sha256", "file_count")
+            }
+            successor_snapshot["transaction_mode"] = successor_publication["transaction_mode"]
+            grand_latest, _ = make_latest_run(
+                root / "grand_latest", as_of_date="2026-07-28",
+                parent_acceptance_status="VERIFIED_ACCEPTED_HEAD",
+                event_numbers=[1, 2], paper_snapshot_hash=successor_sha,
+                paper_previous_snapshot_hash=successor["previous_snapshot_hash"],
+                paper_ancestor_snapshot_hashes=successor["ancestor_snapshot_hashes"],
+                **verified_parent_kwargs(child))
+            grand_manifest_path = grand_latest / "run287_accepted_publication/manifest.json"
+            grand_manifest = json.loads(grand_manifest_path.read_bytes())
+            grand_manifest["paper_snapshot"] = successor_snapshot
+            write_json(grand_manifest_path, grand_manifest)
+            grand_sha = sha256_bytes(grand_manifest_path.read_bytes())
+            grandchild = stage_fixture(root / "accepted", latest=grand_latest,
+                                       manifest_sha256=grand_sha)
+            recover_with_current_state()
+            checks.assertEqual(migration.accepted_chain(root)[0]["accepted_head_count"], 3)
+
+            # A fork/disconnect in accepted lineage still fails closed.
+            sibling_latest, _ = make_latest_run(
+                root / "sibling_latest", as_of_date="2026-07-29",
+                parent_acceptance_status="VERIFIED_ACCEPTED_HEAD",
+                event_numbers=[1, 3], paper_snapshot_hash=successor_sha,
+                paper_previous_snapshot_hash=successor["previous_snapshot_hash"],
+                paper_ancestor_snapshot_hashes=successor["ancestor_snapshot_hashes"],
+                **verified_parent_kwargs(child))
+            sibling_manifest_path = sibling_latest / "run287_accepted_publication/manifest.json"
+            sibling_manifest = json.loads(sibling_manifest_path.read_bytes())
+            sibling_manifest["paper_snapshot"] = successor_snapshot
+            write_json(sibling_manifest_path, sibling_manifest)
+            sibling_sha = sha256_bytes(sibling_manifest_path.read_bytes())
+            sibling = stage_fixture(root / "accepted", latest=sibling_latest,
+                                    manifest_sha256=sibling_sha)
+            with checks.assertRaisesRegex(ValueError, "accepted_head_fork_detected"):
+                migration.accepted_chain(root)
+            shutil.rmtree(sibling)
+
             # Missing immutable ancestry, a non-descendant chain and bad aliases block.
             original_legacy_alias = (root / "legacy_current/summary.json").read_bytes()
             (root / "legacy_current/summary.json").write_bytes(b"changed")
-            with checks.assertRaisesRegex(ValueError, "current_legacy_alias_not_accepted_terminal"):
+            with checks.assertRaisesRegex(ValueError, "current_legacy_alias_not_in_accepted_lineage"):
                 migration.current_state(
                     root, migration.accepted_chain(root)[0], manifest, evidence)
             (root / "legacy_current/summary.json").write_bytes(original_legacy_alias)
@@ -1403,6 +1464,32 @@ def test_legacy_migration_root_rejects_forgery_and_reuses_exact_head() -> None:
             with checks.assertRaisesRegex(ValueError, "evidence_not_regular"):
                 migration.current_state(root, migration.accepted_chain(root)[0], manifest, evidence)
             (root / "legacy_current/summary.json").write_bytes(original_legacy_alias)
+
+            # Alias identity must have a physically present immutable head.
+            saved_alias_head = root / "saved_alias_head"
+            shutil.move(root / "paper_heads_current" / successor_sha, saved_alias_head)
+            with checks.assertRaisesRegex(ValueError, "current_paper_alias_not_in_immutable_chain"):
+                migration.current_state(root, migration.accepted_chain(root)[0], manifest, evidence)
+            shutil.move(saved_alias_head, root / "paper_heads_current" / successor_sha)
+
+            # Corrupted mutable alias bytes fail physical integrity verification.
+            alias_fixture = root / "paper_current/h1_fixture/file_000.json"
+            alias_fixture_raw = alias_fixture.read_bytes()
+            alias_fixture.write_bytes(b"{}")
+            with checks.assertRaises(Exception):
+                migration.current_state(root, migration.accepted_chain(root)[0], manifest, evidence)
+            alias_fixture.write_bytes(alias_fixture_raw)
+
+            # A physically valid alias older than the migration P6 snapshot is stale.
+            shutil.rmtree(root / "paper_current")
+            stale_digest = selection["chain_snapshot_hashes"][-2]
+            shutil.copytree(root / "paper_heads_current" / stale_digest,
+                            root / "paper_current")
+            with checks.assertRaisesRegex(ValueError, "current_paper_alias_predates_migration_snapshot"):
+                migration.current_state(root, migration.accepted_chain(root)[0], manifest, evidence)
+            shutil.rmtree(root / "paper_current")
+            shutil.copytree(root / "paper_successor", root / "paper_current")
+
             saved_middle = root / "saved_middle"
             shutil.move(root / "paper_heads_current" / selection["chain_snapshot_hashes"][2],
                         saved_middle)

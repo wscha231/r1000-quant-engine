@@ -108,55 +108,120 @@ def accepted_chain(root: Path) -> tuple[dict, dict]:
     return selection, root_manifest
 
 
+def _verify_current_paper_alias(
+    root: Path, paper_heads: Path, current_selection: dict
+) -> tuple[dict, int]:
+    """Bind the mutable paper alias to one physically verified immutable head."""
+    alias_root = root / "paper_current"
+    current_paper = paper_integrity.verify_integrity_manifest(alias_root, require=True)
+    chain = list(current_selection["chain_snapshot_hashes"])
+    require(bool(chain) and current_selection["terminal_snapshot_hash"] == chain[-1],
+            "current_paper_terminal_selection_invalid")
+    alias_digest = current_paper["snapshot_hash"]
+    require(alias_digest in chain, "current_paper_alias_not_in_immutable_chain")
+    alias_index = chain.index(alias_digest)
+    physical_root = paper_heads / alias_digest
+    physical = paper_integrity.verify_integrity_manifest(physical_root, require=True)
+    require(current_paper == physical, "current_paper_alias_identity_mismatch")
+    require(read(alias_root / "snapshot_integrity.json") ==
+            read(physical_root / "snapshot_integrity.json"),
+            "current_paper_alias_manifest_bytes_mismatch")
+    for relative in sorted(physical["files"]):
+        require(read(alias_root / relative) == read(physical_root / relative),
+                "current_paper_alias_bytes_mismatch")
+    alias_chain = [*reversed(physical["ancestor_snapshot_hashes"]), alias_digest]
+    require(alias_chain == chain[:alias_index + 1],
+            "current_paper_alias_lineage_mismatch")
+    require(alias_index <= len(chain) - 1,
+            "current_paper_terminal_not_descendant_of_alias")
+    return current_paper, alias_index
+
+
 def current_state(root: Path, selection: dict, manifest: dict,
                   evidence: dict[str, bytes]) -> None:
-    """Verify mutable aliases against current immutable lineages, not old bytes."""
+    """Verify mutable aliases as physically present predecessors of current lineages."""
     paper_heads = root / "paper_heads_current"
     current_selection = paper_integrity.select_verified_immutable_paper_head(paper_heads)
+    current_chain = list(current_selection["chain_snapshot_hashes"])
     original_selection = obj(evidence["paper_selection"])
-    original_chain = original_selection["chain_snapshot_hashes"]
-    require(original_chain == current_selection["chain_snapshot_hashes"][:len(original_chain)]
+    original_chain = list(original_selection["chain_snapshot_hashes"])
+    require(original_chain == current_chain[:len(original_chain)]
             and original_selection["terminal_snapshot_hash"] == PAPER_TERMINAL
             and original_selection["root_snapshot_hash"] == PAPER_ROOT,
             "current_paper_chain_not_original_descendant")
-    current_selection_path = root / "current_selection.json"
-    current_selection_path.write_bytes(raw_json(current_selection))
-    paper_integrity.build_integrity_verifier_receipt(
-        root / "paper_current", immutable_head_selection=current_selection_path)
-    current_paper = paper_integrity.verify_integrity_manifest(
-        root / "paper_current", require=True)
-    require(current_paper["snapshot_hash"] == current_selection["terminal_snapshot_hash"],
-            "current_paper_alias_not_terminal")
+
+    current_paper, alias_index = _verify_current_paper_alias(
+        root, paper_heads, current_selection
+    )
+    original_snapshot = manifest["paper_snapshot"]
+    original_digest = original_snapshot["snapshot_hash"]
+    require(original_digest in current_chain,
+            "original_migration_paper_head_missing")
+    original_index = current_chain.index(original_digest)
+    require(alias_index >= original_index,
+            "current_paper_alias_predates_migration_snapshot")
+    require(current_paper["snapshot_hash"] == original_digest or
+            original_digest in current_paper["ancestor_snapshot_hashes"],
+            "current_paper_alias_not_original_descendant")
+    terminal_digest = current_selection["terminal_snapshot_hash"]
+    terminal_paper = paper_integrity.verify_integrity_manifest(
+        paper_heads / terminal_digest, require=True
+    )
+    require(terminal_digest == original_digest or
+            original_digest in terminal_paper["ancestor_snapshot_hashes"],
+            "current_paper_terminal_not_original_descendant")
+
     # Every accepted outcome publication must reference a physically verified
     # paper ancestor, not merely claim ancestry in its own manifest.
     for digest in selection["chain_accepted_manifest_sha256s"]:
         outcome = obj(read(root / "accepted" / digest / "manifest.json"))
         snapshot = outcome["paper_snapshot"]
         paper_digest = snapshot["snapshot_hash"]
-        require(paper_digest in current_selection["chain_snapshot_hashes"],
+        require(paper_digest in current_chain,
                 "accepted_outcome_paper_head_missing")
-        physical = obj(read(paper_heads / paper_digest / "snapshot_integrity.json"))
+        physical = paper_integrity.verify_integrity_manifest(
+            paper_heads / paper_digest, require=True
+        )
         for key in ("snapshot_hash", "previous_snapshot_hash", "ancestor_snapshot_hashes",
                     "genesis_identity_sha256", "file_count"):
-            require(snapshot[key] == physical[key], "accepted_outcome_paper_identity_mismatch")
+            require(snapshot[key] == physical[key],
+                    "accepted_outcome_paper_identity_mismatch")
         publication = obj(read(paper_heads / paper_digest / "accepted_publication.json"))
         require(snapshot["transaction_mode"] == publication["transaction_mode"],
                 "accepted_outcome_paper_mode_mismatch")
-    original_snapshot = manifest["paper_snapshot"]
-    require(current_paper["snapshot_hash"] == original_snapshot["snapshot_hash"] or
-            original_snapshot["snapshot_hash"] in current_paper["ancestor_snapshot_hashes"],
-            "current_paper_alias_not_original_descendant")
 
     alias_summary = read(root / "legacy_current/summary.json")
     event_path = root / "legacy_current/risk_outcome_events.jsonl"
     alias_events = read(event_path) if event_path.exists() or event_path.is_symlink() else b""
-    if selection["accepted_head_count"] == 1 and (alias_summary, alias_events) == (
+    chain = list(selection["chain_accepted_manifest_sha256s"])
+    require(bool(chain) and selection["terminal_accepted_manifest_sha256"] == chain[-1],
+            "accepted_terminal_selection_invalid")
+
+    # The migration intentionally leaves the quarantined predecessor mutable
+    # alias untouched. It remains admissible after descendants are committed,
+    # but only as the exact embedded predecessor of this migration root.
+    if (alias_summary, alias_events) == (
             evidence["legacy_summary"], evidence["legacy_events"]):
-        return  # The migration intentionally leaves the original legacy alias in place.
-    terminal = root / "accepted" / selection["terminal_accepted_manifest_sha256"]
-    require(alias_summary == read(terminal / heads.SUMMARY_RELATIVE_PATH)
-            and alias_events == read(terminal / heads.EVENT_LOG_RELATIVE_PATH),
-            "current_legacy_alias_not_accepted_terminal")
+        require(manifest.get("parent_acceptance_status") == "QUARANTINED_LEGACY",
+                "current_legacy_predecessor_not_authorized")
+        return
+
+    matches: list[tuple[int, str]] = []
+    for index, digest in enumerate(chain):
+        head = root / "accepted" / digest
+        head_summary = read(head / heads.SUMMARY_RELATIVE_PATH)
+        head_event_path = head / heads.EVENT_LOG_RELATIVE_PATH
+        head_events = (read(head_event_path)
+                       if head_event_path.exists() or head_event_path.is_symlink()
+                       else b"")
+        if (alias_summary, alias_events) == (head_summary, head_events):
+            matches.append((index, digest))
+    require(bool(matches), "current_legacy_alias_not_in_accepted_lineage")
+    matched_index, matched_digest = matches[-1]
+    require(matched_digest in chain[:matched_index + 1] and
+            selection["terminal_accepted_manifest_sha256"] == chain[-1] and
+            matched_index <= len(chain) - 1,
+            "current_accepted_terminal_not_descendant_of_alias")
 
 
 def prepare_recovery(root: Path, verifier_sha: str) -> str:
