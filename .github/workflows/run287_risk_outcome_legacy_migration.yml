@@ -50,6 +50,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          EXPECTED_MASTER_SHA="$(python -c 'import os; print(os.environ.get("EXPECTED_MASTER_SHA", "").strip(), end="")')"
+          printf 'EXPECTED_MASTER_SHA=%s\n' "$EXPECTED_MASTER_SHA" >> "$GITHUB_ENV"
           if [ "${GITHUB_EVENT_NAME:-}" != "workflow_dispatch" ]; then
             echo "[recovery-preflight] BLOCKED: workflow_dispatch is required"
             exit 2
@@ -109,6 +111,8 @@ jobs:
           REQUESTED_SESSION_DATE: ${{ inputs.session_date }}
         run: |
           set -euo pipefail
+          REQUESTED_SESSION_DATE="$(python -c 'import os; print(os.environ.get("REQUESTED_SESSION_DATE", "").strip(), end="")')"
+          printf 'REQUESTED_SESSION_DATE=%s\n' "$REQUESTED_SESSION_DATE" >> "$GITHUB_ENV"
           mkdir -p outputs/run287_risk_outcome_legacy_migration
           python tools/run_daily_market_session_gate.py \
             --force \
@@ -192,8 +196,6 @@ jobs:
       - name: Restore reverify and migrate only the quarantined root
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
-          EXPECTED_MASTER_SHA: ${{ inputs.expected_master_sha }}
-          REQUESTED_SESSION_DATE: ${{ inputs.session_date }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
