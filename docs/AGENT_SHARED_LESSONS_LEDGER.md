@@ -1,5 +1,24 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-30 — Legacy outcome repair must preserve original evidence (#509)
+
+- A quarantined migration root is lineage repair only. Preserve the allowlisted
+  summary/event bytes and exact preflight/verifier/selection receipts inside its
+  manifest; the accepted-head manager intentionally allows only its existing
+  three-file bundle. Recompute the receipt and reconstruct the entire manifest
+  on readback rather than trusting a saved READY label or newly computed run ID.
+- Keep the legacy outcome date distinct from the dispatch session; an empty
+  migration root must not claim that missing paper sessions were completed.
+- Drive has no cross-file compare-and-swap here. Reuse the daily concurrency
+  group, re-list before payload writes and immediately before the manifest-last
+  commit, and reject incomplete/divergent namespaces. An interrupted payload
+  upload requires separate recovery; a blind rerun must not create another root.
+  T5 live audit must confirm that all authorized writers honor the shared lock.
+- Local verification uses temporary synthetic paper chains, denied socket
+  connections, and stubbed persistence commands. This is no evidence of current
+  Drive readiness. Lane A, fresh exact-head A6/final Codex R3 and a new T5 live
+  audit/user approval remain separate gates; no migration was executed.
+
 ## 2026-09-28 — Partial readiness is not global promotion authority (#538)
 
 - PIT membership, universe breadth and comparison-baseline integrity prove only

@@ -1177,8 +1177,112 @@ def test_three_generation_offline_bundle_chain_is_recoverable() -> None:
         )
 
 
+def test_legacy_migration_root_rejects_forgery_and_reuses_exact_head() -> None:
+    """Entirely synthetic six-head state; no network, credentials or Drive."""
+    import socket
+    import unittest
+    from unittest.mock import patch
+    from tools import build_run287_risk_outcome_legacy_migration as migration
+    from tools.build_run287_risk_outcome_parent_preflight import build_receipt
+    from tests.run287_risk_outcome_parent_preflight_smoke import base_kwargs
+
+    checks = unittest.TestCase()
+    with tempfile.TemporaryDirectory() as tmp, patch.object(
+        socket.socket, "connect", side_effect=RuntimeError("network forbidden")
+    ), patch.object(socket, "create_connection", side_effect=RuntimeError("network forbidden")):
+        root = Path(tmp)
+        kwargs = base_kwargs(root)
+        kwargs.update(event_name="workflow_dispatch", allow_quarantined_legacy_outcome_parent=True)
+        receipt, code = build_receipt(**kwargs)
+        checks.assertEqual(code, 0)
+        evidence = {
+            "preflight": migration.raw_json(receipt),
+            "legacy_summary": kwargs["legacy_summary_path"].read_bytes(),
+            "legacy_events": b"",
+            "paper_selection": kwargs["paper_immutable_head_selection_path"].read_bytes(),
+            "paper_verifier": kwargs["paper_integrity_verifier_receipt_path"].read_bytes(),
+        }
+        paper = receipt["observed_state"]["paper_ledger"]
+        args = dict(evidence=evidence, paper_dir=root / "paper", code_sha=kwargs["source_commit_sha"])
+        # The real fixed pins must reject the synthetic identities.
+        with checks.assertRaisesRegex(ValueError, "reviewed_paper_identity_changed"):
+            migration.construct(**args)
+        with patch.object(migration, "PAPER_TERMINAL", paper["snapshot_hash"]), patch.object(
+            migration, "PAPER_ROOT", paper["immutable_root_snapshot_hash"]
+        ):
+            digest = migration.build(**args, output=root / "build")
+            head = root / "build/staged" / digest
+            manifest = migration.verify(head=head, paper_dir=root / "paper", code_sha=args["code_sha"])
+            checks.assertEqual(manifest["parent_acceptance_status"], "QUARANTINED_LEGACY")
+            checks.assertEqual(manifest["outcome_chain"]["trusted_event_count"], 0)
+            checks.assertEqual(manifest["as_of_date"], "2026-07-17")
+            checks.assertEqual(manifest["migration"]["session_date"], kwargs["session_date"])
+            for key in migration.FALSE_FLAGS:
+                checks.assertIs(manifest[key], False)
+                checks.assertIs(manifest["migration"]["gate"][key], False)
+            staged = stage_head(latest_run=root / "build", expected_manifest_sha256=digest, output_dir=head)
+            checks.assertEqual(staged["status"], "ALREADY_STAGED_EXACT_MATCH")
+            checks.assertEqual(select_heads(heads_root=head.parent)["accepted_head_count"], 1)
+            for field, value in (("satisfied", False), ("satisfied", 1),
+                                 ("conflicting_authorization_requested", True),
+                                 ("one_time_only", False), ("separate_user_approval_required", False),
+                                 ("mode", "genesis"), ("required_input", "allow_risk_outcome_genesis_bootstrap")):
+                changed = json.loads(evidence["preflight"])
+                changed["authorization"][field] = value
+                bad = {**evidence, "preflight": migration.raw_json(changed)}
+                with checks.assertRaisesRegex(ValueError, "preflight_exact_recomputation_failed"):
+                    migration.construct(**{**args, "evidence": bad})
+            for key in ("legacy_summary", "legacy_events", "paper_verifier", "paper_selection"):
+                with checks.assertRaises((ValueError, KeyError)):
+                    migration.construct(**{**args, "evidence": {**evidence, key: evidence[key] + b"tamper"}})
+            with checks.assertRaisesRegex(ValueError, "preflight_source_mismatch"):
+                migration.verify(head=head, paper_dir=root / "paper", code_sha="f" * 40)
+            # A generic-manager-valid manifest with a changed migration binding is still divergent.
+            divergent = json.loads((head / "manifest.json").read_bytes())
+            divergent["migration"]["session_date"] = "2026-09-01"
+            other_sha = migration.sha(migration.raw_json(divergent))
+            other = root / "divergent" / other_sha
+            import shutil
+            shutil.copytree(head, other)
+            (other / "manifest.json").write_bytes(migration.raw_json(divergent))
+            with checks.assertRaisesRegex(ValueError, "migration_root_not_exact_reconstruction"):
+                migration.verify(head=other, paper_dir=root / "paper", code_sha=args["code_sha"])
+            # Verify-only reruns emit their own immutable receipt, never another root.
+            shutil.copytree(head, root / "accepted" / digest)
+            (root / "legacy").mkdir()
+            (root / "legacy/summary.json").write_bytes(evidence["legacy_summary"])
+            with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch",
+                                         "GITHUB_RUN_ID": "999", "GITHUB_RUN_ATTEMPT": "2",
+                                         "REQUESTED_SESSION_DATE": "2026-09-30"}), patch.object(
+                sys, "argv", ["migration", "receipt", "--root", str(root), "--head", digest,
+                              "--code-sha", args["code_sha"], "--before", "1"]
+            ):
+                checks.assertEqual(migration.main(), 0)
+            receipts = list((root / "receipts").glob("*.json"))
+            checks.assertEqual(len(receipts), 1)
+            rerun = json.loads(receipts[0].read_bytes())
+            checks.assertEqual(receipts[0].stem, migration.sha(receipts[0].read_bytes()))
+            checks.assertEqual(rerun["status"], "IDEMPOTENT_VERIFY_ONLY")
+            checks.assertEqual(rerun["before_committed_head_count"], 1)
+            checks.assertEqual(rerun["after_committed_head_count"], 1)
+            checks.assertEqual(list((root / "accepted").iterdir()), [root / "accepted" / digest])
+            # A paper file change invalidates the root, even with an unchanged saved verifier.
+            (root / "paper/h1_fixture/file_000.json").write_text("{}")
+            with checks.assertRaises(ValueError):
+                migration.verify(head=head, paper_dir=root / "paper", code_sha=args["code_sha"])
+    checks.assertEqual(migration.inventory(""), [])
+    valid = "a" * 64 + "/manifest.json"
+    checks.assertEqual(migration.inventory(valid), ["a" * 64])
+    for raw in (valid + "\n" + valid, valid + "\n" + "b" * 64 + "/manifest.json",
+                "a" * 64 + "/run287_risk_outcome_archive/summary.json", "unknown/manifest.json",
+                valid + "\n" + "a" * 64 + "/unexpected.json"):
+        with checks.assertRaises(ValueError):
+            migration.inventory(raw)
+
+
 def main() -> None:
     tests = [
+        test_legacy_migration_root_rejects_forgery_and_reuses_exact_head,
         test_normal_two_head_chain_verify_and_idempotent_stage,
         test_event_tamper_is_rejected_without_relying_on_folder_manifest,
         test_skipped_archive_allows_missing_empty_event_log,

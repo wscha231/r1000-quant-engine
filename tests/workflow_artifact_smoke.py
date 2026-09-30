@@ -2624,7 +2624,109 @@ def test_full_rebuild_routes_only_from_scoped_breadth_gate() -> None:
             checks.assertEqual(result.stdout.strip(), "no")
 
 
+def test_legacy_migration_workflow_is_dispatch_only_and_manifest_last() -> None:
+    import os
+    import yaml
+    checks = unittest.TestCase()
+    text = (ROOT / ".github/workflows/run287_risk_outcome_legacy_migration.yml").read_text()
+    workflow = yaml.safe_load(text)
+    trigger = workflow.get("on", workflow.get(True))
+    checks.assertEqual(set(trigger), {"workflow_dispatch"})
+    inputs = trigger["workflow_dispatch"]["inputs"]
+    checks.assertEqual(set(inputs), {"expected_master_sha", "session_date",
+                                    "allow_quarantined_legacy_outcome_parent"})
+    checks.assertEqual(inputs["allow_quarantined_legacy_outcome_parent"]["type"], "boolean")
+    checks.assertIs(inputs["allow_quarantined_legacy_outcome_parent"]["default"], False)
+    checks.assertEqual(workflow["concurrency"], {"group": "daily-operating-selection-refresh",
+                                              "cancel-in-progress": False})
+    job = workflow["jobs"]["migration"]
+    checks.assertEqual(job["environment"], "run287-paper-durable")
+    steps = job["steps"]
+    names = [step["name"] for step in steps]
+    secret_index = next(i for i, step in enumerate(steps) if "secrets." in str(step))
+    checks.assertLess(names.index("Prove exact current master before secrets"), secret_index)
+    checks.assertLess(names.index("Prove exact latest completed NYSE session"), secret_index)
+    for step in steps:
+        if "run" in step:
+            result = subprocess.run([bash_executable(), "-n"], input=step["run"],
+                                    capture_output=True, text=True, encoding="utf-8")
+            checks.assertEqual(result.returncode, 0, result.stderr)
+    script = extract_yaml_literal_run(text, "Restore reverify and migrate only the quarantined root")
+    checks.assertNotIn("--allow-risk-outcome-genesis-bootstrap", script)
+    checks.assertIn("--allow-quarantined-legacy-outcome-parent", script)
+    checks.assertLess(script.index('test "$(discover)" = EMPTY'), script.index('"$RCLONE_BIN" copy "$STAGED/"'))
+    checks.assertLess(script.index('cmp "$ROOT/expected.txt" "$ROOT/observed.txt"'),
+                     script.index('"$RCLONE_BIN" copyto'))
+    checks.assertEqual(script.count('"$RCLONE_BIN" copyto'), 1)
+    checks.assertIn('--exclude manifest.json --immutable', script)
+    checks.assertIn('"$ACCEPTED/$HEAD_SHA/manifest.json" --immutable', script)
+    checks.assertIn('copy_checked "$ACCEPTED" "$ROOT/accepted"', script)
+    checks.assertIn('python "$BUILDER" verify', script)
+    checks.assertIn('python "$BUILDER" receipt', script)
+    for forbidden in ("rclone sync", "workflow_dispatch --", "run_daily_simulated_fill_ledger.py",
+                      "build_run287_same_close_target_books", "full_rebuild.py", "--allow-genesis"):
+        checks.assertNotIn(forbidden, text)
+    # Execute the real pre-secret identity guard against stubbed read-only tools.
+    guard = extract_yaml_literal_run(text, "Prove exact current master before secrets")
+    with tempfile.TemporaryDirectory() as tmp:
+        fixture = Path(tmp)
+        env = {**os.environ, "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REF_TYPE": "branch",
+               "GITHUB_REF_NAME": "master", "DEFAULT_BRANCH": "master", "ALLOW_LEGACY": "true",
+               "GITHUB_SHA": "a" * 40, "EXPECTED_MASTER_SHA": "a" * 40,
+               "GH_TOKEN": "synthetic", "GITHUB_API_URL": "synthetic", "GITHUB_REPOSITORY": "synthetic",
+               "RUNNER_TEMP": fixture.as_posix(), "TEST_REMOTE_SHA": "a" * 40, "TEST_CODE_SHA": "a" * 40,
+               "TEST_DEFAULT_BRANCH": "master"}
+        stub = """curl() { printf '{"default_branch":"%s","object":{"sha":"%s"}}' "$TEST_DEFAULT_BRANCH" "$TEST_REMOTE_SHA"; }
+git() { echo "$TEST_CODE_SHA"; }
+"""
+        for changes, succeeds in (({}, True), ({"GITHUB_EVENT_NAME": "schedule"}, False),
+                                  ({"DEFAULT_BRANCH": "other"}, False), ({"ALLOW_LEGACY": "false"}, False),
+                                  ({"TEST_REMOTE_SHA": "b" * 40}, False), ({"TEST_CODE_SHA": "b" * 40}, False),
+                                  ({"TEST_DEFAULT_BRANCH": "other"}, False),
+                                  ({"GITHUB_SHA": "b" * 40}, False)):
+            result = subprocess.run([bash_executable()], input=stub + guard,
+                                    env={**env, **changes}, text=True, encoding="utf-8", capture_output=True)
+            checks.assertEqual(result.returncode == 0, succeeds, result.stderr)
+    # Exercise the actual persistence segment with a synthetic rclone function.
+    # No external command can reach Drive; record payload/manifest attempts locally.
+    commit = script[script.index("# Recheck source state"):script.index("BEFORE_COUNT=0")]
+    with tempfile.TemporaryDirectory() as tmp:
+        fixture = Path(tmp)
+        env = {**os.environ, "ROOT": fixture.as_posix(), "HEAD_SHA": "a" * 64,
+               "ARCHIVE": "synthetic", "ACCEPTED": "synthetic/accepted", "STAGED": "synthetic/staged",
+               "RCLONE_BIN": "fake_rclone"}
+        stub = r'''set -euo pipefail
+assert_master() { :; }
+discover() { if [ "$SCENARIO" = before ]; then echo concurrent; else echo EMPTY; fi; }
+fake_rclone() {
+  case "$1" in
+    check) return 0 ;;
+    copy) echo payload >> "$ROOT/writes.txt" ;;
+    copyto) echo manifest >> "$ROOT/writes.txt" ;;
+    lsf)
+      printf '%s\n' "$HEAD_SHA/run287_risk_outcome_archive/risk_outcome_events.jsonl" "$HEAD_SHA/run287_risk_outcome_archive/summary.json"
+      if [ "$SCENARIO" = commit ]; then printf '%s\n' 'concurrent/manifest.json'; fi
+      ;;
+    *) return 99 ;;
+  esac
+}
+'''
+        for scenario, expected_writes, succeeds in (("clean", ["payload", "manifest"], True),
+                                                   ("before", [], False), ("commit", ["payload"], False)):
+            writes = fixture / "writes.txt"
+            if writes.exists():
+                writes.unlink()
+            result = subprocess.run([bash_executable()], input=stub + commit,
+                                    env={**env, "SCENARIO": scenario}, text=True, encoding="utf-8", capture_output=True)
+            checks.assertEqual(result.returncode == 0, succeeds, result.stderr)
+            checks.assertEqual(writes.read_text().splitlines() if writes.exists() else [], expected_writes)
+    session = extract_yaml_literal_run(text, "Prove exact latest completed NYSE session")
+    checks.assertIn('gate.get("latest_completed_session_date") != expected', session)
+    checks.assertIn('gate.get("calendar") != "NYSE"', session)
+
+
 def main() -> int:
+    test_legacy_migration_workflow_is_dispatch_only_and_manifest_last()
     test_full_rebuild_routes_only_from_scoped_breadth_gate()
     test_workflow_yaml_files_parse()
     # This registered Tier-1 smoke also executes the read-only research handoff
