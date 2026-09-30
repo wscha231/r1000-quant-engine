@@ -2703,7 +2703,8 @@ fake_rclone() {
         fixture = Path(tmp)
         env = {**os.environ, "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REF_TYPE": "branch",
                "GITHUB_REF_NAME": "master", "DEFAULT_BRANCH": "master", "ALLOW_LEGACY": "true",
-               "GITHUB_SHA": "a" * 40, "EXPECTED_MASTER_SHA": "a" * 40,
+               "GITHUB_SHA": "a" * 40, "EXPECTED_MASTER_SHA": "  " + ("a" * 40) + "\n",
+               "GITHUB_ENV": str(fixture / "github_env"),
                "GH_TOKEN": "synthetic", "GITHUB_API_URL": "synthetic", "GITHUB_REPOSITORY": "synthetic",
                "RUNNER_TEMP": fixture.as_posix(), "TEST_REMOTE_SHA": "a" * 40, "TEST_CODE_SHA": "a" * 40,
                "TEST_DEFAULT_BRANCH": "master"}
