@@ -1265,6 +1265,14 @@ def test_legacy_migration_root_rejects_forgery_and_reuses_exact_head() -> None:
             checks.assertEqual(rerun["status"], "IDEMPOTENT_VERIFY_ONLY")
             checks.assertEqual(rerun["before_committed_head_count"], 1)
             checks.assertEqual(rerun["after_committed_head_count"], 1)
+            checks.assertEqual(rerun["expected_master_sha"], args["code_sha"])
+            checks.assertEqual(rerun["observed_master_sha"], args["code_sha"])
+            checks.assertEqual(rerun["reviewed_code_sha"], args["code_sha"])
+            for field, key in (("paper_verifier_receipt_sha256", "paper_verifier"),
+                               ("legacy_summary_sha256", "legacy_summary"),
+                               ("legacy_event_log_sha256", "legacy_events"),
+                               ("preflight_receipt_sha256", "preflight")):
+                checks.assertEqual(rerun[field], sha256_bytes(evidence[key]))
             checks.assertEqual(list((root / "accepted").iterdir()), [root / "accepted" / digest])
             # A paper file change invalidates the root, even with an unchanged saved verifier.
             (root / "paper/h1_fixture/file_000.json").write_text("{}")

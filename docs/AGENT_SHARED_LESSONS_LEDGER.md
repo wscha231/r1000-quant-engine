@@ -2,6 +2,11 @@
 
 ## 2026-09-30 — Legacy outcome repair must preserve original evidence (#509)
 
+- Bash clears `errexit` inside command substitution on common runners. A
+  `BEFORE="$(discover)"` call can otherwise treat a failed Drive listing as an
+  empty namespace after a later successful command. Check each authoritative
+  `rclone lsf` status explicitly inside the function, and test the command
+  substitution path with an unreadable synthetic remote.
 - A quarantined migration root is lineage repair only. Preserve the allowlisted
   summary/event bytes and exact preflight/verifier/selection receipts inside its
   manifest; the accepted-head manager intentionally allows only its existing

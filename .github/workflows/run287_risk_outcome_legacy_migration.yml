@@ -221,9 +221,9 @@ jobs:
           }
           discover() {
             # A successful parent listing proves namespace absence. A failed read never does.
-            "$RCLONE_BIN" lsf "$ARCHIVE/" --dirs-only > "$ROOT/directories.txt"
+            "$RCLONE_BIN" lsf "$ARCHIVE/" --dirs-only > "$ROOT/directories.txt" || return 2
             if grep -Fx 'run287_risk_outcome_accepted_heads/' "$ROOT/directories.txt" >/dev/null; then
-              "$RCLONE_BIN" lsf "$ACCEPTED/" --recursive --files-only > "$ROOT/inventory.txt"
+              "$RCLONE_BIN" lsf "$ACCEPTED/" --recursive --files-only > "$ROOT/inventory.txt" || return 2
             else
               : > "$ROOT/inventory.txt"
             fi

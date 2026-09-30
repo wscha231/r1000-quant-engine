@@ -2666,6 +2666,27 @@ def test_legacy_migration_workflow_is_dispatch_only_and_manifest_last() -> None:
     for forbidden in ("rclone sync", "workflow_dispatch --", "run_daily_simulated_fill_ledger.py",
                       "build_run287_same_close_target_books", "full_rebuild.py", "--allow-genesis"):
         checks.assertNotIn(forbidden, text)
+    discover = script[script.index("discover() {"):script.index("copy_checked() {")]
+    with tempfile.TemporaryDirectory() as tmp:
+        fixture = Path(tmp)
+        # Exercise the real remote-discovery function: a failed parent listing
+        # cannot be converted into an empty accepted-head inventory.
+        broken = """set -euo pipefail
+fake_rclone() {
+  if [ "$SCENARIO" = accepted ] && [ "${3:-}" = --dirs-only ]; then
+    printf '%s\\n' 'run287_risk_outcome_accepted_heads/'
+    return 0
+  fi
+  return 23
+}
+""" + discover + "\nBEFORE=\"$(discover)\"\n"
+        for scenario in ("parent", "accepted"):
+            result = subprocess.run([bash_executable()], input=broken,
+                                    env={**os.environ, "ROOT": fixture.as_posix(),
+                                         "ARCHIVE": "synthetic", "ACCEPTED": "synthetic/accepted",
+                                         "RCLONE_BIN": "fake_rclone", "SCENARIO": scenario},
+                                    text=True, encoding="utf-8", capture_output=True)
+            checks.assertNotEqual(result.returncode, 0)
     # Execute the real pre-secret identity guard against stubbed read-only tools.
     guard = extract_yaml_literal_run(text, "Prove exact current master before secrets")
     with tempfile.TemporaryDirectory() as tmp:
@@ -2723,6 +2744,24 @@ fake_rclone() {
     session = extract_yaml_literal_run(text, "Prove exact latest completed NYSE session")
     checks.assertIn('gate.get("latest_completed_session_date") != expected', session)
     checks.assertIn('gate.get("calendar") != "NYSE"', session)
+    validation = session.split("<<'PY'\n", 1)[1].split("\nPY", 1)[0]
+    with tempfile.TemporaryDirectory() as tmp:
+        gate_path = Path(tmp) / "session.json"
+        requested = "2026-09-29"
+        for gate, succeeds in (({"ready": True, "calendar": "NYSE",
+                                  "session_date": requested,
+                                  "latest_completed_session_date": requested}, True),
+                                ({"ready": True, "calendar": "NYSE",
+                                  "session_date": requested,
+                                  "latest_completed_session_date": "2026-09-28"}, False),
+                                ({"ready": False, "calendar": "NYSE",
+                                  "session_date": requested,
+                                  "latest_completed_session_date": requested}, False)):
+            gate_path.write_text(json.dumps(gate), encoding="utf-8")
+            result = subprocess.run([sys.executable, "-c", validation,
+                                     str(gate_path), requested],
+                                    capture_output=True, text=True, encoding="utf-8")
+            checks.assertEqual(result.returncode == 0, succeeds, result.stderr)
 
 
 def main() -> int:
