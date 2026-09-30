@@ -1,5 +1,61 @@
 # Agent Shared Lessons Ledger
 
+## 2026-09-30 — Immutable publication may lead mutable aliases (#563 P1 C/D)
+
+- Publication is not atomic across immutable heads and mutable aliases. Recovery
+  must first bind a mutable paper alias to the exact physically verified
+  immutable snapshot it represents, then prove the selected terminal descends
+  from that alias. The original six-head migration chain remains a required
+  prefix, and aliases older than the migration snapshot remain invalid.
+- Risk-outcome recovery follows the same rule: mutable archive bytes may match
+  any physically verified predecessor in the accepted linear lineage, or the
+  exact embedded quarantined predecessor of the migration root. Arbitrary stale,
+  forked, orphaned, disconnected, or byte-divergent aliases remain fail-closed.
+- This is repository verification/recovery logic only. It does not authorize a
+  Drive write, migration dispatch, paper/broker mutation, or economic action.
+
+## 2026-09-30 — Migration recovery must separate producer from verifier (#563)
+
+- Exact-head Codex review found that a committed migration root could not be
+  verified after master advanced: reconstruction used the current verifier SHA
+  as the original preflight producer SHA. Preserve the producer in the immutable
+  manifest, reconstruct with that producer, and attest the current verifier
+  separately in a versioned receipt. First-build authorization still requires
+  producer and exact current master to match.
+- A later ordinary daily run may legitimately advance both mutable paper and
+  risk-outcome aliases. Recover the original six-head paper prefix from the
+  immutable head chain and the original legacy bytes from the migration
+  manifest. Verify current aliases against the descendant paper and accepted
+  outcome chains; do not require mutable aliases to remain at migration time.
+- Existing accepted namespaces may contain a linear descendant chain, so a
+  verify-only rerun must validate the whole chain and retain the original root.
+  Missing ancestors, divergent aliases, or payload-only heads still fail closed.
+  This repository correction does not authorize a Drive write or migration run.
+
+## 2026-09-30 — Legacy outcome repair must preserve original evidence (#509)
+
+- Bash clears `errexit` inside command substitution on common runners. A
+  `BEFORE="$(discover)"` call can otherwise treat a failed Drive listing as an
+  empty namespace after a later successful command. Check each authoritative
+  `rclone lsf` status explicitly inside the function, and test the command
+  substitution path with an unreadable synthetic remote.
+- A quarantined migration root is lineage repair only. Preserve the allowlisted
+  summary/event bytes and exact preflight/verifier/selection receipts inside its
+  manifest; the accepted-head manager intentionally allows only its existing
+  three-file bundle. Recompute the receipt and reconstruct the entire manifest
+  on readback rather than trusting a saved READY label or newly computed run ID.
+- Keep the legacy outcome date distinct from the dispatch session; an empty
+  migration root must not claim that missing paper sessions were completed.
+- Drive has no cross-file compare-and-swap here. Reuse the daily concurrency
+  group, re-list before payload writes and immediately before the manifest-last
+  commit, and reject incomplete/divergent namespaces. An interrupted payload
+  upload requires separate recovery; a blind rerun must not create another root.
+  T5 live audit must confirm that all authorized writers honor the shared lock.
+- Local verification uses temporary synthetic paper chains, denied socket
+  connections, and stubbed persistence commands. This is no evidence of current
+  Drive readiness. Lane A, fresh exact-head A6/final Codex R3 and a new T5 live
+  audit/user approval remain separate gates; no migration was executed.
+
 ## 2026-09-28 — Partial readiness is not global promotion authority (#538)
 
 - PIT membership, universe breadth and comparison-baseline integrity prove only
