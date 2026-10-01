@@ -43,7 +43,9 @@ def read_table(path: Path) -> pd.DataFrame:
         return pd.DataFrame()
     if path.suffix.lower() == ".parquet":
         return pd.read_parquet(path)
-    return pd.read_csv(path, low_memory=False)
+    # These CSVs carry security identities, not numeric CUSIP values. Preserve
+    # leading zeros and blank cells before normalization or issuer matching.
+    return pd.read_csv(path, dtype=str, keep_default_na=False, low_memory=False)
 
 
 def write_json(path: Path, payload: Any) -> None:

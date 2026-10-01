@@ -5497,3 +5497,16 @@ Expected contract:
 - Receipt equality is insufficient for identity: validate both code SHAs before
   comparing them so missing values cannot agree. Restore commands must carry new
   consumer inputs, and CLI/module imports must share contract exception identity.
+
+### 2026-10-01 — CUSIP CSV boundaries must preserve lexical security identity
+
+- Numeric inference changed `037833100` to `37833100` before manual mapping;
+  blank cells also became synthetic `NAN` identities. Read the mapping builder's
+  CSV inputs and the parser's CUSIP-map CSV as text with blank cells preserved.
+  Do not reconstruct missing leading zeros or change existing Parquet semantics.
+- A live issuer-name lookup could mask the broken manual key by supplying the
+  same ticker. Use an offline, conflicting cached issuer fixture and require
+  manual-override provenance, CSV/Parquet round-trip identity and native CLI
+  output parity. New unittest checks remain effective under Python `-O`.
+- This is source-identity plumbing only. No issuer-history/PIT certification,
+  investment score, target, paper/broker state, scheduler or orders are changed.
