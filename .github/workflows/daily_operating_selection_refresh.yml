@@ -5023,6 +5023,7 @@ jobs:
           RCLONE_CONFIG_PATH="$RUNNER_TEMP/run287-capture-rclone.conf"
           SERVICE_ACCOUNT_PATH="$RUNNER_TEMP/run287-capture-service-account.json"
           RCLONE_BIN="$RCLONE_INSTALL/rclone-v${RUN287_CAPTURE_RCLONE_VERSION}-linux-amd64/rclone"
+          export RCLONE_CONFIG="$RCLONE_CONFIG_PATH"
           export RCLONE_CONFIG_GDRIVE_SCOPE=drive.readonly
           {
             echo "RCLONE_BIN=$RCLONE_BIN"

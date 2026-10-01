@@ -5564,3 +5564,26 @@ Expected contract:
   cleanup passed and zero artifacts were produced. Inspect these boundaries
   before any further execution. Do not consume a second capture dispatch under
   the master contract's one-dispatch authorization or rerun an attempt-1-only job.
+
+### 2026-10-01 — GITHUB_ENV does not configure a command in the current step
+
+- Approved additional read-only capture `36885093509` attempt1 at master
+  `07538aef715551f746f4a1be6b1144acd61f2fc8` passed the rclone ZIP checksum
+  and printed `rclone v1.75.0`, confirming the installer-variable fix. It then
+  failed before Drive authentication because `lsd gdrive:` read the default
+  config path instead of the freshly written temporary config. The secret
+  was bound and its `[gdrive]` header check passed; do not blame this failure
+  on credential absence or ask the owner to replace a secret without evidence.
+- GITHUB_ENV publication applies to later steps. Export RCLONE_CONFIG in the
+  current shell too, reusing the existing recovery-preflight pattern. Retain
+  the later-step publication, readonly scope, credential cleanup and every
+  capture/default-head/session/state gate.
+- Execute the actual config-writing shell in offline regressions for both
+  credential branches and with missing or conflicting inherited config.
+  Check current-command selection, file permissions and later-step handoff.
+  A separate checksum-verified rclone1.75.0 local-alias fixture validates the
+  real same-step `lsd` command without credentials or Drive operations.
+- Refresh, canonical download and artifact upload were skipped; cleanup
+  succeeded and zero artifacts were produced. The approved extra dispatch
+  was consumed. Source correction does not authorize another runtime capture,
+  migration, paper catch-up, owner attestation or protected durable mutation.

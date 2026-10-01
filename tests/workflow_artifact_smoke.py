@@ -2301,6 +2301,86 @@ def test_daily_operating_catchup_capture_is_read_only_and_closed() -> None:
         assert syntax.returncode == 0, (step.get("name"), syntax.stderr)
 
 
+def test_daily_operating_capture_config_is_visible_in_current_step() -> None:
+    """Execute the native config-writing shell without installer or Drive IO."""
+    import os
+
+    checks = unittest.TestCase()
+    run = extract_yaml_literal_run(
+        DAILY_OPERATING_WORKFLOW.read_text(encoding="utf-8"),
+        "Configure temporary read-only rclone for capture",
+    )
+    setup = run[:run.index("curl --fail --silent --show-error --location")]
+    credentials = run[run.index('if [ -n "${RCLONE_CONFIG_GDRIVE:-}" ]; then'):]
+    script = setup + 'RCLONE_BIN="$RUN287_TEST_RCLONE_PROBE"\n' + credentials
+    probe_code = '''import configparser, json, os, pathlib, stat, sys
+if sys.argv[1:] != ["lsd", "gdrive:"]:
+    sys.exit("unexpected transport command")
+selected = os.environ.get("RCLONE_CONFIG")
+if not selected or not pathlib.Path(selected).is_file():
+    sys.exit("current command cannot find the configured remote")
+config = configparser.ConfigParser()
+config.read(selected)
+if not config.has_section("gdrive"):
+    sys.exit("current command selected an ambient config without gdrive")
+receipt = {"config_path": selected,
+           "config_mode": stat.S_IMODE(pathlib.Path(selected).stat().st_mode),
+           "scope": os.environ.get("RCLONE_CONFIG_GDRIVE_SCOPE"),
+           "remote_type": config["gdrive"].get("type")}
+if receipt["remote_type"] == "drive":
+    account = pathlib.Path(config["gdrive"]["service_account_file"])
+    receipt["service_account_fixture"] = json.loads(account.read_text())
+    receipt["service_account_mode"] = stat.S_IMODE(account.stat().st_mode)
+pathlib.Path(os.environ["RUN287_CAPTURE_PROBE_RECEIPT"]).write_text(json.dumps(receipt))
+'''
+    for credential_kind in ("rclone", "service_account"):
+        for ambient_config in (False, True):
+            with tempfile.TemporaryDirectory() as tmp:
+                fixture = Path(tmp)
+                probe = fixture / "rclone-probe"
+                probe.write_text("#!" + sys.executable + "\n" + probe_code, encoding="utf-8")
+                probe.chmod(0o700)
+                inherited = fixture / "ambient.conf"
+                inherited.write_text("[other]\ntype = alias\nremote = .\n", encoding="utf-8")
+                github_env = fixture / "github.env"
+                receipt_path = fixture / "receipt.json"
+                env = {key: value for key, value in os.environ.items()
+                       if not key.startswith("RCLONE_")}
+                env.update({
+                    "RUNNER_TEMP": tmp,
+                    "GITHUB_ENV": str(github_env),
+                    "RUN287_CAPTURE_RCLONE_VERSION": "1.75.0",
+                    "RUN287_TEST_RCLONE_PROBE": str(probe),
+                    "RUN287_CAPTURE_PROBE_RECEIPT": str(receipt_path),
+                    "RCLONE_CONFIG_GDRIVE": (
+                        "[gdrive]\ntype = alias\nremote = .\n"
+                        if credential_kind == "rclone" else ""
+                    ),
+                    "GOOGLE_SERVICE_ACCOUNT_KEY": (
+                        json.dumps({"offline_fixture": True})
+                        if credential_kind == "service_account" else ""
+                    ),
+                    "GDRIVE_ROOT_FOLDER_ID": "",
+                })
+                if ambient_config:
+                    env["RCLONE_CONFIG"] = str(inherited)
+                result = subprocess.run(
+                    [bash_executable()], input=script, env=env,
+                    text=True, capture_output=True, check=False,
+                )
+                checks.assertEqual(result.returncode, 0, result.stderr)
+                receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+                expected_config = str(fixture / "run287-capture-rclone.conf")
+                checks.assertEqual(receipt["config_path"], expected_config)
+                checks.assertEqual(receipt["config_mode"], 0o600)
+                checks.assertEqual(receipt["scope"], "drive.readonly")
+                checks.assertIn("RCLONE_CONFIG=" + expected_config,
+                                github_env.read_text(encoding="utf-8").splitlines())
+                if credential_kind == "service_account":
+                    checks.assertEqual(receipt["service_account_fixture"], {"offline_fixture": True})
+                    checks.assertEqual(receipt["service_account_mode"], 0o600)
+
+
 def test_full_rebuild_binds_approved_session_and_preflight_artifacts() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     session_step = extract_yaml_literal_run(
@@ -2841,6 +2921,7 @@ def main() -> int:
     test_data_readiness_preflight_workflow_restores_drive_and_audits_without_full_rebuild()
     test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract()
     test_daily_operating_catchup_capture_is_read_only_and_closed()
+    test_daily_operating_capture_config_is_visible_in_current_step()
     test_latest_run_hydration_preserves_reverified_paper_head_evidence()
     test_pages_deploy_checks_out_public_validator_runtime()
     test_pages_deploy_keeps_prior_site_without_completed_session_artifact()
