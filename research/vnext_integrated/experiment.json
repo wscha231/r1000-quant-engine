@@ -1,0 +1,90 @@
+{
+  "schema_version": "vnext-integrated-diagnostic-v1",
+  "experiment_id": "VNEXT-CORE-ONE-SHOT-20260917",
+  "authority": "RESEARCH_ONLY",
+  "base_master_sha": "d5a9cb11627d42432bddc7a72dfb7ff9d8dae30d",
+  "source_archive": {
+    "artifact_id": 8088582521,
+    "sha256": "ebdbbe7e764b735ca129f662c42ec80b68659f4e3196b5a364cf32c506c4c818",
+    "candidate_rows": 47435,
+    "candidate_tickers": 981,
+    "decision_dates": 85,
+    "first_decision_date": "2019-05-31",
+    "last_decision_date": "2026-05-29"
+  },
+  "philosophy": {
+    "momentum_role": "candidate_discovery_and_ranking_not_auto_sell",
+    "expected_return_role": "company_quality_fundamentals_valuation_and_price",
+    "regime_role": "aggregate_exposure_only_not_stock_score"
+  },
+  "pillars": {
+    "relative_strength": 0.35,
+    "industry_breadth": 0.15,
+    "estimate_revision": 0.15,
+    "fundamental_acceleration": 0.15,
+    "valuation": 0.10,
+    "moat_quality": 0.10
+  },
+  "pillar_features": {
+    "relative_strength": ["relative_strength_composite"],
+    "industry_breadth": ["industry_group_strength_score", "industry_breadth_above_ma200"],
+    "estimate_revision": ["revision_score", "eps_revision_score"],
+    "fundamental_acceleration": ["revenue_growth_final", "fcf_margin", "roic_approx", "quality_trend_score"],
+    "valuation": ["forward_value_score", "garp_score"],
+    "moat_quality": ["moat_proxy_score", "durability_proxy_score", "pricing_power_score"]
+  },
+  "risk_features": ["vol_252d", "dd_1y", "dilution_penalty", "overheat_penalty"],
+  "minimum_pillar_weight_coverage": 0.70,
+  "risk_penalty_max_points": 12.0,
+  "regime": {
+    "features": ["macro_risk_off_score", "systemic_crisis_score"],
+    "thresholds": [
+      {"min": 0.75, "equity_exposure": 0.45},
+      {"min": 0.55, "equity_exposure": 0.65},
+      {"min": 0.35, "equity_exposure": 0.85},
+      {"min": 0.00, "equity_exposure": 1.00}
+    ]
+  },
+  "main": {
+    "target_names": 12,
+    "retention_rank": 18,
+    "max_weight": 0.10,
+    "minimum_cash": 0.05
+  },
+  "concentrated": {
+    "target_names": 8,
+    "retention_rank": 12,
+    "max_weight": 0.14,
+    "minimum_cash": 0.05
+  },
+  "execution": {
+    "outcome_column": "r_1m",
+    "benchmark_outcome_column": "bench_r_1m",
+    "baseline_cost_bps_per_side": 25,
+    "cost_sensitivity_bps_per_side": [5, 25, 50, 100],
+    "cash_return": 0.0,
+    "require_all_selected_outcomes": true
+  },
+  "evaluation_windows": {
+    "full": ["2019-05-31", "2026-05-29"],
+    "recent_validation": ["2024-01-01", "2025-12-31"],
+    "short_final_holdout": ["2026-01-01", "2026-05-29"]
+  },
+  "explicitly_excluded_from_historical_score": [
+    "legacy score_total and all old model scores",
+    "current qualitative opinions backfilled into history",
+    "Theme/ETF mappings without historical PIT evidence",
+    "13F manager skill before H1/H2 historical evidence is complete",
+    "Form4 before H1 historical evidence is complete",
+    "current consensus snapshots backfilled into history",
+    "actual broker or accepted target state"
+  ],
+  "non_claims": [
+    "not production",
+    "not final OOS certification",
+    "historical universe membership is not yet Russell-PIT certified",
+    "candidate books lack feature_available_from and valuation_price_cutoff_date",
+    "r_1m is used only as an outcome label and never as a selection input",
+    "no automatic promotion or order authority"
+  ]
+}
