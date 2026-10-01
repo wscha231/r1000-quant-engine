@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import sys
 import tempfile
+import unittest
 from pathlib import Path
 
 import pandas as pd
@@ -24,8 +25,8 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.run_broker_ledger_replay import replay  # noqa: E402
-from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
+from tools.run_broker_ledger_replay import fill_price, replay  # noqa: E402
+from tools.run_weekly_evaluation import load_price_series, px_cache_name  # noqa: E402
 
 
 def _write_px(cache_dir: Path, ticker: str, closes: list[float], start: str = "2026-01-02") -> None:
@@ -453,6 +454,111 @@ def test_long_horizon_equity_curve_continuous() -> None:
         assert (curve["equity_usd"] > 0).all(), "non-positive equity observed"
 
 
+class OpeningClockAdmissionTests(unittest.TestCase):
+    """Native parquet/replay checks whose assertions remain active under -O."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.cache = self.root / "cache"
+        self.cache.mkdir()
+        self.target = self.root / "targets.csv"
+        self.dates = pd.to_datetime([
+            "2026-01-02", "2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08",
+        ])
+        pd.DataFrame([
+            {"rebalance_date": "2026-01-02", "ticker": "AAA", "weight": 1.0},
+            {"rebalance_date": "2026-01-05", "ticker": "AAA", "weight": 0.5},
+            {"rebalance_date": "2026-01-05", "ticker": "BBB", "weight": 0.5},
+        ]).to_csv(self.target, index=False)
+
+    def write_prices(self, *, later_close=100.0, open_price=100.0,
+                     missing_open=False, missing_fill_open=False) -> None:
+        for ticker in ("AAA", "BBB"):
+            closes = [100., 100., later_close if ticker == "AAA" else 100., 100., 100.]
+            frame = pd.DataFrame({"Close": closes, "Adj Close": closes}, index=self.dates)
+            if not missing_open:
+                frame["Open"] = open_price
+                if missing_fill_open:
+                    frame.loc[pd.Timestamp("2026-01-05"), "Open"] = float("nan")
+            frame.to_parquet(self.cache / px_cache_name(ticker))
+
+    def run_replay(self, name, *, fill_mode="next_open"):
+        output = self.root / name
+        result = replay(target_book=self.target, price_cache=self.cache,
+            output_dir=output, portfolio_kind="main", starting_capital=10000.,
+            fill_mode=fill_mode, cost_bps=0., integer_shares=True)
+        return result, output
+
+    def check_no_performance(self, result, output):
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["metric_mode"], "DO_NOT_USE")
+        self.assertFalse(result["valid_for_production"])
+        for field in ("cagr", "max_dd", "sharpe", "ending_capital_usd"):
+            self.assertNotIn(field, result)
+        for artifact in ("trades.csv", "equity_curve.csv", "positions_latest.csv",
+                         "account_state_latest.json"):
+            self.assertFalse((output / artifact).exists(), artifact)
+
+    def test_strict_loader_keeps_missing_open_and_legacy_fallback_separate(self):
+        self.write_prices(missing_open=True)
+        strict = load_price_series(self.cache, "AAA", require_observed_open=True)
+        legacy = load_price_series(self.cache, "AAA")
+        self.assertTrue(strict["open"].isna().all())
+        self.assertTrue(legacy["open"].equals(legacy["close"]))
+        self.assertEqual(fill_price({"AAA": strict}, "AAA", self.dates[0], "next_open", 7),
+                         (None, None))
+
+    def test_strict_loader_uses_observed_open_and_rejects_nan_on_eligible_session(self):
+        self.write_prices(open_price=72.)
+        prices = load_price_series(self.cache, "AAA", require_observed_open=True)
+        self.assertEqual(fill_price({"AAA": prices}, "AAA", self.dates[0], "next_open", 7),
+                         (self.dates[1], 72.))
+        self.write_prices(missing_fill_open=True)
+        prices = load_price_series(self.cache, "AAA", require_observed_open=True)
+        self.assertEqual(fill_price({"AAA": prices}, "AAA", self.dates[0], "next_open", 7),
+                         (None, None))
+
+    def test_missing_or_nan_open_blocks_native_replay(self):
+        for name, options in (("missing", {"missing_open": True}),
+                              ("nan", {"missing_fill_open": True})):
+            with self.subTest(name=name):
+                self.write_prices(**options)
+                result, output = self.run_replay(name)
+                self.check_no_performance(result, output)
+                self.assertEqual(result["reason"], "target_fill_coverage_incomplete")
+
+    def test_future_close_cannot_produce_opening_intents_without_a_contract(self):
+        for close in (80., 140.):
+            with self.subTest(close=close):
+                self.write_prices(later_close=close)
+                result, output = self.run_replay(str(close))
+                self.check_no_performance(result, output)
+                self.assertEqual(result["reason"], "next_open_precommitted_order_intent_unavailable")
+                self.assertTrue(result["target_fill_coverage"]["coverage_complete"])
+
+    def test_realized_gap_price_cannot_backdate_missing_order_intent(self):
+        for open_price in (60., 160.):
+            with self.subTest(open_price=open_price):
+                self.write_prices(open_price=open_price)
+                result, output = self.run_replay(str(open_price))
+                self.check_no_performance(result, output)
+                self.assertEqual(result["reason"], "next_open_precommitted_order_intent_unavailable")
+
+    def test_next_close_reference_and_blocked_rerun_cleanup(self):
+        self.write_prices()
+        result, output = self.run_replay("reuse", fill_mode="next_close")
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["metric_mode"], "broker_ledger_next_close")
+        self.assertEqual(result["ending_capital_usd"], 10000.)
+        trades = pd.read_csv(output / "trades.csv")
+        self.assertEqual(list(zip(trades["ticker"], trades["side"], trades["quantity"])),
+                         [("AAA", "BUY", 100.), ("AAA", "SELL", 50.), ("BBB", "BUY", 50.)])
+        blocked, same_output = self.run_replay("reuse")
+        self.check_no_performance(blocked, same_output)
+
+
 def main() -> int:
     test_missing_liquidation_fill_fails_closed_before_state_mutation()
     test_multi_day_transition_fails_closed_before_state_mutation()
@@ -461,6 +567,9 @@ def main() -> int:
     test_non_appended_current_operating_close_is_pending()
     test_weekend_evidence_cutoff_uses_next_nyse_session()
     test_long_horizon_equity_curve_continuous()
+    suite = unittest.defaultTestLoader.loadTestsFromTestCase(OpeningClockAdmissionTests)
+    if not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful():
+        return 1
     print("broker_ledger_correctness_smoke: PASS")
     return 0
 

@@ -1640,11 +1640,17 @@ def replay(
                 price_cache,
                 ticker,
                 include_liquidity=True,
+                require_observed_open=fill_mode == "next_open",
             )
             for ticker in tickers
         }
     else:
-        prices = {ticker: load_price_series(price_cache, ticker) for ticker in tickers}
+        prices = {
+            ticker: load_price_series(
+                price_cache, ticker, require_observed_open=fill_mode == "next_open"
+            )
+            for ticker in tickers
+        }
     prices = {ticker: px for ticker, px in prices.items() if not px.empty}
     execution_cost_model = (
         ExecutionCostModel(prices, execution_cost_config)
@@ -1731,6 +1737,34 @@ def replay(
         (output_dir / "replay_report.md").write_text(
             render_report(payload),
             encoding="utf-8",
+        )
+        return payload
+    if fill_mode == "next_open":
+        # This target book declares weights, not quantities fixed before the
+        # auction. The legacy loop sizes from fill-day Close and realized Open;
+        # neither can establish a pre-submitted opening intent. Do not invent
+        # a new sizing/execution policy in an integrity correction. Open price
+        # coverage alone is insufficient to admit this mode.
+        payload = {
+            "status": "blocked",
+            "reason": "next_open_precommitted_order_intent_unavailable",
+            "execution_clock_contract": "next_open_intent_admission_v1",
+            "metric_mode": "DO_NOT_USE",
+            "portfolio_kind": portfolio_kind,
+            "target_book": str(target_book),
+            "price_cache": str(price_cache),
+            "fill_mode": fill_mode,
+            "target_fill_coverage": target_fill_coverage,
+            "performance_fields_redacted": True,
+            "research_only": True,
+            "production_activation_allowed": False,
+            "valid_for_production": False,
+        }
+        (output_dir / "metrics.json").write_text(
+            json.dumps(payload, indent=2, default=str), encoding="utf-8"
+        )
+        (output_dir / "replay_report.md").write_text(
+            render_report(payload), encoding="utf-8"
         )
         return payload
     if execution_cost_model is not None:

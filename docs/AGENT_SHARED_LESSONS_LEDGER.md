@@ -1,5 +1,20 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-01 — Opening price coverage is not pre-auction order intent (Evaluation E1)
+
+- Native parquet/replay fixtures reproduce missing Open being filled from Close
+  and later same-session Close changing an opening rebalance quantity. Keep the
+  legacy weekly loader fallback separate from strict observed-Open admission.
+- The existing target book supplies weights, not precommitted auction quantities.
+  Fail `next_open` closed after price coverage until a separately defined order
+  intent contract is available. Replacing future Close with realized auction Open
+  would still backdate a quantity and is not an integrity fix.
+- This correction redacts performance/account artifacts for blocked runs and
+  preserves the official `broker_ledger_next_close` behavior. It adds no alpha,
+  execution policy, durable mutation, migration rerun, or promotion authority.
+- Missing current Drive access prevents current frontier/accepted-head claims;
+  successful historical Actions receipts are not a fresh durable-state readback.
+
 ## 2026-09-30 — Immutable publication may lead mutable aliases (#563 P1 C/D)
 
 - Publication is not atomic across immutable heads and mutable aliases. Recovery
