@@ -1,0 +1,36 @@
+name: Liquidity driver context CI
+on:
+  pull_request:
+    paths:
+      - 'tools/liquidity_driver_context.py'
+      - 'tools/liquidity_driver_io.py'
+      - 'tests/liquidity_driver_*smoke.py'
+      - '.github/workflows/liquidity_driver_context_ci.yml'
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '${{ matrix.python }}'
+      - name: Existing protected runner with scoped registration
+        env:
+          PYTHONWARNINGS: error::ResourceWarning
+        run: >-
+          python tools/run_pr_validation.py
+          --include liquidity_driver_context_smoke
+          --include liquidity_driver_io_smoke
+          --only liquidity_driver_context_smoke
+          --only liquidity_driver_io_smoke
+      - name: Optimized interpreter contracts
+        run: python -O -W error::ResourceWarning -m unittest discover -s tests -p 'liquidity_driver_*smoke.py' -v
