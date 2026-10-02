@@ -156,6 +156,23 @@ only through separately scoped work under the same #516 ownership.
 
 ## Operational lesson
 
+### 2026-10-02 current-master integration
+
+PR #560 source head `51fca95deb2e9b7a8a139807b0466cb467f16bcf` was integrated
+with master `30915e05c1ffe3cecd2c46b229af20844e514f3d`. The only conflict was
+the shared lessons ledger; both sides' entries were retained. The registry,
+A3 test hook and registry tests were already corrected at the source head and
+were preserved byte-for-byte. No evaluator or protected workflow is changed
+relative to current master.
+
+Local Python 3.12 validation: 50 registry cases and 65 cases in the integrated
+A3 entrypoint passed; the latter also passed with `-O`. The registry cases are
+included in the 65 integrated cases. A scoped PR validation run passed
+`smoke_test.py`, `agent_shared_lessons_contract_smoke.py` and
+`run287_agent_github_operating_standard_smoke.py` using Python 3.14.
+These local results do not replace current-head required CI, independent
+review or review-complete. The PR stays Draft pending those gates.
+
 Byte-valid stored research must be replay-bound to its packet and source
 references before indexing, but replay does not authenticate a reviewer or
 current pointer. Do not map a local reference pass to A5 readiness. Preserve
