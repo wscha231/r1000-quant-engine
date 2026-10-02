@@ -436,6 +436,42 @@ Expected contract:
 
 ## Ledger
 
+### 2026-09-05 - Keep installer metadata out of rclone's environment namespace
+
+- Agent: Codex GPT-5.6.
+- Branch/PR/run: `codex/run287-capture-rclone-env-hotfix-20260905`, failed
+  read-only capture run `33944035434`, job `101246758073`.
+- Context: The first merged multi-session catch-up price capture was dispatched
+  from exact `master` `34bab52743c238c3419db0d03d17a366645459da` through
+  completed NYSE session `2026-09-04` with the transactional job skipped.
+- Attempt: The job downloaded and checksum-verified the pinned rclone archive,
+  then invoked the pinned binary's `version` command before writing Drive
+  credentials or reading canonical evidence.
+- Result: Dispatch-shape, default-branch, dependency, and latest-session gates
+  passed. The job failed closed before Drive access; credential cleanup passed,
+  artifact upload was skipped, and no target, order, ledger, accepted head,
+  migration, catch-up, production, or live state changed.
+- Failure or caveat: The job-level `RCLONE_VERSION=1.75.0` variable was consumed
+  by rclone as its Boolean `--version` option, producing a Boolean parse error.
+  The same installer-variable naming pattern existed in the separate read-only
+  risk-outcome recovery preflight.
+- Root cause: Installer metadata used rclone's reserved `RCLONE_*` environment
+  namespace instead of an application-owned Run287 namespace.
+- Reusable lesson: Keep pinned tool version and archive-checksum metadata under
+  an application-owned prefix. Never export an installer variable whose
+  `RCLONE_*` name collides with a registered rclone flag, and test both the
+  failing old environment and the accepted replacement environment.
+- Next action: Merge the isolated two-workflow naming fix only after focused
+  validation, exact-head review, and green PR checks; then make a fresh
+  read-only capture dispatch rather than rerunning job `101246758073`.
+- Do-not-repeat: Do not rerun the failed job, weaken Drive read-only scope,
+  remove checksum/version verification, or combine this fix with migration or
+  chronological ledger catch-up.
+- Evidence files: `.github/workflows/daily_operating_selection_refresh.yml`,
+  `.github/workflows/run287_risk_outcome_recovery_preflight.yml`, and
+  `tests/workflow_artifact_smoke.py`.
+
+
 ### 2026-09-05 - Daily research needs source dates, not workflow success
 
 - Agent: Codex
@@ -5512,3 +5548,57 @@ Expected contract:
 - Receipt equality is insufficient for identity: validate both code SHAs before
   comparing them so missing values cannot agree. Restore commands must carry new
   consumer inputs, and CLI/module imports must share contract exception identity.
+
+### 2026-10-01 — CUSIP CSV boundaries must preserve lexical security identity
+
+- Numeric inference changed `037833100` to `37833100` before manual mapping;
+  blank cells also became synthetic `NAN` identities. Read the mapping builder's
+  CSV inputs and the parser's CUSIP-map CSV as text with blank cells preserved.
+  Do not reconstruct missing leading zeros or change existing Parquet semantics.
+- A live issuer-name lookup could mask the broken manual key by supplying the
+  same ticker. Use an offline, conflicting cached issuer fixture and require
+  manual-override provenance, CSV/Parquet round-trip identity and native CLI
+  output parity. New unittest checks remain effective under Python `-O`.
+- This is source-identity plumbing only. No issuer-history/PIT certification,
+  investment score, target, paper/broker state, scheduler or orders are changed.
+
+### 2026-10-01 — A bound Drive secret can still fail before authentication
+
+- Read-only capture run `36873299244` at master
+  `b297eafc6b2b1c1a7332c10c408106757970a38a` failed before credential-file
+  creation: installer metadata `RCLONE_VERSION=1.75.0` collided with rclone's
+  Boolean `--version` environment option. The masked runner environment showed
+  a bound durable rclone secret; secret presence is not authentication success.
+- Restore existing PR #394 on current master using `RUN287_CAPTURE_*` and
+  `RUN287_PREFLIGHT_*` installer names. Keep the exact rclone version, archive
+  checksum, read-only scope, receipt fields, and every state gate unchanged.
+- Real pinned-rclone fixtures execute each workflow's version command: both old
+  environments fail Boolean parsing and both scoped replacements return
+  `rclone v1.75.0`. Source-file hashes bind those fixtures to the reviewed fix.
+- Transactional refresh, canonical download, and artifact upload were skipped;
+  cleanup passed and zero artifacts were produced. Inspect these boundaries
+  before any further execution. Do not consume a second capture dispatch under
+  the master contract's one-dispatch authorization or rerun an attempt-1-only job.
+
+### 2026-10-01 — GITHUB_ENV does not configure a command in the current step
+
+- Approved additional read-only capture `36885093509` attempt1 at master
+  `07538aef715551f746f4a1be6b1144acd61f2fc8` passed the rclone ZIP checksum
+  and printed `rclone v1.75.0`, confirming the installer-variable fix. It then
+  failed before Drive authentication because `lsd gdrive:` read the default
+  config path instead of the freshly written temporary config. The secret
+  was bound and its `[gdrive]` header check passed; do not blame this failure
+  on credential absence or ask the owner to replace a secret without evidence.
+- GITHUB_ENV publication applies to later steps. Export RCLONE_CONFIG in the
+  current shell too, reusing the existing recovery-preflight pattern. Retain
+  the later-step publication, readonly scope, credential cleanup and every
+  capture/default-head/session/state gate.
+- Execute the actual config-writing shell in offline regressions for both
+  credential branches and with missing or conflicting inherited config.
+  Check current-command selection, file permissions and later-step handoff.
+  A separate checksum-verified rclone1.75.0 local-alias fixture validates the
+  real same-step `lsd` command without credentials or Drive operations.
+- Refresh, canonical download and artifact upload were skipped; cleanup
+  succeeded and zero artifacts were produced. The approved extra dispatch
+  was consumed. Source correction does not authorize another runtime capture,
+  migration, paper catch-up, owner attestation or protected durable mutation.
