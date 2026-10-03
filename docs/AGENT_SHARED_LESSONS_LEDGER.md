@@ -1,20 +1,5 @@
 # Agent Shared Lessons Ledger
 
-## 2026-10-01 — Opening price coverage is not pre-auction order intent (Evaluation E1)
-
-- Native parquet/replay fixtures reproduce missing Open being filled from Close
-  and later same-session Close changing an opening rebalance quantity. Keep the
-  legacy weekly loader fallback separate from strict observed-Open admission.
-- The existing target book supplies weights, not precommitted auction quantities.
-  Fail `next_open` closed after price coverage until a separately defined order
-  intent contract is available. Replacing future Close with realized auction Open
-  would still backdate a quantity and is not an integrity fix.
-- This correction redacts performance/account artifacts for blocked runs and
-  preserves the official `broker_ledger_next_close` behavior. It adds no alpha,
-  execution policy, durable mutation, migration rerun, or promotion authority.
-- Missing current Drive access prevents current frontier/accepted-head claims;
-  successful historical Actions receipts are not a fresh durable-state readback.
-
 ## 2026-09-30 — Immutable publication may lead mutable aliases (#563 P1 C/D)
 
 - Publication is not atomic across immutable heads and mutable aliases. Recovery
@@ -3635,6 +3620,50 @@ Expected contract:
 - Fullrun executed: false. Durable daily catch-up executed: false. Production
   enabled: false. Live trading enabled: false.
 
+## 2026-10-01 — Opening price coverage is not pre-auction order intent (Evaluation E1)
+
+- Native parquet/replay fixtures reproduce missing Open being filled from Close
+  and later same-session Close changing an opening rebalance quantity. Keep the
+  legacy weekly loader fallback separate from strict observed-Open admission.
+- The existing target book supplies weights, not precommitted auction quantities.
+  Fail `next_open` closed after price coverage until a separately defined order
+  intent contract is available. Replacing future Close with realized auction Open
+  would still backdate a quantity and is not an integrity fix.
+- This correction redacts performance/account artifacts for blocked runs and
+  preserves the official `broker_ledger_next_close` behavior. It adds no alpha,
+  execution policy, durable mutation, migration rerun, or promotion authority.
+- Missing current Drive access prevents current frontier/accepted-head claims;
+  successful historical Actions receipts are not a fresh durable-state readback.
+
+### 2026-10-03 - Clear all replay evidence before blocked reruns
+
+- PR567 review found a completed replay's `reserve_reason_audit.json` surviving
+  a blocked opening rerun because conditional exports were absent from cleanup.
+- Clear every generated evidence file before any prerequisite can return.
+  Test completed-to-blocked and explicit-to-default transitions against the
+  complete export set, while preserving caller-owned files and nested archives.
+  Price/intent guards alone do not invalidate evidence from a prior replay.
+
+### 2026-10-03 - Blocked replay status must survive research callers (#567 P2)
+
+- Audit both direct replay callers and CLI consumers when a native result
+  becomes blocked. Missing, nonfinite or redacted performance is unavailable,
+  not zero. Cost sweeps require every requested level to complete; comparisons
+  require a usable baseline, resolved after all levels have been read.
+- Preserve DO_NOT_USE through grid selection and render unavailable crisis
+  metrics as N/A. Clear only caller-owned root summaries before retrying;
+  retain unrelated files and nested archives. Optional shell orchestration
+  success does not certify the individual replay artifact.
+
+### 2026-10-03 - Caller preparation must invalidate its owned replay evidence (#567 P2)
+
+- Native broker cleanup cannot protect a wrapper that returns before replay.
+  Crisis holdings/policy/schema failures retained eight old native exports and
+  both generated target files. Clear the native registry and wrapper targets
+  before preparation; clear partially written targets when preparation fails.
+- Test the complete owned export set, actual early input failures and successful
+  retries while preserving original holdings, caller files and nested archives.
+
 ## 2026-08-03 - Fullrun session, producer order, and champion authority
 
 - A latest-close fullrun must start from one explicit approved UTC decision
@@ -5602,32 +5631,3 @@ Expected contract:
   succeeded and zero artifacts were produced. The approved extra dispatch
   was consumed. Source correction does not authorize another runtime capture,
   migration, paper catch-up, owner attestation or protected durable mutation.
-
-### 2026-10-03 - Clear all replay evidence before blocked reruns
-
-- PR567 review found a completed replay's `reserve_reason_audit.json` surviving
-  a blocked opening rerun because conditional exports were absent from cleanup.
-- Clear every generated evidence file before any prerequisite can return.
-  Test completed-to-blocked and explicit-to-default transitions against the
-  complete export set, while preserving caller-owned files and nested archives.
-  Price/intent guards alone do not invalidate evidence from a prior replay.
-
-### 2026-10-03 - Blocked replay status must survive research callers (#567 P2)
-
-- Audit both direct replay callers and CLI consumers when a native result
-  becomes blocked. Missing, nonfinite or redacted performance is unavailable,
-  not zero. Cost sweeps require every requested level to complete; comparisons
-  require a usable baseline, resolved after all levels have been read.
-- Preserve DO_NOT_USE through grid selection and render unavailable crisis
-  metrics as N/A. Clear only caller-owned root summaries before retrying;
-  retain unrelated files and nested archives. Optional shell orchestration
-  success does not certify the individual replay artifact.
-
-### 2026-10-03 - Caller preparation must invalidate its owned replay evidence (#567 P2)
-
-- Native broker cleanup cannot protect a wrapper that returns before replay.
-  Crisis holdings/policy/schema failures retained eight old native exports and
-  both generated target files. Clear the native registry and wrapper targets
-  before preparation; clear partially written targets when preparation fails.
-- Test the complete owned export set, actual early input failures and successful
-  retries while preserving original holdings, caller files and nested archives.
