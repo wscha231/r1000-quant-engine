@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 SCHEMA_VERSION = "earnings-estimate-archive-manifest-v1"
 TRANSACTION_MARKER_NAME = "collector_transaction.json"
 TRANSACTION_MARKER_SCHEMA = "earnings-estimate-publication-marker-v1"
@@ -336,12 +338,42 @@ def require_verified_collector_state(
     raise ValueError("collector_transaction_state_mismatch")
 
 
+def require_valid_snapshot_archive(directory: Path) -> list[dict[str, Any]]:
+    """Use the collector's positive schema/content admission for every vintage.
+
+    Import lazily because the collector also imports transaction guards here.
+    Do not silently skip unreadable files or treat missing V2 fields as legacy.
+    """
+    import pandas as pd
+    from tools.collect_earnings_estimates_finnhub import (
+        classify_persisted_archive_row, persisted_v2_snapshot_is_valid,
+    )
+    records = []
+    for path in sorted(directory.glob("estimates_*.parquet")):
+        try:
+            if not path.is_file() or path.is_symlink():
+                raise ValueError("not a regular snapshot")
+            frame = pd.read_parquet(path)
+            if frame.empty or "ticker" not in frame.columns:
+                raise ValueError("empty or unknown snapshot schema")
+            for row in frame.to_dict("records"):
+                if (classify_persisted_archive_row(row) != "VERIFIED_LEGACY"
+                        and not persisted_v2_snapshot_is_valid(row)):
+                    raise ValueError("damaged or unknown snapshot row")
+        except Exception as exc:
+            raise ValueError(f"archive_snapshot_invalid:{path.name}") from exc
+        records.append({"name": path.name, "sha256": sha256_file(path),
+                        "size_bytes": path.stat().st_size, "row_count": len(frame)})
+    return records
+
+
 def require_verified_no_collection_plan(
     directory: Path, *, summary_path: Path, checkpoint_path: Path,
     queue_path: Path, signals_path: Path, universe_path: Path,
     plan_summary: dict[str, Any], run_id: str, expected_universe_count: int,
 ) -> None:
     """A new no-op run may publish its plan only against a verified accepted parent."""
+    require_valid_snapshot_archive(directory)
     state = require_verified_collector_state(directory, summary_path=summary_path,
         checkpoint_path=checkpoint_path, queue_path=queue_path, signals_path=signals_path)
     checkpoint = load_json(checkpoint_path)

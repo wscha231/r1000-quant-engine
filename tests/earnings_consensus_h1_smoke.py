@@ -192,7 +192,9 @@ else: raise ValueError('unexpected fixture transfer')
                 orphan = root/'data_pit/events/earnings_estimates/estimates_20260701.parquet'
                 orphan.write_bytes(b'cache-only')
                 script = root/'transfer.py'; script.write_text(transfer)
-                prefix = 'rclone() { "$PYTHON_TEST_EXEC" "$RCLONE_TEST_SCRIPT" "$@"; }\ntimeout() { shift; "$@"; }\n'
+                # This test exercises the strict legacy branch. Generation
+                # transport/verification has separate end-to-end tests below.
+                prefix = 'python() { return 10; }\nrclone() { "$PYTHON_TEST_EXEC" "$RCLONE_TEST_SCRIPT" "$@"; }\ntimeout() { shift; "$@"; }\n'
                 env = {**os.environ, 'GDRIVE_READY': 'yes', 'GDRIVE_ROOT_FOLDER_ID': 'fixture',
                        'PYTHON_TEST_EXEC': Path(sys.executable).as_posix(), 'RCLONE_TEST_SCRIPT': script.as_posix(),
                        'FAIL_RESTORE_STAGE': failure, 'PYTHONPATH': ''}
@@ -215,6 +217,141 @@ else: raise ValueError('unexpected fixture transfer')
                     self.assertEqual(result.returncode, 0)
                     self.assertEqual(orphan.read_bytes(), b'cache-only')
                     self.assertEqual((root/'calls.jsonl').read_bytes(), prior_calls)
+
+    def test_no_op_checks_all_old_snapshots_before_plan_or_publication(self):
+        from tools.build_forward_estimate_incremental_universe import build_incremental_universe
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            checkpoint, queue = root / 'checkpoint.json', root / 'queue.csv'
+            checkpoint.write_text(json.dumps({'ticker_states': [
+                {'ticker': 'AAA', 'selection_count': 0, 'last_selected_at_utc': ''}]}))
+            queue.write_text('ticker,selected,last_selected_at_utc,selection_count\nAAA,true,,0\n')
+            self.assertEqual(crash_fixture(root), 0)
+            coverage = root / 'coverage.csv'; coverage.write_text('ticker\nAAA\n__CASH__\n')
+            args = dict(snapshot_dir=str(root / 'history'), shard_dir=str(root / 'shards'),
+                output=str(root / 'input.csv'), summary=str(root / 'queue-summary.json'),
+                coverage_file=str(coverage), latest_run='', canonical_universe=str(root / 'universe.csv'),
+                checkpoint=str(checkpoint), queue_output=str(queue), collector_summary=str(root / 'summary.json'),
+                signals=str(root / 'signals.parquet'), report=str(root / 'queue.md'),
+                expected_universe_count=2, as_of_date='2026-07-01', run_id='new-noop-run')
+            self.assertEqual(build_incremental_universe(**args)['status'], 'complete_no_collection_due')
+            def publish():
+                return manifest.build_manifest(snapshot_dir=str(root / 'history'), signals=str(root / 'signals.parquet'),
+                    summary=str(root / 'summary.json'), collector_log=str(root / 'collector.log'),
+                    manifest=str(root / 'manifest.json'), index=str(root / 'index.jsonl'),
+                    run_id='new-noop-run', run_attempt='1', head_sha='fixture', ref='fixture', workflow='fixture',
+                    artifact_name='fixture', queue_checkpoint=str(checkpoint), queue_csv=str(queue),
+                    queue_summary=str(root / 'queue-summary.json'), queue_report=str(root / 'queue.md'),
+                    collection_required=False, queue_universe=str(root / 'universe.csv'), expected_universe_count=2)
+            older = root / 'history/estimates_20260401.parquet'
+            for valid in (snapshot(), legacy_snapshot()):
+                pd.DataFrame([valid]).to_parquet(older)
+                self.assertTrue(publish()['publishable'])
+                self.assertEqual(build_incremental_universe(**args)['status'], 'complete_no_collection_due')
+            for damage in ('unreadable', 'content', 'version', 'schema', 'empty'):
+                with self.subTest(damage=damage):
+                    if damage == 'unreadable': older.write_bytes(b'broken parquet')
+                    else:
+                        row = snapshot()
+                        if damage == 'content': row['est_eps_fy1'] = 999
+                        if damage == 'version': row['snapshot_version_id'] = 'bad'
+                        if damage == 'schema': row = {'ticker':'AAA'}
+                        pd.DataFrame([] if damage == 'empty' else [row]).to_parquet(older)
+                    before = {path:path.read_bytes() for path in (checkpoint, queue, root / 'universe.csv', root / 'queue-summary.json')}
+                    self.assertFalse(publish()['publishable'])
+                    with self.assertRaisesRegex(ValueError, 'archive_snapshot_invalid'):
+                        build_incremental_universe(**args)
+                    for path, value in before.items(): self.assertEqual(path.read_bytes(), value)
+
+    def test_drive_generations_keep_complete_prior_head_on_partial_upload(self):
+        from tools import earnings_estimate_drive_generation as drive
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); source = root / 'source'; remote = root / 'remote'; cache = root / 'cache'
+            archive, daily = source / drive.ARCHIVE, source / drive.DAILY
+            archive.mkdir(parents=True); daily.mkdir(parents=True)
+            def collect(run, value):
+                argv = ['collector','--tickers','AAA','--api-key','fixture','--fetch-date','2026-07-01',
+                    '--snapshot-dir',str(archive),'--signals-output',str(source/drive.SIGNALS),
+                    '--summary',str(daily/'summary.json'),'--collection-checkpoint',str(archive/'collection_checkpoint.json'),
+                    '--collection-queue',str(daily/'collection_queue.csv'),'--collection-attempt-id',run,'--plan-manual-collection']
+                with patch.object(c, 'collect_live_snapshot', return_value=(pd.DataFrame(
+                        [snapshot(f'2026-07-01T18:0{value}:00Z', value)]), [], ['AAA'], {})), \
+                     patch.object(sys,'argv',argv), contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(c.main(),0)
+                result = manifest.build_manifest(snapshot_dir=str(archive),signals=str(source/drive.SIGNALS),
+                    summary=str(daily/'summary.json'),collector_log=str(daily/'collector.log'),
+                    manifest=str(daily/'archive_manifest.json'),index=str(archive/'archive_index.jsonl'),run_id=run,
+                    run_attempt='1',head_sha='fixture',ref='fixture',workflow='fixture',artifact_name='fixture',
+                    queue_checkpoint=str(archive/'collection_checkpoint.json'),queue_csv=str(daily/'collection_queue.csv'))
+                self.assertTrue(result['publishable'],result['publication_failures'])
+            failure = ''; calls = []
+            def transfer(command, left, right=None, *options, **kwargs):
+                calls.append((command,str(left),str(right)))
+                def path(value):
+                    value = str(value)
+                    return remote/value.split(':',1)[1] if value.startswith('fixture:') else Path(value)
+                if command == 'lsf':
+                    if failure == 'head-list': raise RuntimeError('listing failed')
+                    folder = path(left)
+                    return '\n'.join(p.name for p in folder.iterdir() if p.is_file()) if folder.exists() else None
+                left, right = path(left), path(right)
+                stage = ('payload-upload' if command=='copy' and left.name=='payload' and right.is_relative_to(remote)
+                    else 'payload-readback' if command=='copy' else
+                    'head-readback' if left.name==Path(drive.HEAD).name else
+                    'head-upload' if right.name==Path(drive.HEAD).name else
+                    'manifest-upload' if right.is_relative_to(remote) else 'manifest-readback')
+                if failure == stage:
+                    if stage=='payload-upload':
+                        target = right/drive.ARCHIVE/'collector_transaction.json'; target.parent.mkdir(parents=True,exist_ok=True)
+                        shutil.copy2(left/drive.ARCHIVE/'collector_transaction.json',target)
+                    raise RuntimeError('injected '+stage)
+                self.assertIn('--checksum',options)
+                if command=='copy': shutil.copytree(left,right,dirs_exist_ok=True)
+                else:
+                    right.parent.mkdir(parents=True,exist_ok=True)
+                    if '--immutable' in options and right.exists(): self.assertEqual(right.read_bytes(),left.read_bytes())
+                    shutil.copy2(left,right)
+                return ''
+            collect('generation-one',1)
+            with patch.object(drive,'transfer',side_effect=transfer):
+                first = drive.publish(source,'fixture:')
+                first_head = (remote/drive.HEAD).read_bytes()
+                self.assertEqual(drive.publish(source,'fixture:'),first)
+                self.assertTrue(drive.restore(cache,'fixture:'))
+                self.assertEqual((cache/drive.DAILY/'summary.json').read_bytes(),(source/drive.DAILY/'summary.json').read_bytes())
+                collect('generation-two',2)
+                for boundary in ('payload-upload','payload-readback','manifest-upload','manifest-readback','head-upload'):
+                    failure = boundary
+                    with self.subTest(boundary=boundary), self.assertRaises(RuntimeError): drive.publish(source,'fixture:')
+                    self.assertEqual((remote/drive.HEAD).read_bytes(),first_head)
+                    failure = ''
+                    self.assertTrue(drive.restore(cache,'fixture:'))
+                    self.assertEqual(json.loads((cache/drive.DAILY/'summary.json').read_text())['collection_attempt_logical_id'],'generation-one')
+                second = drive.publish(source,'fixture:')
+                self.assertNotEqual(first,second)
+                orphan = cache/drive.ARCHIVE/'estimates_20990101.parquet'; orphan.write_bytes(b'orphan')
+                self.assertTrue(drive.restore(cache,'fixture:')); self.assertFalse(orphan.exists())
+                stable = {p.relative_to(cache).as_posix():p.read_bytes() for p in cache.rglob('*') if p.is_file()}
+                head_path = remote/drive.HEAD; valid_head=head_path.read_bytes()
+                for invalid in (b'broken',b'{}',json.dumps({**json.loads(valid_head),'generation_id':'../bad'}).encode()):
+                    head_path.write_bytes(invalid)
+                    with self.assertRaises((ValueError,RuntimeError)): drive.restore(cache,'fixture:')
+                    self.assertEqual({p.relative_to(cache).as_posix():p.read_bytes() for p in cache.rglob('*') if p.is_file()},stable)
+                head_path.write_bytes(valid_head)
+                payload = remote/drive.GENERATIONS/second/'payload'
+                extra = payload/drive.ARCHIVE/'estimates_20990101.parquet'; extra.write_bytes(b'foreign')
+                with self.assertRaisesRegex(ValueError,'file_set_or_hash'): drive.restore(cache,'fixture:')
+                extra.unlink()
+                damaged = payload/drive.SIGNALS; good = damaged.read_bytes(); damaged.write_bytes(b'bad')
+                with self.assertRaisesRegex(ValueError,'file_set_or_hash'): drive.restore(cache,'fixture:')
+                damaged.write_bytes(good)
+                failure='head-list'
+                with self.assertRaises(RuntimeError): drive.restore(cache,'fixture:')
+                failure=''; head_path.unlink(); self.assertFalse(drive.restore(cache,'fixture:'))
+                head_path.write_bytes(valid_head)
+                failure='head-readback'
+                with self.assertRaises(RuntimeError): drive.publish(source,'fixture:')
+                failure=''; self.assertTrue(drive.restore(cache,'fixture:'))
 
     def test_manual_queue_bootstrap_and_existing_selection_scope(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -258,3 +258,43 @@ provider before comparing fiscal/security identity. Other providers cannot hide
 valid same-provider history. Latest same-provider null/identity conflicts and
 time ties still fail closed; damaged rows from any provider block the archive.
 These are source admission and publication corrections, not economic acceptance.
+
+## Whole-archive and immutable Drive generation correction (2026-10-03)
+
+Authenticated review5401049108 of16eadf6b found two remaining publication gaps.
+Independent frozen-source probes reproduced corrupted/unreadable older snapshots
+passing a real no-op while collection correctly blocked, and four partial Drive
+uploads reporting success before a mixed generation failed restore admission.
+Earlier targeted CLEAN and Linux232/232 evidence are preserved but cannot approve
+these newly identified paths. Source correction continues under the owner's
+direct continuation; no runtime repair, migration or Drive operation is granted.
+
+Every no-op publication validates all estimates_*.parquet files with the same
+positive V2 content/schema and complete legacy admission used by the collector.
+Unreadable, unknown, empty or damaged snapshots block. A bound planner applies
+this guard before rewriting canonical universe/checkpoint/queue state. Missing
+V2 fields cannot silently downgrade a damaged row into legacy compatibility.
+
+Bound Drive source publication uses SHA-addressed immutable generations under
+data_pit/events/earnings_estimate_generations/<generation_id>. Payloads contain
+the complete archive, signals and earnings daily outputs. A canonical file
+census binds every relative path, size and SHA256; missing/extra members, unsafe
+paths, symlinks, stale publication bindings and invalid transactions block.
+The staged generation is freshly downloaded and validated before generation.json
+is exposed as its commit marker. That manifest is read back too. Only then is
+data_pit/events/earnings_estimates_generation_head.json written and read back.
+Transfer errors propagate. Payload failures leave the prior accepted head intact;
+unreferenced partial generations remain outside accepted authority and may be
+completed only with identical content. A post-head readback failure is reported
+as failure even when the remote pointer already identifies a complete generation.
+
+Restore downloads the selected complete generation into temporary storage and
+checks its full census, semantic archive and current/parent transaction before
+replacing the three owned local source components. A failed local installation
+blocks the step; a later restore rereads the complete remote generation. Flat
+Drive layout is a compatibility input only when head absence is confirmed.
+Malformed heads, failed listings/transfers and invalid generations cannot fall
+back to stale flat Drive or local cache. Existing workflow concurrency serializes
+earnings writers. Auxiliary research/paper copies are outside this source
+generation and are not certified by source success. Existing consumers must
+restore through this generation contract; old flat paths are not a current head.

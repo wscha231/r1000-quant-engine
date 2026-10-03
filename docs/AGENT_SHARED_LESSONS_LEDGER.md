@@ -5872,6 +5872,22 @@ Expected contract:
   was consumed. Source correction does not authorize another runtime capture,
   migration, paper catch-up, owner attestation or protected durable mutation.
 
+## 2026-10-03 — No-op admission and multi-file transfers need complete evidence
+
+- A bound latest snapshot does not verify older archived files. Actual no-op
+  planning/publication admitted unreadable, modified V2 and unknown older rows;
+  collection rejected the same inputs. Validate every vintage with positive
+  schema/content admission before no-op publication and bound queue rewrites.
+- Separate best-effort Drive copies exposed a new transaction marker before
+  bound signals/summary/queue finished. Four failed transfer fixtures returned
+  success and stranded a mixed generation. Stage one immutable file census,
+  verify fresh remote bytes, publish its commit manifest last, and advance the
+  accepted head only after full readback. Propagate transfer/readback failures.
+- Restore a complete generation into temporary storage before local replacement.
+  Confirm head absence before legacy fallback; an unavailable or invalid head
+  is not absence. Do not infer runtime repair permission from source tests or
+  overwrite an accepted generation to repair a failed upload.
+
 ## 2026-10-03 — Close SQLite handles after blocked materialization
 
 - A SQLite connection context manages commit/rollback and does not close the

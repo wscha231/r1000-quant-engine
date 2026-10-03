@@ -28,7 +28,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from tools.build_earnings_estimate_archive_manifest import (
     require_complete_collector_transaction, require_consistent_collection_acknowledgement,
-    require_verified_collector_state,
+    require_verified_collector_state, require_valid_snapshot_archive,
 )
 
 from tools.build_forward_estimate_universe_plan import (  # noqa: E402
@@ -558,6 +558,8 @@ def build_incremental_universe(
         signals_path=signals_path,
         allow_missing_queue=True,
     )
+    if prior_transaction.get("state") in {"accepted", "planned"}:
+        require_valid_snapshot_archive(snapshot_dir_path)
     require_consistent_collection_acknowledgement(checkpoint_path, queue_path)
     report_path = repo_path(report)
     include_file_path = repo_path(include_file) if include_file else Path("")

@@ -172,25 +172,39 @@ jobs:
             BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
           fi
           mkdir -p data_pit/events outputs/earnings_estimates_daily
-          # Drive is authoritative when configured. Remove cache-only archive
-          # members locally; a failed restore must not publish cached history.
-          timeout 8m rclone sync "$BASE""data_pit/events/earnings_estimates" data_pit/events/earnings_estimates/ \
-            --checksum --transfers 4 --checkers 8 --stats 30s --stats-one-line
-          BOUND_RESTORE="false"
-          if [ -f data_pit/events/earnings_estimates/collector_transaction.json ]; then
-            BOUND_RESTORE="true"
+          # A committed generation is downloaded and verified before local replacement.
+          GENERATION_RESTORED="false"
+          if python tools/earnings_estimate_drive_generation.py restore --base "$BASE"; then
+            GENERATION_RESTORED="true"
+          else
+            RESTORE_STATUS="$?"
+            if [ "$RESTORE_STATUS" -ne 10 ]; then
+              exit "$RESTORE_STATUS"
+            fi
           fi
-          if [ "$BOUND_RESTORE" = "true" ] || rclone lsf "$BASE""data_pit/events/earnings_revision_signals.parquet" >/dev/null 2>&1; then
-            timeout 3m rclone copyto "$BASE""data_pit/events/earnings_revision_signals.parquet" \
-              data_pit/events/earnings_revision_signals.parquet --checksum
-          fi
-          if [ "$BOUND_RESTORE" = "true" ] || rclone lsf "$BASE""outputs/earnings_estimates_daily/summary.json" >/dev/null 2>&1; then
-            timeout 2m rclone copyto "$BASE""outputs/earnings_estimates_daily/summary.json" \
-              outputs/earnings_estimates_daily/summary.json --checksum
-          fi
-          if [ "$BOUND_RESTORE" = "true" ] || rclone lsf "$BASE""outputs/earnings_estimates_daily/collection_queue.csv" >/dev/null 2>&1; then
-            timeout 2m rclone copyto "$BASE""outputs/earnings_estimates_daily/collection_queue.csv" \
-              outputs/earnings_estimates_daily/collection_queue.csv --checksum
+          # Exit10 means confirmed head absence. Any generation error blocks;
+          # it cannot fall back to stale flat-layout Drive or local cache.
+          if [ "$GENERATION_RESTORED" != "true" ]; then
+            # Drive is authoritative when configured. Remove cache-only archive
+            # members locally; a failed restore must not publish cached history.
+            timeout 8m rclone sync "$BASE""data_pit/events/earnings_estimates" data_pit/events/earnings_estimates/ \
+              --checksum --transfers 4 --checkers 8 --stats 30s --stats-one-line
+            BOUND_RESTORE="false"
+            if [ -f data_pit/events/earnings_estimates/collector_transaction.json ]; then
+              BOUND_RESTORE="true"
+            fi
+            if [ "$BOUND_RESTORE" = "true" ] || rclone lsf "$BASE""data_pit/events/earnings_revision_signals.parquet" >/dev/null 2>&1; then
+              timeout 3m rclone copyto "$BASE""data_pit/events/earnings_revision_signals.parquet" \
+                data_pit/events/earnings_revision_signals.parquet --checksum
+            fi
+            if [ "$BOUND_RESTORE" = "true" ] || rclone lsf "$BASE""outputs/earnings_estimates_daily/summary.json" >/dev/null 2>&1; then
+              timeout 2m rclone copyto "$BASE""outputs/earnings_estimates_daily/summary.json" \
+                outputs/earnings_estimates_daily/summary.json --checksum
+            fi
+            if [ "$BOUND_RESTORE" = "true" ] || rclone lsf "$BASE""outputs/earnings_estimates_daily/collection_queue.csv" >/dev/null 2>&1; then
+              timeout 2m rclone copyto "$BASE""outputs/earnings_estimates_daily/collection_queue.csv" \
+                outputs/earnings_estimates_daily/collection_queue.csv --checksum
+            fi
           fi
           mkdir -p data_pit/free outputs/free_data_forward_paper_ledger \
             outputs/free_data_selection_overlay_previous cache_prices_forward_paper
@@ -535,18 +549,9 @@ jobs:
           else
             BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
           fi
-          if [ -d data_pit/events/earnings_estimates ]; then
-            timeout 8m rclone copy data_pit/events/earnings_estimates "$BASE""data_pit/events/earnings_estimates/" \
-              --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
-          fi
-          if [ -s data_pit/events/earnings_revision_signals.parquet ]; then
-            timeout 3m rclone copyto data_pit/events/earnings_revision_signals.parquet \
-              "$BASE""data_pit/events/earnings_revision_signals.parquet" || true
-          fi
-          if [ -d outputs/earnings_estimates_daily ]; then
-            timeout 3m rclone copy outputs/earnings_estimates_daily "$BASE""outputs/earnings_estimates_daily/" \
-              --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
-          fi
+          # Bound source components publish as one immutable, readback-verified
+          # generation. Payload failures leave the previous accepted head intact.
+          python tools/earnings_estimate_drive_generation.py publish --base "$BASE"
           if [ -d outputs/free_data_selection_overlay ]; then
             timeout 3m rclone copy outputs/free_data_selection_overlay \
               "$BASE""research_state/free_data_selection_overlay/" || true
