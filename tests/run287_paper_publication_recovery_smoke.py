@@ -99,27 +99,26 @@ def publisher_fixture(root: Path) -> dict:
     return data
 
 
-def prior_recovery(run_id: int = 123, *, conclusion: str = "cancelled") -> dict:
-    return {"id": run_id, "run_attempt": 1, "status": "completed", "conclusion": conclusion}
+def prior_recovery(run_id: int = 123, *, conclusion: str = "cancelled", run_attempt: int = 1) -> dict:
+    return {"id": run_id, "run_attempt": run_attempt, "status": "completed", "conclusion": conclusion}
 
 
 def prior_jobs(run_id: int = 123, *, step_conclusion: str = "skipped",
-               duplicate: bool = False) -> dict:
-    steps = [{"name": recovery.ACCEPTED_ARTIFACT_STEP, "conclusion": step_conclusion}]
-    jobs = [{"id": 1000 + run_id, "run_id": run_id, "run_attempt": 1,
-             "status": "completed", "conclusion": "failure", "steps": steps}]
+               duplicate: bool = False, attempts: tuple[int, ...] = (1,)) -> dict:
+    jobs = [{"id": 1000 * attempt + run_id, "run_id": run_id, "run_attempt": attempt,
+             "name": "publication_recovery", "status": "completed", "conclusion": "failure",
+             "steps": [{"name": recovery.ACCEPTED_ARTIFACT_STEP, "conclusion": step_conclusion,
+                        "number": 20, "status": "completed"}]} for attempt in attempts]
     if duplicate:
-        jobs.append({"id": 2000 + run_id, "run_id": run_id, "run_attempt": 2,
-                     "status": "completed", "conclusion": "failure",
-                     "steps": [{"name": recovery.ACCEPTED_ARTIFACT_STEP, "conclusion": "cancelled"}]})
+        jobs.extend(prior_jobs(run_id, step_conclusion="cancelled", attempts=(2,))["jobs"])
     return {"total_count": len(jobs), "jobs": jobs}
 
 
 def install_prior_recovery(root: Path, *, run_id: int = 123, run_conclusion: str = "cancelled",
                            step_conclusion: str = "skipped", artifacts: list | None = None,
-                           jobs_payload: dict | None = None) -> dict:
+                           jobs_payload: dict | None = None, run_attempt: int = 1) -> dict:
     current = json.loads((root / "prior_recoveries.json").read_text(encoding="utf-8"))
-    previous = prior_recovery(run_id, conclusion=run_conclusion)
+    previous = prior_recovery(run_id, conclusion=run_conclusion, run_attempt=run_attempt)
     current["workflow_runs"] = [current["workflow_runs"][0], previous]
     current["total_count"] = len(current["workflow_runs"])
     current.setdefault("artifacts", {})[str(run_id)] = {
@@ -222,7 +221,10 @@ class PublicationRecoveryChecks(unittest.TestCase):
                 self.assertEqual(set(root.iterdir()), {sentinel, github_env})
 
     def test_prior_publication_step_name_matches_current_workflow(self):
-        steps = recovery_workflow()["jobs"]["publication_recovery"]["steps"]
+        workflow_jobs = recovery_workflow()["jobs"]
+        job = workflow_jobs["publication_recovery"]
+        self.assertEqual(job.get("name", "publication_recovery"), recovery.PUBLICATION_JOB_NAME)
+        steps = job["steps"]
         self.assertEqual(sum(step.get("name") == recovery.ACCEPTED_ARTIFACT_STEP for step in steps), 1)
 
     def test_collect_records_all_attempt_prior_job_evidence(self):
@@ -329,7 +331,7 @@ class PublicationRecoveryChecks(unittest.TestCase):
             ("missing_jobs", None, "prior_job_census_missing"),
             ("incomplete_jobs", {"total_count": 2, "jobs": prior_jobs()["jobs"]}, "prior_job_census_incomplete"),
             ("missing_step", {"total_count": 1, "jobs": [{"id": 1123, "run_id": 123, "run_attempt": 1,
-                "status": "completed", "conclusion": "failure", "steps": []}]}, "prior_publication_step_missing"),
+                "name": "publication_recovery", "status": "completed", "conclusion": "failure", "steps": []}]}, "prior_publication_step_missing"),
             ("cancelled_step", prior_jobs(step_conclusion="cancelled"), "prior_publication_side_effect_ambiguous"),
             ("failed_step", prior_jobs(step_conclusion="failure"), "prior_publication_side_effect_ambiguous"),
             ("mixed_attempts", prior_jobs(step_conclusion="skipped", duplicate=True), "prior_publication_side_effect_ambiguous"),
@@ -338,9 +340,119 @@ class PublicationRecoveryChecks(unittest.TestCase):
             with self.subTest(name=name), tempfile.TemporaryDirectory() as td:
                 root = Path(td)
                 publisher_fixture(root)
-                install_prior_recovery(root, jobs_payload=jobs_payload)
+                install_prior_recovery(root, jobs_payload=jobs_payload, run_attempt=2 if name == "mixed_attempts" else 1)
                 with self.assertRaisesRegex(ValueError, error):
                     recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+
+    def test_complete_two_attempt_retry_allows_unrelated_jobs_without_shared_census(self):
+        for conclusion in ("failure", "cancelled"):
+            with self.subTest(conclusion=conclusion), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                publisher_fixture(root)
+                jobs = prior_jobs(attempts=(2, 1))
+                for job_id in (9001, 9002):
+                    jobs["jobs"].append({"id": job_id, "run_id": 123, "run_attempt": 1,
+                        "name": "unrelated_" + str(job_id), "status": "completed", "steps": []})
+                jobs["total_count"] = len(jobs["jobs"])
+                install_prior_recovery(root, run_attempt=2, run_conclusion=conclusion, jobs_payload=jobs)
+                result = recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+                self.assertEqual(result["run_id"], MOCK_RUN)
+
+    def test_prior_attempt_and_evidence_shape_matrix_fails_closed(self):
+        cases = []
+
+        def case(name, change, *, attempts=(1, 2), run_attempt=2):
+            jobs = prior_jobs(attempts=attempts)
+            change(jobs)
+            cases.append((name, run_attempt, jobs))
+
+        for label, attempts in (("missing_latest", (1,)), ("missing_first", (2,)),
+                                ("missing_middle", (1, 3)), ("extra_attempt", (1, 2, 3)),
+                                ("duplicate_all_skipped", (1, 1, 2))):
+            case(label, lambda d: None, attempts=attempts, run_attempt=3 if label == "missing_middle" else 2)
+        case("duplicate_attempt_distinct_job_ids", lambda d: d["jobs"][1].update(run_attempt=1))
+        case("duplicate_job_id_across_attempts", lambda d: d["jobs"][1].update(id=d["jobs"][0]["id"]))
+        case("wrong_run", lambda d: d["jobs"][1].update(run_id=124))
+        case("missing_publication_job", lambda d: d["jobs"][1].update(name="unrelated", steps=[]))
+        case("upload_on_wrong_job", lambda d: d["jobs"][1].update(name="unrelated"))
+        case("missing_upload_in_latest", lambda d: d["jobs"][1].update(steps=[]))
+        case("incomplete_job", lambda d: d["jobs"][1].update(status="in_progress"))
+        case("incomplete_upload", lambda d: d["jobs"][1]["steps"][0].update(status="in_progress"))
+        for field in ("id", "run_id", "run_attempt"):
+            for value in (None, True, False, 0, -1, "2", 2.0):
+                case(f"job_{field}_{value!r}", lambda d, f=field, v=value: d["jobs"][1].update({f: v}))
+        for value in (None, True, False, 0, -1, "2", 2.0):
+            case(f"prior_attempt_{value!r}", lambda d: None, run_attempt=value)
+            case(f"step_number_{value!r}", lambda d, v=value: d["jobs"][1]["steps"][0].update(number=v))
+        for number in (20, 21):
+            case(f"duplicate_upload_{number}", lambda d, n=number: d["jobs"][1]["steps"].append(
+                {**d["jobs"][1]["steps"][0], "number": n}))
+        case("duplicate_step_number", lambda d: d["jobs"][1]["steps"].append(
+            {**d["jobs"][1]["steps"][0], "name": "Unrelated step"}))
+        case("null_step", lambda d: d["jobs"][1]["steps"].append(None))
+        case("missing_steps", lambda d: d["jobs"][1].pop("steps"))
+        case("null_job", lambda d: d["jobs"].__setitem__(1, None))
+        for name, attempt_count, jobs in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                publisher_fixture(root)
+                install_prior_recovery(root, run_attempt=attempt_count, jobs_payload=jobs)
+                with self.assertRaises(ValueError):
+                    recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+
+    def test_boolean_run_identity_cannot_alias_integer_one(self):
+        for field in ("id", "run_id"):
+            previous = prior_recovery(1)
+            jobs = prior_jobs(1)
+            if field == "id":
+                previous[field] = True
+            else:
+                jobs["jobs"][0][field] = True
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                recovery.prior_publication_step_state(previous, jobs)
+
+    def test_prior_job_page_truncation_blocks_retry(self):
+        jobs = prior_jobs(attempts=(1,))
+        for job_id in range(9000, 9099):
+            jobs["jobs"].append({"id": job_id, "run_id": 123, "run_attempt": 1,
+                "name": "unrelated_" + str(job_id), "status": "completed", "steps": []})
+        self.assertEqual(len(jobs["jobs"]), 100)
+        for total_count in (100, 101, True, "100"):
+            with self.subTest(total_count=total_count), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                publisher_fixture(root)
+                jobs["total_count"] = total_count
+                install_prior_recovery(root, run_attempt=2, jobs_payload=jobs)
+                with self.assertRaises(ValueError):
+                    recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+
+    def test_complete_attempts_do_not_override_incomplete_api_censuses(self):
+        for census in ("workflow_runs", "artifacts", "jobs"):
+            with self.subTest(census=census), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                publisher_fixture(root)
+                prior = install_prior_recovery(root, run_attempt=2, jobs_payload=prior_jobs(attempts=(1, 2)))
+                if census == "workflow_runs":
+                    prior["total_count"] += 1
+                else:
+                    prior[census]["123"]["total_count"] += 1
+                dump(root / "prior_recoveries.json", prior)
+                with self.assertRaisesRegex(ValueError, "census_incomplete"):
+                    recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+
+    def test_complete_attempts_success_and_ambiguous_steps_never_retry(self):
+        for attempt in (1, 2):
+            for conclusion in ("success", "failure", "cancelled", "unknown", None):
+                with self.subTest(attempt=attempt, conclusion=conclusion), tempfile.TemporaryDirectory() as td:
+                    root = Path(td)
+                    publisher_fixture(root)
+                    jobs = prior_jobs(attempts=(1, 2))
+                    jobs["jobs"][attempt - 1]["steps"][0]["conclusion"] = conclusion
+                    install_prior_recovery(root, run_attempt=2, jobs_payload=jobs)
+                    error = ("already_published_requires_separate_recovery" if conclusion == "success"
+                             else "prior_publication_side_effect_ambiguous")
+                    with self.assertRaisesRegex(ValueError, error):
+                        recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
 
     def test_prior_success_run_with_skipped_upload_is_not_retry_evidence(self):
         with tempfile.TemporaryDirectory() as td:

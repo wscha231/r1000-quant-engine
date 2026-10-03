@@ -5623,3 +5623,16 @@ Expected contract:
 - Reject the old expression placement, check every consumer's ordering and
   execute normal/space-path and missing/empty-temp offline shell fixtures.
   Preserve unrelated env entries/files and fail before writing on empty temp.
+
+### 2026-10-03 - Prior publication retries require a complete attempt census (#570 P2)
+
+- Jobs API filter=all alone is not completeness proof. Require total_count
+  parity, positive non-bool prior attempt N, exact prior run/publication job,
+  unique job IDs and step numbers, and one exact accepted-upload step for each
+  relevant attempt 1..N. Unrelated jobs need not share that attempt census.
+- Retention cannot erase a prior SUCCESS duplicate-publication guard. A retry
+  requires every complete unique upload step SKIPPED and the prior run completed
+  with failure/cancelled, alongside all existing fresh authority/state gates.
+- Native before-patch regressions exposed 38 unsafe acceptances. The corrected
+  focused suite passes normal and optimized Python; truncated run/job/artifact
+  censuses still block even when all relevant attempt identities are present.

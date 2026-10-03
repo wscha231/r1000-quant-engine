@@ -34,6 +34,7 @@ from tools.check_run287_catchup_drive_readiness import (
 )
 
 WORKFLOW_PATH = ".github/workflows/run287_paper_publication_recovery.yml"
+PUBLICATION_JOB_NAME = "publication_recovery"
 ACCEPTED_ARTIFACT_STEP = "Upload accepted committed July27 publication recovery"
 SCHEMA = "run287-committed-paper-publication-recovery-v1"
 READY = "PREPARED_COMMITTED_PAPER_RECOVERY_REVIEW_ONLY"
@@ -115,27 +116,48 @@ def boolean(value: Any) -> bool:
 
 
 def prior_publication_step_state(previous: dict, jobs_payload: Any) -> str:
-    require(isinstance(previous, dict) and type(previous.get("id")) is int and previous["id"] > 0,
+    require(isinstance(previous, dict) and type(previous.get("id")) is int and previous["id"] > 0 and
+            type(previous.get("run_attempt")) is int and previous["run_attempt"] > 0,
             "prior_recovery_identity")
     require(isinstance(jobs_payload, dict), "prior_job_census_missing")
     jobs = jobs_payload.get("jobs")
     require(isinstance(jobs, list) and type(jobs_payload.get("total_count")) is int and
             jobs_payload["total_count"] == len(jobs), "prior_job_census_incomplete")
-    matches = []
+    job_ids = set()
+    attempts = {}
     for job in jobs:
-        require(isinstance(job, dict) and job.get("run_id") == previous["id"] and
-                type(job.get("run_attempt")) is int and job["run_attempt"] > 0,
+        require(isinstance(job, dict) and type(job.get("id")) is int and job["id"] > 0 and
+                type(job.get("run_id")) is int and job["run_id"] == previous["id"] and
+                type(job.get("run_attempt")) is int and 1 <= job["run_attempt"] <= previous["run_attempt"],
                 "prior_job_run_identity")
+        require(job["id"] not in job_ids, "prior_job_identity_duplicate")
+        job_ids.add(job["id"])
         steps = job.get("steps")
         require(isinstance(steps, list), "prior_job_steps_missing")
+        require(all(isinstance(step, dict) for step in steps), "prior_job_step_invalid")
+        matches = [step for step in steps if step.get("name") == ACCEPTED_ARTIFACT_STEP]
+        if job.get("name") != PUBLICATION_JOB_NAME:
+            require(not matches, "prior_publication_job_mismatch")
+            continue
+        require(job.get("status") == "completed", "prior_publication_job_incomplete")
+        attempt = job["run_attempt"]
+        require(attempt not in attempts, "prior_publication_attempt_duplicate")
+        step_numbers = set()
         for step in steps:
-            require(isinstance(step, dict), "prior_job_step_invalid")
-            if step.get("name") == ACCEPTED_ARTIFACT_STEP:
-                matches.append(step.get("conclusion"))
-    require(matches, "prior_publication_step_missing")
-    if any(value == "success" for value in matches):
+            number = step.get("number")
+            require(type(number) is int and number > 0 and number not in step_numbers,
+                    "prior_job_step_identity")
+            step_numbers.add(number)
+        require(matches, "prior_publication_step_missing")
+        require(len(matches) == 1, "prior_publication_step_duplicate")
+        require(matches[0].get("status") == "completed", "prior_publication_step_incomplete")
+        attempts[attempt] = matches[0].get("conclusion")
+    # Unique identities in 1..N with cardinality N prove the complete census;
+    # unrelated jobs may occur only in a subset of those attempts.
+    require(len(attempts) == previous["run_attempt"], "prior_publication_attempt_census_incomplete")
+    if any(value == "success" for value in attempts.values()):
         return "success"
-    require(all(value == "skipped" for value in matches),
+    require(all(value == "skipped" for value in attempts.values()),
             "prior_publication_side_effect_ambiguous")
     return "skipped"
 
