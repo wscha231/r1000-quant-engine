@@ -1,5 +1,31 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-03 — Estimate coverage requires separate value and source admission
+
+- At master `30915e05c1ffe3cecd2c46b229af20844e514f3d`, Drive run
+  `37100587799` has 992 equities plus CASH. The 60 historical flag-positive
+  names also have fresh legacy nonzero EPS/revenue fields at the frozen
+  `2026-10-03T05:45:23Z` cutoff, but zero rows satisfy the V2 source contract.
+  Fiscal period, basis, currency/unit and exact clocks cannot be reconstructed
+  from legacy zero-filled fields. This is diagnostic coverage, not usable PIT.
+- Latest summary/snapshot/checkpoint/queue and universe hashes match their
+  current manifest. Of 63 downloaded snapshots, 62 match indexed hashes;
+  `estimates_20260912.parquet` has no index entry. Preserve and quarantine that
+  provenance gap rather than inventing an accepted receipt or silently dropping it.
+- A permanent interest hint sorted before acknowledged service age starves
+  retry tails. Universe-order CSV output can undo a fair selection and repeat
+  a serviced prefix after partial failure. Sort never-serviced/oldest first,
+  use hints only for ties, and preserve that order through the request boundary.
+- Reuse #556's validator rather than reimplementing it. The unmerged exact
+  head `2eb4c163e1c5062f54f5e2f0b9d0656985b60ed5` remains a reference;
+  crash-consistency A6 findings, final review and consumer admission are open.
+  Do not modify its transactional writer through a coverage side lane.
+- FMP's documented analyst-count names differ from the old adapter. Finnhub's
+  documented EPS average includes proprietary estimates. Fix the adapter in
+  its owning lane and obtain analyst-only basis evidence before admission.
+  Mixed FMP success/402 cannot justify a global block. Quota/account license
+  is unverified, so this task uses zero new provider requests and no Drive writes.
+
 ## 2026-09-30 — Immutable publication may lead mutable aliases (#563 P1 C/D)
 
 - Publication is not atomic across immutable heads and mutable aliases. Recovery
