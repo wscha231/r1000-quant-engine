@@ -1,5 +1,25 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-03 — A8 preview must preserve failure, intent and write ownership
+
+- Daily37103143806 skipped outcomes and accepted persistence after a session
+  gap. Diagnostic uploads cannot admit fresh outcomes or durable completion.
+- Use native 24-character observation identities and original intent hashes;
+  keep missing costs/PIT/ER unavailable and MFE/MAE diagnostic. A source's
+  declared success plus local hashes does not authenticate GitHub or Drive.
+- Reuse needs maturity, expiry and dependency identity, not only input hash.
+  Inspect partial saves, commit the scratch manifest last and never steal a
+  writer's O_EXCL lock. Check fixed temporary-file aliases before board writes.
+- Preserve another causal writer and user-owned files. Use the explicitly
+  approved isolated worktree; synthetic tests never grant A1/A6 completion,
+  model budget, durable publication, strategy promotion or standing activation.
+- Proportionate Windows validation passed A0/lessons/rejection contracts but
+  workflow_artifact_smoke failed its unchanged capture-config path assertion:
+  Bash emits a '/' suffix and the Windows fixture expects '\\'. Record this
+  platform limitation; do not repair an unrelated transactional workflow here.
+- The bundled Python3.12 lacks jsonschema; native Python3.14 normal/-O tests
+  passed. Keep missing-runtime-dependency evidence distinct from CI validation.
+
 ## 2026-10-03 — Separate safe access from row-local expiry (#560 R3)
 
 - Immutable provenance preflight must use only valid ID/hash and eligible
