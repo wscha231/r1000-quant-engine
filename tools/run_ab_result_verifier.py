@@ -27,6 +27,7 @@ if str(REPO) not in sys.path:
 
 from r1000_config import PORTFOLIO_MISSION_TARGETS
 from mission_contract import mission_identity, mission_binding_status, OFFICIAL_METRIC_MODE
+from research import evaluation_v2_admission as comparison_admission
 
 try:
     from r1000_config import PORTFOLIO_GOAL_GATES
@@ -41,6 +42,40 @@ MIN_BROKER_LEDGER_YEARS = 8.0
 MIN_BROKER_LEDGER_TRADING_DAYS = 252 * 8
 ATTRIBUTION_REQUIREMENT_ID = "attribution_package_year_mdd_name"
 OOS_LOCK_REQUIREMENT_ID = "oos_holdout_lock"
+COMPARISON_OPTIONS = ("comparison_admission_root", "comparison_control_arm",
+                      "comparison_challenger_arm", "expected_context_sha256")
+COMPARISON_AUTHORITY_FIELDS = ("unverified_domains", "g0_certified", "economic_comparison_ready",
+                              "champion_promotion_allowed", "public_publication_allowed",
+                              "fullrun_allowed", "target_paper_broker_mutation_allowed")
+
+
+def comparison_precheck(args: argparse.Namespace) -> dict[str, Any] | None:
+    """Optional byte identity admission; its caller pin is never derived from arms."""
+    values = [getattr(args, name, None) for name in COMPARISON_OPTIONS]
+    if all(value is None for value in values):
+        return None
+    try:
+        comparison_admission.require(all(value is not None for value in values),
+                                     "ADMISSION_OPTIONS_INCOMPLETE")
+        candidates = getattr(args, "candidate_run", None)
+        comparison_admission.require(type(candidates) in (list, tuple) and len(candidates) == 1,
+                                     "COMPARISON_SINGLE_CANDIDATE_REQUIRED")
+        root, control_id, challenger_id, pin = values
+        comparison_admission.require(type(pin) is str and comparison_admission.HEX64.fullmatch(pin) is not None,
+                                     "EXPECTED_CONTEXT_HASH_REQUIRED")
+        comparison_admission.validate_artifact_id(control_id)
+        comparison_admission.validate_artifact_id(challenger_id)
+        resolver = comparison_admission.BoundedArtifactResolver(root)
+        control = comparison_admission.strict_json(resolver(control_id))
+        challenger = comparison_admission.strict_json(resolver(challenger_id))
+        return comparison_admission.compare_environment(control, challenger,
+                    expected_context_sha256=pin, artifact_resolver=resolver)
+    except comparison_admission.AdmissionError as exc:
+        return {
+            "schema": comparison_admission.SCHEMA, "status": "BLOCKED", "reason": str(exc),
+            "unverified_domains": list(comparison_admission.UNVERIFIED),
+            **{name: False for name in COMPARISON_AUTHORITY_FIELDS if name != "unverified_domains"},
+        }
 
 
 def repo_path(value: str | Path) -> Path:
@@ -419,6 +454,14 @@ def render_report(payload: dict[str, Any]) -> str:
         "| Candidate | Decision | CAGR | MDD | IS-CAGR | OOS/IS | CAGR vs Base | IS vs Base | MDD vs Base | Issues |",
         "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
+    admission = payload.get("comparison_admission")
+    if admission is not None:
+        lines[8:8] = [
+            f"- comparison byte admission: `{admission['status']}`",
+            f"- comparison blocked reason: `{admission.get('reason', 'none')}`",
+            "- Byte identity leaves provider, PIT, execution and economic domains unverified; all authority remains false.",
+            "",
+        ]
     for row in payload.get("candidates") or []:
         lines.append(
             "| {run} | `{decision}` | {cagr} | {mdd} | {is_cagr} | {oos_ratio} | {dcagr}pp | {dis}pp | {dmdd}pp | {issues} |".format(
@@ -484,6 +527,19 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
     portfolio = str(getattr(args, "portfolio", "concentrated"))
+    admission = comparison_precheck(args)
+    if admission is not None and admission["status"] == "BLOCKED":
+        payload = {
+            "schema_version": "ab-result-verifier-v1", **mission_identity(PORTFOLIO_MISSION_TARGETS),
+            "status": "blocked_comparison_admission", "portfolio": portfolio,
+            "comparison_admission": admission, "baseline": {}, "candidate_count": 0,
+            "candidates": [], "review_valid_candidate_count": 0,
+            "production_activation_allowed": False, "live_trading_allowed": False,
+            "requires_user_approval": True,
+            **{name: admission[name] for name in COMPARISON_AUTHORITY_FIELDS},
+        }
+        publish_report(args, payload)
+        return payload
     baseline = collect_evidence(repo_path(args.baseline_run), portfolio)
     baseline_ok = bool(
         baseline.get("official_metrics_exists")
@@ -568,14 +624,22 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         },
         "candidates": candidate_rows,
     }
+    if admission is not None:
+        payload["comparison_admission"] = admission
+        payload.update({name: admission[name] for name in COMPARISON_AUTHORITY_FIELDS})
 
+    publish_report(args, payload)
+    return payload
+
+
+def publish_report(args: argparse.Namespace, payload: dict[str, Any]) -> None:
     output_dir = repo_path(getattr(args, "output_dir", "outputs/ab_result_verifier"))
     output_dir.mkdir(parents=True, exist_ok=True)
     write_json(output_dir / "summary.json", payload)
-    write_csv(output_dir / "candidate_verdicts.csv", candidate_rows)
+    write_csv(output_dir / "candidate_verdicts.csv", payload["candidates"])
     (output_dir / "report.md").write_text(render_report(payload), encoding="utf-8")
-    print(json.dumps({"status": status, "review_valid": payload["review_valid_candidate_count"], "candidates": len(candidate_rows)}, indent=2))
-    return payload
+    print(json.dumps({"status": payload["status"], "review_valid": payload["review_valid_candidate_count"],
+                      "candidates": len(payload["candidates"])}, indent=2))
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -592,12 +656,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--payload-hash", default="", help="Optional self-correction workflow payload hash for queue closure.")
     parser.add_argument("--workflow-run-id", default="", help="Optional completed GitHub Actions workflow run id.")
     parser.add_argument("--dispatch-run-id", default="", help="Optional review dispatcher run id.")
+    parser.add_argument("--comparison-admission-root", default=None, help="Opt-in immutable flat artifact bundle directory.")
+    parser.add_argument("--comparison-control-arm", default=None, help="Flat artifact ID of the control arm JSON declaration.")
+    parser.add_argument("--comparison-challenger-arm", default=None, help="Flat artifact ID of the single challenger arm JSON declaration.")
+    parser.add_argument("--expected-context-sha256", default=None, help="Independently pinned caller context hash; never derived from either arm.")
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
-    run(parse_args(argv))
-    return 0
+    payload = run(parse_args(argv))
+    return 2 if payload["status"] == "blocked_comparison_admission" else 0
 
 
 if __name__ == "__main__":

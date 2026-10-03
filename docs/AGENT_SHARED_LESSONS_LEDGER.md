@@ -5587,3 +5587,13 @@ Expected contract:
   succeeded and zero artifacts were produced. The approved extra dispatch
   was consumed. Source correction does not authorize another runtime capture,
   migration, paper catch-up, owner attestation or protected durable mutation.
+
+### 2026-10-03 - Common bytes require a separate pin and leave semantics unverified
+
+- The prepared 13-role comparison prototype omitted three requested identities.
+  Native v2 requires all 16 roles and a caller context pin independent of either
+  arm; partial options must block before legacy metric reads.
+- Bound actual flat-file reads, descriptor identity, links and byte budgets.
+  Windows cross-descriptor timestamps require explicit birth time, not deprecated
+  ctime. Matching supplied bytes cannot certify provider/PIT or executed policy,
+  fix a conflicting legacy window claim, or grant economic/fullrun/book authority.
