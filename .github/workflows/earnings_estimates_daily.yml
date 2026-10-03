@@ -117,6 +117,8 @@ jobs:
           path: |
             data_pit/events/earnings_estimates
             data_pit/events/earnings_revision_signals.parquet
+            outputs/earnings_estimates_daily/summary.json
+            outputs/earnings_estimates_daily/collection_queue.csv
             cache_prices_forward_paper
             outputs/free_data_forward_paper_ledger
             outputs/free_data_selection_overlay
@@ -155,6 +157,7 @@ jobs:
           echo "GDRIVE_READY=yes" >> "$GITHUB_ENV"
 
       - name: Restore earnings estimate archive from Google Drive
+        id: restore_archive
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: r1000_top30_institutional
@@ -168,14 +171,40 @@ jobs:
           else
             BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
           fi
-          mkdir -p data_pit/events
-          if rclone lsf "$BASE""data_pit/events/earnings_estimates" >/dev/null 2>&1; then
-            timeout 8m rclone copy "$BASE""data_pit/events/earnings_estimates" data_pit/events/earnings_estimates/ \
-              --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
+          mkdir -p data_pit/events outputs/earnings_estimates_daily
+          # A committed generation is downloaded and verified before local replacement.
+          GENERATION_RESTORED="false"
+          if python tools/earnings_estimate_drive_generation.py restore --base "$BASE"; then
+            GENERATION_RESTORED="true"
+          else
+            RESTORE_STATUS="$?"
+            if [ "$RESTORE_STATUS" -ne 10 ]; then
+              exit "$RESTORE_STATUS"
+            fi
           fi
-          if rclone lsf "$BASE""data_pit/events/earnings_revision_signals.parquet" >/dev/null 2>&1; then
-            timeout 3m rclone copyto "$BASE""data_pit/events/earnings_revision_signals.parquet" \
-              data_pit/events/earnings_revision_signals.parquet || true
+          # Exit10 means confirmed head absence. Any generation error blocks;
+          # it cannot fall back to stale flat-layout Drive or local cache.
+          if [ "$GENERATION_RESTORED" != "true" ]; then
+            # Drive is authoritative when configured. Remove cache-only archive
+            # members locally; a failed restore must not publish cached history.
+            timeout 8m rclone sync "$BASE""data_pit/events/earnings_estimates" data_pit/events/earnings_estimates/ \
+              --checksum --transfers 4 --checkers 8 --stats 30s --stats-one-line
+            BOUND_RESTORE="false"
+            if [ -f data_pit/events/earnings_estimates/collector_transaction.json ]; then
+              BOUND_RESTORE="true"
+            fi
+            if [ "$BOUND_RESTORE" = "true" ] || rclone lsf "$BASE""data_pit/events/earnings_revision_signals.parquet" >/dev/null 2>&1; then
+              timeout 3m rclone copyto "$BASE""data_pit/events/earnings_revision_signals.parquet" \
+                data_pit/events/earnings_revision_signals.parquet --checksum
+            fi
+            if [ "$BOUND_RESTORE" = "true" ] || rclone lsf "$BASE""outputs/earnings_estimates_daily/summary.json" >/dev/null 2>&1; then
+              timeout 2m rclone copyto "$BASE""outputs/earnings_estimates_daily/summary.json" \
+                outputs/earnings_estimates_daily/summary.json --checksum
+            fi
+            if [ "$BOUND_RESTORE" = "true" ] || rclone lsf "$BASE""outputs/earnings_estimates_daily/collection_queue.csv" >/dev/null 2>&1; then
+              timeout 2m rclone copyto "$BASE""outputs/earnings_estimates_daily/collection_queue.csv" \
+                outputs/earnings_estimates_daily/collection_queue.csv --checksum
+            fi
           fi
           mkdir -p data_pit/free outputs/free_data_forward_paper_ledger \
             outputs/free_data_selection_overlay_previous cache_prices_forward_paper
@@ -201,6 +230,7 @@ jobs:
           fi
 
       - name: Resolve ticker set and universe shard
+        id: resolve_archive
         env:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_TICKERS: ${{ github.event.inputs.tickers || '' }}
@@ -296,6 +326,8 @@ jobs:
               --checkpoint data_pit/events/earnings_estimates/collection_checkpoint.json \
               --output outputs/earnings_estimates_daily/incremental_universe.csv \
               --queue-output outputs/earnings_estimates_daily/collection_queue.csv \
+              --collector-summary outputs/earnings_estimates_daily/summary.json \
+              --signals data_pit/events/earnings_revision_signals.parquet \
               --summary outputs/earnings_estimates_daily/incremental_universe_summary.json \
               --report outputs/earnings_estimates_daily/collection_queue_report.md \
               --include-tickers "${TICKERS:-${DEFAULT_TICKERS}}" \
@@ -305,7 +337,8 @@ jobs:
               --max-new-tickers "${INPUT_MAX_NEW_UNIVERSE_TICKERS:-100}" \
               --max-missing-tickers "${INPUT_MAX_MISSING_UNIVERSE_TICKERS:-100}" \
               --max-covered-tickers "${INPUT_MAX_KNOWN_COVERED_TICKERS:-300}" \
-              --max-retry-tickers "${INPUT_MAX_UNCOVERED_RETRY_TICKERS:-50}"
+              --max-retry-tickers "${INPUT_MAX_UNCOVERED_RETRY_TICKERS:-50}" \
+              --run-id "${GITHUB_RUN_ID}"
             UNIVERSE_FILE="outputs/earnings_estimates_daily/incremental_universe.csv"
             SHARD_FILE="${UNIVERSE_FILE}"
             TICKERS=""
@@ -343,6 +376,7 @@ jobs:
             echo "RESOLVED_SHARD_MODE=${SHARD_MODE}"
             echo "RESOLVED_MAX_ERRORS=${MAX_ERRORS}"
             echo "RESOLVED_COLLECTION_REQUIRED=${COLLECTION_REQUIRED}"
+            echo "RESOLVED_QUEUE_PLANNED=${QUEUE_RESOLVED}"
           } >> "$GITHUB_ENV"
           echo "[archive] tickers=${TICKERS}"
           echo "[archive] universe_file=${UNIVERSE_FILE:-<none>}"
@@ -353,6 +387,7 @@ jobs:
           echo "[archive] collection_required=${COLLECTION_REQUIRED}"
 
       - name: Collect forward-only estimate archive
+        id: collect_archive
         if: env.RESOLVED_COLLECTION_REQUIRED == 'true'
         env:
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
@@ -367,16 +402,22 @@ jobs:
           if [ -n "${FETCH_DATE:-}" ]; then
             DATE_ARG=(--fetch-date "$FETCH_DATE")
           fi
+          QUEUE_PLAN_ARG=()
+          if [ "${RESOLVED_QUEUE_PLANNED}" != "true" ]; then
+            QUEUE_PLAN_ARG=(--plan-manual-collection)
+          fi
           python tools/collect_earnings_estimates_finnhub.py \
             --tickers "${RESOLVED_TICKERS}" \
             --universe-file "${RESOLVED_UNIVERSE_FILE}" \
             --ticker-limit "${RESOLVED_TICKER_LIMIT}" \
             "${DATE_ARG[@]}" \
+            "${QUEUE_PLAN_ARG[@]}" \
             --snapshot-dir data_pit/events/earnings_estimates \
             --signals-output data_pit/events/earnings_revision_signals.parquet \
             --summary outputs/earnings_estimates_daily/summary.json \
             --collection-checkpoint data_pit/events/earnings_estimates/collection_checkpoint.json \
             --collection-queue outputs/earnings_estimates_daily/collection_queue.csv \
+            --collection-attempt-id "${GITHUB_RUN_ID}" \
             --vendor-order "$ESTIMATE_VENDOR_ORDER" \
             --sleep-seconds 1.1 \
             --max-errors "${RESOLVED_MAX_ERRORS:-100}" \
@@ -385,7 +426,7 @@ jobs:
 
       - name: Build earnings estimate archive manifest
         id: build_manifest
-        if: always()
+        if: always() && steps.restore_archive.outcome == 'success' && steps.resolve_archive.outcome == 'success' && (env.RESOLVED_COLLECTION_REQUIRED == 'false' || steps.collect_archive.outcome == 'success')
         run: |
           set -euo pipefail
           mkdir -p outputs/earnings_estimates_daily data_pit/events/earnings_estimates
@@ -397,6 +438,7 @@ jobs:
             --manifest outputs/earnings_estimates_daily/archive_manifest.json \
             --index data_pit/events/earnings_estimates/archive_index.jsonl \
             --run-id "${GITHUB_RUN_ID}" \
+            --collection-required "${RESOLVED_COLLECTION_REQUIRED:-true}" \
             --run-attempt "${GITHUB_RUN_ATTEMPT}" \
             --head-sha "${GITHUB_SHA}" \
             --ref "${GITHUB_REF_NAME}" \
@@ -407,12 +449,14 @@ jobs:
             --shard-mode "${RESOLVED_SHARD_MODE:-}" \
             --queue-summary outputs/earnings_estimates_daily/incremental_universe_summary.json \
             --queue-checkpoint data_pit/events/earnings_estimates/collection_checkpoint.json \
+            --queue-universe data_pit/events/earnings_estimates/collection_universe.csv \
+            --expected-universe-count 993 \
             --queue-csv outputs/earnings_estimates_daily/collection_queue.csv \
             --queue-report outputs/earnings_estimates_daily/collection_queue_report.md
 
       - name: Resolve completed NYSE session for forward paper archive
         id: forward_market
-        if: always()
+        if: always() && steps.build_manifest.outcome == 'success'
         run: |
           set -euo pipefail
           mkdir -p outputs/free_data_forward_paper_ledger
@@ -463,12 +507,14 @@ jobs:
             --as-of-date "$LAST_NYSE_SESSION_DATE"
 
       - name: Save earnings estimate archive cache
-        if: always()
+        if: ${{ steps.build_manifest.outcome == 'success' }}
         uses: actions/cache/save@v4
         with:
           path: |
             data_pit/events/earnings_estimates
             data_pit/events/earnings_revision_signals.parquet
+            outputs/earnings_estimates_daily/summary.json
+            outputs/earnings_estimates_daily/collection_queue.csv
             cache_prices_forward_paper
             outputs/free_data_forward_paper_ledger
             outputs/free_data_selection_overlay
@@ -503,18 +549,9 @@ jobs:
           else
             BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
           fi
-          if [ -d data_pit/events/earnings_estimates ]; then
-            timeout 8m rclone copy data_pit/events/earnings_estimates "$BASE""data_pit/events/earnings_estimates/" \
-              --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
-          fi
-          if [ -s data_pit/events/earnings_revision_signals.parquet ]; then
-            timeout 3m rclone copyto data_pit/events/earnings_revision_signals.parquet \
-              "$BASE""data_pit/events/earnings_revision_signals.parquet" || true
-          fi
-          if [ -d outputs/earnings_estimates_daily ]; then
-            timeout 3m rclone copy outputs/earnings_estimates_daily "$BASE""outputs/earnings_estimates_daily/" \
-              --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
-          fi
+          # Bound source components publish as one immutable, readback-verified
+          # generation. Payload failures leave the previous accepted head intact.
+          python tools/earnings_estimate_drive_generation.py publish --base "$BASE"
           if [ -d outputs/free_data_selection_overlay ]; then
             timeout 3m rclone copy outputs/free_data_selection_overlay \
               "$BASE""research_state/free_data_selection_overlay/" || true

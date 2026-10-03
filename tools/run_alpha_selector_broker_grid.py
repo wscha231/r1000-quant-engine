@@ -31,6 +31,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from r1000_config import PORTFOLIO_GOAL_TARGETS  # noqa: E402
 from tools.run_broker_ledger_replay import replay as broker_replay, repo_path, safe_float  # noqa: E402
+from tools.run_broker_ledger_replay import REPLAY_GENERATED_ARTIFACTS, prepare_generated_outputs  # noqa: E402
 from tools.run_weekly_evaluation import load_price_series  # noqa: E402
 
 BROKER_REPLAY_PARAMS = set(inspect.signature(broker_replay).parameters)
@@ -443,11 +444,80 @@ def variant_id(style: str, n: int, cap: float) -> str:
     return f"{clean_label(style)}_N{int(n)}_cap{clean_label(cap)}"
 
 
+GRID_ROOT_ARTIFACTS = ("summary.csv", "best_metrics.json", "best_target_distance_metrics.json", "report.md")
+
+
+def requested_variants(args: argparse.Namespace) -> list[tuple[str, int, float]]:
+    target_ns = parse_csv_ints(args.target_ns, [3, 5, 7])
+    caps = parse_csv_floats(args.single_name_caps, [0.33, 0.50])
+    styles = [s.strip() for s in str(args.styles or "").split(",") if s.strip() in STYLE_WEIGHTS] or list(STYLE_WEIGHTS)
+    return [(style, n, cap) for style in styles for n in target_ns for cap in caps][:max(0, int(args.max_variants))]
+
+
+def grid_generated_artifacts(args: argparse.Namespace) -> tuple[str, ...]:
+    return GRID_ROOT_ARTIFACTS + tuple(f"{variant_id(style, n, cap)}/{name}"
+        for style, n, cap in requested_variants(args) for name in ("target_book.csv", *REPLAY_GENERATED_ARTIFACTS))
+
+
+def normalize_grid_result(value: Any) -> dict[str, Any]:
+    """Bound outer caller admission to the actual grid's required evidence."""
+    payload = dict(value) if isinstance(value, dict) else {}
+    usable = (payload.get("status") == "completed" and payload.get("metric_mode") != "DO_NOT_USE" and
+        payload.get("performance_fields_redacted") is not True and payload.get("valid_for_production") is True and
+        (payload.get("sharpe") is None or finite_performance(payload.get("sharpe")) is not None) and
+        all(finite_performance(number) is not None for number in (
+            payload.get("cagr"), payload.get("max_dd", payload.get("max_drawdown")))))
+    if not usable:
+        payload.update(status="blocked", metric_mode="DO_NOT_USE", performance_fields_redacted=True,
+            valid_for_production=False, research_only=True, production_activation_allowed=False,
+            reason=payload.get("reason") or "broker_grid_evidence_unavailable")
+        for field in ("cagr", "max_dd", "max_drawdown", "sharpe", "ending_capital_usd", "total_fees_usd",
+                      "trade_count", "avg_cash_weight", "gross_traded_usd"):
+            payload[field] = None
+    return payload
+
+
+def finite_performance(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+        return number if math.isfinite(number) else None
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def render_grid_report(payload: dict[str, Any], variant_count: int) -> str:
+    def display(value: Any, pattern: str) -> str:
+        number = finite_performance(value) if payload.get("status") == "completed" else None
+        return format(number, pattern) if number is not None else "N/A"
+    return "\n".join([
+        "# Alpha Selector Broker Grid", "",
+        "Research-only account-ledger grid for concentrated leader-alpha target books.", "",
+        f"- Status: `{payload.get('status')}`", f"- Reason: `{payload.get('reason') or 'none'}`",
+        f"- Portfolio: `{payload.get('portfolio_kind')}`",
+        f"- Best CAGR: {display(payload.get('cagr'), '.2%')}",
+        f"- Best MaxDD: {display(payload.get('max_dd', payload.get('max_drawdown')), '.2%')}",
+        f"- Best Sharpe: {display(payload.get('sharpe'), '.3f')}",
+        f"- Selection rule: `{payload.get('selection_rule', 'n/a')}`", f"- Variants: {variant_count}", "",
+        "Promotion requires target gates, stress windows, and human approval.", "",
+    ])
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
     candidate_book = repo_path(args.candidate_book)
     price_cache = repo_path(args.price_cache)
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    protected, collision = prepare_generated_outputs(output_dir, grid_generated_artifacts(args), [candidate_book])
+    if collision:
+        payload = {"status": "blocked", "reason": "caller_input_collides_with_replay_output",
+            "candidate_book": str(candidate_book), "metric_mode": "DO_NOT_USE", "research_only": True,
+            "production_activation_allowed": False, "valid_for_production": False}
+        if (output_dir / "best_metrics.json").resolve() not in protected: write_json(output_dir / "best_metrics.json", payload)
+        if (output_dir / "report.md").resolve() not in protected:
+            (output_dir / "report.md").write_text(render_grid_report(payload, 0), encoding="utf-8")
+        return payload
     candidates = prepare_candidates(read_csv(candidate_book))
     require_price_cache = not bool(getattr(args, "allow_unfillable_targets", False))
     if require_price_cache:
@@ -457,10 +527,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "status": "blocked",
             "reason": "candidate replay book is missing or empty",
             "candidate_book": str(candidate_book),
+            "metric_mode": "DO_NOT_USE",
             "production_activation_allowed": False,
             "valid_for_production": False,
         }
         write_json(output_dir / "best_metrics.json", payload)
+        (output_dir / "report.md").write_text(render_grid_report(payload, 0), encoding="utf-8")
         return payload
 
     target_ns = parse_csv_ints(args.target_ns, [3, 5, 7])
@@ -517,13 +589,23 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 except Exception as exc:
                     metrics = {
                         "status": "blocked",
-                        "reason": f"broker replay failed: {type(exc).__name__}: {exc}",
+                        "reason": "broker_replay_failed:" + type(exc).__name__,
                         "valid_for_production": False,
                     }
+                performance_usable = (metrics.get("status") == "completed" and
+                    metrics.get("metric_mode") != "DO_NOT_USE" and metrics.get("performance_fields_redacted") is not True and
+                    all(finite_performance(value) is not None for value in (
+                        metrics.get("cagr"), metrics.get("max_dd", metrics.get("max_drawdown")), metrics.get("sharpe"))))
+                if not performance_usable:
+                    metrics.update(status="blocked", metric_mode="DO_NOT_USE", valid_for_production=False,
+                                   reason=metrics.get("reason") or "broker_replay_performance_unavailable")
+                    for field in ("cagr", "max_dd", "max_drawdown", "sharpe", "ending_capital_usd", "total_fees_usd",
+                                  "trade_count", "avg_cash_weight", "gross_traded_usd"):
+                        metrics[field] = None
                 metrics.update(
                     {
                         "candidate_id": f"{args.portfolio_kind}_alpha_selector_broker_grid_{vid}",
-                        "metric_mode": "alpha_selector_broker_grid_next_close",
+                        "metric_mode": "alpha_selector_broker_grid_next_close" if performance_usable else "DO_NOT_USE",
                         "portfolio_kind": args.portfolio_kind,
                         "alpha_selector_variant": vid,
                         "alpha_selector_style": style,
@@ -608,22 +690,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "valid_for_production": False,
         }
     write_json(output_dir / "best_metrics.json", best_payload)
-    report = [
-        "# Alpha Selector Broker Grid",
-        "",
-        "Research-only account-ledger grid for concentrated leader-alpha target books.",
-        "",
-        f"- Portfolio: `{args.portfolio_kind}`",
-        f"- Best CAGR: {safe_float(best_payload.get('cagr')):.2%}",
-        f"- Best MaxDD: {safe_float(best_payload.get('max_dd', best_payload.get('max_drawdown'))):.2%}",
-        f"- Best Sharpe: {safe_float(best_payload.get('sharpe')):.3f}",
-        f"- Selection rule: `{best_payload.get('selection_rule', 'n/a')}`",
-        f"- Variants: {variant_count}",
-        "",
-        "Promotion requires target gates, stress windows, and human approval.",
-        "",
-    ]
-    (output_dir / "report.md").write_text("\n".join(report), encoding="utf-8")
+    (output_dir / "report.md").write_text(render_grid_report(best_payload, variant_count), encoding="utf-8")
     return best_payload
 
 
@@ -652,7 +719,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     payload = run(parse_args())
     print(json.dumps({"status": payload.get("status"), "cagr": payload.get("cagr"), "max_dd": payload.get("max_dd")}, sort_keys=True, default=str))
-    return 0
+    return 0 if payload.get("status") == "completed" else 2
 
 
 if __name__ == "__main__":

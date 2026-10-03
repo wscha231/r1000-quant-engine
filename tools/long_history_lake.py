@@ -820,26 +820,28 @@ def materialize(lake,destination,keys,cutoff):
     """Rebuildable SQL cache from pinned, verified versions. No PIT relabelling."""
     require(not Path(destination).exists(),'database_already_exists')
     conn=sqlite3.connect(destination)
-    conn.execute('create table records(dataset text, observation_date text, filed_date text, concept text, unit text, value real, evidence text, payload text)')
-    conn.execute('create table provenance(catalog_generation integer, cutoff text, historical_pit_certified integer)')
-    conn.execute('insert into provenance values(?,?,0)',(lake.catalog['generation'],cutoff))
-    count=0
-    with conn:
-        for key in keys:
-            entry=lake.catalog['datasets'][key]
-            require(entry['status'] in ('COLLECTED','UNCHANGED'),'stale_dataset')
-            require(entry.get('evidence')!='current_only' or cutoff>=entry['retrieved_at'][:10],
-                    'current_vintage_historical_cutoff_forbidden')
-            for row in lake.get_records(key):
-                observed=row.get('observation_date',row.get('end'))
-                if observed and observed>cutoff: continue
-                if row.get('filed') and row['filed']>cutoff: continue
-                if row.get('available_at') and row['available_at'][:10]>cutoff: continue
-                conn.execute('insert into records values(?,?,?,?,?,?,?,?)',(key,observed,row.get('filed'),row.get('concept',row.get('series')),row.get('unit'),row.get('value'),row.get('evidence',entry['evidence']),json.dumps(row)))
-                count+=1
-        conn.execute('create index lookup on records(dataset,observation_date,filed_date)')
-    conn.close()
-    return count
+    try:
+        conn.execute('create table records(dataset text, observation_date text, filed_date text, concept text, unit text, value real, evidence text, payload text)')
+        conn.execute('create table provenance(catalog_generation integer, cutoff text, historical_pit_certified integer)')
+        conn.execute('insert into provenance values(?,?,0)',(lake.catalog['generation'],cutoff))
+        count=0
+        with conn:
+            for key in keys:
+                entry=lake.catalog['datasets'][key]
+                require(entry['status'] in ('COLLECTED','UNCHANGED'),'stale_dataset')
+                require(entry.get('evidence')!='current_only' or cutoff>=entry['retrieved_at'][:10],
+                        'current_vintage_historical_cutoff_forbidden')
+                for row in lake.get_records(key):
+                    observed=row.get('observation_date',row.get('end'))
+                    if observed and observed>cutoff: continue
+                    if row.get('filed') and row['filed']>cutoff: continue
+                    if row.get('available_at') and row['available_at'][:10]>cutoff: continue
+                    conn.execute('insert into records values(?,?,?,?,?,?,?,?)',(key,observed,row.get('filed'),row.get('concept',row.get('series')),row.get('unit'),row.get('value'),row.get('evidence',entry['evidence']),json.dumps(row)))
+                    count+=1
+            conn.execute('create index lookup on records(dataset,observation_date,filed_date)')
+        return count
+    finally:
+        conn.close()
 
 
 def analyze_restored(lake, root, start, through):

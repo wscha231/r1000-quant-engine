@@ -6,6 +6,7 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -17,7 +18,7 @@ from tools.collect_earnings_estimates_finnhub import (  # noqa: E402
     alphavantage_to_payloads,
     clean_vendor_order,
     fmp_to_payloads,
-    main,
+    main as collector_main,
     parse_snapshot_row,
     sanitize_error_message,
     vendor_estimate_access_from_errors,
@@ -25,20 +26,27 @@ from tools.collect_earnings_estimates_finnhub import (  # noqa: E402
 import tools.collect_earnings_estimates_finnhub as collector  # noqa: E402
 
 
+def main() -> int:
+    # Freeze the fixture collection clock; production rejects historical fetch dates.
+    day = sys.argv[sys.argv.index("--fetch-date") + 1] if "--fetch-date" in sys.argv else collector.utc_now()[:10]
+    with patch.object(collector, "utc_now", return_value=day + "T21:00:00Z"):
+        return collector_main()
+
+
 def _write_fixture(root: Path, ticker: str = "AAA") -> None:
     (root / f"{ticker}_eps.json").write_text(
         json.dumps(
             {
                 "data": [
-                    {"period": "2026", "avg": 1.20, "high": 1.35, "low": 1.05, "numberAnalysts": 8},
-                    {"period": "2027", "avg": 1.45, "high": 1.60, "low": 1.20, "numberAnalysts": 7},
+                    {"period": "2026-12-31", "period_type": "ANNUAL", "avg": 1.20, "high": 1.35, "low": 1.05, "numberAnalysts": 8},
+                    {"period": "2027-12-31", "period_type": "ANNUAL", "avg": 1.45, "high": 1.60, "low": 1.20, "numberAnalysts": 7},
                 ]
             }
         ),
         encoding="utf-8",
     )
     (root / f"{ticker}_revenue.json").write_text(
-        json.dumps({"data": [{"period": "2026", "avg": 1200.0, "numberAnalysts": 6}]}),
+        json.dumps({"data": [{"period": "2026-12-31", "period_type": "ANNUAL", "avg": 1200.0, "numberAnalysts": 6}]}),
         encoding="utf-8",
     )
     (root / f"{ticker}_earnings.json").write_text(
@@ -60,17 +68,21 @@ def test_parse_snapshot_stamps_fetch_date_not_fiscal_period() -> None:
     row = parse_snapshot_row(
         "AAA",
         fetch_date=pd.Timestamp("2026-07-09"),
-        eps_payload={"data": [{"period": "2027", "avg": 1.45, "high": 1.6, "low": 1.2}]},
-        revenue_payload={"data": [{"period": "2027", "avg": 1500.0}]},
+        observed_at="2026-07-09T21:00:00Z",
+        collected_at="2026-07-09T21:00:00Z",
+        eps_payload={"data": [{"period": "2027-12-31", "period_type": "ANNUAL", "avg": 1.45, "high": 1.6, "low": 1.2}]},
+        revenue_payload={"data": [{"period": "2027-12-31", "period_type": "ANNUAL", "avg": 1500.0}]},
         earnings_payload=[{"period": "2026-06-30", "actual": 0.34, "estimate": 0.32, "surprisePercent": 6.2}],
         recommendation_payload=[{"period": "2026-07-01", "strongBuy": 3, "buy": 4, "sell": 1, "strongSell": 0}],
     )
     assert row["as_of_date"] == "2026-07-09"
-    assert row["available_from"] == "2026-07-09"
-    assert row["actual_report_date"] == "2026-06-30"
+    assert row["available_from"] == "2026-07-09T21:00:00Z"
+    assert row["actual_fiscal_period_end"] == "2026-06-30"
+    assert row["actual_report_date"] is None
     assert row["available_from"] != row["actual_report_date"]
     assert row["est_eps_fy1"] == 1.45
-    assert row["est_eps_revision_breadth"] > 0
+    assert row["est_eps_revision_breadth"] is None
+    assert row["analyst_recommendation_balance"] > 0
     assert row["vendor_estimate_access"] is True
 
 
@@ -100,6 +112,8 @@ def test_vendor_entitlement_errors_are_redacted_and_blocking() -> None:
     row = parse_snapshot_row(
         "AAPL",
         fetch_date=pd.Timestamp("2026-07-09"),
+        observed_at="2026-07-09T21:00:00Z",
+        collected_at="2026-07-09T21:00:00Z",
         eps_payload={},
         revenue_payload={},
         earnings_payload=[],
@@ -177,7 +191,8 @@ def test_cli_fixture_writes_snapshot_and_signals() -> None:
                 "--summary",
                 str(summary),
             ]
-            assert main() == 0
+            result = main()
+            assert result == 0
         finally:
             sys.argv = old_argv
         assert (snapshot_dir / "estimates_20260709.parquet").exists()
@@ -187,7 +202,7 @@ def test_cli_fixture_writes_snapshot_and_signals() -> None:
         assert payload["backtest_acceptance_allowed"] is False
         assert payload["max_errors"] == 100
         sig = pd.read_parquet(signals)
-        assert sig["available_from"].dt.strftime("%Y-%m-%d").iloc[0] == "2026-07-09"
+        assert pd.to_datetime(sig["available_from"], utc=True).dt.strftime("%Y-%m-%d").iloc[0] == "2026-07-09"
 
 
 def test_partial_free_vendor_success_is_not_global_block() -> None:
@@ -197,23 +212,11 @@ def test_partial_free_vendor_success_is_not_global_block() -> None:
         def fake_collect_live_snapshot(*_: Any, **__: Any) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
             rows = []
             for ticker, has_estimate in [("AAA", 1), ("BBB", 1), ("CCC", 1), ("DDD", 1), ("EEE", 0)]:
-                rows.append(
-                    {
-                        "ticker": ticker,
-                        "as_of_date": "2026-07-09",
-                        "available_from": "2026-07-09",
-                        "fetch_source": "fmp" if has_estimate else "finnhub",
-                        "est_eps_fy1": 1.0 if has_estimate else 0.0,
-                        "est_eps_fy2": 1.1 if has_estimate else 0.0,
-                        "est_rev_fy1": 100.0 if has_estimate else 0.0,
-                        "est_dispersion": 0.1,
-                        "earnings_surprise_last": 0.0,
-                        "est_eps_revision_breadth": 0.0,
-                        "surprise_streak": 0,
-                        "has_forward_estimate": has_estimate,
-                        "vendor_estimate_access": bool(has_estimate),
-                    }
-                )
+                from earnings_consensus_h1_smoke import snapshot
+                rows.append(snapshot('2026-07-09T21:00:00Z', ticker=ticker,
+                    fetch_source='fmp' if has_estimate else 'finnhub',
+                    eps_estimate_access=bool(has_estimate),
+                    revenue_estimate_access=bool(has_estimate)))
             return pd.DataFrame(rows), [
                 {
                     "ticker": "EEE",
@@ -242,7 +245,8 @@ def test_partial_free_vendor_success_is_not_global_block() -> None:
                 "--summary",
                 str(root / "summary.json"),
             ]
-            assert collector.main() == 0
+            result = main()
+            assert result == 0
         finally:
             collector.collect_live_snapshot = old_collect
             sys.argv = old_argv
@@ -255,7 +259,8 @@ def test_partial_free_vendor_success_is_not_global_block() -> None:
         assert payload["vendor_blocked_errors"] is True, payload
 
 
-def test_run_scoped_entitlement_circuit_stops_repeated_vendor_calls() -> None:
+@patch.object(collector, "utc_now", return_value="2026-07-15T21:00:00Z")
+def test_run_scoped_entitlement_circuit_stops_repeated_vendor_calls(_clock) -> None:
     calls = {"fmp": 0, "finnhub_estimate": 0, "finnhub_optional": 0}
     tickers = [f"T{i:03d}" for i in range(150)]
 
@@ -345,7 +350,8 @@ def test_run_scoped_entitlement_circuit_stops_repeated_vendor_calls() -> None:
     }
 
 
-def test_entitlement_circuit_never_trips_after_vendor_access_success() -> None:
+@patch.object(collector, "utc_now", return_value="2026-07-15T21:00:00Z")
+def test_entitlement_circuit_never_trips_after_vendor_access_success(_clock) -> None:
     calls = 0
 
     def partially_open_fmp(
@@ -360,7 +366,7 @@ def test_entitlement_circuit_never_trips_after_vendor_access_success() -> None:
         del sleep_seconds
         calls += 1
         if ticker == "AAA":
-            return {"data": [{"period": "2027", "avg": 1.0}]}, {}
+            return {"data": [{"period": "2027-12-31", "period_type": "ANNUAL", "avg": 1.0}]}, {}
         errors.append(
             {
                 "ticker": ticker,
@@ -393,7 +399,8 @@ def test_entitlement_circuit_never_trips_after_vendor_access_success() -> None:
     assert calls == 4
     assert len(errors) == 3
     assert attempted == ["AAA", "BBB", "CCC", "DDD"]
-    assert len(snapshot) == 1
+    assert len(snapshot) == 4
+    assert snapshot["has_forward_estimate"].sum() == 1
     assert diagnostics["tripped_vendor_count"] == 0
     assert diagnostics["vendors"]["fmp"]["accessible_response_ticker_count"] == 1
     assert diagnostics["vendors"]["fmp"]["trip_signature"] == ""
@@ -402,38 +409,22 @@ def test_entitlement_circuit_never_trips_after_vendor_access_success() -> None:
 
 
 def test_same_day_snapshot_merges_instead_of_overwriting_existing_archive() -> None:
+    from earnings_consensus_h1_smoke import legacy_snapshot
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         snapshot_dir = root / "snapshots"
         snapshot_dir.mkdir()
         existing = pd.DataFrame(
             [
-                {"ticker": "AAA", "as_of_date": "2026-07-09", "available_from": "2026-07-09", "has_forward_estimate": 1},
-                {"ticker": "BBB", "as_of_date": "2026-07-09", "available_from": "2026-07-09", "has_forward_estimate": 0},
+                {**legacy_snapshot(), "ticker": "AAA", "as_of_date": "2026-07-09", "available_from": "2026-07-09", "has_forward_estimate": 1},
+                {**legacy_snapshot(), "ticker": "BBB", "as_of_date": "2026-07-09", "available_from": "2026-07-09", "has_forward_estimate": 0},
             ]
         )
         existing.to_parquet(snapshot_dir / "estimates_20260709.parquet", index=False)
 
         def fake_collect_live_snapshot(*_: Any, **__: Any) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
-            return pd.DataFrame(
-                [
-                    {
-                        "ticker": "CCC",
-                        "as_of_date": "2026-07-09",
-                        "available_from": "2026-07-09",
-                        "fetch_source": "fmp",
-                        "est_eps_fy1": 1.0,
-                        "est_eps_fy2": 1.1,
-                        "est_rev_fy1": 100.0,
-                        "est_dispersion": 0.1,
-                        "earnings_surprise_last": 0.0,
-                        "est_eps_revision_breadth": 1.0,
-                        "surprise_streak": 1,
-                        "has_forward_estimate": 1,
-                        "vendor_estimate_access": True,
-                    }
-                ]
-            ), []
+            from earnings_consensus_h1_smoke import snapshot
+            return pd.DataFrame([snapshot('2026-07-09T21:00:00Z', ticker='CCC', fetch_source='fmp')]), []
 
         old_collect = collector.collect_live_snapshot
         old_argv = sys.argv[:]
@@ -454,7 +445,8 @@ def test_same_day_snapshot_merges_instead_of_overwriting_existing_archive() -> N
                 "--summary",
                 str(root / "summary.json"),
             ]
-            assert collector.main() == 0
+            result = main()
+            assert result == 0
         finally:
             collector.collect_live_snapshot = old_collect
             sys.argv = old_argv

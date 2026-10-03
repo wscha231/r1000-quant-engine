@@ -48,6 +48,11 @@ from tools.run_broker_ledger_replay import (
 
 
 DEFAULT_OUT_DIR = "outputs/broker_execution_policy_replay"
+REPLAY_GENERATED_ARTIFACTS = (
+    "equity_curve.csv", "trades.csv", "holdings_daily.csv", "cash_ledger.csv",
+    "policy_decisions.csv", "positions_latest.csv", "account_state_latest.json",
+    "metrics.json", "replay_report.md",
+)
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -70,6 +75,35 @@ def safe_float(value: Any, default: float = 0.0) -> float:
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+
+
+def write_blocked_result(output_dir: Path, payload: dict[str, Any], fill_mode: str) -> dict[str, Any]:
+    payload = dict(payload)
+    payload.setdefault("reason", "account metrics were not completed")
+    payload.update(status="blocked", metric_mode="DO_NOT_USE", fill_mode=fill_mode,
+                   broker_ledger_valid=False, valid_for_production=False, research_only=True)
+    for name in ("start_date", "end_date", "days", "years", "ending_capital_usd",
+                 "total_return", "cagr", "sharpe", "max_dd", "max_dd_peak_date",
+                 "max_dd_trough_date", "max_dd_peak_equity_usd", "max_dd_trough_equity_usd",
+                 "avg_cash_weight", "min_cash_usd", "trade_count", "total_fees_usd",
+                 "gross_traded_usd", "policy_decision_count"):
+        payload[name] = None
+    protected = Path(payload["target_book"]).resolve() if payload.get("target_book") else None
+    if (output_dir / "metrics.json").resolve() != protected:
+        write_json(output_dir / "metrics.json", payload)
+    if (output_dir / "replay_report.md").resolve() != protected:
+        (output_dir / "replay_report.md").write_text(render_report(payload), encoding="utf-8")
+    return payload
+
+
+def display_metric(value: Any, pattern: str) -> str:
+    if value is None or isinstance(value, bool):
+        return "N/A"
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "N/A"
+    return format(number, pattern) if math.isfinite(number) else "N/A"
 
 
 def held_days(holding_since: dict[str, pd.Timestamp], ticker: str, date: pd.Timestamp) -> int:
@@ -100,6 +134,7 @@ def execute_policy_order(
     reason: str,
     target_weight: float | None,
     holding_since: dict[str, pd.Timestamp],
+    fill_mode: str = "next_close",
 ) -> dict[str, Any] | None:
     before_qty = float(state.shares.get(ticker, 0.0))
     order = execute_order(
@@ -124,7 +159,7 @@ def execute_policy_order(
             "signal_date": pd.Timestamp(signal_dt).date().isoformat(),
             "reason": reason,
             "target_weight": "" if target_weight is None else float(target_weight),
-            "fill_mode": "next_close",
+            "fill_mode": fill_mode,
         }
     )
     return order
@@ -172,6 +207,26 @@ def replay(
     max_reasonable_weight_sum: float = 1.50,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
+    protected = target_book.resolve()
+    artifacts = [output_dir / name for name in REPLAY_GENERATED_ARTIFACTS]
+    input_collision = any(artifact.resolve() == protected for artifact in artifacts)
+    for artifact in artifacts:
+        if artifact.resolve() != protected and (artifact.is_file() or artifact.is_symlink()):
+            artifact.unlink()
+    if input_collision:
+        return write_blocked_result(output_dir, {
+            "reason": "caller_input_collides_with_replay_output",
+            "target_book": str(target_book), "portfolio_kind": portfolio_kind,
+        }, fill_mode)
+    if fill_mode == "next_open":
+        # Weights are not quantities committed before the auction. This own
+        # execution loop uses fill-day equity/prices to form its quantities.
+        return write_blocked_result(output_dir, {
+            "reason": "opening_order_intent_unproven: this replay has no precommitted auction quantities",
+            "target_book": str(target_book), "portfolio_kind": portfolio_kind,
+        }, fill_mode)
+    if fill_mode not in {"next_close", "same_close"}:
+        return write_blocked_result(output_dir, {"reason": "unsupported fill mode", "target_book": str(target_book)}, fill_mode)
     raw = read_csv(target_book)
     champion_filters, champion_filter_source, champion_filter_warning = resolve_concentrated_champion_filters(
         target_book=target_book,
@@ -188,8 +243,7 @@ def replay(
             "target_book_filter_source": champion_filter_source,
             "target_book_filter_warning": champion_filter_warning,
         }
-        write_json(output_dir / "metrics.json", payload)
-        return payload
+        return write_blocked_result(output_dir, payload, fill_mode)
     weight_diag = weight_book_diagnostics(targets, max_reasonable_weight_sum)
     if int(weight_diag.get("invalid_weight_date_count") or 0) > 0:
         payload = {
@@ -201,8 +255,7 @@ def replay(
             "target_book_filter_warning": champion_filter_warning,
             **weight_diag,
         }
-        write_json(output_dir / "metrics.json", payload)
-        return payload
+        return write_blocked_result(output_dir, payload, fill_mode)
 
     tickers = sorted({str(x).upper() for x in targets["ticker"].unique() if str(x).upper() not in CASH_TICKERS})
     prices = {ticker: load_price_series(price_cache, ticker) for ticker in tickers}
@@ -378,6 +431,7 @@ def replay(
                 reason=reason,
                 target_weight=target_weight,
                 holding_since=holding_since,
+                fill_mode=fill_mode,
             )
             if order:
                 trade_rows.append(order)
@@ -399,6 +453,7 @@ def replay(
                 reason=reason,
                 target_weight=target_weight,
                 holding_since=holding_since,
+                fill_mode=fill_mode,
             )
             if order:
                 trade_rows.append(order)
@@ -459,8 +514,7 @@ def replay(
             "target_book_filter_warning": champion_filter_warning,
             **weight_diag,
         }
-        write_json(output_dir / "metrics.json", payload)
-        return payload
+        return write_blocked_result(output_dir, payload, fill_mode)
 
     equity_df = pd.DataFrame(equity_rows).drop_duplicates("date", keep="last").sort_values("date")
     trades_df = pd.DataFrame(trade_rows)
@@ -472,7 +526,7 @@ def replay(
         {
             "portfolio_kind": portfolio_kind,
             "candidate_id": f"{portfolio_kind}_broker_execution_policy_replay",
-            "metric_mode": "broker_ledger_execution_policy_next_close",
+            "metric_mode": f"broker_ledger_execution_policy_{fill_mode}",
             "data_mode": "monthly_targets_account_aware_execution",
             "fill_mode": fill_mode,
             "price_mode": "adjusted_close",
@@ -499,6 +553,8 @@ def replay(
             **weight_diag,
         }
     )
+    if metrics.get("status") != "completed":
+        return write_blocked_result(output_dir, metrics, fill_mode)
     equity_df.to_csv(output_dir / "equity_curve.csv", index=False)
     trades_df.to_csv(output_dir / "trades.csv", index=False)
     holdings_df.to_csv(output_dir / "holdings_daily.csv", index=False)
@@ -535,11 +591,11 @@ def render_report(metrics: dict[str, Any]) -> str:
             f"- Portfolio: `{metrics.get('portfolio_kind')}`",
             f"- Status: `{metrics.get('status')}`",
             f"- Metric mode: `{metrics.get('metric_mode')}`",
-            f"- CAGR: {safe_float(metrics.get('cagr')):.2%}",
-            f"- Sharpe: {safe_float(metrics.get('sharpe')):.3f}",
-            f"- MaxDD: {safe_float(metrics.get('max_dd')):.2%}",
-            f"- Avg cash: {safe_float(metrics.get('avg_cash_weight')):.2%}",
-            f"- Total trades: {int(safe_float(metrics.get('trade_count'), 0))}",
+            f"- CAGR: {display_metric(metrics.get('cagr'), '.2%')}",
+            f"- Sharpe: {display_metric(metrics.get('sharpe'), '.3f')}",
+            f"- MaxDD: {display_metric(metrics.get('max_dd'), '.2%')}",
+            f"- Avg cash: {display_metric(metrics.get('avg_cash_weight'), '.2%')}",
+            f"- Total trades: {display_metric(metrics.get('trade_count'), '.0f')}",
             f"- Broker-ledger valid: `{str(metrics.get('broker_ledger_valid')).lower()}`",
             f"- Valid for production evidence: `{str(metrics.get('valid_for_production')).lower()}`",
             "",
@@ -591,7 +647,7 @@ def main() -> int:
         new_entry_scale=args.new_entry_scale,
     )
     print(json.dumps(payload, indent=2, sort_keys=True, default=str))
-    return 0
+    return 0 if payload.get("status") == "completed" else 2
 
 
 if __name__ == "__main__":
