@@ -30,10 +30,20 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run_broker_ledger_replay import replay as broker_replay  # noqa: E402
+from tools.run_broker_ledger_replay import REPLAY_GENERATED_ARTIFACTS  # noqa: E402
 
 
 DEFAULT_LATEST_RUN = "outputs"
 DEFAULT_OUT_DIR = "outputs/broker_crisis_reentry_replay/main"
+CRISIS_TARGET_ARTIFACTS = ("target_book.csv", "target_book_diagnostics.json")
+
+
+def clear_generated_artifacts(output_dir: Path, names: tuple[str, ...]) -> None:
+    """Invalidate known root exports; never traverse caller files or archives."""
+    for name in names:
+        path = output_dir / name
+        if path.is_file() or path.is_symlink():
+            path.unlink()
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -157,9 +167,13 @@ def run(
     max_fill_lag_days: int = 7,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
+    # Target preparation can fail before broker_replay performs its cleanup.
+    clear_generated_artifacts(output_dir, REPLAY_GENERATED_ARTIFACTS + CRISIS_TARGET_ARTIFACTS)
     try:
         target_book, diagnostics = build_target_book(latest_run, output_dir, policy_id)
     except Exception as exc:
+        # A failed preparation may already have written part of the new target.
+        clear_generated_artifacts(output_dir, CRISIS_TARGET_ARTIFACTS)
         payload = {
             "status": "blocked",
             "reason": str(exc),

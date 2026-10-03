@@ -5622,3 +5622,12 @@ Expected contract:
   metrics as N/A. Clear only caller-owned root summaries before retrying;
   retain unrelated files and nested archives. Optional shell orchestration
   success does not certify the individual replay artifact.
+
+### 2026-10-03 - Caller preparation must invalidate its owned replay evidence (#567 P2)
+
+- Native broker cleanup cannot protect a wrapper that returns before replay.
+  Crisis holdings/policy/schema failures retained eight old native exports and
+  both generated target files. Clear the native registry and wrapper targets
+  before preparation; clear partially written targets when preparation fails.
+- Test the complete owned export set, actual early input failures and successful
+  retries while preserving original holdings, caller files and nested archives.
