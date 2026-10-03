@@ -5859,3 +5859,12 @@ Expected contract:
   succeeded and zero artifacts were produced. The approved extra dispatch
   was consumed. Source correction does not authorize another runtime capture,
   migration, paper catch-up, owner attestation or protected durable mutation.
+
+## 2026-10-03 — Close SQLite handles after blocked materialization
+
+- A SQLite connection context manages commit/rollback and does not close the
+  connection. Wrap every statement after connect in try/finally; early source
+  or historical-vintage rejection must release Windows file handles too.
+- Keep real connection objects alive in tests, then verify closed API behavior,
+  same-process reopen/rename, rollback on later failures and clean positive
+  materialization. Do not rely on GC or weaken source/PIT/cutoff gates.
