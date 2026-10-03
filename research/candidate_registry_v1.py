@@ -18,9 +18,11 @@ import re
 from typing import Any
 
 if __package__:
-    from .a3_candidate_packet_v1 import A3CandidatePacketError, _VerifiedArtifactCache, evaluate_packet
+    from .a3_candidate_packet_v1 import (A3CandidatePacketError, _VerifiedArtifactCache,
+        _is_json_object, _is_json_array, _json_default, _copy_json, evaluate_packet)
 else:
-    from a3_candidate_packet_v1 import A3CandidatePacketError, _VerifiedArtifactCache, evaluate_packet
+    from a3_candidate_packet_v1 import (A3CandidatePacketError, _VerifiedArtifactCache,
+        _is_json_object, _is_json_array, _json_default, _copy_json, evaluate_packet)
 
 SCHEMA = "candidate-registry-v1-reference-index"
 MAX_ENTRIES = 10000
@@ -78,7 +80,7 @@ def _stamp(value: Any) -> datetime:
 
 def _canonical(value: Any) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"),
-                      ensure_ascii=False, allow_nan=False).encode("utf-8")
+                      ensure_ascii=False, allow_nan=False, default=_json_default).encode("utf-8")
 
 
 class _Snapshot:
@@ -165,13 +167,14 @@ def _reference(value: Any, cutoff: datetime) -> dict[str, Any]:
     return deepcopy(value)
 
 
-def _register_nested(value: dict[str, Any], snapshot: _Snapshot) -> None:
+def _register_nested(value: dict[str, Any], snapshot: _Snapshot) -> int:
     # Strict decoding already bounded depth/nodes. Inspect every syntactically
     # valid descriptor before any asset, role, clock or dependency validation.
-    stack = [value]
+    stack, visits = [value], 0
     while stack:
         item = stack.pop()
-        if isinstance(item, dict):
+        visits += 1
+        if _is_json_object(item):
             for id_field, hash_field in (("artifact_id", "sha256"),
                                          ("raw_artifact_id", "raw_sha256")):
                 try:
@@ -181,45 +184,72 @@ def _register_nested(value: dict[str, Any], snapshot: _Snapshot) -> None:
                     continue
                 snapshot.register(aid, digest)
             stack.extend(item.values())
-        elif isinstance(item, list):
+        elif _is_json_array(item):
             stack.extend(item)
+    return visits
+
+
+def _nested_reference(ref: Any, as_of: datetime, cutoff: datetime) -> None:
+    """Registering syntax grants no clock permission to resolve its bytes."""
+    _require(_is_json_object(ref), "a3_artifact_reference")
+    _identifier(ref.get("artifact_id"), "artifact_id")
+    _digest(ref.get("sha256"))
+    _require(_stamp(ref.get("available_at")) <= as_of <= cutoff, "reference_time_order")
 
 
 def _preflight_nested(entries: list[dict[str, Any]], cutoff: datetime,
                       snapshot: _Snapshot) -> None:
     packets = []
+    packet_attempts, dependency_attempts, scanned = set(), set(), set()
+
+    def register_once(ref, value):
+        key = ref["artifact_id"], ref["sha256"]
+        if key not in scanned:
+            scanned.add(key)
+            _register_nested(value, snapshot)
+
     for entry in sorted(entries, key=lambda e: e["asset_id"]):
         try:
             pref = _reference(entry.get("a3_packet_ref"), cutoff)
             rref = _reference(entry.get("a3_result_ref"), cutoff)
             _require(_stamp(rref["available_at"]) >= _stamp(pref["collected_at"]), "result_precedes_packet")
+            key = pref["artifact_id"], pref["sha256"]
+            if key in packet_attempts:
+                continue
+            packet_attempts.add(key)
             packet = snapshot.object(pref)
         except _BatchError:
             raise
         except ReferenceIndexError:
             continue  # Ineligible/future rows do not resolve or expose packets.
-        _register_nested(packet, snapshot)
+        register_once(pref, packet)
         packets.append(packet)
     # Decode every eligible structured dependency independently: an earlier
     # unavailable/malformed dependency cannot hide identities in a later one.
     # Raw market/source documents are registered here but remain arbitrary bytes.
     for packet in packets:
         refs = packet.get("artifacts")
-        if not isinstance(refs, dict):
+        if not _is_json_object(refs):
+            continue
+        try:
+            as_of = _stamp(packet.get("as_of"))
+        except ReferenceIndexError:
             continue
         for ref in refs.values():
-            if not isinstance(ref, dict):
+            if not _is_json_object(ref):
                 continue
             try:
-                _identifier(ref.get("artifact_id"), "artifact_id")
-                _digest(ref.get("sha256"))
-                _require(_stamp(ref.get("available_at")) <= cutoff, "reference_time_order")
+                _nested_reference(ref, as_of, cutoff)
+                key = ref["artifact_id"], ref["sha256"]
+                if key in dependency_attempts:
+                    continue
+                dependency_attempts.add(key)
                 dependency = snapshot.object(ref)
             except _BatchError:
                 raise
             except ReferenceIndexError:
                 continue
-            _register_nested(dependency, snapshot)
+            register_once(ref, dependency)
 
 
 def _closed_record(entry: dict[str, Any]) -> dict[str, Any]:
@@ -255,12 +285,14 @@ def _index_one(entry: dict[str, Any], row: dict[str, Any], cutoff: datetime,
     _require(packet.get("issuer_id") == entry["issuer_id"], "packet_issuer_identity")
     _require(_stamp(pref["available_at"]) >= _stamp(packet.get("reviewed_at")), "packet_precedes_review")
     refs = packet.get("artifacts")
-    _require(isinstance(refs, dict) and set(refs) <= _A3_ROLES, "a3_artifact_roles")
+    _require(_is_json_object(refs) and set(refs) <= _A3_ROLES, "a3_artifact_roles")
+    as_of = _stamp(packet.get("as_of"))
+    _require(as_of <= cutoff, "reference_time_order")
     # Strict decode of structured dependencies; raw source documents remain
     # arbitrary bytes and are checked by the unchanged A3 resolver boundary.
     for ref in refs.values():
         if ref is not None:
-            _require(isinstance(ref, dict), "a3_artifact_reference")
+            _nested_reference(ref, as_of, cutoff)
             snapshot.object(ref)
     try:
         actual = evaluate_packet(packet, cutoff.isoformat(), snapshot.read,
@@ -282,7 +314,7 @@ def _index_one(entry: dict[str, Any], row: dict[str, Any], cutoff: datetime,
     for role, ref in refs.items():
         if ref is not None:
             _require(set(ref) == expected_fields, "a3_reference_fields")
-            upstream[role] = deepcopy(ref)
+            upstream[role] = _copy_json(ref)
     expiries = [pref["expires_at"], rref["expires_at"]]
     if any(x is not None and _stamp(x) <= cutoff for x in expiries):
         expiry_state = "EXPIRED"

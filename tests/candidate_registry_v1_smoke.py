@@ -548,6 +548,161 @@ class RegistryTests(unittest.TestCase):
         with self.assertRaisesRegex(ReferenceIndexError, "total_byte_budget"):
             self.build(*entries, resolver=resolver)
 
+    def test_max_node_packet_reused_by_max_invalid_rows_is_scanned_and_sealed_once(self):
+        packet = {"asset_id": "US:ABSENT", "as_of": "2026-09-18T21:00:00Z",
+                  "artifacts": {}, "pad": [0] * (a3.MAX_JSON_NODES - 5)}
+        pref, rref = self.put("SHARED_PACKET", packet), self.put("SHARED_RESULT", {})
+        rows = [{"asset_id": f"US:ROW{i:05d}", "issuer_id": "CIK:1",
+                 "a3_packet_ref": pref, "a3_result_ref": rref} for i in range(registry.MAX_ENTRIES)]
+        counts = {"scans": 0, "visits": 0, "seal": 0, "decode": 0, "reads": 0}
+        scan, seal, loads = registry._register_nested, a3._sealed_json, a3.json.loads
+
+        def scan_once(value, snapshot):
+            counts["scans"] += 1
+            # Abort before a repeated full traversal, including on old source.
+            self.assertLessEqual(counts["scans"], 1)
+            counts["visits"] += scan(value, snapshot)
+
+        def seal_once(value):
+            counts["seal"] += 1
+            self.assertLessEqual(counts["seal"], a3.MAX_JSON_NODES + 1)
+            return seal(value)
+
+        def decode_once(*args, **kwargs):
+            counts["decode"] += 1
+            return loads(*args, **kwargs)
+
+        def read(aid, sha):
+            counts["reads"] += 1
+            return self.resolve(aid, sha)
+
+        with patch.object(registry, "_register_nested", new=scan_once), \
+             patch.object(a3, "_sealed_json", new=seal_once), \
+             patch.object(a3.json, "loads", new=decode_once):
+            out = self.build(*rows, resolver=read)
+        self.assertEqual(out["blocked_count"], registry.MAX_ENTRIES)
+        self.assertEqual(counts, {"scans": 1, "visits": a3.MAX_JSON_NODES,
+                                  "seal": a3.MAX_JSON_NODES + 1, "decode": 2, "reads": 2})
+
+    def test_shared_large_dependency_preflight_is_scanned_once_across_packet_identities(self):
+        dep = self.put("LARGE_DEP", {"pad": [0] * (a3.MAX_JSON_NODES - 2)})
+        rref = self.put("RESULT", {})
+        rows = []
+        for i in range(8):
+            packet = {"asset_id": "US:ABSENT", "as_of": "2026-09-19T02:00:00Z",
+                      "artifacts": {"methodology": dep}}
+            rows.append({"asset_id": f"US:{i}", "issuer_id": "CIK:1",
+                         "a3_packet_ref": self.put(f"PACKET{i}", packet), "a3_result_ref": rref})
+        visits = []
+        scan = registry._register_nested
+
+        def measured(value, snapshot):
+            if "pad" in value:
+                self.assertEqual(visits, [])  # Guard before any repeated large scan.
+                visits.append(scan(value, snapshot))
+            else:
+                scan(value, snapshot)
+
+        with patch.object(registry, "_register_nested", new=measured):
+            self.assertEqual(self.build(*rows)["blocked_count"], 8)
+        self.assertEqual(visits, [a3.MAX_JSON_NODES])
+
+    def test_nested_clock_gate_precedes_every_cache_access(self):
+        for role in ("methodology", "moat", "market_valuation", "source_graph", "validated_er"):
+            for at in ("2026-09-18T21:00:00.000001Z", "2026-09-19T03:00:00Z", "2026-09-20T01:00:00Z"):
+                with self.subTest(role=role, at=at):
+                    entry = self.fixture(er=True)
+                    packet = self.read(entry["a3_packet_ref"])
+                    ref = packet["artifacts"][role]
+                    ref["available_at"] = at
+                    self.replace(entry, "a3_packet_ref", packet)
+                    key = ref["artifact_id"], ref["sha256"]
+                    accesses = []
+                    original = registry._Snapshot.object
+
+                    def object_access(snapshot, descriptor):
+                        accesses.append((descriptor["artifact_id"], descriptor["sha256"]))
+                        return original(snapshot, descriptor)
+
+                    with patch.object(registry._Snapshot, "object", new=object_access):
+                        out = self.build(entry)
+                    self.assertEqual(out["blocked_count"], 1)
+                    self.assertNotIn(key, accesses)
+
+    def test_nested_clock_equality_positive_and_invalid_packet_clock_zero_dependencies(self):
+        entry = self.fixture(er=True)
+        packet = self.read(entry["a3_packet_ref"])
+        for ref in packet["artifacts"].values():
+            ref["available_at"] = packet["as_of"]
+        self.replace(entry, "a3_result_ref", evaluate_packet(packet, CUTOFF, self.resolve))
+        self.replace(entry, "a3_packet_ref", packet)
+        self.assertEqual(self.build(entry)["reference_verified_count"], 1)
+        for at in (None, "invalid", "2026-09-20T01:00:00Z"):
+            changed = deepcopy(packet)
+            changed["as_of"] = at
+            self.replace(entry, "a3_packet_ref", changed)
+            dep_keys = {(r["artifact_id"], r["sha256"]) for r in changed["artifacts"].values()}
+            reads = []
+            def read(aid, sha):
+                reads.append((aid, sha))
+                return self.resolve(aid, sha)
+            self.assertEqual(self.build(entry, resolver=read)["blocked_count"], 1)
+            self.assertTrue(dep_keys.isdisjoint(reads))
+
+    def test_future_dependency_in_one_packet_does_not_suppress_later_eligible_shared_dependency(self):
+        dep = self.put("SHARED_DEP", {"raw_artifact_id": "RAW", "raw_sha256": "0" * 64},
+                       at="2026-09-19T01:00:00Z")
+        rref = self.put("RESULT", {})
+        rows = []
+        for name, as_of in (("A", "2026-09-18T21:00:00Z"), ("B", "2026-09-19T02:00:00Z")):
+            packet = {"asset_id": "US:ABSENT", "as_of": as_of, "artifacts": {"methodology": dep}}
+            rows.append({"asset_id": "US:" + name, "issuer_id": "CIK:1",
+                         "a3_packet_ref": self.put("PACKET" + name, packet), "a3_result_ref": rref})
+        for ordered in (rows, list(reversed(rows))):
+            reads = []
+            def read(aid, sha):
+                reads.append((aid, sha))
+                return self.resolve(aid, sha)
+            self.build(*ordered, resolver=read)
+            self.assertEqual(reads.count((dep["artifact_id"], dep["sha256"])), 1)
+
+    def test_future_nested_ref_cannot_access_an_already_warm_dependency_cache(self):
+        a, b = self.fixture("US:A"), self.fixture("US:B")
+        pa, pb = self.read(a["a3_packet_ref"]), self.read(b["a3_packet_ref"])
+        shared = deepcopy(pa["artifacts"]["methodology"])
+        shared["available_at"] = "2026-09-18T20:00:00.000001Z"
+        pb["artifacts"]["methodology"] = shared
+        pb["as_of"] = "2026-09-18T19:00:00Z"
+        self.replace(b, "a3_packet_ref", pb)
+        accesses = []
+        original = registry._Snapshot.object
+        def object_access(snapshot, descriptor):
+            if descriptor["artifact_id"] == shared["artifact_id"]:
+                accesses.append(descriptor["available_at"])
+            return original(snapshot, descriptor)
+        with patch.object(registry._Snapshot, "object", new=object_access):
+            out = self.build(a, b)
+        self.assertEqual(out["reference_verified_count"], 1)
+        self.assertTrue(accesses)
+        self.assertNotIn(shared["available_at"], accesses)
+
+    def test_future_nested_descriptor_identity_conflicts_still_reject_without_resolving_future(self):
+        a, b = self.fixture("US:A"), self.fixture("US:B")
+        pa, pb = self.read(a["a3_packet_ref"]), self.read(b["a3_packet_ref"])
+        ra, rb = pa["artifacts"]["methodology"], pb["artifacts"]["methodology"]
+        ra["artifact_id"] = rb["artifact_id"]
+        ra["available_at"] = rb["available_at"] = "2026-09-20T00:00:00Z"
+        self.replace(a, "a3_packet_ref", pa)
+        self.replace(b, "a3_packet_ref", pb)
+        for ordered in ((a, b), (b, a)):
+            reads = []
+            def read(aid, sha):
+                reads.append((aid, sha))
+                return self.resolve(aid, sha)
+            with self.assertRaisesRegex(ReferenceIndexError, "artifact_id_conflict"):
+                self.build(*ordered, resolver=read)
+            self.assertFalse(any(aid == rb["artifact_id"] for aid, _ in reads))
+
     def test_no_network_calls_or_file_writes_from_builder(self):
         e = self.fixture()
         with patch("socket.socket", side_effect=AssertionError("network forbidden")), \

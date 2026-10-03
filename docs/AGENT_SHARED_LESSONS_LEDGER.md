@@ -1,5 +1,18 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-03 — Bound traversal and seal cached evidence (#560 R2)
+
+- A decode cache alone does not bound repeated nested traversal. Memoize full
+  packet/dependency preflight by exact immutable identity, including failures;
+  measure actual node visits and one-time sealing on large shared artifacts.
+- Gate nested bytes/cache access against both packet as_of and batch cutoff.
+  Register syntactically valid descriptor conflicts without resolving future
+  evidence, and do not let a future context suppress a later eligible context.
+- Retain immutable JSON views sealed once after strict byte/hash decoding.
+  Caller mutation or exported copies must not change byte-bound semantics;
+  repeated cache hits must not copy, decode, seal or rehash large objects.
+  Default A3 results and closed economic/reuse authority remain unchanged.
+
 ## 2026-10-03 — Bound artifact work across every validation phase (#560)
 
 - Charge every returned byte buffer before blob/type/hash rejection; memoize

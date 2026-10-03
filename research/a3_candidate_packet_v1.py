@@ -13,6 +13,7 @@ import json
 import math
 import re
 from typing import Any
+from types import MappingProxyType
 
 SCHEMA = "a3-candidate-packet-v1"
 RESULT_SCHEMA = "a3-candidate-packet-v1-result"
@@ -156,6 +157,43 @@ def _strict_json_object(raw: bytes) -> dict[str, Any]:
     return obj
 
 
+class _FrozenJSONArray(tuple):
+    """JSON array sealed once after strict decoding, never a retained list."""
+    __slots__ = ()
+
+
+def _is_json_object(value: Any) -> bool:
+    return isinstance(value, dict) or type(value) is MappingProxyType
+
+
+def _is_json_array(value: Any) -> bool:
+    return isinstance(value, list) or type(value) is _FrozenJSONArray
+
+
+def _sealed_json(value: Any) -> Any:
+    # Called once per strictly bounded decode; all retained containers are sealed.
+    if isinstance(value, dict):
+        return MappingProxyType({key: _sealed_json(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return _FrozenJSONArray(_sealed_json(item) for item in value)
+    return value
+
+
+def _json_default(value: Any) -> dict[str, Any]:
+    if type(value) is MappingProxyType:
+        return dict(value)
+    raise TypeError("not_json_serializable")
+
+
+def _copy_json(value: Any) -> Any:
+    """Export explicit ordinary copies; never used for retained cache hits."""
+    if _is_json_object(value):
+        return {key: _copy_json(item) for key, item in value.items()}
+    if _is_json_array(value):
+        return [_copy_json(item) for item in value]
+    return value
+
+
 class _VerifiedArtifactCache:
     """Private invocation cache populated only by verified resolver bytes.
 
@@ -169,7 +207,7 @@ class _VerifiedArtifactCache:
         self.resolver = resolver
         self._on_access = _on_access
         self._bytes: dict[tuple[str, str], bytes] = {}
-        self._objects: dict[tuple[str, str], dict[str, Any]] = {}
+        self._objects: dict[tuple[str, str], MappingProxyType] = {}
         self._read_errors: dict[tuple[str, str], str] = {}
         self._decode_errors: dict[tuple[str, str], str] = {}
         self._identities: dict[str, str] = {}
@@ -215,14 +253,14 @@ class _VerifiedArtifactCache:
         self._bytes[key] = raw
         return raw
 
-    def object(self, aid: str, digest: str) -> dict[str, Any]:
+    def object(self, aid: str, digest: str) -> MappingProxyType:
         raw = self.read(aid, digest)
         key = aid, digest
         if key in self._decode_errors:
             raise A3CandidatePacketError(self._decode_errors[key])
         if key not in self._objects:
             try:
-                self._objects[key] = _strict_json_object(raw)
+                self._objects[key] = _sealed_json(_strict_json_object(raw))
             except A3CandidatePacketError as exc:
                 self._decode_errors[key] = str(exc)
                 raise
@@ -278,7 +316,8 @@ def _hash(value: Any, code: str) -> str:
 
 
 def canonical_sha256(value: Any) -> str:
-    raw = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    raw = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+                     allow_nan=False, default=_json_default)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -292,7 +331,8 @@ def _load_ref(
     resolver: ArtifactResolver,
     artifact_cache: _VerifiedArtifactCache | None = None,
 ) -> tuple[dict[str, Any], str]:
-    _require(isinstance(ref, dict), f"artifact_ref_object:{expected_kind}")
+    _require(_is_json_object(ref) if artifact_cache is not None else isinstance(ref, dict),
+             f"artifact_ref_object:{expected_kind}")
     _require(ref.get("kind") == expected_kind, f"artifact_kind:{expected_kind}")
     artifact_id = _identifier(ref.get("artifact_id"), f"artifact_id:{expected_kind}")
     digest = _hash(ref.get("sha256"), f"artifact_sha256:{expected_kind}")
@@ -313,7 +353,7 @@ def _load_ref(
             raise A3CandidatePacketError(f"artifact_json:{expected_kind}") from exc
     else:
         value = artifact_cache.object(artifact_id, digest)
-    _require(isinstance(value, dict), f"artifact_json_object:{expected_kind}")
+    _require(_is_json_object(value), f"artifact_json_object:{expected_kind}")
     _require(value.get("asset_id") == asset_id, f"artifact_asset_identity:{expected_kind}")
     if expected_kind not in {"MARKET_VALUATION_SNAPSHOT", "VALIDATED_ER_EVALUATION"}:
         _require(value.get("issuer_id") == issuer_id, f"artifact_issuer_identity:{expected_kind}")
@@ -418,7 +458,7 @@ def _validate_source_graph(
     graph_as_of = _stamp(value.get("as_of"), "source_graph_as_of")
     _require(graph_as_of <= as_of, "future_source_graph_as_of")
     sources = value.get("sources")
-    _require(isinstance(sources, list) and bool(sources), "source_graph_sources")
+    _require(_is_json_array(sources) and bool(sources), "source_graph_sources")
 
     source_ids: set[str] = set()
     claim_ids: set[str] = set()
@@ -426,7 +466,7 @@ def _validate_source_graph(
     assessment_affiliations: set[str] = set()
 
     for row in sources:
-        _require(isinstance(row, dict), "source_graph_row")
+        _require(_is_json_object(row), "source_graph_row")
         source_id = _identifier(row.get("source_id"), "source_graph_source_id")
         claim_id = _identifier(row.get("claim_id"), "source_graph_claim_id")
         _require(source_id not in source_ids, "duplicate_source_graph_source_id")
@@ -477,7 +517,7 @@ def _validate_source_graph(
         _text(row.get("claim"), "source_graph_claim", 1800)
         pillars = row.get("supports_pillars")
         _require(
-            isinstance(pillars, list)
+            _is_json_array(pillars)
             and bool(pillars)
             and set(pillars) <= CANONICAL_PILLARS,
             "source_graph_supports_pillars",
@@ -512,21 +552,23 @@ def _validate_source_graph(
     )
 
 
-def _validate_bridge(bridge: Any) -> dict[str, Any]:
-    _require(isinstance(bridge, dict) and set(bridge) == set(BRIDGE_HORIZONS), "scenario_bridge_horizons")
+def _validate_bridge(bridge: Any, *, sealed: bool = False) -> dict[str, Any]:
+    obj = _is_json_object if sealed else lambda value: isinstance(value, dict)
+    array = _is_json_array if sealed else lambda value: isinstance(value, list)
+    _require(obj(bridge) and set(bridge) == set(BRIDGE_HORIZONS), "scenario_bridge_horizons")
     normalized: dict[str, Any] = {}
     for horizon in BRIDGE_HORIZONS:
         cases = bridge[horizon]
-        _require(isinstance(cases, dict) and set(cases) == set(CASES), f"scenario_cases:{horizon}")
+        _require(obj(cases) and set(cases) == set(CASES), f"scenario_cases:{horizon}")
         out = {}
         ordered = []
         for case in CASES:
             row = cases[case]
-            _require(isinstance(row, dict), f"scenario_row:{horizon}:{case}")
+            _require(obj(row), f"scenario_row:{horizon}:{case}")
             ret = _number(row.get("return"), f"scenario_return:{horizon}:{case}", -1.0)
             ordered.append(ret)
             assumptions = row.get("assumptions")
-            _require(isinstance(assumptions, list) and bool(assumptions), f"scenario_assumptions:{horizon}:{case}")
+            _require(array(assumptions) and bool(assumptions), f"scenario_assumptions:{horizon}:{case}")
             out[case] = {
                 "return": ret,
                 "assumptions": [_text(x, f"scenario_assumption:{horizon}:{case}", 1200) for x in assumptions],
@@ -563,7 +605,10 @@ def evaluate_packet(packet: Any, cutoff: str, artifact_resolver: ArtifactResolve
         _require(type(_artifact_cache) is _VerifiedArtifactCache
                  and _artifact_cache.resolver == artifact_resolver,
                  "verified_artifact_cache_required")
-    _require(isinstance(packet, dict), "packet_object")
+    sealed = _artifact_cache is not None
+    obj = _is_json_object if sealed else lambda value: isinstance(value, dict)
+    array = _is_json_array if sealed else lambda value: isinstance(value, list)
+    _require(obj(packet), "packet_object")
     _require(packet.get("schema") == SCHEMA, "schema")
     asset_id = _identifier(packet.get("asset_id"), "asset_id")
     issuer_id = _identifier(packet.get("issuer_id"), "issuer_id")
@@ -576,7 +621,7 @@ def evaluate_packet(packet: Any, cutoff: str, artifact_resolver: ArtifactResolve
     _require(packet.get("review_status") == "RESEARCH_REVIEWED", "review_status")
 
     refs = packet.get("artifacts")
-    _require(isinstance(refs, dict), "artifacts_object")
+    _require(obj(refs), "artifacts_object")
     required = {"methodology", "market_valuation", "source_graph"}
     _require(required <= set(refs), "required_artifacts")
 
@@ -616,19 +661,19 @@ def evaluate_packet(packet: Any, cutoff: str, artifact_resolver: ArtifactResolve
         _require("moat" not in refs, "moat_artifact_not_applicable")
 
     thesis = packet.get("thesis")
-    _require(isinstance(thesis, dict), "thesis_object")
+    _require(obj(thesis), "thesis_object")
     _require(thesis.get("status") in THESIS_STATUSES, "thesis_status")
     _text(thesis.get("counter_thesis"), "counter_thesis", 2400)
     catalysts = thesis.get("catalysts")
     invalidations = thesis.get("invalidation_conditions")
-    _require(isinstance(catalysts, list) and bool(catalysts), "catalysts")
-    _require(isinstance(invalidations, list) and bool(invalidations), "invalidation_conditions")
+    _require(array(catalysts) and bool(catalysts), "catalysts")
+    _require(array(invalidations) and bool(invalidations), "invalidation_conditions")
     for x in catalysts:
         _text(x, "catalyst", 1200)
     for x in invalidations:
         _text(x, "invalidation_condition", 1200)
 
-    scenario_bridge = _validate_bridge(packet.get("scenario_research"))
+    scenario_bridge = _validate_bridge(packet.get("scenario_research"), sealed=sealed)
     benchmark_id = market["benchmark_id"]
 
     validated_er_ref = refs.get("validated_er")

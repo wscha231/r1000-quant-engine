@@ -230,6 +230,63 @@ class Tests(unittest.TestCase):
     self.assertEqual(decoder.call_count,len(v["artifacts"]))
     self.assertFalse(expected["selector_eligible"])
 
+  def test_cached_methodology_mutation_cannot_change_verified_byte_semantics(self):
+    import a3_candidate_packet_v1 as a3
+    v=packet()
+    bad=methodology(); bad["selector_eligible"]=True
+    v["artifacts"]["methodology"]={"kind":"METHODOLOGY_RESULT",**add("BAD_METHOD",bad)}
+    ref=v["artifacts"]["methodology"]
+    cache=a3._VerifiedArtifactCache(resolver)
+    value=cache.object(ref["artifact_id"],ref["sha256"])
+    for mutation in (lambda: value.__setitem__("selector_eligible",False),
+                     lambda: dict.__setitem__(value,"selector_eligible",False),
+                     lambda: value._values.__setitem__("selector_eligible",False),
+                     lambda: setattr(value,"_values",{"selector_eligible":False}),
+                     lambda: object.__setattr__(value,"_values",{"selector_eligible":False}),
+                     lambda: value.__init__({"selector_eligible":False})):
+      try: mutation()
+      except (TypeError,AttributeError): pass
+      # Some immutable builtins accept a no-op __init__; retained semantics
+      # must survive it just as they survive rejected base-method writes.
+      self.assertIs(value["selector_eligible"],True)
+    with self.assertRaisesRegex(A3CandidatePacketError,"methodology_selector_authority"):
+      evaluate_packet(v,"2026-09-19T02:00:00Z",resolver,_artifact_cache=cache)
+    with self.assertRaisesRegex(A3CandidatePacketError,"methodology_selector_authority"):
+      evaluate_packet(v,"2026-09-19T02:00:00Z",resolver)
+
+  def test_cached_nested_containers_are_sealed_once_and_copies_are_independent(self):
+    import a3_candidate_packet_v1 as a3
+    from unittest.mock import patch
+    raw=b'{"nested":{"flag":true},"items":[{"flag":true}]}'
+    sha=hashlib.sha256(raw).hexdigest()
+    reads=[]
+    def read(aid,digest): reads.append((aid,digest)); return raw
+    cache=a3._VerifiedArtifactCache(read)
+    with patch.object(a3.json,"loads",wraps=a3.json.loads) as decode:
+      value=cache.object("SEALED",sha)
+      for _ in range(8):
+        self.assertIs(cache.object("SEALED",sha),value)
+        copied=a3._copy_json(value)
+        copied["nested"]["flag"]=False
+        copied["items"][0]["flag"]=False
+        self.assertIs(value["nested"]["flag"],True)
+        self.assertIs(value["items"][0]["flag"],True)
+      self.assertEqual(decode.call_count,1)
+    for mutation in (lambda: value["nested"].__setitem__("flag",False),
+                     lambda: value["items"].__setitem__(0,{}),
+                     lambda: list.__setitem__(value["items"],0,{}),
+                     lambda: value["items"][0].__setitem__("flag",False)):
+      with self.assertRaises((TypeError,AttributeError)): mutation()
+    self.assertEqual(reads,[("SEALED",sha)])
+    self.assertEqual(a3.canonical_sha256(value),a3.canonical_sha256(json.loads(raw)))
+
+  def test_optional_cache_does_not_accept_ordinary_tuple_packet_fields(self):
+    import a3_candidate_packet_v1 as a3
+    v=packet(); v["thesis"]["catalysts"]=("unsupported tuple",)
+    for cache in (None,a3._VerifiedArtifactCache(resolver)):
+      with self.assertRaisesRegex(A3CandidatePacketError,"catalysts"):
+        evaluate_packet(v,"2026-09-19T02:00:00Z",resolver,_artifact_cache=cache)
+
   def test_optional_cache_rejects_unverified_dict_and_wrong_resolver(self):
     v=packet()
     for cache in ({},a3._VerifiedArtifactCache(lambda aid,sha:b"{}")):

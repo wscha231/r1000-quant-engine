@@ -139,6 +139,22 @@ default three-argument API preserves its existing behavior. Explicit optional
 cache reuse still validates every row's kind, clocks, asset/issuer identity and
 economic authority; cache hits preserve the row's raw-reference read tracking.
 
+Full packet and dependency preflight attempts are memoized by exact ID/hash
+within each invocation. Nested descriptors are traversed once per decoded
+identity, including shared packet/dependency roles; no repeated packet is
+appended to the dependency phase. All syntactically valid packet descriptors
+are registered before clock gating, but nested bytes/cache access requires
+available_at <= packet as_of <= cutoff. A future context does not mark the
+dependency attempted, so another eligible packet can still inspect it.
+
+The optional verified cache seals decoded dictionaries and arrays once into
+read-only JSON views. Every nested container is sealed; cached objects cannot
+be changed through returned views. Explicit JSON export creates ordinary mutable
+copies without altering retained evidence. Cache hits return the same sealed
+view with no copy, decode, sealing traversal or raw rehash per row. A3 accepts
+these private internal views while preserving ordinary dict/list API results,
+rejecting ordinary tuple packet fields, and checking raw byte/hash gates.
+
 ## BIO/CLEAN and cross-market boundary
 
 No sector-specific score, sleeve cap, or BUY/SELL rule exists here. US/KR BIO and
@@ -177,6 +193,17 @@ only through separately scoped work under the same #516 ownership.
 ## Operational lesson
 
 ### 2026-10-03 cross-phase review corrections
+
+The subsequent hosted review of `dbaa7ebfbf2e105386b6011ef0a51cb85b7a5234`
+found repeated nested scans, future nested access before A3's clock rejection,
+and mutation of retained decoded dictionaries. Bounded before/after probes
+measure actual traversal and resolver access, and reproduce the mutation
+attack. The full-size synthetic regression uses one 100,000-node packet across
+10,000 invalid asset rows and guards against a second large traversal. It
+requires one packet scan, 100,000 node visits, 100,001 sealing visits including
+the shared empty result, two JSON decodes and two provider reads. Additional
+cases cover shared large dependencies, fresh invocation scope, every nested
+role/clock boundary, warm-cache future contexts and descriptor conflicts.
 
 The exact-head hosted review on `bc49b983916fb89fc6cd8ac7df0b32e2f2d227e4`
 found four gaps across byte accounting, failed reads, nested identity preflight
