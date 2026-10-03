@@ -155,6 +155,33 @@ class SourceProbeTests(unittest.TestCase):
         self.assertIsNone(rev["data"][1]["avg"])
         self.assertTrue(all(row["accounting_basis"] is None for row in eps["data"]))
 
+    def test_documented_string_or_mixed_eodhd_counters_reach_estimate_endpoint(self):
+        for used, limit in (("0", "20"), (0, "20"), ("0", 20), ("000", "020")):
+            with self.subTest(used=used, limit=limit):
+                transport = Transport(Response({"apiRequests": used, "dailyRateLimit": limit,
+                                                "apiRequestsDate": None}), Response(eod_payload()))
+                report, rows = probe.run_probe("eodhd", ["AAPL"], max_http=2, api_units=10,
+                    env=ENV, transport=transport, now=lambda: NOW)
+                self.assertEqual(report["status"], "SAMPLE_PROBED")
+                self.assertEqual(report["eodhd_daily_quota_lower_bound"], 20)
+                self.assertEqual((len(transport.calls), len(rows)), (2, 1))
+                self.assertEqual(report["api_units_reserved_upper_bound"], 10)
+        previous = {"apiRequests": "5", "dailyRateLimit": "20", "apiRequestsDate": "2026-10-03"}
+        self.assertEqual(probe.eodhd_daily_lower_bound(previous, NOW, NOW), 15)
+
+    def test_invalid_eodhd_counter_strings_never_reach_data_endpoint(self):
+        for invalid in (True, None, 20.0, "+20", "-20", "20.0", " 20", "20 ",
+                        "2e1", "", "twenty", "٢٠", "100000001", "9" * 1000):
+            with self.subTest(invalid=repr(invalid)[:40]):
+                transport = Transport(Response({"apiRequests": "0", "dailyRateLimit": invalid,
+                                                "apiRequestsDate": None}))
+                report, rows = probe.run_probe("eodhd", ["AAPL"], max_http=2, api_units=10,
+                    env=ENV, transport=transport, now=lambda: NOW)
+                self.assertEqual(report["status"], "UNVERIFIED_EODHD_QUOTA")
+                self.assertEqual(len(transport.calls), 1)
+                self.assertEqual(report["api_units_reserved_upper_bound"], 0)
+                self.assertEqual(rows, [])
+
     def test_eodhd_never_spends_bonus_or_more_than_verified_lower_bound(self):
         for quota in ({"apiRequests": 15, "dailyRateLimit": 20, "apiRequestsDate": "2026-10-04", "extraLimit": 500},
                       {"apiRequests": 15, "dailyRateLimit": 20, "apiRequestsDate": "2026-10-03"}):

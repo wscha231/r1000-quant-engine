@@ -39,11 +39,14 @@ this repository from spending the same shared quota.
 
 FMP requires a positive verified shared API-unit budget and a timezone-aware
 verification timestamp within 15 minutes. Registration alone is insufficient.
-EODHD requires a positive authorized budget and validated account counters:
+EODHD requires a positive authorized budget and validated account counters.
+Documented string counters are normalized from bounded ASCII digits; numeric
+integers remain supported. Booleans, signs, decimals, whitespace, non-ASCII
+digits, missing counters and values outside the allowed range are rejected.
 Fundamentals costs 10 API calls per ticker, while `/api/user` costs zero. The
 entire reported last-active-day counter is subtracted conservatively rather
 than pretending it reset. Undated zero usage is accepted only when the reported
-counter is exactly integer zero. Future/invalid dates and UTC-reset crossings
+counter normalizes to exactly integer zero. Future/invalid dates and UTC-reset crossings
 fail closed. Extra/bonus calls are excluded from the probe's quota calculation;
 external account usage outside repository concurrency is not reserved by this
 job. A free plan or 500 bonus calls does not prove Fundamentals entitlement.

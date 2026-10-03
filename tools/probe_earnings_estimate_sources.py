@@ -146,11 +146,22 @@ def fresh_quota_stamp(value, now):
         return False
 
 
+def eodhd_quota_counter(value):
+    # Official usage fields permit strings. Bound ASCII digits before int(),
+    # while rejecting booleans, floats, signs, whitespace and arbitrary text.
+    if isinstance(value, str) and re.fullmatch(r"[0-9]{1,9}", value):
+        value = int(value)
+    if type(value) is not int or not 0 <= value <= 100_000_000:
+        raise ProbeBlocked("UNVERIFIED_EODHD_QUOTA")
+    return value
+
+
 def eodhd_daily_lower_bound(payload, started, ended):
     if not isinstance(payload, dict) or started.date() != ended.date():
         raise ProbeBlocked("UNVERIFIED_EODHD_QUOTA")
-    used, limit = payload.get("apiRequests"), payload.get("dailyRateLimit")
-    if type(used) is not int or type(limit) is not int or not 0 <= used <= 100_000_000 or not 0 < limit <= 100_000_000:
+    used = eodhd_quota_counter(payload.get("apiRequests"))
+    limit = eodhd_quota_counter(payload.get("dailyRateLimit"))
+    if limit == 0:
         raise ProbeBlocked("UNVERIFIED_EODHD_QUOTA")
     activity = payload.get("apiRequestsDate")
     if activity is None and used == 0:

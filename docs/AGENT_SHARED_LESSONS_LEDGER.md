@@ -6009,3 +6009,18 @@ Expected contract:
   truncate an existing report inode. Preserve unrelated user/agent ledger bytes.
 - The regression preserves an operational fixture byte-for-byte, separates its
   inode from the new diagnostic, checks cleanup, and runs under normal and -O.
+
+## 2026-10-04 — Provider quota schemas need documented string fixtures
+
+- Formal Codex review of b55cc61c found a P1: EODHD documents apiRequests and
+  dailyRateLimit as optional strings; integer-only fixtures incorrectly blocked
+  valid account usage before any estimate request. Registration alone is not a
+  real-schema access test, and an earlier CLEAN A6 cannot replace formal review.
+- Normalize bounded ASCII digit strings and integer counters before existing
+  quota checks. Continue rejecting booleans, signs, decimals, whitespace,
+  non-ASCII digits, missing or oversized counters, and uncertain dates.
+- Documented string/mixed counters now reach the fixture estimate endpoint;
+  malformed counters spend no data units. Existing bonus exclusion, last-active
+  counter subtraction and pre-send budget reservations are unchanged.
+- See https://eodhd.com/financial-apis/api-limits. This second source correction
+  changes the exact head; prior-head formal review is not current-head evidence.
