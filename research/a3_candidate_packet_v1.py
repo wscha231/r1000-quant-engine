@@ -13,10 +13,14 @@ import json
 import math
 import re
 from typing import Any
+from types import MappingProxyType
 
 SCHEMA = "a3-candidate-packet-v1"
 RESULT_SCHEMA = "a3-candidate-packet-v1-result"
 MAX_ARTIFACT_BYTES = 64 * 1024 * 1024
+MAX_CACHED_TOTAL_BYTES = 128 * 1024 * 1024
+MAX_JSON_DEPTH = 64
+MAX_JSON_NODES = 100000
 
 ARTIFACT_KINDS = {
     "METHODOLOGY_RESULT",
@@ -113,6 +117,156 @@ def _require(condition: bool, code: str) -> None:
         raise A3CandidatePacketError(code)
 
 
+def _strict_json_object(raw: bytes) -> dict[str, Any]:
+    """Strict decoding for the optional invocation cache, never supplied dicts."""
+    def pairs(items):
+        out = {}
+        for key, value in items:
+            _require(key not in out, "duplicate_json_key")
+            out[key] = value
+        return out
+
+    def constant(_):
+        raise A3CandidatePacketError("nonfinite_json")
+
+    def finite(value):
+        number = float(value)
+        _require(math.isfinite(number), "nonfinite_json")
+        return number
+
+    try:
+        obj = json.loads(raw, object_pairs_hook=pairs,
+                         parse_constant=constant, parse_float=finite)
+    except A3CandidatePacketError:
+        raise
+    except RecursionError as exc:
+        raise A3CandidatePacketError("json_depth_limit") from exc
+    except (ValueError, UnicodeError) as exc:
+        raise A3CandidatePacketError("invalid_json") from exc
+    _require(isinstance(obj, dict), "json_object_required")
+    stack, count = [(obj, 0)], 0
+    while stack:
+        value, depth = stack.pop()
+        count += 1
+        _require(count <= MAX_JSON_NODES, "json_node_limit")
+        _require(depth <= MAX_JSON_DEPTH, "json_depth_limit")
+        if isinstance(value, dict):
+            stack.extend((v, depth + 1) for v in value.values())
+        elif isinstance(value, list):
+            stack.extend((v, depth + 1) for v in value)
+    return obj
+
+
+class _FrozenJSONArray(tuple):
+    """JSON array sealed once after strict decoding, never a retained list."""
+    __slots__ = ()
+
+
+def _is_json_object(value: Any) -> bool:
+    return isinstance(value, dict) or type(value) is MappingProxyType
+
+
+def _is_json_array(value: Any) -> bool:
+    return isinstance(value, list) or type(value) is _FrozenJSONArray
+
+
+def _sealed_json(value: Any) -> Any:
+    # Called once per strictly bounded decode; all retained containers are sealed.
+    if isinstance(value, dict):
+        return MappingProxyType({key: _sealed_json(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return _FrozenJSONArray(_sealed_json(item) for item in value)
+    return value
+
+
+def _json_default(value: Any) -> dict[str, Any]:
+    if type(value) is MappingProxyType:
+        return dict(value)
+    raise TypeError("not_json_serializable")
+
+
+def _copy_json(value: Any) -> Any:
+    """Export explicit ordinary copies; never used for retained cache hits."""
+    if _is_json_object(value):
+        return {key: _copy_json(item) for key, item in value.items()}
+    if _is_json_array(value):
+        return [_copy_json(item) for item in value]
+    return value
+
+
+class _VerifiedArtifactCache:
+    """Private invocation cache populated only by verified resolver bytes.
+
+    No caller-supplied decoded object or decoder is accepted. A3's default
+    three-argument API keeps its existing behavior; Registry explicitly shares
+    this stricter bounded cache with its A3 replay.
+    """
+    def __init__(self, resolver: ArtifactResolver, *, _on_access=None):
+        _require(callable(resolver), "artifact_resolver_required")
+        _require(_on_access is None or callable(_on_access), "artifact_access_tracker")
+        self.resolver = resolver
+        self._on_access = _on_access
+        self._bytes: dict[tuple[str, str], bytes] = {}
+        self._objects: dict[tuple[str, str], MappingProxyType] = {}
+        self._read_errors: dict[tuple[str, str], str] = {}
+        self._decode_errors: dict[tuple[str, str], str] = {}
+        self._identities: dict[str, str] = {}
+        self._bytes_read = 0
+        self._fatal: str | None = None
+
+    @property
+    def fatal_reason(self) -> str | None:
+        return self._fatal
+
+    def read(self, aid: str, digest: str) -> bytes:
+        if self._fatal is not None:
+            raise A3CandidatePacketError(self._fatal)
+        _require(isinstance(aid, str) and _ID.fullmatch(aid) is not None, "artifact_id")
+        _require(isinstance(digest, str) and _HEX64.fullmatch(digest) is not None, "invalid_sha256")
+        previous = self._identities.get(aid)
+        if previous is not None and previous != digest:
+            self._fatal = "artifact_id_conflict"
+            raise A3CandidatePacketError(self._fatal)
+        self._identities[aid] = digest
+        key = aid, digest
+        if self._on_access is not None:
+            self._on_access(aid, digest)
+        if key in self._read_errors:
+            raise A3CandidatePacketError(self._read_errors[key])
+        if key in self._bytes:
+            return self._bytes[key]
+        try:
+            raw = self.resolver(aid, digest)
+        except Exception:
+            self._read_errors[key] = "artifact_unavailable"
+            raise A3CandidatePacketError("artifact_unavailable") from None
+        if isinstance(raw, (bytes, bytearray, memoryview)):
+            self._bytes_read += memoryview(raw).nbytes
+            if self._bytes_read > MAX_CACHED_TOTAL_BYTES:
+                self._fatal = "total_byte_budget"
+                raise A3CandidatePacketError(self._fatal)
+        reason = ("artifact_bytes" if type(raw) is not bytes or not 0 < len(raw) <= MAX_ARTIFACT_BYTES
+                  else "artifact_hash_mismatch" if hashlib.sha256(raw).hexdigest() != digest else None)
+        if reason is not None:
+            self._read_errors[key] = reason
+            raise A3CandidatePacketError(reason)
+        self._bytes[key] = raw
+        return raw
+
+    def object(self, aid: str, digest: str) -> MappingProxyType:
+        raw = self.read(aid, digest)
+        key = aid, digest
+        if key in self._decode_errors:
+            raise A3CandidatePacketError(self._decode_errors[key])
+        if key not in self._objects:
+            try:
+                self._objects[key] = _sealed_json(_strict_json_object(raw))
+            except A3CandidatePacketError as exc:
+                self._decode_errors[key] = str(exc)
+                raise
+        return self._objects[key]
+
+
 def _text(value: Any, code: str, limit: int = 2000) -> str:
     _require(isinstance(value, str), code)
     value = value.strip()
@@ -162,7 +316,8 @@ def _hash(value: Any, code: str) -> str:
 
 
 def canonical_sha256(value: Any) -> str:
-    raw = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    raw = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+                     allow_nan=False, default=_json_default)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -174,8 +329,10 @@ def _load_ref(
     issuer_id: str,
     as_of: datetime,
     resolver: ArtifactResolver,
+    artifact_cache: _VerifiedArtifactCache | None = None,
 ) -> tuple[dict[str, Any], str]:
-    _require(isinstance(ref, dict), f"artifact_ref_object:{expected_kind}")
+    _require(_is_json_object(ref) if artifact_cache is not None else isinstance(ref, dict),
+             f"artifact_ref_object:{expected_kind}")
     _require(ref.get("kind") == expected_kind, f"artifact_kind:{expected_kind}")
     artifact_id = _identifier(ref.get("artifact_id"), f"artifact_id:{expected_kind}")
     digest = _hash(ref.get("sha256"), f"artifact_sha256:{expected_kind}")
@@ -183,17 +340,20 @@ def _load_ref(
     _require(available_at <= as_of, f"future_artifact:{expected_kind}")
     _require(ref.get("review_status") == "REVIEWED", f"artifact_review_status:{expected_kind}")
     _require(callable(resolver), "artifact_resolver_required")
-    try:
-        raw = resolver(artifact_id, digest)
-    except Exception as exc:
-        raise A3CandidatePacketError(f"artifact_unavailable:{expected_kind}") from exc
-    _require(isinstance(raw, bytes) and 0 < len(raw) <= MAX_ARTIFACT_BYTES, f"artifact_bytes:{expected_kind}")
-    _require(hashlib.sha256(raw).hexdigest() == digest, f"artifact_hash_mismatch:{expected_kind}")
-    try:
-        value = json.loads(raw)
-    except Exception as exc:
-        raise A3CandidatePacketError(f"artifact_json:{expected_kind}") from exc
-    _require(isinstance(value, dict), f"artifact_json_object:{expected_kind}")
+    if artifact_cache is None:
+        try:
+            raw = resolver(artifact_id, digest)
+        except Exception as exc:
+            raise A3CandidatePacketError(f"artifact_unavailable:{expected_kind}") from exc
+        _require(isinstance(raw, bytes) and 0 < len(raw) <= MAX_ARTIFACT_BYTES, f"artifact_bytes:{expected_kind}")
+        _require(hashlib.sha256(raw).hexdigest() == digest, f"artifact_hash_mismatch:{expected_kind}")
+        try:
+            value = json.loads(raw)
+        except Exception as exc:
+            raise A3CandidatePacketError(f"artifact_json:{expected_kind}") from exc
+    else:
+        value = artifact_cache.object(artifact_id, digest)
+    _require(_is_json_object(value), f"artifact_json_object:{expected_kind}")
     _require(value.get("asset_id") == asset_id, f"artifact_asset_identity:{expected_kind}")
     if expected_kind not in {"MARKET_VALUATION_SNAPSHOT", "VALIDATED_ER_EVALUATION"}:
         _require(value.get("issuer_id") == issuer_id, f"artifact_issuer_identity:{expected_kind}")
@@ -220,6 +380,7 @@ def _validate_market(
     value: dict[str, Any],
     as_of: datetime,
     resolver: ArtifactResolver,
+    artifact_cache: _VerifiedArtifactCache | None = None,
 ) -> None:
     _require(value.get("schema") == "a3-market-valuation-snapshot-v1", "market_schema")
     _require(value.get("data_quality") == "REVIEWED_OBSERVED", "market_data_quality")
@@ -245,7 +406,8 @@ def _validate_market(
     raw_sha256 = _hash(value.get("raw_sha256"), "market_raw_sha256")
     _require(callable(resolver), "artifact_resolver_required")
     try:
-        raw = resolver(raw_artifact_id, raw_sha256)
+        raw = (resolver(raw_artifact_id, raw_sha256) if artifact_cache is None
+               else artifact_cache.read(raw_artifact_id, raw_sha256))
     except Exception as exc:
         raise A3CandidatePacketError("market_raw_unavailable") from exc
     _require(
@@ -253,7 +415,7 @@ def _validate_market(
         "market_raw_bytes",
     )
     _require(
-        hashlib.sha256(raw).hexdigest() == raw_sha256,
+        artifact_cache is not None or hashlib.sha256(raw).hexdigest() == raw_sha256,
         "market_raw_hash_mismatch",
     )
     _require(
@@ -288,6 +450,7 @@ def _validate_source_graph(
     value: dict[str, Any],
     as_of: datetime,
     resolver: ArtifactResolver,
+    artifact_cache: _VerifiedArtifactCache | None = None,
 ) -> None:
     _require(value.get("schema") == "a3-source-graph-v1", "source_graph_schema")
     _require(value.get("review_status") == "REVIEWED", "source_graph_status")
@@ -295,7 +458,7 @@ def _validate_source_graph(
     graph_as_of = _stamp(value.get("as_of"), "source_graph_as_of")
     _require(graph_as_of <= as_of, "future_source_graph_as_of")
     sources = value.get("sources")
-    _require(isinstance(sources, list) and bool(sources), "source_graph_sources")
+    _require(_is_json_array(sources) and bool(sources), "source_graph_sources")
 
     source_ids: set[str] = set()
     claim_ids: set[str] = set()
@@ -303,7 +466,7 @@ def _validate_source_graph(
     assessment_affiliations: set[str] = set()
 
     for row in sources:
-        _require(isinstance(row, dict), "source_graph_row")
+        _require(_is_json_object(row), "source_graph_row")
         source_id = _identifier(row.get("source_id"), "source_graph_source_id")
         claim_id = _identifier(row.get("claim_id"), "source_graph_claim_id")
         _require(source_id not in source_ids, "duplicate_source_graph_source_id")
@@ -338,7 +501,8 @@ def _validate_source_graph(
         raw_sha256 = _hash(row.get("raw_sha256"), "source_graph_raw_sha256")
         _require(callable(resolver), "artifact_resolver_required")
         try:
-            raw = resolver(raw_artifact_id, raw_sha256)
+            raw = (resolver(raw_artifact_id, raw_sha256) if artifact_cache is None
+                   else artifact_cache.read(raw_artifact_id, raw_sha256))
         except Exception as exc:
             raise A3CandidatePacketError("source_graph_raw_unavailable") from exc
         _require(
@@ -346,14 +510,14 @@ def _validate_source_graph(
             "source_graph_raw_bytes",
         )
         _require(
-            hashlib.sha256(raw).hexdigest() == raw_sha256,
+            artifact_cache is not None or hashlib.sha256(raw).hexdigest() == raw_sha256,
             "source_graph_raw_hash_mismatch",
         )
 
         _text(row.get("claim"), "source_graph_claim", 1800)
         pillars = row.get("supports_pillars")
         _require(
-            isinstance(pillars, list)
+            _is_json_array(pillars)
             and bool(pillars)
             and set(pillars) <= CANONICAL_PILLARS,
             "source_graph_supports_pillars",
@@ -388,21 +552,23 @@ def _validate_source_graph(
     )
 
 
-def _validate_bridge(bridge: Any) -> dict[str, Any]:
-    _require(isinstance(bridge, dict) and set(bridge) == set(BRIDGE_HORIZONS), "scenario_bridge_horizons")
+def _validate_bridge(bridge: Any, *, sealed: bool = False) -> dict[str, Any]:
+    obj = _is_json_object if sealed else lambda value: isinstance(value, dict)
+    array = _is_json_array if sealed else lambda value: isinstance(value, list)
+    _require(obj(bridge) and set(bridge) == set(BRIDGE_HORIZONS), "scenario_bridge_horizons")
     normalized: dict[str, Any] = {}
     for horizon in BRIDGE_HORIZONS:
         cases = bridge[horizon]
-        _require(isinstance(cases, dict) and set(cases) == set(CASES), f"scenario_cases:{horizon}")
+        _require(obj(cases) and set(cases) == set(CASES), f"scenario_cases:{horizon}")
         out = {}
         ordered = []
         for case in CASES:
             row = cases[case]
-            _require(isinstance(row, dict), f"scenario_row:{horizon}:{case}")
+            _require(obj(row), f"scenario_row:{horizon}:{case}")
             ret = _number(row.get("return"), f"scenario_return:{horizon}:{case}", -1.0)
             ordered.append(ret)
             assumptions = row.get("assumptions")
-            _require(isinstance(assumptions, list) and bool(assumptions), f"scenario_assumptions:{horizon}:{case}")
+            _require(array(assumptions) and bool(assumptions), f"scenario_assumptions:{horizon}:{case}")
             out[case] = {
                 "return": ret,
                 "assumptions": [_text(x, f"scenario_assumption:{horizon}:{case}", 1200) for x in assumptions],
@@ -433,8 +599,16 @@ def _validate_validated_er(value: dict[str, Any], benchmark_id: str) -> dict[str
     return horizons
 
 
-def evaluate_packet(packet: Any, cutoff: str, artifact_resolver: ArtifactResolver) -> dict[str, Any]:
-    _require(isinstance(packet, dict), "packet_object")
+def evaluate_packet(packet: Any, cutoff: str, artifact_resolver: ArtifactResolver, *,
+                    _artifact_cache: _VerifiedArtifactCache | None = None) -> dict[str, Any]:
+    if _artifact_cache is not None:
+        _require(type(_artifact_cache) is _VerifiedArtifactCache
+                 and _artifact_cache.resolver == artifact_resolver,
+                 "verified_artifact_cache_required")
+    sealed = _artifact_cache is not None
+    obj = _is_json_object if sealed else lambda value: isinstance(value, dict)
+    array = _is_json_array if sealed else lambda value: isinstance(value, list)
+    _require(obj(packet), "packet_object")
     _require(packet.get("schema") == SCHEMA, "schema")
     asset_id = _identifier(packet.get("asset_id"), "asset_id")
     issuer_id = _identifier(packet.get("issuer_id"), "issuer_id")
@@ -447,27 +621,30 @@ def evaluate_packet(packet: Any, cutoff: str, artifact_resolver: ArtifactResolve
     _require(packet.get("review_status") == "RESEARCH_REVIEWED", "review_status")
 
     refs = packet.get("artifacts")
-    _require(isinstance(refs, dict), "artifacts_object")
+    _require(obj(refs), "artifacts_object")
     required = {"methodology", "market_valuation", "source_graph"}
     _require(required <= set(refs), "required_artifacts")
 
     method, method_hash = _load_ref(
         refs["methodology"], expected_kind="METHODOLOGY_RESULT",
         asset_id=asset_id, issuer_id=issuer_id, as_of=as_of, resolver=artifact_resolver,
+        artifact_cache=_artifact_cache,
     )
     _validate_methodology(method)
 
     market, market_hash = _load_ref(
         refs["market_valuation"], expected_kind="MARKET_VALUATION_SNAPSHOT",
         asset_id=asset_id, issuer_id=issuer_id, as_of=as_of, resolver=artifact_resolver,
+        artifact_cache=_artifact_cache,
     )
-    _validate_market(market, as_of, artifact_resolver)
+    _validate_market(market, as_of, artifact_resolver, _artifact_cache)
 
     graph, graph_hash = _load_ref(
         refs["source_graph"], expected_kind="SOURCE_GRAPH",
         asset_id=asset_id, issuer_id=issuer_id, as_of=as_of, resolver=artifact_resolver,
+        artifact_cache=_artifact_cache,
     )
-    _validate_source_graph(graph, as_of, artifact_resolver)
+    _validate_source_graph(graph, as_of, artifact_resolver, _artifact_cache)
 
     moat_applicability = packet.get("moat_applicability")
     _require(moat_applicability in MOAT_APPLICABILITY, "moat_applicability")
@@ -477,25 +654,26 @@ def evaluate_packet(packet: Any, cutoff: str, artifact_resolver: ArtifactResolve
         moat, moat_hash = _load_ref(
             refs["moat"], expected_kind="MOAT_RESULT",
             asset_id=asset_id, issuer_id=issuer_id, as_of=as_of, resolver=artifact_resolver,
+            artifact_cache=_artifact_cache,
         )
         _validate_moat(moat)
     else:
         _require("moat" not in refs, "moat_artifact_not_applicable")
 
     thesis = packet.get("thesis")
-    _require(isinstance(thesis, dict), "thesis_object")
+    _require(obj(thesis), "thesis_object")
     _require(thesis.get("status") in THESIS_STATUSES, "thesis_status")
     _text(thesis.get("counter_thesis"), "counter_thesis", 2400)
     catalysts = thesis.get("catalysts")
     invalidations = thesis.get("invalidation_conditions")
-    _require(isinstance(catalysts, list) and bool(catalysts), "catalysts")
-    _require(isinstance(invalidations, list) and bool(invalidations), "invalidation_conditions")
+    _require(array(catalysts) and bool(catalysts), "catalysts")
+    _require(array(invalidations) and bool(invalidations), "invalidation_conditions")
     for x in catalysts:
         _text(x, "catalyst", 1200)
     for x in invalidations:
         _text(x, "invalidation_condition", 1200)
 
-    scenario_bridge = _validate_bridge(packet.get("scenario_research"))
+    scenario_bridge = _validate_bridge(packet.get("scenario_research"), sealed=sealed)
     benchmark_id = market["benchmark_id"]
 
     validated_er_ref = refs.get("validated_er")
@@ -505,6 +683,7 @@ def evaluate_packet(packet: Any, cutoff: str, artifact_resolver: ArtifactResolve
         er_value, er_hash = _load_ref(
             validated_er_ref, expected_kind="VALIDATED_ER_EVALUATION",
             asset_id=asset_id, issuer_id=issuer_id, as_of=as_of, resolver=artifact_resolver,
+            artifact_cache=_artifact_cache,
         )
         validated_er = _validate_validated_er(er_value, benchmark_id)
 
