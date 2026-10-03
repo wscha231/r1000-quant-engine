@@ -323,6 +323,26 @@ class BoundedResearchTests(unittest.TestCase):
         self.assertEqual(self.run_preview()['status'],'BLOCKED')
         self.assertEqual((self.source/'events.json').read_bytes(),original)
 
+    @unittest.skipUnless(os.name=='nt','Windows namespace alias regression')
+    def test_windows_namespace_alias_cannot_overwrite_input_events(self):
+        import argparse
+        original=(self.source/'events.json').read_bytes()
+        (self.source/'manifest.json').write_bytes(original)
+        self.payload['inputs']['events']['path']='manifest.json'
+        self.save_intake()
+        alias=Path('\\\\?\\'+str(self.source))
+        self.assertTrue(alias.samefile(self.source))
+        args=argparse.Namespace(latest_run=str(self.source),output_dir=str(alias),run_url='',
+            max_tasks=0,bounded_research_intake=str(self.intake))
+        result=board.run(args)
+        self.assertEqual(result['status'],'BLOCKED')
+        self.assertIn('path_namespace',result['reason'])
+        self.assertEqual((self.source/'manifest.json').read_bytes(),original)
+        self.assertFalse((self.source/'.bounded_research.lock').exists())
+        for prefix in ('\\\\?\\','\\\\.\\','\\??\\'):
+            with self.assertRaisesRegex(board.ContractError,'path_namespace'):
+                research.output_geometry(Path(prefix+str(self.source)),self.out)
+
     def test_enabling_without_activation_contract_is_rejected(self):
         cfg=board.read_json(self.cfg); cfg['enabled']=True; board.write_json(self.cfg,cfg)
         with self.assertRaisesRegex(board.ContractError,'activation_requires'): self.run_preview()

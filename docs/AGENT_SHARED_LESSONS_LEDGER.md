@@ -23,6 +23,10 @@
   evidence and state paths; make default and opt-in writers honor one lock;
   reject outcomes predating their signal; preserve the native skipped summary's
   absent timestamp. Add regressions and check all source clocks before byte reads.
+- Windows extended/device namespace spellings can preserve a different prefix
+  even after Path.resolve while referring to the same directory. Reject those
+  spellings before writes and canonicalize ordinary paths; reproduce with real
+  temporary filesystem aliases, not only lexical Path comparisons.
 
 ## 2026-10-03 — Separate safe access from row-local expiry (#560 R3)
 

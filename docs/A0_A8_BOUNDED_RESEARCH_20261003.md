@@ -140,7 +140,7 @@ are under activation_proposal_only and are not applied. enabled=true is rejected
 
 Validation is registered through the existing agent_board_smoke Tier-1 entry;
 the protected run_pr_validation runner is unchanged. Focused regressions cover
-40 synthetic cases, including separate-process exclusion, partial-save resume,
+41 synthetic cases, including separate-process exclusion, partial-save resume,
 expiry/maturity/dependency changes, output/time budgets, malicious instructions,
 original intent, label maturity and default-disabled behavior. Run both
 python tests/agent_board_smoke.py and python -O tests/agent_board_smoke.py.
@@ -159,6 +159,11 @@ writer bypassing the new lock, causally inverted outcome recording and the
 native skipped-summary timestamp gap. These were corrected with regressions;
 all descriptor clocks are also checked before any source bytes are read. Final
 exact-head review remains distinct from a future economic A6 receipt.
+The subsequent review reproduced a Windows device/extended namespace alias
+that referenced the source directory through a different spelling. Such paths
+are rejected before writes; ordinary paths are canonicalized. A native Windows
+regression pins event bytes to the would-be overwritten manifest and checks
+that the input remains unchanged.
 
 ## One activation packet, held pending prerequisites
 

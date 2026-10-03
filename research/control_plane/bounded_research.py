@@ -59,6 +59,9 @@ def canonical_hash(value):
 
 
 def native_path(path):
+    namespaces = ('\\\\?\\', '\\\\.\\', '\\??\\')
+    if os.name == 'nt':
+        require(not str(Path(path)).startswith(namespaces), 'noncanonical_path_namespace')
     path = Path(os.path.abspath(path))
     for part in (path, *path.parents):
         try:
@@ -69,7 +72,10 @@ def native_path(path):
                 'reparse_path')
         if part == path and stat.S_ISREG(st.st_mode):
             require(st.st_nlink == 1, 'nonregular_or_linked_file')
-    return path
+    canonical = path.resolve()
+    if os.name == 'nt':
+        require(not str(canonical).startswith(namespaces), 'noncanonical_path_namespace')
+    return canonical
 
 
 def output_geometry(root, out):
