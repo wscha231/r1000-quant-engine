@@ -67,6 +67,7 @@ def load_price_series(
     ticker: str,
     *,
     include_liquidity: bool = False,
+    require_observed_open: bool = False,
 ) -> pd.DataFrame:
     path = price_cache / px_cache_name(ticker)
     if not path.exists():
@@ -103,7 +104,10 @@ def load_price_series(
         if source in px.columns:
             out[target] = pd.to_numeric(px[source], errors="coerce") * adjustment
     if "open" not in out.columns:
-        out["open"] = out["close"]
+        # Weekly/legacy close consumers retain their existing fallback. An
+        # opening execution consumer must preserve missing observation instead
+        # of presenting a later Close as an observed auction price.
+        out["open"] = np.nan if require_observed_open else out["close"]
     if include_liquidity and "Volume" in px.columns:
         volume = pd.to_numeric(px["Volume"], errors="coerce")
         out["volume"] = volume

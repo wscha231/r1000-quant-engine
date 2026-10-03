@@ -30,10 +30,21 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run_broker_ledger_replay import replay as broker_replay  # noqa: E402
+from tools.run_broker_ledger_replay import REPLAY_GENERATED_ARTIFACTS  # noqa: E402
+from tools.run_broker_ledger_replay import prepare_generated_outputs  # noqa: E402
 
 
 DEFAULT_LATEST_RUN = "outputs"
 DEFAULT_OUT_DIR = "outputs/broker_crisis_reentry_replay/main"
+CRISIS_TARGET_ARTIFACTS = ("target_book.csv", "target_book_diagnostics.json")
+
+
+def clear_generated_artifacts(output_dir: Path, names: tuple[str, ...]) -> None:
+    """Invalidate known root exports; never traverse caller files or archives."""
+    for name in names:
+        path = output_dir / name
+        if path.is_file() or path.is_symlink():
+            path.unlink()
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -59,6 +70,16 @@ def write_json(path: Path, payload: Any) -> None:
 
 
 def render_report(metrics: dict[str, Any]) -> str:
+    usable = (metrics.get("status") == "completed" and metrics.get("metric_mode") != "DO_NOT_USE" and
+              metrics.get("performance_fields_redacted") is not True)
+    def display(field: str, pattern: str) -> str:
+        value = metrics.get(field)
+        if not usable or isinstance(value, bool):
+            return "N/A"
+        number = safe_float(value, float("nan"))
+        if not math.isfinite(number):
+            return "N/A"
+        return str(int(number)) if field == "trade_count" else format(number, pattern)
     return "\n".join(
         [
             "# Broker Crisis-Reentry Replay",
@@ -68,11 +89,11 @@ def render_report(metrics: dict[str, Any]) -> str:
             f"- Status: `{metrics.get('status')}`",
             f"- Policy: `{metrics.get('policy_id')}`",
             f"- Metric mode: `{metrics.get('metric_mode')}`",
-            f"- CAGR: {safe_float(metrics.get('cagr')):.2%}",
-            f"- Sharpe: {safe_float(metrics.get('sharpe')):.3f}",
-            f"- MaxDD: {safe_float(metrics.get('max_dd')):.2%}",
-            f"- Avg cash: {safe_float(metrics.get('avg_cash_weight')):.2%}",
-            f"- Trade count: {int(safe_float(metrics.get('trade_count')))}",
+            f"- CAGR: {display('cagr', '.2%')}",
+            f"- Sharpe: {display('sharpe', '.3f')}",
+            f"- MaxDD: {display('max_dd', '.2%')}",
+            f"- Avg cash: {display('avg_cash_weight', '.2%')}",
+            f"- Trade count: {display('trade_count', '.0f')}",
             f"- Valid for production evidence: `{str(metrics.get('valid_for_production')).lower()}`",
             "",
             "This is a broker-compatible challenger, not an automatic production promotion.",
@@ -147,9 +168,22 @@ def run(
     max_fill_lag_days: int = 7,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
+    # Target preparation can fail before broker_replay performs its cleanup.
+    protected, collision = prepare_generated_outputs(output_dir, REPLAY_GENERATED_ARTIFACTS + CRISIS_TARGET_ARTIFACTS,
+        [latest_run / "crisis_reentry_replay" / "holdings.csv"])
+    if collision:
+        payload = {"status": "blocked", "reason": "caller_input_collides_with_replay_output", "policy_id": policy_id,
+            "metric_mode": "DO_NOT_USE", "research_only": True, "production_activation_allowed": False,
+            "valid_for_production": False}
+        if (output_dir / "metrics.json").resolve() not in protected: write_json(output_dir / "metrics.json", payload)
+        if (output_dir / "replay_report.md").resolve() not in protected:
+            (output_dir / "replay_report.md").write_text(render_report(payload), encoding="utf-8")
+        return payload
     try:
         target_book, diagnostics = build_target_book(latest_run, output_dir, policy_id)
     except Exception as exc:
+        # A failed preparation may already have written part of the new target.
+        clear_generated_artifacts(output_dir, CRISIS_TARGET_ARTIFACTS)
         payload = {
             "status": "blocked",
             "reason": str(exc),

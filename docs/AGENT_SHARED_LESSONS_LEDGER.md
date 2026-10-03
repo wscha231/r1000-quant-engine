@@ -1,5 +1,79 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-03 — Separate safe access from row-local expiry (#560 R3)
+
+- Immutable provenance preflight must use only valid ID/hash and eligible
+  availability/collection clocks. Expiry, optional fields and cross-reference
+  ordering remain row-local checks; they must not conceal decoded nested-ID
+  conflicts. Future or malformed access clocks still permit zero reads.
+- Cover early metadata errors across packet/result roles, conflict locations,
+  both input orders and future boundaries. Preserve once-per-identity work,
+  verified immutable cached views and every closed economic/reuse authority.
+
+## 2026-10-03 — Bound traversal and seal cached evidence (#560 R2)
+
+- A decode cache alone does not bound repeated nested traversal. Memoize full
+  packet/dependency preflight by exact immutable identity, including failures;
+  measure actual node visits and one-time sealing on large shared artifacts.
+- Gate nested bytes/cache access against both packet as_of and batch cutoff.
+  Register syntactically valid descriptor conflicts without resolving future
+  evidence, and do not let a future context suppress a later eligible context.
+- Retain immutable JSON views sealed once after strict byte/hash decoding.
+  Caller mutation or exported copies must not change byte-bound semantics;
+  repeated cache hits must not copy, decode, seal or rehash large objects.
+  Default A3 results and closed economic/reuse authority remain unchanged.
+
+## 2026-10-03 — Bound artifact work across every validation phase (#560)
+
+- Charge every returned byte buffer before blob/type/hash rejection; memoize
+  bounded provider, type, size, hash and decode failures per immutable identity.
+  A fresh invocation retries. Failure caches must retain no private provider
+  text or tracebacks holding large objects.
+- Register nested identities from time-eligible decoded packets/dependencies
+  before row-local asset or dependency validation. An earlier bad dependency
+  must not conceal a later immutable-ID conflict; future-collected references
+  remain unresolved.
+- Share a raw-byte-verified strict decode cache through downstream A3 replay.
+  Test actual parse/hash work, raw-reference tracking and both conflict orders,
+  not only provider call counts. A reference pass still grants no reuse or A5
+  economic authority.
+
+## 2026-10-02 — Reconcile current reference-index evidence before integration (#560)
+
+- The current PR head already contains immutable-ID preflight and per-invocation
+  JSON decode caching. Reproduce current behavior before treating an unresolved
+  review thread as an unimplemented finding; review status and code status differ.
+- Integrating current master conflicts only in this append-only lesson ledger.
+  Preserve both the registry lessons and the migration/recovery lessons. Keep
+  reference and reuse authority closed; source integration grants no A5 approval.
+
+## 2026-09-30 — Preflight immutable IDs and cache JSON outcomes (#560)
+
+- Register all syntactically valid supplied packet/result ID-hash pairs before
+  row-local metadata validation; an invalid timestamp or missing field must not
+  hide a batch-level immutable identity conflict.
+- Cache both decoded objects and bounded decode-failure reasons per invocation.
+  A resolved-byte cache alone permits repeated parsing of the same malformed
+  blob; preserve per-row read tracking on cache hits. Regression tests reproduce
+  both findings and cover packet/result cross-role conflicts and input ordering.
+- Native Python 3.12 focused/integrated tests and quick smoke pass. The broader
+  smoke runner cannot pass in this environment without numpy/pandas; do not
+  report focused validation as full repository CI or exact-head review.
+
+## 2026-09-29 — A3 reference replay is not current or economic authority (#516)
+
+- Reuse the existing A3 validator to bind saved results to exact packet and
+  upstream bytes. Keep raw artifact SHA-256 distinct from semantic packet hash;
+  canonical comparison must not equate false with numeric zero.
+- A consistent supplied bundle does not authenticate an independent reviewer,
+  current-pointer selection, domain applicability or freshness. Keep A5 and
+  reuse authority closed until the existing A0/A6 and economic gates pass.
+- Preserve identifiable rejected candidates. Do not silently pick one of
+  duplicate security rows or conflicting immutable artifact identities.
+- Expiry, catalyst/collection failures and outcome maturity need their own
+  checks; an unexpired caller declaration is not CURRENT. No new scheduler,
+  receipt store, scoring rule or protected runner change is needed here.
+- See docs/CANDIDATE_REGISTRY_V1_REFERENCE_INDEX.md for the bounded contract.
 ## 2026-09-30 — Immutable publication may lead mutable aliases (#563 P1 C/D)
 
 - Publication is not atomic across immutable heads and mutable aliases. Recovery
@@ -3620,6 +3694,79 @@ Expected contract:
 - Fullrun executed: false. Durable daily catch-up executed: false. Production
   enabled: false. Live trading enabled: false.
 
+## 2026-10-01 — Opening price coverage is not pre-auction order intent (Evaluation E1)
+
+- Native parquet/replay fixtures reproduce missing Open being filled from Close
+  and later same-session Close changing an opening rebalance quantity. Keep the
+  legacy weekly loader fallback separate from strict observed-Open admission.
+- The existing target book supplies weights, not precommitted auction quantities.
+  Fail `next_open` closed after price coverage until a separately defined order
+  intent contract is available. Replacing future Close with realized auction Open
+  would still backdate a quantity and is not an integrity fix.
+- This correction redacts performance/account artifacts for blocked runs and
+  preserves the official `broker_ledger_next_close` behavior. It adds no alpha,
+  execution policy, durable mutation, migration rerun, or promotion authority.
+- Missing current Drive access prevents current frontier/accepted-head claims;
+  successful historical Actions receipts are not a fresh durable-state readback.
+
+### 2026-10-03 - Clear all replay evidence before blocked reruns
+
+- PR567 review found a completed replay's `reserve_reason_audit.json` surviving
+  a blocked opening rerun because conditional exports were absent from cleanup.
+- Clear every generated evidence file before any prerequisite can return.
+  Test completed-to-blocked and explicit-to-default transitions against the
+  complete export set, while preserving caller-owned files and nested archives.
+  Price/intent guards alone do not invalidate evidence from a prior replay.
+
+### 2026-10-03 - Blocked replay status must survive research callers (#567 P2)
+
+- Audit both direct replay callers and CLI consumers when a native result
+  becomes blocked. Missing, nonfinite or redacted performance is unavailable,
+  not zero. Cost sweeps require every requested level to complete; comparisons
+  require a usable baseline, resolved after all levels have been read.
+- Preserve DO_NOT_USE through grid selection and render unavailable crisis
+  metrics as N/A. Clear only caller-owned root summaries before retrying;
+  retain unrelated files and nested archives. Optional shell orchestration
+  success does not certify the individual replay artifact.
+
+### 2026-10-03 - Caller preparation must invalidate its owned replay evidence (#567 P2)
+
+- Native broker cleanup cannot protect a wrapper that returns before replay.
+  Crisis holdings/policy/schema failures retained eight old native exports and
+  both generated target files. Clear the native registry and wrapper targets
+  before preparation; clear partially written targets when preparation fails.
+- Test the complete owned export set, actual early input failures and successful
+  retries while preserving original holdings, caller files and nested archives.
+
+### 2026-10-03 - Opening guards must cover independent replay engines (#567 P1)
+
+- Inventory price-loader consumers and independent order loops, not only calls
+  to the shared ledger. Observed Open cannot admit quantities formed using
+  fill-day equity or auction prices; block unsupported next_open models.
+- Reject resolved target/output-owned-name collisions before completing any mode.
+  Preserve the colliding caller bytes and links while clearing other owned exports.
+  Clear each engine's complete owned exports before other prerequisite returns;
+  retain unrelated files and nested archives. Blocked metrics stay null/N/A and
+  CLI status stays nonzero. Disjoint same-name inputs remain valid.
+- Keep weekly proxies and advisory opening features separate from observed-open
+  execution admission; their source-level caveats do not become economic proof.
+
+### 2026-10-03 - Preserve declared inputs through every owned writer (#567 P2)
+
+- Validate resolved original and explicit auxiliary CSV paths against the whole
+  known requested output contract before reading, cleanup or publication. Protect
+  input bytes and links even at report names; clear only other exact owned files.
+  Include dependent grid variants and declared outer event sources; disjoint
+  nested archives and safely unlinked hardlinks remain valid.
+- A cost sweep needs its exact normalized requested baseline and usable native
+  baseline evidence. Near-equal costs cannot alias it; missing baselines block
+  without adding an experiment, and unavailable comparisons remain null.
+- Propagate actual portfolio and prerequisite status through inner helpers,
+  outer summaries and CLI exits. Bound native failures, redact blocked metrics,
+  and render N/A without changing fitting, order or cost formulas.
+- The native /review-complete signal must be exactly one command line; put
+  explanations elsewhere. A prose-bearing signal failed the actual gate.
+
 ## 2026-08-03 - Fullrun session, producer order, and champion authority
 
 - A latest-close fullrun must start from one explicit approved UTC decision
@@ -4146,6 +4293,91 @@ Expected contract:
   `docs/CODEX_RUN287_H4B_WORKFLOW_PROMOTION_TRUST_RESULT_20260723.md`.
 - Fullrun executed: false. Durable daily catch-up executed: false. Production
   enabled: false. Live trading enabled: false.
+
+### 2026-10-03 - Recover committed July27 publication without replaying its transaction
+
+- Producer run 37002957966/1 at 30915e05 remains CANCELLED: transaction and
+  integrity succeeded, persistence was cancelled, and accepted artifact/cache
+  steps were skipped. Physical seven-head chain ends at 761cf62e; keep the
+  original run, source, bytes and consumed comment 5951667349 as historical
+  evidence. Do not relabel that run successful or reuse its transaction scope.
+- Ordinary daily inputs are a strict historical eleven-key contract. A bounded
+  manual-only recovery publisher calls unchanged native physical verifiers;
+  its fresh owner/current-master/environment authority is separate from the
+  original producer. No ledger writer, head install, next session or new order
+  belongs in publication recovery. Publication/cache approval defaults false.
+- Full original capture/diagnostic ZIPs, 7-head payloads and canonical aliases
+  passed local preparation and independent bundle revalidation in normal and
+  optimized Python. These are LOCAL_READ_ONLY_PREPARATION receipts with
+  publication_ready=false, not a remote publication or investment approval.
+- Artifact readback must bind the actual new publisher and every ZIP byte.
+  Clear only the two verified staging directories before exact-key cache
+  restore; otherwise leftover local files can mask missing cached members.
+- Related local physical/scope checks passed. The unchanged broad artifact
+  smoke hit a Windows separator comparison in the capture-config fixture
+  (forward slash versus backslash). Record that limitation and check Linux CI;
+  do not weaken the fixture or the ordinary capture/publication gate.
+
+### 2026-10-03 - Job env cannot use the runner expression context (#570 P1)
+
+- Head 669f34a4 used runner.temp in three job-env definitions. The official
+  context table and runner job-env schema exclude runner at that location;
+  YAML/Bash parsing and the old Linux CI success did not catch this defect.
+- Initialize the same paths from RUNNER_TEMP in an earlier shell step and
+  append to GITHUB_ENV. New values reach subsequent steps, not that shell;
+  job-env strings containing $RUNNER_TEMP do not expand recursively.
+- Reject the old expression placement, check every consumer's ordering and
+  execute normal/space-path and missing/empty-temp offline shell fixtures.
+  Preserve unrelated env entries/files and fail before writing on empty temp.
+
+### 2026-10-03 - Prior publication retries require a complete attempt census (#570 P2)
+
+- Jobs API filter=all alone is not completeness proof. Require total_count
+  parity, positive non-bool prior attempt N, exact prior run/publication job,
+  unique job IDs and step numbers, and one exact accepted-upload step for each
+  relevant attempt 1..N. Unrelated jobs need not share that attempt census.
+- Retention cannot erase a prior SUCCESS duplicate-publication guard. A retry
+  requires every complete unique upload step SKIPPED and the prior run completed
+  with failure/cancelled, alongside all existing fresh authority/state gates.
+- Native before-patch regressions exposed 38 unsafe acceptances. The corrected
+  focused suite passes normal and optimized Python; truncated run/job/artifact
+  censuses still block even when all relevant attempt identities are present.
+- Outer recovery and active-writer censuses also require unique positive
+  non-bool run IDs and consistent supplied current-run identity metadata.
+  Require the separately observed live publisher exactly once in its own
+  recovery history before exclusion; an empty or omitted-current listing is
+  not evidence of no prior publication. Share identity validation across the
+  census paths so duplicate rows and numeric aliases cannot mask missing runs.
+
+### 2026-10-03 - Skipped recovery dispatches require whole-run no-op proof (#570 P2)
+
+- A default-false job condition reports success without executing the publisher.
+  Permit only complete unique attempts 1..N with every authoritative job/step
+  completed/skipped and a complete empty artifact census. Empty skipped-job
+  steps are valid; mixed execution, ambiguous metadata and accepted upload
+  success still block. Failure/cancelled upload-skip retry rules remain unchanged.
+- Recovery queue:max retains pending work when this producer joins the shared
+  group. Other producers retain their own pending policy; the 100-run queue cap
+  and waiting-time FIFO do not replace native writer/chronological checks.
+  Official queue semantics are server-side; YAML checks are not runtime proof.
+
+### 2026-10-03 - Checksum aliases must preserve every supplied digest (#570 P1)
+
+- Support documented MD5/SHA-1 and rclone SHA-256 aliases as well as retained
+  lowercase names. Validate every supported digest; malformed or disagreeing
+  aliases must not hide behind a favorable checksum. Unknown-only still blocks.
+- Retained original inventories already used lowercase names and passed the
+  native boundary. Distinguish synthetic spelling compatibility from those
+  original byte receipts; offline reuse is not a fresh Drive read or publication.
+
+### 2026-10-03 - Match native review evidence and active branch rules (#570 integration)
+
+- Read review_complete's native evidence surface: PR root reactions, not
+  reactions on the review-request comment. Bind the intended exact review/head.
+- A classic-protection 404 is not absence of protection. Inspect active rulesets;
+  Protect master enforces strict validate/portfolio checks and resolved threads.
+- Keep the repository review_complete gate even when the server ruleset omits it.
+  Correct coordinator evidence collection; do not weaken gate implementation.
 
 ## 2026-07-24 - H4b freshness-to-ledger fail-closed boundary
 
@@ -5618,3 +5850,12 @@ Expected contract:
 - Bind physical endpoint/ancestor identities when path spelling can alias.
   Preserve disjoint missing outputs; label POSIX spelling simulations separately
   from actual Windows fixtures and do not claim macOS execution.
+
+## 2026-10-03 — Close SQLite handles after blocked materialization
+
+- A SQLite connection context manages commit/rollback and does not close the
+  connection. Wrap every statement after connect in try/finally; early source
+  or historical-vintage rejection must release Windows file handles too.
+- Keep real connection objects alive in tests, then verify closed API behavior,
+  same-process reopen/rename, rollback on later failures and clean positive
+  materialization. Do not rely on GC or weaken source/PIT/cutoff gates.

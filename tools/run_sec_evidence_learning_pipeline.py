@@ -29,6 +29,8 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run_alpha_selector_broker_grid import run as run_alpha_selector_grid  # noqa: E402
+from tools.run_alpha_selector_broker_grid import grid_generated_artifacts, normalize_grid_result, finite_performance  # noqa: E402
+from tools.run_broker_ledger_replay import prepare_generated_outputs  # noqa: E402
 from tools.run_sec_enriched_candidate_replay import (  # noqa: E402
     enrich_candidate_book,
     read_table,
@@ -291,41 +293,28 @@ def learn_score_weights(enriched: pd.DataFrame, out_dir: Path) -> dict[str, Any]
 
 def broker_gate(metrics: dict[str, Any], portfolio: str) -> dict[str, Any]:
     baseline = BASELINES[portfolio]
-    cagr = float(metrics.get("cagr", math.nan)) if metrics else math.nan
-    max_dd = float(metrics.get("max_dd", metrics.get("max_drawdown", math.nan))) if metrics else math.nan
-    valid = bool(metrics.get("valid_for_production")) if metrics else False
+    metrics = normalize_grid_result(metrics)
+    cagr = finite_performance(metrics.get("cagr"))
+    max_dd = finite_performance(metrics.get("max_dd", metrics.get("max_drawdown")))
+    valid = metrics.get("status") == "completed" and metrics.get("valid_for_production") is True
     return {
         "portfolio": portfolio,
         "baseline": baseline,
         "candidate_cagr": cagr,
         "candidate_max_dd": max_dd,
         "valid_for_production_metric": valid,
-        "beats_cagr": bool(math.isfinite(cagr) and cagr > baseline["cagr"]),
-        "beats_or_matches_mdd": bool(math.isfinite(max_dd) and max_dd >= baseline["max_dd"]),
+        "beats_cagr": bool(cagr is not None and cagr > baseline["cagr"]),
+        "beats_or_matches_mdd": bool(max_dd is not None and max_dd >= baseline["max_dd"]),
         "promotion_allowed": False,
         "reason": "research-only SEC evidence; human approval required even if metrics pass",
     }
 
 
-def run_broker_grids(args: argparse.Namespace, enriched_csv: Path, output_dir: Path) -> dict[str, Any]:
-    if not bool(args.run_broker_grid):
-        return {"status": "skipped", "reason": "run_broker_grid is false"}
-    results: dict[str, Any] = {"status": "completed", "portfolios": {}}
-    target_ns_by_portfolio = {
-        "main": str(getattr(args, "main_target_ns", "") or args.target_ns),
-        "concentrated": str(getattr(args, "concentrated_target_ns", "") or args.target_ns),
-    }
-    caps_by_portfolio = {
-        "main": str(getattr(args, "main_single_name_caps", "") or args.single_name_caps),
-        "concentrated": str(getattr(args, "concentrated_single_name_caps", "") or args.single_name_caps),
-    }
-    for portfolio in ["main", "concentrated"]:
-        out = output_dir / "alpha_selector_broker_grid" / portfolio
-        payload = run_alpha_selector_grid(
-            argparse.Namespace(
+def broker_grid_args(args: argparse.Namespace, enriched_csv: Path, output_dir: Path, portfolio: str) -> argparse.Namespace:
+    return argparse.Namespace(
                 candidate_book=str(enriched_csv),
                 price_cache=str(args.price_cache),
-                output_dir=str(out),
+                output_dir=str(output_dir / "alpha_selector_broker_grid" / portfolio),
                 portfolio_kind=portfolio,
                 starting_capital=float(args.starting_capital),
                 fill_mode=args.fill_mode,
@@ -333,16 +322,29 @@ def run_broker_grids(args: argparse.Namespace, enriched_csv: Path, output_dir: P
                 no_integer_shares=False,
                 max_fill_lag_days=int(args.max_fill_lag_days),
                 styles=args.styles,
-                target_ns=target_ns_by_portfolio[portfolio],
-                single_name_caps=caps_by_portfolio[portfolio],
+                target_ns=str(getattr(args, portfolio + "_target_ns", "") or args.target_ns),
+                single_name_caps=str(getattr(args, portfolio + "_single_name_caps", "") or args.single_name_caps),
                 max_variants=int(args.max_variants),
                 min_market_cap_usd=float(args.min_market_cap_usd),
                 min_dollar_volume_usd=float(args.min_dollar_volume_usd),
                 min_price=float(args.min_price),
                 allow_unfillable_targets=bool(args.allow_unfillable_targets),
             )
-        )
+
+
+def run_broker_grids(args: argparse.Namespace, enriched_csv: Path, output_dir: Path) -> dict[str, Any]:
+    if not bool(args.run_broker_grid):
+        return {"status": "skipped", "reason": "run_broker_grid is false"}
+    results: dict[str, Any] = {"status": "completed", "portfolios": {}}
+    for portfolio in ["main", "concentrated"]:
+        try:
+            payload = run_alpha_selector_grid(broker_grid_args(args, enriched_csv, output_dir, portfolio))
+        except (OSError, ValueError, TypeError, RuntimeError) as exc:
+            payload = {"status": "blocked", "reason": "broker_grid_failed:" + type(exc).__name__}
+        payload = normalize_grid_result(payload)
         results["portfolios"][portfolio] = {"metrics": payload, "gate": broker_gate(payload, portfolio)}
+    if any(item["metrics"]["status"] != "completed" for item in results["portfolios"].values()):
+        results.update(status="blocked", reason="requested_broker_grid_blocked")
     return results
 
 
@@ -372,10 +374,10 @@ def render_report(summary: dict[str, Any]) -> str:
         for portfolio, item in broker["portfolios"].items():
             gate = item.get("gate", {})
             lines.append(
-                "| {p} | {cagr:.2%} | {mdd:.2%} | {bc} | {bm} |".format(
+                "| {p} | {cagr} | {mdd} | {bc} | {bm} |".format(
                     p=portfolio,
-                    cagr=float(gate.get("candidate_cagr", math.nan)),
-                    mdd=float(gate.get("candidate_max_dd", math.nan)),
+                    cagr=format(gate["candidate_cagr"], ".2%") if finite_performance(gate.get("candidate_cagr")) is not None else "N/A",
+                    mdd=format(gate["candidate_max_dd"], ".2%") if finite_performance(gate.get("candidate_max_dd")) is not None else "N/A",
                     bc=gate.get("beats_cagr"),
                     bm=gate.get("beats_or_matches_mdd"),
                 )
@@ -393,6 +395,25 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     form4_path = repo_path(args.form4)
     holdings_13f_path = repo_path(args.institutional_13f)
     etf_holdings_path = repo_path(args.etf_holdings)
+    owned = ["summary.json", "report.md", "candidate_replay_book_sec_enriched.csv",
+        "enriched_latest/reports/candidate_replay_book.csv", "score_weight_grid.csv", "best_score_weights.json"]
+    owned += ["selection_quality/" + name for name in ("selection_quality_summary.json", "selection_quality_report.md",
+        "factor_ic_by_horizon.csv", "topk_forward_hit_rate.csv", "score_decile_spread.csv", "sleeve_alpha_attribution.csv",
+        "missed_winner_onset.csv")]
+    if bool(args.run_broker_grid):
+        for portfolio in ("main", "concentrated"):
+            grid_args = broker_grid_args(args, output_dir / "candidate_replay_book_sec_enriched.csv", output_dir, portfolio)
+            owned += [f"alpha_selector_broker_grid/{portfolio}/{name}" for name in grid_generated_artifacts(grid_args)]
+    protected, collision = prepare_generated_outputs(output_dir, owned,
+        [candidate_path, form4_path, holdings_13f_path, etf_holdings_path])
+    if collision:
+        summary = {"status": "blocked", "reason": "caller_input_collides_with_replay_output", "enriched_rows": 0,
+            "research_only": True, "production_activation_allowed": False, "promotion_allowed": False,
+            "metric_mode": "DO_NOT_USE", "broker_grid": {"status": "blocked"}}
+        if (output_dir / "summary.json").resolve() not in protected: write_json(output_dir / "summary.json", summary)
+        if (output_dir / "report.md").resolve() not in protected:
+            (output_dir / "report.md").write_text(render_report(summary), encoding="utf-8")
+        return summary
     candidates = read_table(candidate_path)
     form4 = read_table(form4_path)
     holdings_13f = read_table(holdings_13f_path)
@@ -416,10 +437,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
     selection_quality = run_selection_quality(latest_dir, output_dir / "selection_quality", top_n=int(args.top_n))
     score_learning = learn_score_weights(enriched, output_dir)
-    broker_grid = run_broker_grids(args, enriched_csv, output_dir)
+    prerequisites_complete = (not enriched.empty and isinstance(selection_quality, dict) and
+        selection_quality.get("status") == "completed" and isinstance(score_learning, dict) and
+        score_learning.get("status") == "completed")
+    broker_grid = (run_broker_grids(args, enriched_csv, output_dir) if prerequisites_complete else
+        {"status": "blocked", "reason": "research_prerequisite_stage_blocked"})
+    complete = (prerequisites_complete and
+        broker_grid.get("status") == ("completed" if bool(args.run_broker_grid) else "skipped"))
 
     summary = {
-        "status": "completed",
+        "status": "completed" if complete else "blocked",
+        "reason": "" if complete else "research_stage_or_requested_broker_grid_blocked",
         "schema_version": "sec-evidence-learning-v1",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "research_only": True,
@@ -450,8 +478,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         )
         if not enriched.empty
         else 0,
-        "selection_quality": selection_quality,
-        "score_learning": score_learning,
+        "selection_quality": selection_quality if isinstance(selection_quality, dict) else {"status": "blocked", "reason": "stage_result_shape_invalid"},
+        "score_learning": score_learning if isinstance(score_learning, dict) else {"status": "blocked", "reason": "stage_result_shape_invalid"},
         "broker_grid": broker_grid,
         "promotion_allowed": False,
     }
@@ -508,7 +536,7 @@ def main() -> int:
             default=str,
         )
     )
-    return 0
+    return 0 if payload.get("status") == "completed" else 2
 
 
 if __name__ == "__main__":
