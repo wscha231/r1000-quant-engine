@@ -259,6 +259,7 @@ def filings_from_submissions(
         accepted = _recent_value(recent, "acceptanceDateTime", idx)
         filing_date = _recent_value(recent, "filingDate", idx)
         period = _recent_value(recent, "reportDate", idx)
+        items = str(_recent_value(recent, "items", idx) or "").strip()
         if not _in_history_window(
             accepted=accepted,
             filing_date=filing_date,
@@ -277,6 +278,7 @@ def filings_from_submissions(
                 "accepted_at": parse_sec_datetime(accepted).isoformat() if pd.notna(parse_sec_datetime(accepted)) else "",
                 "available_from": available_from(accepted, safety_delay_hours=safety_delay_hours),
                 "period_of_report": str(period or ""),
+                "items": items,
                 "primary_document": primary_doc,
                 "filing_url": filing_archive_url(norm_cik, accession, primary_doc),
                 "source": source,
@@ -414,6 +416,7 @@ def collect_filings_index(
                                     "accepted_at": "",
                                     "available_from": "",
                                     "period_of_report": "",
+                                    "items": "",
                                     "primary_document": "",
                                     "filing_url": "",
                                     "source": f"sec_submissions_archive:{file_name}",
@@ -434,6 +437,7 @@ def collect_filings_index(
                 "accepted_at",
                 "available_from",
                 "period_of_report",
+                "items",
                 "primary_document",
                 "filing_url",
                 "source",

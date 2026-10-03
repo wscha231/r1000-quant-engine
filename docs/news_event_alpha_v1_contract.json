@@ -1,0 +1,126 @@
+{
+  "schema": "news-event-alpha-contract-v1",
+  "status": "RESEARCH_ONLY",
+  "event_identity": "one economic_event_id equals one statistical economic event; source reprints do not add observations",
+  "eligible_instruments": [
+    "US_LISTED_COMMON",
+    "ADR"
+  ],
+  "roles": [
+    "DIRECT",
+    "ENABLER",
+    "INDIRECT",
+    "NARRATIVE"
+  ],
+  "sample_origins": [
+    "HISTORICAL_BACKFILL",
+    "FORWARD_SHADOW"
+  ],
+  "checkpoints_sessions": [
+    0,
+    5,
+    10,
+    20
+  ],
+  "forward_horizons_sessions": [
+    5,
+    10,
+    21,
+    63,
+    126,
+    252
+  ],
+  "benchmark": "SPY total-return series from the same verified price source",
+  "pre_event_features": [
+    "rs20",
+    "rs60"
+  ],
+  "event_features": [
+    "event_day_excess",
+    "event_volume_ratio20",
+    "peer_breadth"
+  ],
+  "confirmation_features": [
+    "post_rs_checkpoint",
+    "peer_breadth_checkpoint"
+  ],
+  "business_features": [
+    "official_evidence",
+    "role",
+    "business_relation_new",
+    "economic_value_confirmed",
+    "economic_amount_kind"
+  ],
+  "risk_features": [
+    "dilution_risk",
+    "cashflow_risk",
+    "balance_sheet_risk"
+  ],
+  "promotion_power_minimums": {
+    "21": 200,
+    "63": 100,
+    "126": 50
+  },
+  "historical_support_cannot_promote_alone": true,
+  "forward_shadow_required": true,
+  "manual_review_required": true,
+  "selector_eligible": false,
+  "automatic_promotion_allowed": false,
+  "production_activation_allowed": false,
+  "target_book_mutation_allowed": false,
+  "orders_allowed": false,
+  "security_eligibility": {
+    "instrument": [
+      "COMMON",
+      "ADR"
+    ],
+    "listing_country": "US",
+    "exchanges": [
+      "XNYS",
+      "XNAS",
+      "XASE"
+    ],
+    "eligibility_verified_asof_required": true,
+    "historical_survivor_only_inputs_forbidden": true
+  },
+  "inference": {
+    "descriptive_event_row_ci": true,
+    "promotion_ci_basis": "issuer_year_cluster_mean",
+    "reason": "reduce repeated-issuer/repeated-story pseudo-power"
+  },
+  "historical_backfill": {
+    "source_commit_required": true,
+    "verified_64_hex_data_receipt_required": true,
+    "search_results_are_not_a_historical_news_corpus": true,
+    "historical_support_cannot_promote_alone": true
+  },
+  "walk_forward_learning": {
+    "enabled": true,
+    "training_rule": "only resolved outcomes with outcome_end_session earlier than current checkpoint_session",
+    "cohort_fallback": [
+      {
+        "tier": "EVENT_TYPE_ARM",
+        "min_n": 15,
+        "min_issuers": 8
+      },
+      {
+        "tier": "ARM",
+        "min_n": 30,
+        "min_issuers": 12
+      },
+      {
+        "tier": "ALL",
+        "min_n": 50,
+        "min_issuers": 20
+      }
+    ],
+    "estimate": "median SPY excess return",
+    "uncertainty": [
+      "q25",
+      "q75",
+      "positive_rate",
+      "issuer_year_cluster_ci95"
+    ],
+    "underpowered_behavior": "do not emit an impact estimate"
+  }
+}
