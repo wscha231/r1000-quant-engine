@@ -182,15 +182,15 @@ jobs:
           fi
           if [ "$BOUND_RESTORE" = "true" ] || rclone lsf "$BASE""data_pit/events/earnings_revision_signals.parquet" >/dev/null 2>&1; then
             timeout 3m rclone copyto "$BASE""data_pit/events/earnings_revision_signals.parquet" \
-              data_pit/events/earnings_revision_signals.parquet
+              data_pit/events/earnings_revision_signals.parquet --checksum
           fi
           if [ "$BOUND_RESTORE" = "true" ] || rclone lsf "$BASE""outputs/earnings_estimates_daily/summary.json" >/dev/null 2>&1; then
             timeout 2m rclone copyto "$BASE""outputs/earnings_estimates_daily/summary.json" \
-              outputs/earnings_estimates_daily/summary.json
+              outputs/earnings_estimates_daily/summary.json --checksum
           fi
           if [ "$BOUND_RESTORE" = "true" ] || rclone lsf "$BASE""outputs/earnings_estimates_daily/collection_queue.csv" >/dev/null 2>&1; then
             timeout 2m rclone copyto "$BASE""outputs/earnings_estimates_daily/collection_queue.csv" \
-              outputs/earnings_estimates_daily/collection_queue.csv
+              outputs/earnings_estimates_daily/collection_queue.csv --checksum
           fi
           mkdir -p data_pit/free outputs/free_data_forward_paper_ledger \
             outputs/free_data_selection_overlay_previous cache_prices_forward_paper

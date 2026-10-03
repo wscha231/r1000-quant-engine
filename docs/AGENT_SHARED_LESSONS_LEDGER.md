@@ -19,6 +19,11 @@
   restore must synchronize the local archive, check content and stop after any
   required transfer failure. Gate publication and downstream prerequisites on
   successful restoration; the supported cache-only path applies without Drive.
+- The independent real-rclone local-alias fixture showed that strict `copyto`
+  alone may skip stale bound components with equal size and modification time.
+  The verifier safely rejected that restored signal hash, but valid restoration
+  failed. Apply `--checksum` to signals, summary and queue copies as well as the
+  archive sync; synthetic transfer fixtures enforce those actual command flags.
 - Select the latest revision boundary within the current provider. Retain
   latest-null/identity/tie rejection and whole-archive integrity checks so this
   correction cannot search backward for a favorable value or ignore corruption.

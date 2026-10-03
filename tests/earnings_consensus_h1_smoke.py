@@ -172,6 +172,7 @@ if command == 'sync':
         if member.is_file() and not (source/member.relative_to(target)).is_file(): member.unlink()
     shutil.copytree(source, target, dirs_exist_ok=True)
 elif command == 'copyto':
+    if '--checksum' not in args: raise ValueError('bound restore must check content')
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, target)
 else: raise ValueError('unexpected fixture transfer')
