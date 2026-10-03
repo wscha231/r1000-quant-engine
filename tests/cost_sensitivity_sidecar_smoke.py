@@ -9,12 +9,14 @@ Verifies that the sidecar:
 """
 from __future__ import annotations
 
+import io
 import json
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
 import pandas as pd
@@ -127,10 +129,12 @@ def test_cost_sensitivity_handles_single_level() -> None:
             starting_capital=10_000.0,
             fill_mode="next_close",
             max_fill_lag_days=7,
-            baseline_cost_bps=25.0,
+            baseline_cost_bps=50.0,
         )
+        assert payload["status"] == "completed"
         assert len(payload["levels"]) == 1
         assert payload["levels"][0]["cost_bps"] == 50.0
+        assert payload["levels"][0]["cagr_delta_pp_vs_baseline"] == 0.0
 
 
 class BlockedCostResultChecks(unittest.TestCase):
@@ -306,6 +310,110 @@ class BlockedCostResultChecks(unittest.TestCase):
         for row in payload["levels"]: self.check_blocked_row(row)
         self.assertNotIn("private-error-marker", (self.out / "summary.json").read_text(encoding="utf-8"))
         self.assertNotIn("private-error-marker", (self.out / "report.md").read_text(encoding="utf-8"))
+
+    def test_absent_and_near_unrequested_baselines_block_before_replay(self):
+        cases = [([25., 50.], 0.), ([25., 50.], 75.), ([25.], 25.00000001),
+                 ([25.00000001], 25.), (["25", 50.], "25.00000001")]
+        for costs, baseline in cases:
+            with self.subTest(costs=costs, baseline=baseline), \
+                 patch.object(sidecar, "run_level", side_effect=lambda **a: self.completed(a["cost_bps"])) as level:
+                payload = self.invoke(cost_bps_list=costs, baseline_cost_bps=baseline)
+                self.assertEqual(payload["status"], "blocked")
+                self.assertEqual(payload["metric_mode"], "DO_NOT_USE")
+                self.assertEqual(payload["baseline_status"], "not_in_sweep")
+                self.assertEqual(payload["reason"], "cost_baseline_not_in_sweep")
+                self.assertIsNone(payload["breakeven_cost_bps"])
+                self.assertEqual(payload["levels"], [])
+                level.assert_not_called()
+
+    def test_exact_normalized_baseline_cannot_borrow_an_earlier_near_cost(self):
+        baseline = 25.00000001
+        def replayed(**args):
+            return {**self.completed(args["cost_bps"]),
+                    "ending_capital_usd": 12000. if args["cost_bps"] == baseline else 10000.}
+        with patch.object(sidecar, "run_level", side_effect=replayed):
+            payload = self.invoke(cost_bps_list=["25", baseline, 50., "25"], baseline_cost_bps=str(baseline))
+        self.assertEqual(payload["status"], "completed")
+        self.assertEqual(len(payload["levels"]), 3)
+        exact = next(row for row in payload["levels"] if row["cost_bps"] == baseline)
+        self.assertEqual(exact["ending_delta_usd_vs_baseline"], 0.)
+        first = payload["levels"][0]
+        self.assertEqual(first["ending_delta_usd_vs_baseline"], -2000.)
+
+    def test_unusable_baseline_never_completes_or_supplies_comparisons(self):
+        cases = [None, []]
+        cases += [{**self.completed(), "status": value} for value in (None, "blocked", "unknown", "skipped")]
+        cases += [{**self.completed(), "metric_mode": "DO_NOT_USE"},
+                  {**self.completed(), "performance_fields_redacted": True}]
+        cases += [{**self.completed(), field: value} for field in self.fields
+                  for value in (None, True, float("nan"), float("inf"), float("-inf"))]
+        for baseline in cases:
+            with self.subTest(baseline=baseline):
+                def level(**args):
+                    return baseline if args["cost_bps"] == 25. else self.completed(args["cost_bps"])
+                with patch.object(sidecar, "run_level", side_effect=level):
+                    payload = self.invoke()
+                self.assertEqual(payload["status"], "blocked")
+                self.assertEqual(payload["baseline_status"], "blocked")
+                self.assertIsNone(payload["breakeven_cost_bps"])
+                for row in payload["levels"]:
+                    for field in self.deltas:
+                        self.assertIsNone(row[field])
+
+    def test_real_single_and_later_baselines_remain_usable(self):
+        for costs, baseline in (([50.], 50.), ([50., 25., 50.], 50.), (["25", 50.], "25")):
+            with self.subTest(costs=costs, baseline=baseline):
+                payload = self.invoke(cost_bps_list=costs, baseline_cost_bps=baseline)
+                self.assertEqual(payload["status"], "completed")
+                self.assertEqual(payload["baseline_status"], "completed")
+                row = next(r for r in payload["levels"] if r["cost_bps"] == float(baseline))
+                for field in self.deltas:
+                    self.assertEqual(row[field], 0.)
+
+    def test_missing_baseline_reused_directory_and_native_main_fail_closed(self):
+        self.assertEqual(self.invoke()["status"], "completed")
+        caller, nested = self.out / "caller.csv", self.out / "archive" / "summary.json"
+        nested.parent.mkdir()
+        caller.write_bytes(b"caller")
+        nested.write_bytes(b"archive")
+        argv = ["sidecar", "--target-book", str(self.target), "--price-cache", str(self.cache),
+                "--output-dir", str(self.out), "--cost-bps-list", "50", "--baseline-cost-bps", "25"]
+        with patch.object(sys, "argv", argv), redirect_stdout(io.StringIO()) as printed:
+            code = sidecar.main()
+        self.assertEqual(code, 2)
+        payload = json.loads(printed.getvalue())
+        self.assertEqual(payload["status"], "blocked")
+        self.assertEqual(payload["baseline_status"], "not_in_sweep")
+        self.assertEqual(json.loads((self.out / "summary.json").read_bytes()), payload)
+        self.assertIn("blocked", (self.out / "report.md").read_text(encoding="utf-8"))
+        self.assertEqual(caller.read_bytes(), b"caller")
+        self.assertEqual(nested.read_bytes(), b"archive")
+
+    def test_sidecar_preserves_both_owned_names_before_all_validation_paths(self):
+        source, original = self.target, self.target.read_bytes()
+        for name in ("summary.json", "report.md"):
+            for case in ("valid", "absent_baseline", "invalid_inputs", "opening"):
+                with self.subTest(name=name, case=case):
+                    self.out = self.root / (name + case)
+                    self.out.mkdir()
+                    self.target = self.out / name
+                    self.target.write_bytes(original)
+                    other = self.out / ("report.md" if name == "summary.json" else "summary.json")
+                    other.write_bytes(b"old summary")
+                    options = ({"cost_bps_list": [50.]} if case == "absent_baseline" else
+                               {"cost_bps_list": []} if case == "invalid_inputs" else
+                               {"fill_mode": "next_open"} if case == "opening" else {})
+                    with patch.object(sidecar, "run_level", side_effect=AssertionError("collision reached replay")) as level:
+                        result = self.invoke(**options)
+                    self.assertTrue(self.target.exists(), "caller target deleted")
+                    self.assertEqual(self.target.read_bytes(), original)
+                    self.assertEqual(result["status"], "blocked")
+                    self.assertEqual(result["reason"], "caller_input_collides_with_replay_output")
+                    self.assertEqual(result["metric_mode"], "DO_NOT_USE")
+                    self.assertIsNone(result["breakeven_cost_bps"])
+                    level.assert_not_called()
+                    self.assertNotEqual(other.read_bytes(), b"old summary")
+        self.target = source
 
 
 def main() -> int:

@@ -57,7 +57,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tools.run_broker_ledger_replay import replay  # noqa: E402
+from tools.run_broker_ledger_replay import replay, prepare_generated_outputs  # noqa: E402
 
 
 DEFAULT_COST_BPS = [25.0, 50.0, 75.0, 100.0]
@@ -198,12 +198,7 @@ def run(
     baseline_cost_bps: float,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
-    # These two files belong to this invocation; never retain an older success
-    # if validation or a replay fails. Preserve caller files and nested archives.
-    for name in ("summary.json", "report.md"):
-        path = output_dir / name
-        if path.exists() or path.is_symlink():
-            path.unlink()
+    protected, collision = prepare_generated_outputs(output_dir, ("summary.json", "report.md"), [target_book])
     levels: list[dict[str, Any]] = []
     breakeven_cost: float | None = None
     requested = [finite_float(value) for value in cost_bps_list]
@@ -211,8 +206,9 @@ def run(
     valid_inputs = (bool(requested) and all(value is not None and value >= 0 for value in requested) and
                     baseline_value is not None and baseline_value >= 0)
     sorted_levels = sorted(set(requested)) if valid_inputs else []
+    baseline_present = valid_inputs and baseline_value in sorted_levels
     observed = []
-    for cost_bps in sorted_levels:
+    for cost_bps in (sorted_levels if baseline_present and not collision else []):
         try:
             metrics = run_level(target_book=target_book, price_cache=price_cache, portfolio_kind=portfolio_kind,
                                 cost_bps=cost_bps, starting_capital=starting_capital, fill_mode=fill_mode,
@@ -223,20 +219,23 @@ def run(
             metrics = {"status": "blocked", "reason": "replay_failed:" + type(exc).__name__}
         observed.append((cost_bps, metrics))
     baseline_row = next((summarize(metrics, None) for cost, metrics in observed
-                         if math.isclose(cost, baseline_value)), None)
+                         if cost == baseline_value), None)
     for cost_bps, metrics in observed:
         row = summarize(metrics, baseline_row)
         # Blocked native results may omit cost metadata; bind the requested
         # invocation identity instead of fabricating cost zero.
         row["cost_bps"] = cost_bps
         levels.append(row)
-    complete = bool(levels) and all(row["status"] == "completed" for row in levels)
+    complete = bool(levels) and baseline_row is not None and baseline_row["status"] == "completed" and all(
+        row["status"] == "completed" for row in levels)
     if complete:
         breakeven_cost = next((row["cost_bps"] for row in levels if row["cagr"] <= 0), None)
     payload: dict[str, Any] = {
         "schema_version": "cost-sensitivity-sidecar-v1",
         "status": "completed" if complete else "blocked",
-        "reason": "" if complete else ("cost_sweep_inputs_invalid" if not valid_inputs else "cost_level_replay_blocked"),
+        "reason": "" if complete else ("caller_input_collides_with_replay_output" if collision else
+            "cost_sweep_inputs_invalid" if not valid_inputs else
+            "cost_baseline_not_in_sweep" if not baseline_present else "cost_level_replay_blocked"),
         "metric_mode": "cost_sensitivity_research" if complete else "DO_NOT_USE",
         "portfolio_kind": portfolio_kind,
         "target_book": str(target_book),
@@ -252,8 +251,10 @@ def run(
         "research_only": True,
         "production_activation_allowed": False,
     }
-    (output_dir / "summary.json").write_text(json.dumps(payload, indent=2, default=str, allow_nan=False) + "\n", encoding="utf-8")
-    (output_dir / "report.md").write_text(render_report(payload), encoding="utf-8")
+    if (output_dir / "summary.json").resolve() not in protected:
+        (output_dir / "summary.json").write_text(json.dumps(payload, indent=2, default=str, allow_nan=False) + "\n", encoding="utf-8")
+    if (output_dir / "report.md").resolve() not in protected:
+        (output_dir / "report.md").write_text(render_report(payload), encoding="utf-8")
     return payload
 
 

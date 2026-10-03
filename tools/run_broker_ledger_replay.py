@@ -90,6 +90,24 @@ DISABLE_CONCENTRATED_CHAMPION_FILTERS = {"__disable_concentrated_champion_filter
 NYSE_CALENDAR = mcal.get_calendar("NYSE")
 
 
+def prepare_generated_outputs(
+    output_dir: Path, names: tuple[str, ...] | list[str], input_paths: tuple[Path | None, ...] | list[Path | None],
+) -> tuple[set[Path], bool]:
+    """Protect declared inputs before invalidating exact owned exports.
+
+    Resolved aliases count as collisions regardless of the input suffix. A
+    distinct hardlink may be safely unlinked; no directories are traversed.
+    Nested names must come from the caller's known requested output contract.
+    """
+    protected = {Path(path).resolve() for path in input_paths if path is not None}
+    paths = [output_dir / name for name in names]
+    collision = any(path.resolve() in protected for path in paths)
+    for path in paths:
+        if path.resolve() not in protected and (path.is_file() or path.is_symlink()):
+            path.unlink()
+    return protected, collision
+
+
 def repo_path(path_like: str | Path) -> Path:
     path = Path(path_like)
     return path if path.is_absolute() else REPO_ROOT / path
@@ -1527,13 +1545,17 @@ def replay(
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     execution_cost_config = execution_cost_config or ExecutionCostConfig()
-    # A blocked rerun must never inherit generated evidence files from any
-    # prior successful replay, including the fixed-bps control.
-    for artifact_name in REPLAY_GENERATED_ARTIFACTS:
-        artifact_path = output_dir / artifact_name
-        if artifact_path.is_file():
-            artifact_path.unlink()
     cash_carry_config = cash_carry_config or resolve_cash_carry_config()
+    protected, collision = prepare_generated_outputs(output_dir, REPLAY_GENERATED_ARTIFACTS,
+        [target_book, cash_carry_config.rate_path, execution_cost_config.paper_slippage_path])
+    if collision:
+        payload = redact_execution_performance({"target_book": str(target_book), "price_cache": str(price_cache),
+            "portfolio_kind": portfolio_kind, "fill_mode": fill_mode}, reason="caller_input_collides_with_replay_output")
+        if (output_dir / "metrics.json").resolve() not in protected:
+            (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        if (output_dir / "replay_report.md").resolve() not in protected:
+            (output_dir / "replay_report.md").write_text(render_report(payload), encoding="utf-8")
+        return payload
     reserve_explicit = reserve_asset_policy is not None or bool(str(reserve_mode or "").strip())
     if reserve_asset_policy is None:
         compatibility_mode = (

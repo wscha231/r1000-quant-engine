@@ -2,13 +2,16 @@
 """Smoke test broker-ledger conversion of crisis re-entry target books."""
 from __future__ import annotations
 
+import argparse
 import sys
+import io
 import json
 import subprocess
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
+from contextlib import redirect_stdout
 
 import pandas as pd
 
@@ -163,6 +166,45 @@ class CrisisCallerLifecycleChecks(unittest.TestCase):
         self.check_blocked(json.loads(result.stdout))
 
 
+class CrisisInputPreservationChecks(unittest.TestCase):
+    setUp = CrisisCallerLifecycleChecks.setUp
+    invoke = CrisisCallerLifecycleChecks.invoke
+    names = (*REPLAY_GENERATED_ARTIFACTS, *CrisisCallerLifecycleChecks.target_exports)
+
+    def test_fixed_holdings_alias_to_all_known_exports_blocks_and_preserves_input(self):
+        self.out.mkdir()
+        self.holdings.unlink()
+        for mode in ("next_close", "next_open", "same_close"):
+            for name in self.names:
+                with self.subTest(mode=mode, name=name):
+                    if self.holdings.is_symlink(): self.holdings.unlink()
+                    backing = self.out / name; self.rows.to_csv(backing, index=False); before = backing.read_bytes()
+                    self.holdings.symlink_to(backing)
+                    for other in self.names:
+                        if other != name: (self.out / other).write_bytes(b"old successful export")
+                    with patch.object(crisis_runner, "build_target_book", side_effect=AssertionError("must not build")):
+                        payload = self.invoke(fill_mode=mode)
+                    self.assertEqual(payload["status"], "blocked")
+                    self.assertEqual(payload["reason"], "caller_input_collides_with_replay_output")
+                    self.assertEqual(backing.read_bytes(), before); self.assertTrue(self.holdings.is_symlink())
+                    for other in self.names:
+                        if other not in (name, "metrics.json", "replay_report.md"):
+                            self.assertFalse((self.out / other).exists(), other)
+                    args = argparse.Namespace(latest_run=str(self.latest), price_cache=str(self.cache), output_dir=str(self.out),
+                        policy_id="fast_reentry", starting_capital=10000., fill_mode=mode, cost_bps=25.,
+                        no_integer_shares=False, max_fill_lag_days=7)
+                    with patch.object(crisis_runner, "parse_args", return_value=args), redirect_stdout(io.StringIO()):
+                        self.assertNotEqual(crisis_runner.main(), 0)
+                    self.assertEqual(backing.read_bytes(), before); self.holdings.unlink()
+
+    def test_disjoint_source_and_nested_archive_remain_completed(self):
+        before = self.holdings.read_bytes(); archive = self.out / "archive"; archive.mkdir(parents=True)
+        for name in self.names: (archive / name).write_bytes(b"archive")
+        self.assertEqual(self.invoke()["status"], "completed")
+        self.assertEqual(self.holdings.read_bytes(), before)
+        for name in self.names: self.assertEqual((archive / name).read_bytes(), b"archive")
+
+
 def main() -> int:
     with TemporaryDirectory() as td:
         root = Path(td)
@@ -201,7 +243,7 @@ def main() -> int:
         assert (out / "equity_curve.csv").exists()
     if not unittest.TextTestRunner(verbosity=2).run(unittest.TestSuite(
             unittest.defaultTestLoader.loadTestsFromTestCase(cls)
-            for cls in (BlockedCrisisReportChecks,CrisisCallerLifecycleChecks))).wasSuccessful():
+            for cls in (BlockedCrisisReportChecks,CrisisCallerLifecycleChecks,CrisisInputPreservationChecks))).wasSuccessful():
         return 1
     print("broker_crisis_reentry_replay_smoke: PASS")
     return 0

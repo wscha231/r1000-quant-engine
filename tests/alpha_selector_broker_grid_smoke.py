@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT))
 from tools.run_alpha_selector_broker_grid import run  # noqa: E402
 from tools import run_alpha_selector_broker_grid as grid  # noqa: E402
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
+from tools.run_broker_ledger_replay import REPLAY_GENERATED_ARTIFACTS  # noqa: E402
 
 
 def _write_px(cache_dir: Path, ticker: str, closes: list[float], start: str = "2026-01-02") -> None:
@@ -312,10 +313,74 @@ class BlockedGridResultChecks(unittest.TestCase):
                 self.assertEqual(grid.main(), expected)
 
 
+class GridInputPreservationChecks(unittest.TestCase):
+    root_exports = ("summary.csv", "best_metrics.json", "best_target_distance_metrics.json", "report.md")
+    variant_exports = ("target_book.csv", *REPLAY_GENERATED_ARTIFACTS)
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name); self.cache = self.root / "cache"; self.cache.mkdir()
+        _write_px(self.cache, "AAA", [100., 102., 101., 105.])
+        self.frame = pd.DataFrame([{"rebalance_date": date, "ticker": "AAA", "score_total": 1.,
+            "portfolio_future_winner_engine_score": 1., "market_cap_live": 1e10,
+            "dollar_vol_20d": 1e8, "px": 100.} for date in ("2026-01-02", "2026-01-05")])
+        self.out = self.root / "out"
+        self.args = argparse.Namespace(candidate_book=str(self.root / "candidates.csv"), price_cache=str(self.cache),
+            output_dir=str(self.out), portfolio_kind="main", starting_capital=10000., fill_mode="next_close",
+            cost_bps=25., no_integer_shares=False, max_fill_lag_days=7, target_ns="1", single_name_caps="1",
+            styles="future_heavy", max_variants=1, min_market_cap_usd=0., min_dollar_volume_usd=0.,
+            min_price=0., allow_unfillable_targets=True)
+
+    def check_collision(self, source, owned):
+        source.parent.mkdir(parents=True, exist_ok=True); self.frame.to_csv(source, index=False)
+        before = source.read_bytes(); self.args.candidate_book = str(source)
+        caller = self.out / "caller.txt"; caller.parent.mkdir(parents=True, exist_ok=True); caller.write_bytes(b"caller")
+        for path in owned:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if path.resolve() != source.resolve(): path.write_bytes(b"old successful export")
+        result = grid.run(self.args)
+        self.assertEqual(result["status"], "blocked"); self.assertEqual(result.get("metric_mode"), "DO_NOT_USE")
+        self.assertEqual(result["reason"], "caller_input_collides_with_replay_output")
+        self.assertEqual(source.read_bytes(), before); self.assertEqual(caller.read_bytes(), b"caller")
+        for path in owned:
+            if path.resolve() != source.resolve() and path.name not in ("best_metrics.json", "report.md"):
+                self.assertFalse(path.exists(), str(path))
+        with patch.object(grid, "parse_args", return_value=self.args), redirect_stdout(io.StringIO()):
+            self.assertEqual(grid.main(), 2)
+        self.assertEqual(source.read_bytes(), before)
+
+    def test_all_root_and_requested_variant_exports_preserve_valid_csv_in_all_modes(self):
+        for mode in ("next_close", "same_close", "next_open"):
+            self.args.fill_mode = mode
+            for folder, names in ((self.out, self.root_exports),
+                    (self.out / "future_heavy_N1_cap1.0", self.variant_exports)):
+                owned = [self.out / name for name in self.root_exports] + [folder / name for name in names]
+                for name in names:
+                    with self.subTest(mode=mode, folder=folder.name, name=name):
+                        self.check_collision(folder / name, owned)
+
+    def test_collision_precedes_candidate_and_broker_reads(self):
+        source = self.out / "future_heavy_N1_cap1.0" / "equity_curve.csv"
+        source.parent.mkdir(parents=True); self.frame.to_csv(source, index=False); self.args.candidate_book = str(source)
+        with patch.object(grid, "read_csv", side_effect=AssertionError("must not read collided input")), \
+             patch.object(grid, "broker_replay", side_effect=AssertionError("must not replay")):
+            self.assertEqual(grid.run(self.args)["status"], "blocked")
+
+    def test_nonrequested_variant_nested_and_same_basename_inputs_remain_completed(self):
+        for source in (self.out / "archive" / "best_metrics.json", self.out / "future_heavy_N2_cap1.0" / "target_book.csv",
+                       self.root / "sibling" / "report.md", self.out / "caller.csv"):
+            with self.subTest(source=source):
+                source.parent.mkdir(parents=True, exist_ok=True); self.frame.to_csv(source, index=False)
+                before = source.read_bytes(); self.args.candidate_book = str(source)
+                self.assertEqual(grid.run(self.args)["status"], "completed")
+                self.assertEqual(source.read_bytes(), before)
+
+
 def main() -> int:
     test_alpha_selector_grid_runs_broker_replay_without_forward_selection()
-    if not unittest.TextTestRunner(verbosity=2).run(
-            unittest.defaultTestLoader.loadTestsFromTestCase(BlockedGridResultChecks)).wasSuccessful():
+    if not unittest.TextTestRunner(verbosity=2).run(unittest.TestSuite(
+            unittest.defaultTestLoader.loadTestsFromTestCase(cls)
+            for cls in (BlockedGridResultChecks, GridInputPreservationChecks))).wasSuccessful():
         return 1
     print("alpha_selector_broker_grid_smoke: PASS")
     return 0

@@ -3751,6 +3751,22 @@ Expected contract:
 - Keep weekly proxies and advisory opening features separate from observed-open
   execution admission; their source-level caveats do not become economic proof.
 
+### 2026-10-03 - Preserve declared inputs through every owned writer (#567 P2)
+
+- Validate resolved original and explicit auxiliary CSV paths against the whole
+  known requested output contract before reading, cleanup or publication. Protect
+  input bytes and links even at report names; clear only other exact owned files.
+  Include dependent grid variants and declared outer event sources; disjoint
+  nested archives and safely unlinked hardlinks remain valid.
+- A cost sweep needs its exact normalized requested baseline and usable native
+  baseline evidence. Near-equal costs cannot alias it; missing baselines block
+  without adding an experiment, and unavailable comparisons remain null.
+- Propagate actual portfolio and prerequisite status through inner helpers,
+  outer summaries and CLI exits. Bound native failures, redact blocked metrics,
+  and render N/A without changing fitting, order or cost formulas.
+- The native /review-complete signal must be exactly one command line; put
+  explanations elsewhere. A prose-bearing signal failed the actual gate.
+
 ## 2026-08-03 - Fullrun session, producer order, and champion authority
 
 - A latest-close fullrun must start from one explicit approved UTC decision

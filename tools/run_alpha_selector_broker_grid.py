@@ -31,6 +31,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from r1000_config import PORTFOLIO_GOAL_TARGETS  # noqa: E402
 from tools.run_broker_ledger_replay import replay as broker_replay, repo_path, safe_float  # noqa: E402
+from tools.run_broker_ledger_replay import REPLAY_GENERATED_ARTIFACTS, prepare_generated_outputs  # noqa: E402
 from tools.run_weekly_evaluation import load_price_series  # noqa: E402
 
 BROKER_REPLAY_PARAMS = set(inspect.signature(broker_replay).parameters)
@@ -443,6 +444,39 @@ def variant_id(style: str, n: int, cap: float) -> str:
     return f"{clean_label(style)}_N{int(n)}_cap{clean_label(cap)}"
 
 
+GRID_ROOT_ARTIFACTS = ("summary.csv", "best_metrics.json", "best_target_distance_metrics.json", "report.md")
+
+
+def requested_variants(args: argparse.Namespace) -> list[tuple[str, int, float]]:
+    target_ns = parse_csv_ints(args.target_ns, [3, 5, 7])
+    caps = parse_csv_floats(args.single_name_caps, [0.33, 0.50])
+    styles = [s.strip() for s in str(args.styles or "").split(",") if s.strip() in STYLE_WEIGHTS] or list(STYLE_WEIGHTS)
+    return [(style, n, cap) for style in styles for n in target_ns for cap in caps][:max(0, int(args.max_variants))]
+
+
+def grid_generated_artifacts(args: argparse.Namespace) -> tuple[str, ...]:
+    return GRID_ROOT_ARTIFACTS + tuple(f"{variant_id(style, n, cap)}/{name}"
+        for style, n, cap in requested_variants(args) for name in ("target_book.csv", *REPLAY_GENERATED_ARTIFACTS))
+
+
+def normalize_grid_result(value: Any) -> dict[str, Any]:
+    """Bound outer caller admission to the actual grid's required evidence."""
+    payload = dict(value) if isinstance(value, dict) else {}
+    usable = (payload.get("status") == "completed" and payload.get("metric_mode") != "DO_NOT_USE" and
+        payload.get("performance_fields_redacted") is not True and payload.get("valid_for_production") is True and
+        (payload.get("sharpe") is None or finite_performance(payload.get("sharpe")) is not None) and
+        all(finite_performance(number) is not None for number in (
+            payload.get("cagr"), payload.get("max_dd", payload.get("max_drawdown")))))
+    if not usable:
+        payload.update(status="blocked", metric_mode="DO_NOT_USE", performance_fields_redacted=True,
+            valid_for_production=False, research_only=True, production_activation_allowed=False,
+            reason=payload.get("reason") or "broker_grid_evidence_unavailable")
+        for field in ("cagr", "max_dd", "max_drawdown", "sharpe", "ending_capital_usd", "total_fees_usd",
+                      "trade_count", "avg_cash_weight", "gross_traded_usd"):
+            payload[field] = None
+    return payload
+
+
 def finite_performance(value: Any) -> float | None:
     if isinstance(value, bool):
         return None
@@ -475,10 +509,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     price_cache = repo_path(args.price_cache)
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("summary.csv", "best_metrics.json", "best_target_distance_metrics.json", "report.md"):
-        path = output_dir / name
-        if path.exists() or path.is_symlink():
-            path.unlink()
+    protected, collision = prepare_generated_outputs(output_dir, grid_generated_artifacts(args), [candidate_book])
+    if collision:
+        payload = {"status": "blocked", "reason": "caller_input_collides_with_replay_output",
+            "candidate_book": str(candidate_book), "metric_mode": "DO_NOT_USE", "research_only": True,
+            "production_activation_allowed": False, "valid_for_production": False}
+        if (output_dir / "best_metrics.json").resolve() not in protected: write_json(output_dir / "best_metrics.json", payload)
+        if (output_dir / "report.md").resolve() not in protected:
+            (output_dir / "report.md").write_text(render_grid_report(payload, 0), encoding="utf-8")
+        return payload
     candidates = prepare_candidates(read_csv(candidate_book))
     require_price_cache = not bool(getattr(args, "allow_unfillable_targets", False))
     if require_price_cache:

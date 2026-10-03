@@ -31,6 +31,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from tools.run_broker_ledger_replay import replay as broker_replay  # noqa: E402
 from tools.run_broker_ledger_replay import REPLAY_GENERATED_ARTIFACTS  # noqa: E402
+from tools.run_broker_ledger_replay import prepare_generated_outputs  # noqa: E402
 
 
 DEFAULT_LATEST_RUN = "outputs"
@@ -168,7 +169,16 @@ def run(
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     # Target preparation can fail before broker_replay performs its cleanup.
-    clear_generated_artifacts(output_dir, REPLAY_GENERATED_ARTIFACTS + CRISIS_TARGET_ARTIFACTS)
+    protected, collision = prepare_generated_outputs(output_dir, REPLAY_GENERATED_ARTIFACTS + CRISIS_TARGET_ARTIFACTS,
+        [latest_run / "crisis_reentry_replay" / "holdings.csv"])
+    if collision:
+        payload = {"status": "blocked", "reason": "caller_input_collides_with_replay_output", "policy_id": policy_id,
+            "metric_mode": "DO_NOT_USE", "research_only": True, "production_activation_allowed": False,
+            "valid_for_production": False}
+        if (output_dir / "metrics.json").resolve() not in protected: write_json(output_dir / "metrics.json", payload)
+        if (output_dir / "replay_report.md").resolve() not in protected:
+            (output_dir / "replay_report.md").write_text(render_report(payload), encoding="utf-8")
+        return payload
     try:
         target_book, diagnostics = build_target_book(latest_run, output_dir, policy_id)
     except Exception as exc:

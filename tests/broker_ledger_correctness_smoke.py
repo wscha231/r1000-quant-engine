@@ -15,10 +15,15 @@ Correctness invariants verified here:
 """
 from __future__ import annotations
 
+import io
+import json
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
 import pandas as pd
@@ -33,6 +38,7 @@ from tools.run_broker_ledger_replay import (  # noqa: E402
     replay,
 )
 from tools.run_weekly_evaluation import load_price_series, px_cache_name  # noqa: E402
+from tools import run_broker_ledger_replay as broker  # noqa: E402
 
 
 def _write_px(cache_dir: Path, ticker: str, closes: list[float], start: str = "2026-01-02") -> None:
@@ -711,6 +717,170 @@ class GeneratedOutputLifecycleTests(unittest.TestCase):
         self.check_preserved_caller_files()
 
 
+class CallerInputCollisionTests(unittest.TestCase):
+    """Known output cleanup must never consume declared caller input files."""
+
+    generated = GeneratedOutputLifecycleTests.generated
+    setUp = GeneratedOutputLifecycleTests.setUp
+    write_prices = GeneratedOutputLifecycleTests.write_prices
+    run_replay = GeneratedOutputLifecycleTests.run_replay
+    seed_completed_outputs = GeneratedOutputLifecycleTests.seed_completed_outputs
+
+    def check_protected(self, result, protected, original, *, cli=False):
+        self.assertTrue(protected.exists(), "caller input was deleted")
+        self.assertEqual(protected.read_bytes(), original)
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "caller_input_collides_with_replay_output")
+        self.assertEqual(result["metric_mode"], "DO_NOT_USE")
+        self.assertFalse(result["valid_for_production"])
+        for key in ("cagr", "max_dd", "sharpe", "ending_capital_usd"):
+            self.assertIsNone(result.get(key))
+        for name in self.generated - {"metrics.json", "replay_report.md"}:
+            path = self.out / name
+            if path.resolve() != protected.resolve():
+                self.assertFalse(path.exists() or path.is_symlink(), name)
+        self.assertEqual((self.out / "caller_receipt.json").read_bytes(), b'{"caller":"preserve"}')
+        self.assertEqual((self.out / "notes.md").read_bytes(), b"caller notes\n")
+        self.assertEqual((self.out / "caller_archive/reserve_reason_audit.json").read_bytes(), b"unrelated nested audit")
+
+    def cli(self, target, *, mode, portfolio="main", extra=()):
+        argv = ["broker", "--target-book", str(target), "--price-cache", str(self.cache),
+                "--output-dir", str(self.out), "--portfolio-kind", portfolio,
+                "--fill-mode", mode, "--cash-carry-mode", "none", *extra]
+        with patch.object(sys, "argv", argv), redirect_stdout(io.StringIO()) as output:
+            code = broker.main()
+        self.assertEqual(code, 2)
+        return json.loads(output.getvalue())
+
+    def test_all_thirteen_outputs_and_modes_protect_content_based_csv_inputs(self):
+        source, original = self.target, self.target.read_bytes()
+        for portfolio in ("main", "concentrated"):
+            for mode in ("next_close", "same_close", "next_open"):
+                for name in sorted(self.generated):
+                    with self.subTest(portfolio=portfolio, mode=mode, name=name):
+                        self.target = source
+                        self.out = self.root / "outputs" / portfolio / (mode + "-" + name)
+                        self.seed_completed_outputs()
+                        self.target = self.out / name
+                        self.target.write_bytes(original)
+                        result = self.run_replay(fill_mode=mode, portfolio_kind=portfolio)
+                        self.check_protected(result, self.target, original)
+                        self.check_protected(self.cli(self.target, mode=mode, portfolio=portfolio), self.target, original)
+
+    def test_declared_auxiliary_csv_paths_share_the_protected_set(self):
+        source, original = self.target, self.target.read_bytes()
+        for role in ("cash_rate", "paper_slippage"):
+            for name in sorted(self.generated):
+                with self.subTest(role=role, name=name):
+                    self.target = source
+                    self.out = self.root / (role + "-" + name)
+                    self.seed_completed_outputs()
+                    protected = self.out / name
+                    protected.write_bytes(original)
+                    options = ({"cash_carry_config": CashCarryConfig(mode="none", rate_path=protected)}
+                               if role == "cash_rate" else
+                               {"execution_cost_config": broker.ExecutionCostConfig(paper_slippage_path=protected)})
+                    self.check_protected(self.run_replay(**options), protected, original)
+                    flag = "--cash-rate-path" if role == "cash_rate" else "--paper-slippage-path"
+                    self.check_protected(self.cli(source, mode="next_close", extra=(flag, str(protected))), protected, original)
+
+    def test_actual_resolved_aliases_are_rejected_before_unlink(self):
+        source, original = self.target, self.target.read_bytes()
+        for name in ("reserve_reason_audit.json", "metrics.json", "replay_report.md"):
+            for kind in ("parent", "case", "target_link", "output_link", "junction"):
+                with self.subTest(name=name, kind=kind):
+                    self.target = source
+                    real_out = self.root / (kind + "-" + name)
+                    self.out = real_out
+                    self.seed_completed_outputs()
+                    leaf = real_out / name
+                    leaf.write_bytes(original)
+                    protected_link = None
+                    if kind == "parent":
+                        self.target = real_out / "caller_archive" / ".." / name
+                    elif kind == "case":
+                        if os.name != "nt":
+                            continue  # Separate actual Windows case behavior; no POSIX case claim.
+                        self.target = Path(str(leaf).swapcase())
+                    elif kind == "target_link":
+                        self.target = self.root / ("caller-link-" + name)
+                        try:
+                            self.target.symlink_to(leaf)
+                        except OSError as exc:
+                            self.skipTest("native file symlink unavailable: " + type(exc).__name__)
+                        protected_link = self.target
+                    elif kind == "output_link":
+                        leaf.unlink()
+                        try:
+                            leaf.symlink_to(source)
+                        except OSError as exc:
+                            self.skipTest("native file symlink unavailable: " + type(exc).__name__)
+                        self.target = source
+                        protected_link = leaf
+                    else:
+                        alias = self.root / ("junction-alias-" + name)
+                        if os.name == "nt":
+                            made = subprocess.run(["cmd", "/c", "mklink", "/J", str(alias), str(real_out)],
+                                                  capture_output=True)
+                            self.assertEqual(made.returncode, 0, made.stderr)
+                        else:
+                            alias.symlink_to(real_out, target_is_directory=True)
+                        self.out = alias
+                        self.target = leaf
+                    self.check_protected(self.run_replay(), self.target, original)
+                    if protected_link is not None:
+                        self.assertTrue(protected_link.is_symlink())
+                    self.check_protected(self.cli(self.target, mode="next_close"), self.target, original)
+                    if protected_link is not None:
+                        self.assertTrue(protected_link.is_symlink())
+
+    def test_collision_precedes_target_rate_price_and_order_reads(self):
+        self.out.mkdir()
+        self.target = self.out / "reserve_reason_audit.json"
+        self.target.write_text("rebalance_date,ticker,weight\n2026-01-02,AAA,.5\n", encoding="utf-8")
+        original = self.target.read_bytes()
+        with patch.object(broker, "read_csv", side_effect=AssertionError("target reader reached")), \
+             patch.object(broker, "load_price_series", side_effect=AssertionError("price reader reached")), \
+             patch.object(broker, "load_cash_rate_series", side_effect=AssertionError("rate reader reached")), \
+             patch.object(broker, "account_equity", side_effect=AssertionError("equity reached")), \
+             patch.object(broker, "execute_order", side_effect=AssertionError("orders reached")):
+            result = self.run_replay(reserve_mode="DGS3MO_CARRY")
+        self.assertEqual(result["reason"], "caller_input_collides_with_replay_output")
+        self.assertEqual(self.target.read_bytes(), original)
+
+    def test_disjoint_inside_sibling_and_archive_inputs_preserve_closing_semantics(self):
+        original = self.target.read_bytes()
+        for mode in ("next_close", "same_close"):
+            for placement in ("inside", "sibling", "nested"):
+                with self.subTest(mode=mode, placement=placement):
+                    self.out = self.root / (mode + placement)
+                    self.out.mkdir()
+                    self.target = ({"inside": self.out / "caller-target.csv",
+                                    "sibling": self.root / "sibling" / "reserve_reason_audit.json",
+                                    "nested": self.out / "archive" / "trades.csv"})[placement]
+                    self.target.parent.mkdir(parents=True, exist_ok=True)
+                    self.target.write_bytes(original)
+                    self.write_prices([100.] * 4)
+                    result = self.run_replay(fill_mode=mode)
+                    self.assertEqual(result["status"], "completed")
+                    self.assertEqual(self.target.read_bytes(), original)
+                    self.assertTrue((self.out / "trades.csv").is_file())
+
+    def test_cleanup_unlinks_disjoint_input_hardlinks_without_changing_original(self):
+        original = self.target.read_bytes()
+        for name in sorted(self.generated):
+            with self.subTest(name=name):
+                self.out = self.root / ("hardlink-" + name)
+                self.out.mkdir()
+                leaf = self.out / name
+                os.link(self.target, leaf)
+                self.write_prices([100.] * 4)
+                result = self.run_replay(partial_resize_two_signal_confirmation=True)
+                self.assertEqual(result["status"], "completed")
+                self.assertEqual(self.target.read_bytes(), original)
+                self.assertNotEqual(leaf.stat().st_ino, self.target.stat().st_ino)
+
+
 def main() -> int:
     test_missing_liquidation_fill_fails_closed_before_state_mutation()
     test_multi_day_transition_fails_closed_before_state_mutation()
@@ -721,7 +891,7 @@ def main() -> int:
     test_long_horizon_equity_curve_continuous()
     suite = unittest.TestSuite(
         unittest.defaultTestLoader.loadTestsFromTestCase(case)
-        for case in (OpeningClockAdmissionTests, GeneratedOutputLifecycleTests)
+        for case in (OpeningClockAdmissionTests, GeneratedOutputLifecycleTests, CallerInputCollisionTests)
     )
     if not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful():
         return 1
