@@ -5602,3 +5602,12 @@ Expected contract:
   succeeded and zero artifacts were produced. The approved extra dispatch
   was consumed. Source correction does not authorize another runtime capture,
   migration, paper catch-up, owner attestation or protected durable mutation.
+
+### 2026-10-03 - Clear all replay evidence before blocked reruns
+
+- PR567 review found a completed replay's `reserve_reason_audit.json` surviving
+  a blocked opening rerun because conditional exports were absent from cleanup.
+- Clear every generated evidence file before any prerequisite can return.
+  Test completed-to-blocked and explicit-to-default transitions against the
+  complete export set, while preserving caller-owned files and nested archives.
+  Price/intent guards alone do not invalidate evidence from a prior replay.
