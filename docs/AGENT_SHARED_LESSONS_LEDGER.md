@@ -1,5 +1,101 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-03 — Workflow paths need complete admission evidence (#556)
+
+- Authenticated review of `9de5aede` found four defects despite Linux232/232
+  and rollback-specific QA. Separate frozen-source probes reproduced valid
+  no-op rejection, fresh manual queue absence, cache-only snapshot contamination
+  after Drive overlay, and an interleaved-provider revision loss. Preserve prior
+  test results but supersede whole-source acceptance when new evidence arrives.
+- A no-op has a current planner and a historical accepted collector producer.
+  Verify the zero-selection plan against actual accepted parent bytes, bound
+  output hashes, complete queue state and current planner run identity. Do not
+  waive producer/hash checks from status or a zero-count hint alone.
+- Manual requests require a queue selecting only requested tickers; subsequent
+  canonical planning must preserve verified counters even when the manual
+  checkpoint has no canonical-universe metadata. Testing that transition caught
+  an additional count-reset path during correction.
+- Drive `copy` overlays leave destination-only snapshots. Configured Drive
+  restore must synchronize the local archive, check content and stop after any
+  required transfer failure. Gate publication and downstream prerequisites on
+  successful restoration; the supported cache-only path applies without Drive.
+- The independent real-rclone local-alias fixture showed that strict `copyto`
+  alone may skip stale bound components with equal size and modification time.
+  The verifier safely rejected that restored signal hash, but valid restoration
+  failed. Apply `--checksum` to signals, summary and queue copies as well as the
+  archive sync; synthetic transfer fixtures enforce those actual command flags.
+- Select the latest revision boundary within the current provider. Retain
+  latest-null/identity/tie rejection and whole-archive integrity checks so this
+  correction cannot search backward for a favorable value or ignore corruption.
+- Correction QA on `c1781a3f` truncated the same ticker from checkpoint and
+  queue, rebound their output hashes, and still published against a canonical
+  CSV containing that ticker. Mutual equality is not completeness. Bind the
+  actual current canonical CSV/hash/full ticker set and all declared counts to
+  the trusted workflow expected count. Preserve legitimate current-universe
+  changes rather than requiring the accepted parent's ticker set.
+- A real same-logical-run retry with a pre-mutation collector exception left
+  the prior accepted transaction hash-valid, so its manifest remained publishable.
+  Transaction validity cannot prove this attempt's prerequisite succeeded.
+  The workflow separately requires collector-step success when collection is
+  required; only a verified no-op may skip collection. Real exception/replay
+  and actual workflow-condition controls cover this boundary.
+- Source correction and local fixtures do not repair durable state or authorize
+  financial execution. New-head QA, CI, authenticated review and merge gates
+  remain required; no stale head supplies final acceptance.
+
+## 2026-10-03 — A rollback marker is a repair boundary, not restart proof (#556)
+
+- Exact-head hosted review of `8c5ab318` identified that a rolled-back marker
+  bypassed transaction binding and let the planner rewrite unverified state.
+  Actual signal/summary replacement failures reproduced the bypass.
+- The shared entry guard now rejects rollback before planning, vendor collection,
+  acknowledgement or another transaction. Repeated attempts retain all existing
+  bytes; manifests remain non-publishable. No automatic repair clears the marker.
+- A committed label alone cannot repair damaged payloads. Restore the complete
+  accepted generation through an explicitly verified repair and validate every
+  required transaction binding before admission. Source tests do not authorize
+  runtime repair or durable publication.
+- Independent correction QA also reproduced count advancement when checkpoint
+  and archive lived in different directories. The acknowledgement utility now
+  requires an explicit archive root and checks its marker as well as the
+  checkpoint parent's marker before preparing or writing bytes. Infer neither
+  transaction scope nor success from a checkpoint's parent directory alone.
+
+## 2026-10-03 — A planning parent hash does not prove preserved collection state
+
+- PR #556's committed-parent IDs/hashes alone admitted a planned checkpoint
+  whose selection count advanced from 1 to 99 without a collection commit.
+  Preserve the actual accepted checkpoint bytes, recompute their bound hash,
+  and compare collection acknowledgement/count/time before consuming a plan.
+  Newly introduced tickers require zero selections and no previous clock.
+- Repeated plans retain one accepted generation. Drop the embedded planning
+  parent on the next collector acknowledgement so later checkpoints do not
+  recursively embed older state. Missing or malformed proof blocks reuse.
+- Native Windows file fsync needs a writable descriptor. Synthetic Windows
+  fault probes cover abrupt process death with POSIX directory fsync mocked;
+  real directory durability and SIGKILL remain Linux CI responsibilities.
+- A sparse worktree created with --no-checkout has no populated index yet.
+  Initialize it before merging; otherwise automatic stashing can interpret
+  the absent files as deletions. Keep bulky archived outputs out of a source
+  checkout and preserve all unrelated user work.
+
+## 2026-10-03 — Every publication and cache restore must carry complete transaction proof
+
+- Independent QA on #556 head0c9b369 reproduced acceptance of V1/unknown/missing
+  transaction schemas without a final marker, and corrupted signals after all
+  binding hashes were omitted. Require the supported V2 schema, matching final
+  marker, snapshot/signals hashes and acknowledged checkpoint/queue hashes.
+  Apply mandatory hash validation in both restart and publication readers.
+- Check acknowledgement evidence in both summary and checkpoint. A summary
+  changed to disabled must not waive hashes for an acknowledged checkpoint or
+  downgrade transaction-required state; reject that status contradiction.
+- The workflow declared cache-only operation but omitted the summary/queue from
+  both cache path lists. The stricter restart reader correctly rejected that
+  partial restore. Retain those two evidence files and exercise an offline copy
+  of the actual cache save/restore paths followed by the native planner.
+- Missing historical proof remains blocked; a compatibility fallback must not
+  silently turn unavailable evidence into a verified durable transaction.
+
 ## 2026-10-03 — Separate safe access from row-local expiry (#560 R3)
 
 - Immutable provenance preflight must use only valid ID/hash and eligible
@@ -74,6 +170,7 @@
   checks; an unexpired caller declaration is not CURRENT. No new scheduler,
   receipt store, scoring rule or protected runner change is needed here.
 - See docs/CANDIDATE_REGISTRY_V1_REFERENCE_INDEX.md for the bounded contract.
+
 ## 2026-09-30 — Immutable publication may lead mutable aliases (#563 P1 C/D)
 
 - Publication is not atomic across immutable heads and mutable aliases. Recovery
@@ -5766,6 +5863,34 @@ Expected contract:
   comparing them so missing values cannot agree. Restore commands must carry new
   consumer inputs, and CLI/module imports must share contract exception identity.
 
+### 2026-09-28 — Consensus revisions require identity and available vintages
+
+- #450 H1 source repair: recommendation balance is not analyst EPS revision
+  breadth; vendor current surprises are not frozen pre-announcement consensus.
+- Missing currency/basis/security/unit metadata must block revision computation,
+  even when same-period averages are present. Preserve nulls and explicit zero.
+- Same-day overwrite destroys pre-event evidence. Retain available versions and
+  reject unreadable archives; a historical fetch-date label cannot backdate a
+  current observation. Unknown causal links must not count as independent events.
+- Existing earnings workflow has a downstream paper-overlay consumer. Source V2
+  needs an admission block there while L0 H2 approval is absent; changing source
+  semantics alone must not activate the research signal.
+- Latest inspected Drive execution/quality hashes confirm PARTIAL_COVERAGE;
+  local source tests do not fix G0 or reopen the CLOSED guidance experiment.
+- See `docs/EARNINGS_CONSENSUS_SOURCE_V2.md`. Local sparse validation must use
+  runner `--only`; `--include` appends to the complete suite and reports absent
+  unmaterialized tests as failures, not product regressions.
+- Independent A6 counterexamples showed that latest-null frozen consensus must
+  invalidate earlier values, current timestamp ties need the same conflict gate
+  as prior boundaries, FY views cannot select historical annual rows, and
+  recommendation endpoint errors must not change estimate coverage states.
+  These are now explicit regressions; source precision metadata is preserved.
+- Codex boundary findings: normalize accepted representations before causal
+  hashing, verify stored content hashes when reading (not just when writing),
+  recheck UTC partition identity during long collections, and apply the maximum
+  known clock even when unknown publication precision prevents admission.
+  A review with findings cannot approve a corrected head; retain the gate when
+  a task limits review requests rather than reusing stale evidence.
 ### 2026-10-01 — CUSIP CSV boundaries must preserve lexical security identity
 
 - Numeric inference changed `037833100` to `37833100` before manual mapping;
@@ -5819,6 +5944,35 @@ Expected contract:
   succeeded and zero artifacts were produced. The approved extra dispatch
   was consumed. Source correction does not authorize another runtime capture,
   migration, paper catch-up, owner attestation or protected durable mutation.
+
+## 2026-10-03 — No-op admission and multi-file transfers need complete evidence
+
+- A bound latest snapshot does not verify older archived files. Actual no-op
+  planning/publication admitted unreadable, modified V2 and unknown older rows;
+  collection rejected the same inputs. Validate every vintage with positive
+  schema/content admission before no-op publication and bound queue rewrites.
+- Separate best-effort Drive copies exposed a new transaction marker before
+  bound signals/summary/queue finished. Four failed transfer fixtures returned
+  success and stranded a mixed generation. Stage one immutable file census,
+  verify fresh remote bytes, publish its commit manifest last, and advance the
+  accepted head only after full readback. Propagate transfer/readback failures.
+- Restore a complete generation into temporary storage before local replacement.
+  Confirm head absence before legacy fallback; an unavailable or invalid head
+  is not absence. Do not infer runtime repair permission from source tests or
+  overwrite an accepted generation to repair a failed upload.
+- Dispatch no-op verification by the publication requirement, not only by the
+  current state label. An accepted selected queue cannot become a no-op through
+  changed metadata hints; require the complete zero-selection parent proof.
+- Census generic ancestor-directory writers before placing a new accepted head.
+  Free-data daily uploads all data_pit/events and can replay an older pointer
+  independently of earnings concurrency. Keep earnings authority under its owned
+  research_state namespace. A real stale-tree regression rejected the old layout
+  and verifies the latest accepted head/producer survive the compatibility copy.
+- Authenticated review of8eb found ticker-only unknown-publication filtering
+  misses a renamed security with the same economic identity. Match full canonical
+  identity independently of ticker while preserving known-ticker ambiguity and
+  pre-event clock guards. Owner registered old-head regression fails four rename
+  cases; unrelated identity/provider and older/post-event positives remain valid.
 
 ## 2026-10-03 — Close SQLite handles after blocked materialization
 

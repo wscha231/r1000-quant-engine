@@ -15,6 +15,13 @@ if str(ROOT) not in sys.path:
 from tools.run_free_data_selection_overlay import build_overlay, parse_args, run  # noqa: E402
 
 
+def legacy_signals(rows):
+    from earnings_consensus_h1_smoke import legacy_snapshot
+    from r1000_config import PHASE18_ESTIMATE_REVISION_COLUMNS
+    return pd.DataFrame([{**dict.fromkeys(PHASE18_ESTIMATE_REVISION_COLUMNS, 0.0),
+        **legacy_snapshot(), 'as_of_date': r['available_from'], **r} for r in rows])
+
+
 def test_overlay_promotes_confirmed_forward_evidence_and_penalizes_delisted() -> None:
     scored = pd.DataFrame(
         [
@@ -23,7 +30,7 @@ def test_overlay_promotes_confirmed_forward_evidence_and_penalizes_delisted() ->
             {"ticker": "CCC", "score": 10.1, "concentrated_score": 1.01},
         ]
     )
-    signals = pd.DataFrame(
+    signals = legacy_signals(
         [
             {
                 "ticker": "BBB",
@@ -75,7 +82,7 @@ def test_cli_writes_research_only_outputs() -> None:
         earnings = root / "earnings.parquet"
         out = root / "out"
         pd.DataFrame([{"ticker": "AAA", "score": 1.0}, {"ticker": "BBB", "score": 2.0}]).to_csv(scored, index=False)
-        pd.DataFrame([{"ticker": "BBB", "available_from": "2026-07-09", "has_forward_estimate": 1.0}]).to_parquet(signals, index=False)
+        legacy_signals([{"ticker": "BBB", "available_from": "2026-07-09", "has_forward_estimate": 1.0}]).to_parquet(signals, index=False)
         pd.DataFrame([{"symbol": "AAA", "status": "Active"}]).to_parquet(listing, index=False)
         pd.DataFrame([{"ticker": "BBB", "event_date": "2026-07-01", "estimated_eps": 1.0, "actual_eps": 1.1}]).to_parquet(earnings, index=False)
         args = parse_args()
@@ -97,7 +104,7 @@ def test_cli_writes_research_only_outputs() -> None:
 
 def test_missing_forward_and_lifecycle_evidence_remain_neutral() -> None:
     scored = pd.DataFrame([{"ticker": "AAA", "score": 2.0}, {"ticker": "BBB", "score": 1.0}])
-    signals = pd.DataFrame(
+    signals = legacy_signals(
         [
             {
                 "ticker": "AAA",

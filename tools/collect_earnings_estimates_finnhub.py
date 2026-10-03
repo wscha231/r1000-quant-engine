@@ -8,13 +8,19 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
+import io
 import json
+import math
 import os
 import re
 import sys
+import tempfile
 import time
-from datetime import datetime, timezone
+import uuid
+from datetime import date, datetime, timezone
 from pathlib import Path
+from numbers import Real
 from typing import Any
 
 import pandas as pd
@@ -24,9 +30,19 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from tools.build_earnings_estimate_archive_manifest import (
+    TRANSACTION_MARKER_NAME, TRANSACTION_MARKER_SCHEMA,
+    require_complete_collector_transaction, require_consistent_collection_acknowledgement,
+    require_verified_collector_state,
+)
+
 from r1000_config import PHASE18_ESTIMATE_REVISION_COLUMNS  # noqa: E402
 
-SCHEMA_VERSION = "forward-earnings-estimates-v1"
+from tools.earnings_consensus_h1 import (  # noqa: E402
+    SCHEMA_VERSION, availability, build_snapshot, iso_utc, optional_float,
+    pct_change, same_period_revision, snapshot_digest, snapshot_field_profiles,
+    validate_persisted_snapshot, persisted_v2_snapshot_is_valid,
+)
 DEFAULT_SNAPSHOT_DIR = "data_pit/events/earnings_estimates"
 DEFAULT_SIGNALS = "data_pit/events/earnings_revision_signals.parquet"
 DEFAULT_SUMMARY = "outputs/earnings_estimates_daily/summary.json"
@@ -42,10 +58,117 @@ ESTIMATE_REQUESTS_PER_VENDOR_TICKER = {
     "fmp": 1,
     "finnhub": 2,
 }
+# The pre-V2 parse_snapshot_row() on master produced only these columns.
+# Compatibility is granted by this explicit legacy shape, never by absence
+# of a particular V2 marker. Nullable columns added by Parquet schema unions
+# are ignored when classifying individual rows.
+LEGACY_ARCHIVE_FIELDS = frozenset({
+    "ticker", "as_of_date", "available_from", "fetch_source",
+    "eps_estimate_access", "revenue_estimate_access", "vendor_estimate_access",
+    "has_forward_estimate", "est_eps_fy1", "est_eps_fy2", "est_rev_fy1",
+    "n_analysts", "est_dispersion", "actual_eps_last", "actual_report_date",
+    "earnings_surprise_last", "surprise_streak", "recommendation_period",
+    "recommendation_bull_count", "recommendation_bear_count", "est_eps_revision_breadth",
+})
+# Exact parse_snapshot_row() output on pre-V2 master e97a8509. Its
+# finite_or_zero()/int() producer emitted no nullable numeric columns; empty
+# optional dates were strings. Do not infer a looser schema from damaged rows.
+LEGACY_REQUIRED_COLUMNS = LEGACY_ARCHIVE_FIELDS
+LEGACY_NULLABLE_FIELDS = frozenset()
+LEGACY_REQUIRED_NON_NULL_FIELDS = LEGACY_REQUIRED_COLUMNS - LEGACY_NULLABLE_FIELDS
+LEGACY_FIELD_TYPE_CONTRACT = {
+    "ticker": "text", "as_of_date": "date", "available_from": "date",
+    "fetch_source": "text", "actual_report_date": "optional_date",
+    "recommendation_period": "optional_date",
+    "eps_estimate_access": "bool", "revenue_estimate_access": "bool",
+    "vendor_estimate_access": "bool", "has_forward_estimate": "flag",
+    "n_analysts": "integer", "surprise_streak": "integer",
+    "recommendation_bull_count": "integer", "recommendation_bear_count": "integer",
+    "est_eps_fy1": "number", "est_eps_fy2": "number", "est_rev_fy1": "number",
+    "est_dispersion": "number", "actual_eps_last": "number",
+    "earnings_surprise_last": "number", "est_eps_revision_breadth": "number",
+}
+
+
+def _legacy_scalar_valid(value: Any, kind: str) -> bool:
+    if kind == "bool":
+        return isinstance(value, bool)
+    if kind in {"text", "date", "optional_date"}:
+        if not isinstance(value, str):
+            return False
+        if kind == "text":
+            return bool(value.strip())
+        if kind == "optional_date" and value == "":
+            return True
+        try:
+            return len(value) == 10 and date.fromisoformat(value).isoformat() == value
+        except ValueError:
+            return False
+    if isinstance(value, bool) or not isinstance(value, Real):
+        return False
+    try:
+        if not math.isfinite(value):
+            return False
+        if kind == "flag":
+            return value in (0, 1)
+        return kind == "number" or value == int(value)
+    except (ValueError, OverflowError):
+        return False
+
+
+def classify_persisted_archive_row(row: dict[str, Any]) -> str:
+    """Positive legacy admission; all V2-derived and unknown shapes fail closed."""
+    if not isinstance(row, dict):
+        return "INVALID_OR_UNKNOWN_SCHEMA"
+    fields = {key for key, value in row.items()
+              if not pd.api.types.is_scalar(value) or bool(pd.notna(value))}
+    base, parsed, live = snapshot_field_profiles()
+    if fields & ((base | parsed | live) - LEGACY_ARCHIVE_FIELDS):
+        return "V2_REQUIRES_VALIDATION"
+    if (not fields <= LEGACY_ARCHIVE_FIELDS
+            or not LEGACY_REQUIRED_COLUMNS <= row.keys()
+            or not LEGACY_REQUIRED_NON_NULL_FIELDS <= fields):
+        return "INVALID_OR_UNKNOWN_SCHEMA"
+    if not all(_legacy_scalar_valid(row[key], kind)
+               for key, kind in LEGACY_FIELD_TYPE_CONTRACT.items()):
+        return "INVALID_OR_UNKNOWN_SCHEMA"
+    ticker, as_of, available = (row.get(k) for k in ("ticker", "as_of_date", "available_from"))
+    if not isinstance(ticker, str) or not ticker.strip():
+        return "INVALID_OR_UNKNOWN_SCHEMA"
+    if not isinstance(as_of, str) or not isinstance(available, str) or as_of != available:
+        return "INVALID_OR_UNKNOWN_SCHEMA"
+    try:
+        if len(as_of) != 10 or date.fromisoformat(as_of).isoformat() != as_of:
+            return "INVALID_OR_UNKNOWN_SCHEMA"
+    except ValueError:
+        return "INVALID_OR_UNKNOWN_SCHEMA"
+    return "VERIFIED_LEGACY"
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def verified_legacy_signal(row: dict[str, Any]) -> bool:
+    """Recognize the complete pre-V2 feature producer at the H2 boundary."""
+    required = LEGACY_REQUIRED_COLUMNS | set(PHASE18_ESTIMATE_REVISION_COLUMNS)
+    if not isinstance(row, dict) or not required <= row.keys():
+        return False
+    derived = set(PHASE18_ESTIMATE_REVISION_COLUMNS) - LEGACY_ARCHIVE_FIELDS
+    source = {k: v for k, v in row.items() if k not in derived}
+    # The historical feature producer normalized these two day labels into
+    # naive midnight pandas timestamps before persisting Parquet.
+    for key in ("as_of_date", "available_from"):
+        value = source[key]
+        if isinstance(value, (datetime, pd.Timestamp)):
+            if pd.isna(value) or value.tzinfo is not None or value != pd.Timestamp(value).normalize():
+                return False
+            source[key] = value.date().isoformat()
+    if classify_persisted_archive_row(source) != "VERIFIED_LEGACY":
+        return False
+    return all(_legacy_scalar_valid(row[key], "flag" if key in {
+        "estimate_revision_confirmed", "estimate_revision_replacement_gate_pass"
+    } else "number") for key in derived)
 
 
 def repo_path(value: str | Path) -> Path:
@@ -53,22 +176,9 @@ def repo_path(value: str | Path) -> Path:
     return path if path.is_absolute() else REPO_ROOT / path
 
 
-def safe_float(value: Any, default: float = 0.0) -> float:
-    try:
-        out = float(value)
-        return out if pd.notna(out) else default
-    except (TypeError, ValueError):
-        return default
-
-
-def pct_change(current: float, previous: float) -> float:
-    if previous == 0 or pd.isna(previous) or pd.isna(current):
-        return 0.0
-    return float((current - previous) / abs(previous))
-
-
-def finite_or_zero(value: float) -> float:
-    return float(value) if pd.notna(value) else 0.0
+def safe_float(value: Any, default: Any = None) -> float | None:
+    out = optional_float(value)
+    return default if out is None else out
 
 
 def sanitize_error_message(value: Any) -> str:
@@ -155,23 +265,11 @@ def first_two_estimates(payload: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     return rows[0], rows[1]
 
 
-def latest_earnings_record(payload: Any) -> tuple[dict[str, Any], int]:
+def latest_earnings_record(payload: Any) -> tuple[dict[str, Any], None]:
     rows = [x for x in payload if isinstance(x, dict)] if isinstance(payload, list) else []
     rows = sorted(rows, key=lambda x: str(x.get("period") or ""))
-    latest = rows[-1] if rows else {}
-    streak = 0
-    sign = 0
-    for row in reversed(rows):
-        surprise = safe_float(row.get("surprise") if "surprise" in row else row.get("surprisePercent"), 0.0)
-        current_sign = 1 if surprise > 0 else -1 if surprise < 0 else 0
-        if current_sign == 0:
-            break
-        if sign == 0:
-            sign = current_sign
-        if current_sign != sign:
-            break
-        streak += current_sign
-    return latest, streak
+    # A provider's current surprise field is not frozen consensus evidence.
+    return (rows[-1] if rows else {}), None
 
 
 def latest_recommendation_record(payload: Any) -> dict[str, Any]:
@@ -187,20 +285,24 @@ def alphavantage_to_payloads(payload: Any) -> tuple[dict[str, Any], dict[str, An
         return {}, {}
     if payload.get("Error Message") or payload.get("Information") or payload.get("Note"):
         return {}, {}
+    period_type = "ANNUAL"
     annual = payload.get("annualEarningsEstimates") or payload.get("annualReports") or []
     rows = [x for x in annual if isinstance(x, dict)] if isinstance(annual, list) else []
     rows = sorted(rows, key=lambda x: str(first_present(x, ["fiscalDateEnding", "period", "date"], "")))
     if not rows:
+        period_type = "QUARTERLY"
         quarterly = payload.get("quarterlyEarningsEstimates") or payload.get("quarterlyReports") or []
         rows = [x for x in quarterly if isinstance(x, dict)] if isinstance(quarterly, list) else []
         rows = sorted(rows, key=lambda x: str(first_present(x, ["fiscalDateEnding", "period", "date"], "")))
     eps_rows: list[dict[str, Any]] = []
     rev_rows: list[dict[str, Any]] = []
-    for row in rows[:2]:
+    for row in rows:
         period = str(first_present(row, ["fiscalDateEnding", "period", "date"], ""))
         eps_rows.append(
             {
+                **row,
                 "period": period,
+                "period_type": row.get("period_type") or period_type,
                 "avg": first_present(
                     row,
                     [
@@ -216,13 +318,15 @@ def alphavantage_to_payloads(payload: Any) -> tuple[dict[str, Any], dict[str, An
                 "numberAnalysts": first_present(
                     row,
                     ["epsEstimateAnalystCount", "epsEstimateNumberOfAnalysts", "numberAnalystsEstimatedEps", "analystCount"],
-                    0,
+                    None,
                 ),
             }
         )
         rev_rows.append(
             {
+                **row,
                 "period": period,
+                "period_type": row.get("period_type") or period_type,
                 "avg": first_present(
                     row,
                     [
@@ -242,12 +346,10 @@ def alphavantage_to_payloads(payload: Any) -> tuple[dict[str, Any], dict[str, An
                         "numberAnalystsEstimatedRevenue",
                         "analystCount",
                     ],
-                    0,
+                    None,
                 ),
             }
         )
-    eps_rows = [x for x in eps_rows if x.get("avg") not in [None, ""]]
-    rev_rows = [x for x in rev_rows if x.get("avg") not in [None, ""]]
     return {"data": eps_rows}, {"data": rev_rows}
 
 
@@ -261,11 +363,13 @@ def fmp_to_payloads(payload: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     rows = sorted(rows, key=lambda x: str(first_present(x, ["date", "fiscalDateEnding", "period"], "")))
     eps_rows: list[dict[str, Any]] = []
     rev_rows: list[dict[str, Any]] = []
-    for row in rows[:2]:
+    for row in rows:
         period = str(first_present(row, ["date", "fiscalDateEnding", "period"], ""))
         eps_rows.append(
             {
+                **row,
                 "period": period,
+                "period_type": row.get("period_type") or "ANNUAL",
                 "avg": first_present(
                     row,
                     [
@@ -281,13 +385,15 @@ def fmp_to_payloads(payload: Any) -> tuple[dict[str, Any], dict[str, Any]]:
                 "numberAnalysts": first_present(
                     row,
                     ["numberAnalystsEstimatedEps", "numberAnalystEstimatedEps", "numberAnalysts", "analystCount"],
-                    0,
+                    None,
                 ),
             }
         )
         rev_rows.append(
             {
+                **row,
                 "period": period,
+                "period_type": row.get("period_type") or "ANNUAL",
                 "avg": first_present(
                     row,
                     [
@@ -307,170 +413,172 @@ def fmp_to_payloads(payload: Any) -> tuple[dict[str, Any], dict[str, Any]]:
                         "numberAnalysts",
                         "analystCount",
                     ],
-                    0,
+                    None,
                 ),
             }
         )
-    eps_rows = [x for x in eps_rows if x.get("avg") not in [None, ""]]
-    rev_rows = [x for x in rev_rows if x.get("avg") not in [None, ""]]
     return {"data": eps_rows}, {"data": rev_rows}
 
 
 def parse_snapshot_row(
-    ticker: str,
-    *,
-    fetch_date: pd.Timestamp,
-    eps_payload: Any,
-    revenue_payload: Any,
-    earnings_payload: Any,
-    recommendation_payload: Any,
-    eps_estimate_access: bool = True,
-    revenue_estimate_access: bool = True,
-    fetch_source: str = "finnhub",
+    ticker: str, *, fetch_date: pd.Timestamp, eps_payload: Any,
+    revenue_payload: Any, earnings_payload: Any, recommendation_payload: Any,
+    eps_estimate_access: bool = True, revenue_estimate_access: bool = True,
+    fetch_source: str = "finnhub", observed_at: str | None = None,
+    collected_at: str | None = None, first_seen_at: str | None = None,
+    provider_published_at: str | None = None,
 ) -> dict[str, Any]:
-    eps1, eps2 = first_two_estimates(eps_payload)
-    rev1 = latest_estimate_record(revenue_payload)
-    earnings, surprise_streak = latest_earnings_record(earnings_payload)
-    rec = latest_recommendation_record(recommendation_payload)
-    eps_avg = safe_float(eps1.get("avg"), float("nan"))
-    eps_high = safe_float(eps1.get("high"), float("nan"))
-    eps_low = safe_float(eps1.get("low"), float("nan"))
-    est_dispersion = pct_change(eps_high, eps_low) if pd.notna(eps_high) and pd.notna(eps_low) and eps_low != 0 else 0.0
-    strong_buy = int(safe_float(rec.get("strongBuy"), 0.0))
-    buy = int(safe_float(rec.get("buy"), 0.0))
-    sell = int(safe_float(rec.get("sell"), 0.0))
-    strong_sell = int(safe_float(rec.get("strongSell"), 0.0))
-    bull = strong_buy + buy
-    bear = sell + strong_sell
-    denom = bull + bear
-    return {
-        "ticker": ticker.upper(),
-        "as_of_date": fetch_date.date().isoformat(),
-        "available_from": fetch_date.date().isoformat(),
-        "fetch_source": fetch_source,
-        "eps_estimate_access": bool(eps_estimate_access),
-        "revenue_estimate_access": bool(revenue_estimate_access),
-        "vendor_estimate_access": bool(eps_estimate_access and revenue_estimate_access),
-        "has_forward_estimate": int(bool(eps1 or rev1)),
-        "est_eps_fy1": finite_or_zero(eps_avg),
-        "est_eps_fy2": finite_or_zero(safe_float(eps2.get("avg"), float("nan"))),
-        "est_rev_fy1": finite_or_zero(safe_float(rev1.get("avg"), float("nan"))),
-        "n_analysts": int(max(safe_float(eps1.get("numberAnalysts"), 0.0), safe_float(rev1.get("numberAnalysts"), 0.0))),
-        "est_dispersion": finite_or_zero(est_dispersion),
-        "actual_eps_last": finite_or_zero(safe_float(earnings.get("actual"), float("nan"))),
-        "actual_report_date": str(earnings.get("period") or ""),
-        "earnings_surprise_last": finite_or_zero(safe_float(earnings.get("surprisePercent", earnings.get("surprise")), 0.0)),
-        "surprise_streak": int(surprise_streak),
-        "recommendation_period": str(rec.get("period") or ""),
-        "recommendation_bull_count": bull,
-        "recommendation_bear_count": bear,
-        "est_eps_revision_breadth": float((bull - bear) / denom) if denom else 0.0,
-    }
+    # fetch_date is a partition label, never an information availability clock.
+    observed = observed_at or utc_now()
+    collected = collected_at or utc_now()
+    row = build_snapshot(
+        ticker, eps_payload=eps_payload, revenue_payload=revenue_payload,
+        recommendation_payload=recommendation_payload, observed_at=observed,
+        collected_at=collected, first_seen_at=first_seen_at,
+        provider_published_at=provider_published_at, fetch_source=fetch_source,
+        eps_estimate_access=eps_estimate_access, revenue_estimate_access=revenue_estimate_access,
+    )
+    earnings, _ = latest_earnings_record(earnings_payload)
+    row.update(requested_fetch_date=fetch_date.date().isoformat(),
+               actual_eps_last=optional_float(earnings.get("actual")),
+               actual_fiscal_period_end=earnings.get("period"),
+               actual_report_date=None,  # fiscal period is not an announcement date
+               provider_reported_surprise=optional_float(earnings.get("surprisePercent")),
+               provider_reported_surprise_status="UNVERIFIED_PRE_EVENT_CONSENSUS")
+    row["snapshot_version_id"] = snapshot_digest(row)
+    return row
 
 
-def prior_value(group: pd.DataFrame, idx: int, column: str, days: int) -> float:
-    current = group.loc[idx, "as_of_date"]
-    cutoff = current - pd.Timedelta(days=days)
-    prior = group[(group["as_of_date"] <= cutoff) & (group.index < idx)]
-    if prior.empty:
-        return float("nan")
-    return safe_float(prior.iloc[-1].get(column), float("nan"))
+def _cutoff(value: Any) -> pd.Timestamp:
+    # Legacy date-only decisions mean start-of-day UTC, conservatively.
+    return pd.Timestamp(value).tz_localize("UTC") if pd.Timestamp(value).tzinfo is None else pd.Timestamp(value).tz_convert("UTC")
 
 
 def compute_estimate_revision_features(snapshots: pd.DataFrame, *, as_of_date: str | None = None) -> tuple[pd.DataFrame, dict[str, Any]]:
-    if snapshots.empty:
+    if snapshots.empty or "ticker" not in snapshots:
         return pd.DataFrame(), {"status": "blocked", "reason": "no_snapshot_rows"}
     d = snapshots.copy()
-    required = {"ticker", "as_of_date", "available_from"}
-    missing = sorted(required - set(d.columns))
-    if missing:
-        return pd.DataFrame(), {"status": "blocked", "reason": f"missing_required_columns:{','.join(missing)}"}
+    records = d.to_dict("records")
+    families = [classify_persisted_archive_row(r) for r in records]
+    admitted = [persisted_v2_snapshot_is_valid(r) for r in records]
+    invalid = sum(not valid and family != "VERIFIED_LEGACY"
+                  for valid, family in zip(admitted, families))
+    if invalid:
+        # Neither the ticker nor the clocks of damaged evidence can establish
+        # a safe exclusion. Block this input archive before any vintage choice.
+        return pd.DataFrame(columns=list(dict.fromkeys([*snapshots.columns, *PHASE18_ESTIMATE_REVISION_COLUMNS]))), {
+            "status": "blocked", "reason": "archive_integrity_failure",
+            "input_rows": len(snapshots), "output_rows": 0, "invalid_rows": invalid,
+            "source_contract": SCHEMA_VERSION, "h2_eligible": False,
+            "historical_backfill_allowed": False, "production_activation_allowed": False,
+            "live_trading_enabled": False,
+        }
+    d = d.loc[admitted].copy()
     d["ticker"] = d["ticker"].astype(str).str.upper().str.strip()
-    d["as_of_date"] = pd.to_datetime(d["as_of_date"], errors="coerce").dt.normalize()
-    d["available_from"] = pd.to_datetime(d["available_from"], errors="coerce").dt.normalize()
+    d["_available"] = [availability(r) for r in d.to_dict("records")]
+    d["_available"] = pd.to_datetime(d["_available"], utc=True, errors="coerce")
+    valid = d["_available"].notna() & d["ticker"].ne("")
     if as_of_date:
-        as_of = pd.Timestamp(as_of_date).normalize()
-        d = d[d["available_from"] <= as_of]
-    for col in [
-        "est_eps_fy1",
-        "est_eps_fy2",
-        "est_rev_fy1",
-        "est_dispersion",
-        "earnings_surprise_last",
-        "est_eps_revision_breadth",
-        "surprise_streak",
-        "has_forward_estimate",
-    ]:
-        if col not in d.columns:
-            d[col] = 0.0
-        d[col] = pd.to_numeric(d[col], errors="coerce").fillna(0.0)
-    d = d[d["ticker"].ne("") & d["as_of_date"].notna() & d["available_from"].notna()]
-    d = d.sort_values(["ticker", "as_of_date"]).reset_index(drop=True)
-    rows: list[dict[str, Any]] = []
+        valid &= d["_available"] <= _cutoff(as_of_date)
+    d = d[valid].sort_values(["ticker", "_available"], kind="stable").reset_index(drop=True)
+    rows = []
     for _, group in d.groupby("ticker", sort=False):
-        group = group.reset_index(drop=True)
-        for idx, row in group.iterrows():
-            eps = safe_float(row.get("est_eps_fy1"), float("nan"))
-            rev = safe_float(row.get("est_rev_fy1"), float("nan"))
-            dispersion = safe_float(row.get("est_dispersion"), 0.0)
-            prior_eps_30 = prior_value(group, idx, "est_eps_fy1", 30)
-            prior_eps_90 = prior_value(group, idx, "est_eps_fy1", 90)
-            prior_rev_30 = prior_value(group, idx, "est_rev_fy1", 30)
-            prior_dispersion_30 = prior_value(group, idx, "est_dispersion", 30)
-            out = row.to_dict()
-            out.update(
-                {
-                    "est_eps_revision_30d": pct_change(eps, prior_eps_30),
-                    "est_eps_revision_90d": pct_change(eps, prior_eps_90),
-                    "est_rev_revision_30d": pct_change(rev, prior_rev_30),
-                    "est_dispersion_change_30d": dispersion - prior_dispersion_30 if pd.notna(prior_dispersion_30) else 0.0,
-                }
-            )
-            has_forward_estimate = safe_float(out.get("has_forward_estimate"), 0.0) > 0
-            confirmed = (
-                has_forward_estimate
-                and out["est_eps_revision_breadth"] > 0
-                and out["est_dispersion_change_30d"] <= 0
-            )
-            out["estimate_revision_confirmed"] = int(confirmed)
-            out["estimate_revision_replacement_gate_pass"] = int(confirmed)
-            mult = 1.0
-            if has_forward_estimate:
-                mult += max(-0.05, min(0.05, safe_float(out["est_eps_revision_breadth"], 0.0) * 0.05))
-            out["estimate_revision_future_winner_multiplier"] = float(mult)
+        records = group.to_dict("records")
+        for row in records:
+            out = {k: v for k, v in row.items() if k != "_available"}
+            peers = [r for r in records if r["_available"] == row["_available"]]
+            current_conflict = len({(r.get("fetch_source"), r.get("source_payload_sha256")) for r in peers}) != 1
+            out["current_vintage_status"] = "CONFLICTING" if current_conflict else "OBSERVED"
+            # Recommendation and raw provider surprises never become canonical signals.
+            out.update(est_eps_revision_breadth=None,
+                       est_eps_revision_breadth_status="UNKNOWN_NO_ANALYST_REVISION_SOURCE",
+                       earnings_surprise_last=None, surprise_streak=None,
+                       estimate_revision_confirmed=0, estimate_revision_replacement_gate_pass=0,
+                       estimate_revision_future_winner_multiplier=1.0, h2_eligible=False)
+            for prefix, days, field in (("eps_fy1", 30, "est_eps_revision_30d"),
+                                        ("eps_fy1", 90, "est_eps_revision_90d"),
+                                        ("rev_fy1", 30, "est_rev_revision_30d")):
+                cutoff = row["_available"] - pd.Timedelta(days=days)
+                prior = [r for r in records if r["_available"] <= cutoff
+                         and r.get("fetch_source") == row.get("fetch_source")]
+                # Pick the actual latest vintage at the boundary, never search backwards
+                # for a favorable non-null value or an incompatible fiscal identity.
+                latest = [r for r in prior if r["_available"] == max(x["_available"] for x in prior)] if prior else []
+                unique = {(r.get("fetch_source"), r.get("source_payload_sha256")) for r in latest}
+                previous = latest[-1] if latest and len(unique) == 1 else None
+                out[field] = same_period_revision(
+                    {k: v for k, v in row.items() if k != "_available"},
+                    {k: v for k, v in previous.items() if k != "_available"}, prefix
+                ) if previous and not current_conflict else None
+                if prefix == "eps_fy1" and days == 30:
+                    current_dispersion = optional_float(row.get("est_dispersion"))
+                    prior_dispersion = optional_float(previous.get("est_dispersion")) if previous else None
+                    # Dispersion is attached to the FY view; a roll cannot compare
+                    # the prior FY1 dispersion even when prior FY2 matches EPS.
+                    same_view = previous and row.get("eps_fy1_identity") == previous.get("eps_fy1_identity")
+                    out["est_dispersion_change_30d"] = current_dispersion - prior_dispersion if out[field] is not None and same_view and current_dispersion is not None and prior_dispersion is not None else None
+            out["revision_status"] = "SAME_PERIOD_OBSERVED" if any(out[k] is not None for k in ("est_eps_revision_30d", "est_eps_revision_90d", "est_rev_revision_30d")) else "UNKNOWN_PRIOR_OR_IDENTITY"
+            for col in PHASE18_ESTIMATE_REVISION_COLUMNS:
+                out.setdefault(col, None)
             rows.append(out)
-    out_df = pd.DataFrame(rows)
-    for col in PHASE18_ESTIMATE_REVISION_COLUMNS:
-        if col not in out_df.columns:
-            out_df[col] = 0.0
-    summary = {
-        "status": "completed",
-        "input_rows": int(len(snapshots)),
-        "output_rows": int(len(out_df)),
-        "ticker_count": int(out_df["ticker"].nunique()) if not out_df.empty else 0,
-        "coverage_ratio": float(out_df["ticker"].nunique() / max(1, snapshots["ticker"].nunique())) if "ticker" in snapshots.columns else 0.0,
-        "available_from_is_fetch_date": bool((out_df["available_from"] == out_df["as_of_date"]).all()) if not out_df.empty else True,
-        "forward_only": True,
-        "backtest_acceptance_allowed": False,
-        "production_activation_allowed": False,
-        "live_trading_enabled": False,
-    }
-    return out_df, summary
+    columns = list(dict.fromkeys([*snapshots.columns, *PHASE18_ESTIMATE_REVISION_COLUMNS]))
+    out_df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=columns)
+    return out_df, {"status": "completed" if rows else "blocked", "input_rows": len(snapshots),
+                    "output_rows": len(out_df), "quarantined_or_unavailable_rows": len(snapshots)-len(d),
+                    "source_contract": SCHEMA_VERSION, "h2_eligible": False,
+                    "forward_only": True, "available_from_is_fetch_date": False,
+                    "backtest_acceptance_allowed": False, "production_activation_allowed": False,
+                    "live_trading_enabled": False}
 
 
 def latest_signal_by_ticker(signals: pd.DataFrame, *, decision_date: str | pd.Timestamp) -> pd.DataFrame:
-    if signals.empty:
+    if signals.empty or "ticker" not in signals or "strategy_available_at" not in signals:
         return pd.DataFrame(columns=["ticker", *PHASE18_ESTIMATE_REVISION_COLUMNS])
     d = signals.copy()
-    if "available_from" not in d.columns or "ticker" not in d.columns:
+    base, parsed, live = snapshot_field_profiles()
+    # Signal rows retain the signed source columns plus these derived fields.
+    # Strip only known derived columns, never unknown source/provenance fields.
+    derived = (set(PHASE18_ESTIMATE_REVISION_COLUMNS)
+               | {"current_vintage_status", "revision_status"}) - (base | parsed | live)
+    admitted = [persisted_v2_snapshot_is_valid({k: v for k, v in r.items() if k not in derived})
+                for r in d.to_dict("records")]
+    if not all(admitted):
         return pd.DataFrame(columns=["ticker", *PHASE18_ESTIMATE_REVISION_COLUMNS])
-    d["ticker"] = d["ticker"].astype(str).str.upper().str.strip()
-    d["available_from"] = pd.to_datetime(d["available_from"], errors="coerce").dt.normalize()
-    cutoff = pd.Timestamp(decision_date).normalize()
-    d = d[d["ticker"].ne("") & d["available_from"].notna() & (d["available_from"] <= cutoff)]
+    d["_available"] = pd.to_datetime([availability(r) for r in d.to_dict("records")], utc=True, errors="coerce")
+    d = d[d["_available"].notna() & (d["_available"] <= _cutoff(decision_date))]
+    selected = []
+    for _, group in d.groupby("ticker", sort=True):
+        latest = group[group["_available"] == group["_available"].max()]
+        hashes = latest.get("source_payload_sha256", pd.Series(dtype=str))
+        if hashes.isna().any() or hashes.nunique() != 1 or latest["fetch_source"].nunique() != 1:
+            continue
+        selected.append(latest.sort_values("snapshot_version_id").iloc[0])
+    return pd.DataFrame(selected).drop(columns="_available", errors="ignore") if selected else pd.DataFrame(columns=["ticker", *PHASE18_ESTIMATE_REVISION_COLUMNS])
+
+
+def latest_legacy_signal_by_ticker(
+    signals: pd.DataFrame,
+    *,
+    decision_date: str | pd.Timestamp,
+) -> pd.DataFrame:
+    """Select latest positively verified pre-V2 rows for the legacy H2 sidecar."""
+    if signals.empty or "ticker" not in signals or "available_from" not in signals:
+        return pd.DataFrame(columns=["ticker", *PHASE18_ESTIMATE_REVISION_COLUMNS])
+    rows = signals.to_dict("records")
+    if not all(verified_legacy_signal(row) for row in rows):
+        return pd.DataFrame(columns=["ticker", *PHASE18_ESTIMATE_REVISION_COLUMNS])
+    d = signals.copy()
+    d["_available"] = pd.to_datetime(d["available_from"], utc=True, errors="coerce")
+    d = d[d["_available"].notna() & (d["_available"] <= _cutoff(decision_date))]
     if d.empty:
         return pd.DataFrame(columns=["ticker", *PHASE18_ESTIMATE_REVISION_COLUMNS])
-    return d.sort_values(["ticker", "available_from"]).groupby("ticker", as_index=False).tail(1)
+    selected = []
+    for _, group in d.groupby("ticker", sort=True):
+        latest = group[group["_available"] == group["_available"].max()]
+        if len(latest) != 1:
+            return pd.DataFrame(columns=["ticker", *PHASE18_ESTIMATE_REVISION_COLUMNS])
+        selected.append(latest.iloc[0])
+    return pd.DataFrame(selected).drop(columns="_available", errors="ignore")
 
 
 def apply_estimate_revision_confirmation(
@@ -488,9 +596,14 @@ def apply_estimate_revision_confirmation(
     operating scoring, not historical feature-store construction.
     """
     out = scored.copy()
+    neutral_defaults = {
+        "estimate_revision_confirmed": 0,
+        "estimate_revision_replacement_gate_pass": 0,
+        "estimate_revision_future_winner_multiplier": 1.0,
+    }
     for col in PHASE18_ESTIMATE_REVISION_COLUMNS:
         if col not in out.columns:
-            out[col] = 0.0
+            out[col] = neutral_defaults.get(col)
     summary = {
         "enabled": bool(enabled),
         "decision_date": str(pd.Timestamp(decision_date).date()),
@@ -504,7 +617,7 @@ def apply_estimate_revision_confirmation(
     if "ticker" not in out.columns:
         summary["reason"] = "missing_ticker_column"
         return out, summary
-    latest = latest_signal_by_ticker(signals, decision_date=decision_date)
+    latest = latest_legacy_signal_by_ticker(signals, decision_date=decision_date)
     if latest.empty:
         summary["reason"] = "no_available_signals"
         return out, summary
@@ -517,7 +630,7 @@ def apply_estimate_revision_confirmation(
     for col in PHASE18_ESTIMATE_REVISION_COLUMNS:
         signal_col = f"{col}_estimate_signal"
         if signal_col in merged.columns:
-            merged[col] = pd.to_numeric(merged[signal_col], errors="coerce").fillna(0.0)
+            merged[col] = pd.to_numeric(merged[signal_col], errors="coerce")
             merged = merged.drop(columns=[signal_col])
     breadth = pd.to_numeric(merged["est_eps_revision_breadth"], errors="coerce").fillna(0.0)
     dispersion_change = pd.to_numeric(merged["est_dispersion_change_30d"], errors="coerce").fillna(0.0)
@@ -547,9 +660,11 @@ def apply_estimate_revision_confirmation(
     return merged, summary
 
 
-def load_snapshot_history(snapshot_dir: Path) -> pd.DataFrame:
+def load_snapshot_history(snapshot_dir: Path, *, exclude_path: Path | None = None) -> pd.DataFrame:
     frames = []
     for path in sorted(snapshot_dir.glob("estimates_*.parquet")):
+        if path == exclude_path:
+            continue
         frames.append(pd.read_parquet(path))
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
@@ -559,36 +674,169 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
 
 
+def _json_bytes(payload: dict[str, Any]) -> bytes:
+    return (json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n").encode("utf-8")
+
+
+def _stage_bytes_for_target(target: Path, payload: bytes) -> Path:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        dir=target.parent, prefix=f".{target.name}.", suffix=".txn", delete=False
+    ) as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+        return Path(handle.name)
+
+
+def _stage_dataframe_for_target(target: Path, frame: pd.DataFrame) -> Path:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        dir=target.parent, prefix=f".{target.name}.", suffix=".txn", delete=False
+    ) as handle:
+        staged = Path(handle.name)
+    try:
+        frame.to_parquet(staged, index=False)
+        return staged
+    except Exception:
+        staged.unlink(missing_ok=True)
+        raise
+
+
+def _restore_target_bytes(target: Path, previous: bytes | None) -> None:
+    if previous is None:
+        target.unlink(missing_ok=True)
+        return
+    staged = _stage_bytes_for_target(target, previous)
+    try:
+        os.replace(staged, target)
+    finally:
+        staged.unlink(missing_ok=True)
+
+
+def _fsync_directory(directory: Path) -> None:
+    descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _write_transaction_marker(path: Path, marker: dict[str, Any]) -> None:
+    staged = _stage_bytes_for_target(path, _json_bytes(marker))
+    try:
+        os.replace(staged, path)
+        _fsync_directory(path.parent)
+    finally:
+        staged.unlink(missing_ok=True)
+
+
+def _atomic_commit_staged_files(
+    staged_files: list[tuple[Path, Path]], *, marker_path: Path | None = None,
+    commit_id: str = "", summary_sha256: str = "",
+) -> None:
+    """Exception rollback plus durable fail-closed process-death detection.
+
+    File replaces are NOT a multi-file atomic commit. The pending marker must
+    precede every target replace, and the final marker follows all durable files.
+    A killed writer leaves pending evidence which consumers and retries reject.
+    The workflow serializes writers. Markers are retained (not unlinked), so
+    copy-based persistence cannot resurrect an old pending marker after success.
+    """
+    targets = [target for _, target in staged_files]
+    if len(targets) != len(set(targets)):
+        raise ValueError("duplicate_transaction_target")
+    previous = {target: target.read_bytes() if target.exists() else None for target in targets}
+    marker = {
+        "schema_version": TRANSACTION_MARKER_SCHEMA,
+        "status": "pending", "commit_id": commit_id or uuid.uuid4().hex,
+        "summary_sha256": summary_sha256,
+    }
+    if marker_path is not None:
+        require_complete_collector_transaction(marker_path.parent)
+        _write_transaction_marker(marker_path, marker)
+    committed: list[Path] = []
+    try:
+        for staged, target in staged_files:
+            with staged.open("r+b") as handle:
+                os.fsync(handle.fileno())
+            os.replace(staged, target)
+            committed.append(target)
+            _fsync_directory(target.parent)
+        if marker_path is not None:
+            _write_transaction_marker(marker_path, {**marker, "status": "committed"})
+    except Exception as exc:
+        if marker_path is not None:
+            _write_transaction_marker(marker_path, marker)
+        rollback_errors: list[str] = []
+        for target in reversed(committed):
+            try:
+                _restore_target_bytes(target, previous[target])
+                _fsync_directory(target.parent)
+            except Exception as rollback_exc:
+                rollback_errors.append(f"{target}:{sanitize_error_message(rollback_exc)}")
+        if rollback_errors:
+            raise RuntimeError("collector_transaction_rollback_failure:" + "|".join(rollback_errors)) from exc
+        if marker_path is not None:
+            _write_transaction_marker(marker_path, {**marker, "status": "rolled_back"})
+        raise
+    finally:
+        for staged, _ in staged_files:
+            staged.unlink(missing_ok=True)
+
+
+def collection_attempt_id(
+    fetch_date: pd.Timestamp,
+    attempted_tickers: list[str],
+    *,
+    logical_attempt_id: str = "",
+) -> str:
+    attempted = sorted(set(str(t).upper().strip() for t in attempted_tickers if str(t).strip()))
+    payload = json.dumps(
+        {
+            "logical_attempt_id": str(logical_attempt_id or "").strip(),
+            "fetch_date": fetch_date.date().isoformat(),
+            "attempted_tickers": attempted,
+        },
+        sort_keys=True, separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _truthy(value: Any) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
-def acknowledge_collection_attempts(
+def prepare_collection_attempt_acknowledgement(
     checkpoint_path: Path,
     queue_path: Path,
     attempted_tickers: list[str],
     *,
     attempted_at_utc: str,
-) -> dict[str, Any]:
-    """Acknowledge only tickers the collector actually reached.
-
-    The queue planner records a proposed batch but deliberately leaves the
-    durable rotation counters unchanged.  This acknowledgement runs only after
-    the collector returns, so a missing key, runner failure, or max-error break
-    cannot make an unattempted tail look serviced.
-    """
+    attempt_id: str,
+) -> tuple[dict[str, Any], bytes | None, bytes | None]:
+    """Prepare an idempotent queue/checkpoint acknowledgement without writing it."""
     attempted = list(dict.fromkeys(str(t).upper().strip() for t in attempted_tickers if str(t).strip()))
     result: dict[str, Any] = {
         "status": "disabled",
+        "attempt_id": attempt_id,
         "attempted_ticker_count": len(attempted),
         "acknowledged_ticker_count": 0,
         "unacknowledged_tickers": attempted,
     }
     if not checkpoint_path or not str(checkpoint_path) or not queue_path or not str(queue_path):
-        return result
+        return result, None, None
     if not checkpoint_path.exists() or not queue_path.exists():
         result["status"] = "checkpoint_or_queue_missing"
-        return result
+        return result, None, None
     try:
         checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
         with queue_path.open(newline="", encoding="utf-8") as handle:
@@ -597,11 +845,23 @@ def acknowledge_collection_attempts(
             queue_rows = list(reader)
     except (OSError, json.JSONDecodeError, csv.Error) as exc:
         result.update({"status": "invalid_checkpoint_or_queue", "error": sanitize_error_message(exc)})
-        return result
+        return result, None, None
     states = checkpoint.get("ticker_states") if isinstance(checkpoint, dict) else None
     if not isinstance(states, list) or not fieldnames:
         result["status"] = "invalid_checkpoint_or_queue"
-        return result
+        return result, None, None
+
+    previous_ack = checkpoint.get("last_collection_attempt_ack")
+    require_consistent_collection_acknowledgement(checkpoint_path, queue_path)
+    if (
+        isinstance(previous_ack, dict)
+        and previous_ack.get("status") == "acknowledged"
+        and previous_ack.get("attempt_id") == attempt_id
+    ):
+        replay = dict(previous_ack)
+        replay["idempotent_replay"] = True
+        return replay, None, None
+
     selected = {
         str(row.get("ticker") or "").upper().strip()
         for row in queue_rows
@@ -619,28 +879,128 @@ def acknowledge_collection_attempts(
         if ticker in acknowledged_set:
             row["last_selected_at_utc"] = attempted_at_utc
             row["selection_count"] = str(int(row.get("selection_count") or 0) + 1)
-    result.update(
-        {
-            "status": "acknowledged",
-            "acknowledged_ticker_count": len(acknowledged),
-            "unacknowledged_tickers": [ticker for ticker in attempted if ticker not in acknowledged_set],
-        }
-    )
+
+    result.update({
+        "status": "acknowledged",
+        "acknowledged_ticker_count": len(acknowledged),
+        "unacknowledged_tickers": [ticker for ticker in attempted if ticker not in acknowledged_set],
+    })
     checkpoint["updated_at_utc"] = attempted_at_utc
     checkpoint["last_collection_attempt_ack"] = result
-    checkpoint_tmp = checkpoint_path.with_suffix(checkpoint_path.suffix + ".tmp")
-    checkpoint_tmp.write_text(
-        json.dumps(checkpoint, indent=2, sort_keys=True, default=str) + "\n",
-        encoding="utf-8",
+    # A newly committed checkpoint replaces its planning parent. Retaining the
+    # parent's embedded bytes here would recursively grow every later plan.
+    checkpoint.pop("planning_parent_transaction", None)
+    checkpoint.pop("planned_queue_sha256", None)
+
+    checkpoint_bytes = _json_bytes(checkpoint)
+    queue_text = io.StringIO(newline="")
+    writer = csv.DictWriter(queue_text, fieldnames=fieldnames, extrasaction="ignore", lineterminator="\n")
+    writer.writeheader()
+    writer.writerows(queue_rows)
+    return result, checkpoint_bytes, queue_text.getvalue().encode("utf-8")
+
+
+def acknowledge_collection_attempts(
+    checkpoint_path: Path,
+    queue_path: Path,
+    attempted_tickers: list[str],
+    *,
+    snapshot_dir: Path,
+    attempted_at_utc: str,
+    attempt_id: str = "",
+) -> dict[str, Any]:
+    """Acknowledge queue state only after checking its explicit archive root.
+
+    Checkpoints may live outside the archive. Their parent cannot substitute
+    for the archive's retained transaction marker.
+    """
+    stable_id = attempt_id or hashlib.sha256(
+        json.dumps(
+            {
+                "attempted_at_utc": attempted_at_utc,
+                "attempted_tickers": sorted(set(
+                    str(t).upper().strip() for t in attempted_tickers if str(t).strip()
+                )),
+            },
+            sort_keys=True, separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    require_complete_collector_transaction(snapshot_dir)
+    require_complete_collector_transaction(checkpoint_path.parent)
+    result, checkpoint_bytes, queue_bytes = prepare_collection_attempt_acknowledgement(
+        checkpoint_path,
+        queue_path,
+        attempted_tickers,
+        attempted_at_utc=attempted_at_utc,
+        attempt_id=stable_id,
     )
-    os.replace(checkpoint_tmp, checkpoint_path)
-    queue_tmp = queue_path.with_suffix(queue_path.suffix + ".tmp")
-    with queue_tmp.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(queue_rows)
-    os.replace(queue_tmp, queue_path)
+    if checkpoint_bytes is None or queue_bytes is None:
+        return result
+    staged = [
+        (_stage_bytes_for_target(checkpoint_path, checkpoint_bytes), checkpoint_path),
+        (_stage_bytes_for_target(queue_path, queue_bytes), queue_path),
+    ]
+    _atomic_commit_staged_files(staged, marker_path=checkpoint_path.parent / TRANSACTION_MARKER_NAME)
     return result
+
+
+def plan_manual_collection(
+    snapshot_dir: Path, summary_path: Path, signals_path: Path,
+    checkpoint_path: Path, queue_path: Path, tickers: list[str],
+) -> None:
+    """Bind a manual request to a queue without expanding its requested scope."""
+    require_complete_collector_transaction(checkpoint_path.parent)
+    state = require_verified_collector_state(snapshot_dir, summary_path=summary_path,
+        checkpoint_path=checkpoint_path, queue_path=queue_path,
+        signals_path=signals_path, allow_missing_queue=True)
+    previous = json.loads(checkpoint_path.read_text(encoding="utf-8")) if checkpoint_path.is_file() else {}
+    rows = previous.get("ticker_states", [])
+    if not isinstance(rows, list):
+        raise ValueError("invalid_manual_checkpoint_states")
+    requested = list(dict.fromkeys(tickers))
+    states = {}
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("ticker"), str):
+            raise ValueError("invalid_manual_checkpoint_states")
+        ticker = row["ticker"].upper().strip()
+        if (not ticker or ticker in states or type(row.get("selection_count")) is not int
+                or row["selection_count"] < 0 or not isinstance(row.get("last_selected_at_utc"), str)):
+            raise ValueError("invalid_manual_checkpoint_states")
+        states[ticker] = {**row, "ticker": ticker}
+    if (state["state"] == "accepted" and queue_path.is_file()
+            and {ticker for ticker, row in states.items() if _truthy(row.get("selected"))} == set(requested)):
+        with queue_path.open(newline="", encoding="utf-8") as handle:
+            selected = {str(row.get("ticker") or "").upper().strip()
+                        for row in csv.DictReader(handle) if _truthy(row.get("selected"))}
+        if selected == set(requested):
+            # Reuse an already bound exact-scope queue. Replanning an idempotent
+            # replay would embed its old accepted checkpoint without a new ack.
+            return
+    for ticker in requested:
+        states.setdefault(ticker, {"ticker": ticker, "selection_count": 0, "last_selected_at_utc": ""})
+    for ticker, row in states.items():
+        row["selected"] = ticker in requested
+    plan = dict(previous)
+    plan.update(ticker_states=list(states.values()), status="ready_for_manual_collection",
+        selected_ticker_count=len(requested), manual_requested_tickers=requested)
+    plan["planning_parent_transaction"] = {
+        key: state.get(key, "") for key in (
+            "commit_id", "summary_sha256", "attempt_id", "checkpoint_sha256", "checkpoint_bytes_base64")
+    } if state["state"] in {"accepted", "planned"} else {}
+    fieldnames = list(dict.fromkeys(["ticker", "selected", "last_selected_at_utc", "selection_count",
+                                    *(key for row in states.values() for key in row)]))
+    text = io.StringIO(newline="")
+    writer = csv.DictWriter(text, fieldnames=fieldnames, lineterminator="\n")
+    writer.writeheader()
+    writer.writerows(states.values())
+    queue_bytes = text.getvalue().encode("utf-8")
+    plan["planned_queue_sha256"] = hashlib.sha256(queue_bytes).hexdigest()
+    # A planning write is never an accepted collector commit. A split write
+    # against accepted state leaves a mismatch rejected by entry verification.
+    queue_path.parent.mkdir(parents=True, exist_ok=True)
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    queue_path.write_bytes(queue_bytes)
+    checkpoint_path.write_bytes(_json_bytes(plan))
 
 
 def merge_same_day_snapshot(existing_path: Path, current: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
@@ -661,13 +1021,25 @@ def merge_same_day_snapshot(existing_path: Path, current: pd.DataFrame) -> tuple
         return current, info
     try:
         existing = pd.read_parquet(existing_path)
-    except Exception:
-        return current, info
+    except Exception as exc:
+        raise ValueError("unreadable_existing_estimate_archive") from exc
     if existing.empty:
         return current, info
     info["same_day_existing_rows"] = int(len(existing))
+    for row in existing.to_dict("records"):
+        schema_family = classify_persisted_archive_row(row)
+        if schema_family == "V2_REQUIRES_VALIDATION":
+            validate_persisted_snapshot(row)
+        elif schema_family != "VERIFIED_LEGACY":
+            raise ValueError("invalid_or_unknown_existing_estimate_archive_schema")
     combined = pd.concat([existing, current], ignore_index=True, sort=False)
-    if "ticker" in combined.columns:
+    if "snapshot_version_id" in combined.columns:
+        modern = combined[combined["snapshot_version_id"].notna()].copy()
+        legacy = combined[combined["snapshot_version_id"].isna()].copy()
+        modern = modern.drop_duplicates("snapshot_version_id").sort_values(
+            ["ticker", "strategy_available_at", "snapshot_version_id"], kind="stable")
+        combined = pd.concat([legacy, modern], ignore_index=True, sort=False)
+    elif "ticker" in combined.columns:
         combined["_ticker_norm"] = combined["ticker"].astype(str).str.upper().str.strip()
         sort_cols = ["_ticker_norm"]
         if "available_from" in combined.columns:
@@ -686,11 +1058,16 @@ def merge_same_day_snapshot(existing_path: Path, current: pd.DataFrame) -> tuple
 def fetch_json(session: requests.Session, endpoint: str, ticker: str, api_key: str, *, sleep_seconds: float) -> Any:
     url = f"{FINNHUB_BASE}{endpoint}"
     params = {"symbol": ticker, "token": api_key}
+    if endpoint in ESTIMATE_ENDPOINTS:
+        params["freq"] = "annual"
     response = session.get(url, params=params, timeout=20)
     if sleep_seconds:
         time.sleep(sleep_seconds)
     response.raise_for_status()
-    return response.json()
+    payload = response.json()
+    if endpoint in ESTIMATE_ENDPOINTS and isinstance(payload, dict) and isinstance(payload.get("data"), list):
+        payload = {**payload, "data": [{**r, "period_type": r.get("period_type") or "ANNUAL"} if isinstance(r, dict) else r for r in payload["data"]]}
+    return payload
 
 
 def fetch_url_json(
@@ -1011,9 +1388,12 @@ def fetch_estimate_payloads_by_order(
     errors: list[dict[str, Any]],
     vendor_entitlement_circuits: dict[str, dict[str, Any]] | None = None,
     entitlement_circuit_threshold: int = DEFAULT_ENTITLEMENT_CIRCUIT_THRESHOLD,
+    attempted_providers: list[str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], str, bool, bool, bool]:
     circuits = vendor_entitlement_circuits if vendor_entitlement_circuits is not None else {}
+    attempts = attempted_providers if attempted_providers is not None else []
     any_request_attempted = False
+    empty_accessible = None
     for vendor in vendor_order:
         circuit = circuits.get(vendor)
         if circuit and bool(circuit.get("tripped")):
@@ -1022,15 +1402,16 @@ def fetch_estimate_payloads_by_order(
         before_error_count = len(errors)
         if vendor == "alphavantage" and alphavantage_api_key:
             any_request_attempted = True
+            if vendor not in attempts:
+                attempts.append(vendor)
             eps, rev = fetch_alphavantage_payloads(
                 session, ticker, alphavantage_api_key, sleep_seconds=sleep_seconds, errors=errors
             )
             new_errors = errors[before_error_count:]
-            accessible = not any(
-                _error_vendor(error) == vendor
-                and (int(error.get("status_code") or 0) == 0 or int(error.get("status_code") or 0) >= 400)
-                for error in new_errors
-            )
+            # Alpha Vantage may encode API/rate-limit errors in HTTP-200 JSON
+            # envelopes. Any error emitted by fetch_alphavantage_payloads()
+            # means this estimate request was not an accessible observation.
+            accessible = not any(_error_vendor(error) == vendor for error in new_errors)
             _record_vendor_entitlement_result(
                 circuits,
                 vendor=vendor,
@@ -1040,10 +1421,14 @@ def fetch_estimate_payloads_by_order(
                 has_estimate_data=bool(eps.get("data") or rev.get("data")),
                 threshold=entitlement_circuit_threshold,
             )
+            if accessible:
+                empty_accessible = (eps, rev, "alphavantage", True, True, any_request_attempted)
             if eps.get("data") or rev.get("data"):
-                return eps, rev, "alphavantage", bool(eps.get("data")), bool(rev.get("data")), any_request_attempted
+                return eps, rev, "alphavantage", accessible, accessible, any_request_attempted
         elif vendor == "fmp" and fmp_api_key:
             any_request_attempted = True
+            if vendor not in attempts:
+                attempts.append(vendor)
             eps, rev = fetch_fmp_payloads(session, ticker, fmp_api_key, sleep_seconds=sleep_seconds, errors=errors)
             new_errors = errors[before_error_count:]
             accessible = not any(
@@ -1060,10 +1445,14 @@ def fetch_estimate_payloads_by_order(
                 has_estimate_data=bool(eps.get("data") or rev.get("data")),
                 threshold=entitlement_circuit_threshold,
             )
+            if accessible:
+                empty_accessible = (eps, rev, "fmp", True, True, any_request_attempted)
             if eps.get("data") or rev.get("data"):
-                return eps, rev, "fmp", bool(eps.get("data")), bool(rev.get("data")), any_request_attempted
+                return eps, rev, "fmp", accessible, accessible, any_request_attempted
         elif vendor == "finnhub" and finnhub_api_key:
             any_request_attempted = True
+            if vendor not in attempts:
+                attempts.append(vendor)
             eps = fetch_json_optional(
                 session, "/stock/eps-estimate", ticker, finnhub_api_key, sleep_seconds=sleep_seconds, errors=errors
             )
@@ -1083,7 +1472,16 @@ def fetch_estimate_payloads_by_order(
             )
             if eps is not None or rev is not None:
                 return eps or {}, rev or {}, "finnhub", eps is not None, rev is not None, any_request_attempted
-    return {}, {}, "", False, False, any_request_attempted
+    return empty_accessible or ({}, {}, "", False, False, any_request_attempted)
+
+
+def require_collection_day(fetch_date: pd.Timestamp, rows: list[dict] = ()) -> None:
+    day = fetch_date.date().isoformat()
+    if utc_now()[:10] != day or any(
+        iso_utc(row.get(key)) is None or iso_utc(row.get(key))[:10] != day
+        for row in rows for key in ("observed_at", "collected_at")
+    ):
+        raise ValueError("collection_utc_day_rollover_or_partition_mismatch")
 
 
 def collect_live_snapshot(
@@ -1105,6 +1503,8 @@ def collect_live_snapshot(
     stop_reason = ""
     session = requests.Session()
     for ticker in tickers:
+        require_collection_day(fetch_date)
+        ticker_attempted_providers: list[str] = []
         eps, rev, estimate_source, eps_access, rev_access, estimate_request_attempted = fetch_estimate_payloads_by_order(
             session,
             ticker,
@@ -1116,6 +1516,7 @@ def collect_live_snapshot(
             errors=errors,
             vendor_entitlement_circuits=vendor_entitlement_circuits,
             entitlement_circuit_threshold=entitlement_circuit_threshold,
+            attempted_providers=ticker_attempted_providers,
         )
         optional_finnhub_request_attempted = bool(finnhub_api_key)
         earnings = fetch_json_optional(
@@ -1129,8 +1530,8 @@ def collect_live_snapshot(
         else:
             stop_reason = "no_enabled_vendor_request_after_entitlement_circuit"
             break
-        if any(payload is not None and payload != {} for payload in [eps, rev, earnings, rec]):
-            fetch_source = estimate_source or ("finnhub" if any(payload is not None for payload in [earnings, rec]) else "")
+        if estimate_request_attempted or optional_finnhub_request_attempted:
+            fetch_source = estimate_source
             rows.append(
                 parse_snapshot_row(
                     ticker,
@@ -1144,6 +1545,33 @@ def collect_live_snapshot(
                     fetch_source=fetch_source,
                 )
             )
+        require_collection_day(fetch_date, rows[-1:])
+        if rows:
+            ticker_errors = [e for e in errors if e.get("ticker") == ticker]
+            attempted_provider_set = set(ticker_attempted_providers)
+            if estimate_source:
+                attempted_provider_set.add(estimate_source)
+            attempted_provider_set.update(
+                e.get("vendor", "finnhub") for e in ticker_errors
+                if e.get("endpoint") in ESTIMATE_ENDPOINTS or e.get("vendor") in {"fmp", "alphavantage"}
+            )
+            rows[-1]["attempted_estimate_providers_json"] = json.dumps(sorted(attempted_provider_set))
+            metric_states = []
+            for metric, endpoint in (("eps", "/stock/eps-estimate"), ("rev", "/stock/revenue-estimate")):
+                relevant = [e for e in ticker_errors
+                            if (not estimate_source or e.get("vendor", "finnhub") == estimate_source)
+                            and (e.get("endpoint") == endpoint or e.get("vendor") in {"fmp", "alphavantage"})]
+                if relevant:
+                    state = "UNSUPPORTED" if all(e.get("vendor_entitlement_blocked") for e in relevant) else "FETCH_FAILED"
+                    for view in ("fy1", "fy2"):
+                        rows[-1][f"{metric}_{view}_status"] = state
+                else:
+                    state = rows[-1][f"{metric}_fy1_status"]
+                rows[-1][f"{metric}_provider_status"] = state
+                metric_states.append(state)
+            rows[-1]["provider_coverage_status"] = metric_states[0] if len(set(metric_states)) == 1 else "PARTIAL"
+            rows[-1]["recommendation_fetch_status"] = "FETCH_FAILED" if any(e.get("endpoint") == "/stock/recommendation" for e in ticker_errors) else "OBSERVED" if rec else "NO_COVERAGE"
+            rows[-1]["snapshot_version_id"] = snapshot_digest(rows[-1])
         error_budget = collection_error_budget(errors, vendor_entitlement_circuits)
         if max_errors and error_budget["error_budget_count"] >= max_errors:
             stop_reason = "max_errors_reached"
@@ -1181,18 +1609,43 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fixture-dir", default="")
     parser.add_argument("--collection-checkpoint", default="")
     parser.add_argument("--collection-queue", default="")
+    parser.add_argument("--plan-manual-collection", action="store_true",
+                        help="Prepare a bound queue selecting only the resolved request tickers.")
+    parser.add_argument("--collection-attempt-id", default=os.environ.get("GITHUB_RUN_ID", ""))
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     fetch_date = pd.Timestamp(args.fetch_date).normalize()
+    if fetch_date.date().isoformat() != utc_now()[:10]:
+        raise ValueError("current_snapshot_historical_backfill_forbidden")
     snapshot_dir = repo_path(args.snapshot_dir)
     signals_output = repo_path(args.signals_output)
     summary_path = repo_path(args.summary)
     checkpoint_path = repo_path(args.collection_checkpoint) if args.collection_checkpoint else Path()
     queue_path = repo_path(args.collection_queue) if args.collection_queue else Path()
+    require_complete_collector_transaction(snapshot_dir)
     tickers = parse_tickers(args.tickers, args.universe_file or None, args.ticker_limit)
+    if args.plan_manual_collection:
+        if not args.collection_checkpoint or not args.collection_queue or not tickers:
+            raise ValueError("manual_collection_requires_queue_paths_and_tickers")
+        plan_manual_collection(snapshot_dir, summary_path, signals_output,
+                               checkpoint_path, queue_path, tickers)
+    if args.collection_checkpoint:
+        transaction_state = require_verified_collector_state(
+            snapshot_dir,
+            summary_path=summary_path,
+            checkpoint_path=checkpoint_path,
+            queue_path=queue_path,
+            signals_path=signals_output,
+            allow_missing_queue=False,
+        )
+        require_consistent_collection_acknowledgement(
+            checkpoint_path,
+            queue_path,
+            verify_planned_queue=transaction_state.get("state") != "accepted",
+        )
     if not tickers:
         payload = {
             "schema_version": SCHEMA_VERSION,
@@ -1215,6 +1668,7 @@ def main() -> int:
         fixture_dir = repo_path(args.fixture_dir)
         rows = []
         for ticker in tickers:
+            require_collection_day(fetch_date)
             attempted_tickers.append(ticker)
             with (fixture_dir / f"{ticker.upper()}_eps.json").open(encoding="utf-8") as handle:
                 eps = json.load(handle)
@@ -1234,6 +1688,7 @@ def main() -> int:
                     recommendation_payload=rec,
                 )
             )
+            require_collection_day(fetch_date, rows[-1:])
         snapshot = pd.DataFrame(rows)
     else:
         vendor_order = clean_vendor_order(args.vendor_order)
@@ -1270,16 +1725,12 @@ def main() -> int:
         else:  # Backward-compatible with test doubles written for the older API.
             snapshot, errors = collected  # type: ignore[misc]
             attempted_tickers = list(tickers)
-    attempt_ack = acknowledge_collection_attempts(
-        checkpoint_path,
-        queue_path,
-        attempted_tickers,
-        attempted_at_utc=utc_now(),
-    ) if args.collection_checkpoint and args.collection_queue else {
-        "status": "disabled",
+    require_collection_day(fetch_date)
+    attempt_ack = {
+        "status": "deferred_until_durable_commit",
         "attempted_ticker_count": len(attempted_tickers),
         "acknowledged_ticker_count": 0,
-        "unacknowledged_tickers": [],
+        "unacknowledged_tickers": list(dict.fromkeys(attempted_tickers)),
     }
     error_budget = vendor_entitlement_circuit.get("error_budget") or collection_error_budget(errors, {})
     vendor_order = clean_vendor_order(args.vendor_order)
@@ -1318,13 +1769,42 @@ def main() -> int:
         return 0 if not vendor_estimate_access else 2
     current_snapshot = snapshot.copy()
     snapshot_path = snapshot_dir / f"estimates_{fetch_date.strftime('%Y%m%d')}.parquet"
-    snapshot, same_day_merge = merge_same_day_snapshot(snapshot_path, current_snapshot)
-    snapshot.to_parquet(snapshot_path, index=False)
-    history = load_snapshot_history(snapshot_dir)
-    signals, feature_summary = compute_estimate_revision_features(history, as_of_date=fetch_date.date().isoformat())
-    if not signals.empty:
-        signals_output.parent.mkdir(parents=True, exist_ok=True)
-        signals.to_parquet(signals_output, index=False)
+    require_collection_day(fetch_date)
+    same_day_merge: dict[str, Any] = {
+        "same_day_snapshot_merged": False,
+        "same_day_existing_rows": 0,
+        "same_day_current_rows": int(len(current_snapshot)),
+        "same_day_merged_rows": int(len(current_snapshot)),
+    }
+    integrity_error = ""
+    try:
+        snapshot, same_day_merge = merge_same_day_snapshot(snapshot_path, current_snapshot)
+        history = pd.concat(
+            [load_snapshot_history(snapshot_dir, exclude_path=snapshot_path), snapshot],
+            ignore_index=True,
+        )
+        signals, feature_summary = compute_estimate_revision_features(history, as_of_date=utc_now())
+        if feature_summary.get("reason") == "archive_integrity_failure":
+            integrity_error = "archive_integrity_failure"
+    except Exception as exc:
+        integrity_error = sanitize_error_message(exc) or "archive_integrity_failure"
+        snapshot = current_snapshot
+        signals = pd.DataFrame(columns=["ticker", *PHASE18_ESTIMATE_REVISION_COLUMNS])
+        feature_summary = {
+            "status": "blocked",
+            "reason": "archive_integrity_failure",
+            "error": integrity_error,
+        }
+
+    if integrity_error:
+        signals = pd.DataFrame(columns=["ticker", *PHASE18_ESTIMATE_REVISION_COLUMNS])
+        feature_summary = {
+            **feature_summary,
+            "status": "blocked",
+            "reason": "archive_integrity_failure",
+            "error": integrity_error,
+        }
+
     coverage_ratio = len(current_snapshot) / max(1, len(tickers))
     request_has_forward_estimate_rows = (
         int(pd.to_numeric(current_snapshot["has_forward_estimate"], errors="coerce").fillna(0).sum())
@@ -1338,12 +1818,16 @@ def main() -> int:
         else 0
     )
     stored_estimate_coverage_ratio = has_forward_estimate_rows / max(1, len(snapshot))
-    vendor_estimate_access = request_has_forward_estimate_rows > 0
+    eps_access_rows = int(current_snapshot.get("eps_estimate_access", pd.Series(dtype=bool)).eq(True).sum())
+    revenue_access_rows = int(current_snapshot.get("revenue_estimate_access", pd.Series(dtype=bool)).eq(True).sum())
+    vendor_access_rows = int(current_snapshot.get("vendor_estimate_access", pd.Series(dtype=bool)).eq(True).sum())
+    vendor_estimate_access = vendor_access_rows > 0
+    any_endpoint_access = eps_access_rows > 0 or revenue_access_rows > 0 or vendor_estimate_access
     status = (
         "completed"
         if estimate_coverage_ratio >= 0.8
         else "blocked_vendor_entitlement"
-        if request_has_forward_estimate_rows == 0 and vendor_blocked_errors
+        if request_has_forward_estimate_rows == 0 and vendor_blocked_errors and not any_endpoint_access
         else "blocked_partial_coverage"
     )
     reason = ""
@@ -1353,6 +1837,42 @@ def main() -> int:
         reason = "estimate_vendor_endpoint_forbidden_or_payment_required"
     elif status == "blocked_partial_coverage":
         reason = "coverage_below_80pct_warn_only"
+    if feature_summary.get("reason") == "archive_integrity_failure":
+        status, reason = "blocked_data_integrity", "archive_integrity_failure"
+
+    logical_attempt_id = str(args.collection_attempt_id or "").strip()
+    stable_attempt_id = collection_attempt_id(
+        fetch_date,
+        attempted_tickers,
+        logical_attempt_id=logical_attempt_id,
+    )
+    if status != "blocked_data_integrity" and args.collection_checkpoint and args.collection_queue:
+        attempt_ack, checkpoint_bytes, queue_bytes = prepare_collection_attempt_acknowledgement(
+            checkpoint_path,
+            queue_path,
+            attempted_tickers,
+            attempted_at_utc=utc_now(),
+            attempt_id=stable_attempt_id,
+        )
+    elif status != "blocked_data_integrity":
+        checkpoint_bytes = queue_bytes = None
+        attempt_ack = {
+            "status": "disabled",
+            "attempt_id": stable_attempt_id,
+            "attempted_ticker_count": len(attempted_tickers),
+            "acknowledged_ticker_count": 0,
+            "unacknowledged_tickers": [],
+        }
+    else:
+        checkpoint_bytes = queue_bytes = None
+        attempt_ack = {
+            "status": "deferred_until_durable_commit",
+            "attempt_id": stable_attempt_id,
+            "attempted_ticker_count": len(attempted_tickers),
+            "acknowledged_ticker_count": 0,
+            "unacknowledged_tickers": list(dict.fromkeys(attempted_tickers)),
+        }
+
     payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": utc_now(),
@@ -1365,9 +1885,15 @@ def main() -> int:
         "live_trading_enabled": False,
         "ticker_count_requested": len(tickers),
         "ticker_count_attempted": len(attempted_tickers),
+        "collection_attempt_id": stable_attempt_id,
+        "collection_attempt_logical_id": logical_attempt_id,
         "collection_attempt_ack": attempt_ack,
         "request_snapshot_rows": int(len(current_snapshot)),
         "request_has_forward_estimate_rows": request_has_forward_estimate_rows,
+        "estimate_value_rows": request_has_forward_estimate_rows,
+        "eps_estimate_access_rows": eps_access_rows,
+        "revenue_estimate_access_rows": revenue_access_rows,
+        "vendor_access_rows": vendor_access_rows,
         "request_estimate_coverage_ratio": estimate_coverage_ratio,
         "snapshot_rows": int(len(snapshot)),
         "stored_estimate_coverage_ratio": stored_estimate_coverage_ratio,
@@ -1385,13 +1911,112 @@ def main() -> int:
         "snapshot_path": str(snapshot_path),
         "signals_output": str(signals_output),
         "feature_summary": feature_summary,
+        "source_contract": SCHEMA_VERSION,
+        "h2_eligible": False,
+        "source_availability_evidence": {
+            "identity_status_counts": current_snapshot.get("identity_status", pd.Series(dtype=str)).value_counts().to_dict(),
+            "observed_at_min": current_snapshot.get("observed_at", pd.Series(dtype=str)).min() if "observed_at" in current_snapshot else None,
+            "collected_at_max": current_snapshot.get("collected_at", pd.Series(dtype=str)).max() if "collected_at" in current_snapshot else None,
+            "snapshot_version_ids": sorted(current_snapshot.get("snapshot_version_id", pd.Series(dtype=str)).dropna().unique().tolist()),
+            "source_payload_sha256": sorted(current_snapshot.get("source_payload_sha256", pd.Series(dtype=str)).dropna().unique().tolist()),
+            "historical_backfill_allowed": False,
+            "canonical_breadth_source": "UNKNOWN_NO_ANALYST_REVISION_SOURCE",
+            "surprise_source": "UNKNOWN_NO_FROZEN_PRE_EVENT_CONSENSUS",
+        },
         "error_count": len(errors),
         "error_budget_count": error_budget["error_budget_count"],
         "entitlement_error_warn_only_count": error_budget["entitlement_error_warn_only_count"],
         "entitlement_error_probe_count": error_budget["entitlement_error_probe_count"],
         "errors": errors[:10],
     }
-    write_json(summary_path, payload)
+
+    if status == "blocked_data_integrity":
+        blocked_staged: list[tuple[Path, Path]] = []
+        try:
+            blocked_staged.append((_stage_dataframe_for_target(signals_output, signals), signals_output))
+            blocked_staged.append((_stage_bytes_for_target(summary_path, _json_bytes(payload)), summary_path))
+            _atomic_commit_staged_files(blocked_staged)
+        finally:
+            for staged, _ in blocked_staged:
+                staged.unlink(missing_ok=True)
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 2
+
+    staged_files: list[tuple[Path, Path]] = []
+    try:
+        staged_snapshot = _stage_dataframe_for_target(snapshot_path, snapshot)
+        staged_signals = _stage_dataframe_for_target(signals_output, signals)
+        staged_files.append((staged_snapshot, snapshot_path))
+        staged_files.append((staged_signals, signals_output))
+
+        staged_checkpoint: Path | None = None
+        staged_queue: Path | None = None
+        if checkpoint_bytes is not None and queue_bytes is not None:
+            staged_checkpoint = _stage_bytes_for_target(checkpoint_path, checkpoint_bytes)
+            staged_queue = _stage_bytes_for_target(queue_path, queue_bytes)
+            staged_files.append((staged_checkpoint, checkpoint_path))
+            staged_files.append((staged_queue, queue_path))
+
+        commit_id = uuid.uuid4().hex
+        payload["transaction_commit"] = {
+            "schema_version": "earnings-estimate-collector-transaction-v2",
+            "commit_id": commit_id,
+            "logical_attempt_id": logical_attempt_id,
+            "attempt_id": stable_attempt_id,
+            "snapshot_sha256": _sha256_file(staged_snapshot),
+            "signals_sha256": _sha256_file(staged_signals),
+            "checkpoint_sha256": (
+                _sha256_file(staged_checkpoint or checkpoint_path)
+                if args.collection_checkpoint and checkpoint_path.is_file() else ""
+            ),
+            "queue_sha256": (
+                _sha256_file(staged_queue or queue_path)
+                if args.collection_queue and queue_path.is_file() else ""
+            ),
+        }
+        staged_summary = _stage_bytes_for_target(summary_path, _json_bytes(payload))
+        staged_files.append((staged_summary, summary_path))
+
+        require_collection_day(fetch_date)
+        _atomic_commit_staged_files(
+            staged_files, marker_path=snapshot_dir / TRANSACTION_MARKER_NAME,
+            commit_id=commit_id, summary_sha256=_sha256_file(staged_summary),
+        )
+    except Exception as exc:
+        transaction_error = sanitize_error_message(exc) or "collector_transaction_commit_failure"
+        blocked_payload = {
+            **payload,
+            "status": "blocked_data_integrity",
+            "reason": "collector_transaction_commit_failure",
+            "collection_attempt_ack": {
+                "status": "deferred_until_durable_commit",
+                "attempt_id": stable_attempt_id,
+                "attempted_ticker_count": len(attempted_tickers),
+                "acknowledged_ticker_count": 0,
+                "unacknowledged_tickers": list(dict.fromkeys(attempted_tickers)),
+            },
+            "feature_summary": {
+                **feature_summary,
+                "status": "blocked",
+                "reason": "collector_transaction_commit_failure",
+                "error": transaction_error,
+            },
+        }
+        blocked_signals = pd.DataFrame(columns=["ticker", *PHASE18_ESTIMATE_REVISION_COLUMNS])
+        blocked_staged: list[tuple[Path, Path]] = []
+        try:
+            blocked_staged.append((_stage_dataframe_for_target(signals_output, blocked_signals), signals_output))
+            blocked_staged.append((_stage_bytes_for_target(summary_path, _json_bytes(blocked_payload)), summary_path))
+            _atomic_commit_staged_files(blocked_staged)
+        finally:
+            for staged, _ in blocked_staged:
+                staged.unlink(missing_ok=True)
+        print(json.dumps(blocked_payload, indent=2, sort_keys=True))
+        return 2
+    finally:
+        for staged, _ in staged_files:
+            staged.unlink(missing_ok=True)
+
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
 
