@@ -21,12 +21,18 @@ from pathlib import Path
 
 from tools import run_agent_board as board
 from tools.check_run287_do_not_repeat import evaluate_candidate
+from tools.manage_run287_risk_outcome_accepted_heads import OUTCOME_FALSE_SAFETY_FIELDS
 
 SCHEMA = 'bounded-research-preview-v1'
 ARCHIVE = 'run287-risk-outcome-archive-v1'
 FLAGS = ('portfolio_transition_allowed', 'orders_generated', 'target_books_mutated',
          'historical_cagr_mdd_evidence_changed', 'production_activation_allowed',
          'live_trading_enabled')
+# Required diagnostics in docs/run287_risk_outcome_archive_contract.json.
+CORE_METRICS = ('ticker_total_return', 'benchmark_total_return', 'spy_excess_total_return',
+                'ticker_max_drawdown', 'ticker_recovery_from_trough', 'ticker_max_gain')
+ACTIONABLE_METRICS = ('actionable_ticker_total_return', 'actionable_spy_excess_total_return',
+                      'actionable_ticker_max_drawdown')
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = ROOT / 'research/control_plane/bounded_research_v1.json'
 REGISTRY = ROOT / 'docs/run287_do_not_repeat_registry.json'
@@ -113,8 +119,9 @@ def bounded_read(path, limit):
     path = native_path(path)
     require(path.is_file() and path.stat().st_size <= limit, 'input_missing_or_byte_budget')
     with path.open('rb') as stream:
-        raw = stream.read(limit + 1)
-    require(len(raw) <= limit, 'input_byte_budget')
+        raw = stream.read(limit)
+    # Detect growth/short reads without spending a byte beyond the allowance.
+    require(len(raw) == path.stat().st_size, 'input_changed_during_read')
     return raw
 
 
@@ -162,10 +169,22 @@ def inspect_events(events, sessions, now, limit, check_deadline=lambda: None):
         require(isinstance(oid, str) and re.fullmatch('[0-9a-f]{24}', oid), 'observation_id_invalid')
         require(event['family'] in ('candidate', 'held') and event['benchmark_ticker'] == 'SPY',
                 'cohort_or_benchmark_conflict')
-        expected_oid = raw_hash(f"{ARCHIVE}|{event['family']}|{decision}|{event.get('portfolio_kind', '')}|{event['ticker']}".encode())[:24]
+        portfolio = event.get('portfolio_kind', '')
+        require(isinstance(portfolio, str) and
+                (portfolio == '' if event['family'] == 'candidate' else
+                 portfolio == portfolio.strip().lower() and portfolio not in ('', 'nan', 'none', 'null')),
+                'family_portfolio_identity_conflict')
+        ticker = event['ticker']
+        require(isinstance(ticker, str) and ticker == ticker.strip().upper().replace('.', '-') and
+                ticker not in ('', 'NAN', 'NONE', 'NULL', 'CASH', '__CASH__'), 'security_identity_conflict')
+        expected_oid = raw_hash(f"{ARCHIVE}|{event['family']}|{decision}|{portfolio}|{ticker}".encode())[:24]
         require(oid == expected_oid, 'security_observation_conflict')
         if event['event_type'] == 'risk_signal_observed':
             require(oid not in signals, 'conflicting_decision')
+            if event['family'] == 'held':
+                weight = event.get('marked_weight')
+                require(type(weight) in (int, float) and math.isfinite(weight) and weight > 1e-12,
+                        'held_weight_identity_conflict')
             snapshot_keys = ('family', 'decision_date', 'ticker', 'risk_state', 'advisory_action', 'reason_codes')
             snapshot_keys += (('history_observations', 'signal_return_1d', 'signal_spy_excess_return_1d',
                 'signal_return_21d', 'signal_spy_excess_return_21d', 'signal_drawdown_63d', 'proposed_entries')
@@ -184,6 +203,15 @@ def inspect_events(events, sessions, now, limit, check_deadline=lambda: None):
             require(eid == expected, 'outcome_identity_conflict')
             require(event['outcome_status'] == 'completed' and event['price_basis'] == 'adjusted_close',
                     'unresolved_outcome')
+            for name in CORE_METRICS + ACTIONABLE_METRICS:
+                value = event.get(name)
+                if name in ACTIONABLE_METRICS and horizon == 1:
+                    require(name in event and value is None, 'invalid_1d_actionable_metric:' + name)
+                else:
+                    require(type(value) in (int, float) and math.isfinite(value),
+                            'incomplete_completed_outcome:' + name)
+            require(event.get('actionable_metrics_status') ==
+                    ('not_applicable_at_1d' if horizon == 1 else 'completed'), 'actionable_status_conflict')
             require(decision < event['outcome_date'] <= event['evaluated_as_of_date'] <= now.date().isoformat(),
                     'future_outcome')
             require(event['evaluated_as_of_date'] <= recorded.date().isoformat(), 'event_clock_conflict')
@@ -218,9 +246,7 @@ def inspect_events(events, sessions, now, limit, check_deadline=lambda: None):
             outcome = outcomes.get((oid, horizon))
             elapsed = bisect_right(sessions, now.date().isoformat()) - bisect_right(sessions, signal['decision_date'])
             status = ('LABEL_IMMATURE' if elapsed < horizon else 'NOT_AVAILABLE') if outcome is None else 'PRODUCER_DIAGNOSTIC_ONLY'
-            values = {name: metric(outcome.get(name) if outcome else None) for name in
-                ('ticker_total_return', 'benchmark_total_return', 'spy_excess_total_return',
-                 'ticker_max_drawdown', 'ticker_recovery_from_trough', 'ticker_max_gain')}
+            values = {name: metric(outcome[name] if outcome else None) for name in CORE_METRICS}
             row['outcomes'][str(horizon)] = {'status': status, 'metrics': values,
                 'mfe_mae_use': 'DIAGNOSTIC_ONLY_NEVER_DECISION_FEATURE', 'costs': metric(None)}
         rows.append(row)
@@ -254,13 +280,19 @@ def prepare(root, out, intake_path, *, now, code_sha, config_hash, board_blocker
     def check_deadline():
         require(time.monotonic() - start <= budget['timeout_seconds'], 'preview_timeout')
     inputs = {}
+    total = 0
+    def read_input(path):
+        nonlocal total
+        raw = bounded_read(path, budget['max_input_bytes'] - total)
+        total += len(raw)
+        return raw
     with exclusive_lock(out):
         write_scratch(out / 'manifest.json', {'schema_version': SCHEMA, 'status': 'BLOCKED',
                           'reason': 'BUILD_STARTED', 'authority': board.AUTHORITY})
         try:
             intake_path = native_path(intake_path)
             require(intake_path.is_relative_to(root), 'intake_outside_source_root')
-            intake_bytes = bounded_read(intake_path, budget['max_input_bytes'])
+            intake_bytes = read_input(intake_path)
             intake = strict_json(intake_bytes)
             require(set(intake) == {'schema_version', 'producer', 'inputs'}, 'intake_schema')
             require(intake['schema_version'] == 'bounded-research-intake-v1', 'intake_schema')
@@ -275,7 +307,6 @@ def prepare(root, out, intake_path, *, now, code_sha, config_hash, board_blocker
             require(type(producer['run_id']) is int and producer['run_id'] > 0 and
                     type(producer['attempt']) is int and producer['attempt'] > 0, 'producer_identity')
             require(set(intake['inputs']) == {'events', 'summary', 'calendar'}, 'source_roles')
-            total = len(intake_bytes)
             # Admit all clocks before reading any declared source file.
             for role, descriptor in intake['inputs'].items():
                 check_deadline()
@@ -285,22 +316,24 @@ def prepare(root, out, intake_path, *, now, code_sha, config_hash, board_blocker
             for role, descriptor in intake['inputs'].items():
                 check_deadline()
                 path = native_path(board.artifact_path(root, descriptor['path']))
-                raw = bounded_read(path, budget['max_input_bytes'] - total)
-                total += len(raw)
+                raw = read_input(path)
                 require(raw_hash(raw) == descriptor['sha256'], 'source_hash_conflict')
                 inputs[role] = raw
             summary = strict_json(inputs['summary'])
-            require(summary.get('schema_version') == ARCHIVE and summary.get('status') in
+            require(isinstance(summary, dict) and summary.get('schema_version') == ARCHIVE and summary.get('status') in
                     ('READY_RISK_OUTCOME_ARCHIVE_REVIEW_ONLY', 'SKIPPED_NO_DECISION_OBSERVATIONS'), 'source_failure')
-            require(summary.get('review_only') is True and all(summary.get(flag) is False for flag in FLAGS),
+            require(summary.get('review_only') is True and
+                    all(summary.get(flag) is False for flag in OUTCOME_FALSE_SAFETY_FIELDS),
                     'source_authority_conflict')
-            require(summary.get('outputs', {}).get('event_log_sha256') == raw_hash(inputs['events']),
+            require(summary.get('blockers') == [], 'source_summary_blockers')
+            require(isinstance(summary.get('outputs'), dict) and
+                    summary['outputs'].get('event_log_sha256') == raw_hash(inputs['events']),
                     'producer_event_hash_conflict')
             source_date = summary['as_of_date']
             require(date.fromisoformat(source_date).isoformat() == source_date and
                     source_date <= now.date().isoformat(), 'future_source')
             if summary['status'] == 'SKIPPED_NO_DECISION_OBSERVATIONS':
-                require(not inputs['events'].strip() and all(type(summary.get(k)) is int and summary[k] == 0
+                require(not inputs['events'] and all(type(summary.get(k)) is int and summary[k] == 0
                         for k in ('signal_observation_count', 'forward_outcome_event_count')), 'empty_summary_conflict')
                 # The native skipped branch has no generation clock; never invent it.
                 generated = None
@@ -321,6 +354,13 @@ def prepare(root, out, intake_path, *, now, code_sha, config_hash, board_blocker
                             event.get('evaluated_as_of_date', source_date) <= source_date,
                             'producer_clock_conflict')
                     events.append(event)
+            for field, kind in (('signal_observation_count', 'risk_signal_observed'),
+                                ('forward_outcome_event_count', 'forward_outcome_observed')):
+                require(type(summary.get(field)) is int and summary[field] >= 0 and
+                        summary[field] == sum(event.get('event_type') == kind for event in events),
+                        'summary_event_count_conflict')
+            require(summary['signal_observation_count'] + summary['forward_outcome_event_count'] == len(events),
+                    'summary_event_count_conflict')
             rows = inspect_events(events, strict_json(inputs['calendar'])['sessions'], now,
                                   budget['max_events'], check_deadline)
             registry = board.read_json(registry_path)
@@ -375,7 +415,7 @@ def prepare(root, out, intake_path, *, now, code_sha, config_hash, board_blocker
             # Recheck actual input bytes and current expiry before committing the manifest.
             for role, descriptor in intake['inputs'].items():
                 check_deadline()
-                require(raw_hash(bounded_read(board.artifact_path(root, descriptor['path']), budget['max_input_bytes']))
+                require(raw_hash(read_input(board.artifact_path(root, descriptor['path'])))
                         == raw_hash(inputs[role]), 'source_changed_during_preview')
                 board.verify_artifact_time(descriptor, now, now + timedelta(seconds=time.monotonic() - start))
             manifest = {'schema_version': SCHEMA, 'status': 'BLOCKED', 'reuse': 'SKIP_UNCHANGED' if reused else 'PREPARED',

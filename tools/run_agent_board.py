@@ -77,6 +77,16 @@ def repo_path(value: str | Path) -> Path:
     return path if path.is_absolute() else REPO_ROOT / path
 
 
+def bounded_research_intake_path(root: Path, value: str | Path) -> Path:
+    """Resolve the opt-in intake under latest-run before any board write."""
+    from research.control_plane import bounded_research
+    path = Path(value)
+    path = bounded_research.native_path(path if path.is_absolute() else root / path)
+    bounded_research.require(path.is_relative_to(bounded_research.native_path(root)),
+                             'intake_outside_source_root')
+    return path
+
+
 def schema_validate(payload: Any, filename: str, definition: str | None = None) -> None:
     schema = read_json(CONTRACT_DIR / filename)
     if definition is not None:
@@ -590,7 +600,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             bounded_research.output_geometry(root, out)
             if getattr(args, 'evidence_root', None):
                 bounded_research.output_geometry(repo_path(args.evidence_root), out)
-            sources = [repo_path(args.bounded_research_intake),
+            sources = [bounded_research_intake_path(root, args.bounded_research_intake),
                        repo_path(args.system_state) if getattr(args, 'system_state', None)
                        else root / 'control_plane/system_state.json']
             if getattr(args, 'canonical_inputs', None):
@@ -662,7 +672,7 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
     if getattr(args, 'bounded_research_intake', None):
         from research.control_plane import bounded_research
         research_result = bounded_research.prepare(root, out / 'research',
-            repo_path(args.bounded_research_intake), now=now, code_sha=code_sha,
+            bounded_research_intake_path(root, args.bounded_research_intake), now=now, code_sha=code_sha,
             config_hash=config_hash, board_blockers=sorted(set(reasons +
                 [reason for task in tasks for reason in task['reasons']])),
             dependency_identity={'canonical_state': state.get('dependency_identity') if isinstance(state, dict) else None,

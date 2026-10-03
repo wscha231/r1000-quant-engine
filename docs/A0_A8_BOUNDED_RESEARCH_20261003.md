@@ -2,19 +2,49 @@
 
 TASK_KEY: R1000-A0-A8-BOUNDED-RESEARCH-AUTOMATION-V1-20261003.
 Owner: A0/A8. Repository: wscha231/r1000-quant-engine.
-Integrated base: master@659ded5834395c3851c0e10771b6a0cc6c6b65a2.
+Integrated base: master@a53aebc353db8d2d0bcd054415c1181a3ab7eff0.
 Original implementation base: master@26b546173c1aafcb8fcc4d2e8e7fe575b52b2a8d.
 Branch: h1/a0-a8-bounded-research-20261003.
 Standing execution: DISABLED. Research state: BLOCKED / WAIT_DEPENDENCY.
 
 Base-refresh task: R1000-A0-A8-BOUNDED-RESEARCH-BASE-REFRESH-20261003.
-Integrate current master with a merge commit, preserving both the PR570 and
-A8 preview lesson entries. The six functional files and disabled, zero-budget
-configuration remain identical to previous PR head
-fe88d270ca97784faa88ce6b44f789fefe7f4bd5. Its earlier exact-head review is
-historical evidence only; the integration head requires fresh CI and one
-independent review after those checks pass. Merge and activation remain
-separate, unapproved actions.
+The first base refresh integrated master659ded58 at head6d2fe16a, preserving
+both the PR570 and A8 preview lesson entries. Its six functional files were
+then identical to previous headfe88d270. Independent review5400633185 found
+five admission/resource defects; that head is not final approval evidence.
+The approved correction below also integrates the subsequent master advance
+without rewriting history. Merge to master and activation remain unapproved.
+
+## Approved correction pass work report — 2026-10-04
+
+Task: R1000-A0-A8-BOUNDED-RESEARCH-CORRECTION-20261004. H1 only.
+Starting PR head: 6d2fe16a6bdd783c3bd85a41cb7ca3839bb6a00c.
+The user approved one correction of the five reproduced review findings,
+followed by new-head validation and one independent review. Edits are limited
+to bounded_research.py, run_agent_board.py, bounded_research_smoke.py and
+the two already-scoped documents. Configuration, workflow and registration
+wrapper retain their prior bytes; inherited master work remains outside the
+PR's eight-file diff.
+
+| Finding | Correction and regression evidence |
+| --- | --- |
+| Summary source admission | Reuse native accepted-head false-authority fields; require empty blockers and strict integer counts matching actual event types. Missing/true/mistyped flags and misleading counts reject before artifact admission. |
+| Relative intake | One resolver in prewrite checks and prepare uses latest-run for relative paths. Exercise both relative and absolute board invocations; escaping paths reject before any board write. |
+| Completed outcome | Require finite values for all nine native required metrics; the three actionable metrics are explicitly null and not_applicable_at_1d only at horizon1. Missing/bool/nonfinite values and contradictory status reject. Missing costs/ER remain unavailable. |
+| Aggregate source I/O | Intake, initial source reads and final source rechecks share one allowance. Physical reads never request the former extra sentinel byte. Test 2.5 MB padding, exact aggregate capacity and one-byte-short rejection; failure revokes manifest membership. |
+| Native identity | Candidate portfolio must be absent/empty; held portfolio must be nonblank and normalized, with positive marked weight. Reject noncanonical ticker aliases and internally rehashed duplicate candidate units. Preserve separate legitimate held portfolios and the original 24-character identities. |
+
+The focused suite now contains 54 synthetic tests, including 13 added
+regressions. CI, the final exact head, review responses and unresolved-thread
+readback are recorded in PR573 after publication, without changing the reviewed
+tree just to append remote status. Tests establish offline admission behavior;
+actual source admission, economic validation, model/experiment execution,
+authorized trigger execution and durable research readback remain NOT_RUN.
+The unchanged zero-budget config SHA256 is
+96d2bcad1358c7335a3e82417deced95c0d0cc470c8a07585576cfb9c2ee7f20.
+Stop if new-head CI fails, a new actionable review finding appears, current
+source scope conflicts, or the final head changes. Keep Draft until the
+separately authorized readiness/review-complete gate is satisfied.
 
 This implements the bounded fallback when current outcome/evaluator/runtime
 prerequisites cannot admit an economic experiment. It connects original
@@ -33,7 +63,7 @@ research loop. Unit fixtures are not REAL_INPUT_VERIFIED.
 | do-not-repeat registry and evaluate_candidate | REUSE | Read-only evidence-gap hypothesis check |
 | Candidate Registry reference index, merged PR560 | REUSE boundary | No second registry; current immutable reference rules retained |
 | Agent Board (Manual) Actions | EXTEND | Empty-by-default input; existing upload only |
-| Evaluation PR571 / PR567 | BLOCKED dependency | No unmerged stack imported; economic metrics unavailable |
+| Economic evaluation/A1 admission | BLOCKED dependency | Preview lacks a verified economic input/evaluator receipt; merged code alone does not admit that input |
 | Model adapter / paid budget / durable research writer | MISSING / BLOCKED | Zero calls and no Drive writes |
 | Standing activation contract | MISSING | No schedule or producer subscription enabled |
 
@@ -74,6 +104,9 @@ It does not create a research intake from legacy metric files or authenticate
 canonical data automatically. Both the source root and output root must be
 disjoint scratch paths; the caller must supply the existing canonical A0
 refresh inputs separately. A blocked sidecar makes the opt-in board blocked.
+Relative bounded-research intake paths resolve beneath latest-run; absolute
+paths must also be inside that source root. This same rule is enforced before
+any board write and when preparing the sidecar.
 
 Intake has schema_version=bounded-research-intake-v1, producer and inputs.
 Producer fields: repository, branch, head_sha, workflow, run_id, attempt,
@@ -150,7 +183,9 @@ are under activation_proposal_only and are not applied. enabled=true is rejected
 
 Validation is registered through the existing agent_board_smoke Tier-1 entry;
 the protected run_pr_validation runner is unchanged. Focused regressions cover
-41 synthetic cases, including separate-process exclusion, partial-save resume,
+54 synthetic cases, including native summary/metric/identity admission,
+aggregate source-read accounting, relative-intake isolation,
+separate-process exclusion, partial-save resume,
 expiry/maturity/dependency changes, output/time budgets, malicious instructions,
 original intent, label maturity and default-disabled behavior. Run both
 python tests/agent_board_smoke.py and python -O tests/agent_board_smoke.py.

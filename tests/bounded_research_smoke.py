@@ -46,6 +46,8 @@ class BoundedResearchTests(unittest.TestCase):
             outcome_status='completed', price_basis='adjusted_close', ticker_total_return=.10,
             benchmark_total_return=.03, spy_excess_total_return=.07, ticker_max_drawdown=-.02,
             ticker_max_gain=.12, ticker_recovery_from_trough=.11,
+            actionable_ticker_total_return=.09, actionable_spy_excess_total_return=.06,
+            actionable_ticker_max_drawdown=-.01, actionable_metrics_status='completed',
             ticker_price_path_sha256='a'*64, benchmark_price_path_sha256='b'*64)
         self.events = [self.signal, self.outcome]
         self.cfg = self.scratch/'config.json'
@@ -60,7 +62,9 @@ class BoundedResearchTests(unittest.TestCase):
     def make_intake(self):
         summary = dict(schema_version=research.ARCHIVE, status='READY_RISK_OUTCOME_ARCHIVE_REVIEW_ONLY',
             as_of_date=self.sessions[-1], generated_at_utc=self.at(-8), review_only=True,
-            **{flag:False for flag in research.FLAGS})
+            blockers=[], signal_observation_count=sum(e['event_type']=='risk_signal_observed' for e in self.events),
+            forward_outcome_event_count=sum(e['event_type']=='forward_outcome_observed' for e in self.events),
+            **{flag:False for flag in research.OUTCOME_FALSE_SAFETY_FIELDS})
         if not self.events:
             summary['status']='SKIPPED_NO_DECISION_OBSERVATIONS'
             summary.pop('generated_at_utc')
@@ -82,6 +86,24 @@ class BoundedResearchTests(unittest.TestCase):
 
     def save_intake(self):
         self.intake.write_text(json.dumps(self.payload), encoding='utf-8')
+
+    def replace_source(self, role, value):
+        raw = json.dumps(value).encode()
+        (self.source/(role+'.json')).write_bytes(raw)
+        self.payload['inputs'][role]['sha256'] = research.raw_hash(raw)
+        self.save_intake()
+
+    def reidentify_signal(self, signal):
+        keys = ('family','decision_date','ticker','risk_state','advisory_action','reason_codes')
+        keys += (('history_observations','signal_return_1d','signal_spy_excess_return_1d',
+                  'signal_return_21d','signal_spy_excess_return_21d','signal_drawdown_63d','proposed_entries')
+                 if signal['family']=='candidate' else
+                 ('portfolio_kind','marked_weight','official_prior_weight','scenario_keys'))
+        signal['signal_snapshot_sha256'] = research.canonical_hash({key:signal[key] for key in keys})
+        oid = research.raw_hash(f"{research.ARCHIVE}|{signal['family']}|{signal['decision_date']}|"
+                                f"{signal.get('portfolio_kind','')}|{signal['ticker']}".encode())[:24]
+        signal['observation_id'] = oid
+        signal['event_id'] = research.raw_hash(f'{research.ARCHIVE}|risk_signal_observed|{oid}'.encode())
 
     def run_preview(self, **extra):
         return research.prepare(self.source, self.out, self.intake, now=self.now,
@@ -163,6 +185,120 @@ class BoundedResearchTests(unittest.TestCase):
         self.payload['producer']['conclusion']='failure'
         self.save_intake()
         self.assert_block('producer_not_eligible')
+
+    def test_summary_blockers_and_native_authority_fields_fail_closed(self):
+        good = board.read_json(self.source/'summary.json')
+        faults = [('blockers',['incomplete_source'])]
+        faults += [(flag,True) for flag in research.OUTCOME_FALSE_SAFETY_FIELDS]
+        faults += [('threshold_tuning_allowed',None),('fullrun_executed',0),('mechanism_promotion_allowed','false')]
+        for field, value in faults:
+            with self.subTest(field=field,value=value):
+                bad = {**good,field:value}
+                self.replace_source('summary',bad)
+                result = self.run_preview()
+                self.assertNotIn('identity',result)
+                self.assertNotIn('members',board.read_json(self.out/'manifest.json'))
+                self.assertFalse((self.out/'a8_research.json').exists())
+        for field in ('blockers',*research.OUTCOME_FALSE_SAFETY_FIELDS):
+            with self.subTest(missing=field):
+                bad = dict(good); bad.pop(field)
+                self.replace_source('summary',bad)
+                self.assertNotIn('identity',self.run_preview())
+
+    def test_summary_counts_match_actual_native_event_types(self):
+        good = board.read_json(self.source/'summary.json')
+        for field in ('signal_observation_count','forward_outcome_event_count'):
+            for value in (None,True,-1,0,999,'1'):
+                with self.subTest(field=field,value=value):
+                    self.replace_source('summary',{**good,field:value})
+                    self.assert_block('summary_event_count_conflict')
+                    self.assertNotIn('members',board.read_json(self.out/'manifest.json'))
+        self.replace_source('summary',{**good,'signal_observation_count':2,'forward_outcome_event_count':0})
+        self.assert_block('summary_event_count_conflict')
+
+    def test_completed_outcomes_require_every_native_diagnostic(self):
+        contract = board.read_json(ROOT/'docs/run287_risk_outcome_archive_contract.json')
+        for name in contract['outcome_contract']['required_metrics']:
+            for invalid in ('MISSING',None,True,float('inf'),float('-inf'),float('nan')):
+                with self.subTest(metric=name,invalid=invalid):
+                    bad = dict(self.outcome)
+                    if invalid=='MISSING': bad.pop(name)
+                    else: bad[name]=invalid
+                    self.events=[self.signal,bad]
+                    self.make_intake()
+                    self.assertNotIn('identity',self.run_preview())
+                    self.assertNotIn('members',board.read_json(self.out/'manifest.json'))
+                    self.assertFalse((self.out/'a8_research.json').exists())
+
+    def test_one_day_completed_outcome_keeps_actionable_metrics_not_applicable(self):
+        self.outcome.update(horizon_trading_days=1,outcome_date=self.sessions[1],
+            actionable_metrics_status='not_applicable_at_1d',
+            event_id=research.raw_hash(f'{research.ARCHIVE}|forward_outcome_observed|{self.oid}|1'.encode()),
+            **{name:None for name in research.ACTIONABLE_METRICS})
+        self.make_intake()
+        result=self.run_preview()
+        self.assertEqual(result['rows'][0]['outcomes']['1']['status'],'PRODUCER_DIAGNOSTIC_ONLY')
+        self.assertIsNone(result['rows'][0]['outcomes']['1']['costs']['value'])
+        self.assertFalse(result['economic_validated'])
+        self.outcome['actionable_ticker_total_return']=.02
+        self.make_intake()
+        self.assert_block('invalid_1d_actionable_metric')
+
+    def test_completed_outcome_cannot_misdeclare_actionable_status(self):
+        self.outcome['actionable_metrics_status']='not_applicable_at_1d'
+        self.make_intake()
+        self.assert_block('actionable_status_conflict')
+
+    def test_candidate_portfolio_cannot_split_one_native_decision_unit(self):
+        for portfolio in ('main','concentrated',' ',None):
+            with self.subTest(portfolio=portfolio):
+                duplicate=copy.deepcopy(self.signal)
+                duplicate['portfolio_kind']=portfolio
+                self.reidentify_signal(duplicate)
+                self.events=[self.signal,duplicate]
+                self.make_intake()
+                self.assert_block('family_portfolio_identity_conflict')
+                self.assertNotIn('members',board.read_json(self.out/'manifest.json'))
+
+    def test_held_identity_requires_nonblank_normalized_portfolio_and_positive_weight(self):
+        held={**self.signal,'family':'held','marked_weight':.1,'official_prior_weight':None,'scenario_keys':['base']}
+        for portfolio in ('',' ','MAIN',' main','none',None):
+            with self.subTest(portfolio=portfolio):
+                held['portfolio_kind']=portfolio
+                self.reidentify_signal(held)
+                self.events=[held]
+                self.make_intake()
+                self.assert_block('family_portfolio_identity_conflict')
+        held['portfolio_kind']='main'
+        for weight in (None,True,0,-.1):
+            with self.subTest(weight=weight):
+                held['marked_weight']=weight
+                self.reidentify_signal(held)
+                self.make_intake()
+                self.assert_block('held_weight_identity_conflict')
+
+    def test_normalized_security_identity_cannot_split_original_cohort(self):
+        for ticker in ('test',' TEST','TEST.','', 'CASH'):
+            with self.subTest(ticker=ticker):
+                signal={**self.signal,'ticker':ticker}
+                self.reidentify_signal(signal)
+                self.events=[signal]
+                self.make_intake()
+                self.assert_block('security_identity_conflict')
+
+    def test_native_candidate_and_distinct_held_portfolios_remain_separate(self):
+        held={**self.signal,'family':'held','marked_weight':.1,'official_prior_weight':None,'scenario_keys':['base']}
+        self.signal['portfolio_kind']=''
+        self.events=[self.signal,self.outcome]
+        for portfolio in ('main','concentrated'):
+            signal={**held,'portfolio_kind':portfolio}
+            self.reidentify_signal(signal)
+            self.events.append(signal)
+        self.make_intake()
+        rows=self.run_preview()['rows']
+        self.assertEqual(len(rows),3)
+        self.assertEqual(len({row['decision_id'] for row in rows}),3)
+        self.assertEqual({row['data_class'] for row in rows if row['family']=='held'},{'UNKNOWN'})
 
     def test_summary_and_event_clocks_must_agree(self):
         self.outcome['recorded_at_utc']=self.at(-2)
@@ -267,6 +403,42 @@ class BoundedResearchTests(unittest.TestCase):
         cfg['preview']['max_events']=1
         board.write_json(self.cfg,cfg)
         self.assert_block('event_budget_exhausted')
+
+    def test_initial_reads_and_rechecks_share_one_aggregate_budget(self):
+        self.replace_source('calendar',{'sessions':self.sessions,'_padding':'X'*2500000})
+        maximum=board.read_json(self.cfg)['preview']['max_input_bytes']
+        consumed=[]
+        actual_read=research.bounded_read
+        def counted(path,limit):
+            raw=actual_read(path,limit)
+            consumed.append(len(raw))
+            return raw
+        with patch.object(research,'bounded_read',side_effect=counted):
+            self.assert_block('byte_budget')
+        self.assertLessEqual(sum(consumed),maximum)
+        self.assertGreater(sum(consumed),2500000)
+        self.assertNotIn('members',board.read_json(self.out/'manifest.json'))
+
+    def test_aggregate_read_budget_accepts_exact_bound_and_rejects_one_byte_less(self):
+        exact=self.intake.stat().st_size+2*sum((self.source/(role+'.json')).stat().st_size
+                                            for role in ('events','summary','calendar'))
+        cfg=board.read_json(self.cfg)
+        cfg['preview']['max_input_bytes']=exact
+        board.write_json(self.cfg,cfg)
+        consumed=[]
+        actual_read=research.bounded_read
+        def counted(path,limit):
+            raw=actual_read(path,limit)
+            consumed.append(len(raw))
+            return raw
+        with patch.object(research,'bounded_read',side_effect=counted):
+            self.assertIn('identity',self.run_preview())
+        self.assertEqual(sum(consumed),exact)
+        self.assertEqual(len(consumed),7)
+        cfg['preview']['max_input_bytes']=exact-1
+        board.write_json(self.cfg,cfg)
+        self.assert_block('byte_budget')
+        self.assertNotIn('members',board.read_json(self.out/'manifest.json'))
 
     def test_output_budget_and_timeout_revoke_success(self):
         self.run_preview()
@@ -399,6 +571,37 @@ class BoundedResearchTests(unittest.TestCase):
         self.assertEqual(summary['bounded_research']['a0_queue_ref'],'agent_task_queue.json')
         self.assertEqual(summary['bounded_research']['completion_receipt_store'],'system_state.completed_tasks')
         self.assertFalse(summary['bounded_research']['dispatch_enabled'])
+
+    def test_board_relative_intake_is_resolved_under_latest_run_in_both_paths(self):
+        import argparse
+        actual_prepare=research.prepare
+        def prepared(*args,**kwargs):
+            self.assertEqual(args[2],self.intake)
+            kwargs.update(config_path=self.cfg,registry_path=self.registry)
+            return actual_prepare(*args,**kwargs)
+        for option in ('intake.json',str(self.intake)):
+            with self.subTest(option=option):
+                out=self.scratch/('relative-board' if option=='intake.json' else 'absolute-board')
+                args=argparse.Namespace(latest_run=str(self.source),output_dir=str(out),run_url='',
+                    max_tasks=0,bounded_research_intake=option)
+                with patch.object(research,'prepare',side_effect=prepared) as calls:
+                    result=board.run(args)
+                self.assertEqual(calls.call_count,1)
+                self.assertIn('research/a8_research.json',result['members'])
+                self.assertEqual(board.read_json(out/'research/a8_research.json')['rows'][0]['reason'],'ORIGINAL_REASON')
+
+    def test_board_relative_intake_escape_blocks_before_any_write(self):
+        import argparse
+        out=self.scratch/'escape-board'
+        for option in ('../outside.json',str(out/'manifest.json')):
+            with self.subTest(option=option):
+                args=argparse.Namespace(latest_run=str(self.source),output_dir=str(out),run_url='',
+                    max_tasks=0,bounded_research_intake=option)
+                with patch.object(research,'prepare',side_effect=AssertionError('escaped intake reached prepare')):
+                    result=board.run(args)
+                self.assertEqual(result['status'],'BLOCKED')
+                self.assertIn('intake_outside_source_root',result['reason'])
+                self.assertFalse(out.exists())
 
     def test_board_output_tmp_alias_cannot_overwrite_source(self):
         import argparse

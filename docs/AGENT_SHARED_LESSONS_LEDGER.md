@@ -1,5 +1,26 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-04 — Correct native admission before accepting bounded A8 scratch output (#573)
+
+- The user approved correction of review5400633185 on head6d2fe16a. Reuse
+  all native summary false-authority fields, empty blockers and strict actual
+  event counts; hashes alone do not establish semantic source eligibility.
+- A completed label requires finite native diagnostics, including actionable
+  metrics after horizon1. At horizon1 they remain explicitly not applicable;
+  missing costs, identity/PIT or ER must still never be imputed.
+- Candidate identity is one decision-date/ticker with no portfolio; held
+  identity includes a normalized nonblank portfolio and positive marked weight.
+  Reject noncanonical identity spellings rather than rewriting original intent.
+- Resolve a relative intake under latest-run in both prewrite isolation and
+  preparation. Reject traversal before creating output or taking its lock.
+- Initial reads and verification rereads spend the same aggregate byte bound.
+  Request no extra sentinel byte beyond the remaining allowance; exercise an
+  exact-capacity success, one-byte-short failure and padded real scratch files.
+- Master advanced again to a53aebc3 after the initial integrated review. Preserve
+  both lesson histories when incorporating it and bind final CI/review to the
+  resulting exact head. Neither successful fixture checks nor code integration
+  establish real-input, economic, durable or automatic-operation readiness.
+
 ## 2026-10-03 — A8 preview must preserve failure, intent and write ownership
 
 - Daily37103143806 skipped outcomes and accepted persistence after a session
@@ -43,6 +64,26 @@
   separate from the actual new-head CI installation and validation evidence.
 - Wait for stable-head required CI before the single fresh independent review.
   Source integration does not verify real outcomes or activate research.
+
+## 2026-10-03 — Passing CI does not establish native A8 source admission (#573)
+
+- One fresh GitHub Codex review of 6d2fe16a6bdd783c3bd85a41cb7ca3839bb6a00c
+  found four P2 issues and one P3 issue. Evidence: PR573 review5400633185.
+  Keep all five threads unresolved until their corrections are verified;
+  232/232 CI smoke entries passing does not make this head ready for approval.
+- Normal and Python -O synthetic probes both reproduce admission of summaries
+  with blockers, mismatched counts or unchecked authority flags; completed
+  outcomes with missing diagnostics; duplicate candidate decision/ticker units
+  with arbitrary portfolios; and held observations with blank portfolios.
+- Relative intake paths resolve beneath the repository rather than latest-run.
+  With 2,504,317 first-read bytes, final source rechecks raise physical reads to
+  5,007,223 bytes while the configured aggregate budget is 4,194,304 bytes.
+- Reuse the native summary, completed-outcome and identity invariants in the
+  next bounded H1 correction. Preserve zero research calls, disabled activation,
+  UNKNOWN economic inputs and all account/strategy authority boundaries.
+- This lesson is prepared locally for that correction commit. Preserve the
+  reviewed remote head during the authorized integration-only verification;
+  no additional implementation or second review was performed in this pass.
 
 ## 2026-10-03 — Separate safe access from row-local expiry (#560 R3)
 
