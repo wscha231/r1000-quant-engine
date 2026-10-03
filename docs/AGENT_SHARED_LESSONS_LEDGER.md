@@ -19,6 +19,10 @@
   platform limitation; do not repair an unrelated transactional workflow here.
 - The bundled Python3.12 lacks jsonschema; native Python3.14 normal/-O tests
   passed. Keep missing-runtime-dependency evidence distinct from CI validation.
+- Independent A6 found four concrete gaps: protect separately supplied intake,
+  evidence and state paths; make default and opt-in writers honor one lock;
+  reject outcomes predating their signal; preserve the native skipped summary's
+  absent timestamp. Add regressions and check all source clocks before byte reads.
 
 ## 2026-10-03 — Separate safe access from row-local expiry (#560 R3)
 

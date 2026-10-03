@@ -61,6 +61,10 @@ class BoundedResearchTests(unittest.TestCase):
         summary = dict(schema_version=research.ARCHIVE, status='READY_RISK_OUTCOME_ARCHIVE_REVIEW_ONLY',
             as_of_date=self.sessions[-1], generated_at_utc=self.at(-8), review_only=True,
             **{flag:False for flag in research.FLAGS})
+        if not self.events:
+            summary['status']='SKIPPED_NO_DECISION_OBSERVATIONS'
+            summary.pop('generated_at_utc')
+            summary.update(signal_observation_count=0,forward_outcome_event_count=0)
         event_bytes = ('\n'.join(json.dumps(event) for event in self.events)+'\n').encode() if self.events else b''
         summary['outputs'] = {'event_log_sha256': research.raw_hash(event_bytes)}
         data = {'events':event_bytes,'summary':json.dumps(summary).encode(),
@@ -148,6 +152,13 @@ class BoundedResearchTests(unittest.TestCase):
                 self.save_intake()
                 self.assertEqual(self.run_preview()['status'],'BLOCKED')
 
+    def test_future_descriptor_blocks_before_any_source_bytes(self):
+        self.payload['inputs']['calendar']['collected_at']=self.at(1)
+        self.save_intake()
+        with patch.object(research,'bounded_read',wraps=research.bounded_read) as reads:
+            self.assert_block('artifact_time_boundary')
+        self.assertEqual([c.args[0] for c in reads.call_args_list],[self.intake])
+
     def test_failed_producer_cannot_enter_research(self):
         self.payload['producer']['conclusion']='failure'
         self.save_intake()
@@ -157,6 +168,17 @@ class BoundedResearchTests(unittest.TestCase):
         self.outcome['recorded_at_utc']=self.at(-2)
         self.make_intake()
         self.assert_block('producer_clock_conflict')
+
+    def test_outcome_cannot_predate_original_signal(self):
+        self.outcome['recorded_at_utc']=self.at(-11)
+        self.make_intake()
+        self.assert_block('event_clock_conflict')
+
+    def test_event_cannot_be_recorded_before_its_decision_or_evaluation_date(self):
+        self.outcome['recorded_at_utc']=(self.now-timedelta(days=10)).isoformat()
+        self.signal['recorded_at_utc']=(self.now-timedelta(days=11)).isoformat()
+        self.make_intake()
+        self.assert_block('event_clock_conflict')
 
     def test_label_maturity_requires_calendar_exact_horizon(self):
         self.outcome['outcome_date']=self.sessions[4]
@@ -319,6 +341,18 @@ class BoundedResearchTests(unittest.TestCase):
         self.assertEqual(result['rows'],[])
         self.assertEqual(result['hypotheses'],[])
         self.assertIn('NO_DECISION_OBSERVATIONS',result['blockers'])
+        self.assertNotIn('generated_at_utc',board.read_json(self.source/'summary.json'))
+
+    def test_skipped_summary_cannot_conceal_nonempty_events(self):
+        summary=board.read_json(self.source/'summary.json')
+        summary.update(status='SKIPPED_NO_DECISION_OBSERVATIONS',signal_observation_count=0,
+                       forward_outcome_event_count=0)
+        summary.pop('generated_at_utc')
+        raw=json.dumps(summary).encode()
+        (self.source/'summary.json').write_bytes(raw)
+        self.payload['inputs']['summary']['sha256']=research.raw_hash(raw)
+        self.save_intake()
+        self.assert_block('empty_summary_conflict')
 
     def test_board_default_does_not_import_or_run_research_adapter(self):
         import argparse
@@ -359,6 +393,39 @@ class BoundedResearchTests(unittest.TestCase):
         self.assertIn('linked_file',result['reason'])
         self.assertEqual((self.source/'events.json').read_bytes(),original)
         self.assertFalse((out/'manifest.json').exists())
+
+    def test_all_separately_supplied_sources_are_protected_before_board_writes(self):
+        import argparse
+        for role in ('canonical_inputs','system_state','evidence_root'):
+            with self.subTest(role=role):
+                out=self.scratch/('protected-'+role)
+                out.mkdir()
+                protected=out/'manifest.json'
+                protected.write_bytes(b'ORIGINAL_CANONICAL_INPUT')
+                args=argparse.Namespace(latest_run=str(self.source),output_dir=str(out),run_url='',
+                    max_tasks=0,bounded_research_intake=str(self.intake))
+                setattr(args,role,str(out) if role=='evidence_root' else str(protected))
+                result=board.run(args)
+                self.assertEqual(result['status'],'BLOCKED')
+                self.assertIn('overlap',result['reason'])
+                self.assertEqual(protected.read_bytes(),b'ORIGINAL_CANONICAL_INPUT')
+                self.assertFalse((out/'.bounded_research.lock').exists())
+
+    def test_default_and_opt_in_board_writers_share_exclusion(self):
+        import argparse
+        self.out.mkdir()
+        manifest=self.out/'manifest.json'
+        manifest.write_bytes(b'ACTIVE_OWNER')
+        args=argparse.Namespace(latest_run=str(self.source),output_dir=str(self.out),run_url='',max_tasks=0,
+            bounded_research_intake=None)
+        with research.exclusive_lock(self.out):
+            for option in (None,str(self.intake)):
+                args.bounded_research_intake=option
+                result=board.run(args)
+                self.assertEqual(result['status'],'BLOCKED')
+                self.assertIn('ACTIVE_WRITER',result['reason'])
+                self.assertEqual(manifest.read_bytes(),b'ACTIVE_OWNER')
+                self.assertTrue((self.out/'.bounded_research.lock').exists())
 
     def test_adapter_blocker_propagates_to_board_status(self):
         import argparse

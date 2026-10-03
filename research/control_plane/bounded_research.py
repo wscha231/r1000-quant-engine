@@ -81,20 +81,8 @@ def output_geometry(root, out):
 @contextmanager
 def exclusive_lock(out):
     # Same O_EXCL/no-expiry-stealing pattern as the existing outcome producer.
-    out = native_path(out)
-    out.mkdir(parents=True, exist_ok=True)
-    path = out / '.bounded_research.lock'
-    try:
-        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-    except FileExistsError as error:
-        raise board.ContractError('WAIT_DEPENDENCY_ACTIVE_WRITER') from error
-    try:
-        os.write(fd, str(os.getpid()).encode())
-        os.fsync(fd)
+    with board.exclusive_output_lock(native_path(out)):
         yield
-    finally:
-        os.close(fd)
-        path.unlink()
 
 
 def configuration(path=CONFIG):
@@ -157,9 +145,11 @@ def inspect_events(events, sessions, now, limit, check_deadline=lambda: None):
                 'source_authority_conflict')
         require(event.get('data_class', 'Model Proposal') == 'Model Proposal', 'data_class_mix')
         require(board.timestamp(event['recorded_at_utc']) <= now, 'future_event')
+        recorded = board.timestamp(event['recorded_at_utc'])
         decision = event['decision_date']
         require(date.fromisoformat(decision).isoformat() == decision and decision <= now.date().isoformat(),
                 'future_or_invalid_decision')
+        require(decision <= recorded.date().isoformat(), 'event_clock_conflict')
         first_later = bisect_right(sessions, decision)
         require(first_later > 0 and sessions[first_later - 1] == decision, 'decision_calendar_missing')
         oid = event['observation_id']
@@ -190,6 +180,7 @@ def inspect_events(events, sessions, now, limit, check_deadline=lambda: None):
                     'unresolved_outcome')
             require(decision < event['outcome_date'] <= event['evaluated_as_of_date'] <= now.date().isoformat(),
                     'future_outcome')
+            require(event['evaluated_as_of_date'] <= recorded.date().isoformat(), 'event_clock_conflict')
             require(first_later + horizon <= len(sessions) and
                     sessions[first_later + horizon - 1] == event['outcome_date'], 'label_immature')
             require(event['actionable_start_date'] == sessions[first_later], 'execution_clock_conflict')
@@ -205,6 +196,8 @@ def inspect_events(events, sessions, now, limit, check_deadline=lambda: None):
         require(all(outcome.get(k) == signals[oid].get(k) for k in
                     ('family', 'decision_date', 'ticker', 'risk_state', 'benchmark_ticker')),
                 'outcome_decision_conflict')
+        require(board.timestamp(outcome['recorded_at_utc']) >=
+                board.timestamp(signals[oid]['recorded_at_utc']), 'event_clock_conflict')
     rows = []
     for oid, signal in sorted(signals.items()):
         check_deadline()
@@ -277,15 +270,18 @@ def prepare(root, out, intake_path, *, now, code_sha, config_hash, board_blocker
                     type(producer['attempt']) is int and producer['attempt'] > 0, 'producer_identity')
             require(set(intake['inputs']) == {'events', 'summary', 'calendar'}, 'source_roles')
             total = len(intake_bytes)
+            # Admit all clocks before reading any declared source file.
             for role, descriptor in intake['inputs'].items():
                 check_deadline()
                 board.schema_validate(descriptor, 'system_state_schema.json', 'artifact')
                 require(descriptor['status'] == 'VERIFIED', 'source_not_verified')
+                board.verify_artifact_time(descriptor, now, now)
+            for role, descriptor in intake['inputs'].items():
+                check_deadline()
                 path = native_path(board.artifact_path(root, descriptor['path']))
                 raw = bounded_read(path, budget['max_input_bytes'] - total)
                 total += len(raw)
                 require(raw_hash(raw) == descriptor['sha256'], 'source_hash_conflict')
-                board.verify_artifact(root, descriptor, now, now)
                 inputs[role] = raw
             summary = strict_json(inputs['summary'])
             require(summary.get('schema_version') == ARCHIVE and summary.get('status') in
@@ -295,18 +291,26 @@ def prepare(root, out, intake_path, *, now, code_sha, config_hash, board_blocker
             require(summary.get('outputs', {}).get('event_log_sha256') == raw_hash(inputs['events']),
                     'producer_event_hash_conflict')
             source_date = summary['as_of_date']
-            generated = board.timestamp(summary['generated_at_utc'])
             require(date.fromisoformat(source_date).isoformat() == source_date and
-                    source_date <= now.date().isoformat() and generated <= now, 'future_source')
-            require(all(generated <= board.timestamp(item['collected_at']) for role, item in
-                        intake['inputs'].items() if role != 'calendar'), 'producer_clock_conflict')
+                    source_date <= now.date().isoformat(), 'future_source')
+            if summary['status'] == 'SKIPPED_NO_DECISION_OBSERVATIONS':
+                require(not inputs['events'].strip() and all(type(summary.get(k)) is int and summary[k] == 0
+                        for k in ('signal_observation_count', 'forward_outcome_event_count')), 'empty_summary_conflict')
+                # The native skipped branch has no generation clock; never invent it.
+                generated = None
+            if summary['status'] != 'SKIPPED_NO_DECISION_OBSERVATIONS' or 'generated_at_utc' in summary:
+                require(isinstance(summary.get('generated_at_utc'), str), 'producer_clock_missing')
+                generated = board.timestamp(summary['generated_at_utc'])
+                require(generated <= now, 'future_source')
+                require(all(generated <= board.timestamp(item['collected_at']) for role, item in
+                            intake['inputs'].items() if role != 'calendar'), 'producer_clock_conflict')
             events = []
             for line in inputs['events'].splitlines():
                 check_deadline()
                 if line.strip():
                     require(len(events) < budget['max_events'], 'event_budget_exhausted')
                     event = strict_json(line)
-                    require(board.timestamp(event['recorded_at_utc']) <= generated and
+                    require(generated is not None and board.timestamp(event['recorded_at_utc']) <= generated and
                             event['decision_date'] <= source_date and
                             event.get('evaluated_as_of_date', source_date) <= source_date,
                             'producer_clock_conflict')
@@ -367,7 +371,7 @@ def prepare(root, out, intake_path, *, now, code_sha, config_hash, board_blocker
                 check_deadline()
                 require(raw_hash(bounded_read(board.artifact_path(root, descriptor['path']), budget['max_input_bytes']))
                         == raw_hash(inputs[role]), 'source_changed_during_preview')
-                board.verify_artifact(root, descriptor, now, now + timedelta(seconds=time.monotonic() - start))
+                board.verify_artifact_time(descriptor, now, now + timedelta(seconds=time.monotonic() - start))
             manifest = {'schema_version': SCHEMA, 'status': 'BLOCKED', 'reuse': 'SKIP_UNCHANGED' if reused else 'PREPARED',
                         'identity': key, 'authority': board.AUTHORITY,
                         'members': {'a8_research.json': board.file_hash(out / 'a8_research.json')}}

@@ -15,6 +15,7 @@ import os
 import re
 import subprocess
 import sys
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -154,6 +155,11 @@ def artifact_path(root: Path, name: str) -> Path:
 def verify_artifact(root: Path, artifact: dict, cutoff: datetime, now: datetime) -> None:
     if file_hash(artifact_path(root, artifact['path'])) != artifact['sha256']:
         raise ContractError('artifact_hash_mismatch')
+    verify_artifact_time(artifact, cutoff, now)
+
+
+def verify_artifact_time(artifact: dict, cutoff: datetime, now: datetime) -> None:
+    """The existing clock gate, usable before bounded source-byte access."""
     observed, available, collected, expires = [timestamp(artifact[k]) for k in
                     ('observed_at', 'available_at', 'collected_at', 'expires_at')]
     if not (observed <= available <= collected <= cutoff <= now < expires):
@@ -556,22 +562,51 @@ def build_tasks(state: dict, root: Path, contract: dict, now: datetime,
     return _plan_tasks(state, root, contract, now, code_sha, config_hash)
 
 
+@contextmanager
+def exclusive_output_lock(out: Path):
+    """All A0 writers honor ownership; never steal a surviving process lock."""
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / '.bounded_research.lock'
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError as error:
+        raise ContractError('WAIT_DEPENDENCY_ACTIVE_WRITER') from error
+    try:
+        os.write(fd, str(os.getpid()).encode())
+        os.fsync(fd)
+        yield
+    finally:
+        os.close(fd)
+        path.unlink()
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
-    if not getattr(args, 'bounded_research_intake', None):
-        return _run(args)
-    from research.control_plane import bounded_research
-    root = repo_path(args.latest_run)
     out = repo_path(args.output_dir)
     try:
-        bounded_research.output_geometry(root, out)
-        with bounded_research.exclusive_lock(out):
+        preview = bool(getattr(args, 'bounded_research_intake', None))
+        if preview:
+            from research.control_plane import bounded_research
+            root = repo_path(args.latest_run)
+            bounded_research.output_geometry(root, out)
+            if getattr(args, 'evidence_root', None):
+                bounded_research.output_geometry(repo_path(args.evidence_root), out)
+            sources = [repo_path(args.bounded_research_intake),
+                       repo_path(args.system_state) if getattr(args, 'system_state', None)
+                       else root / 'control_plane/system_state.json']
+            if getattr(args, 'canonical_inputs', None):
+                sources.append(repo_path(args.canonical_inputs))
+            for path in sources:
+                path = bounded_research.native_path(path)
+                bounded_research.require(not path.is_relative_to(out.resolve()), 'input_output_overlap')
+        with exclusive_output_lock(out):
             # Check every legacy output before the first write in this opt-in path.
             # A fixed .tmp alias could otherwise mutate a source or accepted file.
-            for name in ('manifest.json', 'board_summary.json', 'agent_task_queue.json',
-                         'promotion_gate_review.json', 'report.md'):
-                path = out / name
-                bounded_research.native_path(path)
-                bounded_research.native_path(path.with_name(path.name + '.tmp'))
+            if preview:
+                for name in ('manifest.json', 'board_summary.json', 'agent_task_queue.json',
+                             'promotion_gate_review.json', 'report.md'):
+                    path = out / name
+                    bounded_research.native_path(path)
+                    bounded_research.native_path(path.with_name(path.name + '.tmp'))
             return _run(args)
     except (OSError, ValueError) as error:
         # A concurrent writer owns its manifest; never revoke or overwrite it.

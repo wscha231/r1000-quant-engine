@@ -56,7 +56,9 @@ python tools/run_agent_board.py --latest-run /scratch/source \
 ```
 
 Omitting the option preserves the existing board path without loading the
-adapter. The manual Actions workflow passes these optional arguments to
+adapter. All board invocations share output ownership, so a default run also
+respects a preview writer's lock. Normal single-run default outputs are preserved.
+The manual Actions workflow passes these optional arguments to
 the existing runner; no new scheduler, model provider or dispatch is added.
 It does not create a research intake from legacy metric files or authenticate
 canonical data automatically. Both the source root and output root must be
@@ -102,7 +104,8 @@ last after result readback, source-byte recheck and current expiry verification.
 Partial scratch writes are inspected and can resume without another result
 write. Corrupt cached output revokes acceptance. O_EXCL locks are never stolen;
 another process cannot overwrite an active attempt. Input/output overlap,
-reparse links, hard-linked output files and fixed temporary-file aliases fail
+separately supplied canonical inputs/evidence/state, reparse links, hard-linked
+output files and fixed temporary-file aliases fail
 before writes. This is trusted local filesystem protection, not an OS sandbox
 for executing untrusted code; no untrusted code is executed.
 
@@ -137,7 +140,7 @@ are under activation_proposal_only and are not applied. enabled=true is rejected
 
 Validation is registered through the existing agent_board_smoke Tier-1 entry;
 the protected run_pr_validation runner is unchanged. Focused regressions cover
-34 synthetic cases, including separate-process exclusion, partial-save resume,
+40 synthetic cases, including separate-process exclusion, partial-save resume,
 expiry/maturity/dependency changes, output/time budgets, malicious instructions,
 original intent, label maturity and default-disabled behavior. Run both
 python tests/agent_board_smoke.py and python -O tests/agent_board_smoke.py.
@@ -151,6 +154,11 @@ all repository checks passing is made. The new adapter suite passed normal and
 optimized Python; exact-head review and remote CI are recorded with the PR.
 Local Python was 3.14.4. The bundled 3.12 interpreter lacked jsonschema, so
 its smoke was NOT_RUN; the configured CI installs dependencies on Python3.12.
+Independent review of the initial head found separate-input overlap, a default
+writer bypassing the new lock, causally inverted outcome recording and the
+native skipped-summary timestamp gap. These were corrected with regressions;
+all descriptor clocks are also checked before any source bytes are read. Final
+exact-head review remains distinct from a future economic A6 receipt.
 
 ## One activation packet, held pending prerequisites
 
