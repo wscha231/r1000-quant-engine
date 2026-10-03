@@ -8,6 +8,8 @@
 - A completed label requires finite native diagnostics, including actionable
   metrics after horizon1. At horizon1 they remain explicitly not applicable;
   missing costs, identity/PIT or ER must still never be imputed.
+  Oversized JSON integers can raise OverflowError during a finite check; keep
+  that malformed-input path inside the same blocked preview boundary.
 - Candidate identity is one decision-date/ticker with no portfolio; held
   identity includes a normalized nonblank portfolio and positive marked weight.
   Reject noncanonical identity spellings rather than rewriting original intent.

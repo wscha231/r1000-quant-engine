@@ -219,7 +219,7 @@ class BoundedResearchTests(unittest.TestCase):
     def test_completed_outcomes_require_every_native_diagnostic(self):
         contract = board.read_json(ROOT/'docs/run287_risk_outcome_archive_contract.json')
         for name in contract['outcome_contract']['required_metrics']:
-            for invalid in ('MISSING',None,True,float('inf'),float('-inf'),float('nan')):
+            for invalid in ('MISSING',None,True,float('inf'),float('-inf'),float('nan'),10**400):
                 with self.subTest(metric=name,invalid=invalid):
                     bad = dict(self.outcome)
                     if invalid=='MISSING': bad.pop(name)

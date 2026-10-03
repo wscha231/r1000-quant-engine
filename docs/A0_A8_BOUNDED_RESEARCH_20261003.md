@@ -42,6 +42,9 @@ actual source admission, economic validation, model/experiment execution,
 authorized trigger execution and durable research readback remain NOT_RUN.
 The unchanged zero-budget config SHA256 is
 96d2bcad1358c7335a3e82417deced95c0d0cc470c8a07585576cfb9c2ee7f20.
+Numeric overflow from a JSON integer beyond finite diagnostic range also
+fails closed instead of escaping the input-failure boundary. The same completed
+metric regression exercises that case under normal and optimized Python.
 Stop if new-head CI fails, a new actionable review finding appears, current
 source scope conflicts, or the final head changes. Keep Draft until the
 separately authorized readiness/review-complete gate is satisfied.

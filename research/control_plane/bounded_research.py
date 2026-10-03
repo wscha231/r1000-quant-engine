@@ -425,7 +425,7 @@ def prepare(root, out, intake_path, *, now, code_sha, config_hash, board_blocker
             write_scratch(out / 'manifest.json', manifest)
             require(board.read_json(out / 'manifest.json') == manifest, 'scratch_manifest_readback_failed')
             return result
-        except (OSError, ValueError, KeyError, TypeError, RecursionError) as error:
+        except (OSError, ValueError, KeyError, TypeError, OverflowError, RecursionError) as error:
             result = {'schema_version': SCHEMA, 'status': 'BLOCKED', 'stage': 'WAIT_DEPENDENCY',
                       'blockers': [str(error) if isinstance(error, board.ContractError) else type(error).__name__],
                       'authority': board.AUTHORITY, 'economic_validated': False, 'ai_invoked': False,
