@@ -5,7 +5,10 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
+import re
 import socket
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -18,10 +21,45 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from tools import prepare_run287_paper_publication_recovery as recovery
 import yaml
+from tests.workflow_artifact_smoke import bash_executable
 
 NOW = datetime(2026, 10, 3, 1, 0, tzinfo=timezone.utc)
 PUBLISHER_SHA = "f" * 40
 MOCK_RUN = 999999
+
+# Narrow context-availability regression, not a complete Actions parser.
+# https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#context-availability
+JOB_ENV_CONTEXTS = {"github", "needs", "strategy", "matrix", "vars", "secrets", "inputs"}
+NAMED_CONTEXTS = JOB_ENV_CONTEXTS | {"env", "job", "jobs", "runner", "steps"}
+RECOVERY_PATHS = {
+    "RECOVERY_INPUTS": "run287-publication-inputs",
+    "RECOVERY_API": "run287-publication-api",
+    "RECOVERY_BUNDLE": "run287-publication-bundle",
+}
+
+
+def job_env_context_violations(workflow: dict) -> list:
+    violations = []
+    for job_id, job in workflow["jobs"].items():
+        for name, value in job.get("env", {}).items():
+            for expression in re.findall(r"\$\{\{(.*?)\}\}", str(value), flags=re.S):
+                # Ignore quoted strings and property names such as github.runner.
+                unquoted = re.sub(r"'(?:[^']|'')*'", "", expression)
+                tokens = {v.lower() for v in re.findall(r"(?<![\w.])\b([A-Za-z_][A-Za-z0-9_-]*)\b", unquoted)}
+                roots = {v.lower() for v in re.findall(r"(?<![\w.])([A-Za-z_][A-Za-z0-9_-]*)\s*(?=[.\[])", unquoted)}
+                invalid = ((tokens & NAMED_CONTEXTS) | roots) - JOB_ENV_CONTEXTS
+                if invalid:
+                    violations.append((job_id, name, sorted(invalid)))
+    return violations
+
+
+def recovery_workflow() -> dict:
+    return yaml.safe_load((ROOT / recovery.WORKFLOW_PATH).read_text(encoding="utf-8"))
+
+
+def recovery_initializer() -> str:
+    return next(step["run"] for step in recovery_workflow()["jobs"]["publication_recovery"]["steps"]
+                if step.get("id") == "initialize_recovery_paths")
 
 
 def dump(path: Path, data) -> None:
@@ -62,6 +100,95 @@ def publisher_fixture(root: Path) -> dict:
 
 
 class PublicationRecoveryChecks(unittest.TestCase):
+    def test_job_env_context_rejects_original_runner_path_expressions(self):
+        workflow = recovery_workflow()
+        self.assertEqual(job_env_context_violations(workflow), [])
+        original = copy.deepcopy(workflow)
+        for name, suffix in RECOVERY_PATHS.items():
+            original["jobs"]["publication_recovery"]["env"][name] = "${{ runner.temp }}/" + suffix
+        self.assertEqual(job_env_context_violations(original), [
+            ("publication_recovery", name, ["runner"]) for name in RECOVERY_PATHS])
+        for expression in ("${{ Runner['temp'] }}", "${{ toJSON(runner) }}", "${{ env.OTHER }}"):
+            with self.subTest(expression=expression):
+                original["jobs"]["publication_recovery"]["env"] = {"INVALID": expression}
+                self.assertTrue(job_env_context_violations(original))
+        original["jobs"]["publication_recovery"]["env"] = {"VALID": "${{ format('runner.temp', github.runner) }}"}
+        self.assertEqual(job_env_context_violations(original), [])
+
+    def test_initializer_precedes_collect_authorize_and_all_path_consumers(self):
+        job = recovery_workflow()["jobs"]["publication_recovery"]
+        self.assertTrue(set(RECOVERY_PATHS).isdisjoint(job["env"]))
+        initializers = [(i, step) for i, step in enumerate(job["steps"])
+                        if step.get("id") == "initialize_recovery_paths"]
+        self.assertEqual(len(initializers), 1)
+        index, initializer = initializers[0]
+        self.assertNotIn("if", initializer)
+        self.assertNotRegex(initializer["run"], r"\$\{?RECOVERY_(INPUTS|API|BUNDLE)\b")
+        consumers = 0
+        for i, step in enumerate(job["steps"]):
+            if i == index:
+                continue
+            if re.search(r"\$\{?RECOVERY_(INPUTS|API|BUNDLE)\b|\$\{\{\s*env\.RECOVERY_(INPUTS|API|BUNDLE)\b", json.dumps(step)):
+                consumers += 1
+                self.assertGreater(i, index, step["name"])
+            if re.search(r"publication_recovery\.py (collect|authorize)\b", step.get("run", "")):
+                self.assertGreater(i, index, step["name"])
+        self.assertGreater(consumers, 0)
+
+    def test_initializer_hands_exact_plain_and_space_paths_to_subsequent_step(self):
+        for dirname in ("runner-temp", "runner temp with spaces"):
+            with self.subTest(dirname=dirname), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                runner_temp = root / dirname
+                runner_temp.mkdir()
+                sentinel = runner_temp / "unrelated-file"
+                sentinel.write_bytes(b"preserved")
+                github_env = root / "github env"
+                prefix = b"UNRELATED_ENV=existing env entry\n"
+                github_env.write_bytes(prefix)
+                env = {**os.environ, "RUNNER_TEMP": runner_temp.as_posix(), "GITHUB_ENV": github_env.as_posix(),
+                       "UNRELATED_PROCESS_ENV": "existing process value", **{k: "same-step-stale-value" for k in RECOVERY_PATHS}}
+                probe = "\nprintf '%s\\n' \"$RECOVERY_INPUTS\" \"$RECOVERY_API\" \"$RECOVERY_BUNDLE\" \"$UNRELATED_PROCESS_ENV\"\n"
+                result = subprocess.run([bash_executable(), "--noprofile", "--norc", "-c", recovery_initializer() + probe],
+                                        cwd=root, env=env, capture_output=True, text=True, encoding="utf-8")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.splitlines(), ["same-step-stale-value"] * 3 + ["existing process value"])
+                self.assertTrue(github_env.read_bytes().startswith(prefix))
+                emitted = dict(line.split("=", 1) for line in github_env.read_text(encoding="utf-8").splitlines())
+                expected = {k: runner_temp.as_posix() + "/" + suffix for k, suffix in RECOVERY_PATHS.items()}
+                self.assertEqual({k: emitted[k] for k in RECOVERY_PATHS}, expected)
+                subsequent = subprocess.run([sys.executable, "-B", "-X", "utf8", "-c",
+                    "import json,os;print(json.dumps({k:os.environ[k] for k in " + repr(list(expected) + ["UNRELATED_ENV", "UNRELATED_PROCESS_ENV"]) + "}))"],
+                    cwd=root, env={**env, **emitted}, capture_output=True, text=True, encoding="utf-8")
+                self.assertEqual(subsequent.returncode, 0, subsequent.stderr)
+                consumed = json.loads(subsequent.stdout)
+                self.assertEqual({k: consumed[k] for k in RECOVERY_PATHS}, expected)
+                self.assertEqual(consumed["UNRELATED_ENV"], "existing env entry")
+                self.assertEqual(consumed["UNRELATED_PROCESS_ENV"], "existing process value")
+                self.assertEqual(sentinel.read_bytes(), b"preserved")
+                self.assertEqual(list(runner_temp.iterdir()), [sentinel])
+
+    def test_initializer_missing_or_empty_runner_temp_fails_before_env_write(self):
+        for value in (None, ""):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                sentinel = root / "unrelated-file"
+                sentinel.write_bytes(b"preserved")
+                github_env = root / "github.env"
+                prefix = b"UNRELATED_ENV=keep\n"
+                github_env.write_bytes(prefix)
+                env = {**os.environ, "GITHUB_ENV": github_env.as_posix()}
+                env.pop("RUNNER_TEMP", None)
+                if value is not None:
+                    env["RUNNER_TEMP"] = value
+                result = subprocess.run([bash_executable(), "--noprofile", "--norc", "-c", recovery_initializer()],
+                                        cwd=root, env=env, capture_output=True, text=True, encoding="utf-8")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("RUNNER_TEMP is required", result.stderr)
+                self.assertEqual(github_env.read_bytes(), prefix)
+                self.assertEqual(sentinel.read_bytes(), b"preserved")
+                self.assertEqual(set(root.iterdir()), {sentinel, github_env})
+
     def test_owner_current_master_and_explicit_cache_scope(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

@@ -37,9 +37,6 @@ jobs:
       RUN287_DURABLE_ENVIRONMENT_NAME: run287-paper-durable
       RUN287_RECOVERY_RCLONE_RELEASE: 1.75.0
       RUN287_RECOVERY_RCLONE_ZIP_SHA256: aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa
-      RECOVERY_INPUTS: ${{ runner.temp }}/run287-publication-inputs
-      RECOVERY_API: ${{ runner.temp }}/run287-publication-api
-      RECOVERY_BUNDLE: ${{ runner.temp }}/run287-publication-bundle
       GH_TOKEN: ${{ github.token }}
 
     steps:
@@ -65,6 +62,18 @@ jobs:
 
       - name: Install existing native dependencies
         run: pip install -r requirements_github.txt
+
+      - name: Initialize recovery paths for subsequent steps
+        id: initialize_recovery_paths
+        run: |
+          set -euo pipefail
+          : "${RUNNER_TEMP:?RUNNER_TEMP is required}"
+          : "${GITHUB_ENV:?GITHUB_ENV is required}"
+          {
+            printf 'RECOVERY_INPUTS=%s/run287-publication-inputs\n' "$RUNNER_TEMP"
+            printf 'RECOVERY_API=%s/run287-publication-api\n' "$RUNNER_TEMP"
+            printf 'RECOVERY_BUNDLE=%s/run287-publication-bundle\n' "$RUNNER_TEMP"
+          } >> "$GITHUB_ENV"
 
       - name: Verify fresh owner dispatch and exact current master before secrets
         run: |

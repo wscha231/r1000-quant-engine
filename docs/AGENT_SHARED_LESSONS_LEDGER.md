@@ -5611,3 +5611,15 @@ Expected contract:
   smoke hit a Windows separator comparison in the capture-config fixture
   (forward slash versus backslash). Record that limitation and check Linux CI;
   do not weaken the fixture or the ordinary capture/publication gate.
+
+### 2026-10-03 - Job env cannot use the runner expression context (#570 P1)
+
+- Head 669f34a4 used runner.temp in three job-env definitions. The official
+  context table and runner job-env schema exclude runner at that location;
+  YAML/Bash parsing and the old Linux CI success did not catch this defect.
+- Initialize the same paths from RUNNER_TEMP in an earlier shell step and
+  append to GITHUB_ENV. New values reach subsequent steps, not that shell;
+  job-env strings containing $RUNNER_TEMP do not expand recursively.
+- Reject the old expression placement, check every consumer's ordering and
+  execute normal/space-path and missing/empty-temp offline shell fixtures.
+  Preserve unrelated env entries/files and fail before writing on empty temp.
