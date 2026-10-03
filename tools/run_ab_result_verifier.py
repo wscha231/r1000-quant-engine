@@ -15,6 +15,7 @@ import argparse
 import csv
 import json
 import math
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,6 +28,7 @@ if str(REPO) not in sys.path:
 
 from r1000_config import PORTFOLIO_MISSION_TARGETS
 from mission_contract import mission_identity, mission_binding_status, OFFICIAL_METRIC_MODE
+from research import evaluation_v2_admission as comparison_admission
 
 try:
     from r1000_config import PORTFOLIO_GOAL_GATES
@@ -41,6 +43,104 @@ MIN_BROKER_LEDGER_YEARS = 8.0
 MIN_BROKER_LEDGER_TRADING_DAYS = 252 * 8
 ATTRIBUTION_REQUIREMENT_ID = "attribution_package_year_mdd_name"
 OOS_LOCK_REQUIREMENT_ID = "oos_holdout_lock"
+COMPARISON_OPTIONS = ("comparison_admission_root", "comparison_control_arm",
+                      "comparison_challenger_arm", "expected_context_sha256")
+COMPARISON_AUTHORITY_FIELDS = ("unverified_domains", "g0_certified", "economic_comparison_ready",
+                              "champion_promotion_allowed", "public_publication_allowed",
+                              "fullrun_allowed", "target_paper_broker_mutation_allowed")
+
+
+def blocked_comparison(reason: str) -> dict[str, Any]:
+    return {
+        "schema": comparison_admission.SCHEMA, "status": "BLOCKED", "reason": reason,
+        "unverified_domains": list(comparison_admission.UNVERIFIED),
+        **{name: False for name in COMPARISON_AUTHORITY_FIELDS if name != "unverified_domains"},
+    }
+
+
+def physical_path_chain(path: Path) -> tuple[tuple[int, int] | None, set[tuple[int, int]]]:
+    """Bind existing endpoints/ancestors without reading artifact contents."""
+    endpoint = None
+    identities = set()
+    for component in (path, *path.parents):
+        try:
+            observed = component.stat()
+        except FileNotFoundError:
+            continue  # Include the nearest existing ancestor of missing output.
+        comparison_admission.require(observed.st_ino != 0, "OUTPUT_ADMISSION_PATH_INVALID")
+        identity = (observed.st_dev, observed.st_ino)
+        identities.add(identity)
+        if component == path:
+            endpoint = identity
+    return endpoint, identities
+
+
+def comparison_output_error(args: argparse.Namespace) -> str | None:
+    """Check physical output geometry before artifact/legacy reads or writes."""
+    root = getattr(args, "comparison_admission_root", None)
+    if root is None:
+        return None
+    try:
+        comparison_admission.require((type(root) is str or isinstance(root, Path)) and bool(str(root)),
+                                     "OUTPUT_ADMISSION_PATH_INVALID")
+        # Keep lexical checks for missing paths, and bind existing components
+        # physically: case-insensitive POSIX volumes need not normalize spelling.
+        resolved_root = Path(root).resolve(strict=False)
+        root_key = os.path.normcase(str(resolved_root))
+        root_identity, root_chain = physical_path_chain(resolved_root)
+        output = repo_path(getattr(args, "output_dir", "outputs/ab_result_verifier"))
+        for path in (output, *(output / name for name in ("summary.json", "candidate_verdicts.csv", "report.md"))):
+            if path != output and path.exists():
+                # A multiply linked report file can mutate a pinned input even
+                # when its directory is outside the bundle. Reject ambiguous
+                # physical aliases without scanning or reading input artifacts.
+                comparison_admission.require(path.stat().st_nlink <= 1, "OUTPUT_ADMISSION_PATH_OVERLAP")
+            resolved_output = path.resolve(strict=False)
+            output_identity, output_chain = physical_path_chain(resolved_output)
+            comparison_admission.require(
+                (root_identity is None or root_identity not in output_chain)
+                and (output_identity is None or output_identity not in root_chain),
+                "OUTPUT_ADMISSION_PATH_OVERLAP",
+            )
+            output_key = os.path.normcase(str(resolved_output))
+            try:
+                common = os.path.commonpath((root_key, output_key))
+            except ValueError:  # Different volumes cannot overlap.
+                continue
+            comparison_admission.require(common not in (root_key, output_key),
+                                         "OUTPUT_ADMISSION_PATH_OVERLAP")
+    except comparison_admission.AdmissionError as exc:
+        return str(exc)
+    except (OSError, TypeError, ValueError, RuntimeError):
+        return "OUTPUT_ADMISSION_PATH_INVALID"
+    return None
+
+
+def comparison_precheck(args: argparse.Namespace) -> dict[str, Any] | None:
+    """Optional byte identity admission; its caller pin is never derived from arms."""
+    values = [getattr(args, name, None) for name in COMPARISON_OPTIONS]
+    if all(value is None for value in values):
+        return None
+    try:
+        output_error = comparison_output_error(args)
+        comparison_admission.require(output_error is None, output_error or "OUTPUT_ADMISSION_PATH_INVALID")
+        comparison_admission.require(all(value is not None for value in values),
+                                     "ADMISSION_OPTIONS_INCOMPLETE")
+        candidates = getattr(args, "candidate_run", None)
+        comparison_admission.require(type(candidates) in (list, tuple) and len(candidates) == 1,
+                                     "COMPARISON_SINGLE_CANDIDATE_REQUIRED")
+        root, control_id, challenger_id, pin = values
+        comparison_admission.require(type(pin) is str and comparison_admission.HEX64.fullmatch(pin) is not None,
+                                     "EXPECTED_CONTEXT_HASH_REQUIRED")
+        comparison_admission.validate_artifact_id(control_id)
+        comparison_admission.validate_artifact_id(challenger_id)
+        resolver = comparison_admission.BoundedArtifactResolver(root)
+        control = comparison_admission.strict_json(resolver(control_id))
+        challenger = comparison_admission.strict_json(resolver(challenger_id))
+        return comparison_admission.compare_environment(control, challenger,
+                    expected_context_sha256=pin, artifact_resolver=resolver)
+    except comparison_admission.AdmissionError as exc:
+        return blocked_comparison(str(exc))
 
 
 def repo_path(value: str | Path) -> Path:
@@ -419,6 +519,14 @@ def render_report(payload: dict[str, Any]) -> str:
         "| Candidate | Decision | CAGR | MDD | IS-CAGR | OOS/IS | CAGR vs Base | IS vs Base | MDD vs Base | Issues |",
         "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
+    admission = payload.get("comparison_admission")
+    if admission is not None:
+        lines[8:8] = [
+            f"- comparison byte admission: `{admission['status']}`",
+            f"- comparison blocked reason: `{admission.get('reason', 'none')}`",
+            "- Byte identity leaves provider, PIT, execution and economic domains unverified; all authority remains false.",
+            "",
+        ]
     for row in payload.get("candidates") or []:
         lines.append(
             "| {run} | `{decision}` | {cagr} | {mdd} | {is_cagr} | {oos_ratio} | {dcagr}pp | {dis}pp | {dmdd}pp | {issues} |".format(
@@ -482,8 +590,42 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
             writer.writerow(out)
 
 
+def blocked_comparison_payload(admission: dict[str, Any], portfolio: str) -> dict[str, Any]:
+    return {
+        "schema_version": "ab-result-verifier-v1", **mission_identity(PORTFOLIO_MISSION_TARGETS),
+        "status": "blocked_comparison_admission", "portfolio": portfolio,
+        "comparison_admission": admission, "baseline": {}, "candidate_count": 0,
+        "candidates": [], "review_valid_candidate_count": 0,
+        "production_activation_allowed": False, "live_trading_allowed": False,
+        "requires_user_approval": True,
+        **{name: admission[name] for name in COMPARISON_AUTHORITY_FIELDS},
+    }
+
+
+def publish_or_block(args: argparse.Namespace, payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        publish_report(args, payload)
+    except comparison_admission.AdmissionError as exc:
+        # Final geometry failure is an in-memory blocked result for direct API
+        # callers too. Do not retry publication into the unsafe destination.
+        payload = blocked_comparison_payload(blocked_comparison(str(exc)), payload["portfolio"])
+        print(json.dumps({"status": payload["status"], "reason": str(exc)}))
+    return payload
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
     portfolio = str(getattr(args, "portfolio", "concentrated"))
+    output_error = comparison_output_error(args)
+    admission = blocked_comparison(output_error) if output_error else comparison_precheck(args)
+    if admission is not None and admission["status"] == "BLOCKED":
+        payload = blocked_comparison_payload(admission, portfolio)
+        if output_error is None:
+            return publish_or_block(args, payload)
+        else:
+            # An unsafe report destination must never receive even a blocked
+            # summary. Return the bounded result in memory/CLI only.
+            print(json.dumps({"status": payload["status"], "reason": output_error}))
+        return payload
     baseline = collect_evidence(repo_path(args.baseline_run), portfolio)
     baseline_ok = bool(
         baseline.get("official_metrics_exists")
@@ -568,14 +710,23 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         },
         "candidates": candidate_rows,
     }
+    if admission is not None:
+        payload["comparison_admission"] = admission
+        payload.update({name: admission[name] for name in COMPARISON_AUTHORITY_FIELDS})
 
+    return publish_or_block(args, payload)
+
+
+def publish_report(args: argparse.Namespace, payload: dict[str, Any]) -> None:
+    output_error = comparison_output_error(args)
+    comparison_admission.require(output_error is None, output_error or "OUTPUT_ADMISSION_PATH_INVALID")
     output_dir = repo_path(getattr(args, "output_dir", "outputs/ab_result_verifier"))
     output_dir.mkdir(parents=True, exist_ok=True)
     write_json(output_dir / "summary.json", payload)
-    write_csv(output_dir / "candidate_verdicts.csv", candidate_rows)
+    write_csv(output_dir / "candidate_verdicts.csv", payload["candidates"])
     (output_dir / "report.md").write_text(render_report(payload), encoding="utf-8")
-    print(json.dumps({"status": status, "review_valid": payload["review_valid_candidate_count"], "candidates": len(candidate_rows)}, indent=2))
-    return payload
+    print(json.dumps({"status": payload["status"], "review_valid": payload["review_valid_candidate_count"],
+                      "candidates": len(payload["candidates"])}, indent=2))
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -592,12 +743,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--payload-hash", default="", help="Optional self-correction workflow payload hash for queue closure.")
     parser.add_argument("--workflow-run-id", default="", help="Optional completed GitHub Actions workflow run id.")
     parser.add_argument("--dispatch-run-id", default="", help="Optional review dispatcher run id.")
+    parser.add_argument("--comparison-admission-root", default=None, help="Opt-in immutable flat artifact bundle directory.")
+    parser.add_argument("--comparison-control-arm", default=None, help="Flat artifact ID of the control arm JSON declaration.")
+    parser.add_argument("--comparison-challenger-arm", default=None, help="Flat artifact ID of the single challenger arm JSON declaration.")
+    parser.add_argument("--expected-context-sha256", default=None, help="Independently pinned caller context hash; never derived from either arm.")
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
-    run(parse_args(argv))
-    return 0
+    try:
+        payload = run(parse_args(argv))
+    except comparison_admission.AdmissionError as exc:
+        print(json.dumps({"status": "blocked_comparison_admission", "reason": str(exc)}))
+        return 2
+    return 2 if payload["status"] == "blocked_comparison_admission" else 0
 
 
 if __name__ == "__main__":

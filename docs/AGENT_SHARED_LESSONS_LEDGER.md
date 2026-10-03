@@ -5820,6 +5820,37 @@ Expected contract:
   was consumed. Source correction does not authorize another runtime capture,
   migration, paper catch-up, owner attestation or protected durable mutation.
 
+### 2026-10-03 - Common bytes require a separate pin and leave semantics unverified
+
+- The prepared 13-role comparison prototype omitted three requested identities.
+  Native v2 requires all 16 roles and a caller context pin independent of either
+  arm; partial options must block before legacy metric reads.
+- Bound actual flat-file reads, descriptor identity, links and byte budgets.
+  Windows cross-descriptor timestamps require explicit birth time, not deprecated
+  ctime. Matching supplied bytes cannot certify provider/PIT or executed policy,
+  fix a conflicting legacy window claim, or grant economic/fullrun/book authority.
+
+### 2026-10-03 - Immutable admission includes output geometry and cached tails (#571 P2)
+
+- Reject report/input physical overlap before admission or legacy reads, even
+  when options or pins already block. A blocked report must never overwrite
+  pinned input bytes. Include symlink/junction and multiply linked report aliases.
+- Cache hits retain snapshot obligations. Revalidate the native root and every
+  returned leaf after the final read, including an entirely cached second arm.
+  Native receipts count actual unique-ID reads including preloaded arm files;
+  in-memory callable APIs count only their actual reads. Byte identity still
+  grants no provider/PIT, economic, fullrun or book authority.
+
+### 2026-10-03 - Resource and geometry guards must preserve their API contract (#571 P2)
+
+- A final unsafe-output guard must return a bounded blocked result to direct
+  callers as well as CLI users, without retrying publication or retaining rows.
+- Cap actual reads by observed size and both remaining byte allowances; charge
+  each return even before a later error. Final identity checks detect growth.
+- Bind physical endpoint/ancestor identities when path spelling can alias.
+  Preserve disjoint missing outputs; label POSIX spelling simulations separately
+  from actual Windows fixtures and do not claim macOS execution.
+
 ## 2026-10-03 — Close SQLite handles after blocked materialization
 
 - A SQLite connection context manages commit/rollback and does not close the
