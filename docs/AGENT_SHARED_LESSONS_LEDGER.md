@@ -36,6 +36,80 @@
   90-day evidence must be counted through the same-period H1 helper, with no EPS
   inference. These corrections use the second and final permitted correction cycle.
 
+## 2026-10-03 — Separate safe access from row-local expiry (#560 R3)
+
+- Immutable provenance preflight must use only valid ID/hash and eligible
+  availability/collection clocks. Expiry, optional fields and cross-reference
+  ordering remain row-local checks; they must not conceal decoded nested-ID
+  conflicts. Future or malformed access clocks still permit zero reads.
+- Cover early metadata errors across packet/result roles, conflict locations,
+  both input orders and future boundaries. Preserve once-per-identity work,
+  verified immutable cached views and every closed economic/reuse authority.
+
+## 2026-10-03 — Bound traversal and seal cached evidence (#560 R2)
+
+- A decode cache alone does not bound repeated nested traversal. Memoize full
+  packet/dependency preflight by exact immutable identity, including failures;
+  measure actual node visits and one-time sealing on large shared artifacts.
+- Gate nested bytes/cache access against both packet as_of and batch cutoff.
+  Register syntactically valid descriptor conflicts without resolving future
+  evidence, and do not let a future context suppress a later eligible context.
+- Retain immutable JSON views sealed once after strict byte/hash decoding.
+  Caller mutation or exported copies must not change byte-bound semantics;
+  repeated cache hits must not copy, decode, seal or rehash large objects.
+  Default A3 results and closed economic/reuse authority remain unchanged.
+
+## 2026-10-03 — Bound artifact work across every validation phase (#560)
+
+- Charge every returned byte buffer before blob/type/hash rejection; memoize
+  bounded provider, type, size, hash and decode failures per immutable identity.
+  A fresh invocation retries. Failure caches must retain no private provider
+  text or tracebacks holding large objects.
+- Register nested identities from time-eligible decoded packets/dependencies
+  before row-local asset or dependency validation. An earlier bad dependency
+  must not conceal a later immutable-ID conflict; future-collected references
+  remain unresolved.
+- Share a raw-byte-verified strict decode cache through downstream A3 replay.
+  Test actual parse/hash work, raw-reference tracking and both conflict orders,
+  not only provider call counts. A reference pass still grants no reuse or A5
+  economic authority.
+
+## 2026-10-02 — Reconcile current reference-index evidence before integration (#560)
+
+- The current PR head already contains immutable-ID preflight and per-invocation
+  JSON decode caching. Reproduce current behavior before treating an unresolved
+  review thread as an unimplemented finding; review status and code status differ.
+- Integrating current master conflicts only in this append-only lesson ledger.
+  Preserve both the registry lessons and the migration/recovery lessons. Keep
+  reference and reuse authority closed; source integration grants no A5 approval.
+
+## 2026-09-30 — Preflight immutable IDs and cache JSON outcomes (#560)
+
+- Register all syntactically valid supplied packet/result ID-hash pairs before
+  row-local metadata validation; an invalid timestamp or missing field must not
+  hide a batch-level immutable identity conflict.
+- Cache both decoded objects and bounded decode-failure reasons per invocation.
+  A resolved-byte cache alone permits repeated parsing of the same malformed
+  blob; preserve per-row read tracking on cache hits. Regression tests reproduce
+  both findings and cover packet/result cross-role conflicts and input ordering.
+- Native Python 3.12 focused/integrated tests and quick smoke pass. The broader
+  smoke runner cannot pass in this environment without numpy/pandas; do not
+  report focused validation as full repository CI or exact-head review.
+
+## 2026-09-29 — A3 reference replay is not current or economic authority (#516)
+
+- Reuse the existing A3 validator to bind saved results to exact packet and
+  upstream bytes. Keep raw artifact SHA-256 distinct from semantic packet hash;
+  canonical comparison must not equate false with numeric zero.
+- A consistent supplied bundle does not authenticate an independent reviewer,
+  current-pointer selection, domain applicability or freshness. Keep A5 and
+  reuse authority closed until the existing A0/A6 and economic gates pass.
+- Preserve identifiable rejected candidates. Do not silently pick one of
+  duplicate security rows or conflicting immutable artifact identities.
+- Expiry, catalyst/collection failures and outcome maturity need their own
+  checks; an unexpired caller declaration is not CURRENT. No new scheduler,
+  receipt store, scoring rule or protected runner change is needed here.
+- See docs/CANDIDATE_REGISTRY_V1_REFERENCE_INDEX.md for the bounded contract.
 ## 2026-09-30 — Immutable publication may lead mutable aliases (#563 P1 C/D)
 
 - Publication is not atomic across immutable heads and mutable aliases. Recovery
