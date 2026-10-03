@@ -1437,6 +1437,25 @@ class AdmissionTests(unittest.TestCase):
                         manifest.require_verified_collector_state(root / "history",
                             summary_path=summary_path, checkpoint_path=root / "checkpoint.json",
                             queue_path=root / "queue.csv", signals_path=root / "signals.parquet")
+            for damage in ("checkpoint_queue_hashes", "transaction_and_marker"):
+                with self.subTest(summary_ack="disabled", damage=damage):
+                    changed = copy.deepcopy(good_summary)
+                    changed["collection_attempt_ack"]["status"] = "disabled"
+                    if damage == "checkpoint_queue_hashes":
+                        changed["transaction_commit"].pop("checkpoint_sha256")
+                        changed["transaction_commit"].pop("queue_sha256")
+                    else:
+                        changed.pop("transaction_commit")
+                    summary_path.write_text(json.dumps(changed))
+                    if damage == "checkpoint_queue_hashes":
+                        marker_path.write_text(json.dumps({**good_marker,
+                            "summary_sha256": manifest.sha256_file(summary_path)}))
+                    else:
+                        marker_path.unlink()
+                    result = crash_manifest(root)
+                    self.assertTrue(result["transaction_integrity"]["required"])
+                    self.assertFalse(result["publishable"])
+                    self.assertIn("collection_acknowledgement_status_mismatch", result["publication_failures"])
             changed = copy.deepcopy(good_summary)
             for field in fields:
                 changed["transaction_commit"].pop(field)

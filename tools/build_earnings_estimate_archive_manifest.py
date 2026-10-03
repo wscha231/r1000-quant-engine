@@ -567,9 +567,18 @@ def build_manifest(
                 marker = observed
         except ValueError:
             transaction_failures.append("incomplete_collector_transaction")
+    checkpoint_payload = load_json(queue_checkpoint_path)
+    checkpoint_ack = (
+        checkpoint_payload.get("last_collection_attempt_ack")
+        if isinstance(checkpoint_payload, dict) else None
+    )
+    acknowledged = bool(
+        (isinstance(ack, dict) and ack.get("status") == "acknowledged")
+        or (isinstance(checkpoint_ack, dict) and checkpoint_ack.get("status") == "acknowledged")
+    )
     transaction_required = bool(
         transaction
-        or (isinstance(ack, dict) and ack.get("status") == "acknowledged")
+        or acknowledged
         or marker.get("status") == "committed"
     )
     if transaction_required:
@@ -584,9 +593,11 @@ def build_manifest(
                 or marker.get("summary_sha256") != payload["files"]["summary"].get("sha256")):
             transaction_failures.append("collector_final_marker_mismatch")
         transaction_failures.extend(collector_transaction_hash_failures(
-            transaction,
-            acknowledged=isinstance(ack, dict) and ack.get("status") == "acknowledged",
+            transaction, acknowledged=acknowledged,
         ))
+        if (isinstance(checkpoint_ack, dict) and checkpoint_ack.get("status") == "acknowledged"
+                and (not isinstance(ack, dict) or ack.get("status") != "acknowledged")):
+            transaction_failures.append("collection_acknowledgement_status_mismatch")
         expected_attempt = str(summary_payload.get("collection_attempt_id") or "")
         ack_attempt = str(ack.get("attempt_id") or "") if isinstance(ack, dict) else ""
         tx_attempt = str(transaction.get("attempt_id") or "")
@@ -611,12 +622,6 @@ def build_manifest(
                 transaction_failures.append(f"{field}_mismatch")
 
         if str(transaction.get("checkpoint_sha256") or ""):
-            checkpoint_payload = load_json(queue_checkpoint_path)
-            checkpoint_ack = (
-                checkpoint_payload.get("last_collection_attempt_ack")
-                if isinstance(checkpoint_payload, dict)
-                else None
-            )
             if not isinstance(checkpoint_ack, dict):
                 transaction_failures.append("checkpoint_ack_missing")
             else:

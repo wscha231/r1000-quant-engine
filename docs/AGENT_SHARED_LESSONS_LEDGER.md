@@ -25,6 +25,9 @@
   binding hashes were omitted. Require the supported V2 schema, matching final
   marker, snapshot/signals hashes and acknowledged checkpoint/queue hashes.
   Apply mandatory hash validation in both restart and publication readers.
+- Check acknowledgement evidence in both summary and checkpoint. A summary
+  changed to disabled must not waive hashes for an acknowledged checkpoint or
+  downgrade transaction-required state; reject that status contradiction.
 - The workflow declared cache-only operation but omitted the summary/queue from
   both cache path lists. The stricter restart reader correctly rejected that
   partial restore. Retain those two evidence files and exercise an offline copy
