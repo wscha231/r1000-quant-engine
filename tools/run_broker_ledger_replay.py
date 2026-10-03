@@ -83,10 +83,29 @@ REPLAY_GENERATED_ARTIFACTS = (
     "metrics.json",
     "replay_report.md",
     "target_fill_coverage.csv",
+    "reserve_reason_audit.json",
 )
 CONCENTRATED_CHAMPION_FILTERS = DEFAULT_CONCENTRATED_CHAMPION_FILTERS
 DISABLE_CONCENTRATED_CHAMPION_FILTERS = {"__disable_concentrated_champion_filter__": "true"}
 NYSE_CALENDAR = mcal.get_calendar("NYSE")
+
+
+def prepare_generated_outputs(
+    output_dir: Path, names: tuple[str, ...] | list[str], input_paths: tuple[Path | None, ...] | list[Path | None],
+) -> tuple[set[Path], bool]:
+    """Protect declared inputs before invalidating exact owned exports.
+
+    Resolved aliases count as collisions regardless of the input suffix. A
+    distinct hardlink may be safely unlinked; no directories are traversed.
+    Nested names must come from the caller's known requested output contract.
+    """
+    protected = {Path(path).resolve() for path in input_paths if path is not None}
+    paths = [output_dir / name for name in names]
+    collision = any(path.resolve() in protected for path in paths)
+    for path in paths:
+        if path.resolve() not in protected and (path.is_file() or path.is_symlink()):
+            path.unlink()
+    return protected, collision
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -1526,13 +1545,17 @@ def replay(
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     execution_cost_config = execution_cost_config or ExecutionCostConfig()
-    # A blocked rerun must never inherit performance-bearing files from any
-    # prior successful replay, including the fixed-bps control.
-    for artifact_name in REPLAY_GENERATED_ARTIFACTS:
-        artifact_path = output_dir / artifact_name
-        if artifact_path.is_file():
-            artifact_path.unlink()
     cash_carry_config = cash_carry_config or resolve_cash_carry_config()
+    protected, collision = prepare_generated_outputs(output_dir, REPLAY_GENERATED_ARTIFACTS,
+        [target_book, cash_carry_config.rate_path, execution_cost_config.paper_slippage_path])
+    if collision:
+        payload = redact_execution_performance({"target_book": str(target_book), "price_cache": str(price_cache),
+            "portfolio_kind": portfolio_kind, "fill_mode": fill_mode}, reason="caller_input_collides_with_replay_output")
+        if (output_dir / "metrics.json").resolve() not in protected:
+            (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        if (output_dir / "replay_report.md").resolve() not in protected:
+            (output_dir / "replay_report.md").write_text(render_report(payload), encoding="utf-8")
+        return payload
     reserve_explicit = reserve_asset_policy is not None or bool(str(reserve_mode or "").strip())
     if reserve_asset_policy is None:
         compatibility_mode = (
@@ -1640,11 +1663,17 @@ def replay(
                 price_cache,
                 ticker,
                 include_liquidity=True,
+                require_observed_open=fill_mode == "next_open",
             )
             for ticker in tickers
         }
     else:
-        prices = {ticker: load_price_series(price_cache, ticker) for ticker in tickers}
+        prices = {
+            ticker: load_price_series(
+                price_cache, ticker, require_observed_open=fill_mode == "next_open"
+            )
+            for ticker in tickers
+        }
     prices = {ticker: px for ticker, px in prices.items() if not px.empty}
     execution_cost_model = (
         ExecutionCostModel(prices, execution_cost_config)
@@ -1731,6 +1760,34 @@ def replay(
         (output_dir / "replay_report.md").write_text(
             render_report(payload),
             encoding="utf-8",
+        )
+        return payload
+    if fill_mode == "next_open":
+        # This target book declares weights, not quantities fixed before the
+        # auction. The legacy loop sizes from fill-day Close and realized Open;
+        # neither can establish a pre-submitted opening intent. Do not invent
+        # a new sizing/execution policy in an integrity correction. Open price
+        # coverage alone is insufficient to admit this mode.
+        payload = {
+            "status": "blocked",
+            "reason": "next_open_precommitted_order_intent_unavailable",
+            "execution_clock_contract": "next_open_intent_admission_v1",
+            "metric_mode": "DO_NOT_USE",
+            "portfolio_kind": portfolio_kind,
+            "target_book": str(target_book),
+            "price_cache": str(price_cache),
+            "fill_mode": fill_mode,
+            "target_fill_coverage": target_fill_coverage,
+            "performance_fields_redacted": True,
+            "research_only": True,
+            "production_activation_allowed": False,
+            "valid_for_production": False,
+        }
+        (output_dir / "metrics.json").write_text(
+            json.dumps(payload, indent=2, default=str), encoding="utf-8"
+        )
+        (output_dir / "replay_report.md").write_text(
+            render_report(payload), encoding="utf-8"
         )
         return payload
     if execution_cost_model is not None:

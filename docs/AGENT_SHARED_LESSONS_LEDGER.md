@@ -3694,6 +3694,79 @@ Expected contract:
 - Fullrun executed: false. Durable daily catch-up executed: false. Production
   enabled: false. Live trading enabled: false.
 
+## 2026-10-01 — Opening price coverage is not pre-auction order intent (Evaluation E1)
+
+- Native parquet/replay fixtures reproduce missing Open being filled from Close
+  and later same-session Close changing an opening rebalance quantity. Keep the
+  legacy weekly loader fallback separate from strict observed-Open admission.
+- The existing target book supplies weights, not precommitted auction quantities.
+  Fail `next_open` closed after price coverage until a separately defined order
+  intent contract is available. Replacing future Close with realized auction Open
+  would still backdate a quantity and is not an integrity fix.
+- This correction redacts performance/account artifacts for blocked runs and
+  preserves the official `broker_ledger_next_close` behavior. It adds no alpha,
+  execution policy, durable mutation, migration rerun, or promotion authority.
+- Missing current Drive access prevents current frontier/accepted-head claims;
+  successful historical Actions receipts are not a fresh durable-state readback.
+
+### 2026-10-03 - Clear all replay evidence before blocked reruns
+
+- PR567 review found a completed replay's `reserve_reason_audit.json` surviving
+  a blocked opening rerun because conditional exports were absent from cleanup.
+- Clear every generated evidence file before any prerequisite can return.
+  Test completed-to-blocked and explicit-to-default transitions against the
+  complete export set, while preserving caller-owned files and nested archives.
+  Price/intent guards alone do not invalidate evidence from a prior replay.
+
+### 2026-10-03 - Blocked replay status must survive research callers (#567 P2)
+
+- Audit both direct replay callers and CLI consumers when a native result
+  becomes blocked. Missing, nonfinite or redacted performance is unavailable,
+  not zero. Cost sweeps require every requested level to complete; comparisons
+  require a usable baseline, resolved after all levels have been read.
+- Preserve DO_NOT_USE through grid selection and render unavailable crisis
+  metrics as N/A. Clear only caller-owned root summaries before retrying;
+  retain unrelated files and nested archives. Optional shell orchestration
+  success does not certify the individual replay artifact.
+
+### 2026-10-03 - Caller preparation must invalidate its owned replay evidence (#567 P2)
+
+- Native broker cleanup cannot protect a wrapper that returns before replay.
+  Crisis holdings/policy/schema failures retained eight old native exports and
+  both generated target files. Clear the native registry and wrapper targets
+  before preparation; clear partially written targets when preparation fails.
+- Test the complete owned export set, actual early input failures and successful
+  retries while preserving original holdings, caller files and nested archives.
+
+### 2026-10-03 - Opening guards must cover independent replay engines (#567 P1)
+
+- Inventory price-loader consumers and independent order loops, not only calls
+  to the shared ledger. Observed Open cannot admit quantities formed using
+  fill-day equity or auction prices; block unsupported next_open models.
+- Reject resolved target/output-owned-name collisions before completing any mode.
+  Preserve the colliding caller bytes and links while clearing other owned exports.
+  Clear each engine's complete owned exports before other prerequisite returns;
+  retain unrelated files and nested archives. Blocked metrics stay null/N/A and
+  CLI status stays nonzero. Disjoint same-name inputs remain valid.
+- Keep weekly proxies and advisory opening features separate from observed-open
+  execution admission; their source-level caveats do not become economic proof.
+
+### 2026-10-03 - Preserve declared inputs through every owned writer (#567 P2)
+
+- Validate resolved original and explicit auxiliary CSV paths against the whole
+  known requested output contract before reading, cleanup or publication. Protect
+  input bytes and links even at report names; clear only other exact owned files.
+  Include dependent grid variants and declared outer event sources; disjoint
+  nested archives and safely unlinked hardlinks remain valid.
+- A cost sweep needs its exact normalized requested baseline and usable native
+  baseline evidence. Near-equal costs cannot alias it; missing baselines block
+  without adding an experiment, and unavailable comparisons remain null.
+- Propagate actual portfolio and prerequisite status through inner helpers,
+  outer summaries and CLI exits. Bound native failures, redact blocked metrics,
+  and render N/A without changing fitting, order or cost formulas.
+- The native /review-complete signal must be exactly one command line; put
+  explanations elsewhere. A prose-bearing signal failed the actual gate.
+
 ## 2026-08-03 - Fullrun session, producer order, and champion authority
 
 - A latest-close fullrun must start from one explicit approved UTC decision

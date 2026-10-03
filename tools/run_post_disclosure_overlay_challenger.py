@@ -23,6 +23,8 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run_alpha_selector_broker_grid import run as run_alpha_selector_grid  # noqa: E402
+from tools.run_alpha_selector_broker_grid import grid_generated_artifacts, normalize_grid_result  # noqa: E402
+from tools.run_broker_ledger_replay import prepare_generated_outputs  # noqa: E402
 
 DEFAULT_CANDIDATE_BOOK = "cloud_results/full_rebuild/latest_global_alpha_universe/reports/candidate_replay_book.csv"
 DEFAULT_13F_EVENTS = "data_pit/sec/13f_position_events.parquet"
@@ -196,15 +198,8 @@ def portfolio_single_name_caps(args: argparse.Namespace, portfolio: str) -> str:
     return str(getattr(args, "concentrated_single_name_caps", "0.33,0.50") or "0.33,0.50")
 
 
-def run_broker_grid(args: argparse.Namespace, enriched_csv: Path, out_dir: Path) -> dict[str, Any]:
-    if not bool(args.run_broker_grid):
-        return {"status": "skipped", "reason": "run_broker_grid is false"}
-    results: dict[str, Any] = {"status": "completed", "portfolios": {}}
-    for portfolio in [p.strip() for p in str(args.portfolio_kinds).split(",") if p.strip()]:
-        if portfolio not in {"main", "concentrated"}:
-            continue
-        payload = run_alpha_selector_grid(
-            argparse.Namespace(
+def broker_grid_args(args: argparse.Namespace, enriched_csv: Path, out_dir: Path, portfolio: str) -> argparse.Namespace:
+    return argparse.Namespace(
                 candidate_book=str(enriched_csv),
                 price_cache=str(args.price_cache),
                 output_dir=str(out_dir / "alpha_selector_broker_grid" / portfolio),
@@ -223,8 +218,26 @@ def run_broker_grid(args: argparse.Namespace, enriched_csv: Path, out_dir: Path)
                 min_price=float(args.min_price),
                 allow_unfillable_targets=bool(args.allow_unfillable_targets),
             )
-        )
+
+
+def requested_portfolios(args: argparse.Namespace) -> list[str]:
+    return list(dict.fromkeys(p.strip() for p in str(args.portfolio_kinds).split(",")
+                             if p.strip() in {"main", "concentrated"}))
+
+
+def run_broker_grid(args: argparse.Namespace, enriched_csv: Path, out_dir: Path) -> dict[str, Any]:
+    if not bool(args.run_broker_grid):
+        return {"status": "skipped", "reason": "run_broker_grid is false"}
+    results: dict[str, Any] = {"status": "completed", "portfolios": {}}
+    for portfolio in requested_portfolios(args):
+        try:
+            payload = run_alpha_selector_grid(broker_grid_args(args, enriched_csv, out_dir, portfolio))
+        except (OSError, ValueError, TypeError, RuntimeError) as exc:
+            payload = {"status": "blocked", "reason": "broker_grid_failed:" + type(exc).__name__}
+        payload = normalize_grid_result(payload)
         results["portfolios"][portfolio] = payload
+    if not results["portfolios"] or any(payload["status"] != "completed" for payload in results["portfolios"].values()):
+        results.update(status="blocked", reason="requested_broker_grid_blocked")
     return results
 
 
@@ -249,6 +262,21 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     candidate_path = repo_path(args.candidate_book)
+    owned = ["summary.json", "report.md", "candidate_replay_book_post_disclosure_enriched.csv"]
+    if bool(args.run_broker_grid):
+        for portfolio in requested_portfolios(args):
+            grid_args = broker_grid_args(args, output_dir / "candidate_replay_book_post_disclosure_enriched.csv", output_dir, portfolio)
+            owned += [f"alpha_selector_broker_grid/{portfolio}/{name}" for name in grid_generated_artifacts(grid_args)]
+    protected, collision = prepare_generated_outputs(output_dir, owned,
+        [candidate_path, repo_path(args.events_13f), repo_path(args.events_form4), repo_path(args.events_etf)])
+    if collision:
+        summary = {"status": "blocked", "reason": "caller_input_collides_with_replay_output", "enriched_rows": 0,
+            "research_only": True, "production_activation_allowed": False, "score_total_changed": False,
+            "metric_mode": "DO_NOT_USE", "broker_grid": {"status": "blocked"}}
+        if (output_dir / "summary.json").resolve() not in protected: write_json(output_dir / "summary.json", summary)
+        if (output_dir / "report.md").resolve() not in protected:
+            (output_dir / "report.md").write_text(render_report(summary), encoding="utf-8")
+        return summary
     candidates = read_table(candidate_path)
     enriched = add_post_disclosure_overlay(
         candidates,
@@ -260,9 +288,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     enriched_csv = output_dir / "candidate_replay_book_post_disclosure_enriched.csv"
     enriched.to_csv(enriched_csv, index=False)
     broker = run_broker_grid(args, enriched_csv, output_dir) if not enriched.empty else {"status": "blocked", "reason": "enriched candidate book is empty"}
+    complete = not enriched.empty and broker.get("status") == ("completed" if bool(args.run_broker_grid) else "skipped")
     summary = {
-        "status": "completed" if not enriched.empty else "blocked",
-        "reason": "" if not enriched.empty else "missing candidate replay rows",
+        "status": "completed" if complete else "blocked",
+        "reason": "" if complete else "missing candidate replay rows" if enriched.empty else "requested_broker_grid_blocked",
         "schema_version": "post-disclosure-overlay-challenger-v1",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "research_only": True,
