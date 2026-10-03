@@ -5636,3 +5636,9 @@ Expected contract:
 - Native before-patch regressions exposed 38 unsafe acceptances. The corrected
   focused suite passes normal and optimized Python; truncated run/job/artifact
   censuses still block even when all relevant attempt identities are present.
+- Outer recovery and active-writer censuses also require unique positive
+  non-bool run IDs and consistent supplied current-run identity metadata.
+  Require the separately observed live publisher exactly once in its own
+  recovery history before exclusion; an empty or omitted-current listing is
+  not evidence of no prior publication. Share identity validation across the
+  census paths so duplicate rows and numeric aliases cannot mask missing runs.

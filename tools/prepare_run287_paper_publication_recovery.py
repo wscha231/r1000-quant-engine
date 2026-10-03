@@ -115,6 +115,31 @@ def boolean(value: Any) -> bool:
     return value is True or value == "true"
 
 
+def validate_run_census_ids(runs: list, current: dict, *, code_prefix: str) -> set[int]:
+    run_ids = set()
+    for observed in runs:
+        require(isinstance(observed, dict) and type(observed.get("id")) is int and observed["id"] > 0,
+                code_prefix + "_run_identity")
+        require(observed["id"] not in run_ids, code_prefix + "_run_duplicate")
+        run_ids.add(observed["id"])
+        if observed["id"] == current["id"]:
+            for key in ("run_attempt", "event", "path", "head_branch", "head_sha", "status", "conclusion",
+                        "created_at", "run_started_at"):
+                if key in observed:
+                    require(type(observed[key]) is type(current.get(key)) and observed[key] == current.get(key),
+                            "current_recovery_census_metadata_conflict")
+            for key in ("actor", "triggering_actor"):
+                if key in observed:
+                    require(exact_user(observed[key]), "current_recovery_census_metadata_conflict")
+            for key in ("repository", "head_repository"):
+                if key in observed:
+                    obj = observed[key]
+                    require(isinstance(obj, dict) and obj.get("full_name") == scope.REPOSITORY and
+                            obj.get("id") == scope.REPOSITORY_ID and obj.get("node_id") == scope.REPOSITORY_NODE_ID and
+                            exact_user(obj.get("owner")), "current_recovery_census_metadata_conflict")
+    return run_ids
+
+
 def prior_publication_step_state(previous: dict, jobs_payload: Any) -> str:
     require(isinstance(previous, dict) and type(previous.get("id")) is int and previous["id"] > 0 and
             type(previous.get("run_attempt")) is int and previous["run_attempt"] > 0,
@@ -205,11 +230,16 @@ def validate_publisher(evidence: Path, checkout_sha: str, *, now: datetime | Non
         runs = census.get("workflow_runs")
         require(isinstance(runs, list) and type(census.get("total_count")) is int and
                 census["total_count"] == len(runs), "writer_census_incomplete")
+        validate_run_census_ids(runs, run, code_prefix="writer")
         require(all(isinstance(r, dict) and r.get("id") == run["id"] for r in runs), "conflicting_active_writer")
     prior = read(evidence / "prior_recoveries.json")
     runs = prior.get("workflow_runs")
     require(isinstance(runs, list) and type(prior.get("total_count")) is int and
             prior["total_count"] == len(runs), "prior_recovery_census_incomplete")
+    run_ids = validate_run_census_ids(runs, run, code_prefix="prior_recovery")
+    # The dedicated GET already proved this live publisher exists. An empty or
+    # omitted-current listing cannot establish complete history for exclusion.
+    require(run["id"] in run_ids, "prior_recovery_current_run_missing")
     artifacts = prior.get("artifacts")
     require(isinstance(artifacts, dict), "prior_artifact_census_missing")
     prior_jobs = prior.get("jobs")

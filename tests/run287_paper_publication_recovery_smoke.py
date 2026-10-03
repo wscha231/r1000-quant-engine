@@ -303,7 +303,7 @@ class PublicationRecoveryChecks(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "writer_census_incomplete"):
                 recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
             publisher_fixture(root)
-            dump(root / "prior_recoveries.json", {"total_count": 1, "workflow_runs": [{"id": 123}],
+            dump(root / "prior_recoveries.json", {"total_count": 2, "workflow_runs": [{"id": MOCK_RUN}, {"id": 123}],
                     "artifacts": {"123": {"total_count": 1, "artifacts": [
                         {"name": "accepted-paper-catchup-2026-07-27-123", "expired": True}]}}})
             with self.assertRaisesRegex(ValueError, "already_published"):
@@ -479,6 +479,101 @@ class PublicationRecoveryChecks(unittest.TestCase):
             install_prior_recovery(root, step_conclusion="success", jobs_payload=prior_jobs(step_conclusion="success"))
             with self.assertRaisesRegex(ValueError, "already_published_requires_separate_recovery"):
                 recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+
+    def test_outer_run_census_identity_and_current_metadata_fail_closed(self):
+        cases = []
+        cases.append(("duplicate_prior", lambda p: p.update(
+            workflow_runs=[copy.deepcopy(p["workflow_runs"][1])] * 2)))
+        cases.append(("duplicate_current", lambda p: p.update(
+            workflow_runs=[copy.deepcopy(p["workflow_runs"][0])] * 2, jobs={}, artifacts={})))
+        cases.append(("missing_current", lambda p: p.update(
+            total_count=1, workflow_runs=[p["workflow_runs"][1]])))
+        cases.append(("empty_current_census", lambda p: p.update(
+            total_count=0, workflow_runs=[], jobs={}, artifacts={})))
+        cases.append(("null_run", lambda p: p["workflow_runs"].__setitem__(1, None)))
+        cases.append(("list_run", lambda p: p["workflow_runs"].__setitem__(1, [])))
+        cases.append(("missing_prior_id", lambda p: p["workflow_runs"][1].pop("id")))
+        cases.append(("missing_current_id", lambda p: p["workflow_runs"][0].pop("id")))
+        for index in (0, 1):
+            for value in (None, True, False, 0, -1, str(MOCK_RUN if index == 0 else 123),
+                          float(MOCK_RUN if index == 0 else 123)):
+                cases.append((f"row_{index}_id_{value!r}",
+                    lambda p, i=index, v=value: p["workflow_runs"][i].update(id=v)))
+        conflicts = {
+            "head_sha": "0" * 40, "path": ".github/workflows/unrelated.yml", "event": "push",
+            "head_branch": "other", "run_attempt": 2, "status": "completed", "conclusion": "success",
+            "created_at": "2026-10-02T00:00:00Z", "run_started_at": "2026-10-02T00:00:00Z",
+            "actor": {**owner(), "id": 1}, "triggering_actor": {**owner(), "id": 1},
+            "repository": {**repository(), "id": 1}, "head_repository": {**repository(), "id": 1},
+        }
+        for field, value in conflicts.items():
+            cases.append(("current_conflict_" + field,
+                lambda p, f=field, v=value: p["workflow_runs"][0].update({f: v})))
+        for value in (True, 1.0, "1"):
+            cases.append(("current_attempt_type_" + repr(value),
+                lambda p, v=value: p["workflow_runs"][0].update(run_attempt=v)))
+        for name, change in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                publisher_fixture(root)
+                prior = install_prior_recovery(root, jobs_payload=prior_jobs())
+                change(prior)
+                dump(root / "prior_recoveries.json", prior)
+                with self.assertRaises(ValueError):
+                    recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+
+    def test_current_census_boolean_id_cannot_alias_run_one(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            data = publisher_fixture(root)
+            data["publisher_run"]["id"] = 1
+            data["writers_in_progress"]["workflow_runs"] = [{"id": 1}]
+            data["prior_recoveries"]["workflow_runs"] = [{"id": True}]
+            for name in ("publisher_run", "writers_in_progress", "prior_recoveries"):
+                dump(root / (name + ".json"), data[name])
+            with self.assertRaises(ValueError):
+                recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+
+    def test_active_writer_census_run_identity_and_metadata_fail_closed(self):
+        for status in ("in_progress", "queued", "waiting"):
+            cases = [
+                ("duplicate_current", [{"id": MOCK_RUN}, {"id": MOCK_RUN}]),
+                ("null_run", [None]), ("list_run", [[]]), ("missing_id", [{}]),
+            ]
+            for value in (None, True, False, 0, -1, str(MOCK_RUN), float(MOCK_RUN)):
+                cases.append(("invalid_id_" + repr(value), [{"id": value}]))
+            for field, value in (("path", ".github/workflows/unrelated.yml"), ("head_sha", "0" * 40),
+                                 ("run_attempt", True), ("run_attempt", 1.0), ("run_attempt", 2),
+                                 ("actor", {**owner(), "id": 1})):
+                cases.append(("current_conflict_" + field, [{"id": MOCK_RUN, field: value}]))
+            for name, rows in cases:
+                with self.subTest(status=status, name=name), tempfile.TemporaryDirectory() as td:
+                    root = Path(td)
+                    publisher_fixture(root)
+                    dump(root / ("writers_" + status + ".json"), {"total_count": len(rows), "workflow_runs": rows})
+                    with self.assertRaises(ValueError):
+                        recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+
+    def test_active_writer_boolean_id_cannot_alias_run_one(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            data = publisher_fixture(root)
+            data["publisher_run"]["id"] = 1
+            data["writers_in_progress"]["workflow_runs"] = [{"id": True}]
+            data["prior_recoveries"]["workflow_runs"] = [{"id": 1}]
+            for name in ("publisher_run", "writers_in_progress", "prior_recoveries"):
+                dump(root / (name + ".json"), data[name])
+            with self.assertRaises(ValueError):
+                recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+
+    def test_current_only_census_with_consistent_metadata_is_first_publication_evidence(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            data = publisher_fixture(root)
+            prior = data["prior_recoveries"]
+            prior["workflow_runs"] = [copy.deepcopy(data["publisher_run"])]
+            dump(root / "prior_recoveries.json", prior)
+            self.assertEqual(recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)["run_id"], MOCK_RUN)
 
     def test_original_cancelled_boundary_and_pinned_artifact_identity(self):
         with tempfile.TemporaryDirectory() as td:
