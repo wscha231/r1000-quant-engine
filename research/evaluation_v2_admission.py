@@ -218,15 +218,20 @@ class BoundedArtifactResolver:
             self._guard_root()
             require(_file_identity(path.lstat()) == _file_identity(before), 'ARTIFACT_CHANGED')
             chunks = []
-            remaining = MAX_BLOB_BYTES + 1
+            # Never probe a sentinel byte beyond either allowance. The known
+            # size is also a read cap; final descriptor/leaf checks detect a
+            # concurrent extension even when no extra byte is consumed.
+            remaining = min(before.st_size, MAX_BLOB_BYTES,
+                            MAX_TOTAL_BYTES - self.returned_bytes)
             while remaining:
                 part = os.read(fd, min(65536, remaining))
                 if not part:
                     break
                 chunks.append(part)
                 remaining -= len(part)
+                # A later read error must not erase bytes already consumed.
+                self.returned_bytes += len(part)
             raw = b''.join(chunks)
-            self.returned_bytes += len(raw)
             require(len(raw) <= MAX_BLOB_BYTES, 'ARTIFACT_BYTE_BUDGET')
             require(self.returned_bytes <= MAX_TOTAL_BYTES, 'TOTAL_BYTE_BUDGET')
             require(len(raw) == before.st_size and _file_identity(os.fstat(fd)) == _file_identity(before),

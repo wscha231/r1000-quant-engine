@@ -5608,3 +5608,13 @@ Expected contract:
   Native receipts count actual unique-ID reads including preloaded arm files;
   in-memory callable APIs count only their actual reads. Byte identity still
   grants no provider/PIT, economic, fullrun or book authority.
+
+### 2026-10-03 - Resource and geometry guards must preserve their API contract (#571 P2)
+
+- A final unsafe-output guard must return a bounded blocked result to direct
+  callers as well as CLI users, without retrying publication or retaining rows.
+- Cap actual reads by observed size and both remaining byte allowances; charge
+  each return even before a later error. Final identity checks detect growth.
+- Bind physical endpoint/ancestor identities when path spelling can alias.
+  Preserve disjoint missing outputs; label POSIX spelling simulations separately
+  from actual Windows fixtures and do not claim macOS execution.

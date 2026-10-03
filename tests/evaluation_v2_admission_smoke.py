@@ -2,6 +2,7 @@ import copy
 import importlib
 import json
 import os
+import posixpath
 from pathlib import Path
 import runpy
 import subprocess
@@ -272,6 +273,107 @@ class BoundedResolverTests(unittest.TestCase):
         with self.assertRaisesRegex(m.AdmissionError,'ARTIFACT_ROOT_INVALID'):
             m.BoundedArtifactResolver(alias/'bundle')
 
+    def test_raced_growth_never_reads_beyond_blob_or_remaining_total_budget(self):
+        for blob,total,prior,initial,grown in ((2,100,0,2,3),(10,5,3,2,50),(10,4,3,1,50)):
+            with self.subTest(blob=blob,total=total,prior=prior):
+                artifact=self.root/'artifact';artifact.write_bytes(b'a'*initial)
+                (self.root/'prior').write_bytes(b'p'*prior)
+                resolver=m.BoundedArtifactResolver(self.root)
+                requests=[];returned=[];observed=[];original=m.os.read
+                with patch.object(m,'MAX_BLOB_BYTES',blob),patch.object(m,'MAX_TOTAL_BYTES',total):
+                    if prior:resolver('prior')
+                    def grow(fd,count):
+                        if not requests:artifact.write_bytes(b'x'*grown)
+                        observed.append(resolver.returned_bytes);requests.append(count)
+                        part=original(fd,count);returned.append(len(part));return part
+                    with patch.object(m.os,'read',side_effect=grow),self.assertRaises(m.AdmissionError):
+                        resolver('artifact')
+                consumed=0
+                for request,actual,counter in zip(requests,returned,observed):
+                    self.assertLessEqual(request,min(blob-consumed,total-prior-consumed))
+                    self.assertEqual(counter,prior+consumed)
+                    consumed+=actual
+                self.assertLessEqual(consumed,blob)
+                self.assertLessEqual(resolver.returned_bytes,total)
+                self.assertEqual(resolver.returned_bytes,prior+sum(returned))
+                self.assertNotIn('artifact',resolver.cache)
+
+    def test_zero_and_exact_budget_files_have_no_sentinel_or_post_limit_read(self):
+        for blob,total,prior,size in ((0,0,0,0),(5,0,0,0),(2,2,0,2),(4,6,2,4)):
+            with self.subTest(blob=blob,total=total,prior=prior,size=size):
+                (self.root/'artifact').write_bytes(b'a'*size)
+                (self.root/'prior').write_bytes(b'p'*prior)
+                resolver=m.BoundedArtifactResolver(self.root);requests=[];actual=[];original=m.os.read
+                with patch.object(m,'MAX_BLOB_BYTES',blob),patch.object(m,'MAX_TOTAL_BYTES',total):
+                    if prior:resolver('prior')
+                    def read(fd,count):
+                        requests.append(count);part=original(fd,count);actual.append(len(part));return part
+                    with patch.object(m.os,'read',side_effect=read):
+                        self.assertEqual(resolver('artifact'),b'a'*size)
+                        count=len(requests)
+                        self.assertEqual(resolver('artifact'),b'a'*size)
+                        self.assertEqual(len(requests),count,'cached bytes were re-read')
+                consumed=0
+                for request,returned in zip(requests,actual):
+                    self.assertGreater(request,0)
+                    self.assertLessEqual(request,min(blob-consumed,total-prior-consumed))
+                    consumed+=returned
+                if not size:self.assertEqual(requests,[])
+                self.assertEqual(resolver.returned_bytes,prior+size)
+
+    def test_short_reads_charge_each_return_before_the_next_read(self):
+        (self.root/'artifact').write_bytes(b'abcdef')
+        (self.root/'prior').write_bytes(b'123')
+        resolver=m.BoundedArtifactResolver(self.root);original=m.os.read
+        requests=[];returned=[];counters=[]
+        with patch.object(m,'MAX_BLOB_BYTES',6),patch.object(m,'MAX_TOTAL_BYTES',9):
+            resolver('prior')
+            def short(fd,count):
+                counters.append(resolver.returned_bytes);requests.append(count)
+                part=original(fd,min(count,2));returned.append(len(part));return part
+            with patch.object(m.os,'read',side_effect=short):
+                self.assertEqual(resolver('artifact'),b'abcdef')
+        consumed=0
+        for request,actual,counter in zip(requests,returned,counters):
+            self.assertLessEqual(request,6-consumed)
+            self.assertEqual(counter,3+consumed)
+            consumed+=actual
+        self.assertEqual(resolver.returned_bytes,9)
+
+    def test_partial_read_error_is_charged_redacted_and_consumes_retry_allowance(self):
+        (self.root/'artifact').write_bytes(b'abcdef')
+        (self.root/'retry').write_bytes(b'1234')
+        resolver=m.BoundedArtifactResolver(self.root);original=m.os.read;calls=[]
+        def fail_after_short_read(fd,count):
+            calls.append(count)
+            if len(calls)>1:raise OSError('private-token-must-not-appear')
+            return original(fd,min(count,2))
+        with patch.object(m,'MAX_BLOB_BYTES',6),patch.object(m,'MAX_TOTAL_BYTES',6):
+            with patch.object(m.os,'read',side_effect=fail_after_short_read),self.assertRaises(m.AdmissionError) as caught:
+                resolver('artifact')
+            self.assertEqual(str(caught.exception),'ARTIFACT_UNAVAILABLE')
+            self.assertEqual(resolver.returned_bytes,2)
+            self.assertEqual(resolver.cache,{})
+            with patch.object(m.os,'read',side_effect=AssertionError('budget must block before read')):
+                with self.assertRaisesRegex(m.AdmissionError,'TOTAL_BYTE_BUDGET'):resolver('artifact')
+            self.assertEqual(resolver('retry'),b'1234')
+            self.assertEqual(resolver.returned_bytes,6)
+
+    def test_zero_allowance_rejects_nonempty_files_before_open_and_early_eof_charges_zero(self):
+        (self.root/'artifact').write_bytes(b'a')
+        for blob,total,reason in ((0,5,'ARTIFACT_BYTE_BUDGET'),(1,0,'TOTAL_BYTE_BUDGET')):
+            with self.subTest(blob=blob,total=total):
+                resolver=m.BoundedArtifactResolver(self.root)
+                with patch.object(m,'MAX_BLOB_BYTES',blob),patch.object(m,'MAX_TOTAL_BYTES',total),\
+                     patch.object(m.os,'open',side_effect=AssertionError('must not open')):
+                    with self.assertRaisesRegex(m.AdmissionError,reason):resolver('artifact')
+                self.assertEqual(resolver.returned_bytes,0)
+        resolver=m.BoundedArtifactResolver(self.root)
+        with patch.object(m.os,'read',return_value=b''),self.assertRaisesRegex(m.AdmissionError,'ARTIFACT_CHANGED'):
+            resolver('artifact')
+        self.assertEqual(resolver.returned_bytes,0)
+        self.assertEqual(resolver.cache,{})
+
 
 class ImmutableBundleLifecycleTests(unittest.TestCase):
     def setUp(self):
@@ -492,6 +594,152 @@ class ImmutableBundleLifecycleTests(unittest.TestCase):
         with patch.object(m,'MAX_TOTAL_BYTES',native['resolved_bytes']-1):
             blocked=verifier.comparison_precheck(args)
         self.assertEqual(blocked['reason'],'TOTAL_BYTE_BUDGET')
+
+
+    def assert_bounded_no_publication(self,payload,root,before,reason='OUTPUT_ADMISSION_PATH_OVERLAP'):
+        self.assertEqual(payload['status'],'blocked_comparison_admission')
+        self.assertEqual(payload['comparison_admission']['reason'],reason)
+        self.assertEqual(payload['baseline'],{})
+        self.assertEqual(payload['candidates'],[])
+        self.assertEqual(payload['candidate_count'],0)
+        self.assertEqual(payload['review_valid_candidate_count'],0)
+        for name in verifier.COMPARISON_AUTHORITY_FIELDS:
+            if name!='unverified_domains':self.assertIs(payload[name],False)
+        self.assertEqual(self.census(root),before)
+
+    def late_alias(self,args,root,kind):
+        output=Path(args.output_dir)
+        if kind=='directory':
+            output.symlink_to(root,target_is_directory=True)
+        elif kind=='junction':
+            result=subprocess.run(['cmd','/c','mklink','/J',str(output),str(root)],capture_output=True)
+            self.assertEqual(result.returncode,0,'owned junction fixture unavailable')
+        else:
+            output.mkdir()
+            target=output/kind.split(':')[1]
+            if kind.startswith('hardlink:'):os.link(root/'cost_contract',target)
+            else:target.symlink_to(root/'cost_contract')
+
+    def test_late_geometry_after_legacy_collection_returns_empty_bounded_payload(self):
+        kinds=['directory',*[f'{kind}:{name}' for kind in ('symlink','hardlink')
+                               for name in ('summary.json','candidate_verdicts.csv','report.md')]]
+        if os.name=='nt':kinds.append('junction')
+        for index,kind in enumerate(kinds):
+            with self.subTest(kind=kind):
+                self.fixture=ComparisonPrecheckTests();self.fixture.setUp()
+                root,args=self.bundle('late-legacy'+str(index));args.output_dir=str(self.area/('late-report'+str(index)))
+                before=self.census(root);reads=[]
+                def collect(*values):
+                    if not reads:self.late_alias(args,root,kind)
+                    reads.append(values);return {}
+                with patch.object(verifier,'collect_evidence',side_effect=collect),\
+                     patch.object(verifier,'write_json',side_effect=AssertionError('unsafe output write')),\
+                     patch.object(verifier,'write_csv',side_effect=AssertionError('unsafe output write')):
+                    payload=verifier.run(args)
+                self.assertEqual(len(reads),2)
+                self.assert_bounded_no_publication(payload,root,before)
+
+    def test_late_geometry_on_initially_blocked_publication_returns_bounded_payload(self):
+        for index,state in enumerate(('wrong_pin','half_options','zero_candidate','multi_candidate')):
+            with self.subTest(state=state):
+                self.fixture=ComparisonPrecheckTests();self.fixture.setUp()
+                root,args=self.bundle('late-blocked'+str(index));args.output_dir=str(self.area/('late-blocked-report'+str(index)))
+                if state=='wrong_pin':args.expected_context_sha256='0'*64
+                elif state=='half_options':args.comparison_challenger_arm=None
+                elif state=='zero_candidate':args.candidate_run=[]
+                else:args.candidate_run=['one','two']
+                before=self.census(root);original=verifier.publish_report
+                def publish(values,payload):
+                    self.late_alias(values,root,'directory');return original(values,payload)
+                with patch.object(verifier,'publish_report',side_effect=publish),\
+                     patch.object(verifier,'collect_evidence',side_effect=AssertionError('blocked legacy read')),\
+                     patch.object(verifier,'write_json',side_effect=AssertionError('unsafe output write')):
+                    payload=verifier.run(args)
+                self.assert_bounded_no_publication(payload,root,before)
+
+    def test_late_invalid_geometry_is_redacted_in_direct_api_and_cli_still_exits_two(self):
+        for index,mode in enumerate(('api','cli')):
+            self.fixture=ComparisonPrecheckTests();self.fixture.setUp()
+            root,args=self.bundle('late-invalid'+str(index));before=self.census(root)
+            original=verifier.publish_report
+            def publish(values,payload):
+                values.output_dir=[];return original(values,payload)
+            with patch.object(verifier,'publish_report',side_effect=publish),\
+                 patch.object(verifier,'collect_evidence',return_value={}),\
+                 patch.object(verifier,'write_json',side_effect=AssertionError('unsafe output write')):
+                if mode=='api':
+                    payload=verifier.run(args)
+                    self.assert_bounded_no_publication(payload,root,before,'OUTPUT_ADMISSION_PATH_INVALID')
+                else:
+                    with patch.object(verifier,'parse_args',return_value=args):self.assertEqual(verifier.main([]),2)
+                    self.assertEqual(self.census(root),before)
+
+    def test_standalone_publish_guard_rejects_actual_alias_without_writing(self):
+        root,args=self.bundle();before=self.census(root)
+        self.late_alias(args,root,'directory')
+        with patch.object(verifier,'write_json',side_effect=AssertionError('unsafe output write')):
+            with self.assertRaisesRegex(m.AdmissionError,'OUTPUT_ADMISSION_PATH_OVERLAP'):
+                verifier.publish_report(args,{'candidates':[]})
+        self.assertEqual(self.census(root),before)
+
+    def test_case_preserving_posix_geometry_simulation_uses_physical_ancestors(self):
+        # Portable simulation, not a macOS execution claim. Real stat IDs are
+        # supplied for case aliases while resolve/normcase retain POSIX spelling.
+        index=0;original_stat=Path.stat
+        for shape in ('equal','missing_child','existing_child','ancestor'):
+            for state in ('valid','wrong_pin','half_options','zero_candidate','multi_candidate'):
+                with self.subTest(shape=shape,state=state):
+                    self.fixture=ComparisonPrecheckTests();self.fixture.setUp()
+                    root,args=self.bundle('Bundle'+str(index));index+=1
+                    if shape=='existing_child':(root/'existing').mkdir()
+                    alias=root.with_name(root.name.swapcase())
+                    source_prefix,target_prefix=str(alias),str(root)
+                    if shape=='equal':output=alias
+                    elif shape=='missing_child':output=alias/'missing'/'report'
+                    elif shape=='existing_child':output=alias/'existing'/'missing'
+                    else:
+                        output=self.area.with_name(self.area.name.swapcase())
+                        source_prefix,target_prefix=str(output),str(self.area)
+                    args.output_dir=str(output)
+                    if state=='wrong_pin':args.expected_context_sha256='0'*64
+                    elif state=='half_options':args.comparison_challenger_arm=None
+                    elif state=='zero_candidate':args.candidate_run=[]
+                    elif state=='multi_candidate':args.candidate_run=['one','two']
+                    def physical_stat(path,*a,**kw):
+                        value=str(path)
+                        if value==source_prefix or value.startswith(source_prefix+os.sep):
+                            path=Path(target_prefix+value[len(source_prefix):])
+                        return original_stat(path,*a,**kw)
+                    def lexical_common(paths):
+                        return posixpath.commonpath([str(p).replace('\\','/') for p in paths])
+                    with patch.object(Path,'resolve',lambda path,strict=False:path.absolute()),\
+                         patch.object(Path,'stat',physical_stat),\
+                         patch.object(verifier.os.path,'normcase',lambda value:value),\
+                         patch.object(verifier.os.path,'commonpath',lexical_common):
+                        self.assertEqual(verifier.comparison_output_error(args),'OUTPUT_ADMISSION_PATH_OVERLAP')
+                        self.check_unsafe(args,root)
+
+    def test_disjoint_missing_output_shared_parent_is_not_physical_overlap(self):
+        root,args=self.bundle();args.output_dir=str(self.area/'missing-disjoint'/'nested-report')
+        before=self.census(root)
+        with patch.object(verifier,'collect_evidence',return_value={}):payload=verifier.run(args)
+        self.assertEqual(payload['comparison_admission']['status'],'BYTE_COMPARABLE_RESEARCH_ONLY')
+        self.assertTrue((Path(args.output_dir)/'summary.json').is_file())
+        self.assertEqual(self.census(root),before)
+        self.assertFalse(payload['economic_comparison_ready'])
+
+    def test_physical_identity_observation_errors_are_redacted_before_any_reads(self):
+        root,args=self.bundle();original=Path.stat
+        def unavailable(path,*a,**kw):
+            if path==root:raise OSError('private-token-must-not-appear')
+            return original(path,*a,**kw)
+        with patch.object(Path,'stat',unavailable),\
+             patch.object(m.BoundedArtifactResolver,'__call__',side_effect=AssertionError('must not read')),\
+             patch.object(verifier,'collect_evidence',side_effect=AssertionError('must not read')),\
+             patch.object(verifier,'write_json',side_effect=AssertionError('must not publish')):
+            payload=verifier.run(args)
+        self.assertEqual(payload['comparison_admission']['reason'],'OUTPUT_ADMISSION_PATH_INVALID')
+        self.assertEqual(payload['candidates'],[])
 
 
 class NativeIntegrationTests(unittest.TestCase):

@@ -68,11 +68,19 @@ before legacy result collection. API `run()` returns `blocked_comparison_admissi
 with a bounded reason; CLI exits 2. Before admission or legacy byte reads, physical
 output paths must be separate from the admission bundle: equal, descendant and
 ancestor directories, case aliases, symlinks/junctions into the bundle and report
-leaf aliases are rejected. Existing multiply linked report files are ambiguous
+leaf aliases are rejected. Existing endpoint/ancestor device and inode identities
+also bind aliases when POSIX path normalization preserves case spelling. The
+nearest existing output ancestor is checked for a missing output directory;
+disjoint missing destinations sharing an ordinary parent remain valid.
+Existing multiply linked report files are ambiguous
 write targets and also block. Unsafe output geometry returns the bounded result
 in memory/CLI only and never publishes even a blocked report. A safe separate
 summary/CSV/report destination receives other blocked results with no stale
-candidate rows. Geometry is checked again immediately before publication.
+candidate rows. Geometry is checked again immediately before publication. If
+that final check fails, `run()` returns an empty bounded blocked payload with
+all authority false on both admitted and initially blocked paths, without
+retrying publication. The standalone publisher still raises its bounded
+`AdmissionError` before writing to an unsafe destination.
 Matching admission continues through
 the existing result verifier and cannot override any economic or mission gate.
 
@@ -89,7 +97,12 @@ are charged once; distinct IDs are separate reads even when physically hardlinke
 The generic callable API receives arm dictionaries in memory and reports only
 artifacts it actually resolves, without inventing arm-file reads.
 Maximum blob size is 1 MiB; total read
-budget is 16 MiB, including arm declarations. Strict JSON also caps depth at 32
+budget is 16 MiB, including arm declarations. Each native read is capped by the
+observed file size, remaining blob allowance and remaining aggregate allowance;
+no sentinel byte is read beyond those limits. Actual bytes are charged after
+each read, including partial bytes consumed before a later error. Final size and
+identity checks detect raced growth even when the read cap prevents consuming it.
+Strict JSON also caps depth at 32
 and nodes at 50,000, rejecting duplicate keys, nonfinite values and malformed UTF8.
 Use compact immutable manifests for large datasets; this does not inspect every
 referenced dataset object's provider/PIT semantics.
@@ -113,4 +126,6 @@ correctness, calendar semantics, economic outputs, approval or true forward use.
 
 The native `tests/evaluation_v2_admission_smoke.py` suite runs through the existing
 registered A/B smoke hook; no gate/validation registration file is changed.
-Its assertions remain active in normal and optimized Python modes.
+Its assertions remain active in normal and optimized Python modes. Geometry
+fixtures include actual Windows aliases and portable POSIX spelling simulations
+using filesystem identities; they do not claim execution on macOS.

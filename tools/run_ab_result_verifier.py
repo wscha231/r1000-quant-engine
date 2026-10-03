@@ -58,6 +58,23 @@ def blocked_comparison(reason: str) -> dict[str, Any]:
     }
 
 
+def physical_path_chain(path: Path) -> tuple[tuple[int, int] | None, set[tuple[int, int]]]:
+    """Bind existing endpoints/ancestors without reading artifact contents."""
+    endpoint = None
+    identities = set()
+    for component in (path, *path.parents):
+        try:
+            observed = component.stat()
+        except FileNotFoundError:
+            continue  # Include the nearest existing ancestor of missing output.
+        comparison_admission.require(observed.st_ino != 0, "OUTPUT_ADMISSION_PATH_INVALID")
+        identity = (observed.st_dev, observed.st_ino)
+        identities.add(identity)
+        if component == path:
+            endpoint = identity
+    return endpoint, identities
+
+
 def comparison_output_error(args: argparse.Namespace) -> str | None:
     """Check physical output geometry before artifact/legacy reads or writes."""
     root = getattr(args, "comparison_admission_root", None)
@@ -66,9 +83,11 @@ def comparison_output_error(args: argparse.Namespace) -> str | None:
     try:
         comparison_admission.require((type(root) is str or isinstance(root, Path)) and bool(str(root)),
                                      "OUTPUT_ADMISSION_PATH_INVALID")
-        # resolve follows existing symlinks/junctions even if the final output
-        # directory does not exist; normcase binds Windows case aliases.
-        root_key = os.path.normcase(str(Path(root).resolve(strict=False)))
+        # Keep lexical checks for missing paths, and bind existing components
+        # physically: case-insensitive POSIX volumes need not normalize spelling.
+        resolved_root = Path(root).resolve(strict=False)
+        root_key = os.path.normcase(str(resolved_root))
+        root_identity, root_chain = physical_path_chain(resolved_root)
         output = repo_path(getattr(args, "output_dir", "outputs/ab_result_verifier"))
         for path in (output, *(output / name for name in ("summary.json", "candidate_verdicts.csv", "report.md"))):
             if path != output and path.exists():
@@ -76,7 +95,14 @@ def comparison_output_error(args: argparse.Namespace) -> str | None:
                 # when its directory is outside the bundle. Reject ambiguous
                 # physical aliases without scanning or reading input artifacts.
                 comparison_admission.require(path.stat().st_nlink <= 1, "OUTPUT_ADMISSION_PATH_OVERLAP")
-            output_key = os.path.normcase(str(path.resolve(strict=False)))
+            resolved_output = path.resolve(strict=False)
+            output_identity, output_chain = physical_path_chain(resolved_output)
+            comparison_admission.require(
+                (root_identity is None or root_identity not in output_chain)
+                and (output_identity is None or output_identity not in root_chain),
+                "OUTPUT_ADMISSION_PATH_OVERLAP",
+            )
+            output_key = os.path.normcase(str(resolved_output))
             try:
                 common = os.path.commonpath((root_key, output_key))
             except ValueError:  # Different volumes cannot overlap.
@@ -564,22 +590,37 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
             writer.writerow(out)
 
 
+def blocked_comparison_payload(admission: dict[str, Any], portfolio: str) -> dict[str, Any]:
+    return {
+        "schema_version": "ab-result-verifier-v1", **mission_identity(PORTFOLIO_MISSION_TARGETS),
+        "status": "blocked_comparison_admission", "portfolio": portfolio,
+        "comparison_admission": admission, "baseline": {}, "candidate_count": 0,
+        "candidates": [], "review_valid_candidate_count": 0,
+        "production_activation_allowed": False, "live_trading_allowed": False,
+        "requires_user_approval": True,
+        **{name: admission[name] for name in COMPARISON_AUTHORITY_FIELDS},
+    }
+
+
+def publish_or_block(args: argparse.Namespace, payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        publish_report(args, payload)
+    except comparison_admission.AdmissionError as exc:
+        # Final geometry failure is an in-memory blocked result for direct API
+        # callers too. Do not retry publication into the unsafe destination.
+        payload = blocked_comparison_payload(blocked_comparison(str(exc)), payload["portfolio"])
+        print(json.dumps({"status": payload["status"], "reason": str(exc)}))
+    return payload
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
     portfolio = str(getattr(args, "portfolio", "concentrated"))
     output_error = comparison_output_error(args)
     admission = blocked_comparison(output_error) if output_error else comparison_precheck(args)
     if admission is not None and admission["status"] == "BLOCKED":
-        payload = {
-            "schema_version": "ab-result-verifier-v1", **mission_identity(PORTFOLIO_MISSION_TARGETS),
-            "status": "blocked_comparison_admission", "portfolio": portfolio,
-            "comparison_admission": admission, "baseline": {}, "candidate_count": 0,
-            "candidates": [], "review_valid_candidate_count": 0,
-            "production_activation_allowed": False, "live_trading_allowed": False,
-            "requires_user_approval": True,
-            **{name: admission[name] for name in COMPARISON_AUTHORITY_FIELDS},
-        }
+        payload = blocked_comparison_payload(admission, portfolio)
         if output_error is None:
-            publish_report(args, payload)
+            return publish_or_block(args, payload)
         else:
             # An unsafe report destination must never receive even a blocked
             # summary. Return the bounded result in memory/CLI only.
@@ -673,8 +714,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         payload["comparison_admission"] = admission
         payload.update({name: admission[name] for name in COMPARISON_AUTHORITY_FIELDS})
 
-    publish_report(args, payload)
-    return payload
+    return publish_or_block(args, payload)
 
 
 def publish_report(args: argparse.Namespace, payload: dict[str, Any]) -> None:
