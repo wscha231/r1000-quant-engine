@@ -157,6 +157,7 @@ jobs:
           echo "GDRIVE_READY=yes" >> "$GITHUB_ENV"
 
       - name: Restore earnings estimate archive from Google Drive
+        id: restore_archive
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: r1000_top30_institutional
@@ -171,21 +172,25 @@ jobs:
             BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
           fi
           mkdir -p data_pit/events outputs/earnings_estimates_daily
-          if rclone lsf "$BASE""data_pit/events/earnings_estimates" >/dev/null 2>&1; then
-            timeout 8m rclone copy "$BASE""data_pit/events/earnings_estimates" data_pit/events/earnings_estimates/ \
-              --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
+          # Drive is authoritative when configured. Remove cache-only archive
+          # members locally; a failed restore must not publish cached history.
+          timeout 8m rclone sync "$BASE""data_pit/events/earnings_estimates" data_pit/events/earnings_estimates/ \
+            --checksum --transfers 4 --checkers 8 --stats 30s --stats-one-line
+          BOUND_RESTORE="false"
+          if [ -f data_pit/events/earnings_estimates/collector_transaction.json ]; then
+            BOUND_RESTORE="true"
           fi
-          if rclone lsf "$BASE""data_pit/events/earnings_revision_signals.parquet" >/dev/null 2>&1; then
+          if [ "$BOUND_RESTORE" = "true" ] || rclone lsf "$BASE""data_pit/events/earnings_revision_signals.parquet" >/dev/null 2>&1; then
             timeout 3m rclone copyto "$BASE""data_pit/events/earnings_revision_signals.parquet" \
-              data_pit/events/earnings_revision_signals.parquet || true
+              data_pit/events/earnings_revision_signals.parquet
           fi
-          if rclone lsf "$BASE""outputs/earnings_estimates_daily/summary.json" >/dev/null 2>&1; then
+          if [ "$BOUND_RESTORE" = "true" ] || rclone lsf "$BASE""outputs/earnings_estimates_daily/summary.json" >/dev/null 2>&1; then
             timeout 2m rclone copyto "$BASE""outputs/earnings_estimates_daily/summary.json" \
-              outputs/earnings_estimates_daily/summary.json || true
+              outputs/earnings_estimates_daily/summary.json
           fi
-          if rclone lsf "$BASE""outputs/earnings_estimates_daily/collection_queue.csv" >/dev/null 2>&1; then
+          if [ "$BOUND_RESTORE" = "true" ] || rclone lsf "$BASE""outputs/earnings_estimates_daily/collection_queue.csv" >/dev/null 2>&1; then
             timeout 2m rclone copyto "$BASE""outputs/earnings_estimates_daily/collection_queue.csv" \
-              outputs/earnings_estimates_daily/collection_queue.csv || true
+              outputs/earnings_estimates_daily/collection_queue.csv
           fi
           mkdir -p data_pit/free outputs/free_data_forward_paper_ledger \
             outputs/free_data_selection_overlay_previous cache_prices_forward_paper
@@ -211,6 +216,7 @@ jobs:
           fi
 
       - name: Resolve ticker set and universe shard
+        id: resolve_archive
         env:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_TICKERS: ${{ github.event.inputs.tickers || '' }}
@@ -317,7 +323,8 @@ jobs:
               --max-new-tickers "${INPUT_MAX_NEW_UNIVERSE_TICKERS:-100}" \
               --max-missing-tickers "${INPUT_MAX_MISSING_UNIVERSE_TICKERS:-100}" \
               --max-covered-tickers "${INPUT_MAX_KNOWN_COVERED_TICKERS:-300}" \
-              --max-retry-tickers "${INPUT_MAX_UNCOVERED_RETRY_TICKERS:-50}"
+              --max-retry-tickers "${INPUT_MAX_UNCOVERED_RETRY_TICKERS:-50}" \
+              --run-id "${GITHUB_RUN_ID}"
             UNIVERSE_FILE="outputs/earnings_estimates_daily/incremental_universe.csv"
             SHARD_FILE="${UNIVERSE_FILE}"
             TICKERS=""
@@ -355,6 +362,7 @@ jobs:
             echo "RESOLVED_SHARD_MODE=${SHARD_MODE}"
             echo "RESOLVED_MAX_ERRORS=${MAX_ERRORS}"
             echo "RESOLVED_COLLECTION_REQUIRED=${COLLECTION_REQUIRED}"
+            echo "RESOLVED_QUEUE_PLANNED=${QUEUE_RESOLVED}"
           } >> "$GITHUB_ENV"
           echo "[archive] tickers=${TICKERS}"
           echo "[archive] universe_file=${UNIVERSE_FILE:-<none>}"
@@ -379,11 +387,16 @@ jobs:
           if [ -n "${FETCH_DATE:-}" ]; then
             DATE_ARG=(--fetch-date "$FETCH_DATE")
           fi
+          QUEUE_PLAN_ARG=()
+          if [ "${RESOLVED_QUEUE_PLANNED}" != "true" ]; then
+            QUEUE_PLAN_ARG=(--plan-manual-collection)
+          fi
           python tools/collect_earnings_estimates_finnhub.py \
             --tickers "${RESOLVED_TICKERS}" \
             --universe-file "${RESOLVED_UNIVERSE_FILE}" \
             --ticker-limit "${RESOLVED_TICKER_LIMIT}" \
             "${DATE_ARG[@]}" \
+            "${QUEUE_PLAN_ARG[@]}" \
             --snapshot-dir data_pit/events/earnings_estimates \
             --signals-output data_pit/events/earnings_revision_signals.parquet \
             --summary outputs/earnings_estimates_daily/summary.json \
@@ -398,7 +411,7 @@ jobs:
 
       - name: Build earnings estimate archive manifest
         id: build_manifest
-        if: always()
+        if: always() && steps.restore_archive.outcome == 'success' && steps.resolve_archive.outcome == 'success'
         run: |
           set -euo pipefail
           mkdir -p outputs/earnings_estimates_daily data_pit/events/earnings_estimates
@@ -410,6 +423,7 @@ jobs:
             --manifest outputs/earnings_estimates_daily/archive_manifest.json \
             --index data_pit/events/earnings_estimates/archive_index.jsonl \
             --run-id "${GITHUB_RUN_ID}" \
+            --collection-required "${RESOLVED_COLLECTION_REQUIRED:-true}" \
             --run-attempt "${GITHUB_RUN_ATTEMPT}" \
             --head-sha "${GITHUB_SHA}" \
             --ref "${GITHUB_REF_NAME}" \
@@ -425,7 +439,7 @@ jobs:
 
       - name: Resolve completed NYSE session for forward paper archive
         id: forward_market
-        if: always()
+        if: always() && steps.build_manifest.outcome == 'success'
         run: |
           set -euo pipefail
           mkdir -p outputs/free_data_forward_paper_ledger

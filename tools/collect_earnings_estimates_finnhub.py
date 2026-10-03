@@ -499,7 +499,8 @@ def compute_estimate_revision_features(snapshots: pd.DataFrame, *, as_of_date: s
                                         ("eps_fy1", 90, "est_eps_revision_90d"),
                                         ("rev_fy1", 30, "est_rev_revision_30d")):
                 cutoff = row["_available"] - pd.Timedelta(days=days)
-                prior = [r for r in records if r["_available"] <= cutoff]
+                prior = [r for r in records if r["_available"] <= cutoff
+                         and r.get("fetch_source") == row.get("fetch_source")]
                 # Pick the actual latest vintage at the boundary, never search backwards
                 # for a favorable non-null value or an incompatible fiscal identity.
                 latest = [r for r in prior if r["_available"] == max(x["_available"] for x in prior)] if prior else []
@@ -941,6 +942,65 @@ def acknowledge_collection_attempts(
     ]
     _atomic_commit_staged_files(staged, marker_path=checkpoint_path.parent / TRANSACTION_MARKER_NAME)
     return result
+
+
+def plan_manual_collection(
+    snapshot_dir: Path, summary_path: Path, signals_path: Path,
+    checkpoint_path: Path, queue_path: Path, tickers: list[str],
+) -> None:
+    """Bind a manual request to a queue without expanding its requested scope."""
+    require_complete_collector_transaction(checkpoint_path.parent)
+    state = require_verified_collector_state(snapshot_dir, summary_path=summary_path,
+        checkpoint_path=checkpoint_path, queue_path=queue_path,
+        signals_path=signals_path, allow_missing_queue=True)
+    previous = json.loads(checkpoint_path.read_text(encoding="utf-8")) if checkpoint_path.is_file() else {}
+    rows = previous.get("ticker_states", [])
+    if not isinstance(rows, list):
+        raise ValueError("invalid_manual_checkpoint_states")
+    requested = list(dict.fromkeys(tickers))
+    states = {}
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("ticker"), str):
+            raise ValueError("invalid_manual_checkpoint_states")
+        ticker = row["ticker"].upper().strip()
+        if (not ticker or ticker in states or type(row.get("selection_count")) is not int
+                or row["selection_count"] < 0 or not isinstance(row.get("last_selected_at_utc"), str)):
+            raise ValueError("invalid_manual_checkpoint_states")
+        states[ticker] = {**row, "ticker": ticker}
+    if (state["state"] == "accepted" and queue_path.is_file()
+            and {ticker for ticker, row in states.items() if _truthy(row.get("selected"))} == set(requested)):
+        with queue_path.open(newline="", encoding="utf-8") as handle:
+            selected = {str(row.get("ticker") or "").upper().strip()
+                        for row in csv.DictReader(handle) if _truthy(row.get("selected"))}
+        if selected == set(requested):
+            # Reuse an already bound exact-scope queue. Replanning an idempotent
+            # replay would embed its old accepted checkpoint without a new ack.
+            return
+    for ticker in requested:
+        states.setdefault(ticker, {"ticker": ticker, "selection_count": 0, "last_selected_at_utc": ""})
+    for ticker, row in states.items():
+        row["selected"] = ticker in requested
+    plan = dict(previous)
+    plan.update(ticker_states=list(states.values()), status="ready_for_manual_collection",
+        selected_ticker_count=len(requested), manual_requested_tickers=requested)
+    plan["planning_parent_transaction"] = {
+        key: state.get(key, "") for key in (
+            "commit_id", "summary_sha256", "attempt_id", "checkpoint_sha256", "checkpoint_bytes_base64")
+    } if state["state"] in {"accepted", "planned"} else {}
+    fieldnames = list(dict.fromkeys(["ticker", "selected", "last_selected_at_utc", "selection_count",
+                                    *(key for row in states.values() for key in row)]))
+    text = io.StringIO(newline="")
+    writer = csv.DictWriter(text, fieldnames=fieldnames, lineterminator="\n")
+    writer.writeheader()
+    writer.writerows(states.values())
+    queue_bytes = text.getvalue().encode("utf-8")
+    plan["planned_queue_sha256"] = hashlib.sha256(queue_bytes).hexdigest()
+    # A planning write is never an accepted collector commit. A split write
+    # against accepted state leaves a mismatch rejected by entry verification.
+    queue_path.parent.mkdir(parents=True, exist_ok=True)
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    queue_path.write_bytes(queue_bytes)
+    checkpoint_path.write_bytes(_json_bytes(plan))
 
 
 def merge_same_day_snapshot(existing_path: Path, current: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
@@ -1549,6 +1609,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fixture-dir", default="")
     parser.add_argument("--collection-checkpoint", default="")
     parser.add_argument("--collection-queue", default="")
+    parser.add_argument("--plan-manual-collection", action="store_true",
+                        help="Prepare a bound queue selecting only the resolved request tickers.")
     parser.add_argument("--collection-attempt-id", default=os.environ.get("GITHUB_RUN_ID", ""))
     return parser.parse_args()
 
@@ -1564,6 +1626,12 @@ def main() -> int:
     checkpoint_path = repo_path(args.collection_checkpoint) if args.collection_checkpoint else Path()
     queue_path = repo_path(args.collection_queue) if args.collection_queue else Path()
     require_complete_collector_transaction(snapshot_dir)
+    tickers = parse_tickers(args.tickers, args.universe_file or None, args.ticker_limit)
+    if args.plan_manual_collection:
+        if not args.collection_checkpoint or not args.collection_queue or not tickers:
+            raise ValueError("manual_collection_requires_queue_paths_and_tickers")
+        plan_manual_collection(snapshot_dir, summary_path, signals_output,
+                               checkpoint_path, queue_path, tickers)
     if args.collection_checkpoint:
         transaction_state = require_verified_collector_state(
             snapshot_dir,
@@ -1578,7 +1646,6 @@ def main() -> int:
             queue_path,
             verify_planned_queue=transaction_state.get("state") != "accepted",
         )
-    tickers = parse_tickers(args.tickers, args.universe_file or None, args.ticker_limit)
     if not tickers:
         payload = {
             "schema_version": SCHEMA_VERSION,

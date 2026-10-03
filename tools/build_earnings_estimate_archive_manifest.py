@@ -336,6 +336,52 @@ def require_verified_collector_state(
     raise ValueError("collector_transaction_state_mismatch")
 
 
+def require_verified_no_collection_plan(
+    directory: Path, *, summary_path: Path, checkpoint_path: Path,
+    queue_path: Path, signals_path: Path, plan_summary: dict[str, Any], run_id: str,
+) -> None:
+    """A new no-op run may publish its plan only against a verified accepted parent."""
+    state = require_verified_collector_state(directory, summary_path=summary_path,
+        checkpoint_path=checkpoint_path, queue_path=queue_path, signals_path=signals_path)
+    checkpoint = load_json(checkpoint_path)
+    if state["state"] != "planned":
+        raise ValueError("no_collection_requires_bound_plan")
+    if (not run_id or checkpoint.get("planning_run_id") != run_id
+            or plan_summary.get("run_id") != run_id):
+        raise ValueError("no_collection_plan_run_id_mismatch")
+    if (checkpoint.get("status") != "complete_no_collection_due"
+            or plan_summary.get("status") != "complete_no_collection_due"
+            or type(checkpoint.get("selected_ticker_count")) is not int
+            or checkpoint["selected_ticker_count"] != 0
+            or type(plan_summary.get("output_ticker_count")) is not int
+            or plan_summary["output_ticker_count"] != 0
+            or plan_summary.get("selected_tickers") != []):
+        raise ValueError("no_collection_plan_not_empty")
+    outputs = plan_summary.get("output_files") or {}
+    if not isinstance(outputs, dict):
+        raise ValueError("no_collection_plan_output_hash_mismatch")
+    for key, path in (("checkpoint", checkpoint_path), ("queue", queue_path)):
+        record = outputs.get(key) or {}
+        if not isinstance(record, dict) or record.get("sha256") != sha256_file(path):
+            raise ValueError("no_collection_plan_output_hash_mismatch")
+    states = {row["ticker"].upper().strip(): row for row in checkpoint["ticker_states"]}
+    if not states or any(row.get("selected") is not False for row in states.values()):
+        raise ValueError("no_collection_plan_not_empty")
+    with queue_path.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    seen = set()
+    for row in rows:
+        ticker = str(row.get("ticker") or "").upper().strip()
+        prior = states.get(ticker)
+        if (not prior or ticker in seen or str(row.get("selected")).lower() != "false"
+                or str(row.get("selection_count")) != str(prior["selection_count"])
+                or row.get("last_selected_at_utc") != prior["last_selected_at_utc"]):
+            raise ValueError("no_collection_queue_state_mismatch")
+        seen.add(ticker)
+    if seen != set(states):
+        raise ValueError("no_collection_queue_state_mismatch")
+
+
 def latest_snapshot(snapshot_dir: Path, summary: dict[str, Any]) -> Path:
     summary_path = str(summary.get("snapshot_path") or "")
     if summary_path:
@@ -413,6 +459,7 @@ def build_manifest(
     queue_checkpoint: str = "data_pit/events/earnings_estimates/collection_checkpoint.json",
     queue_csv: str = "outputs/earnings_estimates_daily/collection_queue.csv",
     queue_report: str = "outputs/earnings_estimates_daily/collection_queue_report.md",
+    collection_required: bool = True,
 ) -> dict[str, Any]:
     snapshot_dir_path = repo_path(snapshot_dir)
     signals_path = repo_path(signals)
@@ -451,6 +498,8 @@ def build_manifest(
         "fullrun_dispatched": False,
         "run_id": run_id,
         "run_attempt": run_attempt,
+        "collection_required": collection_required,
+        "collector_producer_run_id": str(summary_payload.get("collection_attempt_logical_id") or ""),
         "head_sha": head_sha,
         "ref": ref,
         "workflow": workflow,
@@ -563,6 +612,15 @@ def build_manifest(
                 else "incomplete_collector_transaction"
             )
     checkpoint_payload = load_json(queue_checkpoint_path)
+    no_collection_plan_verified = False
+    if not collection_required:
+        try:
+            require_verified_no_collection_plan(snapshot_dir_path, summary_path=summary_path,
+                checkpoint_path=queue_checkpoint_path, queue_path=queue_csv_path,
+                signals_path=signals_path, plan_summary=queue_payload, run_id=run_id)
+            no_collection_plan_verified = True
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            transaction_failures.append(f"no_collection_plan_invalid:{exc}")
     checkpoint_ack = (
         checkpoint_payload.get("last_collection_attempt_ack")
         if isinstance(checkpoint_payload, dict) else None
@@ -602,7 +660,7 @@ def build_manifest(
         tx_logical_id = str(transaction.get("logical_attempt_id") or "")
         if logical_id != tx_logical_id:
             transaction_failures.append("logical_attempt_id_mismatch")
-        if run_id and logical_id != str(run_id):
+        if run_id and logical_id != str(run_id) and not no_collection_plan_verified:
             transaction_failures.append("run_id_mismatch")
 
         expected_hashes = {
@@ -612,6 +670,10 @@ def build_manifest(
             "queue_sha256": payload["files"]["collection_queue_csv"].get("sha256", ""),
         }
         for field, actual_hash in expected_hashes.items():
+            if no_collection_plan_verified and field in {"checkpoint_sha256", "queue_sha256"}:
+                # The shared reader verified actual accepted parent bytes and
+                # unchanged acknowledgement/count/clock before admitting this plan.
+                continue
             expected_hash = str(transaction.get(field) or "")
             if expected_hash and (not actual_hash or expected_hash != actual_hash):
                 transaction_failures.append(f"{field}_mismatch")
@@ -631,6 +693,7 @@ def build_manifest(
         "failures": transaction_failures,
         "attempt_id": str(summary_payload.get("collection_attempt_id") or ""),
         "logical_attempt_id": str(summary_payload.get("collection_attempt_logical_id") or ""),
+        "no_collection_plan_verified": no_collection_plan_verified,
     }
     ack_status = str(ack.get("status") or "") if isinstance(ack, dict) else ""
     if summary_valid and ack_status not in {"acknowledged", "disabled"}:
@@ -732,6 +795,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--queue-checkpoint", default="data_pit/events/earnings_estimates/collection_checkpoint.json")
     parser.add_argument("--queue-csv", default="outputs/earnings_estimates_daily/collection_queue.csv")
     parser.add_argument("--queue-report", default="outputs/earnings_estimates_daily/collection_queue_report.md")
+    parser.add_argument("--collection-required", choices=("true", "false"), default="true")
     return parser.parse_args()
 
 
@@ -757,6 +821,7 @@ def main() -> int:
         queue_checkpoint=args.queue_checkpoint,
         queue_csv=args.queue_csv,
         queue_report=args.queue_report,
+        collection_required=args.collection_required == "true",
     )
     print(json.dumps(payload, indent=2, sort_keys=True))
     if payload["text_secret_scan"]["unmasked_secret_pattern_found"]:

@@ -535,6 +535,7 @@ def build_incremental_universe(
     max_missing_tickers: int = 100,
     max_covered_tickers: int = 300,
     max_retry_tickers: int = 50,
+    run_id: str = "",
 ) -> dict[str, Any]:
     excludes = set(DEFAULT_EXCLUDE_TICKERS)
     snapshot_dir_path = repo_path(snapshot_dir)
@@ -639,7 +640,7 @@ def build_incremental_universe(
 
     previous_states: dict[str, dict[str, Any]] = {}
     previous_universe: set[str] = set()
-    if prior_valid:
+    if prior_valid or prior_transaction.get("state") in {"accepted", "planned"}:
         for row in previous_checkpoint.get("ticker_states", []):
             ticker = normalize_ticker(row.get("ticker"))
             if ticker:
@@ -760,6 +761,7 @@ def build_incremental_universe(
 
     checkpoint_payload: dict[str, Any] = {
         "schema_version": CHECKPOINT_SCHEMA_VERSION,
+        "planning_run_id": run_id,
         "updated_at_utc": generated_at,
         "as_of_date": as_of.isoformat(),
         "status": status,
@@ -801,6 +803,7 @@ def build_incremental_universe(
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "checkpoint_schema_version": CHECKPOINT_SCHEMA_VERSION,
+        "run_id": run_id,
         "generated_at_utc": generated_at,
         "as_of_date": as_of.isoformat(),
         "status": status,
@@ -892,6 +895,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-missing-tickers", type=int, default=100)
     parser.add_argument("--max-covered-tickers", type=int, default=300)
     parser.add_argument("--max-retry-tickers", type=int, default=50)
+    parser.add_argument("--run-id", default="")
     return parser.parse_args()
 
 
@@ -919,6 +923,7 @@ def main() -> int:
         max_missing_tickers=args.max_missing_tickers,
         max_covered_tickers=args.max_covered_tickers,
         max_retry_tickers=args.max_retry_tickers,
+        run_id=args.run_id,
     )
     print(json.dumps(payload, indent=2, sort_keys=True, default=str))
     return 2 if payload["status"] == "blocked_incomplete_universe" else 0

@@ -122,6 +122,226 @@ class AdmissionTests(unittest.TestCase):
             directory_sync.start()
             self.addCleanup(directory_sync.stop)
 
+    def test_provider_revision_boundary_ignores_other_provider_without_fallback(self):
+        old = snapshot('2026-05-30T18:00:00Z', 1, fetch_source='fmp')
+        other = snapshot('2026-05-31T18:00:00Z', 1.5, fetch_source='finnhub')
+        current = snapshot('2026-07-01T18:00:00Z', 2, fetch_source='fmp')
+        for rows in itertools.permutations([old, other, current]):
+            self.assertEqual(features(rows).iloc[-1].est_eps_revision_30d, 1.0)
+        for newest in (snapshot('2026-05-31T18:00:00Z', None, fetch_source='fmp'),
+                       snapshot('2026-05-31T18:00:00Z', 1, period='2027-12-31', fetch_source='fmp')):
+            self.assertTrue(pd.isna(features([old, newest, other, current]).iloc[-1].est_eps_revision_30d))
+        tie = [snapshot('2026-05-31T18:00:00Z', value, fetch_source='fmp') for value in (1, 1.4)]
+        self.assertTrue(pd.isna(features([old, *tie, other, current]).iloc[-1].est_eps_revision_30d))
+        output, summary = c.compute_estimate_revision_features(pd.DataFrame(
+            [old, {**other, 'source_payload_sha256': 'damaged'}, current]))
+        self.assertTrue(output.empty)
+        self.assertEqual(summary['reason'], 'archive_integrity_failure')
+
+    def test_drive_restore_shell_removes_orphans_and_stops_on_required_copy_failure(self):
+        bash = shutil.which('bash') or ('C:/Program Files/Git/bin/bash.exe' if os.name == 'nt' else '')
+        if not bash or not Path(bash).is_file():
+            self.skipTest('Bash is required to replay the workflow shell')
+        workflow = (ROOT / '.github/workflows/earnings_estimates_daily.yml').read_text()
+        step = workflow.split('- name: Restore earnings estimate archive from Google Drive', 1)[1].split('\n      - name:', 1)[0]
+        shell = '\n'.join(line[10:] for line in step.split('run: |\n', 1)[1].splitlines())
+        self.assertIn("if: always() && steps.restore_archive.outcome == 'success' && steps.resolve_archive.outcome == 'success'", workflow)
+        self.assertIn("if: always() && steps.build_manifest.outcome == 'success'", workflow)
+        # Replay the actual shell with a local-only transfer test double. Real
+        # rclone checksum/deletion behavior is a separate local-alias probe.
+        transfer = r'''import json, os, shutil, sys
+from pathlib import Path
+root = Path.cwd().resolve()
+args = sys.argv[1:]
+with (root/'calls.jsonl').open('a') as log: log.write(json.dumps(args)+'\n')
+command, remote = args[:2]
+source = root/'drive'/remote.split(':',1)[1]
+if command == 'lsf': raise SystemExit(0 if source.exists() else 3)
+target = (root/args[2]).resolve()
+if not target.is_relative_to(root) or target == root: raise ValueError('unsafe fixture destination')
+stage = 'sync' if command == 'sync' else target.name
+if os.environ.get('FAIL_RESTORE_STAGE') == stage:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if command == 'copyto': target.write_bytes(b'partial')
+    raise SystemExit(9)
+if command == 'sync':
+    if '--checksum' not in args: raise ValueError('restore must check content')
+    if not source.is_dir(): raise SystemExit(3)
+    target.mkdir(parents=True, exist_ok=True)
+    for member in list(target.rglob('*')):
+        if member.is_file() and not (source/member.relative_to(target)).is_file(): member.unlink()
+    shutil.copytree(source, target, dirs_exist_ok=True)
+elif command == 'copyto':
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
+else: raise ValueError('unexpected fixture transfer')
+'''
+        for failure in ('', 'sync', 'earnings_revision_signals.parquet', 'summary.json', 'collection_queue.csv'):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                paths = ('data_pit/events/earnings_estimates/collector_transaction.json',
+                         'data_pit/events/earnings_estimates/estimates_20260630.parquet',
+                         'data_pit/events/earnings_revision_signals.parquet',
+                         'outputs/earnings_estimates_daily/summary.json',
+                         'outputs/earnings_estimates_daily/collection_queue.csv')
+                for value in paths:
+                    remote, cached = root/'drive'/value, root/value
+                    remote.parent.mkdir(parents=True, exist_ok=True); cached.parent.mkdir(parents=True, exist_ok=True)
+                    remote.write_bytes(b'old-drive'); cached.write_bytes(b'new-cache')
+                orphan = root/'data_pit/events/earnings_estimates/estimates_20260701.parquet'
+                orphan.write_bytes(b'cache-only')
+                script = root/'transfer.py'; script.write_text(transfer)
+                prefix = 'rclone() { "$PYTHON_TEST_EXEC" "$RCLONE_TEST_SCRIPT" "$@"; }\ntimeout() { shift; "$@"; }\n'
+                env = {**os.environ, 'GDRIVE_READY': 'yes', 'GDRIVE_ROOT_FOLDER_ID': 'fixture',
+                       'PYTHON_TEST_EXEC': Path(sys.executable).as_posix(), 'RCLONE_TEST_SCRIPT': script.as_posix(),
+                       'FAIL_RESTORE_STAGE': failure, 'PYTHONPATH': ''}
+                result = subprocess.run([bash, '-c', prefix+shell], cwd=root, env=env,
+                                        capture_output=True, text=True, timeout=30)
+                calls = [json.loads(line) for line in (root/'calls.jsonl').read_text().splitlines()]
+                if failure:
+                    self.assertNotEqual(result.returncode, 0, result.stderr)
+                    expected_copies = ('sync', 'earnings_revision_signals.parquet', 'summary.json', 'collection_queue.csv').index(failure)
+                    self.assertEqual(len(calls), expected_copies+1)
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertFalse(orphan.exists())
+                    for value in paths: self.assertEqual((root/value).read_bytes(), b'old-drive')
+                    # No configured Drive: the exact restore shell keeps local cache.
+                    orphan.write_bytes(b'cache-only')
+                    prior_calls = (root/'calls.jsonl').read_bytes()
+                    result = subprocess.run([bash, '-c', prefix+shell], cwd=root,
+                        env={**env, 'GDRIVE_READY': 'no'}, capture_output=True, text=True, timeout=30)
+                    self.assertEqual(result.returncode, 0)
+                    self.assertEqual(orphan.read_bytes(), b'cache-only')
+                    self.assertEqual((root/'calls.jsonl').read_bytes(), prior_calls)
+
+    def test_manual_queue_bootstrap_and_existing_selection_scope(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            checkpoint, queue = root / 'checkpoint.json', root / 'queue.csv'
+            def collect(ticker, run_id):
+                argv = ['collector', '--tickers', ticker, '--api-key', 'fixture',
+                    '--fetch-date', '2026-07-01', '--snapshot-dir', str(root / 'history'),
+                    '--signals-output', str(root / 'signals.parquet'), '--summary', str(root / 'summary.json'),
+                    '--collection-checkpoint', str(checkpoint), '--collection-queue', str(queue),
+                    '--collection-attempt-id', run_id, '--plan-manual-collection']
+                with patch.object(c, 'collect_live_snapshot', return_value=(pd.DataFrame(
+                        [snapshot('2026-07-01T18:00:00Z', ticker=ticker)]), [], [ticker], {})) as vendor, \
+                     patch.object(sys, 'argv', argv), contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(c.main(), 0)
+                self.assertEqual(vendor.call_args.kwargs.get('tickers', vendor.call_args.args[0]), [ticker])
+                state = manifest.require_verified_collector_state(root / 'history',
+                    summary_path=root / 'summary.json', checkpoint_path=checkpoint,
+                    queue_path=queue, signals_path=root / 'signals.parquet')
+                self.assertEqual(state['state'], 'accepted')
+                published = manifest.build_manifest(snapshot_dir=str(root / 'history'),
+                    signals=str(root / 'signals.parquet'), summary=str(root / 'summary.json'),
+                    collector_log=str(root / 'collector.log'), manifest=str(root / 'manifest.json'),
+                    index=str(root / 'index.jsonl'), run_id=run_id, run_attempt='1', head_sha='fixture',
+                    ref='fixture', workflow='fixture', artifact_name='fixture',
+                    queue_checkpoint=str(checkpoint), queue_csv=str(queue))
+                self.assertTrue(published['publishable'], published['publication_failures'])
+            collect('AAA', 'manual-first')
+            first = json.loads(checkpoint.read_text())
+            self.assertEqual(first['ticker_states'][0]['selection_count'], 1)
+            original_checkpoint = checkpoint.read_bytes()
+            for _ in range(2):
+                collect('AAA', 'manual-first')
+                self.assertEqual(checkpoint.read_bytes(), original_checkpoint)
+                self.assertNotIn('planning_parent_transaction', json.loads(checkpoint.read_text()))
+            collect('BBB', 'manual-second')
+            states = {row['ticker']: row for row in json.loads(checkpoint.read_text())['ticker_states']}
+            self.assertFalse(states['AAA']['selected'])
+            self.assertEqual(states['AAA']['selection_count'], 1)
+            self.assertEqual(states['AAA']['last_selected_at_utc'], first['ticker_states'][0]['last_selected_at_utc'])
+            self.assertEqual(states['BBB']['selection_count'], 1)
+            self.assertEqual(len(pd.read_parquet(root / 'history' / 'estimates_20260701.parquet')), 2)
+            from tools.build_forward_estimate_incremental_universe import build_incremental_universe
+            coverage = root / 'coverage.csv'; coverage.write_text('ticker\nAAA\nBBB\n__CASH__\n')
+            build_incremental_universe(snapshot_dir=str(root / 'history'), shard_dir=str(root / 'shards'),
+                output=str(root / 'input.csv'), summary=str(root / 'queue-summary.json'),
+                coverage_file=str(coverage), latest_run='', canonical_universe=str(root / 'universe.csv'),
+                checkpoint=str(checkpoint), queue_output=str(queue), collector_summary=str(root / 'summary.json'),
+                signals=str(root / 'signals.parquet'), report=str(root / 'queue.md'),
+                expected_universe_count=3, as_of_date='2026-07-01', run_id='next-scheduled-plan')
+            planned = {row['ticker']: row for row in json.loads(checkpoint.read_text())['ticker_states']}
+            self.assertEqual(planned['AAA']['selection_count'], 1)
+            self.assertEqual(planned['BBB']['selection_count'], 1)
+            self.assertEqual(manifest.require_verified_collector_state(root / 'history',
+                summary_path=root / 'summary.json', checkpoint_path=checkpoint,
+                queue_path=queue, signals_path=root / 'signals.parquet')['state'], 'planned')
+            # An unverified cached counter cannot be laundered through a manual plan.
+            accepted = checkpoint.read_bytes()
+            damaged = json.loads(accepted); damaged['ticker_states'][0]['selection_count'] = 99
+            checkpoint.write_text(json.dumps(damaged))
+            before = {path: path.read_bytes() for path in root.rglob('*') if path.is_file()}
+            with self.assertRaisesRegex(ValueError, 'collector_(transaction_state|planning_parent_state)_mismatch'):
+                c.plan_manual_collection(root / 'history', root / 'summary.json', root / 'signals.parquet',
+                                         checkpoint, queue, ['BBB'])
+            self.assertEqual(before, {path: path.read_bytes() for path in root.rglob('*') if path.is_file()})
+
+    def test_real_no_collection_plan_publication_and_tamper_rejection(self):
+        from tools.build_forward_estimate_incremental_universe import build_incremental_universe
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            checkpoint, queue = root / 'checkpoint.json', root / 'queue.csv'
+            checkpoint.write_text(json.dumps({'ticker_states': [
+                {'ticker': 'AAA', 'selection_count': 0, 'last_selected_at_utc': ''}]}))
+            queue.write_text('ticker,selected,last_selected_at_utc,selection_count\nAAA,true,,0\n')
+            self.assertEqual(crash_fixture(root), 0)
+            producer_summary = (root / 'summary.json').read_bytes()
+            coverage = root / 'coverage.csv'; coverage.write_text('ticker\nAAA\n__CASH__\n')
+            args = dict(snapshot_dir=str(root / 'history'), shard_dir=str(root / 'shards'),
+                output=str(root / 'input.csv'), summary=str(root / 'queue-summary.json'),
+                coverage_file=str(coverage), latest_run='', canonical_universe=str(root / 'universe.csv'),
+                checkpoint=str(checkpoint), queue_output=str(queue), collector_summary=str(root / 'summary.json'),
+                signals=str(root / 'signals.parquet'), report=str(root / 'queue.md'),
+                expected_universe_count=2, as_of_date='2026-07-01', run_id='new-noop-run')
+            def publish(required=False, run_id='new-noop-run'):
+                return manifest.build_manifest(snapshot_dir=str(root / 'history'), signals=str(root / 'signals.parquet'),
+                    summary=str(root / 'summary.json'), collector_log=str(root / 'collector.log'),
+                    manifest=str(root / 'manifest.json'), index=str(root / 'index.jsonl'),
+                    run_id=run_id, run_attempt='1', head_sha='fixture', ref='fixture', workflow='fixture', artifact_name='fixture',
+                    queue_checkpoint=str(checkpoint), queue_csv=str(queue), queue_summary=str(root / 'queue-summary.json'),
+                    queue_report=str(root / 'queue.md'), collection_required=required)
+            for _ in range(2):
+                plan = build_incremental_universe(**args)
+                self.assertEqual(plan['status'], 'complete_no_collection_due')
+                result = publish()
+                self.assertTrue(result['publishable'], result['publication_failures'])
+                self.assertTrue(result['transaction_integrity']['no_collection_plan_verified'])
+                self.assertEqual(result['run_id'], 'new-noop-run')
+                self.assertEqual(result['collector_producer_run_id'], 'crash-run')
+                self.assertEqual((root / 'summary.json').read_bytes(), producer_summary)
+            self.assertFalse(publish(required=True)['publishable'])
+            self.assertFalse(publish(run_id='stale-plan-run')['publishable'])
+            saved = {path: path.read_bytes() for path in (checkpoint, queue, root / 'queue-summary.json', root / 'signals.parquet')}
+            variants = ('count', 'parent', 'selected', 'queue-summary-hash', 'queue-summary-count', 'run-id', 'signals', 'queue')
+            for variant in variants:
+                with self.subTest(variant=variant):
+                    for path, value in saved.items(): path.write_bytes(value)
+                    cp = json.loads(checkpoint.read_text()); qs = json.loads((root / 'queue-summary.json').read_text())
+                    if variant == 'count': cp['ticker_states'][0]['selection_count'] = 99
+                    if variant == 'parent': cp['planning_parent_transaction'].pop('checkpoint_bytes_base64')
+                    if variant == 'selected': cp['ticker_states'][0]['selected'] = True
+                    if variant == 'run-id': cp['planning_run_id'] = 'old-run'
+                    if variant.startswith('queue-summary-'):
+                        if variant.endswith('hash'): qs['output_files']['checkpoint'].pop('sha256')
+                        else: qs['output_ticker_count'] = True
+                    if variant in ('count', 'parent', 'selected', 'run-id'):
+                        checkpoint.write_text(json.dumps(cp))
+                    # Preserve plan-summary hashes for state-spoof cases so parent/zero selection checks do the work.
+                    if variant in ('count', 'parent', 'selected', 'run-id'):
+                        qs['output_files']['checkpoint']['sha256'] = manifest.sha256_file(checkpoint)
+                    (root / 'queue-summary.json').write_text(json.dumps(qs))
+                    if variant == 'signals': (root / 'signals.parquet').write_bytes(b'corrupt')
+                    if variant == 'queue': queue.write_bytes(queue.read_bytes() + b'AAA,True,,0\n')
+                    self.assertFalse(publish()['publishable'], variant)
+            for path, value in saved.items(): path.write_bytes(value)
+            # A due plan cannot become a no-op just by passing the manifest flag.
+            build_incremental_universe(**{**args, 'as_of_date': '2026-07-10'})
+            self.assertFalse(publish()['publishable'])
+
     def test_damaged_middle_vintage_blocks_archive_without_fallback(self):
         april = snapshot('2026-04-01T18:00:00Z', 1)
         may = snapshot('2026-05-01T18:00:00Z', None)

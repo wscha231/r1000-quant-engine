@@ -207,3 +207,39 @@ checkpoint paths may reside elsewhere. Both archive and checkpoint-parent
 markers are checked before state preparation or writes. Independent correction
 QA reproduced the split-directory count advancement; the actual rollback test
 now exercises this layout rather than only colocated state.
+
+## Workflow and provider-boundary corrections (2026-10-03)
+
+Authenticated review `5400604765` of
+`9de5aedebfef7a446861544ac0ebbee33fbef3fa` found four additional defects.
+Separate exact-head probes reproduced all four; earlier rollback-only CLEAN
+and Linux 232/232 evidence do not approve these newly identified paths.
+The owner's direct instruction to continue autonomously authorizes completing
+the source correction and required review gates. Runtime repair, vendor calls,
+Drive writes, portfolio certification and protected dispatch remain separate.
+
+A no-collection run keeps the accepted collector producer identity and summary.
+Its manifest separately records the current run and verifies the current
+zero-selection plan: matching run IDs, checkpoint/queue output hashes, complete
+unselected queue identities/counts/clocks, and the actual hash-bound accepted
+parent bytes. Status/count hints cannot waive transaction, marker, snapshot,
+signals, acknowledgement or parent checks. A stale or due plan blocks.
+
+Manual collection explicitly plans only its resolved request tickers before
+calling the vendor. Fresh requests create checkpoint/queue state; later requests
+preserve all previously acknowledged counters and clocks. Canonical planning
+also carries verified manual state even before canonical-universe metadata
+exists, rather than resetting that accepted collection history.
+
+Configured Drive restoration synchronizes only into the local archive with
+checksums, removing cache-only members. A missing/unavailable configured archive
+or a failed bound component copy blocks the restore step. Manifest publication
+requires successful restore and ticker resolution; forward paper prerequisites
+require manifest success. No configured Drive keeps the supported cache-only
+path. Configured Drive requires its authoritative archive to exist.
+
+Revision boundaries choose the latest available observation within the current
+provider before comparing fiscal/security identity. Other providers cannot hide
+valid same-provider history. Latest same-provider null/identity conflicts and
+time ties still fail closed; damaged rows from any provider block the archive.
+These are source admission and publication corrections, not economic acceptance.

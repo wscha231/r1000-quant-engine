@@ -1,5 +1,31 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-03 — Workflow paths need complete admission evidence (#556)
+
+- Authenticated review of `9de5aede` found four defects despite Linux232/232
+  and rollback-specific QA. Separate frozen-source probes reproduced valid
+  no-op rejection, fresh manual queue absence, cache-only snapshot contamination
+  after Drive overlay, and an interleaved-provider revision loss. Preserve prior
+  test results but supersede whole-source acceptance when new evidence arrives.
+- A no-op has a current planner and a historical accepted collector producer.
+  Verify the zero-selection plan against actual accepted parent bytes, bound
+  output hashes, complete queue state and current planner run identity. Do not
+  waive producer/hash checks from status or a zero-count hint alone.
+- Manual requests require a queue selecting only requested tickers; subsequent
+  canonical planning must preserve verified counters even when the manual
+  checkpoint has no canonical-universe metadata. Testing that transition caught
+  an additional count-reset path during correction.
+- Drive `copy` overlays leave destination-only snapshots. Configured Drive
+  restore must synchronize the local archive, check content and stop after any
+  required transfer failure. Gate publication and downstream prerequisites on
+  successful restoration; the supported cache-only path applies without Drive.
+- Select the latest revision boundary within the current provider. Retain
+  latest-null/identity/tie rejection and whole-archive integrity checks so this
+  correction cannot search backward for a favorable value or ignore corruption.
+- Source correction and local fixtures do not repair durable state or authorize
+  financial execution. New-head QA, CI, authenticated review and merge gates
+  remain required; no stale head supplies final acceptance.
+
 ## 2026-10-03 — A rollback marker is a repair boundary, not restart proof (#556)
 
 - Exact-head hosted review of `8c5ab318` identified that a rolled-back marker
