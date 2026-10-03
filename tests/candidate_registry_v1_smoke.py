@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 
 import a3_candidate_packet_v1_smoke as a3_fixture
 import candidate_registry_v1 as registry
+import a3_candidate_packet_v1 as a3
 from a3_candidate_packet_v1 import evaluate_packet
 from candidate_registry_v1 import ReferenceIndexError, build_reference_index
 
@@ -382,7 +383,7 @@ class RegistryTests(unittest.TestCase):
                 entry = self.fixture()
                 self.replace(entry, "a3_packet_ref", raw=payload)
                 rows = [dict(deepcopy(entry), asset_id=f"US:SHARED{i}") for i in range(20)]
-                with patch.object(registry, "_json_object", wraps=registry._json_object) as decode:
+                with patch.object(a3, "_strict_json_object", wraps=a3._strict_json_object) as decode:
                     out = self.build(*rows)
                 packet_decodes = [call for call in decode.call_args_list if call.args == (payload,)]
                 self.assertEqual(len(packet_decodes), 1)
@@ -393,7 +394,7 @@ class RegistryTests(unittest.TestCase):
         entry = self.fixture()
         snapshot = registry._Snapshot(self.resolve)
         ref = entry["a3_packet_ref"]
-        with patch.object(registry, "_json_object", wraps=registry._json_object) as decode:
+        with patch.object(a3, "_strict_json_object", wraps=a3._strict_json_object) as decode:
             first = snapshot.object(ref)
             snapshot.current_reads.clear()
             self.assertEqual(snapshot.object(ref), first)
@@ -401,6 +402,134 @@ class RegistryTests(unittest.TestCase):
             self.assertEqual(decode.call_count, 1)
             registry._Snapshot(self.resolve).object(ref)
             self.assertEqual(decode.call_count, 2)
+
+    def test_failed_reads_cached_for_every_rejection_phase(self):
+        for mode in ("provider", "type", "bytearray", "memoryview", "empty", "oversize", "hash"):
+            with self.subTest(mode=mode):
+                a, b = self.fixture("US:A"), self.fixture("US:B")
+                b["a3_packet_ref"] = deepcopy(a["a3_packet_ref"])
+                ref = a["a3_packet_ref"]
+                key = ref["artifact_id"], ref["sha256"]
+                calls = []
+                def resolver(aid, sha):
+                    calls.append((aid, sha))
+                    if (aid, sha) == key:
+                        if mode == "provider":
+                            raise OSError("secret-provider-url")
+                        return {"type": {}, "bytearray": bytearray(b"x"), "memoryview": memoryview(b"x"), "empty": b"", "oversize": b"x" * 33,
+                                "hash": b"tampered"}[mode]
+                    return self.resolve(aid, sha)
+                with patch.object(registry, "MAX_ARTIFACT_BYTES", 32 if mode == "oversize" else registry.MAX_ARTIFACT_BYTES):
+                    first = self.build(a, b, resolver=resolver)
+                    second = self.build(a, b, resolver=resolver)
+                self.assertEqual(calls.count(key), 2)  # one per fresh invocation
+                self.assertEqual(first, second)
+                self.assertEqual(first["blocked_count"], 2)
+                self.assertNotIn("secret-provider-url", raw_json(first).decode())
+
+    def test_oversized_bytes_consume_aggregate_before_blob_rejection(self):
+        for payload in (b"x" * 17, bytearray(b"x" * 17), memoryview(b"x" * 17)):
+            with self.subTest(type=type(payload).__name__):
+                rows = [self.fixture("US:A"), self.fixture("US:B")]
+                calls = []
+                def resolver(aid, sha):
+                    calls.append((aid, sha))
+                    return payload
+                with patch.object(registry, "MAX_ARTIFACT_BYTES", 16), patch.object(registry, "MAX_TOTAL_BYTES", 30):
+                    with self.assertRaisesRegex(ReferenceIndexError, "total_byte_budget"):
+                        self.build(*rows, resolver=resolver)
+                self.assertEqual(len(calls), 2)
+
+    def test_exact_byte_budget_and_replay_read_tracking(self):
+        entry = self.fixture()
+        expected = sum(map(len, self.raw.values()))
+        calls = []
+        def resolver(aid, sha):
+            calls.append((aid, sha))
+            return self.resolve(aid, sha)
+        with patch.object(registry, "MAX_TOTAL_BYTES", expected):
+            out = self.build(entry, resolver=resolver)
+        self.assertEqual(out["reference_verified_count"], 1)
+        self.assertEqual(len(calls), len(set(calls)))
+        self.assertEqual({(r["artifact_id"], r["sha256"]) for r in out["records"][0]["resolved_blob_refs"]}, set(self.raw))
+
+    def test_downstream_cache_budget_is_batch_fatal(self):
+        entry = self.fixture()
+        with patch.object(a3, "MAX_CACHED_TOTAL_BYTES", 1):
+            with self.assertRaisesRegex(ReferenceIndexError, "total_byte_budget"):
+                self.build(entry)
+
+    def test_nested_identity_conflicts_precede_all_row_failures(self):
+        for early in ("asset", "issuer", "clock", "roles", "missing_dependency", "bad_dependency", "bad_result"):
+            for role in ("methodology", "moat", "market_valuation", "source_graph"):
+                with self.subTest(early=early, role=role):
+                    a, b = self.fixture("US:A"), self.fixture("US:B")
+                    pa, pb = self.read(a["a3_packet_ref"]), self.read(b["a3_packet_ref"])
+                    pa["artifacts"][role]["artifact_id"] = pb["artifacts"][role]["artifact_id"]
+                    if early == "asset": pa["asset_id"] = "US:WRONG"
+                    elif early == "issuer": pa["issuer_id"] = "WRONG"
+                    elif early == "clock": pa["reviewed_at"] = "invalid"
+                    elif early == "roles": pa["artifacts"]["invalid_role"] = None
+                    elif early in {"missing_dependency", "bad_dependency"}:
+                        ref = pa["artifacts"]["methodology"]
+                        key = ref["artifact_id"], ref["sha256"]
+                        if early == "missing_dependency": self.raw.pop(key, None)
+                        else: self.raw[key] = b"tampered"
+                    elif early == "bad_result":
+                        self.replace(a, "a3_result_ref", raw=b"{")
+                    self.replace(a, "a3_packet_ref", pa)
+                    for ordered in ((a, b), (b, a)):
+                        with self.assertRaisesRegex(ReferenceIndexError, "artifact_id_conflict"):
+                            self.build(*ordered)
+
+    def test_raw_nested_conflict_precedes_unavailable_other_dependency(self):
+        a, b = self.fixture("US:A"), self.fixture("US:B")
+        pa, pb = self.read(a["a3_packet_ref"]), self.read(b["a3_packet_ref"])
+        ga, gb = self.read(pa["artifacts"]["source_graph"]), self.read(pb["artifacts"]["source_graph"])
+        ga["sources"][0]["raw_artifact_id"] = gb["sources"][0]["raw_artifact_id"]
+        ga["sources"][0]["raw_sha256"] = "0" * 64
+        new = self.put("REVISED:GRAPH", ga)
+        pa["artifacts"]["source_graph"].update(artifact_id=new["artifact_id"], sha256=new["sha256"])
+        method = pa["artifacts"]["methodology"]
+        self.raw.pop((method["artifact_id"], method["sha256"]))
+        self.replace(a, "a3_packet_ref", pa)
+        for ordered in ((a, b), (b, a)):
+            with self.assertRaisesRegex(ReferenceIndexError, "artifact_id_conflict"):
+                self.build(*ordered)
+
+    def test_future_row_preflight_does_not_resolve(self):
+        for role in ("a3_packet_ref", "a3_result_ref"):
+            entry = self.fixture()
+            entry[role]["collected_at"] = "2026-09-20T01:00:00Z"
+            with patch.object(self, "resolve", side_effect=RuntimeError("secret")) as resolver:
+                out = self.build(entry, resolver=resolver)
+            self.assertEqual(resolver.call_count, 0)
+            self.assertEqual(out["blocked_count"], 1)
+
+    def test_A3_replay_reuses_actual_json_and_hash_outcomes(self):
+        a, b = self.fixture("US:A"), self.fixture("US:B")
+        # Distinct packet/result pairs share structured and raw dependencies;
+        # row B ultimately fails packet identity, but must not reparse A's deps.
+        p = self.read(a["a3_packet_ref"])
+        shared = deepcopy(p)
+        shared["asset_id"] = "US:B"
+        self.replace(b, "a3_packet_ref", shared)
+        original_loads, original_hash = json.loads, hashlib.sha256
+        decoded, hashed = [], []
+        def loads(raw, *args, **kw):
+            decoded.append(raw)
+            return original_loads(raw, *args, **kw)
+        def sha(raw=b""):
+            hashed.append(raw)
+            return original_hash(raw)
+        with patch.object(a3.json, "loads", side_effect=loads), patch.object(a3.hashlib, "sha256", side_effect=sha):
+            out = self.build(a, b)
+        self.assertEqual(out["reference_verified_count"], 1)
+        structured = [a["a3_packet_ref"], a["a3_result_ref"]] + list(p["artifacts"].values())
+        for ref in structured:
+            raw = self.resolve(ref["artifact_id"], ref["sha256"])
+            self.assertEqual(decoded.count(raw), 1)
+            self.assertGreaterEqual(hashed.count(raw), 1)
 
     def test_hash_mismatches_consume_total_byte_budget(self):
         entries = [self.fixture(f"US:BROKEN{i}") for i in range(3)]

@@ -119,6 +119,26 @@ credentials. Limits: 10,000 entries, 64 MiB per blob, 128 MiB resolved bytes per
 invocation, depth 64 and 100,000 decoded JSON value nodes per object. Limits are
 engineering bounds, not investment-universe coverage claims.
 
+Each exact ID/hash is resolved once per invocation, including provider, type,
+empty, oversize and hash failures. Every returned byte buffer is charged before
+per-blob rejection; failure reasons retain neither provider text nor traceback.
+A fresh invocation retries rather than reusing an earlier failed snapshot.
+
+Top-level identities are registered without resolving future references.
+Packets whose packet/result collection clocks are eligible are then decoded;
+all syntactically valid nested ID/hash pairs are registered before row-local
+asset, issuer, review or dependency validation. Eligible structured dependencies
+are independently decoded in this preflight so an earlier failing dependency
+cannot conceal later raw-source or market-source identity conflicts. Raw source
+documents remain arbitrary bytes, never JSON-decoded by this adapter.
+
+Registry and its A3 replay share A3's private verified-artifact cache. The cache
+accepts only resolver bytes, verifies raw hashes and strict JSON resource/type
+limits, and accepts no caller-provided decoded dictionary or decoder. A3's
+default three-argument API preserves its existing behavior. Explicit optional
+cache reuse still validates every row's kind, clocks, asset/issuer identity and
+economic authority; cache hits preserve the row's raw-reference read tracking.
+
 ## BIO/CLEAN and cross-market boundary
 
 No sector-specific score, sleeve cap, or BUY/SELL rule exists here. US/KR BIO and
@@ -155,6 +175,16 @@ writes; retention/deletion; live/paper/target mutations. Progress to I0.2/I0.3
 only through separately scoped work under the same #516 ownership.
 
 ## Operational lesson
+
+### 2026-10-03 cross-phase review corrections
+
+The exact-head hosted review on `bc49b983916fb89fc6cd8ac7df0b32e2f2d227e4`
+found four gaps across byte accounting, failed reads, nested identity preflight
+and A3's downstream JSON parsing. These corrections cover the whole invocation
+with rejection-phase matrices, both input orders, fresh-invocation retry,
+actual JSON/hash call instrumentation and an exact-budget positive control.
+Synthetic fixtures establish plumbing invariants only. They grant no source,
+domain, economic, reuse, A5 or portfolio authority.
 
 ### 2026-10-02 current-master integration
 

@@ -1,5 +1,20 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-03 — Bound artifact work across every validation phase (#560)
+
+- Charge every returned byte buffer before blob/type/hash rejection; memoize
+  bounded provider, type, size, hash and decode failures per immutable identity.
+  A fresh invocation retries. Failure caches must retain no private provider
+  text or tracebacks holding large objects.
+- Register nested identities from time-eligible decoded packets/dependencies
+  before row-local asset or dependency validation. An earlier bad dependency
+  must not conceal a later immutable-ID conflict; future-collected references
+  remain unresolved.
+- Share a raw-byte-verified strict decode cache through downstream A3 replay.
+  Test actual parse/hash work, raw-reference tracking and both conflict orders,
+  not only provider call counts. A reference pass still grants no reuse or A5
+  economic authority.
+
 ## 2026-10-02 — Reconcile current reference-index evidence before integration (#560)
 
 - The current PR head already contains immutable-ID preflight and per-invocation

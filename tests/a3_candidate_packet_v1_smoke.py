@@ -5,10 +5,12 @@ import json
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'research'))
 
+import a3_candidate_packet_v1 as a3
 from a3_candidate_packet_v1 import A3CandidatePacketError, evaluate_packet
 
 RAW = {}
@@ -213,6 +215,80 @@ class Tests(unittest.TestCase):
     new=add("METH2",obj); v["artifacts"]["methodology"]={"kind":"METHODOLOGY_RESULT",**new}
     with self.assertRaisesRegex(A3CandidatePacketError,"methodology_selector_authority"):
       evaluate_packet(v,"2026-09-19T02:00:00Z",resolver)
+
+  def test_optional_cache_preserves_default_result_and_raw_gates(self):
+    v=packet(True)
+    expected=evaluate_packet(v,"2026-09-19T02:00:00Z",resolver)
+    calls=[]
+    def read(aid,sha):
+      calls.append((aid,sha)); return resolver(aid,sha)
+    cache=a3._VerifiedArtifactCache(read)
+    with patch.object(a3,"_strict_json_object",wraps=a3._strict_json_object) as decoder:
+      for _ in range(3):
+        self.assertEqual(evaluate_packet(v,"2026-09-19T02:00:00Z",read,_artifact_cache=cache),expected)
+    self.assertEqual(len(calls),len(set(calls)))
+    self.assertEqual(decoder.call_count,len(v["artifacts"]))
+    self.assertFalse(expected["selector_eligible"])
+
+  def test_optional_cache_rejects_unverified_dict_and_wrong_resolver(self):
+    v=packet()
+    for cache in ({},a3._VerifiedArtifactCache(lambda aid,sha:b"{}")):
+      with self.assertRaisesRegex(A3CandidatePacketError,"verified_artifact_cache_required"):
+        evaluate_packet(v,"2026-09-19T02:00:00Z",resolver,_artifact_cache=cache)
+
+  def test_optional_cache_strict_decode_matrix_and_raw_hash(self):
+    for raw,reason in ((b'{"x":1,"x":2}',"duplicate_json_key"),
+                       (b'{"x":NaN}',"nonfinite_json"),
+                       (b'{"x":1e999}',"nonfinite_json"),
+                       (b'{"x":'+b'['*65+b'0'+b']'*65+b'}',"json_depth_limit"),
+                       (b'{',"invalid_json")):
+      with self.subTest(reason=reason):
+        sha=hashlib.sha256(raw).hexdigest()
+        calls=[]
+        def read(aid,digest): calls.append(aid); return raw
+        cache=a3._VerifiedArtifactCache(read)
+        with patch.object(a3,"_strict_json_object",wraps=a3._strict_json_object) as decoder:
+          for _ in range(2):
+            with self.assertRaisesRegex(A3CandidatePacketError,reason): cache.object("REF",sha)
+        self.assertEqual(calls,["REF"])
+        self.assertEqual(decoder.call_count,1)
+    cache=a3._VerifiedArtifactCache(lambda aid,sha:b"tampered")
+    with self.assertRaisesRegex(A3CandidatePacketError,"artifact_hash_mismatch"):
+      cache.object("REF","0"*64)
+    cache=a3._VerifiedArtifactCache(lambda aid,sha:{"pretend":"decoded"})
+    with self.assertRaisesRegex(A3CandidatePacketError,"artifact_bytes"):
+      cache.object("REF","0"*64)
+
+  def test_optional_cache_failed_bytes_resource_and_identity_matrix(self):
+    with patch.object(a3,"MAX_ARTIFACT_BYTES",16),patch.object(a3,"MAX_CACHED_TOTAL_BYTES",30):
+      calls=[]
+      def read(aid,sha): calls.append(aid); return b"x"*17
+      cache=a3._VerifiedArtifactCache(read)
+      for _ in range(2):
+        with self.assertRaisesRegex(A3CandidatePacketError,"artifact_bytes"):
+          cache.read("A","0"*64)
+      with self.assertRaisesRegex(A3CandidatePacketError,"total_byte_budget"):
+        cache.read("B","1"*64)
+      self.assertEqual(calls,["A","B"])
+    cache=a3._VerifiedArtifactCache(lambda aid,sha:b"{}")
+    cache.read("A",hashlib.sha256(b"{}").hexdigest())
+    with self.assertRaisesRegex(A3CandidatePacketError,"artifact_id_conflict"):
+      cache.read("A","0"*64)
+
+  def test_optional_cache_node_limit_and_per_row_contract_checks(self):
+    raw=b'{"values":[0,1,2,3]}'
+    cache=a3._VerifiedArtifactCache(lambda aid,sha:raw)
+    with patch.object(a3,"MAX_JSON_NODES",3):
+      with self.assertRaisesRegex(A3CandidatePacketError,"json_node_limit"):
+        cache.object("REF",hashlib.sha256(raw).hexdigest())
+    for field,bad,reason in (("kind","OTHER","artifact_kind"),
+                             ("review_status","PENDING","artifact_review_status"),
+                             ("available_at","2026-09-20T00:00:00Z","future_artifact")):
+      v=packet()
+      v["artifacts"]["methodology"][field]=bad
+      with self.assertRaisesRegex(A3CandidatePacketError,reason):
+        evaluate_packet(v,"2026-09-19T02:00:00Z",resolver,
+                        _artifact_cache=a3._VerifiedArtifactCache(resolver))
 
 def load_tests(loader, suite, pattern):
     # #516 reference adapter stays on the existing registered A3 smoke route.

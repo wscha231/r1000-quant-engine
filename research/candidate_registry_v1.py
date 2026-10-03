@@ -14,21 +14,18 @@ from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
 import json
-import math
 import re
 from typing import Any
 
 if __package__:
-    from .a3_candidate_packet_v1 import A3CandidatePacketError, evaluate_packet
+    from .a3_candidate_packet_v1 import A3CandidatePacketError, _VerifiedArtifactCache, evaluate_packet
 else:
-    from a3_candidate_packet_v1 import A3CandidatePacketError, evaluate_packet
+    from a3_candidate_packet_v1 import A3CandidatePacketError, _VerifiedArtifactCache, evaluate_packet
 
 SCHEMA = "candidate-registry-v1-reference-index"
 MAX_ENTRIES = 10000
 MAX_ARTIFACT_BYTES = 64 * 1024 * 1024
 MAX_TOTAL_BYTES = 128 * 1024 * 1024
-MAX_JSON_DEPTH = 64
-MAX_JSON_NODES = 100000
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}\Z")
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 _TIME = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})\Z")
@@ -84,45 +81,6 @@ def _canonical(value: Any) -> bytes:
                       ensure_ascii=False, allow_nan=False).encode("utf-8")
 
 
-def _json_object(raw: bytes) -> dict[str, Any]:
-    def pairs(items):
-        out = {}
-        for key, value in items:
-            _require(key not in out, "duplicate_json_key")
-            out[key] = value
-        return out
-
-    def constant(_):
-        raise ReferenceIndexError("nonfinite_json")
-
-    def finite(value):
-        number = float(value)
-        _require(math.isfinite(number), "nonfinite_json")
-        return number
-
-    try:
-        obj = json.loads(raw, object_pairs_hook=pairs,
-                         parse_constant=constant, parse_float=finite)
-    except ReferenceIndexError:
-        raise
-    except RecursionError as exc:
-        raise ReferenceIndexError("json_depth_limit") from exc
-    except (ValueError, UnicodeError) as exc:
-        raise ReferenceIndexError("invalid_json") from exc
-    _require(isinstance(obj, dict), "json_object_required")
-    stack, count = [(obj, 0)], 0
-    while stack:
-        value, depth = stack.pop()
-        count += 1
-        _require(count <= MAX_JSON_NODES, "json_node_limit")
-        _require(depth <= MAX_JSON_DEPTH, "json_depth_limit")
-        if isinstance(value, dict):
-            stack.extend((v, depth + 1) for v in value.values())
-        elif isinstance(value, list):
-            stack.extend((v, depth + 1) for v in value)
-    return obj
-
-
 class _Snapshot:
     """Resolve once per exact ID/hash within this invocation, never across runs.
 
@@ -132,12 +90,16 @@ class _Snapshot:
     def __init__(self, resolver: ArtifactResolver):
         self.resolver = resolver
         self.cache: dict[tuple[str, str], bytes] = {}
-        self.objects: dict[tuple[str, str], dict[str, Any]] = {}
-        self.decode_errors: dict[tuple[str, str], str] = {}
+        self.read_errors: dict[tuple[str, str], str] = {}
         self.identities: dict[str, str] = {}
         self.bytes_read = 0
         self.current_reads: set[tuple[str, str]] = set()
         self.fatal: _BatchError | None = None
+        self.artifacts = _VerifiedArtifactCache(self.read, _on_access=self.track)
+
+    def track(self, aid: str, digest: str) -> None:
+        self.register(aid, digest)
+        self.current_reads.add((aid, digest))
 
     def register(self, aid: str, digest: str) -> None:
         _identifier(aid, "artifact_id")
@@ -149,39 +111,46 @@ class _Snapshot:
         self.identities[aid] = digest
 
     def read(self, aid: str, digest: str) -> bytes:
+        if self.fatal is not None:
+            raise self.fatal
         self.register(aid, digest)
         key = (aid, digest)
         self.current_reads.add(key)
+        if key in self.read_errors:
+            raise ReferenceIndexError(self.read_errors[key])
         if key in self.cache:
             return self.cache[key]
         try:
             raw = self.resolver(aid, digest)
         except Exception:
             # Provider errors may contain credentials or private URLs.
+            self.read_errors[key] = "artifact_unavailable"
             raise ReferenceIndexError("artifact_unavailable") from None
-        _require(type(raw) is bytes and 0 < len(raw) <= MAX_ARTIFACT_BYTES, "artifact_bytes")
-        if self.bytes_read + len(raw) > MAX_TOTAL_BYTES:
-            self.fatal = _BatchError("total_byte_budget")
-            raise self.fatal
-        self.bytes_read += len(raw)
-        _require(hashlib.sha256(raw).hexdigest() == digest, "artifact_hash_mismatch")
+        # Every returned byte is charged, including oversized/empty/bad-hash
+        # blobs. No failing exact key may retry within this snapshot.
+        if isinstance(raw, (bytes, bytearray, memoryview)):
+            self.bytes_read += memoryview(raw).nbytes
+            if self.bytes_read > MAX_TOTAL_BYTES:
+                self.fatal = _BatchError("total_byte_budget")
+                raise self.fatal
+        reason = ("artifact_bytes" if type(raw) is not bytes or not 0 < len(raw) <= MAX_ARTIFACT_BYTES
+                  else "artifact_hash_mismatch" if hashlib.sha256(raw).hexdigest() != digest else None)
+        if reason is not None:
+            self.read_errors[key] = reason
+            raise ReferenceIndexError(reason)
         self.cache[key] = raw
         return raw
 
     def object(self, ref: dict[str, Any]) -> dict[str, Any]:
         # Always track reads, even when decoding has already succeeded/failed.
-        raw = self.read(ref["artifact_id"], ref["sha256"])
-        key = (ref["artifact_id"], ref["sha256"])
-        if key in self.decode_errors:
-            raise ReferenceIndexError(self.decode_errors[key])
-        if key not in self.objects:
-            try:
-                self.objects[key] = _json_object(raw)
-            except ReferenceIndexError as exc:
-                # Store only the bounded reason, not a traceback retaining raw data.
-                self.decode_errors[key] = str(exc)
-                raise
-        return self.objects[key]
+        self.read(ref["artifact_id"], ref["sha256"])
+        try:
+            return self.artifacts.object(ref["artifact_id"], ref["sha256"])
+        except A3CandidatePacketError as exc:
+            if self.artifacts.fatal_reason is not None:
+                self.fatal = _BatchError(self.artifacts.fatal_reason)
+                raise self.fatal
+            raise ReferenceIndexError(str(exc)) from None
 
 
 def _reference(value: Any, cutoff: datetime) -> dict[str, Any]:
@@ -194,6 +163,63 @@ def _reference(value: Any, cutoff: datetime) -> dict[str, Any]:
     if expiry is not None:
         _require(_stamp(expiry) >= collected, "expiry_precedes_collection")
     return deepcopy(value)
+
+
+def _register_nested(value: dict[str, Any], snapshot: _Snapshot) -> None:
+    # Strict decoding already bounded depth/nodes. Inspect every syntactically
+    # valid descriptor before any asset, role, clock or dependency validation.
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            for id_field, hash_field in (("artifact_id", "sha256"),
+                                         ("raw_artifact_id", "raw_sha256")):
+                try:
+                    aid = _identifier(item.get(id_field), "artifact_id")
+                    digest = _digest(item.get(hash_field))
+                except ReferenceIndexError:
+                    continue
+                snapshot.register(aid, digest)
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
+
+
+def _preflight_nested(entries: list[dict[str, Any]], cutoff: datetime,
+                      snapshot: _Snapshot) -> None:
+    packets = []
+    for entry in sorted(entries, key=lambda e: e["asset_id"]):
+        try:
+            pref = _reference(entry.get("a3_packet_ref"), cutoff)
+            rref = _reference(entry.get("a3_result_ref"), cutoff)
+            _require(_stamp(rref["available_at"]) >= _stamp(pref["collected_at"]), "result_precedes_packet")
+            packet = snapshot.object(pref)
+        except _BatchError:
+            raise
+        except ReferenceIndexError:
+            continue  # Ineligible/future rows do not resolve or expose packets.
+        _register_nested(packet, snapshot)
+        packets.append(packet)
+    # Decode every eligible structured dependency independently: an earlier
+    # unavailable/malformed dependency cannot hide identities in a later one.
+    # Raw market/source documents are registered here but remain arbitrary bytes.
+    for packet in packets:
+        refs = packet.get("artifacts")
+        if not isinstance(refs, dict):
+            continue
+        for ref in refs.values():
+            if not isinstance(ref, dict):
+                continue
+            try:
+                _identifier(ref.get("artifact_id"), "artifact_id")
+                _digest(ref.get("sha256"))
+                _require(_stamp(ref.get("available_at")) <= cutoff, "reference_time_order")
+                dependency = snapshot.object(ref)
+            except _BatchError:
+                raise
+            except ReferenceIndexError:
+                continue
+            _register_nested(dependency, snapshot)
 
 
 def _closed_record(entry: dict[str, Any]) -> dict[str, Any]:
@@ -237,9 +263,13 @@ def _index_one(entry: dict[str, Any], row: dict[str, Any], cutoff: datetime,
             _require(isinstance(ref, dict), "a3_artifact_reference")
             snapshot.object(ref)
     try:
-        actual = evaluate_packet(packet, cutoff.isoformat(), snapshot.read)
+        actual = evaluate_packet(packet, cutoff.isoformat(), snapshot.read,
+                                 _artifact_cache=snapshot.artifacts)
     except A3CandidatePacketError:
         if snapshot.fatal is not None:
+            raise snapshot.fatal
+        if snapshot.artifacts.fatal_reason is not None:
+            snapshot.fatal = _BatchError(snapshot.artifacts.fatal_reason)
             raise snapshot.fatal
         raise ReferenceIndexError("A3_VALIDATION_FAILED") from None
     # Python equality considers False == 0. Compare canonical JSON instead.
@@ -318,6 +348,7 @@ def build_reference_index(entries: Any, *, cutoff: str,
             except ReferenceIndexError:
                 continue  # Malformed identity descriptors remain row-local errors.
             snapshot.register(aid, digest)
+    _preflight_nested(entries, cutoff_stamp, snapshot)
     records = []
     for entry in sorted(entries, key=lambda e: e["asset_id"]):
         row = _closed_record(entry)
