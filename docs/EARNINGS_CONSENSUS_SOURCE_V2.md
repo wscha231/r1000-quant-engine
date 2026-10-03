@@ -298,3 +298,10 @@ back to stale flat Drive or local cache. Existing workflow concurrency serialize
 earnings writers. Auxiliary research/paper copies are outside this source
 generation and are not certified by source success. Existing consumers must
 restore through this generation contract; old flat paths are not a current head.
+
+Independent native-rclone correction QA also rejected state-dependent no-op
+admission: an accepted selected queue was incorrectly allowed when only the
+publication's collection_required/run_id hints were changed. Every false
+collection-required value now requires the full verified no-collection plan,
+regardless of reader state. True requires accepted collection and matching
+producer. A declared no-op cannot waive its proof or move the remote head.

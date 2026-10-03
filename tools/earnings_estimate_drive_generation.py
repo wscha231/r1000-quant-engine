@@ -85,9 +85,12 @@ def validate_payload(payload):
     if (publication['collection_required']
             and publication.get('run_id') != summary.get('collection_attempt_logical_id')):
         raise ValueError('generation_manifest_producer_mismatch')
-    if state['state'] == 'planned':
-        if publication.get('collection_required') is not False:
+    if publication['collection_required']:
+        if state['state'] != 'accepted':
             raise ValueError('generation_unaccepted_collection_plan')
+    else:
+        if state['state'] != 'planned':
+            raise ValueError('no_collection_requires_bound_plan')
         require_verified_no_collection_plan(archive, **arguments,
             universe_path=archive / 'collection_universe.csv',
             plan_summary=json.loads((daily / 'incremental_universe_summary.json').read_text()),

@@ -5887,6 +5887,9 @@ Expected contract:
   Confirm head absence before legacy fallback; an unavailable or invalid head
   is not absence. Do not infer runtime repair permission from source tests or
   overwrite an accepted generation to repair a failed upload.
+- Dispatch no-op verification by the publication requirement, not only by the
+  current state label. An accepted selected queue cannot become a no-op through
+  changed metadata hints; require the complete zero-selection parent proof.
 
 ## 2026-10-03 — Close SQLite handles after blocked materialization
 
