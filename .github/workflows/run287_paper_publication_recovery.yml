@@ -1,0 +1,316 @@
+name: Run287 Committed Paper Publication Recovery
+
+# One fixed post-commit July27 incident. No schedule or transaction entrypoint.
+on:
+  workflow_dispatch:
+    inputs:
+      expected_master_sha:
+        description: 'Exact reviewed current master SHA of this publisher'
+        required: true
+        type: string
+      allow_publication_recovery:
+        description: 'Separate owner approval to publish the already committed July27 evidence'
+        required: true
+        type: boolean
+        default: false
+      save_continuity_cache:
+        description: 'Explicitly include one verified continuity cache in this publication approval'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: daily-operating-selection-refresh
+  cancel-in-progress: false
+  # Preserve pending work when this recovery producer joins the shared group.
+  # The native active-writer and chronological gates still decide safety.
+  queue: max
+
+jobs:
+  publication_recovery:
+    if: github.event_name == 'workflow_dispatch' && inputs.allow_publication_recovery == true
+    environment: run287-paper-durable
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      RUN287_DURABLE_ENVIRONMENT_NAME: run287-paper-durable
+      RUN287_RECOVERY_RCLONE_RELEASE: 1.75.0
+      RUN287_RECOVERY_RCLONE_ZIP_SHA256: aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout publisher without credentials
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            .github
+            tools
+            docs
+            data_static
+            research
+          sparse-checkout-cone-mode: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install existing native dependencies
+        run: pip install -r requirements_github.txt
+
+      - name: Initialize recovery paths for subsequent steps
+        id: initialize_recovery_paths
+        run: |
+          set -euo pipefail
+          : "${RUNNER_TEMP:?RUNNER_TEMP is required}"
+          : "${GITHUB_ENV:?GITHUB_ENV is required}"
+          {
+            printf 'RECOVERY_INPUTS=%s/run287-publication-inputs\n' "$RUNNER_TEMP"
+            printf 'RECOVERY_API=%s/run287-publication-api\n' "$RUNNER_TEMP"
+            printf 'RECOVERY_BUNDLE=%s/run287-publication-bundle\n' "$RUNNER_TEMP"
+          } >> "$GITHUB_ENV"
+
+      - name: Verify fresh owner dispatch and exact current master before secrets
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF" = refs/heads/master
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          python tools/prepare_run287_paper_publication_recovery.py collect \
+            --evidence-dir "$RECOVERY_API"
+          python tools/prepare_run287_paper_publication_recovery.py authorize \
+            --evidence-dir "$RECOVERY_API"
+
+      - name: Configure existing marker-bound Drive credential for reads
+        env:
+          RUN287_DURABLE_ENVIRONMENT_ATTESTATION: ${{ secrets.RUN287_DURABLE_ENVIRONMENT_ATTESTATION }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RUN287_DURABLE_RCLONE_CONFIG_GDRIVE }}
+        run: |
+          set -euo pipefail
+          umask 077
+          python tools/prepare_run287_paper_publication_recovery.py authorize \
+            --evidence-dir "$RECOVERY_API" --check-environment
+          INSTALL="$RUNNER_TEMP/run287-publication-rclone"
+          ARCHIVE="$RUNNER_TEMP/run287-publication-rclone.zip"
+          CONFIG="$RUNNER_TEMP/run287-publication-rclone.conf"
+          BIN="$INSTALL/rclone-v${RUN287_RECOVERY_RCLONE_RELEASE}-linux-amd64/rclone"
+          curl --fail --silent --show-error --location \
+            "https://downloads.rclone.org/v${RUN287_RECOVERY_RCLONE_RELEASE}/rclone-v${RUN287_RECOVERY_RCLONE_RELEASE}-linux-amd64.zip" \
+            --output "$ARCHIVE"
+          printf '%s  %s\n' "$RUN287_RECOVERY_RCLONE_ZIP_SHA256" "$ARCHIVE" | sha256sum --check --strict
+          mkdir -p "$INSTALL"
+          unzip -q "$ARCHIVE" -d "$INSTALL"
+          "$BIN" version | grep -Fx "rclone v${RUN287_RECOVERY_RCLONE_RELEASE}"
+          printf '%s' "$RCLONE_CONFIG_GDRIVE" > "$CONFIG"
+          chmod 600 "$CONFIG"
+          export RCLONE_CONFIG="$CONFIG"
+          export RCLONE_CONFIG_GDRIVE_SCOPE=drive.readonly
+          "$BIN" lsd gdrive: >/dev/null
+          {
+            echo "RCLONE_BIN=$BIN"
+            echo "RCLONE_CONFIG=$CONFIG"
+            echo "RCLONE_CONFIG_GDRIVE_SCOPE=drive.readonly"
+          } >> "$GITHUB_ENV"
+
+      - name: Download and checksum the four authoritative namespaces
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: |
+          set -euo pipefail
+          test ! -e "$RECOVERY_INPUTS"
+          mkdir -p "$RECOVERY_INPUTS"
+          BASE=gdrive:r1000_top30_institutional/
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then BASE=gdrive:; fi
+          ARCHIVE="${BASE}paper_archive"
+          echo "RECOVERY_DRIVE_ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+          copy_checked() {
+            local remote="$ARCHIVE/$1" destination="$RECOVERY_INPUTS/$2"
+            "$RCLONE_BIN" lsjson "$remote/" --recursive --hash > "$RECOVERY_INPUTS/$2.before.json"
+            "$RCLONE_BIN" copy "$remote/" "$destination/" --transfers 2 --checkers 4
+            "$RCLONE_BIN" check "$remote/" "$destination/" --checksum --checkers 4
+          }
+          copy_checked run287_daily_simulated_fill_ledger paper_current
+          copy_checked run287_daily_simulated_fill_ledger_heads paper_heads_current
+          copy_checked run287_risk_outcome_accepted_heads accepted
+          copy_checked run287_risk_outcome_archive legacy_current
+
+      - name: Download the exact original immutable GitHub ZIPs
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts/11219955566/zip" \
+            --output "$RECOVERY_INPUTS/capture.zip"
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts/11230121090/zip" \
+            --output "$RECOVERY_INPUTS/diagnostic.zip"
+
+      - name: Prepare committed bytes with the unchanged native verifiers
+        id: prepare
+        env:
+          RUN287_DURABLE_ENVIRONMENT_ATTESTATION: ${{ secrets.RUN287_DURABLE_ENVIRONMENT_ATTESTATION }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RUN287_DURABLE_RCLONE_CONFIG_GDRIVE }}
+        run: |
+          set -euo pipefail
+          python tools/prepare_run287_paper_publication_recovery.py collect --evidence-dir "$RECOVERY_API"
+          python tools/prepare_run287_paper_publication_recovery.py prepare \
+            --evidence-dir "$RECOVERY_API" --input-root "$RECOVERY_INPUTS" \
+            --output-dir "$RECOVERY_BUNDLE" --authorize-publisher
+
+      - name: Stage exact ordinary-consumer cache paths only when approved
+        if: success() && inputs.save_continuity_cache == true
+        run: |
+          set -euo pipefail
+          test ! -e outputs/daily_simulated_fill_ledger
+          test ! -e outputs/run287_paper_immutable_head_bundles
+          mkdir -p outputs
+          cp -a "$RECOVERY_BUNDLE/outputs/daily_simulated_fill_ledger" outputs/
+          cp -a "$RECOVERY_BUNDLE/outputs/run287_paper_immutable_head_bundles" outputs/
+
+      - name: Recheck physical Drive hashes source writer and publisher before upload
+        id: publication_gate
+        env:
+          RUN287_DURABLE_ENVIRONMENT_ATTESTATION: ${{ secrets.RUN287_DURABLE_ENVIRONMENT_ATTESTATION }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RUN287_DURABLE_RCLONE_CONFIG_GDRIVE }}
+        run: |
+          set -euo pipefail
+          check_current() {
+            local remote="$RECOVERY_DRIVE_ARCHIVE/$1" local_root="$RECOVERY_INPUTS/$2"
+            "$RCLONE_BIN" lsjson "$remote/" --recursive --hash > "$RECOVERY_INPUTS/$2.after.json"
+            "$RCLONE_BIN" check "$remote/" "$local_root/" --checksum --checkers 4
+          }
+          check_current run287_daily_simulated_fill_ledger paper_current
+          check_current run287_daily_simulated_fill_ledger_heads paper_heads_current
+          check_current run287_risk_outcome_accepted_heads accepted
+          check_current run287_risk_outcome_archive legacy_current
+          python tools/prepare_run287_paper_publication_recovery.py inventory \
+            --evidence-dir "$RECOVERY_API" --input-root "$RECOVERY_INPUTS"
+          python tools/prepare_run287_paper_publication_recovery.py collect --evidence-dir "$RECOVERY_API"
+          python tools/prepare_run287_paper_publication_recovery.py verify \
+            --evidence-dir "$RECOVERY_API" --bundle-dir "$RECOVERY_BUNDLE" --authorize-publisher
+
+      - name: Upload accepted committed July27 publication recovery
+        id: accepted_artifact
+        if: success() && steps.prepare.outcome == 'success' && steps.publication_gate.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: accepted-paper-catchup-2026-07-27-${{ github.run_id }}
+          path: ${{ runner.temp }}/run287-publication-bundle/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 45
+
+      - name: Read back published artifact ZIP and exact contents
+        id: artifact_readback
+        if: success() && steps.accepted_artifact.outcome == 'success'
+        env:
+          PUBLISHED_ARTIFACT_ID: ${{ steps.accepted_artifact.outputs.artifact-id }}
+          PUBLISHED_ARTIFACT_DIGEST: ${{ steps.accepted_artifact.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PUBLISHED_ARTIFACT_ID" \
+            > "$RECOVERY_API/published_artifact.json"
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts/${PUBLISHED_ARTIFACT_ID}/zip" \
+            --output "$RUNNER_TEMP/run287-publication-readback.zip"
+          python tools/prepare_run287_paper_publication_recovery.py readback \
+            --evidence-dir "$RECOVERY_API" --bundle-dir "$RECOVERY_BUNDLE" \
+            --published-zip "$RUNNER_TEMP/run287-publication-readback.zip" \
+            --published-digest "$PUBLISHED_ARTIFACT_DIGEST" \
+            --published-artifact-metadata "$RECOVERY_API/published_artifact.json" \
+            --published-artifact-id "$PUBLISHED_ARTIFACT_ID"
+
+      - name: Recheck current publisher and staged cache before optional cache save
+        id: cache_gate
+        if: success() && inputs.save_continuity_cache == true && steps.artifact_readback.outcome == 'success'
+        env:
+          RUN287_DURABLE_ENVIRONMENT_ATTESTATION: ${{ secrets.RUN287_DURABLE_ENVIRONMENT_ATTESTATION }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RUN287_DURABLE_RCLONE_CONFIG_GDRIVE }}
+        run: |
+          set -euo pipefail
+          "$RCLONE_BIN" check "$RECOVERY_DRIVE_ARCHIVE/run287_daily_simulated_fill_ledger/" \
+            "$RECOVERY_INPUTS/paper_current/" --checksum --checkers 4
+          "$RCLONE_BIN" check "$RECOVERY_DRIVE_ARCHIVE/run287_daily_simulated_fill_ledger_heads/" \
+            "$RECOVERY_INPUTS/paper_heads_current/" --checksum --checkers 4
+          for pair in 'run287_daily_simulated_fill_ledger paper_current' \
+                      'run287_daily_simulated_fill_ledger_heads paper_heads_current' \
+                      'run287_risk_outcome_accepted_heads accepted' \
+                      'run287_risk_outcome_archive legacy_current'; do
+            read -r remote local_root <<< "$pair"
+            "$RCLONE_BIN" lsjson "$RECOVERY_DRIVE_ARCHIVE/$remote/" --recursive --hash \
+              > "$RECOVERY_INPUTS/$local_root.after.json"
+          done
+          python tools/prepare_run287_paper_publication_recovery.py inventory \
+            --evidence-dir "$RECOVERY_API" --input-root "$RECOVERY_INPUTS"
+          python tools/prepare_run287_paper_publication_recovery.py collect --evidence-dir "$RECOVERY_API"
+          python tools/prepare_run287_paper_publication_recovery.py verify \
+            --evidence-dir "$RECOVERY_API" --bundle-dir "$RECOVERY_BUNDLE" --authorize-publisher
+          python - "$RECOVERY_BUNDLE" <<'PY'
+          import sys
+          from pathlib import Path
+          from tools.prepare_run287_paper_publication_recovery import tree, require
+          for name in ('daily_simulated_fill_ledger', 'run287_paper_immutable_head_bundles'):
+              require(tree(Path('outputs') / name) == tree(Path(sys.argv[1]) / 'outputs' / name), 'staged_cache_changed')
+          PY
+
+      - name: Save explicitly approved cross-mode continuity cache
+        id: continuity_cache
+        if: success() && inputs.save_continuity_cache == true && steps.cache_gate.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            outputs/daily_simulated_fill_ledger
+            outputs/run287_paper_immutable_head_bundles
+          key: daily-paper-continuity-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Clear staged paths so cache readback proves downloaded bytes
+        id: clear_cache_staging
+        if: success() && inputs.save_continuity_cache == true && steps.continuity_cache.outcome == 'success'
+        run: |
+          set -euo pipefail
+          WORKSPACE="$(realpath "$GITHUB_WORKSPACE")"
+          for name in daily_simulated_fill_ledger run287_paper_immutable_head_bundles; do
+            target="$WORKSPACE/outputs/$name"
+            test -d "$target" && test ! -L "$target"
+            test "$(realpath "$target")" = "$WORKSPACE/outputs/$name"
+            rm -rf -- "$target"
+          done
+
+      - name: Restore the exact approved cache for readback
+        id: cache_readback
+        if: success() && inputs.save_continuity_cache == true && steps.clear_cache_staging.outcome == 'success'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            outputs/daily_simulated_fill_ledger
+            outputs/run287_paper_immutable_head_bundles
+          key: daily-paper-continuity-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          fail-on-cache-miss: true
+
+      - name: Verify cache readback contains the exact committed chain
+        if: success() && inputs.save_continuity_cache == true && steps.cache_readback.outcome == 'success'
+        run: |
+          set -euo pipefail
+          python - "$RECOVERY_BUNDLE" <<'PY'
+          import sys
+          from pathlib import Path
+          from tools.prepare_run287_paper_publication_recovery import tree, require
+          for name in ('daily_simulated_fill_ledger', 'run287_paper_immutable_head_bundles'):
+              require(tree(Path('outputs') / name) == tree(Path(sys.argv[1]) / 'outputs' / name), 'restored_cache_changed')
+          PY
+
+      - name: Remove temporary Drive credentials
+        if: always()
+        run: |
+          set -euo pipefail
+          rm -f -- "$RUNNER_TEMP/run287-publication-rclone.conf"
