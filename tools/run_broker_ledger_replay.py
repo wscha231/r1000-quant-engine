@@ -83,6 +83,7 @@ REPLAY_GENERATED_ARTIFACTS = (
     "metrics.json",
     "replay_report.md",
     "target_fill_coverage.csv",
+    "reserve_reason_audit.json",
 )
 CONCENTRATED_CHAMPION_FILTERS = DEFAULT_CONCENTRATED_CHAMPION_FILTERS
 DISABLE_CONCENTRATED_CHAMPION_FILTERS = {"__disable_concentrated_champion_filter__": "true"}
@@ -1526,7 +1527,7 @@ def replay(
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     execution_cost_config = execution_cost_config or ExecutionCostConfig()
-    # A blocked rerun must never inherit performance-bearing files from any
+    # A blocked rerun must never inherit generated evidence files from any
     # prior successful replay, including the fixed-bps control.
     for artifact_name in REPLAY_GENERATED_ARTIFACTS:
         artifact_path = output_dir / artifact_name
