@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 from contextlib import redirect_stdout
 import io
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -245,21 +247,123 @@ class OpeningConsumerContract(unittest.TestCase):
                     trades = pd.read_csv(out / "trades.csv")
                     self.assertTrue(trades["fill_mode"].eq(mode).all())
 
-    def test_opening_preserves_target_even_if_it_has_an_export_name(self):
+    def test_all_modes_reject_input_owned_export_collisions(self):
         for engine in self.engines:
             extra = "policy_decisions.csv" if engine is policy else "risk_actions.csv"
-            for name in (*self.shared_outputs, extra):
-                with self.subTest(engine=engine.__name__, input_name=name):
+            for mode in ("next_close", "same_close", "next_open"):
+                for name in (*self.shared_outputs, extra):
+                    with self.subTest(engine=engine.__name__, input_name=name, mode=mode):
+                        target, cache, out = self.fixture()
+                        self.assertEqual(self.invoke(engine, target, cache, out, "next_close")["status"], "completed")
+                        owned = (*self.shared_outputs, extra)
+                        archive = out / "archive"
+                        archive.mkdir()
+                        originals = {n: (out / n).read_bytes() for n in owned}
+                        for n, value in originals.items():
+                            (archive / n).write_bytes(value)
+                        (out / "caller.txt").write_bytes(b"caller-owned")
+                        protected = out / name
+                        protected.write_bytes(target.read_bytes())
+                        original = protected.read_bytes()
+                        result = self.invoke(engine, protected, cache, out, mode)
+                        self.assertEqual(result.get("status"), "blocked")
+                        self.assertEqual(result.get("metric_mode"), "DO_NOT_USE")
+                        self.assertIsNone(result.get("cagr"))
+                        self.assertIs(result.get("valid_for_production"), False)
+                        self.assertEqual(protected.read_bytes(), original)
+                        for n in owned:
+                            if n not in {name, "metrics.json", "replay_report.md"}:
+                                self.assertFalse((out / n).exists(), n)
+                            self.assertEqual((archive / n).read_bytes(), originals[n])
+                        self.assertEqual((out / "caller.txt").read_bytes(), b"caller-owned")
+                        args = ["native", "--target-book", str(protected), "--price-cache", str(cache),
+                                "--output-dir", str(out), "--fill-mode", mode]
+                        with patch.object(sys, "argv", args), redirect_stdout(io.StringIO()) as printed:
+                            code = engine.main()
+                        self.assertEqual(code, 2)
+                        self.assertEqual(json.loads(printed.getvalue())["status"], "blocked")
+                        self.assertEqual(protected.read_bytes(), original)
+
+    def test_resolved_input_owned_output_aliases_block(self):
+        for engine in self.engines:
+            for kind in ("parent", "case", "output_symlink", "target_symlink", "junction"):
+                with self.subTest(engine=engine.__name__, alias=kind):
                     target, cache, out = self.fixture()
                     out.mkdir()
-                    protected = out / name
-                    protected.write_bytes(target.read_bytes())
+                    owned = out / "trades.csv"
+                    owned.write_bytes(target.read_bytes())
+                    output = out
+                    if kind == "parent":
+                        (out / "child").mkdir()
+                        protected = out / "child" / ".." / "trades.csv"
+                    elif kind == "case":
+                        if os.name != "nt":
+                            self.skipTest("actual Windows case alias only")
+                        protected = out / "TRADES.CSV"
+                    elif kind == "output_symlink":
+                        owned.unlink()
+                        try:
+                            owned.symlink_to(target)
+                        except OSError:
+                            self.skipTest("leaf symlink unavailable")
+                        protected = target
+                    elif kind == "target_symlink":
+                        protected = target.parent / "target_alias.csv"
+                        try:
+                            protected.symlink_to(owned)
+                        except OSError:
+                            self.skipTest("target symlink unavailable")
+                    else:
+                        if os.name != "nt":
+                            self.skipTest("actual Windows junction only")
+                        output = target.parent / "output_junction"
+                        p = subprocess.run(["cmd.exe", "/c", "mklink", "/J", str(output), str(out)], capture_output=True)
+                        if p.returncode:
+                            self.skipTest("junction unavailable")
+                        protected = out / "trades.csv"
                     original = protected.read_bytes()
-                    result = self.invoke(engine, protected, cache, out)
+                    result = self.invoke(engine, protected, cache, output, "next_close")
                     self.assertEqual(result.get("status"), "blocked")
                     self.assertEqual(result.get("metric_mode"), "DO_NOT_USE")
-                    self.assertIsNone(result.get("cagr"))
                     self.assertEqual(protected.read_bytes(), original)
+                    if kind == "output_symlink":
+                        self.assertTrue(owned.is_symlink())
+                    if kind == "target_symlink":
+                        self.assertTrue(protected.is_symlink())
+
+    def test_disjoint_inputs_inside_sibling_and_nested_outputs_stay_safe(self):
+        for engine in self.engines:
+            for mode in ("next_close", "same_close"):
+                for kind in ("inside_nonowned", "sibling_same_name", "nested_same_name"):
+                    with self.subTest(engine=engine.__name__, mode=mode, input=kind):
+                        target, cache, out = self.fixture()
+                        out.mkdir()
+                        if kind == "inside_nonowned":
+                            protected = out / "targets.csv"
+                        elif kind == "nested_same_name":
+                            (out / "archive").mkdir()
+                            protected = out / "archive/trades.csv"
+                        else:
+                            (target.parent / "sibling").mkdir()
+                            protected = target.parent / "sibling/trades.csv"
+                        protected.write_bytes(target.read_bytes())
+                        original = protected.read_bytes()
+                        result = self.invoke(engine, protected, cache, out, mode)
+                        self.assertEqual(result.get("status"), "completed")
+                        self.assertEqual(protected.read_bytes(), original)
+
+    def test_cleanup_unlinks_hardlinked_output_leaf_without_mutating_disjoint_input(self):
+        for engine in self.engines:
+            with self.subTest(engine=engine.__name__):
+                target, cache, out = self.fixture()
+                out.mkdir()
+                owned = out / "trades.csv"
+                os.link(target, owned)
+                original = target.read_bytes()
+                result = self.invoke(engine, target, cache, out, "next_close")
+                self.assertEqual(result.get("status"), "completed")
+                self.assertEqual(target.read_bytes(), original)
+                self.assertNotEqual(target.stat().st_ino, owned.stat().st_ino)
 
     def test_next_close_target_exit_path_is_preserved(self):
         for engine in self.engines:

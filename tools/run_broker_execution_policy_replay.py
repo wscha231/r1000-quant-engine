@@ -207,10 +207,17 @@ def replay(
     max_reasonable_weight_sum: float = 1.50,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
-    for name in REPLAY_GENERATED_ARTIFACTS:
-        artifact = output_dir / name
-        if artifact.resolve() != target_book.resolve() and (artifact.is_file() or artifact.is_symlink()):
+    protected = target_book.resolve()
+    artifacts = [output_dir / name for name in REPLAY_GENERATED_ARTIFACTS]
+    input_collision = any(artifact.resolve() == protected for artifact in artifacts)
+    for artifact in artifacts:
+        if artifact.resolve() != protected and (artifact.is_file() or artifact.is_symlink()):
             artifact.unlink()
+    if input_collision:
+        return write_blocked_result(output_dir, {
+            "reason": "caller_input_collides_with_replay_output",
+            "target_book": str(target_book), "portfolio_kind": portfolio_kind,
+        }, fill_mode)
     if fill_mode == "next_open":
         # Weights are not quantities committed before the auction. This own
         # execution loop uses fill-day equity/prices to form its quantities.

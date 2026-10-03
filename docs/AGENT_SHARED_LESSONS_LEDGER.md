@@ -3669,9 +3669,11 @@ Expected contract:
 - Inventory price-loader consumers and independent order loops, not only calls
   to the shared ledger. Observed Open cannot admit quantities formed using
   fill-day equity or auction prices; block unsupported next_open models.
-- Clear each engine's complete owned exports before any prerequisite returns.
-  Preserve caller inputs even when named like an export, plus unrelated files
-  and nested archives. Blocked metrics stay null/N/A and CLI status stays nonzero.
+- Reject resolved target/output-owned-name collisions before completing any mode.
+  Preserve the colliding caller bytes and links while clearing other owned exports.
+  Clear each engine's complete owned exports before other prerequisite returns;
+  retain unrelated files and nested archives. Blocked metrics stay null/N/A and
+  CLI status stays nonzero. Disjoint same-name inputs remain valid.
 - Keep weekly proxies and advisory opening features separate from observed-open
   execution admission; their source-level caveats do not become economic proof.
 
