@@ -1,5 +1,79 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-03 — A planning parent hash does not prove preserved collection state
+
+- PR #556's committed-parent IDs/hashes alone admitted a planned checkpoint
+  whose selection count advanced from 1 to 99 without a collection commit.
+  Preserve the actual accepted checkpoint bytes, recompute their bound hash,
+  and compare collection acknowledgement/count/time before consuming a plan.
+  Newly introduced tickers require zero selections and no previous clock.
+- Repeated plans retain one accepted generation. Drop the embedded planning
+  parent on the next collector acknowledgement so later checkpoints do not
+  recursively embed older state. Missing or malformed proof blocks reuse.
+- Native Windows file fsync needs a writable descriptor. Synthetic Windows
+  fault probes cover abrupt process death with POSIX directory fsync mocked;
+  real directory durability and SIGKILL remain Linux CI responsibilities.
+- A sparse worktree created with --no-checkout has no populated index yet.
+  Initialize it before merging; otherwise automatic stashing can interpret
+  the absent files as deletions. Keep bulky archived outputs out of a source
+  checkout and preserve all unrelated user work.
+
+## 2026-09-30 — Immutable publication may lead mutable aliases (#563 P1 C/D)
+
+- Publication is not atomic across immutable heads and mutable aliases. Recovery
+  must first bind a mutable paper alias to the exact physically verified
+  immutable snapshot it represents, then prove the selected terminal descends
+  from that alias. The original six-head migration chain remains a required
+  prefix, and aliases older than the migration snapshot remain invalid.
+- Risk-outcome recovery follows the same rule: mutable archive bytes may match
+  any physically verified predecessor in the accepted linear lineage, or the
+  exact embedded quarantined predecessor of the migration root. Arbitrary stale,
+  forked, orphaned, disconnected, or byte-divergent aliases remain fail-closed.
+- This is repository verification/recovery logic only. It does not authorize a
+  Drive write, migration dispatch, paper/broker mutation, or economic action.
+
+## 2026-09-30 — Migration recovery must separate producer from verifier (#563)
+
+- Exact-head Codex review found that a committed migration root could not be
+  verified after master advanced: reconstruction used the current verifier SHA
+  as the original preflight producer SHA. Preserve the producer in the immutable
+  manifest, reconstruct with that producer, and attest the current verifier
+  separately in a versioned receipt. First-build authorization still requires
+  producer and exact current master to match.
+- A later ordinary daily run may legitimately advance both mutable paper and
+  risk-outcome aliases. Recover the original six-head paper prefix from the
+  immutable head chain and the original legacy bytes from the migration
+  manifest. Verify current aliases against the descendant paper and accepted
+  outcome chains; do not require mutable aliases to remain at migration time.
+- Existing accepted namespaces may contain a linear descendant chain, so a
+  verify-only rerun must validate the whole chain and retain the original root.
+  Missing ancestors, divergent aliases, or payload-only heads still fail closed.
+  This repository correction does not authorize a Drive write or migration run.
+
+## 2026-09-30 — Legacy outcome repair must preserve original evidence (#509)
+
+- Bash clears `errexit` inside command substitution on common runners. A
+  `BEFORE="$(discover)"` call can otherwise treat a failed Drive listing as an
+  empty namespace after a later successful command. Check each authoritative
+  `rclone lsf` status explicitly inside the function, and test the command
+  substitution path with an unreadable synthetic remote.
+- A quarantined migration root is lineage repair only. Preserve the allowlisted
+  summary/event bytes and exact preflight/verifier/selection receipts inside its
+  manifest; the accepted-head manager intentionally allows only its existing
+  three-file bundle. Recompute the receipt and reconstruct the entire manifest
+  on readback rather than trusting a saved READY label or newly computed run ID.
+- Keep the legacy outcome date distinct from the dispatch session; an empty
+  migration root must not claim that missing paper sessions were completed.
+- Drive has no cross-file compare-and-swap here. Reuse the daily concurrency
+  group, re-list before payload writes and immediately before the manifest-last
+  commit, and reject incomplete/divergent namespaces. An interrupted payload
+  upload requires separate recovery; a blind rerun must not create another root.
+  T5 live audit must confirm that all authorized writers honor the shared lock.
+- Local verification uses temporary synthetic paper chains, denied socket
+  connections, and stubbed persistence commands. This is no evidence of current
+  Drive readiness. Lane A, fresh exact-head A6/final Codex R3 and a new T5 live
+  audit/user approval remain separate gates; no migration was executed.
+
 ## 2026-09-28 — Partial readiness is not global promotion authority (#538)
 
 - PIT membership, universe breadth and comparison-baseline integrity prove only
@@ -364,6 +438,42 @@ Expected contract:
 - `live_trading_enabled=false`
 
 ## Ledger
+
+### 2026-09-05 - Keep installer metadata out of rclone's environment namespace
+
+- Agent: Codex GPT-5.6.
+- Branch/PR/run: `codex/run287-capture-rclone-env-hotfix-20260905`, failed
+  read-only capture run `33944035434`, job `101246758073`.
+- Context: The first merged multi-session catch-up price capture was dispatched
+  from exact `master` `34bab52743c238c3419db0d03d17a366645459da` through
+  completed NYSE session `2026-09-04` with the transactional job skipped.
+- Attempt: The job downloaded and checksum-verified the pinned rclone archive,
+  then invoked the pinned binary's `version` command before writing Drive
+  credentials or reading canonical evidence.
+- Result: Dispatch-shape, default-branch, dependency, and latest-session gates
+  passed. The job failed closed before Drive access; credential cleanup passed,
+  artifact upload was skipped, and no target, order, ledger, accepted head,
+  migration, catch-up, production, or live state changed.
+- Failure or caveat: The job-level `RCLONE_VERSION=1.75.0` variable was consumed
+  by rclone as its Boolean `--version` option, producing a Boolean parse error.
+  The same installer-variable naming pattern existed in the separate read-only
+  risk-outcome recovery preflight.
+- Root cause: Installer metadata used rclone's reserved `RCLONE_*` environment
+  namespace instead of an application-owned Run287 namespace.
+- Reusable lesson: Keep pinned tool version and archive-checksum metadata under
+  an application-owned prefix. Never export an installer variable whose
+  `RCLONE_*` name collides with a registered rclone flag, and test both the
+  failing old environment and the accepted replacement environment.
+- Next action: Merge the isolated two-workflow naming fix only after focused
+  validation, exact-head review, and green PR checks; then make a fresh
+  read-only capture dispatch rather than rerunning job `101246758073`.
+- Do-not-repeat: Do not rerun the failed job, weaken Drive read-only scope,
+  remove checksum/version verification, or combine this fix with migration or
+  chronological ledger catch-up.
+- Evidence files: `.github/workflows/daily_operating_selection_refresh.yml`,
+  `.github/workflows/run287_risk_outcome_recovery_preflight.yml`, and
+  `tests/workflow_artifact_smoke.py`.
+
 
 ### 2026-09-05 - Daily research needs source dates, not workflow success
 
@@ -5470,3 +5580,56 @@ Expected contract:
   known clock even when unknown publication precision prevents admission.
   A review with findings cannot approve a corrected head; retain the gate when
   a task limits review requests rather than reusing stale evidence.
+### 2026-10-01 — CUSIP CSV boundaries must preserve lexical security identity
+
+- Numeric inference changed `037833100` to `37833100` before manual mapping;
+  blank cells also became synthetic `NAN` identities. Read the mapping builder's
+  CSV inputs and the parser's CUSIP-map CSV as text with blank cells preserved.
+  Do not reconstruct missing leading zeros or change existing Parquet semantics.
+- A live issuer-name lookup could mask the broken manual key by supplying the
+  same ticker. Use an offline, conflicting cached issuer fixture and require
+  manual-override provenance, CSV/Parquet round-trip identity and native CLI
+  output parity. New unittest checks remain effective under Python `-O`.
+- This is source-identity plumbing only. No issuer-history/PIT certification,
+  investment score, target, paper/broker state, scheduler or orders are changed.
+
+### 2026-10-01 — A bound Drive secret can still fail before authentication
+
+- Read-only capture run `36873299244` at master
+  `b297eafc6b2b1c1a7332c10c408106757970a38a` failed before credential-file
+  creation: installer metadata `RCLONE_VERSION=1.75.0` collided with rclone's
+  Boolean `--version` environment option. The masked runner environment showed
+  a bound durable rclone secret; secret presence is not authentication success.
+- Restore existing PR #394 on current master using `RUN287_CAPTURE_*` and
+  `RUN287_PREFLIGHT_*` installer names. Keep the exact rclone version, archive
+  checksum, read-only scope, receipt fields, and every state gate unchanged.
+- Real pinned-rclone fixtures execute each workflow's version command: both old
+  environments fail Boolean parsing and both scoped replacements return
+  `rclone v1.75.0`. Source-file hashes bind those fixtures to the reviewed fix.
+- Transactional refresh, canonical download, and artifact upload were skipped;
+  cleanup passed and zero artifacts were produced. Inspect these boundaries
+  before any further execution. Do not consume a second capture dispatch under
+  the master contract's one-dispatch authorization or rerun an attempt-1-only job.
+
+### 2026-10-01 — GITHUB_ENV does not configure a command in the current step
+
+- Approved additional read-only capture `36885093509` attempt1 at master
+  `07538aef715551f746f4a1be6b1144acd61f2fc8` passed the rclone ZIP checksum
+  and printed `rclone v1.75.0`, confirming the installer-variable fix. It then
+  failed before Drive authentication because `lsd gdrive:` read the default
+  config path instead of the freshly written temporary config. The secret
+  was bound and its `[gdrive]` header check passed; do not blame this failure
+  on credential absence or ask the owner to replace a secret without evidence.
+- GITHUB_ENV publication applies to later steps. Export RCLONE_CONFIG in the
+  current shell too, reusing the existing recovery-preflight pattern. Retain
+  the later-step publication, readonly scope, credential cleanup and every
+  capture/default-head/session/state gate.
+- Execute the actual config-writing shell in offline regressions for both
+  credential branches and with missing or conflicting inherited config.
+  Check current-command selection, file permissions and later-step handoff.
+  A separate checksum-verified rclone1.75.0 local-alias fixture validates the
+  real same-step `lsd` command without credentials or Drive operations.
+- Refresh, canonical download and artifact upload were skipped; cleanup
+  succeeded and zero artifacts were produced. The approved extra dispatch
+  was consumed. Source correction does not authorize another runtime capture,
+  migration, paper catch-up, owner attestation or protected durable mutation.

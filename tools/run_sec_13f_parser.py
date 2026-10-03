@@ -136,7 +136,11 @@ def read_filings_index(path: Path) -> pd.DataFrame:
 def read_cusip_map(path: Path | None) -> dict[str, str]:
     if not path or not path.exists():
         return {}
-    frame = pd.read_csv(path, low_memory=False) if path.suffix.lower() != ".parquet" else pd.read_parquet(path)
+    frame = (
+        pd.read_csv(path, dtype=str, keep_default_na=False, low_memory=False)
+        if path.suffix.lower() != ".parquet"
+        else pd.read_parquet(path)
+    )
     cols = {c.lower(): c for c in frame.columns}
     cusip_col = cols.get("cusip")
     ticker_col = cols.get("ticker") or cols.get("ticker_mapped")

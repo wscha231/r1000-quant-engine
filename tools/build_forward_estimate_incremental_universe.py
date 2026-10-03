@@ -751,6 +751,7 @@ def build_incremental_universe(
             "summary_sha256": str(prior_transaction.get("summary_sha256") or ""),
             "attempt_id": str(prior_transaction.get("attempt_id") or ""),
             "checkpoint_sha256": str(prior_transaction.get("checkpoint_sha256") or ""),
+            "checkpoint_bytes_base64": str(prior_transaction.get("checkpoint_bytes_base64") or ""),
         }
     state_counts = dict(sorted(Counter(str(row["queue_state"]) for row in rows).items()))
     reason_counts = dict(sorted(Counter(selected.values()).items()))

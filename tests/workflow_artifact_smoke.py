@@ -125,6 +125,16 @@ def test_workflow_yaml_files_parse() -> None:
 
 def test_run287_recovery_preflight_is_exact_head_and_read_only() -> None:
     text = RUN287_RECOVERY_PREFLIGHT_WORKFLOW.read_text(encoding="utf-8")
+    import yaml  # type: ignore[import-not-found]
+
+    workflow = yaml.safe_load(text)
+    installer_env = workflow["jobs"]["preflight"]["env"]
+    assert installer_env["RUN287_PREFLIGHT_RCLONE_VERSION"] == "1.75.0"
+    assert installer_env["RUN287_PREFLIGHT_RCLONE_ZIP_SHA256"] == (
+        "aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa"
+    )
+    assert "RCLONE_VERSION" not in installer_env
+    assert "RCLONE_ZIP_SHA256" not in installer_env
     for token in (
         "workflow_dispatch:",
         "expected_master_sha:",
@@ -139,12 +149,12 @@ def test_run287_recovery_preflight_is_exact_head_and_read_only() -> None:
         "Prove exact latest completed NYSE session",
         'gate.get("latest_completed_session_date") != expected',
         "Configure temporary read-only rclone",
-        "RCLONE_VERSION: 1.75.0",
-        "RCLONE_ZIP_SHA256: aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa",
-        '"https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip"',
+        "RUN287_PREFLIGHT_RCLONE_VERSION: 1.75.0",
+        "RUN287_PREFLIGHT_RCLONE_ZIP_SHA256: aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa",
+        '"https://downloads.rclone.org/v${RUN287_PREFLIGHT_RCLONE_VERSION}/rclone-v${RUN287_PREFLIGHT_RCLONE_VERSION}-linux-amd64.zip"',
         "sha256sum --check --strict",
-        'RCLONE_BIN="$RCLONE_INSTALL/rclone-v${RCLONE_VERSION}-linux-amd64/rclone"',
-        'grep -Fx "rclone v${RCLONE_VERSION}"',
+        'RCLONE_BIN="$RCLONE_INSTALL/rclone-v${RUN287_PREFLIGHT_RCLONE_VERSION}-linux-amd64/rclone"',
+        'grep -Fx "rclone v${RUN287_PREFLIGHT_RCLONE_VERSION}"',
         "scope = drive.readonly",
         "RCLONE_CONFIG_GDRIVE_SCOPE=drive.readonly",
         "export RCLONE_CONFIG=\"$RCLONE_CONFIG_PATH\"",
@@ -217,6 +227,13 @@ def test_run287_recovery_preflight_is_exact_head_and_read_only() -> None:
         < upload_idx
     )
     assert max(cleanup_registration_indices) < first_credential_write_idx
+    for forbidden_installer_env in (
+        "\n      RCLONE_VERSION:",
+        "\n      RCLONE_ZIP_SHA256:",
+        "${RCLONE_VERSION}",
+        '"$RCLONE_ZIP_SHA256"',
+    ):
+        assert forbidden_installer_env not in text, forbidden_installer_env
 
     rclone_commands = [
         line.strip()
@@ -2099,6 +2116,12 @@ def test_daily_operating_catchup_capture_is_read_only_and_closed() -> None:
     )
     assert capture["permissions"] == {"actions": "read", "contents": "read"}
     assert capture["environment"] == "run287-paper-durable"
+    assert capture["env"] == {
+        "RUN287_CAPTURE_RCLONE_VERSION": "1.75.0",
+        "RUN287_CAPTURE_RCLONE_ZIP_SHA256": (
+            "aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa"
+        ),
+    }
 
     steps = capture["steps"]
     names = [str(step.get("name")) for step in steps]
@@ -2182,6 +2205,20 @@ def test_daily_operating_catchup_capture_is_read_only_and_closed() -> None:
     )
     assert "scope = drive.readonly" in configure["run"]
     assert "RCLONE_CONFIG_GDRIVE_SCOPE=drive.readonly" in configure["run"]
+    for token in (
+        'rclone-v${RUN287_CAPTURE_RCLONE_VERSION}-linux-amd64/rclone',
+        'downloads.rclone.org/v${RUN287_CAPTURE_RCLONE_VERSION}/',
+        '"$RUN287_CAPTURE_RCLONE_ZIP_SHA256"',
+        'grep -Fx "rclone v${RUN287_CAPTURE_RCLONE_VERSION}"',
+    ):
+        assert token in configure["run"], token
+    for forbidden_installer_env in (
+        "${RCLONE_VERSION}",
+        '"$RCLONE_ZIP_SHA256"',
+    ):
+        assert forbidden_installer_env not in configure["run"], (
+            forbidden_installer_env
+        )
 
     download = by_name["Download exact canonical paper evidence read only"]["run"]
     for token in (
@@ -2262,6 +2299,86 @@ def test_daily_operating_catchup_capture_is_read_only_and_closed() -> None:
             check=False,
         )
         assert syntax.returncode == 0, (step.get("name"), syntax.stderr)
+
+
+def test_daily_operating_capture_config_is_visible_in_current_step() -> None:
+    """Execute the native config-writing shell without installer or Drive IO."""
+    import os
+
+    checks = unittest.TestCase()
+    run = extract_yaml_literal_run(
+        DAILY_OPERATING_WORKFLOW.read_text(encoding="utf-8"),
+        "Configure temporary read-only rclone for capture",
+    )
+    setup = run[:run.index("curl --fail --silent --show-error --location")]
+    credentials = run[run.index('if [ -n "${RCLONE_CONFIG_GDRIVE:-}" ]; then'):]
+    script = setup + 'RCLONE_BIN="$RUN287_TEST_RCLONE_PROBE"\n' + credentials
+    probe_code = '''import configparser, json, os, pathlib, stat, sys
+if sys.argv[1:] != ["lsd", "gdrive:"]:
+    sys.exit("unexpected transport command")
+selected = os.environ.get("RCLONE_CONFIG")
+if not selected or not pathlib.Path(selected).is_file():
+    sys.exit("current command cannot find the configured remote")
+config = configparser.ConfigParser()
+config.read(selected)
+if not config.has_section("gdrive"):
+    sys.exit("current command selected an ambient config without gdrive")
+receipt = {"config_path": selected,
+           "config_mode": stat.S_IMODE(pathlib.Path(selected).stat().st_mode),
+           "scope": os.environ.get("RCLONE_CONFIG_GDRIVE_SCOPE"),
+           "remote_type": config["gdrive"].get("type")}
+if receipt["remote_type"] == "drive":
+    account = pathlib.Path(config["gdrive"]["service_account_file"])
+    receipt["service_account_fixture"] = json.loads(account.read_text())
+    receipt["service_account_mode"] = stat.S_IMODE(account.stat().st_mode)
+pathlib.Path(os.environ["RUN287_CAPTURE_PROBE_RECEIPT"]).write_text(json.dumps(receipt))
+'''
+    for credential_kind in ("rclone", "service_account"):
+        for ambient_config in (False, True):
+            with tempfile.TemporaryDirectory() as tmp:
+                fixture = Path(tmp)
+                probe = fixture / "rclone-probe"
+                probe.write_text("#!" + sys.executable + "\n" + probe_code, encoding="utf-8")
+                probe.chmod(0o700)
+                inherited = fixture / "ambient.conf"
+                inherited.write_text("[other]\ntype = alias\nremote = .\n", encoding="utf-8")
+                github_env = fixture / "github.env"
+                receipt_path = fixture / "receipt.json"
+                env = {key: value for key, value in os.environ.items()
+                       if not key.startswith("RCLONE_")}
+                env.update({
+                    "RUNNER_TEMP": tmp,
+                    "GITHUB_ENV": str(github_env),
+                    "RUN287_CAPTURE_RCLONE_VERSION": "1.75.0",
+                    "RUN287_TEST_RCLONE_PROBE": str(probe),
+                    "RUN287_CAPTURE_PROBE_RECEIPT": str(receipt_path),
+                    "RCLONE_CONFIG_GDRIVE": (
+                        "[gdrive]\ntype = alias\nremote = .\n"
+                        if credential_kind == "rclone" else ""
+                    ),
+                    "GOOGLE_SERVICE_ACCOUNT_KEY": (
+                        json.dumps({"offline_fixture": True})
+                        if credential_kind == "service_account" else ""
+                    ),
+                    "GDRIVE_ROOT_FOLDER_ID": "",
+                })
+                if ambient_config:
+                    env["RCLONE_CONFIG"] = str(inherited)
+                result = subprocess.run(
+                    [bash_executable()], input=script, env=env,
+                    text=True, capture_output=True, check=False,
+                )
+                checks.assertEqual(result.returncode, 0, result.stderr)
+                receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+                expected_config = str(fixture / "run287-capture-rclone.conf")
+                checks.assertEqual(receipt["config_path"], expected_config)
+                checks.assertEqual(receipt["config_mode"], 0o600)
+                checks.assertEqual(receipt["scope"], "drive.readonly")
+                checks.assertIn("RCLONE_CONFIG=" + expected_config,
+                                github_env.read_text(encoding="utf-8").splitlines())
+                if credential_kind == "service_account":
+                    checks.assertEqual(receipt["service_account_fixture"], {"offline_fixture": True})
+                    checks.assertEqual(receipt["service_account_mode"], 0o600)
 
 
 def test_full_rebuild_binds_approved_session_and_preflight_artifacts() -> None:
@@ -2624,7 +2741,159 @@ def test_full_rebuild_routes_only_from_scoped_breadth_gate() -> None:
             checks.assertEqual(result.stdout.strip(), "no")
 
 
+def test_legacy_migration_workflow_is_dispatch_only_and_manifest_last() -> None:
+    import os
+    import yaml
+    checks = unittest.TestCase()
+    text = (ROOT / ".github/workflows/run287_risk_outcome_legacy_migration.yml").read_text()
+    workflow = yaml.safe_load(text)
+    trigger = workflow.get("on", workflow.get(True))
+    checks.assertEqual(set(trigger), {"workflow_dispatch"})
+    inputs = trigger["workflow_dispatch"]["inputs"]
+    checks.assertEqual(set(inputs), {"expected_master_sha", "session_date",
+                                    "allow_quarantined_legacy_outcome_parent"})
+    checks.assertEqual(inputs["allow_quarantined_legacy_outcome_parent"]["type"], "boolean")
+    checks.assertIs(inputs["allow_quarantined_legacy_outcome_parent"]["default"], False)
+    checks.assertEqual(workflow["concurrency"], {"group": "daily-operating-selection-refresh",
+                                              "cancel-in-progress": False})
+    job = workflow["jobs"]["migration"]
+    checks.assertEqual(job["environment"], "run287-paper-durable")
+    steps = job["steps"]
+    names = [step["name"] for step in steps]
+    secret_index = next(i for i, step in enumerate(steps) if "secrets." in str(step))
+    checks.assertLess(names.index("Prove exact current master before secrets"), secret_index)
+    checks.assertLess(names.index("Prove exact latest completed NYSE session"), secret_index)
+    for step in steps:
+        if "run" in step:
+            result = subprocess.run([bash_executable(), "-n"], input=step["run"],
+                                    capture_output=True, text=True, encoding="utf-8")
+            checks.assertEqual(result.returncode, 0, result.stderr)
+    script = extract_yaml_literal_run(text, "Restore reverify and migrate only the quarantined root")
+    checks.assertNotIn("--allow-risk-outcome-genesis-bootstrap", script)
+    checks.assertIn("--allow-quarantined-legacy-outcome-parent", script)
+    checks.assertLess(script.index('test "$(discover)" = EMPTY'), script.index('"$RCLONE_BIN" copy "$STAGED/"'))
+    checks.assertLess(script.index('cmp "$ROOT/expected.txt" "$ROOT/observed.txt"'),
+                     script.index('"$RCLONE_BIN" copyto'))
+    checks.assertEqual(script.count('"$RCLONE_BIN" copyto'), 1)
+    checks.assertIn('--exclude manifest.json --immutable', script)
+    checks.assertIn('"$ACCEPTED/$HEAD_SHA/manifest.json" --immutable', script)
+    checks.assertIn('copy_checked "$ACCEPTED" "$ROOT/accepted"', script)
+    checks.assertIn('python "$BUILDER" verify', script)
+    checks.assertIn('python "$BUILDER" receipt', script)
+    checks.assertIn('copy_checked "$ARCHIVE/run287_daily_simulated_fill_ledger" "$ROOT/paper_current"', script)
+    checks.assertIn('copy_checked "$ARCHIVE/run287_risk_outcome_archive" "$ROOT/legacy_current"', script)
+    checks.assertNotIn('current_verifier.json', script)
+    checks.assertNotIn('--state-dir "$ROOT/paper_current" --require-integrity', script)
+    checks.assertIn('--state-dir "$ROOT/paper" --require-integrity', script)
+    checks.assertLess(script.index('copy_checked "$ACCEPTED" "$ROOT/accepted"'),
+                     script.index('python "$BUILDER" prepare'))
+    checks.assertIn('HEAD_SHA="$(python "$BUILDER" prepare --root "$ROOT" --code-sha "$EXPECTED_MASTER_SHA")"', script)
+    checks.assertIn('test "$(discover)" = "$EXPECTED_INVENTORY"', script)
+    checks.assertIn('BEFORE_COUNT="$(printf \'%s\\n\' "$BEFORE" | wc -l)"', script)
+    for forbidden in ("rclone sync", "workflow_dispatch --", "run_daily_simulated_fill_ledger.py",
+                      "build_run287_same_close_target_books", "full_rebuild.py", "--allow-genesis"):
+        checks.assertNotIn(forbidden, text)
+    discover = script[script.index("discover() {"):script.index("copy_checked() {")]
+    with tempfile.TemporaryDirectory() as tmp:
+        fixture = Path(tmp)
+        # Exercise the real remote-discovery function: a failed parent listing
+        # cannot be converted into an empty accepted-head inventory.
+        broken = """set -euo pipefail
+fake_rclone() {
+  if [ "$SCENARIO" = accepted ] && [ "${3:-}" = --dirs-only ]; then
+    printf '%s\\n' 'run287_risk_outcome_accepted_heads/'
+    return 0
+  fi
+  return 23
+}
+""" + discover + "\nBEFORE=\"$(discover)\"\n"
+        for scenario in ("parent", "accepted"):
+            result = subprocess.run([bash_executable()], input=broken,
+                                    env={**os.environ, "ROOT": fixture.as_posix(),
+                                         "ARCHIVE": "synthetic", "ACCEPTED": "synthetic/accepted",
+                                         "RCLONE_BIN": "fake_rclone", "SCENARIO": scenario},
+                                    text=True, encoding="utf-8", capture_output=True)
+            checks.assertNotEqual(result.returncode, 0)
+    # Execute the real pre-secret identity guard against stubbed read-only tools.
+    guard = extract_yaml_literal_run(text, "Prove exact current master before secrets")
+    with tempfile.TemporaryDirectory() as tmp:
+        fixture = Path(tmp)
+        env = {**os.environ, "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REF_TYPE": "branch",
+               "GITHUB_REF_NAME": "master", "DEFAULT_BRANCH": "master", "ALLOW_LEGACY": "true",
+               "GITHUB_SHA": "a" * 40, "EXPECTED_MASTER_SHA": "  " + ("a" * 40) + "\n",
+               "GITHUB_ENV": str(fixture / "github_env"),
+               "GH_TOKEN": "synthetic", "GITHUB_API_URL": "synthetic", "GITHUB_REPOSITORY": "synthetic",
+               "RUNNER_TEMP": fixture.as_posix(), "TEST_REMOTE_SHA": "a" * 40, "TEST_CODE_SHA": "a" * 40,
+               "TEST_DEFAULT_BRANCH": "master"}
+        stub = """curl() { printf '{"default_branch":"%s","object":{"sha":"%s"}}' "$TEST_DEFAULT_BRANCH" "$TEST_REMOTE_SHA"; }
+git() { echo "$TEST_CODE_SHA"; }
+"""
+        for changes, succeeds in (({}, True), ({"GITHUB_EVENT_NAME": "schedule"}, False),
+                                  ({"DEFAULT_BRANCH": "other"}, False), ({"ALLOW_LEGACY": "false"}, False),
+                                  ({"TEST_REMOTE_SHA": "b" * 40}, False), ({"TEST_CODE_SHA": "b" * 40}, False),
+                                  ({"TEST_DEFAULT_BRANCH": "other"}, False),
+                                  ({"GITHUB_SHA": "b" * 40}, False)):
+            result = subprocess.run([bash_executable()], input=stub + guard,
+                                    env={**env, **changes}, text=True, encoding="utf-8", capture_output=True)
+            checks.assertEqual(result.returncode == 0, succeeds, result.stderr)
+    # Exercise the actual persistence segment with a synthetic rclone function.
+    # No external command can reach Drive; record payload/manifest attempts locally.
+    commit = script[script.index("# Recheck source state"):script.index("BEFORE_COUNT=0")]
+    with tempfile.TemporaryDirectory() as tmp:
+        fixture = Path(tmp)
+        env = {**os.environ, "ROOT": fixture.as_posix(), "HEAD_SHA": "a" * 64,
+               "ARCHIVE": "synthetic", "ACCEPTED": "synthetic/accepted", "STAGED": "synthetic/staged",
+               "RCLONE_BIN": "fake_rclone"}
+        stub = r'''set -euo pipefail
+assert_master() { :; }
+discover() { if [ "$SCENARIO" = before ]; then echo concurrent; else echo EMPTY; fi; }
+fake_rclone() {
+  case "$1" in
+    check) return 0 ;;
+    copy) echo payload >> "$ROOT/writes.txt" ;;
+    copyto) echo manifest >> "$ROOT/writes.txt" ;;
+    lsf)
+      printf '%s\n' "$HEAD_SHA/run287_risk_outcome_archive/risk_outcome_events.jsonl" "$HEAD_SHA/run287_risk_outcome_archive/summary.json"
+      if [ "$SCENARIO" = commit ]; then printf '%s\n' 'concurrent/manifest.json'; fi
+      ;;
+    *) return 99 ;;
+  esac
+}
+'''
+        for scenario, expected_writes, succeeds in (("clean", ["payload", "manifest"], True),
+                                                   ("before", [], False), ("commit", ["payload"], False)):
+            writes = fixture / "writes.txt"
+            if writes.exists():
+                writes.unlink()
+            result = subprocess.run([bash_executable()], input=stub + commit,
+                                    env={**env, "SCENARIO": scenario}, text=True, encoding="utf-8", capture_output=True)
+            checks.assertEqual(result.returncode == 0, succeeds, result.stderr)
+            checks.assertEqual(writes.read_text().splitlines() if writes.exists() else [], expected_writes)
+    session = extract_yaml_literal_run(text, "Prove exact latest completed NYSE session")
+    checks.assertIn('gate.get("latest_completed_session_date") != expected', session)
+    checks.assertIn('gate.get("calendar") != "NYSE"', session)
+    validation = session.split("<<'PY'\n", 1)[1].split("\nPY", 1)[0]
+    with tempfile.TemporaryDirectory() as tmp:
+        gate_path = Path(tmp) / "session.json"
+        requested = "2026-09-29"
+        for gate, succeeds in (({"ready": True, "calendar": "NYSE",
+                                  "session_date": requested,
+                                  "latest_completed_session_date": requested}, True),
+                                ({"ready": True, "calendar": "NYSE",
+                                  "session_date": requested,
+                                  "latest_completed_session_date": "2026-09-28"}, False),
+                                ({"ready": False, "calendar": "NYSE",
+                                  "session_date": requested,
+                                  "latest_completed_session_date": requested}, False)):
+            gate_path.write_text(json.dumps(gate), encoding="utf-8")
+            result = subprocess.run([sys.executable, "-c", validation,
+                                     str(gate_path), requested],
+                                    capture_output=True, text=True, encoding="utf-8")
+            checks.assertEqual(result.returncode == 0, succeeds, result.stderr)
+
+
 def main() -> int:
+    test_legacy_migration_workflow_is_dispatch_only_and_manifest_last()
     test_full_rebuild_routes_only_from_scoped_breadth_gate()
     test_workflow_yaml_files_parse()
     # This registered Tier-1 smoke also executes the read-only research handoff
@@ -2652,6 +2921,7 @@ def main() -> int:
     test_data_readiness_preflight_workflow_restores_drive_and_audits_without_full_rebuild()
     test_daily_operating_selection_refresh_workflow_updates_fresh_data_contract()
     test_daily_operating_catchup_capture_is_read_only_and_closed()
+    test_daily_operating_capture_config_is_visible_in_current_step()
     test_latest_run_hydration_preserves_reverified_paper_head_evidence()
     test_pages_deploy_checks_out_public_validator_runtime()
     test_pages_deploy_keeps_prior_site_without_completed_session_artifact()

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import csv
 import hashlib
 import json
@@ -246,6 +248,10 @@ def require_verified_collector_state(
             "summary_sha256": str(marker.get("summary_sha256") or ""),
             "attempt_id": expected_attempt,
             "checkpoint_sha256": expected_checkpoint_hash,
+            "checkpoint_bytes_base64": (
+                base64.b64encode(checkpoint_path.read_bytes()).decode("ascii")
+                if expected_checkpoint_hash else ""
+            ),
         }
 
     if checkpoint_path.is_file() and queue_path.is_file():
@@ -256,16 +262,58 @@ def require_verified_collector_state(
             and str(parent.get("commit_id") or "") == str(marker.get("commit_id") or "")
             and str(parent.get("summary_sha256") or "") == str(marker.get("summary_sha256") or "")
             and str(parent.get("checkpoint_sha256") or "") == expected_checkpoint_hash
+            and str(parent.get("attempt_id") or "") == expected_attempt
             and planned_queue_hash
             and planned_queue_hash == queue_hash
             and acknowledgement_matches()
         ):
+            # A copied parent hash is not the accepted checkpoint. Preserve
+            # its actual bytes across planning, then bind unchanged collection
+            # acknowledgement/state to those bytes before consuming the plan.
+            encoded_parent = parent.get("checkpoint_bytes_base64")
+            try:
+                if not isinstance(encoded_parent, str) or not expected_checkpoint_hash:
+                    raise ValueError("missing accepted checkpoint bytes")
+                accepted_bytes = base64.b64decode(encoded_parent, validate=True)
+                if hashlib.sha256(accepted_bytes).hexdigest() != expected_checkpoint_hash:
+                    raise ValueError("accepted checkpoint hash mismatch")
+                accepted_payload = json.loads(accepted_bytes)
+                if not isinstance(accepted_payload, dict):
+                    raise ValueError("invalid accepted checkpoint")
+                if checkpoint_payload.get("last_collection_attempt_ack") != accepted_payload.get("last_collection_attempt_ack"):
+                    raise ValueError("planning changed acknowledgement")
+
+                def selection_state(payload: dict[str, Any]) -> dict[str, tuple[int, str]]:
+                    rows = payload.get("ticker_states")
+                    if not isinstance(rows, list):
+                        raise ValueError("invalid checkpoint states")
+                    states: dict[str, tuple[int, str]] = {}
+                    for row in rows:
+                        if not isinstance(row, dict) or not isinstance(row.get("ticker"), str):
+                            raise ValueError("invalid checkpoint ticker")
+                        ticker = row["ticker"].upper().strip()
+                        count = row.get("selection_count")
+                        last = row.get("last_selected_at_utc")
+                        if (not ticker or ticker in states or type(count) is not int
+                                or count < 0 or not isinstance(last, str)):
+                            raise ValueError("invalid checkpoint selection state")
+                        states[ticker] = (count, last)
+                    return states
+
+                accepted_states = selection_state(accepted_payload)
+                planned_states = selection_state(checkpoint_payload)
+                if any(value != accepted_states.get(ticker, (0, ""))
+                       for ticker, value in planned_states.items()):
+                    raise ValueError("planning changed collection state")
+            except (ValueError, TypeError, binascii.Error) as exc:
+                raise ValueError("collector_planning_parent_state_mismatch") from exc
             return {
                 "state": "planned",
                 "commit_id": str(marker.get("commit_id") or ""),
                 "summary_sha256": str(marker.get("summary_sha256") or ""),
                 "attempt_id": expected_attempt,
                 "checkpoint_sha256": expected_checkpoint_hash,
+                "checkpoint_bytes_base64": encoded_parent,
             }
 
     raise ValueError("collector_transaction_state_mismatch")

@@ -153,3 +153,25 @@ current-head CI success, A6 CLEAN and resolution of the four threads with
 new-head evidence. A new finding stops the task without an automatic review
 loop. Draft and the repository merge gate remain blocked until those conditions
 are met; no old-head evidence or gate is reused.
+
+## Current-master integration and planning-parent correction (2026-10-03)
+
+The current-master integration preserves the source/H2 boundary and resolves
+only the shared lesson-ledger merge conflict. Planning must retain the actual
+accepted checkpoint bytes, verify their SHA-256 against the committed collector
+transaction, and preserve its acknowledgement and per-ticker selection count
+and time. New tickers begin with zero selections and no collection timestamp;
+retired tickers may leave the current universe. Copied parent hashes alone are
+not evidence. Repeated planning retains the same accepted generation, while a
+new collector acknowledgement drops the old embedded planning parent to avoid
+recursive checkpoint growth.
+
+The regression probe admitted an advanced selection count (1 -> 99) on the prior
+head; the corrected reader rejects it before collection. Tests also cover reset
+counts, changed clocks/acknowledgements, duplicate identities, boolean counts,
+missing/tampered parent bytes, fresh ticker admission and actual repeated plans.
+Staged file fsync uses a writable descriptor on Windows as well as Linux.
+Windows synthetic tests use immediate process exit without Python cleanup and
+mock POSIX directory fsync; Linux CI uses real SIGKILL and directory fsync. Native
+test success does not certify Windows power-loss durability or live vendor,
+Drive, historical PIT, H2, paper, broker or economic acceptance.

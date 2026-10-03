@@ -2,6 +2,7 @@
 """Deterministic H1 admission regressions; no vendor/network/economic runs."""
 from __future__ import annotations
 import copy
+import base64
 import contextlib
 import io
 import json
@@ -21,6 +22,14 @@ from tools import earnings_consensus_h1 as h1
 from tools import collect_earnings_estimates_finnhub as c
 from tools import build_earnings_estimate_archive_manifest as manifest
 from tools.run_free_data_selection_overlay import build_overlay
+
+HARD_EXIT_CODE = 87 if os.name == "nt" else -signal.SIGKILL
+
+
+def terminate_without_cleanup() -> None:
+    if os.name == "nt":
+        os._exit(HARD_EXIT_CODE)
+    os.kill(os.getpid(), signal.SIGKILL)
 
 
 def estimate(value=1.0, period="2026-12-31", **overrides):
@@ -72,13 +81,17 @@ def crash_fixture(root: Path, boundary: str = "") -> int:
         if label == c.TRANSACTION_MARKER_NAME:
             label = json.loads(Path(source).read_text())["status"]
         if boundary == "before_pending" and label == "pending":
-            os.kill(os.getpid(), signal.SIGKILL)
+            terminate_without_cleanup()
         replace(source, target)
         if boundary == label:
-            os.kill(os.getpid(), signal.SIGKILL)
+            terminate_without_cleanup()
 
     fresh = snapshot("2026-07-01T18:00:00Z", 2)
-    with patch.object(c, "utc_now", return_value="2026-07-01T18:00:00Z"), \
+    # Native Windows probes test abrupt process death and state admission;
+    # POSIX directory durability itself is exercised by the Linux CI run.
+    directory_sync = (patch.object(c, "_fsync_directory")
+                      if os.name == "nt" else contextlib.nullcontext())
+    with directory_sync, patch.object(c, "utc_now", return_value="2026-07-01T18:00:00Z"), \
          patch.object(c, "collect_live_snapshot", return_value=(pd.DataFrame([fresh]), [], ["AAA"], {})), \
          patch.object(c.os, "replace", side_effect=kill_at_replace), \
          patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()):
@@ -102,6 +115,10 @@ class AdmissionTests(unittest.TestCase):
         clock = patch.object(c, 'utc_now', return_value='2026-07-01T18:00:00Z')
         clock.start()
         self.addCleanup(clock.stop)
+        if os.name == "nt":
+            directory_sync = patch.object(c, "_fsync_directory")
+            directory_sync.start()
+            self.addCleanup(directory_sync.stop)
 
     def test_damaged_middle_vintage_blocks_archive_without_fallback(self):
         april = snapshot('2026-04-01T18:00:00Z', 1)
@@ -1025,7 +1042,7 @@ class AdmissionTests(unittest.TestCase):
                     "from earnings_consensus_h1_smoke import crash_fixture; "
                     "raise SystemExit(crash_fixture(Path(sys.argv[1]), sys.argv[2]))",
                     str(root), boundary], cwd=ROOT, capture_output=True, text=True, timeout=30)
-                self.assertEqual(child.returncode, -signal.SIGKILL, child.stderr)
+                self.assertEqual(child.returncode, HARD_EXIT_CODE, child.stderr)
                 manifest = crash_manifest(root)
                 interrupted = boundary not in {"before_pending", "committed"}
                 if interrupted:
@@ -1120,6 +1137,7 @@ class AdmissionTests(unittest.TestCase):
                 "summary_sha256": marker["summary_sha256"],
                 "attempt_id": tx["attempt_id"],
                 "checkpoint_sha256": tx["checkpoint_sha256"],
+                "checkpoint_bytes_base64": base64.b64encode(accepted_checkpoint).decode("ascii"),
             }
             planned["planned_queue_sha256"] = manifest.sha256_file(queue)
             checkpoint.write_text(json.dumps(planned))
@@ -1207,6 +1225,103 @@ class AdmissionTests(unittest.TestCase):
             self.assertEqual(pending["verdict"], "blocked_transaction_mismatch")
             self.assertNotEqual(manifest_cli(root).returncode, 0)
 
+    def test_planning_cannot_advance_or_reset_accepted_collection_state(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            checkpoint, queue = root / "checkpoint.json", root / "queue.csv"
+            checkpoint.write_text(json.dumps({"ticker_states": [
+                {"ticker": "AAA", "last_selected_at_utc": "", "selection_count": 0}]}))
+            queue.write_text("ticker,selected,last_selected_at_utc,selection_count\nAAA,true,,0\n")
+            self.assertEqual(crash_fixture(root), 0)
+            accepted_bytes = checkpoint.read_bytes()
+            accepted = json.loads(accepted_bytes)
+            marker = json.loads((root / "history" / c.TRANSACTION_MARKER_NAME).read_text())
+            tx = json.loads((root / "summary.json").read_text())["transaction_commit"]
+            parent = {"commit_id": marker["commit_id"], "summary_sha256": marker["summary_sha256"],
+                      "attempt_id": tx["attempt_id"], "checkpoint_sha256": tx["checkpoint_sha256"],
+                      "checkpoint_bytes_base64": base64.b64encode(accepted_bytes).decode("ascii")}
+
+            def admit():
+                return manifest.require_verified_collector_state(root / "history",
+                    summary_path=root / "summary.json", checkpoint_path=checkpoint,
+                    queue_path=queue, signals_path=root / "signals.parquet")
+
+            cases = ("advanced", "reset", "clock", "bool_count", "duplicate",
+                     "new_advanced", "ack", "missing_bytes", "tampered_bytes", "wrong_attempt")
+            for damage in cases:
+                with self.subTest(damage=damage):
+                    planned = copy.deepcopy(accepted)
+                    planned["planning_parent_transaction"] = copy.deepcopy(parent)
+                    planned["planned_queue_sha256"] = manifest.sha256_file(queue)
+                    row = planned["ticker_states"][0]
+                    if damage == "advanced": row["selection_count"] = 99
+                    elif damage == "reset": row["selection_count"] = 0
+                    elif damage == "clock": row["last_selected_at_utc"] = "different"
+                    elif damage == "bool_count": row["selection_count"] = True
+                    elif damage == "duplicate": planned["ticker_states"].append(copy.deepcopy(row))
+                    elif damage == "new_advanced": planned["ticker_states"].append(
+                        {"ticker": "NEW", "selection_count": 1, "last_selected_at_utc": ""})
+                    elif damage == "ack": planned["last_collection_attempt_ack"]["acknowledged_ticker_count"] = 99
+                    elif damage == "missing_bytes": planned["planning_parent_transaction"].pop("checkpoint_bytes_base64")
+                    elif damage == "tampered_bytes": planned["planning_parent_transaction"]["checkpoint_bytes_base64"] = base64.b64encode(b"{}").decode("ascii")
+                    elif damage == "wrong_attempt": planned["planning_parent_transaction"]["attempt_id"] = "other"
+                    checkpoint.write_text(json.dumps(planned))
+                    before = checkpoint.read_bytes(), queue.read_bytes()
+                    with self.assertRaisesRegex(ValueError, "collector_(planning_parent_state|transaction_state)_mismatch"):
+                        admit()
+                    self.assertEqual(before, (checkpoint.read_bytes(), queue.read_bytes()))
+
+            planned = copy.deepcopy(accepted)
+            planned["planning_parent_transaction"] = parent
+            planned["planned_queue_sha256"] = manifest.sha256_file(queue)
+            planned["ticker_states"].append({"ticker": "NEW", "selection_count": 0, "last_selected_at_utc": ""})
+            checkpoint.write_text(json.dumps(planned))
+            state = admit()
+            self.assertEqual(state["state"], "planned")
+            self.assertEqual(state["checkpoint_bytes_base64"], parent["checkpoint_bytes_base64"])
+
+    def test_new_acknowledgement_drops_embedded_planning_parent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            checkpoint, queue = root / "checkpoint.json", root / "queue.csv"
+            checkpoint.write_text(json.dumps({"ticker_states": [
+                {"ticker": "AAA", "last_selected_at_utc": "", "selection_count": 0}],
+                "planning_parent_transaction": {"checkpoint_bytes_base64": "old-generation"},
+                "planned_queue_sha256": "old-plan"}))
+            queue.write_text("ticker,selected,last_selected_at_utc,selection_count\nAAA,true,,0\n")
+            ack, checkpoint_bytes, _ = c.prepare_collection_attempt_acknowledgement(
+                checkpoint, queue, ["AAA"], attempted_at_utc="2026-07-01T18:00:00Z", attempt_id="new-run")
+            self.assertEqual(ack["status"], "acknowledged")
+            committed = json.loads(checkpoint_bytes)
+            self.assertNotIn("planning_parent_transaction", committed)
+            self.assertNotIn("planned_queue_sha256", committed)
+
+    def test_actual_planner_retains_one_verified_checkpoint_generation(self):
+        from tools.build_forward_estimate_incremental_universe import build_incremental_universe
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            coverage = root / "coverage.csv"
+            coverage.write_text("ticker\nAAA\n__CASH__\n")
+            args = dict(snapshot_dir=str(root / "history"), shard_dir=str(root / "shards"),
+                output=str(root / "collector-input.csv"), summary=str(root / "queue-summary.json"),
+                coverage_file=str(coverage), latest_run="", canonical_universe=str(root / "universe.csv"),
+                checkpoint=str(root / "checkpoint.json"), queue_output=str(root / "queue.csv"),
+                collector_summary=str(root / "summary.json"), signals=str(root / "signals.parquet"),
+                report=str(root / "queue.md"), expected_universe_count=2, as_of_date="2026-07-01")
+            build_incremental_universe(**args)
+            self.assertEqual(crash_fixture(root), 0)
+            accepted_bytes = (root / "checkpoint.json").read_bytes()
+            for _ in range(2):
+                build_incremental_universe(**args)
+                planned = json.loads((root / "checkpoint.json").read_text())
+                encoded = planned["planning_parent_transaction"]["checkpoint_bytes_base64"]
+                self.assertEqual(base64.b64decode(encoded), accepted_bytes)
+                self.assertEqual(planned["ticker_states"][0]["selection_count"], 1)
+                state = manifest.require_verified_collector_state(root / "history",
+                    summary_path=root / "summary.json", checkpoint_path=root / "checkpoint.json",
+                    queue_path=root / "queue.csv", signals_path=root / "signals.parquet")
+                self.assertEqual(state["state"], "planned")
+
     def test_workflow_restores_binding_evidence_and_gates_accepted_persistence(self):
         text = (ROOT / ".github" / "workflows" / "earnings_estimates_daily.yml").read_text()
         self.assertIn("outputs/earnings_estimates_daily/summary.json", text)
@@ -1244,7 +1359,7 @@ class AdmissionTests(unittest.TestCase):
                 "from earnings_consensus_h1_smoke import crash_fixture; "
                 "raise SystemExit(crash_fixture(Path(sys.argv[1]), 'pending'))",
                 str(root)], cwd=ROOT, capture_output=True, text=True, timeout=30)
-            self.assertEqual(child.returncode, -signal.SIGKILL, child.stderr)
+            self.assertEqual(child.returncode, HARD_EXIT_CODE, child.stderr)
             self.assertEqual(summary_before, (root / "summary.json").read_bytes())
             self.assertFalse(crash_manifest(root)["transaction_integrity"]["verified"])
             with self.assertRaisesRegex(ValueError, "incomplete_collector_transaction"):

@@ -757,7 +757,7 @@ def _atomic_commit_staged_files(
     committed: list[Path] = []
     try:
         for staged, target in staged_files:
-            with staged.open("rb") as handle:
+            with staged.open("r+b") as handle:
                 os.fsync(handle.fileno())
             os.replace(staged, target)
             committed.append(target)
@@ -886,6 +886,10 @@ def prepare_collection_attempt_acknowledgement(
     })
     checkpoint["updated_at_utc"] = attempted_at_utc
     checkpoint["last_collection_attempt_ack"] = result
+    # A newly committed checkpoint replaces its planning parent. Retaining the
+    # parent's embedded bytes here would recursively grow every later plan.
+    checkpoint.pop("planning_parent_transaction", None)
+    checkpoint.pop("planned_queue_sha256", None)
 
     checkpoint_bytes = _json_bytes(checkpoint)
     queue_text = io.StringIO(newline="")
