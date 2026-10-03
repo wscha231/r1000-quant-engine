@@ -904,10 +904,15 @@ def acknowledge_collection_attempts(
     queue_path: Path,
     attempted_tickers: list[str],
     *,
+    snapshot_dir: Path,
     attempted_at_utc: str,
     attempt_id: str = "",
 ) -> dict[str, Any]:
-    """Atomically acknowledge one stable collection attempt across queue state files."""
+    """Acknowledge queue state only after checking its explicit archive root.
+
+    Checkpoints may live outside the archive. Their parent cannot substitute
+    for the archive's retained transaction marker.
+    """
     stable_id = attempt_id or hashlib.sha256(
         json.dumps(
             {
@@ -919,6 +924,7 @@ def acknowledge_collection_attempts(
             sort_keys=True, separators=(",", ":"),
         ).encode("utf-8")
     ).hexdigest()
+    require_complete_collector_transaction(snapshot_dir)
     require_complete_collector_transaction(checkpoint_path.parent)
     result, checkpoint_bytes, queue_bytes = prepare_collection_attempt_acknowledgement(
         checkpoint_path,

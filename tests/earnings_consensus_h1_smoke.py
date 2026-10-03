@@ -947,12 +947,12 @@ class AdmissionTests(unittest.TestCase):
                 encoding='utf-8')
             attempt_id = 'attempt-1'
             first = c.acknowledge_collection_attempts(
-                checkpoint, queue, ['AAA'], attempted_at_utc='2026-07-01T18:00:00Z',
+                checkpoint, queue, ['AAA'], snapshot_dir=root, attempted_at_utc='2026-07-01T18:00:00Z',
                 attempt_id=attempt_id)
             self.assertEqual(first['status'], 'acknowledged')
             checkpoint_once, queue_once = checkpoint.read_bytes(), queue.read_bytes()
             second = c.acknowledge_collection_attempts(
-                checkpoint, queue, ['AAA'], attempted_at_utc='2026-07-01T19:00:00Z',
+                checkpoint, queue, ['AAA'], snapshot_dir=root, attempted_at_utc='2026-07-01T19:00:00Z',
                 attempt_id=attempt_id)
             self.assertEqual(second['status'], 'acknowledged')
             self.assertTrue(second['idempotent_replay'])
@@ -974,7 +974,7 @@ class AdmissionTests(unittest.TestCase):
             with patch.object(c.os, 'replace', side_effect=fail_queue_once):
                 with self.assertRaisesRegex(OSError, 'queue replace injected failure'):
                     c.acknowledge_collection_attempts(
-                        checkpoint, queue, ['AAA'], attempted_at_utc='2026-07-02T18:00:00Z',
+                        checkpoint, queue, ['AAA'], snapshot_dir=root, attempted_at_utc='2026-07-02T18:00:00Z',
                         attempt_id='attempt-2')
             self.assertEqual(checkpoint.read_bytes(), before_checkpoint)
             self.assertEqual(queue.read_bytes(), before_queue)
@@ -1044,6 +1044,10 @@ class AdmissionTests(unittest.TestCase):
                 for _ in range(2):
                     with self.assertRaisesRegex(ValueError, "collector_transaction_rolled_back_requires_verified_repair"):
                         build_incremental_universe(**planner_args)
+                    with self.assertRaisesRegex(ValueError, "collector_transaction_rolled_back_requires_verified_repair"):
+                        c.acknowledge_collection_attempts(checkpoint, queue, ["AAA"],
+                            snapshot_dir=history, attempted_at_utc="2026-07-01T19:00:00Z",
+                            attempt_id="split-directory-unverified-retry")
                     for retry_argv in (argv, argv[:-4]):
                         with patch.object(c, "collect_live_snapshot") as collect, \
                              patch.object(sys, "argv", retry_argv), \
@@ -1085,7 +1089,7 @@ class AdmissionTests(unittest.TestCase):
                     verify()
                 with self.assertRaisesRegex(ValueError, "collector_transaction_rolled_back_requires_verified_repair"):
                     c.acknowledge_collection_attempts(local_checkpoint, local_queue, ["AAA"],
-                        attempted_at_utc="2026-07-01T19:00:00Z", attempt_id="unverified-retry")
+                        snapshot_dir=history, attempted_at_utc="2026-07-01T19:00:00Z", attempt_id="unverified-retry")
                 self.assertEqual(local_checkpoint.read_bytes(), accepted[checkpoint])
                 self.assertEqual(local_queue.read_bytes(), accepted[queue])
             # Relabeling the marker alone is not a verified repair of corrupted payloads.

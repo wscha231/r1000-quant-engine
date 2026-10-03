@@ -12,6 +12,11 @@
   accepted generation through an explicitly verified repair and validate every
   required transaction binding before admission. Source tests do not authorize
   runtime repair or durable publication.
+- Independent correction QA also reproduced count advancement when checkpoint
+  and archive lived in different directories. The acknowledgement utility now
+  requires an explicit archive root and checks its marker as well as the
+  checkpoint parent's marker before preparing or writing bytes. Infer neither
+  transaction scope nor success from a checkpoint's parent directory alone.
 
 ## 2026-10-03 — A planning parent hash does not prove preserved collection state
 

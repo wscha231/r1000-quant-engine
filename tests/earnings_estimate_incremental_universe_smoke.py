@@ -91,6 +91,7 @@ def test_queue_reuses_fresh_success_and_rejects_unbound_ack_checkpoint() -> None
             snapshot_dir / "collection_checkpoint.json",
             root / "outputs" / "earnings_estimates_daily" / "collection_queue.csv",
             ["EEE"],
+            snapshot_dir=snapshot_dir,
             attempted_at_utc="2026-07-10T12:00:00Z",
         )
         assert ack["acknowledged_ticker_count"] == 1

@@ -201,3 +201,9 @@ failures exercise repeated attempts and byte preservation. A hash-matching
 generation with a rollback marker still blocks; changing its label cannot waive
 a corrupted payload. Only restored, fully bound accepted evidence can pass.
 New-head independent QA, CI and authenticated review remain required.
+
+The acknowledgement utility requires an explicit archive root because supported
+checkpoint paths may reside elsewhere. Both archive and checkpoint-parent
+markers are checked before state preparation or writes. Independent correction
+QA reproduced the split-directory count advancement; the actual rollback test
+now exercises this layout rather than only colocated state.
