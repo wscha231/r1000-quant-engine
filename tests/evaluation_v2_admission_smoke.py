@@ -273,6 +273,227 @@ class BoundedResolverTests(unittest.TestCase):
             m.BoundedArtifactResolver(alias/'bundle')
 
 
+class ImmutableBundleLifecycleTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
+        self.area=Path(self.tmp.name)
+        self.fixture=ComparisonPrecheckTests();self.fixture.setUp()
+
+    def bundle(self, name='bundle', *, shared_strategy=False, aliased_role=False, collision=None):
+        f=self.fixture
+        if collision:
+            f.blobs[collision]=f.blobs.pop('control')
+            f.left['strategy_ref']=f.ref(collision)
+        if shared_strategy:f.right['strategy_ref']=dict(f.left['strategy_ref'])
+        if aliased_role:
+            f.context['shared_refs']['calendar']=dict(f.left['strategy_ref']);f.rebind_context()
+        root=self.area/name;root.mkdir()
+        for key,value in f.blobs.items():(root/key).write_bytes(value)
+        (root/'control.arm').write_bytes(m.canonical(f.left))
+        (root/'challenger.arm').write_bytes(m.canonical(f.right))
+        args=verifier.parse_args(['--baseline-run','unused-baseline','--candidate-run','unused-candidate',
+                                 '--output-dir',str(self.area/'outside-report')])
+        args.comparison_admission_root=str(root);args.comparison_control_arm='control.arm'
+        args.comparison_challenger_arm='challenger.arm';args.expected_context_sha256=f.pin
+        return root,args
+
+    @staticmethod
+    def census(root):
+        return {str(p.relative_to(root)):p.read_bytes() if p.is_file() else None for p in root.rglob('*')}
+
+    def check_unsafe(self, args, root):
+        before=self.census(root)
+        reads=[];legacy=[];original=m.BoundedArtifactResolver.__call__
+        def read(resolver,key):reads.append(key);return original(resolver,key)
+        with patch.object(m.BoundedArtifactResolver,'__call__',read),\
+             patch.object(verifier,'collect_evidence',side_effect=lambda *a:(legacy.append(a),{})[1]):
+            payload=verifier.run(args)
+        self.assertEqual(self.census(root),before,'input bundle changed')
+        self.assertEqual(reads,[],'admission bytes read before unsafe-output rejection')
+        self.assertEqual(legacy,[],'legacy bytes read before unsafe-output rejection')
+        self.assertEqual(payload['status'],'blocked_comparison_admission')
+        self.assertEqual(payload['comparison_admission']['reason'],'OUTPUT_ADMISSION_PATH_OVERLAP')
+        self.assertFalse(payload['economic_comparison_ready'])
+
+    def test_equal_child_ancestor_and_case_geometry_blocks_all_option_states_before_reads(self):
+        root,args=self.bundle()
+        outputs=[root,root/'new-report',root/'new-report'/'nested',root/'existing'/'..',self.area]
+        if os.name=='nt':outputs.append(Path(str(root).swapcase()))
+        for output in outputs:
+            for state in ('valid','wrong_pin','half_options','zero_candidate','multi_candidate'):
+                with self.subTest(output=output,state=state):
+                    changed=copy.copy(args);changed.output_dir=str(output)
+                    if state=='wrong_pin':changed.expected_context_sha256='0'*64
+                    elif state=='half_options':changed.comparison_challenger_arm=None
+                    elif state=='zero_candidate':changed.candidate_run=[]
+                    elif state=='multi_candidate':changed.candidate_run=['one','two']
+                    self.check_unsafe(changed,root)
+
+    def test_each_report_filename_can_be_pinned_without_being_overwritten(self):
+        for i,name in enumerate(('summary.json','candidate_verdicts.csv','report.md')):
+            with self.subTest(name=name):
+                self.fixture=ComparisonPrecheckTests();self.fixture.setUp()
+                root,args=self.bundle('collision'+str(i),collision=name)
+                args.output_dir=str(root);self.check_unsafe(args,root)
+
+    def test_actual_symlink_output_alias_and_child_preserve_bundle(self):
+        root,args=self.bundle();alias=self.area/'output-alias'
+        try:alias.symlink_to(root,target_is_directory=True)
+        except OSError as exc:self.skipTest('Host cannot create directory symlink: '+type(exc).__name__)
+        self.assertEqual(alias.resolve(),root.resolve())
+        for output in (alias,alias/'child'):
+            changed=copy.copy(args);changed.output_dir=str(output);self.check_unsafe(changed,root)
+
+    @unittest.skipUnless(os.name=='nt','Windows directory junction geometry')
+    def test_actual_windows_junction_output_alias_blocks_partial_and_pin_errors(self):
+        root,args=self.bundle();alias=self.area/'output-junction'
+        self.assertTrue(root.resolve().is_relative_to(self.area.resolve()))
+        result=subprocess.run(['cmd','/c','mklink','/J',str(alias),str(root)],capture_output=True)
+        if result.returncode:self.skipTest('Host cannot create owned directory junction')
+        self.assertEqual(alias.resolve(),root.resolve())
+        for output in (alias,alias/'child'):
+            for state in ('valid','wrong_pin','half_options'):
+                with self.subTest(output=output,state=state):
+                    changed=copy.copy(args);changed.output_dir=str(output)
+                    if state=='wrong_pin':changed.expected_context_sha256='0'*64
+                    elif state=='half_options':changed.comparison_challenger_arm=None
+                    self.check_unsafe(changed,root)
+
+    def test_unsafe_cli_returns_two_without_publishing_or_replacing_inputs(self):
+        root,args=self.bundle(collision='summary.json');before=self.census(root)
+        command=[sys.executable,*(['-O'] if not __debug__ else []),str(ROOT/'tools/run_ab_result_verifier.py'),
+                 '--baseline-run',args.baseline_run,'--candidate-run',args.candidate_run[0],
+                 '--output-dir',str(root),'--comparison-admission-root',str(root),
+                 '--comparison-control-arm',args.comparison_control_arm,
+                 '--comparison-challenger-arm',args.comparison_challenger_arm,
+                 '--expected-context-sha256',args.expected_context_sha256]
+        result=subprocess.run(command,capture_output=True,text=True,encoding='utf-8')
+        self.assertEqual(result.returncode,2,result.stderr)
+        self.assertEqual(self.census(root),before)
+        self.assertNotIn('private',result.stderr)
+
+    def test_outside_report_leaf_symlink_and_hardlink_cannot_alias_bundle_artifact(self):
+        root,args=self.bundle()
+        output=Path(args.output_dir);output.mkdir()
+        for i,kind in enumerate(('symlink','hardlink')):
+            for name in ('summary.json','candidate_verdicts.csv','report.md'):
+                with self.subTest(kind=kind,name=name):
+                    destination=output/name
+                    try:
+                        if kind=='symlink':destination.symlink_to(root/'cost_contract')
+                        else:os.link(root/'cost_contract',destination)
+                    except OSError as exc:self.skipTest('Host cannot create owned file alias: '+type(exc).__name__)
+                    try:self.check_unsafe(args,root)
+                    finally:destination.unlink()
+
+    def test_last_distinct_strategy_read_revalidates_previously_read_leaf_identity(self):
+        for kind in ('replace','append','missing'):
+            with self.subTest(kind=kind):
+                self.fixture=ComparisonPrecheckTests();self.fixture.setUp()
+                root,args=self.bundle('final-leaf-'+kind)
+                original=m._Snapshot.read;changed=[]
+                def read(snapshot,ref):
+                    value=original(snapshot,ref)
+                    if ref['artifact_id']=='challenger' and not changed:
+                        path=root/'cost_contract'
+                        if kind=='replace':
+                            path.rename(root/'old-cost');path.write_bytes(self.fixture.blobs['cost_contract'])
+                        elif kind=='append':
+                            with path.open('ab') as stream:stream.write(b'x')
+                        else:path.unlink()
+                        changed.append(True)
+                    return value
+                with patch.object(m._Snapshot,'read',read):result=verifier.comparison_precheck(args)
+                self.assertTrue(changed);self.assertEqual(result['status'],'BLOCKED')
+                self.assertIn(result['reason'],('ARTIFACT_CHANGED','ARTIFACT_UNAVAILABLE'))
+
+    def test_real_root_replacement_on_shared_and_last_distinct_strategy_tails_blocks(self):
+        for shared,trigger in ((True,'control'),(False,'control'),(False,'challenger')):
+            with self.subTest(shared=shared,trigger=trigger):
+                self.fixture=ComparisonPrecheckTests();self.fixture.setUp()
+                root,args=self.bundle('tail'+str(shared)+trigger,shared_strategy=shared)
+                original=m._Snapshot.read;changed=[]
+                def read(snapshot,ref):
+                    value=original(snapshot,ref)
+                    if ref['artifact_id']==trigger and not changed:
+                        prior=root.stat().st_ino;root.rename(root.with_name(root.name+'-retired'));root.mkdir()
+                        self.assertNotEqual(root.stat().st_ino,prior);changed.append(True)
+                    return value
+                with patch.object(m._Snapshot,'read',read):result=verifier.comparison_precheck(args)
+                self.assertTrue(changed)
+                self.assertEqual(result['status'],'BLOCKED')
+                self.assertEqual(result['reason'],'ARTIFACT_ROOT_CHANGED')
+
+    def test_final_cached_leaf_snapshot_detects_replace_append_truncate_missing_and_link(self):
+        for kind in ('replace','append','truncate','missing','symlink'):
+            with self.subTest(kind=kind):
+                self.fixture=ComparisonPrecheckTests();self.fixture.setUp()
+                root,args=self.bundle('leaf-'+kind,shared_strategy=True)
+                original=m._Snapshot.read;changed=[]
+                def read(snapshot,ref):
+                    value=original(snapshot,ref)
+                    if ref['artifact_id']=='control' and not changed:
+                        path=root/'cost_contract'
+                        if kind=='replace':
+                            path.rename(root/'old-cost');path.write_bytes(self.fixture.blobs['cost_contract'])
+                        elif kind=='append':
+                            with path.open('ab') as stream:stream.write(b'x')
+                        elif kind=='truncate':path.write_bytes(b'')
+                        elif kind=='missing':path.unlink()
+                        else:
+                            path.unlink()
+                            try:path.symlink_to(root/'control')
+                            except OSError as exc:self.skipTest('Host cannot create leaf symlink: '+type(exc).__name__)
+                        changed.append(True)
+                    return value
+                with patch.object(m._Snapshot,'read',read):result=verifier.comparison_precheck(args)
+                self.assertTrue(changed)
+                self.assertEqual(result['status'],'BLOCKED')
+                self.assertIn(result['reason'],('ARTIFACT_CHANGED','ARTIFACT_UNAVAILABLE','ARTIFACT_FILE_TYPE'))
+
+    def test_native_cached_direct_reads_revalidate_root_and_leaf_without_recharging(self):
+        root,args=self.bundle();resolver=m.BoundedArtifactResolver(root)
+        first=resolver('context');total=resolver.returned_bytes
+        self.assertEqual(resolver('context'),first);self.assertEqual(resolver.returned_bytes,total)
+        (root/'context').write_bytes(first+b'changed')
+        with self.assertRaises(m.AdmissionError):resolver('context')
+        root.rename(self.area/'retired');root.mkdir()
+        with self.assertRaisesRegex(m.AdmissionError,'ARTIFACT_ROOT_CHANGED'):resolver('context')
+
+    def test_native_totals_include_arms_and_deduplicate_shared_role_and_strategy_ids(self):
+        for shared in (False,True):
+            for alias in (False,True):
+                with self.subTest(shared=shared,alias=alias):
+                    self.fixture=ComparisonPrecheckTests();self.fixture.setUp()
+                    root,args=self.bundle('counts'+str(shared)+str(alias),shared_strategy=shared,aliased_role=alias)
+                    observed=[];original=m.BoundedArtifactResolver.__call__
+                    def read(resolver,key):
+                        value=original(resolver,key);observed.append((key,len(value),resolver.returned_bytes));return value
+                    with patch.object(m.BoundedArtifactResolver,'__call__',read):result=verifier.comparison_precheck(args)
+                    self.assertEqual(result['status'],'BYTE_COMPARABLE_RESEARCH_ONLY')
+                    unique={key:size for key,size,total in observed}
+                    self.assertEqual(result['resolved_artifacts'],len(unique))
+                    self.assertEqual(result['resolved_bytes'],sum(unique.values()))
+                    self.assertEqual(result['resolved_bytes'],observed[-1][2])
+
+    def test_native_preloaded_arm_budget_and_foreign_inmemory_counts_remain_distinct(self):
+        root,args=self.bundle();f=self.fixture
+        calls=[]
+        result=m.compare_environment(f.left,f.right,expected_context_sha256=f.pin,
+                                     artifact_resolver=lambda key:(calls.append(key),f.blobs[key])[1])
+        self.assertEqual(result['resolved_artifacts'],len(set(calls)))
+        self.assertEqual(result['resolved_bytes'],sum(len(f.blobs[key]) for key in set(calls)))
+        self.assertNotIn('control.arm',calls)
+        resolver=m.BoundedArtifactResolver(root)
+        left=m.strict_json(resolver('control.arm'));right=m.strict_json(resolver('challenger.arm'))
+        native=m.compare_environment(left,right,expected_context_sha256=f.pin,artifact_resolver=resolver)
+        self.assertEqual(native['resolved_artifacts'],result['resolved_artifacts']+2)
+        self.assertEqual(native['resolved_bytes'],result['resolved_bytes']+len(m.canonical(f.left))+len(m.canonical(f.right)))
+        with patch.object(m,'MAX_TOTAL_BYTES',native['resolved_bytes']-1):
+            blocked=verifier.comparison_precheck(args)
+        self.assertEqual(blocked['reason'],'TOTAL_BYTE_BUDGET')
+
+
 class NativeIntegrationTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
@@ -417,7 +638,7 @@ class NativeIntegrationTests(unittest.TestCase):
 
 def suite():
     return unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromTestCase(cls)
-                              for cls in (ComparisonPrecheckTests,BoundedResolverTests,NativeIntegrationTests))
+                              for cls in (ComparisonPrecheckTests,BoundedResolverTests,ImmutableBundleLifecycleTests,NativeIntegrationTests))
 
 def main():
     return 0 if unittest.TextTestRunner(verbosity=2).run(suite()).wasSuccessful() else 1

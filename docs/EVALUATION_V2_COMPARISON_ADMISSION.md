@@ -65,8 +65,15 @@ This opt-in invocation accepts exactly one candidate result directory. Use the
 existing portfolio selector and separate invocations for distinct arm pairs.
 Partial options, missing or malformed pins and zero/multiple candidates block
 before legacy result collection. API `run()` returns `blocked_comparison_admission`
-with a bounded reason; CLI exits 2. Existing summary/CSV/report paths receive the
-blocked result, with no stale candidate rows. Matching admission continues through
+with a bounded reason; CLI exits 2. Before admission or legacy byte reads, physical
+output paths must be separate from the admission bundle: equal, descendant and
+ancestor directories, case aliases, symlinks/junctions into the bundle and report
+leaf aliases are rejected. Existing multiply linked report files are ambiguous
+write targets and also block. Unsafe output geometry returns the bounded result
+in memory/CLI only and never publishes even a blocked report. A safe separate
+summary/CSV/report destination receives other blocked results with no stale
+candidate rows. Geometry is checked again immediately before publication.
+Matching admission continues through
 the existing result verifier and cannot override any economic or mission gate.
 
 Artifact IDs are flat ASCII `[A-Za-z0-9][A-Za-z0-9_.-]{0,199}` names. Separators,
@@ -74,7 +81,14 @@ drive/stream syntax, trailing dots and Windows device aliases are forbidden.
 Root and ancestor links/junctions/reparse points, nonregular files, missing files,
 root replacement and file/descriptor identity changes fail closed. The resolver
 checks size before reading, binds actual file identity before/after the read and
-returns no provider/OS exception text. Maximum blob size is 1 MiB; total read
+revalidates root/leaf identity on native cache hits and after the final comparison
+read, including previously read leaves. It returns no provider/OS exception text.
+Native `resolved_bytes`/`resolved_artifacts` report the resolver's actual bounded
+reads, including the two preloaded arm declarations. Repeated flat artifact IDs
+are charged once; distinct IDs are separate reads even when physically hardlinked.
+The generic callable API receives arm dictionaries in memory and reports only
+artifacts it actually resolves, without inventing arm-file reads.
+Maximum blob size is 1 MiB; total read
 budget is 16 MiB, including arm declarations. Strict JSON also caps depth at 32
 and nodes at 50,000, rejecting duplicate keys, nonfinite values and malformed UTF8.
 Use compact immutable manifests for large datasets; this does not inspect every

@@ -15,6 +15,7 @@ import argparse
 import csv
 import json
 import math
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,12 +50,54 @@ COMPARISON_AUTHORITY_FIELDS = ("unverified_domains", "g0_certified", "economic_c
                               "fullrun_allowed", "target_paper_broker_mutation_allowed")
 
 
+def blocked_comparison(reason: str) -> dict[str, Any]:
+    return {
+        "schema": comparison_admission.SCHEMA, "status": "BLOCKED", "reason": reason,
+        "unverified_domains": list(comparison_admission.UNVERIFIED),
+        **{name: False for name in COMPARISON_AUTHORITY_FIELDS if name != "unverified_domains"},
+    }
+
+
+def comparison_output_error(args: argparse.Namespace) -> str | None:
+    """Check physical output geometry before artifact/legacy reads or writes."""
+    root = getattr(args, "comparison_admission_root", None)
+    if root is None:
+        return None
+    try:
+        comparison_admission.require((type(root) is str or isinstance(root, Path)) and bool(str(root)),
+                                     "OUTPUT_ADMISSION_PATH_INVALID")
+        # resolve follows existing symlinks/junctions even if the final output
+        # directory does not exist; normcase binds Windows case aliases.
+        root_key = os.path.normcase(str(Path(root).resolve(strict=False)))
+        output = repo_path(getattr(args, "output_dir", "outputs/ab_result_verifier"))
+        for path in (output, *(output / name for name in ("summary.json", "candidate_verdicts.csv", "report.md"))):
+            if path != output and path.exists():
+                # A multiply linked report file can mutate a pinned input even
+                # when its directory is outside the bundle. Reject ambiguous
+                # physical aliases without scanning or reading input artifacts.
+                comparison_admission.require(path.stat().st_nlink <= 1, "OUTPUT_ADMISSION_PATH_OVERLAP")
+            output_key = os.path.normcase(str(path.resolve(strict=False)))
+            try:
+                common = os.path.commonpath((root_key, output_key))
+            except ValueError:  # Different volumes cannot overlap.
+                continue
+            comparison_admission.require(common not in (root_key, output_key),
+                                         "OUTPUT_ADMISSION_PATH_OVERLAP")
+    except comparison_admission.AdmissionError as exc:
+        return str(exc)
+    except (OSError, TypeError, ValueError, RuntimeError):
+        return "OUTPUT_ADMISSION_PATH_INVALID"
+    return None
+
+
 def comparison_precheck(args: argparse.Namespace) -> dict[str, Any] | None:
     """Optional byte identity admission; its caller pin is never derived from arms."""
     values = [getattr(args, name, None) for name in COMPARISON_OPTIONS]
     if all(value is None for value in values):
         return None
     try:
+        output_error = comparison_output_error(args)
+        comparison_admission.require(output_error is None, output_error or "OUTPUT_ADMISSION_PATH_INVALID")
         comparison_admission.require(all(value is not None for value in values),
                                      "ADMISSION_OPTIONS_INCOMPLETE")
         candidates = getattr(args, "candidate_run", None)
@@ -71,11 +114,7 @@ def comparison_precheck(args: argparse.Namespace) -> dict[str, Any] | None:
         return comparison_admission.compare_environment(control, challenger,
                     expected_context_sha256=pin, artifact_resolver=resolver)
     except comparison_admission.AdmissionError as exc:
-        return {
-            "schema": comparison_admission.SCHEMA, "status": "BLOCKED", "reason": str(exc),
-            "unverified_domains": list(comparison_admission.UNVERIFIED),
-            **{name: False for name in COMPARISON_AUTHORITY_FIELDS if name != "unverified_domains"},
-        }
+        return blocked_comparison(str(exc))
 
 
 def repo_path(value: str | Path) -> Path:
@@ -527,7 +566,8 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
     portfolio = str(getattr(args, "portfolio", "concentrated"))
-    admission = comparison_precheck(args)
+    output_error = comparison_output_error(args)
+    admission = blocked_comparison(output_error) if output_error else comparison_precheck(args)
     if admission is not None and admission["status"] == "BLOCKED":
         payload = {
             "schema_version": "ab-result-verifier-v1", **mission_identity(PORTFOLIO_MISSION_TARGETS),
@@ -538,7 +578,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "requires_user_approval": True,
             **{name: admission[name] for name in COMPARISON_AUTHORITY_FIELDS},
         }
-        publish_report(args, payload)
+        if output_error is None:
+            publish_report(args, payload)
+        else:
+            # An unsafe report destination must never receive even a blocked
+            # summary. Return the bounded result in memory/CLI only.
+            print(json.dumps({"status": payload["status"], "reason": output_error}))
         return payload
     baseline = collect_evidence(repo_path(args.baseline_run), portfolio)
     baseline_ok = bool(
@@ -633,6 +678,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def publish_report(args: argparse.Namespace, payload: dict[str, Any]) -> None:
+    output_error = comparison_output_error(args)
+    comparison_admission.require(output_error is None, output_error or "OUTPUT_ADMISSION_PATH_INVALID")
     output_dir = repo_path(getattr(args, "output_dir", "outputs/ab_result_verifier"))
     output_dir.mkdir(parents=True, exist_ok=True)
     write_json(output_dir / "summary.json", payload)
@@ -664,7 +711,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    payload = run(parse_args(argv))
+    try:
+        payload = run(parse_args(argv))
+    except comparison_admission.AdmissionError as exc:
+        print(json.dumps({"status": "blocked_comparison_admission", "reason": str(exc)}))
+        return 2
     return 2 if payload["status"] == "blocked_comparison_admission" else 0
 
 

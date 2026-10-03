@@ -153,6 +153,7 @@ class BoundedArtifactResolver:
             raise AdmissionError('ARTIFACT_ROOT_INVALID') from None
         self.returned_bytes = 0
         self.cache: dict[str, bytes] = {}
+        self.identities: dict[str, tuple] = {}
 
     def _check_root_path(self) -> None:
         # Reject symbolic links/junctions in every component, including the root.
@@ -166,9 +167,37 @@ class BoundedArtifactResolver:
         observed = self.root.stat()
         require((observed.st_dev, observed.st_ino) == self.root_identity, 'ARTIFACT_ROOT_CHANGED')
 
+    def validate_cached(self, artifact_id: str) -> None:
+        """Revalidate physical snapshot identity without rereading or recharging."""
+        try:
+            self._guard_root()
+            path = self.root / artifact_id
+            observed = path.lstat()
+            require(not _is_link(observed) and stat.S_ISREG(observed.st_mode), 'ARTIFACT_FILE_TYPE')
+            require(_file_identity(observed) == self.identities[artifact_id], 'ARTIFACT_CHANGED')
+            require(path.resolve(strict=True).parent == self.root, 'ARTIFACT_PATH')
+        except AdmissionError:
+            raise
+        except (OSError, ValueError, RuntimeError, KeyError):
+            raise AdmissionError('ARTIFACT_UNAVAILABLE') from None
+
+    def validate_snapshot(self) -> None:
+        # The final comparison may consist entirely of _Snapshot cache hits.
+        # Bind the root and every returned leaf after the last comparison read.
+        try:
+            self._guard_root()
+            for artifact_id in self.cache:
+                self.validate_cached(artifact_id)
+            self._guard_root()
+        except AdmissionError:
+            raise
+        except (OSError, ValueError, RuntimeError):
+            raise AdmissionError('ARTIFACT_UNAVAILABLE') from None
+
     def __call__(self, artifact_id: str) -> bytes:
         validate_artifact_id(artifact_id)
         if artifact_id in self.cache:
+            self.validate_cached(artifact_id)
             return self.cache[artifact_id]
         fd = None
         try:
@@ -205,6 +234,7 @@ class BoundedArtifactResolver:
             self._guard_root()
             require(_file_identity(path.lstat()) == _file_identity(before), 'ARTIFACT_CHANGED')
             self.cache[artifact_id] = raw
+            self.identities[artifact_id] = _file_identity(before)
             return raw
         except AdmissionError:
             raise
@@ -232,6 +262,8 @@ class _Snapshot:
                 'ARTIFACT_ID_CONFLICT')
         self.bindings[key] = expected
         if key in self.cache:
+            if type(self.resolver) is BoundedArtifactResolver:
+                self.resolver.validate_cached(key)
             return self.cache[key]
         try:
             raw = self.resolver(key)
@@ -297,12 +329,19 @@ def compare_environment(control: dict, challenger: dict, *, expected_context_sha
         snapshot.read(arm['strategy_ref'])
         arms.append((context_raw, value))
     require(arms[0][0] == arms[1][0], 'CONTEXT_BYTES_MISMATCH')
+    resolved_artifacts, resolved_bytes = len(snapshot.cache), snapshot.returned_bytes
+    if type(artifact_resolver) is BoundedArtifactResolver:
+        artifact_resolver.validate_snapshot()
+        # Include declarations preloaded by the native caller. Each flat ID is
+        # charged once by the same resolver that enforces the aggregate budget.
+        resolved_artifacts = len(artifact_resolver.cache)
+        resolved_bytes = artifact_resolver.returned_bytes
     return {
         'schema': SCHEMA, 'status': 'BYTE_COMPARABLE_RESEARCH_ONLY',
         'context_sha256': expected_context_sha256,
         'shared_roles_verified': sorted(SHARED_ROLES),
         'data_scope': arms[0][1]['data_scope'],
-        'resolved_artifacts': len(snapshot.cache), 'resolved_bytes': snapshot.returned_bytes,
+        'resolved_artifacts': resolved_artifacts, 'resolved_bytes': resolved_bytes,
         'strategy_refs': {'control': dict(control['strategy_ref']), 'challenger': dict(challenger['strategy_ref'])},
         'unverified_domains': list(UNVERIFIED), 'g0_certified': False,
         'economic_comparison_ready': False, 'champion_promotion_allowed': False,

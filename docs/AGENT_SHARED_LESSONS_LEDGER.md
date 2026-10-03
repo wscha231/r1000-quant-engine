@@ -5597,3 +5597,14 @@ Expected contract:
   Windows cross-descriptor timestamps require explicit birth time, not deprecated
   ctime. Matching supplied bytes cannot certify provider/PIT or executed policy,
   fix a conflicting legacy window claim, or grant economic/fullrun/book authority.
+
+### 2026-10-03 - Immutable admission includes output geometry and cached tails (#571 P2)
+
+- Reject report/input physical overlap before admission or legacy reads, even
+  when options or pins already block. A blocked report must never overwrite
+  pinned input bytes. Include symlink/junction and multiply linked report aliases.
+- Cache hits retain snapshot obligations. Revalidate the native root and every
+  returned leaf after the final read, including an entirely cached second arm.
+  Native receipts count actual unique-ID reads including preloaded arm files;
+  in-memory callable APIs count only their actual reads. Byte identity still
+  grants no provider/PIT, economic, fullrun or book authority.
