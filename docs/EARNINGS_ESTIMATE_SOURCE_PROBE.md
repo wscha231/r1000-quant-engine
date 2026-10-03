@@ -55,7 +55,9 @@ provider is globally disabled or reactivated by the probe.
 ## Outputs and approval
 
 Only `outputs/earnings_estimate_source_probe/*.json` controlled diagnostics may
-be written. Output admission precedes network access. The report includes
+be written. Output admission precedes network access. Atomic replacement writes
+a new inode instead of truncating an existing hard-linked report, preserving
+any operational file sharing its old inode. The report includes
 per-security EPS/revenue value-presence counts and unknown identity status, not
 raw payloads, account profile details or consensus values. Normalized snapshots
 exist only in memory; archival/storage rights and durable promotion remain

@@ -70,7 +70,7 @@ Expected diagnostic contract:
 - raw provider/account responses and estimate values are not persisted
 - `historical_pit_certified=false`
 - `production_activation_allowed=false`
-- `live_trading_enabled=false`
+- `research_only=true`
 
 The operational default vendor order remains `fmp,finnhub`. Alpha Vantage must be requested
 explicitly, for example after key rotation with `-f vendor_order='alphavantage'`.

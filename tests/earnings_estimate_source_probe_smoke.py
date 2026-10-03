@@ -4,8 +4,10 @@ import io
 import json
 import os
 import sys
+import tempfile
 import unittest
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import patch
 
 import requests
@@ -195,6 +197,28 @@ class SourceProbeTests(unittest.TestCase):
         with patch.object(sys, "argv", argv), patch.object(probe, "run_probe") as fetch, contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(probe.main(), 2)
             fetch.assert_not_called()
+
+    def test_cli_replaces_hardlinked_report_without_mutating_operational_inode(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            operational = root / "data_pit" / "accepted.json"
+            operational.parent.mkdir()
+            original = b'{"accepted": "preserve"}\n'
+            operational.write_bytes(original)
+            output = root / "outputs" / "earnings_estimate_source_probe" / "report.json"
+            output.parent.mkdir(parents=True)
+            os.link(operational, output)
+            transport = Transport()
+            argv = ["probe", "--provider", "fmp2", "--output", str(output)]
+            with patch.object(probe, "ROOT", root), patch.object(sys, "argv", argv), \
+                 patch.dict(os.environ, {}, clear=True), patch.object(probe.requests, "Session", return_value=transport), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(probe.main(), 2)
+            self.assertEqual(operational.read_bytes(), original)
+            self.assertEqual(json.loads(output.read_text())["status"], "MISSING_SELECTED_SECRET")
+            self.assertFalse(os.path.samefile(operational, output))
+            self.assertEqual(transport.calls, [])
+            self.assertEqual(list(output.parent.glob(".estimate_probe_*.json")), [])
 
     def test_ambiguous_or_duplicate_symbols_not_guessed(self):
         for symbols in ("AAPL,AAPL", "BRK.B", "005930", "AAPL.US", "", "AAPL,"):

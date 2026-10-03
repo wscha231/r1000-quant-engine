@@ -5998,3 +5998,14 @@ Expected contract:
   sample or secret registration is not durable collection, usable coverage or
   consumer admission. Merge/dispatch and real credential validation remain pending.
 - See docs/EARNINGS_ESTIMATE_SOURCE_PROBE.md for scope, budgets and limitations.
+
+## 2026-10-04 — Source-only diagnostic output must isolate file inodes
+
+- Independent A6 reproduced an output-isolation breach at initial source-key
+  head 19b348bc: a permitted report.json hardlink caused direct write_text to
+  overwrite another operational inode, even when missing keys made HTTP zero.
+- Resolve/path admission alone does not protect hardlinks. Write a new file in
+  the admitted directory and atomically replace its directory entry; never
+  truncate an existing report inode. Preserve unrelated user/agent ledger bytes.
+- The regression preserves an operational fixture byte-for-byte, separates its
+  inode from the new diagnostic, checks cleanup, and runs under normal and -O.

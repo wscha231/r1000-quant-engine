@@ -10,6 +10,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 from datetime import date, datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -274,7 +275,18 @@ def main():
     except ProbeBlocked as exc:
         report = {"scope": "SOURCE_ONLY_SAMPLE", "status": str(exc), "http_requests_attempted": 0}
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(report, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    # Replace this directory entry, never truncate an existing (possibly
+    # hard-linked) inode that could also belong to an operational file.
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=output.parent,
+                                         prefix=".estimate_probe_", suffix=".json", delete=False) as handle:
+            temporary = Path(handle.name)
+            handle.write(json.dumps(report, sort_keys=True, indent=2) + "\n")
+        os.replace(temporary, output)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
     print(json.dumps(report, sort_keys=True, indent=2))
     return 0 if report.get("status") == "SAMPLE_PROBED" else 2
 
