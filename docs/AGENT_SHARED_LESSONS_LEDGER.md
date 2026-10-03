@@ -1,5 +1,21 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-03 — Bind audit receipts to consumed bytes and semantic unknowns (#572)
+
+- Formal exact-head review after A6 CLEAN reproduced four audit P2 gaps.
+  Parse and hash one immutable buffer; separate filesystem reads can attach
+  an expected universe or snapshot digest to different consumed rows.
+- A future quarterly consensus record does not prove the immediately next
+  fiscal quarter. The existing H1 identity contract has no trusted fiscal
+  calendar anchor, so retain future-quarter evidence and keep next-quarter
+  admission UNKNOWN rather than inventing calendar-quarter boundaries.
+- Missing snapshot inputs must propagate UNKNOWN into equity detail rows,
+  aggregate counts and source-state counts. Reject empty/null security keys
+  and duplicates after normalization before admitting a frozen denominator.
+- The user approved one additional correction cycle beyond the original two.
+  Preserve the prior reports and require fresh exact-head A6/formal review;
+  source correction grants no collection, consumer, publication or merge authority.
+
 ## 2026-10-03 — Estimate coverage requires separate value and source admission
 
 - At master `30915e05c1ffe3cecd2c46b229af20844e514f3d`, Drive run
@@ -4256,6 +4272,91 @@ Expected contract:
   `docs/CODEX_RUN287_H4B_WORKFLOW_PROMOTION_TRUST_RESULT_20260723.md`.
 - Fullrun executed: false. Durable daily catch-up executed: false. Production
   enabled: false. Live trading enabled: false.
+
+### 2026-10-03 - Recover committed July27 publication without replaying its transaction
+
+- Producer run 37002957966/1 at 30915e05 remains CANCELLED: transaction and
+  integrity succeeded, persistence was cancelled, and accepted artifact/cache
+  steps were skipped. Physical seven-head chain ends at 761cf62e; keep the
+  original run, source, bytes and consumed comment 5951667349 as historical
+  evidence. Do not relabel that run successful or reuse its transaction scope.
+- Ordinary daily inputs are a strict historical eleven-key contract. A bounded
+  manual-only recovery publisher calls unchanged native physical verifiers;
+  its fresh owner/current-master/environment authority is separate from the
+  original producer. No ledger writer, head install, next session or new order
+  belongs in publication recovery. Publication/cache approval defaults false.
+- Full original capture/diagnostic ZIPs, 7-head payloads and canonical aliases
+  passed local preparation and independent bundle revalidation in normal and
+  optimized Python. These are LOCAL_READ_ONLY_PREPARATION receipts with
+  publication_ready=false, not a remote publication or investment approval.
+- Artifact readback must bind the actual new publisher and every ZIP byte.
+  Clear only the two verified staging directories before exact-key cache
+  restore; otherwise leftover local files can mask missing cached members.
+- Related local physical/scope checks passed. The unchanged broad artifact
+  smoke hit a Windows separator comparison in the capture-config fixture
+  (forward slash versus backslash). Record that limitation and check Linux CI;
+  do not weaken the fixture or the ordinary capture/publication gate.
+
+### 2026-10-03 - Job env cannot use the runner expression context (#570 P1)
+
+- Head 669f34a4 used runner.temp in three job-env definitions. The official
+  context table and runner job-env schema exclude runner at that location;
+  YAML/Bash parsing and the old Linux CI success did not catch this defect.
+- Initialize the same paths from RUNNER_TEMP in an earlier shell step and
+  append to GITHUB_ENV. New values reach subsequent steps, not that shell;
+  job-env strings containing $RUNNER_TEMP do not expand recursively.
+- Reject the old expression placement, check every consumer's ordering and
+  execute normal/space-path and missing/empty-temp offline shell fixtures.
+  Preserve unrelated env entries/files and fail before writing on empty temp.
+
+### 2026-10-03 - Prior publication retries require a complete attempt census (#570 P2)
+
+- Jobs API filter=all alone is not completeness proof. Require total_count
+  parity, positive non-bool prior attempt N, exact prior run/publication job,
+  unique job IDs and step numbers, and one exact accepted-upload step for each
+  relevant attempt 1..N. Unrelated jobs need not share that attempt census.
+- Retention cannot erase a prior SUCCESS duplicate-publication guard. A retry
+  requires every complete unique upload step SKIPPED and the prior run completed
+  with failure/cancelled, alongside all existing fresh authority/state gates.
+- Native before-patch regressions exposed 38 unsafe acceptances. The corrected
+  focused suite passes normal and optimized Python; truncated run/job/artifact
+  censuses still block even when all relevant attempt identities are present.
+- Outer recovery and active-writer censuses also require unique positive
+  non-bool run IDs and consistent supplied current-run identity metadata.
+  Require the separately observed live publisher exactly once in its own
+  recovery history before exclusion; an empty or omitted-current listing is
+  not evidence of no prior publication. Share identity validation across the
+  census paths so duplicate rows and numeric aliases cannot mask missing runs.
+
+### 2026-10-03 - Skipped recovery dispatches require whole-run no-op proof (#570 P2)
+
+- A default-false job condition reports success without executing the publisher.
+  Permit only complete unique attempts 1..N with every authoritative job/step
+  completed/skipped and a complete empty artifact census. Empty skipped-job
+  steps are valid; mixed execution, ambiguous metadata and accepted upload
+  success still block. Failure/cancelled upload-skip retry rules remain unchanged.
+- Recovery queue:max retains pending work when this producer joins the shared
+  group. Other producers retain their own pending policy; the 100-run queue cap
+  and waiting-time FIFO do not replace native writer/chronological checks.
+  Official queue semantics are server-side; YAML checks are not runtime proof.
+
+### 2026-10-03 - Checksum aliases must preserve every supplied digest (#570 P1)
+
+- Support documented MD5/SHA-1 and rclone SHA-256 aliases as well as retained
+  lowercase names. Validate every supported digest; malformed or disagreeing
+  aliases must not hide behind a favorable checksum. Unknown-only still blocks.
+- Retained original inventories already used lowercase names and passed the
+  native boundary. Distinguish synthetic spelling compatibility from those
+  original byte receipts; offline reuse is not a fresh Drive read or publication.
+
+### 2026-10-03 - Match native review evidence and active branch rules (#570 integration)
+
+- Read review_complete's native evidence surface: PR root reactions, not
+  reactions on the review-request comment. Bind the intended exact review/head.
+- A classic-protection 404 is not absence of protection. Inspect active rulesets;
+  Protect master enforces strict validate/portfolio checks and resolved threads.
+- Keep the repository review_complete gate even when the server ruleset omits it.
+  Correct coordinator evidence collection; do not weaken gate implementation.
 
 ## 2026-07-24 - H4b freshness-to-ledger fail-closed boundary
 

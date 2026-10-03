@@ -14,6 +14,7 @@ import sys
 import tempfile
 from collections import Counter
 from datetime import datetime, timedelta, timezone
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -36,10 +37,27 @@ STRICT = ("fresh_eps_fy1", "fresh_revenue_fy1", "fresh_both_fy1",
           "eps_revision_30d_eligible", "eps_revision_90d_eligible",
           "revenue_revision_30d_eligible", "revenue_revision_90d_eligible",
           "research_consumer_eligible")
+FUTURE_QUARTER = ("fresh_eps_future_quarter", "fresh_revenue_future_quarter")
+ADMISSION_FIELDS = (*STRICT, *FUTURE_QUARTER)
+COUNT_FIELDS = ("attempted", "ever_seen", "ever_estimate_positive", "legacy_latest_positive",
+                "legacy_fresh_positive", "legacy_fresh_eps_nonzero_evidence",
+                "legacy_fresh_revenue_nonzero_evidence", "legacy_fresh_eps_fy2_nonzero_evidence",
+                *ADMISSION_FIELDS)
 
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def normalized_universe(values: list[str]) -> list[str]:
+    symbols = []
+    for value in values:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("nonempty_frozen_security_required")
+        symbols.append(value.strip().upper())
+    if not symbols or len(symbols) != len(set(symbols)):
+        raise ValueError("unique_normalized_frozen_universe_required")
+    return symbols
 
 
 def numeric(value: Any) -> float | None:
@@ -97,16 +115,17 @@ def metric_values(row: dict, metric: str, cutoff: datetime, h1: Any) -> list[dic
 
 
 def audit_rows(universe: list[str], rows: list[dict], *, as_of: str,
-               stale_after_days: int = 7, h1: Any = H1) -> tuple[list[dict], dict]:
+               stale_after_days: int = 7, h1: Any = H1,
+               snapshot_inputs_available: bool = True) -> tuple[list[dict], dict]:
     cutoff = exact_time(as_of)
     if cutoff is None or stale_after_days <= 0:
         raise ValueError("exact_as_of_and_positive_freshness_required")
-    if not universe or len(universe) != len(set(universe)):
-        raise ValueError("unique_frozen_universe_required")
+    universe = normalized_universe(universe)
     grouped = {t: [] for t in universe}
     for row in rows:
-        if row.get("ticker") in grouped:
-            grouped[row["ticker"]].append(row)
+        key = row.get("ticker")
+        if isinstance(key, str) and key.strip().upper() in grouped:
+            grouped[key.strip().upper()].append(row)
     result = []
     for ticker, history in grouped.items():
         dated = [(row_clock(r), r) for r in history]
@@ -123,9 +142,16 @@ def audit_rows(universe: list[str], rows: list[dict], *, as_of: str,
                "legacy_fresh_eps_fy2_nonzero_evidence": False,
                "latest_available_at": "", "source_state": "NEVER_ATTEMPTED",
                "frozen_pre_event_usable": None, "next_action": "COLLECT_WHEN_ENTITLED"}
-        out.update({key: False for key in STRICT})
+        out.update({key: False for key in ADMISSION_FIELDS})
         if ticker in CASH:
             out.update(source_state="NON_APPLICABLE", next_action="EXCLUDE_FROM_VENDOR_ONLY")
+            result.append(out)
+            continue
+        if not snapshot_inputs_available:
+            out.update({key: None for key in COUNT_FIELDS})
+            out.update(future_timestamp_rows=None, unknown_timestamp_rows=None,
+                       latest_available_at=None, source_state="UNKNOWN_NO_SNAPSHOT_INPUT",
+                       next_action="VERIFY_SNAPSHOT_INPUT")
             result.append(out)
             continue
         # Validate version/content before any stored timestamp decides admission.
@@ -166,7 +192,7 @@ def audit_rows(universe: list[str], rows: list[dict], *, as_of: str,
             result.append(out)
             continue
         if h1 is None:
-            out.update({key: None for key in STRICT if key != "research_consumer_eligible"})
+            out.update({key: None for key in ADMISSION_FIELDS if key != "research_consumer_eligible"})
             out.update(source_state="BLOCKED_H1_DEPENDENCY", next_action="VERIFY_ACCEPTED_H1_ARTIFACT")
             result.append(out)
             continue
@@ -204,21 +230,26 @@ def audit_rows(universe: list[str], rows: list[dict], *, as_of: str,
                            and r["identity"]["period_type"] == "ANNUAL"
                            and numeric(r["value"]) == numeric(row.get("est_" + view_prefix))]
                 out[f"fresh_{prefix}_fy{index}"] = fresh and len(matches) == 1
-            out[f"fresh_{prefix}_next_quarter"] = fresh and bool(quarterly)
+            out[f"fresh_{prefix}_future_quarter"] = fresh and bool(quarterly)
+            # QUARTERLY identity proves a period, not that it immediately follows
+            # the issuer's current fiscal quarter. H1 has no verified calendar
+            # anchor; do not infer calendar quarters or bless a distant period.
+            out[f"fresh_{prefix}_next_quarter"] = None if fresh and quarterly else False
+        out["next_quarter_admission_status"] = "UNKNOWN_NO_VERIFIED_FISCAL_CALENDAR"
         out["fresh_both_fy1"] = out["fresh_eps_fy1"] and out["fresh_revenue_fy1"]
         if out["fresh_both_fy1"]:
             eps_identity = json.loads(row["eps_fy1_identity"])
             rev_identity = json.loads(row["rev_fy1_identity"])
             if any(eps_identity[k] != rev_identity[k]
                    for k in (*core_fields, "fiscal_period_end", "period_type")):
-                for key in STRICT:
+                for key in ADMISSION_FIELDS:
                     out[key] = False
                 out.update(source_state="BLOCKED_PERIOD_CONFLICT", next_action="VERIFY_EPS_REVENUE_FISCAL_PERIOD")
                 result.append(out)
                 continue
         out["source_v2_eligible"] = fresh and bool(eps or rev) and row.get("identity_status") != "AMBIGUOUS"
         if row.get("identity_status") == "AMBIGUOUS":
-            for key in STRICT:
+            for key in ADMISSION_FIELDS:
                 out[key] = False
         for days in (30, 90):
             prior = [(t, r) for t, r in known if t <= available - timedelta(days=days)]
@@ -235,12 +266,12 @@ def audit_rows(universe: list[str], rows: list[dict], *, as_of: str,
         out["next_action"] = "WAIT_SEPARATE_CONSUMER_ADMISSION" if out["source_v2_eligible"] else "REFRESH_OR_VERIFY_METADATA"
         result.append(out)
     equities = [r for r in result if r["eligible_equity"]]
-    keys = ["attempted", "ever_seen", "ever_estimate_positive", "legacy_latest_positive",
-            "legacy_fresh_positive", "legacy_fresh_eps_nonzero_evidence",
-            "legacy_fresh_revenue_nonzero_evidence", "legacy_fresh_eps_fy2_nonzero_evidence", *STRICT]
     counts = {key: {"count": sum(r[key] is True for r in equities),
                     "unknown": sum(r[key] is None for r in equities),
-                    "denominator": len(equities)} for key in keys}
+                    "denominator": len(equities)} for key in COUNT_FIELDS}
+    if not snapshot_inputs_available:
+        for item in counts.values():
+            item["count"] = None
     summary = {"schema_version": "earnings-estimate-coverage-audit-v1", "as_of": as_of,
                "stale_after_days": stale_after_days, "universe_count": len(universe),
                "eligible_equities": len(equities), "non_applicable_assets": len(result)-len(equities),
@@ -249,15 +280,21 @@ def audit_rows(universe: list[str], rows: list[dict], *, as_of: str,
                "source_only": True, "research_only": True, "historical_pit_certified": False,
                "consumer_admission_status": "BLOCKED_SEPARATE_H2_AUTHORITY",
                "provider_http_requests": 0, "operational_writes": 0}
+    summary["next_quarter_contract_status"] = "BLOCKED_NO_VERIFIED_FISCAL_CALENDAR"
     return result, summary
 
 
 def audit_files(*, universe_path: Path, snapshot_dir: Path, output_dir: Path,
                 as_of: str, universe_sha256: str, expected_equities: int,
                 stale_after_days: int = 7) -> dict:
-    if sha256(universe_path) != universe_sha256:
+    universe_bytes = universe_path.read_bytes()
+    if hashlib.sha256(universe_bytes).hexdigest() != universe_sha256:
         raise ValueError("frozen_universe_hash_mismatch")
-    universe = pd.read_csv(universe_path, dtype=str)["ticker"].tolist()
+    universe_frame = pd.read_csv(BytesIO(universe_bytes), dtype=str, keep_default_na=False,
+                                 skip_blank_lines=False)
+    if "ticker" not in universe_frame:
+        raise ValueError("frozen_universe_missing_security_key")
+    universe = normalized_universe(universe_frame["ticker"].tolist())
     if sum(t not in CASH for t in universe) != expected_equities:
         raise ValueError("frozen_universe_count_mismatch")
     if output_dir.resolve().is_relative_to(snapshot_dir.resolve()):
@@ -273,16 +310,16 @@ def audit_files(*, universe_path: Path, snapshot_dir: Path, output_dir: Path,
                 raise ValueError("audit_output_must_not_overwrite_frozen_universe_or_snapshot")
     sources, rows = [], []
     for path in snapshot_paths:
-        frame = pd.read_parquet(path)
+        snapshot_bytes = path.read_bytes()
+        frame = pd.read_parquet(BytesIO(snapshot_bytes))
         if "ticker" not in frame:
             raise ValueError("snapshot_missing_security_key")
         rows.extend(frame.to_dict("records"))
-        sources.append({"path": str(path), "sha256": sha256(path), "rows": len(frame)})
-    by_security, summary = audit_rows(universe, rows, as_of=as_of, stale_after_days=stale_after_days)
+        sources.append({"path": str(path), "sha256": hashlib.sha256(snapshot_bytes).hexdigest(), "rows": len(frame)})
+    by_security, summary = audit_rows(universe, rows, as_of=as_of, stale_after_days=stale_after_days,
+                                     snapshot_inputs_available=bool(sources))
     if not sources:
         summary["status"] = "BLOCKED_NO_SNAPSHOT_INPUT"
-        summary["counts"] = {key: {"count": None, "unknown": expected_equities, "denominator": expected_equities}
-                             for key in summary["counts"]}
     else:
         summary["status"] = "AUDITED_LOCAL_INPUT_BYTES"
     summary["inputs"] = {"universe_path": str(universe_path), "universe_sha256": universe_sha256,

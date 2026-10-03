@@ -2783,6 +2783,11 @@ def main() -> int:
     test_workflow_separates_failed_evidence_from_accepted_paper_state()
     test_workflow_legacy_drive_migration_is_one_time_and_quarantined()
     test_workflow_catchup_is_explicit_mark_only_and_chronological()
+    # Already registered in Tier-1 validation; new unittest expectations also
+    # remain active under Python -O. No mutation/dispatch or network fixtures.
+    from tests.run287_paper_publication_recovery_smoke import main as recovery_checks
+    if recovery_checks() != 0:
+        raise AssertionError("publication-only recovery contract checks failed")
     print("run287_paper_ledger_transaction_smoke: PASS")
     return 0
 

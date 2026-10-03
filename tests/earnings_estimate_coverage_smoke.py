@@ -2,18 +2,20 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from tools.audit_earnings_estimate_coverage import H1, audit_rows, audit_files, sha256
+from tools.audit_earnings_estimate_coverage import H1, COUNT_FIELDS, audit_rows, audit_files, sha256
 from tools.build_forward_estimate_incremental_universe import select_bounded, selection_sort_key
 
 ASOF = "2026-10-03T08:00:00Z"
@@ -101,11 +103,99 @@ class CoverageFairnessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             p = Path(td)
             u = p / "universe.csv"
-            u.write_text("ticker\nAAA\n", encoding="utf-8")
-            summary = audit_files(universe_path=u, snapshot_dir=p / "absent", output_dir=p / "audit",
-                                  as_of=ASOF, universe_sha256=sha256(u), expected_equities=1)
-            self.assertEqual(summary["status"], "BLOCKED_NO_SNAPSHOT_INPUT")
-            self.assertIsNone(summary["counts"]["source_v2_eligible"]["count"])
+            u.write_text("ticker\nAAA\nCASH\n", encoding="utf-8")
+            (p / "empty").mkdir()
+            for directory in (p / "absent", p / "empty"):
+                summary = audit_files(universe_path=u, snapshot_dir=directory, output_dir=p / "audit",
+                                      as_of=ASOF, universe_sha256=sha256(u), expected_equities=1)
+                self.assertEqual(summary["status"], "BLOCKED_NO_SNAPSHOT_INPUT")
+                self.assertEqual(summary["source_state_counts"], {"UNKNOWN_NO_SNAPSHOT_INPUT": 1, "NON_APPLICABLE": 1})
+                detail = pd.read_csv(p / "audit/coverage_by_security.csv").set_index("ticker")
+                self.assertEqual(detail.loc["AAA", "source_state"], "UNKNOWN_NO_SNAPSHOT_INPUT")
+                for field in COUNT_FIELDS:
+                    self.assertTrue(pd.isna(detail.loc["AAA", field]), field)
+                    self.assertEqual(summary["counts"][field], {"count": None, "unknown": 1, "denominator": 1})
+                self.assertEqual(detail.loc["CASH", "source_state"], "NON_APPLICABLE")
+
+    def test_universe_digest_binds_buffer_despite_concurrent_replacement(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td)
+            u = p / "universe.csv"
+            u.write_bytes(b"ticker\nAAA\n")
+            original = u.read_bytes()
+            expected = sha256(u)
+            snapshots = p / "snapshots"
+            snapshots.mkdir()
+            pd.DataFrame([dict(ticker="AAA", available_from="2026-10-02", has_forward_estimate=1)]).to_parquet(snapshots / "estimates_20261002.parquet")
+            read_csv = pd.read_csv
+            def replace_after_capture(buffer, *args, **kwargs):
+                self.assertEqual(buffer.getvalue(), original)
+                u.write_bytes(b"ticker\nBBB\n")
+                return read_csv(buffer, *args, **kwargs)
+            with patch.object(pd, "read_csv", replace_after_capture):
+                summary = audit_files(universe_path=u, snapshot_dir=snapshots, output_dir=p / "audit",
+                                      as_of=ASOF, universe_sha256=expected, expected_equities=1)
+            self.assertEqual(summary["inputs"]["universe_sha256"], expected)
+            self.assertNotEqual(sha256(u), expected)
+            self.assertEqual(read_csv(p / "audit/coverage_by_security.csv").ticker.tolist(), ["AAA"])
+            self.assertEqual(summary["counts"]["ever_estimate_positive"]["count"], 1)
+
+    def test_snapshot_digest_binds_exact_parsed_buffer(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td)
+            u = p / "universe.csv"
+            u.write_bytes(b"ticker\nAAA\n")
+            snapshots = p / "snapshots"
+            snapshots.mkdir()
+            source = snapshots / "estimates_20261002.parquet"
+            pd.DataFrame([dict(ticker="AAA", available_from="2026-10-02", has_forward_estimate=1)]).to_parquet(source)
+            consumed = source.read_bytes()
+            read_parquet = pd.read_parquet
+            def replace_after_parse(buffer, *args, **kwargs):
+                self.assertEqual(buffer.getvalue(), consumed)
+                frame = read_parquet(buffer, *args, **kwargs)
+                pd.DataFrame([dict(ticker="BBB", available_from="2026-10-02", has_forward_estimate=0)]).to_parquet(source)
+                return frame
+            with patch.object(pd, "read_parquet", replace_after_parse):
+                summary = audit_files(universe_path=u, snapshot_dir=snapshots, output_dir=p / "audit",
+                                      as_of=ASOF, universe_sha256=sha256(u), expected_equities=1)
+            receipt = summary["inputs"]["snapshot_files"][0]
+            self.assertEqual(receipt["sha256"], hashlib.sha256(consumed).hexdigest())
+            self.assertNotEqual(receipt["sha256"], sha256(source))
+            self.assertEqual(summary["counts"]["ever_estimate_positive"]["count"], 1)
+
+    def test_blank_and_normalized_duplicate_universe_fail_before_outputs(self):
+        for content in ['ticker\n""\n', 'ticker\n"  "\n', 'ticker,alias\n,missing\n',
+                        'ticker\nAAA\n aaa \n']:
+            with self.subTest(content=content), tempfile.TemporaryDirectory() as td:
+                p = Path(td)
+                u = p / "universe.csv"
+                u.write_text(content, encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "nonempty_frozen_security|unique_normalized"):
+                    audit_files(universe_path=u, snapshot_dir=p / "snapshots", output_dir=p / "audit",
+                                as_of=ASOF, universe_sha256=sha256(u), expected_equities=1)
+                self.assertFalse((p / "audit").exists())
+
+    def test_direct_universe_rejects_nulls_and_normalization_collisions(self):
+        for universe in [[None], [float("nan")], [pd.NA], [True], [""], ["  "], ["AAA", " aaa "]]:
+            with self.subTest(universe=universe), self.assertRaises(ValueError):
+                audit_rows(universe, [], as_of=ASOF)
+
+    def test_valid_symbol_punctuation_and_literal_na_are_preserved(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td)
+            u = p / "universe.csv"
+            u.write_text("ticker\nbrk.b\nBF-B\nNA\ncash\n", encoding="utf-8")
+            snapshots = p / "snapshots"
+            snapshots.mkdir()
+            pd.DataFrame([dict(ticker=t, available_from="2026-10-02", has_forward_estimate=1)
+                          for t in ("BRK.B", "BF-B", "NA")]).to_parquet(snapshots / "estimates_20261002.parquet")
+            summary = audit_files(universe_path=u, snapshot_dir=snapshots, output_dir=p / "audit",
+                                  as_of=ASOF, universe_sha256=sha256(u), expected_equities=3)
+            detail = pd.read_csv(p / "audit/coverage_by_security.csv", keep_default_na=False)
+            self.assertEqual(detail.ticker.tolist(), ["BRK.B", "BF-B", "NA", "CASH"])
+            self.assertEqual(summary["eligible_equities"], 3)
+            self.assertEqual(summary["counts"]["ever_estimate_positive"]["count"], 3)
 
     def test_output_filename_collision_preserves_frozen_bytes(self):
         with tempfile.TemporaryDirectory() as td:
@@ -181,8 +271,45 @@ class SourceV2CoverageTests(unittest.TestCase):
         row = H1.build_snapshot("AAA", eps_payload={"data": [record]}, revenue_payload={},
                                 recommendation_payload=[], observed_at=ASOF, collected_at=ASOF, fetch_source="fmp")
         out, _ = audit_rows(["AAA"], [row], as_of=ASOF)
-        self.assertTrue(out[0]["fresh_eps_next_quarter"])
+        self.assertIsNone(out[0]["fresh_eps_next_quarter"])
+        self.assertTrue(out[0]["fresh_eps_future_quarter"])
         self.assertFalse(out[0]["fresh_eps_fy1"])
+
+    def test_distant_quarter_cannot_claim_immediately_next_quarter(self):
+        record = dict(issuer_id="issuer-A", security_id="security-A", period="2028-03-31",
+                      period_type="QUARTERLY", accounting_basis="GAAP", currency="USD",
+                      share_or_ADR_unit="share", avg=2)
+        row = H1.build_snapshot("AAA", eps_payload={"data": [record]}, revenue_payload={"data": [record]},
+                                recommendation_payload=[], observed_at=ASOF, collected_at=ASOF, fetch_source="fmp")
+        out, summary = audit_rows(["AAA"], [row], as_of=ASOF)
+        for metric in ("eps", "revenue"):
+            self.assertIsNone(out[0][f"fresh_{metric}_next_quarter"])
+            self.assertTrue(out[0][f"fresh_{metric}_future_quarter"])
+            self.assertEqual(summary["counts"][f"fresh_{metric}_next_quarter"]["unknown"], 1)
+        self.assertTrue(out[0]["source_v2_eligible"])
+        self.assertEqual(out[0]["next_quarter_admission_status"], "UNKNOWN_NO_VERIFIED_FISCAL_CALENDAR")
+
+    def test_quarter_gaps_and_provider_order_cannot_invent_calendar_anchor(self):
+        identity = dict(issuer_id="issuer-A", security_id="security-A", period_type="QUARTERLY",
+                        accounting_basis="GAAP", currency="USD", share_or_ADR_unit="share", avg=0)
+        quarters = [{**identity, "period": end} for end in ("2027-06-30", "2026-12-31")]
+        for order in (quarters, list(reversed(quarters))):
+            row = H1.build_snapshot("AAA", eps_payload={"data": order}, revenue_payload={},
+                                    recommendation_payload=[], observed_at=ASOF, collected_at=ASOF, fetch_source="fmp")
+            out, _ = audit_rows(["AAA"], [row], as_of=ASOF)
+            self.assertIsNone(out[0]["fresh_eps_next_quarter"])
+            self.assertTrue(out[0]["fresh_eps_future_quarter"])
+            self.assertFalse(out[0]["research_consumer_eligible"])
+
+    def test_expired_or_stale_quarter_has_no_fresh_quarter_admission(self):
+        identity = dict(issuer_id="issuer-A", security_id="security-A", period_type="QUARTERLY",
+                        accounting_basis="GAAP", currency="USD", share_or_ADR_unit="share", avg=2)
+        for end, at in [("2026-09-30", ASOF), ("2026-12-31", "2026-09-01T08:00:00Z")]:
+            row = H1.build_snapshot("AAA", eps_payload={"data": [{**identity, "period": end}]}, revenue_payload={},
+                                    recommendation_payload=[], observed_at=at, collected_at=at, fetch_source="fmp")
+            out, _ = audit_rows(["AAA"], [row], as_of=ASOF)
+            self.assertFalse(out[0]["fresh_eps_future_quarter"])
+            self.assertFalse(out[0]["fresh_eps_next_quarter"])
 
     def test_after_close_knowledge_is_not_available_at_close(self):
         row = self.snapshot(at="2026-10-02T21:00:00Z", value=3)
