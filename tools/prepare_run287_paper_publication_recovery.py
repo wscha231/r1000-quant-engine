@@ -34,6 +34,7 @@ from tools.check_run287_catchup_drive_readiness import (
 )
 
 WORKFLOW_PATH = ".github/workflows/run287_paper_publication_recovery.yml"
+ACCEPTED_ARTIFACT_STEP = "Upload accepted committed July27 publication recovery"
 SCHEMA = "run287-committed-paper-publication-recovery-v1"
 READY = "PREPARED_COMMITTED_PAPER_RECOVERY_REVIEW_ONLY"
 PROFILE = {
@@ -113,6 +114,32 @@ def boolean(value: Any) -> bool:
     return value is True or value == "true"
 
 
+def prior_publication_step_state(previous: dict, jobs_payload: Any) -> str:
+    require(isinstance(previous, dict) and type(previous.get("id")) is int and previous["id"] > 0,
+            "prior_recovery_identity")
+    require(isinstance(jobs_payload, dict), "prior_job_census_missing")
+    jobs = jobs_payload.get("jobs")
+    require(isinstance(jobs, list) and type(jobs_payload.get("total_count")) is int and
+            jobs_payload["total_count"] == len(jobs), "prior_job_census_incomplete")
+    matches = []
+    for job in jobs:
+        require(isinstance(job, dict) and job.get("run_id") == previous["id"] and
+                type(job.get("run_attempt")) is int and job["run_attempt"] > 0,
+                "prior_job_run_identity")
+        steps = job.get("steps")
+        require(isinstance(steps, list), "prior_job_steps_missing")
+        for step in steps:
+            require(isinstance(step, dict), "prior_job_step_invalid")
+            if step.get("name") == ACCEPTED_ARTIFACT_STEP:
+                matches.append(step.get("conclusion"))
+    require(matches, "prior_publication_step_missing")
+    if any(value == "success" for value in matches):
+        return "success"
+    require(all(value == "skipped" for value in matches),
+            "prior_publication_side_effect_ambiguous")
+    return "skipped"
+
+
 def validate_publisher(evidence: Path, checkout_sha: str, *, now: datetime | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
     repository = read(evidence / "repository.json")
@@ -163,6 +190,7 @@ def validate_publisher(evidence: Path, checkout_sha: str, *, now: datetime | Non
             prior["total_count"] == len(runs), "prior_recovery_census_incomplete")
     artifacts = prior.get("artifacts")
     require(isinstance(artifacts, dict), "prior_artifact_census_missing")
+    prior_jobs = prior.get("jobs")
     for previous in runs:
         if previous.get("id") == run["id"]:
             continue
@@ -171,7 +199,15 @@ def validate_publisher(evidence: Path, checkout_sha: str, *, now: datetime | Non
         require(isinstance(rows, list) and type(metadata.get("total_count")) is int and
                 metadata["total_count"] == len(rows), "prior_artifact_census_incomplete")
         name = f"accepted-paper-catchup-{PROFILE['session_date']}-{previous['id']}"
-        require(not any(a.get("name") == name for a in rows), "already_published_requires_separate_recovery")
+        if any(a.get("name") == name for a in rows):
+            raise ValueError("publication_recovery:already_published_requires_separate_recovery")
+        require(isinstance(prior_jobs, dict), "prior_job_census_missing")
+        step_state = prior_publication_step_state(previous, prior_jobs.get(str(previous["id"])))
+        if step_state == "success":
+            raise ValueError("publication_recovery:already_published_requires_separate_recovery")
+        require(previous.get("status") == "completed" and
+                previous.get("conclusion") in ("failure", "cancelled"),
+                "prior_retry_not_proven_prepublication")
     return {"source_sha": expected, "run_id": run["id"], "run_attempt": 1,
             "workflow_path": WORKFLOW_PATH, "authority": "FRESH_OWNER_MANUAL_DISPATCH",
             "save_continuity_cache": cache, "created_at": run["created_at"]}
@@ -480,6 +516,8 @@ def collect(evidence: Path, event_file: Path, run_id: str, checkout_sha: str) ->
     prior = get("/actions/workflows/run287_paper_publication_recovery.yml/runs?per_page=100")
     prior["artifacts"] = {str(run["id"]): get(f"/actions/runs/{run['id']}/artifacts?per_page=100")
                            for run in prior["workflow_runs"] if str(run["id"]) != run_id}
+    prior["jobs"] = {str(run["id"]): get(f"/actions/runs/{run['id']}/jobs?filter=all&per_page=100")
+                      for run in prior["workflow_runs"] if str(run["id"]) != run_id}
     write(evidence / "prior_recoveries.json", prior)
     write(evidence / "event.json", read(event_file))
     validate_github_compare_payload(read(evidence / "compare.json"),

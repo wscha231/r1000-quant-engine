@@ -99,6 +99,38 @@ def publisher_fixture(root: Path) -> dict:
     return data
 
 
+def prior_recovery(run_id: int = 123, *, conclusion: str = "cancelled") -> dict:
+    return {"id": run_id, "run_attempt": 1, "status": "completed", "conclusion": conclusion}
+
+
+def prior_jobs(run_id: int = 123, *, step_conclusion: str = "skipped",
+               duplicate: bool = False) -> dict:
+    steps = [{"name": recovery.ACCEPTED_ARTIFACT_STEP, "conclusion": step_conclusion}]
+    jobs = [{"id": 1000 + run_id, "run_id": run_id, "run_attempt": 1,
+             "status": "completed", "conclusion": "failure", "steps": steps}]
+    if duplicate:
+        jobs.append({"id": 2000 + run_id, "run_id": run_id, "run_attempt": 2,
+                     "status": "completed", "conclusion": "failure",
+                     "steps": [{"name": recovery.ACCEPTED_ARTIFACT_STEP, "conclusion": "cancelled"}]})
+    return {"total_count": len(jobs), "jobs": jobs}
+
+
+def install_prior_recovery(root: Path, *, run_id: int = 123, run_conclusion: str = "cancelled",
+                           step_conclusion: str = "skipped", artifacts: list | None = None,
+                           jobs_payload: dict | None = None) -> dict:
+    current = json.loads((root / "prior_recoveries.json").read_text(encoding="utf-8"))
+    previous = prior_recovery(run_id, conclusion=run_conclusion)
+    current["workflow_runs"] = [current["workflow_runs"][0], previous]
+    current["total_count"] = len(current["workflow_runs"])
+    current.setdefault("artifacts", {})[str(run_id)] = {
+        "total_count": len(artifacts or []), "artifacts": artifacts or [],
+    }
+    if jobs_payload is not None:
+        current.setdefault("jobs", {})[str(run_id)] = jobs_payload
+    dump(root / "prior_recoveries.json", current)
+    return current
+
+
 class PublicationRecoveryChecks(unittest.TestCase):
     def test_job_env_context_rejects_original_runner_path_expressions(self):
         workflow = recovery_workflow()
@@ -189,6 +221,37 @@ class PublicationRecoveryChecks(unittest.TestCase):
                 self.assertEqual(sentinel.read_bytes(), b"preserved")
                 self.assertEqual(set(root.iterdir()), {sentinel, github_env})
 
+    def test_prior_publication_step_name_matches_current_workflow(self):
+        steps = recovery_workflow()["jobs"]["publication_recovery"]["steps"]
+        self.assertEqual(sum(step.get("name") == recovery.ACCEPTED_ARTIFACT_STEP for step in steps), 1)
+
+    def test_collect_records_all_attempt_prior_job_evidence(self):
+        with tempfile.TemporaryDirectory() as td:
+            evidence = Path(td) / "api"
+            event = Path(td) / "event.json"
+            dump(event, {"inputs": {}})
+            prior_run = {"id": 123}
+            responses = {
+                "/actions/workflows/run287_paper_publication_recovery.yml/runs?per_page=100":
+                    {"total_count": 2, "workflow_runs": [prior_run, {"id": MOCK_RUN}]},
+                "/actions/runs/123/artifacts?per_page=100": {"total_count": 0, "artifacts": []},
+                "/actions/runs/123/jobs?filter=all&per_page=100": prior_jobs(),
+            }
+            seen = []
+
+            def fake_run(command, capture_output=True, check=True):
+                endpoint = command[-1].split("repos/" + recovery.scope.REPOSITORY, 1)[1]
+                seen.append(endpoint)
+                payload = responses.get(endpoint, {})
+                return subprocess.CompletedProcess(command, 0, stdout=json.dumps(payload).encode(), stderr=b"")
+
+            with patch.object(recovery.subprocess, "run", side_effect=fake_run), \
+                 patch.object(recovery, "validate_github_compare_payload", return_value=None):
+                recovery.collect(evidence, event, str(MOCK_RUN), PUBLISHER_SHA)
+            observed = json.loads((evidence / "prior_recoveries.json").read_text(encoding="utf-8"))
+            self.assertEqual(observed["jobs"]["123"], prior_jobs())
+            self.assertIn("/actions/runs/123/jobs?filter=all&per_page=100", seen)
+
     def test_owner_current_master_and_explicit_cache_scope(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -242,6 +305,67 @@ class PublicationRecoveryChecks(unittest.TestCase):
                     "artifacts": {"123": {"total_count": 1, "artifacts": [
                         {"name": "accepted-paper-catchup-2026-07-27-123", "expired": True}]}}})
             with self.assertRaisesRegex(ValueError, "already_published"):
+                recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+
+    def test_prior_successful_upload_blocks_after_artifact_retention_deletion(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            publisher_fixture(root)
+            install_prior_recovery(root, step_conclusion="success", jobs_payload=prior_jobs(step_conclusion="success"))
+            with self.assertRaisesRegex(ValueError, "already_published_requires_separate_recovery"):
+                recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+
+    def test_prior_prepublication_skip_allows_controlled_retry(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            publisher_fixture(root)
+            install_prior_recovery(root, run_conclusion="cancelled", step_conclusion="skipped",
+                                   jobs_payload=prior_jobs(step_conclusion="skipped"))
+            result = recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+            self.assertEqual(result["source_sha"], PUBLISHER_SHA)
+
+    def test_prior_job_and_step_evidence_fail_closed(self):
+        cases = [
+            ("missing_jobs", None, "prior_job_census_missing"),
+            ("incomplete_jobs", {"total_count": 2, "jobs": prior_jobs()["jobs"]}, "prior_job_census_incomplete"),
+            ("missing_step", {"total_count": 1, "jobs": [{"id": 1123, "run_id": 123, "run_attempt": 1,
+                "status": "completed", "conclusion": "failure", "steps": []}]}, "prior_publication_step_missing"),
+            ("cancelled_step", prior_jobs(step_conclusion="cancelled"), "prior_publication_side_effect_ambiguous"),
+            ("failed_step", prior_jobs(step_conclusion="failure"), "prior_publication_side_effect_ambiguous"),
+            ("mixed_attempts", prior_jobs(step_conclusion="skipped", duplicate=True), "prior_publication_side_effect_ambiguous"),
+        ]
+        for name, jobs_payload, error in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                publisher_fixture(root)
+                install_prior_recovery(root, jobs_payload=jobs_payload)
+                with self.assertRaisesRegex(ValueError, error):
+                    recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+
+    def test_prior_success_run_with_skipped_upload_is_not_retry_evidence(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            publisher_fixture(root)
+            install_prior_recovery(root, run_conclusion="success", step_conclusion="skipped",
+                                   jobs_payload=prior_jobs(step_conclusion="skipped"))
+            with self.assertRaisesRegex(ValueError, "prior_retry_not_proven_prepublication"):
+                recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+
+    def test_prior_expired_artifact_still_blocks_without_job_evidence(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            publisher_fixture(root)
+            name = "accepted-paper-catchup-2026-07-27-123"
+            install_prior_recovery(root, artifacts=[{"name": name, "expired": True}], jobs_payload=None)
+            with self.assertRaisesRegex(ValueError, "already_published_requires_separate_recovery"):
+                recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+
+    def test_current_run_exclusion_does_not_hide_other_prior_run(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            publisher_fixture(root)
+            install_prior_recovery(root, step_conclusion="success", jobs_payload=prior_jobs(step_conclusion="success"))
+            with self.assertRaisesRegex(ValueError, "already_published_requires_separate_recovery"):
                 recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
 
     def test_original_cancelled_boundary_and_pinned_artifact_identity(self):
