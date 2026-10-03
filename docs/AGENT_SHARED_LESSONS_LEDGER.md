@@ -30,6 +30,11 @@
   counted as jointly usable. Output paths must reject the input itself (including
   aliases), and metric admission must agree on security/basis/currency/unit and
   the FY1 fiscal period. Both corrections have normal/-O executable regressions.
+- A6 re-review extended alias testing to source Parquet hardlinks: protect every
+  read input and atomically replace output directory entries instead of truncating
+  existing inodes. Mature revision coverage is metric-specific; revenue-only
+  90-day evidence must be counted through the same-period H1 helper, with no EPS
+  inference. These corrections use the second and final permitted correction cycle.
 
 ## 2026-09-30 — Immutable publication may lead mutable aliases (#563 P1 C/D)
 

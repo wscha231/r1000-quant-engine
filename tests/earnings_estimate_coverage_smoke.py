@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -117,6 +118,24 @@ class CoverageFairnessTests(unittest.TestCase):
                             as_of=ASOF, universe_sha256=sha256(u), expected_equities=1)
             self.assertEqual(u.read_bytes(), before)
 
+    def test_hardlinked_output_preserves_source_parquet_bytes(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td)
+            snapshots = p / "snapshots"
+            snapshots.mkdir()
+            source = snapshots / "estimates_20261002.parquet"
+            pd.DataFrame([dict(ticker="AAA", available_from="2026-10-02", has_forward_estimate=1)]).to_parquet(source)
+            output = p / "audit"
+            output.mkdir()
+            os.link(source, output / "coverage_by_security.csv")
+            u = p / "universe.csv"
+            u.write_text("ticker\nAAA\n", encoding="utf-8")
+            before = source.read_bytes()
+            with self.assertRaisesRegex(ValueError, "overwrite_frozen_universe_or_snapshot"):
+                audit_files(universe_path=u, snapshot_dir=snapshots, output_dir=output,
+                            as_of=ASOF, universe_sha256=sha256(u), expected_equities=1)
+            self.assertEqual(source.read_bytes(), before)
+
 
 @unittest.skipIf(H1 is None, "accepted or pinned H1 validator is unavailable")
 class SourceV2CoverageTests(unittest.TestCase):
@@ -213,6 +232,19 @@ class SourceV2CoverageTests(unittest.TestCase):
         self.assertFalse(out[0]["eps_revision_30d_eligible"])
         self.assertTrue(out[0]["revenue_revision_30d_eligible"])
         self.assertFalse(out[0]["research_consumer_eligible"])
+
+    def test_revenue_only_mature_90d_is_counted_separately(self):
+        record = dict(issuer_id="issuer-A", security_id="security-A", period="2026-12-31",
+                      period_type="ANNUAL", accounting_basis="GAAP", currency="USD",
+                      share_or_ADR_unit="share", avg=20)
+        def snap(at, value):
+            return H1.build_snapshot("AAA", eps_payload={}, revenue_payload={"data": [{**record, "avg": value}]},
+                                     recommendation_payload=[], observed_at=at, collected_at=at, fetch_source="fmp")
+        out, _ = audit_rows(["AAA"], [snap("2026-06-30T08:00:00Z", 10), snap(ASOF, 20)], as_of=ASOF)
+        self.assertTrue(out[0]["revenue_revision_30d_eligible"])
+        self.assertTrue(out[0]["revenue_revision_90d_eligible"])
+        self.assertTrue(out[0]["revision_90d_eligible"])
+        self.assertFalse(out[0]["eps_revision_90d_eligible"])
 
 
 if __name__ == "__main__":

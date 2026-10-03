@@ -11,6 +11,7 @@ import hashlib
 import json
 import math
 import sys
+import tempfile
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -32,7 +33,8 @@ STRICT = ("fresh_eps_fy1", "fresh_revenue_fy1", "fresh_both_fy1",
           "fresh_eps_fy2", "fresh_revenue_fy2", "fresh_eps_next_quarter",
           "fresh_revenue_next_quarter", "source_v2_eligible",
           "revision_30d_eligible", "revision_90d_eligible",
-          "eps_revision_30d_eligible", "eps_revision_90d_eligible", "revenue_revision_30d_eligible",
+          "eps_revision_30d_eligible", "eps_revision_90d_eligible",
+          "revenue_revision_30d_eligible", "revenue_revision_90d_eligible",
           "research_consumer_eligible")
 
 
@@ -225,9 +227,8 @@ def audit_rows(universe: list[str], rows: list[dict], *, as_of: str,
                 boundary = [r for t, r in prior if t == prior_time]
                 if len({stable_row(r) for r in boundary}) == 1:
                     out[f"eps_revision_{days}d_eligible"] = out["fresh_eps_fy1"] and h1.same_period_revision(row, boundary[0]) is not None
-                    if days == 30:
-                        out["revenue_revision_30d_eligible"] = out["fresh_revenue_fy1"] and h1.same_period_revision(row, boundary[0], prefix="rev_fy1") is not None
-                    out[f"revision_{days}d_eligible"] = out[f"eps_revision_{days}d_eligible"] or (days == 30 and out["revenue_revision_30d_eligible"])
+                    out[f"revenue_revision_{days}d_eligible"] = out["fresh_revenue_fy1"] and h1.same_period_revision(row, boundary[0], prefix="rev_fy1") is not None
+                    out[f"revision_{days}d_eligible"] = out[f"eps_revision_{days}d_eligible"] or out[f"revenue_revision_{days}d_eligible"]
         out["source_state"] = "SOURCE_ONLY_FRESH" if out["source_v2_eligible"] else "STALE" if not fresh else "BLOCKED_IDENTITY_OR_MISSING"
         if eps_basis_blocked:
             out["source_state"] = "SOURCE_ONLY_REVENUE_EPS_BASIS_BLOCKED" if out["source_v2_eligible"] else "BLOCKED_CONSENSUS_BASIS"
@@ -261,13 +262,17 @@ def audit_files(*, universe_path: Path, snapshot_dir: Path, output_dir: Path,
         raise ValueError("frozen_universe_count_mismatch")
     if output_dir.resolve().is_relative_to(snapshot_dir.resolve()):
         raise ValueError("audit_output_must_be_isolated_from_source")
+    snapshot_paths = sorted(snapshot_dir.glob("estimates_*.parquet"))
     for name in ("coverage_by_security.csv", "summary.json"):
         target = output_dir / name
-        if (target.resolve() == universe_path.resolve()
-                or target.exists() and target.samefile(universe_path)):
-            raise ValueError("audit_output_must_not_overwrite_frozen_universe")
+        if target.is_symlink():
+            raise ValueError("audit_output_must_not_alias_source")
+        for source in [universe_path, *snapshot_paths]:
+            if (target.resolve() == source.resolve()
+                    or target.exists() and target.samefile(source)):
+                raise ValueError("audit_output_must_not_overwrite_frozen_universe_or_snapshot")
     sources, rows = [], []
-    for path in sorted(snapshot_dir.glob("estimates_*.parquet")):
+    for path in snapshot_paths:
         frame = pd.read_parquet(path)
         if "ticker" not in frame:
             raise ValueError("snapshot_missing_security_key")
@@ -283,8 +288,18 @@ def audit_files(*, universe_path: Path, snapshot_dir: Path, output_dir: Path,
     summary["inputs"] = {"universe_path": str(universe_path), "universe_sha256": universe_sha256,
                          "snapshot_files": sources}
     output_dir.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(by_security).to_csv(output_dir / "coverage_by_security.csv", index=False)
-    (output_dir / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True)+"\n", encoding="utf-8")
+    # Replace output directory entries atomically; never open an existing
+    # output inode for truncation if a concurrent alias appears after checks.
+    for name, content in (("coverage_by_security.csv", pd.DataFrame(by_security).to_csv(index=False)),
+                          ("summary.json", json.dumps(summary, indent=2, sort_keys=True)+"\n")):
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="", dir=output_dir,
+                                         prefix=".coverage-audit-", delete=False) as handle:
+            temporary = Path(handle.name)
+            handle.write(content)
+        try:
+            temporary.replace(output_dir / name)
+        finally:
+            temporary.unlink(missing_ok=True)
     return summary
 
 
