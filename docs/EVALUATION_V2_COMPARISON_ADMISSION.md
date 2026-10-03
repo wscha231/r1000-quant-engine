@@ -92,17 +92,30 @@ the exact held owned handle on failure. A new occupant winning a `CREATE_NEW`
 gap is preserved without deletion or retry. Unsupported native operations block.
 
 This is not an atomic three-file transaction. CSV and Markdown install before
-`summary.json`, the final completion marker; no fallible publication check
-follows that marker. Direct API failure returns empty bounded blocked evidence
+`summary.json`, the final completion marker. Normal return requires verifying
+each installed anchored leaf's identity and expected serialized bytes, including
+the summary; the held original staging descriptor alone cannot bind a POSIX
+source-name replacement. Final verification remains fallible. Direct API failure returns empty bounded blocked evidence
 and CLI exits 2. Windows ordinary partial failures clear held owned files.
 Portable POSIX offers no inode-conditional unlink, so error cleanup retains
 potentially raced names and reports `OUTPUT_PUBLICATION_CLEANUP_INCOMPLETE`.
-An existing summary retained after a failed retry describes a prior invocation;
-it is not that retry's successful receipt. Consumers must use the current
+Prior, foreign or unverified files retained after failure are not this
+invocation's successful receipt. The returned failure has `current_receipt=false`
+and never retries publication into retained names. A completed report publication,
+including a report of blocked admission, has `current_receipt=true`; this indicates
+publication completeness and grants no comparison or economic authority.
+An existing summary may describe a prior retry.
+Consumers must use the current
 invocation result and complete receipt, not infer success from file existence.
 Tests assert that each injected publication phase is reached. Actual Windows
 locks, junctions and handle deletion are tested locally; actual POSIX operations
 require Linux validation, and no macOS execution is claimed.
+Status telemetry catches only stdout `OSError` (including broken pipes); it
+preserves the installed valid receipt and API/CLI outcome. Publication failures
+still return blocked evidence and are not swallowed as telemetry.
+Telemetry flushes immediately and closes only a failed original process stdout
+to prevent a buffered shutdown flush overriding the CLI exit code. Caller-owned
+redirected streams are preserved; an already closed stream receives no telemetry.
 Matching admission continues through
 the existing result verifier and cannot override any economic or mission gate.
 

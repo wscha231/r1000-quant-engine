@@ -6015,6 +6015,10 @@ Expected contract:
   names on error. Install summary last and distinguish prior receipts on retry.
 - Do not claim three-file atomic publication or substitute old QA for new races.
 
+- Final installed names need inode and expected serialized-byte checks,
+  including the summary. Unverified retained names are not current receipts.
+  Stdout failure is telemetry only; never retry a failed publication to hide it.
+
 ## 2026-10-03 — Close SQLite handles after blocked materialization
 
 - A SQLite connection context manages commit/rollback and does not close the

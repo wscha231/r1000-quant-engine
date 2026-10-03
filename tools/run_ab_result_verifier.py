@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import io
 import json
 import math
@@ -738,7 +739,7 @@ class ReportDirectory:
         if self.windows:
             descriptor = self.create_exclusive_leaf(name)
         else:
-            descriptor = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            descriptor = os.open(name, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
                                  0o600, dir_fd=self.entries[-1][1])
         registered = False
         try:
@@ -788,7 +789,7 @@ class ReportDirectory:
                         'OUTPUT_PUBLICATION_FAILED')
                     offset += written
             os.fsync(target)
-            self.unlink_owned(source)
+            comparison_admission.require(self.unlink_owned(source), 'OUTPUT_PUBLICATION_CLEANUP_INCOMPLETE')
             return identity
         identity = publication_identity(self.safe_leaf(source))
         os.replace(source, destination, src_dir_fd=self.entries[-1][1], dst_dir_fd=self.entries[-1][1])
@@ -804,6 +805,39 @@ class ReportDirectory:
             del self.owned_descriptors[name]
             try: os.close(descriptor)
             except OSError: pass  # Final teardown cannot expose provider exception text.
+
+    def verify_installed(self, name: str, size: int, digest: str) -> None:
+        """Verify the installed anchored name, not only the original stage fd."""
+        self.guard()
+        observed = self.safe_leaf(name)
+        comparison_admission.require(observed is not None, 'OUTPUT_PUBLICATION_PATH_CHANGED')
+        if self.windows:
+            # The exclusive new handle denies write/delete access. The held
+            # directory components and observed name bind this exact inode.
+            descriptor = self.owned_descriptors[name]
+        else:
+            descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW,
+                                 dir_fd=self.entries[-1][1])
+        try:
+            before = os.fstat(descriptor)
+            comparison_admission.require(publication_identity(before) == publication_identity(observed)
+                and before.st_size == size, 'OUTPUT_PUBLICATION_PATH_CHANGED')
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            actual = hashlib.sha256(); remaining = size
+            while remaining:
+                raw = os.read(descriptor, min(65536, remaining))
+                comparison_admission.require(isinstance(raw, bytes) and 0 < len(raw) <= remaining,
+                    'OUTPUT_PUBLICATION_FAILED')
+                actual.update(raw); remaining -= len(raw)
+            after = os.fstat(descriptor)
+            final = self.safe_leaf(name)
+            comparison_admission.require(final is not None
+                and publication_identity(after) == publication_identity(final) == publication_identity(before)
+                and after.st_size == size and actual.hexdigest() == digest,
+                'OUTPUT_PUBLICATION_PATH_CHANGED')
+            self.guard()
+        finally:
+            if not self.windows: os.close(descriptor)
 
     def close(self) -> None:
         self.close_owned_descriptors()
@@ -875,11 +909,11 @@ def publish_anchored(args: argparse.Namespace, payload: dict[str, Any]) -> None:
                     'OUTPUT_PUBLICATION_FAILED')
                 offset += written
             os.fsync(descriptor)
-            staged.append((name, leaf, temporary[name]))
-        # The summary is the last completion marker. No fallible validation or
-        # other report installation follows it; a partial group is not a commit.
+            staged.append((name, leaf, temporary[name], len(raw), hashlib.sha256(raw).hexdigest()))
+        # Install summary last, but verify its installed identity and bytes too.
+        # A partial or unverified group is never this invocation's receipt.
         staged.sort(key=lambda item: item[1] == 'summary.json')
-        for name, leaf, identity in staged:
+        for name, leaf, identity, size, digest in staged:
             root.guard(); output.guard(); output.safe_leaf(leaf)
             error = comparison_output_error(args)
             comparison_admission.require(error is None, error or 'OUTPUT_PUBLICATION_PATH_CHANGED')
@@ -888,10 +922,13 @@ def publish_anchored(args: argparse.Namespace, payload: dict[str, Any]) -> None:
                 'OUTPUT_PUBLICATION_PATH_CHANGED')
             installed_identity = output.replace(name, leaf)
             temporary.pop(name)
-            if leaf == 'summary.json': break
             value = output.safe_leaf(leaf)
             comparison_admission.require(value is not None and publication_identity(value) == installed_identity,
                 'OUTPUT_PUBLICATION_PATH_CHANGED')
+            output.verify_installed(leaf, size, digest)
+        root.guard(); output.guard()
+        error = comparison_output_error(args)
+        comparison_admission.require(error is None, error or 'OUTPUT_PUBLICATION_PATH_CHANGED')
     except (comparison_admission.AdmissionError, OSError, ValueError, TypeError, RuntimeError) as exc:
         incomplete = False
         if output is not None:
@@ -910,6 +947,7 @@ def blocked_comparison_payload(admission: dict[str, Any], portfolio: str) -> dic
     return {
         "schema_version": "ab-result-verifier-v1", **mission_identity(PORTFOLIO_MISSION_TARGETS),
         "status": "blocked_comparison_admission", "portfolio": portfolio,
+        "current_receipt": False,
         "comparison_admission": admission, "baseline": {}, "candidate_count": 0,
         "candidates": [], "review_valid_candidate_count": 0,
         "production_activation_allowed": False, "live_trading_allowed": False,
@@ -919,14 +957,30 @@ def blocked_comparison_payload(admission: dict[str, Any], portfolio: str) -> dic
 
 
 def publish_or_block(args: argparse.Namespace, payload: dict[str, Any]) -> dict[str, Any]:
+    if getattr(args, 'comparison_admission_root', None) is not None:
+        payload = {**payload, 'current_receipt': True}
     try:
         publish_report(args, payload)
     except comparison_admission.AdmissionError as exc:
         # Final geometry failure is an in-memory blocked result for direct API
         # callers too. Do not retry publication into the unsafe destination.
         payload = blocked_comparison_payload(blocked_comparison(str(exc)), payload["portfolio"])
-        print(json.dumps({"status": payload["status"], "reason": str(exc)}))
+        emit_status({"status": payload["status"], "reason": str(exc), "current_receipt": False})
     return payload
+
+
+def emit_status(payload: dict[str, Any]) -> None:
+    """Telemetry failure does not change installed evidence or API outcome."""
+    message = json.dumps(payload, indent=2)
+    if getattr(sys.stdout, 'closed', False): return
+    try:
+        print(message, flush=True)
+    except OSError:
+        # Flush now so a closed native pipe cannot override main's outcome at
+        # interpreter shutdown. Never close a caller's redirected/custom stream.
+        if sys.stdout is sys.__stdout__:
+            try: sys.stdout.close()
+            except OSError: pass
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
@@ -940,7 +994,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         else:
             # An unsafe report destination must never receive even a blocked
             # summary. Return the bounded result in memory/CLI only.
-            print(json.dumps({"status": payload["status"], "reason": output_error}))
+            emit_status({"status": payload["status"], "reason": output_error})
         return payload
     baseline = collect_evidence(repo_path(args.baseline_run), portfolio)
     baseline_ok = bool(
@@ -1044,8 +1098,8 @@ def publish_report(args: argparse.Namespace, payload: dict[str, Any]) -> None:
         write_json(output_dir / "summary.json", payload)
         write_csv(output_dir / "candidate_verdicts.csv", payload["candidates"])
         (output_dir / "report.md").write_text(render_report(payload), encoding="utf-8")
-    print(json.dumps({"status": payload["status"], "review_valid": payload["review_valid_candidate_count"],
-                      "candidates": len(payload["candidates"])}, indent=2))
+    emit_status({"status": payload["status"], "review_valid": payload["review_valid_candidate_count"],
+                 "candidates": len(payload["candidates"])})
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -1073,7 +1127,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         payload = run(parse_args(argv))
     except comparison_admission.AdmissionError as exc:
-        print(json.dumps({"status": "blocked_comparison_admission", "reason": str(exc)}))
+        emit_status({"status": "blocked_comparison_admission", "reason": str(exc)})
         return 2
     return 2 if payload["status"] == "blocked_comparison_admission" else 0
 

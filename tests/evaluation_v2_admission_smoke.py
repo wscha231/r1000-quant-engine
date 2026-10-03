@@ -918,10 +918,11 @@ class AnchoredPublicationTests(unittest.TestCase):
                 if value is not None: values += ['--' + name.replace('_', '-'), value]
             return verifier.main(values)
 
-    def assert_bounded(self, result):
+    def assert_bounded(self, result, current_receipt=False):
         self.assertEqual(result['status'], 'blocked_comparison_admission')
         self.assertEqual(result['candidates'], [])
         self.assertEqual(result['candidate_count'], 0)
+        self.assertIs(result['current_receipt'], current_receipt)
         for key in verifier.COMPARISON_AUTHORITY_FIELDS:
             if key != 'unverified_domains': self.assertIs(result[key], False)
         self.assertNotIn('private-token', json.dumps(result))
@@ -1359,6 +1360,186 @@ class AnchoredPublicationTests(unittest.TestCase):
             result = self.call(args)
         self.assertEqual(result['status'], 'review_candidate_ready')
         self.assertNotIn('comparison_admission', result)
+
+    def test_stdout_failures_do_not_destroy_valid_receipts_or_escape_blocked_api_cli(self):
+        for state in ('valid', 'wrong_pin', 'partial', 'unsafe', 'publication_error'):
+            for error in (BrokenPipeError, OSError):
+                for cli in (False, True):
+                    with self.subTest(state=state, error=error.__name__, cli=cli):
+                        root, args = self.invocation('stdout-' + str((state, error.__name__, cli)), blocked=state == 'wrong_pin')
+                        if state == 'partial': args.comparison_challenger_arm = None
+                        elif state == 'unsafe': args.output_dir = str(root)
+                        before = self.fixture.census(root)
+                        with patch('builtins.print', side_effect=error('private-token')) as telemetry:
+                            if state == 'publication_error':
+                                with patch.object(os, 'write', side_effect=OSError('private-token')): result = self.call(args, cli)
+                            else: result = self.call(args, cli)
+                        self.assertTrue(telemetry.called, 'telemetry failure phase not reached')
+                        self.assertEqual(self.fixture.census(root), before)
+                        if state == 'valid':
+                            if cli: self.assertEqual(result, 0)
+                            else: self.assertEqual(result['status'], 'review_candidate_ready')
+                            output = Path(args.output_dir)
+                            for leaf in verifier.REPORT_LEAVES: self.assertTrue((output / leaf).is_file())
+                            self.assertEqual(json.loads((output / 'summary.json').read_bytes())['status'], 'review_candidate_ready')
+                        else:
+                            if cli: self.assertEqual(result, 2)
+                            else: self.assert_bounded(result, current_receipt=state in ('wrong_pin', 'partial'))
+
+    def test_actual_cli_closed_stdout_pipe_preserves_success_and_blocked_exit_codes(self):
+        for blocked in (False, True):
+            root, args = self.invocation('native-stdout-pipe-' + str(blocked), blocked=blocked)
+            before = self.fixture.census(root)
+            command = [sys.executable] + (['-O'] if sys.flags.optimize else [])
+            command += [str(ROOT/'tools/run_ab_result_verifier.py'), '--baseline-run', args.baseline_run,
+                        '--candidate-run', args.candidate_run[0], '--output-dir', args.output_dir]
+            for name in verifier.COMPARISON_OPTIONS:
+                command += ['--' + name.replace('_','-'), getattr(args,name)]
+            environment = os.environ.copy(); environment.pop('PYTHONUNBUFFERED',None)
+            process = subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=environment)
+            process.stdout.close(); process.stdout = None
+            _, error = process.communicate(timeout=45)
+            self.assertEqual(process.returncode, 2 if blocked else 0, error.decode(errors='replace'))
+            self.assertNotIn(b'Exception ignored',error)
+            self.assertEqual(self.fixture.census(root),before)
+            receipt=json.loads((Path(args.output_dir)/'summary.json').read_bytes())
+            self.assertTrue(receipt['current_receipt'])
+            self.assertEqual(receipt['status'],'blocked_comparison_admission' if blocked else 'review_candidate_ready')
+
+    def test_closed_and_failed_redirected_stdout_remain_caller_owned(self):
+        import contextlib
+        import io
+        class FailedOutput(io.StringIO):
+            def write(self, value): raise OSError('private-token')
+        for closed in (False, True):
+            for blocked in (False, True):
+                root,args=self.invocation('caller-stdout-'+str((closed,blocked)),blocked=blocked)
+                before=self.fixture.census(root); stream=io.StringIO() if closed else FailedOutput()
+                if closed:stream.close()
+                with contextlib.redirect_stdout(stream):result=verifier.run(args)
+                self.assertEqual(stream.closed,closed,'caller stdout ownership changed')
+                self.assertEqual(result['status'],'blocked_comparison_admission' if blocked else 'review_candidate_ready')
+                self.assertTrue(result['current_receipt'])
+                self.assertEqual(self.fixture.census(root),before)
+                stream.close()
+
+    @unittest.skipUnless(os.name == 'posix', 'actual POSIX dir_fd source substitution; Linux CI required')
+    def test_posix_each_source_name_and_same_inode_byte_swap_before_replace_is_rejected(self):
+        for leaf in verifier.REPORT_LEAVES:
+            for mutation in ('source_name', 'same_inode_bytes'):
+                for blocked in (False, True):
+                    for cli in (False, True):
+                        with self.subTest(leaf=leaf, mutation=mutation, blocked=blocked, cli=cli):
+                            root, args = self.invocation('source-swap-' + str((leaf, mutation, blocked, cli)), blocked=blocked)
+                            output = Path(args.output_dir); before = self.fixture.census(root)
+                            fired = False; foreign = None; original = os.replace
+                            def replace(source, destination, **kwargs):
+                                nonlocal fired, foreign
+                                if destination == leaf and not fired:
+                                    fired = True; path = output / source
+                                    identity = verifier.publication_identity(path.stat())
+                                    raw = path.read_bytes(); foreign = bytes([raw[0] ^ 1]) + raw[1:]
+                                    if mutation == 'source_name': path.rename(output / 'parked-original-stage')
+                                    path.write_bytes(foreign)
+                                    changed = verifier.publication_identity(path.stat())
+                                    self.assertEqual(identity == changed, mutation == 'same_inode_bytes')
+                                return original(source, destination, **kwargs)
+                            with patch.object(os, 'replace', new=replace): result = self.call(args, cli)
+                            self.assertTrue(fired, 'source swap after source check and before rename not reached')
+                            self.assertEqual((output / leaf).read_bytes(), foreign, 'foreign bytes were deleted or overwritten in cleanup')
+                            self.assertEqual(self.fixture.census(root), before)
+                            if cli: self.assertEqual(result, 2)
+                            else:
+                                self.assert_bounded(result)
+                                self.assertEqual(result['comparison_admission']['reason'], 'OUTPUT_PUBLICATION_CLEANUP_INCOMPLETE')
+
+    @unittest.skipUnless(os.name == 'nt', 'actual Windows stage handles deny source rename/write')
+    def test_native_windows_stage_name_and_same_inode_write_attempts_are_refused(self):
+        for leaf in verifier.REPORT_LEAVES:
+            for mutation in ('source_name', 'same_inode_bytes'):
+                for blocked in (False, True):
+                    for cli in (False, True):
+                        with self.subTest(leaf=leaf, mutation=mutation, blocked=blocked, cli=cli):
+                            root, args = self.invocation('locked-source-' + str((leaf, mutation, blocked, cli)), blocked=blocked)
+                            output = Path(args.output_dir); before = self.fixture.census(root); fired = False
+                            original = verifier.ReportDirectory.replace
+                            def replace(directory, source, destination):
+                                nonlocal fired
+                                if destination == leaf and not fired:
+                                    fired = True; path = output / source
+                                    with self.assertRaises(OSError) as captured:
+                                        if mutation == 'source_name': path.rename(output / 'parked-original-stage')
+                                        else: path.write_bytes(b'foreign-stage-bytes')
+                                    if mutation == 'source_name': self.assertEqual(captured.exception.winerror, 32)
+                                    else:
+                                        # CRT fopen reports EACCES without winerror;
+                                        # independently require native sharing denial.
+                                        import ctypes
+                                        self.assertEqual(captured.exception.errno, 13)
+                                        handle = directory.kernel.CreateFileW(str(path), 0x40000000, 7, None, 3, 0x00200000, None)
+                                        if handle != ctypes.c_void_p(-1).value: directory.kernel.CloseHandle(handle)
+                                        self.assertEqual(handle, ctypes.c_void_p(-1).value)
+                                        self.assertEqual(ctypes.get_last_error(), 32, 'native stage write access was not denied')
+                                return original(directory, source, destination)
+                            with patch.object(verifier.ReportDirectory, 'replace', new=replace): result = self.call(args, cli)
+                            self.assertTrue(fired, 'held source-name/content mutation phase not reached')
+                            self.assertEqual(self.fixture.census(root), before)
+                            if cli: self.assertEqual(result, 2 if blocked else 0)
+                            else: self.assertEqual(result['status'], 'blocked_comparison_admission' if blocked else 'review_candidate_ready')
+                            self.assertFalse((output / 'parked-original-stage').exists())
+                            for name in verifier.REPORT_LEAVES: self.assertTrue((output / name).is_file())
+
+    def test_held_inode_content_verification_detects_same_size_owned_write_mutation(self):
+        for leaf in verifier.REPORT_LEAVES:
+            for blocked in (False, True):
+                for cli in (False, True):
+                    with self.subTest(leaf=leaf, blocked=blocked, cli=cli):
+                        root, args = self.invocation('content-verify-' + str((leaf, blocked, cli)), blocked=blocked)
+                        before = self.fixture.census(root); fired = False
+                        original = verifier.ReportDirectory.verify_installed
+                        def verify(directory, name, size, digest):
+                            nonlocal fired
+                            if name == leaf and not fired:
+                                fired = True; descriptor = directory.owned_descriptors[name]
+                                before_stat = os.fstat(descriptor)
+                                os.lseek(descriptor, 0, os.SEEK_SET); byte = os.read(descriptor, 1)
+                                os.lseek(descriptor, 0, os.SEEK_SET); os.write(descriptor, bytes([byte[0] ^ 1]))
+                                after_stat = os.fstat(descriptor)
+                                self.assertEqual(verifier.publication_identity(before_stat), verifier.publication_identity(after_stat))
+                                self.assertEqual(before_stat.st_size, after_stat.st_size)
+                            return original(directory, name, size, digest)
+                        with patch.object(verifier.ReportDirectory, 'verify_installed', new=verify): result = self.call(args, cli)
+                        self.assertTrue(fired, 'installed same-inode content check not reached')
+                        self.assertEqual(self.fixture.census(root), before)
+                        if cli: self.assertEqual(result, 2)
+                        else: self.assert_bounded(result)
+
+    @unittest.skipUnless(os.name == 'nt', 'actual Windows post-copy held-temp cleanup')
+    def test_each_post_copy_temp_deletion_error_is_bounded_and_cleans_owned_inodes(self):
+        for leaf in verifier.REPORT_LEAVES:
+            for blocked in (False, True):
+                for cli in (False, True):
+                    with self.subTest(leaf=leaf, blocked=blocked, cli=cli):
+                        root, args = self.invocation('post-copy-delete-' + str((leaf, blocked, cli)), blocked=blocked)
+                        output = Path(args.output_dir); before = self.fixture.census(root)
+                        active = None; fired = False; original_replace = verifier.ReportDirectory.replace
+                        original_unlink = verifier.ReportDirectory.unlink_owned
+                        def replace(*values):
+                            nonlocal active
+                            active = values[2]; return original_replace(*values)
+                        def unlink(directory, name):
+                            nonlocal fired
+                            if active == leaf and name.startswith('.ab-report-') and not fired:
+                                fired = True; raise OSError('private-token')
+                            return original_unlink(directory, name)
+                        with patch.object(verifier.ReportDirectory,'replace',new=replace), \
+                             patch.object(verifier.ReportDirectory,'unlink_owned',new=unlink): result = self.call(args,cli)
+                        self.assertTrue(fired, 'post-copy cleanup after full final write was not reached')
+                        self.assertEqual(self.fixture.census(root),before)
+                        self.assertFalse(any((output/name).exists() for name in verifier.REPORT_LEAVES))
+                        self.assertFalse(any(p.name.startswith('.ab-report-') for p in output.iterdir()))
+                        if cli: self.assertEqual(result,2)
+                        else: self.assert_bounded(result)
 
 
 def suite():
