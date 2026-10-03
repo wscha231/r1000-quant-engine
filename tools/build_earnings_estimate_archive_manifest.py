@@ -40,7 +40,7 @@ def collector_transaction_hash_failures(
 def require_complete_collector_transaction(directory: Path) -> dict[str, Any]:
     """A retained marker travels with the archive/checkpoint in cache and Drive.
 
-    Pending or malformed evidence is never cleared by a retry. Recovery needs
+    Pending, rolled-back or malformed evidence is never cleared by a retry. Recovery needs
     an explicitly verified state repair; timestamps or an old summary are not proof.
     """
     path = directory / TRANSACTION_MARKER_NAME
@@ -53,9 +53,11 @@ def require_complete_collector_transaction(directory: Path) -> dict[str, Any]:
                 or marker.get("status") not in {"committed", "rolled_back"}
                 or not marker.get("commit_id")):
             raise ValueError("incomplete marker")
-        return marker
     except (OSError, ValueError) as exc:
         raise ValueError("incomplete_collector_transaction") from exc
+    if marker.get("status") == "rolled_back":
+        raise ValueError("collector_transaction_rolled_back_requires_verified_repair")
+    return marker
 
 
 def require_consistent_collection_acknowledgement(
@@ -178,15 +180,6 @@ def require_verified_collector_state(
             "state": "legacy_or_empty",
             "commit_id": "",
             "summary_sha256": "",
-            "attempt_id": "",
-            "checkpoint_sha256": "",
-        }
-
-    if marker.get("status") == "rolled_back":
-        return {
-            "state": "rolled_back",
-            "commit_id": str(marker.get("commit_id") or ""),
-            "summary_sha256": str(marker.get("summary_sha256") or ""),
             "attempt_id": "",
             "checkpoint_sha256": "",
         }
@@ -561,12 +554,14 @@ def build_manifest(
     for directory in {snapshot_dir_path, queue_checkpoint_path.parent}:
         try:
             observed = require_complete_collector_transaction(directory)
-            if observed.get("status") == "rolled_back":
-                transaction_failures.append("collector_transaction_rolled_back")
             if directory == snapshot_dir_path:
                 marker = observed
-        except ValueError:
-            transaction_failures.append("incomplete_collector_transaction")
+        except ValueError as exc:
+            transaction_failures.append(
+                "collector_transaction_rolled_back_requires_verified_repair"
+                if str(exc) == "collector_transaction_rolled_back_requires_verified_repair"
+                else "incomplete_collector_transaction"
+            )
     checkpoint_payload = load_json(queue_checkpoint_path)
     checkpoint_ack = (
         checkpoint_payload.get("last_collection_attempt_ack")

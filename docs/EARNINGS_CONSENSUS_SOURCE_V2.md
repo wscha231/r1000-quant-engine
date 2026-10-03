@@ -185,3 +185,19 @@ requires checkpoint/queue hashes. The restart reader applies the same mandatory
 hash contract. Both cache save and restore retain the bound summary and queue;
 an offline test copies only the actual workflow cache paths and runs the planner
 against that restored transaction. Older incomplete cache evidence stays blocked.
+
+## Rollback restart correction (2026-10-03)
+
+Hosted Codex review of `8c5ab3187a8fa290e59abe635ddfe36632096fb1`
+identified one P2 rollback-admission defect. The owner's subsequent continuation
+authorizes this source correction and completion of the current review gates.
+It does not authorize runtime state repair or an unlimited hosted review loop.
+
+The shared collector entry guard rejects a retained `rolled_back` marker before
+the planner rewrites state, the collector makes vendor calls (with or without
+a checkpoint), or the acknowledgement utility advances counts. A rollback
+manifest stays non-publishable. Actual injected signal/summary replacement
+failures exercise repeated attempts and byte preservation. A hash-matching
+generation with a rollback marker still blocks; changing its label cannot waive
+a corrupted payload. Only restored, fully bound accepted evidence can pass.
+New-head independent QA, CI and authenticated review remain required.

@@ -1028,6 +1028,76 @@ class AdmissionTests(unittest.TestCase):
                 self.assertEqual(checkpoint.read_bytes(), checkpoint_before)
                 self.assertEqual(queue.read_bytes(), queue_before)
 
+                marker_path = history / c.TRANSACTION_MARKER_NAME
+                self.assertEqual(json.loads(marker_path.read_text())["status"], "rolled_back")
+                coverage = root / "coverage.csv"
+                coverage.write_text("ticker\nAAA\n__CASH__\n")
+                from tools.build_forward_estimate_incremental_universe import build_incremental_universe
+                planner_args = dict(snapshot_dir=str(history), shard_dir=str(root / "shards"),
+                    output=str(root / "collector-input.csv"), summary=str(root / "queue-summary.json"),
+                    coverage_file=str(coverage), latest_run="", canonical_universe=str(root / "universe.csv"),
+                    checkpoint=str(checkpoint), queue_output=str(queue), collector_summary=str(summary_path),
+                    signals=str(signal_path), report=str(root / "queue.md"),
+                    expected_universe_count=2, as_of_date="2026-07-01")
+                before_restart = {path.relative_to(root): path.read_bytes()
+                                  for path in root.rglob("*") if path.is_file()}
+                for _ in range(2):
+                    with self.assertRaisesRegex(ValueError, "collector_transaction_rolled_back_requires_verified_repair"):
+                        build_incremental_universe(**planner_args)
+                    for retry_argv in (argv, argv[:-4]):
+                        with patch.object(c, "collect_live_snapshot") as collect, \
+                             patch.object(sys, "argv", retry_argv), \
+                             self.assertRaisesRegex(ValueError, "collector_transaction_rolled_back_requires_verified_repair"):
+                            c.main()
+                        collect.assert_not_called()
+                    self.assertEqual({path.relative_to(root): path.read_bytes()
+                                      for path in root.rglob("*") if path.is_file()}, before_restart)
+                result = crash_manifest(root)
+                self.assertFalse(result["publishable"])
+                self.assertIn("collector_transaction_rolled_back_requires_verified_repair",
+                              result["publication_failures"])
+
+    def test_rollback_requires_complete_accepted_state_restoration(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            checkpoint, queue = root / "checkpoint.json", root / "queue.csv"
+            checkpoint.write_text(json.dumps({"ticker_states": [
+                {"ticker": "AAA", "last_selected_at_utc": "", "selection_count": 0}]}))
+            queue.write_text("ticker,selected,last_selected_at_utc,selection_count\nAAA,true,,0\n")
+            self.assertEqual(crash_fixture(root), 0)
+            history = root / "history"
+            marker_path = history / c.TRANSACTION_MARKER_NAME
+            accepted = {path: path.read_bytes() for path in root.rglob("*") if path.is_file()}
+            marker = json.loads(marker_path.read_text())
+
+            def verify():
+                return manifest.require_verified_collector_state(history,
+                    summary_path=root / "summary.json", checkpoint_path=checkpoint,
+                    queue_path=queue, signals_path=root / "signals.parquet")
+
+            # Even an otherwise hash-matching accepted generation cannot waive rollback.
+            marker_path.write_text(json.dumps({**marker, "status": "rolled_back"}))
+            local_checkpoint, local_queue = history / "checkpoint.json", history / "queue.csv"
+            local_checkpoint.write_bytes(accepted[checkpoint])
+            local_queue.write_bytes(accepted[queue])
+            for _ in range(2):
+                with self.assertRaisesRegex(ValueError, "collector_transaction_rolled_back_requires_verified_repair"):
+                    verify()
+                with self.assertRaisesRegex(ValueError, "collector_transaction_rolled_back_requires_verified_repair"):
+                    c.acknowledge_collection_attempts(local_checkpoint, local_queue, ["AAA"],
+                        attempted_at_utc="2026-07-01T19:00:00Z", attempt_id="unverified-retry")
+                self.assertEqual(local_checkpoint.read_bytes(), accepted[checkpoint])
+                self.assertEqual(local_queue.read_bytes(), accepted[queue])
+            # Relabeling the marker alone is not a verified repair of corrupted payloads.
+            (root / "signals.parquet").write_bytes(b"damaged rollback payload")
+            marker_path.write_bytes(accepted[marker_path])
+            with self.assertRaisesRegex(ValueError, "collector_signals_hash_mismatch"):
+                verify()
+            for path, payload in accepted.items():
+                path.write_bytes(payload)
+            self.assertEqual(verify()["state"], "accepted")
+            self.assertEqual(json.loads(checkpoint.read_text())["ticker_states"][0]["selection_count"], 1)
+
     def test_sigkill_publication_boundaries_and_restart(self):
         boundaries = ("before_pending", "pending", "estimates_20260701.parquet",
                       "signals.parquet", "checkpoint.json", "queue.csv", "summary.json", "committed")

@@ -1,5 +1,18 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-03 — A rollback marker is a repair boundary, not restart proof (#556)
+
+- Exact-head hosted review of `8c5ab318` identified that a rolled-back marker
+  bypassed transaction binding and let the planner rewrite unverified state.
+  Actual signal/summary replacement failures reproduced the bypass.
+- The shared entry guard now rejects rollback before planning, vendor collection,
+  acknowledgement or another transaction. Repeated attempts retain all existing
+  bytes; manifests remain non-publishable. No automatic repair clears the marker.
+- A committed label alone cannot repair damaged payloads. Restore the complete
+  accepted generation through an explicitly verified repair and validate every
+  required transaction binding before admission. Source tests do not authorize
+  runtime repair or durable publication.
+
 ## 2026-10-03 — A planning parent hash does not prove preserved collection state
 
 - PR #556's committed-parent IDs/hashes alone admitted a planned checkpoint
