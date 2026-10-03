@@ -313,3 +313,10 @@ payloads. Flat event paths remain legacy compatibility inputs; coverage readers
 using those paths do not certify the current accepted generation. The regression
 preserves a validation view, publishes a second generation, uploads that stale
 event tree and verifies the second head and restored producer remain current.
+
+Unknown-publication invalidation follows the exact issuer/security/metric/fiscal
+identity across ticker changes. A renamed security's current/newer pre-event
+unknown vintage blocks an older exact consensus. Known-ticker unresolved or
+conflicting identities remain conservative blockers. Older superseded vintages,
+post-event collection, another provider and unrelated identities on a new ticker
+do not invalidate the requested consensus; exact renamed observations still work.

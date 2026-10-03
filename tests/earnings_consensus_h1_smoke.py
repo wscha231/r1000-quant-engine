@@ -901,6 +901,41 @@ else: raise ValueError('unexpected fixture transfer')
             for rows in ([verified, unknown], [unknown, verified]):
                 self.assertIsNone(h1.frozen_pre_event_consensus(rows, **args))
 
+    def test_unknown_publication_follows_economic_identity_across_ticker_changes(self):
+        before = snapshot('2026-04-01T18:00:00Z', 1, ticker='OLD')
+        identity = json.loads(before['eps_fy1_identity'])
+        args = dict(event_available_at='2026-04-03T20:00:00Z',
+                    identity=identity, fetch_source='finnhub')
+        def query(row):
+            return h1.frozen_pre_event_consensus([before, row], **args)
+        for ticker in ('OLD', 'NEW'):
+            for time in ('2026-04-01T18:00:00Z', '2026-04-02T18:00:00Z'):
+                row = snapshot(time, None, ticker=ticker, provider_published_at=time[:10])
+                self.assertTrue(h1.persisted_v2_snapshot_is_valid(row))
+                for rows in ([before, row], [row, before]):
+                    with self.subTest(ticker=ticker, time=time):
+                        self.assertIsNone(h1.frozen_pre_event_consensus(rows, **args))
+        for row in (
+                snapshot('2026-04-01T17:00:00Z', None, ticker='NEW', provider_published_at='2026-04-01'),
+                snapshot('2026-04-02T18:00:00Z', None, ticker='NEW',
+                         collected_at='2026-04-03T20:01:00Z', provider_published_at='2026-04-02')):
+            self.assertEqual(query(row)['value'], 1)
+        for field, value in (('issuer_id','CIK:2'),('security_id','FIGI:OTHER'),
+                ('currency','EUR'),('period_type','QUARTERLY'),('accounting_basis','NON_GAAP'),
+                ('share_or_ADR_unit','ADR'),('period','2027-12-31')):
+            item = estimate(None); item[field] = value
+            unrelated = snapshot('2026-04-02T18:00:00Z', None, ticker='NEW',
+                eps_payload={'data':[item]}, revenue_payload={}, provider_published_at='2026-04-02')
+            with self.subTest(unrelated_field=field):
+                self.assertTrue(h1.persisted_v2_snapshot_is_valid(unrelated))
+                self.assertEqual(query(unrelated)['value'], 1)
+        other_provider = snapshot('2026-04-02T18:00:00Z', None, ticker='NEW',
+            fetch_source='fmp', provider_published_at='2026-04-02')
+        self.assertTrue(h1.persisted_v2_snapshot_is_valid(other_provider))
+        self.assertEqual(query(other_provider)['value'], 1)
+        exact_renamed = snapshot('2026-04-02T18:00:00Z', 2, ticker='NEW')
+        self.assertEqual(query(exact_renamed)['value'], 2)
+
     def test_malformed_identity_types_fail_closed(self):
         before = snapshot()
         for field, invalid in [('currency', True), ('security_id', ['ABC']),

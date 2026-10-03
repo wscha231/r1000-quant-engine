@@ -5968,6 +5968,11 @@ Expected contract:
   independently of earnings concurrency. Keep earnings authority under its owned
   research_state namespace. A real stale-tree regression rejected the old layout
   and verifies the latest accepted head/producer survive the compatibility copy.
+- Authenticated review of8eb found ticker-only unknown-publication filtering
+  misses a renamed security with the same economic identity. Match full canonical
+  identity independently of ticker while preserving known-ticker ambiguity and
+  pre-event clock guards. Owner registered old-head regression fails four rename
+  cases; unrelated identity/provider and older/post-event positives remain valid.
 
 ## 2026-10-03 — Close SQLite handles after blocked materialization
 

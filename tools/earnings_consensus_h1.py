@@ -330,11 +330,15 @@ def frozen_pre_event_consensus(snapshots: Iterable[dict], *, event_available_at:
     latest_time = max(datetime.fromisoformat(availability(r)) for r in candidates)
     # An unknown vintage can block the current consensus only when it is at
     # least as new as the latest admissible vintage and still pre-event.
+    # Economic identity survives a ticker change. Keep the known-ticker guard
+    # as well so unresolved/conflicting identity cannot admit stale evidence.
     for row in snapshots:
         known_times = [iso_utc(row.get(k)) for k in ("observed_at", "first_seen_at", "collected_at",
                                                     "strategy_available_at", "provider_published_at")]
         known_times = [t for t in known_times if t]
-        if (row.get("ticker") in tickers and not availability(row) and known_times
+        relevant = (row.get("ticker") in tickers
+                    or any(v.get("identity") == identity for v in consensus_records(row)))
+        if (relevant and not availability(row) and known_times
                 and latest_time <= max(map(datetime.fromisoformat, known_times)) < datetime.fromisoformat(cutoff)):
             return None
     latest = [r for r in candidates if datetime.fromisoformat(availability(r)) == latest_time]
