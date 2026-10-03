@@ -276,13 +276,13 @@ this guard before rewriting canonical universe/checkpoint/queue state. Missing
 V2 fields cannot silently downgrade a damaged row into legacy compatibility.
 
 Bound Drive source publication uses SHA-addressed immutable generations under
-data_pit/events/earnings_estimate_generations/<generation_id>. Payloads contain
+research_state/earnings_estimate_generations/<generation_id>. Payloads contain
 the complete archive, signals and earnings daily outputs. A canonical file
 census binds every relative path, size and SHA256; missing/extra members, unsafe
 paths, symlinks, stale publication bindings and invalid transactions block.
 The staged generation is freshly downloaded and validated before generation.json
 is exposed as its commit marker. That manifest is read back too. Only then is
-data_pit/events/earnings_estimates_generation_head.json written and read back.
+research_state/earnings_estimates_generation_head.json written and read back.
 Transfer errors propagate. Payload failures leave the prior accepted head intact;
 unreferenced partial generations remain outside accepted authority and may be
 completed only with identical content. A post-head readback failure is reported
@@ -305,3 +305,11 @@ publication's collection_required/run_id hints were changed. Every false
 collection-required value now requires the full verified no-collection plan,
 regardless of reader state. True requires accepted collection and matching
 producer. A declared no-op cannot waive its proof or move the remote head.
+
+The accepted generation authority is outside data_pit/events because the
+independent free-data daily workflow restores and uploads that entire tree.
+A stale validation upload cannot overwrite the newer earnings head or immutable
+payloads. Flat event paths remain legacy compatibility inputs; coverage readers
+using those paths do not certify the current accepted generation. The regression
+preserves a validation view, publishes a second generation, uploads that stale
+event tree and verifies the second head and restored producer remain current.

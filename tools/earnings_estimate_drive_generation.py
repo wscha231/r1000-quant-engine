@@ -28,8 +28,10 @@ from tools.build_earnings_estimate_archive_manifest import (
 ARCHIVE = 'data_pit/events/earnings_estimates'
 SIGNALS = 'data_pit/events/earnings_revision_signals.parquet'
 DAILY = 'outputs/earnings_estimates_daily'
-GENERATIONS = 'data_pit/events/earnings_estimate_generations'
-HEAD = 'data_pit/events/earnings_estimates_generation_head.json'
+# Generic data workflows copy data_pit/events in both directions. Keep the
+# accepted authority outside that independently written compatibility tree.
+GENERATIONS = 'research_state/earnings_estimate_generations'
+HEAD = 'research_state/earnings_estimates_generation_head.json'
 SCHEMA = 'earnings-estimate-drive-generation-v1'
 HEX = re.compile(r'[0-9a-f]{64}')
 
@@ -194,7 +196,7 @@ def publish(root, base):
 
 
 def restore(root, base):
-    listing = transfer('lsf', base + 'data_pit/events', '--files-only', '--max-depth', '1', allow_missing=True)
+    listing = transfer('lsf', base + str(PurePosixPath(HEAD).parent), '--files-only', '--max-depth', '1', allow_missing=True)
     if listing is None or Path(HEAD).name not in listing.splitlines():
         return False  # Strict existing legacy restore remains in the workflow.
     with tempfile.TemporaryDirectory(prefix='earnings-restore-') as temporary:

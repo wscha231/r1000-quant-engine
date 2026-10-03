@@ -5963,6 +5963,11 @@ Expected contract:
 - Dispatch no-op verification by the publication requirement, not only by the
   current state label. An accepted selected queue cannot become a no-op through
   changed metadata hints; require the complete zero-selection parent proof.
+- Census generic ancestor-directory writers before placing a new accepted head.
+  Free-data daily uploads all data_pit/events and can replay an older pointer
+  independently of earnings concurrency. Keep earnings authority under its owned
+  research_state namespace. A real stale-tree regression rejected the old layout
+  and verifies the latest accepted head/producer survive the compatibility copy.
 
 ## 2026-10-03 — Close SQLite handles after blocked materialization
 

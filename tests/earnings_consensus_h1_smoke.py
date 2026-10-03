@@ -317,6 +317,11 @@ else: raise ValueError('unexpected fixture transfer')
                 first = drive.publish(source,'fixture:')
                 first_head = (remote/drive.HEAD).read_bytes()
                 self.assertEqual(drive.publish(source,'fixture:'),first)
+                stale_events = root/'validation-events'
+                # Daily validation independently restores and later copies
+                # data_pit/events back. Preserve its pre-second-run view.
+                shutil.copytree(remote/'data_pit/events' if (remote/'data_pit/events').exists()
+                    else source/'data_pit/events', stale_events)
                 publication_path = daily/'archive_manifest.json'
                 accepted_publication = publication_path.read_bytes()
                 no_op_hint = json.loads(accepted_publication)
@@ -340,8 +345,12 @@ else: raise ValueError('unexpected fixture transfer')
                     self.assertEqual(json.loads((cache/drive.DAILY/'summary.json').read_text())['collection_attempt_logical_id'],'generation-one')
                 second = drive.publish(source,'fixture:')
                 self.assertNotEqual(first,second)
+                second_head = (remote/drive.HEAD).read_bytes()
+                shutil.copytree(stale_events,remote/'data_pit/events',dirs_exist_ok=True)
+                self.assertEqual((remote/drive.HEAD).read_bytes(),second_head)
                 orphan = cache/drive.ARCHIVE/'estimates_20990101.parquet'; orphan.write_bytes(b'orphan')
                 self.assertTrue(drive.restore(cache,'fixture:')); self.assertFalse(orphan.exists())
+                self.assertEqual(json.loads((cache/drive.DAILY/'summary.json').read_text())['collection_attempt_logical_id'],'generation-two')
                 stable = {p.relative_to(cache).as_posix():p.read_bytes() for p in cache.rglob('*') if p.is_file()}
                 head_path = remote/drive.HEAD; valid_head=head_path.read_bytes()
                 for invalid in (b'broken',b'{}',json.dumps({**json.loads(valid_head),'generation_id':'../bad'}).encode()):
