@@ -15,17 +15,30 @@ Correctness invariants verified here:
 """
 from __future__ import annotations
 
+import io
+import json
+import os
+import subprocess
 import sys
 import tempfile
+import unittest
 from pathlib import Path
+from contextlib import redirect_stdout
+from unittest.mock import patch
 
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.run_broker_ledger_replay import replay  # noqa: E402
-from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
+from tools.run_broker_ledger_replay import (  # noqa: E402
+    CashCarryConfig,
+    REPLAY_GENERATED_ARTIFACTS,
+    fill_price,
+    replay,
+)
+from tools.run_weekly_evaluation import load_price_series, px_cache_name  # noqa: E402
+from tools import run_broker_ledger_replay as broker  # noqa: E402
 
 
 def _write_px(cache_dir: Path, ticker: str, closes: list[float], start: str = "2026-01-02") -> None:
@@ -453,6 +466,421 @@ def test_long_horizon_equity_curve_continuous() -> None:
         assert (curve["equity_usd"] > 0).all(), "non-positive equity observed"
 
 
+class OpeningClockAdmissionTests(unittest.TestCase):
+    """Native parquet/replay checks whose assertions remain active under -O."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.cache = self.root / "cache"
+        self.cache.mkdir()
+        self.target = self.root / "targets.csv"
+        self.dates = pd.to_datetime([
+            "2026-01-02", "2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08",
+        ])
+        pd.DataFrame([
+            {"rebalance_date": "2026-01-02", "ticker": "AAA", "weight": 1.0},
+            {"rebalance_date": "2026-01-05", "ticker": "AAA", "weight": 0.5},
+            {"rebalance_date": "2026-01-05", "ticker": "BBB", "weight": 0.5},
+        ]).to_csv(self.target, index=False)
+
+    def write_prices(self, *, later_close=100.0, open_price=100.0,
+                     missing_open=False, missing_fill_open=False) -> None:
+        for ticker in ("AAA", "BBB"):
+            closes = [100., 100., later_close if ticker == "AAA" else 100., 100., 100.]
+            frame = pd.DataFrame({"Close": closes, "Adj Close": closes}, index=self.dates)
+            if not missing_open:
+                frame["Open"] = open_price
+                if missing_fill_open:
+                    frame.loc[pd.Timestamp("2026-01-05"), "Open"] = float("nan")
+            frame.to_parquet(self.cache / px_cache_name(ticker))
+
+    def run_replay(self, name, *, fill_mode="next_open"):
+        output = self.root / name
+        result = replay(target_book=self.target, price_cache=self.cache,
+            output_dir=output, portfolio_kind="main", starting_capital=10000.,
+            fill_mode=fill_mode, cost_bps=0., integer_shares=True)
+        return result, output
+
+    def check_no_performance(self, result, output):
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["metric_mode"], "DO_NOT_USE")
+        self.assertFalse(result["valid_for_production"])
+        for field in ("cagr", "max_dd", "sharpe", "ending_capital_usd"):
+            self.assertNotIn(field, result)
+        for artifact in ("trades.csv", "equity_curve.csv", "positions_latest.csv",
+                         "account_state_latest.json"):
+            self.assertFalse((output / artifact).exists(), artifact)
+
+    def test_strict_loader_keeps_missing_open_and_legacy_fallback_separate(self):
+        self.write_prices(missing_open=True)
+        strict = load_price_series(self.cache, "AAA", require_observed_open=True)
+        legacy = load_price_series(self.cache, "AAA")
+        self.assertTrue(strict["open"].isna().all())
+        self.assertTrue(legacy["open"].equals(legacy["close"]))
+        self.assertEqual(fill_price({"AAA": strict}, "AAA", self.dates[0], "next_open", 7),
+                         (None, None))
+
+    def test_strict_loader_uses_observed_open_and_rejects_nan_on_eligible_session(self):
+        self.write_prices(open_price=72.)
+        prices = load_price_series(self.cache, "AAA", require_observed_open=True)
+        self.assertEqual(fill_price({"AAA": prices}, "AAA", self.dates[0], "next_open", 7),
+                         (self.dates[1], 72.))
+        self.write_prices(missing_fill_open=True)
+        prices = load_price_series(self.cache, "AAA", require_observed_open=True)
+        self.assertEqual(fill_price({"AAA": prices}, "AAA", self.dates[0], "next_open", 7),
+                         (None, None))
+
+    def test_missing_or_nan_open_blocks_native_replay(self):
+        for name, options in (("missing", {"missing_open": True}),
+                              ("nan", {"missing_fill_open": True})):
+            with self.subTest(name=name):
+                self.write_prices(**options)
+                result, output = self.run_replay(name)
+                self.check_no_performance(result, output)
+                self.assertEqual(result["reason"], "target_fill_coverage_incomplete")
+
+    def test_future_close_cannot_produce_opening_intents_without_a_contract(self):
+        for close in (80., 140.):
+            with self.subTest(close=close):
+                self.write_prices(later_close=close)
+                result, output = self.run_replay(str(close))
+                self.check_no_performance(result, output)
+                self.assertEqual(result["reason"], "next_open_precommitted_order_intent_unavailable")
+                self.assertTrue(result["target_fill_coverage"]["coverage_complete"])
+
+    def test_realized_gap_price_cannot_backdate_missing_order_intent(self):
+        for open_price in (60., 160.):
+            with self.subTest(open_price=open_price):
+                self.write_prices(open_price=open_price)
+                result, output = self.run_replay(str(open_price))
+                self.check_no_performance(result, output)
+                self.assertEqual(result["reason"], "next_open_precommitted_order_intent_unavailable")
+
+    def test_next_close_reference_and_blocked_rerun_cleanup(self):
+        self.write_prices()
+        result, output = self.run_replay("reuse", fill_mode="next_close")
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["metric_mode"], "broker_ledger_next_close")
+        self.assertEqual(result["ending_capital_usd"], 10000.)
+        trades = pd.read_csv(output / "trades.csv")
+        self.assertEqual(list(zip(trades["ticker"], trades["side"], trades["quantity"])),
+                         [("AAA", "BUY", 100.), ("AAA", "SELL", 50.), ("BBB", "BUY", 50.)])
+        blocked, same_output = self.run_replay("reuse")
+        self.check_no_performance(blocked, same_output)
+
+
+class GeneratedOutputLifecycleTests(unittest.TestCase):
+    """Reused output directories cannot retain evidence from an older replay."""
+
+    # Audited replay exports, including conditional reserve/partial-resize files.
+    # This oracle is independent of the cleanup registry under test.
+    generated = {
+        "equity_curve.csv", "trades.csv", "holdings_daily.csv",
+        "holdings_weekly.csv", "cash_ledger.csv", "target_vs_actual_weights.csv",
+        "partial_resize_decisions.csv", "positions_latest.csv",
+        "account_state_latest.json", "metrics.json", "replay_report.md",
+        "target_fill_coverage.csv", "reserve_reason_audit.json",
+    }
+    blocked_diagnostics = {"metrics.json", "replay_report.md", "target_fill_coverage.csv"}
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.cache = self.root / "cache"
+        self.cache.mkdir()
+        self.out = self.root / "replay"
+        self.target = self.root / "targets.csv"
+        self.dates = pd.to_datetime([
+            "2026-01-02", "2026-01-05", "2026-01-06", "2026-01-07",
+        ])
+        pd.DataFrame([
+            {"rebalance_date": "2026-01-02", "ticker": "AAA", "weight": .5},
+        ]).to_csv(self.target, index=False)
+        self.network_guard = patch("socket.socket", side_effect=RuntimeError("offline fixture"))
+        self.network_guard.start()
+        self.addCleanup(self.network_guard.stop)
+
+    def write_prices(self, opens):
+        frame = pd.DataFrame({"Close": [100.] * 4, "Adj Close": [100.] * 4},
+                             index=self.dates)
+        if opens is not None:
+            frame["Open"] = opens
+        frame.to_parquet(self.cache / px_cache_name("AAA"))
+
+    def run_replay(self, **kwargs):
+        options = dict(target_book=self.target, price_cache=self.cache,
+                       output_dir=self.out, portfolio_kind="main",
+                       starting_capital=10000., fill_mode="next_close", cost_bps=25.,
+                       integer_shares=True, cash_carry_config=CashCarryConfig(mode="none"),
+                       reserve_mode="BROKER_CASH_OR_MMF")
+        options.update(kwargs)
+        return replay(**options)
+
+    def seed_completed_outputs(self):
+        self.write_prices([100.] * 4)
+        result = self.run_replay(partial_resize_two_signal_confirmation=True)
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual({p.name for p in self.out.iterdir()}
+                         - {"caller_receipt.json", "notes.md", "caller_archive"}, self.generated)
+        old_bytes = {name: (self.out / name).read_bytes() for name in self.generated}
+        self.assertTrue(old_bytes["reserve_reason_audit.json"])
+        # Caller-owned files and nested files are outside the replay export set.
+        (self.out / "caller_receipt.json").write_bytes(b'{"caller":"preserve"}')
+        (self.out / "notes.md").write_bytes(b"caller notes\n")
+        nested = self.out / "caller_archive"
+        nested.mkdir(exist_ok=True)
+        (nested / "reserve_reason_audit.json").write_bytes(b"unrelated nested audit")
+        return old_bytes
+
+    def check_preserved_caller_files(self):
+        self.assertEqual((self.out / "caller_receipt.json").read_bytes(),
+                         b'{"caller":"preserve"}')
+        self.assertEqual((self.out / "notes.md").read_bytes(), b"caller notes\n")
+        self.assertEqual((self.out / "caller_archive" / "reserve_reason_audit.json").read_bytes(),
+                         b"unrelated nested audit")
+
+    def check_blocked_cleanup(self, result, old_bytes, expected_diagnostics):
+        self.assertEqual(result["status"], "blocked")
+        for name in self.generated - expected_diagnostics:
+            self.assertFalse((self.out / name).exists(), name)
+        for name in expected_diagnostics:
+            self.assertTrue((self.out / name).is_file(), name)
+            self.assertNotEqual((self.out / name).read_bytes(), old_bytes[name], name)
+        actual = {p.name for p in self.out.iterdir() if p.is_file()}
+        self.assertEqual(actual, expected_diagnostics | {"caller_receipt.json", "notes.md"})
+        self.check_preserved_caller_files()
+
+    def test_cleanup_registry_covers_observed_completed_exports(self):
+        self.seed_completed_outputs()
+        self.assertEqual(len(REPLAY_GENERATED_ARTIFACTS), len(set(REPLAY_GENERATED_ARTIFACTS)))
+        self.assertEqual(set(REPLAY_GENERATED_ARTIFACTS), self.generated)
+
+    def test_opening_blocks_remove_all_prior_generated_evidence(self):
+        cases = (
+            ("valid_open", [100.] * 4, "next_open_precommitted_order_intent_unavailable"),
+            ("missing_open", None, "target_fill_coverage_incomplete"),
+            ("nan_open", [100., float("nan"), 100., 100.], "target_fill_coverage_incomplete"),
+            ("zero_open", [100., 0., 100., 100.], "target_fill_coverage_incomplete"),
+            ("negative_open", [100., -1., 100., 100.], "target_fill_coverage_incomplete"),
+            ("infinite_open", [100., float("inf"), 100., 100.], "target_fill_coverage_incomplete"),
+        )
+        for name, opens, reason in cases:
+            with self.subTest(case=name):
+                old_bytes = self.seed_completed_outputs()
+                self.write_prices(opens)
+                result = self.run_replay(fill_mode="next_open")
+                self.assertEqual(result["reason"], reason)
+                self.assertEqual(result["metric_mode"], "DO_NOT_USE")
+                self.assertFalse(result["valid_for_production"])
+                for field in ("cagr", "max_dd", "sharpe", "ending_capital_usd"):
+                    self.assertNotIn(field, result)
+                self.check_blocked_cleanup(result, old_bytes, self.blocked_diagnostics)
+
+    def test_precoverage_blocks_remove_all_prior_generated_evidence(self):
+        original_target = self.target.read_bytes()
+        cases = (
+            ("empty_target", "target book is empty or invalid"),
+            ("invalid_weight", "target weight sum exceeds maximum reasonable exposure"),
+            ("missing_cash_rate", "cash_rate_series_unavailable"),
+        )
+        for name, expected_reason in cases:
+            with self.subTest(case=name):
+                self.target.write_bytes(original_target)
+                old_bytes = self.seed_completed_outputs()
+                options = {}
+                if name == "empty_target":
+                    pd.DataFrame(columns=["rebalance_date", "ticker", "weight"]).to_csv(
+                        self.target, index=False)
+                elif name == "invalid_weight":
+                    pd.DataFrame([{"rebalance_date": "2026-01-02", "ticker": "AAA",
+                                   "weight": 2.}]).to_csv(self.target, index=False)
+                else:
+                    options = dict(reserve_mode="DGS3MO_CARRY", cash_carry_config=CashCarryConfig(
+                        mode="risk_free_rate", rate_path=self.root / "missing_rate.csv"))
+                result = self.run_replay(**options)
+                self.assertEqual(result["reason"], expected_reason)
+                self.check_blocked_cleanup(result, old_bytes, {"metrics.json"})
+
+    def test_completed_default_rerun_drops_optional_prior_evidence(self):
+        self.seed_completed_outputs()
+        result = self.run_replay(reserve_mode=None)
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["metric_mode"], "broker_ledger_next_close")
+        self.assertFalse((self.out / "reserve_reason_audit.json").exists())
+        self.assertFalse((self.out / "partial_resize_decisions.csv").exists())
+        self.assertEqual({p.name for p in self.out.iterdir() if p.is_file()},
+                         (self.generated - {"reserve_reason_audit.json", "partial_resize_decisions.csv"})
+                         | {"caller_receipt.json", "notes.md"})
+        self.check_preserved_caller_files()
+
+
+class CallerInputCollisionTests(unittest.TestCase):
+    """Known output cleanup must never consume declared caller input files."""
+
+    generated = GeneratedOutputLifecycleTests.generated
+    setUp = GeneratedOutputLifecycleTests.setUp
+    write_prices = GeneratedOutputLifecycleTests.write_prices
+    run_replay = GeneratedOutputLifecycleTests.run_replay
+    seed_completed_outputs = GeneratedOutputLifecycleTests.seed_completed_outputs
+
+    def check_protected(self, result, protected, original, *, cli=False):
+        self.assertTrue(protected.exists(), "caller input was deleted")
+        self.assertEqual(protected.read_bytes(), original)
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "caller_input_collides_with_replay_output")
+        self.assertEqual(result["metric_mode"], "DO_NOT_USE")
+        self.assertFalse(result["valid_for_production"])
+        for key in ("cagr", "max_dd", "sharpe", "ending_capital_usd"):
+            self.assertIsNone(result.get(key))
+        for name in self.generated - {"metrics.json", "replay_report.md"}:
+            path = self.out / name
+            if path.resolve() != protected.resolve():
+                self.assertFalse(path.exists() or path.is_symlink(), name)
+        self.assertEqual((self.out / "caller_receipt.json").read_bytes(), b'{"caller":"preserve"}')
+        self.assertEqual((self.out / "notes.md").read_bytes(), b"caller notes\n")
+        self.assertEqual((self.out / "caller_archive/reserve_reason_audit.json").read_bytes(), b"unrelated nested audit")
+
+    def cli(self, target, *, mode, portfolio="main", extra=()):
+        argv = ["broker", "--target-book", str(target), "--price-cache", str(self.cache),
+                "--output-dir", str(self.out), "--portfolio-kind", portfolio,
+                "--fill-mode", mode, "--cash-carry-mode", "none", *extra]
+        with patch.object(sys, "argv", argv), redirect_stdout(io.StringIO()) as output:
+            code = broker.main()
+        self.assertEqual(code, 2)
+        return json.loads(output.getvalue())
+
+    def test_all_thirteen_outputs_and_modes_protect_content_based_csv_inputs(self):
+        source, original = self.target, self.target.read_bytes()
+        for portfolio in ("main", "concentrated"):
+            for mode in ("next_close", "same_close", "next_open"):
+                for name in sorted(self.generated):
+                    with self.subTest(portfolio=portfolio, mode=mode, name=name):
+                        self.target = source
+                        self.out = self.root / "outputs" / portfolio / (mode + "-" + name)
+                        self.seed_completed_outputs()
+                        self.target = self.out / name
+                        self.target.write_bytes(original)
+                        result = self.run_replay(fill_mode=mode, portfolio_kind=portfolio)
+                        self.check_protected(result, self.target, original)
+                        self.check_protected(self.cli(self.target, mode=mode, portfolio=portfolio), self.target, original)
+
+    def test_declared_auxiliary_csv_paths_share_the_protected_set(self):
+        source, original = self.target, self.target.read_bytes()
+        for role in ("cash_rate", "paper_slippage"):
+            for name in sorted(self.generated):
+                with self.subTest(role=role, name=name):
+                    self.target = source
+                    self.out = self.root / (role + "-" + name)
+                    self.seed_completed_outputs()
+                    protected = self.out / name
+                    protected.write_bytes(original)
+                    options = ({"cash_carry_config": CashCarryConfig(mode="none", rate_path=protected)}
+                               if role == "cash_rate" else
+                               {"execution_cost_config": broker.ExecutionCostConfig(paper_slippage_path=protected)})
+                    self.check_protected(self.run_replay(**options), protected, original)
+                    flag = "--cash-rate-path" if role == "cash_rate" else "--paper-slippage-path"
+                    self.check_protected(self.cli(source, mode="next_close", extra=(flag, str(protected))), protected, original)
+
+    def test_actual_resolved_aliases_are_rejected_before_unlink(self):
+        source, original = self.target, self.target.read_bytes()
+        for name in ("reserve_reason_audit.json", "metrics.json", "replay_report.md"):
+            for kind in ("parent", "case", "target_link", "output_link", "junction"):
+                with self.subTest(name=name, kind=kind):
+                    self.target = source
+                    real_out = self.root / (kind + "-" + name)
+                    self.out = real_out
+                    self.seed_completed_outputs()
+                    leaf = real_out / name
+                    leaf.write_bytes(original)
+                    protected_link = None
+                    if kind == "parent":
+                        self.target = real_out / "caller_archive" / ".." / name
+                    elif kind == "case":
+                        if os.name != "nt":
+                            continue  # Separate actual Windows case behavior; no POSIX case claim.
+                        self.target = Path(str(leaf).swapcase())
+                    elif kind == "target_link":
+                        self.target = self.root / ("caller-link-" + name)
+                        try:
+                            self.target.symlink_to(leaf)
+                        except OSError as exc:
+                            self.skipTest("native file symlink unavailable: " + type(exc).__name__)
+                        protected_link = self.target
+                    elif kind == "output_link":
+                        leaf.unlink()
+                        try:
+                            leaf.symlink_to(source)
+                        except OSError as exc:
+                            self.skipTest("native file symlink unavailable: " + type(exc).__name__)
+                        self.target = source
+                        protected_link = leaf
+                    else:
+                        alias = self.root / ("junction-alias-" + name)
+                        if os.name == "nt":
+                            made = subprocess.run(["cmd", "/c", "mklink", "/J", str(alias), str(real_out)],
+                                                  capture_output=True)
+                            self.assertEqual(made.returncode, 0, made.stderr)
+                        else:
+                            alias.symlink_to(real_out, target_is_directory=True)
+                        self.out = alias
+                        self.target = leaf
+                    self.check_protected(self.run_replay(), self.target, original)
+                    if protected_link is not None:
+                        self.assertTrue(protected_link.is_symlink())
+                    self.check_protected(self.cli(self.target, mode="next_close"), self.target, original)
+                    if protected_link is not None:
+                        self.assertTrue(protected_link.is_symlink())
+
+    def test_collision_precedes_target_rate_price_and_order_reads(self):
+        self.out.mkdir()
+        self.target = self.out / "reserve_reason_audit.json"
+        self.target.write_text("rebalance_date,ticker,weight\n2026-01-02,AAA,.5\n", encoding="utf-8")
+        original = self.target.read_bytes()
+        with patch.object(broker, "read_csv", side_effect=AssertionError("target reader reached")), \
+             patch.object(broker, "load_price_series", side_effect=AssertionError("price reader reached")), \
+             patch.object(broker, "load_cash_rate_series", side_effect=AssertionError("rate reader reached")), \
+             patch.object(broker, "account_equity", side_effect=AssertionError("equity reached")), \
+             patch.object(broker, "execute_order", side_effect=AssertionError("orders reached")):
+            result = self.run_replay(reserve_mode="DGS3MO_CARRY")
+        self.assertEqual(result["reason"], "caller_input_collides_with_replay_output")
+        self.assertEqual(self.target.read_bytes(), original)
+
+    def test_disjoint_inside_sibling_and_archive_inputs_preserve_closing_semantics(self):
+        original = self.target.read_bytes()
+        for mode in ("next_close", "same_close"):
+            for placement in ("inside", "sibling", "nested"):
+                with self.subTest(mode=mode, placement=placement):
+                    self.out = self.root / (mode + placement)
+                    self.out.mkdir()
+                    self.target = ({"inside": self.out / "caller-target.csv",
+                                    "sibling": self.root / "sibling" / "reserve_reason_audit.json",
+                                    "nested": self.out / "archive" / "trades.csv"})[placement]
+                    self.target.parent.mkdir(parents=True, exist_ok=True)
+                    self.target.write_bytes(original)
+                    self.write_prices([100.] * 4)
+                    result = self.run_replay(fill_mode=mode)
+                    self.assertEqual(result["status"], "completed")
+                    self.assertEqual(self.target.read_bytes(), original)
+                    self.assertTrue((self.out / "trades.csv").is_file())
+
+    def test_cleanup_unlinks_disjoint_input_hardlinks_without_changing_original(self):
+        original = self.target.read_bytes()
+        for name in sorted(self.generated):
+            with self.subTest(name=name):
+                self.out = self.root / ("hardlink-" + name)
+                self.out.mkdir()
+                leaf = self.out / name
+                os.link(self.target, leaf)
+                self.write_prices([100.] * 4)
+                result = self.run_replay(partial_resize_two_signal_confirmation=True)
+                self.assertEqual(result["status"], "completed")
+                self.assertEqual(self.target.read_bytes(), original)
+                self.assertNotEqual(leaf.stat().st_ino, self.target.stat().st_ino)
+
+
 def main() -> int:
     test_missing_liquidation_fill_fails_closed_before_state_mutation()
     test_multi_day_transition_fails_closed_before_state_mutation()
@@ -461,6 +889,12 @@ def main() -> int:
     test_non_appended_current_operating_close_is_pending()
     test_weekend_evidence_cutoff_uses_next_nyse_session()
     test_long_horizon_equity_curve_continuous()
+    suite = unittest.TestSuite(
+        unittest.defaultTestLoader.loadTestsFromTestCase(case)
+        for case in (OpeningClockAdmissionTests, GeneratedOutputLifecycleTests, CallerInputCollisionTests)
+    )
+    if not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful():
+        return 1
     print("broker_ledger_correctness_smoke: PASS")
     return 0
 
