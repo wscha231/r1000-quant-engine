@@ -175,3 +175,13 @@ Windows synthetic tests use immediate process exit without Python cleanup and
 mock POSIX directory fsync; Linux CI uses real SIGKILL and directory fsync. Native
 test success does not certify Windows power-loss durability or live vendor,
 Drive, historical PIT, H2, paper, broker or economic acceptance.
+
+Independent integration probes also reproduced publication acceptance after
+downgrading the transaction schema and removing its final marker, omission of
+all binding hashes with corrupted signals, and an incomplete cache-only restore.
+Publication now requires the supported V2 transaction and its matching committed
+marker. Snapshot/signals hashes are mandatory; acknowledged collection also
+requires checkpoint/queue hashes. The restart reader applies the same mandatory
+hash contract. Both cache save and restore retain the bound summary and queue;
+an offline test copies only the actual workflow cache paths and runs the planner
+against that restored transaction. Older incomplete cache evidence stays blocked.

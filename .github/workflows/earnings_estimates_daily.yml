@@ -117,6 +117,8 @@ jobs:
           path: |
             data_pit/events/earnings_estimates
             data_pit/events/earnings_revision_signals.parquet
+            outputs/earnings_estimates_daily/summary.json
+            outputs/earnings_estimates_daily/collection_queue.csv
             cache_prices_forward_paper
             outputs/free_data_forward_paper_ledger
             outputs/free_data_selection_overlay
@@ -480,6 +482,8 @@ jobs:
           path: |
             data_pit/events/earnings_estimates
             data_pit/events/earnings_revision_signals.parquet
+            outputs/earnings_estimates_daily/summary.json
+            outputs/earnings_estimates_daily/collection_queue.csv
             cache_prices_forward_paper
             outputs/free_data_forward_paper_ledger
             outputs/free_data_selection_overlay

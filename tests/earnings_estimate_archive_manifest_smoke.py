@@ -260,7 +260,8 @@ def test_acknowledged_transaction_requires_exact_run_and_file_hashes() -> None:
             "collection_attempt_logical_id": logical_id,
             "collection_attempt_ack": ack,
             "transaction_commit": {
-                "schema_version": "earnings-estimate-collector-transaction-v1",
+                "schema_version": "earnings-estimate-collector-transaction-v2",
+                "commit_id": "fixture-commit",
                 "logical_attempt_id": logical_id,
                 "attempt_id": attempt_id,
                 "snapshot_sha256": sha256_file(snapshot),
@@ -268,6 +269,13 @@ def test_acknowledged_transaction_requires_exact_run_and_file_hashes() -> None:
                 "checkpoint_sha256": sha256_file(checkpoint),
                 "queue_sha256": sha256_file(queue),
             },
+        }), encoding="utf-8")
+        marker = snapshot_dir / "collector_transaction.json"
+        marker.write_text(json.dumps({
+            "schema_version": "earnings-estimate-publication-marker-v1",
+            "status": "committed",
+            "commit_id": "fixture-commit",
+            "summary_sha256": sha256_file(summary),
         }), encoding="utf-8")
 
         kwargs = dict(

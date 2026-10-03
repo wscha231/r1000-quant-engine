@@ -11,6 +11,8 @@ import tempfile
 import itertools
 import os
 import signal
+import re
+import shutil
 import subprocess
 import unittest
 from pathlib import Path
@@ -1364,6 +1366,141 @@ class AdmissionTests(unittest.TestCase):
             self.assertFalse(crash_manifest(root)["transaction_integrity"]["verified"])
             with self.assertRaisesRegex(ValueError, "incomplete_collector_transaction"):
                 crash_fixture(root)
+
+    def test_publication_cannot_downgrade_transaction_schema_or_omit_marker(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "checkpoint.json").write_text(json.dumps({"ticker_states": [
+                {"ticker": "AAA", "last_selected_at_utc": "", "selection_count": 0}]}))
+            (root / "queue.csv").write_text(
+                "ticker,selected,last_selected_at_utc,selection_count\nAAA,true,,0\n")
+            self.assertEqual(crash_fixture(root), 0)
+            self.assertTrue(crash_manifest(root)["publishable"])
+            summary_path = root / "summary.json"
+            marker_path = root / "history" / c.TRANSACTION_MARKER_NAME
+            good_summary = json.loads(summary_path.read_text())
+            good_marker = json.loads(marker_path.read_text())
+            for schema, retain_marker in itertools.product(
+                ("earnings-estimate-collector-transaction-v1", "unknown", None,
+                 "earnings-estimate-collector-transaction-v2"), (False, True)
+            ):
+                if schema == "earnings-estimate-collector-transaction-v2" and retain_marker:
+                    continue
+                with self.subTest(schema=schema, retain_marker=retain_marker):
+                    changed = copy.deepcopy(good_summary)
+                    if schema is None:
+                        changed["transaction_commit"].pop("schema_version")
+                    else:
+                        changed["transaction_commit"]["schema_version"] = schema
+                    summary_path.write_text(json.dumps(changed))
+                    if retain_marker:
+                        marker_path.write_text(json.dumps({**good_marker,
+                            "summary_sha256": manifest.sha256_file(summary_path)}))
+                    else:
+                        marker_path.unlink(missing_ok=True)
+                    result = crash_manifest(root)
+                    self.assertFalse(result["publishable"])
+                    self.assertFalse(result["transaction_integrity"]["verified"])
+                    expected = ("collector_transaction_schema_mismatch" if schema !=
+                        "earnings-estimate-collector-transaction-v2" else "collector_final_marker_mismatch")
+                    self.assertIn(expected, result["publication_failures"])
+
+    def test_missing_binding_hashes_cannot_disable_component_verification(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "checkpoint.json").write_text(json.dumps({"ticker_states": [
+                {"ticker": "AAA", "last_selected_at_utc": "", "selection_count": 0}]}))
+            (root / "queue.csv").write_text(
+                "ticker,selected,last_selected_at_utc,selection_count\nAAA,true,,0\n")
+            self.assertEqual(crash_fixture(root), 0)
+            summary_path = root / "summary.json"
+            marker_path = root / "history" / c.TRANSACTION_MARKER_NAME
+            good_summary = json.loads(summary_path.read_text())
+            good_marker = json.loads(marker_path.read_text())
+            fields = ("snapshot_sha256", "signals_sha256", "checkpoint_sha256", "queue_sha256")
+            for field, damage in itertools.product(fields, ("missing", "empty", "malformed", "boolean")):
+                with self.subTest(field=field, damage=damage):
+                    changed = copy.deepcopy(good_summary)
+                    if damage == "missing":
+                        changed["transaction_commit"].pop(field)
+                    else:
+                        changed["transaction_commit"][field] = {
+                            "empty": "", "malformed": "wrong", "boolean": True}[damage]
+                    summary_path.write_text(json.dumps(changed))
+                    marker_path.write_text(json.dumps({**good_marker,
+                        "summary_sha256": manifest.sha256_file(summary_path)}))
+                    result = crash_manifest(root)
+                    self.assertFalse(result["publishable"])
+                    self.assertFalse(result["transaction_integrity"]["verified"])
+                    self.assertIn(f"{field}_missing_or_invalid", result["publication_failures"])
+                    with self.assertRaisesRegex(ValueError, "collector_transaction_binding_hash_missing_or_invalid"):
+                        manifest.require_verified_collector_state(root / "history",
+                            summary_path=summary_path, checkpoint_path=root / "checkpoint.json",
+                            queue_path=root / "queue.csv", signals_path=root / "signals.parquet")
+            changed = copy.deepcopy(good_summary)
+            for field in fields:
+                changed["transaction_commit"].pop(field)
+            summary_path.write_text(json.dumps(changed))
+            marker_path.write_text(json.dumps({**good_marker,
+                "summary_sha256": manifest.sha256_file(summary_path)}))
+            (root / "signals.parquet").write_bytes(b"corrupted component")
+            self.assertFalse(crash_manifest(root)["publishable"])
+
+    def test_actual_cache_paths_restore_a_complete_committed_planning_parent(self):
+        from tools.build_forward_estimate_incremental_universe import build_incremental_universe
+        text = (ROOT / ".github" / "workflows" / "earnings_estimates_daily.yml").read_text()
+
+        def cache_paths(step_name):
+            step = text.split(f"      - name: {step_name}", 1)[1].split("      - name:", 1)[0]
+            return re.search(r"          path: \|\n(.*?)          key:", step, re.S).group(1).split()
+
+        def copy_paths(source, destination, paths):
+            for relative in paths:
+                origin, target = source / relative, destination / relative
+                if not origin.exists():
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if origin.is_dir():
+                    shutil.copytree(origin, target)
+                else:
+                    shutil.copy2(origin, target)
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fixture = root / "fixture"; fixture.mkdir()
+            (fixture / "checkpoint.json").write_text(json.dumps({"ticker_states": [
+                {"ticker": "AAA", "last_selected_at_utc": "", "selection_count": 0}]}))
+            (fixture / "queue.csv").write_text(
+                "ticker,selected,last_selected_at_utc,selection_count\nAAA,true,,0\n")
+            self.assertEqual(crash_fixture(fixture), 0)
+            produced, cache, restored = root / "produced", root / "cache", root / "restored"
+            archive = "data_pit/events/earnings_estimates"
+            signals = "data_pit/events/earnings_revision_signals.parquet"
+            summary = "outputs/earnings_estimates_daily/summary.json"
+            queue = "outputs/earnings_estimates_daily/collection_queue.csv"
+            (produced / archive).parent.mkdir(parents=True)
+            shutil.copytree(fixture / "history", produced / archive)
+            shutil.copy2(fixture / "checkpoint.json", produced / archive / "collection_checkpoint.json")
+            for origin, relative in ((fixture / "signals.parquet", signals),
+                                     (fixture / "summary.json", summary), (fixture / "queue.csv", queue)):
+                (produced / relative).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(origin, produced / relative)
+            copy_paths(produced, cache, cache_paths("Save earnings estimate archive cache"))
+            copy_paths(cache, restored, cache_paths("Restore earnings estimate archive cache"))
+            state = manifest.require_verified_collector_state(restored / archive,
+                summary_path=restored / summary, checkpoint_path=restored / archive / "collection_checkpoint.json",
+                queue_path=restored / queue, signals_path=restored / signals)
+            self.assertEqual(state["state"], "accepted")
+            coverage = root / "coverage.csv"; coverage.write_text("ticker\nAAA\n__CASH__\n")
+            build_incremental_universe(snapshot_dir=str(restored / archive), shard_dir=str(root / "shards"),
+                output=str(root / "collector-input.csv"), summary=str(root / "queue-summary.json"),
+                coverage_file=str(coverage), latest_run="", canonical_universe=str(restored / archive / "collection_universe.csv"),
+                checkpoint=str(restored / archive / "collection_checkpoint.json"), queue_output=str(restored / queue),
+                collector_summary=str(restored / summary), signals=str(restored / signals),
+                report=str(root / "queue.md"), expected_universe_count=2, as_of_date="2026-07-01")
+            planned = json.loads((restored / archive / "collection_checkpoint.json").read_text())
+            self.assertEqual(base64.b64decode(planned["planning_parent_transaction"]["checkpoint_bytes_base64"]),
+                             (fixture / "checkpoint.json").read_bytes())
 
     def test_old_incomplete_and_malformed_markers_remain_fail_closed(self):
         with tempfile.TemporaryDirectory() as temp:

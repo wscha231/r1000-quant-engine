@@ -20,6 +20,23 @@ TRANSACTION_MARKER_NAME = "collector_transaction.json"
 TRANSACTION_MARKER_SCHEMA = "earnings-estimate-publication-marker-v1"
 
 
+def collector_transaction_hash_failures(
+    transaction: dict[str, Any], *, acknowledged: bool,
+) -> list[str]:
+    """Missing binding hashes cannot turn component verification into a no-op."""
+    required = {"snapshot_sha256", "signals_sha256"}
+    if acknowledged:
+        required.update({"checkpoint_sha256", "queue_sha256"})
+    failures = []
+    for field in ("snapshot_sha256", "signals_sha256", "checkpoint_sha256", "queue_sha256"):
+        value = transaction.get(field)
+        if value in (None, "") and field not in required:
+            continue
+        if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+            failures.append(f"{field}_missing_or_invalid")
+    return failures
+
+
 def require_complete_collector_transaction(directory: Path) -> dict[str, Any]:
     """A retained marker travels with the archive/checkpoint in cache and Drive.
 
@@ -195,6 +212,13 @@ def require_verified_collector_state(
         or str(transaction.get("commit_id") or "") != str(marker.get("commit_id") or "")
     ):
         raise ValueError("collector_transaction_identity_mismatch")
+    summary_ack = summary_payload.get("collection_attempt_ack")
+    acknowledged = bool(
+        (isinstance(summary_ack, dict) and summary_ack.get("status") == "acknowledged")
+        or (isinstance(ack, dict) and ack.get("status") == "acknowledged")
+    )
+    if collector_transaction_hash_failures(transaction, acknowledged=acknowledged):
+        raise ValueError("collector_transaction_binding_hash_missing_or_invalid")
 
     expected_snapshot_hash = str(transaction.get("snapshot_sha256") or "")
     if expected_snapshot_hash:
@@ -543,24 +567,26 @@ def build_manifest(
                 marker = observed
         except ValueError:
             transaction_failures.append("incomplete_collector_transaction")
-    transaction_present = bool(
-        isinstance(transaction, dict)
-        and transaction.get("schema_version") == "earnings-estimate-collector-transaction-v2"
-    )
     transaction_required = bool(
-        transaction_present
+        transaction
         or (isinstance(ack, dict) and ack.get("status") == "acknowledged")
         or marker.get("status") == "committed"
     )
-    if transaction_present:
-        if (marker.get("status") != "committed"
-                or marker.get("commit_id") != transaction.get("commit_id")
-                or marker.get("summary_sha256") != payload["files"]["summary"].get("sha256")):
-            transaction_failures.append("collector_final_marker_mismatch")
     if transaction_required:
         if not isinstance(transaction, dict) or not transaction:
             transaction_failures.append("missing_transaction_commit")
             transaction = {}
+        if transaction.get("schema_version") != "earnings-estimate-collector-transaction-v2":
+            transaction_failures.append("collector_transaction_schema_mismatch")
+        if (marker.get("status") != "committed"
+                or not transaction.get("commit_id")
+                or marker.get("commit_id") != transaction.get("commit_id")
+                or marker.get("summary_sha256") != payload["files"]["summary"].get("sha256")):
+            transaction_failures.append("collector_final_marker_mismatch")
+        transaction_failures.extend(collector_transaction_hash_failures(
+            transaction,
+            acknowledged=isinstance(ack, dict) and ack.get("status") == "acknowledged",
+        ))
         expected_attempt = str(summary_payload.get("collection_attempt_id") or "")
         ack_attempt = str(ack.get("attempt_id") or "") if isinstance(ack, dict) else ""
         tx_attempt = str(transaction.get("attempt_id") or "")

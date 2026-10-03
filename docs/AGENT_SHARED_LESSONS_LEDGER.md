@@ -18,6 +18,20 @@
   the absent files as deletions. Keep bulky archived outputs out of a source
   checkout and preserve all unrelated user work.
 
+## 2026-10-03 — Every publication and cache restore must carry complete transaction proof
+
+- Independent QA on #556 head0c9b369 reproduced acceptance of V1/unknown/missing
+  transaction schemas without a final marker, and corrupted signals after all
+  binding hashes were omitted. Require the supported V2 schema, matching final
+  marker, snapshot/signals hashes and acknowledged checkpoint/queue hashes.
+  Apply mandatory hash validation in both restart and publication readers.
+- The workflow declared cache-only operation but omitted the summary/queue from
+  both cache path lists. The stricter restart reader correctly rejected that
+  partial restore. Retain those two evidence files and exercise an offline copy
+  of the actual cache save/restore paths followed by the native planner.
+- Missing historical proof remains blocked; a compatibility fallback must not
+  silently turn unavailable evidence into a verified durable transaction.
+
 ## 2026-09-30 — Immutable publication may lead mutable aliases (#563 P1 C/D)
 
 - Publication is not atomic across immutable heads and mutable aliases. Recovery
