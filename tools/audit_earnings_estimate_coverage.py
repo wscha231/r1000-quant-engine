@@ -32,6 +32,7 @@ STRICT = ("fresh_eps_fy1", "fresh_revenue_fy1", "fresh_both_fy1",
           "fresh_eps_fy2", "fresh_revenue_fy2", "fresh_eps_next_quarter",
           "fresh_revenue_next_quarter", "source_v2_eligible",
           "revision_30d_eligible", "revision_90d_eligible",
+          "eps_revision_30d_eligible", "eps_revision_90d_eligible", "revenue_revision_30d_eligible",
           "research_consumer_eligible")
 
 
@@ -180,11 +181,17 @@ def audit_rows(universe: list[str], rows: list[dict], *, as_of: str,
             continue
         # Finnhub's documented average includes proprietary estimates. An H1
         # structural validation alone cannot certify pure analyst consensus.
-        if row.get("fetch_source") == "finnhub":
-            out.update(source_state="BLOCKED_CONSENSUS_BASIS", next_action="VERIFY_ANALYST_ONLY_BASIS")
+        eps_basis_blocked = row.get("fetch_source") == "finnhub"
+        out["eps_consensus_basis_state"] = "BLOCKED_PROPRIETARY_BLEND" if eps_basis_blocked else "H1_SOURCE_REFERENCE"
+        identities = [r.get("identity") for r in h1.consensus_records(row)]
+        core_fields = ("issuer_id", "security_id", "accounting_basis", "currency", "share_or_ADR_unit")
+        cores = {tuple(identity.get(k) for k in core_fields) for identity in identities
+                 if h1.identity_complete(identity)}
+        if len(cores) > 1:
+            out.update(source_state="BLOCKED_IDENTITY_CONFLICT", next_action="VERIFY_SECURITY_BASIS_CURRENCY_UNIT")
             result.append(out)
             continue
-        eps = metric_values(row, "EPS", cutoff, h1)
+        eps = [] if eps_basis_blocked else metric_values(row, "EPS", cutoff, h1)
         rev = metric_values(row, "REVENUE", cutoff, h1)
         for values, prefix in [(eps, "eps"), (rev, "revenue")]:
             quarterly = [r for r in values if r["identity"]["period_type"] == "QUARTERLY"]
@@ -197,6 +204,16 @@ def audit_rows(universe: list[str], rows: list[dict], *, as_of: str,
                 out[f"fresh_{prefix}_fy{index}"] = fresh and len(matches) == 1
             out[f"fresh_{prefix}_next_quarter"] = fresh and bool(quarterly)
         out["fresh_both_fy1"] = out["fresh_eps_fy1"] and out["fresh_revenue_fy1"]
+        if out["fresh_both_fy1"]:
+            eps_identity = json.loads(row["eps_fy1_identity"])
+            rev_identity = json.loads(row["rev_fy1_identity"])
+            if any(eps_identity[k] != rev_identity[k]
+                   for k in (*core_fields, "fiscal_period_end", "period_type")):
+                for key in STRICT:
+                    out[key] = False
+                out.update(source_state="BLOCKED_PERIOD_CONFLICT", next_action="VERIFY_EPS_REVENUE_FISCAL_PERIOD")
+                result.append(out)
+                continue
         out["source_v2_eligible"] = fresh and bool(eps or rev) and row.get("identity_status") != "AMBIGUOUS"
         if row.get("identity_status") == "AMBIGUOUS":
             for key in STRICT:
@@ -207,8 +224,13 @@ def audit_rows(universe: list[str], rows: list[dict], *, as_of: str,
                 prior_time = max(t for t, _ in prior)
                 boundary = [r for t, r in prior if t == prior_time]
                 if len({stable_row(r) for r in boundary}) == 1:
-                    out[f"revision_{days}d_eligible"] = h1.same_period_revision(row, boundary[0]) is not None
+                    out[f"eps_revision_{days}d_eligible"] = out["fresh_eps_fy1"] and h1.same_period_revision(row, boundary[0]) is not None
+                    if days == 30:
+                        out["revenue_revision_30d_eligible"] = out["fresh_revenue_fy1"] and h1.same_period_revision(row, boundary[0], prefix="rev_fy1") is not None
+                    out[f"revision_{days}d_eligible"] = out[f"eps_revision_{days}d_eligible"] or (days == 30 and out["revenue_revision_30d_eligible"])
         out["source_state"] = "SOURCE_ONLY_FRESH" if out["source_v2_eligible"] else "STALE" if not fresh else "BLOCKED_IDENTITY_OR_MISSING"
+        if eps_basis_blocked:
+            out["source_state"] = "SOURCE_ONLY_REVENUE_EPS_BASIS_BLOCKED" if out["source_v2_eligible"] else "BLOCKED_CONSENSUS_BASIS"
         out["next_action"] = "WAIT_SEPARATE_CONSUMER_ADMISSION" if out["source_v2_eligible"] else "REFRESH_OR_VERIFY_METADATA"
         result.append(out)
     equities = [r for r in result if r["eligible_equity"]]
@@ -239,6 +261,11 @@ def audit_files(*, universe_path: Path, snapshot_dir: Path, output_dir: Path,
         raise ValueError("frozen_universe_count_mismatch")
     if output_dir.resolve().is_relative_to(snapshot_dir.resolve()):
         raise ValueError("audit_output_must_be_isolated_from_source")
+    for name in ("coverage_by_security.csv", "summary.json"):
+        target = output_dir / name
+        if (target.resolve() == universe_path.resolve()
+                or target.exists() and target.samefile(universe_path)):
+            raise ValueError("audit_output_must_not_overwrite_frozen_universe")
     sources, rows = [], []
     for path in sorted(snapshot_dir.glob("estimates_*.parquet")):
         frame = pd.read_parquet(path)

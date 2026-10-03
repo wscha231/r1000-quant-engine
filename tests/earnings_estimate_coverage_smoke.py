@@ -106,6 +106,17 @@ class CoverageFairnessTests(unittest.TestCase):
             self.assertEqual(summary["status"], "BLOCKED_NO_SNAPSHOT_INPUT")
             self.assertIsNone(summary["counts"]["source_v2_eligible"]["count"])
 
+    def test_output_filename_collision_preserves_frozen_bytes(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td)
+            u = p / "coverage_by_security.csv"
+            u.write_text("ticker\nAAA\n", encoding="utf-8")
+            before = u.read_bytes()
+            with self.assertRaisesRegex(ValueError, "overwrite_frozen_universe"):
+                audit_files(universe_path=u, snapshot_dir=p / "snapshots", output_dir=p,
+                            as_of=ASOF, universe_sha256=sha256(u), expected_equities=1)
+            self.assertEqual(u.read_bytes(), before)
+
 
 @unittest.skipIf(H1 is None, "accepted or pinned H1 validator is unavailable")
 class SourceV2CoverageTests(unittest.TestCase):
@@ -159,6 +170,20 @@ class SourceV2CoverageTests(unittest.TestCase):
         out, _ = audit_rows(["AAA"], [row], as_of="2026-10-02T20:00:00Z")
         self.assertFalse(out[0]["fresh_eps_fy1"])
 
+    def test_different_security_or_fiscal_period_cannot_form_both(self):
+        eps = dict(issuer_id="issuer-A", security_id="security-A", period="2026-12-31",
+                   period_type="ANNUAL", accounting_basis="GAAP", currency="USD", share_or_ADR_unit="share", avg=2)
+        for change, state in [({"issuer_id": "issuer-B", "security_id": "security-B"}, "BLOCKED_IDENTITY_CONFLICT"),
+                              ({"currency": "KRW"}, "BLOCKED_IDENTITY_CONFLICT"),
+                              ({"share_or_ADR_unit": "ADR2"}, "BLOCKED_IDENTITY_CONFLICT"),
+                              ({"period": "2027-03-31"}, "BLOCKED_PERIOD_CONFLICT")]:
+            row = H1.build_snapshot("AAA", eps_payload={"data": [eps]}, revenue_payload={"data": [{**eps, **change}]},
+                                    recommendation_payload=[], observed_at=ASOF, collected_at=ASOF, fetch_source="fmp")
+            out, _ = audit_rows(["AAA"], [row], as_of=ASOF)
+            self.assertEqual(out[0]["source_state"], state)
+            self.assertFalse(out[0]["fresh_both_fy1"])
+            self.assertFalse(out[0]["source_v2_eligible"])
+
     def test_revision_requires_mature_same_period_source_and_unit(self):
         prior = self.snapshot(at="2026-09-01T08:00:00Z", value=2)
         current = self.snapshot(value=3)
@@ -173,6 +198,21 @@ class SourceV2CoverageTests(unittest.TestCase):
         out, _ = audit_rows(["AAA"], [self.snapshot(provider="finnhub")], as_of=ASOF)
         self.assertEqual(out[0]["source_state"], "BLOCKED_CONSENSUS_BASIS")
         self.assertFalse(out[0]["source_v2_eligible"])
+
+    def test_eps_basis_block_does_not_block_finnhub_revenue(self):
+        record = dict(issuer_id="issuer-A", security_id="security-A", period="2026-12-31",
+                      period_type="ANNUAL", accounting_basis="GAAP", currency="USD",
+                      share_or_ADR_unit="share", avg=20)
+        def snap(at):
+            return H1.build_snapshot("AAA", eps_payload={"data": [{**record, "avg": 2}]},
+                                     revenue_payload={"data": [record]}, recommendation_payload=[],
+                                     observed_at=at, collected_at=at, fetch_source="finnhub")
+        out, _ = audit_rows(["AAA"], [snap("2026-09-01T08:00:00Z"), snap(ASOF)], as_of=ASOF)
+        self.assertTrue(out[0]["fresh_revenue_fy1"])
+        self.assertFalse(out[0]["fresh_eps_fy1"])
+        self.assertFalse(out[0]["eps_revision_30d_eligible"])
+        self.assertTrue(out[0]["revenue_revision_30d_eligible"])
+        self.assertFalse(out[0]["research_consumer_eligible"])
 
 
 if __name__ == "__main__":

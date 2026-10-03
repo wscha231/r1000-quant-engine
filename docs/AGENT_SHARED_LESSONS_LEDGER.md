@@ -25,6 +25,11 @@
   its owning lane and obtain analyst-only basis evidence before admission.
   Mixed FMP success/402 cannot justify a global block. Quota/account license
   is unverified, so this task uses zero new provider requests and no Drive writes.
+- Independent A6 on the initial coverage head reproduced an output filename
+  collision that overwrote a frozen-universe CSV, and cross-security EPS/revenue
+  counted as jointly usable. Output paths must reject the input itself (including
+  aliases), and metric admission must agree on security/basis/currency/unit and
+  the FY1 fiscal period. Both corrections have normal/-O executable regressions.
 
 ## 2026-09-30 — Immutable publication may lead mutable aliases (#563 P1 C/D)
 
