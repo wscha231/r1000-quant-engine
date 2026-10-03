@@ -225,6 +225,15 @@ unselected queue identities/counts/clocks, and the actual hash-bound accepted
 parent bytes. Status/count hints cannot waive transaction, marker, snapshot,
 signals, acknowledgement or parent checks. A stale or due plan blocks.
 
+Independent correction QA of `c1781a3f` also reproduced a truncated no-op:
+removing the same ticker from checkpoint and queue passed their mutual equality
+while the canonical CSV still named it. No-op publication now binds the actual
+current canonical CSV hash and its complete ticker set to both planning records
+and queue state. All declared counts must match the trusted expected universe
+count (993 in the workflow). Rebinding a smaller universe cannot downgrade that
+contract. A real current-universe replacement is allowed; accepted parent
+membership is not forced onto the current queue.
+
 Manual collection explicitly plans only its resolved request tickers before
 calling the vendor. Fresh requests create checkpoint/queue state; later requests
 preserve all previously acknowledged counters and clocks. Canonical planning

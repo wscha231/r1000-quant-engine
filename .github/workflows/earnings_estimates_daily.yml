@@ -434,6 +434,8 @@ jobs:
             --shard-mode "${RESOLVED_SHARD_MODE:-}" \
             --queue-summary outputs/earnings_estimates_daily/incremental_universe_summary.json \
             --queue-checkpoint data_pit/events/earnings_estimates/collection_checkpoint.json \
+            --queue-universe data_pit/events/earnings_estimates/collection_universe.csv \
+            --expected-universe-count 993 \
             --queue-csv outputs/earnings_estimates_daily/collection_queue.csv \
             --queue-report outputs/earnings_estimates_daily/collection_queue_report.md
 

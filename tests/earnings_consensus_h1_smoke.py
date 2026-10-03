@@ -304,7 +304,8 @@ else: raise ValueError('unexpected fixture transfer')
                     manifest=str(root / 'manifest.json'), index=str(root / 'index.jsonl'),
                     run_id=run_id, run_attempt='1', head_sha='fixture', ref='fixture', workflow='fixture', artifact_name='fixture',
                     queue_checkpoint=str(checkpoint), queue_csv=str(queue), queue_summary=str(root / 'queue-summary.json'),
-                    queue_report=str(root / 'queue.md'), collection_required=required)
+                    queue_report=str(root / 'queue.md'), collection_required=required,
+                    queue_universe=str(root / 'universe.csv'), expected_universe_count=2)
             for _ in range(2):
                 plan = build_incremental_universe(**args)
                 self.assertEqual(plan['status'], 'complete_no_collection_due')
@@ -316,8 +317,11 @@ else: raise ValueError('unexpected fixture transfer')
                 self.assertEqual((root / 'summary.json').read_bytes(), producer_summary)
             self.assertFalse(publish(required=True)['publishable'])
             self.assertFalse(publish(run_id='stale-plan-run')['publishable'])
-            saved = {path: path.read_bytes() for path in (checkpoint, queue, root / 'queue-summary.json', root / 'signals.parquet')}
-            variants = ('count', 'parent', 'selected', 'queue-summary-hash', 'queue-summary-count', 'run-id', 'signals', 'queue')
+            saved = {path: path.read_bytes() for path in (checkpoint, queue, root / 'queue-summary.json',
+                     root / 'signals.parquet', root / 'universe.csv')}
+            variants = ('count', 'parent', 'selected', 'queue-summary-hash', 'queue-summary-count', 'run-id',
+                        'signals', 'queue', 'truncated', 'canonical-truncated', 'canonical-hash',
+                        'universe-count', 'bound-queue-selected')
             for variant in variants:
                 with self.subTest(variant=variant):
                     for path, value in saved.items(): path.write_bytes(value)
@@ -326,13 +330,32 @@ else: raise ValueError('unexpected fixture transfer')
                     if variant == 'parent': cp['planning_parent_transaction'].pop('checkpoint_bytes_base64')
                     if variant == 'selected': cp['ticker_states'][0]['selected'] = True
                     if variant == 'run-id': cp['planning_run_id'] = 'old-run'
+                    if variant in ('truncated', 'canonical-truncated'):
+                        cp['ticker_states'] = [row for row in cp['ticker_states'] if row['ticker'] != 'AAA']
+                        pd.read_csv(queue).query("ticker != 'AAA'").to_csv(queue, index=False)
+                    if variant == 'bound-queue-selected':
+                        queue.write_text(queue.read_text().replace(',False,', ',True,', 1))
+                    if variant in ('truncated', 'canonical-truncated', 'bound-queue-selected'):
+                        cp['planned_queue_sha256'] = manifest.sha256_file(queue)
+                        qs['output_files']['queue']['sha256'] = manifest.sha256_file(queue)
+                    if variant == 'canonical-truncated':
+                        (root / 'universe.csv').write_text('ticker\n__CASH__\n')
+                        cp['universe']['expected_ticker_count'] = cp['universe']['ticker_count'] = 1
+                        qs['expected_universe_ticker_count'] = qs['current_universe_ticker_count'] = 1
+                        for record in (cp['universe']['canonical_snapshot'], qs['canonical_universe'],
+                                       qs['output_files']['canonical_universe']):
+                            record.update(sha256=manifest.sha256_file(root / 'universe.csv'), ticker_count=1)
+                    if variant == 'canonical-hash': cp['universe']['canonical_snapshot'].pop('sha256')
+                    if variant == 'universe-count': cp['universe']['ticker_count'] = True
                     if variant.startswith('queue-summary-'):
                         if variant.endswith('hash'): qs['output_files']['checkpoint'].pop('sha256')
                         else: qs['output_ticker_count'] = True
-                    if variant in ('count', 'parent', 'selected', 'run-id'):
+                    checkpoint_variants = ('count', 'parent', 'selected', 'run-id', 'truncated',
+                        'canonical-truncated', 'canonical-hash', 'universe-count', 'bound-queue-selected')
+                    if variant in checkpoint_variants:
                         checkpoint.write_text(json.dumps(cp))
                     # Preserve plan-summary hashes for state-spoof cases so parent/zero selection checks do the work.
-                    if variant in ('count', 'parent', 'selected', 'run-id'):
+                    if variant in checkpoint_variants:
                         qs['output_files']['checkpoint']['sha256'] = manifest.sha256_file(checkpoint)
                     (root / 'queue-summary.json').write_text(json.dumps(qs))
                     if variant == 'signals': (root / 'signals.parquet').write_bytes(b'corrupt')
@@ -342,6 +365,23 @@ else: raise ValueError('unexpected fixture transfer')
             # A due plan cannot become a no-op just by passing the manifest flag.
             build_incremental_universe(**{**args, 'as_of_date': '2026-07-10'})
             self.assertFalse(publish()['publishable'])
+            for path, value in saved.items(): path.write_bytes(value)
+            argv = ['collector', '--tickers', 'BBB', '--api-key', 'fixture', '--fetch-date', '2026-07-01',
+                '--snapshot-dir', str(root / 'history'), '--signals-output', str(root / 'signals.parquet'),
+                '--summary', str(root / 'summary.json'), '--collection-checkpoint', str(checkpoint),
+                '--collection-queue', str(queue), '--collection-attempt-id', 'manual-universe-change', '--plan-manual-collection']
+            with patch.object(c, 'collect_live_snapshot', return_value=(pd.DataFrame(
+                    [snapshot('2026-07-01T18:00:00Z', ticker='BBB')]), [], ['BBB'], {})), \
+                 patch.object(sys, 'argv', argv), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(c.main(), 0)
+            # A real current-universe replacement is allowed; parent tickers
+            # are not the authority for today's complete queue membership.
+            coverage.write_text('ticker\nBBB\n__CASH__\n')
+            changed = build_incremental_universe(**args)
+            self.assertEqual(changed['status'], 'complete_no_collection_due')
+            self.assertEqual(set(row['ticker'] for row in json.loads(checkpoint.read_text())['ticker_states']),
+                             {'BBB', '__CASH__'})
+            self.assertTrue(publish()['publishable'], publish()['publication_failures'])
 
     def test_damaged_middle_vintage_blocks_archive_without_fallback(self):
         april = snapshot('2026-04-01T18:00:00Z', 1)

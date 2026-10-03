@@ -27,6 +27,12 @@
 - Select the latest revision boundary within the current provider. Retain
   latest-null/identity/tie rejection and whole-archive integrity checks so this
   correction cannot search backward for a favorable value or ignore corruption.
+- Correction QA on `c1781a3f` truncated the same ticker from checkpoint and
+  queue, rebound their output hashes, and still published against a canonical
+  CSV containing that ticker. Mutual equality is not completeness. Bind the
+  actual current canonical CSV/hash/full ticker set and all declared counts to
+  the trusted workflow expected count. Preserve legitimate current-universe
+  changes rather than requiring the accepted parent's ticker set.
 - Source correction and local fixtures do not repair durable state or authorize
   financial execution. New-head QA, CI, authenticated review and merge gates
   remain required; no stale head supplies final acceptance.

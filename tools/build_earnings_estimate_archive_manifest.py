@@ -338,7 +338,8 @@ def require_verified_collector_state(
 
 def require_verified_no_collection_plan(
     directory: Path, *, summary_path: Path, checkpoint_path: Path,
-    queue_path: Path, signals_path: Path, plan_summary: dict[str, Any], run_id: str,
+    queue_path: Path, signals_path: Path, universe_path: Path,
+    plan_summary: dict[str, Any], run_id: str, expected_universe_count: int,
 ) -> None:
     """A new no-op run may publish its plan only against a verified accepted parent."""
     state = require_verified_collector_state(directory, summary_path=summary_path,
@@ -367,6 +368,28 @@ def require_verified_no_collection_plan(
     states = {row["ticker"].upper().strip(): row for row in checkpoint["ticker_states"]}
     if not states or any(row.get("selected") is not False for row in states.values()):
         raise ValueError("no_collection_plan_not_empty")
+    if not universe_path.is_file():
+        raise ValueError("no_collection_canonical_universe_missing")
+    universe = checkpoint.get("universe") or {}
+    if not isinstance(universe, dict):
+        raise ValueError("no_collection_universe_state_mismatch")
+    canonical_hash = sha256_file(universe_path)
+    records = (universe.get("canonical_snapshot"), plan_summary.get("canonical_universe"),
+               outputs.get("canonical_universe"))
+    if any(not isinstance(record, dict) or record.get("sha256") != canonical_hash for record in records):
+        raise ValueError("no_collection_canonical_universe_hash_mismatch")
+    with universe_path.open(newline="", encoding="utf-8") as handle:
+        canonical_rows = list(csv.DictReader(handle))
+    canonical = [str(row.get("ticker") or "").upper().strip() for row in canonical_rows]
+    if (type(expected_universe_count) is not int or expected_universe_count <= 0
+            or len(canonical) != expected_universe_count or not all(canonical)
+            or len(set(canonical)) != len(canonical) or set(canonical) != set(states)):
+        raise ValueError("no_collection_universe_state_mismatch")
+    counts = (universe.get("expected_ticker_count"), universe.get("ticker_count"),
+              plan_summary.get("expected_universe_ticker_count"), plan_summary.get("current_universe_ticker_count"),
+              *(record.get("ticker_count") for record in records))
+    if any(type(count) is not int or count != expected_universe_count for count in counts):
+        raise ValueError("no_collection_universe_count_mismatch")
     with queue_path.open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
     seen = set()
@@ -459,6 +482,8 @@ def build_manifest(
     queue_checkpoint: str = "data_pit/events/earnings_estimates/collection_checkpoint.json",
     queue_csv: str = "outputs/earnings_estimates_daily/collection_queue.csv",
     queue_report: str = "outputs/earnings_estimates_daily/collection_queue_report.md",
+    queue_universe: str = "data_pit/events/earnings_estimates/collection_universe.csv",
+    expected_universe_count: int = 993,
     collection_required: bool = True,
 ) -> dict[str, Any]:
     snapshot_dir_path = repo_path(snapshot_dir)
@@ -471,6 +496,7 @@ def build_manifest(
     queue_checkpoint_path = repo_path(queue_checkpoint)
     queue_csv_path = repo_path(queue_csv)
     queue_report_path = repo_path(queue_report)
+    queue_universe_path = repo_path(queue_universe)
     summary_payload = load_json(summary_path)
     queue_payload = load_json(queue_summary_path)
     snapshot_path = latest_snapshot(snapshot_dir_path, summary_payload)
@@ -578,6 +604,7 @@ def build_manifest(
             "collection_queue_checkpoint": file_record(queue_checkpoint_path),
             "collection_queue_csv": file_record(queue_csv_path),
             "collection_queue_report": file_record(queue_report_path),
+            "collection_queue_universe": file_record(queue_universe_path),
         },
         "text_secret_scan": {
             "unmasked_secret_pattern_found": unmasked_secret,
@@ -617,7 +644,8 @@ def build_manifest(
         try:
             require_verified_no_collection_plan(snapshot_dir_path, summary_path=summary_path,
                 checkpoint_path=queue_checkpoint_path, queue_path=queue_csv_path,
-                signals_path=signals_path, plan_summary=queue_payload, run_id=run_id)
+                signals_path=signals_path, universe_path=queue_universe_path,
+                plan_summary=queue_payload, run_id=run_id, expected_universe_count=expected_universe_count)
             no_collection_plan_verified = True
         except (ValueError, KeyError, TypeError, OSError) as exc:
             transaction_failures.append(f"no_collection_plan_invalid:{exc}")
@@ -796,6 +824,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--queue-csv", default="outputs/earnings_estimates_daily/collection_queue.csv")
     parser.add_argument("--queue-report", default="outputs/earnings_estimates_daily/collection_queue_report.md")
     parser.add_argument("--collection-required", choices=("true", "false"), default="true")
+    parser.add_argument("--queue-universe", default="data_pit/events/earnings_estimates/collection_universe.csv")
+    parser.add_argument("--expected-universe-count", type=int, default=993)
     return parser.parse_args()
 
 
@@ -822,6 +852,8 @@ def main() -> int:
         queue_csv=args.queue_csv,
         queue_report=args.queue_report,
         collection_required=args.collection_required == "true",
+        queue_universe=args.queue_universe,
+        expected_universe_count=args.expected_universe_count,
     )
     print(json.dumps(payload, indent=2, sort_keys=True))
     if payload["text_secret_scan"]["unmasked_secret_pattern_found"]:
