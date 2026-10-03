@@ -2,9 +2,19 @@
 
 TASK_KEY: R1000-A0-A8-BOUNDED-RESEARCH-AUTOMATION-V1-20261003.
 Owner: A0/A8. Repository: wscha231/r1000-quant-engine.
-Base: master@26b546173c1aafcb8fcc4d2e8e7fe575b52b2a8d.
+Integrated base: master@659ded5834395c3851c0e10771b6a0cc6c6b65a2.
+Original implementation base: master@26b546173c1aafcb8fcc4d2e8e7fe575b52b2a8d.
 Branch: h1/a0-a8-bounded-research-20261003.
 Standing execution: DISABLED. Research state: BLOCKED / WAIT_DEPENDENCY.
+
+Base-refresh task: R1000-A0-A8-BOUNDED-RESEARCH-BASE-REFRESH-20261003.
+Integrate current master with a merge commit, preserving both the PR570 and
+A8 preview lesson entries. The six functional files and disabled, zero-budget
+configuration remain identical to previous PR head
+fe88d270ca97784faa88ce6b44f789fefe7f4bd5. Its earlier exact-head review is
+historical evidence only; the integration head requires fresh CI and one
+independent review after those checks pass. Merge and activation remain
+separate, unapproved actions.
 
 This implements the bounded fallback when current outcome/evaluator/runtime
 prerequisites cannot admit an economic experiment. It connects original
