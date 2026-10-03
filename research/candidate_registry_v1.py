@@ -167,6 +167,22 @@ def _reference(value: Any, cutoff: datetime) -> dict[str, Any]:
     return deepcopy(value)
 
 
+def _access_reference(value: Any, cutoff: datetime) -> dict[str, Any]:
+    """Only identity and safe clocks authorize provenance-preflight reads.
+
+    Expiry, optional metadata and intra/cross-reference ordering are row-local;
+    they cannot hide nested immutable identities in otherwise eligible bytes.
+    Both packet/result access descriptors must still be well formed and not
+    future, even though preflight resolves only the packet/dependencies.
+    """
+    _require(isinstance(value, dict), "reference_fields")
+    aid = _identifier(value.get("artifact_id"), "artifact_id")
+    digest = _digest(value.get("sha256"))
+    available, collected = _stamp(value.get("available_at")), _stamp(value.get("collected_at"))
+    _require(available <= cutoff and collected <= cutoff, "reference_time_order")
+    return {"artifact_id": aid, "sha256": digest}
+
+
 def _register_nested(value: dict[str, Any], snapshot: _Snapshot) -> int:
     # Strict decoding already bounded depth/nodes. Inspect every syntactically
     # valid descriptor before any asset, role, clock or dependency validation.
@@ -210,9 +226,8 @@ def _preflight_nested(entries: list[dict[str, Any]], cutoff: datetime,
 
     for entry in sorted(entries, key=lambda e: e["asset_id"]):
         try:
-            pref = _reference(entry.get("a3_packet_ref"), cutoff)
-            rref = _reference(entry.get("a3_result_ref"), cutoff)
-            _require(_stamp(rref["available_at"]) >= _stamp(pref["collected_at"]), "result_precedes_packet")
+            pref = _access_reference(entry.get("a3_packet_ref"), cutoff)
+            _access_reference(entry.get("a3_result_ref"), cutoff)
             key = pref["artifact_id"], pref["sha256"]
             if key in packet_attempts:
                 continue

@@ -1,5 +1,15 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-03 — Separate safe access from row-local expiry (#560 R3)
+
+- Immutable provenance preflight must use only valid ID/hash and eligible
+  availability/collection clocks. Expiry, optional fields and cross-reference
+  ordering remain row-local checks; they must not conceal decoded nested-ID
+  conflicts. Future or malformed access clocks still permit zero reads.
+- Cover early metadata errors across packet/result roles, conflict locations,
+  both input orders and future boundaries. Preserve once-per-identity work,
+  verified immutable cached views and every closed economic/reuse authority.
+
 ## 2026-10-03 — Bound traversal and seal cached evidence (#560 R2)
 
 - A decode cache alone does not bound repeated nested traversal. Memoize full

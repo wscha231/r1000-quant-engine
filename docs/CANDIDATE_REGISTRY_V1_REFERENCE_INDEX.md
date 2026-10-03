@@ -192,6 +192,25 @@ only through separately scoped work under the same #516 ownership.
 
 ## Operational lesson
 
+### 2026-10-03 safe access versus row-local metadata
+
+The hosted review of `43d6cbfcd3c14f7e99b8d44597214ad83dadc320` found
+that full packet/result reference validation could hide nested immutable-ID
+conflicts behind invalid expiry. Provenance preflight now requires valid
+ID/hash and individually safe availability/collection clocks for both
+descriptors. It leaves expiry, optional reference/entry fields and intra/
+cross-reference ordering to the unchanged row-local validator. An eligible
+packet and its eligible structured dependencies remain preflighted once per
+identity; future or malformed access clocks/identities grant no read.
+
+The bounded 116-cell native caller matrix covers packet and structured raw
+source conflicts, both reference roles, both error rows and both input
+orders, plus future/malformed access controls. The exact prior source has
+88 violated expectations; the correction passes all 116 cells normal and
+`-O`. Integrated regressions additionally preserve row-local rejection,
+closed authority and repeated-identity scan bounds. These are synthetic
+provenance tests, with no new economic result or authenticated review claim.
+
 ### 2026-10-03 cross-phase review corrections
 
 The subsequent hosted review of `dbaa7ebfbf2e105386b6011ef0a51cb85b7a5234`

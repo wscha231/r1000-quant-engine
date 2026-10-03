@@ -506,6 +506,148 @@ class RegistryTests(unittest.TestCase):
             self.assertEqual(resolver.call_count, 0)
             self.assertEqual(out["blocked_count"], 1)
 
+    def _metadata_failure(self, entry, role, error):
+        ref = entry[role]
+        if error == "expiry_precedes_collection":
+            ref["expires_at"] = "2026-09-19T00:00:00Z"
+        elif error == "malformed_expiry":
+            ref["expires_at"] = "invalid"
+        elif error == "missing_expiry":
+            del ref["expires_at"]
+        elif error == "extra_ref_field":
+            ref["unexpected"] = True
+        elif error == "reference_time_order":
+            ref["available_at"] = "2026-09-19T03:00:00Z"
+        elif error == "result_precedes_packet":
+            entry["a3_result_ref"]["available_at"] = "2026-09-19T01:00:00Z"
+            entry["a3_result_ref"]["collected_at"] = "2026-09-19T01:00:00Z"
+        elif error == "entry_fields":
+            entry["unexpected"] = True
+        else:
+            self.fail("unknown metadata fixture")
+
+    def _nested_conflict_fixture(self, location):
+        a, b = self.fixture("US:A"), self.fixture("US:B")
+        pa, pb = self.read(a["a3_packet_ref"]), self.read(b["a3_packet_ref"])
+        if location == "packet":
+            pa["artifacts"]["methodology"]["artifact_id"] = pb["artifacts"]["methodology"]["artifact_id"]
+        else:
+            ga = self.read(pa["artifacts"]["source_graph"])
+            gb = self.read(pb["artifacts"]["source_graph"])
+            ga["sources"][0]["raw_artifact_id"] = gb["sources"][0]["raw_artifact_id"]
+            ga["sources"][0]["raw_sha256"] = "0" * 64
+            changed = self.put("REVISED:GRAPH", ga)
+            pa["artifacts"]["source_graph"].update(artifact_id=changed["artifact_id"], sha256=changed["sha256"])
+        self.replace(a, "a3_packet_ref", pa)
+        return a, b
+
+    def test_nested_conflicts_precede_safe_row_metadata_failures(self):
+        # Invalid expiry/shape/relation metadata cannot hide identities in
+        # packet bytes or a structured dependency's nested raw-source refs.
+        errors = ("expiry_precedes_collection", "malformed_expiry", "missing_expiry",
+                  "extra_ref_field", "reference_time_order", "result_precedes_packet", "entry_fields")
+        for error in errors:
+            roles = (("a3_result_ref",) if error in {"result_precedes_packet", "entry_fields"}
+                     else ("a3_packet_ref", "a3_result_ref"))
+            for role in roles:
+                for location in ("packet", "structured_raw_source"):
+                    for bad_index in (0, 1):
+                        a, b = self._nested_conflict_fixture(location)
+                        self._metadata_failure((a, b)[bad_index], role, error)
+                        for ordered in ((a, b), (b, a)):
+                            with self.subTest(error=error, role=role, location=location,
+                                              bad_index=bad_index, first=ordered[0]["asset_id"]):
+                                with self.assertRaisesRegex(ReferenceIndexError, "artifact_id_conflict"):
+                                    self.build(*ordered)
+
+    def test_invalid_metadata_stays_row_local_when_identities_agree(self):
+        errors = {"expiry_precedes_collection": "expiry_precedes_collection",
+                  "malformed_expiry": "timezone_required", "missing_expiry": "reference_fields",
+                  "extra_ref_field": "reference_fields", "result_precedes_packet": "result_precedes_packet",
+                  "reference_time_order": "reference_time_order", "entry_fields": "entry_fields"}
+        for error, reason in errors.items():
+            roles = (("a3_result_ref",) if error in {"result_precedes_packet", "entry_fields"}
+                     else ("a3_packet_ref", "a3_result_ref"))
+            for role in roles:
+                with self.subTest(error=error, role=role):
+                    entry = self.fixture()
+                    self._metadata_failure(entry, role, error)
+                    reads = []
+                    def resolve(aid, sha):
+                        reads.append((aid, sha))
+                        return self.resolve(aid, sha)
+                    out = self.build(entry, resolver=resolve)
+                    row = out["records"][0]
+                    self.assertEqual(out["status"], "REFERENCE_ERRORS_PRESENT")
+                    self.assertEqual(row["blockers"], [reason])
+                    self.assertEqual(row["reference_status"], "BLOCKED")
+                    self.assertFalse(row["reuse_authorized"])
+                    self.assertFalse(row["A5_eligible_input"])
+                    self.assertEqual(sum(aid == entry["a3_packet_ref"]["artifact_id"] for aid, _ in reads), 1)
+                    self.assertFalse(any(aid == entry["a3_result_ref"]["artifact_id"] for aid, _ in reads))
+
+    def test_metadata_preflight_preserves_all_safe_clock_and_identity_boundaries(self):
+        errors = ("expiry_precedes_collection", "malformed_expiry", "missing_expiry",
+                  "extra_ref_field", "reference_time_order", "result_precedes_packet", "entry_fields")
+        boundaries = ("future_available", "future_collected", "malformed_clock",
+                      "malformed_id", "malformed_hash")
+        for error in errors:
+            roles = (("a3_result_ref",) if error in {"result_precedes_packet", "entry_fields"}
+                     else ("a3_packet_ref", "a3_result_ref"))
+            for role in roles:
+                for gate_role in ("a3_packet_ref", "a3_result_ref"):
+                    for boundary in boundaries:
+                        a, b = self._nested_conflict_fixture("packet")
+                        hidden = a["a3_packet_ref"]["artifact_id"]
+                        self._metadata_failure(a, role, error)
+                        ref = a[gate_role]
+                        if boundary == "future_available":
+                            ref["available_at"] = ref["collected_at"] = "2026-09-20T00:00:00Z"
+                        elif boundary == "future_collected":
+                            ref["collected_at"] = "2026-09-20T00:00:00Z"
+                        elif boundary == "malformed_clock":
+                            ref["available_at"] = "invalid"
+                        elif boundary == "malformed_id":
+                            ref["artifact_id"] = "?INVALID?"
+                        else:
+                            ref["sha256"] = "BAD"
+                        for ordered in ((a, b), (b, a)):
+                            with self.subTest(error=error, role=role, gate_role=gate_role,
+                                              boundary=boundary, first=ordered[0]["asset_id"]):
+                                reads = []
+                                def resolve(aid, sha):
+                                    reads.append((aid, sha))
+                                    return self.resolve(aid, sha)
+                                out = self.build(*ordered, resolver=resolve)
+                                self.assertEqual(out["blocked_count"], 1)
+                                self.assertEqual(out["reference_verified_count"], 1)
+                                self.assertFalse(any(aid == hidden for aid, _ in reads))
+
+    def test_shared_invalid_metadata_does_not_repeat_packet_or_dependency_scans(self):
+        original = self.fixture()
+        entries = []
+        for i in range(40):
+            entry = deepcopy(original)
+            entry["asset_id"] = f"US:REPEAT{i:02d}"
+            self._metadata_failure(entry, "a3_packet_ref", "malformed_expiry")
+            entries.append(entry)
+        reads, scanned = [], []
+        def resolve(aid, sha):
+            reads.append((aid, sha))
+            return self.resolve(aid, sha)
+        original_scan = registry._register_nested
+        def scan(value, snapshot):
+            scanned.append(id(value))
+            return original_scan(value, snapshot)
+        with patch.object(registry, "_register_nested", scan):
+            out = self.build(*entries, resolver=resolve)
+        self.assertEqual(out["blocked_count"], 40)
+        self.assertEqual(len(reads), 5)  # packet plus the four structured roles
+        self.assertEqual(len(reads), len(set(reads)))
+        self.assertEqual(len(scanned), 5)
+        self.assertEqual(len(scanned), len(set(scanned)))
+        self.assertTrue(all(row["blockers"] == ["timezone_required"] for row in out["records"]))
+
     def test_A3_replay_reuses_actual_json_and_hash_outcomes(self):
         a, b = self.fixture("US:A"), self.fixture("US:B")
         # Distinct packet/result pairs share structured and raw dependencies;
