@@ -1,5 +1,57 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-03 — Bind audit receipts to consumed bytes and semantic unknowns (#572)
+
+- Formal exact-head review after A6 CLEAN reproduced four audit P2 gaps.
+  Parse and hash one immutable buffer; separate filesystem reads can attach
+  an expected universe or snapshot digest to different consumed rows.
+- A future quarterly consensus record does not prove the immediately next
+  fiscal quarter. The existing H1 identity contract has no trusted fiscal
+  calendar anchor, so retain future-quarter evidence and keep next-quarter
+  admission UNKNOWN rather than inventing calendar-quarter boundaries.
+- Missing snapshot inputs must propagate UNKNOWN into equity detail rows,
+  aggregate counts and source-state counts. Reject empty/null security keys
+  and duplicates after normalization before admitting a frozen denominator.
+- The user approved one additional correction cycle beyond the original two.
+  Preserve the prior reports and require fresh exact-head A6/formal review;
+  source correction grants no collection, consumer, publication or merge authority.
+
+## 2026-10-03 — Estimate coverage requires separate value and source admission
+
+- At master `30915e05c1ffe3cecd2c46b229af20844e514f3d`, Drive run
+  `37100587799` has 992 equities plus CASH. The 60 historical flag-positive
+  names also have fresh legacy nonzero EPS/revenue fields at the frozen
+  `2026-10-03T05:45:23Z` cutoff, but zero rows satisfy the V2 source contract.
+  Fiscal period, basis, currency/unit and exact clocks cannot be reconstructed
+  from legacy zero-filled fields. This is diagnostic coverage, not usable PIT.
+- Latest summary/snapshot/checkpoint/queue and universe hashes match their
+  current manifest. Of 63 downloaded snapshots, 62 match indexed hashes;
+  `estimates_20260912.parquet` has no index entry. Preserve and quarantine that
+  provenance gap rather than inventing an accepted receipt or silently dropping it.
+- A permanent interest hint sorted before acknowledged service age starves
+  retry tails. Universe-order CSV output can undo a fair selection and repeat
+  a serviced prefix after partial failure. Sort never-serviced/oldest first,
+  use hints only for ties, and preserve that order through the request boundary.
+- Reuse #556's validator rather than reimplementing it. The unmerged exact
+  head `2eb4c163e1c5062f54f5e2f0b9d0656985b60ed5` remains a reference;
+  crash-consistency A6 findings, final review and consumer admission are open.
+  Do not modify its transactional writer through a coverage side lane.
+- FMP's documented analyst-count names differ from the old adapter. Finnhub's
+  documented EPS average includes proprietary estimates. Fix the adapter in
+  its owning lane and obtain analyst-only basis evidence before admission.
+  Mixed FMP success/402 cannot justify a global block. Quota/account license
+  is unverified, so this task uses zero new provider requests and no Drive writes.
+- Independent A6 on the initial coverage head reproduced an output filename
+  collision that overwrote a frozen-universe CSV, and cross-security EPS/revenue
+  counted as jointly usable. Output paths must reject the input itself (including
+  aliases), and metric admission must agree on security/basis/currency/unit and
+  the FY1 fiscal period. Both corrections have normal/-O executable regressions.
+- A6 re-review extended alias testing to source Parquet hardlinks: protect every
+  read input and atomically replace output directory entries instead of truncating
+  existing inodes. Mature revision coverage is metric-specific; revenue-only
+  90-day evidence must be counted through the same-period H1 helper, with no EPS
+  inference. These corrections use the second and final permitted correction cycle.
+
 ## 2026-10-03 — Separate safe access from row-local expiry (#560 R3)
 
 - Immutable provenance preflight must use only valid ID/hash and eligible

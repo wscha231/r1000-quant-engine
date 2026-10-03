@@ -368,12 +368,12 @@ def checkpoint_is_valid(
         return False
 
 
-def selection_sort_key(row: dict[str, Any], priority: set[str]) -> tuple[int, int, str, str]:
+def selection_sort_key(row: dict[str, Any], priority: set[str]) -> tuple[int, str, int, str]:
     last_selected = str(row.get("last_selected_at_utc") or "")
     return (
-        0 if row["ticker"] in priority else 1,
         0 if not last_selected else 1,
         last_selected,
+        0 if row["ticker"] in priority else 1,
         row["ticker"],
     )
 
@@ -712,7 +712,9 @@ def build_incremental_universe(
     )
 
     selected_tickers: list[str] = []
-    for row in rows:
+    # Preserve service order at the collector boundary. A partial collector
+    # stop must not repeatedly hit an already acknowledged universe prefix.
+    for row in sorted(rows, key=lambda item: selection_sort_key(item, priority)):
         reason = selected.get(row["ticker"], "")
         if not reason:
             continue

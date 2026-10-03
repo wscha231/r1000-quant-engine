@@ -626,8 +626,8 @@ def audit(args: argparse.Namespace) -> dict[str, Any]:
             ),
             "forward_estimate_has_estimate": coverage_item(
                 "forward_estimate_has_estimate",
-                label="forward estimate archive true estimate coverage",
-                pit_usage_label="forward_only_snapshot",
+                label="forward estimate archive ever-positive ticker union",
+                pit_usage_label="historical_flag_union_not_current_usable",
             ),
         },
         "known_gaps": [

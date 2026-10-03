@@ -72,7 +72,7 @@ def test_queue_reuses_fresh_success_and_resumes_from_checkpoint() -> None:
 
         output = root / "outputs" / "earnings_estimates_daily" / "incremental_universe.csv"
         queue = pd.read_csv(root / "outputs" / "earnings_estimates_daily" / "collection_queue.csv")
-        assert pd.read_csv(output)["ticker"].tolist() == ["BBB", "DDD", "EEE"]
+        assert pd.read_csv(output)["ticker"].tolist() == ["EEE", "BBB", "DDD"]
         assert first["current_universe_ticker_count"] == 6
         assert first["eligible_universe_ticker_count"] == 5
         assert first["non_equity_placeholder_ticker_count"] == 1
@@ -261,4 +261,6 @@ if __name__ == "__main__":
     test_queue_rejects_wrong_placeholder_contract_for_seed_and_checkpoint()
     test_zero_limits_disable_lanes_and_negative_limits_are_rejected()
     test_success_becomes_stale_when_threshold_days_have_elapsed()
+    import runpy
+    runpy.run_path(str(ROOT / "tests" / "earnings_estimate_coverage_smoke.py"), run_name="__main__")
     print("earnings_estimate_incremental_universe_smoke: PASS")
