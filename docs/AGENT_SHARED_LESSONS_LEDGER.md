@@ -5587,3 +5587,27 @@ Expected contract:
   succeeded and zero artifacts were produced. The approved extra dispatch
   was consumed. Source correction does not authorize another runtime capture,
   migration, paper catch-up, owner attestation or protected durable mutation.
+
+### 2026-10-03 - Recover committed July27 publication without replaying its transaction
+
+- Producer run 37002957966/1 at 30915e05 remains CANCELLED: transaction and
+  integrity succeeded, persistence was cancelled, and accepted artifact/cache
+  steps were skipped. Physical seven-head chain ends at 761cf62e; keep the
+  original run, source, bytes and consumed comment 5951667349 as historical
+  evidence. Do not relabel that run successful or reuse its transaction scope.
+- Ordinary daily inputs are a strict historical eleven-key contract. A bounded
+  manual-only recovery publisher calls unchanged native physical verifiers;
+  its fresh owner/current-master/environment authority is separate from the
+  original producer. No ledger writer, head install, next session or new order
+  belongs in publication recovery. Publication/cache approval defaults false.
+- Full original capture/diagnostic ZIPs, 7-head payloads and canonical aliases
+  passed local preparation and independent bundle revalidation in normal and
+  optimized Python. These are LOCAL_READ_ONLY_PREPARATION receipts with
+  publication_ready=false, not a remote publication or investment approval.
+- Artifact readback must bind the actual new publisher and every ZIP byte.
+  Clear only the two verified staging directories before exact-key cache
+  restore; otherwise leftover local files can mask missing cached members.
+- Related local physical/scope checks passed. The unchanged broad artifact
+  smoke hit a Windows separator comparison in the capture-config fixture
+  (forward slash versus backslash). Record that limitation and check Linux CI;
+  do not weaken the fixture or the ordinary capture/publication gate.
