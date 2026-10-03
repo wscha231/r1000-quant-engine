@@ -5982,3 +5982,19 @@ Expected contract:
 - Keep real connection objects alive in tests, then verify closed API behavior,
   same-process reopen/rename, rollback on later failures and clean positive
   materialization. Do not rely on GC or weaken source/PIT/cutoff gates.
+
+## 2026-10-04 — Registered provider secrets require explicit source wiring
+
+- FMP_API_KEY2 and EODHD_API_KEY registration did not change the existing
+  collector. The latest October 3 workflow requested 60 securities and returned
+  estimate-positive rows for 10; green workflow status did not prove coverage.
+- The collector now permits explicit secondary FMP selection; the bounded probe
+  reuses accepted H1 normalization and selects one secret without fallback or
+  pooling. It reserves failed HTTP attempts and EODHD's 10-call Fundamentals
+  cost, and reports unknown identity separately. No raw account response,
+  forecast value, key, or key fingerprint leaves the probe process.
+- Offline regression caught a wrong H1 builder argument and a test that ignored
+  the API_KEY2 suffix. Test the exact builder and registered H1 wrapper. A parsed
+  sample or secret registration is not durable collection, usable coverage or
+  consumer admission. Merge/dispatch and real credential validation remain pending.
+- See docs/EARNINGS_ESTIMATE_SOURCE_PROBE.md for scope, budgets and limitations.

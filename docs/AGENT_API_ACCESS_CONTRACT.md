@@ -13,6 +13,8 @@ artifact.
 | `FINNHUB_API_KEY` | Finnhub market data, earnings, recommendations | Estimate endpoints are not entitled on the current key. |
 | `ALPHAVANTAGE_API_KEY` | Alpha Vantage earnings-estimate fallback / listing lifecycle | Paused in the default estimate workflow until key rotation is confirmed. |
 | `FMP_API_KEY` | Financial Modeling Prep analyst estimates fallback | Returned usable rows in the 2026-07-09 smoke. |
+| `FMP_API_KEY2` | Explicit FMP account selection in the collector/manual workflow and source-only sample | Registered; actual endpoint entitlement unverified. No automatic fallback or quota pooling. |
+| `EODHD_API_KEY` | EODHD account usage and v1.1 analyst Trend sample | Registered; Fundamentals entitlement unverified. Not enabled in the operational collector. |
 | `FRED_API_KEY` | Macro and rates | Optional for workflows that need macro data. |
 | `GOOGLE_SERVICE_ACCOUNT_KEY` / `RCLONE_CONFIG_GDRIVE` | Artifact persistence | Optional but useful for shared archives. |
 
@@ -44,24 +46,33 @@ Do not commit `.env` files. Do not put example values in docs.
 ## Safe Smoke For Estimate Feed
 
 ```bash
-gh workflow run earnings_estimates_daily.yml \
+gh workflow run earnings_estimate_source_probe.yml \
   --repo wscha231/r1000-quant-engine \
   --ref master \
-  -f tickers='AAPL' \
-  -f ticker_limit=1
+  -f expected_head='<exact reviewed and approved master SHA>' \
+  -f provider='eodhd' -f tickers='AAPL' \
+  -f max_http_requests=2 -f verified_api_units=10
 ```
 
-Expected output contract:
+This example is not dispatch approval. Obtain the attached task's explicit
+execution approval after review and authorized merge. Do not dispatch the
+transactional earnings workflow as a credential test: it includes overlays,
+paper and durable publication. EODHD's live usage response must admit the budget;
+FMP/FMP2 require fresh verified shared-quota evidence within 15 minutes.
 
-- workflow conclusion: `success`
-- `status=completed` when at least one usable estimate row is present
-- `fetch_sources` identifies the vendor used
-- `available_from=fetch_date`
-- `backtest_acceptance_allowed=false`
+Expected diagnostic contract:
+
+- source GET attempts, including quota check, never exceed the approved cap
+- selected credential name identifies one account; no key values/fingerprints
+- observed EPS/revenue counts and identity completeness are reported separately
+- `SAMPLE_PROBED` does not prove usable universe coverage
+- provider 402/403, missing data and missing economic identity remain explicit
+- raw provider/account responses and estimate values are not persisted
+- `historical_pit_certified=false`
 - `production_activation_allowed=false`
 - `live_trading_enabled=false`
 
-Default vendor order is `fmp,finnhub`. Alpha Vantage must be requested
+The operational default vendor order remains `fmp,finnhub`. Alpha Vantage must be requested
 explicitly, for example after key rotation with `-f vendor_order='alphavantage'`.
 
 ## What This Does Not Authorize

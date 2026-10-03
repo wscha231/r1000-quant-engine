@@ -2170,4 +2170,7 @@ else: raise ValueError('unexpected fixture transfer')
             self.assertEqual(queue.read_bytes(), queue_bytes)
 
 
+# Reuse the registered H1 wrapper; the protected validation runner stays unchanged.
+from tests.earnings_estimate_source_probe_smoke import SourceProbeTests
+
 if __name__=='__main__': unittest.main()
