@@ -247,6 +247,12 @@ requires successful restore and ticker resolution; forward paper prerequisites
 require manifest success. No configured Drive keeps the supported cache-only
 path. Configured Drive requires its authoritative archive to exist.
 
+A same-logical-run collector exception before mutation can leave a prior
+accepted transaction fully hash-valid. The workflow therefore also requires
+collector-step success when collection is required; transaction validity alone
+cannot waive a failed prerequisite. A verified no-collection plan intentionally
+skips the collector. This is separate from the retained transaction's validity.
+
 Revision boundaries choose the latest available observation within the current
 provider before comparing fiscal/security identity. Other providers cannot hide
 valid same-provider history. Latest same-provider null/identity conflicts and

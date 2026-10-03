@@ -33,6 +33,12 @@
   actual current canonical CSV/hash/full ticker set and all declared counts to
   the trusted workflow expected count. Preserve legitimate current-universe
   changes rather than requiring the accepted parent's ticker set.
+- A real same-logical-run retry with a pre-mutation collector exception left
+  the prior accepted transaction hash-valid, so its manifest remained publishable.
+  Transaction validity cannot prove this attempt's prerequisite succeeded.
+  The workflow separately requires collector-step success when collection is
+  required; only a verified no-op may skip collection. Real exception/replay
+  and actual workflow-condition controls cover this boundary.
 - Source correction and local fixtures do not repair durable state or authorize
   financial execution. New-head QA, CI, authenticated review and merge gates
   remain required; no stale head supplies final acceptance.

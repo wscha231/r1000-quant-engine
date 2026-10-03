@@ -281,6 +281,47 @@ else: raise ValueError('unexpected fixture transfer')
                                          checkpoint, queue, ['BBB'])
             self.assertEqual(before, {path: path.read_bytes() for path in root.rglob('*') if path.is_file()})
 
+    def test_failed_collector_replay_cannot_enable_workflow_publication(self):
+        import ast
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            cp, queue = root / 'checkpoint.json', root / 'queue.csv'
+            cp.write_text(json.dumps({'ticker_states': [
+                {'ticker': 'AAA', 'selection_count': 0, 'last_selected_at_utc': ''}]}))
+            queue.write_text('ticker,selected,last_selected_at_utc,selection_count\nAAA,true,,0\n')
+            self.assertEqual(crash_fixture(root), 0)
+            before = {path: path.read_bytes() for path in root.rglob('*') if path.is_file()}
+            argv = ['collector', '--tickers', 'AAA', '--api-key', 'fixture', '--fetch-date', '2026-07-01',
+                '--snapshot-dir', str(root / 'history'), '--signals-output', str(root / 'signals.parquet'),
+                '--summary', str(root / 'summary.json'), '--collection-checkpoint', str(cp),
+                '--collection-queue', str(queue), '--collection-attempt-id', 'crash-run']
+            with patch.object(c, 'collect_live_snapshot', side_effect=RuntimeError('pre-mutation fixture failure')), \
+                 patch.object(sys, 'argv', argv), self.assertRaisesRegex(RuntimeError, 'pre-mutation fixture failure'):
+                c.main()
+            self.assertEqual(before, {path: path.read_bytes() for path in root.rglob('*') if path.is_file()})
+            # The prior transaction remains valid. Workflow prerequisites must
+            # block publication when collection for this attempt failed.
+            self.assertTrue(crash_manifest(root)['publishable'])
+        workflow = (ROOT / '.github/workflows/earnings_estimates_daily.yml').read_text()
+        step = workflow.split('- name: Build earnings estimate archive manifest', 1)[1].split('run: |', 1)[0]
+        condition = re.search(r'if: (.+)', step).group(1)
+        self.assertIn('id: collect_archive', workflow)
+        def gate(restore, resolve, required, collector):
+            expression = condition.replace('always()', 'True').replace('&&', ' and ').replace('||', ' or ')
+            for key, value in {'steps.restore_archive.outcome': restore, 'steps.resolve_archive.outcome': resolve,
+                               'env.RESOLVED_COLLECTION_REQUIRED': required, 'steps.collect_archive.outcome': collector}.items():
+                expression = expression.replace(key, repr(value))
+            tree = ast.parse(expression, mode='eval')
+            self.assertTrue(all(isinstance(node, (ast.Expression, ast.BoolOp, ast.And, ast.Or,
+                ast.Compare, ast.Eq, ast.Constant)) for node in ast.walk(tree)))
+            return eval(compile(tree, '<workflow-condition>', 'eval'), {'__builtins__': {}})
+        self.assertFalse(gate('success', 'success', 'true', 'failure'))
+        self.assertFalse(gate('success', 'success', 'true', 'skipped'))
+        self.assertTrue(gate('success', 'success', 'true', 'success'))
+        self.assertTrue(gate('success', 'success', 'false', 'skipped'))
+        self.assertFalse(gate('failure', 'success', 'false', 'skipped'))
+        self.assertFalse(gate('success', 'failure', 'false', 'skipped'))
+
     def test_real_no_collection_plan_publication_and_tamper_rejection(self):
         from tools.build_forward_estimate_incremental_universe import build_incremental_universe
         with tempfile.TemporaryDirectory() as temp:

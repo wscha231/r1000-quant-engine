@@ -373,6 +373,7 @@ jobs:
           echo "[archive] collection_required=${COLLECTION_REQUIRED}"
 
       - name: Collect forward-only estimate archive
+        id: collect_archive
         if: env.RESOLVED_COLLECTION_REQUIRED == 'true'
         env:
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
@@ -411,7 +412,7 @@ jobs:
 
       - name: Build earnings estimate archive manifest
         id: build_manifest
-        if: always() && steps.restore_archive.outcome == 'success' && steps.resolve_archive.outcome == 'success'
+        if: always() && steps.restore_archive.outcome == 'success' && steps.resolve_archive.outcome == 'success' && (env.RESOLVED_COLLECTION_REQUIRED == 'false' || steps.collect_archive.outcome == 'success')
         run: |
           set -euo pipefail
           mkdir -p outputs/earnings_estimates_daily data_pit/events/earnings_estimates
