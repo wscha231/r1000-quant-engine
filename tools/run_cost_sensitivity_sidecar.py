@@ -10,6 +10,10 @@ Default cost levels: 25, 50, 75, 100 bps per side. The sidecar is
 deliberately read-only: it does not modify the source target book or
 mutate any policy.
 
+Every requested level must complete with finite numeric evidence for the
+whole sweep to complete. Blocked levels retain their reason and null metrics;
+unavailable baselines have null comparative deltas. A blocked sweep exits 2.
+
 Usage
 =====
 
@@ -58,6 +62,10 @@ from tools.run_broker_ledger_replay import replay  # noqa: E402
 
 DEFAULT_COST_BPS = [25.0, 50.0, 75.0, 100.0]
 DEFAULT_BASELINE_BPS = 25.0
+PERFORMANCE_FIELDS = ("cagr", "sharpe", "max_dd", "ending_capital_usd", "total_fees_usd",
+                      "trade_count", "avg_cash_weight", "gross_traded_usd")
+DELTA_FIELDS = ("cagr_delta_pp_vs_baseline", "sharpe_delta_vs_baseline",
+                "maxdd_delta_pp_vs_baseline", "ending_delta_usd_vs_baseline")
 
 
 def repo_path(path_like: str | Path) -> Path:
@@ -75,6 +83,16 @@ def safe_float(value: Any, default: float = 0.0) -> float:
         return out
     except (TypeError, ValueError):
         return default
+
+
+def finite_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+        return number if math.isfinite(number) else None
+    except (TypeError, ValueError, OverflowError):
+        return None
 
 
 def run_level(
@@ -104,53 +122,59 @@ def run_level(
 
 
 def summarize(metrics: dict[str, Any], baseline: dict[str, Any] | None) -> dict[str, Any]:
-    cagr = safe_float(metrics.get("cagr"))
-    sharpe = safe_float(metrics.get("sharpe"))
-    max_dd = safe_float(metrics.get("max_dd"))
-    ending = safe_float(metrics.get("ending_capital_usd"))
-    fees = safe_float(metrics.get("total_fees_usd"))
+    values = {field: finite_float(metrics.get(field)) for field in PERFORMANCE_FIELDS}
+    usable = (metrics.get("status") == "completed" and metrics.get("metric_mode") != "DO_NOT_USE" and
+              metrics.get("performance_fields_redacted") is not True and
+              all(value is not None for value in values.values()))
+    if usable:
+        usable = values["trade_count"] >= 0 and values["trade_count"].is_integer()
     row: dict[str, Any] = {
-        "cost_bps": safe_float(metrics.get("cost_bps_per_side")),
-        "status": metrics.get("status"),
-        "cagr": cagr,
-        "sharpe": sharpe,
-        "max_dd": max_dd,
-        "ending_capital_usd": ending,
-        "total_fees_usd": fees,
-        "trade_count": int(safe_float(metrics.get("trade_count"))),
-        "avg_cash_weight": safe_float(metrics.get("avg_cash_weight")),
-        "gross_traded_usd": safe_float(metrics.get("gross_traded_usd")),
+        "cost_bps": finite_float(metrics.get("cost_bps_per_side")),
+        "status": "completed" if usable else "blocked",
+        "native_replay_status": metrics.get("status"),
+        "reason": "" if usable else str(metrics.get("reason") or "replay_numeric_evidence_unavailable"),
+        **{field: value if usable else None for field, value in values.items()},
+        **dict.fromkeys(DELTA_FIELDS),
     }
-    if baseline:
-        row["cagr_delta_pp_vs_baseline"] = (cagr - safe_float(baseline.get("cagr"))) * 100.0
-        row["sharpe_delta_vs_baseline"] = sharpe - safe_float(baseline.get("sharpe"))
-        row["maxdd_delta_pp_vs_baseline"] = (max_dd - safe_float(baseline.get("max_dd"))) * 100.0
-        row["ending_delta_usd_vs_baseline"] = ending - safe_float(baseline.get("ending_capital_usd"))
+    if usable:
+        row["trade_count"] = int(values["trade_count"])
+    comparison = {field: finite_float((baseline or {}).get(field))
+                  for field in ("cagr", "sharpe", "max_dd", "ending_capital_usd")}
+    if (usable and baseline and baseline.get("status") == "completed" and
+            baseline.get("metric_mode") != "DO_NOT_USE" and baseline.get("performance_fields_redacted") is not True and
+            all(v is not None for v in comparison.values())):
+        row["cagr_delta_pp_vs_baseline"] = (values["cagr"] - comparison["cagr"]) * 100.0
+        row["sharpe_delta_vs_baseline"] = values["sharpe"] - comparison["sharpe"]
+        row["maxdd_delta_pp_vs_baseline"] = (values["max_dd"] - comparison["max_dd"]) * 100.0
+        row["ending_delta_usd_vs_baseline"] = values["ending_capital_usd"] - comparison["ending_capital_usd"]
     return row
 
 
 def render_report(payload: dict[str, Any]) -> str:
+    def display(value: Any, pattern: str) -> str:
+        number = finite_float(value)
+        return format(number, pattern) if number is not None else "N/A"
+
     lines = [
         f"# Cost Sensitivity Sidecar — {payload.get('portfolio_kind')}",
         "",
+        f"- Status: `{payload.get('status')}`",
+        f"- Reason: `{payload.get('reason') or 'none'}`",
         f"- Target book: `{payload.get('target_book')}`",
         f"- Baseline cost: `{payload.get('baseline_cost_bps')} bps`",
         f"- Levels run: `{', '.join(str(lv['cost_bps']) for lv in payload.get('levels') or [])} bps`",
         f"- Breakeven cost (first level where CAGR < 0): `{payload.get('breakeven_cost_bps')}`",
         "",
-        "| Cost bps | CAGR | Sharpe | MaxDD | Trades | Fees USD | dCAGR pp vs base |",
-        "| ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Cost bps | Status | CAGR | Sharpe | MaxDD | Trades | Fees USD | dCAGR pp vs base |",
+        "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for level in payload.get("levels") or []:
         lines.append(
-            "| {cost_bps:.0f} | {cagr:.2%} | {sharpe:.3f} | {max_dd:.2%} | {trade_count} | {fees:.0f} | {dcagr:+.2f} |".format(
-                cost_bps=safe_float(level.get("cost_bps")),
-                cagr=safe_float(level.get("cagr")),
-                sharpe=safe_float(level.get("sharpe")),
-                max_dd=safe_float(level.get("max_dd")),
-                trade_count=int(level.get("trade_count") or 0),
-                fees=safe_float(level.get("total_fees_usd")),
-                dcagr=safe_float(level.get("cagr_delta_pp_vs_baseline")),
+            "| {cost_bps} | {status} | {cagr} | {sharpe} | {max_dd} | {trade_count} | {fees} | {dcagr} |".format(
+                cost_bps=display(level.get("cost_bps"), ".0f"), status=level.get("status"),
+                cagr=display(level.get("cagr"), ".2%"), sharpe=display(level.get("sharpe"), ".3f"),
+                max_dd=display(level.get("max_dd"), ".2%"), trade_count=display(level.get("trade_count"), ".0f"),
+                fees=display(level.get("total_fees_usd"), ".0f"), dcagr=display(level.get("cagr_delta_pp_vs_baseline"), "+.2f"),
             )
         )
     lines.extend([
@@ -174,43 +198,61 @@ def run(
     baseline_cost_bps: float,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
+    # These two files belong to this invocation; never retain an older success
+    # if validation or a replay fails. Preserve caller files and nested archives.
+    for name in ("summary.json", "report.md"):
+        path = output_dir / name
+        if path.exists() or path.is_symlink():
+            path.unlink()
     levels: list[dict[str, Any]] = []
-    baseline_row: dict[str, Any] | None = None
     breakeven_cost: float | None = None
-    sorted_levels = sorted({float(x) for x in cost_bps_list})
+    requested = [finite_float(value) for value in cost_bps_list]
+    baseline_value = finite_float(baseline_cost_bps)
+    valid_inputs = (bool(requested) and all(value is not None and value >= 0 for value in requested) and
+                    baseline_value is not None and baseline_value >= 0)
+    sorted_levels = sorted(set(requested)) if valid_inputs else []
+    observed = []
     for cost_bps in sorted_levels:
-        metrics = run_level(
-            target_book=target_book,
-            price_cache=price_cache,
-            portfolio_kind=portfolio_kind,
-            cost_bps=cost_bps,
-            starting_capital=starting_capital,
-            fill_mode=fill_mode,
-            max_fill_lag_days=max_fill_lag_days,
-        )
+        try:
+            metrics = run_level(target_book=target_book, price_cache=price_cache, portfolio_kind=portfolio_kind,
+                                cost_bps=cost_bps, starting_capital=starting_capital, fill_mode=fill_mode,
+                                max_fill_lag_days=max_fill_lag_days)
+            if not isinstance(metrics, dict):
+                metrics = {"status": "blocked", "reason": "replay_result_shape_invalid"}
+        except Exception as exc:
+            metrics = {"status": "blocked", "reason": "replay_failed:" + type(exc).__name__}
+        observed.append((cost_bps, metrics))
+    baseline_row = next((summarize(metrics, None) for cost, metrics in observed
+                         if math.isclose(cost, baseline_value)), None)
+    for cost_bps, metrics in observed:
         row = summarize(metrics, baseline_row)
-        if math.isclose(cost_bps, baseline_cost_bps):
-            baseline_row = row
-            row = summarize(metrics, baseline_row)
+        # Blocked native results may omit cost metadata; bind the requested
+        # invocation identity instead of fabricating cost zero.
+        row["cost_bps"] = cost_bps
         levels.append(row)
-        if breakeven_cost is None and metrics.get("status") == "completed" and safe_float(metrics.get("cagr")) <= 0:
-            breakeven_cost = cost_bps
+    complete = bool(levels) and all(row["status"] == "completed" for row in levels)
+    if complete:
+        breakeven_cost = next((row["cost_bps"] for row in levels if row["cagr"] <= 0), None)
     payload: dict[str, Any] = {
         "schema_version": "cost-sensitivity-sidecar-v1",
+        "status": "completed" if complete else "blocked",
+        "reason": "" if complete else ("cost_sweep_inputs_invalid" if not valid_inputs else "cost_level_replay_blocked"),
+        "metric_mode": "cost_sensitivity_research" if complete else "DO_NOT_USE",
         "portfolio_kind": portfolio_kind,
         "target_book": str(target_book),
         "price_cache": str(price_cache),
         "starting_capital_usd": float(starting_capital),
         "fill_mode": fill_mode,
         "max_fill_lag_days": int(max_fill_lag_days),
-        "baseline_cost_bps": float(baseline_cost_bps),
+        "baseline_cost_bps": baseline_value,
+        "baseline_status": baseline_row["status"] if baseline_row else "not_in_sweep",
         "cost_bps_list": sorted_levels,
         "breakeven_cost_bps": breakeven_cost,
         "levels": levels,
         "research_only": True,
         "production_activation_allowed": False,
     }
-    (output_dir / "summary.json").write_text(json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8")
+    (output_dir / "summary.json").write_text(json.dumps(payload, indent=2, default=str, allow_nan=False) + "\n", encoding="utf-8")
     (output_dir / "report.md").write_text(render_report(payload), encoding="utf-8")
     return payload
 
@@ -249,7 +291,7 @@ def main() -> int:
         baseline_cost_bps=args.baseline_cost_bps,
     )
     print(json.dumps(payload, indent=2, default=str))
-    return 0 if payload.get("levels") else 2
+    return 0 if payload.get("status") == "completed" else 2
 
 
 if __name__ == "__main__":

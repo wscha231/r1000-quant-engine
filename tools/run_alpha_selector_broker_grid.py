@@ -443,11 +443,42 @@ def variant_id(style: str, n: int, cap: float) -> str:
     return f"{clean_label(style)}_N{int(n)}_cap{clean_label(cap)}"
 
 
+def finite_performance(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+        return number if math.isfinite(number) else None
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def render_grid_report(payload: dict[str, Any], variant_count: int) -> str:
+    def display(value: Any, pattern: str) -> str:
+        number = finite_performance(value) if payload.get("status") == "completed" else None
+        return format(number, pattern) if number is not None else "N/A"
+    return "\n".join([
+        "# Alpha Selector Broker Grid", "",
+        "Research-only account-ledger grid for concentrated leader-alpha target books.", "",
+        f"- Status: `{payload.get('status')}`", f"- Reason: `{payload.get('reason') or 'none'}`",
+        f"- Portfolio: `{payload.get('portfolio_kind')}`",
+        f"- Best CAGR: {display(payload.get('cagr'), '.2%')}",
+        f"- Best MaxDD: {display(payload.get('max_dd', payload.get('max_drawdown')), '.2%')}",
+        f"- Best Sharpe: {display(payload.get('sharpe'), '.3f')}",
+        f"- Selection rule: `{payload.get('selection_rule', 'n/a')}`", f"- Variants: {variant_count}", "",
+        "Promotion requires target gates, stress windows, and human approval.", "",
+    ])
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
     candidate_book = repo_path(args.candidate_book)
     price_cache = repo_path(args.price_cache)
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    for name in ("summary.csv", "best_metrics.json", "best_target_distance_metrics.json", "report.md"):
+        path = output_dir / name
+        if path.exists() or path.is_symlink():
+            path.unlink()
     candidates = prepare_candidates(read_csv(candidate_book))
     require_price_cache = not bool(getattr(args, "allow_unfillable_targets", False))
     if require_price_cache:
@@ -457,10 +488,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "status": "blocked",
             "reason": "candidate replay book is missing or empty",
             "candidate_book": str(candidate_book),
+            "metric_mode": "DO_NOT_USE",
             "production_activation_allowed": False,
             "valid_for_production": False,
         }
         write_json(output_dir / "best_metrics.json", payload)
+        (output_dir / "report.md").write_text(render_grid_report(payload, 0), encoding="utf-8")
         return payload
 
     target_ns = parse_csv_ints(args.target_ns, [3, 5, 7])
@@ -517,13 +550,23 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 except Exception as exc:
                     metrics = {
                         "status": "blocked",
-                        "reason": f"broker replay failed: {type(exc).__name__}: {exc}",
+                        "reason": "broker_replay_failed:" + type(exc).__name__,
                         "valid_for_production": False,
                     }
+                performance_usable = (metrics.get("status") == "completed" and
+                    metrics.get("metric_mode") != "DO_NOT_USE" and metrics.get("performance_fields_redacted") is not True and
+                    all(finite_performance(value) is not None for value in (
+                        metrics.get("cagr"), metrics.get("max_dd", metrics.get("max_drawdown")), metrics.get("sharpe"))))
+                if not performance_usable:
+                    metrics.update(status="blocked", metric_mode="DO_NOT_USE", valid_for_production=False,
+                                   reason=metrics.get("reason") or "broker_replay_performance_unavailable")
+                    for field in ("cagr", "max_dd", "max_drawdown", "sharpe", "ending_capital_usd", "total_fees_usd",
+                                  "trade_count", "avg_cash_weight", "gross_traded_usd"):
+                        metrics[field] = None
                 metrics.update(
                     {
                         "candidate_id": f"{args.portfolio_kind}_alpha_selector_broker_grid_{vid}",
-                        "metric_mode": "alpha_selector_broker_grid_next_close",
+                        "metric_mode": "alpha_selector_broker_grid_next_close" if performance_usable else "DO_NOT_USE",
                         "portfolio_kind": args.portfolio_kind,
                         "alpha_selector_variant": vid,
                         "alpha_selector_style": style,
@@ -608,22 +651,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "valid_for_production": False,
         }
     write_json(output_dir / "best_metrics.json", best_payload)
-    report = [
-        "# Alpha Selector Broker Grid",
-        "",
-        "Research-only account-ledger grid for concentrated leader-alpha target books.",
-        "",
-        f"- Portfolio: `{args.portfolio_kind}`",
-        f"- Best CAGR: {safe_float(best_payload.get('cagr')):.2%}",
-        f"- Best MaxDD: {safe_float(best_payload.get('max_dd', best_payload.get('max_drawdown'))):.2%}",
-        f"- Best Sharpe: {safe_float(best_payload.get('sharpe')):.3f}",
-        f"- Selection rule: `{best_payload.get('selection_rule', 'n/a')}`",
-        f"- Variants: {variant_count}",
-        "",
-        "Promotion requires target gates, stress windows, and human approval.",
-        "",
-    ]
-    (output_dir / "report.md").write_text("\n".join(report), encoding="utf-8")
+    (output_dir / "report.md").write_text(render_grid_report(best_payload, variant_count), encoding="utf-8")
     return best_payload
 
 
@@ -652,7 +680,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     payload = run(parse_args())
     print(json.dumps({"status": payload.get("status"), "cagr": payload.get("cagr"), "max_dd": payload.get("max_dd")}, sort_keys=True, default=str))
-    return 0
+    return 0 if payload.get("status") == "completed" else 2
 
 
 if __name__ == "__main__":

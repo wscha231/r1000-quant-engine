@@ -5611,3 +5611,14 @@ Expected contract:
   Test completed-to-blocked and explicit-to-default transitions against the
   complete export set, while preserving caller-owned files and nested archives.
   Price/intent guards alone do not invalidate evidence from a prior replay.
+
+### 2026-10-03 - Blocked replay status must survive research callers (#567 P2)
+
+- Audit both direct replay callers and CLI consumers when a native result
+  becomes blocked. Missing, nonfinite or redacted performance is unavailable,
+  not zero. Cost sweeps require every requested level to complete; comparisons
+  require a usable baseline, resolved after all levels have been read.
+- Preserve DO_NOT_USE through grid selection and render unavailable crisis
+  metrics as N/A. Clear only caller-owned root summaries before retrying;
+  retain unrelated files and nested archives. Optional shell orchestration
+  success does not certify the individual replay artifact.

@@ -59,6 +59,16 @@ def write_json(path: Path, payload: Any) -> None:
 
 
 def render_report(metrics: dict[str, Any]) -> str:
+    usable = (metrics.get("status") == "completed" and metrics.get("metric_mode") != "DO_NOT_USE" and
+              metrics.get("performance_fields_redacted") is not True)
+    def display(field: str, pattern: str) -> str:
+        value = metrics.get(field)
+        if not usable or isinstance(value, bool):
+            return "N/A"
+        number = safe_float(value, float("nan"))
+        if not math.isfinite(number):
+            return "N/A"
+        return str(int(number)) if field == "trade_count" else format(number, pattern)
     return "\n".join(
         [
             "# Broker Crisis-Reentry Replay",
@@ -68,11 +78,11 @@ def render_report(metrics: dict[str, Any]) -> str:
             f"- Status: `{metrics.get('status')}`",
             f"- Policy: `{metrics.get('policy_id')}`",
             f"- Metric mode: `{metrics.get('metric_mode')}`",
-            f"- CAGR: {safe_float(metrics.get('cagr')):.2%}",
-            f"- Sharpe: {safe_float(metrics.get('sharpe')):.3f}",
-            f"- MaxDD: {safe_float(metrics.get('max_dd')):.2%}",
-            f"- Avg cash: {safe_float(metrics.get('avg_cash_weight')):.2%}",
-            f"- Trade count: {int(safe_float(metrics.get('trade_count')))}",
+            f"- CAGR: {display('cagr', '.2%')}",
+            f"- Sharpe: {display('sharpe', '.3f')}",
+            f"- MaxDD: {display('max_dd', '.2%')}",
+            f"- Avg cash: {display('avg_cash_weight', '.2%')}",
+            f"- Trade count: {display('trade_count', '.0f')}",
             f"- Valid for production evidence: `{str(metrics.get('valid_for_production')).lower()}`",
             "",
             "This is a broker-compatible challenger, not an automatic production promotion.",

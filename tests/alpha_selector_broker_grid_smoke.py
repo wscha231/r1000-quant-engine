@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import io
+import json
 import sys
 import tempfile
+import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -13,6 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from tools.run_alpha_selector_broker_grid import run  # noqa: E402
+from tools import run_alpha_selector_broker_grid as grid  # noqa: E402
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
 
@@ -234,8 +240,83 @@ def test_alpha_selector_grid_runs_broker_replay_without_forward_selection() -> N
         assert payload.get("require_price_cache") is True
 
 
+class BlockedGridResultChecks(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.out = self.root / "out"
+        self.args = argparse.Namespace(candidate_book=str(self.root / "candidates.csv"), price_cache=str(self.root),
+            output_dir=str(self.out), portfolio_kind="main", starting_capital=10000., fill_mode="next_open",
+            cost_bps=25., no_integer_shares=False, max_fill_lag_days=7, target_ns="1", single_name_caps="1",
+            styles="future_heavy", max_variants=1, min_market_cap_usd=0., min_dollar_volume_usd=0.,
+            min_price=0., allow_unfillable_targets=True)
+        self.target = pd.DataFrame([{"ticker": "AAA", "rebalance_date": "2024-01-02", "weight": 1.}])
+
+    def invoke(self, metrics, *, empty=False):
+        with patch.object(grid, "read_csv", return_value=self.target), \
+             patch.object(grid, "prepare_candidates", return_value=pd.DataFrame() if empty else self.target), \
+             patch.object(grid, "build_target_book", return_value=self.target), \
+             patch.object(grid, "broker_replay", return_value=dict(metrics)):
+            return grid.run(self.args)
+
+    def test_blocked_rows_preserve_do_not_use_and_never_show_zero_performance(self):
+        result = self.invoke({"status": "blocked", "reason": "next_open_precommitted_order_intent_unavailable",
+            "metric_mode": "DO_NOT_USE", "valid_for_production": False, "cagr": .99, "max_dd": -.4, "sharpe": 9.})
+        self.assertEqual(result["status"], "blocked")
+        variant = next(self.out.glob("*/metrics.json"))
+        metrics = json.loads(variant.read_text(encoding="utf-8"))
+        self.assertEqual(metrics["metric_mode"], "DO_NOT_USE")
+        for field in ("cagr", "max_dd", "sharpe"):
+            self.assertIsNone(metrics.get(field))
+        rows = pd.read_csv(self.out / "summary.csv")
+        self.assertTrue(rows[["cagr", "max_dd", "sharpe"]].isna().all().all())
+        report = (self.out / "report.md").read_text(encoding="utf-8")
+        self.assertIn("blocked", report)
+        self.assertIn("N/A", report)
+        self.assertNotIn("0.00%", report)
+
+    def test_unknown_nonfinite_or_redacted_completed_variants_cannot_be_selected(self):
+        completed = {"status": "completed", "valid_for_production": True, "cagr": .1, "max_dd": -.1, "sharpe": 1.}
+        cases = [{**completed, "status": status} for status in (None, "unknown", "blocked")]
+        cases += [{**completed, field: value} for field in ("cagr", "max_dd", "sharpe")
+                  for value in (None, True, float("nan"), float("inf"))]
+        cases += [{**completed, "metric_mode": "DO_NOT_USE"}, {**completed, "performance_fields_redacted": True}]
+        for metrics in cases:
+            with self.subTest(metrics=metrics):
+                result = self.invoke(metrics)
+                self.assertEqual(result["status"], "blocked")
+                self.assertFalse(result["valid_for_production"])
+
+    def test_reused_root_summaries_clear_before_late_or_early_block_preserving_caller_files(self):
+        completed = {"status": "completed", "valid_for_production": True, "cagr": .1, "max_dd": -.1, "sharpe": 1.}
+        self.assertEqual(self.invoke(completed)["status"], "completed")
+        caller, nested = self.out / "caller.json", self.out / "archive" / "best_target_distance_metrics.json"
+        nested.parent.mkdir()
+        caller.write_bytes(b"caller")
+        nested.write_bytes(b"archive")
+        for empty in (False, True):
+            with self.subTest(empty=empty):
+                result = self.invoke({"status": "blocked", "metric_mode": "DO_NOT_USE"}, empty=empty)
+                self.assertEqual(result["status"], "blocked")
+                self.assertFalse((self.out / "best_target_distance_metrics.json").exists())
+                self.assertEqual(json.loads((self.out / "best_metrics.json").read_text(encoding="utf-8"))["status"], "blocked")
+                if empty: self.assertFalse((self.out / "summary.csv").exists())
+                self.assertEqual(caller.read_bytes(), b"caller")
+                self.assertEqual(nested.read_bytes(), b"archive")
+
+    def test_cli_status_fails_closed_and_preserves_completed_exit(self):
+        for status, expected in (("blocked", 2), (None, 2), ("unknown", 2), ("completed", 0)):
+            with self.subTest(status=status), patch.object(grid, "parse_args", return_value=self.args), \
+                 patch.object(grid, "run", return_value={"status": status}), redirect_stdout(io.StringIO()):
+                self.assertEqual(grid.main(), expected)
+
+
 def main() -> int:
     test_alpha_selector_grid_runs_broker_replay_without_forward_selection()
+    if not unittest.TextTestRunner(verbosity=2).run(
+            unittest.defaultTestLoader.loadTestsFromTestCase(BlockedGridResultChecks)).wasSuccessful():
+        return 1
     print("alpha_selector_broker_grid_smoke: PASS")
     return 0
 

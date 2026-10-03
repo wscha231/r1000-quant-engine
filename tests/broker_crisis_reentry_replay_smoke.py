@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -13,6 +14,7 @@ sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 
 from tools.run_broker_crisis_reentry_replay import run  # noqa: E402
+from tools.run_broker_crisis_reentry_replay import render_report  # noqa: E402
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
 
@@ -20,6 +22,31 @@ def _write_price(cache: Path, ticker: str, prices: list[float]) -> None:
     dates = pd.bdate_range("2026-01-01", periods=len(prices))
     frame = pd.DataFrame({"Close": prices, "Adj Close": prices, "Open": prices}, index=dates)
     frame.to_parquet(cache / px_cache_name(ticker))
+
+
+class BlockedCrisisReportChecks(unittest.TestCase):
+    def test_blocked_unknown_or_redacted_status_never_formats_stale_values(self):
+        metrics = {"cagr": .1, "sharpe": 1.2, "max_dd": -.05, "avg_cash_weight": .1, "trade_count": 2}
+        cases = [{**metrics, "status": status} for status in ("blocked", None, "unknown")]
+        cases += [{**metrics, "status": "completed", "metric_mode": "DO_NOT_USE"},
+                  {**metrics, "status": "completed", "performance_fields_redacted": True}]
+        for data in cases:
+            with self.subTest(data=data):
+                report = render_report(data)
+                self.assertEqual(report.count("N/A"), 5)
+                self.assertNotIn("10.00%", report)
+                self.assertNotIn("0.00%", report)
+
+    def test_missing_or_nonfinite_report_values_are_unavailable_and_zero_is_valid(self):
+        fields = ("cagr", "sharpe", "max_dd", "avg_cash_weight", "trade_count")
+        for field in fields:
+            for value in (None, True, float("nan"), float("inf")):
+                with self.subTest(field=field, value=value):
+                    report = render_report({"status": "completed", **dict.fromkeys(fields, 0.), field: value})
+                    self.assertIn("N/A", report)
+        report = render_report({"status": "completed", **dict.fromkeys(fields, 0.)})
+        self.assertNotIn("N/A", report)
+        self.assertIn("0.00%", report)
 
 
 def main() -> int:
@@ -58,6 +85,9 @@ def main() -> int:
         assert set(target["policy_id"]) == {"fast_reentry"}
         assert (out / "trades.csv").exists()
         assert (out / "equity_curve.csv").exists()
+    if not unittest.TextTestRunner(verbosity=2).run(
+            unittest.defaultTestLoader.loadTestsFromTestCase(BlockedCrisisReportChecks)).wasSuccessful():
+        return 1
     print("broker_crisis_reentry_replay_smoke: PASS")
     return 0
 
