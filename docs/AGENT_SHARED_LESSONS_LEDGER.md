@@ -1,5 +1,49 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-03 — A8 preview must preserve failure, intent and write ownership
+
+- Daily37103143806 skipped outcomes and accepted persistence after a session
+  gap. Diagnostic uploads cannot admit fresh outcomes or durable completion.
+- Use native 24-character observation identities and original intent hashes;
+  keep missing costs/PIT/ER unavailable and MFE/MAE diagnostic. A source's
+  declared success plus local hashes does not authenticate GitHub or Drive.
+- Reuse needs maturity, expiry and dependency identity, not only input hash.
+  Inspect partial saves, commit the scratch manifest last and never steal a
+  writer's O_EXCL lock. Check fixed temporary-file aliases before board writes.
+- Preserve another causal writer and user-owned files. Use the explicitly
+  approved isolated worktree; synthetic tests never grant A1/A6 completion,
+  model budget, durable publication, strategy promotion or standing activation.
+- Proportionate Windows validation passed A0/lessons/rejection contracts but
+  workflow_artifact_smoke failed its unchanged capture-config path assertion:
+  Bash emits a '/' suffix and the Windows fixture expects '\\'. Record this
+  platform limitation; do not repair an unrelated transactional workflow here.
+- The bundled Python3.12 lacks jsonschema; native Python3.14 normal/-O tests
+  passed. Keep missing-runtime-dependency evidence distinct from CI validation.
+- Independent A6 found four concrete gaps: protect separately supplied intake,
+  evidence and state paths; make default and opt-in writers honor one lock;
+  reject outcomes predating their signal; preserve the native skipped summary's
+  absent timestamp. Add regressions and check all source clocks before byte reads.
+- Windows extended/device namespace spellings can preserve a different prefix
+  even after Path.resolve while referring to the same directory. Reject those
+  spellings before writes and canonicalize ordinary paths; reproduce with real
+  temporary filesystem aliases, not only lexical Path comparisons.
+
+## 2026-10-03 — Refresh the base before final exact-head review (#573)
+
+- Master659ded5834395c3851c0e10771b6a0cc6c6b65a2 adds the PR570 recovery
+  history. Merge it without rewriting the A8 preview branch; preserve all 85
+  master lesson lines and all 28 preview lesson lines. Review of old head
+  fe88d270ca97784faa88ce6b44f789fefe7f4bd5 cannot approve the integrated head.
+- The capture-config fixture fails identically on Windows using frozen
+  current-master blobs and the integrated worktree: Bash appends '/' while
+  the fixture's native Path expects '\\'. Both tested source blobs are identical.
+  Keep this pre-existing platform finding outside the H1 preview correction.
+- Local bundled Python3.12 lacks jsonschema; the unchanged CI contract installs
+  requirements_github.txt, including jsonschema. Keep local dependency absence
+  separate from the actual new-head CI installation and validation evidence.
+- Wait for stable-head required CI before the single fresh independent review.
+  Source integration does not verify real outcomes or activate research.
+
 ## 2026-10-03 — Separate safe access from row-local expiry (#560 R3)
 
 - Immutable provenance preflight must use only valid ID/hash and eligible

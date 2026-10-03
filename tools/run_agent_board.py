@@ -15,6 +15,7 @@ import os
 import re
 import subprocess
 import sys
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -154,6 +155,11 @@ def artifact_path(root: Path, name: str) -> Path:
 def verify_artifact(root: Path, artifact: dict, cutoff: datetime, now: datetime) -> None:
     if file_hash(artifact_path(root, artifact['path'])) != artifact['sha256']:
         raise ContractError('artifact_hash_mismatch')
+    verify_artifact_time(artifact, cutoff, now)
+
+
+def verify_artifact_time(artifact: dict, cutoff: datetime, now: datetime) -> None:
+    """The existing clock gate, usable before bounded source-byte access."""
     observed, available, collected, expires = [timestamp(artifact[k]) for k in
                     ('observed_at', 'available_at', 'collected_at', 'expires_at')]
     if not (observed <= available <= collected <= cutoff <= now < expires):
@@ -556,7 +562,60 @@ def build_tasks(state: dict, root: Path, contract: dict, now: datetime,
     return _plan_tasks(state, root, contract, now, code_sha, config_hash)
 
 
+@contextmanager
+def exclusive_output_lock(out: Path):
+    """All A0 writers honor ownership; never steal a surviving process lock."""
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / '.bounded_research.lock'
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError as error:
+        raise ContractError('WAIT_DEPENDENCY_ACTIVE_WRITER') from error
+    try:
+        os.write(fd, str(os.getpid()).encode())
+        os.fsync(fd)
+        yield
+    finally:
+        os.close(fd)
+        path.unlink()
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
+    out = repo_path(args.output_dir)
+    try:
+        preview = bool(getattr(args, 'bounded_research_intake', None))
+        if preview:
+            from research.control_plane import bounded_research
+            root = repo_path(args.latest_run)
+            bounded_research.output_geometry(root, out)
+            if getattr(args, 'evidence_root', None):
+                bounded_research.output_geometry(repo_path(args.evidence_root), out)
+            sources = [repo_path(args.bounded_research_intake),
+                       repo_path(args.system_state) if getattr(args, 'system_state', None)
+                       else root / 'control_plane/system_state.json']
+            if getattr(args, 'canonical_inputs', None):
+                sources.append(repo_path(args.canonical_inputs))
+            for path in sources:
+                path = bounded_research.native_path(path)
+                bounded_research.require(not path.is_relative_to(out.resolve()), 'input_output_overlap')
+        with exclusive_output_lock(out):
+            # Check every legacy output before the first write in this opt-in path.
+            # A fixed .tmp alias could otherwise mutate a source or accepted file.
+            if preview:
+                for name in ('manifest.json', 'board_summary.json', 'agent_task_queue.json',
+                             'promotion_gate_review.json', 'report.md'):
+                    path = out / name
+                    bounded_research.native_path(path)
+                    bounded_research.native_path(path.with_name(path.name + '.tmp'))
+            return _run(args)
+    except (OSError, ValueError) as error:
+        # A concurrent writer owns its manifest; never revoke or overwrite it.
+        return {'schema_version': 'agent-board-manifest-v2', 'status': 'BLOCKED',
+                'reason': str(error) if isinstance(error, ContractError) else type(error).__name__,
+                'authority': AUTHORITY}
+
+
+def _run(args: argparse.Namespace) -> dict[str, Any]:
     root, out = repo_path(args.latest_run), repo_path(args.output_dir)
     state_path = repo_path(args.system_state) if getattr(args, 'system_state', None) else root / 'control_plane/system_state.json'
     now = datetime.now(timezone.utc)
@@ -599,6 +658,26 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
              'production_activation_allowed': False, 'promotion_gate': gate,
              'task_count': len(tasks), 'blockers': reasons,
              'evidence_scope': 'Local bytes and declared timestamps only; not authenticated economic or book readiness'}
+    bounded_members = []
+    if getattr(args, 'bounded_research_intake', None):
+        from research.control_plane import bounded_research
+        research_result = bounded_research.prepare(root, out / 'research',
+            repo_path(args.bounded_research_intake), now=now, code_sha=code_sha,
+            config_hash=config_hash, board_blockers=sorted(set(reasons +
+                [reason for task in tasks for reason in task['reasons']])),
+            dependency_identity={'canonical_state': state.get('dependency_identity') if isinstance(state, dict) else None,
+                                 'task_keys': {task['agent']: task['task_key'] for task in tasks}})
+        board['bounded_research'] = {'status': research_result['status'],
+            'blockers': research_result['blockers'], 'dispatch_enabled': False,
+            'evaluation_ref': 'research/a8_research.json' if 'identity' in research_result else None,
+            'a0_queue_ref': 'agent_task_queue.json',
+            'completion_receipt_store': 'system_state.completed_tasks',
+            'next_action': 'A0 must route A1/A6 using refreshed canonical input receipts; no synthetic completion'}
+        if research_result['status'] == 'BLOCKED':
+            status = board['status'] = 'BLOCKED'
+        bounded_members = ['research/manifest.json']
+        if 'identity' in research_result:
+            bounded_members.append('research/a8_research.json')
     write_json(out / 'board_summary.json', board)
     write_json(out / 'agent_task_queue.json', tasks)
     write_json(out / 'promotion_gate_review.json', gate)
@@ -610,7 +689,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     lines += [f"| {t['agent']} | {t['status']} | {', '.join(t['reasons'])} |" for t in tasks]
     lines += ['', *reasons, '', 'Next P0: connect the complete US equity universe and Multi-Asset candidates to one verified ER1/3/6/12m flow.', '']
     (out / 'report.md').write_text('\n'.join(lines), encoding='utf-8')
-    files = ['board_summary.json', 'agent_task_queue.json', 'promotion_gate_review.json', 'report.md']
+    files = ['board_summary.json', 'agent_task_queue.json', 'promotion_gate_review.json', 'report.md'] + bounded_members
     manifest = {'schema_version': 'agent-board-manifest-v2', 'status': status,
                 'output_dir': str(out), 'task_count': len(tasks), 'authority': AUTHORITY,
                 'members': {name: file_hash(out / name) for name in files},
@@ -628,6 +707,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--canonical-inputs', help='Separately refreshed trusted source intake; never derive from saved state')
     parser.add_argument('--evidence-root', help='Read-only local materialization of canonical source bytes')
     parser.add_argument('--system-state', help='Explicit current v2 state; otherwise <latest-run>/control_plane/system_state.json')
+    parser.add_argument('--bounded-research-intake', help='Explicit offline A8 preview intake under latest-run; default disabled. No worker/model/experiment/Drive execution.')
     return parser.parse_args()
 
 

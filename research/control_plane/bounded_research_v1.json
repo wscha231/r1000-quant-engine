@@ -1,0 +1,28 @@
+{
+  "schema_version": "bounded-research-config-v1",
+  "enabled": false,
+  "mode": "RESEARCH_ONLY",
+  "preview": {
+    "timeout_seconds": 30,
+    "max_input_bytes": 4194304,
+    "max_output_bytes": 4194304,
+    "max_events": 10000,
+    "max_model_calls": 0,
+    "max_tokens": 0,
+    "daily_cost_usd": 0,
+    "monthly_cost_usd": 0,
+    "io_retries": 0,
+    "comparisons": 0
+  },
+  "activation_proposal_only": {
+    "concurrent_research": 1,
+    "weekly_hypotheses": 3,
+    "weekly_named_comparisons": 1,
+    "io_retries": 2,
+    "timeout_seconds": 300,
+    "max_model_calls": 0,
+    "max_tokens": 0,
+    "daily_cost_usd": 0,
+    "monthly_cost_usd": 0
+  }
+}
