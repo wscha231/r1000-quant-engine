@@ -571,6 +571,110 @@ class HistoryTest(unittest.TestCase):
         count=materialize(reader,self.root/'x.sqlite',['sec/0000000001'],'2016-12-31')
         self.assertEqual(count,0)
 
+    def test_materialize_releases_real_connection_on_all_failure_phases(self):
+        self.put()
+        original_catalog=copy.deepcopy(self.lake.catalog)
+        key='sec/0000000001'
+        actual_connect=sqlite3.connect
+        failures=(
+            ('stale',ValueError,'stale_dataset'),
+            ('current',ValueError,'current_vintage_historical_cutoff_forbidden'),
+            ('generation',KeyError,'generation'),
+            ('dataset',KeyError,'missing'),
+            ('read',ValueError,'object_hash'),
+            ('json',TypeError,'not JSON serializable'),
+            ('create_records',sqlite3.OperationalError,'injected_sql_failure'),
+            ('insert_provenance',sqlite3.OperationalError,'injected_sql_failure'),
+            ('insert_records',sqlite3.OperationalError,'injected_sql_failure'),
+            ('create_index',sqlite3.OperationalError,'injected_sql_failure'),
+            ('transaction_exit',sqlite3.OperationalError,'injected_transaction_exit'),
+        )
+        for failure,exception,reason in failures:
+            with self.subTest(failure=failure):
+                self.lake.catalog=copy.deepcopy(original_catalog)
+                keys=[key];cutoff='2026-09-12'
+                if failure=='stale': self.lake.catalog['datasets'][key]['status']='STALE_RETAINED'
+                elif failure=='current':
+                    self.lake.catalog['datasets'][key].update(evidence='current_only',retrieved_at='2026-09-12T00:00:00Z')
+                    cutoff='2016-12-31'
+                elif failure=='generation': del self.lake.catalog['generation']
+                elif failure=='dataset': keys=['missing']
+                opened=[]
+                class FaultConnection(sqlite3.Connection):
+                    def execute(connection,sql,*args):
+                        prefixes={'create_records':'create table records',
+                                  'insert_provenance':'insert into provenance',
+                                  'insert_records':'insert into records','create_index':'create index'}
+                        if failure in prefixes and sql.startswith(prefixes[failure]):
+                            raise sqlite3.OperationalError('injected_sql_failure')
+                        return super().execute(sql,*args)
+                    def __exit__(connection,kind,value,traceback):
+                        if failure=='transaction_exit' and kind is None:
+                            raise sqlite3.OperationalError('injected_transaction_exit')
+                        return super().__exit__(kind,value,traceback)
+                def connect(*args,**kwargs):
+                    connection=actual_connect(*args,factory=FaultConnection,**kwargs)
+                    opened.append(connection)  # Keep it alive: GC cannot release the handle for us.
+                    self.addCleanup(connection.close)
+                    return connection
+                actual_records=self.lake.get_records
+                def records(dataset):
+                    if failure=='read': raise ValueError('object_hash')
+                    if failure=='json': return [dict(end='2016-12-31',value=1,unserializable=object())]
+                    return actual_records(dataset)
+                database=self.root/(failure+'.sqlite')
+                with patch('tools.long_history_lake.sqlite3.connect',connect),patch.object(self.lake,'get_records',records):
+                    with self.assertRaisesRegex(exception,reason):
+                        materialize(self.lake,database,keys,cutoff)
+                self.assertEqual(len(opened),1)
+                with self.assertRaisesRegex(sqlite3.ProgrammingError,'closed database'):
+                    opened[0].execute('select 1')
+                # Same-process reopen/rename must work while the original
+                # connection object remains strongly referenced. No GC call.
+                reopened=actual_connect(database)
+                try:
+                    self.assertEqual(reopened.execute('select 1').fetchone(),(1,))
+                    if failure in ('create_index','transaction_exit'):
+                        self.assertEqual(reopened.execute('select count(*) from records').fetchone(),(0,))
+                        self.assertEqual(reopened.execute('select count(*) from provenance').fetchone(),(0,))
+                finally: reopened.close()
+                retained=database.with_suffix('.retained.sqlite')
+                database.rename(retained)
+                self.assertTrue(retained.is_file())
+                self.assertFalse(database.exists())
+
+    def test_materialize_clean_success_commits_and_releases_connection(self):
+        self.put()
+        database=self.root/'clean.sqlite'
+        opened=[];actual_connect=sqlite3.connect
+        def connect(*args,**kwargs):
+            connection=actual_connect(*args,**kwargs)
+            opened.append(connection);self.addCleanup(connection.close)
+            return connection
+        with patch('tools.long_history_lake.sqlite3.connect',connect):
+            count=materialize(self.lake,database,['sec/0000000001'],'2026-09-12')
+        self.assertEqual(count,1)
+        self.assertEqual(len(opened),1)
+        with self.assertRaisesRegex(sqlite3.ProgrammingError,'closed database'):
+            opened[0].execute('select 1')
+        reopened=actual_connect(database)
+        try:
+            self.assertEqual(reopened.execute('select value from records').fetchall(),[(100.0,)])
+            self.assertEqual(reopened.execute('select * from provenance').fetchall(),
+                             [(self.lake.catalog['generation'],'2026-09-12',0)])
+            self.assertEqual(reopened.execute("select name from sqlite_master where type='index'").fetchall(),[('lookup',)])
+        finally: reopened.close()
+        retained=database.with_suffix('.retained.sqlite');database.rename(retained)
+        self.assertTrue(retained.is_file())
+
+    def test_materialize_existing_destination_rejects_before_connect(self):
+        database=self.root/'existing.sqlite';database.write_bytes(b'preserved prior cache')
+        with patch('tools.long_history_lake.sqlite3.connect') as connect:
+            with self.assertRaisesRegex(ValueError,'database_already_exists'):
+                materialize(self.lake,database,[],'2026-09-12')
+        connect.assert_not_called()
+        self.assertEqual(database.read_bytes(),b'preserved prior cache')
+
     def test_current_vintage_cannot_be_backdated(self):
         self.lake.dataset('current/UNRATE',[b'raw'],[dict(observation_date='2000-01-01',value=4)],
             dict(evidence='current_only',retrieved_at='2026-09-12T00:00:00+00:00'))
