@@ -5642,3 +5642,15 @@ Expected contract:
   recovery history before exclusion; an empty or omitted-current listing is
   not evidence of no prior publication. Share identity validation across the
   census paths so duplicate rows and numeric aliases cannot mask missing runs.
+
+### 2026-10-03 - Skipped recovery dispatches require whole-run no-op proof (#570 P2)
+
+- A default-false job condition reports success without executing the publisher.
+  Permit only complete unique attempts 1..N with every authoritative job/step
+  completed/skipped and a complete empty artifact census. Empty skipped-job
+  steps are valid; mixed execution, ambiguous metadata and accepted upload
+  success still block. Failure/cancelled upload-skip retry rules remain unchanged.
+- Recovery queue:max retains pending work when this producer joins the shared
+  group. Other producers retain their own pending policy; the 100-run queue cap
+  and waiting-time FIFO do not replace native writer/chronological checks.
+  Official queue semantics are server-side; YAML checks are not runtime proof.

@@ -26,6 +26,9 @@ permissions:
 concurrency:
   group: daily-operating-selection-refresh
   cancel-in-progress: false
+  # Preserve pending work when this recovery producer joins the shared group.
+  # The native active-writer and chronological gates still decide safety.
+  queue: max
 
 jobs:
   publication_recovery:

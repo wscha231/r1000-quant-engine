@@ -114,6 +114,15 @@ def prior_jobs(run_id: int = 123, *, step_conclusion: str = "skipped",
     return {"total_count": len(jobs), "jobs": jobs}
 
 
+def skipped_prior_jobs(*, attempts: tuple[int, ...] = (1,), supplied_steps: bool = False) -> dict:
+    payload = prior_jobs(attempts=attempts)
+    for job in payload["jobs"]:
+        job["conclusion"] = "skipped"
+        if not supplied_steps:
+            job["steps"] = []
+    return payload
+
+
 def install_prior_recovery(root: Path, *, run_id: int = 123, run_conclusion: str = "cancelled",
                            step_conclusion: str = "skipped", artifacts: list | None = None,
                            jobs_payload: dict | None = None, run_attempt: int = 1) -> dict:
@@ -463,6 +472,148 @@ class PublicationRecoveryChecks(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "prior_retry_not_proven_prepublication"):
                 recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
 
+    def test_artifact_free_whole_job_skips_allow_later_authorized_dispatch(self):
+        for attempts in ((1,), (3, 1, 2)):
+            for supplied_steps in (False, True):
+                with self.subTest(attempts=attempts, supplied_steps=supplied_steps), tempfile.TemporaryDirectory() as td:
+                    root = Path(td)
+                    publisher_fixture(root)
+                    jobs = skipped_prior_jobs(attempts=attempts, supplied_steps=supplied_steps)
+                    jobs["jobs"].append({"id": 9900, "run_id": 123, "run_attempt": 1,
+                        "name": "unrelated", "status": "completed", "conclusion": "skipped",
+                        "steps": [{"name": "unrelated", "number": 1, "status": "completed", "conclusion": "skipped"}]
+                                 if supplied_steps else []})
+                    jobs["total_count"] = len(jobs["jobs"])
+                    install_prior_recovery(root, run_conclusion="success", run_attempt=len(attempts), jobs_payload=jobs)
+                    self.assertEqual(recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)["run_id"], MOCK_RUN)
+                    # The harmless old dispatch never authorizes the new one.
+                    event = json.loads((root / "event.json").read_text(encoding="utf-8"))
+                    event["inputs"]["allow_publication_recovery"] = False
+                    dump(root / "event.json", event)
+                    with self.assertRaisesRegex(ValueError, "publication_not_authorized"):
+                        recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+
+    def test_whole_job_skip_exception_requires_complete_artifact_free_evidence(self):
+        cases = []
+
+        def case(name, change):
+            jobs = skipped_prior_jobs(attempts=(1, 2), supplied_steps=True)
+            prior = {"jobs": jobs, "artifacts": {"total_count": 0, "artifacts": []},
+                     "run_attempt": 2, "status": "completed", "conclusion": "success"}
+            change(prior)
+            cases.append((name, prior))
+
+        case("artifact_present", lambda p: p["artifacts"].update(total_count=1, artifacts=[{"name": "diagnostic"}]))
+        case("accepted_artifact_expired", lambda p: p["artifacts"].update(total_count=1,
+            artifacts=[{"name": "accepted-paper-catchup-2026-07-27-123", "expired": True}]))
+        case("artifact_census_truncated", lambda p: p["artifacts"].update(total_count=1))
+        case("artifact_count_missing", lambda p: p["artifacts"].pop("total_count"))
+        case("artifact_count_bool", lambda p: p["artifacts"].update(total_count=False))
+        case("artifact_rows_null", lambda p: p["artifacts"].update(artifacts=None))
+        case("artifact_metadata_null", lambda p: p.update(artifacts=None))
+        case("artifact_row_null", lambda p: p["artifacts"].update(total_count=1, artifacts=[None]))
+        case("artifact_row_string", lambda p: p["artifacts"].update(total_count=1, artifacts=["invalid"]))
+        case("jobs_census_truncated", lambda p: p["jobs"].update(total_count=3))
+        case("missing_attempt", lambda p: p["jobs"].update(total_count=1, jobs=p["jobs"]["jobs"][:1]))
+        case("duplicate_attempt", lambda p: p["jobs"]["jobs"][1].update(run_attempt=1))
+        case("out_of_range_attempt", lambda p: p["jobs"]["jobs"][1].update(run_attempt=3))
+        case("duplicate_job", lambda p: p["jobs"]["jobs"][1].update(id=p["jobs"]["jobs"][0]["id"]))
+        case("wrong_run", lambda p: p["jobs"]["jobs"][1].update(run_id=124))
+        case("renamed_publication_job", lambda p: p["jobs"]["jobs"][1].update(name="other", steps=[]))
+        for field, values in (("status", ("in_progress", "queued", None)),
+                              ("conclusion", ("success", "failure", "cancelled", None, "unknown"))):
+            for value in values:
+                case(f"job_{field}_{value}", lambda p, f=field, v=value: p["jobs"]["jobs"][1].update({f: v}))
+                case(f"step_{field}_{value}", lambda p, f=field, v=value: p["jobs"]["jobs"][1]["steps"][0].update({f: v}))
+        for value in (None, True, False, 0, -1, "2", 2.0):
+            case(f"invalid_run_attempt_{value!r}", lambda p, v=value: p.update(run_attempt=v))
+            case(f"invalid_step_number_{value!r}", lambda p, v=value: p["jobs"]["jobs"][1]["steps"][0].update(number=v))
+        case("missing_steps", lambda p: p["jobs"]["jobs"][1].pop("steps"))
+        case("null_steps", lambda p: p["jobs"]["jobs"][1].update(steps=None))
+        case("null_step", lambda p: p["jobs"]["jobs"][1]["steps"].append(None))
+        case("duplicate_step_number", lambda p: p["jobs"]["jobs"][1]["steps"].append(
+            {**p["jobs"]["jobs"][1]["steps"][0], "name": "other"}))
+        case("duplicate_accepted_name", lambda p: p["jobs"]["jobs"][1]["steps"].append(
+            {**p["jobs"]["jobs"][1]["steps"][0], "number": 21}))
+        case("prior_in_progress", lambda p: p.update(status="in_progress"))
+        case("prior_unknown_conclusion", lambda p: p.update(conclusion=None))
+        case("prior_skipped_conclusion", lambda p: p.update(conclusion="skipped"))
+        for name, payload in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                publisher_fixture(root)
+                prior = install_prior_recovery(root, run_conclusion=payload["conclusion"],
+                    run_attempt=payload["run_attempt"], jobs_payload=payload["jobs"])
+                prior["workflow_runs"][1]["status"] = payload["status"]
+                prior["artifacts"]["123"] = payload["artifacts"]
+                dump(root / "prior_recoveries.json", prior)
+                with self.assertRaises(ValueError):
+                    recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+
+    def test_whole_job_skip_does_not_hide_mixed_executed_or_unknown_jobs(self):
+        for conclusion in ("success", "failure", "cancelled", "unknown", None):
+            for supplied_steps in (False, True):
+                with self.subTest(conclusion=conclusion, supplied_steps=supplied_steps), tempfile.TemporaryDirectory() as td:
+                    root = Path(td)
+                    publisher_fixture(root)
+                    jobs = skipped_prior_jobs(supplied_steps=supplied_steps)
+                    jobs["jobs"].append({"id": 9900, "run_id": 123, "run_attempt": 1,
+                        "name": "unrelated", "status": "completed", "conclusion": conclusion, "steps": []})
+                    jobs["total_count"] = len(jobs["jobs"])
+                    install_prior_recovery(root, run_conclusion="success", jobs_payload=jobs)
+                    with self.assertRaises(ValueError):
+                        recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+
+    def test_whole_run_skip_requires_valid_supplied_unrelated_steps(self):
+        changes = [(f"number_{v!r}", lambda steps, v=v: steps[0].update(number=v))
+                   for v in (None, True, False, 0, -1, "1", 1.0)]
+        changes += [(f"{f}_{v}", lambda steps, f=f, v=v: steps[0].update({f: v}))
+                    for f, values in (("status", (None, "in_progress")),
+                                      ("conclusion", (None, "success", "failure", "cancelled", "unknown")))
+                    for v in values]
+        changes += [("duplicate_number", lambda steps: steps.append({**steps[0], "name": "another"})),
+                    ("accepted_on_unrelated_job", lambda steps: steps[0].update(name=recovery.ACCEPTED_ARTIFACT_STEP))]
+        for name, change in changes:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                publisher_fixture(root)
+                jobs = skipped_prior_jobs()
+                unrelated = {"id": 9900, "run_id": 123, "run_attempt": 1, "name": "unrelated",
+                    "status": "completed", "conclusion": "skipped", "steps": [{"name": "unrelated",
+                    "number": 1, "status": "completed", "conclusion": "skipped"}]}
+                change(unrelated["steps"])
+                jobs["jobs"].append(unrelated)
+                jobs["total_count"] = len(jobs["jobs"])
+                install_prior_recovery(root, run_conclusion="success", jobs_payload=jobs)
+                with self.assertRaises(ValueError):
+                    recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+
+    def test_failure_cancelled_skip_upload_branch_retains_existing_contract(self):
+        for conclusion in ("failure", "cancelled"):
+            with self.subTest(conclusion=conclusion), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                publisher_fixture(root)
+                install_prior_recovery(root, run_conclusion=conclusion,
+                    jobs_payload=skipped_prior_jobs(supplied_steps=True), artifacts=[{"name": "diagnostic"}])
+                self.assertEqual(recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)["run_id"], MOCK_RUN)
+                install_prior_recovery(root, run_conclusion=conclusion, jobs_payload=skipped_prior_jobs())
+                with self.assertRaisesRegex(ValueError, "prior_publication_step_missing"):
+                    recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+
+    def test_recovery_queue_preserves_pending_and_keeps_owner_and_native_gates(self):
+        workflow = recovery_workflow()
+        self.assertEqual(workflow["concurrency"], {"group": "daily-operating-selection-refresh",
+                                                  "cancel-in-progress": False, "queue": "max"})
+        job = workflow["jobs"]["publication_recovery"]
+        self.assertIn("inputs.allow_publication_recovery == true", job["if"])
+        scripts = "\n".join(step.get("run", "") for step in job["steps"])
+        self.assertIn("prepare_run287_paper_publication_recovery.py", scripts)
+        upload = next(step for step in job["steps"] if step.get("id") == "accepted_artifact")
+        self.assertIn("steps.publication_gate.outcome == 'success'", upload["if"])
+        ordinary = yaml.safe_load((ROOT / ".github/workflows/daily_operating_selection_refresh.yml").read_text(encoding="utf-8"))
+        self.assertEqual(ordinary["concurrency"], {"group": "daily-operating-selection-refresh",
+                                                  "cancel-in-progress": False})
+
     def test_prior_expired_artifact_still_blocks_without_job_evidence(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -726,7 +877,8 @@ class PublicationRecoveryChecks(unittest.TestCase):
         self.assertEqual(set(events), {"workflow_dispatch"})
         self.assertFalse(events["workflow_dispatch"]["inputs"]["allow_publication_recovery"]["default"])
         self.assertFalse(events["workflow_dispatch"]["inputs"]["save_continuity_cache"]["default"])
-        self.assertEqual(workflow["concurrency"], {"group": "daily-operating-selection-refresh", "cancel-in-progress": False})
+        self.assertEqual(workflow["concurrency"], {"group": "daily-operating-selection-refresh",
+                                                  "cancel-in-progress": False, "queue": "max"})
         self.assertEqual(workflow["permissions"], {"contents": "read", "actions": "read"})
         job = workflow["jobs"]["publication_recovery"]
         self.assertEqual(job["environment"], "run287-paper-durable")

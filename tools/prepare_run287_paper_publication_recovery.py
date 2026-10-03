@@ -150,6 +150,11 @@ def prior_publication_step_state(previous: dict, jobs_payload: Any) -> str:
             jobs_payload["total_count"] == len(jobs), "prior_job_census_incomplete")
     job_ids = set()
     attempts = {}
+    # A default-false dispatch skips the whole job but GitHub reports SUCCESS.
+    # Only a complete, entirely skipped job census can distinguish that no-op
+    # from an executed successful run whose upload evidence is absent.
+    success_candidate = previous.get("status") == "completed" and previous.get("conclusion") == "success"
+    entire_census_skipped = True
     for job in jobs:
         require(isinstance(job, dict) and type(job.get("id")) is int and job["id"] > 0 and
                 type(job.get("run_id")) is int and job["run_id"] == previous["id"] and
@@ -161,6 +166,16 @@ def prior_publication_step_state(previous: dict, jobs_payload: Any) -> str:
         require(isinstance(steps, list), "prior_job_steps_missing")
         require(all(isinstance(step, dict) for step in steps), "prior_job_step_invalid")
         matches = [step for step in steps if step.get("name") == ACCEPTED_ARTIFACT_STEP]
+        whole_job_skipped = (job.get("status") == "completed" and job.get("conclusion") == "skipped" and
+                             all(step.get("status") == "completed" and step.get("conclusion") == "skipped"
+                                 for step in steps))
+        entire_census_skipped = entire_census_skipped and whole_job_skipped
+        if success_candidate and whole_job_skipped:
+            # Empty steps are the job-level-if shape. Supplied skipped steps
+            # still need unique identities, including on unrelated jobs.
+            numbers = [step.get("number") for step in steps]
+            require(all(type(number) is int and number > 0 for number in numbers) and
+                    len(set(numbers)) == len(numbers), "prior_job_step_identity")
         if job.get("name") != PUBLICATION_JOB_NAME:
             require(not matches, "prior_publication_job_mismatch")
             continue
@@ -173,8 +188,11 @@ def prior_publication_step_state(previous: dict, jobs_payload: Any) -> str:
             require(type(number) is int and number > 0 and number not in step_numbers,
                     "prior_job_step_identity")
             step_numbers.add(number)
+        require(len(matches) <= 1, "prior_publication_step_duplicate")
+        if success_candidate and whole_job_skipped:
+            attempts[attempt] = "whole_job_skipped"
+            continue
         require(matches, "prior_publication_step_missing")
-        require(len(matches) == 1, "prior_publication_step_duplicate")
         require(matches[0].get("status") == "completed", "prior_publication_step_incomplete")
         attempts[attempt] = matches[0].get("conclusion")
     # Unique identities in 1..N with cardinality N prove the complete census;
@@ -182,6 +200,8 @@ def prior_publication_step_state(previous: dict, jobs_payload: Any) -> str:
     require(len(attempts) == previous["run_attempt"], "prior_publication_attempt_census_incomplete")
     if any(value == "success" for value in attempts.values()):
         return "success"
+    if success_candidate and entire_census_skipped:
+        return "whole_run_skipped"
     require(all(value == "skipped" for value in attempts.values()),
             "prior_publication_side_effect_ambiguous")
     return "skipped"
@@ -247,9 +267,11 @@ def validate_publisher(evidence: Path, checkout_sha: str, *, now: datetime | Non
         if previous.get("id") == run["id"]:
             continue
         metadata = artifacts.get(str(previous.get("id")), {})
+        require(isinstance(metadata, dict), "prior_artifact_census_incomplete")
         rows = metadata.get("artifacts")
         require(isinstance(rows, list) and type(metadata.get("total_count")) is int and
                 metadata["total_count"] == len(rows), "prior_artifact_census_incomplete")
+        require(all(isinstance(row, dict) for row in rows), "prior_artifact_census_invalid")
         name = f"accepted-paper-catchup-{PROFILE['session_date']}-{previous['id']}"
         if any(a.get("name") == name for a in rows):
             raise ValueError("publication_recovery:already_published_requires_separate_recovery")
@@ -257,6 +279,9 @@ def validate_publisher(evidence: Path, checkout_sha: str, *, now: datetime | Non
         step_state = prior_publication_step_state(previous, prior_jobs.get(str(previous["id"])))
         if step_state == "success":
             raise ValueError("publication_recovery:already_published_requires_separate_recovery")
+        if step_state == "whole_run_skipped":
+            require(not rows, "prior_whole_run_skip_artifacts_present")
+            continue
         require(previous.get("status") == "completed" and
                 previous.get("conclusion") in ("failure", "cancelled"),
                 "prior_retry_not_proven_prepublication")
