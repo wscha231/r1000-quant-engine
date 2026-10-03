@@ -794,6 +794,98 @@ class PublicationRecoveryChecks(unittest.TestCase):
             with self.assertRaises(ValueError):
                 recovery.verify_remote_inventories(root, profile=profile)
 
+    def checksum_fixture(self, root: Path, hashes: dict) -> tuple[dict, dict]:
+        profile = {**recovery.PROFILE, "chain": ["a" * 64], "outcome_root": "b" * 64}
+        inventories = {}
+        for name in recovery.INPUT_DIRECTORIES:
+            prefix = "a" * 64 + "/" if name == "paper_heads_current" else "b" * 64 + "/" if name == "accepted" else ""
+            path = root / name / (prefix + "payload.txt")
+            path.parent.mkdir(parents=True)
+            path.write_bytes(b"synthetic_checksum_payload")
+            items = [{"Path": prefix + "payload.txt", "IsDir": False, "Size": path.stat().st_size,
+                     "Hashes": copy.deepcopy(hashes)}]
+            if prefix: items.insert(0, {"Path": prefix[:-1], "IsDir": True, "Size": 0})
+            inventories[name] = items
+            for phase in ("before", "after"):dump(root / (name + "." + phase + ".json"), items)
+        return profile, inventories
+
+    @staticmethod
+    def checksum(algorithm: str) -> str:
+        return hashlib.new(algorithm, b"synthetic_checksum_payload").hexdigest()
+
+    def check_hashes(self, hashes, *, failure=None):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);profile,_=self.checksum_fixture(root,hashes)
+            if failure:
+                with self.assertRaisesRegex(ValueError,failure):recovery.verify_remote_inventories(root,profile=profile)
+            else:recovery.verify_remote_inventories(root,profile=profile)
+
+    def test_canonical_legacy_and_case_hash_names_verify_actual_bytes(self):
+        aliases={"md5":("md5","MD5","Md5"),"sha1":("sha1","SHA1","SHA-1","sha-1","Sha-1"),
+                 "sha256":("sha256","SHA256","SHA-256","sha-256","Sha-256")}
+        for algorithm,names in aliases.items():
+            for name in names:
+                with self.subTest(name=name):self.check_hashes({name:self.checksum(algorithm)})
+        self.check_hashes({"MD5":self.checksum("md5"),"SHA-1":self.checksum("sha1"),"SHA-256":self.checksum("sha256")})
+        self.check_hashes({name:self.checksum(algorithm) for algorithm,names in aliases.items() for name in names})
+
+    def test_consistent_hash_aliases_accept_hex_case_without_favorable_selection(self):
+        for algorithm,alias in (("md5","MD5"),("sha1","SHA-1"),("sha256","SHA-256")):
+            with self.subTest(algorithm=algorithm):
+                self.check_hashes({algorithm:self.checksum(algorithm),alias:self.checksum(algorithm).upper()})
+                self.check_hashes({alias:self.checksum(algorithm).upper()})
+
+    def test_conflicting_aliases_fail_in_both_orders_even_with_another_matching_digest(self):
+        for algorithm,alias in (("md5","MD5"),("sha1","SHA-1"),("sha256","SHA-256")):
+            good=self.checksum(algorithm);bad="0"*len(good)
+            for reverse in (False,True):
+                items=[(algorithm,good),(alias,bad)]
+                if reverse:items.reverse()
+                with self.subTest(algorithm=algorithm,reverse=reverse):
+                    self.check_hashes({**dict(items),"unsupported": "ignored"},failure="remote_checksum_alias_conflict")
+
+    def test_every_supported_algorithm_must_match_when_other_algorithms_are_valid(self):
+        names=("md5","MD5","sha1","SHA-1","sha256","SHA-256")
+        valid={"md5":self.checksum("md5"),"sha1":self.checksum("sha1"),"sha256":self.checksum("sha256")}
+        for name in names:
+            algorithm=name.lower().replace("-","")
+            for position in ("first","last"):
+                hashes={k:v for k,v in valid.items() if k!=algorithm}
+                wrong={name:"0"*len(valid[algorithm])}
+                hashes={**wrong,**hashes} if position=="first" else {**hashes,**wrong}
+                with self.subTest(name=name,position=position):
+                    self.check_hashes(hashes,failure="remote_local_checksum_mismatch")
+
+    def test_malformed_known_digest_cannot_hide_behind_matching_legacy_alias(self):
+        for algorithm,alias in (("md5","MD5"),("sha1","SHA-1"),("sha256","SHA-256")):
+            good=self.checksum(algorithm)
+            for value in (None,True,0,[],{},"",good[:-1],good+"0","g"*len(good)," "+good,good+" "):
+                for reverse in (False,True):
+                    items=[(algorithm,good),(alias,value)]
+                    if reverse:items.reverse()
+                    with self.subTest(algorithm=algorithm,value=value,reverse=reverse):
+                        self.check_hashes(dict(items),failure="remote_checksum_digest_invalid")
+
+    def test_unknown_only_hashes_and_missing_digest_shapes_fail_closed(self):
+        for hashes in ({"DropboxHash":"opaque"},{"sha_256":self.checksum("sha256")},{"SHA--1":self.checksum("sha1")}):
+            with self.subTest(hashes=hashes):self.check_hashes(hashes,failure="remote_checksum_algorithm_missing")
+        for hashes in ({},None,[],True):
+            with self.subTest(hashes=hashes):self.check_hashes(hashes,failure="remote_file_size_or_hash_missing")
+        self.check_hashes({"DropboxHash":"opaque","MD5":self.checksum("md5")})
+        self.check_hashes({"DropboxHash":"opaque","md5":self.checksum("md5")})
+
+    def test_hash_name_compatibility_preserves_snapshot_drift_size_and_byte_checks(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);profile,items=self.checksum_fixture(root,{"MD5":self.checksum("md5")})
+            recovery.verify_remote_inventories(root,profile=profile)
+            changed=copy.deepcopy(items["paper_current"])
+            changed[0]["Hashes"]={"md5":self.checksum("md5")}
+            dump(root/"paper_current.after.json",changed)
+            with self.assertRaisesRegex(ValueError,"remote_inventory_drift"):recovery.verify_remote_inventories(root,profile=profile)
+            dump(root/"paper_current.after.json",items["paper_current"])
+            (root/"paper_current/payload.txt").write_bytes(b"x"*len(b"synthetic_checksum_payload"))
+            with self.assertRaisesRegex(ValueError,"remote_local_checksum_mismatch"):recovery.verify_remote_inventories(root,profile=profile)
+
     def test_readback_matches_all_bytes_and_rejects_modified_or_missing_member(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

@@ -376,12 +376,22 @@ def verify_remote_inventories(root: Path, *, profile: dict = PROFILE) -> None:
             raw = paper._read_regular_file_no_follow(root / name / relative, label="inventory input")
             require(type(item["bytes"]) is int and item["bytes"] == len(raw) and
                     isinstance(item["hashes"], dict) and item["hashes"], "remote_file_size_or_hash_missing")
-            recognized = 0
-            for algorithm, digest in item["hashes"].items():
-                if algorithm in {"md5", "sha1", "sha256"}:
-                    require(hashlib.new(algorithm, raw).hexdigest() == digest, "remote_local_checksum_mismatch")
-                    recognized += 1
+            aliases = {"md5": "md5", "sha1": "sha1", "sha-1": "sha1",
+                       "sha256": "sha256", "sha-256": "sha256"}
+            recognized = {}
+            for hash_name, digest in item["hashes"].items():
+                algorithm = aliases.get(hash_name.lower())
+                if algorithm is None:
+                    continue  # Preserve unsupported-plus-supported compatibility.
+                require(type(digest) is str and len(digest) == hashlib.new(algorithm).digest_size * 2
+                        and all(char in "0123456789abcdefABCDEF" for char in digest), "remote_checksum_digest_invalid")
+                digest = digest.lower()
+                require(algorithm not in recognized or recognized[algorithm] == digest,
+                        "remote_checksum_alias_conflict")
+                recognized[algorithm] = digest
             require(recognized, "remote_checksum_algorithm_missing")
+            for algorithm, digest in recognized.items():
+                require(hashlib.new(algorithm, raw).hexdigest() == digest, "remote_local_checksum_mismatch")
 
 
 def unpack(archive: Path, destination: Path) -> None:

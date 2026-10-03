@@ -5654,3 +5654,12 @@ Expected contract:
   group. Other producers retain their own pending policy; the 100-run queue cap
   and waiting-time FIFO do not replace native writer/chronological checks.
   Official queue semantics are server-side; YAML checks are not runtime proof.
+
+### 2026-10-03 - Checksum aliases must preserve every supplied digest (#570 P1)
+
+- Support documented MD5/SHA-1 and rclone SHA-256 aliases as well as retained
+  lowercase names. Validate every supported digest; malformed or disagreeing
+  aliases must not hide behind a favorable checksum. Unknown-only still blocks.
+- Retained original inventories already used lowercase names and passed the
+  native boundary. Distinguish synthetic spelling compatibility from those
+  original byte receipts; offline reuse is not a fresh Drive read or publication.
