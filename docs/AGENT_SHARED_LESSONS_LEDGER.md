@@ -5851,6 +5851,16 @@ Expected contract:
   Preserve disjoint missing outputs; label POSIX spelling simulations separately
   from actual Windows fixtures and do not claim macOS execution.
 
+### 2026-10-03 - Report publication needs native anchors and held inode ownership (#571 P2)
+
+- A final path check does not secure later mkdir/open/write. Anchor components
+  and write only new inodes; return bounded direct API failures as well as CLI2.
+- Test reached phases, native Windows locks, CREATE_NEW gaps and held-handle
+  deletion. Never retry cleanup against a raced new occupant after releasing
+  the old handle. POSIX cannot conditionally unlink an inode; retain incomplete
+  names on error. Install summary last and distinguish prior receipts on retry.
+- Do not claim three-file atomic publication or substitute old QA for new races.
+
 ## 2026-10-03 — Close SQLite handles after blocked materialization
 
 - A SQLite connection context manages commit/rollback and does not close the

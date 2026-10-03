@@ -81,6 +81,28 @@ that final check fails, `run()` returns an empty bounded blocked payload with
 all authority false on both admitted and initially blocked paths, without
 retrying publication. The standalone publisher still raises its bounded
 `AdmissionError` before writing to an unsafe destination.
+For the opt-in path, publication anchors every existing root/output path
+component before creating directories or report files. POSIX uses directory
+descriptors, no-follow exclusive temporary files and descriptor-relative
+replacement. Windows uses native listing/traversal handles denying write/delete
+sharing, then exclusive `CREATE_NEW` file handles; attribute-only handles are
+insufficient. Existing leaves are opened for identity and cleanup only, never
+truncated. Windows writes through each new exclusive handle and deletes only
+the exact held owned handle on failure. A new occupant winning a `CREATE_NEW`
+gap is preserved without deletion or retry. Unsupported native operations block.
+
+This is not an atomic three-file transaction. CSV and Markdown install before
+`summary.json`, the final completion marker; no fallible publication check
+follows that marker. Direct API failure returns empty bounded blocked evidence
+and CLI exits 2. Windows ordinary partial failures clear held owned files.
+Portable POSIX offers no inode-conditional unlink, so error cleanup retains
+potentially raced names and reports `OUTPUT_PUBLICATION_CLEANUP_INCOMPLETE`.
+An existing summary retained after a failed retry describes a prior invocation;
+it is not that retry's successful receipt. Consumers must use the current
+invocation result and complete receipt, not infer success from file existence.
+Tests assert that each injected publication phase is reached. Actual Windows
+locks, junctions and handle deletion are tested locally; actual POSIX operations
+require Linux validation, and no macOS execution is claimed.
 Matching admission continues through
 the existing result verifier and cannot override any economic or mission gate.
 

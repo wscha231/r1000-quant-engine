@@ -884,9 +884,486 @@ class NativeIntegrationTests(unittest.TestCase):
         self.assertEqual(payload['candidates'],[])
 
 
+class AnchoredPublicationTests(unittest.TestCase):
+    def setUp(self):
+        self.fixture = ImmutableBundleLifecycleTests()
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.doCleanups)
+        self.area = self.fixture.area
+
+    def invocation(self, label, leaf='summary.json', blocked=False):
+        from ab_result_verifier_smoke import seed_run
+        self.fixture.fixture = ComparisonPrecheckTests()
+        self.fixture.fixture.setUp()
+        root, args = self.fixture.bundle(label, collision=leaf)
+        for role, cagr, is_cagr in (('baseline', .51, .30), ('candidate', .52, .31)):
+            path = self.area / (label + '-' + role)
+            seed_run(path, cagr=cagr, max_dd=-.24, is_cagr=is_cagr, years=8.10,
+                     target_pass=True, strengthened_pass=True)
+            setattr(args, 'baseline_run' if role == 'baseline' else 'candidate_run',
+                    str(path) if role == 'baseline' else [str(path)])
+        args.output_dir = str(self.area / (label + '-report'))
+        if blocked: args.expected_context_sha256 = '0' * 64
+        return root, args
+
+    def call(self, args, cli=False):
+        import contextlib
+        import io
+        with contextlib.redirect_stdout(io.StringIO()):
+            if not cli: return verifier.run(args)
+            values = ['--baseline-run', args.baseline_run, '--output-dir', args.output_dir]
+            for candidate in args.candidate_run: values += ['--candidate-run', candidate]
+            for name in verifier.COMPARISON_OPTIONS:
+                value = getattr(args, name, None)
+                if value is not None: values += ['--' + name.replace('_', '-'), value]
+            return verifier.main(values)
+
+    def assert_bounded(self, result):
+        self.assertEqual(result['status'], 'blocked_comparison_admission')
+        self.assertEqual(result['candidates'], [])
+        self.assertEqual(result['candidate_count'], 0)
+        for key in verifier.COMPARISON_AUTHORITY_FIELDS:
+            if key != 'unverified_domains': self.assertIs(result[key], False)
+        self.assertNotIn('private-token', json.dumps(result))
+
+    def test_after_geometry_directory_aliases_preserve_every_input(self):
+        for leaf in ('summary.json', 'candidate_verdicts.csv', 'report.md'):
+            for blocked in (False, True):
+                for missing in (False, True):
+                    for cli in (False, True):
+                        with self.subTest(leaf=leaf, blocked=blocked, missing=missing, cli=cli):
+                            label = 'geometry-' + str((leaf, blocked, missing, cli))
+                            root, args = self.invocation(label, leaf, blocked)
+                            output = Path(args.output_dir)
+                            if not missing: output.mkdir()
+                            before = self.fixture.census(root); original = verifier.comparison_output_error
+                            active = False; fired = False
+                            old_publish = verifier.publish_report
+                            def publish(values, payload):
+                                nonlocal active
+                                active = True
+                                return old_publish(values, payload)
+                            def geometry(values):
+                                nonlocal fired
+                                result = original(values)
+                                if active and not fired:
+                                    fired = True
+                                    if output.exists(): output.rename(output.with_name(output.name + '-parked'))
+                                    output.symlink_to(root, target_is_directory=True)
+                                return result
+                            with patch.object(verifier, 'publish_report', side_effect=publish), \
+                                 patch.object(verifier, 'comparison_output_error', side_effect=geometry):
+                                result = self.call(args, cli)
+                            self.assertTrue(fired)
+                            self.assertEqual(self.fixture.census(root), before)
+                            if cli: self.assertEqual(result, 2)
+                            else: self.assert_bounded(result)
+
+    def test_after_geometry_leaf_symlink_and_hardlink_substitutions_do_not_truncate_inputs(self):
+        for leaf in ('summary.json', 'candidate_verdicts.csv', 'report.md'):
+            for blocked in (False, True):
+                for link in ('symlink', 'hardlink'):
+                    with self.subTest(leaf=leaf, blocked=blocked, link=link):
+                        root, args = self.invocation('leaf-' + str((leaf, blocked, link)), leaf, blocked)
+                        output = Path(args.output_dir); output.mkdir()
+                        before = self.fixture.census(root); original = verifier.comparison_output_error
+                        old_publish = verifier.publish_report; active = False; fired = False
+                        def publish(values, payload):
+                            nonlocal active
+                            active = True
+                            return old_publish(values, payload)
+                        def geometry(values):
+                            nonlocal fired
+                            result = original(values)
+                            if active and not fired:
+                                fired = True
+                                if link == 'symlink': (output / leaf).symlink_to(root / leaf)
+                                else: os.link(root / leaf, output / leaf)
+                            return result
+                        with patch.object(verifier, 'publish_report', side_effect=publish), \
+                             patch.object(verifier, 'comparison_output_error', side_effect=geometry):
+                            result = self.call(args)
+                        self.assertTrue(fired, 'leaf substitution phase not reached')
+                        self.assertEqual(self.fixture.census(root), before)
+                        self.assert_bounded(result)
+
+    def test_partial_zero_and_multiple_candidate_blocked_publications_are_also_anchored(self):
+        for state in ('partial', 'zero', 'multiple'):
+            for leaf in verifier.REPORT_LEAVES:
+                for cli in (False, True) if state != 'zero' else (False,):
+                    with self.subTest(state=state, leaf=leaf, cli=cli):
+                        root, args = self.invocation('options-' + str((state, leaf, cli)), leaf)
+                        if state == 'partial': args.comparison_challenger_arm = None
+                        elif state == 'zero': args.candidate_run = []
+                        else: args.candidate_run += ['unread-second-candidate']
+                        output = Path(args.output_dir); before = self.fixture.census(root); active = fired = False
+                        old_publish = verifier.publish_report; original = verifier.comparison_output_error
+                        def publish(values, payload):
+                            nonlocal active
+                            active = True
+                            return old_publish(values, payload)
+                        def geometry(values):
+                            nonlocal fired
+                            result = original(values)
+                            if active and not fired:
+                                fired = True; output.symlink_to(root, target_is_directory=True)
+                            return result
+                        with patch.object(verifier, 'publish_report', side_effect=publish), \
+                             patch.object(verifier, 'comparison_output_error', side_effect=geometry), \
+                             patch.object(verifier, 'collect_evidence', side_effect=AssertionError('blocked options reached legacy reads')):
+                            result = self.call(args, cli)
+                        self.assertTrue(fired, 'initially blocked publication phase not reached')
+                        self.assertEqual(self.fixture.census(root), before)
+                        if cli: self.assertEqual(result, 2)
+                        else: self.assert_bounded(result)
+
+    def test_after_geometry_ancestor_symlink_and_native_junction_aliases_are_bounded(self):
+        import subprocess
+        for kind in ('symlink', 'junction') if os.name == 'nt' else ('symlink',):
+            for leaf in verifier.REPORT_LEAVES:
+                for blocked in (False, True):
+                    for missing in (False, True):
+                        for cli in (False, True):
+                            with self.subTest(kind=kind, leaf=leaf, blocked=blocked, missing=missing, cli=cli):
+                                root, args = self.invocation('ancestor-' + str((kind, leaf, blocked, missing, cli)), leaf, blocked)
+                                parent = self.area / (root.name + '-parent'); parent.mkdir()
+                                output = parent / root.name; args.output_dir = str(output)
+                                if not missing: output.mkdir()
+                                before = self.fixture.census(root); fired = active = False
+                                old_publish = verifier.publish_report; original = verifier.comparison_output_error
+                                def publish(values, payload):
+                                    nonlocal active
+                                    active = True
+                                    return old_publish(values, payload)
+                                def geometry(values):
+                                    nonlocal fired
+                                    result = original(values)
+                                    if active and not fired:
+                                        fired = True; parent.rename(parent.with_name(parent.name + '-parked'))
+                                        if kind == 'symlink': parent.symlink_to(root.parent, target_is_directory=True)
+                                        else:
+                                            process = subprocess.run(['cmd', '/c', 'mklink', '/J', str(parent), str(root.parent)],
+                                                                     capture_output=True)
+                                            self.assertEqual(process.returncode, 0, 'native junction setup failed')
+                                    return result
+                                with patch.object(verifier, 'publish_report', side_effect=publish), \
+                                     patch.object(verifier, 'comparison_output_error', side_effect=geometry):
+                                    result = self.call(args, cli)
+                                self.assertTrue(fired, 'ancestor substitution phase not reached')
+                                self.assertEqual(self.fixture.census(root), before)
+                                if cli: self.assertEqual(result, 2)
+                                else: self.assert_bounded(result)
+
+    def test_short_write_then_error_and_each_replace_error_are_bounded_and_clean_owned_outputs(self):
+        for phase in ('short_write_error', 'replace1', 'replace2', 'replace3'):
+            for blocked in (False, True):
+                with self.subTest(phase=phase, blocked=blocked):
+                    root, args = self.invocation('io-' + str((phase, blocked)), blocked=blocked)
+                    output = Path(args.output_dir); output.mkdir()
+                    for leaf in ('summary.json', 'candidate_verdicts.csv', 'report.md'): (output / leaf).write_text('stale')
+                    (output / 'caller').write_text('caller')
+                    archive = output / 'archive'; archive.mkdir(); (archive / 'summary.json').write_text('archive')
+                    before = self.fixture.census(root); calls = 0
+                    original = os.write if phase == 'short_write_error' else verifier.ReportDirectory.replace
+                    def fail(*values, **kwargs):
+                        nonlocal calls
+                        calls += 1
+                        if phase == 'short_write_error':
+                            if calls == 1: return original(values[0], values[1][:3])
+                            raise OSError('private-token')
+                        if calls == int(phase[-1]): raise OSError('private-token')
+                        return original(*values, **kwargs)
+                    owner, attribute = (os, 'write') if phase == 'short_write_error' else (verifier.ReportDirectory, 'replace')
+                    with patch.object(owner, attribute, new=fail):
+                        result = self.call(args)
+                    self.assertGreaterEqual(calls, 2 if phase == 'short_write_error' else int(phase[-1]), 'publication phase not reached')
+                    self.assert_bounded(result)
+                    self.assertEqual(self.fixture.census(root), before)
+                    self.assertEqual((output / 'caller').read_text(), 'caller')
+                    self.assertEqual((archive / 'summary.json').read_text(), 'archive')
+                    if os.name == 'nt':
+                        self.assertFalse(any((output / leaf).exists() for leaf in verifier.REPORT_LEAVES))
+                        self.assertFalse(any(p.name.startswith('.ab-report-') for p in output.iterdir()))
+                    else:
+                        self.assertEqual(result['comparison_admission']['reason'], 'OUTPUT_PUBLICATION_CLEANUP_INCOMPLETE')
+
+    def test_zero_native_write_is_bounded_and_does_not_leave_partial_receipts(self):
+        root, args = self.invocation('zero-write')
+        before = self.fixture.census(root)
+        with patch.object(os, 'write', return_value=0): result = self.call(args)
+        self.assert_bounded(result)
+        self.assertEqual(self.fixture.census(root), before)
+
+    def test_anchored_directory_and_ancestor_swaps_reach_mkdir_write_and_each_commit(self):
+        phases = ('mkdir', 'write1', 'write2', 'write3', 'before1', 'before2', 'before3', 'after1', 'after2')
+        for phase in phases:
+            for ancestor in (False, True):
+                for blocked in (False, True):
+                    for cli in (False, True):
+                        with self.subTest(phase=phase, ancestor=ancestor, blocked=blocked, cli=cli):
+                            root, args = self.invocation('anchored-' + str((phase, ancestor, blocked, cli)), blocked=blocked)
+                            parent = self.area / (root.name + '-parent'); parent.mkdir()
+                            output = parent / root.name; args.output_dir = str(output)
+                            if phase != 'mkdir': output.mkdir()
+                            before = self.fixture.census(root); fired = refused = False; calls = 0
+                            def swap():
+                                nonlocal fired, refused
+                                fired = True; source = parent if ancestor or phase == 'mkdir' else output
+                                try: source.rename(source.with_name(source.name + '-parked'))
+                                except OSError as exc:
+                                    self.assertEqual(os.name, 'nt')
+                                    self.assertEqual(exc.winerror, 32, 'directory lock did not refuse replacement')
+                                    refused = True; return
+                                source.symlink_to(root.parent if source == parent else root, target_is_directory=True)
+                            if phase == 'mkdir':
+                                owner, attribute = os, 'mkdir'; original = os.mkdir
+                                def hook(*values, **kwargs):
+                                    if not fired and (Path(values[0]) == output if os.name == 'nt' else values[0] == output.name):
+                                        swap()
+                                    return original(*values, **kwargs)
+                            elif phase.startswith('write'):
+                                owner, attribute = os, 'write'; original = os.write
+                                def hook(*values, **kwargs):
+                                    nonlocal calls
+                                    calls += 1
+                                    if calls == int(phase[-1]): swap()
+                                    return original(*values, **kwargs)
+                            else:
+                                owner, attribute = verifier.ReportDirectory, 'replace'; original = owner.replace
+                                def hook(*values, **kwargs):
+                                    nonlocal calls
+                                    calls += 1
+                                    if phase.startswith('before') and calls == int(phase[-1]): swap()
+                                    result = original(*values, **kwargs)
+                                    if phase.startswith('after') and calls == int(phase[-1]): swap()
+                                    return result
+                            with patch.object(owner, attribute, new=hook): result = self.call(args, cli)
+                            self.assertTrue(fired, 'anchored publication phase not reached')
+                            self.assertEqual(self.fixture.census(root), before)
+                            if refused:
+                                if cli: self.assertEqual(result, 2 if blocked else 0)
+                                else: self.assertEqual(result['status'], 'blocked_comparison_admission' if blocked else 'review_candidate_ready')
+                                for leaf in verifier.REPORT_LEAVES: self.assertTrue((output / leaf).is_file())
+                            else:
+                                if cli: self.assertEqual(result, 2)
+                                else: self.assert_bounded(result)
+
+    def test_each_late_leaf_alias_preserves_input_and_never_truncates_an_existing_inode(self):
+        for leaf in verifier.REPORT_LEAVES:
+            for link in ('symlink', 'hardlink'):
+                for phase in ('stage_write', 'commit'):
+                    for blocked in (False, True):
+                        for cli in (False, True):
+                            with self.subTest(leaf=leaf, link=link, phase=phase, blocked=blocked, cli=cli):
+                                root, args = self.invocation('lateleaf-' + str((leaf, link, phase, blocked, cli)), leaf, blocked)
+                                output = Path(args.output_dir); output.mkdir()
+                                before = self.fixture.census(root); fired = False
+                                def substitute():
+                                    nonlocal fired
+                                    fired = True
+                                    if link == 'symlink': (output / leaf).symlink_to(root / leaf)
+                                    else: os.link(root / leaf, output / leaf)
+                                if phase == 'stage_write':
+                                    owner, attribute = os, 'write'; original = os.write
+                                    def hook(*values, **kwargs):
+                                        if not fired: substitute()
+                                        return original(*values, **kwargs)
+                                else:
+                                    owner, attribute = verifier.ReportDirectory, 'replace'; original = owner.replace
+                                    def hook(*values, **kwargs):
+                                        if values[2] == leaf and not fired: substitute()
+                                        return original(*values, **kwargs)
+                                with patch.object(owner, attribute, new=hook): result = self.call(args, cli)
+                                self.assertTrue(fired, 'late leaf substitution phase not reached')
+                                self.assertEqual(self.fixture.census(root), before)
+                                # POSIX replacement unlinks the local link; Windows
+                                # refuses the new occupied name. Neither follows it.
+                                if os.name == 'nt' or phase == 'stage_write':
+                                    if cli: self.assertEqual(result, 2)
+                                    else: self.assert_bounded(result)
+                                else:
+                                    if cli: self.assertEqual(result, 2 if blocked else 0)
+                                    else: self.assertEqual(result['status'], 'blocked_comparison_admission' if blocked else 'review_candidate_ready')
+
+    def test_partial_failure_retains_foreign_temp_occupant_or_native_lock_refuses_the_swap(self):
+        for blocked in (False, True):
+            root, args = self.invocation('temp-occupant-' + str(blocked), blocked=blocked)
+            output = Path(args.output_dir); output.mkdir()
+            before = self.fixture.census(root); fired = refused = False; source = None
+            original = os.write
+            def hook(descriptor, raw):
+                nonlocal fired, refused, source
+                if not fired:
+                    fired = True; source = next(output.glob('.ab-report-*.tmp'))
+                    try: source.rename(output / 'parked-original-temp')
+                    except OSError as exc:
+                        self.assertEqual(os.name, 'nt'); self.assertEqual(exc.winerror, 32)
+                        refused = True
+                    else: source.write_bytes(b'foreign-temp-occupant')
+                    original(descriptor, raw[:3]); raise OSError('private-token')
+                return original(descriptor, raw)
+            with patch.object(os, 'write', new=hook): result = self.call(args)
+            self.assertTrue(fired, 'held temp cleanup phase not reached')
+            self.assert_bounded(result); self.assertEqual(self.fixture.census(root), before)
+            if refused: self.assertFalse(source.exists())
+            else:
+                self.assertEqual(source.read_bytes(), b'foreign-temp-occupant')
+                self.assertEqual(result['comparison_admission']['reason'], 'OUTPUT_PUBLICATION_CLEANUP_INCOMPLETE')
+
+    @unittest.skipUnless(os.name == 'nt', 'native Windows CREATE_NEW/handle deletion contract')
+    def test_checked_leaf_deletion_does_not_retry_against_raced_create_new_occupant(self):
+        for leaf in verifier.REPORT_LEAVES:
+            for blocked in (False, True):
+                for cli in (False, True):
+                    with self.subTest(leaf=leaf, blocked=blocked, cli=cli):
+                        root, args = self.invocation('create-new-' + str((leaf, blocked, cli)), leaf, blocked)
+                        output = Path(args.output_dir); output.mkdir(); (output / leaf).write_bytes(b'old-owned-report')
+                        before = self.fixture.census(root); fired = False; calls = 0
+                        original = verifier.ReportDirectory.create_exclusive_leaf
+                        def hook(directory, name):
+                            nonlocal fired, calls
+                            if name == leaf:
+                                calls += 1
+                                if not fired:
+                                    fired = True; (output / leaf).write_bytes(b'foreign-final-occupant')
+                            return original(directory, name)
+                        with patch.object(verifier.ReportDirectory, 'create_exclusive_leaf', new=hook): result = self.call(args, cli)
+                        self.assertTrue(fired, 'CREATE_NEW race phase not reached'); self.assertEqual(calls, 1)
+                        self.assertEqual((output / leaf).read_bytes(), b'foreign-final-occupant')
+                        self.assertEqual(self.fixture.census(root), before)
+                        if cli: self.assertEqual(result, 2)
+                        else: self.assert_bounded(result)
+
+    def test_summary_is_installed_last_and_retained_prior_summary_is_not_a_new_receipt(self):
+        for failure in (0, 1, 2, 3):
+            root, args = self.invocation('marker-' + str(failure))
+            output = Path(args.output_dir); output.mkdir()
+            prior = b'{"status":"retained_previous_invocation"}'
+            (output / 'summary.json').write_bytes(prior)
+            order = []; original = verifier.ReportDirectory.replace
+            def hook(*values, **kwargs):
+                order.append(values[2])
+                if len(order) == failure: raise OSError('private-token')
+                return original(*values, **kwargs)
+            with patch.object(verifier.ReportDirectory, 'replace', new=hook): result = self.call(args)
+            self.assertEqual(order, list(('candidate_verdicts.csv', 'report.md', 'summary.json')[:failure or 3]))
+            if failure:
+                self.assert_bounded(result)
+                if os.name == 'nt': self.assertFalse((output / 'summary.json').exists())
+                else: self.assertEqual((output / 'summary.json').read_bytes(), prior)
+            else:
+                self.assertEqual(result['status'], 'review_candidate_ready')
+                self.assertEqual(json.loads((output / 'summary.json').read_bytes())['status'], result['status'])
+
+    def test_each_stage_and_native_final_write_sync_and_read_error_is_bounded(self):
+        phases = [f'stage{n}' for n in (1, 2, 3)]
+        if os.name == 'nt': phases += [f'final{n}' for n in (1, 2, 3)]
+        for phase in phases:
+            operations = ('write', 'fsync', 'invalid_write') + (('read',) if phase.startswith('final') else ())
+            for operation in operations:
+                for blocked in (False, True):
+                    with self.subTest(phase=phase, operation=operation, blocked=blocked):
+                        root, args = self.invocation('leaf-io-' + str((phase, operation, blocked)), blocked=blocked)
+                        output = Path(args.output_dir); output.mkdir()
+                        (output / 'caller').write_bytes(b'caller')
+                        before = self.fixture.census(root); descriptors = {}; count = {'stage': 0, 'final': 0}; fired = False
+                        original_temp = verifier.ReportDirectory.create_temp
+                        original_final = verifier.ReportDirectory.create_exclusive_leaf
+                        def temp(directory, name):
+                            descriptor = original_temp(directory, name); count['stage'] += 1
+                            descriptors[descriptor] = 'stage' + str(count['stage']); return descriptor
+                        def final(directory, name):
+                            descriptor = original_final(directory, name)
+                            if name in verifier.REPORT_LEAVES:
+                                count['final'] += 1; descriptors[descriptor] = 'final' + str(count['final'])
+                            return descriptor
+                        attribute = 'write' if operation == 'invalid_write' else operation
+                        original = getattr(os, attribute)
+                        def io_hook(descriptor, *values):
+                            nonlocal fired
+                            matches = descriptors.get(descriptor) == phase
+                            # The Windows copy reads the original stage descriptor.
+                            if operation == 'read': matches = count['final'] == int(phase[-1])
+                            if matches:
+                                fired = True
+                                if operation == 'invalid_write': return len(values[0]) + 1
+                                raise OSError('private-token')
+                            return original(descriptor, *values)
+                        with patch.object(verifier.ReportDirectory, 'create_temp', new=temp), \
+                             patch.object(verifier.ReportDirectory, 'create_exclusive_leaf', new=final), \
+                             patch.object(os, attribute, new=io_hook): result = self.call(args)
+                        self.assertTrue(fired, 'specific staged/final I/O phase not reached')
+                        self.assert_bounded(result); self.assertEqual(self.fixture.census(root), before)
+                        self.assertEqual((output / 'caller').read_bytes(), b'caller')
+                        self.assertFalse((output / 'summary.json').exists(), 'partial invocation installed a success marker')
+                        if os.name == 'nt':
+                            self.assertFalse(any((output / leaf).exists() for leaf in verifier.REPORT_LEAVES))
+                            self.assertFalse(any(p.name.startswith('.ab-report-') for p in output.iterdir()))
+                        else: self.assertEqual(result['comparison_admission']['reason'], 'OUTPUT_PUBLICATION_CLEANUP_INCOMPLETE')
+
+    @unittest.skipUnless(os.name == 'nt', 'native Windows exclusive final handle contract')
+    def test_final_handle_denies_leaf_rename_before_each_actual_write_and_cleanup(self):
+        for leaf in verifier.REPORT_LEAVES:
+            for blocked in (False, True):
+                for cli in (False, True):
+                    with self.subTest(leaf=leaf, blocked=blocked, cli=cli):
+                        root, args = self.invocation('final-lock-' + str((leaf, blocked, cli)), leaf, blocked)
+                        output = Path(args.output_dir); before = self.fixture.census(root)
+                        target = None; fired = False; original_create = verifier.ReportDirectory.create_exclusive_leaf
+                        def create(directory, name):
+                            nonlocal target
+                            descriptor = original_create(directory, name)
+                            if name == leaf: target = descriptor
+                            return descriptor
+                        original_write = os.write
+                        def write(descriptor, raw):
+                            nonlocal fired
+                            if descriptor == target:
+                                fired = True
+                                with self.assertRaises(OSError) as captured: (output / leaf).rename(output / 'raced-final')
+                                self.assertEqual(captured.exception.winerror, 32)
+                                original_write(descriptor, raw[:3]); raise OSError('private-token')
+                            return original_write(descriptor, raw)
+                        with patch.object(verifier.ReportDirectory, 'create_exclusive_leaf', new=create), \
+                             patch.object(os, 'write', new=write): result = self.call(args, cli)
+                        self.assertTrue(fired, 'actual final handle write/cleanup phase not reached')
+                        self.assertEqual(self.fixture.census(root), before)
+                        self.assertFalse((output / 'raced-final').exists())
+                        self.assertFalse(any((output / name).exists() for name in verifier.REPORT_LEAVES))
+                        self.assertFalse(any(p.name.startswith('.ab-report-') for p in output.iterdir()))
+                        if cli: self.assertEqual(result, 2)
+                        else: self.assert_bounded(result)
+
+    def test_disjoint_existing_and_missing_outputs_publish_all_three_reports(self):
+        for blocked in (False, True):
+            for existing in (False, True):
+                with self.subTest(blocked=blocked, existing=existing):
+                    root, args = self.invocation('positive-' + str((blocked, existing)), blocked=blocked)
+                    output = Path(args.output_dir)
+                    if existing: output.mkdir(); (output / 'caller').write_text('caller')
+                    before = self.fixture.census(root); result = self.call(args)
+                    self.assertEqual(self.fixture.census(root), before)
+                    self.assertEqual(result['status'], 'blocked_comparison_admission' if blocked else 'review_candidate_ready')
+                    for leaf in ('summary.json', 'candidate_verdicts.csv', 'report.md'): self.assertTrue((output / leaf).is_file())
+                    if existing: self.assertEqual((output / 'caller').read_text(), 'caller')
+                    self.assertFalse(any(p.name.startswith('.ab-report-') for p in output.iterdir()))
+                    # Prove native parent/leaf handles were released, rather
+                    # than depending on interpreter teardown or fixture GC.
+                    output.rename(output.with_name(output.name + '-released'))
+                    root.rename(root.with_name(root.name + '-released'))
+
+    def test_legacy_without_options_keeps_existing_path_writer_behavior(self):
+        root, args = self.invocation('legacy')
+        for name in verifier.COMPARISON_OPTIONS: setattr(args, name, None)
+        with patch.object(os, 'write', side_effect=AssertionError('native opt-in writer must not run')):
+            result = self.call(args)
+        self.assertEqual(result['status'], 'review_candidate_ready')
+        self.assertNotIn('comparison_admission', result)
+
+
 def suite():
     return unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromTestCase(cls)
-                              for cls in (ComparisonPrecheckTests,BoundedResolverTests,ImmutableBundleLifecycleTests,NativeIntegrationTests))
+                              for cls in (ComparisonPrecheckTests,BoundedResolverTests,ImmutableBundleLifecycleTests,NativeIntegrationTests,AnchoredPublicationTests))
 
 def main():
     return 0 if unittest.TextTestRunner(verbosity=2).run(suite()).wasSuccessful() else 1

@@ -13,10 +13,13 @@ from __future__ import annotations
 
 import argparse
 import csv
+import io
 import json
 import math
 import os
+import stat
 import sys
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -555,8 +558,7 @@ def render_report(payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+def write_csv_rows(handle: Any, rows: list[dict[str, Any]]) -> None:
     fields = [
         "experiment_id",
         "payload_hash",
@@ -581,13 +583,327 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "system_acceptance_hard_blocker_count",
         "issues",
     ]
+    writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        out = dict(row)
+        out["issues"] = ";".join(str(item) for item in row.get("issues") or [])
+        writer.writerow(out)
+
+
+def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
-        writer.writeheader()
-        for row in rows:
-            out = dict(row)
-            out["issues"] = ";".join(str(item) for item in row.get("issues") or [])
-            writer.writerow(out)
+        write_csv_rows(handle, rows)
+
+
+REPORT_LEAVES = ("summary.json", "candidate_verdicts.csv", "report.md")
+
+
+def publication_identity(value: os.stat_result) -> tuple[int, int]:
+    return value.st_dev, value.st_ino
+
+
+class ReportDirectory:
+    """Anchor each component; never write through a checked pathname alone.
+
+    POSIX operations use directory-relative descriptors. On Windows, listing/
+    traversal handles deny write/delete sharing for every path component;
+    attribute-only handles do not prevent directory replacement. Unsupported
+    backends fail closed before publication.
+    """
+    def __init__(self, path: Path, *, create: bool = False, allow_missing: bool = False):
+        self.path = Path(os.path.abspath(path))
+        self.entries: list[tuple[Path, int, tuple[int, int]]] = []
+        self.owned_descriptors: dict[str, int] = {}
+        self.expected_leaves: dict[str, tuple[int, int] | None] = {}
+        self.windows = os.name == 'nt'
+        self.kernel = None
+        if self.windows:
+            import ctypes
+            from ctypes import wintypes
+            self.kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+            self.kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+            self.kernel.CreateFileW.restype = wintypes.HANDLE
+            self.kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+            self.kernel.CloseHandle.restype = wintypes.BOOL
+            self.kernel.SetFileInformationByHandle.argtypes = [wintypes.HANDLE, ctypes.c_int,
+                                                               ctypes.c_void_p, wintypes.DWORD]
+            self.kernel.SetFileInformationByHandle.restype = wintypes.BOOL
+        else:
+            comparison_admission.require(os.name == 'posix' and hasattr(os, 'O_DIRECTORY')
+                and hasattr(os, 'O_NOFOLLOW') and os.open in os.supports_dir_fd
+                and os.mkdir in os.supports_dir_fd and os.rename in os.supports_dir_fd
+                and os.unlink in os.supports_dir_fd, 'OUTPUT_PUBLICATION_ANCHOR_UNAVAILABLE')
+        completed = False
+        try:
+            current = Path(self.path.anchor)
+            for part in ('', *self.path.parts[1:]):
+                if part: current = current / part
+                parent = self.entries[-1][1] if self.entries else None
+                try:
+                    observed = current.lstat()
+                except FileNotFoundError:
+                    if allow_missing: break
+                    comparison_admission.require(create, 'OUTPUT_PUBLICATION_PATH_CHANGED')
+                    if self.windows: os.mkdir(current)
+                    else: os.mkdir(part, dir_fd=parent)
+                    observed = current.lstat()
+                comparison_admission.require(stat.S_ISDIR(observed.st_mode)
+                    and not comparison_admission._is_link(observed), 'OUTPUT_PUBLICATION_PATH_CHANGED')
+                if self.windows:
+                    handle = self._win_open(current, 0xA1, 1, 3, 0x02000000 | 0x00200000)
+                else:
+                    handle = os.open(part if parent is not None else str(current),
+                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+                self.entries.append((current, handle, publication_identity(observed)))
+                self.guard()
+            comparison_admission.require(bool(self.entries), 'OUTPUT_PUBLICATION_PATH_CHANGED')
+            completed = True
+        finally:
+            if not completed: self.close()
+
+    def _win_open(self, path: Path, access: int, sharing: int, disposition: int, flags: int) -> int:
+        import ctypes
+        handle = self.kernel.CreateFileW(str(path), access, sharing, None, disposition, flags, None)
+        if handle == ctypes.c_void_p(-1).value:
+            raise OSError('output handle unavailable')
+        return handle
+
+    def guard(self) -> None:
+        for path, handle, identity in self.entries:
+            observed = path.lstat()
+            comparison_admission.require(stat.S_ISDIR(observed.st_mode)
+                and not comparison_admission._is_link(observed)
+                and publication_identity(observed) == identity, 'OUTPUT_PUBLICATION_PATH_CHANGED')
+            if not self.windows:
+                comparison_admission.require(publication_identity(os.fstat(handle)) == identity,
+                    'OUTPUT_PUBLICATION_PATH_CHANGED')
+
+    def leaf_stat(self, name: str) -> os.stat_result | None:
+        try:
+            return (self.path / name).lstat() if self.windows else os.stat(name,
+                dir_fd=self.entries[-1][1], follow_symlinks=False)
+        except FileNotFoundError:
+            return None
+
+    def safe_leaf(self, name: str) -> os.stat_result | None:
+        value = self.leaf_stat(name)
+        comparison_admission.require(value is None or (stat.S_ISREG(value.st_mode)
+            and not comparison_admission._is_link(value) and value.st_nlink == 1),
+            'OUTPUT_PUBLICATION_PATH_CHANGED')
+        if name in self.expected_leaves:
+            comparison_admission.require((publication_identity(value) if value else None)
+                == self.expected_leaves[name], 'OUTPUT_PUBLICATION_PATH_CHANGED')
+        return value
+
+    def register_descriptor(self, name: str, descriptor: int) -> int:
+        value = os.fstat(descriptor)
+        comparison_admission.require(stat.S_ISREG(value.st_mode) and value.st_nlink == 1
+            and not comparison_admission._is_link(value), 'OUTPUT_PUBLICATION_PATH_CHANGED')
+        self.owned_descriptors[name] = descriptor
+        self.expected_leaves[name] = publication_identity(value)
+        return descriptor
+
+    def capture_owned_leaves(self) -> None:
+        for name in REPORT_LEAVES:
+            observed = self.safe_leaf(name)
+            self.expected_leaves[name] = publication_identity(observed) if observed else None
+            if observed is None: continue
+            if self.windows:
+                descriptor = self.existing_leaf_descriptor(name)
+            else:
+                descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=self.entries[-1][1])
+            registered = False
+            try:
+                comparison_admission.require(publication_identity(os.fstat(descriptor)) == publication_identity(observed),
+                    'OUTPUT_PUBLICATION_PATH_CHANGED')
+                self.register_descriptor(name, descriptor); registered = True
+            finally:
+                if not registered: os.close(descriptor)
+
+    def existing_leaf_descriptor(self, name: str) -> int:
+        import msvcrt
+        handle = self._win_open(self.path / name, 0x10080, 0, 3, 0x00200000)
+        transferred = False
+        try:
+            descriptor = msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY)
+            transferred = True
+            return descriptor
+        finally:
+            if not transferred: self.kernel.CloseHandle(handle)
+
+    def create_temp(self, name: str) -> int:
+        if self.windows:
+            descriptor = self.create_exclusive_leaf(name)
+        else:
+            descriptor = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                                 0o600, dir_fd=self.entries[-1][1])
+        registered = False
+        try:
+            self.register_descriptor(name, descriptor)
+            registered = True
+            return descriptor
+        finally:
+            if not registered: os.close(descriptor)
+
+    def create_exclusive_leaf(self, name: str) -> int:
+        comparison_admission.require(self.windows, 'OUTPUT_PUBLICATION_ANCHOR_UNAVAILABLE')
+        import msvcrt
+        handle = self._win_open(self.path / name, 0xC0010000, 0, 1, 0x80 | 0x00200000)
+        transferred = False
+        try:
+            descriptor = msvcrt.open_osfhandle(handle, os.O_RDWR | os.O_BINARY)
+            transferred = True
+            return descriptor
+        finally:
+            if not transferred: self.kernel.CloseHandle(handle)
+
+    def replace(self, source: str, destination: str) -> tuple[int, int]:
+        if self.windows:
+            # Strong parent locks deny path rename on this Windows backend.
+            # Never relax them: unlink the owned name, then CREATE_NEW. Writes
+            # target only a new exclusive handle, never an existing leaf inode.
+            self.guard(); self.safe_leaf(destination)
+            comparison_admission.require(self.unlink_owned(destination), 'OUTPUT_PUBLICATION_PATH_CHANGED')
+            target = self.create_exclusive_leaf(destination)
+            registered = False
+            try:
+                self.register_descriptor(destination, target)
+                registered = True
+            finally:
+                if not registered: os.close(target)
+            # Hold the new final inode through group completion/cleanup.
+            identity = publication_identity(os.fstat(target))
+            original = self.owned_descriptors[source]
+            os.lseek(original, 0, os.SEEK_SET)
+            while True:
+                raw = os.read(original, 65536)
+                if not raw: break
+                offset = 0
+                while offset < len(raw):
+                    written = os.write(target, raw[offset:])
+                    comparison_admission.require(type(written) is int and 0 < written <= len(raw) - offset,
+                        'OUTPUT_PUBLICATION_FAILED')
+                    offset += written
+            os.fsync(target)
+            self.unlink_owned(source)
+            return identity
+        identity = publication_identity(self.safe_leaf(source))
+        os.replace(source, destination, src_dir_fd=self.entries[-1][1], dst_dir_fd=self.entries[-1][1])
+        if destination in self.owned_descriptors:
+            try: os.close(self.owned_descriptors.pop(destination))
+            except OSError: pass
+        self.owned_descriptors[destination] = self.owned_descriptors.pop(source)
+        self.expected_leaves[destination] = self.expected_leaves.pop(source)
+        return identity
+
+    def close_owned_descriptors(self) -> None:
+        for name, descriptor in list(self.owned_descriptors.items()):
+            del self.owned_descriptors[name]
+            try: os.close(descriptor)
+            except OSError: pass  # Final teardown cannot expose provider exception text.
+
+    def close(self) -> None:
+        self.close_owned_descriptors()
+        for _, handle, _ in reversed(self.entries):
+            if self.windows: self.kernel.CloseHandle(handle)
+            else:
+                try: os.close(handle)
+                except OSError: pass
+        self.entries.clear()
+
+    def unlink_owned(self, name: str) -> bool:
+        value = self.leaf_stat(name)
+        descriptor = self.owned_descriptors.get(name)
+        if value is None:
+            if descriptor is not None: os.close(self.owned_descriptors.pop(name))
+            self.expected_leaves[name] = None
+            return True
+        if descriptor is None: return False
+        if not stat.S_ISREG(value.st_mode) or comparison_admission._is_link(value) or value.st_nlink != 1:
+            return False
+        if (publication_identity(value) != self.expected_leaves.get(name)
+                or publication_identity(os.fstat(descriptor)) != publication_identity(value)):
+            return False
+        if self.windows:
+            import ctypes
+            import msvcrt
+            disposition = ctypes.c_byte(1)
+            if not self.kernel.SetFileInformationByHandle(msvcrt.get_osfhandle(descriptor), 4,
+                    ctypes.byref(disposition), ctypes.sizeof(disposition)):
+                raise OSError('owned output deletion unavailable')
+        else:
+            # POSIX has no portable inode-conditional unlink. After an error,
+            # retaining a name is safer than deleting a raced new occupant.
+            # The direct API/CLI reports incomplete publication in this case.
+            return False
+        os.close(self.owned_descriptors.pop(name))
+        self.expected_leaves[name] = None
+        return True
+
+
+def publish_anchored(args: argparse.Namespace, payload: dict[str, Any]) -> None:
+    """Write exclusive new inodes; old leaves are opened only for ownership."""
+    root = output = None
+    temporary: dict[str, tuple[int, int]] = {}
+    try:
+        root = ReportDirectory(Path(args.comparison_admission_root), allow_missing=True)
+        output = ReportDirectory(repo_path(args.output_dir), create=True)
+        root.guard(); output.guard()
+        error = comparison_output_error(args)
+        comparison_admission.require(error is None, error or 'OUTPUT_PUBLICATION_PATH_CHANGED')
+        output.capture_owned_leaves()
+        text = io.StringIO(newline=''); write_csv_rows(text, payload['candidates'])
+        contents = (json.dumps(payload, indent=2, sort_keys=True, default=str) + '\n',
+                    text.getvalue(), render_report(payload))
+        staged = []
+        for leaf, content in zip(REPORT_LEAVES, contents):
+            root.guard(); output.guard()
+            for target in REPORT_LEAVES: output.safe_leaf(target)
+            name = '.ab-report-' + uuid.uuid4().hex + '.tmp'
+            descriptor = output.create_temp(name)
+            value = os.fstat(descriptor)
+            comparison_admission.require(stat.S_ISREG(value.st_mode) and value.st_nlink == 1,
+                'OUTPUT_PUBLICATION_PATH_CHANGED')
+            temporary[name] = publication_identity(value)
+            raw = content.encode('utf-8'); offset = 0
+            while offset < len(raw):
+                written = os.write(descriptor, raw[offset:])
+                comparison_admission.require(type(written) is int and 0 < written <= len(raw) - offset,
+                    'OUTPUT_PUBLICATION_FAILED')
+                offset += written
+            os.fsync(descriptor)
+            staged.append((name, leaf, temporary[name]))
+        # The summary is the last completion marker. No fallible validation or
+        # other report installation follows it; a partial group is not a commit.
+        staged.sort(key=lambda item: item[1] == 'summary.json')
+        for name, leaf, identity in staged:
+            root.guard(); output.guard(); output.safe_leaf(leaf)
+            error = comparison_output_error(args)
+            comparison_admission.require(error is None, error or 'OUTPUT_PUBLICATION_PATH_CHANGED')
+            value = output.safe_leaf(name)
+            comparison_admission.require(value is not None and publication_identity(value) == identity,
+                'OUTPUT_PUBLICATION_PATH_CHANGED')
+            installed_identity = output.replace(name, leaf)
+            temporary.pop(name)
+            if leaf == 'summary.json': break
+            value = output.safe_leaf(leaf)
+            comparison_admission.require(value is not None and publication_identity(value) == installed_identity,
+                'OUTPUT_PUBLICATION_PATH_CHANGED')
+    except (comparison_admission.AdmissionError, OSError, ValueError, TypeError, RuntimeError) as exc:
+        incomplete = False
+        if output is not None:
+            for name in list(output.owned_descriptors):
+                try: incomplete = not output.unlink_owned(name) or incomplete
+                except OSError: incomplete = True
+        reason = str(exc) if isinstance(exc, comparison_admission.AdmissionError) else 'OUTPUT_PUBLICATION_FAILED'
+        if incomplete: reason = 'OUTPUT_PUBLICATION_CLEANUP_INCOMPLETE'
+        raise comparison_admission.AdmissionError(reason) from None
+    finally:
+        if output is not None: output.close()
+        if root is not None: root.close()
 
 
 def blocked_comparison_payload(admission: dict[str, Any], portfolio: str) -> dict[str, Any]:
@@ -720,11 +1036,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 def publish_report(args: argparse.Namespace, payload: dict[str, Any]) -> None:
     output_error = comparison_output_error(args)
     comparison_admission.require(output_error is None, output_error or "OUTPUT_ADMISSION_PATH_INVALID")
-    output_dir = repo_path(getattr(args, "output_dir", "outputs/ab_result_verifier"))
-    output_dir.mkdir(parents=True, exist_ok=True)
-    write_json(output_dir / "summary.json", payload)
-    write_csv(output_dir / "candidate_verdicts.csv", payload["candidates"])
-    (output_dir / "report.md").write_text(render_report(payload), encoding="utf-8")
+    if getattr(args, 'comparison_admission_root', None) is not None:
+        publish_anchored(args, payload)
+    else:
+        output_dir = repo_path(getattr(args, "output_dir", "outputs/ab_result_verifier"))
+        output_dir.mkdir(parents=True, exist_ok=True)
+        write_json(output_dir / "summary.json", payload)
+        write_csv(output_dir / "candidate_verdicts.csv", payload["candidates"])
+        (output_dir / "report.md").write_text(render_report(payload), encoding="utf-8")
     print(json.dumps({"status": payload["status"], "review_valid": payload["review_valid_candidate_count"],
                       "candidates": len(payload["candidates"])}, indent=2))
 
