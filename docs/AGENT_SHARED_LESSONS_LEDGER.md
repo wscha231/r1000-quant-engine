@@ -6040,6 +6040,10 @@ Expected contract:
   their original bounded reason with empty candidates and closed authority.
 - Completed blocked-report acknowledgement is not comparison admission. Test
   actual four-file witness/consumer parity, API/CLI2, aliases and root moves.
+- A native counterexample moved the declared input directory after a pre-root
+  pin/options rejection. Retain observed endpoint/ancestor geometry apart
+  from admission and reject it before output mkdir/leaf adoption. Verify
+  phase reach and the entire moved input census, including witness leaves.
 
 ## 2026-10-03 — Close SQLite handles after blocked materialization
 

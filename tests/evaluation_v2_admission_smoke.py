@@ -1108,6 +1108,99 @@ class AnchoredPublicationTests(unittest.TestCase):
                         if cli: self.assertEqual(result, 2)
                         else: self.assert_bounded(result)
 
+    def test_pre_root_directory_moves_before_output_anchor_preserve_all_pinned_leaves(self):
+        for failure in ('pin_format', 'partial'):
+            for leaf in verifier.PUBLICATION_LEAVES:
+                for existing in (False, True):
+                    for cli in (False, True):
+                        with self.subTest(failure=failure, leaf=leaf, existing=existing, cli=cli):
+                            root, args = self.invocation('pre-root-output-init-' + str((failure, leaf, existing, cli)), leaf)
+                            output = Path(args.output_dir); parked = output.with_name(output.name + '-parked')
+                            if existing: output.mkdir(); (output / 'caller').write_bytes(b'caller bytes')
+                            if failure == 'pin_format': args.expected_context_sha256 = 'A' * 64
+                            else: args.comparison_challenger_arm = None
+                            before = self.fixture.census(root); identity = verifier.publication_identity(root.stat())
+                            fired = False; captured = []; original = verifier.ReportDirectory.__init__
+                            original_precheck = verifier.comparison_precheck
+                            def precheck(values):
+                                result = original_precheck(values)
+                                self.assertEqual(result['status'], 'BLOCKED')
+                                captured.append(values._comparison_admitted_root)
+                                return result
+                            def initialize(directory, path, **kwargs):
+                                nonlocal fired
+                                if Path(path) == output and not fired:
+                                    if existing: output.rename(parked)
+                                    root.rename(output)
+                                    self.assertEqual(verifier.publication_identity(output.stat()), identity)
+                                    fired = True
+                                return original(directory, path, **kwargs)
+                            with patch.object(verifier, 'comparison_precheck', new=precheck), \
+                                 patch.object(verifier.ReportDirectory, '__init__', new=initialize), \
+                                 patch.object(verifier, 'collect_evidence', side_effect=AssertionError('legacy read forbidden')):
+                                result = self.call(args, cli)
+                            self.assertTrue(fired, 'physical relocation before output anchoring was not reached')
+                            self.assertEqual(captured, [None], 'geometry metadata became an admission anchor')
+                            self.assertEqual(self.fixture.census(output), before, 'original pinned input bytes changed')
+                            if existing: self.assertEqual((parked / 'caller').read_bytes(), b'caller bytes')
+                            if cli: self.assertEqual(result, 2)
+                            else:
+                                self.assert_bounded(result)
+                                self.assertEqual(result['comparison_admission']['reason'], 'OUTPUT_ADMISSION_PATH_OVERLAP')
+
+    def test_pre_root_geometry_retains_ancestors_and_blocks_before_descendant_mkdir(self):
+        kinds = ('precheck_child', 'output_init_child', 'precheck_ancestor',
+                 'output_init_ancestor', 'replacement', 'symlink')
+        for kind in kinds:
+            for failure in ('pin_format', 'partial'):
+                for cli in (False, True):
+                    with self.subTest(kind=kind, failure=failure, cli=cli):
+                        root, args = self.invocation('retained-geometry-' + str((kind, failure, cli)))
+                        carrier = self.area / (root.name + '-carrier'); carrier.mkdir()
+                        root.rename(carrier / 'bundle'); root = carrier / 'bundle'
+                        args.comparison_admission_root = str(root)
+                        (carrier / 'summary.json').write_bytes(b'caller ancestor bytes')
+                        moved = self.area / (root.parent.name + '-moved')
+                        if kind.endswith('child'): output = moved / 'new-report'
+                        else: output = moved
+                        args.output_dir = str(output)
+                        if failure == 'pin_format': args.expected_context_sha256 = 'A' * 64
+                        else: args.comparison_challenger_arm = None
+                        source = carrier if kind.endswith('ancestor') else root
+                        before = self.fixture.census(source); identity = verifier.publication_identity(source.stat())
+                        fired = False; captured = []; original_init = verifier.ReportDirectory.__init__
+                        original_precheck = verifier.comparison_precheck
+                        def move():
+                            nonlocal fired
+                            source.rename(moved)
+                            if kind == 'replacement': root.mkdir()
+                            elif kind == 'symlink': root.symlink_to(moved, target_is_directory=True)
+                            self.assertEqual(verifier.publication_identity(moved.stat()), identity)
+                            fired = True
+                        def precheck(values):
+                            result = original_precheck(values)
+                            self.assertEqual(result['status'], 'BLOCKED')
+                            captured.append(values._comparison_admitted_root)
+                            if kind.startswith('precheck_'): move()
+                            return result
+                        def initialize(directory, path, **kwargs):
+                            if Path(path) == output and not fired: move()
+                            return original_init(directory, path, **kwargs)
+                        with patch.object(verifier, 'comparison_precheck', new=precheck), \
+                             patch.object(verifier.ReportDirectory, '__init__', new=initialize), \
+                             patch.object(verifier, 'collect_evidence', side_effect=AssertionError('legacy read forbidden')):
+                            result = self.call(args, cli)
+                        self.assertTrue(fired, 'pre-root geometry mutation was not reached')
+                        self.assertEqual(captured, [None])
+                        self.assertEqual(self.fixture.census(moved), before, 'moved source directory changed')
+                        if kind.endswith('child'): self.assertFalse(output.exists(), 'input descendant directory was created')
+                        if kind.endswith('ancestor'):
+                            self.assertEqual((moved / 'summary.json').read_bytes(), b'caller ancestor bytes')
+                        if cli: self.assertEqual(result, 2)
+                        else:
+                            self.assert_bounded(result)
+                            self.assertEqual(result['comparison_admission']['reason'], 'OUTPUT_ADMISSION_PATH_OVERLAP')
+
     def test_after_geometry_directory_aliases_preserve_every_input(self):
         for leaf in ('summary.json', 'candidate_verdicts.csv', 'report.md'):
             for blocked in (False, True):

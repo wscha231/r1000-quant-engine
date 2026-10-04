@@ -82,8 +82,9 @@ def physical_path_chain(path: Path) -> tuple[tuple[int, int] | None, set[tuple[i
 def comparison_output_error(args: argparse.Namespace) -> str | None:
     """Check physical output geometry before artifact/legacy reads or writes."""
     root = getattr(args, "comparison_admission_root", None)
+    retained = getattr(args, "_comparison_geometry_roots", None)
     if root is None:
-        return None
+        return "OUTPUT_ADMISSION_PATH_INVALID" if retained is not None else None
     try:
         comparison_admission.require((type(root) is str or isinstance(root, Path)) and bool(str(root)),
                                      "OUTPUT_ADMISSION_PATH_INVALID")
@@ -92,6 +93,13 @@ def comparison_output_error(args: argparse.Namespace) -> str | None:
         resolved_root = Path(root).resolve(strict=False)
         root_key = os.path.normcase(str(resolved_root))
         root_identity, root_chain = physical_path_chain(resolved_root)
+        root_keys = {root_key}
+        root_ids = {root_identity} if root_identity is not None else set()
+        if retained is not None:
+            root_keys.update(retained[0]); root_ids.update(retained[1]); root_chain.update(retained[2])
+        # Metadata geometry is not admission. Retain every observed input
+        # relationship so a pre-root failure cannot turn moved input into output.
+        args._comparison_geometry_roots = (frozenset(root_keys), frozenset(root_ids), frozenset(root_chain))
         output = repo_path(getattr(args, "output_dir", "outputs/ab_result_verifier"))
         for path in (output, *(output / name for name in PUBLICATION_LEAVES)):
             if path != output and path.exists():
@@ -102,17 +110,18 @@ def comparison_output_error(args: argparse.Namespace) -> str | None:
             resolved_output = path.resolve(strict=False)
             output_identity, output_chain = physical_path_chain(resolved_output)
             comparison_admission.require(
-                (root_identity is None or root_identity not in output_chain)
+                root_ids.isdisjoint(output_chain)
                 and (output_identity is None or output_identity not in root_chain),
                 "OUTPUT_ADMISSION_PATH_OVERLAP",
             )
             output_key = os.path.normcase(str(resolved_output))
-            try:
-                common = os.path.commonpath((root_key, output_key))
-            except ValueError:  # Different volumes cannot overlap.
-                continue
-            comparison_admission.require(common not in (root_key, output_key),
-                                         "OUTPUT_ADMISSION_PATH_OVERLAP")
+            for key in root_keys:
+                try:
+                    common = os.path.commonpath((key, output_key))
+                except ValueError:  # Different volumes cannot overlap.
+                    continue
+                comparison_admission.require(common not in (key, output_key),
+                                             "OUTPUT_ADMISSION_PATH_OVERLAP")
     except comparison_admission.AdmissionError as exc:
         return str(exc)
     except (OSError, TypeError, ValueError, RuntimeError):
@@ -664,11 +673,13 @@ class ReportDirectory:
     attribute-only handles do not prevent directory replacement. Unsupported
     backends fail closed before publication.
     """
-    def __init__(self, path: Path, *, create: bool = False, allow_missing: bool = False):
+    def __init__(self, path: Path, *, create: bool = False, allow_missing: bool = False,
+                 input_geometry: tuple | None = None):
         self.path = Path(os.path.abspath(path))
         self.entries: list[tuple[Path, int, tuple[int, int]]] = []
         self.owned_descriptors: dict[str, int] = {}
         self.expected_leaves: dict[str, tuple[int, int] | None] = {}
+        self.input_root_ids, self.input_ancestor_ids = input_geometry or (frozenset(), frozenset())
         self.teardown_warning = False
         self.windows = os.name == 'nt'
         self.kernel = None
@@ -705,6 +716,10 @@ class ReportDirectory:
                     observed = current.lstat()
                 comparison_admission.require(stat.S_ISDIR(observed.st_mode)
                     and not comparison_admission._is_link(observed), 'OUTPUT_PUBLICATION_PATH_CHANGED')
+                identity = publication_identity(observed)
+                comparison_admission.require(identity not in self.input_root_ids
+                    and (current != self.path or identity not in self.input_ancestor_ids),
+                    'OUTPUT_ADMISSION_PATH_OVERLAP')
                 if self.windows:
                     handle = self._win_open(current, 0xA1, 1, 3, 0x02000000 | 0x00200000)
                 else:
@@ -746,6 +761,8 @@ class ReportDirectory:
         comparison_admission.require(value is None or (stat.S_ISREG(value.st_mode)
             and not comparison_admission._is_link(value) and value.st_nlink == 1),
             'OUTPUT_PUBLICATION_PATH_CHANGED')
+        comparison_admission.require(value is None or publication_identity(value) not in self.input_root_ids,
+                                     'OUTPUT_ADMISSION_PATH_OVERLAP')
         if name in self.expected_leaves:
             comparison_admission.require((publication_identity(value) if value else None)
                 == self.expected_leaves[name], 'OUTPUT_PUBLICATION_PATH_CHANGED')
@@ -950,7 +967,9 @@ def publish_anchored(args: argparse.Namespace, payload: dict[str, Any]) -> None:
             root = ReportDirectory(admitted_root[0])
             comparison_admission.require(root.path == admitted_root[0]
                 and root.entries[-1][2] == admitted_root[1], 'ARTIFACT_ROOT_CHANGED')
-        output = ReportDirectory(repo_path(args.output_dir), create=True)
+        geometry = getattr(args, '_comparison_geometry_roots', None)
+        output = ReportDirectory(repo_path(args.output_dir), create=True,
+            input_geometry=(geometry[1], geometry[2]) if geometry is not None else None)
         if root is not None: root.guard()
         output.guard()
         error = comparison_output_error(args)
@@ -1102,6 +1121,8 @@ def emit_status(payload: dict[str, Any]) -> None:
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
+    # Metadata observations are retained for this invocation, never a later run.
+    args._comparison_geometry_roots = None
     portfolio = str(getattr(args, "portfolio", "concentrated"))
     output_error = comparison_output_error(args)
     admission = blocked_comparison(output_error) if output_error else comparison_precheck(args)

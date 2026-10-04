@@ -95,6 +95,12 @@ economic authority. Later arm/byte failures retain the captured root anchor even
 though comparison is blocked; moving or replacing that root still stops output.
 Here `current_receipt=true` acknowledges completed blocked-report publication,
 not admission of the rejected inputs. CLI remains 2 for those blocked reports.
+Declared geometry separately retains observed endpoint/ancestor device and inode
+identities during one invocation, even when malformed pins or partial options
+stop before resolver initialization. A moved input directory or ancestor cannot
+become output merely because its original pathname disappeared. Output anchoring
+rejects those identities before creating an input descendant or adopting a leaf;
+this metadata observation grants no admission, byte correctness or OS sandbox.
 Publication anchors every existing root/output path
 component before creating directories or report files. POSIX uses directory
 descriptors, no-follow exclusive temporary files and descriptor-relative
