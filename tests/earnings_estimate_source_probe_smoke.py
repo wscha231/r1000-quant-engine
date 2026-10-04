@@ -546,6 +546,43 @@ class SourceProbeTests(unittest.TestCase):
         self.assertEqual(eps["data"][0]["currency"], "USD")
         self.assertIsNone(eps["data"][1]["accounting_basis"])
 
+
+    def test_daily_workflow_exports_only_effective_fmp_account(self):
+        import re
+        config = yaml.load((probe.ROOT / ".github/workflows/earnings_estimates_daily.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+        call = next(step for job in config["jobs"].values() for step in job["steps"] if step.get("name") == "Collect forward-only estimate archive")
+        names = ("FMP_API_KEY", "FMP_API_KEY2")
+        expressions = {name: call["env"][name] for name in names}
+        self.assertEqual(call["env"]["FMP_KEY_NAME"], "${{ github.event.inputs.fmp_key_name || 'FMP_API_KEY' }}")
+        # Restricted offline evaluation of the exact Actions expression forms.
+        # Fixture credentials only; this does not exercise a hosted runner.
+        direct = re.compile(r"\$\{\{ secrets\.([A-Z0-9_]+) \}\}")
+        conditional = re.compile(r"\$\{\{ \(github\.event\.inputs\.fmp_key_name \|\| 'FMP_API_KEY'\) == '(FMP_API_KEY2?)' && secrets\.([A-Z0-9_]+) \|\| '' \}\}")
+        parsed = {}
+        for name, expression in expressions.items():
+            match = conditional.fullmatch(expression)
+            if match:
+                selected, secret = match.groups()
+                self.assertEqual(secret, name)
+                self.assertEqual(selected, name)
+                parsed[name] = (selected, secret)
+            else:
+                match = direct.fullmatch(expression)
+                self.assertIsNotNone(match, "Unsupported credential expression requires reviewer verification")
+                parsed[name] = (None, match.group(1))
+        complete = {name: "fixture-only-" + name for name in names}
+        variants = [complete]
+        for absent in names:
+            variants.extend(({name: value for name, value in complete.items() if name != absent}, {**complete, absent: ""}))
+        for supplied in (None, "", *names, "invalid"):
+            effective = supplied or "FMP_API_KEY"
+            for fixture in variants:
+                with self.subTest(input=supplied, present=[name for name, value in fixture.items() if value]):
+                    exported = {name: fixture.get(secret, "") if selected is None or selected.lower() == effective.lower() else "" for name, (selected, secret) in parsed.items()}
+                    nonempty = {name: value for name, value in exported.items() if value}
+                    expected = {effective: fixture[effective]} if effective in fixture and fixture[effective] else {}
+                    self.assertEqual(nonempty, expected)
+
     def test_existing_collector_cli_explicit_secondary_and_unchanged_default(self):
         for argv, expected in ((["collector"], KEY1),
                                (["collector", "--fmp-key-name", "FMP_API_KEY2"], KEY2)):
@@ -567,7 +604,7 @@ class SourceProbeTests(unittest.TestCase):
         self.assertEqual(selected["options"], ["FMP_API_KEY", "FMP_API_KEY2"])
         collection = next(step for job in config["jobs"].values() for step in job["steps"]
                           if step.get("name") == "Collect forward-only estimate archive")
-        self.assertEqual(collection["env"]["FMP_API_KEY2"], "${{ secrets.FMP_API_KEY2 }}")
+        self.assertEqual(collection["env"]["FMP_API_KEY2"], "${{ (github.event.inputs.fmp_key_name || 'FMP_API_KEY') == 'FMP_API_KEY2' && secrets.FMP_API_KEY2 || '' }}")
         self.assertIn('--fmp-key-name "$FMP_KEY_NAME"', collection["run"])
 
 

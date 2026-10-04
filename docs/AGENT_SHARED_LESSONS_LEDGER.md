@@ -6099,3 +6099,30 @@ Expected contract:
   concurrency and operating workflows remain unchanged. Fresh exact-head A6,
   formal review, green CI and unresolved0/review-complete still precede the
   previously approved expected-head merge and single bounded EODHD sample.
+
+## 2026-10-04 — Isolate the selected FMP account in the existing daily collector
+
+- PR575 final3deadc4 passed independent A6 and required CI37174383317
+  (233/233 files), but formal review5404140253 found one further P2:
+  both FMP credentials were injected while the CLI selected a single account.
+- After direct human approval, this sixth narrow correction conditions both
+  FMP secret expressions on the same effective fmp_key_name as the existing
+  CLI. Schedule/default still selects primary; manual secondary stays explicit.
+  Missing or unknown selection exposes no unrelated FMP account. Vendor order,
+  mode, quota, schedule, CI registration and protected pins are unchanged.
+- The prepared offline25-scenario regression reproduced17 old failures and
+  passed after repair. Its first actual-H1 harness caught a missing method-local
+  re import hidden by a standalone harness; the proposal fixed it before source
+  application. Actual registered H1 now passes116 cases including41 source cases
+  in normal and optimized children, with real provider HTTP forbidden.
+- The first full wrapper run exposed an old workflow-wiring assertion that
+  required the formerly unconditional secondary secret. Update that expectation
+  to the new conditional expression; retain the behavioral isolation cases and
+  CLI/default/no-fallback checks instead of weakening or skipping the test.
+- Candidate publication compares normalized Git bytes: Windows fixture CRLF
+  must be normalized before exact proposal matching; raw owner bytes stay intact.
+- Reuse the accepted source/provider research and existing READ_ONLY A6. One
+  fresh final-head formal review and current CI remain required; previous-head
+  CLEAN/green evidence cannot authorize this changed head. The already approved
+  single EODHD sample remains bounded to3HTTP/20daily units/no bonus/no retry.
+  No operational daily dispatch, purchase, durable data or consumer activation.
