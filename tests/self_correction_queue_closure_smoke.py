@@ -276,6 +276,182 @@ class PublicationReceiptTests(unittest.TestCase):
                     self.assertEqual(summaries[0]['candidates'], result['candidates'])
                     self.assertEqual(self.consume(output)['ready_for_human_review_count'], 1)
 
+    def strip_publication_metadata(self, output, version):
+        path = output / 'summary.json'; payload = json.loads(path.read_bytes())
+        for name in ('comparison_publication', 'comparison_admission', 'current_receipt'): payload.pop(name, None)
+        if version == 'plain_v1': payload['schema_version'] = 'ab-result-verifier-v1'
+        else: payload.pop('schema_version', None)
+        write_json(path, payload)
+        return path
+
+    def test_remaining_witness_blocks_plain_metadata_downgrade_in_reader_and_real_queue(self):
+        import hashlib
+        for version in ('plain_v1', 'no_version'):
+            for state in ('valid', 'malformed', 'empty', 'partial', 'stale', 'matching_plain_hash'):
+                with self.subTest(version=version, witness=state):
+                    _, _, _, output = self.produce(default=True)
+                    summary = self.strip_publication_metadata(output, version)
+                    path = output / self.verifier.COMPLETION_LEAF
+                    if state in ('malformed', 'empty', 'partial'):
+                        path.write_bytes({'malformed': b'[]', 'empty': b'', 'partial': b'{'}[state])
+                    elif state in ('stale', 'matching_plain_hash'):
+                        witness = json.loads(path.read_bytes())
+                        if state == 'stale': witness['generation'] = '0' * 32
+                        else:
+                            raw = summary.read_bytes()
+                            witness['reports']['summary.json'] = {'bytes': len(raw), 'sha256': hashlib.sha256(raw).hexdigest()}
+                        write_json(path, witness)
+                    self.assertEqual(self.closure.load_verifier_summaries([], [str(output)]), [])
+                    self.assert_not_consumable(output)
+
+    def test_witness_entry_types_wrong_summary_name_and_denied_probe_cannot_be_legacy_absence(self):
+        import os
+        import subprocess
+        states = ('wrong_summary_name', 'directory', 'symlink', 'dangling_symlink', 'hardlink',
+                  'permission_error', 'io_error') + (('junction',) if os.name == 'nt' else ())
+        for version in ('plain_v1', 'no_version'):
+            for state in states:
+                with self.subTest(version=version, witness=state):
+                    _, _, _, output = self.produce(default=True)
+                    summary = self.strip_publication_metadata(output, version)
+                    marker = output / self.verifier.COMPLETION_LEAF
+                    original_marker = marker.read_bytes(); target = self.area / ('marker-' + str(self.sequence))
+                    target.write_bytes(original_marker)
+                    if state == 'wrong_summary_name':
+                        renamed = output / 'renamed-summary.json'; summary.rename(renamed)
+                        queue = self.area / ('wrong-name-queue-' + str(self.sequence) + '.json')
+                        write_json(queue, {'queued_experiments': [queue_item('synthetic-receipt', 'fixed-contract')]})
+                        self.assertEqual(self.closure.load_verifier_summaries([str(renamed)], []), [])
+                        with contextlib.redirect_stdout(io.StringIO()):
+                            result = run(Namespace(queue_path=str(queue), verifier_summary=[str(renamed)], verifier_dir=[],
+                                                   output_dir=str(self.area / ('wrong-name-closure-' + str(self.sequence)))))
+                        self.assertEqual(result['matched_item_count'], 0)
+                        self.assertEqual(result['ready_for_human_review_count'], 0)
+                        self.assertEqual(result['queue_state'][0]['status'], 'queued')
+                    elif state in ('directory', 'symlink', 'dangling_symlink', 'hardlink', 'junction'):
+                        marker.unlink()
+                        if state == 'directory': marker.mkdir()
+                        elif state == 'hardlink': os.link(target, marker)
+                        elif state == 'junction':
+                            outside = self.area / ('junction-target-' + str(self.sequence)); outside.mkdir()
+                            (outside / 'caller.txt').write_bytes(b'preserved-caller-bytes')
+                            link = subprocess.run(['cmd', '/c', 'mklink', '/J', str(marker), str(outside)], capture_output=True)
+                            self.assertEqual(link.returncode, 0, 'actual Windows witness junction creation failed')
+                            self.assertTrue(marker.is_junction())
+                        else:
+                            if state == 'dangling_symlink': target.unlink()
+                            os.symlink(target, marker)
+                        self.assertEqual(self.closure.load_verifier_summaries([], [str(output)]), [])
+                        self.assert_not_consumable(output)
+                        if state in ('symlink', 'dangling_symlink'): self.assertTrue(marker.is_symlink())
+                        elif state == 'directory': self.assertTrue(marker.is_dir())
+                        elif state == 'junction':
+                            self.assertTrue(marker.is_junction())
+                            self.assertEqual((outside / 'caller.txt').read_bytes(), b'preserved-caller-bytes')
+                        else: self.assertEqual(target.read_bytes(), original_marker)
+                    else:
+                        marker.unlink(); original_lstat = os.lstat; fired = []
+                        def probe(path, *args, **kwargs):
+                            if Path(path) == marker:
+                                fired.append(True)
+                                raise PermissionError('private-token') if state == 'permission_error' else OSError('private-token')
+                            return original_lstat(path, *args, **kwargs)
+                        with patch.object(self.closure.os, 'lstat', new=probe):
+                            self.assertEqual(self.closure.load_verifier_summaries([], [str(output)]), [])
+                            self.assert_not_consumable(output)
+                        self.assertTrue(fired, 'witness-entry probe error was not reached')
+
+    def test_observed_witness_or_parent_changes_during_legacy_classification_fail_closed(self):
+        import os
+        for version in ('plain_v1', 'no_version'):
+            for phase in ('appears_after_absence', 'disappears_after_presence', 'replaced_after_presence', 'parent_probe_error'):
+                for api in ('reader', 'queue'):
+                    with self.subTest(version=version, phase=phase, api=api):
+                        _, _, _, output = self.produce(default=True)
+                        summary = self.strip_publication_metadata(output, version)
+                        marker = output / self.verifier.COMPLETION_LEAF
+                        if phase not in ('disappears_after_presence', 'replaced_after_presence'): marker.unlink()
+                        original_lstat = os.lstat; original_stat = os.stat; fired = False
+                        def probe(path, *args, **kwargs):
+                            nonlocal fired
+                            if Path(path) == marker and not fired:
+                                try: observed = original_lstat(path, *args, **kwargs)
+                                except FileNotFoundError:
+                                    fired = True
+                                    if phase == 'appears_after_absence': marker.write_bytes(b'{')
+                                    raise
+                                else:
+                                    fired = True; marker.unlink()
+                                    if phase == 'replaced_after_presence': marker.write_bytes(b'{')
+                                    return observed
+                            return original_lstat(path, *args, **kwargs)
+                        def parent_stat(path, *args, **kwargs):
+                            if Path(path) == output and fired and phase == 'parent_probe_error':
+                                raise PermissionError('private-token')
+                            return original_stat(path, *args, **kwargs)
+                        with patch.object(self.closure.os, 'lstat', new=probe), patch.object(self.closure.os, 'stat', new=parent_stat):
+                            if api == 'reader': self.assertEqual(self.closure.load_verifier_summaries([], [str(output)]), [])
+                            else: self.assert_not_consumable(output)
+                        self.assertTrue(fired, 'actual witness-entry race observation was not reached')
+                        self.assertTrue(output.joinpath('summary.json').exists())
+
+    @unittest.skipUnless(__import__('os').name == 'posix', 'actual parent move with open summary requires POSIX')
+    def test_missing_or_replaced_parent_after_witness_absence_cannot_expose_legacy_rows(self):
+        import os
+        for version in ('plain_v1', 'no_version'):
+            for replacement in (False, True):
+                for api in ('reader', 'queue'):
+                    with self.subTest(version=version, replacement=replacement, api=api):
+                        _, _, _, output = self.produce(default=True)
+                        summary = self.strip_publication_metadata(output, version); original_bytes = summary.read_bytes()
+                        marker = output / self.verifier.COMPLETION_LEAF; marker.unlink()
+                        original_lstat = os.lstat; fired = False; moved = False
+                        parked = output.with_name(output.name + '-parked')
+                        def probe(path, *args, **kwargs):
+                            nonlocal fired, moved
+                            if Path(path) == marker and not fired:
+                                try: return original_lstat(path, *args, **kwargs)
+                                except FileNotFoundError:
+                                    fired = True; output.rename(parked); moved = True
+                                    if replacement: output.mkdir()
+                                    raise
+                            return original_lstat(path, *args, **kwargs)
+                        with patch.object(self.closure.os, 'lstat', new=probe):
+                            if api == 'reader': self.assertEqual(self.closure.load_verifier_summaries([], [str(output)]), [])
+                            else: self.assert_not_consumable(output)
+                        self.assertTrue(fired and moved, 'actual parent rename did not complete after the absence probe')
+                        self.assertEqual((parked / 'summary.json').read_bytes(), original_bytes)
+
+    @unittest.skipUnless(hasattr(__import__('os'), 'mkfifo'), 'actual POSIX witness FIFO requires Linux')
+    def test_fifo_witness_without_writer_is_bounded_and_cannot_downgrade_metadata(self):
+        import subprocess
+        command = '''
+import contextlib,io,json,os,pathlib,sys
+from unittest.mock import patch
+sys.path.insert(0,sys.argv[1])
+from self_correction_queue_closure_smoke import PublicationReceiptTests
+t=PublicationReceiptTests();t.setUp()
+try:
+ for version in ('plain_v1','no_version'):
+  _,_,_,output=t.produce(default=True);t.strip_publication_metadata(output,version)
+  marker=output/t.verifier.COMPLETION_LEAF;marker.unlink();os.mkfifo(marker)
+  original=os.lstat;fired=[]
+  def probe(path,*args,**kwargs):
+   value=original(path,*args,**kwargs)
+   if pathlib.Path(path)==marker:fired.append(True)
+   return value
+  with patch.object(t.closure.os,'lstat',new=probe):
+   t.assertEqual(t.closure.load_verifier_summaries([], [str(output)]),[])
+   t.assert_not_consumable(output)
+  t.assertTrue(fired,'FIFO witness probe was not reached')
+ print('POSIX_FIFO_WITNESS_TWO_VERSIONS_PASS')
+finally:t.doCleanups()
+'''
+        result = subprocess.run([sys.executable] + (['-O'] if sys.flags.optimize else []) +
+                                ['-c', command, str(REPO / 'tests')], capture_output=True, timeout=8)
+        self.assertEqual(result.returncode, 0, result.stderr.decode('utf-8', errors='replace'))
+        self.assertIn(b'POSIX_FIFO_WITNESS_TWO_VERSIONS_PASS', result.stdout)
+
     def test_missing_partial_stale_malformed_or_incomplete_witness_cannot_promote(self):
         for mutation in ('missing', 'empty', 'partial', 'array', 'wrong_schema', 'stale_generation',
                          'missing_report', 'extra_report', 'bool_size', 'wrong_size', 'wrong_hash',

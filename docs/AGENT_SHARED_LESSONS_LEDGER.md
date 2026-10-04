@@ -6019,6 +6019,18 @@ Expected contract:
   including the summary. Unverified retained names are not current receipts.
   Stdout failure is telemetry only; never retry a failed publication to hide it.
 
+### 2026-10-04 - Residual witness entries forbid legacy downgrade (#571 P2)
+
+- Formal review of a622 found that stripping every publication indicator and
+  changing/removing the version let plain summaries bypass a remaining witness.
+  Twelve actual reader/queue counterexamples per mode still promoted those rows.
+- Probe the witness directory entry without following dangling links; any entry,
+  denied probe or observed path inconsistency must disable historical fallback.
+  Keep strict generation/hash validation on the same capped raw summary bytes.
+- Preserve true no-witness legacy and current witnessed positives. Assert actual
+  race reach and queue outcomes; native POSIX parent/FIFO cases need Linux, and
+  snapshot observations do not guarantee permanent absence or an OS sandbox.
+
 ## 2026-10-03 — Close SQLite handles after blocked materialization
 
 - A SQLite connection context manages commit/rollback and does not close the

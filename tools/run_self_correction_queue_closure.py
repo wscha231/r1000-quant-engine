@@ -87,6 +87,15 @@ def load_verifier_summaries(summary_paths: list[str], verifier_dirs: list[str]) 
     return summaries
 
 
+def completion_witness_present(path: Path) -> bool:
+    """Probe the directory entry without following a dangling witness link."""
+    try:
+        os.lstat(path.parent / result_verifier.COMPLETION_LEAF)
+    except FileNotFoundError:
+        return False
+    return True
+
+
 def read_verifier_summary(path: Path) -> dict[str, Any]:
     """Size-bounded historical summaries retain semantics; new receipts need a witness."""
     descriptor = None
@@ -96,6 +105,9 @@ def read_verifier_summary(path: Path) -> dict[str, Any]:
         before = os.fstat(descriptor)
         if not stat.S_ISREG(before.st_mode): return {}
         if before.st_size > result_verifier.MAX_REPORT_BYTES: return {}
+        parent_before = os.stat(path.parent)
+        if not stat.S_ISDIR(parent_before.st_mode): return {}
+        witness_seen = completion_witness_present(path)
         remaining = before.st_size; parts = []
         while remaining:
             raw = os.read(descriptor, min(65536, remaining))
@@ -107,8 +119,15 @@ def read_verifier_summary(path: Path) -> dict[str, Any]:
         raw = b''.join(parts)
         payload = json.loads(raw)
         if type(payload) is not dict: return {}
+        # Only observed absence in the same parent can select historical behavior.
+        # Any probe error is handled as ineligible by the bounded exception path.
+        witness_seen = completion_witness_present(path) or witness_seen
+        parent_after = os.stat(path.parent)
+        if (parent_before.st_dev, parent_before.st_ino) != (parent_after.st_dev, parent_after.st_ino): return {}
+        if result_verifier.comparison_admission._file_identity(before) != result_verifier.comparison_admission._file_identity(os.stat(path)):
+            return {}
         indicators = ('comparison_publication', 'comparison_admission', 'current_receipt')
-        if (payload.get('schema_version') not in (None, 'ab-result-verifier-v1')
+        if (witness_seen or payload.get('schema_version') not in (None, 'ab-result-verifier-v1')
                 or any(name in payload for name in indicators)):
             if path.name != 'summary.json': return {}
             # Validation returns parsed candidates from this exact raw snapshot.

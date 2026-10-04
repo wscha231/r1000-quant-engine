@@ -136,14 +136,26 @@ adding `_summary_path`, and checks the exact report membership, sizes, hashes,
 fresh generation and immutable file snapshots. Missing, partial, stale,
 malformed or mixed-generation states expose no candidate rows. Unsupported or
 stripped required new metadata never falls back to historical consumption.
+Any co-located completion-witness entry also requires this protocol, even if all
+summary indicators were stripped and its version rewritten to v1 or removed.
+The no-follow entry probe recognizes malformed, partial, empty, nonregular and
+dangling-link witnesses. Denied/uncertain probes or observed parent/source changes
+expose no rows. Entry observations before the bounded read and before classification
+retain earlier presence and detect later appearance; a remaining witness cannot
+make a plain summary eligible, even when its hashes match those plain bytes.
 Historical plain v1/no-version summaries without any new/comparison indicator
-retain ordinary legacy behavior within the 1 MiB summary cap. The consumer checks
+and with observed witness absence retain ordinary legacy behavior within the
+1 MiB summary cap. The consumer checks
 the descriptor size before any summary read, allocation or JSON decoding, for
 every protocol version. Oversized historical plain summaries are now ineligible
 for queue transitions; they have no unbounded legacy fallback.
 Historical opt-in summaries without a witness
 are ineligible for queue transitions. A complete untouched prior receipt remains
 distinguishable from a failed retry; file existence alone proves neither.
+These checks bind an observed snapshot, not permanent marker absence or an OS
+sandbox. Removing both every publication indicator and the witness leaves a
+plain artifact indistinguishable from a genuine historical report; a coherent
+older complete receipt also does not prove that it belongs to the newest invocation.
 
 Post-verification resource-close errors produce bounded cleanup-warning
 telemetry without demoting committed evidence. Teardown never retries a failed
