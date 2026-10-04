@@ -6041,3 +6041,24 @@ Expected contract:
   missing identity with otherwise complete metadata and explicit identity across
   annual/quarterly EPS/revenue. The registered H1 wrapper passes 107 normal/-O
   tests. Fixture success does not prove real entitlement or usable data growth.
+
+## 2026-10-04 — Propagate bounded probe failures and register the actual CI entry point
+
+- Formal review 5403789017 on PR575 head 05d7dc0 found that the accepted
+  collector's catch-all swallowed local ProbeBlocked failures and could retain
+  SAMPLE_PROBED after partial data. Offline real-CLI counterexamples reproduced
+  request/unit exhaustion, redirect, oversize and wrong-symbol failures in both
+  aliases and normal/-O modes; malformed schemas and network errors also need
+  a terminal outcome. Only security-specific FMP 402 may continue.
+- The user explicitly authorized one narrow fourth correction and one new-head
+  formal review. The bounded adapter reuses the accepted low-level JSON fetch
+  and FMP parser without catch-all recovery; earlier observations remain in the
+  diagnostic, later tickers stop, and the CLI exits nonzero for fatal failures.
+- Importing a suite into a wrapper does not register it in required validation.
+  The earlier 'registered H1' wording was inaccurate: DEFAULT_TESTS omitted
+  both wrapper and probe suite. Register the H1 wrapper explicitly and verify
+  selection through the real Tier-1 runner, not only unittest module execution.
+  Required-runner H1 and optimized H1 pass 113 tests including 38 probe tests.
+- These fixtures certify code behavior, not account entitlement or data growth.
+  Existing exact-head review/merge gates and the one bounded EODHD approval
+  remain in force; no real provider request or operational write has occurred.

@@ -211,7 +211,6 @@ def run_probe(provider, tickers, *, max_http, api_units, quota_verified_at="",
                     raise ProbeBlocked("API_UNIT_BUDGET_EXCEEDS_DAILY_LOWER_BOUND")
                 report["eodhd_daily_quota_lower_bound"] = lower_bound
             for ticker in tickers:
-                errors = []
                 observed = now()
                 if observed.date() != started.date():
                     raise ProbeBlocked("UTC_COLLECTION_DAY_CHANGED")
@@ -221,17 +220,29 @@ def run_probe(provider, tickers, *, max_http, api_units, quota_verified_at="",
                         {"api_token": key, "fmt": "json", "filter": "General,Earnings"}, sleep_seconds=0)
                     eps, rev = eodhd_payloads(raw, ticker)
                 else:
-                    eps, rev = collector.fetch_fmp_payloads(session, ticker, key,
-                                                            sleep_seconds=0, errors=errors)
+                    # Reuse the accepted fetch/parser without the collector's
+                    # catch-all recovery: local safety failures must terminate
+                    # this bounded diagnostic, even after an earlier value.
+                    try:
+                        raw = collector.fetch_url_json(session,
+                            collector.FMP_BASE + "/stable/analyst-estimates",
+                            {"symbol": ticker, "period": "annual", "page": 0,
+                             "limit": 10, "apikey": key}, sleep_seconds=0)
+                        eps, rev = collector.fmp_to_payloads(raw)
+                    except requests.HTTPError as exc:
+                        code = int(exc.response.status_code) if exc.response is not None else 0
+                        report["results"].append({"ticker": ticker,
+                            "status": "PROVIDER_REQUEST_FAILED", "http_statuses": [code]})
+                        if now().date() != started.date():
+                            raise ProbeBlocked("UTC_COLLECTION_DAY_CHANGED")
+                        if code == 402:
+                            continue  # Only this security-specific denial admits partial success.
+                        if code in {401, 403}:
+                            raise ProbeBlocked("PROVIDER_AUTHORIZATION_REJECTED")
+                        raise
                 completed = now()
                 if completed.date() != started.date():
                     raise ProbeBlocked("UTC_COLLECTION_DAY_CHANGED")
-                if errors:
-                    codes = [int(error.get("status_code") or 0) for error in errors]
-                    report["results"].append({"ticker": ticker, "status": "PROVIDER_REQUEST_FAILED", "http_statuses": codes})
-                    if any(code in {401, 403} for code in codes):
-                        raise ProbeBlocked("PROVIDER_AUTHORIZATION_REJECTED")
-                    continue  # A security-specific FMP 402 does not disable successful securities.
                 snapshot = build_snapshot(ticker, eps_payload=eps, revenue_payload=rev,
                     recommendation_payload=None,
                     observed_at=observed.isoformat(), collected_at=completed.isoformat(),

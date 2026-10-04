@@ -52,8 +52,12 @@ external account usage outside repository concurrency is not reserved by this
 job. A free plan or 500 bonus calls does not prove Fundamentals entitlement.
 
 FMP security-specific 402 failures remain separate from successful securities.
-401/403 stop this one endpoint/account sample without trying another key. No
-provider is globally disabled or reactivated by the probe.
+All other HTTP failures, local safety blocks and network/schema errors terminate
+the sample with nonzero CLI status while retaining earlier parsed observations.
+401/403 stop this one endpoint/account sample without trying another key. The
+probe uses the accepted low-level fetch/parser so the collector's catch-all
+recovery cannot hide a safety block. No provider is globally disabled or
+reactivated by the probe.
 
 ## Outputs and approval
 
@@ -81,8 +85,9 @@ fresh dashboard/account quota evidence; the old 60/250 screenshot is insufficien
 
 ## Verification and reusable lesson
 
-The source-probe tests are imported by the already registered H1 smoke wrapper;
-the protected validation runner is unchanged. Synthetic fixtures test new-key
+The source-probe tests are imported by the H1 smoke wrapper, which is explicitly
+listed in `tools/run_pr_validation.py`'s `DEFAULT_TESTS`. The required PR workflow
+therefore executes these regressions. Synthetic fixtures test new-key
 selection, missing-key rejection, bounded failed requests, no fallback, mixed
 FMP 402/success, EODHD quota/403, v1.1 annual-quarter separation, missingness,
 unknown identity, unsafe output rejection and secret-free diagnostic reports.

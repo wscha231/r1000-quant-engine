@@ -161,6 +161,104 @@ class SourceProbeTests(unittest.TestCase):
                                         for call in transport.calls))
                     self.assertNotIn(selected_key, json.dumps(report))
 
+    def test_fmp_local_blocks_after_success_are_terminal_and_keep_prior_data(self):
+        cases = (("REQUEST_BUDGET_EXHAUSTED", 1, 3, lambda: Response(FMP)),
+                 ("REQUEST_BUDGET_EXHAUSTED", 3, 1, lambda: Response(FMP)),
+                 ("REDIRECT_REFUSED", 3, 3, lambda: Response({}, 302)),
+                 ("RESPONSE_TOO_LARGE", 3, 3, lambda: Response({}, raw=b"x" * (probe.MAX_BYTES + 1))),
+                 ("PROVIDER_SECURITY_MISMATCH", 3, 3, lambda: Response(FMP)),
+                 ("INVALID_PROVIDER_SCHEMA", 3, 3, lambda: Response({"Error Message": KEY2})))
+        for provider in ("fmp", "fmp2"):
+            for expected, max_http, api_units, second in cases:
+                with self.subTest(provider=provider, status=expected, http=max_http, units=api_units):
+                    transport = Transport(Response(FMP), second(), Response([dict(FMP[0], symbol="TSLA")]))
+                    report, rows = probe.run_probe(provider, ["AAPL", "MSFT", "TSLA"],
+                        max_http=max_http, api_units=api_units, quota_verified_at=NOW.isoformat(),
+                        env=ENV, transport=transport, now=lambda: NOW)
+                    attempts = 1 if expected == "REQUEST_BUDGET_EXHAUSTED" else 2
+                    self.assertEqual(report["status"], expected)
+                    self.assertEqual((len(rows), report["source_snapshots_in_memory"]), (1, 1))
+                    self.assertEqual(report["securities_with_observed_eps"], 1)
+                    self.assertEqual(report["securities_with_observed_revenue"], 1)
+                    self.assertEqual(report["http_requests_attempted"], attempts)
+                    self.assertEqual(report["api_units_reserved_upper_bound"], attempts)
+                    self.assertEqual(len(transport.calls), attempts)
+                    self.assertTrue(all(call[1]["params"]["symbol"] != "TSLA" for call in transport.calls))
+                    self.assertNotIn(KEY2, json.dumps(report))
+
+    def test_cli_fmp_local_blocks_after_success_exit_nonzero(self):
+        cases = (("REQUEST_BUDGET_EXHAUSTED", 1, 3, lambda: Response(FMP)),
+                 ("REQUEST_BUDGET_EXHAUSTED", 3, 1, lambda: Response(FMP)),
+                 ("REDIRECT_REFUSED", 3, 3, lambda: Response({}, 302)),
+                 ("RESPONSE_TOO_LARGE", 3, 3, lambda: Response({}, raw=b"x" * (probe.MAX_BYTES + 1))),
+                 ("PROVIDER_SECURITY_MISMATCH", 3, 3, lambda: Response(FMP)))
+        for provider in ("fmp", "fmp2"):
+            for expected, max_http, api_units, second in cases:
+                with self.subTest(provider=provider, status=expected, http=max_http, units=api_units), \
+                     tempfile.TemporaryDirectory() as folder:
+                    root = Path(folder).resolve()
+                    output = root / "outputs" / "earnings_estimate_source_probe" / "report.json"
+                    transport = Transport(Response(FMP), second(), Response([dict(FMP[0], symbol="TSLA")]))
+                    argv = ["probe", "--provider", provider, "--tickers", "AAPL,MSFT,TSLA",
+                            "--max-http-requests", str(max_http), "--verified-api-units", str(api_units),
+                            "--quota-verified-at-utc", datetime.now(timezone.utc).isoformat(),
+                            "--output", str(output)]
+                    with patch.object(probe, "ROOT", root), patch.object(sys, "argv", argv), \
+                         patch.dict(os.environ, ENV, clear=True), \
+                         patch.object(probe.requests, "Session", return_value=transport), \
+                         contextlib.redirect_stdout(io.StringIO()):
+                        self.assertEqual(probe.main(), 2)
+                    report = json.loads(output.read_text(encoding="utf-8"))
+                    self.assertEqual(report["status"], expected)
+                    self.assertEqual(report["source_snapshots_in_memory"], 1)
+                    self.assertLessEqual(len(transport.calls), 2)
+                    self.assertNotIn("TSLA", [call[1]["params"]["symbol"] for call in transport.calls])
+
+    def test_only_security_specific_402_can_continue_after_prior_success(self):
+        for provider in ("fmp", "fmp2"):
+            for status in (404, 429, 500, 503):
+                with self.subTest(provider=provider, status=status):
+                    transport = Transport(Response(FMP), Response({}, status), Response(FMP))
+                    report, rows = probe.run_probe(provider, ["AAPL", "MSFT", "TSLA"],
+                        max_http=3, api_units=3, quota_verified_at=NOW.isoformat(),
+                        env=ENV, transport=transport, now=lambda: NOW)
+                    self.assertEqual(report["status"], "PROVIDER_HTTP_REJECTED")
+                    self.assertEqual(report["http_status"], status)
+                    self.assertEqual(report["results"][1]["http_statuses"], [status])
+                    self.assertEqual((len(rows), len(transport.calls)), (1, 2))
+
+    def test_network_failure_after_prior_success_is_terminal(self):
+        class TimeoutTransport(Transport):
+            def get(self, url, **kwargs):
+                if len(self.calls) == 1:
+                    self.calls.append((url, kwargs))
+                    raise requests.Timeout("private request " + KEY2)
+                return super().get(url, **kwargs)
+        for provider in ("fmp", "fmp2"):
+            transport = TimeoutTransport(Response(FMP), Response(FMP))
+            report, rows = probe.run_probe(provider, ["AAPL", "MSFT", "TSLA"],
+                max_http=3, api_units=3, quota_verified_at=NOW.isoformat(),
+                env=ENV, transport=transport, now=lambda: NOW)
+            self.assertEqual(report["status"], "NETWORK_OR_INVALID_PROVIDER_RESPONSE")
+            self.assertEqual((len(rows), len(transport.calls), report["http_requests_attempted"]), (1, 2, 2))
+            self.assertNotIn(KEY2, json.dumps(report))
+
+    def test_partial_402_cannot_hide_utc_day_change(self):
+        later = datetime(2026, 10, 5, 0, 0, tzinfo=timezone.utc)
+        timestamps = iter((NOW, NOW, NOW, NOW))
+        transport = Transport(Response(FMP), Response({}, 402), Response(FMP))
+        report, rows = probe.run_probe("fmp2", ["AAPL", "MSFT", "TSLA"],
+            max_http=3, api_units=3, quota_verified_at=NOW.isoformat(),
+            env=ENV, transport=transport, now=lambda: next(timestamps, later))
+        self.assertEqual(report["status"], "UTC_COLLECTION_DAY_CHANGED")
+        self.assertEqual((len(rows), len(transport.calls)), (1, 2))
+
+    def test_required_pr_runner_registers_wrapper_with_probe_suite(self):
+        from tools.run_pr_validation import DEFAULT_TESTS
+        from tests import earnings_consensus_h1_smoke as wrapper
+        self.assertEqual([path for path, _ in DEFAULT_TESTS].count("tests/earnings_consensus_h1_smoke.py"), 1)
+        self.assertIs(wrapper.SourceProbeTests, SourceProbeTests)
+
     def test_cli_fmp_auth_rejection_after_success_exits_nonzero(self):
         for provider in ("fmp", "fmp2"):
             for status in (401, 403):
@@ -378,10 +476,12 @@ class SourceProbeTests(unittest.TestCase):
         self.assertEqual(len(transport.calls), 1)
 
     def test_fmp_wrong_or_missing_symbol_cannot_be_attributed_to_requested_security(self):
-        for data in ([dict(FMP[0], symbol="MSFT")], [{"date": "2027-09-30", "epsAvg": 9}], {"Error Message": KEY2}):
+        for data, expected in (([dict(FMP[0], symbol="MSFT")], "PROVIDER_SECURITY_MISMATCH"),
+                               ([{"date": "2027-09-30", "epsAvg": 9}], "PROVIDER_SECURITY_MISMATCH"),
+                               ({"Error Message": KEY2}, "INVALID_PROVIDER_SCHEMA")):
             transport = Transport(Response(data))
             report, rows = self.run_fmp(transport)
-            self.assertEqual(report["status"], "NO_ESTIMATE_SAMPLE_CONFIRMED")
+            self.assertEqual(report["status"], expected)
             self.assertEqual(rows, [])
             self.assertEqual(report["securities_with_observed_eps"], 0)
             self.assertNotIn(KEY2, json.dumps(report))
