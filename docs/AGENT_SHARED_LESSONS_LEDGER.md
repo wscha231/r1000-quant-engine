@@ -6062,3 +6062,20 @@ Expected contract:
 - These fixtures certify code behavior, not account entitlement or data growth.
   Existing exact-head review/merge gates and the one bounded EODHD approval
   remain in force; no real provider request or operational write has occurred.
+
+## 2026-10-04 — Review the protected runner ancestor before advancing its verifier pin
+
+- PR575 head e77f434 passed independent A6 and formal Codex review, but required
+  CI run 37169189570 passed only 232/233 files: the P0-4 verifier rejected the
+  newly registered H1 wrapper as a later protected runner delta. Repeating CI
+  or removing the critical registration would not repair the publication gate.
+- After explicit human approval, this follow-up advances only the two executable
+  FROZEN_PROTECTED_PUBLICATION_COMMIT constants to that reviewed causal ancestor.
+  The generator algorithm, protected paths, frozen artifacts and registration
+  remain unchanged. Existing dirty-generator, protected-delta and pin-only
+  fixture regressions pass locally. Full live-HEAD P0 validation remains a CI
+  gate because the shared native checkout belongs to a separate owner branch.
+- The new final head still requires independent A6, a fresh formal Codex review,
+  green required checks and the exact-head review-complete gate before the
+  already authorized expected-head merge and bounded EODHD source-only sample.
+  This verifier repair makes no entitlement or coverage-growth claim.
