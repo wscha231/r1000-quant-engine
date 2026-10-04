@@ -446,17 +446,68 @@ class SourceProbeTests(unittest.TestCase):
         self.assertEqual(config["permissions"], {"contents": "read"})
         self.assertEqual(config["concurrency"]["group"], existing["concurrency"]["group"])
         self.assertEqual(config["on"]["workflow_dispatch"]["inputs"]["verified_api_units"]["default"], "0")
-        guard = config["jobs"]["probe"]["if"]
-        self.assertIn("github.sha == inputs.expected_head", guard)
-        self.assertIn("github.ref == 'refs/heads/master'", guard)
-        self.assertIn("github.repository == 'wscha231/r1000-quant-engine'", guard)
+        self.assertNotIn("if", config["jobs"]["probe"])
         steps = config["jobs"]["probe"]["steps"]
+        self.assertEqual(steps[0]["name"], "Verify approved repository ref and exact head")
+        self.assertEqual(steps[0]["env"], {"PROBE_EXPECTED_HEAD": "${{ inputs.expected_head }}"})
+        self.assertFalse(any("secrets." in str(value) for value in steps[0]["env"].values()))
         call = next(step for step in steps if step.get("name") == "Probe selected estimate source")
         self.assertEqual({name for name in call["env"] if name.startswith(("FMP_", "EODHD_"))}, set(probe.KEY_NAMES.values()))
         self.assertNotIn("ALPHAVANTAGE", source)
         self.assertNotIn("RCLONE", source)
         self.assertNotIn("GOOGLE_SERVICE_ACCOUNT", source)
         self.assertIn("outputs/earnings_estimate_source_probe/report.json", steps[-1]["with"]["path"])
+
+
+    def test_workflow_head_guard_rejects_mismatches_before_credentials(self):
+        import shutil
+        import subprocess
+        config = yaml.load((probe.ROOT / ".github/workflows/earnings_estimate_source_probe.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+        self.assertNotIn("if", config["jobs"]["probe"])
+        step = config["jobs"]["probe"]["steps"][0]
+        self.assertEqual(step.get("shell"), "bash")
+        git_bash = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/bash.exe"
+        bash = str(git_bash) if os.name == "nt" and git_bash.is_file() else shutil.which("bash")
+        self.assertIsNotNone(bash, "The workflow's actual bash guard requires bash")
+        head = "6353c040739f0113ae1af80a3ccbc0ccecceecb5"
+        valid = {"GITHUB_REPOSITORY": "wscha231/r1000-quant-engine", "GITHUB_REF": "refs/heads/master", "GITHUB_SHA": head, "PROBE_EXPECTED_HEAD": head}
+        cases = [{}, {"GITHUB_REPOSITORY": "other/r1000-quant-engine"}, {"GITHUB_REF": "refs/heads/feature"}, {"GITHUB_REF": "refs/tags/master"}, {"GITHUB_SHA": "0" * 40}, {"PROBE_EXPECTED_HEAD": "f" * 40}, {"PROBE_EXPECTED_HEAD": ""}, {"PROBE_EXPECTED_HEAD": "$(exit 0)"}]
+        for delta in cases:
+            with self.subTest(delta=delta), tempfile.TemporaryDirectory() as directory:
+                env = {k: v for k, v in os.environ.items() if k not in probe.KEY_NAMES.values()}
+                env.update(valid, **delta)
+                result = subprocess.run([bash, "--noprofile", "--norc", "-c", step["run"]], cwd=directory, env=env, capture_output=True, timeout=10)
+                if delta:
+                    self.assertNotEqual(result.returncode, 0)
+                else:
+                    self.assertEqual(result.returncode, 0)
+                self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_workflow_exports_only_selected_provider_credential(self):
+        import re
+        config = yaml.load((probe.ROOT / ".github/workflows/earnings_estimate_source_probe.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+        steps = config["jobs"]["probe"]["steps"]
+        call = next(step for step in steps if step.get("name") == "Probe selected estimate source")
+        secrets = {name: "fixture-only-" + name for name in probe.KEY_NAMES.values()}
+        # This bounded evaluator checks the documented &&/|| expression form;
+        # it is an offline regression, not a GitHub runner/credential dispatch.
+        pattern = re.compile(r"\$\{\{ inputs\.provider == '([a-z0-9]+)' && secrets\.([A-Z0-9_]+) \|\| '' \}\}")
+        expressions = {name: value for name, value in call["env"].items() if name in probe.KEY_NAMES.values()}
+        self.assertEqual(set(expressions), set(probe.KEY_NAMES.values()))
+        parsed = {}
+        for name, expression in expressions.items():
+            match = pattern.fullmatch(expression)
+            self.assertIsNotNone(match, "An unconditioned credential is available to every provider")
+            selected, secret = match.groups()
+            self.assertIn(selected, probe.KEY_NAMES)
+            self.assertEqual(secret, probe.KEY_NAMES[selected])
+            parsed[name] = (selected, secret)
+        for selected in (*probe.KEY_NAMES, "unknown", ""):
+            with self.subTest(provider=selected):
+                exported = {name: secrets[secret] if selected.lower() == provider else "" for name, (provider, secret) in parsed.items()}
+                nonempty = {name: value for name, value in exported.items() if value}
+                expected = {} if selected not in probe.KEY_NAMES else {probe.KEY_NAMES[selected]: secrets[probe.KEY_NAMES[selected]]}
+                self.assertEqual(nonempty, expected)
 
     def test_empty_responses_are_not_reported_as_estimate_success(self):
         transport = Transport(Response([]))

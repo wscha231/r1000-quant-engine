@@ -6079,3 +6079,23 @@ Expected contract:
   green required checks and the exact-head review-complete gate before the
   already authorized expected-head merge and bounded EODHD source-only sample.
   This verifier repair makes no entitlement or coverage-growth claim.
+
+## 2026-10-04 — Execute explicit head preflight and inject only the selected probe key
+
+- Formal review5403970938 on PR575 head6353c040 found that job-level exact-head
+  filtering could produce a skipped/Success result and that one selected-provider
+  process received all three provider credentials. Green CI233/233 and the
+  pin-only A6 review did not close these two workflow findings.
+- The human accepted the root plan including exactly these two corrections and
+  one fresh final-head review. The existing source writer applied the prepared
+  two-file patch: repository/master/SHA assertions now run first and fail before
+  checkout or credential injection; only the selected provider secret is nonempty.
+- Current-head offline workflow counterexamples failed and the prepared fix
+  passed. The actual registered H1 wrapper now passes115 cases, including40
+  source tests, in normal and optimized child processes with real HTTP blocked.
+  These tests cover wrong repo/ref/SHA/empty or hostile expected-head strings and
+  all provider selections without any credential value or real provider request.
+- Protected runner registration, verifier pins, data/consumer contracts, budget,
+  concurrency and operating workflows remain unchanged. Fresh exact-head A6,
+  formal review, green CI and unresolved0/review-complete still precede the
+  previously approved expected-head merge and single bounded EODHD sample.
