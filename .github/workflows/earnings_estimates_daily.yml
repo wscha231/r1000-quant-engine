@@ -67,6 +67,11 @@ on:
         description: 'Comma-separated vendor order. Default pauses Alpha Vantage until key rotation is confirmed.'
         type: string
         default: 'fmp,finnhub'
+      fmp_key_name:
+        description: 'Explicit FMP account selection; no automatic fallback or rotation.'
+        type: choice
+        options: [FMP_API_KEY, FMP_API_KEY2]
+        default: FMP_API_KEY
   schedule:
     # 09:35 KST Tue-Sat, after most US after-close earnings data is visible.
     - cron: '35 0 * * 2-6'
@@ -392,7 +397,9 @@ jobs:
         env:
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
           ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
-          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          FMP_API_KEY: ${{ (github.event.inputs.fmp_key_name || 'FMP_API_KEY') == 'FMP_API_KEY' && secrets.FMP_API_KEY || '' }}
+          FMP_API_KEY2: ${{ (github.event.inputs.fmp_key_name || 'FMP_API_KEY') == 'FMP_API_KEY2' && secrets.FMP_API_KEY2 || '' }}
+          FMP_KEY_NAME: ${{ github.event.inputs.fmp_key_name || 'FMP_API_KEY' }}
           ESTIMATE_VENDOR_ORDER: ${{ github.event.inputs.vendor_order || 'fmp,finnhub' }}
           FETCH_DATE: ${{ github.event.inputs.fetch_date || '' }}
         run: |
@@ -419,6 +426,7 @@ jobs:
             --collection-queue outputs/earnings_estimates_daily/collection_queue.csv \
             --collection-attempt-id "${GITHUB_RUN_ID}" \
             --vendor-order "$ESTIMATE_VENDOR_ORDER" \
+            --fmp-key-name "$FMP_KEY_NAME" \
             --sleep-seconds 1.1 \
             --max-errors "${RESOLVED_MAX_ERRORS:-100}" \
             --entitlement-circuit-threshold 3 \

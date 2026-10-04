@@ -5982,3 +5982,147 @@ Expected contract:
 - Keep real connection objects alive in tests, then verify closed API behavior,
   same-process reopen/rename, rollback on later failures and clean positive
   materialization. Do not rely on GC or weaken source/PIT/cutoff gates.
+
+## 2026-10-04 — Registered provider secrets require explicit source wiring
+
+- FMP_API_KEY2 and EODHD_API_KEY registration did not change the existing
+  collector. The latest October 3 workflow requested 60 securities and returned
+  estimate-positive rows for 10; green workflow status did not prove coverage.
+- The collector now permits explicit secondary FMP selection; the bounded probe
+  reuses accepted H1 normalization and selects one secret without fallback or
+  pooling. It reserves failed HTTP attempts and EODHD's 10-call Fundamentals
+  cost, and reports unknown identity separately. No raw account response,
+  forecast value, key, or key fingerprint leaves the probe process.
+- Offline regression caught a wrong H1 builder argument and a test that ignored
+  the API_KEY2 suffix. Test the exact builder and registered H1 wrapper. A parsed
+  sample or secret registration is not durable collection, usable coverage or
+  consumer admission. Merge/dispatch and real credential validation remain pending.
+- See docs/EARNINGS_ESTIMATE_SOURCE_PROBE.md for scope, budgets and limitations.
+
+## 2026-10-04 — Source-only diagnostic output must isolate file inodes
+
+- Independent A6 reproduced an output-isolation breach at initial source-key
+  head 19b348bc: a permitted report.json hardlink caused direct write_text to
+  overwrite another operational inode, even when missing keys made HTTP zero.
+- Resolve/path admission alone does not protect hardlinks. Write a new file in
+  the admitted directory and atomically replace its directory entry; never
+  truncate an existing report inode. Preserve unrelated user/agent ledger bytes.
+- The regression preserves an operational fixture byte-for-byte, separates its
+  inode from the new diagnostic, checks cleanup, and runs under normal and -O.
+
+## 2026-10-04 — Provider quota schemas need documented string fixtures
+
+- Formal Codex review of b55cc61c found a P1: EODHD documents apiRequests and
+  dailyRateLimit as optional strings; integer-only fixtures incorrectly blocked
+  valid account usage before any estimate request. Registration alone is not a
+  real-schema access test, and an earlier CLEAN A6 cannot replace formal review.
+- Normalize bounded ASCII digit strings and integer counters before existing
+  quota checks. Continue rejecting booleans, signs, decimals, whitespace,
+  non-ASCII digits, missing or oversized counters, and uncertain dates.
+- Documented string/mixed counters now reach the fixture estimate endpoint;
+  malformed counters spend no data units. Existing bonus exclusion, last-active
+  counter subtraction and pre-send budget reservations are unchanged.
+- See https://eodhd.com/financial-apis/api-limits. This second source correction
+  changes the exact head; prior-head formal review is not current-head evidence.
+
+## 2026-10-04 — Preserve terminal probe access failures and provider identity
+
+- After formal review 5403673788 and independent normal/-O counterexamples,
+  the user explicitly authorized fixing the two defects first. This narrow
+  third correction supersedes the earlier stopped-cycle state; conditional
+  merge and the single bounded EODHD sample still require all review gates.
+- A successful FMP sample followed by 401/403 now retains its earlier data
+  while ending with PROVIDER_AUTHORIZATION_REJECTED/nonzero CLI status. It
+  stops later requests, keeps one chosen key, and preserves partial 402 success.
+- EODHD security_id is preserved only from response metadata. Its absence stays
+  null/UNKNOWN even when other identity fields are present; supplied identifiers
+  are not overwritten. Never manufacture ticker-to-security identity for counts.
+- Four new fixture cases cover both FMP aliases and 401/403 through real CLI,
+  missing identity with otherwise complete metadata and explicit identity across
+  annual/quarterly EPS/revenue. The registered H1 wrapper passes 107 normal/-O
+  tests. Fixture success does not prove real entitlement or usable data growth.
+
+## 2026-10-04 — Propagate bounded probe failures and register the actual CI entry point
+
+- Formal review 5403789017 on PR575 head 05d7dc0 found that the accepted
+  collector's catch-all swallowed local ProbeBlocked failures and could retain
+  SAMPLE_PROBED after partial data. Offline real-CLI counterexamples reproduced
+  request/unit exhaustion, redirect, oversize and wrong-symbol failures in both
+  aliases and normal/-O modes; malformed schemas and network errors also need
+  a terminal outcome. Only security-specific FMP 402 may continue.
+- The user explicitly authorized one narrow fourth correction and one new-head
+  formal review. The bounded adapter reuses the accepted low-level JSON fetch
+  and FMP parser without catch-all recovery; earlier observations remain in the
+  diagnostic, later tickers stop, and the CLI exits nonzero for fatal failures.
+- Importing a suite into a wrapper does not register it in required validation.
+  The earlier 'registered H1' wording was inaccurate: DEFAULT_TESTS omitted
+  both wrapper and probe suite. Register the H1 wrapper explicitly and verify
+  selection through the real Tier-1 runner, not only unittest module execution.
+  Required-runner H1 and optimized H1 pass 113 tests including 38 probe tests.
+- These fixtures certify code behavior, not account entitlement or data growth.
+  Existing exact-head review/merge gates and the one bounded EODHD approval
+  remain in force; no real provider request or operational write has occurred.
+
+## 2026-10-04 — Review the protected runner ancestor before advancing its verifier pin
+
+- PR575 head e77f434 passed independent A6 and formal Codex review, but required
+  CI run 37169189570 passed only 232/233 files: the P0-4 verifier rejected the
+  newly registered H1 wrapper as a later protected runner delta. Repeating CI
+  or removing the critical registration would not repair the publication gate.
+- After explicit human approval, this follow-up advances only the two executable
+  FROZEN_PROTECTED_PUBLICATION_COMMIT constants to that reviewed causal ancestor.
+  The generator algorithm, protected paths, frozen artifacts and registration
+  remain unchanged. Existing dirty-generator, protected-delta and pin-only
+  fixture regressions pass locally. Full live-HEAD P0 validation remains a CI
+  gate because the shared native checkout belongs to a separate owner branch.
+- The new final head still requires independent A6, a fresh formal Codex review,
+  green required checks and the exact-head review-complete gate before the
+  already authorized expected-head merge and bounded EODHD source-only sample.
+  This verifier repair makes no entitlement or coverage-growth claim.
+
+## 2026-10-04 — Execute explicit head preflight and inject only the selected probe key
+
+- Formal review5403970938 on PR575 head6353c040 found that job-level exact-head
+  filtering could produce a skipped/Success result and that one selected-provider
+  process received all three provider credentials. Green CI233/233 and the
+  pin-only A6 review did not close these two workflow findings.
+- The human accepted the root plan including exactly these two corrections and
+  one fresh final-head review. The existing source writer applied the prepared
+  two-file patch: repository/master/SHA assertions now run first and fail before
+  checkout or credential injection; only the selected provider secret is nonempty.
+- Current-head offline workflow counterexamples failed and the prepared fix
+  passed. The actual registered H1 wrapper now passes115 cases, including40
+  source tests, in normal and optimized child processes with real HTTP blocked.
+  These tests cover wrong repo/ref/SHA/empty or hostile expected-head strings and
+  all provider selections without any credential value or real provider request.
+- Protected runner registration, verifier pins, data/consumer contracts, budget,
+  concurrency and operating workflows remain unchanged. Fresh exact-head A6,
+  formal review, green CI and unresolved0/review-complete still precede the
+  previously approved expected-head merge and single bounded EODHD sample.
+
+## 2026-10-04 — Isolate the selected FMP account in the existing daily collector
+
+- PR575 final3deadc4 passed independent A6 and required CI37174383317
+  (233/233 files), but formal review5404140253 found one further P2:
+  both FMP credentials were injected while the CLI selected a single account.
+- After direct human approval, this sixth narrow correction conditions both
+  FMP secret expressions on the same effective fmp_key_name as the existing
+  CLI. Schedule/default still selects primary; manual secondary stays explicit.
+  Missing or unknown selection exposes no unrelated FMP account. Vendor order,
+  mode, quota, schedule, CI registration and protected pins are unchanged.
+- The prepared offline25-scenario regression reproduced17 old failures and
+  passed after repair. Its first actual-H1 harness caught a missing method-local
+  re import hidden by a standalone harness; the proposal fixed it before source
+  application. Actual registered H1 now passes116 cases including41 source cases
+  in normal and optimized children, with real provider HTTP forbidden.
+- The first full wrapper run exposed an old workflow-wiring assertion that
+  required the formerly unconditional secondary secret. Update that expectation
+  to the new conditional expression; retain the behavioral isolation cases and
+  CLI/default/no-fallback checks instead of weakening or skipping the test.
+- Candidate publication compares normalized Git bytes: Windows fixture CRLF
+  must be normalized before exact proposal matching; raw owner bytes stay intact.
+- Reuse the accepted source/provider research and existing READ_ONLY A6. One
+  fresh final-head formal review and current CI remain required; previous-head
+  CLEAN/green evidence cannot authorize this changed head. The already approved
+  single EODHD sample remains bounded to3HTTP/20daily units/no bonus/no retry.
+  No operational daily dispatch, purchase, durable data or consumer activation.
