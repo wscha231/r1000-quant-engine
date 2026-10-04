@@ -2,8 +2,9 @@
 
 The existing `tools/run_ab_result_verifier.py` has an opt-in precheck for supplied
 common environment bytes. It is not a backtester or execution approval. With no
-comparison options, the existing verifier behavior, multi-candidate interface and
-economic gates are unchanged. Its existing eight-year gate differs from the
+comparison options, numeric verdicts, the multi-candidate interface and economic
+gates are unchanged. Fresh default and opt-in reports both use the versioned
+publication protocol below. Its existing eight-year gate differs from the
 requested research window; this change does not resolve or weaken that gate.
 The legacy verifier also trusts an explicit `window_gate_valid=true` before its
 numeric fallback. Byte admission does not certify that claim or repair conflicting
@@ -81,7 +82,11 @@ that final check fails, `run()` returns an empty bounded blocked payload with
 all authority false on both admitted and initially blocked paths, without
 retrying publication. The standalone publisher still raises its bounded
 `AdmissionError` before writing to an unsafe destination.
-For the opt-in path, publication anchors every existing root/output path
+Publication anchors every existing output path component; the opt-in path also
+retains the native resolver's actually admitted root device/inode through legacy
+result collection and publication. A missing, moved or replaced root cannot be
+substituted by a surviving parent or a new directory at the original spelling.
+Publication anchors every existing root/output path
 component before creating directories or report files. POSIX uses directory
 descriptors, no-follow exclusive temporary files and descriptor-relative
 replacement. Windows uses native listing/traversal handles denying write/delete
@@ -91,22 +96,56 @@ truncated. Windows writes through each new exclusive handle and deletes only
 the exact held owned handle on failure. A new occupant winning a `CREATE_NEW`
 gap is preserved without deletion or retry. Unsupported native operations block.
 
-This is not an atomic three-file transaction. CSV and Markdown install before
-`summary.json`, the final completion marker. Normal return requires verifying
-each installed anchored leaf's identity and expected serialized bytes, including
-the summary; the held original staging descriptor alone cannot bind a POSIX
-source-name replacement. Final verification remains fallible. Direct API failure returns empty bounded blocked evidence
-and CLI exits 2. Windows ordinary partial failures clear held owned files.
-Portable POSIX offers no inode-conditional unlink, so error cleanup retains
-potentially raced names and reports `OUTPUT_PUBLICATION_CLEANUP_INCOMPLETE`.
-Prior, foreign or unverified files retained after failure are not this
-invocation's successful receipt. The returned failure has `current_receipt=false`
-and never retries publication into retained names. A completed report publication,
-including a report of blocked admission, has `current_receipt=true`; this indicates
-publication completeness and grants no comparison or economic authority.
-An existing summary may describe a prior retry.
-Consumers must use the current
-invocation result and complete receipt, not infer success from file existence.
+This is not an atomic four-file transaction. The original CSV, Markdown and
+`summary.json` names remain; all three installed anchored identities and expected
+serialized bytes must be verified. Each report is at most 1 MiB. The held stage
+descriptor alone cannot bind a POSIX source-name replacement. The summary uses
+`ab-result-verifier-publication-v2` and `comparison_publication` with exactly
+`schema=r1000-ab-comparison-publication-v1` and a fresh 32-character lowercase
+hex generation for every invocation, including default calls and retries.
+
+After all report/source/output checks, the publisher stages the fixed fourth
+leaf `comparison_publication_complete.json`. This completion witness has exactly
+`schema`, the same `generation`, and `reports`: exactly the original three names,
+each with exact `bytes` and lowercase SHA256. Its staging bytes are verified;
+final witness installation is the commit attempt. The final fallible delivery
+step verifies its installed identity and bytes. There is no later source or
+geometry rejection. The witness receives the same anchored, exclusive,
+no-follow and single-link protections as the reports. POSIX late leaf reopens
+use nonblocking descriptors and verify regular type/device/inode before reading,
+so a regular-to-FIFO substitution needs no writer to return a bounded failure.
+
+A precommit error returns empty blocked evidence, `current_receipt=false`, and
+CLI2. Windows ordinary partial failures clear held owned files. Portable POSIX
+cannot conditionally unlink an inode, so it preserves potentially raced names
+and reports `OUTPUT_PUBLICATION_CLEANUP_INCOMPLETE`. A retained positive summary
+is uncommitted without a matching witness. The publisher never recursively
+retries into retained names or erases foreign bytes to manufacture rollback.
+An error during witness installation/readback instead returns empty bounded
+`comparison_publication_uncertain`, `current_receipt=null`, and CLI2: delivery
+may already have committed. Potentially committed reports/witness are preserved.
+A readable valid witness can establish a completed file receipt despite this
+delivery uncertainty. A verified acknowledged publication, including a report
+of blocked admission, has `current_receipt=true`. These states grant no new
+comparison, promotion, production or economic authority.
+
+The existing queue-closure reader now requires a verified witness for new reports
+and for any summary carrying comparison/current-receipt/publication indicators.
+It hashes the same raw summary bytes from which it parses candidate rows, before
+adding `_summary_path`, and checks the exact report membership, sizes, hashes,
+fresh generation and immutable file snapshots. Missing, partial, stale,
+malformed or mixed-generation states expose no candidate rows. Unsupported or
+stripped required new metadata never falls back to historical consumption.
+Historical plain v1/no-version summaries without any new/comparison indicator
+retain ordinary legacy behavior. Historical opt-in summaries without a witness
+are ineligible for queue transitions. A complete untouched prior receipt remains
+distinguishable from a failed retry; file existence alone proves neither.
+
+Post-verification resource-close errors produce bounded cleanup-warning
+telemetry without demoting committed evidence. Teardown never retries a failed
+close against a potentially reused descriptor. Persistent IO failures and a host
+actor able to forge all files remain outside an atomicity or OS-sandbox claim;
+the reader admits only a coherent verified snapshot of the declared receipt.
 Tests assert that each injected publication phase is reached. Actual Windows
 locks, junctions and handle deletion are tested locally; actual POSIX operations
 require Linux validation, and no macOS execution is claimed.

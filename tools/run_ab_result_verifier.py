@@ -93,7 +93,7 @@ def comparison_output_error(args: argparse.Namespace) -> str | None:
         root_key = os.path.normcase(str(resolved_root))
         root_identity, root_chain = physical_path_chain(resolved_root)
         output = repo_path(getattr(args, "output_dir", "outputs/ab_result_verifier"))
-        for path in (output, *(output / name for name in ("summary.json", "candidate_verdicts.csv", "report.md"))):
+        for path in (output, *(output / name for name in PUBLICATION_LEAVES)):
             if path != output and path.exists():
                 # A multiply linked report file can mutate a pinned input even
                 # when its directory is outside the bundle. Reject ambiguous
@@ -122,6 +122,9 @@ def comparison_output_error(args: argparse.Namespace) -> str | None:
 
 def comparison_precheck(args: argparse.Namespace) -> dict[str, Any] | None:
     """Optional byte identity admission; its caller pin is never derived from arms."""
+    # Keep the actual native read boundary across later legacy result collection.
+    # A surviving parent or a new directory at the same spelling is not that root.
+    args._comparison_admitted_root = None
     values = [getattr(args, name, None) for name in COMPARISON_OPTIONS]
     if all(value is None for value in values):
         return None
@@ -139,6 +142,7 @@ def comparison_precheck(args: argparse.Namespace) -> dict[str, Any] | None:
         comparison_admission.validate_artifact_id(control_id)
         comparison_admission.validate_artifact_id(challenger_id)
         resolver = comparison_admission.BoundedArtifactResolver(root)
+        args._comparison_admitted_root = (resolver.root, resolver.root_identity)
         control = comparison_admission.strict_json(resolver(control_id))
         challenger = comparison_admission.strict_json(resolver(challenger_id))
         return comparison_admission.compare_environment(control, challenger,
@@ -599,6 +603,53 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 REPORT_LEAVES = ("summary.json", "candidate_verdicts.csv", "report.md")
+COMPLETION_LEAF = "comparison_publication_complete.json"
+PUBLICATION_LEAVES = (*REPORT_LEAVES, COMPLETION_LEAF)
+PUBLICATION_SCHEMA = "r1000-ab-comparison-publication-v1"
+COMPARISON_SUMMARY_SCHEMA = "ab-result-verifier-publication-v2"
+MAX_REPORT_BYTES = 1024 * 1024
+
+
+class PublicationCommitUncertain(comparison_admission.AdmissionError):
+    """The final commit operation was attempted; its delivery is uncertain."""
+
+
+def completed_comparison_summary(path: Path, raw: bytes) -> dict[str, Any]:
+    """Validate a new file receipt; parse the same summary bytes bound by it."""
+    resolver = comparison_admission.BoundedArtifactResolver(path.parent)
+    for name in PUBLICATION_LEAVES:
+        observed = (path.parent / name).lstat()
+        comparison_admission.require(observed.st_nlink == 1, 'PUBLICATION_REPORT_LINK')
+    comparison_admission.require(resolver(path.name) == raw, 'PUBLICATION_SUMMARY_CHANGED')
+    summary = comparison_admission.strict_json(raw)
+    comparison_admission.require(summary.get('schema_version') == COMPARISON_SUMMARY_SCHEMA
+        and summary.get('current_receipt') is True, 'PUBLICATION_PROTOCOL_REQUIRED')
+    protocol = summary.get('comparison_publication')
+    comparison_admission.require(type(protocol) is dict and set(protocol) == {'schema', 'generation'}
+        and protocol['schema'] == PUBLICATION_SCHEMA, 'PUBLICATION_PROTOCOL_REQUIRED')
+    generation = protocol['generation']
+    comparison_admission.require(type(generation) is str and len(generation) == 32
+        and all(value in '0123456789abcdef' for value in generation), 'PUBLICATION_GENERATION')
+    witness = comparison_admission.strict_json(resolver(COMPLETION_LEAF))
+    comparison_admission.require(set(witness) == {'schema', 'generation', 'reports'}
+        and witness['schema'] == PUBLICATION_SCHEMA and witness['generation'] == generation,
+        'PUBLICATION_WITNESS')
+    reports = witness['reports']
+    comparison_admission.require(type(reports) is dict and set(reports) == set(REPORT_LEAVES),
+        'PUBLICATION_WITNESS')
+    for name in REPORT_LEAVES:
+        ref = reports[name]
+        comparison_admission.require(type(ref) is dict and set(ref) == {'bytes', 'sha256'}
+            and type(ref['bytes']) is int and 0 <= ref['bytes'] <= MAX_REPORT_BYTES
+            and type(ref['sha256']) is str and comparison_admission.HEX64.fullmatch(ref['sha256']) is not None,
+            'PUBLICATION_WITNESS')
+        report = raw if name == 'summary.json' else resolver(name)
+        comparison_admission.require(len(report) == ref['bytes']
+            and hashlib.sha256(report).hexdigest() == ref['sha256'], 'PUBLICATION_REPORT_MISMATCH')
+    for name in resolver.cache:
+        resolver.validate_cached(name)
+        comparison_admission.require((path.parent / name).lstat().st_nlink == 1, 'PUBLICATION_REPORT_LINK')
+    return summary
 
 
 def publication_identity(value: os.stat_result) -> tuple[int, int]:
@@ -618,6 +669,7 @@ class ReportDirectory:
         self.entries: list[tuple[Path, int, tuple[int, int]]] = []
         self.owned_descriptors: dict[str, int] = {}
         self.expected_leaves: dict[str, tuple[int, int] | None] = {}
+        self.teardown_warning = False
         self.windows = os.name == 'nt'
         self.kernel = None
         if self.windows:
@@ -708,14 +760,15 @@ class ReportDirectory:
         return descriptor
 
     def capture_owned_leaves(self) -> None:
-        for name in REPORT_LEAVES:
+        for name in PUBLICATION_LEAVES:
             observed = self.safe_leaf(name)
             self.expected_leaves[name] = publication_identity(observed) if observed else None
             if observed is None: continue
             if self.windows:
                 descriptor = self.existing_leaf_descriptor(name)
             else:
-                descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=self.entries[-1][1])
+                descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                                     dir_fd=self.entries[-1][1])
             registered = False
             try:
                 comparison_admission.require(publication_identity(os.fstat(descriptor)) == publication_identity(observed),
@@ -804,7 +857,7 @@ class ReportDirectory:
         for name, descriptor in list(self.owned_descriptors.items()):
             del self.owned_descriptors[name]
             try: os.close(descriptor)
-            except OSError: pass  # Final teardown cannot expose provider exception text.
+            except OSError: self.teardown_warning = True
 
     def verify_installed(self, name: str, size: int, digest: str) -> None:
         """Verify the installed anchored name, not only the original stage fd."""
@@ -816,11 +869,13 @@ class ReportDirectory:
             # directory components and observed name bind this exact inode.
             descriptor = self.owned_descriptors[name]
         else:
-            descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW,
+            descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
                                  dir_fd=self.entries[-1][1])
         try:
             before = os.fstat(descriptor)
-            comparison_admission.require(publication_identity(before) == publication_identity(observed)
+            comparison_admission.require(stat.S_ISREG(before.st_mode) and before.st_nlink == 1
+                and not comparison_admission._is_link(before)
+                and publication_identity(before) == publication_identity(observed)
                 and before.st_size == size, 'OUTPUT_PUBLICATION_PATH_CHANGED')
             os.lseek(descriptor, 0, os.SEEK_SET)
             actual = hashlib.sha256(); remaining = size
@@ -837,15 +892,18 @@ class ReportDirectory:
                 'OUTPUT_PUBLICATION_PATH_CHANGED')
             self.guard()
         finally:
-            if not self.windows: os.close(descriptor)
+            if not self.windows:
+                try: os.close(descriptor)
+                except OSError: self.teardown_warning = True
 
     def close(self) -> None:
         self.close_owned_descriptors()
         for _, handle, _ in reversed(self.entries):
-            if self.windows: self.kernel.CloseHandle(handle)
+            if self.windows:
+                if not self.kernel.CloseHandle(handle): self.teardown_warning = True
             else:
                 try: os.close(handle)
-                except OSError: pass
+                except OSError: self.teardown_warning = True
         self.entries.clear()
 
     def unlink_owned(self, name: str) -> bool:
@@ -882,20 +940,29 @@ def publish_anchored(args: argparse.Namespace, payload: dict[str, Any]) -> None:
     """Write exclusive new inodes; old leaves are opened only for ownership."""
     root = output = None
     temporary: dict[str, tuple[int, int]] = {}
+    commit_attempted = False
+    commit_verified = False
     try:
-        root = ReportDirectory(Path(args.comparison_admission_root), allow_missing=True)
+        admitted_root = getattr(args, '_comparison_admitted_root', None)
+        if getattr(args, 'comparison_admission_root', None) is not None:
+            root = ReportDirectory(Path(args.comparison_admission_root), allow_missing=admitted_root is None)
+        if admitted_root is not None:
+            comparison_admission.require(root.path == admitted_root[0]
+                and root.entries[-1][2] == admitted_root[1], 'ARTIFACT_ROOT_CHANGED')
         output = ReportDirectory(repo_path(args.output_dir), create=True)
-        root.guard(); output.guard()
+        if root is not None: root.guard()
+        output.guard()
         error = comparison_output_error(args)
         comparison_admission.require(error is None, error or 'OUTPUT_PUBLICATION_PATH_CHANGED')
         output.capture_owned_leaves()
         text = io.StringIO(newline=''); write_csv_rows(text, payload['candidates'])
-        contents = (json.dumps(payload, indent=2, sort_keys=True, default=str) + '\n',
+        contents = (json.dumps(payload, indent=2, sort_keys=True, default=str, allow_nan=False) + '\n',
                     text.getvalue(), render_report(payload))
         staged = []
         for leaf, content in zip(REPORT_LEAVES, contents):
-            root.guard(); output.guard()
-            for target in REPORT_LEAVES: output.safe_leaf(target)
+            if root is not None: root.guard()
+            output.guard()
+            for target in PUBLICATION_LEAVES: output.safe_leaf(target)
             name = '.ab-report-' + uuid.uuid4().hex + '.tmp'
             descriptor = output.create_temp(name)
             value = os.fstat(descriptor)
@@ -903,6 +970,8 @@ def publish_anchored(args: argparse.Namespace, payload: dict[str, Any]) -> None:
                 'OUTPUT_PUBLICATION_PATH_CHANGED')
             temporary[name] = publication_identity(value)
             raw = content.encode('utf-8'); offset = 0
+            comparison_admission.require(len(raw) <= MAX_REPORT_BYTES,
+                                         'OUTPUT_REPORT_BYTE_BUDGET')
             while offset < len(raw):
                 written = os.write(descriptor, raw[offset:])
                 comparison_admission.require(type(written) is int and 0 < written <= len(raw) - offset,
@@ -914,7 +983,8 @@ def publish_anchored(args: argparse.Namespace, payload: dict[str, Any]) -> None:
         # A partial or unverified group is never this invocation's receipt.
         staged.sort(key=lambda item: item[1] == 'summary.json')
         for name, leaf, identity, size, digest in staged:
-            root.guard(); output.guard(); output.safe_leaf(leaf)
+            if root is not None: root.guard()
+            output.guard(); output.safe_leaf(leaf)
             error = comparison_output_error(args)
             comparison_admission.require(error is None, error or 'OUTPUT_PUBLICATION_PATH_CHANGED')
             value = output.safe_leaf(name)
@@ -926,21 +996,64 @@ def publish_anchored(args: argparse.Namespace, payload: dict[str, Any]) -> None:
             comparison_admission.require(value is not None and publication_identity(value) == installed_identity,
                 'OUTPUT_PUBLICATION_PATH_CHANGED')
             output.verify_installed(leaf, size, digest)
-        root.guard(); output.guard()
+        # These positive reports remain uncommitted until a matching witness.
+        # Complete all source/output/report validation before attempting commit.
+        if root is not None: root.guard()
+        output.guard()
         error = comparison_output_error(args)
         comparison_admission.require(error is None, error or 'OUTPUT_PUBLICATION_PATH_CHANGED')
+        witness = {'schema': PUBLICATION_SCHEMA,
+                   'generation': payload['comparison_publication']['generation'],
+                   'reports': {leaf: {'bytes': size, 'sha256': digest}
+                               for _, leaf, _, size, digest in staged}}
+        raw = (json.dumps(witness, indent=2, sort_keys=True) + '\n').encode('utf-8')
+        name = '.ab-report-' + uuid.uuid4().hex + '.tmp'
+        descriptor = output.create_temp(name)
+        temporary[name] = publication_identity(os.fstat(descriptor))
+        offset = 0
+        while offset < len(raw):
+            written = os.write(descriptor, raw[offset:])
+            comparison_admission.require(type(written) is int and 0 < written <= len(raw) - offset,
+                                         'OUTPUT_PUBLICATION_FAILED')
+            offset += written
+        os.fsync(descriptor)
+        output.verify_installed(name, len(raw), hashlib.sha256(raw).hexdigest())
+        if root is not None: root.guard()
+        output.guard(); output.safe_leaf(COMPLETION_LEAF)
+        error = comparison_output_error(args)
+        comparison_admission.require(error is None, error or 'OUTPUT_PUBLICATION_PATH_CHANGED')
+        # Final commit/delivery step. Any error from this point is uncertain
+        # delivery, never a later source rejection or revocation of its files.
+        commit_attempted = True
+        installed_identity = output.replace(name, COMPLETION_LEAF)
+        temporary.pop(name)
+        value = output.safe_leaf(COMPLETION_LEAF)
+        comparison_admission.require(value is not None and publication_identity(value) == installed_identity,
+                                     'OUTPUT_PUBLICATION_PATH_CHANGED')
+        output.verify_installed(COMPLETION_LEAF, len(raw), hashlib.sha256(raw).hexdigest())
+        commit_verified = True
     except (comparison_admission.AdmissionError, OSError, ValueError, TypeError, RuntimeError) as exc:
         incomplete = False
         if output is not None:
             for name in list(output.owned_descriptors):
+                if commit_attempted and not name.startswith('.ab-report-'): continue
                 try: incomplete = not output.unlink_owned(name) or incomplete
                 except OSError: incomplete = True
+        if commit_attempted:
+            # The commit may already be readable. Do not revoke its files or
+            # report an explicit data rejection/current_receipt=false.
+            raise PublicationCommitUncertain('OUTPUT_PUBLICATION_COMMIT_UNCERTAIN') from None
         reason = str(exc) if isinstance(exc, comparison_admission.AdmissionError) else 'OUTPUT_PUBLICATION_FAILED'
         if incomplete: reason = 'OUTPUT_PUBLICATION_CLEANUP_INCOMPLETE'
         raise comparison_admission.AdmissionError(reason) from None
     finally:
-        if output is not None: output.close()
-        if root is not None: root.close()
+        for directory in (output, root):
+            if directory is not None:
+                try: directory.close()
+                except OSError: directory.teardown_warning = True
+        if any(directory is not None and directory.teardown_warning for directory in (output, root)):
+            emit_status({'status': 'publication_resource_cleanup_warning',
+                         'current_receipt': True if commit_verified else None if commit_attempted else False})
 
 
 def blocked_comparison_payload(admission: dict[str, Any], portfolio: str) -> dict[str, Any]:
@@ -957,10 +1070,14 @@ def blocked_comparison_payload(admission: dict[str, Any], portfolio: str) -> dic
 
 
 def publish_or_block(args: argparse.Namespace, payload: dict[str, Any]) -> dict[str, Any]:
-    if getattr(args, 'comparison_admission_root', None) is not None:
-        payload = {**payload, 'current_receipt': True}
+    payload = {**payload, 'current_receipt': True, 'schema_version': COMPARISON_SUMMARY_SCHEMA,
+               'comparison_publication': {'schema': PUBLICATION_SCHEMA, 'generation': uuid.uuid4().hex}}
     try:
         publish_report(args, payload)
+    except PublicationCommitUncertain as exc:
+        payload = blocked_comparison_payload(blocked_comparison(str(exc)), payload['portfolio'])
+        payload.update(status='comparison_publication_uncertain', current_receipt=None)
+        emit_status({'status': payload['status'], 'reason': str(exc), 'current_receipt': None})
     except comparison_admission.AdmissionError as exc:
         # Final geometry failure is an in-memory blocked result for direct API
         # callers too. Do not retry publication into the unsafe destination.
@@ -1090,14 +1207,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 def publish_report(args: argparse.Namespace, payload: dict[str, Any]) -> None:
     output_error = comparison_output_error(args)
     comparison_admission.require(output_error is None, output_error or "OUTPUT_ADMISSION_PATH_INVALID")
-    if getattr(args, 'comparison_admission_root', None) is not None:
-        publish_anchored(args, payload)
-    else:
-        output_dir = repo_path(getattr(args, "output_dir", "outputs/ab_result_verifier"))
-        output_dir.mkdir(parents=True, exist_ok=True)
-        write_json(output_dir / "summary.json", payload)
-        write_csv(output_dir / "candidate_verdicts.csv", payload["candidates"])
-        (output_dir / "report.md").write_text(render_report(payload), encoding="utf-8")
+    if 'comparison_publication' not in payload:
+        payload = {**payload, 'current_receipt': True, 'schema_version': COMPARISON_SUMMARY_SCHEMA,
+                   'comparison_publication': {'schema': PUBLICATION_SCHEMA, 'generation': uuid.uuid4().hex}}
+    publish_anchored(args, payload)
     emit_status({"status": payload["status"], "review_valid": payload["review_valid_candidate_count"],
                  "candidates": len(payload["candidates"])})
 
@@ -1129,7 +1242,7 @@ def main(argv: list[str] | None = None) -> int:
     except comparison_admission.AdmissionError as exc:
         emit_status({"status": "blocked_comparison_admission", "reason": str(exc)})
         return 2
-    return 2 if payload["status"] == "blocked_comparison_admission" else 0
+    return 2 if payload["status"] in ("blocked_comparison_admission", "comparison_publication_uncertain") else 0
 
 
 if __name__ == "__main__":

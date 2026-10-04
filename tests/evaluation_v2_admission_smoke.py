@@ -447,7 +447,7 @@ class ImmutableBundleLifecycleTests(unittest.TestCase):
                     self.check_unsafe(changed,root)
 
     def test_each_report_filename_can_be_pinned_without_being_overwritten(self):
-        for i,name in enumerate(('summary.json','candidate_verdicts.csv','report.md')):
+        for i,name in enumerate(verifier.PUBLICATION_LEAVES):
             with self.subTest(name=name):
                 self.fixture=ComparisonPrecheckTests();self.fixture.setUp()
                 root,args=self.bundle('collision'+str(i),collision=name)
@@ -493,7 +493,7 @@ class ImmutableBundleLifecycleTests(unittest.TestCase):
         root,args=self.bundle()
         output=Path(args.output_dir);output.mkdir()
         for i,kind in enumerate(('symlink','hardlink')):
-            for name in ('summary.json','candidate_verdicts.csv','report.md'):
+            for name in verifier.PUBLICATION_LEAVES:
                 with self.subTest(kind=kind,name=name):
                     destination=output/name
                     try:
@@ -931,6 +931,9 @@ class AnchoredPublicationTests(unittest.TestCase):
             for name in verifier.COMPARISON_OPTIONS:
                 value = getattr(args, name, None)
                 if value is not None: values += ['--' + name.replace('_', '-'), value]
+            for name in ('experiment_id', 'payload_hash', 'workflow_run_id', 'dispatch_run_id'):
+                value = getattr(args, name, None)
+                if value: values += ['--' + name.replace('_', '-'), value]
             return verifier.main(values)
 
     def assert_bounded(self, result, current_receipt=False):
@@ -1326,10 +1329,11 @@ class AnchoredPublicationTests(unittest.TestCase):
             output = Path(args.output_dir); output.mkdir()
             prior = b'{"status":"retained_previous_invocation"}'
             (output / 'summary.json').write_bytes(prior)
-            order = []; original = verifier.ReportDirectory.replace
+            order = []; all_order = []; original = verifier.ReportDirectory.replace
             def hook(*values, **kwargs):
-                order.append(values[2])
-                if len(order) == failure: raise OSError('private-token')
+                all_order.append(values[2])
+                if values[2] in verifier.REPORT_LEAVES: order.append(values[2])
+                if values[2] in verifier.REPORT_LEAVES and len(order) == failure: raise OSError('private-token')
                 return original(*values, **kwargs)
             with patch.object(verifier.ReportDirectory, 'replace', new=hook): result = self.call(args)
             self.assertEqual(order, list(('candidate_verdicts.csv', 'report.md', 'summary.json')[:failure or 3]))
@@ -1338,6 +1342,7 @@ class AnchoredPublicationTests(unittest.TestCase):
                 if os.name == 'nt': self.assertFalse((output / 'summary.json').exists())
                 else: self.assertEqual((output / 'summary.json').read_bytes(), prior)
             else:
+                self.assertEqual(all_order, [*order, verifier.COMPLETION_LEAF])
                 self.assertEqual(result['status'], 'review_candidate_ready')
                 self.assertEqual(json.loads((output / 'summary.json').read_bytes())['status'], result['status'])
 
@@ -1438,13 +1443,15 @@ class AnchoredPublicationTests(unittest.TestCase):
                     output.rename(output.with_name(output.name + '-released'))
                     root.rename(root.with_name(root.name + '-released'))
 
-    def test_legacy_without_options_keeps_existing_path_writer_behavior(self):
+    def test_default_without_options_keeps_numeric_and_status_behavior_with_completion_witness(self):
         root, args = self.invocation('legacy')
         for name in verifier.COMPARISON_OPTIONS: setattr(args, name, None)
-        with patch.object(os, 'write', side_effect=AssertionError('native opt-in writer must not run')):
-            result = self.call(args)
+        result = self.call(args)
         self.assertEqual(result['status'], 'review_candidate_ready')
         self.assertNotIn('comparison_admission', result)
+        self.assertTrue(result['current_receipt'])
+        self.assertEqual(verifier.completed_comparison_summary(Path(args.output_dir) / 'summary.json',
+            (Path(args.output_dir) / 'summary.json').read_bytes()), result)
 
     def test_stdout_failures_do_not_destroy_valid_receipts_or_escape_blocked_api_cli(self):
         for state in ('valid', 'wrong_pin', 'partial', 'unsafe', 'publication_error'):
@@ -1510,7 +1517,7 @@ class AnchoredPublicationTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name == 'posix', 'actual POSIX dir_fd source substitution; Linux CI required')
     def test_posix_each_source_name_and_same_inode_byte_swap_before_replace_is_rejected(self):
-        for leaf in verifier.REPORT_LEAVES:
+        for leaf in verifier.PUBLICATION_LEAVES:
             for mutation in ('source_name', 'same_inode_bytes'):
                 for blocked in (False, True):
                     for cli in (False, True):
@@ -1535,12 +1542,16 @@ class AnchoredPublicationTests(unittest.TestCase):
                             self.assertEqual(self.fixture.census(root), before)
                             if cli: self.assertEqual(result, 2)
                             else:
-                                self.assert_bounded(result)
-                                self.assertEqual(result['comparison_admission']['reason'], 'OUTPUT_PUBLICATION_CLEANUP_INCOMPLETE')
+                                if leaf == verifier.COMPLETION_LEAF:
+                                    self.assertEqual(result['status'], 'comparison_publication_uncertain')
+                                    self.assertIsNone(result['current_receipt'])
+                                else:
+                                    self.assert_bounded(result)
+                                    self.assertEqual(result['comparison_admission']['reason'], 'OUTPUT_PUBLICATION_CLEANUP_INCOMPLETE')
 
     @unittest.skipUnless(os.name == 'nt', 'actual Windows stage handles deny source rename/write')
     def test_native_windows_stage_name_and_same_inode_write_attempts_are_refused(self):
-        for leaf in verifier.REPORT_LEAVES:
+        for leaf in verifier.PUBLICATION_LEAVES:
             for mutation in ('source_name', 'same_inode_bytes'):
                 for blocked in (False, True):
                     for cli in (False, True):
@@ -1575,7 +1586,7 @@ class AnchoredPublicationTests(unittest.TestCase):
                             for name in verifier.REPORT_LEAVES: self.assertTrue((output / name).is_file())
 
     def test_held_inode_content_verification_detects_same_size_owned_write_mutation(self):
-        for leaf in verifier.REPORT_LEAVES:
+        for leaf in verifier.PUBLICATION_LEAVES:
             for blocked in (False, True):
                 for cli in (False, True):
                     with self.subTest(leaf=leaf, blocked=blocked, cli=cli):
@@ -1597,6 +1608,9 @@ class AnchoredPublicationTests(unittest.TestCase):
                         self.assertTrue(fired, 'installed same-inode content check not reached')
                         self.assertEqual(self.fixture.census(root), before)
                         if cli: self.assertEqual(result, 2)
+                        elif leaf == verifier.COMPLETION_LEAF:
+                            self.assertEqual(result['status'], 'comparison_publication_uncertain')
+                            self.assertIsNone(result['current_receipt'])
                         else: self.assert_bounded(result)
 
     @unittest.skipUnless(os.name == 'nt', 'actual Windows post-copy held-temp cleanup')
@@ -1625,6 +1639,160 @@ class AnchoredPublicationTests(unittest.TestCase):
                         self.assertFalse(any(p.name.startswith('.ab-report-') for p in output.iterdir()))
                         if cli: self.assertEqual(result,2)
                         else: self.assert_bounded(result)
+
+    def test_admitted_root_identity_survives_legacy_collection_moves_and_replacement(self):
+        for leaf in verifier.PUBLICATION_LEAVES:
+            for mutation in ('output', 'output_ancestor', 'missing', 'replacement', 'symlink'):
+                for blocked, cli in ((False, False), (False, True), (True, False), (True, True)):
+                    with self.subTest(leaf=leaf, mutation=mutation, blocked=blocked, cli=cli):
+                        root, args = self.invocation('admitted-move-' + str((leaf, mutation, blocked, cli)), leaf, blocked)
+                        output = Path(args.output_dir)
+                        moved = output if mutation == 'output' else self.area / (root.name + '-moved')
+                        if mutation == 'output_ancestor': args.output_dir = str(moved / 'new-report')
+                        before = self.fixture.census(root); fired = False
+                        original = verifier.collect_evidence
+                        original_precheck = verifier.comparison_precheck
+                        def move():
+                            nonlocal fired
+                            root.rename(moved)
+                            if mutation == 'replacement': root.mkdir()
+                            elif mutation == 'symlink': root.symlink_to(moved, target_is_directory=True)
+                            fired = True
+                        def collect(*values):
+                            result = original(*values)
+                            if not fired: move()
+                            return result
+                        def precheck(values):
+                            result = original_precheck(values)
+                            if blocked:
+                                self.assertEqual(result['status'], 'BLOCKED')
+                                move()
+                            return result
+                        with patch.object(verifier, 'collect_evidence', new=collect), \
+                             patch.object(verifier, 'comparison_precheck', new=precheck): result = self.call(args, cli)
+                        self.assertTrue(fired, 'root move after admission was not reached')
+                        self.assertEqual(self.fixture.census(moved), before, 'moved pinned bytes changed')
+                        if cli: self.assertEqual(result, 2)
+                        else: self.assert_bounded(result)
+                        if mutation != 'output': self.assertFalse(Path(args.output_dir).exists())
+
+    def test_committed_marker_has_no_later_root_or_geometry_failure(self):
+        for blocked in (False, True):
+            for cli in (False, True):
+                with self.subTest(blocked=blocked, cli=cli):
+                    root, args = self.invocation('no-trailing-guard-' + str((blocked, cli)), blocked=blocked)
+                    before = self.fixture.census(root); committed = False; forbidden = []
+                    original_verify = verifier.ReportDirectory.verify_installed
+                    summary_verified = False
+                    original_guard = verifier.ReportDirectory.guard
+                    original_geometry = verifier.comparison_output_error
+                    def verify(directory, name, size, digest):
+                        nonlocal summary_verified, committed
+                        original_verify(directory, name, size, digest)
+                        if name == 'summary.json': summary_verified = True
+                        if name == verifier.COMPLETION_LEAF: committed = True
+                    def guard(directory):
+                        if committed:
+                            forbidden.append('guard'); raise m.AdmissionError('OUTPUT_PUBLICATION_PATH_CHANGED')
+                        return original_guard(directory)
+                    def geometry(values):
+                        if committed:
+                            forbidden.append('geometry'); return 'OUTPUT_ADMISSION_PATH_INVALID'
+                        return original_geometry(values)
+                    with patch.object(verifier.ReportDirectory, 'verify_installed', new=verify), \
+                         patch.object(verifier.ReportDirectory, 'guard', new=guard), \
+                         patch.object(verifier, 'comparison_output_error', new=geometry): result = self.call(args, cli)
+                    self.assertTrue(summary_verified, 'mandatory installed summary verification was not reached')
+                    self.assertTrue(committed, 'final completion witness commit was not reached')
+                    self.assertEqual(forbidden, [], 'fallible publication checks followed marker commit')
+                    receipt = json.loads((Path(args.output_dir) / 'summary.json').read_bytes())
+                    self.assertTrue(receipt['current_receipt'])
+                    if cli: self.assertEqual(result, 2 if blocked else 0)
+                    else: self.assertEqual(result, receipt)
+                    self.assertEqual(self.fixture.census(root), before)
+
+    def test_admitted_root_ancestor_moved_into_existing_or_missing_output_preserves_both_inputs(self):
+        for leaf in verifier.PUBLICATION_LEAVES:
+            for existing in (False, True):
+                for cli in (False, True):
+                    with self.subTest(leaf=leaf, existing=existing, cli=cli):
+                        root, args = self.invocation('ancestor-admitted-' + str((leaf, existing, cli)), leaf)
+                        ancestor = self.area / (root.name + '-ancestor'); ancestor.mkdir()
+                        original_root = root; root = ancestor / 'bundle'; original_root.rename(root)
+                        args.comparison_admission_root = str(root)
+                        output = Path(args.output_dir); parked = output.with_name(output.name + '-old')
+                        if existing: output.mkdir(); (output / 'caller').write_bytes(b'caller bytes')
+                        before = self.fixture.census(root); fired = False; original = verifier.collect_evidence
+                        def collect(*values):
+                            nonlocal fired
+                            result = original(*values)
+                            if not fired:
+                                if existing: output.rename(parked)
+                                ancestor.rename(output); fired = True
+                            return result
+                        with patch.object(verifier, 'collect_evidence', new=collect): result = self.call(args, cli)
+                        self.assertTrue(fired, 'admitted ancestor move was not reached')
+                        self.assertEqual(self.fixture.census(output / 'bundle'), before)
+                        if existing: self.assertEqual((parked / 'caller').read_bytes(), b'caller bytes')
+                        self.assertFalse(any((output / name).exists() for name in verifier.PUBLICATION_LEAVES))
+                        if cli: self.assertEqual(result, 2)
+                        else: self.assert_bounded(result)
+
+    @unittest.skipUnless(os.name == 'posix', 'actual POSIX late FIFO reopens require Linux CI')
+    def test_posix_capture_and_verification_regular_to_fifo_races_are_bounded_without_writer(self):
+        code = r'''
+import hashlib, json, os, pathlib, stat, sys, tempfile
+from unittest.mock import patch
+sys.path.insert(0, sys.argv[1])
+sys.path.insert(0, str(pathlib.Path(sys.argv[1]) / 'tests'))
+from tools import run_ab_result_verifier as v
+from evaluation_v2_admission_smoke import patch_publication_phase
+with tempfile.TemporaryDirectory(prefix='ab fifo ') as tmp:
+    path = pathlib.Path(tmp) / sys.argv[4]; path.mkdir()
+    leaf = sys.argv[3]; raw = b'ordinary regular report'
+    directory = v.ReportDirectory(path)
+    if sys.argv[2] == 'capture': (path / leaf).write_bytes(raw)
+    else:
+        fd = directory.create_temp('.stage'); os.write(fd, raw)
+        directory.replace('.stage', leaf)
+    original = os.open; fired = False; nonblocking = False; reason = None; reads = 0
+    race = sys.argv[5] == 'race'; original_read = os.read
+    def hook(name, flags, *values, **kwargs):
+        global fired, nonblocking
+        if name == leaf and not fired:
+            observed = os.stat(name, dir_fd=kwargs['dir_fd'], follow_symlinks=False)
+            if not stat.S_ISREG(observed.st_mode): raise RuntimeError('regular fixture was not reached')
+            if race:
+                os.unlink(name, dir_fd=kwargs['dir_fd']); os.mkfifo(name, dir_fd=kwargs['dir_fd'])
+                if not stat.S_ISFIFO(os.stat(name, dir_fd=kwargs['dir_fd'], follow_symlinks=False).st_mode):
+                    raise RuntimeError('actual FIFO substitution was not reached')
+            fired = True; nonblocking = bool(flags & os.O_NONBLOCK)
+        return original(name, flags, *values, **kwargs)
+    def read(fd, size):
+        global reads
+        reads += 1; return original_read(fd, size)
+    try:
+        with patch_publication_phase(os, 'open', hook), patch.object(os, 'read', new=read):
+            if sys.argv[2] == 'capture': directory.capture_owned_leaves()
+            else: directory.verify_installed(leaf, len(raw), hashlib.sha256(raw).hexdigest())
+    except v.comparison_admission.AdmissionError as exc: reason = str(exc)
+    finally: directory.close()
+    print(json.dumps({'fired': fired, 'nonblocking': nonblocking, 'reason': reason, 'reads': reads}))
+'''
+        for phase in ('capture', 'verify'):
+            for leaf in verifier.PUBLICATION_LEAVES:
+                for name, race in ((n, r) for n in ('ordinary', 'directory with spaces') for r in (False, True)):
+                    with self.subTest(phase=phase, leaf=leaf, name=name, race=race):
+                        command = [sys.executable] + (['-O'] if sys.flags.optimize else [])
+                        result = subprocess.run(command + ['-c', code, str(ROOT), phase, leaf, name, 'race' if race else 'control'],
+                                                capture_output=True, text=True, timeout=5)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        outcome = json.loads(result.stdout)
+                        self.assertTrue(outcome['fired'], 'regular-to-FIFO reopen was not reached')
+                        self.assertTrue(outcome['nonblocking'], 'late reopen could block on a FIFO without a writer')
+                        self.assertEqual(outcome['reason'], 'OUTPUT_PUBLICATION_PATH_CHANGED' if race else None)
+                        if race or phase == 'capture': self.assertEqual(outcome['reads'], 0, 'nonregular descriptor reached read')
+                        else: self.assertGreater(outcome['reads'], 0)
 
 
 def suite():
