@@ -1,4 +1,5 @@
 import copy
+from contextlib import contextmanager
 import importlib
 import json
 import os
@@ -11,6 +12,20 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
+
+
+@contextmanager
+def patch_publication_phase(owner, attribute, hook):
+    # ReportDirectory checks callable identity before using POSIX dir_fd.
+    # A fixture hook inherits only its saved original's actual capability.
+    original = getattr(owner, attribute)
+    capabilities = os.supports_dir_fd
+    with patch.object(owner, attribute, new=hook):
+        if owner is os and original in capabilities:
+            with patch.object(os, 'supports_dir_fd', new=capabilities | {hook}):
+                yield
+        else:
+            yield
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -1138,7 +1153,7 @@ class AnchoredPublicationTests(unittest.TestCase):
                                     result = original(*values, **kwargs)
                                     if phase.startswith('after') and calls == int(phase[-1]): swap()
                                     return result
-                            with patch.object(owner, attribute, new=hook): result = self.call(args, cli)
+                            with patch_publication_phase(owner, attribute, hook): result = self.call(args, cli)
                             self.assertTrue(fired, 'anchored publication phase not reached')
                             self.assertEqual(self.fixture.census(root), before)
                             if refused:
@@ -1148,6 +1163,76 @@ class AnchoredPublicationTests(unittest.TestCase):
                             else:
                                 if cli: self.assertEqual(result, 2)
                                 else: self.assert_bounded(result)
+
+    def test_publication_phase_hook_inherits_only_saved_capability_and_restores_state(self):
+        original = os.mkdir; capabilities = os.supports_dir_fd
+        # These registry fixtures test hook metadata on every platform; they do
+        # not claim that Windows implements POSIX descriptor-relative mkdir.
+        for supported in (False, True):
+            for fail in (False, True):
+                with self.subTest(supported=supported, fail=fail):
+                    fixture_capabilities = capabilities | {original} if supported else capabilities - {original}
+                    output = self.area / ('ordinary' if not supported else 'directory with spaces')
+                    output = output.with_name(output.name + str(fail))
+                    calls = []
+                    def hook(*values, **kwargs):
+                        calls.append((values, kwargs))
+                        return original(*values, **kwargs)
+                    with patch.object(os, 'supports_dir_fd', new=fixture_capabilities):
+                        try:
+                            with patch_publication_phase(os, 'mkdir', hook):
+                                self.assertIs(os.mkdir, hook)
+                                self.assertEqual(hook in os.supports_dir_fd, supported)
+                                self.assertEqual(os.supports_dir_fd, fixture_capabilities | ({hook} if supported else set()))
+                                os.mkdir(str(output), mode=0o700)
+                                if fail: raise RuntimeError('fixture-only failure')
+                        except RuntimeError as exc:
+                            self.assertTrue(fail)
+                            self.assertEqual(str(exc), 'fixture-only failure')
+                        self.assertIs(os.mkdir, original)
+                        self.assertIs(os.supports_dir_fd, fixture_capabilities)
+                    self.assertIs(os.supports_dir_fd, capabilities)
+                    self.assertEqual(calls, [((str(output),), {'mode': 0o700})])
+                    self.assertTrue(output.is_dir())
+
+    @unittest.skipUnless(os.name == 'posix', 'actual POSIX capability guard and dir_fd mkdir; Linux CI required')
+    def test_posix_mkdir_hook_preserves_guard_and_native_ordinary_and_spaced_paths(self):
+        original = os.mkdir; capabilities = os.supports_dir_fd
+        self.assertIn(original, capabilities)
+        for name in ('ordinary-native', 'native directory with spaces'):
+            with self.subTest(name=name):
+                output = self.area / name; calls = []
+                def hook(*values, **kwargs):
+                    calls.append((values, kwargs))
+                    self.assertEqual(values, (name,))
+                    self.assertIn('dir_fd', kwargs)
+                    self.assertIsInstance(kwargs['dir_fd'], int)
+                    self.assertEqual(verifier.publication_identity(os.fstat(kwargs['dir_fd'])),
+                                     verifier.publication_identity(self.area.stat()))
+                    return original(*values, **kwargs)
+                with patch_publication_phase(os, 'mkdir', hook):
+                    directory = verifier.ReportDirectory(output, create=True)
+                    try: directory.guard()
+                    finally: directory.close()
+                self.assertEqual(len(calls), 1, 'native dir_fd mkdir phase not reached')
+                self.assertTrue(output.is_dir())
+                self.assertIs(os.mkdir, original)
+                self.assertIs(os.supports_dir_fd, capabilities)
+        calls = []
+        def unsupported(*values, **kwargs):
+            calls.append((values, kwargs))
+            return original(*values, **kwargs)
+        output = self.area / 'unsupported directory with spaces'
+        with patch.object(os, 'supports_dir_fd', new=capabilities - {original}):
+            with patch_publication_phase(os, 'mkdir', unsupported):
+                self.assertNotIn(unsupported, os.supports_dir_fd)
+                with self.assertRaises(m.AdmissionError) as raised:
+                    verifier.ReportDirectory(output, create=True)
+                self.assertEqual(str(raised.exception), 'OUTPUT_PUBLICATION_ANCHOR_UNAVAILABLE')
+        self.assertEqual(calls, [])
+        self.assertFalse(output.exists())
+        self.assertIs(os.mkdir, original)
+        self.assertIs(os.supports_dir_fd, capabilities)
 
     def test_each_late_leaf_alias_preserves_input_and_never_truncates_an_existing_inode(self):
         for leaf in verifier.REPORT_LEAVES:
