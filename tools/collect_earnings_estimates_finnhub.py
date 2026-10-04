@@ -1592,7 +1592,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ticker-limit", type=int, default=0)
     parser.add_argument("--api-key", default=os.environ.get("FINNHUB_API_KEY", ""))
     parser.add_argument("--alphavantage-api-key", default=os.environ.get("ALPHAVANTAGE_API_KEY", ""))
-    parser.add_argument("--fmp-api-key", default=os.environ.get("FMP_API_KEY", ""))
+    parser.add_argument("--fmp-key-name", choices=("FMP_API_KEY", "FMP_API_KEY2"), default="FMP_API_KEY",
+                        help="Explicit credential selection; never rotates or falls back to another account.")
+    parser.add_argument("--fmp-api-key", default=None)
     parser.add_argument("--vendor-order", default=os.environ.get("ESTIMATE_VENDOR_ORDER", DEFAULT_VENDOR_ORDER))
     parser.add_argument("--snapshot-dir", default=DEFAULT_SNAPSHOT_DIR)
     parser.add_argument("--signals-output", default=DEFAULT_SIGNALS)
@@ -1612,7 +1614,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--plan-manual-collection", action="store_true",
                         help="Prepare a bound queue selecting only the resolved request tickers.")
     parser.add_argument("--collection-attempt-id", default=os.environ.get("GITHUB_RUN_ID", ""))
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.fmp_api_key is None:
+        args.fmp_api_key = os.environ.get(args.fmp_key_name, "")
+    return args
 
 
 def main() -> int:

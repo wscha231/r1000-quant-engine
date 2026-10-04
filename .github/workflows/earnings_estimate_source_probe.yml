@@ -1,0 +1,87 @@
+name: Earnings Estimate Source Probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: Single provider and credential; no key rotation
+        type: choice
+        options: [fmp2, eodhd, fmp]
+        default: fmp2
+      tickers:
+        description: Explicit simple US ticker sample only
+        type: string
+        default: AAPL
+      expected_head:
+        description: Exact reviewed master SHA approved for this probe
+        type: string
+        required: true
+      max_http_requests:
+        description: Total source HTTP attempts including quota check, maximum 24
+        type: string
+        default: '2'
+      verified_api_units:
+        description: Verified budget; FMP costs 1 per ticker, EODHD Fundamentals costs 10
+        type: string
+        default: '0'
+      quota_verified_at_utc:
+        description: FMP shared-quota verification time within 15 minutes; EODHD checks its own counter
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  # Serialize with the existing collector so probes cannot overlap its quota use.
+  group: earnings-estimates-daily-durable-archive
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify approved repository ref and exact head
+        shell: bash
+        env:
+          PROBE_EXPECTED_HEAD: ${{ inputs.expected_head }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'wscha231/r1000-quant-engine'
+          test "$GITHUB_REF" = 'refs/heads/master'
+          test "$GITHUB_SHA" = "$PROBE_EXPECTED_HEAD"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install source reader dependencies
+        run: python -m pip install 'pandas>=2.2,<3' 'requests>=2.31' 'pyyaml>=6'
+      - name: Probe selected estimate source
+        env:
+          FMP_API_KEY: ${{ inputs.provider == 'fmp' && secrets.FMP_API_KEY || '' }}
+          FMP_API_KEY2: ${{ inputs.provider == 'fmp2' && secrets.FMP_API_KEY2 || '' }}
+          EODHD_API_KEY: ${{ inputs.provider == 'eodhd' && secrets.EODHD_API_KEY || '' }}
+          PROBE_PROVIDER: ${{ inputs.provider }}
+          PROBE_TICKERS: ${{ inputs.tickers }}
+          PROBE_HTTP_LIMIT: ${{ inputs.max_http_requests }}
+          PROBE_API_UNITS: ${{ inputs.verified_api_units }}
+          PROBE_QUOTA_VERIFIED_AT: ${{ inputs.quota_verified_at_utc }}
+        run: |
+          python -B tools/probe_earnings_estimate_sources.py \
+            --provider "$PROBE_PROVIDER" --tickers "$PROBE_TICKERS" \
+            --max-http-requests "$PROBE_HTTP_LIMIT" \
+            --verified-api-units "$PROBE_API_UNITS" \
+            --quota-verified-at-utc "$PROBE_QUOTA_VERIFIED_AT" \
+            --output outputs/earnings_estimate_source_probe/report.json
+      - name: Upload controlled access report only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: earnings-estimate-source-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: outputs/earnings_estimate_source_probe/report.json
+          if-no-files-found: ignore
+          retention-days: 7
