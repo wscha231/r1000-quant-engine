@@ -945,6 +945,169 @@ class AnchoredPublicationTests(unittest.TestCase):
             if key != 'unverified_domains': self.assertIs(result[key], False)
         self.assertNotIn('private-token', json.dumps(result))
 
+    def assert_completed_blocked_receipt(self, args, result, reason, cli):
+        from tools import run_self_correction_queue_closure as queue
+        output = Path(args.output_dir)
+        self.assertEqual({p.name for p in output.iterdir() if p.name != 'caller'},
+                         set(verifier.PUBLICATION_LEAVES))
+        raw = (output / 'summary.json').read_bytes()
+        receipt = verifier.completed_comparison_summary(output / 'summary.json', raw)
+        self.assert_bounded(receipt, current_receipt=True)
+        self.assertEqual(receipt['comparison_admission']['reason'], reason)
+        self.assertEqual(queue.read_verifier_summary(output / 'summary.json'), receipt)
+        self.assertEqual(queue.verifier_candidates([receipt]), [])
+        if cli:
+            self.assertEqual(result, 2)
+        else:
+            self.assertEqual(result, receipt)
+        self.assertNotIn('private-token', raw.decode('utf-8'))
+
+    def test_pre_root_invalid_inputs_publish_original_reason_to_safe_outputs(self):
+        kinds = ['file', 'directory_symlink', 'ancestor_symlink', 'dangling_symlink', 'missing']
+        if os.name == 'nt': kinds.append('junction')
+        for kind in kinds:
+            for existing in (False, True):
+                for cli in (False, True):
+                    with self.subTest(kind=kind, existing=existing, cli=cli):
+                        root, args = self.invocation('invalid-root-' + str((kind, existing, cli)))
+                        output = Path(args.output_dir)
+                        if existing:
+                            self.call(args)
+                            self.assertTrue(json.loads((output / 'summary.json').read_bytes())['candidates'])
+                            (output / 'caller').write_bytes(b'caller bytes')
+                        supplied = root.with_name(root.name + '-invalid')
+                        if kind == 'file': supplied.write_bytes(b'private-token invalid bundle')
+                        elif kind == 'directory_symlink': supplied.symlink_to(root, target_is_directory=True)
+                        elif kind == 'ancestor_symlink':
+                            supplied.symlink_to(root.parent, target_is_directory=True)
+                            supplied = supplied / root.name
+                        elif kind == 'dangling_symlink':
+                            supplied.symlink_to(root.with_name(root.name + '-absent'), target_is_directory=True)
+                        elif kind == 'junction':
+                            setup = subprocess.run(['cmd', '/c', 'mklink', '/J', str(supplied), str(root)], capture_output=True)
+                            self.assertEqual(setup.returncode, 0, 'native junction creation failed')
+                        args.comparison_admission_root = str(supplied)
+                        before = self.fixture.census(root)
+                        supplied_raw = supplied.read_bytes() if kind == 'file' else None
+                        anchored = []; captured = []; original = verifier.ReportDirectory.__init__
+                        original_precheck = verifier.comparison_precheck
+                        def initialize(directory, path, **kwargs):
+                            anchored.append(Path(path))
+                            return original(directory, path, **kwargs)
+                        def precheck(values):
+                            result = original_precheck(values)
+                            captured.append(values._comparison_admitted_root)
+                            return result
+                        with patch.object(verifier.ReportDirectory, '__init__', new=initialize), \
+                             patch.object(verifier, 'comparison_precheck', new=precheck), \
+                             patch.object(verifier, 'collect_evidence', side_effect=AssertionError('legacy read forbidden')):
+                            result = self.call(args, cli)
+                        self.assertEqual(captured, [None])
+                        self.assertNotIn(supplied.absolute(), anchored, 'rejected root was anchored')
+                        self.assertEqual(self.fixture.census(root), before)
+                        if supplied_raw is not None: self.assertEqual(supplied.read_bytes(), supplied_raw)
+                        if existing: self.assertEqual((output / 'caller').read_bytes(), b'caller bytes')
+                        self.assert_completed_blocked_receipt(args, result, 'ARTIFACT_ROOT_INVALID', cli)
+
+    def test_pre_and_post_root_admission_failures_keep_original_coherent_receipts(self):
+        cases = (('partial', 'ADMISSION_OPTIONS_INCOMPLETE', False),
+                 ('pin_format', 'EXPECTED_CONTEXT_HASH_REQUIRED', False),
+                 ('arm_id', 'ARTIFACT_ID', False),
+                 ('arm_json', 'INVALID_JSON', True),
+                 ('arm_missing', 'ARTIFACT_UNAVAILABLE', True),
+                 ('pin_mismatch', 'CONTEXT_PIN_MISMATCH', True),
+                 ('shared_hash', 'ARTIFACT_HASH_MISMATCH', True))
+        for case, reason, has_native_root in cases:
+            for existing in (False, True):
+                for cli in (False, True):
+                    with self.subTest(case=case, existing=existing, cli=cli):
+                        root, args = self.invocation('root-stage-' + str((case, existing, cli)))
+                        output = Path(args.output_dir)
+                        if existing: output.mkdir(); (output / 'caller').write_bytes(b'caller bytes')
+                        if case == 'partial': args.comparison_challenger_arm = None
+                        elif case == 'pin_format': args.expected_context_sha256 = 'A' * 64
+                        elif case == 'arm_id': args.comparison_control_arm = '../control.arm'
+                        elif case == 'arm_json': (root / 'control.arm').write_bytes(b'{')
+                        elif case == 'arm_missing': (root / 'control.arm').unlink()
+                        elif case == 'pin_mismatch': args.expected_context_sha256 = '0' * 64
+                        elif case == 'shared_hash': (root / 'cost_contract').write_bytes(b'tampered')
+                        before = self.fixture.census(root); anchored = []; captured = []
+                        original_init = verifier.ReportDirectory.__init__
+                        original_precheck = verifier.comparison_precheck
+                        def initialize(directory, path, **kwargs):
+                            anchored.append(Path(path))
+                            return original_init(directory, path, **kwargs)
+                        def precheck(values):
+                            result = original_precheck(values)
+                            captured.append(values._comparison_admitted_root)
+                            return result
+                        with patch.object(verifier.ReportDirectory, '__init__', new=initialize), \
+                             patch.object(verifier, 'comparison_precheck', new=precheck), \
+                             patch.object(verifier, 'collect_evidence', side_effect=AssertionError('legacy read forbidden')):
+                            result = self.call(args, cli)
+                        self.assertEqual(len(captured), 1)
+                        self.assertEqual(captured[0] is not None, has_native_root)
+                        self.assertEqual(root.absolute() in anchored, has_native_root)
+                        self.assertEqual(self.fixture.census(root), before)
+                        if existing: self.assertEqual((output / 'caller').read_bytes(), b'caller bytes')
+                        self.assert_completed_blocked_receipt(args, result, reason, cli)
+
+    def test_no_native_root_keeps_declared_root_and_leaf_geometry_fail_closed(self):
+        for geometry in ('equal', 'child', 'ancestor', 'output_alias', 'leaf_symlink', 'leaf_hardlink'):
+            for cli in (False, True):
+                with self.subTest(geometry=geometry, cli=cli):
+                    root, args = self.invocation('invalid-geometry-' + str((geometry, cli)))
+                    supplied = root.with_name(root.name + '-invalid')
+                    supplied.symlink_to(root, target_is_directory=True)
+                    args.comparison_admission_root = str(supplied)
+                    output = Path(args.output_dir)
+                    if geometry == 'equal': output = supplied
+                    elif geometry == 'child': output = supplied / 'new-report'
+                    elif geometry == 'ancestor': output = root.parent
+                    elif geometry == 'output_alias': output.symlink_to(root, target_is_directory=True)
+                    else:
+                        output.mkdir()
+                        target = output / 'summary.json'
+                        if geometry == 'leaf_symlink': target.symlink_to(root / 'summary.json')
+                        else: os.link(root / 'summary.json', target)
+                    args.output_dir = str(output)
+                    before = self.fixture.census(root)
+                    with patch.object(verifier, 'collect_evidence', side_effect=AssertionError('legacy read forbidden')), \
+                         patch.object(verifier, 'publish_report', side_effect=AssertionError('unsafe report forbidden')):
+                        result = self.call(args, cli)
+                    self.assertEqual(self.fixture.census(root), before)
+                    if cli: self.assertEqual(result, 2)
+                    else:
+                        self.assert_bounded(result)
+                        self.assertEqual(result['comparison_admission']['reason'], 'OUTPUT_ADMISSION_PATH_OVERLAP')
+
+    def test_post_root_blocked_arm_errors_still_reject_moved_native_root(self):
+        for failure in ('malformed', 'missing'):
+            for mutation in ('missing', 'replacement', 'symlink'):
+                for cli in (False, True):
+                    with self.subTest(failure=failure, mutation=mutation, cli=cli):
+                        root, args = self.invocation('blocked-native-move-' + str((failure, mutation, cli)))
+                        if failure == 'malformed': (root / 'control.arm').write_bytes(b'{')
+                        else: (root / 'control.arm').unlink()
+                        before = self.fixture.census(root); moved = root.with_name(root.name + '-parked')
+                        fired = False; original = verifier.comparison_precheck
+                        def precheck(values):
+                            nonlocal fired
+                            result = original(values)
+                            self.assertEqual(result['status'], 'BLOCKED')
+                            self.assertIsNotNone(values._comparison_admitted_root)
+                            root.rename(moved)
+                            if mutation == 'replacement': root.mkdir()
+                            elif mutation == 'symlink': root.symlink_to(moved, target_is_directory=True)
+                            fired = True
+                            return result
+                        with patch.object(verifier, 'comparison_precheck', new=precheck): result = self.call(args, cli)
+                        self.assertTrue(fired, 'post-root blocked mutation was not reached')
+                        self.assertEqual(self.fixture.census(moved), before)
+                        self.assertFalse(Path(args.output_dir).exists())
+                        if cli: self.assertEqual(result, 2)
+                        else: self.assert_bounded(result)
+
     def test_after_geometry_directory_aliases_preserve_every_input(self):
         for leaf in ('summary.json', 'candidate_verdicts.csv', 'report.md'):
             for blocked in (False, True):

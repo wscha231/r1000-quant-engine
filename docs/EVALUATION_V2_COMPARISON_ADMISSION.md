@@ -86,6 +86,15 @@ Publication anchors every existing output path component; the opt-in path also
 retains the native resolver's actually admitted root device/inode through legacy
 result collection and publication. A missing, moved or replaced root cannot be
 substituted by a surviving parent or a new directory at the original spelling.
+Only successful native root initialization supplies this anchor. A file, link,
+reparse point or missing supplied root rejected before initialization is still
+subject to every declared-root/output geometry check, but is not reopened as a
+publication directory. A safe separate destination receives a coherent blocked
+four-file receipt with the original admission reason, no candidate rows and no
+economic authority. Later arm/byte failures retain the captured root anchor even
+though comparison is blocked; moving or replacing that root still stops output.
+Here `current_receipt=true` acknowledges completed blocked-report publication,
+not admission of the rejected inputs. CLI remains 2 for those blocked reports.
 Publication anchors every existing root/output path
 component before creating directories or report files. POSIX uses directory
 descriptors, no-follow exclusive temporary files and descriptor-relative

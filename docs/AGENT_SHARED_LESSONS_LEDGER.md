@@ -6031,6 +6031,16 @@ Expected contract:
   race reach and queue outcomes; native POSIX parent/FIFO cases need Linux, and
   snapshot observations do not guarantee permanent absence or an OS sandbox.
 
+### 2026-10-05 - Keep rejected-root reports separate from admitted root anchors (#571 P2)
+
+- Formal review found that anchoring a rejected file/link root replaced the
+  original admission error and prevented a safe separate blocked receipt.
+- Anchor only the native resolver identity, including later blocked arm/byte
+  failures. Keep declared geometry checks for pre-root failures and publish
+  their original bounded reason with empty candidates and closed authority.
+- Completed blocked-report acknowledgement is not comparison admission. Test
+  actual four-file witness/consumer parity, API/CLI2, aliases and root moves.
+
 ## 2026-10-03 — Close SQLite handles after blocked materialization
 
 - A SQLite connection context manages commit/rollback and does not close the

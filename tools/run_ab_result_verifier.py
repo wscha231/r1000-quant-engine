@@ -944,9 +944,10 @@ def publish_anchored(args: argparse.Namespace, payload: dict[str, Any]) -> None:
     commit_verified = False
     try:
         admitted_root = getattr(args, '_comparison_admitted_root', None)
-        if getattr(args, 'comparison_admission_root', None) is not None:
-            root = ReportDirectory(Path(args.comparison_admission_root), allow_missing=admitted_root is None)
         if admitted_root is not None:
+            # Only a successfully initialized native resolver supplies a root
+            # identity. Rejected roots are geometry inputs, not directory anchors.
+            root = ReportDirectory(admitted_root[0])
             comparison_admission.require(root.path == admitted_root[0]
                 and root.entries[-1][2] == admitted_root[1], 'ARTIFACT_ROOT_CHANGED')
         output = ReportDirectory(repo_path(args.output_dir), create=True)
