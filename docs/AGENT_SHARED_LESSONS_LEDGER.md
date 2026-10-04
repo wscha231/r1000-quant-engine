@@ -5974,6 +5974,77 @@ Expected contract:
   pre-event clock guards. Owner registered old-head regression fails four rename
   cases; unrelated identity/provider and older/post-event positives remain valid.
 
+### 2026-10-03 - Common bytes require a separate pin and leave semantics unverified
+
+- The prepared 13-role comparison prototype omitted three requested identities.
+  Native v2 requires all 16 roles and a caller context pin independent of either
+  arm; partial options must block before legacy metric reads.
+- Bound actual flat-file reads, descriptor identity, links and byte budgets.
+  Windows cross-descriptor timestamps require explicit birth time, not deprecated
+  ctime. Matching supplied bytes cannot certify provider/PIT or executed policy,
+  fix a conflicting legacy window claim, or grant economic/fullrun/book authority.
+
+### 2026-10-03 - Immutable admission includes output geometry and cached tails (#571 P2)
+
+- Reject report/input physical overlap before admission or legacy reads, even
+  when options or pins already block. A blocked report must never overwrite
+  pinned input bytes. Include symlink/junction and multiply linked report aliases.
+- Cache hits retain snapshot obligations. Revalidate the native root and every
+  returned leaf after the final read, including an entirely cached second arm.
+  Native receipts count actual unique-ID reads including preloaded arm files;
+  in-memory callable APIs count only their actual reads. Byte identity still
+  grants no provider/PIT, economic, fullrun or book authority.
+
+### 2026-10-03 - Resource and geometry guards must preserve their API contract (#571 P2)
+
+- A final unsafe-output guard must return a bounded blocked result to direct
+  callers as well as CLI users, without retrying publication or retaining rows.
+- Cap actual reads by observed size and both remaining byte allowances; charge
+  each return even before a later error. Final identity checks detect growth.
+- Bind physical endpoint/ancestor identities when path spelling can alias.
+  Preserve disjoint missing outputs; label POSIX spelling simulations separately
+  from actual Windows fixtures and do not claim macOS execution.
+
+### 2026-10-03 - Report publication needs native anchors and held inode ownership (#571 P2)
+
+- A final path check does not secure later mkdir/open/write. Anchor components
+  and write only new inodes; return bounded direct API failures as well as CLI2.
+- Test reached phases, native Windows locks, CREATE_NEW gaps and held-handle
+  deletion. Never retry cleanup against a raced new occupant after releasing
+  the old handle. POSIX cannot conditionally unlink an inode; retain incomplete
+  names on error. Install summary last and distinguish prior receipts on retry.
+- Do not claim three-file atomic publication or substitute old QA for new races.
+
+- Final installed names need inode and expected serialized-byte checks,
+  including the summary. Unverified retained names are not current receipts.
+  Stdout failure is telemetry only; never retry a failed publication to hide it.
+
+### 2026-10-04 - Residual witness entries forbid legacy downgrade (#571 P2)
+
+- Formal review of a622 found that stripping every publication indicator and
+  changing/removing the version let plain summaries bypass a remaining witness.
+  Twelve actual reader/queue counterexamples per mode still promoted those rows.
+- Probe the witness directory entry without following dangling links; any entry,
+  denied probe or observed path inconsistency must disable historical fallback.
+  Keep strict generation/hash validation on the same capped raw summary bytes.
+- Preserve true no-witness legacy and current witnessed positives. Assert actual
+  race reach and queue outcomes; native POSIX parent/FIFO cases need Linux, and
+  snapshot observations do not guarantee permanent absence or an OS sandbox.
+
+### 2026-10-05 - Keep rejected-root reports separate from admitted root anchors (#571 P2)
+
+- Formal review found that anchoring a rejected file/link root replaced the
+  original admission error and prevented a safe separate blocked receipt.
+- Anchor only the native resolver identity, including later blocked arm/byte
+  failures. Keep declared geometry checks for pre-root failures and publish
+  their original bounded reason with empty candidates and closed authority.
+- Completed blocked-report acknowledgement is not comparison admission. Test
+  actual four-file witness/consumer parity, API/CLI2, aliases and root moves.
+- A native counterexample moved the declared input directory after a pre-root
+  pin/options rejection. Retain observed endpoint/ancestor geometry apart
+  from admission and reject it before output mkdir/leaf adoption. Verify
+  phase reach and the entire moved input census, including witness leaves.
+
 ## 2026-10-03 — Close SQLite handles after blocked materialization
 
 - A SQLite connection context manages commit/rollback and does not close the
