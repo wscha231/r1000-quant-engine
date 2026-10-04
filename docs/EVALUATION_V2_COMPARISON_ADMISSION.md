@@ -137,7 +137,11 @@ fresh generation and immutable file snapshots. Missing, partial, stale,
 malformed or mixed-generation states expose no candidate rows. Unsupported or
 stripped required new metadata never falls back to historical consumption.
 Historical plain v1/no-version summaries without any new/comparison indicator
-retain ordinary legacy behavior. Historical opt-in summaries without a witness
+retain ordinary legacy behavior within the 1 MiB summary cap. The consumer checks
+the descriptor size before any summary read, allocation or JSON decoding, for
+every protocol version. Oversized historical plain summaries are now ineligible
+for queue transitions; they have no unbounded legacy fallback.
+Historical opt-in summaries without a witness
 are ineligible for queue transitions. A complete untouched prior receipt remains
 distinguishable from a failed retry; file existence alone proves neither.
 

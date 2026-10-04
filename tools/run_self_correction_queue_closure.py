@@ -88,13 +88,14 @@ def load_verifier_summaries(summary_paths: list[str], verifier_dirs: list[str]) 
 
 
 def read_verifier_summary(path: Path) -> dict[str, Any]:
-    """Historical plain summaries retain semantics; new receipts need a witness."""
+    """Size-bounded historical summaries retain semantics; new receipts need a witness."""
     descriptor = None
     try:
         # A changed special file cannot block before protocol classification.
         descriptor = os.open(path, os.O_RDONLY | getattr(os, 'O_NONBLOCK', 0) | getattr(os, 'O_BINARY', 0))
         before = os.fstat(descriptor)
         if not stat.S_ISREG(before.st_mode): return {}
+        if before.st_size > result_verifier.MAX_REPORT_BYTES: return {}
         remaining = before.st_size; parts = []
         while remaining:
             raw = os.read(descriptor, min(65536, remaining))

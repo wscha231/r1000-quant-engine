@@ -124,6 +124,80 @@ def test_queue_closure_maps_verifier_decisions_to_statuses() -> None:
             check.assertTrue((out / name).exists())
 
 
+class SummaryReadBudgetTests(unittest.TestCase):
+    def setUp(self):
+        from tools import run_self_correction_queue_closure as closure
+        self.closure = closure
+        self.temp = TemporaryDirectory(prefix='r1000-summary-budget-')
+        self.addCleanup(self.temp.cleanup)
+        self.area = Path(self.temp.name)
+        self.cap = closure.result_verifier.MAX_REPORT_BYTES
+
+    def payload(self, family):
+        payload = {'status': 'review_candidate_ready', 'candidates': [
+            {'experiment_id': 'bounded-summary', 'payload_hash': 'fixed-contract',
+             'decision': 'promote_candidate_review_only'}]}
+        if family == 'legacy_v1': payload['schema_version'] = 'ab-result-verifier-v1'
+        if family == 'current_v2':
+            payload.update(schema_version=self.closure.result_verifier.COMPARISON_SUMMARY_SCHEMA,
+                           comparison_publication={'schema': self.closure.result_verifier.PUBLICATION_SCHEMA,
+                                                   'generation': 'a' * 32}, current_receipt=True)
+        if family == 'historical_optin': payload['comparison_admission'] = {'status': 'BYTE_COMPARABLE_RESEARCH_ONLY'}
+        return payload
+
+    def consume(self, path, key):
+        queue = self.area / (key + '-queue.json')
+        write_json(queue, {'queued_experiments': [queue_item('bounded-summary', 'fixed-contract')]})
+        with contextlib.redirect_stdout(io.StringIO()):
+            return run(Namespace(queue_path=str(queue), verifier_summary=[str(path)], verifier_dir=[],
+                                 output_dir=str(self.area / (key + '-closure'))))
+
+    def test_every_oversized_summary_is_rejected_before_read_or_json_decode(self):
+        import os
+        families = ('legacy_no_version', 'legacy_v1', 'current_v2', 'historical_optin', 'malformed')
+        for family in families:
+            for size in (self.cap + 1, self.cap + 65536, self.cap * 2):
+                for dirname in ('ordinary', 'with spaces'):
+                    with self.subTest(family=family, size=size, directory=dirname):
+                        path = self.area / dirname / 'summary.json'; path.parent.mkdir(exist_ok=True)
+                        raw = b'{' if family == 'malformed' else json.dumps(self.payload(family)).encode('utf-8')
+                        path.write_bytes(raw + b' ' * (size - len(raw)))
+                        original_read, original_loads, original_stat = os.read, json.loads, os.fstat
+                        with patch.object(self.closure.os, 'read', wraps=original_read) as read, \
+                             patch.object(self.closure.json, 'loads', wraps=original_loads) as loads, \
+                             patch.object(self.closure.os, 'fstat', wraps=original_stat) as fstat:
+                            self.assertEqual(self.closure.read_verifier_summary(path), {})
+                        self.assertEqual(fstat.call_count, 1, 'actual initial descriptor size check was not reached')
+                        read.assert_not_called()
+                        loads.assert_not_called()
+                        with patch.object(self.closure.os, 'read', wraps=original_read) as read:
+                            self.assertEqual(self.closure.load_verifier_summaries([str(path)], []), [])
+                        read.assert_not_called()
+                        result = self.consume(path, str((family, size, dirname)))
+                        self.assertEqual(result['matched_item_count'], 0)
+                        self.assertEqual(result['ready_for_human_review_count'], 0)
+                        self.assertEqual(result['queue_state'][0]['status'], 'queued')
+
+    def test_legacy_small_and_exact_cap_summaries_retain_queue_transition_parity(self):
+        import os
+        for family in ('legacy_no_version', 'legacy_v1'):
+            expected = self.payload(family); raw = json.dumps(expected).encode('utf-8')
+            for size in (len(raw), self.cap - 1, self.cap):
+                for dirname in ('ordinary', 'with spaces'):
+                    with self.subTest(family=family, size=size, directory=dirname):
+                        path = self.area / dirname / 'summary.json'; path.parent.mkdir(exist_ok=True)
+                        path.write_bytes(raw + b' ' * (size - len(raw)))
+                        original_read = os.read
+                        with patch.object(self.closure.os, 'read', wraps=original_read) as read:
+                            self.assertEqual(self.closure.read_verifier_summary(path), expected)
+                        self.assertGreater(read.call_count, 0, 'bounded positive read was not reached')
+                        self.assertEqual(sum(call.args[1] for call in read.call_args_list), size)
+                        result = self.consume(path, str((family, size, dirname)))
+                        self.assertEqual(result['matched_item_count'], 1)
+                        self.assertEqual(result['ready_for_human_review_count'], 1)
+                        self.assertEqual(result['queue_state'][0]['status'], 'ready_for_human_review')
+
+
 class PublicationReceiptTests(unittest.TestCase):
     def setUp(self):
         from evaluation_v2_admission_smoke import AnchoredPublicationTests
@@ -179,6 +253,28 @@ class PublicationReceiptTests(unittest.TestCase):
                         self.assertEqual(row['is_cagr'], .31)
                     self.assertIs(consumed['production_mutation_allowed'], False)
                     self.assertIs(consumed['live_trading_allowed'], False)
+
+    def test_current_witnessed_summaries_at_or_below_cap_retain_candidate_parity(self):
+        import hashlib
+        import os
+        for default in (False, True):
+            for size in (self.verifier.MAX_REPORT_BYTES - 1, self.verifier.MAX_REPORT_BYTES):
+                with self.subTest(default=default, size=size):
+                    _, _, result, output = self.produce(default=default)
+                    path = output / 'summary.json'; raw = path.read_bytes()
+                    self.assertLess(len(raw), size)
+                    raw += b' ' * (size - len(raw)); path.write_bytes(raw)
+                    witness_path = output / self.verifier.COMPLETION_LEAF
+                    witness = json.loads(witness_path.read_bytes())
+                    witness['reports']['summary.json'] = {'bytes': size, 'sha256': hashlib.sha256(raw).hexdigest()}
+                    write_json(witness_path, witness)
+                    original_read = os.read
+                    with patch.object(self.closure.os, 'read', wraps=original_read) as read:
+                        summaries = self.closure.load_verifier_summaries([], [str(output)])
+                    self.assertGreater(read.call_count, 0, 'valid current summary read was not reached')
+                    self.assertEqual(len(summaries), 1)
+                    self.assertEqual(summaries[0]['candidates'], result['candidates'])
+                    self.assertEqual(self.consume(output)['ready_for_human_review_count'], 1)
 
     def test_missing_partial_stale_malformed_or_incomplete_witness_cannot_promote(self):
         for mutation in ('missing', 'empty', 'partial', 'array', 'wrong_schema', 'stale_generation',
@@ -458,6 +554,7 @@ class PublicationReceiptTests(unittest.TestCase):
 
 def main():
     suite = unittest.TestSuite([unittest.FunctionTestCase(test_queue_closure_maps_verifier_decisions_to_statuses),
+                               unittest.defaultTestLoader.loadTestsFromTestCase(SummaryReadBudgetTests),
                                unittest.defaultTestLoader.loadTestsFromTestCase(PublicationReceiptTests)])
     return 0 if unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful() else 1
 
