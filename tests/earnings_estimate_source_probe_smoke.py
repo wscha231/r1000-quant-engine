@@ -127,6 +127,7 @@ class SourceProbeTests(unittest.TestCase):
         self.assertEqual(len(transport.calls), 2)
         self.assertEqual(report["results"][0]["http_statuses"], [402])
         self.assertEqual(len(rows), 1)
+        self.assertEqual(report["status"], "SAMPLE_PROBED")
         self.assertNotIn(KEY2, json.dumps(report))
 
     def test_fmp_403_stops_without_switching_keys(self):
@@ -135,6 +136,94 @@ class SourceProbeTests(unittest.TestCase):
             quota_verified_at=NOW.isoformat(), env=ENV, transport=transport, now=lambda: NOW)
         self.assertEqual(len(transport.calls), 1)
         self.assertEqual(report["http_requests_attempted"], 1)
+        self.assertEqual(report["status"], "PROVIDER_AUTHORIZATION_REJECTED")
+
+    def test_fmp_auth_rejection_after_success_retains_data_but_is_terminal(self):
+        for provider, selected_key in (("fmp", KEY1), ("fmp2", KEY2)):
+            for status in (401, 403):
+                with self.subTest(provider=provider, status=status):
+                    transport = Transport(Response(FMP), Response({}, status),
+                                          Response([dict(FMP[0], symbol="TSLA")]))
+                    report, rows = probe.run_probe(provider, ["AAPL", "MSFT", "TSLA"],
+                        max_http=3, api_units=3, quota_verified_at=NOW.isoformat(),
+                        env=ENV, transport=transport, now=lambda: NOW)
+                    self.assertEqual(report["status"], "PROVIDER_AUTHORIZATION_REJECTED")
+                    self.assertEqual(report["results"][1]["http_statuses"], [status])
+                    self.assertEqual([r["ticker"] for r in report["results"]], ["AAPL", "MSFT"])
+                    self.assertEqual(len(rows), 1)
+                    self.assertEqual(rows[0]["est_eps_fy1"], 0)
+                    self.assertEqual(report["securities_with_observed_eps"], 1)
+                    self.assertEqual((report["http_requests_attempted"],
+                                      report["api_units_reserved_upper_bound"]), (2, 2))
+                    self.assertEqual(len(transport.calls), 2)
+                    self.assertEqual(len(transport.responses), 1)
+                    self.assertTrue(all(call[1]["params"]["apikey"] == selected_key
+                                        for call in transport.calls))
+                    self.assertNotIn(selected_key, json.dumps(report))
+
+    def test_cli_fmp_auth_rejection_after_success_exits_nonzero(self):
+        for provider in ("fmp", "fmp2"):
+            for status in (401, 403):
+                with self.subTest(provider=provider, status=status), tempfile.TemporaryDirectory() as folder:
+                    root = Path(folder).resolve()
+                    output = root / "outputs" / "earnings_estimate_source_probe" / "report.json"
+                    transport = Transport(Response(FMP), Response({}, status),
+                                          Response([dict(FMP[0], symbol="TSLA")]))
+                    argv = ["probe", "--provider", provider, "--tickers", "AAPL,MSFT,TSLA",
+                            "--max-http-requests", "3", "--verified-api-units", "3",
+                            "--quota-verified-at-utc", datetime.now(timezone.utc).isoformat(),
+                            "--output", str(output)]
+                    with patch.object(probe, "ROOT", root), patch.object(sys, "argv", argv), \
+                         patch.dict(os.environ, ENV, clear=True), \
+                         patch.object(probe.requests, "Session", return_value=transport), \
+                         contextlib.redirect_stdout(io.StringIO()):
+                        self.assertEqual(probe.main(), 2)
+                    report = json.loads(output.read_text(encoding="utf-8"))
+                    self.assertEqual(report["status"], "PROVIDER_AUTHORIZATION_REJECTED")
+                    self.assertEqual(report["source_snapshots_in_memory"], 1)
+                    self.assertEqual(report["securities_with_observed_eps"], 1)
+                    self.assertEqual(report["http_requests_attempted"], 2)
+                    self.assertEqual(len(transport.calls), 2)
+                    self.assertEqual(list(output.parent.glob(".estimate_probe_*.json")), [])
+
+    def test_eodhd_missing_security_identity_remains_unknown_with_other_metadata_complete(self):
+        payload = eod_payload()
+        for section in payload["Earnings"]["Trend"].values():
+            for item in section.values():
+                item.update(issuer_id="provider-issuer-123", accounting_basis="ADJUSTED",
+                            currency="USD", share_or_ADR_unit="PER_SHARE")
+        transport = Transport(Response({"apiRequests": "0", "dailyRateLimit": "20",
+                                        "apiRequestsDate": None}), Response(payload))
+        report, rows = probe.run_probe("eodhd", ["AAPL"], max_http=2, api_units=10,
+            env=ENV, transport=transport, now=lambda: NOW)
+        self.assertEqual(report["status"], "SAMPLE_PROBED")
+        self.assertEqual(report["results"][0]["records_with_verified_identity"], 0)
+        self.assertEqual(rows[0]["identity_status"], "UNKNOWN_IDENTITY")
+        records = json.loads(rows[0]["consensus_observations_json"])
+        self.assertEqual(len(records), 4)
+        self.assertTrue(all(record["identity"]["security_id"] is None for record in records))
+        self.assertTrue(all(record["identity"]["issuer_id"] == "provider-issuer-123" for record in records))
+        self.assertFalse(report["current_universe_usable_coverage_certified"])
+
+    def test_eodhd_explicit_security_identity_survives_all_periods_and_metrics(self):
+        payload = eod_payload()
+        for section in payload["Earnings"]["Trend"].values():
+            for item in section.values():
+                item.update(issuer_id="provider-issuer-123", security_id="provider-security-456",
+                            accounting_basis="ADJUSTED", currency="USD", share_or_ADR_unit="PER_SHARE")
+        transport = Transport(Response({"apiRequests": 0, "dailyRateLimit": 20,
+                                        "apiRequestsDate": None}), Response(payload))
+        report, rows = probe.run_probe("eodhd", ["AAPL"], max_http=2, api_units=10,
+            env=ENV, transport=transport, now=lambda: NOW)
+        records = json.loads(rows[0]["consensus_observations_json"])
+        self.assertEqual(len(records), 4)
+        self.assertEqual({record["identity"]["metric"] for record in records}, {"EPS", "REVENUE"})
+        self.assertEqual({record["identity"]["period_type"] for record in records}, {"ANNUAL", "QUARTERLY"})
+        self.assertTrue(all(record["identity"]["security_id"] == "provider-security-456" for record in records))
+        self.assertEqual(report["results"][0]["records_with_verified_identity"], 4)
+        self.assertEqual(rows[0]["identity_status"], "VERIFIED")
+        self.assertEqual(len(transport.calls), 2)
+        self.assertFalse(report["current_universe_usable_coverage_certified"])
 
     def test_eodhd_routes_new_secret_to_usage_and_fundamentals_only(self):
         transport = Transport(Response({"apiRequests": 0, "dailyRateLimit": 20,

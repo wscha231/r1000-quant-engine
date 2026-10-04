@@ -6024,3 +6024,20 @@ Expected contract:
   counter subtraction and pre-send budget reservations are unchanged.
 - See https://eodhd.com/financial-apis/api-limits. This second source correction
   changes the exact head; prior-head formal review is not current-head evidence.
+
+## 2026-10-04 — Preserve terminal probe access failures and provider identity
+
+- After formal review 5403673788 and independent normal/-O counterexamples,
+  the user explicitly authorized fixing the two defects first. This narrow
+  third correction supersedes the earlier stopped-cycle state; conditional
+  merge and the single bounded EODHD sample still require all review gates.
+- A successful FMP sample followed by 401/403 now retains its earlier data
+  while ending with PROVIDER_AUTHORIZATION_REJECTED/nonzero CLI status. It
+  stops later requests, keeps one chosen key, and preserves partial 402 success.
+- EODHD security_id is preserved only from response metadata. Its absence stays
+  null/UNKNOWN even when other identity fields are present; supplied identifiers
+  are not overwritten. Never manufacture ticker-to-security identity for counts.
+- Four new fixture cases cover both FMP aliases and 401/403 through real CLI,
+  missing identity with otherwise complete metadata and explicit identity across
+  annual/quarterly EPS/revenue. The registered H1 wrapper passes 107 normal/-O
+  tests. Fixture success does not prove real entitlement or usable data growth.

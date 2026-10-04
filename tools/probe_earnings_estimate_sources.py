@@ -131,7 +131,7 @@ def eodhd_payloads(payload, ticker):
                     "low": optional_float(item.get(name + "EstimateLow")),
                     "numberAnalysts": optional_float(item.get(name + "EstimateNumberOfAnalysts")),
                     # Missing economic identity is preserved; do not infer basis/ADR units.
-                    "issuer_id": item.get("issuer_id"), "security_id": "EODHD:" + ticker + ".US",
+                    "issuer_id": item.get("issuer_id"), "security_id": item.get("security_id"),
                     "accounting_basis": item.get("accounting_basis"),
                     "currency": item.get("currency"), "share_or_ADR_unit": item.get("share_or_ADR_unit")})
     return {"data": result["eps"]}, {"data": result["rev"]}
@@ -230,7 +230,7 @@ def run_probe(provider, tickers, *, max_http, api_units, quota_verified_at="",
                     codes = [int(error.get("status_code") or 0) for error in errors]
                     report["results"].append({"ticker": ticker, "status": "PROVIDER_REQUEST_FAILED", "http_statuses": codes})
                     if any(code in {401, 403} for code in codes):
-                        break
+                        raise ProbeBlocked("PROVIDER_AUTHORIZATION_REJECTED")
                     continue  # A security-specific FMP 402 does not disable successful securities.
                 snapshot = build_snapshot(ticker, eps_payload=eps, revenue_payload=rev,
                     recommendation_payload=None,
