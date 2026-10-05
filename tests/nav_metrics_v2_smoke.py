@@ -838,6 +838,90 @@ class HostedR3BindingCalendarResourceTests(unittest.TestCase):
             p.write_bytes(nav.encoded(context(rows())))
             self.assertEqual(nav.calculate(rows(),nav.load_context(p))['status'],nav.COMPLETE)
 
+
+class HostedR6NativeAttrsTests(unittest.TestCase):
+    def test_native_attrs_coercions_and_all_three_reader_guard_phases(self):
+        import tempfile,pandas as pd,pyarrow as pa,pyarrow.parquet as pq
+        from tools import run_weekly_evaluation as weekly,run_broker_ledger_replay as broker,execution_cost_model as cost
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);cache=root/'cache';cache.mkdir();out=root/'out';out.mkdir()
+            path=cache/weekly.px_cache_name('FIXTURE');leaf=out/nav.CURVE_FILE;foreign=out/'foreign'
+            table=pa.Table.from_pandas(pd.DataFrame(dict(date=['2026-07-27'],ticker=['FIXTURE'],side=['BUY'],observed_slippage_bps=[2.],value=[4.],Open=[100.],Close=[101.]),index=pd.DatetimeIndex(['2026-07-27'])))
+            @nav.research_io_guard('measurement_context')
+            def selected(role,phase,measurement_context):
+                nav.observe_research_publication(out,(nav.CURVE_FILE,),{path.resolve()},cache)
+                if phase=='after':nav.authorize_research_cleanup(out,(nav.CURVE_FILE,),{path.resolve()},cache)
+                if role=='price':return weekly.load_price_series(cache,'FIXTURE',strict_io=True)
+                if role=='rate':return broker.load_cash_rate_series(broker.CashCarryConfig(mode=broker.CASH_CARRY_MODE_RISK_FREE,rate_path=path),cache)
+                return cost.load_paper_slippage(path,strict_io=True)
+            for raw in (None,b'{}',b'[["fixture",true]]',b'[]',b'""',b'[1]',b'null',b'1',b'"x"',b'[[1]]'):
+                metadata=dict(table.schema.metadata or {})
+                if raw is not None:metadata[b'PANDAS_ATTRS']=raw
+                pq.write_table(table.replace_schema_metadata(metadata),path);before=path.read_bytes()
+                for role in ('price','rate','slippage'):
+                    for phase in ('before','after'):
+                        with self.subTest(raw=raw,role=role,phase=phase):
+                            leaf.write_bytes(b'prior');foreign.write_bytes(b'keep')
+                            result=selected(role,phase,measurement_context={})
+                            if raw in (None,b'{}',b'[["fixture",true]]',b'[]',b'""'):
+                                self.assertIsInstance(result,pd.DataFrame);self.assertEqual(len(result),1)
+                                self.assertEqual(leaf.read_bytes(),b'prior')
+                            else:
+                                self.assertEqual(result['status'],nav.BLOCKED,result);self.assertEqual(result['reason'],'RESEARCH_IO_FAILURE')
+                                self.assertEqual(result['selected_input_format'],'PARQUET');self.assertEqual(result['selected_input_cause'],'PandasAttrsShape')
+                                self.assertEqual(result['selected_input_reason'],'SELECTED_INPUT_PARQUET_ATTRS')
+                                self.assertFalse(result['current_publication_complete']);self.assertFalse(result['metric_admission_complete'])
+                                for field in nav.METRIC_FIELDS:self.assertIsNone(result[field])
+                                for field,value in nav.AUTHORITY.items():self.assertEqual(result[field],value)
+                                self.assertEqual(result['cleanup_complete'],phase=='after')
+                                if phase=='before':self.assertEqual(leaf.read_bytes(),b'prior')
+                                else:self.assertFalse(leaf.exists())
+                                json.dumps(result,allow_nan=False)
+                            self.assertEqual(path.read_bytes(),before);self.assertEqual(foreign.read_bytes(),b'keep')
+            self.assertTrue(cost.load_paper_slippage(None,strict_io=True).empty)
+            self.assertTrue(broker.load_cash_rate_series(broker.CashCarryConfig(),cache).empty)
+
+    def test_attrs_origin_mismatches_and_programming_errors_rethrow_unchanged(self):
+        import tempfile,pandas as pd,pyarrow as pa,pyarrow.parquet as pq
+        import pandas.io.parquet as parquet
+        from pandas.core.generic import NDFrame
+        from tools import run_weekly_evaluation as weekly,run_broker_ledger_replay as broker,execution_cost_model as cost
+        with tempfile.TemporaryDirectory() as td:
+            cache=Path(td);path=cache/weekly.px_cache_name('FIXTURE')
+            table=pa.Table.from_pandas(pd.DataFrame(dict(date=['2026-07-27'],ticker=['FIXTURE'],side=['BUY'],observed_slippage_bps=[2.],value=[4.],Open=[100.],Close=[101.]),index=pd.DatetimeIndex(['2026-07-27'])))
+            original_read=parquet.arrow_table_to_pandas;original_attrs=NDFrame.attrs
+            class ForeignFrame(pd.DataFrame):pass
+            class ForeignEngine(parquet.PyArrowImpl):pass
+            def foreign_result(*a,**kw):return ForeignFrame(original_read(*a,**kw))
+            def intervening_setter(self,value):return original_attrs.fset(self,value)
+            @nav.research_io_guard('measurement_context')
+            def selected(role,measurement_context):
+                if role=='price':return weekly.load_price_series(cache,'FIXTURE',strict_io=True)
+                if role=='rate':return broker.load_cash_rate_series(broker.CashCarryConfig(mode=broker.CASH_CARRY_MODE_RISK_FREE,rate_path=path),cache)
+                return cost.load_paper_slippage(path,strict_io=True)
+            for role in ('price','rate','slippage'):
+                for raw in (b'[1]',b'"x"'):
+                    pq.write_table(table.replace_schema_metadata({**(table.schema.metadata or {}),b'PANDAS_ATTRS':raw}),path)
+                    expected=TypeError if raw==b'[1]' else ValueError;before=path.read_bytes()
+                    for kind in ('foreign_receiver','foreign_result','extra_setter_frame'):
+                        with self.subTest(role=role,raw=raw,kind=kind):
+                            manager=patch.object(parquet,'get_engine',return_value=ForeignEngine()) if kind=='foreign_receiver' else patch.object(parquet,'arrow_table_to_pandas',foreign_result) if kind=='foreign_result' else patch.object(NDFrame,'attrs',property(original_attrs.fget,intervening_setter))
+                            with manager,self.assertRaises(expected):selected(role,measurement_context={})
+                            self.assertEqual(path.read_bytes(),before)
+                pq.write_table(table,path);before=path.read_bytes()
+                for error in (TypeError('SELECTED_INPUT_PARQUET_ATTRS'),ValueError('SELECTED_INPUT_PARQUET_ATTRS')):
+                    for phase in ('raw','postread'):
+                        with self.subTest(role=role,phase=phase,error=type(error).__name__):
+                            target='read_parquet' if phase=='raw' else 'to_numeric' if role=='slippage' else 'to_datetime'
+                            with patch.object(pd,target,side_effect=error),self.assertRaises(type(error)) as caught:selected(role,measurement_context={})
+                            self.assertIs(caught.exception,error);self.assertEqual(path.read_bytes(),before)
+                # The unchanged legacy fallback remains different from opt-in admission.
+                pq.write_table(table.replace_schema_metadata({**(table.schema.metadata or {}),b'PANDAS_ATTRS':b'[1]'}),path)
+                if role=='price':self.assertTrue(weekly.load_price_series(cache,'FIXTURE').empty)
+                elif role=='slippage':self.assertTrue(cost.load_paper_slippage(path).empty)
+                else:self.assertTrue(broker.load_cash_rate_series(broker.CashCarryConfig(mode=broker.CASH_CARRY_MODE_RISK_FREE,rate_path=path),cache).empty)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 

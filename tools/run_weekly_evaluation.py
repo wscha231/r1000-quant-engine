@@ -126,6 +126,53 @@ def load_price_series(
                 failure.selected_input_cause = type(exc).__name__
                 failure.selected_input_reason = "SELECTED_INPUT_DECODE"
                 raise failure from exc
+            except (TypeError, ValueError) as exc:
+                # Only native PANDAS_ATTRS conversion, never an arbitrary backend error.
+                from pandas.io.parquet import PyArrowImpl
+                from pandas.core.generic import NDFrame
+                from pyarrow import Table
+                cursor = exc.__traceback__
+                tail = []
+                count = 0
+                recognized = False
+                read_frame = set_frame = attrs_frame = read_locals = set_locals = attrs_locals = table = metadata = value = None
+                try:
+                    while cursor is not None and count < 32:
+                        tail = (tail + [cursor])[-3:]
+                        cursor = cursor.tb_next
+                        count += 1
+                    if cursor is None and len(tail) == 3:
+                        read_frame, set_frame, attrs_frame = (point.tb_frame for point in tail)
+                        if (read_frame.f_code is getattr(PyArrowImpl.read, "__code__", None)
+                                and set_frame.f_code is getattr(NDFrame.__setattr__, "__code__", None)
+                                and attrs_frame.f_code is getattr(getattr(NDFrame.attrs, "fset", None), "__code__", None)):
+                            read_locals, set_locals, attrs_locals = read_frame.f_locals, set_frame.f_locals, attrs_frame.f_locals
+                            table, metadata, value = read_locals.get("pa_table"), read_locals.get("df_metadata"), attrs_locals.get("value")
+                            recognized = (
+                                all(name in read_locals for name in ("self", "result", "pa_table", "df_metadata"))
+                                and all(name in set_locals for name in ("self", "name", "value"))
+                                and all(name in attrs_locals for name in ("self", "value"))
+                                and type(read_locals["self"]) is PyArrowImpl
+                                and type(read_locals["result"]) is pd.DataFrame
+                                and read_locals["result"] is set_locals["self"] is attrs_locals["self"]
+                                and read_locals["self"] is not attrs_locals["self"]
+                                and set_locals["name"] == "attrs"
+                                and set_locals["value"] is value
+                                and type(table) is Table and type(metadata) is bytes
+                                and table.schema.metadata is not None
+                                and table.schema.metadata.get(b"PANDAS_ATTRS") == metadata
+                                and type(value) in (type(None), bool, int, float, str, list, dict)
+                            )
+                finally:
+                    tail.clear()
+                    cursor = read_frame = set_frame = attrs_frame = read_locals = set_locals = attrs_locals = table = metadata = value = None
+                if not recognized:
+                    raise
+                failure = OSError("SELECTED_INPUT_PARQUET_ATTRS")
+                failure.selected_input_format = "PARQUET"
+                failure.selected_input_cause = "PandasAttrsShape"
+                failure.selected_input_reason = "SELECTED_INPUT_PARQUET_ATTRS"
+                raise failure from exc
         else:
             px = pd.read_parquet(path)
     except FileNotFoundError:

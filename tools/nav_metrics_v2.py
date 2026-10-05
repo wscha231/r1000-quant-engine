@@ -342,10 +342,10 @@ def research_io_guard(context_argument):
                 formats = {
                     "CSV": {"UnicodeDecodeError", "ParserError", "EmptyDataError", "DateParseError"},
                     "JSON": {"UnicodeDecodeError", "JSONDecodeError", "JSONRootType", "JSONAuditType"},
-                    "PARQUET": {"ArrowInvalid", "UnicodeDecodeError", "JSONDecodeError", "DateParseError"},
+                    "PARQUET": {"ArrowInvalid", "UnicodeDecodeError", "JSONDecodeError", "DateParseError", "PandasAttrsShape"},
                 }
                 reasons = {"SELECTED_INPUT_DECODE", "SELECTED_INPUT_DATE",
-                           "SELECTED_INPUT_JSON_OBJECT", "SELECTED_INPUT_JSON_AUDIT_OBJECT"}
+                           "SELECTED_INPUT_JSON_OBJECT", "SELECTED_INPUT_JSON_AUDIT_OBJECT", "SELECTED_INPUT_PARQUET_ATTRS"}
                 input_format = getattr(exc, "selected_input_format", None)
                 cause = getattr(exc, "selected_input_cause", None)
                 reason = getattr(exc, "selected_input_reason", None)

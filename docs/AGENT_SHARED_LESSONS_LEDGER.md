@@ -6325,3 +6325,10 @@ Expected contract:
   keep programming errors, default absence and cost/date formulas unchanged.
   Match helper arity and frozen import namespaces in negative harnesses; separate
   harness failures from real input failures and bind corrected evidence explicitly.
+- Parquet metadata can decode as valid JSON yet fail in native attrs conversion.
+  Bind the exact read/__setattr__/setter code chain, distinct engine and paired
+  DataFrame/value/consumed metadata before normalizing; native successful coercions
+  remain valid. Re-raise unmatched programming/backend errors, inspect transiently
+  without a second source read, and record dependency/platform limits explicitly.
+- Frame-locals proxies need fixed-key membership across Python versions;
+  bind negative link expectations to actual input preservation and caller rules.

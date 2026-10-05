@@ -1791,6 +1791,52 @@ class ResearchNavCallerTests(unittest.TestCase):
         self.assertEqual(self.target.read_bytes(),before);self.assertFalse(result['fullrun_allowed'])
 
 
+
+    def test_attrs_actual_replay_and_cli_preserve_null_incomplete_input_and_aliases(self):
+        import subprocess,pyarrow as pa,pyarrow.parquet as pq
+        from tools import nav_metrics_v2 as nav
+        from tools.execution_cost_model import ExecutionCostConfig
+        self.write_prices([100.]*4);price=self.cache/px_cache_name('AAA');pristine=price.read_bytes();table=pa.Table.from_pandas(pd.read_parquet(price))
+        dest=self.out/nav.NAMESPACE
+        for role in ('price','rate','slippage'):
+            for raw in (b'[1]',b'null',b'1',b'"x"',b'[[1]]'):
+                with self.subTest(role=role,raw=raw):
+                    price.write_bytes(pristine);self.assertEqual(self.run_replay(measurement_context=self.measurement())['status'],nav.COMPLETE)
+                    foreign=dest/'foreign';foreign.write_bytes(b'keep');archive=dest/'archive';archive.mkdir(exist_ok=True);(archive/'note').write_bytes(b'nested keep')
+                    source=price if role=='price' else self.root/(role+'.parquet')
+                    evidence=table if role=='price' else pa.Table.from_pandas(pd.DataFrame(dict(date=['2026-01-02'],ticker=['AAA'],side=['BUY'],observed_slippage_bps=[1.],value=[4.])))
+                    pq.write_table(evidence.replace_schema_metadata({**(evidence.schema.metadata or {}),b'PANDAS_ATTRS':raw}),source)
+                    options=dict(cash_carry_config=CashCarryConfig(mode='risk_free_rate',rate_path=source),reserve_mode='DGS3MO_CARRY') if role=='rate' else dict(execution_cost_config=ExecutionCostConfig(mode='spread_adv_impact_v1',paper_slippage_path=source)) if role=='slippage' else {}
+                    before={p:p.read_bytes() for p in [self.target,*self.cache.iterdir(),source]}
+                    result=self.run_replay(measurement_context=self.measurement(),**options)
+                    self.assertEqual(result['status'],nav.BLOCKED,result);self.assertEqual(result['selected_input_cause'],'PandasAttrsShape')
+                    self.assertEqual(result['selected_input_reason'],'SELECTED_INPUT_PARQUET_ATTRS');self.assertFalse(result['current_publication_complete'])
+                    self.assertTrue(result['cleanup_complete']);self.assertFalse(result['metric_admission_complete'])
+                    for field in nav.METRIC_FIELDS:self.assertIsNone(result[field])
+                    for field,value in nav.AUTHORITY.items():self.assertEqual(result[field],value)
+                    self.assertFalse((dest/nav.CURVE_FILE).exists());self.assertEqual({p:p.read_bytes() for p in before},before)
+                    self.assertEqual(foreign.read_bytes(),b'keep');self.assertEqual((archive/'note').read_bytes(),b'nested keep');json.dumps(result,allow_nan=False)
+        context=self.root/'attrs-context.json';context.write_text(json.dumps(self.measurement()))
+        cmd=[sys.executable]+(['-O'] if sys.flags.optimize else [])+[str(ROOT/'tools/run_broker_ledger_replay.py'),'--target-book',str(self.target),'--price-cache',str(self.cache),'--output-dir',str(self.out),'--cash-carry-mode','none','--nav-metrics-context',str(context)]
+        pq.write_table(table.replace_schema_metadata({**(table.schema.metadata or {}),b'PANDAS_ATTRS':b'[[1]]'}),price)
+        # Child must hit the actual malformed selected price reader.
+        child=subprocess.run(cmd,capture_output=True,text=True,encoding='utf-8',timeout=60)
+        self.assertEqual(child.returncode,2,child.stderr);self.assertNotIn('Traceback',child.stderr)
+        result=json.loads(child.stdout);self.assertEqual(result['selected_input_cause'],'PandasAttrsShape');self.assertFalse(result['current_publication_complete'])
+        self.assertFalse(result['metric_admission_complete']);self.assertFalse((dest/nav.CURVE_FILE).exists())
+        # A reverse cache/output hard alias is refused before deletion or parsing.
+        price.write_bytes(pristine);leaf=dest/nav.CURVE_FILE;leaf.write_bytes(pristine);price.unlink();__import__('os').link(leaf,price)
+        before=price.read_bytes();result=self.run_replay(measurement_context=self.measurement())
+        self.assertEqual(result['status'],nav.COMPLETE);self.assertEqual(price.read_bytes(),before)
+        self.assertEqual(foreign.read_bytes(),b'keep');self.assertTrue(leaf.exists())
+        # Removing one generated hard-link name preserves the still-linked input.
+        with __import__('unittest').mock.patch.object(self,'out',self.cache):
+            refused=self.run_replay(measurement_context=self.measurement())
+        self.assertEqual(refused['status'],nav.BLOCKED);self.assertFalse(refused['cleanup_complete'])
+        self.assertEqual(price.read_bytes(),before)
+        price.unlink();price.write_bytes(pristine);self.assertEqual(self.run_replay(measurement_context=self.measurement())['status'],nav.COMPLETE)
+
+
 def main() -> int:
     test_missing_liquidation_fill_fails_closed_before_state_mutation()
     test_multi_day_transition_fails_closed_before_state_mutation()

@@ -675,6 +675,42 @@ class ResearchWeeklyCallerTests(__import__('unittest').TestCase):
         self.assertEqual(foreign.read_bytes(),b'keep');self.assertFalse(result['fullrun_allowed'])
 
 
+
+    def test_attrs_actual_weekly_guard_and_cli_keep_protected_inputs_and_foreign(self):
+        import subprocess,sys,json,pyarrow as pa,pyarrow.parquet as pq
+        from tools import nav_metrics_v2 as nav
+        price=self.cache/px_cache_name('AAA');pristine=price.read_bytes();table=pa.Table.from_pandas(pd.read_parquet(price));dest=self.out/nav.NAMESPACE
+        for raw in (b'[1]',b'null',b'1',b'"x"',b'[[1]]'):
+            with self.subTest(raw=raw):
+                price.write_bytes(pristine);self.assertEqual(run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())['status'],nav.COMPLETE)
+                foreign=dest/'foreign';foreign.write_bytes(b'keep');nested=dest/'nested';nested.mkdir(exist_ok=True);(nested/'note').write_bytes(b'keep nested')
+                pq.write_table(table.replace_schema_metadata({**(table.schema.metadata or {}),b'PANDAS_ATTRS':raw}),price)
+                before={p:p.read_bytes() for p in [*self.cache.iterdir(),*self.reports.iterdir()]}
+                result=run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())
+                self.assertEqual(result['status'],nav.BLOCKED,result);self.assertEqual(result['selected_input_reason'],'SELECTED_INPUT_PARQUET_ATTRS')
+                self.assertEqual(result['selected_input_cause'],'PandasAttrsShape');self.assertTrue(result['cleanup_complete'])
+                self.assertFalse(result['current_publication_complete']);self.assertFalse(result['metric_admission_complete'])
+                for field in nav.METRIC_FIELDS:self.assertIsNone(result[field])
+                for field,value in nav.AUTHORITY.items():self.assertEqual(result[field],value)
+                self.assertFalse((dest/'weekly_equity_curve.research_v2.csv').exists());json.dumps(result,allow_nan=False)
+                self.assertEqual({p:p.read_bytes() for p in before},before);self.assertEqual(foreign.read_bytes(),b'keep');self.assertEqual((nested/'note').read_bytes(),b'keep nested')
+        context=self.root/'attrs-context.json';context.write_text(json.dumps(self.measurement()))
+        cmd=[sys.executable]+(['-O'] if sys.flags.optimize else [])+[str(ROOT/'tools/run_weekly_evaluation.py'),'--latest-run',str(self.latest),'--output-dir',str(self.out),'--price-cache',str(self.cache),'--nav-metrics-context',str(context)]
+        child=subprocess.run(cmd,capture_output=True,text=True,encoding='utf-8',timeout=60)
+        self.assertEqual(child.returncode,2,child.stderr);self.assertNotIn('Traceback',child.stderr)
+        result=json.loads(child.stdout);self.assertEqual(result['selected_input_cause'],'PandasAttrsShape');self.assertFalse(result['current_publication_complete'])
+        self.assertFalse(result['metric_admission_complete']);self.assertFalse((dest/'weekly_equity_curve.research_v2.csv').exists())
+        # Reverse input alias remains protected even when it holds genuine Parquet bytes.
+        price.write_bytes(pristine);leaf=dest/'weekly_equity_curve.research_v2.csv';leaf.write_bytes(pristine);price.unlink();__import__('os').link(leaf,price)
+        before=price.read_bytes();result=run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())
+        self.assertEqual(result['status'],nav.COMPLETE);self.assertEqual(price.read_bytes(),before)
+        self.assertEqual(foreign.read_bytes(),b'keep');self.assertTrue(leaf.exists())
+        refused=run(self.latest,self.cache,self.cache,measurement_contexts=self.measurement())
+        self.assertEqual(refused['status'],nav.BLOCKED);self.assertFalse(refused['cleanup_complete'])
+        self.assertEqual(price.read_bytes(),before)
+        price.unlink();price.write_bytes(pristine);self.assertEqual(run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())['status'],nav.COMPLETE)
+
+
 def main() -> int:
     test_weekly_evaluation_marks_to_weekly_and_reports_staleness()
     import unittest
