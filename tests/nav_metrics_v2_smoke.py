@@ -441,6 +441,64 @@ class NavMetricTests(unittest.TestCase):
         self.assertEqual(nav.calculate_frame(f,c,valuation_binding=b,date_range=(data[0]['session'],data[0]['session']),label='is')['status'],nav.COMPLETE)
 
 
+    def test_zero_flow_receipt_clock_covers_terminal_for_empty_and_zero_events(self):
+        for frequency in ('daily','weekly'):
+            data=rows() if frequency=='daily' else [dict(session=d,timestamp=d+'T21:00:00Z',nav=v) for d,v in zip(('2026-01-09','2026-01-16','2026-01-23'),(90.,95.,95.))]
+            for count in (0,1,2):
+                for kind in ('before_anchor','anchor','between','end_minus_microsecond','end','equivalent_UTC','after_end','future','naive','malformed','missing'):
+                    with self.subTest(frequency=frequency,events=count,kind=kind):
+                        c=context(data,frequency=frequency);end=nav.stamp(data[-1]['timestamp']);anchor=nav.stamp(c['anchor']['timestamp'])
+                        c['cutoff']=(end+timedelta(hours=1)).isoformat();f=c['external_flows']
+                        f['events']=[dict(timestamp=t,amount=0.) for t in (f['start'],f['end'])[:count]]
+                        clocks=dict(before_anchor=anchor-timedelta(microseconds=1),anchor=anchor,between=end-timedelta(hours=1),
+                                    end_minus_microsecond=end-timedelta(microseconds=1),end=end,equivalent_UTC=end,
+                                    after_end=end+timedelta(minutes=30),future=end+timedelta(hours=1,microseconds=1))
+                        clock=clocks.get(kind,end).isoformat()
+                        if kind=='equivalent_UTC':clock=clock.replace('+00:00','Z')
+                        if kind=='naive':clock=end.replace(tzinfo=None).isoformat()
+                        if kind=='malformed':clock='not-a-clock'
+                        f['ref']=ref({k:v for k,v in f.items() if k!='ref'},'actual-zero-scope',clock)
+                        if kind=='missing':f['ref'].pop('available_at')
+                        before=nav.encoded(c);original=copy.deepcopy(data);result=nav.calculate(data,c)
+                        if kind in ('end','equivalent_UTC','after_end'):
+                            self.assertEqual(result['status'],nav.COMPLETE,result);self.assertAlmostEqual(result['max_dd'],-.1)
+                        else:
+                            self.assertBlocked(result)
+                            if kind in ('before_anchor','anchor','between','end_minus_microsecond'):
+                                self.assertEqual(result['reason'],'FLOW_RECEIPT_PRECEDES_SCOPE_END')
+                        self.assertEqual(nav.encoded(c),before);self.assertEqual(data,original)
+                        self.assertFalse(result['eligible_for_selector']);self.assertFalse(result['fullrun_allowed'])
+        c=context(rows());self.assertEqual(c['anchor']['ref']['available_at'],c['grid']['ref']['available_at'])
+        self.assertEqual(nav.calculate(rows(),c)['status'],nav.COMPLETE)
+
+    def test_RF_aggregate_receipt_covers_row_availability_without_terminal_rule(self):
+        for early in (False,True):
+            for kind in ('before_rows','at_rows','equivalent_UTC','after_rows','future','naive','missing','hash','row_future'):
+                with self.subTest(early=early,kind=kind):
+                    data=rows();c=context(data);c['cutoff']='2026-01-07T22:00:00Z';rf=c['risk_free']
+                    if early:
+                        for row in rf['rows']:row['available_at']=c['anchor']['timestamp']
+                    last=max(nav.stamp(row['available_at']) for row in rf['rows']);clock=last.isoformat()
+                    if kind=='before_rows':clock=(last-timedelta(microseconds=1)).isoformat()
+                    elif kind=='equivalent_UTC':clock=last.isoformat().replace('+00:00','Z')
+                    elif kind=='after_rows':clock=(last+timedelta(seconds=1)).isoformat()
+                    elif kind=='future':clock='2026-01-07T22:00:01Z'
+                    elif kind=='naive':clock=last.replace(tzinfo=None).isoformat()
+                    elif kind=='row_future':rf['rows'][0]['available_at']='2026-01-05T21:00:01Z'
+                    rf['ref']=ref(rf['rows'],'actual-interval-RF-receipt',clock)
+                    if kind=='missing':rf['ref'].pop('available_at')
+                    if kind=='hash':rf['ref']['sha256']='0'*64
+                    before=nav.encoded(c);result=nav.calculate(data,c)
+                    if kind in ('at_rows','equivalent_UTC','after_rows'):
+                        self.assertEqual(result['status'],nav.COMPLETE,result)
+                        if early:self.assertLess(nav.stamp(clock),nav.stamp(data[-1]['timestamp']))
+                    else:
+                        self.assertBlocked(result)
+                        if kind=='before_rows':self.assertEqual(result['reason'],'RF_RECEIPT_PRECEDES_ROW_AVAILABILITY')
+                        if kind=='row_future':self.assertEqual(result['reason'],'RF_FUTURE')
+                    self.assertEqual(nav.encoded(c),before)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 

@@ -277,6 +277,29 @@ class ResearchOOSAdmissionTests(__import__('unittest').TestCase):
         self.assertEqual(calc_metrics(curve,trades.iloc[:0],100.,date_range=('2026-01-06',None),measurement_context=c['oos'])['trade_count'],0)
 
 
+    def test_full_OOS_OOS2_receipts_cover_scope_without_changing_predecessor(self):
+        import copy
+        from tools import nav_metrics_v2 as nav
+        from nav_metrics_v2_smoke import ref
+        data,curve,c=self.windows()
+        for label in ('full','oos','oos2'):
+            for kind in ('flow_empty','flow_zero','RF'):
+                for valid in (False,True):
+                    with self.subTest(label=label,kind=kind,valid=valid):
+                        context=copy.deepcopy(c['full'] if label=='full' else c['oos']);scope=None if label=='full' else ('2026-01-06',None)
+                        if kind.startswith('flow'):
+                            f=context['external_flows']
+                            if kind=='flow_zero':f['events']=[dict(timestamp=f['end'],amount=0.)]
+                            f['ref']=ref({k:v for k,v in f.items() if k!='ref'},'actual-window-zero-flow',f['end'] if valid else f['start'])
+                        else:context['risk_free']['ref']['available_at']=data[-1]['timestamp'] if valid else context['anchor']['timestamp']
+                        old=nav.encoded(context);before=curve.copy(deep=True)
+                        result=calc_metrics(curve,_empty_trades(),100.,date_range=scope,label=label,measurement_context=context)
+                        self.assertEqual(result['status'],nav.COMPLETE if valid else nav.BLOCKED,result)
+                        if valid:self.assertEqual(result['starting_capital_usd'],100. if label=='full' else 90.)
+                        else:self.assertIsNone(result['cagr']);self.assertFalse(result['metric_admission_complete'])
+                        self.assertFalse(result['fullrun_allowed']);self.assertEqual(nav.encoded(context),old);pd.testing.assert_frame_equal(curve,before)
+
+
 if __name__ == "__main__":
     test_full_window_metrics_backcompat()
     test_date_range_slices_and_reanchors_capital()

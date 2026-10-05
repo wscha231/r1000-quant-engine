@@ -1420,6 +1420,42 @@ class ResearchNavCallerTests(unittest.TestCase):
         self.assertNotIn('cagr',failed)
 
 
+    def test_actual_full_OOS_flow_and_RF_receipts_preserve_inputs_and_block_exports(self):
+        import copy
+        from tools import nav_metrics_v2 as nav
+        from nav_metrics_v2_smoke import rows,context,binding,ref
+        self.write_prices([100.]*4);self.assertEqual(self.run_replay()['status'],'completed')
+        official={p.name:p.read_bytes() for p in self.out.iterdir() if p.is_file()}
+        sources={p:p.read_bytes() for p in [self.target,*self.cache.iterdir()] if p.is_file()}
+        data=rows((9987.5,9987.5,9987.5));first=context(data[:1],anchor_nav=10000.);first['cutoff']=data[-1]['timestamp']
+        later=context(data[1:],anchor_nav=data[0]['nav'],anchor_time=data[0]['timestamp'],anchor_kind='OOS_PREDECESSOR')
+        good=dict(full=context(data,anchor_nav=10000.),valuation_binding=binding(data),windows={'is':first,'oos':later})
+        dest=self.out/nav.NAMESPACE
+        for label in ('full','oos'):
+            for kind in ('flow_empty','flow_zero','RF'):
+                for valid in (False,True):
+                    with self.subTest(label=label,kind=kind,valid=valid):
+                        c=copy.deepcopy(good);m=c['full'] if label=='full' else c['windows'][label]
+                        if kind.startswith('flow'):
+                            f=m['external_flows']
+                            if kind=='flow_zero':f['events']=[dict(timestamp=f['end'],amount=0.)]
+                            f['ref']=ref({k:v for k,v in f.items() if k!='ref'},'actual-ledger-zero-flow',f['end'] if valid else f['start'])
+                        else:m['risk_free']['ref']['available_at']=data[-1]['timestamp'] if valid else m['anchor']['timestamp']
+                        before=nav.encoded(c)
+                        self.assertEqual(self.run_replay(measurement_context=good,oos_start='2026-01-06')['status'],nav.COMPLETE)
+                        (dest/'caller_note.txt').write_bytes(b'preserve unrelated note')
+                        result=self.run_replay(measurement_context=c,oos_start='2026-01-06');selected=result if label=='full' else result['windows'][label]
+                        if not valid:
+                            self.assertEqual(result['status'],nav.BLOCKED,result);self.assertEqual(selected['status'],nav.BLOCKED,selected)
+                            self.assertIsNone(selected['cagr']);self.assertFalse(selected['metric_admission_complete'])
+                            self.assertFalse((dest/nav.CURVE_FILE).exists());self.assertFalse((dest/nav.artifact_name('account_state_latest.json')).exists())
+                        else:self.assertEqual(result['status'],nav.COMPLETE,result);self.assertEqual(selected['status'],nav.COMPLETE,selected)
+                        self.assertFalse(result['fullrun_allowed']);self.assertFalse(result['valid_for_production'])
+                        self.assertEqual(nav.encoded(c),before);self.assertEqual({p:p.read_bytes() for p in sources},sources)
+                        self.assertEqual({p.name:p.read_bytes() for p in self.out.iterdir() if p.is_file()},official)
+                        self.assertEqual((dest/'caller_note.txt').read_bytes(),b'preserve unrelated note')
+
+
 def main() -> int:
     test_missing_liquidation_fill_fails_closed_before_state_mutation()
     test_multi_day_transition_fails_closed_before_state_mutation()

@@ -6278,3 +6278,7 @@ Expected contract:
   default constructor/cost normalization. Rejected weekly package shapes have
   no eval date; only four own freshness expectations change to unknown, with
   all blocked/null/no-curve assertions retained. Record failed freezes honestly.
+- Zero-flow absence receipts must cover the scope end, including empty/zero
+  events. RF aggregate availability must cover actual row clocks, while valid
+  early RF rows and independent anchor/grid remain eligible. Preserve cutoff
+  bounds and supplied clocks; never restamp receipts to clear admission.

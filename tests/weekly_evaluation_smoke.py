@@ -494,6 +494,36 @@ class ResearchWeeklyCallerTests(__import__('unittest').TestCase):
         self.assertEqual(run(self.latest,self.out,self.cache,measurement_contexts=good)['status'],nav.COMPLETE)
 
 
+    def test_weekly_flow_and_RF_receipts_block_without_restamping_or_source_mutation(self):
+        import copy
+        from tools import nav_metrics_v2 as nav
+        from nav_metrics_v2_smoke import ref
+        good=self.measurement();self.assertEqual(run(self.latest,self.out,self.cache)['status'],'ok')
+        official={p.name:p.read_bytes() for p in self.out.iterdir() if p.is_file()}
+        inputs={p:p.read_bytes() for p in [*self.reports.iterdir(),*self.cache.iterdir(),self.latest/'scored_latest.csv'] if p.is_file()};dest=self.out/nav.NAMESPACE
+        for portfolio in ('main','concentrated'):
+            for kind in ('flow_empty','flow_zero','RF'):
+                for valid in (False,True):
+                    with self.subTest(portfolio=portfolio,kind=kind,valid=valid):
+                        c=copy.deepcopy(good);m=c[portfolio]['full']
+                        if kind.startswith('flow'):
+                            f=m['external_flows']
+                            if kind=='flow_zero':f['events']=[dict(timestamp=f['end'],amount=0.)]
+                            f['ref']=ref({k:v for k,v in f.items() if k!='ref'},'actual-weekly-zero-flow',f['end'] if valid else f['start'])
+                        else:m['risk_free']['ref']['available_at']=m['risk_free']['rows'][-1]['available_at'] if valid else m['anchor']['timestamp']
+                        before=nav.encoded(c);self.assertEqual(run(self.latest,self.out,self.cache,measurement_contexts=good)['status'],nav.COMPLETE)
+                        (dest/'caller_note.txt').write_bytes(b'preserve weekly note');result=run(self.latest,self.out,self.cache,measurement_contexts=c)
+                        self.assertEqual(result['status'],nav.COMPLETE if valid else nav.BLOCKED,result);selected=result['metrics'][portfolio]
+                        if not valid:
+                            self.assertEqual(selected['status'],nav.BLOCKED);self.assertIsNone(selected['cagr'])
+                            self.assertFalse(result['metric_admission_complete']);self.assertFalse(list(dest.glob('*.csv')))
+                        else:self.assertEqual(selected['status'],nav.COMPLETE)
+                        self.assertFalse(result['fullrun_allowed']);self.assertFalse(result['valid_for_production'])
+                        self.assertEqual(nav.encoded(c),before);self.assertEqual({p:p.read_bytes() for p in inputs},inputs)
+                        self.assertEqual({p.name:p.read_bytes() for p in self.out.iterdir() if p.is_file()},official)
+                        self.assertEqual((dest/'caller_note.txt').read_bytes(),b'preserve weekly note')
+
+
 def main() -> int:
     test_weekly_evaluation_marks_to_weekly_and_reports_staleness()
     import unittest

@@ -25,8 +25,8 @@
   "anchor": "Independent PREFILL/OOS_PREDECESSOR NAV/time/ref before scored rows; labels oos/oos2 always require a nonempty date range with a real immediate prior caller row, exact NAV/time/kind. First/before-first OOS or omitted date range rejects. Full/IS intended PREFILL behavior remains. Anchor is not scored grid row.",
   "NAV": "Strict finite positive real nonboolean; zero unsupported retained blocked/null, never dropped.",
   "CAGR": "ACT/365.25 exact aware elapsed anchor-to-terminal seconds; no epsilon/session-count substitution.",
-  "flows": "Explicit hash-bound ZERO_EXTERNAL_FLOW_ONLY with exact anchor-to-terminal scope; nonzero/unsupported/untimed flows reject. Internal dividends/cash interest remain NAV.",
-  "RF": "ACTUAL_INTERVAL_SIMPLE_RETURN, exact anchor/close intervals and source/hash/available_at; availability <= interval end; no quote/zero/interpolation fallback.",
+  "flows": "Explicit hash-bound ZERO_EXTERNAL_FLOW_ONLY with exact anchor-to-terminal scope; terminal <= receipt available_at <= measurement cutoff even for empty or zero-valued events. Earlier absence evidence cannot certify a later scope; no receipt restamping. Nonzero/unsupported/untimed flows reject. Internal dividends/cash interest remain NAV.",
+  "RF": "ACTUAL_INTERVAL_SIMPLE_RETURN, exact anchor/close intervals and source/hash/available_at; every actual row availability <= its interval end and <= aggregate receipt availability <= measurement cutoff. Receipt need not reach terminal when all actual row availabilities are earlier; no quote/zero/interpolation fallback or restamping.",
   "Sharpe": "Separate raw/excess_rf ddof1 daily252 weekly52. Insufficient/zero variance null+reason; derived overflow blocked/null and finite JSON.",
   "cost": "SUPPLIED_NET_NAV_NO_SECOND_FEE",
   "outputs": {

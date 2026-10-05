@@ -414,16 +414,20 @@ def _calculate(rows, c, label):
         require(type(event) is dict and set(event) == {"timestamp", "amount"}, "FLOW_EVENT_FIELDS")
         require(anchor_t <= stamp(event["timestamp"]) <= times[-1] and real(event["amount"]) == 0, "NONZERO_OR_UNTIMED_FLOW")
     reference(flows["ref"], {k:v for k,v in flows.items() if k != "ref"}, cutoff)
+    require(stamp(flows["ref"]["available_at"]) >= times[-1], "FLOW_RECEIPT_PRECEDES_SCOPE_END")
     rf = c["risk_free"]
     require(type(rf) is dict and set(rf) == {"kind", "rows", "ref"}, "RF_FIELDS")
     require(rf["kind"] == "ACTUAL_INTERVAL_SIMPLE_RETURN", "RF_QUOTE_UNSUPPORTED")
     require(type(rf["rows"]) is list and len(rf["rows"]) == len(rows), "RF_ALIGNMENT")
     reference(rf["ref"], rf["rows"], cutoff)
+    rf_available = stamp(rf["ref"]["available_at"])
     rf_values, previous_t = [], anchor_t
     for item, t in zip(rf["rows"], times):
         require(type(item) is dict and set(item) == {"start", "end", "value", "available_at"}, "RF_ROW_FIELDS")
         require(stamp(item["start"]) == previous_t and stamp(item["end"]) == t, "RF_ALIGNMENT")
-        require(stamp(item["available_at"]) <= t, "RF_FUTURE")
+        row_available = stamp(item["available_at"])
+        require(row_available <= t, "RF_FUTURE")
+        require(row_available <= rf_available, "RF_RECEIPT_PRECEDES_ROW_AVAILABILITY")
         value = real(item["value"])
         require(value > -1, "RF_RETURN_DOMAIN")
         rf_values.append(value); previous_t = t
