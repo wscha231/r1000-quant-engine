@@ -722,9 +722,10 @@ def run(latest_run: Path, output_dir: Path, price_cache: Path, stale_days_thresh
     measurement_complete = (not research_measurement or
                             all(m.get("status") == nav_v2.COMPLETE for m in metrics.values()))
     if research_measurement and not measurement_complete:
-        metrics = {name: nav_v2.blocked(
-            str(metric.get("reason") or "REQUESTED_WEEKLY_MEASUREMENT_BLOCKED"), name)
-            for name, metric in metrics.items()}
+        metrics = {name: dict(nav_v2.blocked(str(metric.get("reason") or "REQUESTED_WEEKLY_MEASUREMENT_BLOCKED"), name),
+                              **{field: metric[field] for field in ("cost_basis", "supplied_net_account_nav", "portfolio_kind")
+                                 if field in metric})
+                   for name, metric in metrics.items()}
     freshness = build_freshness(latest_run, curves, metrics, stale_days_threshold=stale_days_threshold,
                                strict_io=research_measurement)
     if research_measurement:

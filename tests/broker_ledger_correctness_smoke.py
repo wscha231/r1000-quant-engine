@@ -2091,7 +2091,7 @@ class ResearchNavCallerTests(unittest.TestCase):
                         self.assertEqual(result['status'],nav.BLOCKED,result);self.assertFalse(result['metric_admission_complete'])
                         if kind=='unknown_root':self.assertEqual(result['reason'],'MEASUREMENT_PACKAGE_FIELDS')
                         for metric in (result,*(result['windows'][k] for k in ('full','is','oos','oos2'))):
-                            self.assertEqual(metric['status'],nav.BLOCKED)
+                            self.assertEqual(metric['status'],nav.BLOCKED);self.assertEqual(metric['reason'],result['reason'])
                             for field in nav.METRIC_FIELDS:self.assertIsNone(metric[field])
                             for field in ('interval_returns','start_date','end_date','measurement_context_sha256','input_rows_sha256','valuation_binding_provenance','ending_timestamp','anchor_timestamp'):self.assertNotIn(field,metric)
                         self.assertFalse((dest/nav.CURVE_FILE).exists());self.assertFalse((dest/nav.artifact_name('account_state_latest.json')).exists())

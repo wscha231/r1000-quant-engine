@@ -552,7 +552,7 @@ class ResearchWeeklyCallerTests(__import__('unittest').TestCase):
                                 self.assertFalse(metric['metric_admission_complete'])
                                 for field in nav.METRIC_FIELDS:self.assertIsNone(metric[field])
                                 for field,value in nav.AUTHORITY.items():self.assertEqual(metric[field],value)
-                            else:self.assertEqual(metric['status'],nav.COMPLETE)
+                            else:self.assertEqual(metric['status'],nav.BLOCKED)
                         self.assertFalse(list((self.out/nav.NAMESPACE).glob('*.csv')))
                     for p,value in originals.items():p.write_bytes(value)
         for p,value in pristine.items():p.write_bytes(value)

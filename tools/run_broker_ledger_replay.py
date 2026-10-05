@@ -2676,7 +2676,7 @@ def replay(
         if research_measurement and windows.get("status") != nav_v2.COMPLETE:
             reason = str(metrics.get("reason") or "REQUESTED_WINDOW_BLOCKED")
             windows = {"status": nav_v2.BLOCKED, **{
-                label: nav_v2.blocked(reason, label) if windows.get(label) is not None else None
+                label: nav_v2.blocked((str(windows[label].get("reason") or reason) if metrics.get("status") == nav_v2.COMPLETE else reason), label) if windows.get(label) is not None else None
                 for label in ("full", "is", "oos", "oos2")}}
             metrics = dict(nav_v2.blocked(reason),
                            execution_status="completed", trade_count=len(trades_df))
