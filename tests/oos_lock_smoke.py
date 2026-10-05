@@ -241,6 +241,42 @@ class ResearchOOSAdmissionTests(__import__('unittest').TestCase):
         self.assertEqual(len(bad),4)
 
 
+    def test_OOS_labels_always_require_an_actual_prior_caller_row(self):
+        from tools import nav_metrics_v2 as nav
+        from nav_metrics_v2_smoke import context
+        data,curve,c=self.windows()
+        for label in ('oos','oos2'):
+            for bounds in (None,(None,None),('2026-01-01',None),('2026-01-05',None)):
+                for kind in ('PREFILL','OOS_PREDECESSOR'):
+                    with self.subTest(label=label,bounds=bounds,kind=kind):
+                        bad=context(data,anchor_nav=123.,anchor_kind=kind)
+                        out=calc_metrics(curve,_empty_trades(),123.,date_range=bounds,label=label,measurement_context=bad)
+                        self.assertEqual(out['status'],nav.BLOCKED,out);self.assertIsNone(out['cagr'])
+            good=calc_metrics(curve,_empty_trades(),100.,date_range=('2026-01-06',None),label=label,measurement_context=c['oos'])
+            self.assertEqual(good['status'],nav.COMPLETE,good)
+        for label in ('full','is'):
+            out=calc_metrics(curve,_empty_trades(),100.,label=label,measurement_context=c['full'])
+            self.assertEqual(out['status'],nav.COMPLETE,out)
+
+    def test_research_trade_counts_use_each_inclusive_window(self):
+        import pandas as pd
+        from nav_metrics_v2_smoke import context
+        data,curve,c=self.windows()
+        trades=pd.DataFrame({'date':['2026-01-02','2026-01-05','2026-01-06','2026-01-07','2026-01-08','bad']})
+        for label,bounds,expected in (('is',(None,'2026-01-05'),2),('oos',('2026-01-06',None),3),
+                                      ('oos2',('2026-01-06','2026-01-07'),2),('full',(None,None),6)):
+            with self.subTest(label=label,bounds=bounds):
+                subset=[r for r in data if (not bounds[0] or r['session']>=bounds[0]) and (not bounds[1] or r['session']<=bounds[1])]
+                first=data.index(subset[0]);prior=data[first-1] if first else None
+                ctx=context(subset,anchor_nav=prior['nav'] if prior else 100.,
+                            anchor_time=prior['timestamp'] if prior else '2026-01-02T21:00:00Z',
+                            anchor_kind='OOS_PREDECESSOR' if prior else 'PREFILL')
+                out=calc_metrics(curve,trades,100.,date_range=bounds,label=label,measurement_context=ctx)
+                self.assertEqual(out['trade_count'],expected,out)
+        self.assertEqual(calc_metrics(curve,trades,100.,measurement_context=c['full'])['trade_count'],6)
+        self.assertEqual(calc_metrics(curve,trades.iloc[:0],100.,date_range=('2026-01-06',None),measurement_context=c['oos'])['trade_count'],0)
+
+
 if __name__ == "__main__":
     test_full_window_metrics_backcompat()
     test_date_range_slices_and_reanchors_capital()

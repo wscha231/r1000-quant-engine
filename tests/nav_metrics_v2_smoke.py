@@ -389,6 +389,58 @@ class NavMetricTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(),raw)
 
 
+    def test_consumed_frame_projection_bounds_without_copying_auxiliary_cells(self):
+        import pandas as pd
+        data=rows(); c=context(data); f=frame(data)
+        huge='unused'*10000
+        for i in range(40): f['unused_'+str(i)]=[huge]*3
+        before=f.copy(deep=True)
+        real_to_dict=pd.DataFrame.to_dict
+        widths=[]
+        def observed(obj,*a,**kw):
+            widths.append(len(obj.columns))
+            if len(obj.columns)>3: raise AssertionError('untouched auxiliary columns copied')
+            return real_to_dict(obj,*a,**kw)
+        with patch.object(pd.DataFrame,'to_dict',observed):
+            out=nav.calculate_frame(f,c)
+        self.assertEqual(out['status'],nav.COMPLETE,out)
+        self.assertTrue(all(w<=3 for w in widths))
+        pd.testing.assert_frame_equal(f,before)
+        for kind in ('missing_date','missing_nav','duplicate_date','duplicate_nav','duplicate_clock','huge_date','huge_clock','huge_nav'):
+            with self.subTest(kind=kind):
+                bad=frame(data)
+                if kind.startswith('missing'): bad=bad.drop(columns='date' if kind.endswith('date') else 'equity_usd')
+                elif kind.startswith('duplicate'):
+                    col={'duplicate_date':'date','duplicate_nav':'equity_usd','duplicate_clock':'valuation_time_utc'}[kind]
+                    bad=pd.concat([bad,bad[[col]]],axis=1)
+                else:
+                    col={'huge_date':'date','huge_clock':'valuation_time_utc','huge_nav':'equity_usd'}[kind]
+                    bad[col]=bad[col].astype(object);bad.loc[0,col]='X'*257
+                with patch.object(pd.DataFrame,'to_dict',side_effect=AssertionError('copy before cell admission')):
+                    out=nav.calculate_frame(bad,c)
+                self.assertBlocked(out)
+        with patch.object(nav,'MAX_BYTES',128), patch.object(pd.DataFrame,'to_dict',side_effect=AssertionError('copy before cumulative budget')):
+            out=nav.calculate_frame(frame(data),c)
+        self.assertBlocked(out)
+        self.assertEqual(out['reason'],'RESOURCE_BYTES')
+
+    def test_bound_receipt_covers_every_actual_clock_before_window_slice(self):
+        data=rows();f=frame(data)
+        for mutation in ('cutoff','available','both','naive','missing'):
+            with self.subTest(mutation=mutation):
+                b=binding(data);c=context(data[:1]);c['cutoff']=data[-1]['timestamp']
+                if mutation in ('cutoff','both'): b['cutoff']=data[0]['timestamp']
+                if mutation in ('available','both'): b['ref']['available_at']=data[0]['timestamp']
+                if mutation=='naive': b['rows'][-1]['timestamp']='2026-01-07T21:00:00';b['ref']['sha256']=nav.digest(b['rows'])
+                if mutation=='missing': b['rows'][-1].pop('timestamp');b['ref']['sha256']=nav.digest(b['rows'])
+                out=nav.calculate_frame(f,c,valuation_binding=b,date_range=(data[0]['session'],data[0]['session']),label='is')
+                self.assertBlocked(out)
+        b=binding(data);c=context(data[:1]);c['cutoff']=data[-1]['timestamp']
+        self.assertEqual(nav.calculate_frame(f,c,valuation_binding=b,date_range=(data[0]['session'],data[0]['session']),label='is')['status'],nav.COMPLETE)
+        b['cutoff']='2026-01-07T16:00:00-05:00';b['ref']['available_at']=b['cutoff']
+        self.assertEqual(nav.calculate_frame(f,c,valuation_binding=b,date_range=(data[0]['session'],data[0]['session']),label='is')['status'],nav.COMPLETE)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 

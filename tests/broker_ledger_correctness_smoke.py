@@ -1226,6 +1226,83 @@ class ResearchNavCallerTests(unittest.TestCase):
             finally:price.unlink();price.write_bytes(original_price)
 
 
+    def test_research_broker_preflight_refusal_discloses_retained_outputs(self):
+        from unittest.mock import patch
+        from tools import nav_metrics_v2 as nav
+        self.write_prices([100.]*4)
+        self.assertEqual(self.run_replay(measurement_context=self.measurement())['status'],nav.COMPLETE)
+        dest=self.out/nav.NAMESPACE;names=[nav.artifact_name(n) for n in REPLAY_GENERATED_ARTIFACTS]
+        for name in names:
+            if not (dest/name).exists():(dest/name).write_bytes(b'prior generation')
+        before={n:(dest/n).read_bytes() for n in names};real_resolve=Path.resolve
+        for kind in ('target','directory','reverse_price'):
+            with self.subTest(kind=kind):
+                if kind=='directory':
+                    original=nav.research_output_kind
+                    def probe(p):return 'other' if p==dest/names[0] else original(p)
+                    guard=patch.object(nav,'research_output_kind',probe)
+                else:
+                    source=self.target if kind=='target' else self.cache/px_cache_name('AAA')
+                    def resolve(p,*a,**kw):return real_resolve(dest/names[0]) if p==source else real_resolve(p,*a,**kw)
+                    guard=patch.object(Path,'resolve',resolve)
+                with guard:out=self.run_replay(measurement_context=self.measurement())
+                self.assertEqual(out['status'],nav.BLOCKED,out)
+                self.assertFalse(out['current_publication_complete']);self.assertFalse(out['cleanup_complete'])
+                self.assertEqual(set(out['uncleared_generated_outputs']),set(names))
+                self.assertEqual(before,{n:(dest/n).read_bytes() for n in names})
+
+    def test_research_broker_selected_shared_price_reader_fails_closed(self):
+        from unittest.mock import patch
+        from tools import nav_metrics_v2 as nav
+        self.write_prices([100.]*4);source=self.cache/px_cache_name('AAA');before=source.read_bytes()
+        for stage in ('read','stat'):
+            with self.subTest(stage=stage):
+                self.assertEqual(self.run_replay(measurement_context=self.measurement())['status'],nav.COMPLETE)
+                if stage=='read':
+                    real_read=pd.read_parquet
+                    def denied(p,*a,**kw):
+                        if Path(p)==source:raise PermissionError('denied selected broker price')
+                        return real_read(p,*a,**kw)
+                    guard=patch.object(pd,'read_parquet',denied)
+                else:
+                    real_stat=Path.stat
+                    def denied(p,*a,**kw):
+                        if p==source:raise PermissionError('denied selected broker stat')
+                        return real_stat(p,*a,**kw)
+                    guard=patch.object(Path,'stat',denied)
+                with guard:out=self.run_replay(measurement_context=self.measurement())
+                self.assertEqual(out['reason'],'RESEARCH_IO_FAILURE',out)
+                self.assertFalse(out['current_publication_complete']);self.assertIsNone(out['cagr'])
+                self.assertEqual(source.read_bytes(),before)
+        with patch.object(pd,'read_parquet',side_effect=PermissionError('legacy read')):
+            self.assertTrue(load_price_series(self.cache,'AAA').empty)
+
+    def test_dynamic_cost_windows_keep_fixed_NAV_mode_and_failure_redaction(self):
+        from tools import nav_metrics_v2 as nav
+        from nav_metrics_v2_smoke import context,binding
+        from tools.execution_cost_model import ExecutionCostConfig
+        idx=pd.bdate_range('2025-12-01','2026-01-07')
+        pd.DataFrame({'Open':100.,'Close':100.,'Adj Close':100.,'High':100.,'Low':100.,
+                      'Volume':1000000},index=idx).to_parquet(self.cache/px_cache_name('AAA'))
+        cfg=ExecutionCostConfig(mode='spread_adv_impact_v1');base=self.run_replay(execution_cost_config=cfg)
+        self.assertEqual(base['status'],'completed',base)
+        df=pd.read_csv(self.out/'equity_curve.csv')
+        data=[dict(session=r.date,timestamp=r.date+'T21:00:00Z',nav=r.equity_usd) for r in df.itertuples()]
+        first=context(data[:1],anchor_nav=10000.);first['cutoff']=data[-1]['timestamp']
+        later=context(data[1:],anchor_nav=data[0]['nav'],anchor_time=data[0]['timestamp'],anchor_kind='OOS_PREDECESSOR')
+        c=dict(full=context(data,anchor_nav=10000.),valuation_binding=binding(data),windows={'is':first,'oos':later})
+        out=self.run_replay(execution_cost_config=cfg,measurement_context=c,oos_start='2026-01-06')
+        self.assertEqual(out['status'],nav.COMPLETE,out)
+        for label in ('full','is','oos'):
+            metric=out if label=='full' else out['windows'][label]
+            self.assertEqual(metric['metric_mode'],nav.MODE,metric)
+            self.assertEqual(metric['execution_cost_mode'],cfg.mode)
+        self.write_prices([100.]*4)
+        failed=self.run_replay(execution_cost_config=cfg,measurement_context=c,oos_start='2026-01-06')
+        self.assertEqual(failed['metric_mode'],'DO_NOT_USE',failed)
+        self.assertNotIn('cagr',failed)
+
+
 def main() -> int:
     test_missing_liquidation_fill_fails_closed_before_state_mutation()
     test_multi_day_transition_fails_closed_before_state_mutation()
@@ -1242,6 +1319,8 @@ def main() -> int:
         return 1
     print("broker_ledger_correctness_smoke: PASS")
     return 0
+
+
 
 
 if __name__ == "__main__":

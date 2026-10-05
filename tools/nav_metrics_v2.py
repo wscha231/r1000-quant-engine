@@ -218,6 +218,10 @@ def artifact_name(name):
 _io_state = ContextVar("nav_research_io", default=None)
 
 
+def research_io_active():
+    return _io_state.get() is not None
+
+
 def research_output_kind(path):
     """Only a real missing leaf is absent; permission/IO failures must propagate."""
     try:
@@ -237,6 +241,35 @@ def authorize_research_cleanup(directory, names, protected, price_cache):
     if state is not None:
         state.update(directory=Path(directory), names=tuple(names), protected=set(protected),
                      price_cache=Path(price_cache), cleanup_authorized=True)
+
+
+def observe_research_publication(directory, names, protected, price_cache):
+    """Retain the known generation for disclosure before any cleanup is authorized."""
+    state = _io_state.get()
+    if state is not None:
+        state.update(directory=Path(directory), names=tuple(names), protected=set(protected),
+                     price_cache=Path(price_cache))
+
+
+def refused_research_publication(reason, directory, names, protected=()):
+    """Disclose retained/unknown leaves without mutating a refused input namespace."""
+    remaining, errors, refused = [], [], []
+    for name in names:
+        path = Path(directory) / name
+        try:
+            if research_output_kind(path) is not None:
+                remaining.append(name)
+            if path.resolve() in protected:
+                refused.append(name)
+        except OSError as exc:
+            if name not in remaining:
+                remaining.append(name)
+            errors.append(dict(name=name, error_type=type(exc).__name__, errno=exc.errno))
+    result = blocked(reason)
+    result.update(current_publication_complete=False, cleanup_complete=False,
+                  uncleared_generated_outputs=remaining, cleanup_refused_inputs=refused,
+                  retained_output_errors=errors)
+    return result
 
 
 def research_io_guard(context_argument):
@@ -277,6 +310,11 @@ def research_io_guard(context_argument):
                     except OSError:
                         cleanup_complete = False
                 result = blocked("RESEARCH_IO_FAILURE")
+                if not cleanup_complete and "directory" in state:
+                    result = refused_research_publication("RESEARCH_IO_FAILURE", state["directory"],
+                                                         state["names"], state["protected"])
+                    remaining = list(dict.fromkeys(remaining + result["uncleared_generated_outputs"]))
+                    refused = list(dict.fromkeys(refused + result["cleanup_refused_inputs"]))
                 result.update(current_publication_complete=False, io_error_type=type(exc).__name__,
                               io_error_errno=exc.errno, cleanup_complete=cleanup_complete,
                               uncleared_generated_outputs=remaining, cleanup_refused_inputs=refused)
@@ -425,14 +463,37 @@ def _calculate(rows, c, label):
 def frame_rows(frame, *, date_column, nav_column, valuation_binding=None):
     """Bind actual caller sessions to a separate valuation-time receipt, never a price union."""
     require(len(frame) <= MAX_ROWS, "ROW_BUDGET")
-    records = frame.to_dict("records")
-    require(len(records) <= MAX_ROWS, "ROW_BUDGET")
+    # The caller may carry arbitrarily wide auxiliary diagnostics. Consume only
+    # these two/three columns, and admit their cells before allocating records.
+    require(date_column != nav_column and nav_column != "valuation_time_utc", "FRAME_COLUMN_FIELDS")
+    columns = [date_column, nav_column]
+    if "valuation_time_utc" in frame.columns and date_column != "valuation_time_utc":
+        columns.append("valuation_time_utc")
+    require(all(sum(c == name for c in frame.columns) == 1 for name in columns), "FRAME_COLUMN_FIELDS")
+    byte_count = 2
+    for values in zip(*(frame[name] for name in columns)):
+        session, value = values[:2]
+        require(type(session) is str or isinstance(session, (date, datetime)), "SESSION_TYPE")
+        if type(session) is str:
+            require(len(session) <= 10, "SESSION_FORMAT")
+        real(value, True)
+        if len(values) == 3:
+            stamp(values[2])
+        # A bounded per-row canonical estimate avoids copying large cell values.
+        byte_count += len(encoded([str(session), real(value, True), values[2] if len(values) == 3 else None])) + 1
+        require(byte_count <= MAX_BYTES, "RESOURCE_BYTES")
+    records = frame[columns].to_dict("records")
     bindings = None
     if valuation_binding is not None:
         require(type(valuation_binding) is dict and set(valuation_binding) == {"rows", "ref", "cutoff"}, "VALUATION_BINDING_FIELDS")
         bindings = valuation_binding["rows"]
         require(type(bindings) is list and len(bindings) == len(records), "VALUATION_BINDING_LENGTH")
-        reference(valuation_binding["ref"], bindings, stamp(valuation_binding["cutoff"]))
+        binding_cutoff = stamp(valuation_binding["cutoff"])
+        reference(valuation_binding["ref"], bindings, binding_cutoff)
+        receipt_available = stamp(valuation_binding["ref"]["available_at"])
+        for point in bindings:
+            require(type(point) is dict and set(point) == {"session", "timestamp"}, "VALUATION_BINDING_SESSION")
+            require(stamp(point["timestamp"]) <= receipt_available <= binding_cutoff, "VALUATION_BINDING_POINT_FUTURE")
     rows = []
     for i, record in enumerate(records):
         session = record[date_column]
@@ -463,6 +524,7 @@ def calculate_frame(frame, context, *, date_column="date", nav_column="equity_us
         if valuation_binding is not None:
             require(stamp(valuation_binding["cutoff"]) <= stamp(context["cutoff"]), "VALUATION_BINDING_FUTURE")
         rows = frame_rows(frame, date_column=date_column, nav_column=nav_column, valuation_binding=valuation_binding)
+        require(label not in ("oos", "oos2") or date_range is not None, "OOS_PREDECESSOR_MISSING")
         if date_range is not None:
             lo = date.fromisoformat(date_range[0]) if date_range[0] else None
             hi = date.fromisoformat(date_range[1]) if date_range[1] else None
@@ -470,6 +532,7 @@ def calculate_frame(frame, context, *, date_column="date", nav_column="equity_us
                         and (hi is None or date.fromisoformat(r["session"]) <= hi)]
             require(bool(selected), "WINDOW_EMPTY")
             first = selected[0]
+            require(label not in ("oos", "oos2") or first > 0, "OOS_PREDECESSOR_MISSING")
             if first:
                 predecessor = rows[first-1]
                 anchor = context["anchor"]

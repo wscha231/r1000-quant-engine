@@ -36,7 +36,13 @@ def px_cache_name(ticker: str) -> str:
     return f"{hashlib.sha1(str(ticker).upper().encode('utf-8')).hexdigest()[:16]}.parquet"
 
 
-def _read_csv(path: Path) -> pd.DataFrame:
+def _read_csv(path: Path, *, strict_io: bool = False) -> pd.DataFrame:
+    if strict_io:
+        try:
+            path.stat()  # exists() can suppress access errors on supported hosts.
+            return pd.read_csv(path)
+        except FileNotFoundError:
+            return pd.DataFrame()
     if not path.exists():
         return pd.DataFrame()
     try:
@@ -45,7 +51,13 @@ def _read_csv(path: Path) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def _read_json(path: Path) -> dict[str, Any]:
+def _read_json(path: Path, *, strict_io: bool = False) -> dict[str, Any]:
+    if strict_io:
+        try:
+            path.stat()
+            return json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {}
     if not path.exists():
         return {}
     try:
@@ -74,13 +86,21 @@ def load_price_series(
     *,
     include_liquidity: bool = False,
     require_observed_open: bool = False,
+    strict_io: bool = False,
 ) -> pd.DataFrame:
     path = price_cache / px_cache_name(ticker)
-    if not path.exists():
+    strict_io = strict_io or nav_v2.research_io_active()
+    if not strict_io and not path.exists():
         return pd.DataFrame()
     try:
+        if strict_io:
+            path.stat()
         px = pd.read_parquet(path)
+    except FileNotFoundError:
+        return pd.DataFrame()
     except Exception:
+        if strict_io:
+            raise
         return pd.DataFrame()
     if px.empty:
         return pd.DataFrame()
@@ -191,8 +211,8 @@ def normalize_holdings(df: pd.DataFrame, portfolio_kind: str) -> pd.DataFrame:
     return out.sort_values(["portfolio_kind", "rebalance_date", "weight"], ascending=[True, True, False])
 
 
-def period_end_map(path: Path) -> dict[pd.Timestamp, pd.Timestamp]:
-    d = _read_csv(path)
+def period_end_map(path: Path, *, strict_io: bool = False) -> dict[pd.Timestamp, pd.Timestamp]:
+    d = _read_csv(path, strict_io=strict_io)
     if d.empty or "rebalance_date" not in d.columns or "next_rebalance_date" not in d.columns:
         return {}
     d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce")
@@ -236,12 +256,14 @@ def build_weekly_curve(
     valuation_binding: dict | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     if holdings.empty:
+        if measurement_context is not None:
+            return pd.DataFrame(), nav_v2.blocked("MISSING_HOLDINGS", portfolio_kind)
         return pd.DataFrame(), {"status": "missing_holdings", "portfolio_kind": portfolio_kind}
     prices: dict[str, pd.DataFrame] = {}
     tickers = sorted(set(holdings["ticker"].astype(str).str.upper()) - CASH_TICKERS)
     for ticker in tickers + list(benchmark_tickers):
         if ticker not in prices:
-            prices[ticker] = load_price_series(price_cache, ticker)
+            prices[ticker] = load_price_series(price_cache, ticker, strict_io=measurement_context is not None)
 
     rows: list[dict[str, Any]] = []
     equity = 1.0
@@ -402,8 +424,8 @@ def weekly_metrics(curve: pd.DataFrame, portfolio_kind: str, *, measurement_cont
     }
 
 
-def latest_date_from_csv(path: Path, candidates: tuple[str, ...]) -> str | None:
-    d = _read_csv(path)
+def latest_date_from_csv(path: Path, candidates: tuple[str, ...], *, strict_io: bool = False) -> str | None:
+    d = _read_csv(path, strict_io=strict_io)
     if d.empty:
         return None
     for col in candidates:
@@ -419,9 +441,10 @@ def build_freshness(
     curves: dict[str, pd.DataFrame],
     metrics: dict[str, dict[str, Any]],
     stale_days_threshold: int,
+    *, strict_io: bool = False,
 ) -> dict[str, Any]:
-    latest_scored = latest_date_from_csv(latest_run / "scored_latest.csv", ("rebalance_date", "feature_date"))
-    latest_portfolio = latest_date_from_csv(latest_run / "portfolio_latest.csv", ("rebalance_date", "feature_date", "last_trade_date"))
+    latest_scored = latest_date_from_csv(latest_run / "scored_latest.csv", ("rebalance_date", "feature_date"), strict_io=strict_io)
+    latest_portfolio = latest_date_from_csv(latest_run / "portfolio_latest.csv", ("rebalance_date", "feature_date", "last_trade_date"), strict_io=strict_io)
     latest_eval_dates = {}
     for name, curve in curves.items():
         if curve.empty:
@@ -437,8 +460,8 @@ def build_freshness(
         status = "unknown"
     elif lag_days > int(stale_days_threshold):
         status = "stale"
-    unified = _read_json(latest_run / "orchestrator" / "unified_target_latest.json")
-    raw_portfolio = _read_csv(latest_run / "portfolio_latest.csv")
+    unified = _read_json(latest_run / "orchestrator" / "unified_target_latest.json", strict_io=strict_io)
+    raw_portfolio = _read_csv(latest_run / "portfolio_latest.csv", strict_io=strict_io)
     raw_portfolio_cash_target = None
     if not raw_portfolio.empty and "cash_target" in raw_portfolio.columns:
         cash_values = pd.to_numeric(raw_portfolio["cash_target"], errors="coerce").dropna()
@@ -522,6 +545,9 @@ def run(latest_run: Path, output_dir: Path, price_cache: Path, stale_days_thresh
     freshness_name = "weekly_freshness_audit.research_v2.json" if research_measurement else "weekly_freshness_audit.json"
     report_name = "weekly_freshness_audit.research_v2.md" if research_measurement else "weekly_freshness_audit.md"
     if research_measurement:
+        names = (curve_suffix, "main_" + curve_suffix, "concentrated_" + curve_suffix,
+                 metric_name, freshness_name, report_name)
+        nav_v2.observe_research_publication(output_dir, names, (), price_cache)
         protected = {(latest_run / "reports" / name).resolve() for name in
                      ("main_monthly_weights.csv", "concentrated_strategy_holdings.csv",
                       "regime_by_month.csv", "concentrated_strategy_monthly.csv")}
@@ -529,8 +555,7 @@ def run(latest_run: Path, output_dir: Path, price_cache: Path, stale_days_thresh
                          ("scored_latest.csv", "portfolio_latest.csv", "orchestrator/unified_target_latest.json"))
         if measurement_context_path is not None:
             protected.add(Path(measurement_context_path).resolve())
-        names = (curve_suffix, "main_" + curve_suffix, "concentrated_" + curve_suffix,
-                 metric_name, freshness_name, report_name)
+        nav_v2.observe_research_publication(output_dir, names, protected, price_cache)
         collision = output_dir.resolve().is_relative_to(price_cache.resolve())
         # Check the whole output set before removing any prior generated file.
         for name in names:
@@ -538,18 +563,18 @@ def run(latest_run: Path, output_dir: Path, price_cache: Path, stale_days_thresh
             if path.resolve() in protected or nav_v2.research_output_kind(path) == "other":
                 collision = True
         if collision:
-            return dict(status=nav_v2.BLOCKED, reason="caller_input_collides_with_weekly_research_output",
-                        metric_mode=nav_v2.MODE, **nav_v2.AUTHORITY)
-        main_holdings = normalize_holdings(_read_csv(latest_run / "reports" / "main_monthly_weights.csv"), "main")
+            return nav_v2.refused_research_publication("caller_input_collides_with_weekly_research_output",
+                                                      output_dir, names, protected)
+        main_holdings = normalize_holdings(_read_csv(latest_run / "reports" / "main_monthly_weights.csv", strict_io=True), "main")
         concentrated_holdings = normalize_holdings(
-            _read_csv(latest_run / "reports" / "concentrated_strategy_holdings.csv"), "concentrated")
+            _read_csv(latest_run / "reports" / "concentrated_strategy_holdings.csv", strict_io=True), "concentrated")
         for holdings in (main_holdings, concentrated_holdings):
             if not holdings.empty:
                 tickers = (set(holdings["ticker"].astype(str).str.upper()) - CASH_TICKERS) | {"SPY", "QQQ"}
                 protected.update((price_cache / px_cache_name(ticker)).resolve() for ticker in tickers)
         if any((output_dir / name).resolve() in protected for name in names):
-            return dict(status=nav_v2.BLOCKED, reason="caller_input_collides_with_weekly_research_output",
-                        metric_mode=nav_v2.MODE, **nav_v2.AUTHORITY)
+            return nav_v2.refused_research_publication("caller_input_collides_with_weekly_research_output",
+                                                      output_dir, names, protected)
         nav_v2.authorize_research_cleanup(output_dir, names, protected, price_cache)
         for name in names:
             path = output_dir / name
@@ -564,22 +589,31 @@ def run(latest_run: Path, output_dir: Path, price_cache: Path, stale_days_thresh
     sources = {
         "main": (
             main_holdings,
-            period_end_map(latest_run / "reports" / "regime_by_month.csv"),
+            period_end_map(latest_run / "reports" / "regime_by_month.csv", strict_io=research_measurement),
         ),
         "concentrated": (
             concentrated_holdings,
-            period_end_map(latest_run / "reports" / "concentrated_strategy_monthly.csv"),
+            period_end_map(latest_run / "reports" / "concentrated_strategy_monthly.csv", strict_io=research_measurement),
         ),
     }
     curves: dict[str, pd.DataFrame] = {}
     metrics: dict[str, dict[str, Any]] = {}
+    package_valid = (not research_measurement or (type(measurement_contexts) is dict
+        and set(measurement_contexts) == {"main", "concentrated"}
+        and all(type(entry) is dict and "full" in entry and type(entry["full"]) is dict
+                and set(entry) <= {"full", "valuation_binding"}
+                and ("valuation_binding" not in entry or type(entry["valuation_binding"]) is dict)
+                for entry in measurement_contexts.values())))
     for name, (holdings, next_dates) in sources.items():
         entry = measurement_contexts.get(name, {}) if type(measurement_contexts) is dict else {}
         if type(entry) is not dict:
             entry = {}
-        curve, metric = build_weekly_curve(holdings, next_dates, price_cache, name,
-            measurement_context=(entry.get("full", {}) if research_measurement else None),
-            valuation_binding=entry.get("valuation_binding") if research_measurement else None)
+        if not package_valid:
+            curve, metric = pd.DataFrame(), nav_v2.blocked("WEEKLY_CONTEXT_PACKAGE_FIELDS", name)
+        else:
+            curve, metric = build_weekly_curve(holdings, next_dates, price_cache, name,
+                measurement_context=(entry.get("full", {}) if research_measurement else None),
+                valuation_binding=entry.get("valuation_binding") if research_measurement else None)
         curves[name] = curve
         metrics[name] = metric
         if not research_measurement and not curve.empty:
@@ -587,7 +621,8 @@ def run(latest_run: Path, output_dir: Path, price_cache: Path, stale_days_thresh
     combined = pd.concat([c for c in curves.values() if not c.empty], ignore_index=True) if any(not c.empty for c in curves.values()) else pd.DataFrame()
     measurement_complete = (not research_measurement or
                             all(m.get("status") == nav_v2.COMPLETE for m in metrics.values()))
-    freshness = build_freshness(latest_run, curves, metrics, stale_days_threshold=stale_days_threshold)
+    freshness = build_freshness(latest_run, curves, metrics, stale_days_threshold=stale_days_threshold,
+                               strict_io=research_measurement)
     if research_measurement:
         freshness["freshness_status"] = freshness["status"]
         freshness.update(status=nav_v2.COMPLETE if measurement_complete else nav_v2.BLOCKED,

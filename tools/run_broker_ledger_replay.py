@@ -1233,7 +1233,17 @@ def calc_metrics(
                 return nav_v2.blocked("CALLER_PREFILL_CAPITAL_MISMATCH", label)
             if measurement_context["anchor"]["kind"] != "PREFILL":
                 return nav_v2.blocked("CALLER_PREFILL_ANCHOR_KIND", label)
-        result["trade_count"] = len(trades)
+        trades_frame = trades
+        if date_range is not None and not trades.empty and "date" in trades.columns:
+            dates = pd.to_datetime(trades["date"], errors="coerce")
+            lo, hi = date_range
+            selected = pd.Series(True, index=trades.index)
+            if lo:
+                selected &= dates >= pd.to_datetime(lo, errors="coerce")
+            if hi:
+                selected &= dates <= pd.to_datetime(hi, errors="coerce")
+            trades_frame = trades.loc[selected]
+        result["trade_count"] = len(trades_frame)
         return result
     if equity_curve.empty:
         return {"status": "blocked", "reason": "empty equity curve", "label": label}
@@ -1613,16 +1623,19 @@ def replay(
         return nav_v2.artifact_name(name) if research_measurement else name
     metric_name, curve_name = artifact("metrics.json"), artifact("equity_curve.csv")
     generated_names = tuple(artifact(n) for n in REPLAY_GENERATED_ARTIFACTS)
+    if research_measurement:
+        nav_v2.observe_research_publication(output_dir, generated_names, (), price_cache)
     if research_measurement and output_dir.resolve().is_relative_to(price_cache.resolve()):
-        return nav_v2.blocked("CALLER_OUTPUT_INSIDE_PRICE_CACHE")
+        return nav_v2.refused_research_publication("CALLER_OUTPUT_INSIDE_PRICE_CACHE", output_dir, generated_names)
     execution_cost_config = execution_cost_config or ExecutionCostConfig()
     cash_carry_config = cash_carry_config or resolve_cash_carry_config()
     if research_measurement:
         inputs = {Path(p).resolve() for p in (target_book, cash_carry_config.rate_path,
                   execution_cost_config.paper_slippage_path, measurement_context_path) if p is not None}
         paths = [output_dir / n for n in generated_names]
+        nav_v2.observe_research_publication(output_dir, generated_names, inputs, price_cache)
         if any(p.resolve() in inputs or nav_v2.research_output_kind(p) == "other" for p in paths):
-            return nav_v2.blocked("caller_input_collides_with_replay_output")
+            return nav_v2.refused_research_publication("caller_input_collides_with_replay_output", output_dir, generated_names, inputs)
         # Discover the same native selected sources before invalidating exports.
         # This phase is research-only; it neither rewrites books nor selects a new source.
         preview_policy = reserve_asset_policy or resolve_reserve_asset_policy(
@@ -1634,7 +1647,7 @@ def replay(
             if selected_rate is not None:
                 inputs.add(selected_rate.resolve())
         if any(p.resolve() in inputs for p in paths):
-            return nav_v2.blocked("caller_input_collides_with_replay_output")
+            return nav_v2.refused_research_publication("caller_input_collides_with_replay_output", output_dir, generated_names, inputs)
         research_raw = read_csv(target_book)
         preview_filters = {} if disable_concentrated_champion_filter else resolve_concentrated_champion_filters(
             target_book=target_book, raw_targets=research_raw, portfolio_kind=portfolio_kind,
@@ -1650,12 +1663,12 @@ def replay(
             inputs.update((price_cache / px_cache_name(str(t).upper())).resolve()
                           for t in preview_targets["ticker"].unique() if str(t).upper() not in CASH_TICKERS)
             if any(p.resolve() in inputs for p in paths):
-                return nav_v2.blocked("caller_input_collides_with_replay_output")
+                return nav_v2.refused_research_publication("caller_input_collides_with_replay_output", output_dir, generated_names, inputs)
             if preview_policy.cash_interest_enabled:
                 for ticker in DEFAULT_CASH_CARRY_CALENDAR_TICKERS:
                     inputs.add((price_cache / px_cache_name(ticker)).resolve())
                     if any(p.resolve() in inputs for p in paths):
-                        return nav_v2.blocked("caller_input_collides_with_replay_output")
+                        return nav_v2.refused_research_publication("caller_input_collides_with_replay_output", output_dir, generated_names, inputs)
                     if not load_price_series(price_cache, ticker).empty:
                         break
         nav_v2.authorize_research_cleanup(output_dir, generated_names, inputs, price_cache)
@@ -2563,12 +2576,10 @@ def replay(
             if not isinstance(window, dict) or "metric_mode" not in window:
                 continue
             window["execution_cost_mode"] = execution_cost_config.mode
-            window["metric_mode"] = (
-                str(window.get("metric_mode") or "broker_ledger")
-                + "_execution_cost_capacity"
-                if coverage_complete
-                else "DO_NOT_USE"
-            )
+            if not coverage_complete:
+                window["metric_mode"] = "DO_NOT_USE"
+            elif not research_measurement:
+                window["metric_mode"] = str(window.get("metric_mode") or "broker_ledger") + "_execution_cost_capacity"
     if reserve_explicit:
         reserve_trades = (
             trades_df.loc[trades_df.get("ticker", pd.Series(dtype=str)).astype(str).eq(reserve_asset_policy.asset_ticker)]

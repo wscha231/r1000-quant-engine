@@ -379,6 +379,121 @@ class ResearchWeeklyCallerTests(__import__('unittest').TestCase):
             with self.assertRaisesRegex(OSError,'legacy IO'):run(self.latest,self.out,self.cache)
 
 
+    def test_opt_in_selected_input_read_and_stat_failures_propagate(self):
+        from unittest.mock import patch
+        from tools import nav_metrics_v2 as nav
+        import tools.run_weekly_evaluation as weekly
+        (self.latest/'portfolio_latest.csv').write_text('rebalance_date,cash_target\n2026-01-23,0\n')
+        (self.latest/'orchestrator').mkdir(exist_ok=True)
+        (self.latest/'orchestrator/unified_target_latest.json').write_text('{}')
+        sources=[self.reports/n for n in ('main_monthly_weights.csv','concentrated_strategy_holdings.csv',
+                   'regime_by_month.csv','concentrated_strategy_monthly.csv')]+[self.latest/n for n in
+                   ('scored_latest.csv','portfolio_latest.csv','orchestrator/unified_target_latest.json')]+[self.cache/px_cache_name('AAA')]
+        real_open=Path.open
+        for source in sources:
+            for stage in ('read','stat'):
+                with self.subTest(source=str(source.relative_to(self.root)),stage=stage):
+                    if stage=='read':
+                        if source.suffix=='.parquet':
+                            original=pd.read_parquet
+                            def denied(p,*a,**kw):
+                                if Path(p)==source:raise PermissionError('denied selected parquet')
+                                return original(p,*a,**kw)
+                            guard=patch.object(pd,'read_parquet',denied)
+                        elif source.suffix=='.csv':
+                            original=pd.read_csv
+                            def denied(p,*a,**kw):
+                                if isinstance(p,(str,Path)) and Path(p)==source:raise PermissionError('denied selected CSV')
+                                return original(p,*a,**kw)
+                            guard=patch.object(pd,'read_csv',denied)
+                        else:
+                            def denied(p,*a,**kw):
+                                if p==source:raise PermissionError('denied selected JSON')
+                                return real_open(p,*a,**kw)
+                            guard=patch.object(Path,'open',denied)
+                    else:
+                        original=Path.stat
+                        def denied(p,*a,**kw):
+                            if p==source:raise PermissionError('denied selected stat')
+                            return original(p,*a,**kw)
+                        guard=patch.object(Path,'stat',denied)
+                    with guard: out=run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())
+                    self.assertEqual(out.get('reason'),'RESEARCH_IO_FAILURE',out)
+                    self.assertFalse(out['current_publication_complete']);self.assertIsNone(out['cagr'])
+        absent=self.latest/'never_present.csv'
+        self.assertTrue(weekly._read_csv(absent).empty);self.assertEqual(weekly._read_json(absent),{})
+        self.assertTrue(weekly._read_csv(absent,strict_io=True).empty)
+        self.assertEqual(weekly._read_json(absent,strict_io=True),{})
+        self.assertTrue(weekly.load_price_series(self.cache,'NEVER_PRESENT',strict_io=True).empty)
+        with patch.object(pd,'read_csv',side_effect=PermissionError('legacy read')):
+            self.assertTrue(weekly._read_csv(sources[0]).empty)
+        for source in (self.latest/'scored_latest.csv',self.latest/'portfolio_latest.csv',
+                       self.latest/'orchestrator/unified_target_latest.json'):
+            source.unlink()
+        out=run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())
+        self.assertEqual(out['status'],nav.COMPLETE,out);self.assertEqual(out['freshness_status'],'unknown')
+        (self.reports/'main_monthly_weights.csv').unlink()
+        out=run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())
+        self.assertEqual(out['status'],nav.BLOCKED,out);self.assertIsNone(out['metrics']['main']['cagr'])
+
+    def test_preflight_refusal_discloses_every_retained_generation_without_mutation(self):
+        from unittest.mock import patch
+        from tools import nav_metrics_v2 as nav
+        names=('weekly_equity_curve.research_v2.csv','main_weekly_equity_curve.research_v2.csv',
+               'concentrated_weekly_equity_curve.research_v2.csv','weekly_metrics.research_v2.json',
+               'weekly_freshness_audit.research_v2.json','weekly_freshness_audit.research_v2.md')
+        self.assertEqual(run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())['status'],nav.COMPLETE)
+        dest=self.out/nav.NAMESPACE;before={n:(dest/n).read_bytes() for n in names}
+        source=self.reports/'main_monthly_weights.csv';real_resolve=Path.resolve
+        for kind in ('input','directory','reverse_price','denied_stat'):
+            with self.subTest(kind=kind):
+                if kind=='input':
+                    def resolve(p,*a,**kw):return real_resolve(source) if p==dest/names[0] else real_resolve(p,*a,**kw)
+                    guard=patch.object(Path,'resolve',resolve)
+                elif kind=='directory':
+                    original=nav.research_output_kind
+                    def probe(p):return 'other' if p==dest/names[0] else original(p)
+                    guard=patch.object(nav,'research_output_kind',probe)
+                elif kind=='reverse_price':
+                    def resolve(p,*a,**kw):return real_resolve(dest/names[0]) if p==self.cache/px_cache_name('AAA') else real_resolve(p,*a,**kw)
+                    guard=patch.object(Path,'resolve',resolve)
+                else:
+                    original=nav.os.lstat
+                    def probe(p,*a,**kw):
+                        if Path(p)==dest/names[0]:raise PermissionError('unknown retained leaf')
+                        return original(p,*a,**kw)
+                    guard=patch.object(nav.os,'lstat',probe)
+                with guard:out=run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())
+                self.assertEqual(out['status'],nav.BLOCKED,out)
+                self.assertFalse(out['current_publication_complete']);self.assertFalse(out['cleanup_complete'])
+                self.assertEqual(set(out['uncleared_generated_outputs']),set(names))
+                self.assertEqual(before,{n:(dest/n).read_bytes() for n in names})
+        self.assertEqual(run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())['status'],nav.COMPLETE)
+
+    def test_weekly_context_package_rejects_unknown_keys_before_measurement(self):
+        import copy
+        from unittest.mock import patch
+        from tools import nav_metrics_v2 as nav
+        import tools.run_weekly_evaluation as weekly
+        good=self.measurement()
+        for where in ('top','main','concentrated'):
+            for key in ('windows','ful','unexpected'):
+                with self.subTest(where=where,key=key):
+                    bad=copy.deepcopy(good);(bad if where=='top' else bad[where])[key]={}
+                    with patch.object(weekly,'build_weekly_curve',side_effect=AssertionError('measurement before strict package check')):
+                        out=run(self.latest,self.out,self.cache,measurement_contexts=bad)
+                    self.assertEqual(out['status'],nav.BLOCKED,out)
+                    self.assertFalse(out['metric_admission_complete'])
+                    self.assertTrue(all(m['status']==nav.BLOCKED for m in out['metrics'].values()))
+        for bad in ([],{'main':[],'concentrated':good['concentrated']},dict(main=good['main']),
+                    {'main':dict(full=[]),'concentrated':good['concentrated']},
+                    {'main':dict(full=good['main']['full'],valuation_binding=[]),'concentrated':good['concentrated']}):
+            with self.subTest(shape=type(bad).__name__):
+                out=run(self.latest,self.out,self.cache,measurement_contexts=bad)
+                self.assertEqual(out['status'],nav.BLOCKED,out)
+        self.assertEqual(run(self.latest,self.out,self.cache,measurement_contexts=good)['status'],nav.COMPLETE)
+
+
 def main() -> int:
     test_weekly_evaluation_marks_to_weekly_and_reports_staleness()
     import unittest
@@ -387,6 +502,8 @@ def main() -> int:
         return 1
     print("weekly evaluation smoke passed")
     return 0
+
+
 
 
 if __name__ == "__main__":

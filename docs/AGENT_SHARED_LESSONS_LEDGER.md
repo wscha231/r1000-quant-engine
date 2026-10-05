@@ -6266,3 +6266,10 @@ Expected contract:
   keep supported Python3.12 fallback and platform coverage limits explicit.
 - Suppressed path predicates are not absence evidence: only FileNotFound may
   clear a leaf; denied lstat must return blocked/incomplete cleanup telemetry.
+- Eight exact-head findings exposed caller admission gaps despite local passes:
+  selected read/stat errors must not become empty/inferred inputs; refusals must
+  disclose retained generations without overwriting protected input bytes.
+  Project/bound only consumed frame cells before copying; every valuation point
+  must precede receipt availability/cutoff before slicing, and OOS needs a real
+  predecessor. Reject undeclared weekly evidence keys; scope trade counts and
+  preserve fixed NAV mode separately from genuine execution-cost redaction.
