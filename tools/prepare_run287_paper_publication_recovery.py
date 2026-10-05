@@ -9,6 +9,8 @@ fresh owner dispatch on the exact current master, in the durable environment.
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import hashlib
 import json
 import os
@@ -20,6 +22,8 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
+
+import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -34,6 +38,7 @@ from tools.check_run287_catchup_drive_readiness import (
 )
 
 WORKFLOW_PATH = ".github/workflows/run287_paper_publication_recovery.yml"
+RECOVERY_WORKFLOW_ID = 373591015
 PUBLICATION_JOB_NAME = "publication_recovery"
 ACCEPTED_ARTIFACT_STEP = "Upload accepted committed July27 publication recovery"
 SCHEMA = "run287-committed-paper-publication-recovery-v1"
@@ -140,7 +145,92 @@ def validate_run_census_ids(runs: list, current: dict, *, code_prefix: str) -> s
     return run_ids
 
 
-def prior_publication_step_state(previous: dict, jobs_payload: Any) -> str:
+def validate_prior_review_only_source(previous: dict, proof: object) -> None:
+    """Verify the trusted Contents-at-exact-ref response, never current YAML."""
+    require(isinstance(proof, dict) and proof.get("repository") == scope.REPOSITORY and
+            proof.get("source_commit_sha") == previous["head_sha"], "prior_nonpublisher_source_identity")
+    blob = proof.get("workflow_blob")
+    require(isinstance(blob, dict) and blob.get("type") == "file" and
+            blob.get("path") == WORKFLOW_PATH and type(blob.get("sha")) is str and
+            scope.SHA_RE.fullmatch(blob["sha"]) and type(blob.get("size")) is int and
+            0 < blob["size"] <= 65536 and blob.get("encoding") == "base64" and
+            type(blob.get("content")) is str and len(blob["content"]) <= 131072 and
+            blob.get("url") == f"https://api.github.com/repos/{scope.REPOSITORY}/contents/{WORKFLOW_PATH}?ref={previous['head_sha']}" and
+            blob.get("git_url") == f"https://api.github.com/repos/{scope.REPOSITORY}/git/blobs/{blob['sha']}",
+            "prior_nonpublisher_source_blob_identity")
+    try:
+        raw = base64.b64decode("".join(blob["content"].split()), validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError("publication_recovery:prior_nonpublisher_source_encoding") from exc
+    require(len(raw) == blob["size"] and
+            hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest() == blob["sha"],
+            "prior_nonpublisher_source_bytes")
+    class UniqueLoader(yaml.BaseLoader):
+        pass
+    def mapping(loader, node):
+        pairs = loader.construct_pairs(node)
+        require(all(type(key) is str for key, _ in pairs) and
+                len({key for key, _ in pairs}) == len(pairs), "prior_nonpublisher_source_duplicate_keys")
+        return dict(pairs)
+    UniqueLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, mapping)
+    try:
+        text = raw.decode("utf-8")
+        tokens = list(yaml.scan(text, Loader=UniqueLoader))
+        require(len(tokens) <= 8192 and
+                not any(isinstance(token, (yaml.tokens.AnchorToken, yaml.tokens.AliasToken)) for token in tokens),
+                "prior_nonpublisher_source_ambiguous")
+        source = yaml.load(text, Loader=UniqueLoader)
+    except (UnicodeError, yaml.YAMLError, RecursionError) as exc:
+        raise ValueError("publication_recovery:prior_nonpublisher_source_parse") from exc
+    require(isinstance(source, dict) and isinstance(source.get("on"), dict) and
+            set(source["on"]) == {"workflow_dispatch"} and isinstance(source.get("jobs"), dict) and
+            set(source["jobs"]) == {PUBLICATION_JOB_NAME}, "prior_nonpublisher_source_topology")
+    job = source["jobs"][PUBLICATION_JOB_NAME]
+    require(isinstance(job, dict) and
+            job.get("if") == "github.event_name == 'workflow_dispatch' && inputs.allow_publication_recovery == true" and
+            job.get("environment") == "run287-paper-durable", "prior_nonpublisher_source_dispatch_guard")
+
+
+def validate_prior_review_only_history(previous: dict, jobs: list[dict], proof: object) -> None:
+    """A complete failed push review census is not a publisher attempt."""
+    require(previous.get("event") == "push" and previous.get("status") == "completed" and
+            previous.get("conclusion") == "failure" and previous.get("path") == WORKFLOW_PATH and
+            type(previous.get("workflow_id")) is int and previous["workflow_id"] == RECOVERY_WORKFLOW_ID and
+            type(previous.get("head_sha")) is str and scope.SHA_RE.fullmatch(previous["head_sha"]) and
+            type(previous.get("head_branch")) is str and previous["head_branch"], "prior_nonpublisher_run_identity")
+    for name in ("actor", "triggering_actor"):
+        owner = previous.get(name)
+        require(isinstance(owner, dict) and type(owner.get("id")) is int and exact_user(owner),
+                "prior_nonpublisher_owner_identity")
+    for name in ("repository", "head_repository"):
+        repo = previous.get(name)
+        require(isinstance(repo, dict) and type(repo.get("id")) is int and
+                repo["id"] == scope.REPOSITORY_ID and repo.get("node_id") == scope.REPOSITORY_NODE_ID and
+                repo.get("full_name") == scope.REPOSITORY and repo.get("fork") is False and
+                isinstance(repo.get("owner"), dict) and type(repo["owner"].get("id")) is int and
+                exact_user(repo["owner"]), "prior_nonpublisher_repository_identity")
+    require(len(jobs) == 2 * previous["run_attempt"], "prior_nonpublisher_attempt_census_incomplete")
+    attempts = {}
+    expected = {"review_head_observed": "success", "review_complete": "failure"}
+    for job in jobs:
+        names = attempts.setdefault(job["run_attempt"], set())
+        name = job.get("name")
+        require(type(name) is str and name in expected and name not in names and job.get("status") == "completed" and
+                job.get("conclusion") == expected[name] and job.get("steps") == [] and
+                all(key in job and job[key] is None for key in
+                    ("runner_id", "runner_name", "runner_group_id", "runner_group_name")) and
+                job.get("labels") == [] and job.get("head_sha") == previous["head_sha"] and
+                job.get("head_branch") == previous["head_branch"] and job.get("workflow_name") == WORKFLOW_PATH and
+                job.get("run_url") == f"https://api.github.com/repos/{scope.REPOSITORY}/actions/runs/{previous['id']}" and
+                job.get("check_run_url") == f"https://api.github.com/repos/{scope.REPOSITORY}/check-runs/{job['id']}",
+                "prior_nonpublisher_review_job_identity")
+        names.add(name)
+    require(set(attempts) == set(range(1, previous["run_attempt"] + 1)) and
+            all(names == set(expected) for names in attempts.values()), "prior_nonpublisher_attempt_census_incomplete")
+    validate_prior_review_only_source(previous, proof)
+
+
+def prior_publication_step_state(previous: dict, jobs_payload: Any, *, historical_source: object = None) -> str:
     require(isinstance(previous, dict) and type(previous.get("id")) is int and previous["id"] > 0 and
             type(previous.get("run_attempt")) is int and previous["run_attempt"] > 0,
             "prior_recovery_identity")
@@ -197,6 +287,9 @@ def prior_publication_step_state(previous: dict, jobs_payload: Any) -> str:
         attempts[attempt] = matches[0].get("conclusion")
     # Unique identities in 1..N with cardinality N prove the complete census;
     # unrelated jobs may occur only in a subset of those attempts.
+    if not attempts and previous.get("event") == "push" and previous.get("conclusion") == "failure":
+        validate_prior_review_only_history(previous, jobs, historical_source)
+        return "review_only_nonpublisher"
     require(len(attempts) == previous["run_attempt"], "prior_publication_attempt_census_incomplete")
     if any(value == "success" for value in attempts.values()):
         return "success"
@@ -276,11 +369,17 @@ def validate_publisher(evidence: Path, checkout_sha: str, *, now: datetime | Non
         if any(a.get("name") == name for a in rows):
             raise ValueError("publication_recovery:already_published_requires_separate_recovery")
         require(isinstance(prior_jobs, dict), "prior_job_census_missing")
-        step_state = prior_publication_step_state(previous, prior_jobs.get(str(previous["id"])))
+        sources = prior.get("workflow_sources")
+        historical_source = sources.get(previous.get("head_sha")) if isinstance(sources, dict) else None
+        step_state = prior_publication_step_state(previous, prior_jobs.get(str(previous["id"])),
+                                                 historical_source=historical_source)
         if step_state == "success":
             raise ValueError("publication_recovery:already_published_requires_separate_recovery")
         if step_state == "whole_run_skipped":
             require(not rows, "prior_whole_run_skip_artifacts_present")
+            continue
+        if step_state == "review_only_nonpublisher":
+            require(not rows, "prior_nonpublisher_artifacts_present")
             continue
         require(previous.get("status") == "completed" and
                 previous.get("conclusion") in ("failure", "cancelled"),
@@ -605,6 +704,18 @@ def collect(evidence: Path, event_file: Path, run_id: str, checkout_sha: str) ->
                            for run in prior["workflow_runs"] if str(run["id"]) != run_id}
     prior["jobs"] = {str(run["id"]): get(f"/actions/runs/{run['id']}/jobs?filter=all&per_page=100")
                       for run in prior["workflow_runs"] if str(run["id"]) != run_id}
+    prior["workflow_sources"] = {}
+    for run in prior["workflow_runs"]:
+        sha = run.get("head_sha")
+        jobs = prior["jobs"].get(str(run["id"]), {}).get("jobs")
+        if (str(run["id"]) != run_id and run.get("event") == "push" and
+                run.get("status") == "completed" and run.get("conclusion") == "failure" and
+                run.get("path") == WORKFLOW_PATH and type(sha) is str and scope.SHA_RE.fullmatch(sha) and
+                isinstance(jobs, list) and jobs and all(isinstance(job, dict) and
+                    job.get("name") in ("review_head_observed", "review_complete") for job in jobs) and
+                sha not in prior["workflow_sources"]):
+            prior["workflow_sources"][sha] = {"repository": scope.REPOSITORY, "source_commit_sha": sha,
+                "workflow_blob": get(f"/contents/{WORKFLOW_PATH}?ref={sha}")}
     write(evidence / "prior_recoveries.json", prior)
     write(evidence / "event.json", read(event_file))
     validate_github_compare_payload(read(evidence / "compare.json"),

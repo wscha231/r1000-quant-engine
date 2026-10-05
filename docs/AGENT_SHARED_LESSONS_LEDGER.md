@@ -6243,3 +6243,13 @@ Expected contract:
   transport-only churn cannot replace a changed consumed mapping.
 - Validate supplied mapping identity before compaction; canonical UTC/key-order
   controls reuse context. Format/clock checks do not authenticate a producer or PIT.
+
+## 2026-10-05 - Distinguish proven review-only history from publisher attempts
+
+- A failed push can contain only nonrunner review checks. Preserve the history
+  and classify it separately only with complete strict attempts, exact owner/run/
+  repository/job identities, zero artifacts and the historical workflow bytes
+  fetched at that immutable head. Current YAML or empty jobs alone is no proof.
+- Bind the returned source ref/path and actual Git blob hash; unknown/manual,
+  partial or ambiguous histories remain blocked. This source fix neither clears
+  active-writer conflicts nor grants fresh publication/cache/durable authority.

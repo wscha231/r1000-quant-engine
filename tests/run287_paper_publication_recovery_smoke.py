@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import base64
 import hashlib
 import json
 import os
@@ -139,7 +140,282 @@ def install_prior_recovery(root: Path, *, run_id: int = 123, run_conclusion: str
     return current
 
 
+def review_only_fixture(root: Path, *, run_id: int = 123, attempts: tuple[int, ...] = (1,),
+                        source: str | None = None) -> dict:
+    """Synthetic canonical API-shaped history; no real publisher/dispatch."""
+    data = publisher_fixture(root)
+    sha = "a" * 40
+    previous = copy.deepcopy(data["publisher_run"])
+    previous.update(id=run_id, event="push", status="completed", conclusion="failure",
+                    run_attempt=max(attempts), workflow_id=373591015, path=recovery.WORKFLOW_PATH,
+                    head_branch="codex/synthetic-review-only", head_sha=sha)
+    previous["repository"]["fork"] = False
+    previous["head_repository"]["fork"] = False
+    rows = []
+    for attempt in attempts:
+        for offset, (name, conclusion) in enumerate((("review_head_observed", "success"),
+                                                    ("review_complete", "failure"))):
+            job_id = 1000 * attempt + run_id * 2 + offset
+            rows.append({"id": job_id, "run_id": run_id, "run_attempt": attempt,
+                         "name": name, "status": "completed", "conclusion": conclusion,
+                         "steps": [], "runner_id": None, "runner_name": None,
+                         "runner_group_id": None, "runner_group_name": None, "labels": [],
+                         "head_sha": sha, "head_branch": previous["head_branch"],
+                         "workflow_name": recovery.WORKFLOW_PATH,
+                         "run_url": f"https://api.github.com/repos/{recovery.scope.REPOSITORY}/actions/runs/{run_id}",
+                         "check_run_url": f"https://api.github.com/repos/{recovery.scope.REPOSITORY}/check-runs/{job_id}"})
+    raw = (source if source is not None else
+           "on:\n  workflow_dispatch:\n"
+           "jobs:\n  publication_recovery:\n"
+           "    if: github.event_name == 'workflow_dispatch' && inputs.allow_publication_recovery == true\n"
+           "    environment: run287-paper-durable\n").encode()
+    blob_sha = hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
+    proof = {"repository": recovery.scope.REPOSITORY, "source_commit_sha": sha,
+             "workflow_blob": {"type": "file", "path": recovery.WORKFLOW_PATH,
+                               "sha": blob_sha, "size": len(raw), "encoding": "base64",
+                               "content": base64.b64encode(raw).decode(),
+                               "url": f"https://api.github.com/repos/{recovery.scope.REPOSITORY}/contents/{recovery.WORKFLOW_PATH}?ref={sha}",
+                               "git_url": f"https://api.github.com/repos/{recovery.scope.REPOSITORY}/git/blobs/{blob_sha}"}}
+    prior = {"total_count": 2, "workflow_runs": [data["publisher_run"], previous],
+             "jobs": {str(run_id): {"total_count": len(rows), "jobs": rows}},
+             "artifacts": {str(run_id): {"total_count": 0, "artifacts": []}},
+             "workflow_sources": {sha: proof}}
+    dump(root / "prior_recoveries.json", prior)
+    return prior
+
+
 class PublicationRecoveryChecks(unittest.TestCase):
+    def test_review_only_complete_census_and_owner_dispatch(self):
+        for attempts in ((1,), (2, 1), (3, 1, 2)):
+            for cache in (False, True):
+                with self.subTest(attempts=attempts, cache=cache), tempfile.TemporaryDirectory() as td:
+                    root = Path(td)
+                    review_only_fixture(root, run_id=127, attempts=attempts)
+                    event = json.loads((root / "event.json").read_text())
+                    event["inputs"]["save_continuity_cache"] = cache
+                    dump(root / "event.json", event)
+                    result = recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+                    self.assertEqual(result["run_id"], MOCK_RUN)
+                    self.assertEqual(result["save_continuity_cache"], cache)
+                    self.assertEqual(result["authority"], "FRESH_OWNER_MANUAL_DISPATCH")
+
+    def test_review_only_job_census_metadata_and_attempt_matrix(self):
+        changes = []
+        def change(label, mutate):
+            changes.append((label, mutate))
+        for field in ("id", "run_id", "run_attempt"):
+            for value in (None, True, 0, -1, "1", 1.0, 99999):
+                change(f"{field}:{value!r}", lambda p, f=field, v=value: p["jobs"]["123"]["jobs"][0].update({f: v}))
+        for field, value in (("name", "other"), ("name", {}), ("name", "publication_recovery"),
+                             ("status", "in_progress"), ("conclusion", "failure"),
+                             ("conclusion", "skipped"), ("steps", None), ("steps", [{}]),
+                             ("head_sha", "b" * 40), ("head_branch", "master"),
+                             ("workflow_name", "other"), ("run_url", "https://example.invalid/run"),
+                             ("check_run_url", "https://example.invalid/check"), ("labels", ["ubuntu"]),
+                             ("runner_id", 2), ("runner_name", "runner"),
+                             ("runner_group_id", 2), ("runner_group_name", "runner")):
+            change(f"{field}:{value!r}", lambda p, f=field, v=value: p["jobs"]["123"]["jobs"][0].update({f: v}))
+        for field in ("steps", "runner_id", "runner_name", "runner_group_id", "runner_group_name", "labels"):
+            change("missing:" + field, lambda p, f=field: p["jobs"]["123"]["jobs"][0].pop(f))
+        change("duplicate_id", lambda p: p["jobs"]["123"]["jobs"][1].update(id=p["jobs"]["123"]["jobs"][0]["id"]))
+        change("duplicate_name", lambda p: p["jobs"]["123"]["jobs"][1].update(name="review_head_observed"))
+        change("empty_jobs", lambda p: p["jobs"]["123"].update(total_count=0, jobs=[]))
+        change("truncated", lambda p: p["jobs"]["123"].update(total_count=3))
+        change("bool_count", lambda p: p["jobs"]["123"].update(total_count=True))
+        change("missing_first", lambda p: p["workflow_runs"][1].update(run_attempt=2))
+        for label, mutate in changes:
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                prior = review_only_fixture(root)
+                mutate(prior)
+                dump(root / "prior_recoveries.json", prior)
+                with self.assertRaises(ValueError):
+                    recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+        for attempts in ((2,), (1, 3), (1, 1, 2)):
+            with self.subTest(attempts=attempts), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                review_only_fixture(root, attempts=attempts)
+                with self.assertRaises(ValueError):
+                    recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+
+    def test_review_only_run_identity_and_terminal_matrix(self):
+        changes = [("event", "workflow_dispatch"), ("event", "schedule"),
+                   ("status", "queued"), ("conclusion", "success"), ("conclusion", "cancelled"),
+                   ("conclusion", "skipped"), ("workflow_id", recovery.scope.WORKFLOW_ID),
+                   ("workflow_id", True), ("workflow_id", 373591015.0), ("head_sha", "invalid"), ("head_branch", ""),
+                   ("path", "other"), ("run_attempt", True)]
+        for field, value in changes:
+            with self.subTest(field=field, value=value), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                prior = review_only_fixture(root)
+                prior["workflow_runs"][1][field] = value
+                dump(root / "prior_recoveries.json", prior)
+                with self.assertRaises(ValueError):
+                    recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+        for field in ("actor", "triggering_actor", "repository", "head_repository"):
+            exact_id = recovery.scope.OWNER_ID if "actor" in field else recovery.scope.REPOSITORY_ID
+            for key, value in (("id", True), ("id", float(exact_id)), ("id", 1), ("node_id", "other"),
+                               ("login", "other") if "actor" in field else ("full_name", "other/repo")):
+                with self.subTest(field=field, key=key), tempfile.TemporaryDirectory() as td:
+                    root = Path(td)
+                    prior = review_only_fixture(root)
+                    prior["workflow_runs"][1][field][key] = value
+                    dump(root / "prior_recoveries.json", prior)
+                    with self.assertRaises(ValueError):
+                        recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+        for field in ("repository", "head_repository"):
+            for change in (lambda r: r.update(fork=True), lambda r: r["owner"].update(id=1),
+                           lambda r: r["owner"].update(id=float(recovery.scope.OWNER_ID))):
+                with self.subTest(field=field), tempfile.TemporaryDirectory() as td:
+                    root = Path(td)
+                    prior = review_only_fixture(root)
+                    change(prior["workflow_runs"][1][field])
+                    dump(root / "prior_recoveries.json", prior)
+                    with self.assertRaises(ValueError):
+                        recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+
+    def test_review_only_artifact_and_current_authority_fences(self):
+        changes = [lambda p: p["artifacts"].clear(),
+                   lambda p: p["artifacts"]["123"].update(total_count=False),
+                   lambda p: p["artifacts"]["123"].update(total_count=1),
+                   lambda p: p["artifacts"]["123"].update(total_count=1, artifacts=[{"name": "diagnostic"}]),
+                   lambda p: p["artifacts"]["123"].update(total_count=1, artifacts=[{"name": "accepted-paper-catchup-2026-07-27-123", "expired": True}]),
+                   lambda p: p.update(total_count=3),
+                   lambda p: p["workflow_runs"].pop(0),
+                   lambda p: p["workflow_runs"].append(copy.deepcopy(p["workflow_runs"][1]))]
+        for index, mutate in enumerate(changes):
+            with self.subTest(case=index), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                prior = review_only_fixture(root)
+                mutate(prior)
+                dump(root / "prior_recoveries.json", prior)
+                with self.assertRaises(ValueError):
+                    recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+        for label in ("active_writer", "master", "approval", "age"):
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                review_only_fixture(root)
+                if label == "active_writer":
+                    dump(root / "writers_waiting.json", {"total_count": 1, "workflow_runs": [{"id": 555}]})
+                elif label == "master":
+                    dump(root / "master.json", {"object": {"sha": "b" * 40}})
+                else:
+                    path = root / ("event.json" if label == "approval" else "publisher_run.json")
+                    data = json.loads(path.read_text())
+                    if label == "approval": data["inputs"]["allow_publication_recovery"] = False
+                    else: data["created_at"] = (NOW - timedelta(hours=2)).isoformat()
+                    dump(path, data)
+                with self.assertRaises(ValueError):
+                    recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+
+    def test_review_only_exact_historical_source_identity_matrix(self):
+        changes = [lambda p: p.pop("workflow_sources"), lambda p: p["workflow_sources"].clear()]
+        for field, value in (("repository", "other/repo"), ("source_commit_sha", "b" * 40)):
+            changes.append(lambda p, f=field, v=value: p["workflow_sources"]["a" * 40].update({f: v}))
+        for field, value in (("type", "symlink"), ("path", "other.yml"), ("sha", "b" * 40),
+                             ("size", True), ("size", 1), ("encoding", "utf-8"),
+                             ("content", "invalid!"), ("content", ""), ("url", "https://example.invalid"),
+                             ("git_url", "https://example.invalid")):
+            changes.append(lambda p, f=field, v=value: p["workflow_sources"]["a" * 40]["workflow_blob"].update({f: v}))
+        changes.append(lambda p: p["workflow_sources"]["a" * 40]["workflow_blob"].update(
+            content=base64.b64encode(b"on:\n  workflow_dispatch:\n").decode()))
+        for index, mutate in enumerate(changes):
+            with self.subTest(case=index), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                prior = review_only_fixture(root)
+                mutate(prior)
+                dump(root / "prior_recoveries.json", prior)
+                with self.assertRaises(ValueError):
+                    recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+
+    def test_review_only_contradictory_or_ambiguous_source_fails(self):
+        valid = "on:\n  workflow_dispatch:\njobs:\n  publication_recovery:\n    if: github.event_name == 'workflow_dispatch' && inputs.allow_publication_recovery == true\n    environment: run287-paper-durable\n"
+        sources = [valid.replace("  workflow_dispatch:", "  push:"),
+                   valid.replace("jobs:", "  push:\njobs:"),
+                   valid.replace("on:\n", "on:\n  push:\non:\n"),
+                   valid.replace("    if:", "    if: true\n    if:"),
+                   valid.replace(" == 'workflow_dispatch' && inputs.allow_publication_recovery == true", " == 'push'"),
+                   valid.replace("    environment: run287-paper-durable", "    environment: other"),
+                   valid + "  other:\n    runs-on: ubuntu-latest\n",
+                   "on: workflow_dispatch\njobs: {}\n", "[", "on: &x {workflow_dispatch: null}\njobs: *x\n",
+                   valid + "#" * 70000]
+        for source in sources:
+            with self.subTest(source=source[:100]), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                review_only_fixture(root, source=source)
+                with self.assertRaises(ValueError):
+                    recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)
+
+    def test_collect_review_only_source_uses_exact_ref_and_preserves_all_history(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            prior = review_only_fixture(root)
+            previous = prior["workflow_runs"][1]
+            event = root / "event-input.json"
+            dump(event, {"inputs": {}})
+            proof = prior["workflow_sources"][previous["head_sha"]]
+            endpoint = f"/contents/{recovery.WORKFLOW_PATH}?ref={previous['head_sha']}"
+            responses = {"/actions/workflows/run287_paper_publication_recovery.yml/runs?per_page=100":
+                         {"total_count": 2, "workflow_runs": [previous, {"id": MOCK_RUN}]},
+                         "/actions/runs/123/artifacts?per_page=100": prior["artifacts"]["123"],
+                         "/actions/runs/123/jobs?filter=all&per_page=100": prior["jobs"]["123"],
+                         endpoint: proof["workflow_blob"]}
+            seen = []
+            def get(command, capture_output=True, check=True):
+                api = command[-1].split("repos/" + recovery.scope.REPOSITORY, 1)[1]
+                seen.append(api)
+                return subprocess.CompletedProcess(command, 0, stdout=json.dumps(responses.get(api, {})).encode(), stderr=b"")
+            output = root / "collected"
+            with patch.object(recovery.subprocess, "run", side_effect=get), \
+                 patch.object(recovery, "validate_github_compare_payload", return_value=None):
+                recovery.collect(output, event, str(MOCK_RUN), PUBLISHER_SHA)
+            result = json.loads((output / "prior_recoveries.json").read_text())
+            self.assertEqual(result["workflow_runs"], responses["/actions/workflows/run287_paper_publication_recovery.yml/runs?per_page=100"]["workflow_runs"])
+            self.assertEqual(result["workflow_sources"][previous["head_sha"]], proof)
+            self.assertEqual(seen.count(endpoint), 1)
+
+    def test_review_only_source_encoding_positive_and_collector_failure_controls(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            prior = review_only_fixture(root)
+            blob = prior["workflow_sources"]["a" * 40]["workflow_blob"]
+            blob["content"] = "\n".join(blob["content"][i:i+60] for i in range(0, len(blob["content"]), 60)) + "\n"
+            dump(root / "prior_recoveries.json", prior)
+            self.assertEqual(recovery.validate_publisher(root, PUBLISHER_SHA, now=NOW)["source_sha"], PUBLISHER_SHA)
+        for kind in ("missing", "failed"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                prior = review_only_fixture(root)
+                event = root / "input-event.json"
+                dump(event, {"inputs": {}})
+                endpoint = f"/contents/{recovery.WORKFLOW_PATH}?ref={'a' * 40}"
+                payloads = {"/actions/workflows/run287_paper_publication_recovery.yml/runs?per_page=100":
+                            {"total_count": 2, "workflow_runs": prior["workflow_runs"]},
+                            "/actions/runs/123/artifacts?per_page=100": prior["artifacts"]["123"],
+                            "/actions/runs/123/jobs?filter=all&per_page=100": prior["jobs"]["123"]}
+                seen = []
+                def get(command, capture_output=True, check=True):
+                    api = command[-1].split("repos/" + recovery.scope.REPOSITORY, 1)[1]
+                    seen.append(api)
+                    if api == endpoint and kind == "failed":
+                        raise subprocess.CalledProcessError(1, command, stderr=b"source unavailable")
+                    return subprocess.CompletedProcess(command, 0, stdout=json.dumps(payloads.get(api, {})).encode(), stderr=b"")
+                output = root / "collected"
+                with patch.object(recovery.subprocess, "run", side_effect=get), \
+                     patch.object(recovery, "validate_github_compare_payload", return_value=None):
+                    if kind == "failed":
+                        with self.assertRaises(subprocess.CalledProcessError):
+                            recovery.collect(output, event, str(MOCK_RUN), PUBLISHER_SHA)
+                    else:
+                        recovery.collect(output, event, str(MOCK_RUN), PUBLISHER_SHA)
+                        collected = json.loads((output / "prior_recoveries.json").read_text())
+                        self.assertEqual(collected["workflow_sources"]["a" * 40]["workflow_blob"], {})
+                        with self.assertRaises(ValueError):
+                            recovery.prior_publication_step_state(prior["workflow_runs"][1], prior["jobs"]["123"],
+                                historical_source=collected["workflow_sources"]["a" * 40])
+                self.assertEqual(seen.count(endpoint), 1)
+
+
     def test_job_env_context_rejects_original_runner_path_expressions(self):
         workflow = recovery_workflow()
         self.assertEqual(job_env_context_violations(workflow), [])
