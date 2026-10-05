@@ -1,0 +1,291 @@
+{
+  "schema": "chameleon-context-source-register-v2",
+  "status": "RESEARCH_INPUT_CONTRACT_NOT_ACCESS_OR_LICENSE_APPROVAL",
+  "task_key": "R1000-H1-CHAMELEON-MARKET-CONTEXT-V2-20261004",
+  "observed_base": "6129f16b3d09cb7367b0a25f126a5ec28f905ff7",
+  "checked_date": "2026-10-04",
+  "mode": "REUSE_EXISTING_CAPTURE_THEN_OFFLINE_IMPORT",
+  "paid_fallback": false,
+  "new_scheduler": false,
+  "series": [
+    {
+      "source_id": "fred:VIXCLS",
+      "logical_id": "vix_30d",
+      "unit": "index",
+      "max_observation_age_calendar_days": 5,
+      "family": "OPTION_VARIANCE",
+      "collection": "EXISTING_LICENSED_INPUT_ONLY",
+      "historical_truth": "FREE_PROXY_CURRENT_VINTAGE",
+      "original_publication": "NOT_INFERRED",
+      "source_url": "https://fred.stlouisfed.org/series/VIXCLS"
+    },
+    {
+      "source_id": "fred:VXVCLS",
+      "logical_id": "vix_3m",
+      "unit": "index",
+      "max_observation_age_calendar_days": 5,
+      "family": "OPTION_VARIANCE",
+      "collection": "EXISTING_LICENSED_INPUT_ONLY",
+      "historical_truth": "FREE_PROXY_CURRENT_VINTAGE",
+      "original_publication": "NOT_INFERRED",
+      "source_url": "https://fred.stlouisfed.org/series/VXVCLS"
+    },
+    {
+      "source_id": "cboe:VIX",
+      "logical_id": "vix_30d",
+      "unit": "index",
+      "max_observation_age_calendar_days": 5,
+      "family": "OPTION_VARIANCE",
+      "collection": "EXISTING_LICENSED_INPUT_ONLY",
+      "historical_truth": "FREE_PROXY_CURRENT_VINTAGE",
+      "original_publication": "NOT_INFERRED",
+      "source_url": "https://www.cboe.com/tradable_products/vix/vix_historical_data"
+    },
+    {
+      "source_id": "cboe:VIX3M",
+      "logical_id": "vix_3m",
+      "unit": "index",
+      "max_observation_age_calendar_days": 5,
+      "family": "OPTION_VARIANCE",
+      "collection": "EXISTING_LICENSED_INPUT_ONLY",
+      "historical_truth": "FREE_PROXY_CURRENT_VINTAGE",
+      "original_publication": "NOT_INFERRED",
+      "source_url": "https://www.cboe.com/tradable_products/vix/vix_historical_data"
+    },
+    {
+      "source_id": "cboe:VIX9D",
+      "logical_id": "vix_9d",
+      "unit": "index",
+      "max_observation_age_calendar_days": 5,
+      "family": "OPTION_VARIANCE",
+      "collection": "EXISTING_LICENSED_INPUT_ONLY",
+      "historical_truth": "FREE_PROXY_CURRENT_VINTAGE",
+      "original_publication": "NOT_INFERRED",
+      "source_url": "https://www.cboe.com/tradable_products/vix/vix_historical_data"
+    },
+    {
+      "source_id": "cboe:VVIX",
+      "logical_id": "vvix",
+      "unit": "index",
+      "max_observation_age_calendar_days": 5,
+      "family": "OPTION_VARIANCE",
+      "collection": "EXISTING_LICENSED_INPUT_ONLY",
+      "historical_truth": "FREE_PROXY_CURRENT_VINTAGE",
+      "original_publication": "NOT_INFERRED",
+      "source_url": "https://www.cboe.com/tradable_products/vix/vix_historical_data"
+    },
+    {
+      "source_id": "cboe:SKEW",
+      "logical_id": "skew_index",
+      "unit": "index",
+      "max_observation_age_calendar_days": 5,
+      "family": "OPTION_TAIL_PRICE",
+      "collection": "EXISTING_LICENSED_INPUT_ONLY",
+      "historical_truth": "FREE_PROXY_CURRENT_VINTAGE",
+      "original_publication": "NOT_INFERRED",
+      "source_url": "https://www.cboe.com/tradable_products/vix/vix_historical_data"
+    },
+    {
+      "source_id": "fred:BAMLH0A0HYM2",
+      "logical_id": "hy_oas",
+      "unit": "percent",
+      "max_observation_age_calendar_days": 5,
+      "family": "CREDIT",
+      "collection": "EXISTING_LICENSED_INPUT_ONLY",
+      "historical_truth": "FREE_PROXY_CURRENT_VINTAGE",
+      "original_publication": "NOT_INFERRED",
+      "source_url": "https://fred.stlouisfed.org/series/BAMLH0A0HYM2"
+    },
+    {
+      "source_id": "fred:NFCI",
+      "logical_id": "nfci",
+      "unit": "index",
+      "max_observation_age_calendar_days": 14,
+      "family": "FINANCIAL_CONDITIONS_COMPOSITE",
+      "collection": "EXISTING_LICENSED_INPUT_ONLY",
+      "historical_truth": "FREE_PROXY_CURRENT_VINTAGE",
+      "original_publication": "NOT_INFERRED",
+      "source_url": "https://fred.stlouisfed.org/series/NFCI"
+    },
+    {
+      "source_id": "fred:DGS2",
+      "logical_id": "yield_2y",
+      "unit": "percent",
+      "max_observation_age_calendar_days": 5,
+      "family": "RATES",
+      "collection": "EXISTING_LICENSED_INPUT_ONLY",
+      "historical_truth": "FREE_PROXY_CURRENT_VINTAGE",
+      "original_publication": "NOT_INFERRED",
+      "source_url": "https://fred.stlouisfed.org/series/DGS2"
+    },
+    {
+      "source_id": "fred:DGS10",
+      "logical_id": "yield_10y",
+      "unit": "percent",
+      "max_observation_age_calendar_days": 5,
+      "family": "RATES",
+      "collection": "EXISTING_LICENSED_INPUT_ONLY",
+      "historical_truth": "FREE_PROXY_CURRENT_VINTAGE",
+      "original_publication": "NOT_INFERRED",
+      "source_url": "https://fred.stlouisfed.org/series/DGS10"
+    },
+    {
+      "source_id": "fred:DFII10",
+      "logical_id": "real_yield_10y",
+      "unit": "percent",
+      "max_observation_age_calendar_days": 5,
+      "family": "RATES",
+      "collection": "EXISTING_LICENSED_INPUT_ONLY",
+      "historical_truth": "FREE_PROXY_CURRENT_VINTAGE",
+      "original_publication": "NOT_INFERRED",
+      "source_url": "https://fred.stlouisfed.org/series/DFII10"
+    },
+    {
+      "source_id": "fred:SOFR",
+      "logical_id": "sofr",
+      "unit": "percent",
+      "max_observation_age_calendar_days": 5,
+      "family": "FUNDING",
+      "collection": "EXISTING_LICENSED_INPUT_ONLY",
+      "historical_truth": "FREE_PROXY_CURRENT_VINTAGE",
+      "original_publication": "NOT_INFERRED",
+      "source_url": "https://fred.stlouisfed.org/series/SOFR"
+    },
+    {
+      "source_id": "fred:IORB",
+      "logical_id": "iorb",
+      "unit": "percent",
+      "max_observation_age_calendar_days": 5,
+      "family": "FUNDING",
+      "collection": "EXISTING_LICENSED_INPUT_ONLY",
+      "historical_truth": "FREE_PROXY_CURRENT_VINTAGE",
+      "original_publication": "NOT_INFERRED",
+      "source_url": "https://fred.stlouisfed.org/series/IORB"
+    },
+    {
+      "source_id": "fred:WALCL",
+      "logical_id": "fed_assets",
+      "unit": "millions_usd",
+      "max_observation_age_calendar_days": 14,
+      "family": "LIQUIDITY",
+      "collection": "EXISTING_LICENSED_INPUT_ONLY",
+      "historical_truth": "FREE_PROXY_CURRENT_VINTAGE",
+      "original_publication": "NOT_INFERRED",
+      "source_url": "https://fred.stlouisfed.org/series/WALCL"
+    },
+    {
+      "source_id": "fred:WTREGEN",
+      "logical_id": "tga_weekly_average",
+      "unit": "millions_usd",
+      "max_observation_age_calendar_days": 14,
+      "family": "LIQUIDITY",
+      "collection": "EXISTING_LICENSED_INPUT_ONLY",
+      "historical_truth": "FREE_PROXY_CURRENT_VINTAGE",
+      "original_publication": "NOT_INFERRED",
+      "source_url": "https://fred.stlouisfed.org/series/WTREGEN"
+    },
+    {
+      "source_id": "fred:RRPONTSYD",
+      "logical_id": "rrp_daily",
+      "unit": "billions_usd",
+      "max_observation_age_calendar_days": 5,
+      "family": "LIQUIDITY",
+      "collection": "EXISTING_LICENSED_INPUT_ONLY",
+      "historical_truth": "FREE_PROXY_CURRENT_VINTAGE",
+      "original_publication": "NOT_INFERRED",
+      "source_url": "https://fred.stlouisfed.org/series/RRPONTSYD"
+    },
+    {
+      "source_id": "fred:ICSA",
+      "logical_id": "initial_claims",
+      "unit": "persons",
+      "max_observation_age_calendar_days": 14,
+      "family": "LABOR",
+      "collection": "EXISTING_LICENSED_INPUT_ONLY",
+      "historical_truth": "FREE_PROXY_CURRENT_VINTAGE",
+      "original_publication": "NOT_INFERRED",
+      "source_url": "https://fred.stlouisfed.org/series/ICSA"
+    },
+    {
+      "source_id": "fred:DTWEXBGS",
+      "logical_id": "broad_usd",
+      "unit": "index",
+      "max_observation_age_calendar_days": 7,
+      "family": "FX",
+      "collection": "EXISTING_LICENSED_INPUT_ONLY",
+      "historical_truth": "FREE_PROXY_CURRENT_VINTAGE",
+      "original_publication": "NOT_INFERRED",
+      "source_url": "https://fred.stlouisfed.org/series/DTWEXBGS"
+    }
+  ],
+  "other_sources": [
+    {
+      "source": "CFTC",
+      "scope": "TFF_FUTURES / DISAGG_FUTURES",
+      "max_age_days": 14,
+      "capture": "REUSE_V1_BOUNDED_OPT_IN_GET_OR_LICENSED_LOCAL_FILE",
+      "interpretation": "Futures positioning; not all institutional equity exposure",
+      "reference": "https://publicreporting.cftc.gov/stories/s/COT-Help/p2fg-u73y/"
+    },
+    {
+      "source": "FINRA",
+      "scope": "CNMS_SHORT_VOLUME",
+      "max_age_days": 5,
+      "capture": "REUSE_V1_BOUNDED_OPT_IN_GET_OR_LICENSED_LOCAL_FILE",
+      "interpretation": "Venue-limited short-sale activity, not short interest, dealer exposure or investor identity",
+      "license": "FINRA lists free non-commercial use; commercial use requires separate review",
+      "reference": "https://www.finra.org/finra-data/browse-catalog/short-sale-volume"
+    },
+    {
+      "source": "CBOE_PUT_CALL",
+      "scope": "EQUITY / INDEX / TOTAL kept separate",
+      "max_age_days": 5,
+      "capture": "AUTHORIZED_CSV_ONLY",
+      "interpretation": "Volume ratio; no signed flow or dealer gamma",
+      "license": "No scraping or redistribution entitlement inferred"
+    },
+    {
+      "source": "AAII",
+      "scope": "RESPONDENTS",
+      "max_age_days": 14,
+      "capture": "AUTHORIZED_CSV_ONLY",
+      "interpretation": "Survey opinion, not positions; weekly/date semantics preserved",
+      "reference": "https://www.aaii.com/sentimentsurvey"
+    },
+    {
+      "source": "LOCAL_PRICES",
+      "scope": "EXPLICIT_COHORT_AND_SESSION_GRID",
+      "capture": "REUSE_EXISTING_PRICE_CAPTURE",
+      "interpretation": "Actual metric denominator and missing count; no current-universe historical PIT claim"
+    },
+    {
+      "source": "EODHD_CALENDAR_C1",
+      "scope": "OPTIONAL_450_DEPENDENCY",
+      "max_age_days": 4,
+      "capture": "LICENSED_LOCAL_RESPONSE_OR_FUTURE_APPROVED_MEMORY_HOOK",
+      "interpretation": "Vendor 30-calendar-day symbol lookback is not analyst breadth or independently collected historical PIT",
+      "reference": "https://eodhd.com/financial-apis/calendar-upcoming-earnings-ipos-and-splits"
+    }
+  ],
+  "rights": "Public availability is not commercial/redistribution permission. No paid purchase or new data access occurred in this task.",
+  "pit": "Current-vintage history and supplied clocks are not original release receipts. Availability is no earlier than actual collection; historical PIT remains false.",
+  "excluded": [
+    "individual_option_chain",
+    "individual_delta_gamma",
+    "dealer_gex",
+    "live_signed_option_flow",
+    "new_regime_policy",
+    "target_weight",
+    "net_liquidity_shortcut"
+  ],
+  "references": {
+    "fred_realtime": "https://fred.stlouisfed.org/docs/api/fred/realtime_period.html",
+    "vix": "https://fred.stlouisfed.org/series/VIXCLS",
+    "vix3m": "https://fred.stlouisfed.org/series/VXVCLS",
+    "cboe_history": "https://www.cboe.com/tradable_products/vix/vix_historical_data",
+    "cftc": "https://publicreporting.cftc.gov/stories/s/COT-Help/p2fg-u73y/",
+    "finra": "https://www.finra.org/finra-data/browse-catalog/short-sale-volume",
+    "aaii": "https://www.aaii.com/sentimentsurvey",
+    "calendar": "https://eodhd.com/financial-apis/calendar-upcoming-earnings-ipos-and-splits"
+  }
+}

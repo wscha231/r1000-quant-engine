@@ -6197,3 +6197,17 @@ Expected contract:
   CLEAN/green evidence cannot authorize this changed head. The already approved
   single EODHD sample remains bounded to3HTTP/20daily units/no bonus/no retry.
   No operational daily dispatch, purchase, durable data or consumer activation.
+
+## 2026-10-05 — Adopt pure source libraries without their activation surface
+
+- Preserve the original core124/all eight producer cases and 203 unchanged
+  library cases in durable native units; name all 53 unadopted CLI/provider cases
+  separately. Reuse the registered H1 wrapper and full native #388/H1, not fixtures.
+- Status/expiry branches must not hide backward source clocks. Numeric string
+  validation must return copied normalized rows; public input domains must match
+  their actual parser/register, including signed and null conventions.
+- Numeric canonicalization can change digest bytes. Parser compatibility and
+  local tests do not authenticate producers, certify PIT, activate Calendar,
+  complete SEC actual extraction or authorize economic/ER/A5 consumption.
+- Nonempty SEC isolation must prove content/extraction review and selected-source
+  repair without optional Calendar modules, keys, HTTP or optimized-away assertions.

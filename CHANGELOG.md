@@ -3,6 +3,23 @@
 This file is the primary handoff document for coding agents resuming work on this repo.
 All entries must be written in English. Entries must be predictable and machine-scannable.
 
+
+## 2026-10-05
+
+### SEC-first reassessment core and durable library boundaries
+
+- scope: Adopt pure SEC filing-metadata/reassessment and the full Calendar,
+  FreeContext and Chameleon libraries using accepted native H1/#388 dependencies.
+- behavior: Reject backward available/collected clocks before repair branches;
+  copy-normalize price numerics and validate original public-source domains.
+- validation: Register original core124 (all eight producer cases), unchanged
+  library203, clock6, semantic7 and one nonempty SEC isolation regression through
+  the existing H1 wrapper (341 new methods;457 with native116). Explicitly
+  exclude 53 parent CLI/provider-activation cases; retain existing H1 tests.
+- boundaries: Calendar probe/keys/workflows and source gates are unchanged.
+  Live producer/A0/A3/Registry binding, real-company financial extraction, PIT,
+  ER/A5 promotion and economic execution remain unadmitted.
+
 ## 2026-08-03
 
 ### P1 review hardening - portable source identity and post-mutation gates
