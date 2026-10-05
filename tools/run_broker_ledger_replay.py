@@ -32,6 +32,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from tools import nav_metrics_v2 as nav_v2
 from tools.run_weekly_evaluation import load_price_series, px_cache_name, price_on_or_after, price_on_or_before
 from tools.execution_cost_model import (
     EXECUTION_COST_MODE_FIXED,
@@ -1213,7 +1214,19 @@ def calc_metrics(
     date_range: tuple[str, str] | tuple[str, None] | None = None,
     label: str = "full",
     cash_carry_mode: str = CASH_CARRY_MODE_NONE,
+    measurement_context: dict | None = None,
+    valuation_binding: dict | None = None,
 ) -> dict[str, Any]:
+    if measurement_context is not None:
+        result = nav_v2.calculate_frame(equity_curve, measurement_context,
+            valuation_binding=valuation_binding, date_range=date_range, label=label)
+        if date_range is None and result.get("status") == nav_v2.COMPLETE:
+            if result["starting_capital_usd"] != starting_capital:
+                return nav_v2.blocked("CALLER_PREFILL_CAPITAL_MISMATCH", label)
+            if measurement_context["anchor"]["kind"] != "PREFILL":
+                return nav_v2.blocked("CALLER_PREFILL_ANCHOR_KIND", label)
+        result["trade_count"] = len(trades)
+        return result
     if equity_curve.empty:
         return {"status": "blocked", "reason": "empty equity curve", "label": label}
     eq_series = pd.to_numeric(equity_curve["equity_usd"], errors="coerce")
@@ -1317,6 +1330,8 @@ def calc_metrics_with_oos(
     oos2_start: str | None = None,
     oos2_end: str | None = None,
     cash_carry_mode: str = CASH_CARRY_MODE_NONE,
+    measurement_contexts: dict | None = None,
+    valuation_binding: dict | None = None,
 ) -> dict[str, Any]:
     """Compute metrics over the full window plus IS/OOS slices.
 
@@ -1324,6 +1339,9 @@ def calc_metrics_with_oos(
     final equity_curve date). A second, earlier OOS window (oos2) is computed
     when oos2_start is given. The two OOS windows must not overlap.
     """
+    if measurement_contexts is not None:
+        return _v2_window_metrics(equity_curve, trades, starting_capital,
+            measurement_contexts, valuation_binding, oos_start, oos_end, oos2_start, oos2_end)
     full = calc_metrics(equity_curve, trades, starting_capital, label="full", cash_carry_mode=cash_carry_mode)
     splits: dict[str, dict[str, Any]] = {"full": full}
     oos_lo = pd.to_datetime(oos_start, errors="coerce") if oos_start else pd.NaT
@@ -1370,6 +1388,40 @@ def calc_metrics_with_oos(
         "oos2_start": oos2_start,
         "oos2_end": effective_oos2_end,
     }
+
+
+def _v2_window_metrics(curve, trades, capital, contexts, binding, oos_start, oos_end, oos2_start, oos2_end):
+    """Explicit per-window evidence; no synthetic first-row/rebased anchor."""
+    requested = {"full": None}
+    try:
+        if oos_start:
+            lo = pd.Timestamp(oos_start)
+            if pd.isna(lo):
+                raise ValueError("window")
+            requested["is"] = (None, (lo - pd.Timedelta(days=1)).date().isoformat())
+            requested["oos"] = (oos_start, oos_end)
+        if oos2_start:
+            effective_end = oos2_end
+            if oos_start and effective_end is None:
+                effective_end = (pd.Timestamp(oos_start) - pd.Timedelta(days=1)).date().isoformat()
+            if effective_end and (pd.Timestamp(oos2_start) > pd.Timestamp(effective_end)
+                    or (oos_start and pd.Timestamp(effective_end) >= pd.Timestamp(oos_start))):
+                raise ValueError("window")
+            requested["oos2"] = (oos2_start, effective_end)
+        result = {}
+        for label, interval in requested.items():
+            context = contexts.get(label) if type(contexts) is dict else None
+            result[label] = (nav_v2.blocked("WINDOW_CONTEXT_MISSING", label) if context is None else
+                calc_metrics(curve, trades, capital, date_range=interval, label=label,
+                             measurement_context=context, valuation_binding=binding))
+        complete = all(m.get("status") == nav_v2.COMPLETE for m in result.values())
+        return {"full": result["full"], "is": result.get("is"), "oos": result.get("oos"),
+                "oos2": result.get("oos2"), "status": nav_v2.COMPLETE if complete else nav_v2.BLOCKED,
+                "oos_start": oos_start, "oos_end": oos_end, "oos2_start": oos2_start,
+                "oos2_end": requested.get("oos2", (None, None))[1]}
+    except (TypeError, ValueError, OverflowError):
+        return {"full": nav_v2.blocked("INVALID_REQUESTED_WINDOW"), "status": nav_v2.BLOCKED,
+                "is": None, "oos": None, "oos2": None}
 
 
 def latest_account_state(
@@ -1542,19 +1594,36 @@ def replay(
     partial_resize_two_signal_confirmation: bool = False,
     evidence_end_date: Any = None,
     execution_cost_config: ExecutionCostConfig | None = None,
+    measurement_context: dict | None = None,
+    measurement_context_path: Path | None = None,
 ) -> dict[str, Any]:
-    output_dir.mkdir(parents=True, exist_ok=True)
+    research_measurement = measurement_context is not None
+    if research_measurement:
+        output_dir = output_dir / nav_v2.NAMESPACE
+    def artifact(name):
+        return nav_v2.artifact_name(name) if research_measurement else name
+    metric_name, curve_name = artifact("metrics.json"), artifact("equity_curve.csv")
+    generated_names = tuple(artifact(n) for n in REPLAY_GENERATED_ARTIFACTS)
+    if research_measurement and output_dir.resolve().is_relative_to(price_cache.resolve()):
+        return nav_v2.blocked("CALLER_OUTPUT_INSIDE_PRICE_CACHE")
     execution_cost_config = execution_cost_config or ExecutionCostConfig()
     cash_carry_config = cash_carry_config or resolve_cash_carry_config()
-    protected, collision = prepare_generated_outputs(output_dir, REPLAY_GENERATED_ARTIFACTS,
-        [target_book, cash_carry_config.rate_path, execution_cost_config.paper_slippage_path])
+    if research_measurement:
+        inputs = {Path(p).resolve() for p in (target_book, cash_carry_config.rate_path,
+                  execution_cost_config.paper_slippage_path, measurement_context_path) if p is not None}
+        paths = [output_dir / n for n in generated_names]
+        if any(p.resolve() in inputs or (p.exists() and not p.is_file() and not p.is_symlink()) for p in paths):
+            return nav_v2.blocked("caller_input_collides_with_replay_output")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    protected, collision = prepare_generated_outputs(output_dir, generated_names,
+        [target_book, cash_carry_config.rate_path, execution_cost_config.paper_slippage_path, measurement_context_path])
     if collision:
         payload = redact_execution_performance({"target_book": str(target_book), "price_cache": str(price_cache),
             "portfolio_kind": portfolio_kind, "fill_mode": fill_mode}, reason="caller_input_collides_with_replay_output")
-        if (output_dir / "metrics.json").resolve() not in protected:
-            (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        if (output_dir / "replay_report.md").resolve() not in protected:
-            (output_dir / "replay_report.md").write_text(render_report(payload), encoding="utf-8")
+        if (output_dir / metric_name).resolve() not in protected:
+            (output_dir / metric_name).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        if (output_dir / artifact("replay_report.md")).resolve() not in protected:
+            (output_dir / artifact("replay_report.md")).write_text(render_report(payload), encoding="utf-8")
         return payload
     reserve_explicit = reserve_asset_policy is not None or bool(str(reserve_mode or "").strip())
     if reserve_asset_policy is None:
@@ -1595,7 +1664,7 @@ def replay(
             "valid_for_production": False,
             "research_only": True,
         }
-        (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        (output_dir / metric_name).write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return payload
     raw = read_csv(target_book)
     if disable_concentrated_champion_filter:
@@ -1631,7 +1700,7 @@ def replay(
             "target_book_filter_source": champion_filter_source,
             "target_book_filter_warning": champion_filter_warning,
         }
-        (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        (output_dir / metric_name).write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return payload
     weight_diag = weight_book_diagnostics(targets, max_reasonable_weight_sum)
     if int(weight_diag.get("invalid_weight_date_count") or 0) > 0:
@@ -1646,7 +1715,7 @@ def replay(
             "target_book_filter_warning": champion_filter_warning,
             **weight_diag,
         }
-        (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        (output_dir / metric_name).write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return payload
 
     targets, reserve_reason_audit = apply_reserve_asset_to_targets(
@@ -1712,7 +1781,7 @@ def replay(
                 "valid_for_production": False,
                 "research_only": True,
             }
-            (output_dir / "metrics.json").write_text(
+            (output_dir / metric_name).write_text(
                 json.dumps(payload, indent=2),
                 encoding="utf-8",
             )
@@ -1725,7 +1794,7 @@ def replay(
         evidence_end_date=evidence_end,
     )
     target_fill_frame.to_csv(
-        output_dir / "target_fill_coverage.csv",
+        output_dir / artifact("target_fill_coverage.csv"),
         index=False,
     )
     if target_fill_coverage.get("coverage_complete") is not True:
@@ -1753,11 +1822,11 @@ def replay(
             "production_activation_allowed": False,
             "valid_for_production": False,
         }
-        (output_dir / "metrics.json").write_text(
+        (output_dir / metric_name).write_text(
             json.dumps(payload, indent=2, default=str),
             encoding="utf-8",
         )
-        (output_dir / "replay_report.md").write_text(
+        (output_dir / artifact("replay_report.md")).write_text(
             render_report(payload),
             encoding="utf-8",
         )
@@ -1783,10 +1852,10 @@ def replay(
             "production_activation_allowed": False,
             "valid_for_production": False,
         }
-        (output_dir / "metrics.json").write_text(
+        (output_dir / metric_name).write_text(
             json.dumps(payload, indent=2, default=str), encoding="utf-8"
         )
-        (output_dir / "replay_report.md").write_text(
+        (output_dir / artifact("replay_report.md")).write_text(
             render_report(payload), encoding="utf-8"
         )
         return payload
@@ -1829,11 +1898,11 @@ def replay(
                 "production_activation_allowed": False,
                 "valid_for_production": False,
             }
-            (output_dir / "metrics.json").write_text(
+            (output_dir / metric_name).write_text(
                 json.dumps(payload, indent=2, default=str),
                 encoding="utf-8",
             )
-            (output_dir / "replay_report.md").write_text(
+            (output_dir / artifact("replay_report.md")).write_text(
                 render_report(payload),
                 encoding="utf-8",
             )
@@ -1888,11 +1957,11 @@ def replay(
                 "production_activation_allowed": False,
                 "valid_for_production": False,
             }
-            (output_dir / "metrics.json").write_text(
+            (output_dir / metric_name).write_text(
                 json.dumps(payload, indent=2, default=str),
                 encoding="utf-8",
             )
-            (output_dir / "replay_report.md").write_text(
+            (output_dir / artifact("replay_report.md")).write_text(
                 render_report(payload),
                 encoding="utf-8",
             )
@@ -1917,7 +1986,7 @@ def replay(
                 "valid_for_production": False,
                 "research_only": True,
             }
-            (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            (output_dir / metric_name).write_text(json.dumps(payload, indent=2), encoding="utf-8")
             return payload
     periods = target_period_ends(
         targets,
@@ -2334,15 +2403,30 @@ def replay(
             "research_only": True,
             **weight_diag,
         }
-        (output_dir / "metrics.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        (output_dir / metric_name).write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return payload
-    equity_df = equity_df.drop_duplicates("date", keep="last").sort_values("date")
+    # Admit original generated rows before legacy duplicate/date repair.
+    if not research_measurement:
+        equity_df = equity_df.drop_duplicates("date", keep="last").sort_values("date")
+    context_full = measurement_context.get("full") if type(measurement_context) is dict else None
+    valuation_binding = measurement_context.get("valuation_binding") if type(measurement_context) is dict else None
+    context_shape_valid = (not research_measurement or (type(measurement_context) is dict
+        and set(measurement_context).issubset({"full", "valuation_binding", "windows"})
+        and type(measurement_context.get("windows", {})) is dict
+        and set(measurement_context.get("windows", {})).issubset({"is", "oos", "oos2"})))
     trades_df = pd.DataFrame(trade_rows)
     holdings_df = pd.DataFrame(holdings_rows)
     cash_df = pd.DataFrame(cash_rows)
     target_vs_actual_df = pd.DataFrame(target_vs_actual_rows)
     partial_resize_df = pd.DataFrame(partial_resize_rows)
-    metrics = calc_metrics(equity_df, trades_df, starting_capital, cash_carry_mode=cash_carry_config.mode)
+    metrics = (calc_metrics(equity_df, trades_df, starting_capital, cash_carry_mode=cash_carry_config.mode)
+               if not research_measurement else
+               nav_v2.blocked("MEASUREMENT_PACKAGE_FIELDS") if not context_shape_valid else
+               nav_v2.blocked("FULL_CONTEXT_MISSING") if context_full is None else
+               calc_metrics(equity_df, trades_df, starting_capital, measurement_context=context_full,
+                            valuation_binding=valuation_binding))
+    if research_measurement:
+        metrics["execution_status"] = "completed"
     # Stage 0 OOS lock — IS/OOS slices computed alongside the full-window
     # metrics. Top-level fields are preserved so existing consumers
     # (portfolio_system_guard, run_local.py verdict) keep working; the windows
@@ -2353,7 +2437,13 @@ def replay(
             oos_start=oos_start, oos_end=oos_end,
             oos2_start=oos2_start, oos2_end=oos2_end,
             cash_carry_mode=cash_carry_config.mode,
+            measurement_contexts=({"full": context_full, **(measurement_context.get("windows", {})
+                                  if type(measurement_context) is dict and type(measurement_context.get("windows", {})) is dict else {})}
+                                  if research_measurement else None),
+            valuation_binding=valuation_binding,
         )
+        if research_measurement and windows.get("status") != nav_v2.COMPLETE:
+            metrics.update(nav_v2.blocked("REQUESTED_WINDOW_BLOCKED"))
         metrics["windows"] = windows
     metrics.update(
         {
@@ -2417,7 +2507,7 @@ def replay(
                     "metric_mode": "DO_NOT_USE",
                 }
             )
-        else:
+        elif not research_measurement:
             metrics["metric_mode"] = (
                 str(metrics.get("metric_mode") or "broker_ledger")
                 + "_execution_cost_capacity"
@@ -2506,10 +2596,16 @@ def replay(
             }
         )
 
+    if research_measurement:
+        try:
+            json.dumps(metrics, allow_nan=False, default=str)
+        except (ValueError, OverflowError):
+            metrics = dict(nav_v2.blocked("NONFINITE_EXECUTION_DIAGNOSTIC"), execution_status="completed")
+
     redact_dynamic_performance = bool(
         execution_cost_config.enabled
         and execution_cost_config.require_complete_liquidity_coverage
-        and metrics.get("status") != "completed"
+        and (metrics.get("status") == "blocked" if research_measurement else metrics.get("status") != "completed")
     )
     if redact_dynamic_performance:
         blocked_reason = str(
@@ -2520,9 +2616,9 @@ def replay(
             metrics,
             reason=blocked_reason,
         )
-        trades_df.to_csv(output_dir / "trades.csv", index=False)
+        trades_df.to_csv(output_dir / artifact("trades.csv"), index=False)
         for artifact_name in (
-            "equity_curve.csv",
+            curve_name,
             "holdings_daily.csv",
             "holdings_weekly.csv",
             "cash_ledger.csv",
@@ -2531,66 +2627,94 @@ def replay(
             "positions_latest.csv",
             "account_state_latest.json",
         ):
-            artifact_path = output_dir / artifact_name
+            artifact_path = output_dir / (artifact(artifact_name) if artifact_name != curve_name else artifact_name)
             if artifact_path.is_file():
                 artifact_path.unlink()
-        (output_dir / "metrics.json").write_text(
+        (output_dir / metric_name).write_text(
             json.dumps(redacted_metrics, indent=2, default=str),
             encoding="utf-8",
         )
-        (output_dir / "replay_report.md").write_text(
+        (output_dir / artifact("replay_report.md")).write_text(
             render_report(redacted_metrics),
             encoding="utf-8",
         )
         return redacted_metrics
 
-    if reserve_explicit:
-        reserve_reason_audit.to_json(
-            output_dir / "reserve_reason_audit.json",
-            orient="records",
-            indent=2,
-            date_format="iso",
-        )
+    if research_measurement and metrics.get("status") != nav_v2.COMPLETE:
+        # Failed requested measurement retains cost execution audit but never a stale NAV curve.
+        metrics.update(nav_v2.AUTHORITY)
+        trades_df.to_csv(output_dir / artifact("trades.csv"), index=False)
+        (output_dir / metric_name).write_text(json.dumps(metrics, indent=2, allow_nan=False), encoding="utf-8")
+        (output_dir / artifact("replay_report.md")).write_text(render_report(metrics), encoding="utf-8")
+        return metrics
 
-    equity_df.to_csv(output_dir / "equity_curve.csv", index=False)
-    trades_df.to_csv(output_dir / "trades.csv", index=False)
-    holdings_df.to_csv(output_dir / "holdings_daily.csv", index=False)
-    if not holdings_df.empty:
-        weekly = holdings_df.copy()
-        weekly["date"] = pd.to_datetime(weekly["date"], errors="coerce")
-        weekly = weekly.dropna(subset=["date"])
-        weekly["week_end_date"] = weekly["date"].dt.to_period("W-FRI").dt.end_time.dt.normalize()
-        weekly = weekly.sort_values("date").drop_duplicates(["week_end_date", "ticker"], keep="last")
-        weekly.to_csv(output_dir / "holdings_weekly.csv", index=False)
-    cash_df.to_csv(output_dir / "cash_ledger.csv", index=False)
-    target_vs_actual_df.to_csv(output_dir / "target_vs_actual_weights.csv", index=False)
-    if partial_resize_two_signal_confirmation:
-        partial_resize_df.to_csv(output_dir / "partial_resize_decisions.csv", index=False)
-    if not equity_df.empty:
-        latest_date = pd.Timestamp(pd.to_datetime(equity_df["date"], errors="coerce").dropna().max()).normalize()
-        account_state, latest_positions = latest_account_state(
-            state=state,
-            prices=prices,
-            as_of_date=latest_date,
-            metrics=metrics,
-            trades=trades_df,
-            portfolio_kind=portfolio_kind,
-            starting_capital=starting_capital,
-            fill_mode=fill_mode,
-            cost_bps=cost_bps,
-            integer_shares=integer_shares,
-        )
-        latest_positions.to_csv(output_dir / "positions_latest.csv", index=False)
-        (output_dir / "account_state_latest.json").write_text(
-            json.dumps(account_state, indent=2, default=str),
-            encoding="utf-8",
-        )
-    (output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2, default=str), encoding="utf-8")
-    (output_dir / "replay_report.md").write_text(render_report(metrics), encoding="utf-8")
-    return metrics
+    try:
+        if reserve_explicit:
+            reserve_reason_audit.to_json(
+                output_dir / artifact("reserve_reason_audit.json"),
+                orient="records",
+                indent=2,
+                date_format="iso",
+            )
+
+        if research_measurement:
+            metrics.update(nav_v2.AUTHORITY)
+            metrics["research_output_namespace"] = str(output_dir)
+        equity_df.to_csv(output_dir / curve_name, index=False)
+        trades_df.to_csv(output_dir / artifact("trades.csv"), index=False)
+        holdings_df.to_csv(output_dir / artifact("holdings_daily.csv"), index=False)
+        if not holdings_df.empty:
+            weekly = holdings_df.copy()
+            weekly["date"] = pd.to_datetime(weekly["date"], errors="coerce")
+            weekly = weekly.dropna(subset=["date"])
+            weekly["week_end_date"] = weekly["date"].dt.to_period("W-FRI").dt.end_time.dt.normalize()
+            weekly = weekly.sort_values("date").drop_duplicates(["week_end_date", "ticker"], keep="last")
+            weekly.to_csv(output_dir / artifact("holdings_weekly.csv"), index=False)
+        cash_df.to_csv(output_dir / artifact("cash_ledger.csv"), index=False)
+        target_vs_actual_df.to_csv(output_dir / artifact("target_vs_actual_weights.csv"), index=False)
+        if partial_resize_two_signal_confirmation:
+            partial_resize_df.to_csv(output_dir / artifact("partial_resize_decisions.csv"), index=False)
+        if not equity_df.empty:
+            latest_date = pd.Timestamp(pd.to_datetime(equity_df["date"], errors="coerce").dropna().max()).normalize()
+            account_state, latest_positions = latest_account_state(
+                state=state,
+                prices=prices,
+                as_of_date=latest_date,
+                metrics=metrics,
+                trades=trades_df,
+                portfolio_kind=portfolio_kind,
+                starting_capital=starting_capital,
+                fill_mode=fill_mode,
+                cost_bps=cost_bps,
+                integer_shares=integer_shares,
+            )
+            latest_positions.to_csv(output_dir / artifact("positions_latest.csv"), index=False)
+            (output_dir / artifact("account_state_latest.json")).write_text(
+                json.dumps(account_state, indent=2, default=str),
+                encoding="utf-8",
+            )
+        (output_dir / metric_name).write_text(json.dumps(metrics, indent=2, default=str, allow_nan=not research_measurement), encoding="utf-8")
+        (output_dir / artifact("replay_report.md")).write_text(render_report(metrics), encoding="utf-8")
+        return metrics
+    except OSError:
+        if not research_measurement:
+            raise
+        for name in generated_names:
+            path = output_dir / name
+            if path.resolve() not in protected and (path.is_file() or path.is_symlink()):
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+        return dict(nav_v2.blocked("RESEARCH_OUTPUT_IO_FAILURE"), execution_status="completed")
 
 
 def render_report(metrics: dict[str, Any]) -> str:
+    if metrics.get("status") == nav_v2.COMPLETE:
+        return ("# Research NAV Measurement V2\n\nStatus: research_completed\n\n"
+                "Supplied net NAV measured with bound grid/anchor/RF/zero-flow evidence.\n"
+                f"CAGR: {metrics.get('cagr')}\nMaxDD: {metrics.get('max_dd')}\n"
+                "Official account, mission, PIT and promotion authority: false.\n")
     if metrics.get("status") != "completed":
         return (
             "# Broker Ledger Replay\n\n"
@@ -2703,6 +2827,8 @@ def parse_args() -> argparse.Namespace:
     )
     # Stage 0 OOS lock — empty string disables; env R1000_OOS_START / R1000_OOS2_START
     # supply the default when the flag is absent. Pass "" to opt out entirely.
+    parser.add_argument("--nav-metrics-context", type=Path, default=None,
+                        help="Opt-in V2 research measurement context; never official metric admission.")
     parser.add_argument(
         "--oos-start",
         default=None,
@@ -2766,7 +2892,15 @@ def main() -> int:
     oos_start = _resolve_oos(args.oos_start, "R1000_OOS_START", DEFAULT_OOS_START)
     oos2_start = _resolve_oos(args.oos2_start, "R1000_OOS2_START", DEFAULT_OOS2_START)
     oos2_end = _resolve_oos(args.oos2_end, "R1000_OOS2_END", "") if oos2_start else None
+    measurement_context = None
+    if args.nav_metrics_context is not None:
+        try:
+            measurement_context = nav_v2.load_context(repo_path(args.nav_metrics_context))
+        except (OSError, ValueError):
+            measurement_context = {}  # Explicit failed opt-in, never legacy fallback.
     payload = replay(
+        measurement_context=measurement_context,
+        measurement_context_path=repo_path(args.nav_metrics_context) if args.nav_metrics_context else None,
         target_book=repo_path(args.target_book),
         price_cache=repo_path(args.price_cache),
         output_dir=repo_path(args.output_dir),
@@ -2816,7 +2950,7 @@ def main() -> int:
         ),
     )
     print(json.dumps(payload, indent=2, default=str))
-    return 0 if payload.get("status") == "completed" else 2
+    return 0 if payload.get("status") in ("completed", nav_v2.COMPLETE) else 2
 
 
 if __name__ == "__main__":

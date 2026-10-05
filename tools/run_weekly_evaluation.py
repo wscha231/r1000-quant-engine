@@ -17,6 +17,12 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+import sys
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from tools import nav_metrics_v2 as nav_v2
+
 
 CASH_TICKERS = {"CASH", "__CASH__"}
 CONCENTRATED_CHAMPION_FILTERS = {
@@ -226,6 +232,8 @@ def build_weekly_curve(
     price_cache: Path,
     portfolio_kind: str,
     benchmark_tickers: tuple[str, ...] = ("SPY", "QQQ"),
+    measurement_context: dict | None = None,
+    valuation_binding: dict | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     if holdings.empty:
         return pd.DataFrame(), {"status": "missing_holdings", "portfolio_kind": portfolio_kind}
@@ -326,6 +334,17 @@ def build_weekly_curve(
     curve = pd.DataFrame(rows)
     if curve.empty:
         return curve, {"status": "no_weekly_rows", "portfolio_kind": portfolio_kind, "input_rebalance_count": len(prev_rebalance_dates)}
+    if measurement_context is not None:
+        metric = weekly_metrics(curve, portfolio_kind, measurement_context=measurement_context,
+                                valuation_binding=valuation_binding)
+        if metric.get("status") == nav_v2.COMPLETE:
+            if metric["starting_capital_usd"] != 1.0:
+                metric = nav_v2.blocked("CALLER_WEEKLY_INITIAL_UNIT_MISMATCH")
+            elif measurement_context["anchor"]["kind"] != "PREFILL":
+                metric = nav_v2.blocked("CALLER_PREFILL_ANCHOR_KIND")
+        metric.update(cost_basis="WEEKLY_HOLDING_MARK_PROXY_NO_NEW_NET_COST_MODEL",
+                      supplied_net_account_nav=False, portfolio_kind=portfolio_kind)
+        return curve, metric
     curve["week_end_date"] = pd.to_datetime(curve["week_end_date"], errors="coerce")
     curve = curve.dropna(subset=["week_end_date"]).drop_duplicates(["portfolio_kind", "week_end_date"], keep="last")
     curve = curve.sort_values("week_end_date").reset_index(drop=True)
@@ -333,7 +352,15 @@ def build_weekly_curve(
     return curve, metrics
 
 
-def weekly_metrics(curve: pd.DataFrame, portfolio_kind: str) -> dict[str, Any]:
+def weekly_metrics(curve: pd.DataFrame, portfolio_kind: str, *, measurement_context: dict | None = None,
+                   valuation_binding: dict | None = None) -> dict[str, Any]:
+    if measurement_context is not None:
+        result = nav_v2.calculate_frame(curve, measurement_context, date_column="week_end_date",
+            nav_column="equity", valuation_binding=valuation_binding, expected_frequency="weekly")
+        result.update(portfolio_kind=portfolio_kind, evaluation_granularity="weekly_mark_to_market",
+                      uses_monthly_holding_books=True, true_weekly_scoring=False,
+                      production_selection_changed=False)
+        return result
     if curve.empty:
         return {"status": "empty", "portfolio_kind": portfolio_kind}
     returns = pd.to_numeric(curve["weekly_return"], errors="coerce").dropna()
@@ -481,11 +508,40 @@ def write_markdown(payload: dict[str, Any], path: Path) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def run(latest_run: Path, output_dir: Path, price_cache: Path, stale_days_threshold: int = 10) -> dict[str, Any]:
+def run(latest_run: Path, output_dir: Path, price_cache: Path, stale_days_threshold: int = 10, *,
+        measurement_contexts: dict | None = None, measurement_context_path: Path | None = None) -> dict[str, Any]:
     latest_run = Path(latest_run)
     output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    research_measurement = measurement_contexts is not None
+    if research_measurement:
+        output_dir = output_dir / nav_v2.NAMESPACE
     price_cache = Path(price_cache)
+    curve_suffix = "weekly_equity_curve.research_v2.csv" if research_measurement else "weekly_equity_curve.csv"
+    metric_name = "weekly_metrics.research_v2.json" if research_measurement else "weekly_metrics.json"
+    freshness_name = "weekly_freshness_audit.research_v2.json" if research_measurement else "weekly_freshness_audit.json"
+    report_name = "weekly_freshness_audit.research_v2.md" if research_measurement else "weekly_freshness_audit.md"
+    if research_measurement:
+        protected = {(latest_run / "reports" / name).resolve() for name in
+                     ("main_monthly_weights.csv", "concentrated_strategy_holdings.csv",
+                      "regime_by_month.csv", "concentrated_strategy_monthly.csv")}
+        if measurement_context_path is not None:
+            protected.add(Path(measurement_context_path).resolve())
+        names = (curve_suffix, "main_" + curve_suffix, "concentrated_" + curve_suffix,
+                 metric_name, freshness_name, report_name)
+        collision = output_dir.resolve().is_relative_to(price_cache.resolve())
+        # Check the whole output set before removing any prior generated file.
+        for name in names:
+            path = output_dir / name
+            if path.resolve() in protected or (path.exists() and not path.is_file() and not path.is_symlink()):
+                collision = True
+        if collision:
+            return dict(status=nav_v2.BLOCKED, reason="caller_input_collides_with_weekly_research_output",
+                        metric_mode=nav_v2.MODE, **nav_v2.AUTHORITY)
+        for name in names:
+            path = output_dir / name
+            if path.is_file() or path.is_symlink():
+                path.unlink()
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     main_holdings = normalize_holdings(_read_csv(latest_run / "reports" / "main_monthly_weights.csv"), "main")
     concentrated_holdings = normalize_holdings(
@@ -505,26 +561,67 @@ def run(latest_run: Path, output_dir: Path, price_cache: Path, stale_days_thresh
     curves: dict[str, pd.DataFrame] = {}
     metrics: dict[str, dict[str, Any]] = {}
     for name, (holdings, next_dates) in sources.items():
-        curve, metric = build_weekly_curve(holdings, next_dates, price_cache, name)
+        entry = measurement_contexts.get(name, {}) if type(measurement_contexts) is dict else {}
+        if type(entry) is not dict:
+            entry = {}
+        curve, metric = build_weekly_curve(holdings, next_dates, price_cache, name,
+            measurement_context=(entry.get("full", {}) if research_measurement else None),
+            valuation_binding=entry.get("valuation_binding") if research_measurement else None)
         curves[name] = curve
         metrics[name] = metric
-        if not curve.empty:
+        if not research_measurement and not curve.empty:
             curve.to_csv(output_dir / f"{name}_weekly_equity_curve.csv", index=False)
     combined = pd.concat([c for c in curves.values() if not c.empty], ignore_index=True) if any(not c.empty for c in curves.values()) else pd.DataFrame()
-    if not combined.empty:
-        combined.sort_values(["portfolio_kind", "week_end_date"]).to_csv(output_dir / "weekly_equity_curve.csv", index=False)
-    freshness = build_freshness(latest_run, curves, metrics, stale_days_threshold=stale_days_threshold)
-    (output_dir / "weekly_metrics.json").write_text(json.dumps(metrics, indent=2, default=_json_default), encoding="utf-8")
-    (output_dir / "weekly_freshness_audit.json").write_text(
-        json.dumps(freshness, indent=2, default=_json_default),
-        encoding="utf-8",
-    )
-    write_markdown(freshness, output_dir / "weekly_freshness_audit.md")
-    return freshness
+    measurement_complete = (not research_measurement or
+                            all(m.get("status") == nav_v2.COMPLETE for m in metrics.values()))
+    try:
+        freshness = build_freshness(latest_run, curves, metrics, stale_days_threshold=stale_days_threshold)
+        if research_measurement:
+            freshness["freshness_status"] = freshness["status"]
+            freshness.update(status=nav_v2.COMPLETE if measurement_complete else nav_v2.BLOCKED,
+                             reason=None if measurement_complete else "REQUESTED_WEEKLY_MEASUREMENT_BLOCKED",
+                             metric_mode=nav_v2.MODE, metric_admission_complete=measurement_complete,
+                             **nav_v2.AUTHORITY)
+        if research_measurement:
+            try:
+                json.dumps(freshness, allow_nan=False, default=_json_default)
+            except (ValueError, OverflowError):
+                metrics = {name: nav_v2.blocked("NONFINITE_WEEKLY_DIAGNOSTIC") for name in sources}
+                freshness = dict(status=nav_v2.BLOCKED, reason="NONFINITE_WEEKLY_DIAGNOSTIC",
+                                 metrics=metrics, metric_mode=nav_v2.MODE, **nav_v2.AUTHORITY)
+                measurement_complete = False
+        if measurement_complete:
+            if research_measurement:
+                for name, curve in curves.items():
+                    if not curve.empty:
+                        curve.to_csv(output_dir / (name + "_" + curve_suffix), index=False)
+            if not combined.empty:
+                combined.sort_values(["portfolio_kind", "week_end_date"]).to_csv(output_dir / curve_suffix, index=False)
+        (output_dir / metric_name).write_text(json.dumps(metrics, indent=2, default=_json_default,
+                                                        allow_nan=not research_measurement), encoding="utf-8")
+        (output_dir / freshness_name).write_text(
+            json.dumps(freshness, indent=2, default=_json_default, allow_nan=not research_measurement),
+            encoding="utf-8",
+        )
+        write_markdown(freshness, output_dir / report_name)
+        return freshness
+    except OSError:
+        if not research_measurement:
+            raise
+        for name in names:
+            path = output_dir / name
+            if path.resolve() not in protected and (path.is_file() or path.is_symlink()):
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+        return dict(status=nav_v2.BLOCKED, reason="RESEARCH_OUTPUT_IO_FAILURE",
+                    metric_mode=nav_v2.MODE, **nav_v2.AUTHORITY)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build weekly mark-to-market evaluation from monthly holding books.")
+    parser.add_argument("--nav-metrics-context", type=Path, default=None)
     parser.add_argument("--latest-run", type=Path, default=Path("outputs"))
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/weekly_evaluation"))
     parser.add_argument("--price-cache", type=Path, default=Path("cache_prices"))
@@ -534,9 +631,16 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    payload = run(args.latest_run, args.output_dir, args.price_cache, args.stale_days_threshold)
+    measurement_contexts = None
+    if args.nav_metrics_context is not None:
+        try:
+            measurement_contexts = nav_v2.load_context(args.nav_metrics_context)
+        except (OSError, ValueError):
+            measurement_contexts = {}
+    payload = run(args.latest_run, args.output_dir, args.price_cache, args.stale_days_threshold,
+                  measurement_contexts=measurement_contexts, measurement_context_path=args.nav_metrics_context)
     print(json.dumps(payload, indent=2, default=_json_default))
-    return 0
+    return 2 if payload.get("status") == nav_v2.BLOCKED else 0
 
 
 if __name__ == "__main__":

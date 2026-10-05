@@ -881,6 +881,187 @@ class CallerInputCollisionTests(unittest.TestCase):
                 self.assertNotEqual(leaf.stat().st_ino, self.target.stat().st_ino)
 
 
+class ResearchNavCallerTests(unittest.TestCase):
+    """Actual synthetic ledger + unchanged consumers; assertions active under -O."""
+    setUp = GeneratedOutputLifecycleTests.setUp
+    write_prices = GeneratedOutputLifecycleTests.write_prices
+    run_replay = GeneratedOutputLifecycleTests.run_replay
+
+    def measurement(self, value=9987.5):
+        from nav_metrics_v2_smoke import rows, context, binding
+        data = rows((value, value, value))
+        return dict(full=context(data, anchor_nav=10000.), valuation_binding=binding(data))
+
+    def test_raw_admission_precedes_coercion_sort_or_drop(self):
+        from nav_metrics_v2_smoke import rows, context, frame
+        from tools import nav_metrics_v2 as nav
+        original = frame(rows()); c = context(rows())
+        good = broker.calc_metrics(original, pd.DataFrame(), 100., measurement_context=c)
+        self.assertEqual(good['status'], nav.COMPLETE)
+        self.assertAlmostEqual(good['max_dd'], -.1)
+        cases = [original.iloc[::-1], original.iloc[:2], pd.concat([original, original.iloc[:1]])]
+        for value in ('95', None, True, 0., float('nan'), float('inf')):
+            bad=original.copy();bad['equity_usd']=bad['equity_usd'].astype(object);bad.loc[1,'equity_usd']=value;cases.append(bad)
+        for bad in cases:
+            with self.subTest(rows=bad.to_dict('records')):
+                before=bad.copy(deep=True)
+                result=broker.calc_metrics(bad,pd.DataFrame(),100.,measurement_context=c)
+                self.assertEqual(result['status'],nav.BLOCKED)
+                self.assertIsNone(result['max_dd']); pd.testing.assert_frame_equal(before,bad)
+        self.assertEqual(broker.calc_metrics(original,pd.DataFrame(),101.,measurement_context=c)['reason'],
+                         'CALLER_PREFILL_CAPITAL_MISMATCH')
+        self.assertEqual(broker.calc_metrics(original.drop(columns='valuation_time_utc'),pd.DataFrame(),100.,
+                         measurement_context=c)['reason'],'VALUATION_TIME_UNBOUND')
+
+    def test_bound_receipt_cannot_overwrite_actual_or_future_valuation_clock(self):
+        from tools import nav_metrics_v2 as nav
+        from nav_metrics_v2_smoke import rows,frame,context,binding
+        import copy
+        data=rows();c=context(data);f=frame(data);b=binding(data)
+        self.assertEqual(broker.calc_metrics(f,pd.DataFrame(),100.,measurement_context=c,valuation_binding=b)['status'],nav.COMPLETE)
+        bad=f.copy();bad.loc[0,'valuation_time_utc']='2026-01-05T20:00:00Z'
+        out=broker.calc_metrics(bad,pd.DataFrame(),100.,measurement_context=c,valuation_binding=b)
+        self.assertEqual(out['reason'],'VALUATION_CLOCK_CONFLICT')
+        future=copy.deepcopy(b);future['cutoff']='2026-01-08T21:00:00Z'
+        out=broker.calc_metrics(f,pd.DataFrame(),100.,measurement_context=c,valuation_binding=future)
+        self.assertEqual(out['reason'],'VALUATION_BINDING_FUTURE')
+
+    def test_actual_net_fee_curve_is_research_and_never_official_filename(self):
+        from tools import nav_metrics_v2 as nav
+        self.write_prices([100.]*4)
+        result=self.run_replay(measurement_context=self.measurement())
+        self.assertEqual(result['status'],nav.COMPLETE,result)
+        self.assertEqual(result['execution_status'],'completed')
+        self.assertEqual(result['metric_mode'],nav.MODE)
+        self.assertAlmostEqual(result['max_dd'],-12.5/10000.)
+        self.assertAlmostEqual(result['total_return'],-12.5/10000.)
+        self.assertFalse(result['valid_for_production'])
+        dest=self.out/nav.NAMESPACE
+        curve=pd.read_csv(dest/nav.CURVE_FILE)
+        self.assertEqual(curve['equity_usd'].tolist(),[9987.5]*3)
+        self.assertEqual(pd.read_csv(dest/nav.artifact_name('trades.csv'))['fee_usd'].sum(),12.5)
+        for name in REPLAY_GENERATED_ARTIFACTS:
+            self.assertFalse((self.out/name).exists(),name)
+            self.assertFalse((dest/name).exists(),name)
+        self.assertTrue((dest/nav.METRICS_FILE).exists())
+        self.assertIn('research_completed',(dest/nav.artifact_name('replay_report.md')).read_text())
+
+    def test_bad_requested_measurement_clears_only_research_outputs(self):
+        from tools import nav_metrics_v2 as nav
+        self.write_prices([100.]*4)
+        self.assertEqual(self.run_replay(measurement_context=self.measurement())['status'],nav.COMPLETE)
+        dest=self.out/nav.NAMESPACE
+        (dest/'caller_note.txt').write_bytes(b'keep')
+        (self.out/'equity_curve.csv').write_bytes(b'prior official evidence untouched')
+        for bad in ({}, {'full':{}}, [], {'full':self.measurement()['full'],'windows':[]},
+                    {'full':self.measurement()['full'],'windows':{'full':self.measurement()['full']}}):
+            with self.subTest(context=bad):
+                options=dict(measurement_context=bad)
+                if type(bad) is dict and 'windows' in bad: options['oos_start']='2026-01-06'
+                out=self.run_replay(**options)
+                self.assertEqual(out['status'],nav.BLOCKED,out)
+                self.assertIsNone(out['cagr'])
+                self.assertFalse((dest/nav.CURVE_FILE).exists())
+                self.assertFalse((dest/nav.artifact_name('account_state_latest.json')).exists())
+                self.assertEqual((dest/'caller_note.txt').read_bytes(),b'keep')
+                self.assertEqual((self.out/'equity_curve.csv').read_bytes(),b'prior official evidence untouched')
+
+    def test_dynamic_cost_success_retains_execution_and_true_failure_redacts(self):
+        from tools import nav_metrics_v2 as nav
+        from nav_metrics_v2_smoke import context, binding
+        from tools.execution_cost_model import ExecutionCostConfig
+        idx=pd.bdate_range('2025-12-01','2026-01-07')
+        pd.DataFrame({'Open':100.,'Close':100.,'Adj Close':100.,'High':100.,'Low':100.,
+                      'Volume':1000000},index=idx).to_parquet(self.cache/px_cache_name('AAA'))
+        cfg=ExecutionCostConfig(mode='spread_adv_impact_v1')
+        # Genuine fixture execution determines net account rows; supplied receipt stays explicit.
+        baseline=self.run_replay(execution_cost_config=cfg)
+        self.assertEqual(baseline['status'],'completed',baseline)
+        df=pd.read_csv(self.out/'equity_curve.csv')
+        data=[dict(session=r.date,timestamp=r.date+'T21:00:00Z',nav=r.equity_usd) for r in df.itertuples()]
+        c=dict(full=context(data,anchor_nav=10000.),valuation_binding=binding(data))
+        result=self.run_replay(execution_cost_config=cfg,measurement_context=c)
+        self.assertEqual(result['status'],nav.COMPLETE,result)
+        self.assertTrue(result['execution_cost_coverage_complete'])
+        self.assertEqual(result['metric_mode'],nav.MODE)
+        self.assertTrue((self.out/nav.NAMESPACE/nav.CURVE_FILE).exists())
+        self.assertEqual(result['ending_capital_usd'],baseline['ending_capital_usd'])
+        self.write_prices([100.]*4)  # Actual missing OHLCV/history: E1 failure still redacts.
+        failed=self.run_replay(execution_cost_config=cfg,measurement_context=self.measurement())
+        self.assertEqual(failed['status'],'blocked')
+        self.assertEqual(failed['metric_mode'],'DO_NOT_USE')
+        self.assertNotIn('cagr',failed)
+        self.assertFalse((self.out/nav.NAMESPACE/nav.CURVE_FILE).exists())
+
+    def test_research_collision_rejects_before_cleanup_or_source_read(self):
+        from tools import nav_metrics_v2 as nav
+        self.write_prices([100.]*4)
+        dest=self.out/nav.NAMESPACE;dest.mkdir(parents=True)
+        for name in REPLAY_GENERATED_ARTIFACTS:
+            p=dest/nav.artifact_name(name);p.write_bytes(b'preserved destination')
+        before={p.name:p.read_bytes() for p in dest.iterdir()}
+        protected=dest/nav.METRICS_FILE
+        with patch.object(broker,'read_csv',side_effect=AssertionError('must precede reads')):
+            result=self.run_replay(measurement_context={},measurement_context_path=protected)
+        self.assertEqual(result['reason'],'caller_input_collides_with_replay_output')
+        self.assertEqual({p.name:p.read_bytes() for p in dest.iterdir()},before)
+        cache_dest=self.cache/'out'/nav.NAMESPACE;cache_dest.mkdir(parents=True)
+        sentinel=cache_dest/nav.CURVE_FILE;sentinel.write_bytes(b'input namespace')
+        with patch.object(broker,'read_csv',side_effect=AssertionError('no source read')):
+            result=self.run_replay(output_dir=self.cache/'out',measurement_context={})
+        self.assertEqual(result['reason'],'CALLER_OUTPUT_INSIDE_PRICE_CACHE')
+        self.assertEqual(sentinel.read_bytes(),b'input namespace')
+
+    def test_partial_research_publication_cannot_leave_an_orphan_NAV(self):
+        from tools import nav_metrics_v2 as nav
+        self.write_prices([100.]*4)
+        original=pd.DataFrame.to_csv
+        def fail_after_curve(df,path,*args,**kwargs):
+            if Path(path).name==nav.artifact_name('trades.csv'):
+                raise OSError('synthetic disk failure')
+            return original(df,path,*args,**kwargs)
+        before=self.target.read_bytes()
+        with patch.object(pd.DataFrame,'to_csv',fail_after_curve):
+            out=self.run_replay(measurement_context=self.measurement())
+        self.assertEqual(out['status'],nav.BLOCKED)
+        self.assertEqual(out['reason'],'RESEARCH_OUTPUT_IO_FAILURE')
+        self.assertFalse((self.out/nav.NAMESPACE/nav.CURVE_FILE).exists())
+        self.assertEqual(self.target.read_bytes(),before)
+
+    def test_real_account_hygiene_mission_and_orphan_OOS_consumers_reject(self):
+        from tools import nav_metrics_v2 as nav
+        from tools.run_oos_lock_audit import audit_portfolio
+        from tools.run_account_evaluation import summarize_portfolio
+        from tools.run_metric_hygiene_report import official_portfolio
+        from mission_contract import mission_binding_status,mission_identity,HISTORICAL_UNBOUND
+        from r1000_config import PORTFOLIO_MISSION_TARGETS
+        self.write_prices([100.]*4)
+        latest=self.root/'consumer';self.out=latest/'broker_replay'/'main'
+        result=self.run_replay(measurement_context=self.measurement())
+        self.assertEqual(result['status'],nav.COMPLETE)
+        research=self.out/nav.NAMESPACE
+        # Point old readers at the research directory itself; metadata absence must stay safe.
+        rebased=latest/'rebased';(rebased/'broker_replay').mkdir(parents=True)
+        for metadata in (None,{}, {'metric_mode':nav.MODE}, result):
+            with self.subTest(metadata=metadata):
+                target=research/nav.METRICS_FILE
+                if metadata is None: target.unlink(missing_ok=True)
+                else: target.write_text(json.dumps(metadata,allow_nan=False))
+                # Original official root and an explicit rebased research-root alias both reject.
+                import shutil
+                copied=rebased/'broker_replay'/'main'
+                if copied.exists(): shutil.rmtree(copied)
+                shutil.copytree(research,copied)
+                for root in (latest,rebased):
+                    audit=audit_portfolio(root,'main',{'oos_start':'2026-01-06'})
+                    self.assertFalse(audit['pass']);self.assertIn('equity_curve_missing_or_empty',audit['failures'])
+                    account=summarize_portfolio(root,'main')
+                    self.assertFalse(account['target_pass']);self.assertFalse(account['valid_for_production'])
+                    hygiene=official_portfolio(root,'main')
+                    self.assertFalse(hygiene['target_pass']);self.assertFalse(hygiene['production_valid'])
+                self.assertEqual(mission_binding_status(metadata,mission_identity(PORTFOLIO_MISSION_TARGETS)),HISTORICAL_UNBOUND)
+
+
 def main() -> int:
     test_missing_liquidation_fill_fails_closed_before_state_mutation()
     test_multi_day_transition_fails_closed_before_state_mutation()
@@ -891,7 +1072,7 @@ def main() -> int:
     test_long_horizon_equity_curve_continuous()
     suite = unittest.TestSuite(
         unittest.defaultTestLoader.loadTestsFromTestCase(case)
-        for case in (OpeningClockAdmissionTests, GeneratedOutputLifecycleTests, CallerInputCollisionTests)
+        for case in (OpeningClockAdmissionTests, GeneratedOutputLifecycleTests, CallerInputCollisionTests, ResearchNavCallerTests)
     )
     if not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful():
         return 1

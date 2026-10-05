@@ -6243,3 +6243,17 @@ Expected contract:
   transport-only churn cannot replace a changed consumed mapping.
 - Validate supplied mapping identity before compaction; canonical UTC/key-order
   controls reuse context. Format/clock checks do not authenticate a producer or PIT.
+
+## 2026-10-05 - Execute the prepared NAV contract through an owned child
+
+- Prepared E2 math stayed unimplemented without an execution child and sole
+  caller/lesson lease. Bind the child to current source and fresh native tests;
+  archived oracle passes do not prove caller integration.
+- Admit untouched rows against independent closes, prefill/predecessor NAV,
+  actual interval RF and zero-flow evidence. A valuation receipt cannot replace
+  an observed clock; generated weekly unit capital is not net account evidence.
+- Research status alone cannot protect orphan curves: separate every output
+  name, reject input/cache aliases before cleanup, and clear partial exports.
+  Preserve genuine cost-failure redaction without redacting valid execution.
+- Runner registration must retain the reviewed protected-publication boundary;
+  advance only the two pins after the real causal ancestor is reviewed.

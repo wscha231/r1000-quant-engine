@@ -91,8 +91,159 @@ def test_weekly_evaluation_marks_to_weekly_and_reports_staleness() -> None:
         assert metrics["uses_stale_final_holdings_extension"] is True
 
 
+class ResearchWeeklyCallerTests(__import__('unittest').TestCase):
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
+        self.root=Path(self.tmp.name);self.latest=self.root/'latest';self.reports=self.latest/'reports'
+        self.reports.mkdir(parents=True);self.cache=self.root/'cache';self.cache.mkdir();self.out=self.root/'out'
+        dates=pd.bdate_range('2026-01-02','2026-01-23')
+        for name in ('AAA','SPY','QQQ'):
+            pd.DataFrame({'Open':100.,'Close':100.,'Adj Close':100.,'Volume':1000000},index=dates).to_parquet(self.cache/px_cache_name(name))
+        for name in ('main_monthly_weights.csv','concentrated_strategy_holdings.csv'):
+            pd.DataFrame([dict(ticker='AAA',rebalance_date='2026-01-02',weight=1.)]).to_csv(self.reports/name,index=False)
+        for name in ('regime_by_month.csv','concentrated_strategy_monthly.csv'):
+            pd.DataFrame([dict(rebalance_date='2026-01-02',next_rebalance_date='2026-01-23')]).to_csv(self.reports/name,index=False)
+        pd.DataFrame([dict(ticker='AAA',rebalance_date='2026-01-23',feature_date='2026-01-23')]).to_csv(self.latest/'scored_latest.csv',index=False)
+        from unittest.mock import patch
+        guard=patch('socket.socket',side_effect=RuntimeError('offline fixture'))
+        guard.start();self.addCleanup(guard.stop)
+
+    def data(self):
+        return [dict(session=d,timestamp=d+'T21:00:00Z',nav=1.) for d in ('2026-01-09','2026-01-16','2026-01-23')]
+
+    def measurement(self):
+        from nav_metrics_v2_smoke import context,binding
+        data=self.data();c=context(data,anchor_nav=1.,frequency='weekly')
+        return {name:dict(full=c,valuation_binding=binding(data)) for name in ('main','concentrated')}
+
+    def test_native_weekly_complete_research_and_legacy_default_parity(self):
+        from tools import nav_metrics_v2 as nav
+        legacy=run(self.latest,self.out,self.cache)
+        self.assertEqual(legacy['status'],'ok')
+        old={p.name:p.read_bytes() for p in self.out.iterdir()}
+        out=run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())
+        self.assertEqual(out['status'],nav.COMPLETE,out)
+        self.assertEqual(out['freshness_status'],'ok')
+        self.assertFalse(out['valid_for_production'])
+        for name,metric in out['metrics'].items():
+            self.assertEqual(metric['status'],nav.COMPLETE,name)
+            self.assertEqual(metric['annualization'],52)
+            self.assertEqual(metric['starting_capital_usd'],1.)
+            self.assertEqual(metric['total_return'],0.)
+            self.assertIsNone(metric['sharpe_excess_rf'])
+        self.assertEqual({p.name:p.read_bytes() for p in self.out.iterdir() if p.is_file()},old)
+        dest=self.out/nav.NAMESPACE
+        self.assertTrue((dest/'weekly_equity_curve.research_v2.csv').exists())
+        self.assertFalse((dest/'weekly_equity_curve.csv').exists())
+
+    def test_current_dates_do_not_certify_missing_or_invalid_measurement(self):
+        import copy
+        from tools import nav_metrics_v2 as nav
+        complete=self.measurement()
+        self.assertEqual(run(self.latest,self.out,self.cache,measurement_contexts=complete)['status'],nav.COMPLETE)
+        for name in ('main','concentrated'):
+            for kind in ('missing','malformed_entry','RF','NAV','clock'):
+                with self.subTest(portfolio=name,kind=kind):
+                    bad=copy.deepcopy(complete)
+                    if kind=='missing':bad.pop(name)
+                    elif kind=='malformed_entry':bad[name]=[]
+                    elif kind=='RF':bad[name]['full'].pop('risk_free')
+                    elif kind=='NAV':bad[name]['full']['nav_ref']['sha256']='0'*64
+                    else:bad[name]['valuation_binding']['rows'][0]['timestamp']='2026-01-09T20:00:00Z'
+                    out=run(self.latest,self.out,self.cache,measurement_contexts=bad)
+                    self.assertEqual(out['status'],nav.BLOCKED,out)
+                    self.assertEqual(out['freshness_status'],'ok')
+                    self.assertEqual(out['metrics'][name]['status'],nav.BLOCKED)
+                    self.assertFalse(out['metric_admission_complete'])
+                    self.assertFalse(list((self.out/nav.NAMESPACE).glob('*.csv')))
+                    self.assertIsNone(out['metrics'][name]['cagr'])
+        out=run(self.latest,self.out,self.cache,measurement_contexts={})
+        self.assertEqual(out['status'],nav.BLOCKED)
+
+    def test_raw_weekly_rows_reject_duplicates_missing_strings_before_repair(self):
+        from tools.run_weekly_evaluation import weekly_metrics,build_weekly_curve,normalize_holdings
+        from tools import nav_metrics_v2 as nav
+        from nav_metrics_v2_smoke import context,binding
+        data=self.data();c=context(data,anchor_nav=1.,frequency='weekly')
+        f=pd.DataFrame([dict(week_end_date=r['session'],valuation_time_utc=r['timestamp'],equity=r['nav']) for r in data])
+        for bad in (f.iloc[::-1],f.iloc[:2],pd.concat([f,f.iloc[:1]]),f.assign(equity='1')):
+            with self.subTest(rows=bad.to_dict('records')):
+                before=bad.copy(deep=True)
+                out=weekly_metrics(bad,'main',measurement_context=c)
+                self.assertEqual(out['status'],nav.BLOCKED)
+                pd.testing.assert_frame_equal(bad,before)
+        # Duplicate final actual closes emitted by the native builder cannot be deduplicated in V2.
+        from unittest.mock import patch
+        holdings=normalize_holdings(pd.read_csv(self.reports/'main_monthly_weights.csv'),'main')
+        with patch('tools.run_weekly_evaluation.weekly_targets',return_value=[pd.Timestamp('2026-01-09')]*2):
+            curve,out=build_weekly_curve(holdings,{pd.Timestamp('2026-01-02'):pd.Timestamp('2026-01-23')},self.cache,'main',
+                                        measurement_context=c,valuation_binding=binding(data))
+        self.assertEqual(len(curve),2)
+        self.assertEqual(out['status'],nav.BLOCKED)
+
+    def test_generated_unit_base_and_partial_IO_fail_closed(self):
+        import copy
+        from unittest.mock import patch
+        from tools import nav_metrics_v2 as nav
+        from nav_metrics_v2_smoke import ref
+        c=self.measurement();bad=copy.deepcopy(c)
+        for name in bad:
+            anchor=bad[name]['full']['anchor'];anchor['nav']=2.
+            anchor['ref']=ref({k:v for k,v in anchor.items() if k!='ref'},'independently-bound-wrong-unit',anchor['timestamp'])
+        out=run(self.latest,self.out,self.cache,measurement_contexts=bad)
+        self.assertEqual(out['status'],nav.BLOCKED)
+        for metric in out['metrics'].values():
+            self.assertEqual(metric['reason'],'CALLER_WEEKLY_INITIAL_UNIT_MISMATCH')
+            self.assertFalse(metric['supplied_net_account_nav'])
+        original=pd.DataFrame.to_csv
+        def fail_second_export(df,path,*args,**kwargs):
+            if Path(path).name.startswith('concentrated_weekly_equity_curve.research_v2'):
+                raise OSError('synthetic disk failure')
+            return original(df,path,*args,**kwargs)
+        inputs={p:p.read_bytes() for p in self.reports.iterdir()}
+        with patch.object(pd.DataFrame,'to_csv',fail_second_export):
+            out=run(self.latest,self.out,self.cache,measurement_contexts=c)
+        self.assertEqual(out['status'],nav.BLOCKED)
+        self.assertEqual(out['reason'],'RESEARCH_OUTPUT_IO_FAILURE')
+        self.assertFalse(list((self.out/nav.NAMESPACE).glob('*.csv')))
+        self.assertEqual({p:p.read_bytes() for p in self.reports.iterdir()},inputs)
+
+    def test_collision_and_physical_cache_alias_preserve_entire_input_namespace(self):
+        from tools import nav_metrics_v2 as nav
+        from unittest.mock import patch
+        dest=self.cache/'bad'/nav.NAMESPACE;dest.mkdir(parents=True)
+        sentinel=dest/'weekly_equity_curve.research_v2.csv';sentinel.write_bytes(b'input bytes')
+        with patch('tools.run_weekly_evaluation._read_csv',side_effect=AssertionError('no source reads')):
+            out=run(self.latest,self.cache/'bad',self.cache,measurement_contexts={})
+        self.assertEqual(out['status'],nav.BLOCKED)
+        self.assertEqual(sentinel.read_bytes(),b'input bytes')
+        import os
+        alias=self.root/'cache-alias'
+        if os.name=='nt':
+            import subprocess
+            proc=subprocess.run(['cmd','/c','mklink','/J',str(alias),str(self.cache)],capture_output=True,text=True)
+            self.assertEqual(proc.returncode,0,proc.stderr)
+        else:alias.symlink_to(self.cache,target_is_directory=True)
+        try:
+            out=run(self.latest,alias/'bad',self.cache,measurement_contexts={})
+            self.assertEqual(out['status'],nav.BLOCKED)
+            self.assertEqual(sentinel.read_bytes(),b'input bytes')
+        finally:
+            alias.rmdir() if os.name=='nt' else alias.unlink()
+        dest=self.out/nav.NAMESPACE;dest.mkdir(parents=True)
+        protected=dest/'weekly_metrics.research_v2.json';protected.write_bytes(b'context input')
+        note=dest/'weekly_equity_curve.research_v2.csv';note.write_bytes(b'other retained input')
+        out=run(self.latest,self.out,self.cache,measurement_contexts={},measurement_context_path=protected)
+        self.assertEqual(out['status'],nav.BLOCKED)
+        self.assertEqual(protected.read_bytes(),b'context input');self.assertEqual(note.read_bytes(),b'other retained input')
+
+
 def main() -> int:
     test_weekly_evaluation_marks_to_weekly_and_reports_staleness()
+    import unittest
+    result=unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(ResearchWeeklyCallerTests))
+    if not result.wasSuccessful():
+        return 1
     print("weekly evaluation smoke passed")
     return 0
 

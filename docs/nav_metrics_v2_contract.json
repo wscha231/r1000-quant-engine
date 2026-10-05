@@ -1,0 +1,48 @@
+{
+  "schema": "nav-metrics-v2-contract-v1",
+  "metric_mode": "nav_metrics_v2_research",
+  "status_success": "research_completed",
+  "status_failure": "research_blocked",
+  "scope": "PURE_MEASUREMENT_OF_SUPPLIED_NET_NAV_NOT_NEW_BACKTESTER",
+  "context_schema": "nav-measurement-context-v2",
+  "fields": [
+    "schema",
+    "frequency",
+    "cutoff",
+    "grid",
+    "anchor",
+    "nav_ref",
+    "risk_free",
+    "external_flows"
+  ],
+  "reference_fields": [
+    "identity",
+    "sha256",
+    "available_at"
+  ],
+  "hash": "SHA256 canonical JSON sort_keys=true compact separators UTF-8 allow_nan=false",
+  "grid": "Independently supplied aware NYSE regular-close session/timestamp rows, checked against existing offline native NYSE calendar; daily schedule complete between supplied endpoints, weekly individual closes. Exact unique ordered raw NAV matching before caller repair. Endpoint scope and grid source authenticity remain external admission; no price-union grid.",
+  "anchor": "Independent PREFILL/OOS_PREDECESSOR NAV/time/ref before scored rows; OOS also equals actual preceding caller row. Anchor is not scored grid row.",
+  "NAV": "Strict finite positive real nonboolean; zero unsupported retained blocked/null, never dropped.",
+  "CAGR": "ACT/365.25 exact aware elapsed anchor-to-terminal seconds; no epsilon/session-count substitution.",
+  "flows": "Explicit hash-bound ZERO_EXTERNAL_FLOW_ONLY with exact anchor-to-terminal scope; nonzero/unsupported/untimed flows reject. Internal dividends/cash interest remain NAV.",
+  "RF": "ACTUAL_INTERVAL_SIMPLE_RETURN, exact anchor/close intervals and source/hash/available_at; availability <= interval end; no quote/zero/interpolation fallback.",
+  "Sharpe": "Separate raw/excess_rf ddof1 daily252 weekly52. Insufficient/zero variance null+reason; derived overflow blocked/null and finite JSON.",
+  "cost": "SUPPLIED_NET_NAV_NO_SECOND_FEE",
+  "outputs": {
+    "namespace": "nav_metrics_v2_research",
+    "curve": "equity_curve.research_v2.csv",
+    "metrics": "metrics.research_v2.json",
+    "default": "Legacy caller/numerics/path defaults unchanged",
+    "all_exports": "All broker research exports suffix .research_v2 before extension, including account snapshots, cost audits and holdings. Weekly research curve/metrics/freshness suffix likewise. Legacy readers reject missing canonical files even after research metadata removal."
+  },
+  "authority": "RESEARCH_ONLY; hash agreement does not authenticate producer or historical PIT; never official mission, selector, fullrun, Registry, A5, paper/broker state or promotion clearance.",
+  "caller_contexts": {
+    "broker": "Explicit full context and optional separate valuation_binding; optional windows maps only is/oos/oos2. No full override/unknown package fields or failed opt-in legacy fallback.",
+    "weekly": "{main: {full, valuation_binding}, concentrated: {full, valuation_binding}}",
+    "valuation_binding": "rows {session,timestamp}, canonical hash reference, aware cutoff. Bind supplied actual valuation clock; never infer it from session/date/price union. Its cutoff cannot exceed each measurement cutoff; where actual valuation_time_utc exists it must agree, never overwritten by the receipt."
+  },
+  "IO": "Reject resolved protected input/cache destinations before cleanup. Partial research publication returns blocked; invalidate only known disjoint generated research names. Refused input bytes never overwritten.",
+  "caller_capital": "Generated broker full-window PREFILL equals actual starting capital; generated weekly PREFILL equals native initial unit1.0. Neither caller may relabel a different hash-bound NAV as its initial account.",
+  "weekly_limitation": "Existing monthly-holding weekly mark proxy is not validated supplied net account NAV or new fee/price/PIT/account evidence. Measure with weekly52 diagnostic labels only; no cost kernel changes."
+}
