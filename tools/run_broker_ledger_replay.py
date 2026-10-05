@@ -93,6 +93,7 @@ NYSE_CALENDAR = mcal.get_calendar("NYSE")
 
 def prepare_generated_outputs(
     output_dir: Path, names: tuple[str, ...] | list[str], input_paths: tuple[Path | None, ...] | list[Path | None],
+    *, strict_io: bool = False,
 ) -> tuple[set[Path], bool]:
     """Protect declared inputs before invalidating exact owned exports.
 
@@ -104,8 +105,15 @@ def prepare_generated_outputs(
     paths = [output_dir / name for name in names]
     collision = any(path.resolve() in protected for path in paths)
     for path in paths:
-        if path.resolve() not in protected and (path.is_file() or path.is_symlink()):
-            path.unlink()
+        if path.resolve() not in protected:
+            if strict_io:
+                kind = nav_v2.research_output_kind(path)
+                if kind in ("file", "symlink"):
+                    path.unlink()
+                elif kind is not None:
+                    raise IsADirectoryError(str(path))
+            elif path.is_file() or path.is_symlink():
+                path.unlink()
     return protected, collision
 
 
@@ -1613,7 +1621,7 @@ def replay(
         inputs = {Path(p).resolve() for p in (target_book, cash_carry_config.rate_path,
                   execution_cost_config.paper_slippage_path, measurement_context_path) if p is not None}
         paths = [output_dir / n for n in generated_names]
-        if any(p.resolve() in inputs or (p.exists() and not p.is_file() and not p.is_symlink()) for p in paths):
+        if any(p.resolve() in inputs or nav_v2.research_output_kind(p) == "other" for p in paths):
             return nav_v2.blocked("caller_input_collides_with_replay_output")
         # Discover the same native selected sources before invalidating exports.
         # This phase is research-only; it neither rewrites books nor selects a new source.
@@ -1654,7 +1662,8 @@ def replay(
     output_dir.mkdir(parents=True, exist_ok=True)
     protected, collision = prepare_generated_outputs(output_dir, generated_names,
         list(inputs) if research_measurement else
-        [target_book, cash_carry_config.rate_path, execution_cost_config.paper_slippage_path, measurement_context_path])
+        [target_book, cash_carry_config.rate_path, execution_cost_config.paper_slippage_path, measurement_context_path],
+        strict_io=research_measurement)
     if collision:
         payload = redact_execution_performance({"target_book": str(target_book), "price_cache": str(price_cache),
             "portfolio_kind": portfolio_kind, "fill_mode": fill_mode}, reason="caller_input_collides_with_replay_output")

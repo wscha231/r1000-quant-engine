@@ -1145,6 +1145,27 @@ class ResearchNavCallerTests(unittest.TestCase):
         self.assertIn(nav.METRICS_FILE,out['uncleared_generated_outputs'])
         self.assertTrue((dest/nav.METRICS_FILE).exists());self.assertFalse(out['current_publication_complete'])
         self.assertEqual(keep.read_bytes(),b'preserve');self.assertEqual(self.target.read_bytes(),before)
+        # Predicate helpers can suppress denied stat; actual lstat must disclose uncertainty.
+        original_lstat=nav.os.lstat;metric=dest/nav.METRICS_FILE
+        def lstat(path,*a,**kw):
+            if Path(path)==metric:raise PermissionError('stat denied')
+            return original_lstat(path,*a,**kw)
+        with patch.object(nav.os,'lstat',lstat):
+            out=self.run_replay(measurement_context={})
+        self.assertEqual(out['reason'],'RESEARCH_IO_FAILURE');self.assertFalse(out['cleanup_complete'])
+        self.assertTrue(metric.exists());self.assertFalse(out['current_publication_complete'])
+        metric.unlink()
+        # Denial after successful publication must retain the uncertain leaf in telemetry.
+        def after_write_lstat(path,*a,**kw):
+            if Path(path)==metric:
+                try:original_lstat(path,*a,**kw)
+                except FileNotFoundError:pass
+                else:raise PermissionError('cleanup stat denied')
+            return original_lstat(path,*a,**kw)
+        with patch.object(Path,'write_text',text),patch.object(nav.os,'lstat',after_write_lstat):
+            out=self.run_replay(measurement_context=self.measurement())
+        self.assertEqual(out['reason'],'RESEARCH_IO_FAILURE');self.assertFalse(out['cleanup_complete'])
+        self.assertIn(nav.METRICS_FILE,out['uncleared_generated_outputs']);self.assertTrue(metric.exists())
 
     def test_research_guard_preserves_legacy_and_programming_error_contracts(self):
         self.write_prices([100.]*4)

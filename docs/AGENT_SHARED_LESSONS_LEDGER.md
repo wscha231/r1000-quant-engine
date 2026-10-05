@@ -6264,3 +6264,5 @@ Expected contract:
   Preserve legacy/programming-error behavior and actual cost-failure redaction.
   Local Windows alias/FIFO injections do not prove POSIX or privileged symlinks;
   keep supported Python3.12 fallback and platform coverage limits explicit.
+- Suppressed path predicates are not absence evidence: only FileNotFound may
+  clear a leaf; denied lstat must return blocked/incomplete cleanup telemetry.

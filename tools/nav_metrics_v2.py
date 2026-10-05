@@ -218,6 +218,19 @@ def artifact_name(name):
 _io_state = ContextVar("nav_research_io", default=None)
 
 
+def research_output_kind(path):
+    """Only a real missing leaf is absent; permission/IO failures must propagate."""
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        return None
+    if stat.S_ISREG(info.st_mode):
+        return "file"
+    if stat.S_ISLNK(info.st_mode):
+        return "symlink"
+    return "other"
+
+
 def authorize_research_cleanup(directory, names, protected, price_cache):
     """Called only after the complete caller input-cone preflight has passed."""
     state = _io_state.get()
@@ -253,10 +266,12 @@ def research_io_guard(context_argument):
                                 try:
                                     if path.resolve() in state["protected"]:
                                         refused.append(name); cleanup_complete = False
-                                    elif path.is_file() or path.is_symlink():
-                                        path.unlink()
-                                    elif path.exists():
-                                        remaining.append(name); cleanup_complete = False
+                                    else:
+                                        kind = research_output_kind(path)
+                                        if kind in ("file", "symlink"):
+                                            path.unlink()
+                                        elif kind is not None:
+                                            remaining.append(name); cleanup_complete = False
                                 except OSError:
                                     remaining.append(name); cleanup_complete = False
                     except OSError:

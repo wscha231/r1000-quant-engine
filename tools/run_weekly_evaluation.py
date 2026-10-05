@@ -535,7 +535,7 @@ def run(latest_run: Path, output_dir: Path, price_cache: Path, stale_days_thresh
         # Check the whole output set before removing any prior generated file.
         for name in names:
             path = output_dir / name
-            if path.resolve() in protected or (path.exists() and not path.is_file() and not path.is_symlink()):
+            if path.resolve() in protected or nav_v2.research_output_kind(path) == "other":
                 collision = True
         if collision:
             return dict(status=nav_v2.BLOCKED, reason="caller_input_collides_with_weekly_research_output",
@@ -553,7 +553,7 @@ def run(latest_run: Path, output_dir: Path, price_cache: Path, stale_days_thresh
         nav_v2.authorize_research_cleanup(output_dir, names, protected, price_cache)
         for name in names:
             path = output_dir / name
-            if path.is_file() or path.is_symlink():
+            if nav_v2.research_output_kind(path) in ("file", "symlink"):
                 path.unlink()
     output_dir.mkdir(parents=True, exist_ok=True)
 

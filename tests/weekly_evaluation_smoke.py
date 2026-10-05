@@ -306,6 +306,24 @@ class ResearchWeeklyCallerTests(__import__('unittest').TestCase):
             out=run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())
         self.assertFalse(out['cleanup_complete']);self.assertFalse(out['current_publication_complete'])
         self.assertIn(metric.name,out['uncleared_generated_outputs']);self.assertTrue(metric.exists())
+        original_lstat=nav.os.lstat
+        def lstat(path,*a,**kw):
+            if Path(path)==metric:raise PermissionError('stat denied')
+            return original_lstat(path,*a,**kw)
+        with patch.object(nav.os,'lstat',lstat):
+            out=run(self.latest,self.out,self.cache,measurement_contexts={})
+        self.assertEqual(out['reason'],'RESEARCH_IO_FAILURE');self.assertFalse(out['cleanup_complete'])
+        self.assertTrue(metric.exists());self.assertFalse(out['current_publication_complete']);metric.unlink()
+        def after_write_lstat(path,*a,**kw):
+            if Path(path)==metric:
+                try:original_lstat(path,*a,**kw)
+                except FileNotFoundError:pass
+                else:raise PermissionError('cleanup stat denied')
+            return original_lstat(path,*a,**kw)
+        with patch.object(Path,'write_text',late_text),patch.object(nav.os,'lstat',after_write_lstat):
+            out=run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())
+        self.assertEqual(out['reason'],'RESEARCH_IO_FAILURE');self.assertFalse(out['cleanup_complete'])
+        self.assertIn(metric.name,out['uncleared_generated_outputs']);self.assertTrue(metric.exists())
 
     def test_full_weekly_input_cone_reverse_aliases_and_disjoint_controls(self):
         from tools import nav_metrics_v2 as nav
