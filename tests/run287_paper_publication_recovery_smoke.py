@@ -148,7 +148,7 @@ def review_only_fixture(root: Path, *, run_id: int = 123, attempts: tuple[int, .
     previous = copy.deepcopy(data["publisher_run"])
     previous.update(id=run_id, event="push", status="completed", conclusion="failure",
                     run_attempt=max(attempts), workflow_id=373591015, path=recovery.WORKFLOW_PATH,
-                    head_branch="codex/synthetic-review-only", head_sha=sha)
+                    head_branch="codex/synthetic-review-only", head_sha=sha, name=recovery.WORKFLOW_PATH)
     previous["repository"]["fork"] = False
     previous["head_repository"]["fork"] = False
     rows = []
@@ -185,6 +185,90 @@ def review_only_fixture(root: Path, *, run_id: int = 123, attempts: tuple[int, .
 
 
 class PublicationRecoveryChecks(unittest.TestCase):
+
+    def prove(self, prior):
+        previous=prior['workflow_runs'][1]
+        return recovery.prior_publication_step_state(previous,prior['jobs'][str(previous['id'])],
+            historical_source=prior['workflow_sources'][previous['head_sha']])
+
+    def names(self, prior, name):
+        prior['workflow_runs'][1]['name']=name
+        for job in prior['jobs']['123']['jobs']:job['workflow_name']=name
+
+    def test_historical_display_and_exact_run_path_fallback_complete_attempts(self):
+        source="name: Historical Publication Recovery\non:\n  workflow_dispatch:\njobs:\n  publication_recovery:\n    if: github.event_name == 'workflow_dispatch' && inputs.allow_publication_recovery == true\n    environment: run287-paper-durable\n"
+        for attempts in ((1,),(3,1,2)):
+            for declared in (True,False):
+                for display in (False,True):
+                    if display and not declared:continue
+                    with self.subTest(attempts=attempts,declared=declared,display=display),tempfile.TemporaryDirectory() as td:
+                        prior=review_only_fixture(Path(td),attempts=attempts,source=source if declared else source.split('\n',1)[1])
+                        name='Historical Publication Recovery' if display else recovery.WORKFLOW_PATH
+                        self.names(prior,name);before=json.dumps(prior,sort_keys=True)
+                        self.assertEqual(self.prove(prior),'review_only_nonpublisher')
+                        self.assertEqual(json.dumps(prior,sort_keys=True),before)
+
+    def test_run_and_every_job_name_missing_wrong_or_mixed_fails_closed(self):
+        source="name: Historical Publication Recovery\non:\n  workflow_dispatch:\njobs:\n  publication_recovery:\n    if: github.event_name == 'workflow_dispatch' && inputs.allow_publication_recovery == true\n    environment: run287-paper-durable\n"
+        for field in ('run','job'):
+            for base in ('Historical Publication Recovery',recovery.WORKFLOW_PATH):
+                for value in ('MISSING',None,'',' ',True,1,1.0,[],{},'Other Workflow',base.upper(),' '+base,base+' '):
+                    with self.subTest(field=field,base=base,value=value),tempfile.TemporaryDirectory() as td:
+                        prior=review_only_fixture(Path(td),attempts=(2,1),source=source)
+                        self.names(prior,base)
+                        obj=prior['workflow_runs'][1] if field=='run' else prior['jobs']['123']['jobs'][-1]
+                        key='name' if field=='run' else 'workflow_name'
+                        if value=='MISSING':obj.pop(key)
+                        else:obj[key]=value
+                        with self.assertRaises(ValueError):self.prove(prior)
+        for mixed in (('Historical Publication Recovery',recovery.WORKFLOW_PATH),
+                      (recovery.WORKFLOW_PATH,'Historical Publication Recovery')):
+            with self.subTest(mixed=mixed),tempfile.TemporaryDirectory() as td:
+                prior=review_only_fixture(Path(td),attempts=(2,1),source=source)
+                self.names(prior,mixed[0]);prior['jobs']['123']['jobs'][0]['workflow_name']=mixed[1]
+                with self.assertRaises(ValueError):self.prove(prior)
+
+    def test_declared_name_shape_dynamic_duplicate_and_exact_source_binding(self):
+        tail="on:\n  workflow_dispatch:\njobs:\n  publication_recovery:\n    if: github.event_name == 'workflow_dispatch' && inputs.allow_publication_recovery == true\n    environment: run287-paper-durable\n"
+        for header in ('name:\n','name: ""\n','name: " "\n','name: null\n','name: false\n','name: 2\n',
+                       'name: [Recovery]\n','name: {key: Recovery}\n','name: ${{ github.workflow }}\n',
+                       'name: Recovery\nname: Other\n','name: " Recovery"\n','name: "Recovery "\n'):
+            with self.subTest(header=header),tempfile.TemporaryDirectory() as td:
+                prior=review_only_fixture(Path(td),source=header+tail);self.names(prior,recovery.WORKFLOW_PATH)
+                with self.assertRaises(ValueError):self.prove(prior)
+        for declared in ('Distinct Historical Name','Another Name','"null"','"false"','"2"'):
+            with self.subTest(declared=declared),tempfile.TemporaryDirectory() as td:
+                prior=review_only_fixture(Path(td),source='name: '+declared+'\n'+tail)
+                self.names(prior,declared.strip('"'))
+                self.assertEqual(self.prove(prior),'review_only_nonpublisher')
+                proof=prior['workflow_sources']['a'*40]
+                for field,value in (('sha','b'*40),('path','other.yml'),('url','https://api.github.com/other')):
+                    copy_prior=copy.deepcopy(prior);copy_prior['workflow_sources']['a'*40]['workflow_blob'][field]=value
+                    with self.subTest(source_field=field),self.assertRaises(ValueError):self.prove(copy_prior)
+        with tempfile.TemporaryDirectory() as td:
+            prior=review_only_fixture(Path(td),source=tail);self.names(prior,'Unbound Display Name')
+            with self.assertRaises(ValueError):self.prove(prior)
+
+    def test_actual_publisher_caller_preserves_artifact_and_current_writer_fences(self):
+        source="name: Historical Publication Recovery\non:\n  workflow_dispatch:\njobs:\n  publication_recovery:\n    if: github.event_name == 'workflow_dispatch' && inputs.allow_publication_recovery == true\n    environment: run287-paper-durable\n"
+        for effective in ('Historical Publication Recovery',recovery.WORKFLOW_PATH):
+            for mutation in ('none','diagnostic_artifact','expired_artifact','active','no_approval','wrong_path','wrong_ID'):
+                with self.subTest(effective=effective,mutation=mutation),tempfile.TemporaryDirectory() as td:
+                    root=Path(td);prior=review_only_fixture(root,source=source);self.names(prior,effective)
+                    if mutation in ('diagnostic_artifact','expired_artifact'):
+                        prior['artifacts']['123']={'total_count':1,'artifacts':[{'name':'diagnostic','expired':mutation=='expired_artifact'}]}
+                    elif mutation=='active':dump(root/'writers_queued.json',{'total_count':1,'workflow_runs':[{'id':123}]})
+                    elif mutation=='no_approval':
+                        event=json.loads((root/'event.json').read_text(encoding='utf-8'));event['inputs']['allow_publication_recovery']=False;dump(root/'event.json',event)
+                    elif mutation=='wrong_path':prior['workflow_runs'][1]['path']='other.yml'
+                    elif mutation=='wrong_ID':prior['workflow_runs'][1]['workflow_id']=recovery.scope.WORKFLOW_ID
+                    dump(root/'prior_recoveries.json',prior)
+                    if mutation=='none':
+                        result=recovery.validate_publisher(root,PUBLISHER_SHA,now=NOW)
+                        self.assertEqual(result['authority'],'FRESH_OWNER_MANUAL_DISPATCH');self.assertFalse(result['save_continuity_cache'])
+                    else:
+                        with self.assertRaises(ValueError):recovery.validate_publisher(root,PUBLISHER_SHA,now=NOW)
+
     def test_review_only_complete_census_and_owner_dispatch(self):
         for attempts in ((1,), (2, 1), (3, 1, 2)):
             for cache in (False, True):

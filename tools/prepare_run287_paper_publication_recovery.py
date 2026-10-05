@@ -145,7 +145,7 @@ def validate_run_census_ids(runs: list, current: dict, *, code_prefix: str) -> s
     return run_ids
 
 
-def validate_prior_review_only_source(previous: dict, proof: object) -> None:
+def validate_prior_review_only_source(previous: dict, proof: object) -> str | None:
     """Verify the trusted Contents-at-exact-ref response, never current YAML."""
     require(isinstance(proof, dict) and proof.get("repository") == scope.REPOSITORY and
             proof.get("source_commit_sha") == previous["head_sha"], "prior_nonpublisher_source_identity")
@@ -179,6 +179,7 @@ def validate_prior_review_only_source(previous: dict, proof: object) -> None:
         require(len(tokens) <= 8192 and
                 not any(isinstance(token, (yaml.tokens.AnchorToken, yaml.tokens.AliasToken)) for token in tokens),
                 "prior_nonpublisher_source_ambiguous")
+        source_node = yaml.compose(text, Loader=yaml.SafeLoader)
         source = yaml.load(text, Loader=UniqueLoader)
     except (UnicodeError, yaml.YAMLError, RecursionError) as exc:
         raise ValueError("publication_recovery:prior_nonpublisher_source_parse") from exc
@@ -189,6 +190,16 @@ def validate_prior_review_only_source(previous: dict, proof: object) -> None:
     require(isinstance(job, dict) and
             job.get("if") == "github.event_name == 'workflow_dispatch' && inputs.allow_publication_recovery == true" and
             job.get("environment") == "run287-paper-durable", "prior_nonpublisher_source_dispatch_guard")
+    declared_name = source.get("name")
+    if "name" in source:
+        name_node = next(value for key, value in source_node.value if key.value == "name")
+        require(isinstance(name_node, yaml.ScalarNode) and
+                name_node.tag == yaml.resolver.BaseResolver.DEFAULT_SCALAR_TAG and
+                type(declared_name) is str and bool(declared_name.strip()) and
+                declared_name == declared_name.strip() and "${{" not in declared_name and
+                not any(char in declared_name for char in ("\n", "\r", "\t")),
+                "prior_nonpublisher_source_name")
+    return declared_name
 
 
 def validate_prior_review_only_history(previous: dict, jobs: list[dict], proof: object) -> None:
@@ -210,6 +221,15 @@ def validate_prior_review_only_history(previous: dict, jobs: list[dict], proof: 
                 isinstance(repo.get("owner"), dict) and type(repo["owner"].get("id")) is int and
                 exact_user(repo["owner"]), "prior_nonpublisher_repository_identity")
     require(len(jobs) == 2 * previous["run_attempt"], "prior_nonpublisher_attempt_census_incomplete")
+    declared_name = validate_prior_review_only_source(previous, proof)
+    effective_name = previous.get("name")
+    # Normal API names use the display name from this exact historical source.
+    # Failed historical compilation may instead return the already verified path.
+    # Every job must match that same authoritative run name, never choose aliases.
+    require(type(effective_name) is str and bool(effective_name.strip()) and
+            effective_name == effective_name.strip() and
+            (effective_name == declared_name or effective_name == previous["path"] == WORKFLOW_PATH),
+            "prior_nonpublisher_workflow_name")
     attempts = {}
     expected = {"review_head_observed": "success", "review_complete": "failure"}
     for job in jobs:
@@ -220,14 +240,14 @@ def validate_prior_review_only_history(previous: dict, jobs: list[dict], proof: 
                 all(key in job and job[key] is None for key in
                     ("runner_id", "runner_name", "runner_group_id", "runner_group_name")) and
                 job.get("labels") == [] and job.get("head_sha") == previous["head_sha"] and
-                job.get("head_branch") == previous["head_branch"] and job.get("workflow_name") == WORKFLOW_PATH and
+                job.get("head_branch") == previous["head_branch"] and
+                type(job.get("workflow_name")) is str and job["workflow_name"] == effective_name and
                 job.get("run_url") == f"https://api.github.com/repos/{scope.REPOSITORY}/actions/runs/{previous['id']}" and
                 job.get("check_run_url") == f"https://api.github.com/repos/{scope.REPOSITORY}/check-runs/{job['id']}",
                 "prior_nonpublisher_review_job_identity")
         names.add(name)
     require(set(attempts) == set(range(1, previous["run_attempt"] + 1)) and
             all(names == set(expected) for names in attempts.values()), "prior_nonpublisher_attempt_census_incomplete")
-    validate_prior_review_only_source(previous, proof)
 
 
 def prior_publication_step_state(previous: dict, jobs_payload: Any, *, historical_source: object = None) -> str:

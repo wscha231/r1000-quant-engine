@@ -6256,3 +6256,10 @@ Expected contract:
 - A stale run can remain active/queued in canonical API reads while cancel
   returns HTTP 409. Failed cancellation is not clearance; retain the conflicting
   writer gate and report the service-status contradiction as an external blocker.
+- API workflow_name is normally a historical display name, while a failed
+  legacy compile may return the exact verified path. Bind every job to the
+  authoritative run name and immutable source; do not rewrite real metadata
+  or let per-job aliases hide mixed evidence. Synthetic API-shaped fixtures
+  must cover both observed fallback and documented normal contracts.
+  Preserve the existing registered TestCase/main; new boundary methods must
+  actually enter that suite rather than remain an unregistered sibling class.
