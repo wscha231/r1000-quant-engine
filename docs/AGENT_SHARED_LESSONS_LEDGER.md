@@ -6253,3 +6253,6 @@ Expected contract:
 - Bind the returned source ref/path and actual Git blob hash; unknown/manual,
   partial or ambiguous histories remain blocked. This source fix neither clears
   active-writer conflicts nor grants fresh publication/cache/durable authority.
+- A stale run can remain active/queued in canonical API reads while cancel
+  returns HTTP 409. Failed cancellation is not clearance; retain the conflicting
+  writer gate and report the service-status contradiction as an external blocker.
