@@ -311,6 +311,7 @@ def build_context(*, macro_rows: list[dict], public_rows: list[dict], price_rows
     public = public_panel(public_rows, cutoff=cutoff)
     prices = validate_prices(price_rows, cutoff=cutoff, expected_session=expected_session)
     paired = []
+    security_map_binding = None
     if calendar_result is not None:
         source = calendar_result["source"]
         f.require(f.utc(source["collected_at"]) <= f.utc(source["available_at"]) <= f.utc(cutoff),
@@ -319,6 +320,11 @@ def build_context(*, macro_rows: list[dict], public_rows: list[dict], price_rows
                   "CALENDAR_SOURCE_HASH")
         bundle = f.compose_research_context(prices, calendar_result, [], security_map=security_map,
                     security_map_available_at=security_map_available_at, cutoff=cutoff, expected_session=expected_session)
+        security_map_binding = {
+            "mapping_sha256": bundle["section_sha256"]["explicit_security_map"],
+            "mapping_available_at": f.utc(security_map_available_at).isoformat(),
+            "identity_binding": bundle["identity_binding"],
+        }
         for pair in bundle["paired_themes"]:
             cal = pair["calendar_context"]
             expected = f.number(cal["expected_symbol_count"], integral=True, nonnegative=True)
@@ -391,17 +397,25 @@ def build_context(*, macro_rows: list[dict], public_rows: list[dict], price_rows
                 "families":["SURVEY_OPINION","MARKET_PRICE"],
                 "window_caveat":"WEEKLY_SURVEY_VS_1_SESSION_PRICE_NOT_A_CONTRARIAN_BUY",
                 "inputs":["AAII_bull_minus_bear","median_return_1d"]})
+    usable_breadth = market is not None and (
+        market["missing_return_count"] < len(market["members"])
+        or any(spec["value"] is not None and spec["eligible_count"] > 0
+               for spec in market["metrics"].values()))
     family_presence = {
         "macro": sorted({v["family"] for v in macro.values() if v["status"] == "OBSERVED" and not v["family"].startswith("OPTION_")}),
         "options": sorted({v["family"] for v in macro.values() if v["status"] == "OBSERVED" and v["family"].startswith("OPTION_")}),
-        "breadth": [] if market is None else ["MARKET_PRICE"],
-        "positioning": sorted({r["provider"] for r in public if r["status"] == "OBSERVED" and r["provider"] in {"CFTC", "FINRA"}}),
+        "breadth": ["MARKET_PRICE"] if usable_breadth else [],
+        "positioning": sorted({r["provider"] for r in public if r["status"] == "OBSERVED" and r["provider"] == "CFTC"}),
+        "short_sale_activity": sorted({r["provider"] for r in public if r["status"] == "OBSERVED" and r["provider"] == "FINRA"}),
         "survey_or_put_call": sorted({r["provider"] for r in public if r["status"] == "OBSERVED" and r["provider"] in {"AAII", "CBOE"}}),
     }
-    missing = [k for k, v in family_presence.items() if not v]
+    # FINRA venue activity is an optional diagnostic, not futures positioning.
+    missing = [k for k in ("macro", "options", "breadth", "positioning", "survey_or_put_call")
+               if not family_presence[k]]
     result = {"schema": SCHEMA, "status": "PARTIAL_RESEARCH_CONTEXT" if missing else "RESEARCH_CONTEXT_COMPOSED",
         "cutoff": cutoff, "expected_price_session": expected_session, "macro": macro,
         "derived_macro": derivatives, "public": public, "price": prices, "paired_themes": paired,
+        "security_map_binding": security_map_binding,
         "diagnostics": diagnostics, "family_presence": family_presence, "missing_families": missing,
         "regime": None, "input_producer_authenticated": False, "independent_alpha_votes": None,
         "known_overlap": ["VIX/VIX3M/VIX9D/VVIX share option-variance family",

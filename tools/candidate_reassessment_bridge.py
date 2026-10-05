@@ -22,6 +22,13 @@ FAMILIES = {'ACTUAL','GUIDANCE','CONSENSUS','PRICE','MACRO','REGIME',
             'SENTIMENT','POSITIONING','OPTIONS','LEADERSHIP','HARD_RISK','FILING'}
 KINDS = {'SECURITY','ISSUER','MACRO_SERIES','MARKET','THEME'}
 CHANNELS = {'EARNINGS','CASHFLOW','VALUATION','TIMING','RISK','COMPETITIVE_POSITION'}
+# Unscoped code/config/model/parameter/dependency and index changes cannot prove
+# that any candidate computation remains reusable. Review only, never execution.
+FULL_REASSESSMENT_SLICES = frozenset({
+    'EARNINGS','CASHFLOW','VALUATION','EXPECTED_RETURN','RS_PATH','TIMING',
+    'RISK_CONTEXT','THESIS_RISK','COMPETITIVE_POSITION','FULL_EARNINGS_THESIS_REVIEW',
+    'FILING_CONTENT_REVIEW','ACTUALS_EXTRACTION_REVIEW',
+})
 FIELDS = {'family','provider','entity_kind','entity_id','metric','fiscal_period',
           'observation_period','identity','values','status','available_at',
           'collected_at','revision_id','source_sha256','causal_event_id'}
@@ -220,7 +227,7 @@ def plan_reassessment(previous: dict|None, current: dict, index: dict, *, now: s
     if contract_change or index_change:
         for c in index['candidates']:
             events.append(dict(event_id=digest({'asset':c['asset_id'],'contract':contract_identity,'index':index['content_sha256']}),
-                               key=c['asset_id'],reason='CONTRACT_OR_INDEX_CHANGED',family='LEADERSHIP',
+                               key=c['asset_id'],reason='CONTRACT_OR_INDEX_CHANGED',family='CONTRACT_CHANGE',
                                entity_kind='SECURITY',entity_id=c['asset_id'],causal_event_id=None,observation={}))
     requests={};invalidations={};unmapped=[]
     def request(agent,asset,slices,eid,conditions):
@@ -252,6 +259,7 @@ def plan_reassessment(previous: dict|None, current: dict, index: dict, *, now: s
         for asset,channels in sorted(targets.items()):
             request('A1',asset,{'SOURCE_IDENTITY_PIT'},eid,{'CURRENT_SOURCE_RECEIPT'})
             slices=set()
+            if family=='CONTRACT_CHANGE':slices|=FULL_REASSESSMENT_SLICES
             if family in {'ACTUAL','GUIDANCE','CONSENSUS'}:slices|={'EARNINGS','CASHFLOW','VALUATION','EXPECTED_RETURN'}
             if family=='ACTUAL':slices.add('FULL_EARNINGS_THESIS_REVIEW')
             if family=='FILING':slices|={'FILING_CONTENT_REVIEW','ACTUALS_EXTRACTION_REVIEW'}
@@ -272,7 +280,8 @@ def plan_reassessment(previous: dict|None, current: dict, index: dict, *, now: s
                 request('A6',asset,{'P0_VERIFICATION_NO_RS_WAIT'},eid,{'HARD_RISK_SOURCE_AUTHENTICATION'})
                 request('A3',asset,{'THESIS_RISK'},eid,{'HARD_RISK_SOURCE_AUTHENTICATION'})
             else:
-                request('A2',asset,{'LEADERSHIP_REVIEW'},eid,{'A1_CURRENT_VERIFIED'})
+                request('A2',asset,{'FULL_CANDIDATE_REASSESSMENT'} if family=='CONTRACT_CHANGE' else
+                        {'LEADERSHIP_REVIEW'},eid,{'A1_CURRENT_VERIFIED'})
                 requirements={'A1_CURRENT_VERIFIED','RELEVANT_A2_A4_EVIDENCE_VERIFIED'}
                 if family=='FILING':requirements.add('FILING_CONTENT_AND_METRICS_VERIFIED_BEFORE_ER')
                 request('A3',asset,slices,eid,requirements)

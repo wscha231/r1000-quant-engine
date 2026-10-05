@@ -2198,4 +2198,9 @@ from tests.chameleon_library_semantic_boundary_smoke import ChameleonSemanticBou
 
 from tests.candidate_reassessment_free_first_smoke import SecFreeOptionalAbsentTests as CandidateReassessmentSecFreeOptionalAbsentTests
 
+# Hosted-review regressions: usability, consumed mapping identity and full contract changes.
+from tests.chameleon_library_semantic_boundary_smoke import ChameleonHostedReviewBoundaryTests as ChameleonLibraryHostedReviewBoundaryTests
+from tests.candidate_reassessment_clock_smoke import ContractIdentityBoundaryTests as CandidateReassessmentContractIdentityBoundaryTests
+from tests.candidate_reassessment_clock_smoke import SecAccessionSubmissionBoundaryTests as CandidateReassessmentSecAccessionSubmissionBoundaryTests
+
 if __name__=='__main__': unittest.main()

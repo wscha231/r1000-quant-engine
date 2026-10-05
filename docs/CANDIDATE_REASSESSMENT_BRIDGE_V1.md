@@ -23,6 +23,32 @@ content/actuals extraction review and repair, without an optional module or key.
 The original author reference below records the supplied package contract;
 its package counts and historical validation are separate from native validation.
 
+## Native review-boundary corrections - 2026-10-05
+
+Generic code, config, model, parameter or dependency identity changes and an
+unscoped exposure-index change invalidate every current candidate's earnings,
+cashflow, valuation, ER, RS/timing, risk/thesis, competitive-position and
+filing/content-extraction review slices. These identities do not prove a narrow
+affected scope. Ordinary PRICE events remain selective. The full invalidation
+is an A2/A3 review suggestion; it performs no financial extraction or valuation
+and grants no A0, Registry, ER or A5 execution authority.
+
+An SEC accession's first ten digits identify the submitting entity, which may
+be a third-party filing agent, rather than necessarily the issuer. The adapter
+therefore retains the raw SHA, top-level issuer CIK and selected recent-accession
+checks without requiring accession-prefix equality. See the official
+[SEC accession explanation](https://www.sec.gov/search-filings/edgar-search-assistance/accessing-edgar-data)
+and [Netskope issuer 2063196 / accession 0001193125-26-255439](https://www.sec.gov/Archives/edgar/data/2063196/000119312526255439/0001193125-26-255439-index.htm).
+The regression uses that published pair with separately constructed metadata
+and clocks; it is not authenticated submissions, earnings extraction or PIT.
+Accepted event time, source observation, availability and collection remain
+distinct, with no fabricated publication timestamp.
+
+Eleven additional boundary methods preserve the original 341 case bodies:
+352 new native methods and 468 including the unchanged 116-case H1 baseline.
+The original 53 parent CLI/provider activation cases remain explicitly outside
+this adoption, with no skipped retained cases or enabled Calendar provider.
+
 # Candidate reassessment bridge V1
 
 TASK_KEY: R1000-H1-EVENT-REASSESSMENT-BRIDGE-V1-20261004

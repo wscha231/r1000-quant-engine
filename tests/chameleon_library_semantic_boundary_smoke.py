@@ -166,5 +166,126 @@ class ChameleonSemanticBoundaryTests(unittest.TestCase):
                 context(public=[row])
             self.assertEqual(encoded(row), before)
 
+
+class ChameleonHostedReviewBoundaryTests(unittest.TestCase):
+    def full_public(self):
+        return survey() + cot() + finra()
+
+    def missing_market(self, *, median=None, metric_value=None, eligible=0):
+        value = price()
+        value.update(advancers=0, decliners=0, unchanged=0, missing_return_count=1,
+                     median_return_1d=median)
+        value['metrics']['pct_above_ma20'].update(value=metric_value, eligible_count=eligible)
+        return value
+
+    def closed(self, value):
+        c.verify_context(value)
+        self.assertEqual({key: value[key] for key in c.SAFETY}, c.SAFETY)
+        self.assertFalse(value['input_producer_authenticated'])
+
+    def test_all_missing_market_is_not_usable_breadth(self):
+        for median in (None, -.01):
+            with self.subTest(median=median):
+                rows = [self.missing_market(median=median), price('power', .02)]
+                before = encoded(rows)
+                result = context(prices=rows, public=self.full_public())
+                self.assertEqual(result['family_presence']['breadth'], [])
+                self.assertEqual(result['status'], 'PARTIAL_RESEARCH_CONTEXT')
+                self.assertIn('breadth', result['missing_families'])
+                self.closed(result)
+                self.assertEqual(encoded(rows), before)
+
+    def test_breadth_requires_valid_returns_or_nonnull_eligible_metrics(self):
+        partial = price()
+        partial.update(members=['XAAA', 'XBBB'], missing_return_count=1)
+        partial['metrics']['pct_above_ma20'].update(value=None, eligible_count=0, expected_count=2)
+        cases = [(price(move=0), True), (partial, True),
+                 (self.missing_market(metric_value=0, eligible=1), True),
+                 (self.missing_market(metric_value=None, eligible=1), False),
+                 (self.missing_market(), False)]
+        stale = price(); stale['session'] = '2026-10-01'
+        cases.append((stale, False))
+        for market, present in cases:
+            with self.subTest(market=market, present=present):
+                result = context(prices=[market, price('power', .02)], public=self.full_public())
+                self.assertEqual(bool(result['family_presence']['breadth']), present)
+                self.assertEqual('breadth' in result['missing_families'], not present)
+                self.closed(result)
+
+    def test_finra_activity_cannot_replace_fresh_cftc_positioning(self):
+        missing = cot()
+        for row in missing: row['value'] = None
+        stale = cot()
+        for row in stale: row['observation_date'] = '2020-01-01'
+        cases = [(survey() + finra(), False, True),
+                 (survey() + finra() + missing, False, True),
+                 (survey() + finra() + stale, False, True),
+                 (survey() + cot(), True, False),
+                 (self.full_public(), True, True)]
+        for rows, positioning, activity in cases:
+            with self.subTest(positioning=positioning, activity=activity):
+                before = encoded(rows)
+                result = context(public=rows)
+                self.assertEqual(result['family_presence']['positioning'], ['CFTC'] if positioning else [])
+                self.assertEqual(result['family_presence']['short_sale_activity'], ['FINRA'] if activity else [])
+                self.assertEqual('positioning' in result['missing_families'], not positioning)
+                self.assertNotIn('short_sale_activity', result['missing_families'])
+                self.assertEqual(result['status'], 'RESEARCH_CONTEXT_COMPOSED' if positioning else 'PARTIAL_RESEARCH_CONTEXT')
+                self.closed(result)
+                self.assertEqual(encoded(rows), before)
+
+    def mapped(self, mapping=None, available=CLOCK):
+        symbols = ['XAAA.US', 'XBBB.US']
+        payload = {'type': 'Trends', 'symbols': ','.join(symbols), 'trends': [
+            [
+            {'code': symbol, 'date': '2026-12-31', 'period': '0y', 'earningsEstimateAvg': '2',
+             'epsTrendCurrent': '2', 'epsTrend30daysAgo': '1.5'}] for symbol in symbols]}
+        calendar = f.calendar_theme_context(encoded(payload), symbols, {symbol: ['power'] for symbol in symbols},
+            observed_at=CLOCK, mapping_available_at=CLOCK, **KW)
+        rows = [price(), price('power', .02)]
+        for row in rows:
+            row['members'] = ['XAAA', 'XBBB']
+            for field in ('advancers', 'decliners', 'unchanged'): row[field] *= 2
+            row['metrics']['pct_above_ma20'].update(eligible_count=2, expected_count=2)
+        return c.build_context(macro_rows=[], public_rows=self.full_public(), price_rows=rows,
+            calendar_result=calendar, security_map={'XAAA.US':'XAAA', 'XBBB.US':'XBBB'} if mapping is None else mapping,
+            security_map_available_at=available, cutoff=CLOCK, expected_session=DAY)
+
+    def test_consumed_security_map_permutation_is_hashed_and_reviewed(self):
+        mapping = {'XAAA.US':'XBBB', 'XBBB.US':'XAAA'}
+        before = encoded(mapping)
+        original, changed = self.mapped(), self.mapped(mapping)
+        self.assertEqual(original['paired_themes'], changed['paired_themes'])
+        self.assertNotEqual(original['content_sha256'], changed['content_sha256'])
+        self.assertNotEqual(original['security_map_binding']['mapping_sha256'], changed['security_map_binding']['mapping_sha256'])
+        self.assertEqual(c.context_delta(original, changed)['status'], 'CONTEXT_CHANGED_REVIEW_ONLY')
+        self.assertEqual(encoded(mapping), before)
+        reordered = self.mapped({'XBBB.US':'XBBB', 'XAAA.US':'XAAA'})
+        self.assertEqual(original, reordered)
+        self.assertEqual(c.context_delta(original, reordered)['status'], 'SKIP_UNCHANGED_CONTEXT')
+        self.closed(changed)
+
+    def test_security_map_availability_clock_is_semantic_and_bounded(self):
+        earlier = self.mapped(available='2026-10-04T11:00:00Z')
+        current = self.mapped()
+        self.assertEqual(earlier['paired_themes'], current['paired_themes'])
+        self.assertNotEqual(earlier['content_sha256'], current['content_sha256'])
+        self.assertEqual(c.context_delta(earlier, current)['status'], 'CONTEXT_CHANGED_REVIEW_ONLY')
+        equivalent = self.mapped(available='2026-10-04T21:00:00+09:00')
+        self.assertEqual(current, equivalent)
+        self.assertEqual(c.context_delta(current, equivalent)['status'], 'SKIP_UNCHANGED_CONTEXT')
+        with self.assertRaisesRegex(f.ContextError, 'FUTURE_SECURITY_MAPPING'):
+            self.mapped(available='2026-10-05T12:00:00Z')
+        with self.assertRaisesRegex(f.ContextError, 'EXPLICIT_SECURITY_MAPPING'):
+            self.mapped({'XAAA.US':'XAAA','XBBB.US':'XAAA'})
+
+    def test_absent_optional_calendar_keeps_no_consumed_security_map(self):
+        result = c.build_context(macro_rows=[], public_rows=survey(), price_rows=[price()],
+            calendar_result=None, security_map=None, security_map_available_at=None,
+            cutoff=CLOCK, expected_session=DAY)
+        self.assertIsNone(result['security_map_binding'])
+        self.assertEqual(result['paired_themes'], [])
+        self.closed(result)
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

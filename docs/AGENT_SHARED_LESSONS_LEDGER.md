@@ -6211,3 +6211,14 @@ Expected contract:
   complete SEC actual extraction or authorize economic/ER/A5 consumption.
 - Nonempty SEC isolation must prove content/extraction review and selected-source
   repair without optional Calendar modules, keys, HTTP or optimized-away assertions.
+
+## 2026-10-05 - Keep context completion and reuse bound to consumed evidence
+
+- An observed market row is not usable breadth without valid returns or an
+  eligible non-null metric. FINRA venue activity cannot replace CFTC positioning.
+- Keep a consumed security map's canonical hash and availability clock in both
+  the final context and its semantic reuse identity, even if paired values match.
+- Generic contract/index identity changes do not prove a narrow affected scope;
+  revoke every current candidate's thesis slices while keeping review authority closed.
+- SEC accession prefixes identify submitters, including filing agents. Preserve
+  raw/issuer/membership checks; do not impose an incorrect issuer-prefix gate.

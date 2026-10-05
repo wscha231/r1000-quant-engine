@@ -18,6 +18,23 @@ Existing macro/VIX/VIX3M/VVIX and licensed supplied sentiment are research conte
 not independent duplicate votes, stock option chains, consensus or expected
 returns. No producer, provider, A4/A3/A5 authority or PIT admission is activated.
 
+## Native review-boundary corrections - 2026-10-05
+
+Breadth requires at least one valid member return or a non-null metric with a
+positive eligible count in the current market row. An all-missing return row
+with no eligible metric does not complete breadth. Fresh CFTC evidence supplies
+positioning; FINRA venue short-sale activity is a separate optional diagnostic.
+Its presence cannot replace positioning, and its absence is not a new required
+family. The original five required context families remain required.
+
+When optional Calendar pairing consumes an explicit security map, the final
+context retains its canonical mapping hash and UTC availability clock in
+`security_map_binding`. Both participate in context_delta's semantic identity;
+a same-theme member permutation or mapping-clock change requires review.
+Canonical key order and equivalent UTC instants remain unchanged controls.
+Without Calendar there is no consumed map binding. These are research-context
+checks, not source authentication, producer/PIT admission or Calendar activation.
+
 # Chameleon Market Context V2 — #576 successor to #388
 
 TASK_KEY: `R1000-H1-CHAMELEON-MARKET-CONTEXT-V2-20261004`  
