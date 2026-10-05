@@ -6197,3 +6197,49 @@ Expected contract:
   CLEAN/green evidence cannot authorize this changed head. The already approved
   single EODHD sample remains bounded to3HTTP/20daily units/no bonus/no retry.
   No operational daily dispatch, purchase, durable data or consumer activation.
+
+## 2026-10-05 — Adopt pure source libraries without their activation surface
+
+- Preserve the original core124/all eight producer cases and 203 unchanged
+  library cases in durable native units; name all 53 unadopted CLI/provider cases
+  separately. Reuse the registered H1 wrapper and full native #388/H1, not fixtures.
+- Status/expiry branches must not hide backward source clocks. Numeric string
+  validation must return copied normalized rows; public input domains must match
+  their actual parser/register, including signed and null conventions.
+- Numeric canonicalization can change digest bytes. Parser compatibility and
+  local tests do not authenticate producers, certify PIT, activate Calendar,
+  complete SEC actual extraction or authorize economic/ER/A5 consumption.
+- Nonempty SEC isolation must prove content/extraction review and selected-source
+  repair without optional Calendar modules, keys, HTTP or optimized-away assertions.
+
+## 2026-10-05 - Keep context completion and reuse bound to consumed evidence
+
+- An observed market row is not usable breadth without valid returns or an
+  eligible non-null metric. FINRA venue activity cannot replace CFTC positioning.
+- Keep a consumed security map's canonical hash and availability clock in both
+  the final context and its semantic reuse identity, even if paired values match.
+- Generic contract/index identity changes do not prove a narrow affected scope;
+  revoke every current candidate's thesis slices while keeping review authority closed.
+- SEC accession prefixes identify submitters, including filing agents. Preserve
+  raw/issuer/membership checks; do not impose an incorrect issuer-prefix gate.
+- Optional documentation can be SHA-pinned by accepted U0 inventory: restore
+  only owned conflicting bytes, without repinning or weakening its audit. Verify
+  approved wrapper AST and exact scoped deltas rather than stale byte expectations.
+
+## 2026-10-05 - R3 review ordering and represented observation reuse
+
+- Initial filing-content/extraction review belongs to A3 after A1; metadata is
+  not leadership, extracted actuals or a reason to wait for those later ER inputs.
+- Equal source clocks with changed semantics must fail before status/expiry
+  repair. Correct the two inconsistent clock-positive inputs, retaining their
+  assertions, unchanged/advanced positives and backward/conflict negatives.
+- Omit only known transport-hash aliases from reuse; retain consumed map hash
+  and clock. Mixed requests keep the existing agent-wide dependency union.
+
+## 2026-10-05 - Preserve each consumed mapping through context compaction
+
+- Calendar symbol-to-theme provenance is distinct from vendor-to-native identity.
+  Retain each map hash and UTC clock even for empty, unmatched or stale pairs;
+  transport-only churn cannot replace a changed consumed mapping.
+- Validate supplied mapping identity before compaction; canonical UTC/key-order
+  controls reuse context. Format/clock checks do not authenticate a producer or PIT.
