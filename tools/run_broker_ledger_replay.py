@@ -101,11 +101,13 @@ def prepare_generated_outputs(
     distinct hardlink may be safely unlinked; no directories are traversed.
     Nested names must come from the caller's known requested output contract.
     """
-    protected = {Path(path).resolve() for path in input_paths if path is not None}
+    protected = {(nav_v2.resolve_research_path(path) if strict_io else Path(path).resolve())
+                 for path in input_paths if path is not None}
     paths = [output_dir / name for name in names]
-    collision = any(path.resolve() in protected for path in paths)
+    collision = any((nav_v2.resolve_research_path(path) if strict_io else path.resolve()) in protected
+                    for path in paths)
     for path in paths:
-        if path.resolve() not in protected:
+        if (nav_v2.resolve_research_path(path) if strict_io else path.resolve()) not in protected:
             if strict_io:
                 kind = nav_v2.research_output_kind(path)
                 if kind in ("file", "symlink"):
@@ -1770,16 +1772,16 @@ def replay(
     generated_names = tuple(artifact(n) for n in REPLAY_GENERATED_ARTIFACTS)
     if research_measurement:
         nav_v2.observe_research_publication(output_dir, generated_names, (), price_cache)
-    if research_measurement and output_dir.resolve().is_relative_to(price_cache.resolve()):
+    if research_measurement and nav_v2.resolve_research_path(output_dir).is_relative_to(nav_v2.resolve_research_path(price_cache)):
         return nav_v2.refused_research_publication("CALLER_OUTPUT_INSIDE_PRICE_CACHE", output_dir, generated_names)
     execution_cost_config = execution_cost_config or ExecutionCostConfig()
     cash_carry_config = cash_carry_config or resolve_cash_carry_config()
     if research_measurement:
-        inputs = {Path(p).resolve() for p in (target_book, cash_carry_config.rate_path,
+        inputs = {nav_v2.resolve_research_path(Path(p)) for p in (target_book, cash_carry_config.rate_path,
                   execution_cost_config.paper_slippage_path, measurement_context_path) if p is not None}
         paths = [output_dir / n for n in generated_names]
         nav_v2.observe_research_publication(output_dir, generated_names, inputs, price_cache)
-        if any(p.resolve() in inputs or nav_v2.research_output_kind(p) == "other" for p in paths):
+        if any(nav_v2.resolve_research_path(p) in inputs or nav_v2.research_output_kind(p) == "other" for p in paths):
             return nav_v2.refused_research_publication("caller_input_collides_with_replay_output", output_dir, generated_names, inputs)
         if load_measurement_context_from_path:
             try:
@@ -1800,8 +1802,8 @@ def replay(
         if preview_policy.cash_interest_enabled:
             selected_rate = _selected_cash_rate_path(cash_carry_config, price_cache)
             if selected_rate is not None:
-                inputs.add(selected_rate.resolve())
-        if any(p.resolve() in inputs for p in paths):
+                inputs.add(nav_v2.resolve_research_path(selected_rate))
+        if any(nav_v2.resolve_research_path(p) in inputs for p in paths):
             return nav_v2.refused_research_publication("caller_input_collides_with_replay_output", output_dir, generated_names, inputs)
         research_raw = read_csv(target_book)
         preview_filters = {} if disable_concentrated_champion_filter else resolve_concentrated_champion_filters(
@@ -1815,14 +1817,14 @@ def replay(
         if not preview_targets.empty:
             preview_targets, _ = apply_reserve_asset_to_targets(preview_targets, policy=preview_policy,
                                                                 weight_col="weight", date_col="rebalance_date")
-            inputs.update((price_cache / px_cache_name(str(t).upper())).resolve()
+            inputs.update(nav_v2.resolve_research_path(price_cache / px_cache_name(str(t).upper()))
                           for t in preview_targets["ticker"].unique() if str(t).upper() not in CASH_TICKERS)
-            if any(p.resolve() in inputs for p in paths):
+            if any(nav_v2.resolve_research_path(p) in inputs for p in paths):
                 return nav_v2.refused_research_publication("caller_input_collides_with_replay_output", output_dir, generated_names, inputs)
             if preview_policy.cash_interest_enabled:
                 for ticker in DEFAULT_CASH_CARRY_CALENDAR_TICKERS:
-                    inputs.add((price_cache / px_cache_name(ticker)).resolve())
-                    if any(p.resolve() in inputs for p in paths):
+                    inputs.add(nav_v2.resolve_research_path(price_cache / px_cache_name(ticker)))
+                    if any(nav_v2.resolve_research_path(p) in inputs for p in paths):
                         return nav_v2.refused_research_publication("caller_input_collides_with_replay_output", output_dir, generated_names, inputs)
                     if not load_price_series(price_cache, ticker).empty:
                         break
@@ -1835,9 +1837,9 @@ def replay(
     if collision:
         payload = redact_execution_performance({"target_book": str(target_book), "price_cache": str(price_cache),
             "portfolio_kind": portfolio_kind, "fill_mode": fill_mode}, reason="caller_input_collides_with_replay_output")
-        if (output_dir / metric_name).resolve() not in protected:
+        if (nav_v2.resolve_research_path(output_dir / metric_name) if research_measurement else (output_dir / metric_name).resolve()) not in protected:
             (output_dir / metric_name).write_text(metric_json(payload, indent=2), encoding="utf-8")
-        if (output_dir / artifact("replay_report.md")).resolve() not in protected:
+        if (nav_v2.resolve_research_path(output_dir / artifact("replay_report.md")) if research_measurement else (output_dir / artifact("replay_report.md")).resolve()) not in protected:
             (output_dir / artifact("replay_report.md")).write_text(render_report(payload), encoding="utf-8")
         return payload
     reserve_explicit = reserve_asset_policy is not None or bool(str(reserve_mode or "").strip())
@@ -2665,13 +2667,18 @@ def replay(
             oos_start=oos_start, oos_end=oos_end,
             oos2_start=oos2_start, oos2_end=oos2_end,
             cash_carry_mode=cash_carry_config.mode,
-            measurement_contexts=({"full": context_full, **(measurement_context.get("windows", {})
+            measurement_contexts=(({"full": context_full, **(measurement_context.get("windows", {})
                                   if type(measurement_context) is dict and type(measurement_context.get("windows", {})) is dict else {})}
+                                  if metrics.get("status") == nav_v2.COMPLETE else {})
                                   if research_measurement else None),
             valuation_binding=valuation_binding,
         )
         if research_measurement and windows.get("status") != nav_v2.COMPLETE:
-            metrics = dict(nav_v2.blocked("REQUESTED_WINDOW_BLOCKED"),
+            reason = str(metrics.get("reason") or "REQUESTED_WINDOW_BLOCKED")
+            windows = {"status": nav_v2.BLOCKED, **{
+                label: nav_v2.blocked(reason, label) if windows.get(label) is not None else None
+                for label in ("full", "is", "oos", "oos2")}}
+            metrics = dict(nav_v2.blocked(reason),
                            execution_status="completed", trade_count=len(trades_df))
         metrics["windows"] = windows
     metrics.update(

@@ -922,6 +922,100 @@ class HostedR6NativeAttrsTests(unittest.TestCase):
                 else:self.assertTrue(broker.load_cash_rate_series(broker.CashCarryConfig(mode=broker.CASH_CARRY_MODE_RISK_FREE,rate_path=path),cache).empty)
 
 
+
+
+class AtomicPublicationResolutionTests(unittest.TestCase):
+    def test_native_recursive_paths_and_regular_symlink_parity(self):
+        import os,tempfile,sys
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);regular=root/'regular';regular.write_bytes(b'unchanged')
+            self.assertEqual(nav.resolve_research_path(regular),regular.resolve())
+            for kind in ('self','two','ancestor','regular'):
+                with self.subTest(kind=kind,runtime=sys.version):
+                    a=root/(kind+'a');b=root/(kind+'b');selected=a
+                    try:
+                        if kind=='self':os.symlink(a,a)
+                        elif kind in ('two','ancestor'):
+                            os.symlink(b,a,target_is_directory=kind=='ancestor');os.symlink(a,b,target_is_directory=kind=='ancestor')
+                            if kind=='ancestor':selected=a/'missing-leaf'
+                        else:os.symlink(regular,a)
+                    except OSError as error:
+                        # Some Windows identities have no symlink privilege. No fabricated loop proof.
+                        self.assertEqual(sys.platform,'win32');self.assertIn(getattr(error,'winerror',None),(5,1314));continue
+                    try:reference=selected.resolve()
+                    except RuntimeError as error:
+                        original=error.__context__
+                        self.assertTrue(nav._NATIVE_LOOP_CODES)
+                        self.assertIsInstance(original,OSError)
+                        with self.assertRaises(OSError) as normalized:nav.resolve_research_path(selected)
+                        self.assertEqual(normalized.exception.errno,original.errno)
+                        self.assertEqual(getattr(normalized.exception,'winerror',None),getattr(original,'winerror',None))
+                        self.assertIsInstance(normalized.exception.__cause__,RuntimeError)
+                    except OSError as error:
+                        with self.assertRaises(OSError) as normalized:nav.resolve_research_path(selected)
+                        self.assertEqual(normalized.exception.errno,error.errno)
+                    else:
+                        # Python3.14 and Windows ancestor-with-missing-leaf need not raise RuntimeError.
+                        self.assertEqual(nav.resolve_research_path(selected),reference)
+                    self.assertEqual(regular.read_bytes(),b'unchanged')
+
+    def test_only_exact_native_resolve_context_and_receiver_are_normalized(self):
+        import errno,tempfile,functools
+        with tempfile.TemporaryDirectory() as td:
+            selected=Path(td)/'selected'
+            for kind in ('wrong_origin','inside_program','message_only','cause_only','type','value'):
+                with self.subTest(kind=kind):
+                    sentinel=TypeError('loop') if kind=='type' else ValueError('loop') if kind=='value' else RuntimeError('Symlink loop')
+                    def failed(*a,**kw):
+                        if kind in ('wrong_origin','inside_program','cause_only'):
+                            try:raise OSError(errno.ELOOP,'controlled program context')
+                            except OSError as error:
+                                if kind=='cause_only':raise sentinel from error
+                                raise sentinel
+                        raise sentinel
+                    manager=patch.object(Path._flavour,'realpath',failed) if kind=='inside_program' and hasattr(Path,'_flavour') else patch.object(Path,'resolve',failed)
+                    with manager,self.assertRaises(type(sentinel)) as caught:nav.resolve_research_path(selected)
+                    self.assertIs(caught.exception,sentinel)
+            if nav._NATIVE_LOOP_CODES:
+                for kind in ('eloop','independent_win1921','wrong_resolve_code','wrong_loop_code','wrong_receiver'):
+                    with self.subTest(kind=kind):
+                        original=OSError(errno.EINVAL if kind=='independent_win1921' else errno.ELOOP,'controlled native OS boundary')
+                        if kind=='independent_win1921':original.winerror=1921
+                        def failed(*a,**kw):raise original
+                        with patch.object(Path._flavour,'realpath',failed):
+                            if kind=='wrong_resolve_code':manager=patch.object(nav,'_NATIVE_RESOLVE_CODE',failed.__code__)
+                            elif kind=='wrong_loop_code':manager=patch.object(nav,'_NATIVE_LOOP_CODES',())
+                            elif kind=='wrong_receiver':manager=patch.object(Path,'resolve',functools.partial(Path.resolve,Path(td)/'other'))
+                            else:manager=__import__('contextlib').nullcontext()
+                            with manager,self.assertRaises(RuntimeError if kind.startswith('wrong') else OSError) as caught:nav.resolve_research_path(selected)
+                        if kind.startswith('wrong'):self.assertIs(caught.exception.__context__,original)
+                        else:self.assertIs(caught.exception,original)
+
+    def test_unknown_geometry_refusal_and_cleanup_preserve_all_foreign_bytes(self):
+        import errno,tempfile
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);out=root/'out';out.mkdir();leaf=out/nav.CURVE_FILE;foreign=out/'foreign'
+            leaf.write_bytes(b'prior');foreign.write_bytes(b'foreign');original=Path.resolve
+            def denied(path,*a,**kw):
+                if path==leaf:raise OSError(errno.ELOOP,'controlled OS geometry failure')
+                return original(path,*a,**kw)
+            with patch.object(Path,'resolve',denied):
+                result=nav.refused_research_publication('REFUSED',out,(nav.CURVE_FILE,))
+            self.assertFalse(result['current_publication_complete']);self.assertFalse(result['cleanup_complete'])
+            self.assertIn(nav.CURVE_FILE,result['uncleared_generated_outputs']);self.assertTrue(result['retained_output_errors'])
+            @nav.research_io_guard('measurement_context')
+            def publication(measurement_context):
+                nav.observe_research_publication(out,(nav.CURVE_FILE,),set(),root/"cache")
+                nav.authorize_research_cleanup(out,(nav.CURVE_FILE,),set(),root/"cache")
+                raise OSError(errno.EACCES,'controlled publication failure')
+            with patch.object(Path,'resolve',denied):result=publication({})
+            self.assertEqual(result['reason'],'RESEARCH_IO_FAILURE');self.assertFalse(result['cleanup_complete'])
+            self.assertIn(nav.CURVE_FILE,result['uncleared_generated_outputs'])
+            self.assertEqual(leaf.read_bytes(),b'prior');self.assertEqual(foreign.read_bytes(),b'foreign')
+            error=RuntimeError('ordinary program failure')
+            with patch.object(Path,'resolve',side_effect=error),self.assertRaises(RuntimeError) as caught:publication({})
+            self.assertIs(caught.exception,error)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 

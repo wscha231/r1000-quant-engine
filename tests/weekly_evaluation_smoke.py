@@ -926,6 +926,68 @@ class ResearchWeeklyCallerTests(__import__('unittest').TestCase):
 
 
 
+
+    def test_atomic_weekly_admission_scrubs_both_metric_publications_before_freshness(self):
+        import copy,json
+        from tools import nav_metrics_v2 as nav
+        healthy=self.measurement();healthy={name:copy.deepcopy(entry) for name,entry in healthy.items()}
+        cache_before={p.name:p.read_bytes() for p in self.cache.iterdir()};inputs={p:p.read_bytes() for p in self.latest.rglob('*') if p.is_file()}
+        for failed in ('main','concentrated'):
+            for kind in ('healthy','RF','NAV','flow','empty'):
+                with self.subTest(failed=failed,kind=kind):
+                    package={name:copy.deepcopy(entry) for name,entry in healthy.items()}
+                    if kind=='RF':package[failed]['full']['risk_free']['ref']['sha256']='0'*64
+                    elif kind=='NAV':package[failed]['full']['nav_ref']['sha256']='0'*64
+                    elif kind=='flow':package[failed]['full']['external_flows']['ref']['available_at']=package[failed]['full']['anchor']['timestamp']
+                    elif kind=='empty':package[failed]['full']={}
+                    before=nav.encoded(package);self.out=self.root/('weekly-atomic-'+failed+kind);dest=self.out/nav.NAMESPACE;dest.mkdir(parents=True)
+                    foreign=dest/'foreign';foreign.write_bytes(b'keep')
+                    result=run(self.latest,self.out,self.cache,measurement_contexts=package)
+                    metrics=json.loads((dest/'weekly_metrics.research_v2.json').read_text())
+                    freshness=json.loads((dest/'weekly_freshness_audit.research_v2.json').read_text())
+                    self.assertEqual(metrics,freshness['metrics']);self.assertEqual(result['metrics'],metrics)
+                    if kind=='healthy':self.assertEqual({m['status'] for m in metrics.values()},{nav.COMPLETE})
+                    else:
+                        self.assertEqual(result['status'],nav.BLOCKED);self.assertFalse(result['metric_admission_complete'])
+                        for name,m in metrics.items():
+                            self.assertEqual(m['status'],nav.BLOCKED);self.assertEqual(m['label'],name)
+                            for field in nav.METRIC_FIELDS:self.assertIsNone(m[field])
+                            for field in ('interval_returns','start_date','end_date','measurement_context_sha256','input_rows_sha256','ending_timestamp','anchor_timestamp'):self.assertNotIn(field,m)
+                        self.assertFalse(any(p.suffix=='.csv' for p in dest.iterdir()))
+                    self.assertEqual(nav.encoded(package),before);self.assertEqual(foreign.read_bytes(),b'keep')
+                    self.assertEqual({p.name:p.read_bytes() for p in self.cache.iterdir()},cache_before)
+                    self.assertEqual({p:p.read_bytes() for p in inputs},inputs);json.dumps(result,allow_nan=False)
+
+    def test_recursive_weekly_selected_and_output_geometry_fail_closed_without_program_catch(self):
+        import os,json,errno,subprocess
+        from unittest.mock import patch
+        from tools import nav_metrics_v2 as nav
+        path=self.root/'weekly-geometry-context.json';path.write_text(json.dumps(self.measurement()));before=path.read_bytes()
+        for location in ('selected','output','generated'):
+            with self.subTest(location=location):
+                self.out=self.root/('weekly-geometry-'+location);dest=self.out/nav.NAMESPACE;dest.mkdir(parents=True)
+                leaf=dest/'weekly_equity_curve.research_v2.csv';leaf.write_bytes(b'prior');foreign=dest/'foreign';foreign.write_bytes(b'keep');selected=path
+                if location=='selected':
+                    selected=self.root/'weekly-self-loop'
+                    try:os.symlink(selected,selected)
+                    except OSError as error:self.assertIn(getattr(error,'winerror',None),(5,1314));continue
+                original=Path.resolve
+                def denied(p,*a,**k):
+                    if location=='output' and p==dest or location=='generated' and p==leaf:raise OSError(errno.ELOOP,'controlled geometry OS boundary')
+                    return original(p,*a,**k)
+                with patch.object(Path,'resolve',denied):result=run(self.latest,self.out,self.cache,measurement_context_path=selected,load_measurement_context_from_path=True)
+                self.assertEqual(result['status'],nav.BLOCKED,result);self.assertFalse(result['current_publication_complete']);self.assertFalse(result['cleanup_complete'])
+                self.assertIn(leaf.name,result['uncleared_generated_outputs'])
+                self.assertEqual(leaf.read_bytes(),b'prior');self.assertEqual(foreign.read_bytes(),b'keep');self.assertEqual(path.read_bytes(),before)
+                if location=='selected':
+                    cmd=[sys.executable]+(['-O'] if sys.flags.optimize else [])+[str(ROOT/'tools/run_weekly_evaluation.py'),'--latest-run',str(self.latest),'--output-dir',str(self.out),'--price-cache',str(self.cache),'--nav-metrics-context',str(selected)]
+                    child=subprocess.run(cmd,capture_output=True,text=True,encoding='utf-8',timeout=60)
+                    self.assertEqual(child.returncode,2,child.stderr+child.stdout);self.assertNotIn('Traceback',child.stderr)
+                    self.assertEqual(json.loads(child.stdout)['status'],nav.BLOCKED);self.assertEqual(leaf.read_bytes(),b'prior')
+        error=RuntimeError('ordinary programmer error')
+        with patch.object(nav,'resolve_research_path',side_effect=error),self.assertRaises(RuntimeError) as caught:run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())
+        self.assertIs(caught.exception,error)
+
 def main() -> int:
     test_weekly_evaluation_marks_to_weekly_and_reports_staleness()
     import unittest

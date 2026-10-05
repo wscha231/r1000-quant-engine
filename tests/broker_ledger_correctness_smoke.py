@@ -2052,6 +2052,108 @@ class ResearchNavCallerTests(unittest.TestCase):
 
 
 
+
+    def test_atomic_top_refusal_masks_every_requested_window_and_actual_CLI_defaults(self):
+        import copy,subprocess,pandas_market_calendars as mcal
+        from tools import nav_metrics_v2 as nav
+        from nav_metrics_v2_smoke import context,binding
+        schedule=mcal.get_calendar('NYSE').schedule(start_date='2022-12-29',end_date='2024-07-02')
+        pd.DataFrame({'Close':100.,'Adj Close':100.,'Open':100.},index=schedule.index).to_parquet(self.cache/broker.px_cache_name('AAA'))
+        pd.DataFrame([dict(rebalance_date='2022-12-29',ticker='AAA',weight=.5)]).to_csv(self.target,index=False)
+        data=[dict(session=str(d.date()),timestamp=t.isoformat(),nav=9987.5) for d,t in schedule['market_close'].iloc[1:].items()]
+        prefill=schedule['market_close'].iloc[0].isoformat();full=context(data,anchor_nav=10000.,anchor_time=prefill)
+        def interval(lo,hi=None):
+            chosen=[r for r in data if (lo is None or r['session']>=lo) and (hi is None or r['session']<=hi)]
+            position=data.index(chosen[0]);previous=data[position-1] if position else None
+            value=context(chosen,anchor_nav=previous['nav'] if previous else 10000.,anchor_time=previous['timestamp'] if previous else prefill,anchor_kind='OOS_PREDECESSOR' if previous else 'PREFILL')
+            value['cutoff']=full['cutoff'];return value
+        good=dict(full=full,valuation_binding=binding(data),windows={'is':interval(None,'2024-06-30'),'oos':interval(broker.DEFAULT_OOS_START),'oos2':interval(broker.DEFAULT_OOS2_START,'2024-06-30')})
+        target_before=self.target.read_bytes();cache_before={p.name:p.read_bytes() for p in self.cache.iterdir()}
+        for kind in ('healthy','unknown_root','full_RF','binding_hash'):
+            for route in ('API','CLI'):
+                with self.subTest(kind=kind,route=route):
+                    package=copy.deepcopy(good)
+                    if kind=='unknown_root':package['misspelled']='unknown'
+                    elif kind=='full_RF':package['full']['risk_free']['ref']['sha256']='0'*64
+                    elif kind=='binding_hash':package['valuation_binding']['ref']['sha256']='0'*64
+                    self.out=self.root/('atomic-'+kind+route);dest=self.out/nav.NAMESPACE;dest.mkdir(parents=True)
+                    foreign=dest/'foreign';foreign.write_bytes(b'keep');nested=dest/'archive';nested.mkdir();(nested/'keep').write_bytes(b'nested')
+                    selected=self.root/('atomic-context-'+kind+route+'.json');selected.write_text(json.dumps(package),encoding='utf-8');before=selected.read_bytes()
+                    if route=='API':result=self.run_replay(measurement_context=package,oos_start=broker.DEFAULT_OOS_START,oos2_start=broker.DEFAULT_OOS2_START)
+                    else:
+                        cmd=[sys.executable]+(['-O'] if sys.flags.optimize else [])+[str(ROOT/'tools/run_broker_ledger_replay.py'),'--target-book',str(self.target),'--price-cache',str(self.cache),'--output-dir',str(self.out),'--starting-capital','10000','--fill-mode','next_close','--cost-bps','25','--cash-carry-mode','none','--nav-metrics-context',str(selected)]
+                        child=subprocess.run(cmd,capture_output=True,text=True,encoding='utf-8',timeout=90)
+                        self.assertEqual(child.returncode,0 if kind=='healthy' else 2,child.stderr+child.stdout);self.assertNotIn('Traceback',child.stderr)
+                        result=json.loads(child.stdout,parse_constant=lambda x:self.fail(x))
+                    self.assertTrue({'status','full','is','oos','oos2'}<=set(result['windows']))
+                    if kind=='healthy':self.assertEqual({result['windows'][k]['status'] for k in ('full','is','oos','oos2')},{nav.COMPLETE})
+                    else:
+                        self.assertEqual(result['status'],nav.BLOCKED,result);self.assertFalse(result['metric_admission_complete'])
+                        if kind=='unknown_root':self.assertEqual(result['reason'],'MEASUREMENT_PACKAGE_FIELDS')
+                        for metric in (result,*(result['windows'][k] for k in ('full','is','oos','oos2'))):
+                            self.assertEqual(metric['status'],nav.BLOCKED)
+                            for field in nav.METRIC_FIELDS:self.assertIsNone(metric[field])
+                            for field in ('interval_returns','start_date','end_date','measurement_context_sha256','input_rows_sha256','valuation_binding_provenance','ending_timestamp','anchor_timestamp'):self.assertNotIn(field,metric)
+                        self.assertFalse((dest/nav.CURVE_FILE).exists());self.assertFalse((dest/nav.artifact_name('account_state_latest.json')).exists())
+                    self.assertEqual(json.loads((dest/nav.METRICS_FILE).read_text()),result)
+                    self.assertEqual(foreign.read_bytes(),b'keep');self.assertEqual((nested/'keep').read_bytes(),b'nested')
+                    self.assertEqual(selected.read_bytes(),before);self.assertEqual(self.target.read_bytes(),target_before)
+                    self.assertEqual({p.name:p.read_bytes() for p in self.cache.iterdir()},cache_before)
+                    json.dumps(result,allow_nan=False)
+
+    def test_recursive_research_geometry_and_prepare_helper_keep_legacy_semantics(self):
+        import errno,os
+        from unittest.mock import patch
+        from tools import nav_metrics_v2 as nav
+        self.write_prices([100.]*4);path=self.root/'atomic-geometry-context.json';path.write_text(json.dumps(self.measurement()));before=path.read_bytes()
+        for location in ('selected','output','generated'):
+            with self.subTest(location=location):
+                self.out=self.root/('geometry-'+location);dest=self.out/nav.NAMESPACE;dest.mkdir(parents=True)
+                leaf=dest/nav.CURVE_FILE;leaf.write_bytes(b'prior');foreign=dest/'foreign';foreign.write_bytes(b'foreign')
+                selected=path
+                if location=='selected':
+                    selected=self.root/'selected-self-loop'
+                    try:os.symlink(selected,selected)
+                    except OSError as error:
+                        self.assertIn(getattr(error,'winerror',None),(5,1314));continue
+                original=Path.resolve
+                def denied(p,*a,**k):
+                    if location=='output' and p==dest or location=='generated' and p==leaf:raise OSError(errno.ELOOP,'controlled native OS boundary')
+                    return original(p,*a,**k)
+                with patch.object(Path,'resolve',denied):result=self.run_replay(measurement_context_path=selected,load_measurement_context_from_path=True)
+                self.assertEqual(result['status'],nav.BLOCKED,result);self.assertFalse(result['current_publication_complete'])
+                self.assertFalse(result['cleanup_complete']);self.assertIn(nav.CURVE_FILE,result['uncleared_generated_outputs'])
+                self.assertEqual(leaf.read_bytes(),b'prior');self.assertEqual(foreign.read_bytes(),b'foreign');self.assertEqual(path.read_bytes(),before)
+                if location=='selected':
+                    import subprocess
+                    cmd=[sys.executable]+(['-O'] if sys.flags.optimize else [])+[str(ROOT/'tools/run_broker_ledger_replay.py'),'--target-book',str(self.target),'--price-cache',str(self.cache),'--output-dir',str(self.out),'--starting-capital','10000','--fill-mode','next_close','--cash-carry-mode','none','--oos-start','','--oos2-start','','--nav-metrics-context',str(selected)]
+                    child=subprocess.run(cmd,capture_output=True,text=True,encoding='utf-8',timeout=60)
+                    self.assertEqual(child.returncode,2,child.stderr+child.stdout);self.assertNotIn('Traceback',child.stderr)
+                    self.assertEqual(json.loads(child.stdout)['status'],nav.BLOCKED);self.assertEqual(leaf.read_bytes(),b'prior')
+        for strict in (False,True):
+            for phase in ('safe','collision','resolve_failure'):
+                with self.subTest(strict=strict,phase=phase):
+                    out=self.root/('prepare-'+str(strict)+phase);out.mkdir();generated=out/'generated';generated.write_bytes(b'prior');protected=self.root/'input';protected.write_bytes(b'input')
+                    original=Path.resolve;seen=[];declared=generated if phase=='collision' else protected
+                    def selected(p):seen.append(p);return original(p)
+                    if phase=='resolve_failure':
+                        error=OSError(errno.ELOOP,'controlled prepare geometry failure')
+                        target='resolve_research_path' if strict else 'resolve';owner=nav if strict else Path
+                        with patch.object(owner,target,side_effect=error),self.assertRaises(OSError) as caught:broker.prepare_generated_outputs(out,('generated',),input_paths=(protected,),strict_io=strict)
+                        self.assertIs(caught.exception,error);self.assertEqual(generated.read_bytes(),b'prior')
+                    elif strict:
+                        with patch.object(nav,'resolve_research_path',side_effect=selected):_,collision=broker.prepare_generated_outputs(out,('generated',),input_paths=(declared,),strict_io=True)
+                        self.assertIn(declared,seen);self.assertGreaterEqual(seen.count(generated),2);self.assertEqual(collision,phase=='collision')
+                    else:
+                        with patch.object(nav,'resolve_research_path',side_effect=AssertionError('legacy must not route through research helper')):_,collision=broker.prepare_generated_outputs(out,('generated',),input_paths=(declared,))
+                        self.assertEqual(collision,phase=='collision')
+                    if phase=='safe':self.assertFalse(generated.exists())
+                    else:self.assertEqual(generated.read_bytes(),b'prior')
+                    self.assertEqual(protected.read_bytes(),b'input')
+        error=RuntimeError('unrelated program')
+        with patch.object(nav,'resolve_research_path',side_effect=error),self.assertRaises(RuntimeError) as caught:self.run_replay(measurement_context=self.measurement())
+        self.assertIs(caught.exception,error)
+
 def main() -> int:
     test_missing_liquidation_fill_fails_closed_before_state_mutation()
     test_multi_day_transition_fails_closed_before_state_mutation()

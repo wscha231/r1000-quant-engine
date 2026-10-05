@@ -6338,3 +6338,9 @@ Expected contract:
   precedence and None-path refusal while preserving unselected legacy defaults.
 - A healthy CLI fixture must supply evidence for every requested default window
   or use its documented opt-out; fix the fixture, never relax admission.
+
+## E2 atomic publication and native path recursion (2026-10-06)
+
+- A refused aggregate must not retain completed sibling/window performance in any published metric view; keep labels, reasons, null metrics and separate finite execution diagnostics.
+- Normalize recursion only from the actual installed pathlib code/receiver/handled OS context; message-like programmer errors remain visible. Windows missing-leaf ancestor parity and genuine self/two loops are different evidence.
+- Check helper signatures and healthy optional metadata before attributing author failures; exception chaining may break a context cycle when the original OS error is rethrown. Preserve those author diagnostics separately.

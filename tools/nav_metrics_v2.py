@@ -14,9 +14,15 @@ import stat
 import inspect
 from contextvars import ContextVar
 from functools import wraps
+from errno import ELOOP
+from types import CodeType
 from datetime import date, datetime, timezone
 from pathlib import Path, PureWindowsPath
 from zoneinfo import ZoneInfo
+
+_NATIVE_RESOLVE_CODE = getattr(Path.resolve, "__code__", None)
+_NATIVE_LOOP_CODES = tuple(code for code in getattr(_NATIVE_RESOLVE_CODE, "co_consts", ())
+                           if isinstance(code, CodeType) and code.co_name == "check_eloop")
 
 MODE = "nav_metrics_v2_research"
 COMPLETE = "research_completed"
@@ -271,6 +277,28 @@ def observe_research_publication(directory, names, protected, price_cache):
                      price_cache=Path(price_cache))
 
 
+def resolve_research_path(path):
+    """Normalize only native pathlib's handled filesystem recursion failure."""
+    path = Path(path)
+    try:
+        return path.resolve()
+    except RuntimeError as exc:
+        context = exc.__context__
+        if (not isinstance(context, OSError) or exc.__cause__ is not None
+                or (context.errno != ELOOP and getattr(context, "winerror", None) != 1921)):
+            raise
+        entry = exc.__traceback__
+        resolve = entry.tb_next if entry is not None else None
+        loop = resolve.tb_next if resolve is not None else None
+        if (entry is None or entry.tb_frame.f_code is not resolve_research_path.__code__
+                or resolve is None or resolve.tb_frame.f_code is not _NATIVE_RESOLVE_CODE
+                or resolve.tb_frame.f_locals.get("self") is not path
+                or loop is None or not any(loop.tb_frame.f_code is code for code in _NATIVE_LOOP_CODES)
+                or loop.tb_frame.f_locals.get("e") is not context or loop.tb_next is not None):
+            raise
+        raise context from exc
+
+
 def refused_research_publication(reason, directory, names, protected=()):
     """Disclose retained/unknown leaves without mutating a refused input namespace."""
     remaining, errors, refused = [], [], []
@@ -279,7 +307,7 @@ def refused_research_publication(reason, directory, names, protected=()):
         try:
             if research_output_kind(path) is not None:
                 remaining.append(name)
-            if path.resolve() in protected:
+            if resolve_research_path(path) in protected:
                 refused.append(name)
         except OSError as exc:
             if name not in remaining:
@@ -312,13 +340,13 @@ def research_io_guard(context_argument):
                 if cleanup_complete:
                     try:
                         directory = state["directory"]
-                        if directory.resolve().is_relative_to(state["price_cache"].resolve()):
+                        if resolve_research_path(directory).is_relative_to(resolve_research_path(state["price_cache"])):
                             cleanup_complete = False
                         else:
                             for name in state["names"]:
                                 path = directory / name
                                 try:
-                                    if path.resolve() in state["protected"]:
+                                    if resolve_research_path(path) in state["protected"]:
                                         refused.append(name); cleanup_complete = False
                                     else:
                                         kind = research_output_kind(path)

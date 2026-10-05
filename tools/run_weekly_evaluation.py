@@ -637,19 +637,19 @@ def run(latest_run: Path, output_dir: Path, price_cache: Path, stale_days_thresh
         names = (curve_suffix, "main_" + curve_suffix, "concentrated_" + curve_suffix,
                  metric_name, freshness_name, report_name)
         nav_v2.observe_research_publication(output_dir, names, (), price_cache)
-        protected = {(latest_run / "reports" / name).resolve() for name in
+        protected = {nav_v2.resolve_research_path(latest_run / "reports" / name) for name in
                      ("main_monthly_weights.csv", "concentrated_strategy_holdings.csv",
                       "regime_by_month.csv", "concentrated_strategy_monthly.csv")}
-        protected.update((latest_run / name).resolve() for name in
+        protected.update(nav_v2.resolve_research_path(latest_run / name) for name in
                          ("scored_latest.csv", "portfolio_latest.csv", "orchestrator/unified_target_latest.json"))
         if measurement_context_path is not None:
-            protected.add(Path(measurement_context_path).resolve())
+            protected.add(nav_v2.resolve_research_path(Path(measurement_context_path)))
         nav_v2.observe_research_publication(output_dir, names, protected, price_cache)
-        collision = output_dir.resolve().is_relative_to(price_cache.resolve())
+        collision = nav_v2.resolve_research_path(output_dir).is_relative_to(nav_v2.resolve_research_path(price_cache))
         # Check the whole output set before removing any prior generated file.
         for name in names:
             path = output_dir / name
-            if path.resolve() in protected or nav_v2.research_output_kind(path) == "other":
+            if nav_v2.resolve_research_path(path) in protected or nav_v2.research_output_kind(path) == "other":
                 collision = True
         if collision:
             return nav_v2.refused_research_publication("caller_input_collides_with_weekly_research_output",
@@ -671,8 +671,8 @@ def run(latest_run: Path, output_dir: Path, price_cache: Path, stale_days_thresh
         for holdings in (main_holdings, concentrated_holdings):
             if not holdings.empty:
                 tickers = (set(holdings["ticker"].astype(str).str.upper()) - CASH_TICKERS) | {"SPY", "QQQ"}
-                protected.update((price_cache / px_cache_name(ticker)).resolve() for ticker in tickers)
-        if any((output_dir / name).resolve() in protected for name in names):
+                protected.update(nav_v2.resolve_research_path(price_cache / px_cache_name(ticker)) for ticker in tickers)
+        if any(nav_v2.resolve_research_path(output_dir / name) in protected for name in names):
             return nav_v2.refused_research_publication("caller_input_collides_with_weekly_research_output",
                                                       output_dir, names, protected)
         nav_v2.authorize_research_cleanup(output_dir, names, protected, price_cache)
@@ -721,6 +721,10 @@ def run(latest_run: Path, output_dir: Path, price_cache: Path, stale_days_thresh
     combined = pd.concat([c for c in curves.values() if not c.empty], ignore_index=True) if any(not c.empty for c in curves.values()) else pd.DataFrame()
     measurement_complete = (not research_measurement or
                             all(m.get("status") == nav_v2.COMPLETE for m in metrics.values()))
+    if research_measurement and not measurement_complete:
+        metrics = {name: nav_v2.blocked(
+            str(metric.get("reason") or "REQUESTED_WEEKLY_MEASUREMENT_BLOCKED"), name)
+            for name, metric in metrics.items()}
     freshness = build_freshness(latest_run, curves, metrics, stale_days_threshold=stale_days_threshold,
                                strict_io=research_measurement)
     if research_measurement:
