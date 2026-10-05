@@ -6243,3 +6243,23 @@ Expected contract:
   transport-only churn cannot replace a changed consumed mapping.
 - Validate supplied mapping identity before compaction; canonical UTC/key-order
   controls reuse context. Format/clock checks do not authenticate a producer or PIT.
+
+## 2026-10-05 - Distinguish proven review-only history from publisher attempts
+
+- A failed push can contain only nonrunner review checks. Preserve the history
+  and classify it separately only with complete strict attempts, exact owner/run/
+  repository/job identities, zero artifacts and the historical workflow bytes
+  fetched at that immutable head. Current YAML or empty jobs alone is no proof.
+- Bind the returned source ref/path and actual Git blob hash; unknown/manual,
+  partial or ambiguous histories remain blocked. This source fix neither clears
+  active-writer conflicts nor grants fresh publication/cache/durable authority.
+- A stale run can remain active/queued in canonical API reads while cancel
+  returns HTTP 409. Failed cancellation is not clearance; retain the conflicting
+  writer gate and report the service-status contradiction as an external blocker.
+- API workflow_name is normally a historical display name, while a failed
+  legacy compile may return the exact verified path. Bind every job to the
+  authoritative run name and immutable source; do not rewrite real metadata
+  or let per-job aliases hide mixed evidence. Synthetic API-shaped fixtures
+  must cover both observed fallback and documented normal contracts.
+  Preserve the existing registered TestCase/main; new boundary methods must
+  actually enter that suite rather than remain an unregistered sibling class.
