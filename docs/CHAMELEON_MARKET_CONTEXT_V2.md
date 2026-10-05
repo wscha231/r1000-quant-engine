@@ -35,6 +35,16 @@ Canonical key order and equivalent UTC instants remain unchanged controls.
 Without Calendar there is no consumed map binding. These are research-context
 checks, not source authentication, producer/PIT admission or Calendar activation.
 
+## Native R3 transport-reuse correction - 2026-10-05
+
+context_delta omits the exact transport aliases price_sha256/calendar_sha256
+where they appear in paired themes or duplicated disagreement diagnostics.
+The sealed context still retains those provenance references. Hash-only churn
+with identical represented values/date/status/cohort therefore reuses context;
+real value/coverage/date/cohort/expiry changes still require review. The consumed
+mapping_sha256 and mapping_available_at remain semantic. No wildcard hash filter,
+Calendar activation, producer authentication or source/PIT admission is added.
+
 # Chameleon Market Context V2 — #576 successor to #388
 
 TASK_KEY: `R1000-H1-CHAMELEON-MARKET-CONTEXT-V2-20261004`  

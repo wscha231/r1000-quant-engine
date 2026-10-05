@@ -200,13 +200,14 @@ def plan_reassessment(previous: dict|None, current: dict, index: dict, *, now: s
         # Unavailable/expired rows cannot bypass same-identity source clocks.
         if a is not None:
             need(stamp(a['available_at'])<=stamp(b['available_at']) and stamp(a['collected_at'])<=stamp(b['collected_at']),'ROW_TIME_REGRESSION')
+            same_clocks=(stamp(a['available_at'])==stamp(b['available_at']) and
+                         stamp(a['collected_at'])==stamp(b['collected_at']))
+            need(not (same_clocks and semantic(a)!=semantic(b)), 'CONFLICTING_VINTAGE')
         if expired:event(b,'SOURCE_EXPIRED');continue
         if b['status']!='OBSERVED':event(b,'SOURCE_'+b['status']);continue
         if a is None:event(b,'NEW_OBSERVATION');continue
         if b['observation_period']<a['observation_period']:event(b,'OBSERVATION_REGRESSION');continue
         if semantic(a)==semantic(b):continue
-        need(not (stamp(a['available_at'])==stamp(b['available_at']) and
-                  stamp(a['collected_at'])==stamp(b['collected_at'])), 'CONFLICTING_VINTAGE')
         if b['family']!='CONSENSUS' and b['observation_period']!=a['observation_period']:event(b,'NEW_OBSERVATION')
         elif b['revision_id']!=a['revision_id']:event(b,'CORRECTION')
         else:event(b,'VALUE_OR_STATUS_CHANGED')
@@ -279,11 +280,14 @@ def plan_reassessment(previous: dict|None, current: dict, index: dict, *, now: s
             if hard:
                 request('A6',asset,{'P0_VERIFICATION_NO_RS_WAIT'},eid,{'HARD_RISK_SOURCE_AUTHENTICATION'})
                 request('A3',asset,{'THESIS_RISK'},eid,{'HARD_RISK_SOURCE_AUTHENTICATION'})
+            elif family=='FILING':
+                # A3 owns initial content/extraction review. Verified metrics are
+                # a later ER admission gate, not an input to their own extraction.
+                request('A3',asset,slices,eid,{'A1_CURRENT_VERIFIED'})
             else:
                 request('A2',asset,{'FULL_CANDIDATE_REASSESSMENT'} if family=='CONTRACT_CHANGE' else
                         {'LEADERSHIP_REVIEW'},eid,{'A1_CURRENT_VERIFIED'})
                 requirements={'A1_CURRENT_VERIFIED','RELEVANT_A2_A4_EVIDENCE_VERIFIED'}
-                if family=='FILING':requirements.add('FILING_CONTENT_AND_METRICS_VERIFIED_BEFORE_ER')
                 request('A3',asset,slices,eid,requirements)
             # Filing metadata alone does not provide new company values or ER.
             # Let the later verified ACTUAL/GUIDANCE event request A5 competition.

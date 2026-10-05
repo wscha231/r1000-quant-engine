@@ -287,5 +287,66 @@ class ChameleonHostedReviewBoundaryTests(unittest.TestCase):
         self.assertEqual(result['paired_themes'], [])
         self.closed(result)
 
+
+class ContextTransportIdentityBoundaryTests(unittest.TestCase):
+    def build(self, *, price_hash='a' * 64, calendar_whitespace=False, move=.02,
+              session=DAY, members=None, vendor_previous='1.5', mapping=None, map_clock=CLOCK, eligible=2):
+        symbols = ['XAAA.US', 'XBBB.US']
+        payload = {'type': 'Trends', 'symbols': ','.join(symbols), 'trends': [[
+            {'code': symbol, 'date': '2026-12-31', 'period': '0y', 'earningsEstimateAvg': '2',
+             'epsTrendCurrent': '2', 'epsTrend30daysAgo': vendor_previous}] for symbol in symbols]}
+        raw = encoded(payload)
+        if calendar_whitespace: raw = b'\n ' + raw + b' \n'
+        calendar = f.calendar_theme_context(raw, symbols, {symbol: ['power'] for symbol in symbols},
+            observed_at=CLOCK, mapping_available_at=CLOCK, **KW)
+        rows = [price(), price('power', move)]
+        for item in rows:
+            item.update(members=['XAAA', 'XBBB'] if members is None else members,
+                        session=session, source_sha256=price_hash)
+            for name in ('advancers', 'decliners', 'unchanged'): item[name] *= 2
+            item['metrics']['pct_above_ma20'].update(eligible_count=eligible, expected_count=2)
+        security_map = {'XAAA.US': 'XAAA', 'XBBB.US': 'XBBB'} if mapping is None else mapping
+        before = encoded([rows, calendar, security_map])
+        value = c.build_context(macro_rows=[], public_rows=survey() + cot() + finra(), price_rows=rows,
+            calendar_result=calendar, security_map=security_map, security_map_available_at=map_clock,
+            cutoff=CLOCK, expected_session=DAY)
+        self.assertEqual(encoded([rows, calendar, security_map]), before)
+        c.verify_context(value)
+        self.assertEqual({key: value[key] for key in c.SAFETY}, c.SAFETY)
+        return value
+
+    def test_only_price_calendar_transport_hash_churn_does_not_request_review(self):
+        original = self.build()
+        for options in ({'price_hash': 'b' * 64}, {'calendar_whitespace': True},
+                        {'price_hash': 'b' * 64, 'calendar_whitespace': True}):
+            with self.subTest(options=options):
+                current = self.build(**options)
+                self.assertNotEqual(original['content_sha256'], current['content_sha256'])
+                self.assertNotEqual(original['paired_themes'][0]['source_refs'], current['paired_themes'][0]['source_refs'])
+                self.assertEqual(c.context_delta(original, current)['status'], 'SKIP_UNCHANGED_CONTEXT')
+
+    def test_actual_normalized_value_date_status_and_cohort_changes_remain_semantic(self):
+        original = self.build()
+        for options in ({'move': .03}, {'vendor_previous': '3'}, {'session': '2026-10-01'},
+                        {'members': ['XAAA', 'XCCC']}, {'eligible': 1}):
+            with self.subTest(options=options):
+                current = self.build(**options, price_hash='b' * 64, calendar_whitespace=True)
+                if 'eligible' in options:
+                    self.assertNotEqual(original['price'][0]['metrics'], current['price'][0]['metrics'])
+                else:
+                    self.assertNotEqual(original['paired_themes'], current['paired_themes'])
+                self.assertEqual(c.context_delta(original, current)['status'], 'CONTEXT_CHANGED_REVIEW_ONLY')
+        from tests import chameleon_market_context_v2_library_smoke as fixture
+        self.assertEqual(c.context_delta(fixture.context(), fixture.context(cutoff='2026-11-04T12:00:00Z'))['status'], 'CONTEXT_CHANGED_REVIEW_ONLY')
+
+    def test_consumed_security_map_hash_and_clock_are_not_transport_aliases(self):
+        original = self.build()
+        for options in ({'mapping': {'XAAA.US': 'XBBB', 'XBBB.US': 'XAAA'}},
+                        {'map_clock': '2026-10-04T11:00:00Z'}):
+            with self.subTest(options=options):
+                current = self.build(**options, price_hash='b' * 64, calendar_whitespace=True)
+                self.assertNotEqual(original['security_map_binding'], current['security_map_binding'])
+                self.assertEqual(c.context_delta(original, current)['status'], 'CONTEXT_CHANGED_REVIEW_ONLY')
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

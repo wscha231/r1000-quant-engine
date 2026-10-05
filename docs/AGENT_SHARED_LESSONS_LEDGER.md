@@ -6225,3 +6225,13 @@ Expected contract:
 - Optional documentation can be SHA-pinned by accepted U0 inventory: restore
   only owned conflicting bytes, without repinning or weakening its audit. Verify
   approved wrapper AST and exact scoped deltas rather than stale byte expectations.
+
+## 2026-10-05 - R3 review ordering and represented observation reuse
+
+- Initial filing-content/extraction review belongs to A3 after A1; metadata is
+  not leadership, extracted actuals or a reason to wait for those later ER inputs.
+- Equal source clocks with changed semantics must fail before status/expiry
+  repair. Correct the two inconsistent clock-positive inputs, retaining their
+  assertions, unchanged/advanced positives and backward/conflict negatives.
+- Omit only known transport-hash aliases from reuse; retain consumed map hash
+  and clock. Mixed requests keep the existing agent-wide dependency union.

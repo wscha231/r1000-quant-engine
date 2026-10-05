@@ -105,7 +105,7 @@ class ClockRegressionTests(unittest.TestCase):
                             with self.subTest(family=family, state=state,
                                               available=available, collected=collected,
                                               expired=now == EXPIRED_NOW, api=api):
-                                plan = invoke([row(family=family)],
+                                plan = invoke([row(family=family, status=state if available == collected == T1 else "OBSERVED")],
                                               [row(family=family, status=state,
                                                    available=available, collected=collected)],
                                               api=api, now=now)
@@ -122,7 +122,7 @@ class ClockRegressionTests(unittest.TestCase):
         for state in STATES:
             for api in ("generic", "free_first"):
                 with self.subTest(state=state, api=api):
-                    plan = invoke([row()], [row(status=state,
+                    plan = invoke([row(status=state)], [row(status=state,
                                   available="2026-10-02T21:00:00+09:00",
                                   collected="2026-10-02T08:00:00-04:00")], api=api)
                     self.assertFalse(plan["economic_admission"])
@@ -256,6 +256,167 @@ class SecAccessionSubmissionBoundaryTests(unittest.TestCase):
                                ({'accessions':['0001193125-26-255440']},'ACCESSION_NOT_IN_RECENT')):
             with self.subTest(reason=reason),self.assertRaisesRegex(b.ReassessmentError,reason):
                 b.sec_submission_filing_rows(raw,**{**options,**changed})
+
+
+class SameClockSemanticBoundaryTests(unittest.TestCase):
+    def test_changed_values_conflict_before_all_status_and_expiry_branches(self):
+        for api in ('generic', 'free_first'):
+            for prior_status in STATES:
+                for status in STATES:
+                    for expired in (False, True):
+                        with self.subTest(api=api, prior_status=prior_status, status=status, expired=expired):
+                            previous = row(status=prior_status)
+                            current = row(status=status); current['values'] = {'value': 11}
+                            with self.assertRaisesRegex(b.ReassessmentError, 'CONFLICTING_VINTAGE'):
+                                invoke([previous], [current], api=api,
+                                       now=EXPIRED_NOW if expired else LIVE_NOW)
+        for api in ('generic', 'free_first'):
+            for field, value in (('revision_id', 'v2'), ('causal_event_id', 'synthetic-correction'),
+                                 ('observation_period', '2026-10-02'), ('observation_period', '2026-09-30')):
+                for status in STATES:
+                    for expired in (False, True):
+                        with self.subTest(api=api, field=field, value=value, status=status, expired=expired):
+                            current = row(status=status); current[field] = value
+                            with self.assertRaisesRegex(b.ReassessmentError, 'CONFLICTING_VINTAGE'):
+                                invoke([row()], [current], api=api, now=EXPIRED_NOW if expired else LIVE_NOW)
+
+    def test_status_only_conflict_uses_equal_utc_instants(self):
+        for api in ('generic', 'free_first'):
+            for previous_status in STATES:
+                for status in STATES:
+                    if previous_status == status:
+                        continue
+                    for expired in (False, True):
+                        with self.subTest(api=api, previous_status=previous_status, status=status, expired=expired):
+                            previous = row(status=previous_status)
+                            current = row(status=status, available='2026-10-02T21:00:00+09:00',
+                                          collected='2026-10-02T21:00:00+09:00')
+                            with self.assertRaisesRegex(b.ReassessmentError, 'CONFLICTING_VINTAGE'):
+                                invoke([previous], [current], api=api,
+                                       now=EXPIRED_NOW if expired else LIVE_NOW)
+
+    def test_unchanged_same_clock_rows_still_expire_or_route_existing_repair(self):
+        for api in ('generic', 'free_first'):
+            for status in STATES:
+                for expired in (False, True):
+                    with self.subTest(api=api, status=status, expired=expired):
+                        previous = row(status=status); current = b.clean(previous)
+                        current['source_sha256'] = 'f' * 64
+                        result = invoke([previous], [current], api=api,
+                                        now=EXPIRED_NOW if expired else LIVE_NOW)
+                        expected = {'SOURCE_EXPIRED'} if expired else set() if status == 'OBSERVED' else {'SOURCE_' + status}
+                        self.assertEqual({event['reason'] for event in result['events']}, expected)
+                        for name, value in b.CLOSED.items(): self.assertEqual(result[name], value)
+
+    def test_advanced_clocks_keep_repair_and_backward_clocks_remain_rejected(self):
+        for api in ('generic', 'free_first'):
+            for status in STATES:
+                for expired in (False, True):
+                    with self.subTest(api=api, status=status, expired=expired):
+                        current = row(status=status, available=T2, collected=T2)
+                        current['values'] = {'value': 11}
+                        result = invoke([row()], [current], api=api,
+                                        now=EXPIRED_NOW if expired else LIVE_NOW)
+                        expected = 'SOURCE_EXPIRED' if expired else 'VALUE_OR_STATUS_CHANGED' if status == 'OBSERVED' else 'SOURCE_' + status
+                        self.assertEqual({event['reason'] for event in result['events']}, {expected})
+                        with self.assertRaisesRegex(b.ReassessmentError, 'ROW_TIME_REGRESSION'):
+                            invoke([row()], [row(status=status, available=T0, collected=T0)], api=api,
+                                   now=EXPIRED_NOW if expired else LIVE_NOW)
+
+
+class FilingOwnerBoundaryTests(unittest.TestCase):
+    def plan(self, rows=None, *, previous=None, api='free_first', now=LIVE_NOW, mapped=True, model_change=False):
+        from tests import candidate_reassessment_free_first_smoke as fixture
+        filing = fixture.call()[0]
+        rows = [filing] if rows is None else rows
+        idx = b.exposure_index(candidates=[{'asset_id': 'XAAA', 'issuer_id': fixture.ISSUER if mapped else 'SEC:0000000002'}],
+                               edges=[], available_at=T0, expires_at=INDEX_EXPIRY)
+        current = b.snapshot(rows, scope_id='filing-owner-boundary', cutoff=T2, expires_at=EXPIRY)
+        prior = None if previous is None else b.snapshot(previous, scope_id='filing-owner-boundary', cutoff=T1, expires_at=EXPIRY)
+        before = b.digest([current, prior, idx])
+        contract = b.clean(CONTRACT)
+        if model_change: contract['model_version'] = 'changed-synthetic-model'
+        options = {'now': now, 'contract_identity': contract,
+                   'previous_contract_identity': CONTRACT, 'previous_index_sha256': idx['content_sha256']}
+        result = b.plan_reassessment(prior, current, idx, **options) if api == 'generic' else b.free_first_review_plan(
+            prior, current, idx, previous_profile_id=None if prior is None else b.FREE_FIRST_PROFILE, **options)['review_plan']
+        self.assertEqual(b.digest([current, prior, idx]), before)
+        for name, value in b.CLOSED.items(): self.assertEqual(result[name], value)
+        return result, filing
+
+    def test_filing_metadata_routes_source_then_A3_content_without_leadership_or_macro(self):
+        for api in ('generic', 'free_first'):
+            with self.subTest(api=api):
+                result, filing = self.plan(api=api)
+                self.assertEqual({intent['agent'] for intent in result['review_intents']}, {'A1', 'A3'})
+                intent = next(item for item in result['review_intents'] if item['agent'] == 'A3')
+                self.assertEqual(intent['asset_slices']['XAAA'], ['ACTUALS_EXTRACTION_REVIEW', 'FILING_CONTENT_REVIEW'])
+                self.assertEqual(intent['requires'], ['A1_CURRENT_VERIFIED'])
+                self.assertIsNone(filing['values']['actual_financial_values'])
+                self.assertIsNone(filing['values']['guidance_values'])
+                self.assertFalse(filing['values']['company_fundamentals_verified'])
+                b.a0_parameter_proposals(result)
+                unknown, _ = self.plan(api=api, mapped=False)
+                self.assertEqual({intent['agent'] for intent in unknown['review_intents']}, {'A1', 'A2'})
+                self.assertEqual(next(intent for intent in unknown['review_intents'] if intent['agent'] == 'A2')['slices'], ['IDENTITY_DISCOVERY_NO_EXCLUSION'])
+                from tests import candidate_reassessment_free_first_smoke as fixture
+                for corrected in (False, True):
+                    with self.subTest(corrected=corrected):
+                        payload = fixture.payload()
+                        if corrected: payload['filings']['recent']['primaryDocument'][0] = 'corrected-synthetic.htm'
+                        fresh = fixture.call(payload, observed_at=T1, collected_at=T1, cutoff=T2)
+                        updated, _ = self.plan(fresh, previous=[filing], api=api)
+                        if corrected:
+                            self.assertEqual({intent['agent'] for intent in updated['review_intents']}, {'A1', 'A3'})
+                        else:
+                            self.assertEqual(updated['events'], [])
+
+    def test_selected_unusable_filing_repairs_without_extraction_or_positive_fallback(self):
+        for api in ('generic', 'free_first'):
+            for status in STATES:
+                for expired in (False, True):
+                    if status == 'OBSERVED' and not expired: continue
+                    with self.subTest(api=api, status=status, expired=expired):
+                        _, filing = self.plan(api=api)
+                        current = b.clean(filing); current.update(status=status, available_at=T2, collected_at=T2)
+                        result, _ = self.plan([current], previous=[filing], api=api,
+                                              now=EXPIRED_NOW if expired else LIVE_NOW)
+                        self.assertEqual({intent['agent'] for intent in result['review_intents']}, {'A1', 'A6'})
+                        self.assertEqual(result['invalidations'][0]['status'], 'DATA_REPAIR_REQUIRED')
+                        self.assertEqual({event['reason'] for event in result['events']}, {'SOURCE_EXPIRED' if expired else 'SOURCE_' + status})
+
+    def test_verified_value_families_remain_distinct_from_filing_metadata(self):
+        for api in ('generic', 'free_first'):
+            for family in ('ACTUAL', 'GUIDANCE', 'PRICE'):
+                for with_filing in (False, True):
+                    with self.subTest(api=api, family=family, with_filing=with_filing):
+                        _, filing = self.plan(api=api)
+                        actual = row(); actual.update(family=family, metric=family + '_VALUE')
+                        result, _ = self.plan(([filing] if with_filing else []) + [actual], api=api)
+                        roles = {intent['agent']: intent for intent in result['review_intents']}
+                        self.assertTrue({'A1', 'A2', 'A3', 'A5'} <= set(roles))
+                        self.assertIn('RELEVANT_A2_A4_EVIDENCE_VERIFIED', roles['A3']['requires'])
+                        expected = {'RS_PATH', 'TIMING', 'EXPECTED_RETURN', 'VALUATION'} if family == 'PRICE' else {'EARNINGS', 'CASHFLOW', 'EXPECTED_RETURN', 'VALUATION'}
+                        self.assertTrue(expected <= set(roles['A3']['asset_slices']['XAAA']))
+                        self.assertEqual('ACTUALS_EXTRACTION_REVIEW' in roles['A3']['asset_slices']['XAAA'], with_filing)
+                        self.assertIn('CURRENT_REVALIDATED_A3_ER', roles['A5']['requires'])
+
+    def test_generic_contract_and_nonfiling_selectivity_controls_stay_closed(self):
+        controls = ContractIdentityBoundaryTests()
+        for api in ('generic', 'free_first'):
+            with self.subTest(api=api):
+                controls.assert_full(controls.make_plan(api=api, field='model_version'))
+                self.assertEqual(controls.make_plan(api=api)['events'], [])
+                old = row(family='PRICE'); old.update(entity_kind='SECURITY', entity_id='XAAA')
+                new = b.clean(old); new.update(available_at=T2, collected_at=T2); new['values'] = {'value': 11}
+                result = controls.make_plan(api=api, prior_rows=[old], current_rows=[new])
+                self.assertEqual(result['invalidations'][0]['slices'], ['EXPECTED_RETURN', 'RS_PATH', 'TIMING', 'VALUATION'])
+                _, filing = self.plan(api=api)
+                combined, _ = self.plan(previous=[filing], api=api, model_change=True)
+                roles = {intent['agent']: intent for intent in combined['review_intents']}
+                self.assertEqual(roles['A2']['slices'], ['FULL_CANDIDATE_REASSESSMENT'])
+                self.assertTrue(controls.required_slices <= set(roles['A3']['asset_slices']['XAAA']))
+                self.assertIn('RELEVANT_A2_A4_EVIDENCE_VERIFIED', roles['A3']['requires'])
 
 if __name__ == "__main__":
     unittest.main()

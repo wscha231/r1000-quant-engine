@@ -49,6 +49,30 @@ Eleven additional boundary methods preserve the original 341 case bodies:
 The original 53 parent CLI/provider activation cases remain explicitly outside
 this adoption, with no skipped retained cases or enabled Calendar provider.
 
+## Native R3 ordering and filing-owner corrections - 2026-10-05
+
+Mapped FILING metadata requests A1 source verification and A3 filing-content /
+actuals-extraction REVIEW. It requests no metadata-only A2 leadership work or
+A4/economic prerequisite. Initial extraction requires A1_CURRENT_VERIFIED;
+already-extracted actuals/guidance and verified financial metrics remain later
+economic/ER admission gates, not prerequisites to their own extraction. Unmapped
+filings retain identity discovery; failed/stale/expired selected filings retain
+A1/A6 repair. Filing metadata alone requests no A5 competition or ER calculation.
+Mixed genuine PRICE/ACTUAL/GUIDANCE/contract events retain their own dependencies.
+The unchanged proposal schema aggregates requires per agent; this does not
+promise independently executable per-slice readiness or invoke a materializer.
+
+After monotonic source-clock validation, changed same-key semantics at equal
+UTC available/collected instants raise CONFLICTING_VINTAGE before status, expiry
+or observation-period routing. Unchanged rows can still expire or request their
+existing unavailable-source repair. Genuine later source versions remain valid.
+Two existing clock-positive fixtures had incorrectly treated equal-vintage
+status transitions as valid: only their prior-status inputs are corrected to
+unchanged equal-clock positives; original assertions/backward/advanced coverage
+remain. Eleven distinct R3 methods now give363 new /479 integrated methods.
+The original124/all8 and203 library bodies remain unchanged; these two owned
+clock-fixture AST changes are explicit and are not described as byte preservation.
+
 # Candidate reassessment bridge V1
 
 TASK_KEY: R1000-H1-EVENT-REASSESSMENT-BRIDGE-V1-20261004

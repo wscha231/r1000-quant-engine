@@ -443,7 +443,8 @@ def context_delta(previous: dict | None, current: dict) -> dict:
             return None
         # Remove collection transport identity only; retain date, status, coverage,
         # values and known limitations. Freshness changes are therefore visible.
-        omit = {"cutoff", "available_at", "collected_at", "source_sha256", "content_sha256"}
+        omit = {"cutoff", "available_at", "collected_at", "source_sha256", "content_sha256",
+                "price_sha256", "calendar_sha256"}
         def clean(obj):
             if type(obj) is dict:
                 return {k:clean(v) for k,v in obj.items() if k not in omit}
