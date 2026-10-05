@@ -1455,6 +1455,154 @@ class ResearchNavCallerTests(unittest.TestCase):
                         self.assertEqual({p.name:p.read_bytes() for p in self.out.iterdir() if p.is_file()},official)
                         self.assertEqual((dest/'caller_note.txt').read_bytes(),b'preserve unrelated note')
 
+    def test_r4_requested_windows_are_one_atomic_measurement_admission(self):
+        import copy
+        from tools import nav_metrics_v2 as nav
+        from nav_metrics_v2_smoke import rows,context,binding
+        data=rows((9987.5,)*3);self.write_prices([100.]*4)
+        full=context(data,anchor_nav=10000.)
+        is_c=context(data[:2],anchor_nav=10000.);is_c['cutoff']=full['cutoff']
+        oos=context(data[2:],anchor_nav=data[1]['nav'],anchor_time=data[1]['timestamp'],anchor_kind='OOS_PREDECESSOR')
+        oos2=context(data[1:2],anchor_nav=data[0]['nav'],anchor_time=data[0]['timestamp'],anchor_kind='OOS_PREDECESSOR');oos2['cutoff']=full['cutoff']
+        package=dict(full=full,valuation_binding=binding(data),windows={'is':is_c,'oos':oos,'oos2':oos2})
+        options=dict(oos_start='2026-01-07',oos2_start='2026-01-06',oos2_end='2026-01-06')
+        good=self.run_replay(measurement_context=package,**options)
+        self.assertEqual(good['status'],nav.COMPLETE,good)
+        for label in ('full','is','oos','oos2'):self.assertEqual(good['windows'][label]['status'],nav.COMPLETE,label)
+        diagnostic_only=('interval_returns','first_interval_return','starting_capital_usd','start_date','end_date',
+            'anchor_timestamp','ending_timestamp','days','frequency','measurement_context_sha256','input_rows_sha256',
+            'valuation_binding_sha256','valuation_binding_provenance','statistic_reasons','annualization','standard_deviation_ddof')
+        for label in ('full','is','oos','oos2'):
+            for kind in ('missing','shape','NAV','RF','flow','anchor'):
+                with self.subTest(label=label,kind=kind):
+                    bad=copy.deepcopy(package);entry=bad if label=='full' else bad['windows'];key='full' if label=='full' else label
+                    if kind=='missing':entry.pop(key)
+                    elif kind=='shape':entry[key]={}
+                    elif kind=='NAV':entry[key]['nav_ref']['sha256']='0'*64
+                    elif kind=='RF':entry[key].pop('risk_free')
+                    elif kind=='flow':entry[key]['external_flows']['ref']['available_at']=entry[key]['anchor']['timestamp']
+                    else:entry[key]['anchor']['ref']['sha256']='0'*64
+                    result=self.run_replay(measurement_context=bad,**options)
+                    self.assertEqual(result['status'],nav.BLOCKED,result)
+                    self.assertEqual(result['execution_status'],'completed')
+                    self.assertFalse(result['metric_admission_complete'])
+                    for metric in (result,*(result['windows'][name] for name in ('full','is','oos','oos2'))):
+                        self.assertEqual(metric['status'],nav.BLOCKED)
+                        for field in nav.METRIC_FIELDS:self.assertIsNone(metric[field],field)
+                        for field in diagnostic_only:self.assertNotIn(field,metric,field)
+                        for field,value in nav.AUTHORITY.items():self.assertEqual(metric[field],value,field)
+                    dest=self.out/nav.NAMESPACE
+                    self.assertEqual(json.loads((dest/nav.METRICS_FILE).read_text()),result)
+                    self.assertFalse((dest/nav.CURVE_FILE).exists())
+                    self.assertFalse((dest/nav.artifact_name('account_state_latest.json')).exists())
+                    json.dumps(result,allow_nan=False)
+        invalid=self.run_replay(measurement_context=package,oos_start='not-a-date')
+        self.assertEqual(invalid['status'],nav.BLOCKED)
+        for metric in (invalid,*[v for v in invalid['windows'].values() if type(v) is dict]):
+            self.assertEqual(metric['status'],nav.BLOCKED);self.assertIsNone(metric['cagr'])
+        self.assertEqual(self.run_replay(measurement_context=self.measurement())['status'],nav.COMPLETE)
+
+    def test_r4_context_cli_failure_preserves_observed_generation_before_cleanup(self):
+        import io,contextlib,sys
+        from tools import nav_metrics_v2 as nav
+        self.write_prices([100.]*4)
+        path=self.root/'measurement.json';dest=self.out/nav.NAMESPACE;dest.mkdir(parents=True)
+        originals={nav.CURVE_FILE:b'prior research curve',nav.METRICS_FILE:b'{"prior":true}','foreign-note':b'untouched'}
+        argv=['broker','--target-book',str(self.target),'--price-cache',str(self.cache),'--output-dir',str(self.out),
+              '--starting-capital','10000','--nav-metrics-context',str(path),'--cash-carry-mode','none','--reserve-mode','BROKER_CASH_OR_MMF']
+        original_lstat=nav.os.lstat;original_open=nav.os.open;original_read=nav.os.read
+        for kind,code in (('stat','CONTEXT_INPUT_IO'),('open','CONTEXT_INPUT_IO'),('short_read','CONTEXT_FILE_CHANGED'),
+                          ('missing','CONTEXT_INPUT_IO'),('malformed','CONTEXT_JSON'),('duplicate','JSON_DUPLICATE')):
+            with self.subTest(kind=kind):
+                path.write_text(json.dumps(self.measurement()));before=path.read_bytes()
+                if kind=='malformed':path.write_bytes(b'{');before=path.read_bytes()
+                elif kind=='duplicate':path.write_bytes(b'{"full":{},"full":{}}');before=path.read_bytes()
+                elif kind=='missing':path.unlink();before=None
+                for name,value in originals.items():(dest/name).write_bytes(value)
+                descriptors=set()
+                def lstat(p,*a,**kw):
+                    if kind=='stat' and Path(p)==path:raise PermissionError('context stat denied')
+                    return original_lstat(p,*a,**kw)
+                def opening(p,*a,**kw):
+                    if Path(p)==path and kind=='open':raise PermissionError('context open denied')
+                    fd=original_open(p,*a,**kw)
+                    if Path(p)==path:descriptors.add(fd)
+                    return fd
+                def read(fd,*a,**kw):
+                    if kind=='short_read' and fd in descriptors:return b''
+                    return original_read(fd,*a,**kw)
+                output=io.StringIO()
+                with patch.object(sys,'argv',argv),patch.object(nav.os,'lstat',lstat),patch.object(nav.os,'open',opening),patch.object(nav.os,'read',read),contextlib.redirect_stdout(output):
+                    exit_code=broker.main()
+                result=json.loads(output.getvalue(),parse_constant=lambda value: self.fail('nonfinite stdout '+value))
+                self.assertEqual(exit_code,2);self.assertEqual(result['status'],nav.BLOCKED)
+                self.assertEqual(result.get('context_input_reason',result['reason']),code,result)
+                self.assertFalse(result['current_publication_complete']);self.assertFalse(result['cleanup_complete'])
+                self.assertIn(nav.CURVE_FILE,result['uncleared_generated_outputs'])
+                self.assertEqual({name:(dest/name).read_bytes() for name in originals},originals)
+                for field in nav.METRIC_FIELDS:self.assertIsNone(result[field])
+                if before is not None:self.assertEqual(path.read_bytes(),before)
+        path.write_text(json.dumps(self.measurement()))
+        with patch.object(nav,'load_context',side_effect=AssertionError('explicit direct context must not reload')):
+            self.assertEqual(self.run_replay(measurement_context=self.measurement(),measurement_context_path=path)['status'],nav.COMPLETE)
+        with patch.object(nav,'load_context',side_effect=RuntimeError('programming error')),patch.object(sys,'argv',argv):
+            with self.assertRaisesRegex(RuntimeError,'programming error'):broker.main()
+
+    def test_r4_dynamic_and_early_research_diagnostics_are_strict_finite(self):
+        import io,contextlib,sys
+        from tools import nav_metrics_v2 as nav
+        from tools.execution_cost_model import ExecutionCostConfig
+        idx=pd.bdate_range('2025-12-01','2026-01-07')
+        pd.DataFrame({'Open':100.,'Close':100.,'Adj Close':100.,'High':100.,'Low':100.,'Volume':1000000},index=idx).to_parquet(self.cache/px_cache_name('AAA'))
+        cfg=ExecutionCostConfig(mode='spread_adv_impact_v1')
+        baseline=self.run_replay(execution_cost_config=cfg)
+        self.assertEqual(baseline['status'],'completed')
+        for value in (float('nan'),float('inf'),float('-inf')):
+            for mode in ('fixed_bps','spread_adv_impact_v1'):
+                with self.subTest(cost=value,mode=mode):
+                    result=self.run_replay(cost_bps=value,execution_cost_config=ExecutionCostConfig(mode=mode),measurement_context=self.measurement())
+                    json.dumps(result,allow_nan=False)
+                    self.assertNotEqual(result['status'],nav.COMPLETE)
+                    self.assertFalse(result.get('valid_for_production'))
+                    if mode=='spread_adv_impact_v1':
+                        self.assertEqual(result['metric_mode'],'DO_NOT_USE')
+                        self.assertIsNone(result.get('maximum_modeled_total_cost_bps'))
+                    dest=self.out/nav.NAMESPACE
+                    if (dest/nav.METRICS_FILE).exists():json.loads((dest/nav.METRICS_FILE).read_text(),parse_constant=lambda v:self.fail(v))
+                    self.assertFalse((dest/nav.CURVE_FILE).exists())
+        # Research-only early branch diagnostics must be finite too; default payload semantics remain.
+        original=self.target.read_bytes();self.target.write_text('ticker,rebalance_date,weight\n')
+        result=self.run_replay(measurement_context=self.measurement(),cost_bps=float('nan'))
+        json.dumps(result,allow_nan=False);self.assertNotEqual(result['status'],nav.COMPLETE)
+        self.target.write_bytes(original)
+        argv=['broker','--target-book',str(self.target),'--price-cache',str(self.cache),'--output-dir',str(self.out),
+              '--starting-capital','10000','--cost-bps','nan','--execution-cost-mode','spread_adv_impact_v1',
+              '--nav-metrics-context',str(self.root/'context.json')]
+        (self.root/'context.json').write_text(json.dumps(self.measurement()));output=io.StringIO()
+        with patch.object(sys,'argv',argv),contextlib.redirect_stdout(output):code=broker.main()
+        self.assertEqual(code,2);json.loads(output.getvalue(),parse_constant=lambda v:self.fail(v))
+        # Nonfinite terminal audits are not zero-cost calibration and must not
+        # erase a real E1 rejection. Keep valid execution distinct from measurement.
+        from nav_metrics_v2_smoke import context,binding
+        curve=pd.read_csv(self.out/'equity_curve.csv')
+        data=[dict(session=r.date,timestamp=r.date+'T21:00:00Z',nav=r.equity_usd) for r in curve.itertuples()]
+        package=dict(full=context(data,anchor_nav=10000.),valuation_binding=binding(data))
+        original_summary=broker.summarize_execution_costs
+        for coverage in (False,True):
+            with self.subTest(nonfinite_terminal_audit=True,coverage=coverage):
+                def summary(*a,**kw):
+                    value=original_summary(*a,**kw);value['coverage_complete']=coverage
+                    value['unavailable_audit_value']=float('inf');return value
+                with patch.object(broker,'summarize_execution_costs',summary):
+                    result=self.run_replay(execution_cost_config=cfg,measurement_context=package)
+                json.dumps(result,allow_nan=False)
+                self.assertFalse((self.out/nav.NAMESPACE/nav.CURVE_FILE).exists())
+                if coverage:
+                    self.assertEqual(result['status'],nav.BLOCKED);self.assertIsNone(result['cagr'])
+                else:
+                    self.assertEqual(result['status'],'blocked');self.assertEqual(result['metric_mode'],'DO_NOT_USE')
+                    self.assertTrue(result['performance_fields_redacted']);self.assertNotIn('cagr',result)
+
 
 def main() -> int:
     test_missing_liquidation_fill_fails_closed_before_state_mutation()

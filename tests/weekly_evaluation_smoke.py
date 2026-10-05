@@ -523,6 +523,108 @@ class ResearchWeeklyCallerTests(__import__('unittest').TestCase):
                         self.assertEqual({p.name:p.read_bytes() for p in self.out.iterdir() if p.is_file()},official)
                         self.assertEqual((dest/'caller_note.txt').read_bytes(),b'preserve weekly note')
 
+    def test_r4_empty_generated_portfolio_blocks_with_independent_sibling_diagnostics(self):
+        from tools import nav_metrics_v2 as nav
+        from tools import run_weekly_evaluation as weekly
+        pristine={p:p.read_bytes() for p in self.reports.iterdir()}
+        for selected in (('main',),('concentrated',),('main','concentrated')):
+            for kind in ('no_selected_price','no_entry_price','no_period_end','no_targets'):
+                with self.subTest(selected=selected,kind=kind):
+                    for p,value in pristine.items():p.write_bytes(value)
+                    originals=pristine
+                    for name in selected:
+                        p=self.reports/('main_monthly_weights.csv' if name=='main' else 'concentrated_strategy_holdings.csv')
+                        pd.DataFrame([dict(ticker='MISSING' if kind=='no_selected_price' else 'AAA',rebalance_date='2026-02-02' if kind=='no_entry_price' else '2026-01-02',weight=1.)]).to_csv(p,index=False)
+                    if kind=='no_period_end':
+                        with __import__('unittest').mock.patch.object(weekly,'latest_price_date',return_value=None):
+                            curve,metric=weekly.build_weekly_curve(weekly.normalize_holdings(pd.read_csv(p),selected[-1]),{},self.cache,selected[-1],measurement_context=self.measurement()[selected[-1]]['full'])
+                        self.assertTrue(curve.empty);self.assertEqual(metric['status'],nav.BLOCKED);self.assertIsNone(metric['cagr'])
+                    elif kind=='no_targets':
+                        with __import__('unittest').mock.patch.object(weekly,'weekly_targets',return_value=[]):
+                            curve,metric=weekly.build_weekly_curve(weekly.normalize_holdings(pd.read_csv(p),selected[-1]),{},self.cache,selected[-1],measurement_context=self.measurement()[selected[-1]]['full'])
+                        self.assertTrue(curve.empty);self.assertEqual(metric['status'],nav.BLOCKED)
+                    else:
+                        result=run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())
+                        self.assertEqual(result['status'],nav.BLOCKED);self.assertFalse(result['metric_admission_complete'])
+                        for name,metric in result['metrics'].items():
+                            if name in selected:
+                                self.assertEqual(metric['status'],nav.BLOCKED);self.assertEqual(metric['metric_mode'],nav.MODE)
+                                self.assertFalse(metric['metric_admission_complete'])
+                                for field in nav.METRIC_FIELDS:self.assertIsNone(metric[field])
+                                for field,value in nav.AUTHORITY.items():self.assertEqual(metric[field],value)
+                            else:self.assertEqual(metric['status'],nav.COMPLETE)
+                        self.assertFalse(list((self.out/nav.NAMESPACE).glob('*.csv')))
+                    for p,value in originals.items():p.write_bytes(value)
+        for p,value in pristine.items():p.write_bytes(value)
+        self.assertEqual(run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())['status'],nav.COMPLETE)
+        # Preserve the intentionally unchanged legacy empty builder behavior.
+        holdings=weekly.normalize_holdings(pd.DataFrame([dict(ticker='MISSING',rebalance_date='2026-01-02',weight=1.)]),'main')
+        self.assertEqual(weekly.build_weekly_curve(holdings,{},self.cache,'main')[1]['status'],'no_weekly_rows')
+
+    def test_r4_context_cli_failure_is_disclosed_before_input_reads_or_cleanup(self):
+        import io,contextlib,json,sys
+        from unittest.mock import patch
+        from tools import nav_metrics_v2 as nav
+        from tools import run_weekly_evaluation as weekly
+        path=self.root/'context.json';dest=self.out/nav.NAMESPACE;dest.mkdir(parents=True)
+        originals={'weekly_equity_curve.research_v2.csv':b'prior curve','weekly_metrics.research_v2.json':b'{"prior":true}','foreign-note':b'keep'}
+        argv=['weekly','--latest-run',str(self.latest),'--output-dir',str(self.out),'--price-cache',str(self.cache),'--nav-metrics-context',str(path)]
+        original_lstat=nav.os.lstat;original_open=nav.os.open;original_read=nav.os.read
+        for kind,reason in (('stat','CONTEXT_INPUT_IO'),('open','CONTEXT_INPUT_IO'),('short_read','CONTEXT_FILE_CHANGED'),
+                            ('missing','CONTEXT_INPUT_IO'),('malformed','CONTEXT_JSON'),('duplicate','JSON_DUPLICATE')):
+            with self.subTest(kind=kind):
+                path.write_text(json.dumps(self.measurement()));before=path.read_bytes()
+                if kind=='malformed':path.write_bytes(b'{');before=path.read_bytes()
+                elif kind=='duplicate':path.write_bytes(b'{"main":{},"main":{}}');before=path.read_bytes()
+                elif kind=='missing':path.unlink();before=None
+                for name,value in originals.items():(dest/name).write_bytes(value)
+                descriptors=set()
+                def lstat(p,*a,**kw):
+                    if kind=='stat' and Path(p)==path:raise PermissionError('context stat denied')
+                    return original_lstat(p,*a,**kw)
+                def opening(p,*a,**kw):
+                    if Path(p)==path and kind=='open':raise PermissionError('context open denied')
+                    fd=original_open(p,*a,**kw)
+                    if Path(p)==path:descriptors.add(fd)
+                    return fd
+                def read(fd,*a,**kw):
+                    if kind=='short_read' and fd in descriptors:return b''
+                    return original_read(fd,*a,**kw)
+                output=io.StringIO()
+                with patch.object(sys,'argv',argv),patch.object(nav.os,'lstat',lstat),patch.object(nav.os,'open',opening),patch.object(nav.os,'read',read),contextlib.redirect_stdout(output):code=weekly.main()
+                result=json.loads(output.getvalue(),parse_constant=lambda v:self.fail(v))
+                self.assertEqual(code,2);self.assertEqual(result['status'],nav.BLOCKED)
+                self.assertEqual(result.get('context_input_reason',result['reason']),reason,result)
+                self.assertFalse(result['current_publication_complete']);self.assertFalse(result['cleanup_complete'])
+                self.assertIn('weekly_equity_curve.research_v2.csv',result['uncleared_generated_outputs'])
+                self.assertEqual({name:(dest/name).read_bytes() for name in originals},originals)
+                if before is not None:self.assertEqual(path.read_bytes(),before)
+        path.write_text(json.dumps(self.measurement()))
+        with patch.object(nav,'load_context',side_effect=AssertionError('explicit dict must not reload')):
+            self.assertEqual(run(self.latest,self.out,self.cache,measurement_contexts=self.measurement(),measurement_context_path=path)['status'],nav.COMPLETE)
+        with patch.object(nav,'load_context',side_effect=RuntimeError('programming error')),patch.object(sys,'argv',argv):
+            with self.assertRaisesRegex(RuntimeError,'programming error'):weekly.main()
+
+    def test_r4_nonfinite_freshness_fallback_explicitly_blocks_admission(self):
+        import json
+        from tools import nav_metrics_v2 as nav
+        portfolio=self.latest/'portfolio_latest.csv';audit=self.latest/'orchestrator'/'unified_target_latest.json';audit.parent.mkdir()
+        for source in ('portfolio','audit'):
+            for value in (float('inf'),float('-inf')):
+                with self.subTest(source=source,value=value):
+                    portfolio.unlink(missing_ok=True);audit.unlink(missing_ok=True)
+                    if source=='portfolio':pd.DataFrame([dict(rebalance_date='2026-01-23',cash_target=value)]).to_csv(portfolio,index=False)
+                    else:audit.write_text(json.dumps({'audit_checks':{'invested_amount':value}}))
+                    result=run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())
+                    self.assertEqual(result['status'],nav.BLOCKED);self.assertEqual(result['reason'],'NONFINITE_WEEKLY_DIAGNOSTIC')
+                    self.assertFalse(result['metric_admission_complete']);self.assertEqual(result['metric_mode'],nav.MODE)
+                    for metric in result['metrics'].values():self.assertEqual(metric['status'],nav.BLOCKED);self.assertIsNone(metric['cagr'])
+                    json.dumps(result,allow_nan=False);self.assertFalse(list((self.out/nav.NAMESPACE).glob('*.csv')))
+                    portfolio.unlink(missing_ok=True);audit.unlink(missing_ok=True)
+        portfolio.unlink(missing_ok=True);audit.unlink(missing_ok=True)
+        pd.DataFrame([dict(rebalance_date='2026-01-23',cash_target=.5)]).to_csv(portfolio,index=False)
+        self.assertEqual(run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())['status'],nav.COMPLETE)
+
 
 def main() -> int:
     test_weekly_evaluation_marks_to_weekly_and_reports_staleness()

@@ -355,6 +355,9 @@ def build_weekly_curve(
             rows.append(row_payload)
     curve = pd.DataFrame(rows)
     if curve.empty:
+        if measurement_context is not None:
+            return curve, dict(nav_v2.blocked("NO_WEEKLY_ROWS", portfolio_kind),
+                               portfolio_kind=portfolio_kind, input_rebalance_count=len(prev_rebalance_dates))
         return curve, {"status": "no_weekly_rows", "portfolio_kind": portfolio_kind, "input_rebalance_count": len(prev_rebalance_dates)}
     if measurement_context is not None:
         metric = weekly_metrics(curve, portfolio_kind, measurement_context=measurement_context,
@@ -533,7 +536,8 @@ def write_markdown(payload: dict[str, Any], path: Path) -> None:
 
 @nav_v2.research_io_guard("measurement_contexts")
 def run(latest_run: Path, output_dir: Path, price_cache: Path, stale_days_threshold: int = 10, *,
-        measurement_contexts: dict | None = None, measurement_context_path: Path | None = None) -> dict[str, Any]:
+        measurement_contexts: dict | None = None, measurement_context_path: Path | None = None,
+        load_measurement_context_from_path: bool = False) -> dict[str, Any]:
     latest_run = Path(latest_run)
     output_dir = Path(output_dir)
     research_measurement = measurement_contexts is not None
@@ -565,6 +569,16 @@ def run(latest_run: Path, output_dir: Path, price_cache: Path, stale_days_thresh
         if collision:
             return nav_v2.refused_research_publication("caller_input_collides_with_weekly_research_output",
                                                       output_dir, names, protected)
+        if load_measurement_context_from_path:
+            try:
+                measurement_contexts = nav_v2.load_context(measurement_context_path)
+            except nav_v2.MetricError as exc:
+                code = str(exc)
+                result = nav_v2.refused_research_publication(
+                    "RESEARCH_IO_FAILURE" if code in {"CONTEXT_INPUT_IO", "CONTEXT_FILE_CHANGED"} else code,
+                    output_dir, names, protected)
+                result["context_input_reason"] = code
+                return result
         main_holdings = normalize_holdings(_read_csv(latest_run / "reports" / "main_monthly_weights.csv", strict_io=True), "main")
         concentrated_holdings = normalize_holdings(
             _read_csv(latest_run / "reports" / "concentrated_strategy_holdings.csv", strict_io=True), "concentrated")
@@ -635,7 +649,7 @@ def run(latest_run: Path, output_dir: Path, price_cache: Path, stale_days_thresh
         except (ValueError, OverflowError):
             metrics = {name: nav_v2.blocked("NONFINITE_WEEKLY_DIAGNOSTIC") for name in sources}
             freshness = dict(status=nav_v2.BLOCKED, reason="NONFINITE_WEEKLY_DIAGNOSTIC",
-                             metrics=metrics, metric_mode=nav_v2.MODE, **nav_v2.AUTHORITY)
+                             metrics=metrics, metric_mode=nav_v2.MODE, metric_admission_complete=False, **nav_v2.AUTHORITY)
             measurement_complete = False
     if measurement_complete:
         if research_measurement:
@@ -666,15 +680,11 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    measurement_contexts = None
-    if args.nav_metrics_context is not None:
-        try:
-            measurement_contexts = nav_v2.load_context(args.nav_metrics_context)
-        except (OSError, ValueError):
-            measurement_contexts = {}
+    measurement_contexts = {} if args.nav_metrics_context is not None else None
     payload = run(args.latest_run, args.output_dir, args.price_cache, args.stale_days_threshold,
-                  measurement_contexts=measurement_contexts, measurement_context_path=args.nav_metrics_context)
-    print(json.dumps(payload, indent=2, default=_json_default))
+                  measurement_contexts=measurement_contexts, measurement_context_path=args.nav_metrics_context,
+                  load_measurement_context_from_path=args.nav_metrics_context is not None)
+    print(json.dumps(payload, indent=2, default=_json_default, allow_nan=args.nav_metrics_context is None))
     return 2 if payload.get("status") == nav_v2.BLOCKED else 0
 
 

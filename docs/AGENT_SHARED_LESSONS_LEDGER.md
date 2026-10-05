@@ -6307,3 +6307,11 @@ Expected contract:
   exact offline NYSE schedule for historical closes, not modern hour/weekdays.
   Predecode JSON budgets must count actual values/containers like encoded,
   excluding object keys from nodes while preserving byte/depth limits.
+- Caller review exposed four opt-in boundary failures: blocked broker windows
+  must replace full/sibling performance, empty weekly portfolios need blocked/null
+  schema, selected context reads belong before cleanup authorization, and every
+  research diagnostic export must be finite without zero-cost substitution.
+  Preserve independent weekly diagnostics and genuine E1 DO_NOT_USE redaction.
+  Bind additive upstream lessons and original assertion bodies; use scoped index
+  entries rather than a slow global stat scan. An interrupted own verifier lock
+  is removable only after exact identity and a no-live-Git census are recorded.

@@ -1182,6 +1182,35 @@ def execute_order(
     return order
 
 
+def _finite_research_diagnostics(payload):
+    """Redact unavailable diagnostic numbers without inventing zero-cost evidence."""
+    unavailable = []
+    def bounded(value, path):
+        if isinstance(value, (float, np.floating)) and not math.isfinite(value):
+            if len(unavailable) < 128:
+                unavailable.append(path)
+            return None
+        if isinstance(value, dict):
+            return {key: bounded(child, path + "." + str(key)) for key, child in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [bounded(child, path + "[" + str(index) + "]") for index, child in enumerate(value)]
+        return value
+    clean = bounded(payload, "diagnostic")
+    if unavailable:
+        if clean.get("status") == nav_v2.COMPLETE:
+            # A completed measurement may never be repaired into a successful one.
+            clean = dict(nav_v2.blocked("NONFINITE_EXECUTION_DIAGNOSTIC"),
+                         execution_status=clean.get("execution_status", "completed"))
+        clean["unavailable_diagnostic_fields"] = unavailable
+        clean["diagnostic_redaction_reason"] = "NONFINITE_RESEARCH_DIAGNOSTIC"
+    clean.update(nav_v2.AUTHORITY)
+    if clean.get("status") != nav_v2.COMPLETE:
+        clean["metric_admission_complete"] = False
+    payload.clear()
+    payload.update(clean)
+    return payload
+
+
 def redact_execution_performance(
     metrics: dict[str, Any],
     *,
@@ -1454,13 +1483,23 @@ def _v2_window_metrics(curve, trades, capital, contexts, binding, oos_start, oos
                 calc_metrics(curve, trades, capital, date_range=interval, label=label,
                              measurement_context=context, valuation_binding=binding))
         complete = all(m.get("status") == nav_v2.COMPLETE for m in result.values())
+        if not complete:
+            # Requested windows are one admission package; siblings are not an
+            # independently usable performance result after any member refuses.
+            result = {label: nav_v2.blocked(
+                str(metric.get("reason") or "REQUESTED_WINDOW_BLOCKED"), label)
+                for label, metric in result.items()}
+            return {"status": nav_v2.BLOCKED,
+                    **{label: result.get(label) for label in ("full", "is", "oos", "oos2")}}
         return {"full": result["full"], "is": result.get("is"), "oos": result.get("oos"),
                 "oos2": result.get("oos2"), "status": nav_v2.COMPLETE if complete else nav_v2.BLOCKED,
                 "oos_start": oos_start, "oos_end": oos_end, "oos2_start": oos2_start,
                 "oos2_end": requested.get("oos2", (None, None))[1]}
     except (TypeError, ValueError, OverflowError):
-        return {"full": nav_v2.blocked("INVALID_REQUESTED_WINDOW"), "status": nav_v2.BLOCKED,
-                "is": None, "oos": None, "oos2": None}
+        labels = {"full"} | ({"is", "oos"} if oos_start else set()) | ({"oos2"} if oos2_start else set())
+        return {"status": nav_v2.BLOCKED,
+                **{label: nav_v2.blocked("INVALID_REQUESTED_WINDOW", label) if label in labels else None
+                   for label in ("full", "is", "oos", "oos2")}}
 
 
 def latest_account_state(
@@ -1636,10 +1675,16 @@ def replay(
     execution_cost_config: ExecutionCostConfig | None = None,
     measurement_context: dict | None = None,
     measurement_context_path: Path | None = None,
+    load_measurement_context_from_path: bool = False,
 ) -> dict[str, Any]:
     research_measurement = measurement_context is not None
     if research_measurement:
         output_dir = output_dir / nav_v2.NAMESPACE
+    def metric_json(payload, **options):
+        if research_measurement:
+            _finite_research_diagnostics(payload)
+            options["allow_nan"] = False
+        return json.dumps(payload, **options)
     def artifact(name):
         return nav_v2.artifact_name(name) if research_measurement else name
     metric_name, curve_name = artifact("metrics.json"), artifact("equity_curve.csv")
@@ -1657,6 +1702,16 @@ def replay(
         nav_v2.observe_research_publication(output_dir, generated_names, inputs, price_cache)
         if any(p.resolve() in inputs or nav_v2.research_output_kind(p) == "other" for p in paths):
             return nav_v2.refused_research_publication("caller_input_collides_with_replay_output", output_dir, generated_names, inputs)
+        if load_measurement_context_from_path:
+            try:
+                measurement_context = nav_v2.load_context(measurement_context_path)
+            except nav_v2.MetricError as exc:
+                code = str(exc)
+                result = nav_v2.refused_research_publication(
+                    "RESEARCH_IO_FAILURE" if code in {"CONTEXT_INPUT_IO", "CONTEXT_FILE_CHANGED"} else code,
+                    output_dir, generated_names, inputs)
+                result["context_input_reason"] = code
+                return result
         # Discover the same native selected sources before invalidating exports.
         # This phase is research-only; it neither rewrites books nor selects a new source.
         preview_policy = reserve_asset_policy or resolve_reserve_asset_policy(
@@ -1701,7 +1756,7 @@ def replay(
         payload = redact_execution_performance({"target_book": str(target_book), "price_cache": str(price_cache),
             "portfolio_kind": portfolio_kind, "fill_mode": fill_mode}, reason="caller_input_collides_with_replay_output")
         if (output_dir / metric_name).resolve() not in protected:
-            (output_dir / metric_name).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            (output_dir / metric_name).write_text(metric_json(payload, indent=2), encoding="utf-8")
         if (output_dir / artifact("replay_report.md")).resolve() not in protected:
             (output_dir / artifact("replay_report.md")).write_text(render_report(payload), encoding="utf-8")
         return payload
@@ -1744,7 +1799,7 @@ def replay(
             "valid_for_production": False,
             "research_only": True,
         }
-        (output_dir / metric_name).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        (output_dir / metric_name).write_text(metric_json(payload, indent=2), encoding="utf-8")
         return payload
     raw = research_raw if research_measurement else read_csv(target_book)
     if disable_concentrated_champion_filter:
@@ -1780,7 +1835,7 @@ def replay(
             "target_book_filter_source": champion_filter_source,
             "target_book_filter_warning": champion_filter_warning,
         }
-        (output_dir / metric_name).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        (output_dir / metric_name).write_text(metric_json(payload, indent=2), encoding="utf-8")
         return payload
     weight_diag = weight_book_diagnostics(targets, max_reasonable_weight_sum)
     if int(weight_diag.get("invalid_weight_date_count") or 0) > 0:
@@ -1795,7 +1850,7 @@ def replay(
             "target_book_filter_warning": champion_filter_warning,
             **weight_diag,
         }
-        (output_dir / metric_name).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        (output_dir / metric_name).write_text(metric_json(payload, indent=2), encoding="utf-8")
         return payload
 
     targets, reserve_reason_audit = apply_reserve_asset_to_targets(
@@ -1863,7 +1918,7 @@ def replay(
                 "research_only": True,
             }
             (output_dir / metric_name).write_text(
-                json.dumps(payload, indent=2),
+                metric_json(payload, indent=2),
                 encoding="utf-8",
             )
             return payload
@@ -1904,7 +1959,7 @@ def replay(
             "valid_for_production": False,
         }
         (output_dir / metric_name).write_text(
-            json.dumps(payload, indent=2, default=str),
+            metric_json(payload, indent=2, default=str),
             encoding="utf-8",
         )
         (output_dir / artifact("replay_report.md")).write_text(
@@ -1934,11 +1989,23 @@ def replay(
             "valid_for_production": False,
         }
         (output_dir / metric_name).write_text(
-            json.dumps(payload, indent=2, default=str), encoding="utf-8"
+            metric_json(payload, indent=2, default=str), encoding="utf-8"
         )
         (output_dir / artifact("replay_report.md")).write_text(
             render_report(payload), encoding="utf-8"
         )
+        return payload
+    if research_measurement and not math.isfinite(float(cost_bps)):
+        payload = redact_execution_performance({
+            "portfolio_kind": portfolio_kind, "fill_mode": fill_mode,
+            "target_book": str(target_book), "price_cache": str(price_cache),
+            "execution_cost_mode": execution_cost_config.mode,
+            "execution_cost_config": execution_cost_config.audit(),
+            "maximum_modeled_total_cost_bps": None,
+        }, reason="NONFINITE_EXECUTION_COST")
+        payload["diagnostic_redaction_reason"] = "NONFINITE_FIXED_COST_INPUT"
+        (output_dir / metric_name).write_text(metric_json(payload, indent=2, default=str), encoding="utf-8")
+        (output_dir / artifact("replay_report.md")).write_text(render_report(payload), encoding="utf-8")
         return payload
     if execution_cost_model is not None:
         maximum_modeled_total_cost_bps = (
@@ -1980,7 +2047,7 @@ def replay(
                 "valid_for_production": False,
             }
             (output_dir / metric_name).write_text(
-                json.dumps(payload, indent=2, default=str),
+                metric_json(payload, indent=2, default=str),
                 encoding="utf-8",
             )
             (output_dir / artifact("replay_report.md")).write_text(
@@ -2039,7 +2106,7 @@ def replay(
                 "valid_for_production": False,
             }
             (output_dir / metric_name).write_text(
-                json.dumps(payload, indent=2, default=str),
+                metric_json(payload, indent=2, default=str),
                 encoding="utf-8",
             )
             (output_dir / artifact("replay_report.md")).write_text(
@@ -2067,7 +2134,7 @@ def replay(
                 "valid_for_production": False,
                 "research_only": True,
             }
-            (output_dir / metric_name).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            (output_dir / metric_name).write_text(metric_json(payload, indent=2), encoding="utf-8")
             return payload
     periods = target_period_ends(
         targets,
@@ -2484,7 +2551,7 @@ def replay(
             "research_only": True,
             **weight_diag,
         }
-        (output_dir / metric_name).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        (output_dir / metric_name).write_text(metric_json(payload, indent=2), encoding="utf-8")
         return payload
     # Admit original generated rows before legacy duplicate/date repair.
     if not research_measurement:
@@ -2524,7 +2591,8 @@ def replay(
             valuation_binding=valuation_binding,
         )
         if research_measurement and windows.get("status") != nav_v2.COMPLETE:
-            metrics.update(nav_v2.blocked("REQUESTED_WINDOW_BLOCKED"))
+            metrics = dict(nav_v2.blocked("REQUESTED_WINDOW_BLOCKED"),
+                           execution_status="completed", trade_count=len(trades_df))
         metrics["windows"] = windows
     metrics.update(
         {
@@ -2594,7 +2662,7 @@ def replay(
                 + "_execution_cost_capacity"
             )
         for window in (metrics.get("windows") or {}).values():
-            if not isinstance(window, dict) or "metric_mode" not in window:
+            if not isinstance(window, dict) or "metric_mode" not in window or (research_measurement and window.get("status") != nav_v2.COMPLETE):
                 continue
             window["execution_cost_mode"] = execution_cost_config.mode
             if not coverage_complete:
@@ -2679,7 +2747,11 @@ def replay(
         try:
             json.dumps(metrics, allow_nan=False, default=str)
         except (ValueError, OverflowError):
-            metrics = dict(nav_v2.blocked("NONFINITE_EXECUTION_DIAGNOSTIC"), execution_status="completed")
+            if metrics.get("status") == "blocked" and metrics.get("metric_mode") == "DO_NOT_USE":
+                # Unavailable audit numbers cannot erase a real E1 rejection.
+                _finite_research_diagnostics(metrics)
+            else:
+                metrics = dict(nav_v2.blocked("NONFINITE_EXECUTION_DIAGNOSTIC"), execution_status="completed")
 
     redact_dynamic_performance = bool(
         execution_cost_config.enabled
@@ -2710,7 +2782,7 @@ def replay(
             if artifact_path.is_file():
                 artifact_path.unlink()
         (output_dir / metric_name).write_text(
-            json.dumps(redacted_metrics, indent=2, default=str),
+            metric_json(redacted_metrics, indent=2, default=str),
             encoding="utf-8",
         )
         (output_dir / artifact("replay_report.md")).write_text(
@@ -2723,7 +2795,7 @@ def replay(
         # Failed requested measurement retains cost execution audit but never a stale NAV curve.
         metrics.update(nav_v2.AUTHORITY)
         trades_df.to_csv(output_dir / artifact("trades.csv"), index=False)
-        (output_dir / metric_name).write_text(json.dumps(metrics, indent=2, allow_nan=False), encoding="utf-8")
+        (output_dir / metric_name).write_text(metric_json(metrics, indent=2, allow_nan=False), encoding="utf-8")
         (output_dir / artifact("replay_report.md")).write_text(render_report(metrics), encoding="utf-8")
         return metrics
 
@@ -2768,10 +2840,10 @@ def replay(
         )
         latest_positions.to_csv(output_dir / artifact("positions_latest.csv"), index=False)
         (output_dir / artifact("account_state_latest.json")).write_text(
-            json.dumps(account_state, indent=2, default=str),
+            json.dumps(account_state, indent=2, default=str, allow_nan=not research_measurement),
             encoding="utf-8",
         )
-    (output_dir / metric_name).write_text(json.dumps(metrics, indent=2, default=str, allow_nan=not research_measurement), encoding="utf-8")
+    (output_dir / metric_name).write_text(metric_json(metrics, indent=2, default=str, allow_nan=not research_measurement), encoding="utf-8")
     (output_dir / artifact("replay_report.md")).write_text(render_report(metrics), encoding="utf-8")
     return metrics
 
@@ -2959,14 +3031,12 @@ def main() -> int:
     oos_start = _resolve_oos(args.oos_start, "R1000_OOS_START", DEFAULT_OOS_START)
     oos2_start = _resolve_oos(args.oos2_start, "R1000_OOS2_START", DEFAULT_OOS2_START)
     oos2_end = _resolve_oos(args.oos2_end, "R1000_OOS2_END", "") if oos2_start else None
-    measurement_context = None
-    if args.nav_metrics_context is not None:
-        try:
-            measurement_context = nav_v2.load_context(repo_path(args.nav_metrics_context))
-        except (OSError, ValueError):
-            measurement_context = {}  # Explicit failed opt-in, never legacy fallback.
+    # Opt in before the guarded caller observes/protects its output namespace.
+    # The selected file is read there, before source discovery or cleanup.
+    measurement_context = {} if args.nav_metrics_context is not None else None
     payload = replay(
         measurement_context=measurement_context,
+        load_measurement_context_from_path=args.nav_metrics_context is not None,
         measurement_context_path=repo_path(args.nav_metrics_context) if args.nav_metrics_context else None,
         target_book=repo_path(args.target_book),
         price_cache=repo_path(args.price_cache),
@@ -3016,7 +3086,7 @@ def main() -> int:
             ),
         ),
     )
-    print(json.dumps(payload, indent=2, default=str))
+    print(json.dumps(payload, indent=2, default=str, allow_nan=args.nav_metrics_context is None))
     return 0 if payload.get("status") in ("completed", nav_v2.COMPLETE) else 2
 
 
