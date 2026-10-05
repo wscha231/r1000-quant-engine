@@ -169,21 +169,41 @@ def load_context(path):
             require(k not in obj, "JSON_DUPLICATE")
             obj[k] = v
         return obj
-    # Limit nesting/token expansion before the native JSON decoder allocates a tree.
-    depth, tokens, quoted, escaped = 0, 0, False, False
+    # Match encoded's value/container budget before the native decoder allocates
+    # any tree. Object keys consume bytes, but are not value nodes. This scanner
+    # only bounds allocation; native JSON still decides syntax/duplicate keys.
+    stack, nodes, quoted, escaped, atom, previous = [], 0, False, False, False, None
     for ch in raw:
         if quoted:
             if escaped: escaped = False
             elif ch == 92: escaped = True
-            elif ch == 34: quoted = False
-        elif ch == 34:
-            quoted = True; tokens += 1
+            elif ch == 34: quoted = False; previous = ch
+            continue
+        if ch in (32, 9, 10, 13):
+            atom = False
+            continue
+        if ch in (44, 58, 125, 93):
+            atom = False
+            if ch in (125, 93) and stack:
+                stack.pop()
+            previous = ch
+            continue
+        if ch == 34:
+            key = bool(stack and stack[-1] == 123 and previous in (123, 44))
+            if not key:
+                nodes += 1
+                require(len(stack) <= MAX_DEPTH, "RESOURCE_TREE")
+            quoted = True; atom = False
         elif ch in (123, 91):
-            depth += 1; tokens += 1
-            require(depth <= MAX_DEPTH + 1, "RESOURCE_TREE")
-        elif ch in (125, 93): depth -= 1
-        elif ch == 44: tokens += 1
-        require(tokens <= MAX_ROWS * 60, "RESOURCE_TREE")
+            nodes += 1
+            require(len(stack) <= MAX_DEPTH, "RESOURCE_TREE")
+            stack.append(ch); atom = False
+            previous = ch
+        elif not atom:
+            nodes += 1
+            require(len(stack) <= MAX_DEPTH, "RESOURCE_TREE")
+            atom = True
+        require(nodes <= MAX_ROWS * 20, "RESOURCE_TREE")
     try:
         obj = json.loads(raw, object_pairs_hook=unique,
                          parse_constant=lambda _: (_ for _ in ()).throw(MetricError("NUMBER_NONFINITE")))
@@ -373,8 +393,7 @@ def _calculate(rows, c, label):
         session = date.fromisoformat(point["session"])
         t = stamp(point["timestamp"])
         ny = t.astimezone(ZoneInfo("America/New_York"))
-        require(ny.date() == session and session.weekday() < 5 and ny.hour in (13, 16)
-                and ny.minute == ny.second == ny.microsecond == 0, "REGULAR_CLOSE_CLOCK")
+        require(ny.date() == session, "REGULAR_CLOSE_CLOCK")
         require(t <= cutoff, "GRID_FUTURE")
         require(not times or t > times[-1], "GRID_ORDER_OR_DUPLICATE")
         require(session not in sessions, "GRID_SESSION_DUPLICATE")
@@ -528,6 +547,11 @@ def calculate_frame(frame, context, *, date_column="date", nav_column="equity_us
         if valuation_binding is not None:
             require(stamp(valuation_binding["cutoff"]) <= stamp(context["cutoff"]), "VALUATION_BINDING_FUTURE")
         rows = frame_rows(frame, date_column=date_column, nav_column=nav_column, valuation_binding=valuation_binding)
+        # Bind the entire admitted caller receipt before any window slicing.
+        # Rows alone omit reference identity, availability and receipt cutoff.
+        provenance = None if valuation_binding is None else dict(
+            sha256=digest(valuation_binding), ref=dict(valuation_binding["ref"]),
+            cutoff=valuation_binding["cutoff"])
         require(label not in ("oos", "oos2") or date_range is not None, "OOS_PREDECESSOR_MISSING")
         if date_range is not None:
             lo = date.fromisoformat(date_range[0]) if date_range[0] else None
@@ -543,7 +567,11 @@ def calculate_frame(frame, context, *, date_column="date", nav_column="equity_us
                 require(anchor["kind"] == "OOS_PREDECESSOR" and stamp(anchor["timestamp"]) == stamp(predecessor["timestamp"])
                         and real(anchor["nav"], True) == real(predecessor["nav"], True), "OOS_PREDECESSOR_MISMATCH")
             rows = [rows[i] for i in selected]
-        return calculate(rows, context, label=label)
+        result = calculate(rows, context, label=label)
+        if result["status"] == COMPLETE and provenance is not None:
+            result["valuation_binding_provenance"] = provenance
+            encoded(result)
+        return result
     except MetricError as exc:
         return blocked(str(exc), label)
     except (KeyError, TypeError, ValueError, ArithmeticError, RecursionError):

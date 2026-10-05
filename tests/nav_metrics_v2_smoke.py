@@ -499,6 +499,185 @@ class NavMetricTests(unittest.TestCase):
                     self.assertEqual(nav.encoded(c),before)
 
 
+
+
+class HostedR3BindingCalendarResourceTests(unittest.TestCase):
+    """Finite source955 review families; synthetic NAV, actual offline calendar."""
+    def assertClosed(self, out):
+        self.assertEqual(out['status'], nav.BLOCKED, out)
+        for key in nav.METRIC_FIELDS:
+            self.assertIsNone(out[key])
+        self.assertFalse(out['metric_admission_complete'])
+        self.assertFalse(out['valid_for_production'])
+
+    def assertBinding(self, out, value):
+        self.assertEqual(out['status'], nav.COMPLETE, out)
+        self.assertEqual(out.get('valuation_binding_provenance'),
+                         dict(sha256=nav.digest(value), ref=value['ref'], cutoff=value['cutoff']))
+        self.assertFalse(out['valid_for_production'])
+
+    def test_complete_binding_provenance_precedes_window_and_covers_all_fields(self):
+        data=rows(); f=frame(data); original=binding(data)
+        full=context(data); full['cutoff']='2026-01-07T22:00:00Z'
+        is_context=context(data[:1]); is_context['cutoff']=full['cutoff']
+        observed=[]
+        for mutation in ('none','identity','available','cutoff','both','order','UTC'):
+            with self.subTest(mutation=mutation):
+                b=copy.deepcopy(original)
+                if mutation=='identity':b['ref']['identity']='another-actual-receipt'
+                if mutation in ('available','both'):b['ref']['available_at']='2026-01-07T21:10:00Z'
+                if mutation in ('cutoff','both','available'):b['cutoff']='2026-01-07T21:30:00Z'
+                if mutation=='order':b=dict(reversed(list(b.items())))
+                if mutation=='UTC':b['ref']['available_at']='2026-01-07T16:00:00-05:00'
+                before=nav.encoded(b); source=f.copy(deep=True)
+                results=[nav.calculate_frame(f,full,valuation_binding=b),
+                         nav.calculate_frame(f,is_context,valuation_binding=b,
+                                             date_range=(data[0]['session'],data[0]['session']),label='is')]
+                observed.append(results[0].get('valuation_binding_provenance'))
+                for out in results:self.assertBinding(out,b)
+                self.assertEqual(results[0].get('valuation_binding_provenance'),results[1].get('valuation_binding_provenance'))
+                self.assertEqual(nav.encoded(b),before); self.assertTrue(source.equals(f))
+        self.assertEqual(observed[0],observed[5])
+        for index in (1,2,3,6):
+            with self.subTest(distinct_binding=index):self.assertNotEqual(observed[0],observed[index])
+        absent=nav.calculate_frame(f,full)
+        self.assertEqual(absent['status'],nav.COMPLETE)
+        self.assertNotIn('valuation_binding_provenance',absent)
+        self.assertEqual(absent,nav.calculate(data,full))
+        for mutation in ('identity','hash','receipt','cutoff','point','shape'):
+            with self.subTest(invalid=mutation):
+                b=copy.deepcopy(original)
+                if mutation=='identity':b['ref']['identity']=True
+                elif mutation=='hash':b['ref']['sha256']='0'*64
+                elif mutation=='receipt':b['ref']['available_at']=data[0]['timestamp']
+                elif mutation=='cutoff':b['cutoff']='2026-01-07T22:00:01Z'
+                elif mutation=='point':b['rows'][-1]['timestamp']='2026-01-07T21:00:01Z';b['ref']['sha256']=nav.digest(b['rows'])
+                else:b['unexpected']=True
+                self.assertClosed(nav.calculate_frame(f,is_context,valuation_binding=b,
+                    date_range=(data[0]['session'],data[0]['session']),label='is'))
+
+    def test_actual_broker_windows_and_weekly_export_complete_binding(self):
+        import pandas as pd
+        from tools import run_broker_ledger_replay as broker
+        from tools import run_weekly_evaluation as weekly
+        data=rows(); f=frame(data); b=binding(data)
+        c=dict(full=context(data),is_=context(data[:2]),
+               oos=context(data[2:],anchor_time=data[1]['timestamp'],anchor_nav=data[1]['nav'],anchor_kind='OOS_PREDECESSOR'),
+               oos2=context(data[1:2],anchor_time=data[0]['timestamp'],anchor_nav=data[0]['nav'],anchor_kind='OOS_PREDECESSOR'))
+        c['is']=c.pop('is_')
+        for value in c.values():value['cutoff']=data[-1]['timestamp']
+        for identity in ('actual-caller-receipt-1','actual-caller-receipt-2'):
+            with self.subTest(identity=identity):
+                b['ref']['identity']=identity; original=nav.encoded(b)
+                out=broker.calc_metrics_with_oos(f,pd.DataFrame(),100.,
+                    oos_start=data[2]['session'],oos2_start=data[1]['session'],oos2_end=data[1]['session'],
+                    measurement_contexts=c,valuation_binding=b)
+                self.assertEqual(out['status'],nav.COMPLETE,out)
+                for label in ('full','is','oos','oos2'):self.assertBinding(out[label],b)
+                curve=f.rename(columns={'date':'week_end_date','equity_usd':'equity'})
+                wc=context(data,frequency='weekly')
+                w=weekly.weekly_metrics(curve,'main',measurement_context=wc,valuation_binding=b)
+                self.assertBinding(w,b)
+                # These are the actual dictionaries exported by each caller.
+                self.assertEqual(json.loads(json.dumps(out))['oos']['valuation_binding_provenance']['sha256'],nav.digest(b))
+                self.assertEqual(json.loads(json.dumps(w))['valuation_binding_provenance']['sha256'],nav.digest(b))
+                self.assertEqual(nav.encoded(b),original)
+
+    def test_native_historical_and_modern_exact_close_positive_controls(self):
+        import pandas_market_calendars as mcal
+        for lo,hi in (('1952-09-26','1952-09-30'),('1973-12-31','1974-01-03'),
+                      ('1951-06-08','1951-06-11'),('2026-11-27','2026-11-30')):
+            schedule=mcal.get_calendar('NYSE').schedule(start_date=lo,end_date=hi)
+            data=[dict(session=d.date().isoformat(),timestamp=t.isoformat(),nav=100.)
+                  for d,t in schedule['market_close'].items()]
+            for frequency in ('daily','weekly'):
+                with self.subTest(lo=lo,hi=hi,frequency=frequency):
+                    sample=data if frequency=='daily' else data[::2]
+                    anchor=(nav.stamp(data[0]['timestamp'])-timedelta(days=1)).isoformat()
+                    c=context(sample,anchor_time=anchor,frequency=frequency); before=nav.encoded(c)
+                    out=nav.calculate(sample,c)
+                    self.assertEqual(out['status'],nav.COMPLETE,out)
+                    self.assertEqual(nav.encoded(c),before)
+                    for row in sample:row['timestamp']=nav.stamp(row['timestamp']).astimezone(__import__('zoneinfo').ZoneInfo('America/New_York')).isoformat()
+                    self.assertEqual(nav.calculate(sample,context(sample,anchor_time=anchor,frequency=frequency))['status'],nav.COMPLETE)
+
+    def test_historical_calendar_does_not_admit_invented_closes_or_grid_repairs(self):
+        import pandas_market_calendars as mcal
+        schedule=mcal.get_calendar('NYSE').schedule(start_date='1952-09-26',end_date='1952-09-30')
+        original=[dict(session=d.date().isoformat(),timestamp=t.isoformat(),nav=100.)
+                  for d,t in schedule['market_close'].items()]
+        for mutation in ('second','minute','hour','date','naive','duplicate','reverse','gap','Sunday','future'):
+            with self.subTest(mutation=mutation):
+                data=copy.deepcopy(original); c=context(data,anchor_time='1952-09-25T18:00:00Z')
+                if mutation in ('second','minute','hour'):
+                    offset={'second':timedelta(seconds=1),'minute':timedelta(minutes=1),'hour':timedelta(hours=1)}[mutation]
+                    data[0]['timestamp']=(nav.stamp(data[0]['timestamp'])+offset).isoformat()
+                elif mutation=='date':data[0]['timestamp']='1952-09-25T19:00:00Z'
+                elif mutation=='naive':data[0]['timestamp']='1952-09-26T15:00:00'
+                elif mutation=='duplicate':data.insert(1,copy.deepcopy(data[0]))
+                elif mutation=='reverse':data.reverse()
+                elif mutation=='gap':data.pop(1)
+                elif mutation=='Sunday':data.insert(1,dict(session='1952-09-28',timestamp='1952-09-28T16:00:00Z',nav=100.))
+                else:c['cutoff']='1952-09-26T19:00:00Z'
+                if mutation!='future':c=context(data,anchor_time='1952-09-25T18:00:00Z')
+                self.assertClosed(nav.calculate(data,c))
+
+    def test_predecode_exact_actual_node_budget_blocks_before_decoder(self):
+        import tempfile
+        decode=json.loads
+        with tempfile.TemporaryDirectory() as td:
+            p=Path(td)/'bounded.json'
+            for scalar in ('null','true','1','"x"','{}','[]'):
+                for count in (17,18,19):
+                    with self.subTest(scalar=scalar,count=count):
+                        raw=('{"unknown":['+','.join([scalar]*count)+']}').encode();p.write_bytes(raw)
+                        # Root object + array + each array value/container.
+                        with patch.object(nav,'MAX_ROWS',1),patch.object(nav.json,'loads',wraps=decode) as loads:
+                            if count<=18:
+                                out=nav.load_context(p);self.assertEqual(len(out['unknown']),count);self.assertEqual(loads.call_count,1)
+                            else:
+                                with self.assertRaisesRegex(nav.MetricError,'RESOURCE_TREE'):nav.load_context(p)
+                                self.assertEqual(loads.call_count,0)
+                        self.assertEqual(p.read_bytes(),raw)
+            # Genuine current declared budget: ~4 MiB, not a decoder/memory failure.
+            raw=b'{"unknown":['+b'0,'*(nav.MAX_ROWS*20-2)+b'0]}';p.write_bytes(raw)
+            with patch.object(nav.json,'loads',wraps=decode) as loads:
+                with self.assertRaisesRegex(nav.MetricError,'RESOURCE_TREE'):nav.load_context(p)
+                self.assertEqual(loads.call_count,0)
+            self.assertEqual(p.read_bytes(),raw)
+
+    def test_predecode_keys_escapes_literals_and_mixed_nodes_match_encoded(self):
+        import tempfile
+        shapes=[{f'key{i}':None for i in range(19)},
+                {'escaped"\\,:[]{}':'a"\\,:[]{}','n':-1.25e-10,'bool':True,'null':None},
+                {'nested':[{},[],{'key':[1,'x',False,None]}]},
+                {'keys':[{'"[,':1},{'other':2}],'empty':{}}]
+        decode=json.loads
+        with tempfile.TemporaryDirectory() as td:
+            p=Path(td)/'bounded.json'
+            for value in shapes:
+                with self.subTest(value=value):
+                    raw=json.dumps(value,indent=2,ensure_ascii=False).encode();p.write_bytes(raw)
+                    with patch.object(nav,'MAX_ROWS',1):
+                        canonical=nav.encoded(value)
+                        with patch.object(nav.json,'loads',wraps=decode) as loads:
+                            loaded=nav.load_context(p);self.assertEqual(loads.call_count,1)
+                        self.assertEqual(nav.encoded(loaded),canonical)
+                    self.assertEqual(p.read_bytes(),raw)
+
+    def test_predecode_invalid_JSON_depth_duplicate_and_nonfinite_remain_bounded(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            p=Path(td)/'bounded.json'
+            for raw in (b'{"a":1,"a":2}',b'{"a":NaN}',b'{"a":Infinity}',b'{"a":1 2}',
+                        b'{"a":"bad\\q"}',b'{"a":[',b'}',b'{"a":'+b'['*16+b'0'+b']'*16+b'}'):
+                with self.subTest(raw=raw):
+                    p.write_bytes(raw)
+                    with self.assertRaises(nav.MetricError):nav.load_context(p)
+                    self.assertEqual(p.read_bytes(),raw)
+            p.write_bytes(nav.encoded(context(rows())))
+            self.assertEqual(nav.calculate(rows(),nav.load_context(p))['status'],nav.COMPLETE)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 

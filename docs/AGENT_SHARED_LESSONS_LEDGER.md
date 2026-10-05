@@ -6282,3 +6282,8 @@ Expected contract:
   events. RF aggregate availability must cover actual row clocks, while valid
   early RF rows and independent anchor/grid remain eligible. Preserve cutoff
   bounds and supplied clocks; never restamp receipts to clear admission.
+- Full valuation provenance must bind the original rows, reference identity/clock
+  and cutoff before slicing; a rows-only hash loses consumed evidence. Use the
+  exact offline NYSE schedule for historical closes, not modern hour/weekdays.
+  Predecode JSON budgets must count actual values/containers like encoded,
+  excluding object keys from nodes while preserving byte/depth limits.
