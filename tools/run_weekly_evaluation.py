@@ -40,7 +40,14 @@ def _read_csv(path: Path, *, strict_io: bool = False) -> pd.DataFrame:
     if strict_io:
         try:
             path.stat()  # exists() can suppress access errors on supported hosts.
-            return pd.read_csv(path)
+            try:
+                return pd.read_csv(path)
+            except (UnicodeDecodeError, pd.errors.ParserError, pd.errors.EmptyDataError) as exc:
+                failure = OSError("SELECTED_INPUT_DECODE")
+                failure.selected_input_format = "CSV"
+                failure.selected_input_cause = type(exc).__name__
+                failure.selected_input_reason = "SELECTED_INPUT_DECODE"
+                raise failure from exc
         except FileNotFoundError:
             return pd.DataFrame()
     if not path.exists():
@@ -55,7 +62,21 @@ def _read_json(path: Path, *, strict_io: bool = False) -> dict[str, Any]:
     if strict_io:
         try:
             path.stat()
-            return json.loads(path.read_text(encoding="utf-8"))
+            try:
+                value = json.loads(path.read_text(encoding="utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                failure = OSError("SELECTED_INPUT_DECODE")
+                failure.selected_input_format = "JSON"
+                failure.selected_input_cause = type(exc).__name__
+                failure.selected_input_reason = "SELECTED_INPUT_DECODE"
+                raise failure from exc
+            if not isinstance(value, dict):
+                failure = OSError("SELECTED_INPUT_JSON_OBJECT")
+                failure.selected_input_format = "JSON"
+                failure.selected_input_cause = "JSONRootType"
+                failure.selected_input_reason = "SELECTED_INPUT_JSON_OBJECT"
+                raise failure
+            return value
         except FileNotFoundError:
             return {}
     if not path.exists():
@@ -95,7 +116,18 @@ def load_price_series(
     try:
         if strict_io:
             path.stat()
-        px = pd.read_parquet(path)
+        if strict_io:
+            from pyarrow import ArrowInvalid
+            try:
+                px = pd.read_parquet(path)
+            except (ArrowInvalid, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                failure = OSError("SELECTED_INPUT_DECODE")
+                failure.selected_input_format = "PARQUET"
+                failure.selected_input_cause = type(exc).__name__
+                failure.selected_input_reason = "SELECTED_INPUT_DECODE"
+                raise failure from exc
+        else:
+            px = pd.read_parquet(path)
     except FileNotFoundError:
         return pd.DataFrame()
     except Exception:
@@ -464,6 +496,12 @@ def build_freshness(
     elif lag_days > int(stale_days_threshold):
         status = "stale"
     unified = _read_json(latest_run / "orchestrator" / "unified_target_latest.json", strict_io=strict_io)
+    if strict_io and unified.get("audit_checks") is not None and not isinstance(unified["audit_checks"], dict):
+        failure = OSError("SELECTED_INPUT_JSON_AUDIT_OBJECT")
+        failure.selected_input_format = "JSON"
+        failure.selected_input_cause = "JSONAuditType"
+        failure.selected_input_reason = "SELECTED_INPUT_JSON_AUDIT_OBJECT"
+        raise failure
     raw_portfolio = _read_csv(latest_run / "portfolio_latest.csv", strict_io=strict_io)
     raw_portfolio_cash_target = None
     if not raw_portfolio.empty and "cash_target" in raw_portfolio.columns:

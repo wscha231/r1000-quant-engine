@@ -144,7 +144,14 @@ def env_flag(name: str, default: bool = False) -> bool:
 def read_csv(path: Path) -> pd.DataFrame:
     if nav_v2.research_io_active():
         path.stat()  # The opted-in caller requires its declared target book.
-        return pd.read_csv(path)
+        try:
+            return pd.read_csv(path)
+        except (UnicodeDecodeError, pd.errors.ParserError, pd.errors.EmptyDataError) as exc:
+            failure = OSError("SELECTED_INPUT_DECODE")
+            failure.selected_input_format = "CSV"
+            failure.selected_input_cause = type(exc).__name__
+            failure.selected_input_reason = "SELECTED_INPUT_DECODE"
+            raise failure from exc
     if not path.exists():
         return pd.DataFrame()
     try:
@@ -315,7 +322,28 @@ def load_cash_rate_series(config: CashCarryConfig, price_cache: Path) -> pd.Data
     if selected_path is None:
         return pd.DataFrame()
     try:
-        raw = pd.read_parquet(selected_path) if selected_path.suffix.lower() == ".parquet" else pd.read_csv(selected_path)
+        if nav_v2.research_io_active():
+            if selected_path.suffix.lower() == ".parquet":
+                from pyarrow import ArrowInvalid
+                try:
+                    raw = pd.read_parquet(selected_path)
+                except (ArrowInvalid, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                    failure = OSError("SELECTED_INPUT_DECODE")
+                    failure.selected_input_format = "PARQUET"
+                    failure.selected_input_cause = type(exc).__name__
+                    failure.selected_input_reason = "SELECTED_INPUT_DECODE"
+                    raise failure from exc
+            else:
+                try:
+                    raw = pd.read_csv(selected_path)
+                except (UnicodeDecodeError, pd.errors.ParserError, pd.errors.EmptyDataError) as exc:
+                    failure = OSError("SELECTED_INPUT_DECODE")
+                    failure.selected_input_format = "CSV"
+                    failure.selected_input_cause = type(exc).__name__
+                    failure.selected_input_reason = "SELECTED_INPUT_DECODE"
+                    raise failure from exc
+        else:
+            raw = pd.read_parquet(selected_path) if selected_path.suffix.lower() == ".parquet" else pd.read_csv(selected_path)
     except Exception:
         if nav_v2.research_io_active():
             raise

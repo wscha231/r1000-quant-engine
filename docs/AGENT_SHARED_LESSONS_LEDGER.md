@@ -6319,3 +6319,9 @@ Expected contract:
   PREFILL kind and actual initial capital to the admitted first selected session,
   not tuple syntax or labels; interior slices keep their actual predecessor.
   Rehash changed NAV/kind counterexamples so stale hashes do not mask this guard.
+- Selected raw decoders can fail outside OSError: normalize only proven format
+  errors at strict readers, retaining finite cause codes and cleanup disclosure.
+  Validate consumed JSON objects and exact invalid-date conversion explicitly;
+  keep programming errors, default absence and cost/date formulas unchanged.
+  Match helper arity and frozen import namespaces in negative harnesses; separate
+  harness failures from real input failures and bind corrected evidence explicitly.

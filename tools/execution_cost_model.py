@@ -17,6 +17,7 @@ impact from being double counted while remaining conservative.
 from __future__ import annotations
 
 import math
+import json
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -282,7 +283,28 @@ def load_paper_slippage(path: Path | None, *, strict_io: bool = False) -> pd.Dat
     try:
         if strict_io:
             Path(path).stat()  # A declared source is required in opt-in measurement.
-        raw = pd.read_parquet(path) if Path(path).suffix.lower() == ".parquet" else pd.read_csv(path)
+        if strict_io:
+            if Path(path).suffix.lower() == ".parquet":
+                from pyarrow import ArrowInvalid
+                try:
+                    raw = pd.read_parquet(path)
+                except (ArrowInvalid, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                    failure = OSError("SELECTED_INPUT_DECODE")
+                    failure.selected_input_format = "PARQUET"
+                    failure.selected_input_cause = type(exc).__name__
+                    failure.selected_input_reason = "SELECTED_INPUT_DECODE"
+                    raise failure from exc
+            else:
+                try:
+                    raw = pd.read_csv(path)
+                except (UnicodeDecodeError, pd.errors.ParserError, pd.errors.EmptyDataError) as exc:
+                    failure = OSError("SELECTED_INPUT_DECODE")
+                    failure.selected_input_format = "CSV"
+                    failure.selected_input_cause = type(exc).__name__
+                    failure.selected_input_reason = "SELECTED_INPUT_DECODE"
+                    raise failure from exc
+        else:
+            raw = pd.read_parquet(path) if Path(path).suffix.lower() == ".parquet" else pd.read_csv(path)
     except Exception:
         if strict_io:
             raise
@@ -313,6 +335,16 @@ def load_paper_slippage(path: Path | None, *, strict_io: bool = False) -> pd.Dat
     def normalize_trade_date(value: Any) -> pd.Timestamp:
         text = str(value).strip()
         if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+            if strict_io:
+                from pandas._libs.tslibs.parsing import DateParseError
+                try:
+                    return pd.Timestamp(text).normalize()
+                except DateParseError as exc:
+                    failure = OSError("SELECTED_INPUT_DATE")
+                    failure.selected_input_format = "PARQUET" if Path(path).suffix.lower() == ".parquet" else "CSV"
+                    failure.selected_input_cause = type(exc).__name__
+                    failure.selected_input_reason = "SELECTED_INPUT_DATE"
+                    raise failure from exc
             return pd.Timestamp(text).normalize()
         parsed = pd.to_datetime(value, errors="coerce")
         if pd.isna(parsed):

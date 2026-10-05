@@ -626,6 +626,55 @@ class ResearchWeeklyCallerTests(__import__('unittest').TestCase):
         self.assertEqual(run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())['status'],nav.COMPLETE)
 
 
+    def test_r6_actual_weekly_selected_decoder_and_shape_phases(self):
+        from tools import nav_metrics_v2 as nav
+        import json,pyarrow as pa,pyarrow.parquet as pq
+        audit=self.latest/'orchestrator'/'unified_target_latest.json';audit.parent.mkdir()
+        sources={'holdings':self.reports/'main_monthly_weights.csv','regime':self.reports/'regime_by_month.csv',
+                 'freshness':self.latest/'scored_latest.csv','json':audit,'shape':audit,'price':self.cache/px_cache_name('AAA')}
+        pristine={p:p.read_bytes() for p in set(sources.values()) if p.exists()};dest=self.out/nav.NAMESPACE
+        for role in sources:
+            for kind in (('utf8','parse','empty') if role in ('holdings','regime','freshness') else ('utf8','parse','empty') if role=='json' else ('root','audit') if role=='shape' else ('magic','attrs')):
+                with self.subTest(role=role,kind=kind):
+                    for p,value in pristine.items():p.write_bytes(value)
+                    audit.unlink(missing_ok=True)
+                    self.assertEqual(run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())['status'],nav.COMPLETE)
+                    leaf=dest/'weekly_equity_curve.research_v2.csv';prior=leaf.read_bytes();foreign=dest/'foreign';foreign.write_bytes(b'keep')
+                    path=sources[role]
+                    if kind=='attrs':
+                        table=pa.Table.from_pandas(pd.read_parquet(path));meta=dict(table.schema.metadata or {});meta[b'PANDAS_ATTRS']=b'\xff';pq.write_table(table.replace_schema_metadata(meta),path)
+                    else:path.write_bytes({'utf8':b'a\n\xff\n','parse':b'a\n"unfinished' if role!='json' else b'{','empty':b'',
+                                           'root':b'[1]','audit':b'{"audit_checks":[1]}','magic':b'bad parquet'}[kind])
+                    before={p:p.read_bytes() for p in {*pristine,path}};options=self.measurement()
+                    try:result=run(self.latest,self.out,self.cache,measurement_contexts=options)
+                    except Exception as exc:self.fail('Actual weekly decoder/shape escaped: '+type(exc).__name__)
+                    self.assertEqual(result['status'],nav.BLOCKED);self.assertEqual(result['reason'],'RESEARCH_IO_FAILURE')
+                    self.assertFalse(result['current_publication_complete']);self.assertFalse(result['metric_admission_complete'])
+                    for field in nav.METRIC_FIELDS:self.assertIsNone(result[field])
+                    if role=='holdings':self.assertFalse(result['cleanup_complete']);self.assertEqual(leaf.read_bytes(),prior)
+                    else:self.assertTrue(result['cleanup_complete']);self.assertFalse(leaf.exists())
+                    self.assertEqual({p:p.read_bytes() for p in before},before);self.assertEqual(foreign.read_bytes(),b'keep')
+                    json.dumps(result,allow_nan=False)
+        for p,value in pristine.items():p.write_bytes(value)
+        audit.unlink(missing_ok=True)
+        self.assertEqual(run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())['status'],nav.COMPLETE)
+
+    def test_r6_actual_weekly_cli_postcleanup_decoder_failure_is_bounded(self):
+        import subprocess,sys,json
+        from tools import nav_metrics_v2 as nav
+        path=self.root/'context.json';path.write_text(json.dumps(self.measurement()))
+        dest=self.out/nav.NAMESPACE;dest.mkdir(parents=True);leaf=dest/'weekly_equity_curve.research_v2.csv';leaf.write_bytes(b'prior')
+        foreign=dest/'foreign';foreign.write_bytes(b'keep');audit=self.latest/'orchestrator'/'unified_target_latest.json';audit.parent.mkdir();audit.write_bytes(b'{')
+        cmd=[sys.executable]+(['-O'] if sys.flags.optimize else [])+[str(ROOT/'tools/run_weekly_evaluation.py'),
+             '--latest-run',str(self.latest),'--output-dir',str(self.out),'--price-cache',str(self.cache),'--nav-metrics-context',str(path)]
+        child=subprocess.run(cmd,capture_output=True,text=True,encoding='utf-8',timeout=60)
+        self.assertEqual(child.returncode,2,child.stderr);self.assertNotIn('Traceback',child.stderr)
+        result=json.loads(child.stdout,parse_constant=lambda x:self.fail(x));self.assertEqual(result['status'],nav.BLOCKED)
+        self.assertEqual(result['selected_input_cause'],'JSONDecodeError');self.assertFalse(result['current_publication_complete'])
+        self.assertTrue(result['cleanup_complete']);self.assertFalse(leaf.exists());self.assertEqual(audit.read_bytes(),b'{')
+        self.assertEqual(foreign.read_bytes(),b'keep');self.assertFalse(result['fullrun_allowed'])
+
+
 def main() -> int:
     test_weekly_evaluation_marks_to_weekly_and_reports_staleness()
     import unittest

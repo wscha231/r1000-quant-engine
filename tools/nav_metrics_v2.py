@@ -338,6 +338,21 @@ def research_io_guard(context_argument):
                 result.update(current_publication_complete=False, io_error_type=type(exc).__name__,
                               io_error_errno=exc.errno, cleanup_complete=cleanup_complete,
                               uncleared_generated_outputs=remaining, cleanup_refused_inputs=refused)
+                # Reader-local admission attaches finite codes, never source text.
+                formats = {
+                    "CSV": {"UnicodeDecodeError", "ParserError", "EmptyDataError", "DateParseError"},
+                    "JSON": {"UnicodeDecodeError", "JSONDecodeError", "JSONRootType", "JSONAuditType"},
+                    "PARQUET": {"ArrowInvalid", "UnicodeDecodeError", "JSONDecodeError", "DateParseError"},
+                }
+                reasons = {"SELECTED_INPUT_DECODE", "SELECTED_INPUT_DATE",
+                           "SELECTED_INPUT_JSON_OBJECT", "SELECTED_INPUT_JSON_AUDIT_OBJECT"}
+                input_format = getattr(exc, "selected_input_format", None)
+                cause = getattr(exc, "selected_input_cause", None)
+                reason = getattr(exc, "selected_input_reason", None)
+                if (isinstance(input_format, str) and isinstance(cause, str) and isinstance(reason, str)
+                        and cause in formats.get(input_format, ()) and reason in reasons):
+                    result.update(selected_input_format=input_format, selected_input_cause=cause,
+                                  selected_input_reason=reason)
                 return result
             finally:
                 _io_state.reset(token)

@@ -501,6 +501,166 @@ class NavMetricTests(unittest.TestCase):
 
 
 
+    def test_r6_real_selected_decoder_classes_at_exact_reader_boundary(self):
+        import tempfile,pandas as pd,pyarrow as pa,pyarrow.parquet as pq
+        from tools import run_weekly_evaluation as weekly,run_broker_ledger_replay as broker
+        from tools.execution_cost_model import load_paper_slippage
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);cache=root/'cache';cache.mkdir();dest=root/'out';dest.mkdir()
+            cases=[('CSV',b'a,b\n\xff,1\n','UnicodeDecodeError'),('CSV',b'a,b\n"unfinished','ParserError'),
+                   ('CSV',b'','EmptyDataError'),('JSON',b'{"a":\xff}','UnicodeDecodeError'),
+                   ('JSON',b'{','JSONDecodeError'),('PARQUET',b'bad parquet','ArrowInvalid'),
+                   ('PARQUET_ATTR',b'\xff','UnicodeDecodeError'),('PARQUET_ATTR',b'{','JSONDecodeError')]
+            for fmt,raw,cause in cases:
+                roles=('target','weekly_csv','rate','slippage') if fmt=='CSV' else ('weekly_json',) if fmt=='JSON' else ('price','rate','slippage')
+                for role in roles:
+                    with self.subTest(format=fmt,role=role,cause=cause):
+                        suffix='.parquet' if fmt.startswith('PARQUET') else '.json' if fmt=='JSON' else '.csv'
+                        path=cache/weekly.px_cache_name('AAA') if role=='price' else root/(role+suffix)
+                        if fmt=='PARQUET_ATTR':
+                            table=pa.Table.from_pydict({'date':['2026-01-02'],'ticker':['AAA'],'side':['BUY'],'observed_slippage_bps':[1.]})
+                            pq.write_table(table.replace_schema_metadata({b'PANDAS_ATTRS':raw}),path)
+                        else:path.write_bytes(raw)
+                        before=path.read_bytes();prior=dest/'metrics.research_v2.json';prior.write_bytes(b'prior');foreign=dest/'foreign';foreign.write_bytes(b'keep')
+                        @nav.research_io_guard('measurement_context')
+                        def invoke(*,measurement_context):
+                            nav.observe_research_publication(dest,[prior.name],{path.resolve()},cache)
+                            if role=='target':return broker.read_csv(path)
+                            if role=='weekly_csv':return weekly._read_csv(path,strict_io=True)
+                            if role=='weekly_json':return weekly._read_json(path,strict_io=True)
+                            if role=='rate':return broker.load_cash_rate_series(broker.CashCarryConfig(mode='risk_free_rate',rate_path=path),cache)
+                            if role=='slippage':return load_paper_slippage(path,strict_io=True)
+                            return weekly.load_price_series(cache,'AAA',strict_io=True)
+                        try:result=invoke(measurement_context={})
+                        except Exception as exc:self.fail('Selected decoder escaped: '+type(exc).__name__)
+                        self.assertBlocked(result);self.assertEqual(result['reason'],'RESEARCH_IO_FAILURE')
+                        self.assertEqual(result['selected_input_cause'],cause)
+                        self.assertEqual(result['selected_input_format'],'PARQUET' if fmt.startswith('PARQUET') else fmt)
+                        self.assertEqual(result['selected_input_reason'],'SELECTED_INPUT_DECODE')
+                        self.assertFalse(result['current_publication_complete']);self.assertFalse(result['cleanup_complete'])
+                        self.assertIn(prior.name,result['uncleared_generated_outputs'])
+                        self.assertEqual(prior.read_bytes(),b'prior');self.assertEqual(path.read_bytes(),before);self.assertEqual(foreign.read_bytes(),b'keep')
+
+    def test_r6_explicit_shape_date_and_valid_optional_legacy_controls(self):
+        import tempfile,pandas as pd
+        from tools import run_weekly_evaluation as weekly,run_broker_ledger_replay as broker
+        from tools.execution_cost_model import load_paper_slippage
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);latest=root/'latest';path=latest/'orchestrator'/'unified_target_latest.json';path.parent.mkdir(parents=True)
+            for value in ([1],[],None,1,True,{'audit_checks':[1]},{'audit_checks':[]},{'audit_checks':'bad'}):
+                with self.subTest(json_value=value):
+                    path.write_text(json.dumps(value),encoding='utf-8');before=path.read_bytes()
+                    @nav.research_io_guard('measurement_context')
+                    def fresh(*,measurement_context):return weekly.build_freshness(latest,{}, {},10,strict_io=True)
+                    try:result=fresh(measurement_context={})
+                    except Exception as exc:self.fail('Input shape escaped: '+type(exc).__name__)
+                    self.assertBlocked(result);self.assertEqual(result['selected_input_format'],'JSON')
+                    self.assertEqual(result['selected_input_reason'],'SELECTED_INPUT_JSON_AUDIT_OBJECT' if isinstance(value,dict) else 'SELECTED_INPUT_JSON_OBJECT')
+                    self.assertEqual(path.read_bytes(),before)
+            for value in ({},{'audit_checks':None},{'audit_checks':{}},{'audit_checks':{'invested_amount':1.}}):
+                with self.subTest(valid_json=value):
+                    path.write_text(json.dumps(value));self.assertIsInstance(weekly.build_freshness(latest,{}, {},10,strict_io=True),dict)
+            path.unlink();self.assertEqual(weekly._read_json(path,strict_io=True),{})
+            csv=root/'slip.csv'
+            for date in ('2026-99-99','2026-02-30','2025-02-29'):
+                with self.subTest(invalid_date=date):
+                    csv.write_text('date,ticker,side,observed_slippage_bps\n'+date+',AAA,BUY,1\n')
+                    @nav.research_io_guard('measurement_context')
+                    def slip(*,measurement_context):return load_paper_slippage(csv,strict_io=True)
+                    try:result=slip(measurement_context={})
+                    except Exception as exc:self.fail('Date admission escaped: '+type(exc).__name__)
+                    self.assertBlocked(result);self.assertEqual(result['selected_input_cause'],'DateParseError')
+                    self.assertEqual(result['selected_input_reason'],'SELECTED_INPUT_DATE')
+                    from pandas._libs.tslibs.parsing import DateParseError
+                    with self.assertRaises(DateParseError):load_paper_slippage(csv)
+            for date in ('2024-02-29','2026-01-02','2026-01-02T12:00:00','2026-01-02T21:00:00Z','undated',''):
+                with self.subTest(valid_or_existing_undated=date):
+                    csv.write_text('date,ticker,side,observed_slippage_bps\n'+date+',AAA,BUY,1\n')
+                    pd.testing.assert_frame_equal(load_paper_slippage(csv,strict_io=True),load_paper_slippage(csv))
+            csv.write_text('date,ticker,side,observed_slippage_bps\n');self.assertTrue(load_paper_slippage(csv,strict_io=True).empty)
+            self.assertTrue(load_paper_slippage(None,strict_io=True).empty)
+            self.assertTrue(load_paper_slippage(root/'absent.csv').empty)
+            self.assertTrue(weekly._read_csv(root/'optional.csv',strict_io=True).empty)
+            self.assertTrue(weekly.load_price_series(root,'NONE',strict_io=True).empty)
+            with patch.object(pd,'read_csv',side_effect=AssertionError('disabled rate was read')):
+                self.assertTrue(broker.load_cash_rate_series(broker.CashCarryConfig(mode='none',rate_path=csv),root).empty)
+
+    def test_r6_programming_backend_errors_and_original_os_diagnostics_propagate(self):
+        import tempfile,pandas as pd,pyarrow as pa
+        from tools import run_weekly_evaluation as weekly,run_broker_ledger_replay as broker
+        from tools.execution_cost_model import load_paper_slippage
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);path=root/'source.csv';path.write_bytes(b'a\n1\n')
+            for error in (RuntimeError('programming'),TypeError('programming'),ValueError('options'),AssertionError('programming'),
+                          pa.ArrowTypeError('unsupported'),pa.ArrowNotImplementedError('unsupported')):
+                for role in ('weekly','target','rate','slippage'):
+                    with self.subTest(error=type(error).__name__,role=role):
+                        @nav.research_io_guard('measurement_context')
+                        def invoke(*,measurement_context):
+                            if role=='weekly':return weekly._read_csv(path,strict_io=True)
+                            if role=='target':return broker.read_csv(path)
+                            if role=='rate':return broker.load_cash_rate_series(broker.CashCarryConfig(mode='risk_free_rate',rate_path=path),root)
+                            return load_paper_slippage(path,strict_io=True)
+                        with patch.object(pd,'read_csv',side_effect=error),self.assertRaises(type(error)):invoke(measurement_context={})
+            with patch.object(pd,'read_csv',side_effect=RuntimeError('legacy')):
+                self.assertTrue(weekly._read_csv(path).empty);self.assertTrue(broker.read_csv(path).empty);self.assertTrue(load_paper_slippage(path).empty)
+            @nav.research_io_guard('measurement_context')
+            def denied(*,measurement_context):raise PermissionError(13,'private path must not be retained')
+            result=denied(measurement_context={});self.assertBlocked(result)
+            self.assertEqual(result['io_error_type'],'PermissionError');self.assertEqual(result['io_error_errno'],13)
+            self.assertNotIn('selected_input_cause',result);self.assertNotIn('private path',json.dumps(result))
+            @nav.research_io_guard('measurement_context')
+            def late(*,measurement_context):raise pd.errors.ParserError('not at a selected reader')
+            with self.assertRaises(pd.errors.ParserError):late(measurement_context={})
+
+    def test_r6_decode_cleanup_disclosure_and_parquet_backend_negatives(self):
+        import tempfile,pandas as pd,pyarrow as pa
+        from tools import run_weekly_evaluation as weekly,run_broker_ledger_replay as broker
+        from tools.execution_cost_model import load_paper_slippage
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);source=root/'source.json';source.write_bytes(b'{');dest=root/'out';dest.mkdir();leaf=dest/'metrics.research_v2.json'
+            foreign=dest/'foreign';foreign.write_bytes(b'keep');nested=dest/'archive';nested.mkdir();(nested/leaf.name).write_bytes(b'nested keep')
+            for kind in ('safe','unlink_denied','lstat_denied','protected','nonregular'):
+                with self.subTest(cleanup=kind):
+                    if leaf.is_dir():leaf.rmdir()
+                    else:leaf.unlink(missing_ok=True)
+                    if kind=='nonregular':leaf.mkdir()
+                    else:leaf.write_bytes(b'prior')
+                    original_unlink=Path.unlink;original_lstat=nav.os.lstat
+                    def unlink(p,*a,**kw):
+                        if kind=='unlink_denied' and p==leaf:raise PermissionError(13,'denied')
+                        return original_unlink(p,*a,**kw)
+                    def lstat(p,*a,**kw):
+                        if kind=='lstat_denied' and Path(p)==leaf:raise PermissionError(13,'denied')
+                        return original_lstat(p,*a,**kw)
+                    @nav.research_io_guard('measurement_context')
+                    def invoke(*,measurement_context):
+                        protected={source.resolve()}|({leaf.resolve()} if kind=='protected' else set())
+                        nav.observe_research_publication(dest,[leaf.name],protected,root/'cache')
+                        nav.authorize_research_cleanup(dest,[leaf.name],protected,root/'cache')
+                        return weekly._read_json(source,strict_io=True)
+                    try:
+                        with patch.object(Path,'unlink',unlink),patch.object(nav.os,'lstat',lstat):result=invoke(measurement_context={})
+                    except Exception as exc:self.fail('Cleanup decoder escaped: '+type(exc).__name__)
+                    self.assertBlocked(result);self.assertEqual(result['selected_input_cause'],'JSONDecodeError')
+                    self.assertFalse(result['current_publication_complete']);self.assertEqual(result['cleanup_complete'],kind=='safe')
+                    if kind=='safe':self.assertFalse(leaf.exists())
+                    elif kind=='protected':self.assertIn(leaf.name,result['cleanup_refused_inputs']);self.assertEqual(leaf.read_bytes(),b'prior')
+                    else:self.assertIn(leaf.name,result['uncleared_generated_outputs']);self.assertTrue(leaf.exists())
+                    self.assertEqual(source.read_bytes(),b'{');self.assertEqual(foreign.read_bytes(),b'keep');self.assertEqual((nested/leaf.name).read_bytes(),b'nested keep')
+            parquet=root/'input.parquet';parquet.write_bytes(b'placeholder');cache=root/'cache';cache.mkdir();(cache/weekly.px_cache_name('AAA')).write_bytes(b'placeholder')
+            for error in (ValueError('engine option'),TypeError('programming'),RuntimeError('programming'),pa.ArrowTypeError('unsupported'),pa.ArrowNotImplementedError('unsupported')):
+                for role in ('price','rate','slippage'):
+                    with self.subTest(backend=type(error).__name__,role=role):
+                        @nav.research_io_guard('measurement_context')
+                        def invoke(*,measurement_context):
+                            if role=='price':return weekly.load_price_series(cache,'AAA',strict_io=True)
+                            if role=='rate':return broker.load_cash_rate_series(broker.CashCarryConfig(mode='risk_free_rate',rate_path=parquet),cache)
+                            return load_paper_slippage(parquet,strict_io=True)
+                        with patch.object(pd,'read_parquet',side_effect=error),self.assertRaises(type(error)):invoke(measurement_context={})
+
+
+
 class HostedR3BindingCalendarResourceTests(unittest.TestCase):
     """Finite source955 review families; synthetic NAV, actual offline calendar."""
     def assertClosed(self, out):

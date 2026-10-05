@@ -1740,6 +1740,57 @@ class ResearchNavCallerTests(unittest.TestCase):
         self.assertEqual({p:hashlib.sha256(p.read_bytes()).hexdigest() for p in source_hashes},source_hashes)
 
 
+    def test_r6_actual_selected_decode_phases_preserve_inputs_and_foreign_outputs(self):
+        import pyarrow as pa,pyarrow.parquet as pq
+        from tools import nav_metrics_v2 as nav
+        from tools.execution_cost_model import ExecutionCostConfig
+        self.write_prices([100.]*4);original_target=self.target.read_bytes();price=self.cache/px_cache_name('AAA');original_price=price.read_bytes()
+        dest=self.out/nav.NAMESPACE
+        for role in ('target','rate','price','slippage','slippage_date'):
+            for kind in (('utf8','parse','empty') if role in ('target','rate','slippage') else ('bad_magic','attrs') if role=='price' else ('date',)):
+                with self.subTest(role=role,kind=kind):
+                    self.target.write_bytes(original_target);price.write_bytes(original_price)
+                    self.assertEqual(self.run_replay(measurement_context=self.measurement())['status'],nav.COMPLETE)
+                    foreign=dest/'foreign.txt';foreign.write_bytes(b'keep');archive=dest/'archive';archive.mkdir(exist_ok=True);(archive/nav.CURVE_FILE).write_bytes(b'nested keep')
+                    prior=(dest/nav.CURVE_FILE).read_bytes();options={};source=self.target if role=='target' else price if role=='price' else self.root/(role+'.csv')
+                    if role in ('rate','slippage','slippage_date'):
+                        if role=='rate':options.update(cash_carry_config=CashCarryConfig(mode='risk_free_rate',rate_path=source),reserve_mode='DGS3MO_CARRY')
+                        else:options['execution_cost_config']=ExecutionCostConfig(mode='spread_adv_impact_v1',paper_slippage_path=source)
+                    if kind=='attrs':
+                        table=pa.Table.from_pandas(pd.read_parquet(price));meta=dict(table.schema.metadata or {});meta[b'PANDAS_ATTRS']=b'{' ;pq.write_table(table.replace_schema_metadata(meta),source)
+                    elif kind=='date':source.write_bytes(b'date,ticker,side,observed_slippage_bps\n2026-99-99,AAA,BUY,1\n')
+                    else:source.write_bytes({'utf8':b'a,b\n\xff,1\n','parse':b'a,b\n"unfinished','empty':b'','bad_magic':b'bad parquet'}[kind])
+                    before={p:p.read_bytes() for p in [self.target,*self.cache.iterdir(),source]}
+                    try:result=self.run_replay(measurement_context=self.measurement(),**options)
+                    except Exception as exc:self.fail('Actual replay decoder escaped: '+type(exc).__name__)
+                    self.assertEqual(result['status'],nav.BLOCKED,result);self.assertEqual(result['reason'],'RESEARCH_IO_FAILURE')
+                    self.assertFalse(result['metric_admission_complete']);self.assertFalse(result['current_publication_complete'])
+                    for field in nav.METRIC_FIELDS:self.assertIsNone(result[field])
+                    for field,value in nav.AUTHORITY.items():self.assertEqual(result[field],value)
+                    if role=='target':self.assertFalse(result['cleanup_complete']);self.assertEqual((dest/nav.CURVE_FILE).read_bytes(),prior)
+                    else:self.assertTrue(result['cleanup_complete']);self.assertFalse((dest/nav.CURVE_FILE).exists())
+                    self.assertEqual(foreign.read_bytes(),b'keep');self.assertEqual((archive/nav.CURVE_FILE).read_bytes(),b'nested keep')
+                    self.assertEqual({p:p.read_bytes() for p in before},before);json.dumps(result,allow_nan=False)
+        self.target.write_bytes(original_target);price.write_bytes(original_price)
+        self.assertEqual(self.run_replay(measurement_context=self.measurement())['status'],nav.COMPLETE)
+
+    def test_r6_actual_broker_cli_decoder_failure_has_finite_incomplete_disclosure(self):
+        import subprocess
+        from tools import nav_metrics_v2 as nav
+        self.write_prices([100.]*4);context_path=self.root/'context.json';context_path.write_text(json.dumps(self.measurement()))
+        self.target.write_bytes(b'a\n\xff\n');before=self.target.read_bytes();dest=self.out/nav.NAMESPACE;dest.mkdir(parents=True)
+        leaf=dest/nav.CURVE_FILE;leaf.write_bytes(b'prior');foreign=dest/'foreign';foreign.write_bytes(b'keep')
+        cmd=[sys.executable]+(['-O'] if sys.flags.optimize else [])+[str(ROOT/'tools/run_broker_ledger_replay.py'),
+             '--target-book',str(self.target),'--price-cache',str(self.cache),'--output-dir',str(self.out),
+             '--cash-carry-mode','none','--nav-metrics-context',str(context_path)]
+        child=subprocess.run(cmd,capture_output=True,text=True,encoding='utf-8',timeout=60)
+        self.assertEqual(child.returncode,2,child.stderr);self.assertNotIn('Traceback',child.stderr)
+        result=json.loads(child.stdout,parse_constant=lambda x:self.fail(x));self.assertEqual(result['status'],nav.BLOCKED)
+        self.assertEqual(result['selected_input_cause'],'UnicodeDecodeError');self.assertFalse(result['current_publication_complete'])
+        self.assertFalse(result['cleanup_complete']);self.assertEqual(leaf.read_bytes(),b'prior');self.assertEqual(foreign.read_bytes(),b'keep')
+        self.assertEqual(self.target.read_bytes(),before);self.assertFalse(result['fullrun_allowed'])
+
+
 def main() -> int:
     test_missing_liquidation_fill_fails_closed_before_state_mutation()
     test_multi_day_transition_fails_closed_before_state_mutation()
