@@ -6235,3 +6235,11 @@ Expected contract:
   assertions, unchanged/advanced positives and backward/conflict negatives.
 - Omit only known transport-hash aliases from reuse; retain consumed map hash
   and clock. Mixed requests keep the existing agent-wide dependency union.
+
+## 2026-10-05 - Preserve each consumed mapping through context compaction
+
+- Calendar symbol-to-theme provenance is distinct from vendor-to-native identity.
+  Retain each map hash and UTC clock even for empty, unmatched or stale pairs;
+  transport-only churn cannot replace a changed consumed mapping.
+- Validate supplied mapping identity before compaction; canonical UTC/key-order
+  controls reuse context. Format/clock checks do not authenticate a producer or PIT.

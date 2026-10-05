@@ -45,6 +45,23 @@ real value/coverage/date/cohort/expiry changes still require review. The consume
 mapping_sha256 and mapping_available_at remain semantic. No wildcard hash filter,
 Calendar activation, producer authentication or source/PIT admission is added.
 
+## Native R4 Calendar theme-map provenance - 2026-10-05
+
+Optional Calendar consumes a symbol-to-theme map separately from the
+vendor-to-native security map. The final calendar_theme_map_binding retains
+the supplied lowercase SHA256 and exact UTC availability clock, including
+empty/nonpaired/stale Calendar diagnostics. Missing/malformed identity and
+future/naive clocks fail closed. No clock/hash is invented from transport,
+cutoff or filesystem metadata; hash format does not authenticate the map.
+
+Theme-map hash/clock changes remain semantic even when compacted aggregates
+match. Upstream canonical object key order and equivalent UTC instants reuse
+context; exact transport aliases still do not create review. Absent Calendar
+has a null theme binding. Eight added boundary methods reuse the existing H1
+alias:371 new/487 integrated methods, with every prior assertion/helper and
+the two previously authorized clock fixture exceptions preserved. Pure source
+interfaces, Calendar activation and producer/PIT/economic authority stay unchanged.
+
 # Chameleon Market Context V2 — #576 successor to #388
 
 TASK_KEY: `R1000-H1-CHAMELEON-MARKET-CONTEXT-V2-20261004`  

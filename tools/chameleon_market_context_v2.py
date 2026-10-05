@@ -312,7 +312,13 @@ def build_context(*, macro_rows: list[dict], public_rows: list[dict], price_rows
     prices = validate_prices(price_rows, cutoff=cutoff, expected_session=expected_session)
     paired = []
     security_map_binding = None
+    calendar_theme_map_binding = None
     if calendar_result is not None:
+        theme_hash = calendar_result.get("mapping_sha256")
+        f.require(type(theme_hash) is str and re.fullmatch(r"[a-f0-9]{64}", theme_hash) is not None,
+                  "CALENDAR_THEME_MAPPING_HASH")
+        theme_clock = f.utc(calendar_result.get("mapping_available_at"))
+        f.require(theme_clock <= f.utc(cutoff), "FUTURE_CALENDAR_CONTEXT")
         source = calendar_result["source"]
         f.require(f.utc(source["collected_at"]) <= f.utc(source["available_at"]) <= f.utc(cutoff),
                   "CALENDAR_SOURCE_CLOCK")
@@ -320,6 +326,8 @@ def build_context(*, macro_rows: list[dict], public_rows: list[dict], price_rows
                   "CALENDAR_SOURCE_HASH")
         bundle = f.compose_research_context(prices, calendar_result, [], security_map=security_map,
                     security_map_available_at=security_map_available_at, cutoff=cutoff, expected_session=expected_session)
+        calendar_theme_map_binding = {"mapping_sha256": theme_hash,
+                                      "mapping_available_at": theme_clock.isoformat()}
         security_map_binding = {
             "mapping_sha256": bundle["section_sha256"]["explicit_security_map"],
             "mapping_available_at": f.utc(security_map_available_at).isoformat(),
@@ -416,6 +424,7 @@ def build_context(*, macro_rows: list[dict], public_rows: list[dict], price_rows
         "cutoff": cutoff, "expected_price_session": expected_session, "macro": macro,
         "derived_macro": derivatives, "public": public, "price": prices, "paired_themes": paired,
         "security_map_binding": security_map_binding,
+        "calendar_theme_map_binding": calendar_theme_map_binding,
         "diagnostics": diagnostics, "family_presence": family_presence, "missing_families": missing,
         "regime": None, "input_producer_authenticated": False, "independent_alpha_votes": None,
         "known_overlap": ["VIX/VIX3M/VIX9D/VVIX share option-variance family",

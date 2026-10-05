@@ -348,5 +348,147 @@ class ContextTransportIdentityBoundaryTests(unittest.TestCase):
                 self.assertNotEqual(original['security_map_binding'], current['security_map_binding'])
                 self.assertEqual(c.context_delta(original, current)['status'], 'CONTEXT_CHANGED_REVIEW_ONLY')
 
+    def theme_inputs(self, *, theme_map=None, theme_clock=CLOCK, variant='paired', transport=False):
+        symbols=['XAAA.US','XBBB.US']
+        payload={'type':'Trends','symbols':','.join(symbols),'trends':[[
+            {'code':symbol,'date':'2026-12-31','period':'0y','earningsEstimateAvg':'2',
+             'epsTrendCurrent':'2','epsTrend30daysAgo':'1.5'}] for symbol in symbols]}
+        raw=encoded(payload)
+        if transport:raw=b'\n '+raw+b' \n'
+        theme_map={symbol:['power'] for symbol in symbols} if theme_map is None else theme_map
+        calendar=f.calendar_theme_context(raw,symbols,theme_map,observed_at=CLOCK,
+                    mapping_available_at=theme_clock,**KW)
+        prices=[price(),price('power',.02),price('energy',.02)]
+        for row in prices:
+            row['members']=['XAAA','XBBB']
+            for key in ('advancers','decliners','unchanged'):row[key]*=2
+            row['metrics']['pct_above_ma20'].update(eligible_count=2,expected_count=2)
+            if transport:row['source_sha256']='b'*64
+        if variant=='no_price':prices=[row for row in prices if row['cohort']=='__MARKET__']
+        elif variant=='cohort_mismatch':
+            for row in prices:
+                if row['cohort']!='__MARKET__':row['members']=['XAAA','XCCC']
+        elif variant=='session_mismatch':
+            for row in prices:row['session']='2026-10-01'
+        elif variant=='stale':
+            calendar['source'].update(available_at='2026-09-28T12:00:00Z',collected_at='2026-09-28T12:00:00Z')
+        return {'macro_rows':[],'public_rows':survey()+cot()+finra(),'price_rows':prices,
+                'calendar_result':calendar,'security_map':{'XAAA.US':'XAAA','XBBB.US':'XBBB'},
+                'security_map_available_at':CLOCK,'cutoff':CLOCK,'expected_session':DAY}
+
+    def theme_build(self, options):
+        before=encoded(options)
+        result=c.build_context(**options)
+        self.assertEqual(encoded(options),before)
+        c.verify_context(result)
+        self.assertEqual({key:result[key] for key in c.SAFETY},c.SAFETY)
+        self.assertFalse(result['input_producer_authenticated'])
+        self.assertIsNone(result['regime'])
+        return result
+
+    def test_calendar_theme_hash_clock_and_both_are_semantic_independent_of_transport(self):
+        original=self.theme_build(self.theme_inputs())
+        for changed in ('hash','clock','both'):
+            with self.subTest(changed=changed):
+                options=self.theme_inputs()
+                if changed in ('hash','both'):options['calendar_result']['mapping_sha256']='b'*64
+                if changed in ('clock','both'):options['calendar_result']['mapping_available_at']='2026-10-04T11:00:00Z'
+                current=self.theme_build(options)
+                self.assertEqual(c.context_delta(original,current)['status'],'CONTEXT_CHANGED_REVIEW_ONLY')
+                self.assertNotEqual(original['content_sha256'],current['content_sha256'])
+                self.assertEqual(current['calendar_theme_map_binding'],{
+                    'mapping_sha256':options['calendar_result']['mapping_sha256'],
+                    'mapping_available_at':f.utc(options['calendar_result']['mapping_available_at']).isoformat()})
+                self.assertEqual(original['security_map_binding'],current['security_map_binding'])
+
+    def test_actual_supplied_theme_map_changes_with_same_compacted_aggregates_need_review(self):
+        maps=[{'XAAA.US':['power'],'XBBB.US':['energy']},
+              {'XAAA.US':['energy'],'XBBB.US':['power']}]
+        first=self.theme_build(self.theme_inputs(theme_map=maps[0]))
+        second=self.theme_build(self.theme_inputs(theme_map=maps[1]))
+        self.assertEqual(first['paired_themes'],second['paired_themes'])
+        self.assertEqual(first['security_map_binding'],second['security_map_binding'])
+        self.assertEqual(c.context_delta(first,second)['status'],'CONTEXT_CHANGED_REVIEW_ONLY')
+        self.assertNotEqual(first['calendar_theme_map_binding']['mapping_sha256'],second['calendar_theme_map_binding']['mapping_sha256'])
+
+    def test_theme_binding_retained_without_pairs_or_usable_pairing(self):
+        for variant in ('empty_themes','no_price','cohort_mismatch','session_mismatch','stale'):
+            mapping={'XAAA.US':[],'XBBB.US':[]} if variant=='empty_themes' else None
+            first=self.theme_build(self.theme_inputs(theme_map=mapping,variant=variant))
+            if variant=='empty_themes':self.assertEqual(first['paired_themes'],[])
+            for changed in ('hash','clock','both'):
+                with self.subTest(variant=variant,changed=changed):
+                    options=self.theme_inputs(theme_map=mapping,variant=variant)
+                    if changed in ('hash','both'):options['calendar_result']['mapping_sha256']='b'*64
+                    if changed in ('clock','both'):options['calendar_result']['mapping_available_at']='2026-10-04T11:00:00Z'
+                    second=self.theme_build(options)
+                    self.assertEqual(first['paired_themes'],second['paired_themes'])
+                    self.assertEqual(c.context_delta(first,second)['status'],'CONTEXT_CHANGED_REVIEW_ONLY')
+                    self.assertIsNotNone(second['calendar_theme_map_binding'])
+
+    def test_upstream_canonical_key_order_and_equivalent_UTC_are_unchanged(self):
+        first=self.theme_build(self.theme_inputs())
+        options=self.theme_inputs(theme_map={'XBBB.US':['power'],'XAAA.US':['power']},theme_clock='2026-10-04T21:00:00+09:00')
+        second=self.theme_build(options)
+        self.assertEqual(c.context_delta(first,second)['status'],'SKIP_UNCHANGED_CONTEXT')
+        self.assertEqual(first.get('calendar_theme_map_binding'),second.get('calendar_theme_map_binding'))
+        self.assertIsNotNone(second.get('calendar_theme_map_binding'))
+        self.assertEqual(second['calendar_theme_map_binding']['mapping_available_at'],'2026-10-04T12:00:00+00:00')
+
+    def test_transport_churn_and_absent_optional_calendar_do_not_gain_authority(self):
+        first=self.theme_build(self.theme_inputs())
+        second=self.theme_build(self.theme_inputs(transport=True))
+        self.assertNotEqual(first['content_sha256'],second['content_sha256'])
+        self.assertEqual(first.get('calendar_theme_map_binding'),second.get('calendar_theme_map_binding'))
+        self.assertEqual(c.context_delta(first,second)['status'],'SKIP_UNCHANGED_CONTEXT')
+        for options in ({'calendar_result':None,'security_map':None,'security_map_available_at':None},
+                        {'calendar_result':None,'security_map':{'unused':'unused'},'security_map_available_at':'malformed'}):
+            with self.subTest(options=options):
+                value=self.theme_build({**self.theme_inputs(),**options})
+                self.assertIsNone(value.get('calendar_theme_map_binding'))
+                self.assertIsNone(value['security_map_binding'])
+                self.assertEqual(value['paired_themes'],[])
+                self.assertEqual(c.context_delta(value,value)['status'],'SKIP_UNCHANGED_CONTEXT')
+
+    def test_missing_malformed_and_future_mapping_identity_fail_closed(self):
+        invalid=[('mapping_sha256',None),('mapping_sha256',''),('mapping_sha256','x'*64),
+                 ('mapping_sha256','A'*64),('mapping_sha256','a'*63),('mapping_sha256',123),
+                 ('mapping_sha256',['a'*64]),('mapping_available_at',None),
+                 ('mapping_available_at','2026-10-04T12:00:00'),('mapping_available_at','malformed'),
+                 ('mapping_available_at','2026-10-05T12:00:00Z')]
+        for key,value in invalid:
+            with self.subTest(key=key,value=value):
+                options=self.theme_inputs();options['calendar_result'][key]=value
+                before=encoded(options)
+                with self.assertRaises(f.ContextError):c.build_context(**options)
+                self.assertEqual(encoded(options),before)
+        for key in ('mapping_sha256','mapping_available_at'):
+            with self.subTest(missing=key):
+                options=self.theme_inputs();del options['calendar_result'][key]
+                with self.assertRaises(f.ContextError):c.build_context(**options)
+
+    def test_theme_mapping_domain_and_selected_authority_conflicts_keep_existing_rejection(self):
+        for mapping in ({'XAAA.US':['power']},{'XAAA.US':'power','XBBB.US':['power']},
+                        {'XAAA.US':['power','power'],'XBBB.US':['power']},
+                        {'XAAA.US':[''],'XBBB.US':['power']},{'XAAA.US':[1],'XBBB.US':['power']}):
+            with self.subTest(mapping=mapping),self.assertRaises(f.ContextError):self.theme_inputs(theme_map=mapping)
+        for flag in f.SAFETY:
+            with self.subTest(flag=flag):
+                options=self.theme_inputs();options['calendar_result'][flag]=True
+                with self.assertRaisesRegex(f.ContextError,'INPUT_AUTHORITY_CONFLICT'):c.build_context(**options)
+
+    def test_theme_vendor_native_map_and_real_observations_have_distinct_bindings(self):
+        first=self.theme_build(self.theme_inputs())
+        for change in ('native_map','native_clock','represented_price'):
+            with self.subTest(change=change):
+                options=self.theme_inputs()
+                if change=='native_map':options['security_map']={'XAAA.US':'XBBB','XBBB.US':'XAAA'}
+                elif change=='native_clock':options['security_map_available_at']='2026-10-04T11:00:00Z'
+                else:options['price_rows'][1]['median_return_1d']=.03
+                current=self.theme_build(options)
+                self.assertEqual(first.get('calendar_theme_map_binding'),current.get('calendar_theme_map_binding'))
+                self.assertEqual(c.context_delta(first,current)['status'],'CONTEXT_CHANGED_REVIEW_ONLY')
+                self.assertEqual(first['security_map_binding']==current['security_map_binding'],change=='represented_price')
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
