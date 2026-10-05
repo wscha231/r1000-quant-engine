@@ -6222,3 +6222,6 @@ Expected contract:
   revoke every current candidate's thesis slices while keeping review authority closed.
 - SEC accession prefixes identify submitters, including filing agents. Preserve
   raw/issuer/membership checks; do not impose an incorrect issuer-prefix gate.
+- Optional documentation can be SHA-pinned by accepted U0 inventory: restore
+  only owned conflicting bytes, without repinning or weakening its audit. Verify
+  approved wrapper AST and exact scoped deltas rather than stale byte expectations.
