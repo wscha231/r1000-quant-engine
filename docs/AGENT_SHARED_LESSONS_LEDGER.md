@@ -6273,3 +6273,8 @@ Expected contract:
   must precede receipt availability/cutoff before slicing, and OOS needs a real
   predecessor. Reject undeclared weekly evidence keys; scope trade counts and
   preserve fixed NAV mode separately from genuine execution-cost redaction.
+- The first hosted-fix freeze exposed remaining target/rate/slippage IO
+  suppression: make selected reads strict at the actual helper, preserving
+  default constructor/cost normalization. Rejected weekly package shapes have
+  no eval date; only four own freshness expectations change to unknown, with
+  all blocked/null/no-curve assertions retained. Record failed freezes honestly.

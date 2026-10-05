@@ -1277,6 +1277,123 @@ class ResearchNavCallerTests(unittest.TestCase):
         with patch.object(pd,'read_parquet',side_effect=PermissionError('legacy read')):
             self.assertTrue(load_price_series(self.cache,'AAA').empty)
 
+    def test_required_research_target_read_stat_and_absence_are_explicit(self):
+        from unittest.mock import patch
+        from tools import nav_metrics_v2 as nav
+        self.write_prices([100.]*4);raw=self.target.read_bytes()
+        for stage in ('read','stat','missing'):
+            with self.subTest(stage=stage):
+                self.assertEqual(self.run_replay(measurement_context=self.measurement())['status'],nav.COMPLETE)
+                if stage=='read':
+                    original=pd.read_csv
+                    def denied(p,*a,**kw):
+                        if isinstance(p,(str,Path)) and Path(p)==self.target:raise PermissionError('denied target read')
+                        return original(p,*a,**kw)
+                    guard=patch.object(pd,'read_csv',denied)
+                elif stage=='stat':
+                    original=Path.stat
+                    def denied(p,*a,**kw):
+                        if p==self.target:raise PermissionError('denied target stat')
+                        return original(p,*a,**kw)
+                    guard=patch.object(Path,'stat',denied)
+                else:
+                    self.target.unlink();guard=__import__('contextlib').nullcontext()
+                try:
+                    with guard:out=self.run_replay(measurement_context=self.measurement())
+                finally:
+                    if stage=='missing':self.target.write_bytes(raw)
+                self.assertEqual(out['reason'],'RESEARCH_IO_FAILURE',out)
+                self.assertFalse(out['current_publication_complete']);self.assertIsNone(out['cagr'])
+                self.assertEqual(out['io_error_type'],'FileNotFoundError' if stage=='missing' else 'PermissionError')
+                self.assertEqual(self.target.read_bytes(),raw)
+        with patch.object(pd,'read_csv',side_effect=PermissionError('legacy denied target')):
+            self.assertTrue(broker.read_csv(self.target).empty)
+
+    def test_selected_rate_and_slippage_IO_never_become_silent_optional_evidence(self):
+        from unittest.mock import patch
+        from tools import nav_metrics_v2 as nav
+        from nav_metrics_v2_smoke import context,binding
+        from tools.execution_cost_model import ExecutionCostConfig,load_paper_slippage
+        idx=pd.bdate_range('2025-12-01','2026-01-07')
+        px=pd.DataFrame({'Open':100.,'Close':100.,'Adj Close':100.,'High':100.,'Low':100.,'Volume':1000000},index=idx)
+        for ticker in ('AAA','SPY','QQQ'):px.to_parquet(self.cache/px_cache_name(ticker))
+        rate=self.root/'selected_rate.csv';rate.write_text('date,value\n2025-12-01,0\n',encoding='utf-8')
+        slip=self.root/'selected_slippage.csv';slip.write_text('date,ticker,side,observed_slippage_bps\n2026-01-05,AAA,BUY,0\n',encoding='utf-8')
+        for kind,source,options in (
+            ('rate',rate,dict(cash_carry_config=CashCarryConfig(mode='risk_free_rate',rate_path=rate,rate_lag_days=0,haircut_bps=0.),reserve_mode='DGS3MO_CARRY')),
+            ('slippage',slip,dict(execution_cost_config=ExecutionCostConfig(mode='spread_adv_impact_v1',paper_slippage_path=slip)))):
+            with patch.object(broker,'ExecutionCostModel',wraps=broker.ExecutionCostModel) as ctor:
+                baseline=self.run_replay(**options)
+                if kind=='slippage':
+                    self.assertEqual(len(ctor.call_args.args),2);self.assertEqual(ctor.call_args.kwargs,{})
+                else:self.assertFalse(ctor.called)
+            self.assertEqual(baseline['status'],'completed',baseline)
+            df=pd.read_csv(self.out/'equity_curve.csv')
+            data=[dict(session=r.date,timestamp=r.date+'T21:00:00Z',nav=r.equity_usd) for r in df.itertuples()]
+            receipt=dict(full=context(data,anchor_nav=10000.),valuation_binding=binding(data));raw=source.read_bytes()
+            for stage in ('read','stat','missing'):
+                with self.subTest(kind=kind,stage=stage):
+                    with patch.object(broker,'ExecutionCostModel',wraps=broker.ExecutionCostModel) as ctor:
+                        self.assertEqual(self.run_replay(**options,measurement_context=receipt)['status'],nav.COMPLETE)
+                        if kind=='slippage':self.assertEqual(ctor.call_args.kwargs,{'strict_io':True})
+                    if stage=='read':
+                        original=pd.read_csv
+                        def denied(p,*a,**kw):
+                            if isinstance(p,(str,Path)) and Path(p)==source:raise PermissionError('denied selected table read')
+                            return original(p,*a,**kw)
+                        guard=patch.object(pd,'read_csv',denied)
+                    elif stage=='stat':
+                        original=Path.stat
+                        def denied(p,*a,**kw):
+                            if p==source:raise PermissionError('denied selected table stat')
+                            return original(p,*a,**kw)
+                        guard=patch.object(Path,'stat',denied)
+                    else:
+                        source.unlink();guard=__import__('contextlib').nullcontext()
+                    try:
+                        with guard:out=self.run_replay(**options,measurement_context=receipt)
+                    finally:
+                        if stage=='missing':source.write_bytes(raw)
+                    self.assertEqual(out.get('reason'),'RESEARCH_IO_FAILURE',out)
+                    self.assertFalse(out['current_publication_complete']);self.assertIsNone(out['cagr'])
+                    self.assertEqual(source.read_bytes(),raw)
+        self.assertTrue(load_paper_slippage(None).empty)
+        self.assertTrue(load_paper_slippage(self.root/'genuinely_missing_optional.csv').empty)
+        self.assertFalse(load_paper_slippage(slip).empty)
+        with patch.object(pd,'read_csv',side_effect=PermissionError('legacy optional read')):
+            self.assertTrue(load_paper_slippage(slip).empty)
+
+    def test_strict_optional_slippage_formats_absence_and_disabled_controls(self):
+        from unittest.mock import patch
+        from tools.execution_cost_model import ExecutionCostConfig,ExecutionCostModel,load_paper_slippage
+        from tools import nav_metrics_v2 as nav
+        supplied=pd.DataFrame([dict(date='2026-01-05',ticker='AAA',side='BUY',observed_slippage_bps=3.)])
+        normalized=load_paper_slippage(None,strict_io=True)
+        self.assertTrue(normalized.empty)
+        for suffix in ('.csv','.parquet'):
+            with self.subTest(format=suffix):
+                path=self.root/('actual_optional'+suffix)
+                if suffix=='.csv':supplied.to_csv(path,index=False)
+                else:supplied.to_parquet(path,index=False)
+                original=path.read_bytes()
+                old=load_paper_slippage(path);strict=load_paper_slippage(path,strict_io=True)
+                pd.testing.assert_frame_equal(old,strict)
+                cfg=ExecutionCostConfig(mode='spread_adv_impact_v1',paper_slippage_path=path)
+                pd.testing.assert_frame_equal(ExecutionCostModel({},cfg).paper_slippage,ExecutionCostModel({},cfg,strict_io=True).paper_slippage)
+                reader='read_parquet' if suffix=='.parquet' else 'read_csv'
+                with patch.object(pd,reader,side_effect=PermissionError('selected source denied')):
+                    self.assertTrue(load_paper_slippage(path).empty)
+                    with self.assertRaises(PermissionError):load_paper_slippage(path,strict_io=True)
+                with patch.object(pd,reader,side_effect=ValueError('parser/programming boundary')):
+                    with self.assertRaises(ValueError):load_paper_slippage(path,strict_io=True)
+                self.assertEqual(path.read_bytes(),original)
+        missing=self.root/'selected_missing.csv'
+        self.assertTrue(load_paper_slippage(missing).empty)
+        with self.assertRaises(FileNotFoundError):load_paper_slippage(missing,strict_io=True)
+        self.write_prices([100.]*4)
+        out=self.run_replay(execution_cost_config=ExecutionCostConfig(paper_slippage_path=missing),measurement_context=self.measurement())
+        self.assertEqual(out['status'],nav.COMPLETE,out)  # Disabled optional source is not selected.
+
     def test_dynamic_cost_windows_keep_fixed_NAV_mode_and_failure_redaction(self):
         from tools import nav_metrics_v2 as nav
         from nav_metrics_v2_smoke import context,binding

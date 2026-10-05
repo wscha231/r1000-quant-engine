@@ -273,15 +273,19 @@ def liquidity_snapshot(
     )
 
 
-def load_paper_slippage(path: Path | None) -> pd.DataFrame:
+def load_paper_slippage(path: Path | None, *, strict_io: bool = False) -> pd.DataFrame:
     """Load optional same-trade implementation-shortfall evidence."""
 
     columns = ["date", "ticker", "side", "observed_slippage_bps"]
-    if path is None or not Path(path).exists():
+    if path is None or (not strict_io and not Path(path).exists()):
         return pd.DataFrame(columns=columns)
     try:
+        if strict_io:
+            Path(path).stat()  # A declared source is required in opt-in measurement.
         raw = pd.read_parquet(path) if Path(path).suffix.lower() == ".parquet" else pd.read_csv(path)
     except Exception:
+        if strict_io:
+            raise
         return pd.DataFrame(columns=columns)
     if raw.empty:
         return pd.DataFrame(columns=columns)
@@ -345,10 +349,10 @@ def load_paper_slippage(path: Path | None) -> pd.DataFrame:
 class ExecutionCostModel:
     """Quote conservative per-order costs from PIT OHLCV and paper evidence."""
 
-    def __init__(self, prices: dict[str, pd.DataFrame], config: ExecutionCostConfig):
+    def __init__(self, prices: dict[str, pd.DataFrame], config: ExecutionCostConfig, *, strict_io: bool = False):
         self.prices = prices
         self.config = config
-        self.paper_slippage = load_paper_slippage(config.paper_slippage_path)
+        self.paper_slippage = load_paper_slippage(config.paper_slippage_path, strict_io=strict_io)
         self._snapshot_cache: dict[tuple[str, str], LiquiditySnapshot] = {}
 
     def snapshot(self, ticker: str, fill_date: Any) -> LiquiditySnapshot:

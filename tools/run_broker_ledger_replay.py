@@ -142,6 +142,9 @@ def env_flag(name: str, default: bool = False) -> bool:
 
 
 def read_csv(path: Path) -> pd.DataFrame:
+    if nav_v2.research_io_active():
+        path.stat()  # The opted-in caller requires its declared target book.
+        return pd.read_csv(path)
     if not path.exists():
         return pd.DataFrame()
     try:
@@ -283,6 +286,22 @@ def _cash_rate_cache_candidates(config: CashCarryConfig, price_cache: Path) -> l
     return out
 
 
+def _selected_cash_rate_path(config: CashCarryConfig, price_cache: Path) -> Path | None:
+    for path in _cash_rate_cache_candidates(config, price_cache):
+        if not nav_v2.research_io_active():
+            if path.exists():
+                return path
+        else:
+            try:
+                path.stat()
+            except FileNotFoundError:
+                if config.rate_path is not None:
+                    raise  # Explicitly selected evidence cannot become an optional cache miss.
+                continue
+            return path
+    return None
+
+
 def load_cash_rate_series(config: CashCarryConfig, price_cache: Path) -> pd.DataFrame:
     """Load a PIT cash-rate table from the existing FRED cache convention.
 
@@ -292,12 +311,14 @@ def load_cash_rate_series(config: CashCarryConfig, price_cache: Path) -> pd.Data
 
     if not cash_carry_enabled(config):
         return pd.DataFrame()
-    selected_path = next((path for path in _cash_rate_cache_candidates(config, price_cache) if path.exists()), None)
+    selected_path = _selected_cash_rate_path(config, price_cache)
     if selected_path is None:
         return pd.DataFrame()
     try:
         raw = pd.read_parquet(selected_path) if selected_path.suffix.lower() == ".parquet" else pd.read_csv(selected_path)
     except Exception:
+        if nav_v2.research_io_active():
+            raise
         return pd.DataFrame()
     if raw.empty:
         return pd.DataFrame()
@@ -1642,8 +1663,7 @@ def replay(
             reserve_mode or (DGS3MO_CARRY if cash_carry_enabled(cash_carry_config) else BROKER_CASH_OR_MMF),
             context="current_paper")
         if preview_policy.cash_interest_enabled:
-            selected_rate = next((p for p in _cash_rate_cache_candidates(cash_carry_config, price_cache)
-                                  if p.exists()), None)
+            selected_rate = _selected_cash_rate_path(cash_carry_config, price_cache)
             if selected_rate is not None:
                 inputs.add(selected_rate.resolve())
         if any(p.resolve() in inputs for p in paths):
@@ -1805,7 +1825,8 @@ def replay(
         }
     prices = {ticker: px for ticker, px in prices.items() if not px.empty}
     execution_cost_model = (
-        ExecutionCostModel(prices, execution_cost_config)
+        (ExecutionCostModel(prices, execution_cost_config, strict_io=True) if research_measurement
+         else ExecutionCostModel(prices, execution_cost_config))
         if execution_cost_config.enabled
         else None
     )

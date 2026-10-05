@@ -152,7 +152,7 @@ class ResearchWeeklyCallerTests(__import__('unittest').TestCase):
                     else:bad[name]['valuation_binding']['rows'][0]['timestamp']='2026-01-09T20:00:00Z'
                     out=run(self.latest,self.out,self.cache,measurement_contexts=bad)
                     self.assertEqual(out['status'],nav.BLOCKED,out)
-                    self.assertEqual(out['freshness_status'],'ok')
+                    self.assertEqual(out['freshness_status'],'unknown' if kind in {'missing','malformed_entry'} else 'ok')
                     self.assertEqual(out['metrics'][name]['status'],nav.BLOCKED)
                     self.assertFalse(out['metric_admission_complete'])
                     self.assertFalse(list((self.out/nav.NAMESPACE).glob('*.csv')))
