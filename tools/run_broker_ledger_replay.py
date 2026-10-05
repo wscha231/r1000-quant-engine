@@ -1570,6 +1570,7 @@ def latest_account_state(
     return account, positions
 
 
+@nav_v2.research_io_guard("measurement_context")
 def replay(
     *,
     target_book: Path,
@@ -1614,8 +1615,45 @@ def replay(
         paths = [output_dir / n for n in generated_names]
         if any(p.resolve() in inputs or (p.exists() and not p.is_file() and not p.is_symlink()) for p in paths):
             return nav_v2.blocked("caller_input_collides_with_replay_output")
+        # Discover the same native selected sources before invalidating exports.
+        # This phase is research-only; it neither rewrites books nor selects a new source.
+        preview_policy = reserve_asset_policy or resolve_reserve_asset_policy(
+            reserve_mode or (DGS3MO_CARRY if cash_carry_enabled(cash_carry_config) else BROKER_CASH_OR_MMF),
+            context="current_paper")
+        if preview_policy.cash_interest_enabled:
+            selected_rate = next((p for p in _cash_rate_cache_candidates(cash_carry_config, price_cache)
+                                  if p.exists()), None)
+            if selected_rate is not None:
+                inputs.add(selected_rate.resolve())
+        if any(p.resolve() in inputs for p in paths):
+            return nav_v2.blocked("caller_input_collides_with_replay_output")
+        research_raw = read_csv(target_book)
+        preview_filters = {} if disable_concentrated_champion_filter else resolve_concentrated_champion_filters(
+            target_book=target_book, raw_targets=research_raw, portfolio_kind=portfolio_kind,
+            explicit_filters=concentrated_champion_filters)[0]
+        preview_targets = normalize_targets(research_raw, portfolio_kind, preview_filters,
+                                             disable_champion_filter=disable_concentrated_champion_filter)
+        preview_end = resolve_evidence_end(research_raw, evidence_end_date)[0]
+        if preview_end is not None and not preview_targets.empty:
+            preview_targets = preview_targets.loc[preview_targets["rebalance_date"] <= preview_end].copy()
+        if not preview_targets.empty:
+            preview_targets, _ = apply_reserve_asset_to_targets(preview_targets, policy=preview_policy,
+                                                                weight_col="weight", date_col="rebalance_date")
+            inputs.update((price_cache / px_cache_name(str(t).upper())).resolve()
+                          for t in preview_targets["ticker"].unique() if str(t).upper() not in CASH_TICKERS)
+            if any(p.resolve() in inputs for p in paths):
+                return nav_v2.blocked("caller_input_collides_with_replay_output")
+            if preview_policy.cash_interest_enabled:
+                for ticker in DEFAULT_CASH_CARRY_CALENDAR_TICKERS:
+                    inputs.add((price_cache / px_cache_name(ticker)).resolve())
+                    if any(p.resolve() in inputs for p in paths):
+                        return nav_v2.blocked("caller_input_collides_with_replay_output")
+                    if not load_price_series(price_cache, ticker).empty:
+                        break
+        nav_v2.authorize_research_cleanup(output_dir, generated_names, inputs, price_cache)
     output_dir.mkdir(parents=True, exist_ok=True)
     protected, collision = prepare_generated_outputs(output_dir, generated_names,
+        list(inputs) if research_measurement else
         [target_book, cash_carry_config.rate_path, execution_cost_config.paper_slippage_path, measurement_context_path])
     if collision:
         payload = redact_execution_performance({"target_book": str(target_book), "price_cache": str(price_cache),
@@ -1666,7 +1704,7 @@ def replay(
         }
         (output_dir / metric_name).write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return payload
-    raw = read_csv(target_book)
+    raw = research_raw if research_measurement else read_csv(target_book)
     if disable_concentrated_champion_filter:
         # Research books (e.g. Market Leader N3/N5 variants) carry their own
         # construction policy; coercing them through the production champion
@@ -2648,65 +2686,53 @@ def replay(
         (output_dir / artifact("replay_report.md")).write_text(render_report(metrics), encoding="utf-8")
         return metrics
 
-    try:
-        if reserve_explicit:
-            reserve_reason_audit.to_json(
-                output_dir / artifact("reserve_reason_audit.json"),
-                orient="records",
-                indent=2,
-                date_format="iso",
-            )
+    if reserve_explicit:
+        reserve_reason_audit.to_json(
+            output_dir / artifact("reserve_reason_audit.json"),
+            orient="records",
+            indent=2,
+            date_format="iso",
+        )
 
-        if research_measurement:
-            metrics.update(nav_v2.AUTHORITY)
-            metrics["research_output_namespace"] = str(output_dir)
-        equity_df.to_csv(output_dir / curve_name, index=False)
-        trades_df.to_csv(output_dir / artifact("trades.csv"), index=False)
-        holdings_df.to_csv(output_dir / artifact("holdings_daily.csv"), index=False)
-        if not holdings_df.empty:
-            weekly = holdings_df.copy()
-            weekly["date"] = pd.to_datetime(weekly["date"], errors="coerce")
-            weekly = weekly.dropna(subset=["date"])
-            weekly["week_end_date"] = weekly["date"].dt.to_period("W-FRI").dt.end_time.dt.normalize()
-            weekly = weekly.sort_values("date").drop_duplicates(["week_end_date", "ticker"], keep="last")
-            weekly.to_csv(output_dir / artifact("holdings_weekly.csv"), index=False)
-        cash_df.to_csv(output_dir / artifact("cash_ledger.csv"), index=False)
-        target_vs_actual_df.to_csv(output_dir / artifact("target_vs_actual_weights.csv"), index=False)
-        if partial_resize_two_signal_confirmation:
-            partial_resize_df.to_csv(output_dir / artifact("partial_resize_decisions.csv"), index=False)
-        if not equity_df.empty:
-            latest_date = pd.Timestamp(pd.to_datetime(equity_df["date"], errors="coerce").dropna().max()).normalize()
-            account_state, latest_positions = latest_account_state(
-                state=state,
-                prices=prices,
-                as_of_date=latest_date,
-                metrics=metrics,
-                trades=trades_df,
-                portfolio_kind=portfolio_kind,
-                starting_capital=starting_capital,
-                fill_mode=fill_mode,
-                cost_bps=cost_bps,
-                integer_shares=integer_shares,
-            )
-            latest_positions.to_csv(output_dir / artifact("positions_latest.csv"), index=False)
-            (output_dir / artifact("account_state_latest.json")).write_text(
-                json.dumps(account_state, indent=2, default=str),
-                encoding="utf-8",
-            )
-        (output_dir / metric_name).write_text(json.dumps(metrics, indent=2, default=str, allow_nan=not research_measurement), encoding="utf-8")
-        (output_dir / artifact("replay_report.md")).write_text(render_report(metrics), encoding="utf-8")
-        return metrics
-    except OSError:
-        if not research_measurement:
-            raise
-        for name in generated_names:
-            path = output_dir / name
-            if path.resolve() not in protected and (path.is_file() or path.is_symlink()):
-                try:
-                    path.unlink()
-                except OSError:
-                    pass
-        return dict(nav_v2.blocked("RESEARCH_OUTPUT_IO_FAILURE"), execution_status="completed")
+    if research_measurement:
+        metrics.update(nav_v2.AUTHORITY)
+        metrics["research_output_namespace"] = str(output_dir)
+    equity_df.to_csv(output_dir / curve_name, index=False)
+    trades_df.to_csv(output_dir / artifact("trades.csv"), index=False)
+    holdings_df.to_csv(output_dir / artifact("holdings_daily.csv"), index=False)
+    if not holdings_df.empty:
+        weekly = holdings_df.copy()
+        weekly["date"] = pd.to_datetime(weekly["date"], errors="coerce")
+        weekly = weekly.dropna(subset=["date"])
+        weekly["week_end_date"] = weekly["date"].dt.to_period("W-FRI").dt.end_time.dt.normalize()
+        weekly = weekly.sort_values("date").drop_duplicates(["week_end_date", "ticker"], keep="last")
+        weekly.to_csv(output_dir / artifact("holdings_weekly.csv"), index=False)
+    cash_df.to_csv(output_dir / artifact("cash_ledger.csv"), index=False)
+    target_vs_actual_df.to_csv(output_dir / artifact("target_vs_actual_weights.csv"), index=False)
+    if partial_resize_two_signal_confirmation:
+        partial_resize_df.to_csv(output_dir / artifact("partial_resize_decisions.csv"), index=False)
+    if not equity_df.empty:
+        latest_date = pd.Timestamp(pd.to_datetime(equity_df["date"], errors="coerce").dropna().max()).normalize()
+        account_state, latest_positions = latest_account_state(
+            state=state,
+            prices=prices,
+            as_of_date=latest_date,
+            metrics=metrics,
+            trades=trades_df,
+            portfolio_kind=portfolio_kind,
+            starting_capital=starting_capital,
+            fill_mode=fill_mode,
+            cost_bps=cost_bps,
+            integer_shares=integer_shares,
+        )
+        latest_positions.to_csv(output_dir / artifact("positions_latest.csv"), index=False)
+        (output_dir / artifact("account_state_latest.json")).write_text(
+            json.dumps(account_state, indent=2, default=str),
+            encoding="utf-8",
+        )
+    (output_dir / metric_name).write_text(json.dumps(metrics, indent=2, default=str, allow_nan=not research_measurement), encoding="utf-8")
+    (output_dir / artifact("replay_report.md")).write_text(render_report(metrics), encoding="utf-8")
+    return metrics
 
 
 def render_report(metrics: dict[str, Any]) -> str:

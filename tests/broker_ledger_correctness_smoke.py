@@ -1024,7 +1024,7 @@ class ResearchNavCallerTests(unittest.TestCase):
         with patch.object(pd.DataFrame,'to_csv',fail_after_curve):
             out=self.run_replay(measurement_context=self.measurement())
         self.assertEqual(out['status'],nav.BLOCKED)
-        self.assertEqual(out['reason'],'RESEARCH_OUTPUT_IO_FAILURE')
+        self.assertEqual(out['reason'],'RESEARCH_IO_FAILURE')
         self.assertFalse((self.out/nav.NAMESPACE/nav.CURVE_FILE).exists())
         self.assertEqual(self.target.read_bytes(),before)
 
@@ -1060,6 +1060,149 @@ class ResearchNavCallerTests(unittest.TestCase):
                     hygiene=official_portfolio(root,'main')
                     self.assertFalse(hygiene['target_pass']);self.assertFalse(hygiene['production_valid'])
                 self.assertEqual(mission_binding_status(metadata,mission_identity(PORTFOLIO_MISSION_TARGETS)),HISTORICAL_UNBOUND)
+
+    def test_research_IO_every_native_export_stage_is_bounded(self):
+        from tools import nav_metrics_v2 as nav
+        from tools.execution_cost_model import ExecutionCostConfig
+        self.write_prices([100.]*4);before=self.target.read_bytes()
+        original_csv=pd.DataFrame.to_csv;original_text=Path.write_text
+        scenes=("success","measurement_blocked","execution_blocked","empty_target")
+        for scene in scenes:
+            with self.subTest(scene=scene):
+                self.target.write_bytes(before)
+                options=dict(measurement_context=self.measurement())
+                if scene=="measurement_blocked":options['measurement_context']={}
+                if scene=="execution_blocked":options['execution_cost_config']=ExecutionCostConfig(mode='spread_adv_impact_v1')
+                if scene=="empty_target":self.target.write_text('ticker,rebalance_date,weight\n')
+                source=self.target.read_bytes();calls=[];fail_at=None;counter=0
+                def observe(path):
+                    nonlocal counter
+                    if Path(path).parent==self.out/nav.NAMESPACE:
+                        counter+=1;calls.append(Path(path).name)
+                        if counter==fail_at:raise OSError("synthetic export failure")
+                def csv(df,path,*a,**kw):observe(path);return original_csv(df,path,*a,**kw)
+                def text(path,*a,**kw):observe(path);return original_text(path,*a,**kw)
+                with patch.object(pd.DataFrame,'to_csv',csv),patch.object(Path,'write_text',text):
+                    baseline=self.run_replay(**options)
+                self.assertTrue(calls,scene)
+                if scene=="success":self.assertEqual(baseline['status'],nav.COMPLETE)
+                elif scene=="execution_blocked":
+                    self.assertEqual(baseline['metric_mode'],'DO_NOT_USE')
+                    self.assertTrue(baseline['performance_fields_redacted'])
+                for index,name in enumerate(tuple(calls),1):
+                    with self.subTest(scene=scene,write_index=index,name=name):
+                        fail_at=index;counter=0;calls=[]
+                        with patch.object(pd.DataFrame,'to_csv',csv),patch.object(Path,'write_text',text):
+                            out=self.run_replay(**options)
+                        self.assertEqual(out['reason'],'RESEARCH_IO_FAILURE',out)
+                        self.assertEqual(out['status'],nav.BLOCKED)
+                        self.assertFalse(out['current_publication_complete'])
+                        self.assertTrue(out['cleanup_complete'])
+                        for field in nav.METRIC_FIELDS:self.assertIsNone(out[field],field)
+                        self.assertFalse(out['valid_for_production'])
+                        self.assertEqual(self.target.read_bytes(),source)
+                        self.assertFalse(any((self.out/nav.NAMESPACE/n).exists() for n in
+                                             map(nav.artifact_name,broker.REPLAY_GENERATED_ARTIFACTS)))
+        self.target.write_bytes(before)
+
+    def test_research_startup_cleanup_failures_disclose_incomplete_output(self):
+        from tools import nav_metrics_v2 as nav
+        self.write_prices([100.]*4);dest=self.out/nav.NAMESPACE
+        before=self.target.read_bytes();original_mkdir=Path.mkdir;original_unlink=Path.unlink
+        original_resolve=Path.resolve
+        def resolve(path,*a,**kw):
+            if path==dest:raise PermissionError("resolve denied")
+            return original_resolve(path,*a,**kw)
+        with patch.object(Path,'resolve',resolve):out=self.run_replay(measurement_context={})
+        self.assertEqual(out['reason'],'RESEARCH_IO_FAILURE');self.assertFalse(out['current_publication_complete'])
+        def mkdir(path,*a,**kw):
+            if path==dest:raise PermissionError("mkdir denied")
+            return original_mkdir(path,*a,**kw)
+        with patch.object(Path,'mkdir',mkdir):out=self.run_replay(measurement_context=self.measurement())
+        self.assertEqual(out['reason'],'RESEARCH_IO_FAILURE');self.assertFalse(out['current_publication_complete'])
+        self.assertEqual(self.target.read_bytes(),before)
+        dest.mkdir(parents=True,exist_ok=True);keep=dest/'caller-notes';keep.write_bytes(b'preserve')
+        for name in map(nav.artifact_name,broker.REPLAY_GENERATED_ARTIFACTS):
+            with self.subTest(startup_unlink=name):
+                leaf=dest/name;leaf.write_bytes(b'old generated')
+                def unlink(path,*a,**kw):
+                    if path==leaf:raise PermissionError("unlink denied")
+                    return original_unlink(path,*a,**kw)
+                with patch.object(Path,'unlink',unlink):out=self.run_replay(measurement_context={})
+                self.assertEqual(out['reason'],'RESEARCH_IO_FAILURE')
+                self.assertFalse(out['cleanup_complete']);self.assertIn(name,out['uncleared_generated_outputs'])
+                self.assertEqual(leaf.read_bytes(),b'old generated');leaf.unlink()
+        original_text=Path.write_text
+        def text(path,*a,**kw):
+            if path.name==nav.artifact_name('replay_report.md'):raise OSError("late report failure")
+            return original_text(path,*a,**kw)
+        def unlink_metric(path,*a,**kw):
+            if path==dest/nav.METRICS_FILE:raise PermissionError("cleanup denied")
+            return original_unlink(path,*a,**kw)
+        with patch.object(Path,'write_text',text),patch.object(Path,'unlink',unlink_metric):
+            out=self.run_replay(measurement_context=self.measurement())
+        self.assertEqual(out['reason'],'RESEARCH_IO_FAILURE');self.assertFalse(out['cleanup_complete'])
+        self.assertIn(nav.METRICS_FILE,out['uncleared_generated_outputs'])
+        self.assertTrue((dest/nav.METRICS_FILE).exists());self.assertFalse(out['current_publication_complete'])
+        self.assertEqual(keep.read_bytes(),b'preserve');self.assertEqual(self.target.read_bytes(),before)
+
+    def test_research_guard_preserves_legacy_and_programming_error_contracts(self):
+        self.write_prices([100.]*4)
+        with patch.object(broker,'read_csv',side_effect=ValueError('programming error')):
+            with self.assertRaisesRegex(ValueError,'programming error'):
+                self.run_replay(measurement_context={})
+        original=Path.mkdir
+        def mkdir(path,*a,**kw):
+            if path==self.out:raise OSError('legacy IO')
+            return original(path,*a,**kw)
+        with patch.object(Path,'mkdir',mkdir):
+            with self.assertRaisesRegex(OSError,'legacy IO'):self.run_replay()
+
+    def test_actual_default_rate_and_reverse_price_aliases_preserve_sources(self):
+        import os
+        from tools import nav_metrics_v2 as nav
+        self.write_prices([100.]*4);dest=self.out/nav.NAMESPACE;dest.mkdir(parents=True)
+        names=list(map(nav.artifact_name,broker.REPLAY_GENERATED_ARTIFACTS))
+        original_resolve=Path.resolve
+        # Resolve-equivalence models the same physical alias on Windows without requiring symlink privilege.
+        price=self.cache/px_cache_name('AAA');rate=self.root/'cache_macro'/'fred_dgs3mo_DGS3MO.csv'
+        rate.parent.mkdir()
+        rate.write_text('date,value\n2026-01-02,4.0\n')
+        cfg=CashCarryConfig(mode=broker.CASH_CARRY_MODE_RISK_FREE)
+        for source,options in ((price,{}),(rate,dict(cash_carry_config=cfg,reserve_mode='DGS3MO_CARRY'))):
+            for name in names:
+                with self.subTest(source=source.name,output=name):
+                    leaf=dest/name;leaf.write_bytes(source.read_bytes());sentinel=dest/'caller-notes';sentinel.write_bytes(b'keep')
+                    def resolve(path,*a,**kw):
+                        return original_resolve(leaf,*a,**kw) if path==source else original_resolve(path,*a,**kw)
+                    candidates=patch.object(broker,'REPO_ROOT',self.root)
+                    with patch.object(Path,'resolve',resolve),candidates:
+                        out=self.run_replay(measurement_context={},**options)
+                    self.assertEqual(out['reason'],'caller_input_collides_with_replay_output',out)
+                    self.assertEqual(leaf.read_bytes(),source.read_bytes());self.assertEqual(sentinel.read_bytes(),b'keep')
+                    leaf.unlink()
+        # A distinct hardlink can be unlinked as an output while the original price inode/bytes survive.
+        leaf=dest/nav.CURVE_FILE;os.link(price,leaf);before=price.read_bytes()
+        out=self.run_replay(measurement_context=self.measurement())
+        self.assertEqual(out['status'],nav.COMPLETE);self.assertEqual(price.read_bytes(),before)
+        selected=rate.with_suffix('.parquet')
+        pd.DataFrame([dict(date='2025-12-31',value=4.)]).to_parquet(selected)
+        unused=rate
+        def resolve_unused(path,*a,**kw):
+            return original_resolve(dest/nav.METRICS_FILE,*a,**kw) if path==unused else original_resolve(path,*a,**kw)
+        # Native selection stops at the first existing rate; an unselected alias is not a byte source.
+        with patch.object(broker,'REPO_ROOT',self.root), \
+             patch.object(Path,'resolve',resolve_unused):
+            out=self.run_replay(measurement_context={},cash_carry_config=cfg,reserve_mode='DGS3MO_CARRY')
+        self.assertNotEqual(out.get('reason'),'caller_input_collides_with_replay_output')
+        if os.name!='nt':
+            leaf=dest/nav.CURVE_FILE;leaf.unlink(missing_ok=True);original_price=price.read_bytes()
+            leaf.write_bytes(original_price);price.unlink();price.symlink_to(leaf)
+            try:
+                out=self.run_replay(measurement_context={})
+                self.assertEqual(out['reason'],'caller_input_collides_with_replay_output')
+                self.assertEqual(leaf.read_bytes(),original_price)
+            finally:price.unlink();price.write_bytes(original_price)
 
 
 def main() -> int:

@@ -204,7 +204,7 @@ class ResearchWeeklyCallerTests(__import__('unittest').TestCase):
         with patch.object(pd.DataFrame,'to_csv',fail_second_export):
             out=run(self.latest,self.out,self.cache,measurement_contexts=c)
         self.assertEqual(out['status'],nav.BLOCKED)
-        self.assertEqual(out['reason'],'RESEARCH_OUTPUT_IO_FAILURE')
+        self.assertEqual(out['reason'],'RESEARCH_IO_FAILURE')
         self.assertFalse(list((self.out/nav.NAMESPACE).glob('*.csv')))
         self.assertEqual({p:p.read_bytes() for p in self.reports.iterdir()},inputs)
 
@@ -236,6 +236,129 @@ class ResearchWeeklyCallerTests(__import__('unittest').TestCase):
         out=run(self.latest,self.out,self.cache,measurement_contexts={},measurement_context_path=protected)
         self.assertEqual(out['status'],nav.BLOCKED)
         self.assertEqual(protected.read_bytes(),b'context input');self.assertEqual(note.read_bytes(),b'other retained input')
+
+    def test_research_IO_all_exports_and_cleanup_failures_are_bounded(self):
+        from tools import nav_metrics_v2 as nav
+        from unittest.mock import patch
+        dest=self.out/nav.NAMESPACE
+        before={p:p.read_bytes() for p in self.reports.iterdir()}
+        original_csv=pd.DataFrame.to_csv;original_text=Path.write_text
+        for scene in ('success','measurement_blocked'):
+            options=self.measurement() if scene=='success' else {}
+            calls=[];counter=0;fail_at=None
+            def observe(path):
+                nonlocal counter
+                if Path(path).parent==dest:
+                    counter+=1;calls.append(Path(path).name)
+                    if counter==fail_at:raise OSError('export denied')
+            def csv(df,path,*a,**kw):observe(path);return original_csv(df,path,*a,**kw)
+            def text(path,*a,**kw):observe(path);return original_text(path,*a,**kw)
+            with patch.object(pd.DataFrame,'to_csv',csv),patch.object(Path,'write_text',text):
+                baseline=run(self.latest,self.out,self.cache,measurement_contexts=options)
+            self.assertTrue(calls)
+            self.assertEqual(baseline['status'],nav.COMPLETE if scene=='success' else nav.BLOCKED)
+            for index,name in enumerate(tuple(calls),1):
+                with self.subTest(scene=scene,write=index,name=name):
+                    counter=0;calls=[];fail_at=index
+                    with patch.object(pd.DataFrame,'to_csv',csv),patch.object(Path,'write_text',text):
+                        out=run(self.latest,self.out,self.cache,measurement_contexts=options)
+                    self.assertEqual(out['reason'],'RESEARCH_IO_FAILURE')
+                    self.assertFalse(out['current_publication_complete']);self.assertTrue(out['cleanup_complete'])
+                    self.assertIsNone(out['cagr']);self.assertFalse(out['valid_for_production'])
+                    self.assertEqual({p:p.read_bytes() for p in self.reports.iterdir()},before)
+                    self.assertFalse(list(dest.glob('*.research_v2.*')))
+        original_mkdir=Path.mkdir;original_unlink=Path.unlink
+        original_resolve=Path.resolve
+        def resolve(path,*a,**kw):
+            if path==dest:raise PermissionError('resolve denied')
+            return original_resolve(path,*a,**kw)
+        with patch.object(Path,'resolve',resolve):
+            out=run(self.latest,self.out,self.cache,measurement_contexts={})
+        self.assertEqual(out['reason'],'RESEARCH_IO_FAILURE');self.assertFalse(out['current_publication_complete'])
+        def mkdir(path,*a,**kw):
+            if path==dest:raise PermissionError('mkdir denied')
+            return original_mkdir(path,*a,**kw)
+        with patch.object(Path,'mkdir',mkdir):
+            out=run(self.latest,self.out,self.cache,measurement_contexts={})
+        self.assertEqual(out['reason'],'RESEARCH_IO_FAILURE');self.assertFalse(out['current_publication_complete'])
+        names=('weekly_equity_curve.research_v2.csv','main_weekly_equity_curve.research_v2.csv',
+               'concentrated_weekly_equity_curve.research_v2.csv','weekly_metrics.research_v2.json',
+               'weekly_freshness_audit.research_v2.json','weekly_freshness_audit.research_v2.md')
+        for name in names:
+            with self.subTest(unlink=name):
+                leaf=dest/name;leaf.write_bytes(b'prior output')
+                def unlink(path,*a,**kw):
+                    if path==leaf:raise PermissionError('unlink denied')
+                    return original_unlink(path,*a,**kw)
+                with patch.object(Path,'unlink',unlink):
+                    out=run(self.latest,self.out,self.cache,measurement_contexts={})
+                self.assertEqual(out['reason'],'RESEARCH_IO_FAILURE');self.assertFalse(out['cleanup_complete'])
+                self.assertIn(name,out['uncleared_generated_outputs']);self.assertEqual(leaf.read_bytes(),b'prior output')
+                leaf.unlink()
+        metric=dest/'weekly_metrics.research_v2.json'
+        def late_text(path,*a,**kw):
+            if path.name=='weekly_freshness_audit.research_v2.md':raise OSError('late report failed')
+            return original_text(path,*a,**kw)
+        def retain_metric(path,*a,**kw):
+            if path==metric:raise PermissionError('cleanup denied')
+            return original_unlink(path,*a,**kw)
+        with patch.object(Path,'write_text',late_text),patch.object(Path,'unlink',retain_metric):
+            out=run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())
+        self.assertFalse(out['cleanup_complete']);self.assertFalse(out['current_publication_complete'])
+        self.assertIn(metric.name,out['uncleared_generated_outputs']);self.assertTrue(metric.exists())
+
+    def test_full_weekly_input_cone_reverse_aliases_and_disjoint_controls(self):
+        from tools import nav_metrics_v2 as nav
+        from unittest.mock import patch
+        import os
+        dest=self.out/nav.NAMESPACE;dest.mkdir(parents=True)
+        names=('weekly_equity_curve.research_v2.csv','main_weekly_equity_curve.research_v2.csv',
+               'concentrated_weekly_equity_curve.research_v2.csv','weekly_metrics.research_v2.json',
+               'weekly_freshness_audit.research_v2.json','weekly_freshness_audit.research_v2.md')
+        (self.latest/'portfolio_latest.csv').write_text('ticker,weight\nAAA,1.0\n')
+        (self.latest/'orchestrator').mkdir();(self.latest/'orchestrator'/'unified_target_latest.json').write_text('{"targets":[]}')
+        sources=[self.reports/n for n in ('main_monthly_weights.csv','concentrated_strategy_holdings.csv',
+                  'regime_by_month.csv','concentrated_strategy_monthly.csv')]
+        sources += [self.latest/'scored_latest.csv',self.latest/'portfolio_latest.csv',
+                    self.latest/'orchestrator'/'unified_target_latest.json']
+        sources += [self.cache/px_cache_name(n) for n in ('AAA','SPY','QQQ')]
+        context_input=self.root/'context.json';context_input.write_text('{}');sources.append(context_input)
+        original_resolve=Path.resolve
+        for source in sources:
+            for name in names:
+                with self.subTest(source=source.name,output=name):
+                    raw=source.read_bytes();leaf=dest/name;leaf.write_bytes(raw)
+                    sentinel=dest/'caller-notes';sentinel.write_bytes(b'preserve')
+                    def resolve(path,*a,**kw):
+                        return original_resolve(leaf,*a,**kw) if path==source else original_resolve(path,*a,**kw)
+                    with patch.object(Path,'resolve',resolve):
+                        out=run(self.latest,self.out,self.cache,measurement_contexts={},measurement_context_path=context_input)
+                    self.assertEqual(out['reason'],'caller_input_collides_with_weekly_research_output',out)
+                    self.assertEqual(source.read_bytes(),raw);self.assertEqual(leaf.read_bytes(),raw)
+                    self.assertEqual(sentinel.read_bytes(),b'preserve');leaf.unlink()
+        # Hardlink unlink/replacement preserves distinct native source bytes.
+        source=self.cache/px_cache_name('AAA');raw=source.read_bytes();leaf=dest/names[0];os.link(source,leaf)
+        out=run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())
+        self.assertEqual(out['status'],nav.COMPLETE);self.assertEqual(source.read_bytes(),raw)
+        if os.name!='nt':
+            leaf.unlink();leaf.write_bytes(raw);source.unlink();source.symlink_to(leaf)
+            try:
+                out=run(self.latest,self.out,self.cache,measurement_contexts={})
+                self.assertEqual(out['reason'],'caller_input_collides_with_weekly_research_output')
+                self.assertEqual(leaf.read_bytes(),raw)
+            finally:source.unlink();source.write_bytes(raw)
+
+    def test_research_guard_does_not_swallow_programming_or_legacy_IO_errors(self):
+        from unittest.mock import patch
+        with patch('tools.run_weekly_evaluation.normalize_holdings',side_effect=ValueError('programming error')):
+            with self.assertRaisesRegex(ValueError,'programming error'):
+                run(self.latest,self.out,self.cache,measurement_contexts={})
+        original=Path.mkdir
+        def mkdir(path,*a,**kw):
+            if path==self.out:raise OSError('legacy IO')
+            return original(path,*a,**kw)
+        with patch.object(Path,'mkdir',mkdir):
+            with self.assertRaisesRegex(OSError,'legacy IO'):run(self.latest,self.out,self.cache)
 
 
 def main() -> int:

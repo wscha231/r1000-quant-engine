@@ -9,8 +9,13 @@ import hashlib
 import json
 import math
 import numbers
+import os
+import stat
+import inspect
+from contextvars import ContextVar
+from functools import wraps
 from datetime import date, datetime, timezone
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from zoneinfo import ZoneInfo
 
 MODE = "nav_metrics_v2_research"
@@ -61,6 +66,17 @@ def real(value, positive=False):
 
 def encoded(value):
     nodes = 0
+    byte_count = 0
+    def charge(n):
+        nonlocal byte_count
+        byte_count += n
+        require(byte_count <= MAX_BYTES, "RESOURCE_BYTES")
+    def string(v):
+        # At least one JSON byte per character; escape bounded chunks before allocation.
+        require(len(v) <= MAX_BYTES, "RESOURCE_BYTES")
+        charge(2)
+        for start in range(0, len(v), 4096):
+            charge(len(json.dumps(v[start:start+4096]).encode("utf-8")) - 2)
     def walk(v, depth):
         nonlocal nodes
         nodes += 1
@@ -68,11 +84,24 @@ def encoded(value):
         require(type(v) in (dict, list, str, int, float, bool, type(None)), "JSON_TYPE")
         if type(v) is dict:
             require(all(type(k) is str for k in v), "JSON_KEY")
-            for item in v.values(): walk(item, depth + 1)
+            charge(2 + max(0, len(v)-1) + len(v))
+            for key, item in v.items():
+                string(key); walk(item, depth + 1)
         elif type(v) is list:
+            charge(2 + max(0, len(v)-1))
             for item in v: walk(item, depth + 1)
+        elif type(v) is str:
+            string(v)
         elif type(v) is float:
             require(math.isfinite(v), "NUMBER_NONFINITE")
+            charge(len(json.dumps(v)))
+        else:
+            if type(v) is int:
+                require(v.bit_length() <= MAX_BYTES * 3, "RESOURCE_BYTES")
+            try:
+                charge(len(json.dumps(v)))
+            except ValueError:
+                raise MetricError("RESOURCE_INTEGER") from None
     walk(value, 0)
     raw = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
     require(len(raw) <= MAX_BYTES, "RESOURCE_BYTES")
@@ -83,20 +112,85 @@ def digest(value):
     return hashlib.sha256(encoded(value)).hexdigest()
 
 
+def _windows_reserved(text):
+    # Native path parsing and a small device-name fallback also work on Python3.12.
+    path = PureWindowsPath(text)
+    if text.startswith(("\\\\.\\", "\\\\?\\")):
+        return True
+    reserved = getattr(os.path, "isreserved", None)
+    if reserved is not None:
+        return reserved(text)
+    names = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
+    names.update(prefix + digit for prefix in ("COM", "LPT") for digit in "123456789\u00b9\u00b2\u00b3")
+    return any(part.endswith((".", " ")) or any(ord(ch)<32 or ch in ':*?"<>|' for ch in part)
+               or part.partition(".")[0].rstrip(" ").upper() in names
+               for part in path.parts if part != path.anchor)
+
+
 def load_context(path):
-    raw = Path(path).read_bytes()
-    require(len(raw) <= MAX_BYTES, "RESOURCE_BYTES")
+    """Read only a stable regular file, bounded before open/read and JSON allocation."""
+    path = Path(path)
+    if os.name == "nt":
+        text = str(path)
+        require(not _windows_reserved(text), "CONTEXT_NOT_REGULAR")
+    fd = None
+    try:
+        before = os.lstat(path)
+        require(stat.S_ISREG(before.st_mode), "CONTEXT_NOT_REGULAR")
+        require(before.st_size <= MAX_BYTES, "RESOURCE_BYTES")
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(path, flags)
+        opened = os.fstat(fd)
+        require(stat.S_ISREG(opened.st_mode), "CONTEXT_NOT_REGULAR")
+        identity = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns)
+        require(identity(before) == identity(opened), "CONTEXT_FILE_CHANGED")
+        require(opened.st_size <= MAX_BYTES, "RESOURCE_BYTES")
+        chunks, length = [], 0
+        while length <= MAX_BYTES:
+            part = os.read(fd, min(65536, MAX_BYTES + 1 - length))
+            if not part:
+                break
+            chunks.append(part); length += len(part)
+        require(length <= MAX_BYTES, "RESOURCE_BYTES")
+        require(length == opened.st_size and identity(os.fstat(fd)) == identity(opened), "CONTEXT_FILE_CHANGED")
+        require(identity(os.lstat(path)) == identity(opened), "CONTEXT_FILE_CHANGED")
+        raw = b"".join(chunks)
+    except OSError:
+        raise MetricError("CONTEXT_INPUT_IO") from None
+    finally:
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                raise MetricError("CONTEXT_INPUT_IO") from None
     def unique(pairs):
         obj = {}
         for k, v in pairs:
             require(k not in obj, "JSON_DUPLICATE")
             obj[k] = v
         return obj
+    # Limit nesting/token expansion before the native JSON decoder allocates a tree.
+    depth, tokens, quoted, escaped = 0, 0, False, False
+    for ch in raw:
+        if quoted:
+            if escaped: escaped = False
+            elif ch == 92: escaped = True
+            elif ch == 34: quoted = False
+        elif ch == 34:
+            quoted = True; tokens += 1
+        elif ch in (123, 91):
+            depth += 1; tokens += 1
+            require(depth <= MAX_DEPTH + 1, "RESOURCE_TREE")
+        elif ch in (125, 93): depth -= 1
+        elif ch == 44: tokens += 1
+        require(tokens <= MAX_ROWS * 60, "RESOURCE_TREE")
     try:
         obj = json.loads(raw, object_pairs_hook=unique,
                          parse_constant=lambda _: (_ for _ in ()).throw(MetricError("NUMBER_NONFINITE")))
         encoded(obj)
-    except (UnicodeError, RecursionError, json.JSONDecodeError):
+    except MetricError:
+        raise
+    except (UnicodeError, RecursionError, json.JSONDecodeError, ValueError):
         raise MetricError("CONTEXT_JSON") from None
     require(type(obj) is dict, "CONTEXT_TYPE")
     return obj
@@ -119,6 +213,63 @@ def artifact_name(name):
     """Every research export differs from names used by legacy account readers."""
     path = Path(name)
     return path.stem + ".research_v2" + path.suffix
+
+
+_io_state = ContextVar("nav_research_io", default=None)
+
+
+def authorize_research_cleanup(directory, names, protected, price_cache):
+    """Called only after the complete caller input-cone preflight has passed."""
+    state = _io_state.get()
+    if state is not None:
+        state.update(directory=Path(directory), names=tuple(names), protected=set(protected),
+                     price_cache=Path(price_cache), cleanup_authorized=True)
+
+
+def research_io_guard(context_argument):
+    """Bound expected OS failures for opt-in callers; legacy/programming errors propagate."""
+    def decorate(fn):
+        signature = inspect.signature(fn)
+        @wraps(fn)
+        def call(*args, **kwargs):
+            bound = signature.bind(*args, **kwargs)
+            if bound.arguments.get(context_argument) is None:
+                return fn(*args, **kwargs)
+            state = {"cleanup_authorized": False}
+            token = _io_state.set(state)
+            try:
+                return fn(*args, **kwargs)
+            except OSError as exc:
+                remaining, refused = [], []
+                cleanup_complete = bool(state["cleanup_authorized"])
+                if cleanup_complete:
+                    try:
+                        directory = state["directory"]
+                        if directory.resolve().is_relative_to(state["price_cache"].resolve()):
+                            cleanup_complete = False
+                        else:
+                            for name in state["names"]:
+                                path = directory / name
+                                try:
+                                    if path.resolve() in state["protected"]:
+                                        refused.append(name); cleanup_complete = False
+                                    elif path.is_file() or path.is_symlink():
+                                        path.unlink()
+                                    elif path.exists():
+                                        remaining.append(name); cleanup_complete = False
+                                except OSError:
+                                    remaining.append(name); cleanup_complete = False
+                    except OSError:
+                        cleanup_complete = False
+                result = blocked("RESEARCH_IO_FAILURE")
+                result.update(current_publication_complete=False, io_error_type=type(exc).__name__,
+                              io_error_errno=exc.errno, cleanup_complete=cleanup_complete,
+                              uncleared_generated_outputs=remaining, cleanup_refused_inputs=refused)
+                return result
+            finally:
+                _io_state.reset(token)
+        return call
+    return decorate
 
 
 def _statistics(values, annualization):
@@ -258,6 +409,7 @@ def _calculate(rows, c, label):
 
 def frame_rows(frame, *, date_column, nav_column, valuation_binding=None):
     """Bind actual caller sessions to a separate valuation-time receipt, never a price union."""
+    require(len(frame) <= MAX_ROWS, "ROW_BUDGET")
     records = frame.to_dict("records")
     require(len(records) <= MAX_ROWS, "ROW_BUDGET")
     bindings = None

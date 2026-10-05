@@ -241,6 +241,153 @@ class NavMetricTests(unittest.TestCase):
         self.assertNotEqual(out["status"],"completed")
         self.assertEqual(out["metric_mode"],nav.MODE)
 
+    def test_canonical_serialization_budget_precedes_large_allocation(self):
+        ordinary = {"z": [None, True, 2, -3.25, "a\n\U0001f600"], "a": {"q": "\\\""}}
+        self.assertEqual(nav.encoded(ordinary), json.dumps(ordinary, sort_keys=True,
+                         separators=(",", ":"), allow_nan=False).encode())
+        with patch.object(nav, "MAX_BYTES", 64):
+            self.assertEqual(len(nav.encoded("x"*62)),64)
+            for value in ("x"*65, {"x"*65: 1}, {"a":"x"*32,"b":"x"*32}, "\u0000"*11):
+                with self.subTest(value_type=type(value).__name__):
+                    calls=[]; original=json.dumps
+                    def bounded(v,*a,**kw):
+                        calls.append(v)
+                        return original(v,*a,**kw)
+                    with patch.object(nav.json,"dumps",side_effect=bounded):
+                        with self.assertRaises(nav.MetricError):nav.encoded(value)
+                    self.assertFalse(any(v is value for v in calls if type(v) is dict))
+                    self.assertFalse(any(type(v) is str and len(v)>64 for v in calls))
+
+    def test_frame_row_budget_precedes_records_copy(self):
+        class Huge:
+            def __len__(self):return 3
+            def to_dict(self,*args):raise AssertionError("overbudget copied")
+        with patch.object(nav,"MAX_ROWS",2):
+            with self.assertRaisesRegex(nav.MetricError,"ROW_BUDGET"):
+                nav.frame_rows(Huge(),date_column="date",nav_column="equity_usd")
+            small=frame(rows()[:2])
+            self.assertEqual(len(nav.frame_rows(small,date_column="date",nav_column="equity_usd")),2)
+
+    def test_regular_context_byte_and_JSON_family_preserves_inputs(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/"context.json"
+            for raw,valid in ((b'{}',True),(b'{}'+b' '*62,True),(b'',False),
+                              (b'{}'+b' '*63,False),(b'{"x":1,"x":2}',False),
+                              (b'{"x":NaN}',False),(b'['*18+b'0'+b']'*18,False)):
+                with self.subTest(size=len(raw),raw=raw[:20]),patch.object(nav,"MAX_BYTES",64):
+                    path.write_bytes(raw)
+                    if len(raw)>64:
+                        with patch.object(nav.os,"open",side_effect=AssertionError("overcap opened")), \
+                             patch.object(Path,"read_bytes",side_effect=AssertionError("overcap eagerly read")), \
+                             patch.object(nav.json,"loads",side_effect=AssertionError("overcap decoded")):
+                            with self.assertRaises(nav.MetricError):nav.load_context(path)
+                    elif valid:self.assertEqual(nav.load_context(path),{})
+                    else:
+                        with self.assertRaises(nav.MetricError):nav.load_context(path)
+                    self.assertEqual(path.read_bytes(),raw)
+
+    def test_context_nonregular_inputs_are_refused_before_open(self):
+        import os,stat,tempfile
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);file=root/"ctx";file.write_bytes(b'{}')
+            for path in (root,root/"missing"):
+                with self.subTest(path=path.name),patch.object(nav.os,"open",side_effect=AssertionError("opened")):
+                    with self.assertRaises(nav.MetricError):nav.load_context(path)
+            for mode in (stat.S_IFIFO,stat.S_IFCHR,stat.S_IFSOCK,stat.S_IFLNK):
+                with self.subTest(mode=mode),patch.object(nav.os,"lstat",return_value=SimpleNamespace(st_mode=mode)), \
+                     patch.object(nav.os,"open",side_effect=AssertionError("special opened")):
+                    with self.assertRaisesRegex(nav.MetricError,"CONTEXT_NOT_REGULAR"):nav.load_context(file)
+            alias=root/"hardlink";os.link(file,alias)
+            self.assertEqual(nav.load_context(alias),{})
+            with patch.object(nav.os,"fstat",return_value=SimpleNamespace(st_mode=stat.S_IFIFO)), \
+                 patch.object(nav.os,"read",side_effect=AssertionError("raced special file read")):
+                with self.assertRaisesRegex(nav.MetricError,"CONTEXT_NOT_REGULAR"):nav.load_context(file)
+            if hasattr(os,"mkfifo"):
+                fifo=root/"fifo";os.mkfifo(fifo)
+                with patch.object(nav.os,"open",side_effect=AssertionError("FIFO opened")):
+                    with self.assertRaises(nav.MetricError):nav.load_context(fifo)
+                link=root/"symlink";link.symlink_to(file)
+                with self.assertRaises(nav.MetricError):nav.load_context(link)
+            self.assertEqual(file.read_bytes(),b'{}')
+
+    def test_windows_reserved_boundary_has_Python312_fallback(self):
+        # Remove only the optional newer helper; the native 3.12 fallback remains exercised.
+        saved=getattr(nav.os.path,"isreserved",None)
+        if saved is not None:delattr(nav.os.path,"isreserved")
+        try:
+            for path in ('NUL','C:\\tmp\\CON.txt','C:\\tmp\\ctx:stream','C:\\tmp\\ctx.',
+                         'C:\\tmp\\ctx ','\\\\.\\pipe\\ctx','\\\\?\\C:\\ctx'):
+                with self.subTest(path=path):self.assertTrue(nav._windows_reserved(path))
+            self.assertFalse(nav._windows_reserved('C:\\tmp\\ctx.json'))
+        finally:
+            if saved is not None:setattr(nav.os.path,"isreserved",saved)
+
+    def test_context_read_errors_close_real_handles(self):
+        import os,tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/"ctx";path.write_bytes(b'{}');fds=[];original=os.open
+            def opened(*args,**kwargs):
+                fd=original(*args,**kwargs);fds.append(fd);return fd
+            for phase in ("open","fstat","read"):
+                with self.subTest(phase=phase):
+                    target="open" if phase=="open" else phase
+                    with patch.object(nav.os,"open",side_effect=OSError("denied") if phase=="open" else opened), \
+                         patch.object(nav.os,target,side_effect=OSError("denied")) if phase!="open" else patch.object(nav,"MAX_BYTES",nav.MAX_BYTES):
+                        with self.assertRaisesRegex(nav.MetricError,"CONTEXT_INPUT_IO"):nav.load_context(path)
+                    for fd in fds:
+                        with self.assertRaises(OSError):os.fstat(fd)
+                    fds.clear()
+            close=os.close
+            def failed_close(fd):close(fd);raise OSError("close failed")
+            with patch.object(nav.os,"close",side_effect=failed_close):
+                with self.assertRaisesRegex(nav.MetricError,"CONTEXT_INPUT_IO"):nav.load_context(path)
+            self.assertEqual(path.read_bytes(),b'{}')
+
+    def test_context_growth_short_read_and_replacement_are_bounded(self):
+        import os,tempfile
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/"ctx";path.write_bytes(b'{}')
+            for kind in ("growth","short","replace","changed_size"):
+                with self.subTest(kind=kind):
+                    reads=[];original=os.read;initial=os.stat(path)
+                    def read(fd,n):
+                        reads.append(n)
+                        if kind=="growth":return b'x'*n
+                        if kind=="short":return b''
+                        return original(fd,n)
+                    original_stat=os.lstat;count=0
+                    def lstat(p):
+                        nonlocal count
+                        out=original_stat(p);count+=1
+                        if kind=="replace" and count>1:
+                            return SimpleNamespace(st_dev=out.st_dev,st_ino=out.st_ino+1,
+                                                   st_size=out.st_size,st_mtime_ns=out.st_mtime_ns)
+                        return out
+                    original_fstat=os.fstat;fcalls=0
+                    def fstat(fd):
+                        nonlocal fcalls
+                        out=original_fstat(fd);fcalls+=1
+                        if kind=="changed_size" and fcalls>1:
+                            return SimpleNamespace(st_dev=out.st_dev,st_ino=out.st_ino,
+                                                   st_size=out.st_size+1,st_mtime_ns=out.st_mtime_ns)
+                        return out
+                    with patch.object(nav,"MAX_BYTES",64),patch.object(nav.os,"read",side_effect=read), \
+                         patch.object(nav.os,"lstat",side_effect=lstat),patch.object(nav.os,"fstat",side_effect=fstat):
+                        with self.assertRaises(nav.MetricError):nav.load_context(path)
+                    self.assertLessEqual(sum(reads),65 if kind=="growth" else 130)
+                    self.assertEqual(path.read_bytes(),b'{}')
+
+    def test_loaded_future_clock_remains_blocked_without_input_repair(self):
+        import tempfile
+        data=rows();c=context(data);c["grid"]["ref"]["available_at"]="2026-01-08T21:00:00Z"
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/"ctx";raw=nav.encoded(c);path.write_bytes(raw)
+            self.assertBlocked(nav.calculate(data,nav.load_context(path)))
+            self.assertEqual(path.read_bytes(),raw)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -6257,3 +6257,10 @@ Expected contract:
   Preserve genuine cost-failure redaction without redacting valid execution.
 - Runner registration must retain the reviewed protected-publication boundary;
   advance only the two pins after the real causal ancestor is reviewed.
+- First-freeze review exposed three finite boundaries: enforce resource budgets
+  before file/JSON/frame allocation; bound every research OS-error stage and
+  disclose incomplete cleanup; protect the actual selected input cone before
+  export invalidation, including default rates and reverse cache aliases.
+  Preserve legacy/programming-error behavior and actual cost-failure redaction.
+  Local Windows alias/FIFO injections do not prove POSIX or privileged symlinks;
+  keep supported Python3.12 fallback and platform coverage limits explicit.

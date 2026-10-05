@@ -508,6 +508,7 @@ def write_markdown(payload: dict[str, Any], path: Path) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+@nav_v2.research_io_guard("measurement_contexts")
 def run(latest_run: Path, output_dir: Path, price_cache: Path, stale_days_threshold: int = 10, *,
         measurement_contexts: dict | None = None, measurement_context_path: Path | None = None) -> dict[str, Any]:
     latest_run = Path(latest_run)
@@ -524,6 +525,8 @@ def run(latest_run: Path, output_dir: Path, price_cache: Path, stale_days_thresh
         protected = {(latest_run / "reports" / name).resolve() for name in
                      ("main_monthly_weights.csv", "concentrated_strategy_holdings.csv",
                       "regime_by_month.csv", "concentrated_strategy_monthly.csv")}
+        protected.update((latest_run / name).resolve() for name in
+                         ("scored_latest.csv", "portfolio_latest.csv", "orchestrator/unified_target_latest.json"))
         if measurement_context_path is not None:
             protected.add(Path(measurement_context_path).resolve())
         names = (curve_suffix, "main_" + curve_suffix, "concentrated_" + curve_suffix,
@@ -537,17 +540,27 @@ def run(latest_run: Path, output_dir: Path, price_cache: Path, stale_days_thresh
         if collision:
             return dict(status=nav_v2.BLOCKED, reason="caller_input_collides_with_weekly_research_output",
                         metric_mode=nav_v2.MODE, **nav_v2.AUTHORITY)
+        main_holdings = normalize_holdings(_read_csv(latest_run / "reports" / "main_monthly_weights.csv"), "main")
+        concentrated_holdings = normalize_holdings(
+            _read_csv(latest_run / "reports" / "concentrated_strategy_holdings.csv"), "concentrated")
+        for holdings in (main_holdings, concentrated_holdings):
+            if not holdings.empty:
+                tickers = (set(holdings["ticker"].astype(str).str.upper()) - CASH_TICKERS) | {"SPY", "QQQ"}
+                protected.update((price_cache / px_cache_name(ticker)).resolve() for ticker in tickers)
+        if any((output_dir / name).resolve() in protected for name in names):
+            return dict(status=nav_v2.BLOCKED, reason="caller_input_collides_with_weekly_research_output",
+                        metric_mode=nav_v2.MODE, **nav_v2.AUTHORITY)
+        nav_v2.authorize_research_cleanup(output_dir, names, protected, price_cache)
         for name in names:
             path = output_dir / name
             if path.is_file() or path.is_symlink():
                 path.unlink()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    main_holdings = normalize_holdings(_read_csv(latest_run / "reports" / "main_monthly_weights.csv"), "main")
-    concentrated_holdings = normalize_holdings(
-        _read_csv(latest_run / "reports" / "concentrated_strategy_holdings.csv"),
-        "concentrated",
-    )
+    if not research_measurement:
+        main_holdings = normalize_holdings(_read_csv(latest_run / "reports" / "main_monthly_weights.csv"), "main")
+        concentrated_holdings = normalize_holdings(
+            _read_csv(latest_run / "reports" / "concentrated_strategy_holdings.csv"), "concentrated")
     sources = {
         "main": (
             main_holdings,
@@ -574,49 +587,36 @@ def run(latest_run: Path, output_dir: Path, price_cache: Path, stale_days_thresh
     combined = pd.concat([c for c in curves.values() if not c.empty], ignore_index=True) if any(not c.empty for c in curves.values()) else pd.DataFrame()
     measurement_complete = (not research_measurement or
                             all(m.get("status") == nav_v2.COMPLETE for m in metrics.values()))
-    try:
-        freshness = build_freshness(latest_run, curves, metrics, stale_days_threshold=stale_days_threshold)
+    freshness = build_freshness(latest_run, curves, metrics, stale_days_threshold=stale_days_threshold)
+    if research_measurement:
+        freshness["freshness_status"] = freshness["status"]
+        freshness.update(status=nav_v2.COMPLETE if measurement_complete else nav_v2.BLOCKED,
+                         reason=None if measurement_complete else "REQUESTED_WEEKLY_MEASUREMENT_BLOCKED",
+                         metric_mode=nav_v2.MODE, metric_admission_complete=measurement_complete,
+                         **nav_v2.AUTHORITY)
+    if research_measurement:
+        try:
+            json.dumps(freshness, allow_nan=False, default=_json_default)
+        except (ValueError, OverflowError):
+            metrics = {name: nav_v2.blocked("NONFINITE_WEEKLY_DIAGNOSTIC") for name in sources}
+            freshness = dict(status=nav_v2.BLOCKED, reason="NONFINITE_WEEKLY_DIAGNOSTIC",
+                             metrics=metrics, metric_mode=nav_v2.MODE, **nav_v2.AUTHORITY)
+            measurement_complete = False
+    if measurement_complete:
         if research_measurement:
-            freshness["freshness_status"] = freshness["status"]
-            freshness.update(status=nav_v2.COMPLETE if measurement_complete else nav_v2.BLOCKED,
-                             reason=None if measurement_complete else "REQUESTED_WEEKLY_MEASUREMENT_BLOCKED",
-                             metric_mode=nav_v2.MODE, metric_admission_complete=measurement_complete,
-                             **nav_v2.AUTHORITY)
-        if research_measurement:
-            try:
-                json.dumps(freshness, allow_nan=False, default=_json_default)
-            except (ValueError, OverflowError):
-                metrics = {name: nav_v2.blocked("NONFINITE_WEEKLY_DIAGNOSTIC") for name in sources}
-                freshness = dict(status=nav_v2.BLOCKED, reason="NONFINITE_WEEKLY_DIAGNOSTIC",
-                                 metrics=metrics, metric_mode=nav_v2.MODE, **nav_v2.AUTHORITY)
-                measurement_complete = False
-        if measurement_complete:
-            if research_measurement:
-                for name, curve in curves.items():
-                    if not curve.empty:
-                        curve.to_csv(output_dir / (name + "_" + curve_suffix), index=False)
-            if not combined.empty:
-                combined.sort_values(["portfolio_kind", "week_end_date"]).to_csv(output_dir / curve_suffix, index=False)
-        (output_dir / metric_name).write_text(json.dumps(metrics, indent=2, default=_json_default,
-                                                        allow_nan=not research_measurement), encoding="utf-8")
-        (output_dir / freshness_name).write_text(
-            json.dumps(freshness, indent=2, default=_json_default, allow_nan=not research_measurement),
-            encoding="utf-8",
-        )
-        write_markdown(freshness, output_dir / report_name)
-        return freshness
-    except OSError:
-        if not research_measurement:
-            raise
-        for name in names:
-            path = output_dir / name
-            if path.resolve() not in protected and (path.is_file() or path.is_symlink()):
-                try:
-                    path.unlink()
-                except OSError:
-                    pass
-        return dict(status=nav_v2.BLOCKED, reason="RESEARCH_OUTPUT_IO_FAILURE",
-                    metric_mode=nav_v2.MODE, **nav_v2.AUTHORITY)
+            for name, curve in curves.items():
+                if not curve.empty:
+                    curve.to_csv(output_dir / (name + "_" + curve_suffix), index=False)
+        if not combined.empty:
+            combined.sort_values(["portfolio_kind", "week_end_date"]).to_csv(output_dir / curve_suffix, index=False)
+    (output_dir / metric_name).write_text(json.dumps(metrics, indent=2, default=_json_default,
+                                                    allow_nan=not research_measurement), encoding="utf-8")
+    (output_dir / freshness_name).write_text(
+        json.dumps(freshness, indent=2, default=_json_default, allow_nan=not research_measurement),
+        encoding="utf-8",
+    )
+    write_markdown(freshness, output_dir / report_name)
+    return freshness
 
 
 def parse_args() -> argparse.Namespace:
