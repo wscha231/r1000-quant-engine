@@ -6332,3 +6332,9 @@ Expected contract:
   without a second source read, and record dependency/platform limits explicitly.
 - Frame-locals proxies need fixed-key membership across Python versions;
   bind negative link expectations to actual input preservation and caller rules.
+- Public path-loader flags must activate both the caller research namespace and
+  its IO guard before selected reads, cleanup or output. CLI dummy objects can
+  conceal direct-API fallback; test both real call signatures, selected-file
+  precedence and None-path refusal while preserving unselected legacy defaults.
+- A healthy CLI fixture must supply evidence for every requested default window
+  or use its documented opt-out; fix the fixture, never relax admission.

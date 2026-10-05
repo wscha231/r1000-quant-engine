@@ -299,7 +299,8 @@ def research_io_guard(context_argument):
         @wraps(fn)
         def call(*args, **kwargs):
             bound = signature.bind(*args, **kwargs)
-            if bound.arguments.get(context_argument) is None:
+            if (bound.arguments.get(context_argument) is None
+                    and not bound.arguments.get("load_measurement_context_from_path", False)):
                 return fn(*args, **kwargs)
             state = {"cleanup_authorized": False}
             token = _io_state.set(state)

@@ -710,6 +710,221 @@ class ResearchWeeklyCallerTests(__import__('unittest').TestCase):
         self.assertEqual(price.read_bytes(),before)
         price.unlink();price.write_bytes(pristine);self.assertEqual(run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())['status'],nav.COMPLETE)
 
+    def test_API_path_flag_admits_selected_file_missing_formats_and_precedence(self):
+        import json,copy
+        from unittest.mock import patch
+        from tools import nav_metrics_v2 as nav, run_weekly_evaluation as weekly
+        is_broker = False
+        if is_broker:self.write_prices([100.]*4)
+        call = self.run_replay if is_broker else lambda **k: weekly.run(self.latest,self.out,self.cache,**k)
+        key = 'measurement_context' if is_broker else 'measurement_contexts'
+        path=self.root/'API-context.json';good=self.measurement()
+        cases=[('none',None,'CONTEXT_PATH_REQUIRED'),('missing',path,'CONTEXT_INPUT_IO'),
+               ('json',path,'CONTEXT_JSON'),('utf8',path,'CONTEXT_JSON'),
+               ('shape',path,'CONTEXT_TYPE'),('duplicate',path,'JSON_DUPLICATE'),
+               ('nonfinite',path,'NUMBER_NONFINITE'),('deep',path,'RESOURCE_TREE')]
+        for kind,selected,reason in cases:
+            for supplied in (None,{},good):
+                with self.subTest(kind=kind,object_is_none=supplied is None,object_is_empty=supplied=={}):
+                    path.unlink(missing_ok=True)
+                    raw={'json':b'{','utf8':b'\xff','shape':b'[]','duplicate':b'{"x":1,"x":2}',
+                         'nonfinite':b'{"x":NaN}','deep':b'['*20+b'0'+b']'*20}.get(kind)
+                    if raw is not None:path.write_bytes(raw)
+                    self.out=self.root/('API-format-'+kind+str(supplied is None)+str(supplied=={}))
+                    dest=self.out/nav.NAMESPACE;dest.mkdir(parents=True)
+                    leaf=dest/(nav.METRICS_FILE if is_broker else 'weekly_metrics.research_v2.json')
+                    leaf.write_bytes(b'prior');foreign=dest/'foreign';foreign.write_bytes(b'keep')
+                    inputs={p:p.read_bytes() for p in self.root.rglob('*') if p.is_file() and not p.is_relative_to(self.out)}
+                    observed=[];original=nav.observe_research_publication
+                    def observe(*a,**k):observed.append(nav.research_io_active());return original(*a,**k)
+                    with patch.object(nav,'observe_research_publication',side_effect=observe),patch.object(nav,'load_context',wraps=nav.load_context) as loader:
+                        result=call(**{key:supplied},measurement_context_path=selected,load_measurement_context_from_path=True)
+                    self.assertTrue(observed);self.assertTrue(all(observed));self.assertEqual(loader.call_count,0 if kind=='none' else 1)
+                    self.assertEqual(result['status'],nav.BLOCKED);self.assertEqual(result['context_input_reason'],reason)
+                    self.assertEqual(result['metric_mode'],nav.MODE);self.assertFalse(result['metric_admission_complete'])
+                    self.assertFalse(result['current_publication_complete']);self.assertFalse(result['cleanup_complete'])
+                    for field in nav.METRIC_FIELDS:self.assertIsNone(result[field])
+                    for field,value in nav.AUTHORITY.items():self.assertEqual(result[field],value)
+                    self.assertEqual(leaf.read_bytes(),b'prior');self.assertEqual(foreign.read_bytes(),b'keep')
+                    self.assertEqual({p:p.read_bytes() for p in inputs},inputs);json.dumps(result,allow_nan=False)
+                    self.assertEqual({p.name for p in self.out.iterdir()},{nav.NAMESPACE})
+        for kind in ('directory','oversize'):
+            with self.subTest(kind=kind):
+                selected=self.root/('API-'+kind)
+                if kind=='directory':selected.mkdir()
+                else:
+                    with selected.open('wb') as handle:handle.truncate(nav.MAX_BYTES+1)
+                self.out=self.root/('API-resource-'+kind)
+                result=call(measurement_context_path=selected,load_measurement_context_from_path=True)
+                self.assertEqual(result['status'],nav.BLOCKED)
+                self.assertEqual(result['context_input_reason'],'CONTEXT_NOT_REGULAR' if kind=='directory' else 'RESOURCE_BYTES')
+                self.assertFalse(result['current_publication_complete']);self.assertFalse(self.out.exists())
+                self.assertEqual(selected.stat().st_size,nav.MAX_BYTES+1) if kind=='oversize' else self.assertTrue(selected.is_dir())
+        path.write_text(json.dumps(good));before=path.read_bytes()
+        for supplied in (None,{}, {'deliberately_invalid_object':'selected file takes precedence'}):
+            self.out=self.root/('API-valid-'+str(supplied is None)+str(supplied=={}))
+            with patch.object(nav,'load_context',wraps=nav.load_context) as loader:
+                result=call(**{key:supplied},measurement_context_path=path,load_measurement_context_from_path=True)
+            self.assertEqual(result['status'],nav.COMPLETE,result);self.assertEqual(loader.call_count,1)
+            self.assertFalse(result['valid_for_production']);self.assertTrue(result['metric_admission_complete'])
+            self.assertEqual(path.read_bytes(),before);self.assertEqual({p.name for p in self.out.iterdir()},{nav.NAMESPACE})
+
+    def test_API_path_flag_guard_IO_strict_read_cost_cleanup_and_programming(self):
+        import json,errno,os
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from tools import nav_metrics_v2 as nav, run_weekly_evaluation as weekly, run_broker_ledger_replay as broker
+        from tools.execution_cost_model import ExecutionCostConfig
+        is_broker = False
+        if is_broker:self.write_prices([100.]*4)
+        call=self.run_replay if is_broker else lambda **k: weekly.run(self.latest,self.out,self.cache,**k)
+        path=self.root/'API-IO-context.json';path.write_text(json.dumps(self.measurement()))
+        options=dict(measurement_context_path=path,load_measurement_context_from_path=True)
+        for fault in ('open','changed'):
+            self.out=self.root/('API-IO-'+fault);dest=self.out/nav.NAMESPACE;dest.mkdir(parents=True)
+            leaf=dest/nav.CURVE_FILE if is_broker else dest/'weekly_equity_curve.research_v2.csv';leaf.write_bytes(b'prior')
+            foreign=dest/'foreign';foreign.write_bytes(b'keep');original_open=nav.os.open;original_fstat=nav.os.fstat;fds=set();observed=[]
+            def opened(p,*a,**k):
+                if Path(p)==path:
+                    self.assertTrue(nav.research_io_active());observed.append('open')
+                    if fault=='open':raise PermissionError(errno.EACCES,'controlled boundary injection')
+                fd=original_open(p,*a,**k)
+                if Path(p)==path:fds.add(fd)
+                return fd
+            def fstat(fd):
+                value=original_fstat(fd)
+                if fd in fds and fault=='changed':return SimpleNamespace(st_mode=value.st_mode,st_dev=value.st_dev,st_ino=value.st_ino,st_size=value.st_size,st_mtime_ns=value.st_mtime_ns+1)
+                return value
+            before=path.read_bytes()
+            with patch.object(nav.os,'open',side_effect=opened),patch.object(nav.os,'fstat',side_effect=fstat):result=call(**options)
+            self.assertTrue(observed);self.assertEqual(result['reason'],'RESEARCH_IO_FAILURE')
+            self.assertEqual(result['context_input_reason'],'CONTEXT_INPUT_IO' if fault=='open' else 'CONTEXT_FILE_CHANGED')
+            self.assertFalse(result['current_publication_complete']);self.assertFalse(result['cleanup_complete'])
+            self.assertEqual(leaf.read_bytes(),b'prior');self.assertEqual(foreign.read_bytes(),b'keep');self.assertEqual(path.read_bytes(),before)
+        source=self.target if is_broker else self.reports/'main_monthly_weights.csv'
+        price=self.cache/weekly.px_cache_name('AAA')
+        for role in ('beforecleanup','aftercleanup','unlink'):
+            with self.subTest(role=role):
+                self.out=self.root/('API-stage-'+role);dest=self.out/nav.NAMESPACE;dest.mkdir(parents=True)
+                leaf=dest/(nav.CURVE_FILE if is_broker else 'weekly_equity_curve.research_v2.csv');leaf.write_bytes(b'prior')
+                foreign=dest/'foreign';foreign.write_bytes(b'keep');original=source.read_bytes();price_original=price.read_bytes()
+                if role=='beforecleanup':source.write_bytes(b'a\n\xff\n')
+                if role=='aftercleanup':price.write_bytes(b'corrupt parquet')
+                original_unlink=Path.unlink
+                def unlink(p,*a,**k):
+                    if p==leaf:raise PermissionError(errno.EACCES,'controlled cleanup injection')
+                    return original_unlink(p,*a,**k)
+                try:
+                    before_source=source.read_bytes();before_price=price.read_bytes()
+                    if role=='unlink':
+                        with patch.object(Path,'unlink',unlink):result=call(**options)
+                    else:result=call(**options)
+                    self.assertEqual(result['status'],nav.BLOCKED);self.assertEqual(result['reason'],'RESEARCH_IO_FAILURE')
+                    self.assertFalse(result['current_publication_complete']);self.assertFalse(result['metric_admission_complete'])
+                    self.assertEqual(foreign.read_bytes(),b'keep');self.assertEqual(source.read_bytes(),before_source);self.assertEqual(price.read_bytes(),before_price)
+                    if role=='aftercleanup':self.assertTrue(result['cleanup_complete']);self.assertFalse(leaf.exists())
+                    else:self.assertFalse(result['cleanup_complete']);self.assertEqual(leaf.read_bytes(),b'prior')
+                    for name in nav.METRIC_FIELDS:self.assertIsNone(result[name])
+                    json.dumps(result,allow_nan=False)
+                finally:source.write_bytes(original);price.write_bytes(price_original)
+        self.out=self.root/'API-strict-state';states=[]
+        original_reader=weekly.load_price_series
+        def read(*a,**k):states.append((nav.research_io_active(),k.get('strict_io',False)));return original_reader(*a,**k)
+        target_module=broker if is_broker else weekly
+        with patch.object(target_module,'load_price_series',side_effect=read):result=call(**options)
+        self.assertEqual(result['status'],nav.COMPLETE,result);self.assertTrue(states);self.assertTrue(all(x[0] for x in states))
+        if not is_broker:self.assertTrue(all(x[1] for x in states))
+        if is_broker:
+            self.out=self.root/'API-strict-cost';seen=[];original_model=broker.ExecutionCostModel
+            def model(*a,**k):seen.append(k.get('strict_io'));return original_model(*a,**k)
+            cfg=ExecutionCostConfig(mode='spread_adv_impact_v1',paper_slippage_path=self.root/'selected-missing-slippage.csv')
+            with patch.object(broker,'ExecutionCostModel',side_effect=model):result=call(**options,execution_cost_config=cfg)
+            self.assertEqual(result['status'],nav.BLOCKED);self.assertEqual(result['reason'],'RESEARCH_IO_FAILURE');self.assertEqual(seen,[True])
+        for cls in (RuntimeError,TypeError,ValueError):
+            exc=cls('unchanged programmer failure');self.out=self.root/('API-program-'+cls.__name__)
+            with patch.object(nav,'load_context',side_effect=exc):
+                with self.assertRaises(cls) as got:call(**options)
+            self.assertIs(got.exception,exc)
+
+    def test_API_path_flag_preserves_defaults_signature_bindings_and_collisions(self):
+        import json,inspect,os
+        from unittest.mock import patch
+        from tools import nav_metrics_v2 as nav, run_weekly_evaluation as weekly, run_broker_ledger_replay as broker
+        is_broker = False
+        if is_broker:self.write_prices([100.]*4)
+        call=self.run_replay if is_broker else lambda **k: weekly.run(self.latest,self.out,self.cache,**k)
+        key='measurement_context' if is_broker else 'measurement_contexts';path=self.root/'API-protection-only.json';path.write_bytes(b'{')
+        self.out=self.root/'API-legacy-default';baseline=call()
+        curve=self.out/('equity_curve.csv' if is_broker else 'weekly_equity_curve.csv');curve_before=curve.read_bytes()
+        with patch.object(nav,'load_context',side_effect=AssertionError('unselected file must not load')):
+            legacy=call(measurement_context_path=path,load_measurement_context_from_path=False)
+        self.assertEqual(legacy,baseline);self.assertEqual(curve.read_bytes(),curve_before);self.assertFalse((self.out/nav.NAMESPACE).exists())
+        self.assertEqual(path.read_bytes(),b'{');self.out=self.root/'API-object-no-reload'
+        with patch.object(nav,'load_context',side_effect=AssertionError('protection path must not reload')):
+            result=call(**{key:self.measurement()},measurement_context_path=path,load_measurement_context_from_path=False)
+        self.assertEqual(result['status'],nav.COMPLETE,result);self.assertEqual(path.read_bytes(),b'{')
+        path.write_text(json.dumps(self.measurement()))
+        if not is_broker:
+            for keyword in (False,True):
+                self.out=self.root/('API-binding-'+str(keyword))
+                opts=dict(measurement_context_path=path,load_measurement_context_from_path=True)
+                if keyword:result=weekly.run(latest_run=self.latest,output_dir=self.out,price_cache=self.cache,**opts)
+                else:result=weekly.run(self.latest,self.out,self.cache,**opts)
+                self.assertEqual(result['status'],nav.COMPLETE)
+                bound=inspect.signature(weekly.run).bind(self.latest,self.out,self.cache,**opts)
+                self.assertEqual(bound.arguments['measurement_context_path'],path)
+        else:
+            self.assertTrue(all(p.kind==inspect.Parameter.KEYWORD_ONLY for p in inspect.signature(broker.replay).parameters.values()))
+            with self.assertRaises(TypeError):broker.replay(self.target,self.cache,self.out)
+        self.out=self.root/'API-selected-collision';dest=self.out/nav.NAMESPACE;dest.mkdir(parents=True)
+        selected=dest/(nav.METRICS_FILE if is_broker else 'weekly_metrics.research_v2.json');selected.write_bytes(path.read_bytes());before=selected.read_bytes()
+        with patch.object(nav,'load_context',side_effect=AssertionError('collision must refuse before load')):
+            result=call(measurement_context_path=selected,load_measurement_context_from_path=True)
+        self.assertEqual(result['status'],nav.BLOCKED);self.assertFalse(result['current_publication_complete']);self.assertEqual(selected.read_bytes(),before)
+        self.out=self.cache/'API-refused';dest=self.out/nav.NAMESPACE;dest.mkdir(parents=True)
+        leaf=dest/(nav.CURVE_FILE if is_broker else 'weekly_equity_curve.research_v2.csv');leaf.write_bytes(b'cache input')
+        with patch.object(nav,'load_context',side_effect=AssertionError('cache output must refuse before load')):
+            result=call(measurement_context_path=path,load_measurement_context_from_path=True)
+        self.assertEqual(result['status'],nav.BLOCKED);self.assertEqual(leaf.read_bytes(),b'cache input');self.assertFalse(result['cleanup_complete'])
+        self.out=self.root/'API-reverse-resolved-alias';dest=self.out/nav.NAMESPACE;dest.mkdir(parents=True)
+        leaf=dest/(nav.CURVE_FILE if is_broker else 'weekly_equity_curve.research_v2.csv')
+        price=self.cache/weekly.px_cache_name('AAA');pristine=price.read_bytes();leaf.write_bytes(pristine)
+        original_resolve=Path.resolve
+        def resolve(p,*a,**k):
+            return original_resolve(leaf,*a,**k) if p==price else original_resolve(p,*a,**k)
+        # Controlled resolved reverse-link boundary, not a privileged Windows file symlink.
+        with patch.object(Path,'resolve',resolve):result=call(measurement_context_path=path,load_measurement_context_from_path=True)
+        self.assertEqual(result['status'],nav.BLOCKED);self.assertFalse(result['cleanup_complete'])
+        self.assertEqual(leaf.read_bytes(),pristine);self.assertEqual(price.read_bytes(),pristine)
+        self.out=self.root/'API-safe-hardlink';dest=self.out/nav.NAMESPACE;dest.mkdir(parents=True)
+        leaf=dest/(nav.CURVE_FILE if is_broker else 'weekly_equity_curve.research_v2.csv');os.link(price,leaf)
+        result=call(measurement_context_path=path,load_measurement_context_from_path=True)
+        self.assertEqual(result['status'],nav.COMPLETE,result);self.assertEqual(price.read_bytes(),pristine)
+
+    def test_API_path_flag_keeps_actual_CLI_selected_file_compatibility(self):
+        import json,subprocess
+        from tools import nav_metrics_v2 as nav
+        is_broker = False
+        if is_broker:self.write_prices([100.]*4)
+        path=self.root/'API-CLI-context.json';path.write_text(json.dumps(self.measurement()));before=path.read_bytes()
+        for valid in (True,False):
+            self.out=self.root/('API-CLI-'+str(valid))
+            selected=path if valid else self.root/'API-CLI-missing.json'
+            cmd=[sys.executable]+(['-O'] if sys.flags.optimize else [])
+            if is_broker:
+                cmd += [str(ROOT/'tools/run_broker_ledger_replay.py'),'--target-book',str(self.target),'--price-cache',str(self.cache),
+                        '--output-dir',str(self.out),'--starting-capital','10000','--fill-mode','next_close','--cash-carry-mode','none',
+                        '--oos-start','','--oos2-start','']
+            else:
+                cmd += [str(ROOT/'tools/run_weekly_evaluation.py'),'--latest-run',str(self.latest),'--output-dir',str(self.out),'--price-cache',str(self.cache)]
+            cmd += ['--nav-metrics-context',str(selected)]
+            child=subprocess.run(cmd,capture_output=True,text=True,encoding='utf-8',timeout=60)
+            self.assertEqual(child.returncode,0 if valid else 2,child.stderr+child.stdout);self.assertNotIn('Traceback',child.stderr)
+            result=json.loads(child.stdout,parse_constant=lambda x:self.fail(x));self.assertEqual(result['status'],nav.COMPLETE if valid else nav.BLOCKED)
+            self.assertFalse(result['valid_for_production']);self.assertEqual(path.read_bytes(),before)
+            self.assertEqual({p.name for p in self.out.iterdir()},{nav.NAMESPACE}) if valid else self.assertFalse(self.out.exists())
+
+
 
 def main() -> int:
     test_weekly_evaluation_marks_to_weekly_and_reports_staleness()

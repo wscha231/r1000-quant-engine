@@ -625,7 +625,7 @@ def run(latest_run: Path, output_dir: Path, price_cache: Path, stale_days_thresh
         load_measurement_context_from_path: bool = False) -> dict[str, Any]:
     latest_run = Path(latest_run)
     output_dir = Path(output_dir)
-    research_measurement = measurement_contexts is not None
+    research_measurement = measurement_contexts is not None or load_measurement_context_from_path
     if research_measurement:
         output_dir = output_dir / nav_v2.NAMESPACE
     price_cache = Path(price_cache)
@@ -656,6 +656,7 @@ def run(latest_run: Path, output_dir: Path, price_cache: Path, stale_days_thresh
                                                       output_dir, names, protected)
         if load_measurement_context_from_path:
             try:
+                nav_v2.require(measurement_context_path is not None, "CONTEXT_PATH_REQUIRED")
                 measurement_contexts = nav_v2.load_context(measurement_context_path)
             except nav_v2.MetricError as exc:
                 code = str(exc)

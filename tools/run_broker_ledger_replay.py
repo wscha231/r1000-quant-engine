@@ -1756,7 +1756,7 @@ def replay(
     measurement_context_path: Path | None = None,
     load_measurement_context_from_path: bool = False,
 ) -> dict[str, Any]:
-    research_measurement = measurement_context is not None
+    research_measurement = measurement_context is not None or load_measurement_context_from_path
     if research_measurement:
         output_dir = output_dir / nav_v2.NAMESPACE
     def metric_json(payload, **options):
@@ -1783,6 +1783,7 @@ def replay(
             return nav_v2.refused_research_publication("caller_input_collides_with_replay_output", output_dir, generated_names, inputs)
         if load_measurement_context_from_path:
             try:
+                nav_v2.require(measurement_context_path is not None, "CONTEXT_PATH_REQUIRED")
                 measurement_context = nav_v2.load_context(measurement_context_path)
             except nav_v2.MetricError as exc:
                 code = str(exc)
