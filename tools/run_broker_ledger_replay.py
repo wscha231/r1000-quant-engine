@@ -1278,11 +1278,15 @@ def calc_metrics(
     if measurement_context is not None:
         result = nav_v2.calculate_frame(equity_curve, measurement_context,
             valuation_binding=valuation_binding, date_range=date_range, label=label)
-        if date_range is None and result.get("status") == nav_v2.COMPLETE:
-            if result["starting_capital_usd"] != starting_capital:
-                return nav_v2.blocked("CALLER_PREFILL_CAPITAL_MISMATCH", label)
-            if measurement_context["anchor"]["kind"] != "PREFILL":
-                return nav_v2.blocked("CALLER_PREFILL_ANCHOR_KIND", label)
+        if result.get("status") == nav_v2.COMPLETE:
+            # Shared admission has validated nonempty, unique caller sessions.
+            # Its selected start identifies row zero independently of range syntax.
+            first_session = pd.Timestamp(equity_curve["date"].iloc[0]).date().isoformat()
+            if result["start_date"] == first_session:
+                if result["starting_capital_usd"] != starting_capital:
+                    return nav_v2.blocked("CALLER_PREFILL_CAPITAL_MISMATCH", label)
+                if measurement_context["anchor"]["kind"] != "PREFILL":
+                    return nav_v2.blocked("CALLER_PREFILL_ANCHOR_KIND", label)
         trades_frame = trades
         if date_range is not None and not trades.empty and "date" in trades.columns:
             dates = pd.to_datetime(trades["date"], errors="coerce")

@@ -6315,3 +6315,7 @@ Expected contract:
   Bind additive upstream lessons and original assertion bodies; use scoped index
   entries rather than a slow global stat scan. An interrupted own verifier lock
   is removable only after exact identity and a no-live-Git census are recorded.
+- IS starts at caller row zero even with a non-null upper-only range. Bind
+  PREFILL kind and actual initial capital to the admitted first selected session,
+  not tuple syntax or labels; interior slices keep their actual predecessor.
+  Rehash changed NAV/kind counterexamples so stale hashes do not mask this guard.

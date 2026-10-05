@@ -1604,6 +1604,142 @@ class ResearchNavCallerTests(unittest.TestCase):
                     self.assertTrue(result['performance_fields_redacted']);self.assertNotIn('cagr',result)
 
 
+    def test_r5_first_selected_caller_row_requires_actual_PREFILL_for_all_ranges(self):
+        import copy
+        from nav_metrics_v2_smoke import context, frame, binding
+        from tools import nav_metrics_v2 as nav
+        data=[dict(session=d,timestamp=d+'T21:00:00Z',nav=v) for d,v in
+              zip(('2026-01-02','2026-01-05','2026-01-06','2026-01-07'),(90.,95.,96.,97.))]
+        ranges=(None,(None,None),(None,'2026-01-05'),('2026-01-02','2026-01-05'),
+                ('2026-01-01','2026-01-05'),('2026-01-02',None),('2026-01-01',None),(None,'2026-01-02'))
+        for representation in ('string','native_date'):
+            f=frame(data)
+            if representation=='native_date':f['date']=pd.to_datetime(f['date']).dt.date
+            original=f.copy(deep=True)
+            for label in ('full','is'):
+                for interval in ranges:
+                    selected=[r for r in data if interval is None or
+                              ((not interval[0] or r['session']>=interval[0]) and
+                               (not interval[1] or r['session']<=interval[1]))]
+                    for variant,capital,kind in (('valid',100.,'PREFILL'),('low',50.,'PREFILL'),
+                                                ('high',200.,'PREFILL'),('first_NAV',90.,'PREFILL'),('kind',100.,'OOS_PREDECESSOR')):
+                        with self.subTest(representation=representation,label=label,interval=interval,variant=variant):
+                            c=context(selected,anchor_nav=capital,anchor_time='2025-12-31T21:00:00Z',anchor_kind=kind)
+                            c['cutoff']=data[-1]['timestamp'];before=copy.deepcopy(c)
+                            # Every negative is fully rehashed and otherwise admitted by pure measurement.
+                            admitted=nav.calculate_frame(f,c,valuation_binding=binding(data),date_range=interval,label=label)
+                            self.assertEqual(admitted['status'],nav.COMPLETE,admitted)
+                            result=broker.calc_metrics(f,pd.DataFrame(),100.,measurement_context=c,
+                                valuation_binding=binding(data),date_range=interval,label=label)
+                            if variant=='valid':
+                                self.assertEqual(result['status'],nav.COMPLETE,result)
+                                self.assertEqual(result['starting_capital_usd'],100.)
+                                self.assertAlmostEqual(result['first_interval_return'],-.1)
+                            else:
+                                self.assertEqual(result['status'],nav.BLOCKED,result)
+                                self.assertEqual(result['reason'],'CALLER_PREFILL_ANCHOR_KIND' if variant=='kind'
+                                                 else 'CALLER_PREFILL_CAPITAL_MISMATCH')
+                                self.assertFalse(result['metric_admission_complete'])
+                                for field in nav.METRIC_FIELDS:self.assertIsNone(result[field],field)
+                            for field,value in nav.AUTHORITY.items():self.assertEqual(result[field],value,field)
+                            json.dumps(result,allow_nan=False);self.assertEqual(c,before)
+                            pd.testing.assert_frame_equal(f,original)
+
+    def test_r5_interior_predecessor_and_empty_OOS_boundaries_remain_distinct(self):
+        from nav_metrics_v2_smoke import context,frame,binding
+        from tools import nav_metrics_v2 as nav
+        data=[dict(session=d,timestamp=d+'T21:00:00Z',nav=v) for d,v in
+              zip(('2026-01-02','2026-01-05','2026-01-06','2026-01-07'),(90.,95.,96.,97.))]
+        f=frame(data);b=binding(data)
+        for lo in ('2026-01-03','2026-01-05'):
+            for label in ('full','is','oos','oos2'):
+                for variant,capital,time,kind in (('valid',90.,data[0]['timestamp'],'OOS_PREDECESSOR'),
+                     ('NAV',100.,data[0]['timestamp'],'OOS_PREDECESSOR'),
+                     ('time',90.,'2025-12-31T21:00:00Z','OOS_PREDECESSOR'),
+                     ('kind',90.,data[0]['timestamp'],'PREFILL')):
+                    with self.subTest(lo=lo,label=label,variant=variant):
+                        c=context(data[1:],anchor_nav=capital,anchor_time=time,anchor_kind=kind)
+                        result=broker.calc_metrics(f,pd.DataFrame(),100.,measurement_context=c,
+                            valuation_binding=b,date_range=(lo,None),label=label)
+                        if variant=='valid':
+                            self.assertEqual(result['status'],nav.COMPLETE,result)
+                            self.assertEqual(result['starting_capital_usd'],90.)
+                        else:
+                            self.assertEqual(result['status'],nav.BLOCKED,result)
+                            self.assertEqual(result['reason'],'OOS_PREDECESSOR_MISMATCH')
+        c=context(data,anchor_nav=100.,anchor_time='2025-12-31T21:00:00Z')
+        for label in ('oos','oos2'):
+            for interval in (None,(None,None),(None,'2026-01-05'),('2026-01-02',None),('2026-01-01',None)):
+                with self.subTest(label=label,interval=interval):
+                    result=broker.calc_metrics(f,pd.DataFrame(),100.,measurement_context=c,
+                                              valuation_binding=b,date_range=interval,label=label)
+                    self.assertEqual(result['reason'],'OOS_PREDECESSOR_MISSING')
+                    self.assertEqual(result['status'],nav.BLOCKED)
+        for interval,reason in (((None,'2026-01-01'),'WINDOW_EMPTY'),(('2026-01-08',None),'WINDOW_EMPTY'),
+                                (('2026-01-07','2026-01-02'),'WINDOW_EMPTY'),(('invalid',None),'CALLER_CONTEXT_OR_ROW_SHAPE')):
+            with self.subTest(interval=interval):
+                result=broker.calc_metrics(f,pd.DataFrame(),100.,measurement_context=c,
+                                          valuation_binding=b,date_range=interval,label='is')
+                self.assertEqual(result['status'],nav.BLOCKED);self.assertEqual(result['reason'],reason)
+        empty=broker.calc_metrics(f.iloc[:0],pd.DataFrame(),100.,measurement_context=c,label='is')
+        self.assertEqual(empty['status'],nav.BLOCKED)
+        # The unmodified default branch still uses its legacy subwindow anchoring.
+        legacy=broker.calc_metrics(f,pd.DataFrame(),100.,date_range=('2026-01-03',None),label='is')
+        self.assertEqual(legacy['status'],'completed');self.assertEqual(legacy['starting_capital_usd'],95.)
+
+    def test_r5_hash_consistent_bad_IS_atomically_blocks_actual_replay_exports(self):
+        import copy,hashlib
+        from nav_metrics_v2_smoke import rows,context,binding
+        from tools import nav_metrics_v2 as nav
+        self.write_prices([100.]*4);data=rows((9987.5,)*3)
+        source_hashes={p:hashlib.sha256(p.read_bytes()).hexdigest() for p in [self.target,*self.cache.iterdir()]}
+        full=context(data,anchor_nav=10000.)
+        first=context(data[:2],anchor_nav=10000.);first['cutoff']=full['cutoff']
+        oos=context(data[2:],anchor_nav=data[1]['nav'],anchor_time=data[1]['timestamp'],anchor_kind='OOS_PREDECESSOR')
+        oos2=context(data[1:2],anchor_nav=data[0]['nav'],anchor_time=data[0]['timestamp'],anchor_kind='OOS_PREDECESSOR')
+        oos2['cutoff']=full['cutoff']
+        package=dict(full=full,valuation_binding=binding(data),windows={'is':first,'oos':oos,'oos2':oos2})
+        for include_oos2 in (False,True):
+            options=dict(oos_start='2026-01-07')
+            if include_oos2:options.update(oos2_start='2026-01-06',oos2_end='2026-01-06')
+            good=self.run_replay(measurement_context=package,**options)
+            self.assertEqual(good['status'],nav.COMPLETE,good)
+            dest=self.out/nav.NAMESPACE;foreign=dest/'foreign.txt';foreign.write_bytes(b'preserve foreign')
+            for variant,capital,kind in (('low',5000.,'PREFILL'),('high',20000.,'PREFILL'),
+                                         ('first_postfee_NAV',9987.5,'PREFILL'),('kind',10000.,'OOS_PREDECESSOR')):
+                with self.subTest(include_oos2=include_oos2,variant=variant):
+                    bad=copy.deepcopy(package)
+                    bad['windows']['is']=context(data[:2],anchor_nav=capital,anchor_kind=kind)
+                    bad['windows']['is']['cutoff']=full['cutoff'];before=copy.deepcopy(bad)
+                    result=self.run_replay(measurement_context=bad,**options)
+                    self.assertEqual(result['status'],nav.BLOCKED,result)
+                    self.assertEqual(result['execution_status'],'completed');self.assertEqual(result['trade_count'],1)
+                    labels=('full','is','oos','oos2') if include_oos2 else ('full','is','oos')
+                    for metric in (result,*(result['windows'][label] for label in labels)):
+                        self.assertEqual(metric['status'],nav.BLOCKED);self.assertFalse(metric['metric_admission_complete'])
+                        for field in nav.METRIC_FIELDS:self.assertIsNone(metric[field],field)
+                        for field in ('start_date','end_date','interval_returns','first_interval_return',
+                                      'measurement_context_sha256','input_rows_sha256','valuation_binding_provenance'):
+                            self.assertNotIn(field,metric,field)
+                        for field,value in nav.AUTHORITY.items():self.assertEqual(metric[field],value,field)
+                    self.assertEqual(result['windows']['is']['reason'],'CALLER_PREFILL_ANCHOR_KIND' if variant=='kind'
+                                     else 'CALLER_PREFILL_CAPITAL_MISMATCH')
+                    self.assertFalse((dest/nav.CURVE_FILE).exists())
+                    self.assertFalse((dest/nav.artifact_name('account_state_latest.json')).exists())
+                    self.assertEqual(json.loads((dest/nav.METRICS_FILE).read_text()),result)
+                    self.assertEqual(foreign.read_bytes(),b'preserve foreign');self.assertEqual(bad,before)
+                    self.assertEqual({p:hashlib.sha256(p.read_bytes()).hexdigest() for p in source_hashes},source_hashes)
+                    json.dumps(result,allow_nan=False)
+            self.assertEqual(self.run_replay(measurement_context=package,**options)['status'],nav.COMPLETE)
+        self.assertEqual(self.run_replay()['status'],'completed')
+        from tools.execution_cost_model import ExecutionCostConfig
+        failed=self.run_replay(measurement_context=bad,execution_cost_config=ExecutionCostConfig(mode='spread_adv_impact_v1'),**options)
+        self.assertEqual(failed['metric_mode'],'DO_NOT_USE');self.assertTrue(failed['performance_fields_redacted'])
+        self.assertNotIn('cagr',failed);json.dumps(failed,allow_nan=False)
+        self.assertFalse((dest/nav.CURVE_FILE).exists())
+        self.assertEqual({p:hashlib.sha256(p.read_bytes()).hexdigest() for p in source_hashes},source_hashes)
+
+
 def main() -> int:
     test_missing_liquidation_fill_fails_closed_before_state_mutation()
     test_multi_day_transition_fails_closed_before_state_mutation()
