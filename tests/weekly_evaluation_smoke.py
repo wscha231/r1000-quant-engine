@@ -695,9 +695,10 @@ class ResearchWeeklyCallerTests(__import__('unittest').TestCase):
                 self.assertFalse((dest/'weekly_equity_curve.research_v2.csv').exists());json.dumps(result,allow_nan=False)
                 self.assertEqual({p:p.read_bytes() for p in before},before);self.assertEqual(foreign.read_bytes(),b'keep');self.assertEqual((nested/'note').read_bytes(),b'keep nested')
         context=self.root/'attrs-context.json';context.write_text(json.dumps(self.measurement()))
-        cmd=[sys.executable]+(['-O'] if sys.flags.optimize else [])+[str(ROOT/'tools/run_weekly_evaluation.py'),'--latest-run',str(self.latest),'--output-dir',str(self.out),'--price-cache',str(self.cache),'--nav-metrics-context',str(context)]
+        cmd=[sys.executable]+(['-O'] if sys.flags.optimize else [])+['-X','faulthandler']+[str(ROOT/'tools/run_weekly_evaluation.py'),'--latest-run',str(self.latest),'--output-dir',str(self.out),'--price-cache',str(self.cache),'--nav-metrics-context',str(context)]
         child=subprocess.run(cmd,capture_output=True,text=True,encoding='utf-8',timeout=60)
-        self.assertEqual(child.returncode,2,child.stderr);self.assertNotIn('Traceback',child.stderr)
+        diagnostic=json.dumps(dict(argv=cmd,returncode=child.returncode,stdout=child.stdout,stderr=child.stderr,phase='completed_subprocess_run',parent_optimize=sys.flags.optimize),ensure_ascii=False)
+        self.assertEqual(child.returncode,2,diagnostic);self.assertNotIn('Traceback',child.stderr)
         result=json.loads(child.stdout);self.assertEqual(result['selected_input_cause'],'PandasAttrsShape');self.assertFalse(result['current_publication_complete'])
         self.assertFalse(result['metric_admission_complete']);self.assertFalse((dest/'weekly_equity_curve.research_v2.csv').exists())
         # Reverse input alias remains protected even when it holds genuine Parquet bytes.

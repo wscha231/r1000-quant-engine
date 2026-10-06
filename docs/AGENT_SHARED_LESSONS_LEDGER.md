@@ -6402,3 +6402,10 @@ Expected contract:
 - Check pin claims at the exact reviewed head: aa67's canonical 4f17 ancestor
   check passed with no protected-path delta, so retain the pin rather than refresh
   it from a review assertion that contradicts the actual source evidence.
+
+### 2026-10-07 E2 selected Parquet CLI native-abort diagnostics
+
+- A Windows blocked-return control does not diagnose a Linux child signal. Keep
+  return code 2 and all admission/preservation assertions; capture exact argv,
+  stdout/stderr, completion phase and child faulthandler output before changing
+  a reader, backend or policy. Separate fixture setup calls from the single CLI.
