@@ -989,6 +989,168 @@ class ResearchWeeklyCallerTests(__import__('unittest').TestCase):
         with patch.object(nav,'resolve_research_path',side_effect=error),self.assertRaises(RuntimeError) as caught:run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())
         self.assertIs(caught.exception,error)
 
+    def test_selected_nonempty_holdings_headers_refuse_all_missing_subsets_before_normalization(self):
+        import itertools
+        from unittest.mock import patch
+        from tools import nav_metrics_v2 as nav
+        from tools import run_weekly_evaluation as weekly
+        initial = run(self.latest, self.out, self.cache, measurement_contexts=self.measurement())
+        self.assertEqual(initial['status'], nav.COMPLETE, initial)
+        dest = self.out / nav.NAMESPACE
+        foreign = dest / 'foreign.keep'; foreign.write_bytes(b'foreign')
+        nested = dest / 'foreign'; nested.mkdir(); (nested / 'keep').write_bytes(b'nested')
+        prior = {p.relative_to(dest).as_posix(): p.read_bytes() for p in dest.rglob('*') if p.is_file()}
+        books = {'main': self.reports / 'main_monthly_weights.csv',
+                 'concentrated': self.reports / 'concentrated_strategy_holdings.csv'}
+        good = {kind: path.read_bytes() for kind, path in books.items()}
+        required = ('rebalance_date', 'ticker', 'weight')
+        row = dict(rebalance_date='2026-01-02', ticker='AAA', weight=1., marker='nonempty')
+        for count in (1, 2, 3):
+            for missing in itertools.combinations(required, count):
+                for kinds in (('main',), ('concentrated',), ('main', 'concentrated')):
+                    with self.subTest(missing=missing, books=kinds):
+                        for kind, path in books.items(): path.write_bytes(good[kind])
+                        for kind in kinds:
+                            pd.DataFrame([{key: value for key, value in row.items() if key not in missing}]).to_csv(books[kind], index=False)
+                        inputs = {p: p.read_bytes() for p in self.latest.rglob('*') if p.is_file()}
+                        inputs.update({p: p.read_bytes() for p in self.cache.rglob('*') if p.is_file()})
+                        with patch.object(weekly, 'normalize_holdings', side_effect=AssertionError('normalization before header admission')), \
+                             patch.object(nav, 'authorize_research_cleanup', side_effect=AssertionError('cleanup before header admission')):
+                            result = run(self.latest, self.out, self.cache, measurement_contexts=self.measurement())
+                        self.assertEqual(result['status'], nav.BLOCKED, result)
+                        self.assertEqual(result['reason'], 'WEEKLY_HOLDINGS_REQUIRED_COLUMNS')
+                        self.assertEqual(result['portfolio_kind'], kinds[0])
+                        self.assertEqual(result['missing_required_columns'], sorted(missing))
+                        self.assertFalse(result['metric_admission_complete'])
+                        self.assertFalse(result['current_publication_complete'])
+                        self.assertFalse(result['cleanup_complete'])
+                        for field in nav.METRIC_FIELDS: self.assertIsNone(result[field], field)
+                        for field, value in nav.AUTHORITY.items(): self.assertEqual(result[field], value, field)
+                        self.assertNotIn('metrics', result)
+                        self.assertIn('weekly_metrics.research_v2.json', result['uncleared_generated_outputs'])
+                        self.assertEqual({p.relative_to(dest).as_posix(): p.read_bytes() for p in dest.rglob('*') if p.is_file()}, prior)
+                        self.assertTrue(all(path.read_bytes() == data for path, data in inputs.items()))
+
+    def test_holdings_header_admission_preserves_native_values_aliases_and_empty_rules(self):
+        from tools import nav_metrics_v2 as nav
+        books = {'main': self.reports / 'main_monthly_weights.csv',
+                 'concentrated': self.reports / 'concentrated_strategy_holdings.csv'}
+        good = {kind: path.read_bytes() for kind, path in books.items()}
+        for cash in ('AAA', ' cash ', '__cash__'):
+            with self.subTest(healthy_ticker=cash):
+                for path in books.values():
+                    pd.DataFrame([dict(weight='1.0', Name='fixture', sector='test', ticker=cash,
+                                       rebalance_date='2026-01-02')]).to_csv(path, index=False)
+                inputs = {path: path.read_bytes() for path in books.values()}
+                result = run(self.latest, self.out, self.cache, measurement_contexts=self.measurement())
+                self.assertEqual(result['status'], nav.COMPLETE, result)
+                self.assertTrue(all(path.read_bytes() == data for path, data in inputs.items()))
+        for kind, path in books.items(): path.write_bytes(good[kind])
+        pd.DataFrame([
+            dict(rebalance_date='2026-01-02', ticker='AAA', weight='1.0', target_stock_names='3',
+                 weighting_mode='score_power', active_rebalance_interval_months='1'),
+            dict(rebalance_date='2026-01-02', ticker='NO_PRICE', weight='1.0', target_stock_names='99',
+                 weighting_mode='other', active_rebalance_interval_months='9'),
+        ]).to_csv(books['concentrated'], index=False)
+        filtered = run(self.latest, self.out, self.cache, measurement_contexts=self.measurement())
+        self.assertEqual(filtered['status'], nav.COMPLETE, filtered)
+        for alias, canonical in (('Weight', 'weight'), ('weight_pct', 'weight'),
+                                 ('target_weight', 'weight'), ('Rebalance_Date', 'rebalance_date'), ('Ticker', 'ticker')):
+            for kind in books:
+                with self.subTest(unsupported_header=alias, book=kind):
+                    for key, path in books.items(): path.write_bytes(good[key])
+                    pd.DataFrame([dict(rebalance_date='2026-01-02', ticker='AAA', weight=1.)]).rename(
+                        columns={canonical: alias}).to_csv(books[kind], index=False)
+                    result = run(self.latest, self.out, self.cache, measurement_contexts=self.measurement())
+                    self.assertEqual(result['reason'], 'WEEKLY_HOLDINGS_REQUIRED_COLUMNS', result)
+                    self.assertEqual(result['missing_required_columns'], [canonical])
+        for empty_kind in ('absent', 'canonical_header_only', 'other_header_only', 'zero_weight'):
+            for kind in books:
+                with self.subTest(empty_rule=empty_kind, book=kind):
+                    for key, path in books.items(): path.write_bytes(good[key])
+                    if empty_kind == 'absent': books[kind].unlink()
+                    elif empty_kind == 'zero_weight':
+                        pd.DataFrame([dict(rebalance_date='2026-01-02', ticker='AAA', weight=0.)]).to_csv(books[kind], index=False)
+                    else:
+                        pd.DataFrame(columns=(['rebalance_date', 'ticker', 'weight'] if empty_kind == 'canonical_header_only'
+                                              else ['other'])).to_csv(books[kind], index=False)
+                    result = run(self.latest, self.out, self.cache, measurement_contexts=self.measurement())
+                    self.assertEqual(result['status'], nav.BLOCKED, result)
+                    self.assertNotEqual(result.get('reason'), 'WEEKLY_HOLDINGS_REQUIRED_COLUMNS')
+                    self.assertFalse(result['metric_admission_complete'])
+                    for metric in result['metrics'].values():
+                        self.assertEqual(metric['status'], nav.BLOCKED)
+                        for field in nav.METRIC_FIELDS: self.assertIsNone(metric[field], field)
+        for kind in books:
+            with self.subTest(zero_byte=kind):
+                for key, path in books.items(): path.write_bytes(good[key])
+                books[kind].write_bytes(b'')
+                result = run(self.latest, self.out, self.cache, measurement_contexts=self.measurement())
+                self.assertEqual(result['status'], nav.BLOCKED)
+                self.assertEqual(result['reason'], 'RESEARCH_IO_FAILURE')
+                self.assertFalse(result['current_publication_complete'])
+
+    def test_holdings_header_CLI_retains_prior_foreign_and_geometry_precedence(self):
+        import json
+        import subprocess
+        from unittest.mock import patch
+        from tools import nav_metrics_v2 as nav
+        from tools import run_weekly_evaluation as weekly
+        result = run(self.latest, self.out, self.cache, measurement_contexts=self.measurement())
+        self.assertEqual(result['status'], nav.COMPLETE)
+        dest = self.out / nav.NAMESPACE
+        (dest / 'foreign.keep').write_bytes(b'foreign')
+        context = self.root / 'selected-context.json'
+        context.write_text(json.dumps(self.measurement()), encoding='utf-8')
+        books = {'main': self.reports / 'main_monthly_weights.csv',
+                 'concentrated': self.reports / 'concentrated_strategy_holdings.csv'}
+        good = {kind: path.read_bytes() for kind, path in books.items()}
+        prior = {p: p.read_bytes() for p in dest.iterdir() if p.is_file()}
+        for kinds in (('main',), ('concentrated',), ('main', 'concentrated')):
+            with self.subTest(actual_cli_books=kinds):
+                for kind, path in books.items(): path.write_bytes(good[kind])
+                for kind in kinds:
+                    pd.DataFrame([dict(rebalance_date='2026-01-02', ticker='AAA')]).to_csv(books[kind], index=False)
+                inputs = {p: p.read_bytes() for p in self.latest.rglob('*') if p.is_file()}
+                inputs.update({p: p.read_bytes() for p in self.cache.rglob('*') if p.is_file()})
+                inputs[context] = context.read_bytes()
+                cmd = [sys.executable] + (['-O'] if sys.flags.optimize else []) + [str(ROOT / 'tools/run_weekly_evaluation.py'),
+                       '--latest-run', str(self.latest), '--output-dir', str(self.out), '--price-cache', str(self.cache),
+                       '--nav-metrics-context', str(context)]
+                child = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', timeout=60)
+                self.assertEqual(child.returncode, 2, child.stderr)
+                self.assertNotIn('Traceback', child.stderr)
+                payload = json.loads(child.stdout)
+                self.assertEqual(payload['reason'], 'WEEKLY_HOLDINGS_REQUIRED_COLUMNS')
+                self.assertEqual(payload['portfolio_kind'], kinds[0])
+                self.assertFalse(payload['metric_admission_complete'])
+                self.assertFalse(payload['current_publication_complete'])
+                self.assertFalse(payload['cleanup_complete'])
+                for field in nav.METRIC_FIELDS: self.assertIsNone(payload[field], field)
+                self.assertNotIn('metrics', payload)
+                self.assertTrue(all(p.read_bytes() == data for p, data in prior.items()))
+                self.assertTrue(all(p.read_bytes() == data for p, data in inputs.items()))
+        inputs = {p: p.read_bytes() for p in self.cache.rglob('*') if p.is_file()}
+        with patch.object(weekly, '_read_csv', side_effect=AssertionError('geometry must refuse before read')):
+            collision = run(self.latest, self.cache, self.cache, measurement_contexts=self.measurement())
+        self.assertEqual(collision['reason'], 'caller_input_collides_with_weekly_research_output')
+        self.assertFalse(collision['current_publication_complete'])
+        self.assertTrue(all(p.read_bytes() == data for p, data in inputs.items()))
+
+    def test_holdings_header_preflight_keeps_normalizer_programming_and_default_behavior(self):
+        from unittest.mock import patch
+        from tools import run_weekly_evaluation as weekly
+        for exception in (AttributeError, ValueError, TypeError):
+            with self.subTest(programmer_error=exception.__name__):
+                with patch.object(weekly, 'normalize_holdings', side_effect=exception('unrelated normalizer failure')):
+                    with self.assertRaises(exception):
+                        run(self.latest, self.out, self.cache, measurement_contexts=self.measurement())
+        pd.DataFrame([dict(rebalance_date='2026-01-02', ticker='AAA')]).to_csv(
+            self.reports / 'main_monthly_weights.csv', index=False)
+        with self.assertRaises(AttributeError):
+            run(self.latest, self.root / 'legacy-default', self.cache)
+
+
 def main() -> int:
     test_weekly_evaluation_marks_to_weekly_and_reports_staleness()
     import unittest

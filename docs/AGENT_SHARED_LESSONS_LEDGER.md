@@ -6356,3 +6356,10 @@ Expected contract:
 
 - A runpy audit launcher must preserve the native script-directory import path;
   missing helper aliases are harness failures, not candidate failures.
+
+## 2026-10-06 — Validate selected holdings headers before normalization
+
+- A readable nonempty selected CSV can omit required date/ticker/weight headers.
+  Check both raw books before normalization or cleanup, then disclose retained
+  publication as incomplete without fake weights or catching programmer errors.
+  Preserve genuine empty inputs and ordinary normalization behavior.

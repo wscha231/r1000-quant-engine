@@ -665,9 +665,19 @@ def run(latest_run: Path, output_dir: Path, price_cache: Path, stale_days_thresh
                     output_dir, names, protected)
                 result["context_input_reason"] = code
                 return result
-        main_holdings = normalize_holdings(_read_csv(latest_run / "reports" / "main_monthly_weights.csv", strict_io=True), "main")
-        concentrated_holdings = normalize_holdings(
-            _read_csv(latest_run / "reports" / "concentrated_strategy_holdings.csv", strict_io=True), "concentrated")
+        raw_holdings = (
+            ("main", _read_csv(latest_run / "reports" / "main_monthly_weights.csv", strict_io=True)),
+            ("concentrated", _read_csv(latest_run / "reports" / "concentrated_strategy_holdings.csv", strict_io=True)),
+        )
+        for portfolio_kind, raw in raw_holdings:
+            missing_columns = sorted({"rebalance_date", "ticker", "weight"}.difference(raw.columns))
+            if not raw.empty and missing_columns:
+                result = nav_v2.refused_research_publication(
+                    "WEEKLY_HOLDINGS_REQUIRED_COLUMNS", output_dir, names, protected)
+                result.update(portfolio_kind=portfolio_kind, missing_required_columns=missing_columns)
+                return result
+        main_holdings = normalize_holdings(raw_holdings[0][1], "main")
+        concentrated_holdings = normalize_holdings(raw_holdings[1][1], "concentrated")
         for holdings in (main_holdings, concentrated_holdings):
             if not holdings.empty:
                 tickers = (set(holdings["ticker"].astype(str).str.upper()) - CASH_TICKERS) | {"SPY", "QQQ"}
