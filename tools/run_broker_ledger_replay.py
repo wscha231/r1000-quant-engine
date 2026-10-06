@@ -2257,6 +2257,7 @@ def replay(
     trade_rows: list[dict[str, Any]] = []
     equity_rows: list[dict[str, Any]] = []
     holdings_rows: list[dict[str, Any]] = []
+    held_price_admission_reason: str | None = None
     cash_rows: list[dict[str, Any]] = []
     target_vs_actual_rows: list[dict[str, Any]] = []
     partial_resize_rows: list[dict[str, Any]] = []
@@ -2549,6 +2550,20 @@ def replay(
                     cash_rate_table=cash_rate_table,
                 )
             equity, values = account_equity(state, prices, date)
+            if research_measurement and held_price_admission_reason is None:
+                for ticker, qty in state.shares.items():
+                    if ticker in CASH_TICKERS or abs(qty) <= 1e-12:
+                        continue
+                    actual, value = price_on_or_before(
+                        prices.get(ticker, pd.DataFrame()), date, "close"
+                    )
+                    if (actual is None or value is None
+                            or not math.isfinite(float(value)) or value <= 0):
+                        held_price_admission_reason = "CALLER_HELD_PRICE_UNAVAILABLE"
+                        break
+                    if pd.Timestamp(actual).date() != pd.Timestamp(date).date():
+                        held_price_admission_reason = "CALLER_HELD_PRICE_SESSION_MISMATCH"
+                        break
             cash_weight = float(state.cash / equity) if equity > 0 else np.nan
             equity_row = {
                 "date": pd.Timestamp(date).date().isoformat(),
@@ -2682,6 +2697,7 @@ def replay(
                if not research_measurement else
                nav_v2.blocked("MEASUREMENT_PACKAGE_FIELDS") if not context_shape_valid else
                nav_v2.blocked("FULL_CONTEXT_MISSING") if context_full is None else
+               nav_v2.blocked(held_price_admission_reason) if held_price_admission_reason else
                calc_metrics(equity_df, trades_df, starting_capital, measurement_context=context_full,
                             valuation_binding=valuation_binding))
     if research_measurement:

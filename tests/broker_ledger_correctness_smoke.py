@@ -2360,6 +2360,135 @@ class ResearchNavCallerTests(unittest.TestCase):
         self.assertEqual(json.loads(child.stdout)['windows']['oos2']['end_date'],'2026-01-06')
 
 
+    def test_held_price_sessions_refuse_each_mixed_or_unavailable_constituent(self):
+        from contextlib import nullcontext
+        from tools import nav_metrics_v2 as nav
+        pd.DataFrame([dict(rebalance_date="2026-01-02",ticker=t,weight=.25)
+                      for t in ("AAA","BBB")]).to_csv(self.target,index=False)
+        original_lookup=broker.price_on_or_before
+        for ticker,mode,day in (("AAA","stale","2026-01-06"),
+                                ("BBB","stale","2026-01-06"),
+                                ("BBB","stale","2026-01-07"),
+                                ("AAA","zero","2026-01-06"),
+                                ("AAA","missing_lookup","2026-01-06")):
+            with self.subTest(ticker=ticker,mode=mode,day=day):
+                for name in ("AAA","BBB"):
+                    px=pd.DataFrame({"Open":100.,"Close":100.,"Adj Close":100.},index=self.dates)
+                    if name==ticker and mode=="stale":px=px.drop(pd.Timestamp(day))
+                    if name==ticker and mode=="zero":px.loc[pd.Timestamp(day),["Close","Adj Close"]]=0.
+                    px.to_parquet(self.cache/px_cache_name(name))
+                affected=self.cache/px_cache_name(ticker)
+                supplied=pd.read_parquet(affected)
+                if mode=="stale":
+                    actual,value=original_lookup(supplied.rename(columns={"Adj Close":"close"}),pd.Timestamp(day),"close")
+                    self.assertLess(actual,pd.Timestamp(day));self.assertEqual(value,100.)
+                raw={p:p.read_bytes() for p in (self.target,*self.cache.iterdir())}
+                selected_frame=None
+                if mode=="missing_lookup":
+                    # A consumed lookup can become unavailable after the fill. Do not admit its cost-basis fallback.
+                    def unavailable(px,date,column):
+                        if pd.Timestamp(date).date()==pd.Timestamp(day).date() and column=="close":
+                            return None,None
+                        return original_lookup(px,date,column)
+                    selected_frame=patch.object(broker,"price_on_or_before",side_effect=unavailable)
+                with selected_frame or nullcontext():result=self.run_replay(measurement_context=self.measurement())
+                self.assertEqual(result["status"],nav.BLOCKED,result)
+                self.assertEqual(result["reason"],"CALLER_HELD_PRICE_SESSION_MISMATCH" if mode=="stale" else "CALLER_HELD_PRICE_UNAVAILABLE")
+                for field in nav.METRIC_FIELDS:self.assertIsNone(result[field])
+                for field,value in nav.AUTHORITY.items():self.assertEqual(result[field],value)
+                self.assertFalse(result["metric_admission_complete"])
+                self.assertEqual(result["execution_status"],"completed")
+                self.assertFalse((self.out/nav.NAMESPACE/nav.CURVE_FILE).exists())
+                self.assertFalse((self.out/nav.NAMESPACE/nav.artifact_name("account_state_latest.json")).exists())
+                for p,b in raw.items():self.assertEqual(p.read_bytes(),b)
+
+    def test_held_price_session_refusal_masks_all_requested_windows_and_CLI_artifacts(self):
+        import subprocess,sys
+        from nav_metrics_v2_smoke import rows,context,binding
+        from tools import nav_metrics_v2 as nav
+        pd.DataFrame([dict(rebalance_date="2026-01-02",ticker=t,weight=.25)
+                      for t in ("AAA","BBB")]).to_csv(self.target,index=False)
+        for name in ("AAA","BBB"):
+            pd.DataFrame({"Open":100.,"Close":100.,"Adj Close":100.},index=self.dates).to_parquet(self.cache/px_cache_name(name))
+        data=rows((9987.5,)*3);full=context(data,anchor_nav=10000.)
+        first=context(data[:2],anchor_nav=10000.);first["cutoff"]=full["cutoff"]
+        primary=context(data[2:],anchor_nav=data[1]["nav"],anchor_time=data[1]["timestamp"],anchor_kind="OOS_PREDECESSOR")
+        secondary=context(data[1:2],anchor_nav=data[0]["nav"],anchor_time=data[0]["timestamp"],anchor_kind="OOS_PREDECESSOR")
+        secondary["cutoff"]=full["cutoff"]
+        package=dict(full=full,valuation_binding=binding(data),windows=dict(is_=first,oos=primary,oos2=secondary))
+        package["windows"]["is"]=package["windows"].pop("is_")
+        options=dict(measurement_context=package,oos_start="2026-01-07",oos2_start="2026-01-06")
+        self.assertEqual(self.run_replay(**options)["status"],nav.COMPLETE)
+        dest=self.out/nav.NAMESPACE
+        foreign=dest/"caller-note.txt";foreign.write_bytes(b"preserve foreign")
+        official=self.out/"equity_curve.csv";official.write_bytes(b"preserve official")
+        nested=dest/"caller-archive";nested.mkdir(exist_ok=True);(nested/"metrics.json").write_bytes(b"preserve nested")
+        px=self.cache/px_cache_name("AAA");pd.read_parquet(px).drop(pd.Timestamp("2026-01-06")).to_parquet(px)
+        context_path=self.root/"held-session-context.json";context_path.write_text(json.dumps(package),encoding="utf-8")
+        raw={p:p.read_bytes() for p in (self.target,context_path,foreign,official,nested/"metrics.json",*self.cache.iterdir())}
+        api=self.run_replay(**options)
+        command=[sys.executable]+(["-O"] if sys.flags.optimize else [])+[str(ROOT/"tools/run_broker_ledger_replay.py"),
+            "--target-book",str(self.target),"--price-cache",str(self.cache),"--output-dir",str(self.out),
+            "--starting-capital","10000","--fill-mode","next_close","--cash-carry-mode","none",
+            "--reserve-mode","BROKER_CASH_OR_MMF","--oos-start","2026-01-07","--oos2-start","2026-01-06",
+            "--nav-metrics-context",str(context_path)]
+        child=subprocess.run(command,capture_output=True,text=True)
+        self.assertEqual(child.returncode,2,child.stderr)
+        self.assertNotIn("Traceback",child.stderr)
+        cli=json.loads(child.stdout)
+        disk=json.loads((dest/nav.METRICS_FILE).read_text(encoding="utf-8"))
+        self.assertEqual(cli,disk)
+        for result in (api,cli):
+            for metric in (result,*(result["windows"][k] for k in ("full","is","oos","oos2"))):
+                self.assertEqual(metric["status"],nav.BLOCKED)
+                self.assertEqual(metric["reason"],"CALLER_HELD_PRICE_SESSION_MISMATCH")
+                for field in nav.METRIC_FIELDS:self.assertIsNone(metric[field])
+                for field in ("start_date","end_date","nav_sha256","valuation_binding_provenance","intervals"):
+                    self.assertNotIn(field,metric)
+                for field,value in nav.AUTHORITY.items():self.assertEqual(metric[field],value)
+                self.assertFalse(metric["metric_admission_complete"])
+        self.assertIn("CALLER_HELD_PRICE_SESSION_MISMATCH",(dest/nav.artifact_name("replay_report.md")).read_text(encoding="utf-8"))
+        for name in (nav.CURVE_FILE,nav.artifact_name("account_state_latest.json"),nav.artifact_name("positions_latest.csv")):
+            self.assertFalse((dest/name).exists(),name)
+        for p,b in raw.items():self.assertEqual(p.read_bytes(),b)
+
+    def test_held_price_session_coherent_zero_held_cash_legacy_and_E1_controls(self):
+        from tools import nav_metrics_v2 as nav
+        from tools.execution_cost_model import ExecutionCostConfig
+        pd.DataFrame([dict(rebalance_date="2026-01-02",ticker=t,weight=w)
+                      for t,w in (("AAA",.25),("BBB",.25),("CASH",.5))]).to_csv(self.target,index=False)
+        for name in ("AAA","BBB"):
+            pd.DataFrame({"Open":100.,"Close":100.,"Adj Close":100.},index=self.dates).to_parquet(self.cache/px_cache_name(name))
+        # An unrelated cached symbol is not a consumed holding.
+        pd.DataFrame({"Close":100.,"Adj Close":100.},index=self.dates[:1]).to_parquet(self.cache/px_cache_name("UNHELD"))
+        raw={p:p.read_bytes() for p in (self.target,*self.cache.iterdir())}
+        coherent=self.run_replay(measurement_context=self.measurement())
+        self.assertEqual(coherent["status"],nav.COMPLETE,coherent)
+        self.assertTrue(coherent["metric_admission_complete"])
+        for p,b in raw.items():self.assertEqual(p.read_bytes(),b)
+        # BBB has a valid fill quote but rounds to zero shares; its stale later bars are not held marks.
+        huge=pd.DataFrame({"Open":1e8,"Close":1e8,"Adj Close":1e8},index=self.dates).drop(pd.Timestamp("2026-01-06"))
+        huge.to_parquet(self.cache/px_cache_name("BBB"))
+        zero_held=self.run_replay(measurement_context=self.measurement(value=9993.75))
+        self.assertEqual(zero_held["status"],nav.COMPLETE,zero_held)
+        held=pd.read_csv(self.out/nav.NAMESPACE/nav.artifact_name("holdings_daily.csv"))
+        self.assertEqual(set(held.ticker),{"AAA"})
+        # Default replay retains the native carry-forward valuation, without opt-in admission.
+        flat=pd.DataFrame({"Open":100.,"Close":100.,"Adj Close":100.},index=self.dates)
+        flat.to_parquet(self.cache/px_cache_name("BBB"))
+        flat.drop(pd.Timestamp("2026-01-06")).to_parquet(self.cache/px_cache_name("AAA"))
+        legacy=self.run_replay()
+        self.assertEqual(legacy["status"],"completed",legacy)
+        self.assertEqual(pd.read_csv(self.out/"equity_curve.csv").equity_usd.to_list(),[9987.5]*3)
+        # Missing native execution evidence is still genuine E1, with unchanged outer redaction.
+        failure=self.run_replay(measurement_context=self.measurement(),execution_cost_config=ExecutionCostConfig(mode="spread_adv_impact_v1"))
+        self.assertEqual(failure["metric_mode"],"DO_NOT_USE")
+        self.assertEqual(failure["status"],"blocked")
+        self.assertNotIn("cagr",failure)
+        self.assertFalse(failure["valid_for_production"])
+        self.assertTrue(failure["performance_fields_redacted"])
+
+
 def main() -> int:
     test_missing_liquidation_fill_fails_closed_before_state_mutation()
     test_multi_day_transition_fails_closed_before_state_mutation()

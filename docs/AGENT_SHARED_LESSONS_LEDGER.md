@@ -6392,3 +6392,13 @@ Expected contract:
 - Compare raw and trimmed evidence hashes by their declared convention. New
   test controls must use date-only clock inputs, the actual package key shape
   and existing refusal reason location; retain failed author diagnostics.
+
+### 2026-10-06 E2 broker held-price session admission
+
+- An aggregate NAV clock cannot certify constituent prices. Opt-in replay refuses a
+  nonzero held mark from another session or an unavailable price; keep legacy
+  valuation/cost math and genuine E1 redaction unchanged. New-test import and late
+  E1-envelope assumptions are author diagnostics, not reasons to widen E1 output.
+- Check pin claims at the exact reviewed head: aa67's canonical 4f17 ancestor
+  check passed with no protected-path delta, so retain the pin rather than refresh
+  it from a review assertion that contradicts the actual source evidence.
