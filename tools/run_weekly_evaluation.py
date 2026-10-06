@@ -17,6 +17,12 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+import sys
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from tools import nav_metrics_v2 as nav_v2
+
 
 CASH_TICKERS = {"CASH", "__CASH__"}
 CONCENTRATED_CHAMPION_FILTERS = {
@@ -30,7 +36,20 @@ def px_cache_name(ticker: str) -> str:
     return f"{hashlib.sha1(str(ticker).upper().encode('utf-8')).hexdigest()[:16]}.parquet"
 
 
-def _read_csv(path: Path) -> pd.DataFrame:
+def _read_csv(path: Path, *, strict_io: bool = False) -> pd.DataFrame:
+    if strict_io:
+        try:
+            path.stat()  # exists() can suppress access errors on supported hosts.
+            try:
+                return pd.read_csv(path)
+            except (UnicodeDecodeError, pd.errors.ParserError, pd.errors.EmptyDataError) as exc:
+                failure = OSError("SELECTED_INPUT_DECODE")
+                failure.selected_input_format = "CSV"
+                failure.selected_input_cause = type(exc).__name__
+                failure.selected_input_reason = "SELECTED_INPUT_DECODE"
+                raise failure from exc
+        except FileNotFoundError:
+            return pd.DataFrame()
     if not path.exists():
         return pd.DataFrame()
     try:
@@ -39,7 +58,27 @@ def _read_csv(path: Path) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def _read_json(path: Path) -> dict[str, Any]:
+def _read_json(path: Path, *, strict_io: bool = False) -> dict[str, Any]:
+    if strict_io:
+        try:
+            path.stat()
+            try:
+                value = json.loads(path.read_text(encoding="utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                failure = OSError("SELECTED_INPUT_DECODE")
+                failure.selected_input_format = "JSON"
+                failure.selected_input_cause = type(exc).__name__
+                failure.selected_input_reason = "SELECTED_INPUT_DECODE"
+                raise failure from exc
+            if not isinstance(value, dict):
+                failure = OSError("SELECTED_INPUT_JSON_OBJECT")
+                failure.selected_input_format = "JSON"
+                failure.selected_input_cause = "JSONRootType"
+                failure.selected_input_reason = "SELECTED_INPUT_JSON_OBJECT"
+                raise failure
+            return value
+        except FileNotFoundError:
+            return {}
     if not path.exists():
         return {}
     try:
@@ -68,13 +107,79 @@ def load_price_series(
     *,
     include_liquidity: bool = False,
     require_observed_open: bool = False,
+    strict_io: bool = False,
 ) -> pd.DataFrame:
     path = price_cache / px_cache_name(ticker)
-    if not path.exists():
+    strict_io = strict_io or nav_v2.research_io_active()
+    if not strict_io and not path.exists():
         return pd.DataFrame()
     try:
-        px = pd.read_parquet(path)
+        if strict_io:
+            path.stat()
+        if strict_io:
+            from pyarrow import ArrowInvalid
+            try:
+                px = pd.read_parquet(path)
+            except (ArrowInvalid, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                failure = OSError("SELECTED_INPUT_DECODE")
+                failure.selected_input_format = "PARQUET"
+                failure.selected_input_cause = type(exc).__name__
+                failure.selected_input_reason = "SELECTED_INPUT_DECODE"
+                raise failure from exc
+            except (TypeError, ValueError) as exc:
+                # Only native PANDAS_ATTRS conversion, never an arbitrary backend error.
+                from pandas.io.parquet import PyArrowImpl
+                from pandas.core.generic import NDFrame
+                from pyarrow import Table
+                cursor = exc.__traceback__
+                tail = []
+                count = 0
+                recognized = False
+                read_frame = set_frame = attrs_frame = read_locals = set_locals = attrs_locals = table = metadata = value = None
+                try:
+                    while cursor is not None and count < 32:
+                        tail = (tail + [cursor])[-3:]
+                        cursor = cursor.tb_next
+                        count += 1
+                    if cursor is None and len(tail) == 3:
+                        read_frame, set_frame, attrs_frame = (point.tb_frame for point in tail)
+                        if (read_frame.f_code is getattr(PyArrowImpl.read, "__code__", None)
+                                and set_frame.f_code is getattr(NDFrame.__setattr__, "__code__", None)
+                                and attrs_frame.f_code is getattr(getattr(NDFrame.attrs, "fset", None), "__code__", None)):
+                            read_locals, set_locals, attrs_locals = read_frame.f_locals, set_frame.f_locals, attrs_frame.f_locals
+                            table, metadata, value = read_locals.get("pa_table"), read_locals.get("df_metadata"), attrs_locals.get("value")
+                            recognized = (
+                                all(name in read_locals for name in ("self", "result", "pa_table", "df_metadata"))
+                                and all(name in set_locals for name in ("self", "name", "value"))
+                                and all(name in attrs_locals for name in ("self", "value"))
+                                and type(read_locals["self"]) is PyArrowImpl
+                                and type(read_locals["result"]) is pd.DataFrame
+                                and read_locals["result"] is set_locals["self"] is attrs_locals["self"]
+                                and read_locals["self"] is not attrs_locals["self"]
+                                and set_locals["name"] == "attrs"
+                                and set_locals["value"] is value
+                                and type(table) is Table and type(metadata) is bytes
+                                and table.schema.metadata is not None
+                                and table.schema.metadata.get(b"PANDAS_ATTRS") == metadata
+                                and type(value) in (type(None), bool, int, float, str, list, dict)
+                            )
+                finally:
+                    tail.clear()
+                    cursor = read_frame = set_frame = attrs_frame = read_locals = set_locals = attrs_locals = table = metadata = value = None
+                if not recognized:
+                    raise
+                failure = OSError("SELECTED_INPUT_PARQUET_ATTRS")
+                failure.selected_input_format = "PARQUET"
+                failure.selected_input_cause = "PandasAttrsShape"
+                failure.selected_input_reason = "SELECTED_INPUT_PARQUET_ATTRS"
+                raise failure from exc
+        else:
+            px = pd.read_parquet(path)
+    except FileNotFoundError:
+        return pd.DataFrame()
     except Exception:
+        if strict_io:
+            raise
         return pd.DataFrame()
     if px.empty:
         return pd.DataFrame()
@@ -185,8 +290,8 @@ def normalize_holdings(df: pd.DataFrame, portfolio_kind: str) -> pd.DataFrame:
     return out.sort_values(["portfolio_kind", "rebalance_date", "weight"], ascending=[True, True, False])
 
 
-def period_end_map(path: Path) -> dict[pd.Timestamp, pd.Timestamp]:
-    d = _read_csv(path)
+def period_end_map(path: Path, *, strict_io: bool = False) -> dict[pd.Timestamp, pd.Timestamp]:
+    d = _read_csv(path, strict_io=strict_io)
     if d.empty or "rebalance_date" not in d.columns or "next_rebalance_date" not in d.columns:
         return {}
     d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce")
@@ -226,16 +331,21 @@ def build_weekly_curve(
     price_cache: Path,
     portfolio_kind: str,
     benchmark_tickers: tuple[str, ...] = ("SPY", "QQQ"),
+    measurement_context: dict | None = None,
+    valuation_binding: dict | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     if holdings.empty:
+        if measurement_context is not None:
+            return pd.DataFrame(), nav_v2.blocked("MISSING_HOLDINGS", portfolio_kind)
         return pd.DataFrame(), {"status": "missing_holdings", "portfolio_kind": portfolio_kind}
     prices: dict[str, pd.DataFrame] = {}
     tickers = sorted(set(holdings["ticker"].astype(str).str.upper()) - CASH_TICKERS)
     for ticker in tickers + list(benchmark_tickers):
         if ticker not in prices:
-            prices[ticker] = load_price_series(price_cache, ticker)
+            prices[ticker] = load_price_series(price_cache, ticker, strict_io=measurement_context is not None)
 
     rows: list[dict[str, Any]] = []
+    mixed_actual_sessions = False
     equity = 1.0
     prev_rebalance_dates = sorted(pd.to_datetime(holdings["rebalance_date"], errors="coerce").dropna().unique())
     latest_px_date = latest_price_date(prices, tickers)
@@ -297,6 +407,11 @@ def build_weekly_curve(
                 period_rel += weight * (float(end_price) / float(entry_price))
             if not np.isfinite(period_rel) or period_rel <= 0:
                 continue
+            if measurement_context is not None and actual_week_dates:
+                admitted_session = max(actual_week_dates).normalize()
+                mixed_actual_sessions |= any(
+                    actual.normalize() != admitted_session for actual in actual_week_dates
+                )
             weekly_return = period_rel / max(prev_period_rel, 1e-12) - 1.0
             equity *= 1.0 + weekly_return
             prev_period_rel = period_rel
@@ -325,7 +440,26 @@ def build_weekly_curve(
             rows.append(row_payload)
     curve = pd.DataFrame(rows)
     if curve.empty:
+        if measurement_context is not None:
+            return curve, dict(nav_v2.blocked("NO_WEEKLY_ROWS", portfolio_kind),
+                               portfolio_kind=portfolio_kind, input_rebalance_count=len(prev_rebalance_dates))
         return curve, {"status": "no_weekly_rows", "portfolio_kind": portfolio_kind, "input_rebalance_count": len(prev_rebalance_dates)}
+    if measurement_context is not None:
+        if curve["missing_price_count"].gt(0).any():
+            metric = nav_v2.blocked("CALLER_WEEKLY_MISSING_PRICES", portfolio_kind)
+        elif mixed_actual_sessions:
+            metric = nav_v2.blocked("CALLER_WEEKLY_MIXED_PRICE_SESSIONS", portfolio_kind)
+        else:
+            metric = weekly_metrics(curve, portfolio_kind, measurement_context=measurement_context,
+                                    valuation_binding=valuation_binding)
+        if metric.get("status") == nav_v2.COMPLETE:
+            if metric["starting_capital_usd"] != 1.0:
+                metric = nav_v2.blocked("CALLER_WEEKLY_INITIAL_UNIT_MISMATCH")
+            elif measurement_context["anchor"]["kind"] != "PREFILL":
+                metric = nav_v2.blocked("CALLER_PREFILL_ANCHOR_KIND")
+        metric.update(cost_basis="WEEKLY_HOLDING_MARK_PROXY_NO_NEW_NET_COST_MODEL",
+                      supplied_net_account_nav=False, portfolio_kind=portfolio_kind)
+        return curve, metric
     curve["week_end_date"] = pd.to_datetime(curve["week_end_date"], errors="coerce")
     curve = curve.dropna(subset=["week_end_date"]).drop_duplicates(["portfolio_kind", "week_end_date"], keep="last")
     curve = curve.sort_values("week_end_date").reset_index(drop=True)
@@ -333,7 +467,15 @@ def build_weekly_curve(
     return curve, metrics
 
 
-def weekly_metrics(curve: pd.DataFrame, portfolio_kind: str) -> dict[str, Any]:
+def weekly_metrics(curve: pd.DataFrame, portfolio_kind: str, *, measurement_context: dict | None = None,
+                   valuation_binding: dict | None = None) -> dict[str, Any]:
+    if measurement_context is not None:
+        result = nav_v2.calculate_frame(curve, measurement_context, date_column="week_end_date",
+            nav_column="equity", valuation_binding=valuation_binding, expected_frequency="weekly")
+        result.update(portfolio_kind=portfolio_kind, evaluation_granularity="weekly_mark_to_market",
+                      uses_monthly_holding_books=True, true_weekly_scoring=False,
+                      production_selection_changed=False)
+        return result
     if curve.empty:
         return {"status": "empty", "portfolio_kind": portfolio_kind}
     returns = pd.to_numeric(curve["weekly_return"], errors="coerce").dropna()
@@ -375,8 +517,8 @@ def weekly_metrics(curve: pd.DataFrame, portfolio_kind: str) -> dict[str, Any]:
     }
 
 
-def latest_date_from_csv(path: Path, candidates: tuple[str, ...]) -> str | None:
-    d = _read_csv(path)
+def latest_date_from_csv(path: Path, candidates: tuple[str, ...], *, strict_io: bool = False) -> str | None:
+    d = _read_csv(path, strict_io=strict_io)
     if d.empty:
         return None
     for col in candidates:
@@ -392,9 +534,10 @@ def build_freshness(
     curves: dict[str, pd.DataFrame],
     metrics: dict[str, dict[str, Any]],
     stale_days_threshold: int,
+    *, strict_io: bool = False,
 ) -> dict[str, Any]:
-    latest_scored = latest_date_from_csv(latest_run / "scored_latest.csv", ("rebalance_date", "feature_date"))
-    latest_portfolio = latest_date_from_csv(latest_run / "portfolio_latest.csv", ("rebalance_date", "feature_date", "last_trade_date"))
+    latest_scored = latest_date_from_csv(latest_run / "scored_latest.csv", ("rebalance_date", "feature_date"), strict_io=strict_io)
+    latest_portfolio = latest_date_from_csv(latest_run / "portfolio_latest.csv", ("rebalance_date", "feature_date", "last_trade_date"), strict_io=strict_io)
     latest_eval_dates = {}
     for name, curve in curves.items():
         if curve.empty:
@@ -410,8 +553,14 @@ def build_freshness(
         status = "unknown"
     elif lag_days > int(stale_days_threshold):
         status = "stale"
-    unified = _read_json(latest_run / "orchestrator" / "unified_target_latest.json")
-    raw_portfolio = _read_csv(latest_run / "portfolio_latest.csv")
+    unified = _read_json(latest_run / "orchestrator" / "unified_target_latest.json", strict_io=strict_io)
+    if strict_io and unified.get("audit_checks") is not None and not isinstance(unified["audit_checks"], dict):
+        failure = OSError("SELECTED_INPUT_JSON_AUDIT_OBJECT")
+        failure.selected_input_format = "JSON"
+        failure.selected_input_cause = "JSONAuditType"
+        failure.selected_input_reason = "SELECTED_INPUT_JSON_AUDIT_OBJECT"
+        raise failure
+    raw_portfolio = _read_csv(latest_run / "portfolio_latest.csv", strict_io=strict_io)
     raw_portfolio_cash_target = None
     if not raw_portfolio.empty and "cash_target" in raw_portfolio.columns:
         cash_values = pd.to_numeric(raw_portfolio["cash_target"], errors="coerce").dropna()
@@ -481,50 +630,159 @@ def write_markdown(payload: dict[str, Any], path: Path) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def run(latest_run: Path, output_dir: Path, price_cache: Path, stale_days_threshold: int = 10) -> dict[str, Any]:
+@nav_v2.research_io_guard("measurement_contexts")
+def run(latest_run: Path, output_dir: Path, price_cache: Path, stale_days_threshold: int = 10, *,
+        measurement_contexts: dict | None = None, measurement_context_path: Path | None = None,
+        load_measurement_context_from_path: bool = False) -> dict[str, Any]:
     latest_run = Path(latest_run)
     output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    research_measurement = measurement_contexts is not None or load_measurement_context_from_path
+    if research_measurement:
+        output_dir = output_dir / nav_v2.NAMESPACE
     price_cache = Path(price_cache)
+    curve_suffix = "weekly_equity_curve.research_v2.csv" if research_measurement else "weekly_equity_curve.csv"
+    metric_name = "weekly_metrics.research_v2.json" if research_measurement else "weekly_metrics.json"
+    freshness_name = "weekly_freshness_audit.research_v2.json" if research_measurement else "weekly_freshness_audit.json"
+    report_name = "weekly_freshness_audit.research_v2.md" if research_measurement else "weekly_freshness_audit.md"
+    if research_measurement:
+        names = (curve_suffix, "main_" + curve_suffix, "concentrated_" + curve_suffix,
+                 metric_name, freshness_name, report_name)
+        nav_v2.observe_research_publication(output_dir, names, (), price_cache)
+        protected = {nav_v2.resolve_research_path(latest_run / "reports" / name) for name in
+                     ("main_monthly_weights.csv", "concentrated_strategy_holdings.csv",
+                      "regime_by_month.csv", "concentrated_strategy_monthly.csv")}
+        protected.update(nav_v2.resolve_research_path(latest_run / name) for name in
+                         ("scored_latest.csv", "portfolio_latest.csv", "orchestrator/unified_target_latest.json"))
+        if measurement_context_path is not None:
+            protected.add(nav_v2.resolve_research_path(Path(measurement_context_path)))
+        nav_v2.observe_research_publication(output_dir, names, protected, price_cache)
+        collision = nav_v2.resolve_research_path(output_dir).is_relative_to(nav_v2.resolve_research_path(price_cache))
+        # Check the whole output set before removing any prior generated file.
+        for name in names:
+            path = output_dir / name
+            if nav_v2.resolve_research_path(path) in protected or nav_v2.research_output_kind(path) == "other":
+                collision = True
+        if collision:
+            return nav_v2.refused_research_publication("caller_input_collides_with_weekly_research_output",
+                                                      output_dir, names, protected)
+        if load_measurement_context_from_path:
+            try:
+                nav_v2.require(measurement_context_path is not None, "CONTEXT_PATH_REQUIRED")
+                measurement_contexts = nav_v2.load_context(measurement_context_path)
+            except nav_v2.MetricError as exc:
+                code = str(exc)
+                result = nav_v2.refused_research_publication(
+                    "RESEARCH_IO_FAILURE" if code in {"CONTEXT_INPUT_IO", "CONTEXT_FILE_CHANGED"} else code,
+                    output_dir, names, protected)
+                result["context_input_reason"] = code
+                return result
+        raw_holdings = (
+            ("main", _read_csv(latest_run / "reports" / "main_monthly_weights.csv", strict_io=True)),
+            ("concentrated", _read_csv(latest_run / "reports" / "concentrated_strategy_holdings.csv", strict_io=True)),
+        )
+        for portfolio_kind, raw in raw_holdings:
+            missing_columns = sorted({"rebalance_date", "ticker", "weight"}.difference(raw.columns))
+            if not raw.empty and missing_columns:
+                result = nav_v2.refused_research_publication(
+                    "WEEKLY_HOLDINGS_REQUIRED_COLUMNS", output_dir, names, protected)
+                result.update(portfolio_kind=portfolio_kind, missing_required_columns=missing_columns)
+                return result
+        main_holdings = normalize_holdings(raw_holdings[0][1], "main")
+        concentrated_holdings = normalize_holdings(raw_holdings[1][1], "concentrated")
+        for holdings in (main_holdings, concentrated_holdings):
+            if not holdings.empty:
+                tickers = (set(holdings["ticker"].astype(str).str.upper()) - CASH_TICKERS) | {"SPY", "QQQ"}
+                protected.update(nav_v2.resolve_research_path(price_cache / px_cache_name(ticker)) for ticker in tickers)
+        if any(nav_v2.resolve_research_path(output_dir / name) in protected for name in names):
+            return nav_v2.refused_research_publication("caller_input_collides_with_weekly_research_output",
+                                                      output_dir, names, protected)
+        nav_v2.authorize_research_cleanup(output_dir, names, protected, price_cache)
+        for name in names:
+            path = output_dir / name
+            if nav_v2.research_output_kind(path) in ("file", "symlink"):
+                path.unlink()
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    main_holdings = normalize_holdings(_read_csv(latest_run / "reports" / "main_monthly_weights.csv"), "main")
-    concentrated_holdings = normalize_holdings(
-        _read_csv(latest_run / "reports" / "concentrated_strategy_holdings.csv"),
-        "concentrated",
-    )
+    if not research_measurement:
+        main_holdings = normalize_holdings(_read_csv(latest_run / "reports" / "main_monthly_weights.csv"), "main")
+        concentrated_holdings = normalize_holdings(
+            _read_csv(latest_run / "reports" / "concentrated_strategy_holdings.csv"), "concentrated")
     sources = {
         "main": (
             main_holdings,
-            period_end_map(latest_run / "reports" / "regime_by_month.csv"),
+            period_end_map(latest_run / "reports" / "regime_by_month.csv", strict_io=research_measurement),
         ),
         "concentrated": (
             concentrated_holdings,
-            period_end_map(latest_run / "reports" / "concentrated_strategy_monthly.csv"),
+            period_end_map(latest_run / "reports" / "concentrated_strategy_monthly.csv", strict_io=research_measurement),
         ),
     }
     curves: dict[str, pd.DataFrame] = {}
     metrics: dict[str, dict[str, Any]] = {}
+    package_valid = (not research_measurement or (type(measurement_contexts) is dict
+        and set(measurement_contexts) == {"main", "concentrated"}
+        and all(type(entry) is dict and "full" in entry and type(entry["full"]) is dict
+                and set(entry) <= {"full", "valuation_binding"}
+                and ("valuation_binding" not in entry or type(entry["valuation_binding"]) is dict)
+                for entry in measurement_contexts.values())))
     for name, (holdings, next_dates) in sources.items():
-        curve, metric = build_weekly_curve(holdings, next_dates, price_cache, name)
+        entry = measurement_contexts.get(name, {}) if type(measurement_contexts) is dict else {}
+        if type(entry) is not dict:
+            entry = {}
+        if not package_valid:
+            curve, metric = pd.DataFrame(), nav_v2.blocked("WEEKLY_CONTEXT_PACKAGE_FIELDS", name)
+        else:
+            curve, metric = build_weekly_curve(holdings, next_dates, price_cache, name,
+                measurement_context=(entry.get("full", {}) if research_measurement else None),
+                valuation_binding=entry.get("valuation_binding") if research_measurement else None)
         curves[name] = curve
         metrics[name] = metric
-        if not curve.empty:
+        if not research_measurement and not curve.empty:
             curve.to_csv(output_dir / f"{name}_weekly_equity_curve.csv", index=False)
     combined = pd.concat([c for c in curves.values() if not c.empty], ignore_index=True) if any(not c.empty for c in curves.values()) else pd.DataFrame()
-    if not combined.empty:
-        combined.sort_values(["portfolio_kind", "week_end_date"]).to_csv(output_dir / "weekly_equity_curve.csv", index=False)
-    freshness = build_freshness(latest_run, curves, metrics, stale_days_threshold=stale_days_threshold)
-    (output_dir / "weekly_metrics.json").write_text(json.dumps(metrics, indent=2, default=_json_default), encoding="utf-8")
-    (output_dir / "weekly_freshness_audit.json").write_text(
-        json.dumps(freshness, indent=2, default=_json_default),
+    measurement_complete = (not research_measurement or
+                            all(m.get("status") == nav_v2.COMPLETE for m in metrics.values()))
+    if research_measurement and not measurement_complete:
+        metrics = {name: dict(nav_v2.blocked(str(metric.get("reason") or "REQUESTED_WEEKLY_MEASUREMENT_BLOCKED"), name),
+                              **{field: metric[field] for field in ("cost_basis", "supplied_net_account_nav", "portfolio_kind")
+                                 if field in metric})
+                   for name, metric in metrics.items()}
+    freshness = build_freshness(latest_run, curves, metrics, stale_days_threshold=stale_days_threshold,
+                               strict_io=research_measurement)
+    if research_measurement:
+        freshness["freshness_status"] = freshness["status"]
+        freshness.update(status=nav_v2.COMPLETE if measurement_complete else nav_v2.BLOCKED,
+                         reason=None if measurement_complete else "REQUESTED_WEEKLY_MEASUREMENT_BLOCKED",
+                         metric_mode=nav_v2.MODE, metric_admission_complete=measurement_complete,
+                         **nav_v2.AUTHORITY)
+    if research_measurement:
+        try:
+            json.dumps(freshness, allow_nan=False, default=_json_default)
+        except (ValueError, OverflowError):
+            metrics = {name: nav_v2.blocked("NONFINITE_WEEKLY_DIAGNOSTIC") for name in sources}
+            freshness = dict(status=nav_v2.BLOCKED, reason="NONFINITE_WEEKLY_DIAGNOSTIC",
+                             metrics=metrics, metric_mode=nav_v2.MODE, metric_admission_complete=False, **nav_v2.AUTHORITY)
+            measurement_complete = False
+    if measurement_complete:
+        if research_measurement:
+            for name, curve in curves.items():
+                if not curve.empty:
+                    curve.to_csv(output_dir / (name + "_" + curve_suffix), index=False)
+        if not combined.empty:
+            combined.sort_values(["portfolio_kind", "week_end_date"]).to_csv(output_dir / curve_suffix, index=False)
+    (output_dir / metric_name).write_text(json.dumps(metrics, indent=2, default=_json_default,
+                                                    allow_nan=not research_measurement), encoding="utf-8")
+    (output_dir / freshness_name).write_text(
+        json.dumps(freshness, indent=2, default=_json_default, allow_nan=not research_measurement),
         encoding="utf-8",
     )
-    write_markdown(freshness, output_dir / "weekly_freshness_audit.md")
+    write_markdown(freshness, output_dir / report_name)
     return freshness
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build weekly mark-to-market evaluation from monthly holding books.")
+    parser.add_argument("--nav-metrics-context", type=Path, default=None)
     parser.add_argument("--latest-run", type=Path, default=Path("outputs"))
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/weekly_evaluation"))
     parser.add_argument("--price-cache", type=Path, default=Path("cache_prices"))
@@ -534,9 +792,12 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    payload = run(args.latest_run, args.output_dir, args.price_cache, args.stale_days_threshold)
-    print(json.dumps(payload, indent=2, default=_json_default))
-    return 0
+    measurement_contexts = {} if args.nav_metrics_context is not None else None
+    payload = run(args.latest_run, args.output_dir, args.price_cache, args.stale_days_threshold,
+                  measurement_contexts=measurement_contexts, measurement_context_path=args.nav_metrics_context,
+                  load_measurement_context_from_path=args.nav_metrics_context is not None)
+    print(json.dumps(payload, indent=2, default=_json_default, allow_nan=args.nav_metrics_context is None))
+    return 2 if payload.get("status") == nav_v2.BLOCKED else 0
 
 
 if __name__ == "__main__":

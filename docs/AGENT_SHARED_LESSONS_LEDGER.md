@@ -6263,3 +6263,149 @@ Expected contract:
   must cover both observed fallback and documented normal contracts.
   Preserve the existing registered TestCase/main; new boundary methods must
   actually enter that suite rather than remain an unregistered sibling class.
+
+## 2026-10-05 - Execute the prepared NAV contract through an owned child
+
+- Prepared E2 math stayed unimplemented without an execution child and sole
+  caller/lesson lease. Bind the child to current source and fresh native tests;
+  archived oracle passes do not prove caller integration.
+- Admit untouched rows against independent closes, prefill/predecessor NAV,
+  actual interval RF and zero-flow evidence. A valuation receipt cannot replace
+  an observed clock; generated weekly unit capital is not net account evidence.
+- Research status alone cannot protect orphan curves: separate every output
+  name, reject input/cache aliases before cleanup, and clear partial exports.
+  Preserve genuine cost-failure redaction without redacting valid execution.
+- Runner registration must retain the reviewed protected-publication boundary;
+  advance only the two pins after the real causal ancestor is reviewed.
+- First-freeze review exposed three finite boundaries: enforce resource budgets
+  before file/JSON/frame allocation; bound every research OS-error stage and
+  disclose incomplete cleanup; protect the actual selected input cone before
+  export invalidation, including default rates and reverse cache aliases.
+  Preserve legacy/programming-error behavior and actual cost-failure redaction.
+  Local Windows alias/FIFO injections do not prove POSIX or privileged symlinks;
+  keep supported Python3.12 fallback and platform coverage limits explicit.
+- Suppressed path predicates are not absence evidence: only FileNotFound may
+  clear a leaf; denied lstat must return blocked/incomplete cleanup telemetry.
+- Eight exact-head findings exposed caller admission gaps despite local passes:
+  selected read/stat errors must not become empty/inferred inputs; refusals must
+  disclose retained generations without overwriting protected input bytes.
+  Project/bound only consumed frame cells before copying; every valuation point
+  must precede receipt availability/cutoff before slicing, and OOS needs a real
+  predecessor. Reject undeclared weekly evidence keys; scope trade counts and
+  preserve fixed NAV mode separately from genuine execution-cost redaction.
+- The first hosted-fix freeze exposed remaining target/rate/slippage IO
+  suppression: make selected reads strict at the actual helper, preserving
+  default constructor/cost normalization. Rejected weekly package shapes have
+  no eval date; only four own freshness expectations change to unknown, with
+  all blocked/null/no-curve assertions retained. Record failed freezes honestly.
+- Zero-flow absence receipts must cover the scope end, including empty/zero
+  events. RF aggregate availability must cover actual row clocks, while valid
+  early RF rows and independent anchor/grid remain eligible. Preserve cutoff
+  bounds and supplied clocks; never restamp receipts to clear admission.
+- Full valuation provenance must bind the original rows, reference identity/clock
+  and cutoff before slicing; a rows-only hash loses consumed evidence. Use the
+  exact offline NYSE schedule for historical closes, not modern hour/weekdays.
+  Predecode JSON budgets must count actual values/containers like encoded,
+  excluding object keys from nodes while preserving byte/depth limits.
+- Caller review exposed four opt-in boundary failures: blocked broker windows
+  must replace full/sibling performance, empty weekly portfolios need blocked/null
+  schema, selected context reads belong before cleanup authorization, and every
+  research diagnostic export must be finite without zero-cost substitution.
+  Preserve independent weekly diagnostics and genuine E1 DO_NOT_USE redaction.
+  Bind additive upstream lessons and original assertion bodies; use scoped index
+  entries rather than a slow global stat scan. An interrupted own verifier lock
+  is removable only after exact identity and a no-live-Git census are recorded.
+- IS starts at caller row zero even with a non-null upper-only range. Bind
+  PREFILL kind and actual initial capital to the admitted first selected session,
+  not tuple syntax or labels; interior slices keep their actual predecessor.
+  Rehash changed NAV/kind counterexamples so stale hashes do not mask this guard.
+- Selected raw decoders can fail outside OSError: normalize only proven format
+  errors at strict readers, retaining finite cause codes and cleanup disclosure.
+  Validate consumed JSON objects and exact invalid-date conversion explicitly;
+  keep programming errors, default absence and cost/date formulas unchanged.
+  Match helper arity and frozen import namespaces in negative harnesses; separate
+  harness failures from real input failures and bind corrected evidence explicitly.
+- Parquet metadata can decode as valid JSON yet fail in native attrs conversion.
+  Bind the exact read/__setattr__/setter code chain, distinct engine and paired
+  DataFrame/value/consumed metadata before normalizing; native successful coercions
+  remain valid. Re-raise unmatched programming/backend errors, inspect transiently
+  without a second source read, and record dependency/platform limits explicitly.
+- Frame-locals proxies need fixed-key membership across Python versions;
+  bind negative link expectations to actual input preservation and caller rules.
+- Public path-loader flags must activate both the caller research namespace and
+  its IO guard before selected reads, cleanup or output. CLI dummy objects can
+  conceal direct-API fallback; test both real call signatures, selected-file
+  precedence and None-path refusal while preserving unselected legacy defaults.
+- A healthy CLI fixture must supply evidence for every requested default window
+  or use its documented opt-out; fix the fixture, never relax admission.
+
+## E2 atomic publication and native path recursion (2026-10-06)
+
+- A refused aggregate must not retain completed sibling/window performance in any published metric view; keep labels, reasons, null metrics and separate finite execution diagnostics.
+- Normalize recursion only from the actual installed pathlib code/receiver/handled OS context; message-like programmer errors remain visible. Windows missing-leaf ancestor parity and genuine self/two loops are different evidence.
+- Check helper signatures and healthy optional metadata before attributing author failures; exception chaining may break a context cycle when the original OS error is rethrown. Preserve those author diagnostics separately.
+- Fresh redaction must retain a failed child's precise reason when top admission succeeded, and the causal top reason when it did not. Restore only the three fixed safe weekly proxy diagnostics; the old sibling-COMPLETE expectation required an explicitly authorized one-leaf contract correction.
+- Stop owned validation at a failed phase boundary and preserve failed-source evidence. Separate product reason/diagnostic regressions and fixture conflicts from author signature/census/CRLF errors or C3 V1's wrong-alias mechanical check; the latter is a verifier diagnostic, not a product defect.
+
+## 2026-10-06 — Native-origin fixtures must preserve actual call frames
+
+- A selected real symlink loop must reach unpatched pathlib directly. A test-local
+  delegated resolver adds a forbidden traceback frame; retain wrappers only for
+  controlled output/cleanup OSError injection and keep wrong-origin negatives.
+  Local 3.14 or nav-only 3.12 coverage does not replace broker/weekly 3.12 CI.
+
+- A runpy audit launcher must preserve the native script-directory import path;
+  missing helper aliases are harness failures, not candidate failures.
+
+## 2026-10-06 — Validate selected holdings headers before normalization
+
+- A readable nonempty selected CSV can omit required date/ticker/weight headers.
+  Check both raw books before normalization or cleanup, then disclose retained
+  publication as incomplete without fake weights or catching programmer errors.
+  Preserve genuine empty inputs and ordinary normalization behavior.
+
+## 2026-10-06 — Windows inventory fixture byte boundaries
+
+- The Windows full 37-test inventory run stopped at README because seven tracked text fixtures are CRLF while the unchanged generator emits LF. All eight generated outputs matched HEAD Git bytes; Parquet bytes matched exactly.
+- Preserve fixtures and gates. Record full normal as failed and full -O as NOT_RUN; report focused pin controls and their plain-assert limits separately. Require exact-head Linux full inventory and all required CI before acceptance.
+
+## 2026-10-06 - Bind weekly evidence before annualization
+
+- Generated weekly NAV needs zero missing holding prices and exact native weekly
+  cadence. A terminal endpoint cannot grant its own partial week; use cutoff.
+  Validate selected nonempty slippage header groups before silent normalization.
+- Two old weekly-positive subcases used daily or sparse fixtures. Preserve the
+  broker branches/assertions and bind separate genuine weekly fixtures. A new
+  diagnostic-field assertion can fail on old output; retain that test-side error
+  separately from product tracebacks and completed new-head validation.
+- Author positive controls must include every intervening week and actual caller
+  valuation binding; incomplete controls are test diagnostics, not product defects.
+
+## 2026-10-06 - Preserve execution refusal while binding actual weekly sessions
+
+- Zero missing-price count does not make mixed constituent price sessions current.
+  Research marks must bind each actual holding session to the admitted aggregate;
+  coherent native partial, Saturday, holiday and early-close controls stay valid.
+- Canonical non-execution refusal and genuine E1 failure are distinct. Keep E1
+  audit/DO_NOT_USE/redaction and add a separate null measurement admission;
+  only exact empty OOS2 end means None, never other falsey types.
+- Compare raw and trimmed evidence hashes by their declared convention. New
+  test controls must use date-only clock inputs, the actual package key shape
+  and existing refusal reason location; retain failed author diagnostics.
+
+### 2026-10-06 E2 broker held-price session admission
+
+- An aggregate NAV clock cannot certify constituent prices. Opt-in replay refuses a
+  nonzero held mark from another session or an unavailable price; keep legacy
+  valuation/cost math and genuine E1 redaction unchanged. New-test import and late
+  E1-envelope assumptions are author diagnostics, not reasons to widen E1 output.
+- Check pin claims at the exact reviewed head: aa67's canonical 4f17 ancestor
+  check passed with no protected-path delta, so retain the pin rather than refresh
+  it from a review assertion that contradicts the actual source evidence.
+
+### 2026-10-07 E2 selected Parquet CLI native-abort diagnostics
+
+- A Windows blocked-return control does not diagnose a Linux child signal. Keep
+  return code 2 and all admission/preservation assertions; capture exact argv,
+  stdout/stderr, completion phase and child faulthandler output before changing
+  a reader, backend or policy. Separate fixture setup calls from the single CLI.
