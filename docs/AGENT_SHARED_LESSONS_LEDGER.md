@@ -6353,3 +6353,6 @@ Expected contract:
   delegated resolver adds a forbidden traceback frame; retain wrappers only for
   controlled output/cleanup OSError injection and keep wrong-origin negatives.
   Local 3.14 or nav-only 3.12 coverage does not replace broker/weekly 3.12 CI.
+
+- A runpy audit launcher must preserve the native script-directory import path;
+  missing helper aliases are harness failures, not candidate failures.
