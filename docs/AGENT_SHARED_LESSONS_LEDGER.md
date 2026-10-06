@@ -6368,3 +6368,15 @@ Expected contract:
 
 - The Windows full 37-test inventory run stopped at README because seven tracked text fixtures are CRLF while the unchanged generator emits LF. All eight generated outputs matched HEAD Git bytes; Parquet bytes matched exactly.
 - Preserve fixtures and gates. Record full normal as failed and full -O as NOT_RUN; report focused pin controls and their plain-assert limits separately. Require exact-head Linux full inventory and all required CI before acceptance.
+
+## 2026-10-06 - Bind weekly evidence before annualization
+
+- Generated weekly NAV needs zero missing holding prices and exact native weekly
+  cadence. A terminal endpoint cannot grant its own partial week; use cutoff.
+  Validate selected nonempty slippage header groups before silent normalization.
+- Two old weekly-positive subcases used daily or sparse fixtures. Preserve the
+  broker branches/assertions and bind separate genuine weekly fixtures. A new
+  diagnostic-field assertion can fail on old output; retain that test-side error
+  separately from product tracebacks and completed new-head validation.
+- Author positive controls must include every intervening week and actual caller
+  valuation binding; incomplete controls are test diagnostics, not product defects.

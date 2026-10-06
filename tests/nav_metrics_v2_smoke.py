@@ -734,13 +734,16 @@ class HostedR3BindingCalendarResourceTests(unittest.TestCase):
                     measurement_contexts=c,valuation_binding=b)
                 self.assertEqual(out['status'],nav.COMPLETE,out)
                 for label in ('full','is','oos','oos2'):self.assertBinding(out[label],b)
-                curve=f.rename(columns={'date':'week_end_date','equity_usd':'equity'})
-                wc=context(data,frequency='weekly')
-                w=weekly.weekly_metrics(curve,'main',measurement_context=wc,valuation_binding=b)
-                self.assertBinding(w,b)
+                weekly_data=[dict(session=d,timestamp=d+'T21:00:00Z',nav=row['nav'])
+                             for d,row in zip(('2026-01-09','2026-01-16','2026-01-23'),data)]
+                weekly_binding=binding(weekly_data);weekly_binding['ref']['identity']=identity
+                curve=frame(weekly_data).rename(columns={'date':'week_end_date','equity_usd':'equity'})
+                wc=context(weekly_data,frequency='weekly')
+                w=weekly.weekly_metrics(curve,'main',measurement_context=wc,valuation_binding=weekly_binding)
+                self.assertBinding(w,weekly_binding)
                 # These are the actual dictionaries exported by each caller.
                 self.assertEqual(json.loads(json.dumps(out))['oos']['valuation_binding_provenance']['sha256'],nav.digest(b))
-                self.assertEqual(json.loads(json.dumps(w))['valuation_binding_provenance']['sha256'],nav.digest(b))
+                self.assertEqual(json.loads(json.dumps(w))['valuation_binding_provenance']['sha256'],nav.digest(weekly_binding))
                 self.assertEqual(nav.encoded(b),original)
 
     def test_native_historical_and_modern_exact_close_positive_controls(self):
@@ -752,7 +755,7 @@ class HostedR3BindingCalendarResourceTests(unittest.TestCase):
                   for d,t in schedule['market_close'].items()]
             for frequency in ('daily','weekly'):
                 with self.subTest(lo=lo,hi=hi,frequency=frequency):
-                    sample=data if frequency=='daily' else data[::2]
+                    sample=data if frequency=='daily' else list({datetime.fromisoformat(row['session']).isocalendar()[:2]:row for row in data}.values())
                     anchor=(nav.stamp(data[0]['timestamp'])-timedelta(days=1)).isoformat()
                     c=context(sample,anchor_time=anchor,frequency=frequency); before=nav.encoded(c)
                     out=nav.calculate(sample,c)
@@ -837,6 +840,64 @@ class HostedR3BindingCalendarResourceTests(unittest.TestCase):
                     self.assertEqual(p.read_bytes(),raw)
             p.write_bytes(nav.encoded(context(rows())))
             self.assertEqual(nav.calculate(rows(),nav.load_context(p))['status'],nav.COMPLETE)
+
+
+    def test_weekly_cadence_rejects_daily_sparse_and_self_authorized_partial_grids(self):
+        cases = (
+            (('2026-01-05', '2026-01-06', '2026-01-07'), '2026-01-07T21:00:00Z'),
+            (('2026-01-09', '2026-01-13', '2026-01-16'), '2026-01-16T21:00:00Z'),
+            (('2026-01-09', '2026-02-06'), '2026-02-06T21:00:00Z'),
+            (('2026-01-09', '2026-01-23'), '2026-01-23T21:00:00Z'),
+            (('2026-01-09', '2026-01-14', '2026-01-23'), '2026-01-23T21:00:00Z'),
+            (('2026-01-09', '2026-01-21'), '2026-01-28T21:00:00Z'),
+            (('2026-01-09', '2026-01-20'), '2026-01-22T21:00:00Z'),
+            (('2026-01-13', '2026-01-23'), '2026-01-23T21:00:00Z'),
+        )
+        for days, cutoff in cases:
+            with self.subTest(days=days, cutoff=cutoff):
+                data = [dict(session=d, timestamp=d+'T21:00:00Z', nav=100.) for d in days]
+                c = context(data, frequency='weekly'); c['cutoff'] = cutoff
+                original = nav.encoded(c); before = nav.encoded(data)
+                result = nav.calculate(data, c)
+                self.assertEqual(result['status'], nav.BLOCKED, result)
+                self.assertTrue(result['reason'].startswith('CALENDAR_WEEKLY_'), result)
+                for field in nav.METRIC_FIELDS: self.assertIsNone(result[field])
+                for field, value in nav.AUTHORITY.items(): self.assertEqual(result[field], value)
+                self.assertEqual(nav.encoded(c), original); self.assertEqual(nav.encoded(data), before)
+
+    def test_weekly_cadence_keeps_native_finals_and_cutoff_bound_partial_controls(self):
+        import pandas_market_calendars as mcal
+        calendar = mcal.get_calendar('NYSE')
+        for lo, hi in (('1951-06-04', '1951-06-16'), ('1973-12-24', '1974-01-04'),
+                       ('2026-03-02', '2026-03-13'), ('2026-11-23', '2026-12-04'),
+                       ('2026-03-30', '2026-04-10')):
+            with self.subTest(lo=lo, hi=hi):
+                schedule = calendar.schedule(start_date=lo, end_date=hi)
+                native = [dict(session=d.date().isoformat(), timestamp=t.isoformat(), nav=100.)
+                          for d, t in schedule['market_close'].items()]
+                weekly = list({datetime.fromisoformat(r['session']).isocalendar()[:2]:r for r in native}.values())
+                anchor = (nav.stamp(native[0]['timestamp'])-timedelta(days=1)).isoformat()
+                c = context(weekly, frequency='weekly', anchor_time=anchor)
+                original = nav.encoded(c)
+                result = nav.calculate(weekly, c)
+                self.assertEqual(result['status'], nav.COMPLETE, result)
+                self.assertEqual(result['annualization'], 52)
+                self.assertEqual(nav.encoded(c), original)
+                daily = context(native, anchor_time=anchor)
+                self.assertEqual(nav.calculate(native, daily)['status'], nav.COMPLETE)
+                self.assertEqual(nav.calculate(native, daily)['annualization'], 252)
+        for days, cutoff in (
+            (('2026-01-09', '2026-01-16'), '2026-01-20T21:00:00Z'),
+            (('2026-01-09', '2026-01-16', '2026-01-21'), '2026-01-21T21:00:00Z'),
+            (('2026-01-09', '2026-01-16', '2026-01-21'), '2026-01-22T20:59:59Z'),
+        ):
+            with self.subTest(days=days, cutoff=cutoff):
+                data = [dict(session=d, timestamp=d+'T21:00:00Z', nav=100.) for d in days]
+                c = context(data, frequency='weekly'); c['cutoff'] = cutoff
+                self.assertEqual(nav.calculate(data, c)['status'], nav.COMPLETE)
+                c['cutoff'] = nav.stamp(cutoff).astimezone(__import__('zoneinfo').ZoneInfo('America/New_York')).isoformat()
+                self.assertEqual(nav.calculate(data, c)['status'], nav.COMPLETE)
+
 
 
 class HostedR6NativeAttrsTests(unittest.TestCase):

@@ -439,8 +439,11 @@ def build_weekly_curve(
                                portfolio_kind=portfolio_kind, input_rebalance_count=len(prev_rebalance_dates))
         return curve, {"status": "no_weekly_rows", "portfolio_kind": portfolio_kind, "input_rebalance_count": len(prev_rebalance_dates)}
     if measurement_context is not None:
-        metric = weekly_metrics(curve, portfolio_kind, measurement_context=measurement_context,
-                                valuation_binding=valuation_binding)
+        if curve["missing_price_count"].gt(0).any():
+            metric = nav_v2.blocked("CALLER_WEEKLY_MISSING_PRICES", portfolio_kind)
+        else:
+            metric = weekly_metrics(curve, portfolio_kind, measurement_context=measurement_context,
+                                    valuation_binding=valuation_binding)
         if metric.get("status") == nav_v2.COMPLETE:
             if metric["starting_capital_usd"] != 1.0:
                 metric = nav_v2.blocked("CALLER_WEEKLY_INITIAL_UNIT_MISMATCH")

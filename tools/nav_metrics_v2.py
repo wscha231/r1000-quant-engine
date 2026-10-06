@@ -369,12 +369,12 @@ def research_io_guard(context_argument):
                               uncleared_generated_outputs=remaining, cleanup_refused_inputs=refused)
                 # Reader-local admission attaches finite codes, never source text.
                 formats = {
-                    "CSV": {"UnicodeDecodeError", "ParserError", "EmptyDataError", "DateParseError"},
+                    "CSV": {"UnicodeDecodeError", "ParserError", "EmptyDataError", "DateParseError", "SlippageRequiredColumns"},
                     "JSON": {"UnicodeDecodeError", "JSONDecodeError", "JSONRootType", "JSONAuditType"},
-                    "PARQUET": {"ArrowInvalid", "UnicodeDecodeError", "JSONDecodeError", "DateParseError", "PandasAttrsShape"},
+                    "PARQUET": {"ArrowInvalid", "UnicodeDecodeError", "JSONDecodeError", "DateParseError", "PandasAttrsShape", "SlippageRequiredColumns"},
                 }
                 reasons = {"SELECTED_INPUT_DECODE", "SELECTED_INPUT_DATE",
-                           "SELECTED_INPUT_JSON_OBJECT", "SELECTED_INPUT_JSON_AUDIT_OBJECT", "SELECTED_INPUT_PARQUET_ATTRS"}
+                           "SELECTED_INPUT_JSON_OBJECT", "SELECTED_INPUT_JSON_AUDIT_OBJECT", "SELECTED_INPUT_PARQUET_ATTRS", "SELECTED_INPUT_SLIPPAGE_SCHEMA"}
                 input_format = getattr(exc, "selected_input_format", None)
                 cause = getattr(exc, "selected_input_cause", None)
                 reason = getattr(exc, "selected_input_reason", None)
@@ -422,7 +422,6 @@ def _calculate(rows, c, label):
     encoded(c); encoded(rows)
     require(c["schema"] == "nav-measurement-context-v2", "CONTEXT_SCHEMA")
     require(c["frequency"] in ("daily", "weekly"), "FREQUENCY")
-    annualization = 252 if c["frequency"] == "daily" else 52
     cutoff = stamp(c["cutoff"])
     grid = c["grid"]
     require(type(grid) is dict and set(grid) == {"kind", "rows", "ref"}, "GRID_FIELDS")
@@ -444,15 +443,33 @@ def _calculate(rows, c, label):
         times.append(t); sessions.add(session)
     require(stamp(grid["ref"]["available_at"]) <= times[0], "GRID_NOT_INDEPENDENTLY_AVAILABLE")
     # Compare the declared source grid with the native offline calendar, never prices.
-    # Weekly observations may include a current partial week; each must be an actual close.
+    # A candidate endpoint cannot authorize its own partial weekly observation.
     import pandas_market_calendars as mcal
     require((times[-1] - times[0]).days <= 366 * 200, "GRID_TIME_BUDGET")
-    schedule = mcal.get_calendar("NYSE").schedule(start_date=points[0]["session"], end_date=points[-1]["session"])
+    schedule_end = points[-1]["session"]
+    if c["frequency"] == "weekly":
+        terminal_session = date.fromisoformat(schedule_end)
+        schedule_end = date.fromordinal(terminal_session.toordinal() + 6 - terminal_session.weekday()).isoformat()
+    schedule = mcal.get_calendar("NYSE").schedule(start_date=points[0]["session"], end_date=schedule_end)
     closes = {d.date().isoformat(): t.to_pydatetime().astimezone(timezone.utc)
               for d, t in schedule["market_close"].items()}
     require(all(closes.get(p["session"]) == t for p, t in zip(points, times)), "CALENDAR_CLOSE_MISMATCH")
     if c["frequency"] == "daily":
         require(list(closes) == [p["session"] for p in points], "CALENDAR_SESSION_GAP")
+    else:
+        weekly_closes = {}
+        for session, close in closes.items():
+            weekly_closes[date.fromisoformat(session).isocalendar()[:2]] = close
+        terminal_week = terminal_session.isocalendar()[:2]
+        if times[-1] != weekly_closes[terminal_week]:
+            cutoff_week = cutoff.astimezone(ZoneInfo("America/New_York")).date().isocalendar()[:2]
+            require(terminal_week == cutoff_week, "CALENDAR_WEEKLY_PARTIAL_SCOPE")
+            available = [close for session, close in closes.items()
+                         if date.fromisoformat(session).isocalendar()[:2] == terminal_week and close <= cutoff]
+            require(available and times[-1] == available[-1], "CALENDAR_WEEKLY_PARTIAL_STALE")
+            weekly_closes[terminal_week] = times[-1]
+        require(list(weekly_closes.values()) == times, "CALENDAR_WEEKLY_CADENCE")
+    annualization = 252 if c["frequency"] == "daily" else 52
     require(type(rows) is list and len(rows) == len(points), "ROW_GRID_LENGTH")
     values = []
     for row, point, t in zip(rows, points, times):

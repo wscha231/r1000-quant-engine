@@ -377,6 +377,12 @@ def load_paper_slippage(path: Path | None, *, strict_io: bool = False) -> pd.Dat
         or "side" not in raw.columns
         or not value_col
     ):
+        if strict_io:
+            failure = OSError("SELECTED_INPUT_SLIPPAGE_SCHEMA")
+            failure.selected_input_format = "PARQUET" if Path(path).suffix.lower() == ".parquet" else "CSV"
+            failure.selected_input_cause = "SlippageRequiredColumns"
+            failure.selected_input_reason = "SELECTED_INPUT_SLIPPAGE_SCHEMA"
+            raise failure
         return pd.DataFrame(columns=columns)
 
     def normalize_trade_date(value: Any) -> pd.Timestamp:

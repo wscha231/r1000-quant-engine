@@ -2155,6 +2155,98 @@ class ResearchNavCallerTests(unittest.TestCase):
         with patch.object(nav,'resolve_research_path',side_effect=error),self.assertRaises(RuntimeError) as caught:self.run_replay(measurement_context=self.measurement())
         self.assertIs(caught.exception,error)
 
+
+    def test_strict_nonempty_slippage_required_groups_preserve_aliases_empty_and_program_errors(self):
+        from itertools import combinations
+        from tools.execution_cost_model import load_paper_slippage
+        groups=('date','ticker','side','observed_slippage_bps')
+        good=dict(date=['2026-01-05'],ticker=['aaa'],side=['buy'],observed_slippage_bps=[0.])
+        for suffix in ('.csv','.parquet'):
+            path=self.root/('schema'+suffix)
+            for size in range(1,5):
+                for missing in combinations(groups,size):
+                    with self.subTest(format=suffix,missing=missing):
+                        raw=pd.DataFrame({k:v for k,v in good.items() if k not in missing} or {'other':[1]})
+                        if suffix=='.csv':raw.to_csv(path,index=False)
+                        else:raw.to_parquet(path,index=False)
+                        before=path.read_bytes()
+                        with self.assertRaises(OSError) as caught:load_paper_slippage(path,strict_io=True)
+                        self.assertEqual(caught.exception.selected_input_reason,'SELECTED_INPUT_SLIPPAGE_SCHEMA')
+                        self.assertEqual(caught.exception.selected_input_cause,'SlippageRequiredColumns')
+                        self.assertTrue(load_paper_slippage(path).empty);self.assertEqual(path.read_bytes(),before)
+            for date_col in ('date','fill_date','executed_at'):
+                for value_col in ('observed_slippage_bps','implementation_shortfall_bps','slippage_bps'):
+                    with self.subTest(format=suffix,date=date_col,value=value_col):
+                        raw=pd.DataFrame({date_col:['2026-01-05'], 'ticker':['aaa'], 'side':['buy'],value_col:['0'],'unused':['x']})
+                        if suffix=='.csv':raw.to_csv(path,index=False)
+                        else:raw.to_parquet(path,index=False)
+                        strict=load_paper_slippage(path,strict_io=True);old=load_paper_slippage(path)
+                        pd.testing.assert_frame_equal(strict,old);self.assertEqual(len(strict),1)
+            empty=pd.DataFrame(columns=['other'])
+            if suffix=='.csv':empty.to_csv(path,index=False)
+            else:empty.to_parquet(path,index=False)
+            self.assertTrue(load_paper_slippage(path,strict_io=True).empty)
+            reader='read_csv' if suffix=='.csv' else 'read_parquet'
+            for error in (AttributeError('program'),ValueError('SELECTED_INPUT_SLIPPAGE_SCHEMA'),TypeError('backend')):
+                with patch.object(pd,reader,side_effect=error),self.assertRaises(type(error)) as caught:
+                    load_paper_slippage(path,strict_io=True)
+                self.assertIs(caught.exception,error)
+        self.assertTrue(load_paper_slippage(None,strict_io=True).empty)
+        self.assertTrue(load_paper_slippage(self.root/'absent-optional.csv').empty)
+        with self.assertRaises(FileNotFoundError):load_paper_slippage(self.root/'absent-selected.csv',strict_io=True)
+
+    def test_strict_slippage_schema_reaches_atomic_replay_refusal_and_real_CLI(self):
+        import json,subprocess,sys
+        from tools import nav_metrics_v2 as nav
+        from nav_metrics_v2_smoke import context,binding
+        from tools.execution_cost_model import ExecutionCostConfig
+        idx=pd.bdate_range('2025-12-01','2026-01-07')
+        px=pd.DataFrame({'Open':100.,'Close':100.,'Adj Close':100.,'High':100.,'Low':100.,'Volume':1000000},index=idx)
+        for ticker in ('AAA','SPY','QQQ'):px.to_parquet(self.cache/px_cache_name(ticker))
+        baseline=self.run_replay(execution_cost_config=ExecutionCostConfig(mode='spread_adv_impact_v1'))
+        self.assertEqual(baseline['status'],'completed',baseline)
+        df=pd.read_csv(self.out/'equity_curve.csv')
+        data=[dict(session=r.date,timestamp=r.date+'T21:00:00Z',nav=r.equity_usd) for r in df.itertuples()]
+        receipt=dict(full=context(data,anchor_nav=10000.),valuation_binding=binding(data))
+        source_before={p:p.read_bytes() for p in self.cache.iterdir() if p.is_file()};target_before=self.target.read_bytes()
+        for suffix in ('.csv','.parquet'):
+            with self.subTest(format=suffix):
+                path=self.root/('selected-schema'+suffix)
+                good=pd.DataFrame([dict(date='2026-01-05',ticker='AAA',side='BUY',observed_slippage_bps=0.)])
+                if suffix=='.csv':good.to_csv(path,index=False)
+                else:good.to_parquet(path,index=False)
+                cfg=ExecutionCostConfig(mode='spread_adv_impact_v1',paper_slippage_path=path)
+                self.assertEqual(self.run_replay(execution_cost_config=cfg,measurement_context=receipt)['status'],nav.COMPLETE)
+                dest=self.out/nav.NAMESPACE;foreign=dest/'foreign';foreign.write_bytes(b'foreign')
+                malformed=good.drop(columns=['observed_slippage_bps'])
+                if suffix=='.csv':malformed.to_csv(path,index=False)
+                else:malformed.to_parquet(path,index=False)
+                raw=path.read_bytes()
+                result=self.run_replay(execution_cost_config=cfg,measurement_context=receipt)
+                self.assertEqual(result.get('reason'),'RESEARCH_IO_FAILURE',result)
+                self.assertEqual(result.get('selected_input_reason'),'SELECTED_INPUT_SLIPPAGE_SCHEMA')
+                self.assertEqual(result['selected_input_cause'],'SlippageRequiredColumns')
+                self.assertFalse(result['current_publication_complete'])
+                for field in nav.METRIC_FIELDS:self.assertIsNone(result[field])
+                for field,value in nav.AUTHORITY.items():self.assertEqual(result[field],value)
+                self.assertFalse((dest/nav.CURVE_FILE).exists());self.assertEqual(foreign.read_bytes(),b'foreign')
+                self.assertEqual(path.read_bytes(),raw)
+        context_path=self.root/'schema-context.json';context_path.write_text(json.dumps(receipt))
+        cmd=[sys.executable]+(['-O'] if sys.flags.optimize else [])+[str(ROOT/'tools/run_broker_ledger_replay.py'),
+            '--target-book',str(self.target),'--price-cache',str(self.cache),'--output-dir',str(self.out),
+            '--starting-capital','10000','--execution-cost-mode','spread_adv_impact_v1',
+            '--paper-slippage-path',str(path),'--nav-metrics-context',str(context_path)]
+        child=subprocess.run(cmd,capture_output=True,text=True,timeout=90)
+        self.assertEqual(child.returncode,2,child.stderr);self.assertNotIn('Traceback',child.stderr)
+        self.assertEqual(json.loads(child.stdout).get('selected_input_reason'),'SELECTED_INPUT_SLIPPAGE_SCHEMA')
+        self.assertEqual(self.target.read_bytes(),target_before)
+        for p,b in source_before.items():self.assertEqual(p.read_bytes(),b)
+        # Disabled cost mode does not select the malformed table or fabricate its normalization.
+        with patch('tools.execution_cost_model.load_paper_slippage',side_effect=AssertionError('disabled source read')):
+            self.assertEqual(self.run_replay(execution_cost_config=ExecutionCostConfig(paper_slippage_path=path),
+                measurement_context=self.measurement())['status'],nav.COMPLETE)
+
+
 def main() -> int:
     test_missing_liquidation_fill_fails_closed_before_state_mutation()
     test_multi_day_transition_fails_closed_before_state_mutation()

@@ -1151,6 +1151,79 @@ class ResearchWeeklyCallerTests(__import__('unittest').TestCase):
             run(self.latest, self.root / 'legacy-default', self.cache)
 
 
+
+    def test_missing_holding_prices_refuse_generated_weekly_metrics_and_atomic_exports(self):
+        import copy, json, subprocess, sys
+        from unittest.mock import patch
+        from tools import run_weekly_evaluation as weekly
+        from tools import nav_metrics_v2 as nav
+        paths = {name:self.reports/file for name,file in
+                 (('main','main_monthly_weights.csv'),('concentrated','concentrated_strategy_holdings.csv'))}
+        original = {p:p.read_bytes() for p in paths.values()}
+        all_prices = {p:p.read_bytes() for p in self.cache.iterdir() if p.is_file()}
+        holdings = weekly.normalize_holdings(pd.DataFrame([
+            dict(ticker='AAA', rebalance_date='2026-01-02', weight=.5),
+            dict(ticker='MISSING', rebalance_date='2026-01-02', weight=.5)]), 'main')
+        with patch.object(weekly, 'weekly_metrics', wraps=weekly.weekly_metrics) as measure:
+            curve, metric = weekly.build_weekly_curve(holdings, {pd.Timestamp('2026-01-02'):pd.Timestamp('2026-01-23')},
+                self.cache, 'main', measurement_context=self.measurement()['main']['full'],
+                valuation_binding=self.measurement()['main']['valuation_binding'])
+        self.assertFalse(curve.empty); self.assertTrue(curve['missing_price_count'].gt(0).all())
+        self.assertEqual(metric['status'], nav.BLOCKED, metric)
+        self.assertEqual(metric['reason'], 'CALLER_WEEKLY_MISSING_PRICES'); self.assertFalse(measure.called)
+        for field in nav.METRIC_FIELDS:self.assertIsNone(metric[field])
+        # End-price loss is a controlled native helper boundary, separate from absent-table evidence.
+        original_end = weekly.price_on_or_before
+        def unavailable(frame, target, column):
+            if column == 'close' and pd.Timestamp(target).normalize() == pd.Timestamp('2026-01-16'):
+                return None, None
+            return original_end(frame, target, column)
+        healthy_holdings = weekly.normalize_holdings(pd.read_csv(paths['main']), 'main')
+        with patch.object(weekly, 'price_on_or_before', unavailable):
+            curve, metric = weekly.build_weekly_curve(healthy_holdings, {pd.Timestamp('2026-01-02'):pd.Timestamp('2026-01-23')},
+                self.cache, 'main', measurement_context=self.measurement()['main']['full'])
+        self.assertTrue(curve['missing_price_count'].gt(0).any())
+        self.assertEqual(metric['reason'], 'CALLER_WEEKLY_MISSING_PRICES')
+        for selected in (('main',), ('concentrated',), ('main','concentrated')):
+            with self.subTest(selected=selected):
+                for p,b in original.items():p.write_bytes(b)
+                self.assertEqual(run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())['status'], nav.COMPLETE)
+                dest=self.out/nav.NAMESPACE;foreign=dest/'foreign-keep';foreign.write_bytes(b'foreign')
+                for name in selected:
+                    pd.DataFrame([dict(ticker='AAA',rebalance_date='2026-01-02',weight=.5),
+                                  dict(ticker='MISSING',rebalance_date='2026-01-02',weight=.5)]).to_csv(paths[name],index=False)
+                raw={p:p.read_bytes() for p in paths.values()};receipt=copy.deepcopy(self.measurement())
+                result=run(self.latest,self.out,self.cache,measurement_contexts=receipt)
+                self.assertEqual(result['status'],nav.BLOCKED,result);self.assertFalse(result['metric_admission_complete'])
+                for name,child in result['metrics'].items():
+                    self.assertEqual(child['status'],nav.BLOCKED)
+                    for field in nav.METRIC_FIELDS:self.assertIsNone(child[field])
+                    for field,value in nav.AUTHORITY.items():self.assertEqual(child[field],value)
+                    self.assertEqual(json.loads((dest/'weekly_freshness_audit.research_v2.json').read_text())['metrics'][name]['status'],nav.BLOCKED)
+                self.assertFalse(list(dest.glob('*.csv')));self.assertEqual(foreign.read_bytes(),b'foreign')
+                for p,b in raw.items():self.assertEqual(p.read_bytes(),b)
+        context_path=self.root/'missing-price-context.json';context_path.write_text(json.dumps(self.measurement()))
+        cmd=[sys.executable]+(['-O'] if sys.flags.optimize else [])+[str(weekly.ROOT/'tools/run_weekly_evaluation.py'),
+            '--latest-run',str(self.latest),'--output-dir',str(self.out),'--price-cache',str(self.cache),
+            '--nav-metrics-context',str(context_path)]
+        child=subprocess.run(cmd,capture_output=True,text=True,timeout=60)
+        self.assertEqual(child.returncode,2,child.stderr);self.assertNotIn('Traceback',child.stderr)
+        self.assertEqual(json.loads(child.stdout)['status'],nav.BLOCKED)
+        for p,b in original.items():p.write_bytes(b)
+        # Cash and missing diagnostic benchmarks do not count as missing holdings.
+        self.assertEqual(run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())['status'],nav.COMPLETE)
+        for p,b in all_prices.items():self.assertEqual(p.read_bytes(),b)
+        for name in ('main','concentrated'):
+            h=weekly.normalize_holdings(pd.DataFrame([dict(ticker='AAA',rebalance_date='2026-01-02',weight=.5),
+                dict(ticker='__CASH__',rebalance_date='2026-01-02',weight=.5)]),name)
+            curve,metric=weekly.build_weekly_curve(h,{pd.Timestamp('2026-01-02'):pd.Timestamp('2026-01-23')},self.cache,name,
+                benchmark_tickers=('ABSENT_DIAGNOSTIC',),measurement_context=self.measurement()[name]['full'],
+                valuation_binding=self.measurement()[name]['valuation_binding'])
+            self.assertEqual(metric['status'],nav.COMPLETE,metric);self.assertTrue(curve['missing_price_count'].eq(0).all())
+        legacy=weekly.build_weekly_curve(holdings,{pd.Timestamp('2026-01-02'):pd.Timestamp('2026-01-23')},self.cache,'main')[1]
+        self.assertEqual(legacy['status'],'completed')
+
+
 def main() -> int:
     test_weekly_evaluation_marks_to_weekly_and_reports_staleness()
     import unittest
