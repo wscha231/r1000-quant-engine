@@ -961,6 +961,7 @@ class ResearchWeeklyCallerTests(__import__('unittest').TestCase):
     def test_recursive_weekly_selected_and_output_geometry_fail_closed_without_program_catch(self):
         import os,json,errno,subprocess
         from unittest.mock import patch
+        from contextlib import nullcontext
         from tools import nav_metrics_v2 as nav
         path=self.root/'weekly-geometry-context.json';path.write_text(json.dumps(self.measurement()));before=path.read_bytes()
         for location in ('selected','output','generated'):
@@ -975,7 +976,7 @@ class ResearchWeeklyCallerTests(__import__('unittest').TestCase):
                 def denied(p,*a,**k):
                     if location=='output' and p==dest or location=='generated' and p==leaf:raise OSError(errno.ELOOP,'controlled geometry OS boundary')
                     return original(p,*a,**k)
-                with patch.object(Path,'resolve',denied):result=run(self.latest,self.out,self.cache,measurement_context_path=selected,load_measurement_context_from_path=True)
+                with (nullcontext() if location=='selected' else patch.object(Path,'resolve',denied)):result=run(self.latest,self.out,self.cache,measurement_context_path=selected,load_measurement_context_from_path=True)
                 self.assertEqual(result['status'],nav.BLOCKED,result);self.assertFalse(result['current_publication_complete']);self.assertFalse(result['cleanup_complete'])
                 self.assertIn(leaf.name,result['uncleared_generated_outputs'])
                 self.assertEqual(leaf.read_bytes(),b'prior');self.assertEqual(foreign.read_bytes(),b'keep');self.assertEqual(path.read_bytes(),before)

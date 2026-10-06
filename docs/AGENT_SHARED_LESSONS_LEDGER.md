@@ -6346,3 +6346,10 @@ Expected contract:
 - Check helper signatures and healthy optional metadata before attributing author failures; exception chaining may break a context cycle when the original OS error is rethrown. Preserve those author diagnostics separately.
 - Fresh redaction must retain a failed child's precise reason when top admission succeeded, and the causal top reason when it did not. Restore only the three fixed safe weekly proxy diagnostics; the old sibling-COMPLETE expectation required an explicitly authorized one-leaf contract correction.
 - Stop owned validation at a failed phase boundary and preserve failed-source evidence. Separate product reason/diagnostic regressions and fixture conflicts from author signature/census/CRLF errors or C3 V1's wrong-alias mechanical check; the latter is a verifier diagnostic, not a product defect.
+
+## 2026-10-06 — Native-origin fixtures must preserve actual call frames
+
+- A selected real symlink loop must reach unpatched pathlib directly. A test-local
+  delegated resolver adds a forbidden traceback frame; retain wrappers only for
+  controlled output/cleanup OSError injection and keep wrong-origin negatives.
+  Local 3.14 or nav-only 3.12 coverage does not replace broker/weekly 3.12 CI.
