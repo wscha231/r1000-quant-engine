@@ -2247,6 +2247,119 @@ class ResearchNavCallerTests(unittest.TestCase):
                 measurement_context=self.measurement())['status'],nav.COMPLETE)
 
 
+    def test_nonexecution_early_refusal_has_canonical_requested_measurement_package(self):
+        from tools import nav_metrics_v2 as nav
+        self.write_prices([100.]*4);target=self.target.read_bytes()
+        for kind in ('empty','weight'):
+            with self.subTest(kind=kind):
+                self.target.write_bytes(target)
+                if kind=='empty':pd.DataFrame(columns=['rebalance_date','ticker','weight']).to_csv(self.target,index=False)
+                dest=self.out/nav.NAMESPACE;dest.mkdir(parents=True,exist_ok=True)
+                foreign=dest/'foreign.keep';foreign.write_bytes(b'foreign')
+                raw={p:p.read_bytes() for p in [self.target,*self.cache.iterdir()]}
+                options=dict(measurement_context=self.measurement(),oos_start='2026-01-07',oos2_start='2026-01-06')
+                if kind=='weight':options['max_reasonable_weight_sum']=.45
+                result=self.run_replay(**options)
+                expected='target book is empty or invalid' if kind=='empty' else 'target weight sum exceeds maximum reasonable exposure'
+                self.assertEqual(result['reason'],expected);self.assertEqual(result['status'],nav.BLOCKED)
+                self.assertEqual(result['requested_window_labels'],['full','is','oos','oos2'])
+                self.assertEqual(set(result['windows']),{'full','is','oos','oos2'})
+                for metric in (result,*result['windows'].values()):
+                    self.assertEqual(metric['status'],nav.BLOCKED);self.assertEqual(metric['metric_mode'],nav.MODE)
+                    self.assertFalse(metric['metric_admission_complete'])
+                    for field in nav.METRIC_FIELDS:self.assertIsNone(metric[field])
+                    for field,value in nav.AUTHORITY.items():self.assertEqual(metric[field],value)
+                    for field in ('start_date','end_date','interval_returns','input_rows_sha256','valuation_binding_provenance'):
+                        self.assertNotIn(field,metric)
+                self.assertNotIn('measurement_admission',result)
+                self.assertEqual(json.loads((dest/nav.METRICS_FILE).read_text()),result)
+                self.assertFalse((dest/nav.CURVE_FILE).exists());self.assertEqual(foreign.read_bytes(),b'foreign')
+                for p,b in raw.items():self.assertEqual(p.read_bytes(),b)
+                legacy=self.run_replay(**({'max_reasonable_weight_sum':.45} if kind=='weight' else {}))
+                self.assertEqual(legacy['status'],'blocked');self.assertNotIn('measurement_admission',legacy)
+                self.assertNotEqual(legacy.get('metric_mode'),nav.MODE)
+        self.target.write_bytes(target)
+        self.assertEqual(self.run_replay(measurement_context=self.measurement())['status'],nav.COMPLETE)
+
+    def test_E1_fill_refusal_preserves_outer_redaction_with_separate_measurement_envelope(self):
+        from tools import nav_metrics_v2 as nav
+        self.write_prices([100.]*4)
+        dest=self.out/nav.NAMESPACE;dest.mkdir(parents=True);foreign=dest/'foreign.keep';foreign.write_bytes(b'foreign')
+        raw={p:p.read_bytes() for p in [self.target,*self.cache.iterdir()]}
+        result=self.run_replay(measurement_context=self.measurement(),max_fill_lag_days=1,
+                              oos_start='2026-01-07',oos2_start='2026-01-06')
+        self.assertEqual(result['status'],'blocked');self.assertEqual(result['reason'],'target_fill_coverage_incomplete')
+        self.assertEqual(result['metric_mode'],'DO_NOT_USE');self.assertTrue(result['performance_fields_redacted'])
+        self.assertNotIn('cagr',result);self.assertFalse(result['target_fill_coverage']['coverage_complete'])
+        admitted=result['measurement_admission']
+        self.assertEqual(admitted['requested_window_labels'],['full','is','oos','oos2'])
+        for metric in (admitted,*admitted['windows'].values()):
+            self.assertEqual(metric['status'],nav.BLOCKED);self.assertEqual(metric['metric_mode'],nav.MODE)
+            self.assertEqual(metric['reason'],result['reason']);self.assertFalse(metric['metric_admission_complete'])
+            for field in nav.METRIC_FIELDS:self.assertIsNone(metric[field])
+            for field,value in nav.AUTHORITY.items():self.assertEqual(metric[field],value)
+            for field in ('start_date','end_date','interval_returns','input_rows_sha256','valuation_binding_provenance'):
+                self.assertNotIn(field,metric)
+        self.assertEqual(json.loads((dest/nav.METRICS_FILE).read_text()),result)
+        report=(dest/nav.artifact_name('replay_report.md')).read_text()
+        self.assertIn(result['reason'],report);self.assertIn('Performance metrics: unavailable',report)
+        self.assertFalse((dest/nav.CURVE_FILE).exists());self.assertEqual(foreign.read_bytes(),b'foreign')
+        for p,b in raw.items():self.assertEqual(p.read_bytes(),b)
+        legacy=self.run_replay(max_fill_lag_days=1)
+        self.assertEqual(legacy['metric_mode'],'DO_NOT_USE');self.assertNotIn('cagr',legacy)
+        self.assertNotIn('measurement_admission',legacy)
+
+    def test_exact_empty_OOS2_end_is_None_and_other_falsey_types_refuse_actual_windows(self):
+        import copy,subprocess,sys
+        from nav_metrics_v2_smoke import rows,context,frame,binding
+        from tools import nav_metrics_v2 as nav
+        self.write_prices([100.]*4);data=rows((9987.5,)*3)
+        full=context(data,anchor_nav=10000.);first=context(data[:2],anchor_nav=10000.);first['cutoff']=full['cutoff']
+        oos=context(data[2:],anchor_nav=data[1]['nav'],anchor_time=data[1]['timestamp'],anchor_kind='OOS_PREDECESSOR')
+        second=context(data[1:2],anchor_nav=data[0]['nav'],anchor_time=data[0]['timestamp'],anchor_kind='OOS_PREDECESSOR')
+        second['cutoff']=full['cutoff']
+        contexts={'full':full,'is':first,'oos':oos,'oos2':second}
+        package=dict(full=full,valuation_binding=binding(data),windows={k:v for k,v in contexts.items() if k!='full'})
+        curve=frame(data);original=copy.deepcopy(package);raw={p:p.read_bytes() for p in [self.target,*self.cache.iterdir()]}
+        for end in (None,'','2026-01-06',False,0,' ','\t','not-date','2026-01-05','2026-01-07'):
+            with self.subTest(end=repr(end),type=type(end).__name__):
+                result=broker.calc_metrics_with_oos(curve,pd.DataFrame(),10000.,oos_start='2026-01-07',
+                    oos2_start='2026-01-06',oos2_end=end,measurement_contexts=contexts,valuation_binding=binding(data))
+                actual=self.run_replay(measurement_context=package,oos_start='2026-01-07',oos2_start='2026-01-06',oos2_end=end)
+                if end is None or (type(end) is str and end in ('','2026-01-06')):
+                    self.assertEqual(result['status'],nav.COMPLETE,result);self.assertEqual(actual['status'],nav.COMPLETE,actual)
+                    self.assertEqual(result['oos2_end'],'2026-01-06');self.assertEqual(actual['windows']['oos2']['end_date'],'2026-01-06')
+                else:
+                    self.assertEqual(result['status'],nav.BLOCKED);self.assertEqual(result['full']['reason'],'INVALID_REQUESTED_WINDOW')
+                    self.assertEqual(actual['status'],nav.BLOCKED)
+                    for metric in (actual,*(actual['windows'][k] for k in ('full','is','oos','oos2'))):
+                        self.assertEqual(metric['status'],nav.BLOCKED)
+                        for field in nav.METRIC_FIELDS:self.assertIsNone(metric[field])
+                        self.assertNotIn('start_date',metric);self.assertNotIn('valuation_binding_provenance',metric)
+                    self.assertFalse((self.out/nav.NAMESPACE/nav.CURVE_FILE).exists())
+                self.assertEqual(package,original)
+                for p,b in raw.items():self.assertEqual(p.read_bytes(),b)
+        # A secondary-only open boundary is supported, with its real immediate predecessor.
+        tail=context(data[1:],anchor_nav=data[0]['nav'],anchor_time=data[0]['timestamp'],anchor_kind='OOS_PREDECESSOR')
+        for end in (None,''):
+            result=broker.calc_metrics_with_oos(curve,pd.DataFrame(),10000.,oos2_start='2026-01-06',oos2_end=end,
+                measurement_contexts={'full':full,'oos2':tail},valuation_binding=binding(data))
+            self.assertEqual(result['status'],nav.COMPLETE,result);self.assertIsNone(result['oos2_end'])
+            self.assertEqual(result['oos2']['end_date'],'2026-01-07')
+        primary=broker.calc_metrics_with_oos(curve,pd.DataFrame(),10000.,oos_start='2026-01-07',
+            measurement_contexts=contexts,valuation_binding=binding(data))
+        self.assertEqual(primary['status'],nav.COMPLETE)
+        path=self.root/'OOS-empty-context.json';path.write_text(json.dumps(package))
+        command=[sys.executable]+(['-O'] if sys.flags.optimize else [])+[str(ROOT/'tools/run_broker_ledger_replay.py'),
+            '--target-book',str(self.target),'--price-cache',str(self.cache),'--output-dir',str(self.out),
+            '--starting-capital','10000','--fill-mode','next_close','--cash-carry-mode','none',
+            '--reserve-mode','BROKER_CASH_OR_MMF','--oos-start','2026-01-07','--oos2-start','2026-01-06',
+            '--oos2-end','','--nav-metrics-context',str(path)]
+        child=subprocess.run(command,capture_output=True,text=True,timeout=90)
+        self.assertEqual(child.returncode,0,child.stderr);self.assertNotIn('Traceback',child.stderr)
+        self.assertEqual(json.loads(child.stdout)['windows']['oos2']['end_date'],'2026-01-06')
+
+
 def main() -> int:
     test_missing_liquidation_fill_fails_closed_before_state_mutation()
     test_multi_day_transition_fails_closed_before_state_mutation()

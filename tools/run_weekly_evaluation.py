@@ -345,6 +345,7 @@ def build_weekly_curve(
             prices[ticker] = load_price_series(price_cache, ticker, strict_io=measurement_context is not None)
 
     rows: list[dict[str, Any]] = []
+    mixed_actual_sessions = False
     equity = 1.0
     prev_rebalance_dates = sorted(pd.to_datetime(holdings["rebalance_date"], errors="coerce").dropna().unique())
     latest_px_date = latest_price_date(prices, tickers)
@@ -406,6 +407,11 @@ def build_weekly_curve(
                 period_rel += weight * (float(end_price) / float(entry_price))
             if not np.isfinite(period_rel) or period_rel <= 0:
                 continue
+            if measurement_context is not None and actual_week_dates:
+                admitted_session = max(actual_week_dates).normalize()
+                mixed_actual_sessions |= any(
+                    actual.normalize() != admitted_session for actual in actual_week_dates
+                )
             weekly_return = period_rel / max(prev_period_rel, 1e-12) - 1.0
             equity *= 1.0 + weekly_return
             prev_period_rel = period_rel
@@ -441,6 +447,8 @@ def build_weekly_curve(
     if measurement_context is not None:
         if curve["missing_price_count"].gt(0).any():
             metric = nav_v2.blocked("CALLER_WEEKLY_MISSING_PRICES", portfolio_kind)
+        elif mixed_actual_sessions:
+            metric = nav_v2.blocked("CALLER_WEEKLY_MIXED_PRICE_SESSIONS", portfolio_kind)
         else:
             metric = weekly_metrics(curve, portfolio_kind, measurement_context=measurement_context,
                                     valuation_binding=valuation_binding)

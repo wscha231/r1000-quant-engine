@@ -1224,6 +1224,116 @@ class ResearchWeeklyCallerTests(__import__('unittest').TestCase):
         self.assertEqual(legacy['status'],'completed')
 
 
+    def test_constituent_actual_sessions_reject_mixed_marks_without_repricing(self):
+        import copy
+        from tools import run_weekly_evaluation as weekly, nav_metrics_v2 as nav
+        from nav_metrics_v2_smoke import context,binding
+        full=pd.read_parquet(self.cache/px_cache_name('AAA'))
+        holdings=weekly.normalize_holdings(pd.DataFrame([
+            dict(ticker='AAA',rebalance_date='2026-01-02',weight=.5),
+            dict(ticker='BBB',rebalance_date='2026-01-02',weight=.5)]),'main')
+        periods={pd.Timestamp('2026-01-02'):pd.Timestamp('2026-01-23')}
+        for stale in ((),('AAA',),('BBB',),('AAA','BBB')):
+            with self.subTest(stale=stale):
+                for name in ('AAA','BBB'):
+                    (full.loc[:'2026-01-20'] if name in stale else full).to_parquet(self.cache/px_cache_name(name))
+                raw={p:p.read_bytes() for p in self.cache.iterdir()}
+                curve,legacy=weekly.build_weekly_curve(holdings,periods,self.cache,'main',benchmark_tickers=())
+                self.assertEqual(legacy['status'],'completed')
+                data=[dict(session=pd.Timestamp(d).date().isoformat(),timestamp=pd.Timestamp(d).date().isoformat()+'T21:00:00Z',nav=float(v))
+                      for d,v in zip(curve.week_end_date,curve.equity)]
+                c=context(data,anchor_nav=1.,frequency='weekly');before=copy.deepcopy(c)
+                actual,metric=weekly.build_weekly_curve(holdings,periods,self.cache,'main',benchmark_tickers=(),
+                    measurement_context=c,valuation_binding=binding(data))
+                self.assertTrue(actual.missing_price_count.eq(0).all());self.assertEqual(c,before)
+                pd.testing.assert_frame_equal(actual.drop(columns='valuation_time_utc',errors='ignore'),
+                    curve.assign(week_end_date=curve.week_end_date.astype(str)))
+                if len(stale)==1:
+                    self.assertEqual(metric['reason'],'CALLER_WEEKLY_MIXED_PRICE_SESSIONS')
+                    self.assertEqual(metric['status'],nav.BLOCKED)
+                    for field in nav.METRIC_FIELDS:self.assertIsNone(metric[field])
+                    for field,value in nav.AUTHORITY.items():self.assertEqual(metric[field],value)
+                else:self.assertEqual(metric['status'],nav.COMPLETE,metric)
+                for p,b in raw.items():self.assertEqual(p.read_bytes(),b)
+                if len(stale)==2:
+                    c['cutoff']='2026-01-23T21:00:00Z'
+                    later=weekly.build_weekly_curve(holdings,periods,self.cache,'main',benchmark_tickers=(),
+                        measurement_context=c,valuation_binding=binding(data))[1]
+                    self.assertEqual(later['status'],nav.BLOCKED)
+
+    def test_coherent_native_Saturday_holiday_earlyclose_and_cash_sessions_remain_valid(self):
+        import pandas_market_calendars as mcal
+        from tools import run_weekly_evaluation as weekly,nav_metrics_v2 as nav
+        from nav_metrics_v2_smoke import context,binding
+        calendar=mcal.get_calendar('NYSE')
+        for rebalance,end in (('1951-01-19','1951-01-20'),('2026-04-01','2026-04-02'),
+                              ('2026-11-25','2026-11-27')):
+            with self.subTest(rebalance=rebalance,end=end):
+                schedule=calendar.schedule(rebalance,end)
+                self.assertIn(pd.Timestamp(end),schedule.index)
+                if end=='1951-01-20':self.assertEqual(pd.Timestamp(end).weekday(),5)
+                close=schedule.loc[pd.Timestamp(end),'market_close'].isoformat()
+                anchor=schedule.loc[pd.Timestamp(rebalance),'market_close'].isoformat()
+                px=pd.DataFrame({'Open':100.,'Close':100.,'Adj Close':100.,'Volume':1000000},
+                                index=pd.DatetimeIndex([end]))
+                for name in ('AAA','BBB'):px.to_parquet(self.cache/px_cache_name(name))
+                holdings=weekly.normalize_holdings(pd.DataFrame([
+                    dict(ticker='AAA',rebalance_date=rebalance,weight=.4),
+                    dict(ticker='BBB',rebalance_date=rebalance,weight=.4),
+                    dict(ticker='CASH',rebalance_date=rebalance,weight=.2)]),'main')
+                data=[dict(session=end,timestamp=close,nav=1.)]
+                curve,metric=weekly.build_weekly_curve(holdings,{pd.Timestamp(rebalance):pd.Timestamp(end)},
+                    self.cache,'main',benchmark_tickers=('ABSENT_DIAGNOSTIC',),
+                    measurement_context=context(data,anchor_nav=1.,anchor_time=anchor,frequency='weekly'),
+                    valuation_binding=binding(data))
+                self.assertEqual(metric['status'],nav.COMPLETE,metric)
+                self.assertEqual(curve.week_end_date.iloc[0],end);self.assertTrue(curve.missing_price_count.eq(0).all())
+                self.assertEqual(metric['supplied_net_account_nav'],False)
+
+    def test_mixed_constituent_sessions_atomically_refuse_both_books_and_real_CLI(self):
+        import json,subprocess
+        from tools import nav_metrics_v2 as nav
+        full=pd.read_parquet(self.cache/px_cache_name('AAA'))
+        full.to_parquet(self.cache/px_cache_name('BBB'))
+        full.loc[:'2026-01-20'].to_parquet(self.cache/px_cache_name('AAA'))
+        paths={name:self.reports/file for name,file in
+               (('main','main_monthly_weights.csv'),('concentrated','concentrated_strategy_holdings.csv'))}
+        def write_books(selected):
+            for name,p in paths.items():
+                data=([dict(ticker='AAA',rebalance_date='2026-01-02',weight=.5),
+                       dict(ticker='BBB',rebalance_date='2026-01-02',weight=.5)] if name in selected else
+                      [dict(ticker='BBB',rebalance_date='2026-01-02',weight=1.)])
+                pd.DataFrame(data).to_csv(p,index=False)
+        for selected in (('main',),('concentrated',),('main','concentrated')):
+            with self.subTest(selected=selected):
+                write_books(())
+                self.assertEqual(run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())['status'],nav.COMPLETE)
+                dest=self.out/nav.NAMESPACE;foreign=dest/'foreign.keep';foreign.write_bytes(b'foreign')
+                write_books(selected)
+                raw={p:p.read_bytes() for p in [*paths.values(),*self.cache.iterdir()]}
+                result=run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())
+                self.assertEqual(result['status'],nav.BLOCKED,result);self.assertFalse(result['metric_admission_complete'])
+                self.assertEqual(result['reason'],'REQUESTED_WEEKLY_MEASUREMENT_BLOCKED')
+                for metric in result['metrics'].values():
+                    self.assertEqual(metric['status'],nav.BLOCKED)
+                    for field in nav.METRIC_FIELDS:self.assertIsNone(metric[field])
+                    for field,value in nav.AUTHORITY.items():self.assertEqual(metric[field],value)
+                saved=json.loads((dest/'weekly_freshness_audit.research_v2.json').read_text())
+                self.assertEqual(saved['metrics'],result['metrics']);self.assertFalse(list(dest.glob('*.csv')))
+                self.assertEqual(foreign.read_bytes(),b'foreign')
+                for p,b in raw.items():self.assertEqual(p.read_bytes(),b)
+        path=self.root/'mixed-session-context.json';path.write_text(json.dumps(self.measurement()))
+        command=[sys.executable]+(['-O'] if sys.flags.optimize else [])+[str(ROOT/'tools/run_weekly_evaluation.py'),
+            '--latest-run',str(self.latest),'--output-dir',str(self.out),'--price-cache',str(self.cache),
+            '--nav-metrics-context',str(path)]
+        child=subprocess.run(command,capture_output=True,text=True,timeout=60)
+        self.assertEqual(child.returncode,2,child.stderr);self.assertNotIn('Traceback',child.stderr)
+        self.assertEqual(json.loads(child.stdout)['status'],nav.BLOCKED)
+        write_books(())
+        self.assertEqual(run(self.latest,self.out,self.cache,measurement_contexts=self.measurement())['status'],nav.COMPLETE)
+        self.assertEqual(run(self.latest,self.out,self.cache)['status'],'ok')
+
+
 def main() -> int:
     test_weekly_evaluation_marks_to_weekly_and_reports_staleness()
     import unittest

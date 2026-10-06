@@ -6380,3 +6380,15 @@ Expected contract:
   separately from product tracebacks and completed new-head validation.
 - Author positive controls must include every intervening week and actual caller
   valuation binding; incomplete controls are test diagnostics, not product defects.
+
+## 2026-10-06 - Preserve execution refusal while binding actual weekly sessions
+
+- Zero missing-price count does not make mixed constituent price sessions current.
+  Research marks must bind each actual holding session to the admitted aggregate;
+  coherent native partial, Saturday, holiday and early-close controls stay valid.
+- Canonical non-execution refusal and genuine E1 failure are distinct. Keep E1
+  audit/DO_NOT_USE/redaction and add a separate null measurement admission;
+  only exact empty OOS2 end means None, never other falsey types.
+- Compare raw and trimmed evidence hashes by their declared convention. New
+  test controls must use date-only clock inputs, the actual package key shape
+  and existing refusal reason location; retain failed author diagnostics.

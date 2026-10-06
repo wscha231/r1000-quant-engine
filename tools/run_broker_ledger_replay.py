@@ -1550,7 +1550,9 @@ def _v2_window_metrics(curve, trades, capital, contexts, binding, oos_start, oos
             requested["is"] = (None, (lo - pd.Timedelta(days=1)).date().isoformat())
             requested["oos"] = (oos_start, oos_end)
         if oos2_start:
-            effective_end = oos2_end
+            if oos2_end is not None and type(oos2_end) is not str:
+                raise ValueError("window")
+            effective_end = None if oos2_end == "" else oos2_end
             if oos_start and effective_end is None:
                 effective_end = (pd.Timestamp(oos_start) - pd.Timedelta(days=1)).date().isoformat()
             if effective_end and (pd.Timestamp(oos2_start) > pd.Timestamp(effective_end)
@@ -1761,8 +1763,35 @@ def replay(
     research_measurement = measurement_context is not None or load_measurement_context_from_path
     if research_measurement:
         output_dir = output_dir / nav_v2.NAMESPACE
-    def metric_json(payload, **options):
+    def metric_json(payload, *, refusal_class=None, **options):
         if research_measurement:
+            if refusal_class is not None:
+                reason = str(payload["reason"])
+                labels = ["full"]
+                if oos_start:
+                    labels.extend(("is", "oos"))
+                if oos2_start:
+                    labels.append("oos2")
+                admission = nav_v2.blocked(reason)
+                admission["requested_window_labels"] = labels
+                admission["windows"] = {
+                    label: nav_v2.blocked(reason, label) for label in labels
+                }
+                if refusal_class == "NON_E1":
+                    diagnostics = {
+                        key: payload[key] for key in (
+                            "target_book", "target_book_filter",
+                            "target_book_filter_source", "target_book_filter_warning",
+                            "max_total_weight", "max_stock_weight",
+                            "invalid_weight_date_count", "invalid_weight_dates",
+                        ) if key in payload
+                    }
+                    payload.clear()
+                    payload.update(admission)
+                    payload.update(diagnostics)
+                else:
+                    # The explicit E1 census retains its original execution failure.
+                    payload["measurement_admission"] = admission
             _finite_research_diagnostics(payload)
             options["allow_nan"] = False
         return json.dumps(payload, **options)
@@ -1838,7 +1867,7 @@ def replay(
         payload = redact_execution_performance({"target_book": str(target_book), "price_cache": str(price_cache),
             "portfolio_kind": portfolio_kind, "fill_mode": fill_mode}, reason="caller_input_collides_with_replay_output")
         if (nav_v2.resolve_research_path(output_dir / metric_name) if research_measurement else (output_dir / metric_name).resolve()) not in protected:
-            (output_dir / metric_name).write_text(metric_json(payload, indent=2), encoding="utf-8")
+            (output_dir / metric_name).write_text(metric_json(payload, indent=2, refusal_class="E1"), encoding="utf-8")
         if (nav_v2.resolve_research_path(output_dir / artifact("replay_report.md")) if research_measurement else (output_dir / artifact("replay_report.md")).resolve()) not in protected:
             (output_dir / artifact("replay_report.md")).write_text(render_report(payload), encoding="utf-8")
         return payload
@@ -1881,7 +1910,7 @@ def replay(
             "valid_for_production": False,
             "research_only": True,
         }
-        (output_dir / metric_name).write_text(metric_json(payload, indent=2), encoding="utf-8")
+        (output_dir / metric_name).write_text(metric_json(payload, indent=2, refusal_class="E1"), encoding="utf-8")
         return payload
     raw = research_raw if research_measurement else read_csv(target_book)
     if disable_concentrated_champion_filter:
@@ -1917,7 +1946,7 @@ def replay(
             "target_book_filter_source": champion_filter_source,
             "target_book_filter_warning": champion_filter_warning,
         }
-        (output_dir / metric_name).write_text(metric_json(payload, indent=2), encoding="utf-8")
+        (output_dir / metric_name).write_text(metric_json(payload, indent=2, refusal_class="NON_E1"), encoding="utf-8")
         return payload
     weight_diag = weight_book_diagnostics(targets, max_reasonable_weight_sum)
     if int(weight_diag.get("invalid_weight_date_count") or 0) > 0:
@@ -1932,7 +1961,7 @@ def replay(
             "target_book_filter_warning": champion_filter_warning,
             **weight_diag,
         }
-        (output_dir / metric_name).write_text(metric_json(payload, indent=2), encoding="utf-8")
+        (output_dir / metric_name).write_text(metric_json(payload, indent=2, refusal_class="NON_E1"), encoding="utf-8")
         return payload
 
     targets, reserve_reason_audit = apply_reserve_asset_to_targets(
@@ -2000,7 +2029,7 @@ def replay(
                 "research_only": True,
             }
             (output_dir / metric_name).write_text(
-                metric_json(payload, indent=2),
+                metric_json(payload, indent=2, refusal_class="E1"),
                 encoding="utf-8",
             )
             return payload
@@ -2041,7 +2070,7 @@ def replay(
             "valid_for_production": False,
         }
         (output_dir / metric_name).write_text(
-            metric_json(payload, indent=2, default=str),
+            metric_json(payload, indent=2, default=str, refusal_class="E1"),
             encoding="utf-8",
         )
         (output_dir / artifact("replay_report.md")).write_text(
@@ -2071,7 +2100,7 @@ def replay(
             "valid_for_production": False,
         }
         (output_dir / metric_name).write_text(
-            metric_json(payload, indent=2, default=str), encoding="utf-8"
+            metric_json(payload, indent=2, default=str, refusal_class="E1"), encoding="utf-8"
         )
         (output_dir / artifact("replay_report.md")).write_text(
             render_report(payload), encoding="utf-8"
@@ -2086,7 +2115,7 @@ def replay(
             "maximum_modeled_total_cost_bps": None,
         }, reason="NONFINITE_EXECUTION_COST")
         payload["diagnostic_redaction_reason"] = "NONFINITE_FIXED_COST_INPUT"
-        (output_dir / metric_name).write_text(metric_json(payload, indent=2, default=str), encoding="utf-8")
+        (output_dir / metric_name).write_text(metric_json(payload, indent=2, default=str, refusal_class="E1"), encoding="utf-8")
         (output_dir / artifact("replay_report.md")).write_text(render_report(payload), encoding="utf-8")
         return payload
     if execution_cost_model is not None:
@@ -2129,7 +2158,7 @@ def replay(
                 "valid_for_production": False,
             }
             (output_dir / metric_name).write_text(
-                metric_json(payload, indent=2, default=str),
+                metric_json(payload, indent=2, default=str, refusal_class="E1"),
                 encoding="utf-8",
             )
             (output_dir / artifact("replay_report.md")).write_text(
@@ -2188,7 +2217,7 @@ def replay(
                 "valid_for_production": False,
             }
             (output_dir / metric_name).write_text(
-                metric_json(payload, indent=2, default=str),
+                metric_json(payload, indent=2, default=str, refusal_class="E1"),
                 encoding="utf-8",
             )
             (output_dir / artifact("replay_report.md")).write_text(
@@ -2216,7 +2245,7 @@ def replay(
                 "valid_for_production": False,
                 "research_only": True,
             }
-            (output_dir / metric_name).write_text(metric_json(payload, indent=2), encoding="utf-8")
+            (output_dir / metric_name).write_text(metric_json(payload, indent=2, refusal_class="E1"), encoding="utf-8")
             return payload
     periods = target_period_ends(
         targets,
@@ -2633,7 +2662,7 @@ def replay(
             "research_only": True,
             **weight_diag,
         }
-        (output_dir / metric_name).write_text(metric_json(payload, indent=2), encoding="utf-8")
+        (output_dir / metric_name).write_text(metric_json(payload, indent=2, refusal_class="E1"), encoding="utf-8")
         return payload
     # Admit original generated rows before legacy duplicate/date repair.
     if not research_measurement:
