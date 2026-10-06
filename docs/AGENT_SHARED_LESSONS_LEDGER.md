@@ -6363,3 +6363,8 @@ Expected contract:
   Check both raw books before normalization or cleanup, then disclose retained
   publication as incomplete without fake weights or catching programmer errors.
   Preserve genuine empty inputs and ordinary normalization behavior.
+
+## 2026-10-06 — Windows inventory fixture byte boundaries
+
+- The Windows full 37-test inventory run stopped at README because seven tracked text fixtures are CRLF while the unchanged generator emits LF. All eight generated outputs matched HEAD Git bytes; Parquet bytes matched exactly.
+- Preserve fixtures and gates. Record full normal as failed and full -O as NOT_RUN; report focused pin controls and their plain-assert limits separately. Require exact-head Linux full inventory and all required CI before acceptance.
