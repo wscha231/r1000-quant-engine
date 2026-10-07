@@ -122,8 +122,28 @@ def test_strategy_logic_ledger_records_decision_attribution() -> None:
         assert "final_candidate" in set(ledger["strategy_family"])
 
 
+
+def test_strategy_difference_reporter_contract_normal_and_optimized() -> None:
+    for optimized in (False, True):
+        cmd = [sys.executable]
+        if optimized:
+            cmd.append("-O")
+        cmd.append(str(ROOT / "tests" / "strategy_difference_reporter_smoke.py"))
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "strategy_difference_reporter: PASS (15 tests)" in proc.stdout
+
+
 def main() -> int:
     test_strategy_logic_ledger_records_decision_attribution()
+    test_strategy_difference_reporter_contract_normal_and_optimized()
     print("strategy_logic_ledger_smoke: PASS")
     return 0
 
