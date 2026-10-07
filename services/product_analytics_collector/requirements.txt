@@ -1,0 +1,2 @@
+google-cloud-firestore>=2.19,<3
+gunicorn>=23,<24

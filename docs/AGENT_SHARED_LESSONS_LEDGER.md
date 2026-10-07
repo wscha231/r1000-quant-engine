@@ -6423,3 +6423,12 @@ Expected contract:
 - Validate KPI-timezone convertibility for every admitted event clock, not only the first row later chosen as a session-day anchor; a later row can overflow while remaining inside the inactivity window.
 - Bound JSON integer token length explicitly at decode time so interpreter-specific oversized-integer ValueError cannot bypass ContractError handling.
 - Identifier-free analytics output must not publish a stable digest over raw event/session identifiers. Hash the redacted aggregate payload, not identifier-bearing source rows.
+
+## 2026-10-08 — PREPARE_ONLY collector must separate transport from analytics authority
+
+- Reuse the frozen B5 event validator at the HTTP boundary; do not create a second looser schema in the collector.
+- Exact duplicate versus conflicting duplicate semantics require an atomic create and, only after an already-exists result, a read of that one document. A dedicated Firestore database plus minimal create/get permissions is safer than granting a broad convenience role.
+- CORS is browser policy, not authentication. Keep the endpoint privacy-minimal, body/rate bounded and origin allowlisted, but treat abuse control and provider request logging as separate deployment gates.
+- Firestore TTL is asynchronous. Setting expiration before the contractual maximum creates margin but does not prove hard deletion by the deadline; verify/disclose TTL behavior or add a separately approved purge mechanism.
+- Cloud Run request logs are platform-generated even when application access logging is off; production traffic stays blocked until a Cloud Logging exclusion is configured and verified.
+
